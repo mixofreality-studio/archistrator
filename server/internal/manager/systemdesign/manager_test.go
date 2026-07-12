@@ -1,21 +1,32 @@
 package systemdesign
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"log/slog"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
+	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
+	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/estimation"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/constructionpipeline"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 	"github.com/stretchr/testify/mock"
 	enumspb "go.temporal.io/api/enums/v1"
 	workflowpb "go.temporal.io/api/workflow/v1"
 	"go.temporal.io/api/workflowservice/v1"
+	"go.temporal.io/sdk/activity"
 	temporalmocks "go.temporal.io/sdk/mocks"
-
-	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
-	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
+	"go.temporal.io/sdk/testsuite"
+	"go.temporal.io/sdk/workflow"
 )
 
 // These tests cover the façade-boundary pre-condition checks the contract puts on
@@ -734,4 +745,6334 @@ func Test_GetSessionState_QueryFailedTaskState_CleanInfrastructure(t *testing.T)
 		t.Fatalf("Detail must carry the clean retry guidance, got %q", sde.Detail)
 	}
 	mc.AssertExpectations(t)
+}
+
+// ---- from workflow_test.go ----
+
+// =============================================================================
+// C-MSD-Δ regression spine — the AGENTIC-PIVOT dispatch → observe → read-back
+// child gate (systemDesignManager.md §0d). Method product → NO BDD; regression-
+// first, black-box at the WIRE SEAM. The LLM is stubbed at the EXTERNAL agentic-job
+// boundary — a FAKE constructionPipelineAccess (submit/observe) + a FAKE
+// projectStateAccess serving the read-back model the Action "committed". The
+// Manager under test is NOT faked; the workflow drives the REAL dispatch → observe
+// → read-back → human-gate sequence over the Temporal in-memory test environment
+// (testsuite.WorkflowTestSuite — no Docker, no dev server, runs under -short).
+//
+// Covers (the contract's required wire-level cases):
+//   - happy DRAFT round (dispatch → observe(Succeeded) → read-back → AwaitingReview)
+//   - a REDRAFT gets a DISTINCT idempotency key (distinct ActivityID per dispatch)
+//   - the PM-critique SECOND round-trip (mission)
+//   - PhaseFailed → StageDraftFailed (NOT perpetual Drafting) → human gate (anti-wedge)
+//   - the suspend/resume reviewDecision gate unchanged (Approve commits / Withdraw)
+//   - the parent sequence + seal are untouched
+// =============================================================================
+
+// ---- fakeProjectState: read-back + the human-gate thin-writes ----------------
+
+// fakeProjectState serves a scripted head-state on ReadProject (the read-back of the
+// model the Action committed) and records the human-gate thin-writes the Manager makes.
+type fakeProjectState struct {
+	mu sync.Mutex
+
+	project  projectstate.Project // the head-state ReadProject returns (read-back)
+	notFound bool                 // when true ReadProject returns fwra.NotFound
+
+	staged    []projectstate.ArtifactModel
+	committed []projectstate.ArtifactKind
+	rejected  []rejectCall
+	withdrawn []projectstate.ArtifactKind
+	advanced  int
+
+	version projectstate.Version
+}
+
+type rejectCall struct {
+	kind  projectstate.ArtifactKind
+	notes string
+}
+
+func (f *fakeProjectState) ReadProject(_ fwra.Context, _ projectstate.ProjectID) (projectstate.Project, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.notFound {
+		return projectstate.Project{}, fwra.New(fwra.NotFound, "no row yet")
+	}
+	return f.project, nil
+}
+
+func (f *fakeProjectState) ReadProjectVersion(_ fwra.Context, _ projectstate.ProjectID) (projectstate.Version, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.notFound {
+		return 0, fwra.New(fwra.NotFound, "no row yet")
+	}
+	return f.project.Version, nil
+}
+
+func (f *fakeProjectState) bump() projectstate.Version {
+	f.version++
+	return f.version
+}
+
+func (f *fakeProjectState) StageArtifactForReview(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, model projectstate.ArtifactModel) (projectstate.Version, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.staged = append(f.staged, model)
+	return f.bump(), nil
+}
+
+func (f *fakeProjectState) CommitArtifact(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, kind projectstate.ArtifactKind) (projectstate.Version, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.committed = append(f.committed, kind)
+	return f.bump(), nil
+}
+
+func (f *fakeProjectState) RejectArtifact(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, kind projectstate.ArtifactKind, notes string) (projectstate.Version, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rejected = append(f.rejected, rejectCall{kind: kind, notes: notes})
+	// Mirror the real RA's Notes write: RejectArtifact stamps slot.Notes with the
+	// architect's reject rationale. This is the COLLISION setup — a subsequent critique
+	// read-back must read CritiqueVerdict, NOT these reject Notes. (The RA also clears
+	// the critique carrier on transition; that invariant is covered by the projectstate
+	// unit tests. Here the test scripts the carrier explicitly to model the next round's
+	// critique commit, so we leave it to the script and only set Notes.)
+	f.mutateSlotLocked(kind, func(s *projectstate.ArtifactSlot) {
+		s.Notes = notes
+	})
+	return f.bump(), nil
+}
+
+// mutateSlotLocked applies fn to the served head-state's named slot. Caller holds mu.
+// Used by the fakes to model the RA's slot mutations so the read-back reflects them.
+func (f *fakeProjectState) mutateSlotLocked(kind projectstate.ArtifactKind, fn func(*projectstate.ArtifactSlot)) {
+	switch kind {
+	case projectstate.KindMission:
+		fn(&f.project.Mission)
+	case projectstate.KindGlossary:
+		fn(&f.project.Glossary)
+	case projectstate.KindScrubbedRequirements:
+		fn(&f.project.ScrubbedRequirements)
+	case projectstate.KindCoreUseCases:
+		fn(&f.project.CoreUseCases)
+	case projectstate.KindSystem:
+		fn(&f.project.SystemDesign)
+	}
+}
+
+// setSlotCritique scripts the served head-state's critique carrier for kind — what a
+// critique Action would have committed. Safe for concurrent use (e.g. from onObserve).
+func (f *fakeProjectState) setSlotCritique(kind projectstate.ArtifactKind, verdict, notes string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.mutateSlotLocked(kind, func(s *projectstate.ArtifactSlot) {
+		s.CritiqueVerdict = verdict
+		s.CritiqueNotes = notes
+	})
+}
+
+func (f *fakeProjectState) WithdrawArtifact(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, kind projectstate.ArtifactKind, _ string) (projectstate.Version, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.withdrawn = append(f.withdrawn, kind)
+	return f.bump(), nil
+}
+
+func (f *fakeProjectState) AdvancePhase(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version) (projectstate.Version, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.advanced++
+	return f.bump(), nil
+}
+
+func (f *fakeProjectState) SetResearchInput(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ projectstate.ResearchInput) (projectstate.Version, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.bump(), nil
+}
+func (f *fakeProjectState) SetOperatingModel(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ projectstate.OperatingModel) (projectstate.Version, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.bump(), nil
+}
+
+func (f *fakeProjectState) CreateProject(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.OwnerScope, _ string) (projectstate.Version, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.bump(), nil
+}
+
+func (f *fakeProjectState) ListProjects(_ fwra.Context, _ projectstate.OwnerScope) ([]projectstate.ProjectSummary, error) {
+	return nil, nil
+}
+
+// ---- fakePipeline: the EXTERNAL agentic-job seam (constructionPipelineAccess) ---
+
+// fakePipeline stands in for the claude-code-action DESIGN job at the WIRE seam. It
+// records every submitted spec (so tests assert the ProjectID / artifact_kind /
+// branch in DispatchInputs and the DISTINCT idempotency key per dispatch) and serves
+// a scripted terminal phase per observe. By default a submitted job is observed
+// PipelineSucceeded immediately (the job "ran, committed the JSON, CI went green").
+type fakePipeline struct {
+	mu sync.Mutex
+
+	// phases is the scripted terminal phase per dispatch in order; once exhausted the
+	// last entry repeats. Empty == always PipelineSucceeded.
+	phases []pipelinePhase
+	// diagnostic is attached to a failed/cancelled observation.
+	diagnostic string
+	// runURL is attached to a failed/cancelled observation (the RA's resolved run URL).
+	runURL string
+	// submitErr, when non-nil, makes SubmitConstructionPipeline FAIL (a terminal
+	// dispatch-rejection fault, e.g. GitHub 422 → ContractMisuse) — the F15 gap-2a path.
+	submitErr error
+
+	submits []submitRecord
+	// handleByName tracks the phase to return for each issued handle.
+	handlePhase map[string]pipelinePhase
+	nextID      int
+	// onObserve, when set, is invoked on each observe (used to mutate the read-back
+	// state mid-flight, e.g. clearing a critique note so the PM-revise loop terminates).
+	onObserve func()
+}
+
+type submitRecord struct {
+	projectID      ProjectID
+	idempotencyKey fwra.IdempotencyKey
+	dispatchInputs map[string]string
+	// targetRepo / workflowFile capture the per-project-design-dispatch override so the
+	// proof can assert the dispatch hit the per-project repo + aiarch-design.yml (not the
+	// central construction repo + aiarch-construct.yml). Empty == dormant-rail fallback.
+	targetRepo   string
+	workflowFile string
+}
+
+func newFakePipeline(phases ...pipelinePhase) *fakePipeline {
+	return &fakePipeline{phases: phases, handlePhase: map[string]pipelinePhase{}}
+}
+
+// SubmitConstructionPipeline implements the GENERATED constructionpipeline contract seam
+// (the submit invoker reaches it via the registered genActivities). The idempotency key is
+// now stamped INSIDE the generated activity (genActivityIdempotencyKey) and arrives on the
+// fwra call Context; the RepoRef→RepoTarget decode happens workflow-side (dispatchDesignJob),
+// so spec.TargetRepo is the DECODED {Owner,Name} — recorded here as "owner/name".
+func (p *fakePipeline) SubmitConstructionPipeline(rc fwra.Context, spec constructionpipeline.PipelineSpec) (constructionpipeline.PipelineHandle, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	targetRepo := ""
+	if !constructionpipeline.RepoTargetIsZero(spec.TargetRepo) {
+		targetRepo = spec.TargetRepo.Owner + "/" + spec.TargetRepo.Name
+	}
+	if p.submitErr != nil {
+		// Record the attempt so a test can still assert the dispatch was tried, then fail
+		// the submit — the terminal dispatch-rejection path (the whole round-trip errors).
+		p.submits = append(p.submits, submitRecord{projectID: ProjectID(spec.ProjectID), idempotencyKey: rc.IdempotencyKey, dispatchInputs: spec.DispatchInputs})
+		return constructionpipeline.PipelineHandle(""), p.submitErr
+	}
+	idx := len(p.submits)
+	p.submits = append(p.submits, submitRecord{
+		projectID:      ProjectID(spec.ProjectID),
+		idempotencyKey: rc.IdempotencyKey,
+		dispatchInputs: spec.DispatchInputs,
+		targetRepo:     targetRepo,
+		workflowFile:   spec.WorkflowFile,
+	})
+	phase := pipelineSucceeded
+	if len(p.phases) > 0 {
+		if idx < len(p.phases) {
+			phase = p.phases[idx]
+		} else {
+			phase = p.phases[len(p.phases)-1]
+		}
+	}
+	p.nextID++
+	name := "design-run/" + uuid.NewString()
+	p.handlePhase[name] = phase
+	return constructionpipeline.PipelineHandle(name), nil
+}
+
+func (p *fakePipeline) ObserveConstructionPipeline(_ fwra.Context, handle constructionpipeline.PipelineHandle) (constructionpipeline.PipelineObservation, error) {
+	p.mu.Lock()
+	phase := p.handlePhase[constructionpipeline.PipelineHandleString(handle)]
+	hook := p.onObserve
+	diag := p.diagnostic
+	runURL := p.runURL
+	p.mu.Unlock()
+	if hook != nil {
+		hook()
+	}
+	obs := constructionpipeline.PipelineObservation{Phase: neutralToRAPhase(phase)}
+	if phase == pipelineFailed || phase == pipelineCancelled {
+		obs.Diagnostic = diag
+		obs.RunURL = runURL
+	}
+	return obs, nil
+}
+
+// CancelConstructionPipeline satisfies the contract; the design draft path never cancels.
+func (p *fakePipeline) CancelConstructionPipeline(_ fwra.Context, _ constructionpipeline.PipelineHandle) error {
+	return nil
+}
+
+// neutralToRAPhase maps this Manager's neutral scripted phase onto the RA phase the
+// generated observe activity returns (the inverse of designPipelinePhase).
+func neutralToRAPhase(p pipelinePhase) constructionpipeline.PipelinePhase {
+	switch p {
+	case pipelinePending:
+		return constructionpipeline.PhasePending
+	case pipelineRunning:
+		return constructionpipeline.PhaseRunning
+	case pipelineSucceeded:
+		return constructionpipeline.PhaseSucceeded
+	case pipelineFailed:
+		return constructionpipeline.PhaseFailed
+	case pipelineCancelled:
+		return constructionpipeline.PhaseCancelled
+	default:
+		return constructionpipeline.PhasePending
+	}
+}
+
+var _ constructionpipeline.ConstructionPipelineAccess = (*fakePipeline)(nil)
+
+// ---- helpers ----------------------------------------------------------------
+
+// newWorkflows builds the workflows receiver under test. It carries NO RA dep (B10 —
+// every Activity is generated): the fake substrate / pipeline is threaded to
+// registerGenActivities / registerCoAuthor instead, exactly as production threads it
+// into genActivities.
+func newWorkflows() *workflows {
+	return &workflows{Acts: genInvokers{Opts: activityOptions()}}
+}
+
+// registerGenActivities registers the GENERATED RA activities (projectState read-version /
+// advance-phase, pipeline submit/observe/cancel, the six rail verbs, syncManagedScaffold,
+// and — since B10 — the eight designSessionAccess verbs the migrated call sites now reach,
+// including the envelope-parameter Stage op) under their contract names — mirrors what
+// RegisterWorker threads via genActivities (worker.gen.go). Pipeline / rail may be nil for
+// tests that never dispatch; the registered method values are only invoked when the
+// workflow reaches them.
+//
+// The designSessionAccess ops are backed by projectstate.NewDesignSessionAccess(ps) — the
+// REAL production wrapper (projectstate/designsession.go), not a hand-rolled test double —
+// so every workflow test exercises the actual branch-aware/ledger/provenance/reconcile
+// capability fallback chain the RA runs, not a re-implementation of it. ps must be
+// non-nil; when a test's fake additionally implements BranchAwareProjectStateAccess /
+// LedgerProjectStateAccess / ProvenanceCommitProjectStateAccess / ReconcilingProjectStateAccess
+// (e.g. gitrail_test.go's branchAwareFakeProjectState, gitrail_proof_test.go's
+// seqProjectState), the wrapper's runtime type-assertions route to those extensions
+// automatically — no separate registration needed.
+func registerGenActivities(env *testsuite.TestWorkflowEnvironment, ps projectstate.ProjectStateAccess, pipe *fakePipeline, rail sourcecontrol.SourceControlAccess) {
+	var pipeAcc constructionpipeline.ConstructionPipelineAccess
+	if pipe != nil {
+		pipeAcc = pipe
+	}
+	acts := &genActivities{ProjectState: ps, Pipeline: pipeAcc, Rail: rail, DesignSession: projectstate.NewDesignSessionAccess(ps)}
+	env.RegisterActivityWithOptions(acts.ProjectStateReadProjectVersion, activity.RegisterOptions{Name: "projectStateAccess.readProjectVersion"})
+	env.RegisterActivityWithOptions(acts.ProjectStateAdvancePhase, activity.RegisterOptions{Name: "projectStateAccess.advancePhase"})
+	env.RegisterActivityWithOptions(acts.PipelineSubmitConstructionPipeline, activity.RegisterOptions{Name: "constructionPipelineAccess.submitConstructionPipeline"})
+	env.RegisterActivityWithOptions(acts.PipelineObserveConstructionPipeline, activity.RegisterOptions{Name: "constructionPipelineAccess.observeConstructionPipeline"})
+	env.RegisterActivityWithOptions(acts.PipelineCancelConstructionPipeline, activity.RegisterOptions{Name: "constructionPipelineAccess.cancelConstructionPipeline"})
+	env.RegisterActivityWithOptions(acts.RailGetInstallationToken, activity.RegisterOptions{Name: "sourceControlAccess.getInstallationToken"})
+	env.RegisterActivityWithOptions(acts.RailOpenBranch, activity.RegisterOptions{Name: "sourceControlAccess.openBranch"})
+	env.RegisterActivityWithOptions(acts.RailOpenPullRequest, activity.RegisterOptions{Name: "sourceControlAccess.openPullRequest"})
+	env.RegisterActivityWithOptions(acts.RailGetPullRequestStatus, activity.RegisterOptions{Name: "sourceControlAccess.getPullRequestStatus"})
+	env.RegisterActivityWithOptions(acts.RailPostReview, activity.RegisterOptions{Name: "sourceControlAccess.postReview"})
+	env.RegisterActivityWithOptions(acts.RailMergePullRequest, activity.RegisterOptions{Name: "sourceControlAccess.mergePullRequest"})
+	env.RegisterActivityWithOptions(acts.RailSyncManagedScaffold, activity.RegisterOptions{Name: "sourceControlAccess.syncManagedScaffold"})
+	env.RegisterActivityWithOptions(acts.DesignSessionReadProjectOnBranch, activity.RegisterOptions{Name: "designSessionAccess.readProjectOnBranch"})
+	env.RegisterActivityWithOptions(acts.DesignSessionStageArtifactForReviewOnBranch, activity.RegisterOptions{Name: "designSessionAccess.stageArtifactForReviewOnBranch"})
+	env.RegisterActivityWithOptions(acts.DesignSessionCommitArtifactWithProvenance, activity.RegisterOptions{Name: "designSessionAccess.commitArtifactWithProvenance"})
+	env.RegisterActivityWithOptions(acts.DesignSessionRejectArtifactOnBranchWithComments, activity.RegisterOptions{Name: "designSessionAccess.rejectArtifactOnBranchWithComments"})
+	env.RegisterActivityWithOptions(acts.DesignSessionWithdrawArtifactOnBranch, activity.RegisterOptions{Name: "designSessionAccess.withdrawArtifactOnBranch"})
+	env.RegisterActivityWithOptions(acts.DesignSessionReconcileBranchFromMain, activity.RegisterOptions{Name: "designSessionAccess.reconcileBranchFromMain"})
+	env.RegisterActivityWithOptions(acts.DesignSessionSetReviewCommentStatusOnBranch, activity.RegisterOptions{Name: "designSessionAccess.setReviewCommentStatusOnBranch"})
+	env.RegisterActivityWithOptions(acts.DesignSessionSeedReviewCommentsOnBranch, activity.RegisterOptions{Name: "designSessionAccess.seedReviewCommentsOnBranch"})
+}
+
+// registerCoAuthor registers the child gate workflow + its activities on the test env,
+// exactly as RegisterWorker does in production (same stable names). Every Activity is
+// generated (registerGenActivities); ps is the fake substrate the generated
+// projectState/designSession activities are backed by (threaded explicitly — the
+// workflows struct no longer carries an RA dep).
+func registerCoAuthor(env *testsuite.TestWorkflowEnvironment, wf *workflows, ps projectstate.ProjectStateAccess, pipe *fakePipeline) {
+	env.RegisterWorkflowWithOptions(wf.CoAuthorArtifactWorkflow, workflow.RegisterOptions{Name: executionKindCoAuthor})
+	registerGenActivities(env, ps, pipe, wf.Rail)
+}
+
+func registerPhaseAdvance(env *testsuite.TestWorkflowEnvironment, wf *workflows, ps projectstate.ProjectStateAccess) {
+	env.RegisterWorkflowWithOptions(wf.PhaseAdvanceWorkflow, workflow.RegisterOptions{Name: executionKindPhaseAdvance})
+	registerGenActivities(env, ps, nil, nil)
+}
+
+func mustMission(t *testing.T) *projectstate.MissionStatement {
+	t.Helper()
+	m, err := projectstate.NewMissionStatement("ship value", []projectstate.Objective{{Number: 1, Statement: "be useful"}}, "components")
+	if err != nil {
+		t.Fatalf("NewMissionStatement: %v", err)
+	}
+	return m
+}
+
+func mustGlossary(t *testing.T) *projectstate.Glossary {
+	t.Helper()
+	g, err := projectstate.NewGlossary([]projectstate.GlossaryItem{{Term: "Aggregate", Definition: "a consistency boundary"}})
+	if err != nil {
+		t.Fatalf("NewGlossary: %v", err)
+	}
+	return g
+}
+
+func committedSlot(model projectstate.ArtifactModel) projectstate.ArtifactSlot {
+	return projectstate.ArtifactSlot{Status: projectstate.ReviewCommitted, Model: model}
+}
+
+// awaitingSlot mirrors what the Action commits + how the Manager reads it back: the
+// Kind slot carries the typed Model the design job committed (the read-back source)
+// plus the FIRST-CLASS PM-critique read-back carrier (D-MSD-Δ amendment) — distinct
+// from the architect-reject Notes field. verdict is "" | "approve" | "revise";
+// critiqueNotes rides a "revise" verdict.
+func awaitingSlot(model projectstate.ArtifactModel, verdict, critiqueNotes string) projectstate.ArtifactSlot {
+	return projectstate.ArtifactSlot{
+		Status:          projectstate.ReviewAwaitingReview,
+		Model:           model,
+		CritiqueVerdict: verdict,
+		CritiqueNotes:   critiqueNotes,
+	}
+}
+
+// systemReadBack builds a project whose System slot carries a committed-by-Action
+// System model (the read-back source for a System draft) plus the committed priors.
+func systemReadBack(t *testing.T, id ProjectID) projectstate.Project {
+	t.Helper()
+	return projectstate.Project{
+		ID:                   projectstate.ProjectID(id),
+		Version:              3,
+		Mission:              committedSlot(mustMission(t)),
+		Glossary:             committedSlot(mustGlossary(t)),
+		ScrubbedRequirements: committedSlot(&projectstate.ScrubbedRequirements{}),
+		Volatilities:         committedSlot(&projectstate.Volatilities{}),
+		CoreUseCases:         committedSlot(&projectstate.CoreUseCases{}),
+		SystemDesign:         awaitingSlot(&projectstate.System{}, "", ""),
+	}
+}
+
+// ---- Tests: child gate dispatch → observe → read-back -----------------------
+
+// Happy DRAFT round: the gate DISPATCHES (with the right ProjectID + artifact_kind +
+// branch in DispatchInputs and an RA-controlled — Manager-supplied — idempotency
+// key), OBSERVES to PipelineSucceeded, READS BACK the committed typed model, and
+// suspends at AwaitingReview surfacing the typed Draft. System is architect-owned →
+// a SINGLE dispatch (no PM critique).
+func Test_CoAuthor_DraftRoundTrip_DispatchObserveReadBack_AwaitsReview(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	ps := &fakeProjectState{project: systemReadBack(t, id)}
+	pipe := newFakePipeline() // default: dispatch observed Succeeded
+	wf := newWorkflows()
+	registerCoAuthor(env, wf, ps, pipe)
+
+	env.RegisterDelayedCallback(func() {
+		enc, err := env.QueryWorkflow(querySessionState)
+		if err != nil {
+			t.Fatalf("QueryWorkflow: %v", err)
+		}
+		var view SessionStateView
+		if err := enc.Get(&view); err != nil {
+			t.Fatalf("decode SessionStateView: %v", err)
+		}
+		if view.Stage != StageAwaitingReview {
+			t.Fatalf("want StageAwaitingReview, got %d", view.Stage)
+		}
+		if view.Draft.Kind != "system" || view.Draft.Model == nil {
+			t.Fatalf("expected a staged system read-back draft envelope, got %+v", view.Draft)
+		}
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 30*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+
+	if !env.IsWorkflowCompleted() {
+		t.Fatal("workflow did not complete")
+	}
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	if len(ps.staged) != 1 {
+		t.Fatalf("want 1 staged read-back model, got %d", len(ps.staged))
+	}
+	if _, ok := ps.staged[0].(*projectstate.System); !ok {
+		t.Fatalf("staged model is not *projectstate.System: %T", ps.staged[0])
+	}
+	// System is architect-owned: exactly ONE dispatch (no PM critique).
+	if len(pipe.submits) != 1 {
+		t.Fatalf("System draft must be a single dispatch, got %d submits", len(pipe.submits))
+	}
+	sub := pipe.submits[0]
+	if sub.projectID != id {
+		t.Fatalf("dispatch carried wrong ProjectID: %q", sub.projectID)
+	}
+	if sub.dispatchInputs[dispatchInputArtifactKind] != projectstate.KindSystem.String() {
+		t.Fatalf("dispatch artifact_kind = %q, want %s", sub.dispatchInputs[dispatchInputArtifactKind], projectstate.KindSystem)
+	}
+	if sub.dispatchInputs[dispatchInputTargetBranch] == "" {
+		t.Fatal("dispatch must carry a non-empty target_branch")
+	}
+	if sub.dispatchInputs[dispatchInputDesignPrompt] == "" {
+		t.Fatal("dispatch must carry the composed design_prompt")
+	}
+	// The Manager MUST NOT set idempotency_token in DispatchInputs (RA-controlled).
+	if _, present := sub.dispatchInputs["idempotency_token"]; present {
+		t.Fatal("the Manager must NOT set idempotency_token in DispatchInputs (RA-controlled)")
+	}
+	if sub.idempotencyKey.IsZero() {
+		t.Fatal("the dispatch Activity must supply a non-empty idempotency key")
+	}
+	// DORMANT-RAIL (non-git) preservation: with NO rail wired (newWorkflows), the
+	// per-project-design-dispatch override is EMPTY, so the RA falls back to the
+	// configured construction repo — the non-git / Postgres path is byte-unchanged.
+	if sub.targetRepo != "" || sub.workflowFile != "" {
+		t.Fatalf("dormant-rail dispatch must leave the per-project target empty, got repo=%q file=%q", sub.targetRepo, sub.workflowFile)
+	}
+}
+
+// An Approve signal commits the read-back artifact via CommitArtifact(kind); the
+// child gate returns CoAuthorApproved. Mission is PM-critiqued (critique observed
+// Succeeded, read-back Notes empty == CritiqueApprove → straight to the human gate).
+func Test_CoAuthor_Approve_Commits(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	// Mission read-back: the slot carries the Action-committed Mission; the critique
+	// carrier verdict is "approve" so the PM round-trip ratifies and the gate proceeds.
+	ps := &fakeProjectState{project: projectstate.Project{
+		ID:      projectstate.ProjectID(id),
+		Version: 1,
+		Mission: awaitingSlot(mustMission(t), projectstate.CritiqueVerdictApprove, ""),
+	}}
+	pipe := newFakePipeline() // draft Succeeded, critique Succeeded
+	wf := newWorkflows()
+	registerCoAuthor(env, wf, ps, pipe)
+
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
+	}, 30*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindMission})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	var outcome coAuthorOutcome
+	if err := env.GetWorkflowResult(&outcome); err != nil {
+		t.Fatalf("decode outcome: %v", err)
+	}
+	if outcome != coAuthorApproved {
+		t.Fatalf("want CoAuthorApproved, got %d", outcome)
+	}
+	if len(ps.committed) != 1 || ps.committed[0] != projectstate.KindMission {
+		t.Fatalf("want CommitArtifact(KindMission), got %v", ps.committed)
+	}
+	// Mission is PM-critiqued: TWO dispatch round-trips (draft + critique).
+	if len(pipe.submits) != 2 {
+		t.Fatalf("Mission must dispatch draft + PM-critique (2 round-trips), got %d", len(pipe.submits))
+	}
+	if pipe.submits[1].dispatchInputs[dispatchInputArtifactKind] != projectstate.KindMission.String() {
+		t.Fatal("the second dispatch must be the PM-critique over the same kind")
+	}
+}
+
+// THE ANTI-WEDGE TEST. A dispatched job that reaches a TERMINAL FAILURE phase
+// (PipelineFailed — drafting failed or the required CI validation check went red)
+// must NOT crash the workflow and must NOT leave a perpetual StageDrafting. The
+// session lands in the human-visible StageDraftFailed carrying the neutral
+// Diagnostic, surfaced by getSessionState, and suspends on the SAME reviewDecision
+// gate awaiting a human Retry/Withdraw. Withdraw ends gracefully.
+func Test_CoAuthor_PhaseFailed_LandsInStageDraftFailed_NotPerpetualDrafting(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	ps := &fakeProjectState{project: systemReadBack(t, id)}
+	pipe := newFakePipeline(pipelineFailed)
+	pipe.diagnostic = "aiarch-validate found 2 violations"
+	wf := newWorkflows()
+	registerCoAuthor(env, wf, ps, pipe)
+
+	env.RegisterDelayedCallback(func() {
+		enc, err := env.QueryWorkflow(querySessionState)
+		if err != nil {
+			t.Fatalf("QueryWorkflow: %v", err)
+		}
+		var view SessionStateView
+		if err := enc.Get(&view); err != nil {
+			t.Fatalf("decode SessionStateView: %v", err)
+		}
+		// The load-bearing anti-wedge assertion: NOT a perpetual Drafting.
+		if view.Stage == StageDrafting {
+			t.Fatal("a failed design job must NOT leave the session in perpetual StageDrafting (the wedge)")
+		}
+		if view.Stage != StageDraftFailed {
+			t.Fatalf("want StageDraftFailed after a terminal failure phase, got %d", view.Stage)
+		}
+		if view.FailureReason == nil || *view.FailureReason == "" {
+			t.Fatal("StageDraftFailed must carry a human FailureReason (the neutral diagnostic)")
+		}
+		// Suspended on the SAME reviewDecision gate — Withdraw ends it.
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 30*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+
+	if !env.IsWorkflowCompleted() {
+		t.Fatal("workflow did not complete after withdraw from the draft-failed gate")
+	}
+	// A ran-but-failed job is terminal-at-the-Manager — it is escalated to the human
+	// gate, NOT a workflow crash.
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a terminal job failure must NOT fail the workflow, got: %v", err)
+	}
+	if len(ps.staged) != 0 {
+		t.Fatalf("a failed draft must stage nothing, got %d", len(ps.staged))
+	}
+	if len(ps.withdrawn) != 1 {
+		t.Fatalf("withdraw from the draft-failed gate must call WithdrawArtifact once, got %d", len(ps.withdrawn))
+	}
+}
+
+// PhaseCancelled is likewise a terminal failure that lands in StageDraftFailed
+// (never a perpetual Drafting).
+func Test_CoAuthor_PhaseCancelled_LandsInStageDraftFailed(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	ps := &fakeProjectState{project: systemReadBack(t, id)}
+	pipe := newFakePipeline(pipelineCancelled)
+	wf := newWorkflows()
+	registerCoAuthor(env, wf, ps, pipe)
+
+	env.RegisterDelayedCallback(func() {
+		enc, _ := env.QueryWorkflow(querySessionState)
+		var view SessionStateView
+		_ = enc.Get(&view)
+		if view.Stage != StageDraftFailed {
+			t.Fatalf("PhaseCancelled must land in StageDraftFailed, got %d", view.Stage)
+		}
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 30*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("PhaseCancelled must not crash the workflow: %v", err)
+	}
+}
+
+// QA F15 gap 2a — THE DISPATCH-REJECTION ANTI-WEDGE TEST. When the dispatch itself is
+// rejected terminally (GitHub 422s the workflow_dispatch → DispatchDesignJobActivity
+// fails non-retryably with ContractMisuse), the round-trip returns an ERROR. Historically
+// this CRASHED the whole CoAuthor workflow FAILED while sessionState still replayed
+// StageDrafting — the SPA wedged forever on "GENERATING" with no recovery. The fix routes
+// it to the SAME human-visible StageDraftFailed gate: the workflow stays OPEN + QUERYABLE
+// (Retry / Withdraw), never an invisible crash.
+func Test_CoAuthor_DispatchRejected_LandsInStageDraftFailed_NotCrash(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	ps := &fakeProjectState{project: systemReadBack(t, id)}
+	pipe := newFakePipeline() // phase scripting irrelevant: the SUBMIT fails.
+	// A terminal, non-retryable RA fault (ContractMisuse) — the dispatchOpts RetryPolicy
+	// marks it non-retryable, so the activity fails on the first attempt.
+	pipe.submitErr = fwra.New(fwra.ContractMisuse, "github 422: workflow_dispatch payload too large")
+	wf := newWorkflows()
+	registerCoAuthor(env, wf, ps, pipe)
+
+	env.RegisterDelayedCallback(func() {
+		enc, err := env.QueryWorkflow(querySessionState)
+		if err != nil {
+			t.Fatalf("QueryWorkflow: %v", err)
+		}
+		var view SessionStateView
+		if err := enc.Get(&view); err != nil {
+			t.Fatalf("decode SessionStateView: %v", err)
+		}
+		// The load-bearing F15 assertion: a rejected DISPATCH must NOT leave a perpetual
+		// StageDrafting (the invisible-failure the SPA wedged on).
+		if view.Stage == StageDrafting {
+			t.Fatal("a rejected dispatch must NOT leave the session in perpetual StageDrafting (the F15 wedge)")
+		}
+		if view.Stage != StageDraftFailed {
+			t.Fatalf("want StageDraftFailed after a terminal dispatch rejection, got %d", view.Stage)
+		}
+		if view.FailureReason == nil || *view.FailureReason == "" {
+			t.Fatal("a dispatch rejection must carry a human FailureReason")
+		}
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 30*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+
+	if !env.IsWorkflowCompleted() {
+		t.Fatal("workflow did not complete after withdraw from the dispatch-failed gate")
+	}
+	// The fix: a terminal dispatch rejection is escalated to the human gate, NOT a crash.
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a terminal dispatch rejection must NOT fail the workflow (F15), got: %v", err)
+	}
+	if len(ps.staged) != 0 {
+		t.Fatalf("a rejected dispatch must stage nothing, got %d", len(ps.staged))
+	}
+}
+
+// QA F15 gap 2b — a RAN-BUT-FAILED design job surfaces the failed run's URL on the
+// session view, so the SPA's failed card can deep-link the operator to the CI run/logs
+// that explain WHY.
+func Test_CoAuthor_RunFailed_SurfacesRunURL(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	ps := &fakeProjectState{project: systemReadBack(t, id)}
+	pipe := newFakePipeline(pipelineFailed)
+	pipe.diagnostic = "construction pipeline failed"
+	pipe.runURL = "https://github.com/acme/widgets/actions/runs/123"
+	wf := newWorkflows()
+	registerCoAuthor(env, wf, ps, pipe)
+
+	env.RegisterDelayedCallback(func() {
+		enc, err := env.QueryWorkflow(querySessionState)
+		if err != nil {
+			t.Fatalf("QueryWorkflow: %v", err)
+		}
+		var view SessionStateView
+		if err := enc.Get(&view); err != nil {
+			t.Fatalf("decode SessionStateView: %v", err)
+		}
+		if view.Stage != StageDraftFailed {
+			t.Fatalf("want StageDraftFailed, got %d", view.Stage)
+		}
+		if view.FailureRunURL == nil || *view.FailureRunURL != "https://github.com/acme/widgets/actions/runs/123" {
+			t.Fatalf("a ran-but-failed job must surface the failed run URL, got %v", view.FailureRunURL)
+		}
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 30*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+}
+
+// A REDRAFT (the human Retry-via-Reject after a draft-failed gate) issues a SECOND
+// dispatch with a DISTINCT idempotency key — a fresh, idempotent job, not a dedup of
+// the stale one (the key is derived inside the dispatch Activity from a fresh
+// ActivityID per ExecuteActivity invocation; N1).
+func Test_CoAuthor_DraftFailedThenRetry_DistinctIdempotencyKey(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	ps := &fakeProjectState{project: systemReadBack(t, id)}
+	// First dispatch fails; the retry dispatch (2nd) succeeds → reaches AwaitingReview.
+	pipe := newFakePipeline(pipelineFailed, pipelineSucceeded)
+	pipe.diagnostic = "transient CI flake"
+	wf := newWorkflows()
+	registerCoAuthor(env, wf, ps, pipe)
+
+	// Reject at the draft-failed gate → Retry-via-Reject → re-dispatch.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewReject, Feedback: &ReviewFeedback{Notes: "retry please"}})
+	}, 20*time.Second)
+	// After the successful redraft reaches AwaitingReview, withdraw to end.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 60*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	if len(pipe.submits) < 2 {
+		t.Fatalf("a retry must issue a SECOND dispatch, got %d submits", len(pipe.submits))
+	}
+	k1 := pipe.submits[0].idempotencyKey
+	k2 := pipe.submits[1].idempotencyKey
+	if k1 == k2 {
+		t.Fatalf("a redraft must get a DISTINCT idempotency key (fresh job), got identical %q", k1)
+	}
+	// The successful redraft staged the read-back model once.
+	if len(ps.staged) != 1 {
+		t.Fatalf("the recovered redraft must stage exactly once, got %d", len(ps.staged))
+	}
+}
+
+// PM-CRITIQUE second round-trip with CritiqueRevise (read-back Notes non-empty):
+// each round re-dispatches the architect draft BEFORE the human gate. When the PM
+// critic never converges, the loop must NOT crash the workflow (the wedge) — after
+// maxRedraftAttempts the committed draft is staged for the human gate with the
+// unresolved critique surfaced as a WARNING finding (the architect makes the call).
+// This proves BOTH the PM second round-trip AND the non-convergence anti-wedge.
+func Test_CoAuthor_PMCritiqueRevise_SecondRoundTrip_StagesForHumanGate(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	// The Mission slot's critique carrier is persistently "revise" with notes
+	// (CritiqueRevise every round) — the critic never converges.
+	ps := &fakeProjectState{project: projectstate.Project{
+		ID:      projectstate.ProjectID(id),
+		Version: 1,
+		Mission: awaitingSlot(mustMission(t), projectstate.CritiqueVerdictRevise, "tighten the vision sentence"),
+	}}
+	pipe := newFakePipeline() // every draft + critique dispatch Succeeds
+	wf := newWorkflows()
+	registerCoAuthor(env, wf, ps, pipe)
+
+	env.RegisterDelayedCallback(func() {
+		enc, err := env.QueryWorkflow(querySessionState)
+		if err != nil {
+			t.Fatalf("QueryWorkflow: %v", err)
+		}
+		var view SessionStateView
+		if err := enc.Get(&view); err != nil {
+			t.Fatalf("decode SessionStateView: %v", err)
+		}
+		if view.Stage != StageAwaitingReview {
+			t.Fatalf("non-converging PM critique must stage for the human gate, got stage %d", view.Stage)
+		}
+		var sawWarning bool
+		for _, f := range view.Findings {
+			if string(f.RuleID) == "PM-CRITIQUE-UNRESOLVED" {
+				sawWarning = true
+			}
+		}
+		if !sawWarning {
+			t.Fatalf("expected a PM-CRITIQUE-UNRESOLVED warning at the gate, got %+v", view.Findings)
+		}
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
+	}, 90*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindMission})
+
+	if !env.IsWorkflowCompleted() {
+		t.Fatal("workflow did not complete (PM non-convergence must stage, not hang/crash)")
+	}
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("PM non-convergence must NOT crash the workflow: %v", err)
+	}
+	// At least draft + critique per round, looped to maxRedraftAttempts: >2 dispatches,
+	// proving the PM critique is a real SECOND round-trip that re-dispatches the draft.
+	if len(pipe.submits) <= 2 {
+		t.Fatalf("PM-revise must re-dispatch (draft+critique per round); got only %d dispatches", len(pipe.submits))
+	}
+	// Exactly one stage (the best-effort draft at the gate after the loop).
+	if len(ps.staged) != 1 {
+		t.Fatalf("want exactly one best-effort stage at the gate, got %d", len(ps.staged))
+	}
+}
+
+// A Reject at the AwaitingReview gate calls RejectArtifact and loops back to a fresh
+// DRAFT dispatch (the human-gate suspend/resume is unchanged). Approve after the
+// redraft commits.
+func Test_CoAuthor_Reject_LoopsToFreshDispatch(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	ps := &fakeProjectState{project: systemReadBack(t, id)}
+	pipe := newFakePipeline() // every dispatch Succeeds
+	wf := newWorkflows()
+	registerCoAuthor(env, wf, ps, pipe)
+
+	const rejectNotes = "rework the decomposition"
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewReject, Feedback: &ReviewFeedback{Notes: rejectNotes}})
+	}, 30*time.Second)
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
+	}, 70*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	if len(ps.rejected) != 1 || ps.rejected[0].kind != projectstate.KindSystem || ps.rejected[0].notes != rejectNotes {
+		t.Fatalf("want one RejectArtifact(KindSystem, %q), got %v", rejectNotes, ps.rejected)
+	}
+	if len(ps.committed) != 1 {
+		t.Fatalf("want one commit after redraft->approve, got %v", ps.committed)
+	}
+	// Reject loops to a FRESH dispatch: at least 2 draft dispatches.
+	if len(pipe.submits) < 2 {
+		t.Fatalf("a reject must re-dispatch a fresh draft, got %d submits", len(pipe.submits))
+	}
+}
+
+// THE COLLISION REGRESSION (D-MSD-Δ amendment — the senior-identified bug). On a
+// PM-critiqued kind, a Reject at the AwaitingReview gate writes slot.Notes (the
+// architect's reject rationale). The loop then re-drafts and re-critiques with NO
+// intervening Stage before the critique read-back. With the OLD Notes-as-carrier the
+// critique read-back would misread the reject Notes as CritiqueRevise and re-loop on
+// the architect's own words. With the first-class CritiqueVerdict carrier the reject
+// Notes are IGNORED by the read-back: the scripted "approve" verdict drives it and the
+// gate proceeds to Approve. This proves the carrier read-back does NOT collide with the
+// frozen reject Notes field.
+func Test_CoAuthor_RejectNotes_DoNotLeakIntoCritiqueReadBack(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	// Mission starts with an "approve" critique carrier so the FIRST round ratifies.
+	ps := &fakeProjectState{project: projectstate.Project{
+		ID:      projectstate.ProjectID(id),
+		Version: 1,
+		Mission: awaitingSlot(mustMission(t), projectstate.CritiqueVerdictApprove, ""),
+	}}
+	pipe := newFakePipeline() // every draft + critique dispatch Succeeds
+	// Each critique round "commits" an "approve" verdict into the slot carrier (the
+	// awaitingSlot seed already holds it; the redraft round's critique re-asserts it on
+	// observe). The architect's reject Notes (set by RejectArtifact) are left untouched,
+	// so the test proves the read-back consults the FIRST-CLASS carrier, not Notes.
+	pipe.onObserve = func() {
+		ps.setSlotCritique(projectstate.KindMission, projectstate.CritiqueVerdictApprove, "")
+	}
+	wf := newWorkflows()
+	registerCoAuthor(env, wf, ps, pipe)
+
+	const rejectNotes = "REJECT-RATIONALE: rework the vision — this MUST NOT be read as a PM verdict"
+
+	// First gate: REJECT (writes slot.Notes = rejectNotes, clears the critique carrier).
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewReject, Feedback: &ReviewFeedback{Notes: rejectNotes}})
+	}, 30*time.Second)
+	// Second gate (after redraft+approve-critique): APPROVE to commit and finish.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
+	}, 80*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindMission})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	if len(ps.rejected) != 1 || ps.rejected[0].notes != rejectNotes {
+		t.Fatalf("want one RejectArtifact carrying the reject rationale, got %v", ps.rejected)
+	}
+	// The reject Notes must NOT have driven an extra critique-revise loop. After the
+	// reject round the critique APPROVES, so the gate reaches Approve and commits once.
+	if len(ps.committed) != 1 || ps.committed[0] != projectstate.KindMission {
+		t.Fatalf("the architect's reject Notes must NOT be read as a PM critique verdict; want a single commit, got committed=%v", ps.committed)
+	}
+}
+
+// THE MISSING-VERDICT SAFE DEFAULT. A critique dispatch reaches PipelineSucceeded but
+// the slot's CritiqueVerdict read-back carrier is EMPTY (the job claimed success yet
+// committed no verdict). The safe rule is NOT a silent approve: the session lands in
+// the human-visible StageDraftFailed (the same anti-wedge gate as a failed job),
+// surfacing a FailureReason, and suspends awaiting Retry/Withdraw. Withdraw ends clean
+// and NOTHING is committed (an unreviewed draft must never sail through as approved).
+func Test_CoAuthor_CritiqueMissingVerdict_LandsInStageDraftFailed_NotSilentApprove(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	// Mission draft read-back is fine, but the critique carrier verdict is EMPTY.
+	ps := &fakeProjectState{project: projectstate.Project{
+		ID:      projectstate.ProjectID(id),
+		Version: 1,
+		Mission: awaitingSlot(mustMission(t), "", ""),
+	}}
+	pipe := newFakePipeline() // both draft + critique dispatch observed Succeeded
+	wf := newWorkflows()
+	registerCoAuthor(env, wf, ps, pipe)
+
+	env.RegisterDelayedCallback(func() {
+		enc, err := env.QueryWorkflow(querySessionState)
+		if err != nil {
+			t.Fatalf("QueryWorkflow: %v", err)
+		}
+		var view SessionStateView
+		if err := enc.Get(&view); err != nil {
+			t.Fatalf("decode SessionStateView: %v", err)
+		}
+		if view.Stage != StageDraftFailed {
+			t.Fatalf("a missing critique verdict must land in StageDraftFailed (NOT silent approve), got stage %d", view.Stage)
+		}
+		if view.FailureReason == nil || *view.FailureReason == "" {
+			t.Fatal("StageDraftFailed from a missing verdict must carry a human FailureReason")
+		}
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 30*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindMission})
+
+	if !env.IsWorkflowCompleted() {
+		t.Fatal("workflow did not complete after withdraw from the missing-verdict gate")
+	}
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a missing critique verdict must NOT crash the workflow: %v", err)
+	}
+	if len(ps.committed) != 0 {
+		t.Fatalf("a missing critique verdict must NEVER commit (no silent approve), got committed=%v", ps.committed)
+	}
+	if len(ps.staged) != 0 {
+		t.Fatalf("a missing critique verdict must stage nothing, got %d", len(ps.staged))
+	}
+}
+
+// ---- Tests: parent sequence (SystemDesignPhaseWorkflow) ---------------------
+
+func registerPhase(env *testsuite.TestWorkflowEnvironment, wf *workflows, ps projectstate.ProjectStateAccess) {
+	env.RegisterWorkflowWithOptions(wf.SystemDesignPhaseWorkflow, workflow.RegisterOptions{Name: executionKindPhase})
+	env.RegisterWorkflowWithOptions(wf.CoAuthorArtifactWorkflow, workflow.RegisterOptions{Name: executionKindCoAuthor})
+	registerGenActivities(env, ps, nil, nil)
+}
+
+// The parent drives the seven steps in fixed order; each child Approve auto-advances;
+// after step 7 the parent seals Phase 1. The child is MOCKED to Approve so this test
+// isolates the parent's sequencing + seal (unchanged by the agentic pivot).
+func Test_Phase_AllStepsApproved_SealsPhase1(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	proj := allPhase1Committed(t)
+	ps := &fakeProjectState{project: proj}
+	wf := newWorkflows()
+	registerPhase(env, wf, ps)
+
+	env.OnWorkflow(executionKindCoAuthor, mock.Anything, mock.Anything).
+		Return(coAuthorApproved, nil).Times(len(projectstate.Phase1RequiredKinds()))
+
+	env.ExecuteWorkflow(executionKindPhase, phaseInput{ProjectID: ProjectID(proj.ID)})
+
+	if !env.IsWorkflowCompleted() {
+		t.Fatal("parent workflow did not complete")
+	}
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("parent workflow error: %v", err)
+	}
+	if ps.advanced != 1 {
+		t.Fatalf("parent must seal Phase 1 exactly once after all steps approved, advanced=%d", ps.advanced)
+	}
+}
+
+// If a child gate reports Withdraw, the parent HALTS and does not seal.
+func Test_Phase_StepWithdrawn_HaltsSequence_NoSeal(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	proj := allPhase1Committed(t)
+	ps := &fakeProjectState{project: proj}
+	wf := newWorkflows()
+	registerPhase(env, wf, ps)
+
+	env.OnWorkflow(executionKindCoAuthor, mock.Anything, mock.Anything).
+		Return(coAuthorWithdrawn, nil).Once()
+
+	env.ExecuteWorkflow(executionKindPhase, phaseInput{ProjectID: ProjectID(proj.ID)})
+
+	if !env.IsWorkflowCompleted() {
+		t.Fatal("parent workflow did not complete")
+	}
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("parent workflow error: %v", err)
+	}
+	if ps.advanced != 0 {
+		t.Fatalf("a withdrawn step must NOT seal the phase, advanced=%d", ps.advanced)
+	}
+}
+
+// ---- Tests: phase seal (PhaseAdvanceWorkflow) -------------------------------
+
+// advancePhase returns MissingArtifacts when a required slot is uncommitted.
+func Test_PhaseAdvance_Blocked_MissingArtifacts(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	proj := projectstate.Project{ID: projectstate.ProjectID(uuid.NewString()), Version: 1, Mission: committedSlot(mustMission(t))}
+	ps := &fakeProjectState{project: proj}
+	wf := newWorkflows()
+	registerPhaseAdvance(env, wf, ps)
+
+	env.ExecuteWorkflow(executionKindPhaseAdvance, phaseAdvanceInput{ProjectID: ProjectID(proj.ID)})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	var res PhaseAdvanceResult
+	if err := env.GetWorkflowResult(&res); err != nil {
+		t.Fatalf("decode result: %v", err)
+	}
+	if res.Advanced {
+		t.Fatal("want Advanced:false with a required slot uncommitted")
+	}
+	if len(res.MissingArtifacts) == 0 {
+		t.Fatal("want a non-empty MissingArtifacts set")
+	}
+	missing := map[ArtifactKind]bool{}
+	for _, k := range res.MissingArtifacts {
+		missing[k] = true
+	}
+	if missing[KindMission] {
+		t.Fatalf("Mission is committed and must NOT be missing: %v", res.MissingArtifacts)
+	}
+	if !missing[KindStandardCheck] {
+		t.Fatalf("StandardCheck is uncommitted and must be missing: %v", res.MissingArtifacts)
+	}
+	if ps.advanced != 0 {
+		t.Fatalf("blocked advance must NOT seal the phase, advanced=%d", ps.advanced)
+	}
+}
+
+// advancePhase returns Advanced:true when all required slots are committed (the seal
+// gates on all-committed; standard-check VALIDITY is the Action's CI check now).
+func Test_PhaseAdvance_AllCommitted_Advances(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	proj := allPhase1Committed(t)
+	ps := &fakeProjectState{project: proj}
+	wf := newWorkflows()
+	registerPhaseAdvance(env, wf, ps)
+
+	env.ExecuteWorkflow(executionKindPhaseAdvance, phaseAdvanceInput{ProjectID: ProjectID(proj.ID)})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	var res PhaseAdvanceResult
+	if err := env.GetWorkflowResult(&res); err != nil {
+		t.Fatalf("decode result: %v", err)
+	}
+	if !res.Advanced {
+		t.Fatalf("want Advanced:true, got %+v", res)
+	}
+	if ps.advanced != 1 {
+		t.Fatalf("want AdvancePhase sealed once, advanced=%d", ps.advanced)
+	}
+}
+
+// allPhase1Committed builds a Project with every Phase-1 required slot committed.
+func allPhase1Committed(t *testing.T) projectstate.Project {
+	t.Helper()
+	g, err := projectstate.NewGlossary([]projectstate.GlossaryItem{{Term: "Aggregate", Definition: "a consistency boundary"}})
+	if err != nil {
+		t.Fatalf("NewGlossary: %v", err)
+	}
+	return projectstate.Project{
+		ID:                   projectstate.ProjectID(uuid.NewString()),
+		Version:              8,
+		Mission:              committedSlot(mustMission(t)),
+		Glossary:             committedSlot(g),
+		ScrubbedRequirements: committedSlot(&projectstate.ScrubbedRequirements{}),
+		Volatilities:         committedSlot(&projectstate.Volatilities{}),
+		CoreUseCases:         committedSlot(&projectstate.CoreUseCases{}),
+		SystemDesign:         committedSlot(&projectstate.System{}),
+		OperationalConcepts:  committedSlot(&projectstate.OperationalConcepts{}),
+		StandardCheck:        committedSlot(&projectstate.StandardCheck{}),
+	}
+}
+
+// ---- from acknowledgestale_test.go ----
+
+// acknowledgestale_test.go covers the F-GTD-12 live-session ack gate (Phase-1 twin of the
+// projectdesign tests): acknowledging staleness on a slot whose amendment session is LIVE
+// is refused with FailedPrecondition (the wire's 409/"failed_precondition"), because the
+// ack's main-branch commit would turn the amendment's review PR merge-DIRTY and wedge its
+// approve.
+
+// fakeEncodedSessionView satisfies converter.EncodedValue for the mocked sessionState
+// Query result.
+type fakeEncodedSessionView struct{ view SessionStateView }
+
+func (f fakeEncodedSessionView) HasValue() bool { return true }
+func (f fakeEncodedSessionView) Get(valuePtr interface{}) error {
+	p, ok := valuePtr.(*SessionStateView)
+	if !ok {
+		return errors.New("unexpected query result type")
+	}
+	*p = f.view
+	return nil
+}
+
+// A RUNNING co-author session awaiting review (the exact F-GTD-12 scenario: an amendment
+// staged on its session branch with an open review PR) refuses the acknowledge with
+// FailedPrecondition, naming the amendment.
+func Test_AcknowledgeStaleBasis_LiveAmendmentSession_FailedPrecondition(t *testing.T) {
+	id := ProjectID(uuid.NewString())
+	wfID := coAuthorWorkflowID(id, KindMission)
+
+	mc := &temporalmocks.Client{}
+	mc.On("DescribeWorkflowExecution", mock.Anything, wfID, "").Return(
+		&workflowservice.DescribeWorkflowExecutionResponse{
+			WorkflowExecutionInfo: &workflowpb.WorkflowExecutionInfo{
+				Status: enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING,
+			},
+		}, nil)
+	mc.On("QueryWorkflow", mock.Anything, wfID, "", querySessionState).Return(
+		fakeEncodedSessionView{view: SessionStateView{Stage: StageAwaitingReview}}, nil)
+
+	m := &systemDesignManager{client: mc, projectState: &renderFakeProjectState{}}
+	err := m.AcknowledgeStaleBasis(bgRC(), id, KindMission, "unaffected")
+	sde := asSystemDesignError(t, err)
+	if sde.Kind != fwmanager.FailedPrecondition {
+		t.Fatalf("want FailedPrecondition while the amendment session is live, got %d (%v)", sde.Kind, err)
+	}
+	if !strings.Contains(err.Error(), "amendment") {
+		t.Fatalf("the refusal must explain the amendment conflict, got %q", err.Error())
+	}
+	mc.AssertExpectations(t)
+}
+
+// No session has ever run for the slot (Describe reports the execution missing →
+// GetSessionState NotFound): the liveness gate passes and the ack proceeds to the
+// substrate-support check — proving the refusal above came from the gate, not this path.
+func Test_AcknowledgeStaleBasis_NoSession_PassesLivenessGate(t *testing.T) {
+	id := ProjectID(uuid.NewString())
+	wfID := coAuthorWorkflowID(id, KindMission)
+
+	mc := &temporalmocks.Client{}
+	mc.On("DescribeWorkflowExecution", mock.Anything, wfID, "").Return(nil, errors.New("workflow not found"))
+
+	// renderFakeProjectState does NOT implement StaleAckProjectStateAccess, so passing
+	// the gate lands on the substrate FailedPrecondition with its distinct message.
+	m := &systemDesignManager{client: mc, projectState: &renderFakeProjectState{}}
+	err := m.AcknowledgeStaleBasis(bgRC(), id, KindMission, "unaffected")
+	sde := asSystemDesignError(t, err)
+	if sde.Kind != fwmanager.FailedPrecondition {
+		t.Fatalf("want the substrate FailedPrecondition, got %d (%v)", sde.Kind, err)
+	}
+	if !strings.Contains(err.Error(), "not supported by this substrate") {
+		t.Fatalf("expected to pass the liveness gate and hit the substrate check, got %q", err.Error())
+	}
+	mc.AssertExpectations(t)
+}
+
+// A session that closed COMPLETED after committing is TERMINAL (the durable slot renders
+// StageCommitted): the gate passes and the ack proceeds.
+func Test_AcknowledgeStaleBasis_CompletedSession_PassesLivenessGate(t *testing.T) {
+	id := ProjectID(uuid.NewString())
+	wfID := coAuthorWorkflowID(id, KindMission)
+
+	mc := &temporalmocks.Client{}
+	mc.On("DescribeWorkflowExecution", mock.Anything, wfID, "").Return(
+		&workflowservice.DescribeWorkflowExecutionResponse{
+			WorkflowExecutionInfo: &workflowpb.WorkflowExecutionInfo{
+				Status: enumspb.WORKFLOW_EXECUTION_STATUS_COMPLETED,
+			},
+		}, nil)
+	// NO QueryWorkflow expectation: a COMPLETED run's replayed query is bypassed.
+
+	proj := committedProject(id, KindMission)
+	proj.Mission.Model = &projectstate.MissionStatement{Vision: "V", Mission: "M"}
+	m := &systemDesignManager{client: mc, projectState: &renderFakeProjectState{project: proj}}
+	err := m.AcknowledgeStaleBasis(bgRC(), id, KindMission, "unaffected")
+	sde := asSystemDesignError(t, err)
+	if !strings.Contains(err.Error(), "not supported by this substrate") {
+		t.Fatalf("a committed (terminal) session must pass the liveness gate, got %d %q", sde.Kind, err.Error())
+	}
+	mc.AssertExpectations(t)
+}
+
+// The live set is exactly the non-terminal stages: drafting / awaitingReview /
+// redrafting / draftFailed (the recovery gate keeps the branch+PR).
+func Test_SessionStageIsLive(t *testing.T) {
+	live := []SessionStage{StageDrafting, StageAwaitingReview, StageRedrafting, StageDraftFailed}
+	for _, s := range live {
+		if !sessionStageIsLive(s) {
+			t.Errorf("stage %s must be live", sessionStageLabel(s))
+		}
+	}
+	terminal := []SessionStage{SessionStageUnknown, StageCommitted, StageWithdrawn, StageRefused}
+	for _, s := range terminal {
+		if sessionStageIsLive(s) {
+			t.Errorf("stage %s must NOT be live", sessionStageLabel(s))
+		}
+	}
+}
+
+// ---- from activityfindings_test.go ----
+
+// activityfindings_test.go — coverage for the app-side activity-diagram gate the
+// sessionState read-back applies to a CoreUseCases draft (founder ruling 2026-07-05).
+// Every use case (core AND supporting) must carry a non-empty activity diagram with a
+// start node and at least one action step; a diagram-less use case surfaces as one
+// ERROR-severity finding on the review panel so the human gate flags it.
+
+// ucd builds a UseCaseDecision carrying a named use case with the given activity diagram.
+func ucd(name string, activity *projectstate.ActivityDiagram) projectstate.UseCaseDecision {
+	return projectstate.UseCaseDecision{
+		UseCase: projectstate.UseCase{Name: name, Activity: activity},
+	}
+}
+
+// wellFormedActivity is the minimum acceptable diagram: a start node -> action -> end.
+func wellFormedActivity() *projectstate.ActivityDiagram {
+	return &projectstate.ActivityDiagram{
+		Nodes: []projectstate.ActivityNode{
+			{ID: "n1", Kind: projectstate.NodeStart},
+			{ID: "n2", Kind: projectstate.NodeAction, Label: "Do the thing"},
+			{ID: "n3", Kind: projectstate.NodeEnd},
+		},
+		Edges: []projectstate.ActivityEdge{
+			{From: "n1", To: "n2"},
+			{From: "n2", To: "n3"},
+		},
+	}
+}
+
+// A use case with a null or structurally-empty activity produces exactly one ERROR
+// finding; a use case with a start + action diagram produces none.
+func Test_useCaseActivityFindings_FlagsMissingAndEmptyDiagrams(t *testing.T) {
+	noStart := &projectstate.ActivityDiagram{
+		Nodes: []projectstate.ActivityNode{{ID: "n1", Kind: projectstate.NodeAction, Label: "step"}},
+	}
+	noAction := &projectstate.ActivityDiagram{
+		Nodes: []projectstate.ActivityNode{{ID: "n1", Kind: projectstate.NodeStart}},
+	}
+
+	draft := &projectstate.CoreUseCases{Decisions: []projectstate.UseCaseDecision{
+		ucd("Capture", nil),                             // null activity — the observed gtdapp defect
+		ucd("Clarify", &projectstate.ActivityDiagram{}), // empty diagram (no nodes)
+		ucd("Organize", noStart),                        // nodes but no start
+		ucd("Reflect", noAction),                        // nodes but no action
+		ucd("Engage", wellFormedActivity()),             // acceptable — no finding
+	}}
+
+	findings := useCaseActivityFindings(KindCoreUseCases, draft)
+	if len(findings) != 4 {
+		t.Fatalf("expected 4 ERROR findings (one per diagram-less use case), got %d: %+v", len(findings), findings)
+	}
+
+	wantNames := []string{"Capture", "Clarify", "Organize", "Reflect"}
+	for i, f := range findings {
+		if f.Severity != SeverityError {
+			t.Errorf("finding %d: want SeverityError, got %v", i, f.Severity)
+		}
+		if string(f.RuleID) != "USECASE-ACTIVITY-MISSING" {
+			t.Errorf("finding %d: want RuleID USECASE-ACTIVITY-MISSING, got %q", i, f.RuleID)
+		}
+		if !strings.Contains(f.Message, wantNames[i]) {
+			t.Errorf("finding %d: message %q must name use case %q", i, f.Message, wantNames[i])
+		}
+		if f.Location == nil || f.Location.Ordinal != int64(i) {
+			t.Errorf("finding %d: want Location.Ordinal %d, got %+v", i, i, f.Location)
+		}
+	}
+	// The acceptable use case (index 4) must not appear.
+	for _, f := range findings {
+		if strings.Contains(f.Message, "Engage") {
+			t.Errorf("well-formed use case Engage must not be flagged; got %q", f.Message)
+		}
+	}
+}
+
+// The gate is scoped to CoreUseCases: any other artifact kind, a nil draft, or a
+// wrong-typed draft yields no findings (so the nil-when-empty Findings wire form is
+// preserved for every other artifact).
+func Test_useCaseActivityFindings_ScopedToCoreUseCasesKind(t *testing.T) {
+	full := &projectstate.CoreUseCases{Decisions: []projectstate.UseCaseDecision{ucd("Capture", nil)}}
+
+	if got := useCaseActivityFindings(KindMission, full); got != nil {
+		t.Errorf("non-CoreUseCases kind must yield no findings, got %+v", got)
+	}
+	if got := useCaseActivityFindings(KindCoreUseCases, nil); got != nil {
+		t.Errorf("nil draft must yield no findings, got %+v", got)
+	}
+	// A draft whose every use case carries a well-formed diagram yields no findings.
+	ok := &projectstate.CoreUseCases{Decisions: []projectstate.UseCaseDecision{ucd("Capture", wellFormedActivity())}}
+	if got := useCaseActivityFindings(KindCoreUseCases, ok); got != nil {
+		t.Errorf("all-diagrammed draft must yield no findings, got %+v", got)
+	}
+}
+
+// ---- from askquestions_dispatch_test.go ----
+
+// askquestions_dispatch_test.go — F82 coverage for the System-Design answer-job dispatch
+// twin (the manager kinds 2/5 go through THIS manager). Mirrors the projectdesign tests:
+// a dispatch fires (incl. on a LIVE session branch), re-fires with a fresh key, and logs a
+// submit fault loudly.
+
+type recordingPipeline struct {
+	specs []constructionpipeline.PipelineSpec
+	keys  []fwra.IdempotencyKey
+	err   error
+}
+
+func (p *recordingPipeline) SubmitConstructionPipeline(rc fwra.Context, spec constructionpipeline.PipelineSpec) (constructionpipeline.PipelineHandle, error) {
+	p.specs = append(p.specs, spec)
+	p.keys = append(p.keys, rc.IdempotencyKey)
+	if p.err != nil {
+		return constructionpipeline.PipelineHandle(""), p.err
+	}
+	return constructionpipeline.PipelineHandle("run-1"), nil
+}
+
+func (p *recordingPipeline) ObserveConstructionPipeline(fwra.Context, constructionpipeline.PipelineHandle) (constructionpipeline.PipelineObservation, error) {
+	return constructionpipeline.PipelineObservation{}, nil
+}
+
+func (p *recordingPipeline) CancelConstructionPipeline(fwra.Context, constructionpipeline.PipelineHandle) error {
+	return nil
+}
+
+func sdManagerWith(pipe constructionpipeline.ConstructionPipelineAccess) *systemDesignManager {
+	return &systemDesignManager{
+		pipeline: pipe,
+		repo: func(ProjectID) (sourcecontrol.RepoRef, bool) {
+			return sourcecontrol.RepoRef("acme|acme/gtdapp"), true
+		},
+	}
+}
+
+func sdQuestions() []projectstate.ReviewComment {
+	return questionsToLedger(projectstate.ReviewAddresseeArchitect, []AnchoredComment{
+		{JSONPath: "$.components[0]", Text: "Which layer owns settlement?", AnchorText: "settlement"},
+	})
+}
+
+// Dispatch fires for a LIVE session (non-empty branch) — the answer job rides the session
+// branch tip where the ledger lives.
+func TestSDDispatchAnswerJob_FiresOnLiveSessionBranch(t *testing.T) {
+	pipe := &recordingPipeline{}
+	m := sdManagerWith(pipe)
+	const branch = "aiarch-design/gtdapp/5"
+	m.dispatchAnswerJob(context.Background(), "gtdapp", KindSystem, branch, projectstate.ReviewAddresseeArchitect, sdQuestions())
+
+	if len(pipe.specs) != 1 {
+		t.Fatalf("expected one submit, got %d", len(pipe.specs))
+	}
+	spec := pipe.specs[0]
+	if spec.DispatchInputs[dispatchInputJobMode] != jobModeAnswer {
+		t.Fatalf("job_mode must be answer, got %q", spec.DispatchInputs[dispatchInputJobMode])
+	}
+	if spec.DispatchInputs[dispatchInputTargetBranch] != branch {
+		t.Fatalf("the answer job must target the live session branch, got %q", spec.DispatchInputs[dispatchInputTargetBranch])
+	}
+}
+
+func TestSDDispatchAnswerJob_ReFiresWithUniqueKey(t *testing.T) {
+	pipe := &recordingPipeline{}
+	m := sdManagerWith(pipe)
+	qs := sdQuestions()
+	m.dispatchAnswerJob(context.Background(), "gtdapp", KindSystem, "", projectstate.ReviewAddresseeArchitect, qs)
+	m.dispatchAnswerJob(context.Background(), "gtdapp", KindSystem, "", projectstate.ReviewAddresseeArchitect, qs)
+	if len(pipe.keys) != 2 || pipe.keys[0] == pipe.keys[1] {
+		t.Fatalf("re-ask must re-fire with a distinct key, got %v", pipe.keys)
+	}
+}
+
+func TestSDDispatchAnswerJob_LogsSubmitFailure(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	defer slog.SetDefault(prev)
+
+	pipe := &recordingPipeline{err: fwra.New(fwra.Infrastructure, "boom")}
+	m := sdManagerWith(pipe)
+	m.dispatchAnswerJob(context.Background(), "gtdapp", KindSystem, "", projectstate.ReviewAddresseeArchitect, sdQuestions())
+	if out := buf.String(); !strings.Contains(out, "level=ERROR") || !strings.Contains(out, "dispatch FAILED") {
+		t.Fatalf("a submit failure must be logged at ERROR; log was:\n%s", out)
+	}
+}
+
+// ---- from askquestions_test.go ----
+
+// Question-comments (2026-07-05): the pure helpers behind AskQuestions + the approve-gate.
+
+// openReviewCommentIDs (the approve blocker set) must exclude open QUESTIONS and count only
+// open change-requests (incl. the legacy empty-type entries).
+func TestOpenReviewCommentIDs_ExcludesQuestions(t *testing.T) {
+	thread := []projectstate.ReviewComment{
+		{ID: "c1", Status: projectstate.ReviewCommentOpen},                                                    // legacy change-request → blocks
+		{ID: "c2", Status: projectstate.ReviewCommentOpen, Type: projectstate.ReviewCommentTypeChangeRequest}, // blocks
+		{ID: "q1", Status: projectstate.ReviewCommentOpen, Type: projectstate.ReviewCommentTypeQuestion},      // does NOT block
+		{ID: "c3", Status: projectstate.ReviewCommentAddressed},                                               // addressed → does not block
+	}
+	got := openReviewCommentIDs(thread)
+	if len(got) != 2 || got[0] != "c1" || got[1] != "c2" {
+		t.Fatalf("approve blocker set must be exactly the open change-requests [c1 c2], got %v", got)
+	}
+}
+
+func TestQuestionsToLedger_StampsAndDrops(t *testing.T) {
+	in := []AnchoredComment{
+		{JSONPath: "$.a", Text: "real question?", AnchorText: "the anchor"},
+		{JSONPath: "$.b", Text: "   ", AnchorText: "blank"}, // empty text → dropped
+	}
+	out := questionsToLedger(projectstate.ReviewAddresseeArchitect, in)
+	if len(out) != 1 {
+		t.Fatalf("empty-text question must be dropped; got %d entries", len(out))
+	}
+	q := out[0]
+	if q.Type != projectstate.ReviewCommentTypeQuestion || q.Addressee != projectstate.ReviewAddresseeArchitect {
+		t.Errorf("question not stamped type/addressee: %+v", q)
+	}
+	if q.Anchor != "$.a" || q.Text != "real question?" || q.AuthorRole != reviewAuthorRole {
+		t.Errorf("question fields not carried: %+v", q)
+	}
+}
+
+func TestNextQuestionRound(t *testing.T) {
+	if got := nextQuestionRound(nil); got != 1 {
+		t.Errorf("empty thread → round 1, got %d", got)
+	}
+	thread := []projectstate.ReviewComment{{Round: 0}, {Round: 3}, {Round: 1}}
+	if got := nextQuestionRound(thread); got != 4 {
+		t.Errorf("max round 3 → next 4, got %d", got)
+	}
+}
+
+func TestAnswerPrompt_RoleAndIDs(t *testing.T) {
+	qs := []projectstate.ReviewComment{
+		{ID: "r5c1", Text: "clarify the mission?", AnchorText: "Vision"},
+		{ID: "r5c2", Text: "why this objective?"},
+	}
+	// PM addressee → Product Manager role.
+	pm := answerPrompt(projectstate.KindMission, projectstate.ReviewAddresseePM, qs)
+	if !strings.Contains(pm, "Product Manager") {
+		t.Errorf("pm answer prompt must put the agent in the Product Manager role")
+	}
+	// Architect addressee → System Architect role.
+	arch := answerPrompt(projectstate.KindMission, projectstate.ReviewAddresseeArchitect, qs)
+	if !strings.Contains(arch, "System Architect") {
+		t.Errorf("architect answer prompt must put the agent in the System Architect role")
+	}
+	for _, want := range []string{"r5c1", "r5c2", "respondToReviewComment", "publishDraft", "getReviewThread"} {
+		if !strings.Contains(pm, want) {
+			t.Errorf("answer prompt missing %q", want)
+		}
+	}
+	// It must NOT instruct a model rewrite (answer mode has no putDraftModel).
+	if strings.Contains(pm, "putDraftModel") {
+		t.Errorf("answer prompt must not mention putDraftModel")
+	}
+}
+
+func TestIsLiveSessionStage(t *testing.T) {
+	live := []SessionStage{StageDrafting, StageAwaitingReview, StageRedrafting, StageRefused}
+	for _, s := range live {
+		if !isLiveSessionStage(s) {
+			t.Errorf("stage %v must be live", s)
+		}
+	}
+	for _, s := range []SessionStage{SessionStageUnknown, StageDraftFailed} {
+		if isLiveSessionStage(s) {
+			t.Errorf("stage %v must NOT be live", s)
+		}
+	}
+}
+
+// ---- from catalog_classification_test.go ----
+
+// Classification is derived from the Phase-2 activity-list metadata (worker class
+// + coding) plus contract presence — NOT the id prefix alone (the N-* namespace
+// conflates testing, infra, deployment, and documentation).
+func TestConstructionRowsToContract_ClassifiesFromWorkerClass(t *testing.T) {
+	rows := map[string]projectstate.ActivityConstructionStatus{
+		"N-IT":    {ActivityID: "N-IT"},                                                                        // software-tester, noncoding → testing:systemTest
+		"N-SC":    {ActivityID: "N-SC", Produced: []projectstate.ProducedArtifact{{Kind: "service-contract"}}}, // built a contract → service
+		"N-CI":    {ActivityID: "N-CI"},                                                                        // senior-developer, noncoding → deployment
+		"N-ADR":   {ActivityID: "N-ADR"},                                                                       // system-architect, noncoding → documentation
+		"C-BE":    {ActivityID: "C-BE"},                                                                        // junior-developer, coding → service
+		"U-SPA-1": {ActivityID: "U-SPA-1"},                                                                     // U-SPA prefix → frontend
+	}
+	meta := map[string]projectstate.ActivityItem{
+		"N-IT":    {Name: "N-IT", WorkerClass: "software-tester", Coding: false},
+		"N-SC":    {Name: "N-SC", WorkerClass: "senior-developer", Coding: false},
+		"N-CI":    {Name: "N-CI", WorkerClass: "senior-developer", Coding: false},
+		"N-ADR":   {Name: "N-ADR", WorkerClass: "system-architect", Coding: false},
+		"C-BE":    {Name: "C-BE", WorkerClass: "junior-developer", Coding: true},
+		"U-SPA-1": {Name: "U-SPA-1", WorkerClass: "junior-developer", Coding: true},
+	}
+	got := constructionRowsToContract(rows, meta)
+	cases := []struct {
+		id       string
+		wantType ActivityType
+		wantVar  TestingVariant
+	}{
+		{"N-IT", ActivityType(int(projectstate.ActivityTypeTesting)), TestingVariant(int(projectstate.TestVariantSystemTest))},
+		{"N-SC", ActivityType(int(projectstate.ActivityTypeService)), 0},
+		{"N-CI", ActivityType(int(projectstate.ActivityTypeDeployment)), 0},
+		{"N-ADR", ActivityType(int(projectstate.ActivityTypeDocumentation)), 0},
+		{"C-BE", ActivityType(int(projectstate.ActivityTypeService)), 0},
+		{"U-SPA-1", ActivityType(int(projectstate.ActivityTypeFrontend)), 0},
+	}
+	for _, c := range cases {
+		t.Run(c.id, func(t *testing.T) {
+			r, ok := got[c.id]
+			if !ok {
+				t.Fatalf("%s: missing from output", c.id)
+			}
+			if r.Type != c.wantType {
+				t.Errorf("%s: Type = %d, want %d", c.id, r.Type, c.wantType)
+			}
+			if r.Variant != c.wantVar {
+				t.Errorf("%s: Variant = %d, want %d", c.id, r.Variant, c.wantVar)
+			}
+		})
+	}
+}
+
+// ---- from catalog_provenance_test.go ----
+
+// catalog_provenance_test.go — PM-P2-4 exposure. slotsToContract projects a committed slot's
+// stored Provenance onto the ArtifactSlotView.Provenance read model; an uncommitted / pre-
+// provenance slot exposes nil (omitempty on the wire).
+func TestSlotsToContract_ExposesProvenance(t *testing.T) {
+	var p projectstate.Project
+	p.Mission = projectstate.ArtifactSlot{
+		Status:    projectstate.ReviewCommitted,
+		Model:     &projectstate.MissionStatement{Vision: "v", Mission: "m"},
+		Revisions: 1,
+		Provenance: &projectstate.Provenance{
+			CommittedAt: "2026-07-06T08:30:00Z",
+			ApprovedBy:  "alice",
+			DraftedBy:   "agentic-design-rail",
+		},
+	}
+	// Volatilities left uncommitted (no provenance) to prove the nil-safe path.
+
+	slots := slotsToContract(p)
+
+	var mission, volatilities *ArtifactSlotView
+	for i := range slots {
+		switch slots[i].Kind {
+		case projectstate.KindMission.WireName():
+			mission = &slots[i]
+		case projectstate.KindVolatilities.WireName():
+			volatilities = &slots[i]
+		}
+	}
+	if mission == nil || volatilities == nil {
+		t.Fatal("expected mission + volatilities slots in the contract view")
+	}
+	if mission.Provenance == nil {
+		t.Fatal("committed mission slot must expose provenance")
+	}
+	if mission.Provenance.CommittedAt != "2026-07-06T08:30:00Z" ||
+		mission.Provenance.ApprovedBy != "alice" ||
+		mission.Provenance.DraftedBy != "agentic-design-rail" {
+		t.Fatalf("provenance view mismatch: %+v", *mission.Provenance)
+	}
+	if volatilities.Provenance != nil {
+		t.Fatalf("uncommitted slot must expose nil provenance, got %+v", *volatilities.Provenance)
+	}
+}
+
+// ---- from catalog_test.go ----
+
+// catalog_test.go — the unit suite for the CATALOG ops (CreateProject/GetProject/
+// ListProjects) folded onto systemDesignManager from the dissolved projectManager
+// (2026-06-28). Ported verbatim; the manager is built via newCatalogMgr, which wires
+// only the deps these synchronous ops touch (no Temporal client).
+
+// rc is the Manager-layer call Context the ops lead with (zero principal in tests).
+func rc() fwmanager.Context { return fwmanager.Context{Context: context.Background()} }
+
+// newCatalogMgr builds a systemDesignManager exercising ONLY the folded catalog ops:
+// it wires the projectState + (optional) rail + estimator + repoBase deps and leaves
+// the Temporal client / pipeline / repo-resolver nil (those ops never touch them).
+func newCatalogMgr(ps projectstate.ProjectStateAccess, sc sourcecontrol.SourceControlAccess, est estimation.EstimationEngine, repoBase string) SystemDesignManager {
+	return NewSystemDesignManager(nil, ps, nil, sc, nil, est, nil, repoBase)
+}
+
+// slotByKind finds the contract slot whose Kind is the canonical wire name of the
+// given projectstate ArtifactKind.
+func slotByKind(st ProjectState, kind projectstate.ArtifactKind) (ArtifactSlotView, bool) {
+	for _, s := range st.Slots {
+		if s.Kind == kind.WireName() {
+			return s, true
+		}
+	}
+	return ArtifactSlotView{}, false
+}
+
+// fakeProjectStateAccess is the contract-first test double over the narrow
+// ProjectStateAccess port this package declares (projectstate-typed; the Manager
+// converts the value shapes into its OWN contract types after the call).
+type fakeProjectStateAccess struct {
+	createCalls   int
+	createOwner   projectstate.OwnerScope
+	createName    string
+	createID      projectstate.ProjectID
+	createKey     fwra.IdempotencyKey
+	createVersion projectstate.Version
+	createErr     error
+
+	listCalls   int
+	listOwner   projectstate.OwnerScope
+	listSummary []projectstate.ProjectSummary
+	listErr     error
+
+	readCalls   int
+	readID      projectstate.ProjectID
+	readProject projectstate.Project
+	readErr     error
+}
+
+func (f *fakeProjectStateAccess) CreateProject(rc fwra.Context, projectID projectstate.ProjectID, owner projectstate.OwnerScope, name string) (projectstate.Version, error) {
+	f.createCalls++
+	f.createID = projectID
+	f.createOwner = owner
+	f.createName = name
+	f.createKey = rc.IdempotencyKey
+	if f.createErr != nil {
+		return 0, f.createErr
+	}
+	if f.createVersion == 0 {
+		f.createVersion = 1
+	}
+	return f.createVersion, nil
+}
+
+func (f *fakeProjectStateAccess) ListProjects(_ fwra.Context, owner projectstate.OwnerScope) ([]projectstate.ProjectSummary, error) {
+	f.listCalls++
+	f.listOwner = owner
+	if f.listErr != nil {
+		return nil, f.listErr
+	}
+	return f.listSummary, nil
+}
+
+func (f *fakeProjectStateAccess) ReadProject(_ fwra.Context, projectID projectstate.ProjectID) (projectstate.Project, error) {
+	f.readCalls++
+	f.readID = projectID
+	if f.readErr != nil {
+		return projectstate.Project{}, f.readErr
+	}
+	return f.readProject, nil
+}
+
+// The projectManager now depends on the PUBLISHED projectstate.ProjectStateAccess
+// (the consumer-mirror was retired), so the fake satisfies the full surface. Only
+// CreateProject / ListProjects / ReadProject are exercised; the remaining verbs are
+// inert stubs present solely to satisfy the interface.
+var _ projectstate.ProjectStateAccess = (*fakeProjectStateAccess)(nil)
+
+func (f *fakeProjectStateAccess) AdvancePhase(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version) (projectstate.Version, error) {
+	return 0, nil
+}
+func (f *fakeProjectStateAccess) CommitArtifact(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ projectstate.ArtifactKind) (projectstate.Version, error) {
+	return 0, nil
+}
+func (f *fakeProjectStateAccess) ReadProjectVersion(_ fwra.Context, _ projectstate.ProjectID) (projectstate.Version, error) {
+	return 0, nil
+}
+func (f *fakeProjectStateAccess) RejectArtifact(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ projectstate.ArtifactKind, _ string) (projectstate.Version, error) {
+	return 0, nil
+}
+func (f *fakeProjectStateAccess) SetResearchInput(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ projectstate.ResearchInput) (projectstate.Version, error) {
+	return 0, nil
+}
+func (f *fakeProjectStateAccess) SetOperatingModel(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ projectstate.OperatingModel) (projectstate.Version, error) {
+	return 0, nil
+}
+func (f *fakeProjectStateAccess) StageArtifactForReview(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ projectstate.ArtifactModel) (projectstate.Version, error) {
+	return 0, nil
+}
+func (f *fakeProjectStateAccess) WithdrawArtifact(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ projectstate.ArtifactKind, _ string) (projectstate.Version, error) {
+	return 0, nil
+}
+
+// --- CreateProject ----------------------------------------------------------
+
+// TestCreateProject_NameIsIdentityAndCallsRAOnce proves NAME-AS-IDENTITY (C-PM-Δ):
+// the returned project id IS the user-supplied name, and the RA is called exactly once.
+func TestCreateProject_NameIsIdentityAndCallsRAOnce(t *testing.T) {
+	fake := &fakeProjectStateAccess{}
+	m := newCatalogMgr(fake, nil, nil, "")
+
+	id, err := m.CreateProject(rc(), OwnerScope("alice@example.com"), "my-cool-system")
+	if err != nil {
+		t.Fatalf("CreateProject: unexpected error: %v", err)
+	}
+	if id != ProjectID("my-cool-system") {
+		t.Fatalf("CreateProject: id = %q, want the user-supplied name (name-as-identity)", id)
+	}
+	if fake.createCalls != 1 {
+		t.Fatalf("CreateProject: RA called %d times, want 1", fake.createCalls)
+	}
+	if fake.createID != projectstate.ProjectID("my-cool-system") {
+		t.Fatalf("CreateProject: RA id %s, want my-cool-system", fake.createID)
+	}
+	if fake.createOwner != projectstate.OwnerScope("alice@example.com") {
+		t.Fatalf("CreateProject: RA owner %q, want alice@example.com", fake.createOwner)
+	}
+	if fake.createName != "my-cool-system" {
+		t.Fatalf("CreateProject: RA name %q, want my-cool-system", fake.createName)
+	}
+	if fake.createKey.IsZero() {
+		t.Fatal("CreateProject: derived idempotency key is empty")
+	}
+}
+
+func TestCreateProject_EmptyOwner_ContractMisuse(t *testing.T) {
+	fake := &fakeProjectStateAccess{}
+	m := newCatalogMgr(fake, nil, nil, "")
+
+	_, err := m.CreateProject(rc(), OwnerScope(""), "My Project")
+	if err == nil {
+		t.Fatal("CreateProject: expected error for empty owner")
+	}
+	var me *fwmanager.Error
+	if !errors.As(err, &me) || me.Kind != fwmanager.ContractMisuse {
+		t.Fatalf("CreateProject: want ContractMisuse, got %v", err)
+	}
+	if fake.createCalls != 0 {
+		t.Fatalf("CreateProject: RA should not be called on validation failure, got %d", fake.createCalls)
+	}
+}
+
+func TestCreateProject_EmptyName_ContractMisuse(t *testing.T) {
+	fake := &fakeProjectStateAccess{}
+	m := newCatalogMgr(fake, nil, nil, "")
+
+	_, err := m.CreateProject(rc(), OwnerScope("alice"), "")
+	if err == nil {
+		t.Fatal("CreateProject: expected error for empty name")
+	}
+	var me *fwmanager.Error
+	if !errors.As(err, &me) || me.Kind != fwmanager.ContractMisuse {
+		t.Fatalf("CreateProject: want ContractMisuse, got %v", err)
+	}
+}
+
+func TestCreateProject_RAConflict_MapsInfrastructure(t *testing.T) {
+	fake := &fakeProjectStateAccess{createErr: fwra.New(fwra.Conflict, "row exists")}
+	m := newCatalogMgr(fake, nil, nil, "")
+
+	_, err := m.CreateProject(rc(), OwnerScope("alice"), "P")
+	var me *fwmanager.Error
+	if !errors.As(err, &me) {
+		t.Fatalf("CreateProject: want fwm.Error, got %v", err)
+	}
+	if me.Kind != fwmanager.Infrastructure {
+		t.Fatalf("CreateProject: Conflict should map to Infrastructure, got %v", me.Kind)
+	}
+}
+
+// --- CreateProject: adopt + workflow seating + call order -------------------
+
+type callOrder struct{ seq []string }
+
+func (c *callOrder) record(name string) { c.seq = append(c.seq, name) }
+
+// fakeSourceControl is the test double over the PUBLISHED
+// sourcecontrol.SourceControlAccess (the consumer-mirror + composition-root adapter
+// were retired; the façade now calls the published interface directly). The
+// projectManager's CreateProject seating drives exactly three of its verbs —
+// AdoptProjectRepo → GetInstallationToken → CommitManagedFiles — which the call-order
+// test asserts; the remaining verbs are inert stubs.
+type fakeSourceControl struct {
+	order *callOrder
+
+	adoptCalls int
+	adoptSpec  sourcecontrol.RepoAdoptionSpec
+	adoptKey   fwra.IdempotencyKey
+	adoptErr   error
+
+	tokenCalls int
+	tokenErr   error
+
+	commitCalls int
+	commitKey   fwra.IdempotencyKey
+	commitErr   error
+}
+
+var _ sourcecontrol.SourceControlAccess = (*fakeSourceControl)(nil)
+
+func (f *fakeSourceControl) AdoptProjectRepo(rc fwra.Context, spec sourcecontrol.RepoAdoptionSpec) (sourcecontrol.RepoRef, error) {
+	f.adoptCalls++
+	f.adoptSpec = spec
+	f.adoptKey = rc.IdempotencyKey
+	if f.order != nil {
+		f.order.record("adoptProjectRepo")
+	}
+	if f.adoptErr != nil {
+		return "", f.adoptErr
+	}
+	// Return a well-formed RepoRef (account|owner/repo) so ManagedScaffoldFiles can
+	// derive the module path; name-as-identity makes owner==repo==RepoName here.
+	return sourcecontrol.RepoRef("acct|acct/" + spec.RepoName), nil
+}
+
+func (f *fakeSourceControl) GetInstallationToken(_ fwra.Context, _ sourcecontrol.RepoRef) (sourcecontrol.RepoCredential, error) {
+	f.tokenCalls++
+	if f.order != nil {
+		f.order.record("getInstallationToken")
+	}
+	if f.tokenErr != nil {
+		return sourcecontrol.RepoCredential{}, f.tokenErr
+	}
+	return sourcecontrol.RepoCredential{Bytes: []byte("tok")}, nil
+}
+
+func (f *fakeSourceControl) CommitManagedFiles(rc fwra.Context, _ sourcecontrol.RepoRef, _ []sourcecontrol.ManagedFile, _ sourcecontrol.RepoCredential) (sourcecontrol.CommitRef, error) {
+	f.commitCalls++
+	f.commitKey = rc.IdempotencyKey
+	if f.order != nil {
+		f.order.record("commitManagedFiles")
+	}
+	if f.commitErr != nil {
+		return "", f.commitErr
+	}
+	return sourcecontrol.CommitRef("commit"), nil
+}
+
+// --- inert stubs: the remaining published verbs the façade never calls -------
+
+func (f *fakeSourceControl) ConfigureBranchProtection(_ fwra.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.RepoCredential) error {
+	return nil
+}
+func (f *fakeSourceControl) GetPullRequestStatus(_ fwra.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.PullRequestRef, _ sourcecontrol.RepoCredential) (sourcecontrol.PullRequestStatus, error) {
+	return sourcecontrol.PullRequestStatus{}, nil
+}
+func (f *fakeSourceControl) InstallAuthorizeApp(_ fwra.Context, _ sourcecontrol.AccountRef) (sourcecontrol.Installation, error) {
+	return "", nil
+}
+func (f *fakeSourceControl) MergePullRequest(_ fwra.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.PullRequestRef, _ sourcecontrol.RepoCredential) (sourcecontrol.MergeResult, error) {
+	return sourcecontrol.MergeResult{}, nil
+}
+func (f *fakeSourceControl) OpenBranch(_ fwra.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.BranchName, _ sourcecontrol.RepoCredential) (sourcecontrol.BranchRef, error) {
+	return "", nil
+}
+func (f *fakeSourceControl) OpenPullRequest(_ fwra.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.PullRequestSpec, _ sourcecontrol.RepoCredential) (sourcecontrol.PullRequestRef, error) {
+	return "", nil
+}
+func (f *fakeSourceControl) PostReview(_ fwra.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.PullRequestRef, _ sourcecontrol.ReviewSubmission, _ sourcecontrol.RepoCredential) error {
+	return nil
+}
+func (f *fakeSourceControl) SyncManagedScaffold(_ fwra.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.RepoCredential) (bool, error) {
+	return false, nil
+}
+
+type orderingProjectState struct {
+	*fakeProjectStateAccess
+	order *callOrder
+}
+
+func (o *orderingProjectState) CreateProject(rc fwra.Context, projectID projectstate.ProjectID, owner projectstate.OwnerScope, name string) (projectstate.Version, error) {
+	if o.order != nil {
+		o.order.record("createProject")
+	}
+	return o.fakeProjectStateAccess.CreateProject(rc, projectID, owner, name)
+}
+
+// TestCreateProject_AdoptThenSeatThenCreate is the load-bearing call-order guarantee:
+// adopt → mint-credential → seat-workflow → create, all under the SAME idempotency key.
+func TestCreateProject_AdoptThenSeatThenCreate(t *testing.T) {
+	order := &callOrder{}
+	ps := &orderingProjectState{fakeProjectStateAccess: &fakeProjectStateAccess{}, order: order}
+	sc := &fakeSourceControl{order: order}
+	m := newCatalogMgr(ps, sc, nil, "")
+
+	id, err := m.CreateProject(rc(), OwnerScope("alice@example.com"), "my-cool-system")
+	if err != nil {
+		t.Fatalf("CreateProject: unexpected error: %v", err)
+	}
+	if id != ProjectID("my-cool-system") {
+		t.Fatalf("CreateProject: id = %q, want name-as-identity my-cool-system", id)
+	}
+	if sc.adoptCalls != 1 || sc.tokenCalls != 1 || sc.commitCalls != 1 {
+		t.Fatalf("source-control call counts: adopt=%d token=%d commit=%d, want 1 each",
+			sc.adoptCalls, sc.tokenCalls, sc.commitCalls)
+	}
+	if ps.createCalls != 1 {
+		t.Fatalf("projectState.CreateProject called %d times, want 1", ps.createCalls)
+	}
+	want := []string{"adoptProjectRepo", "getInstallationToken", "commitManagedFiles", "createProject"}
+	if len(order.seq) != len(want) {
+		t.Fatalf("call order = %v, want %v", order.seq, want)
+	}
+	for i := range want {
+		if order.seq[i] != want[i] {
+			t.Fatalf("call order = %v, want %v", order.seq, want)
+		}
+	}
+	if sc.adoptSpec.RepoName != string(id) {
+		t.Fatalf("AdoptProjectRepo RepoName = %q, want %q (name-as-identity)", sc.adoptSpec.RepoName, string(id))
+	}
+	if sc.adoptSpec.Title != "my-cool-system" {
+		t.Fatalf("AdoptProjectRepo Title = %q, want my-cool-system", sc.adoptSpec.Title)
+	}
+	if sc.adoptKey != ps.createKey || sc.commitKey != ps.createKey {
+		t.Fatalf("idempotency keys diverged: adopt=%q commit=%q create=%q",
+			sc.adoptKey, sc.commitKey, ps.createKey)
+	}
+}
+
+// TestCreateProject_AdoptFailure_NoSeatingNoCreate proves the order is also a GATE.
+func TestCreateProject_AdoptFailure_NoSeatingNoCreate(t *testing.T) {
+	order := &callOrder{}
+	ps := &orderingProjectState{fakeProjectStateAccess: &fakeProjectStateAccess{}, order: order}
+	sc := &fakeSourceControl{order: order, adoptErr: fwra.New(fwra.Transient, "github 503")}
+	m := newCatalogMgr(ps, sc, nil, "")
+
+	_, err := m.CreateProject(rc(), OwnerScope("alice"), "taken-repo")
+	if err == nil {
+		t.Fatal("CreateProject: expected error when adopt fails")
+	}
+	var me *fwmanager.Error
+	if !errors.As(err, &me) {
+		t.Fatalf("CreateProject: want fwm.Error, got %v", err)
+	}
+	if me.Kind != fwmanager.Infrastructure {
+		t.Fatalf("adopt Transient should map to Infrastructure, got %v", me.Kind)
+	}
+	if sc.adoptCalls != 1 {
+		t.Fatalf("AdoptProjectRepo called %d times, want 1", sc.adoptCalls)
+	}
+	if sc.tokenCalls != 0 || sc.commitCalls != 0 {
+		t.Fatalf("seating must NOT run after adopt failure: token=%d commit=%d", sc.tokenCalls, sc.commitCalls)
+	}
+	if ps.createCalls != 0 {
+		t.Fatalf("projectState.CreateProject must NOT be called after an adopt failure, got %d", ps.createCalls)
+	}
+	if len(order.seq) != 1 || order.seq[0] != "adoptProjectRepo" {
+		t.Fatalf("call order = %v, want [adoptProjectRepo] only", order.seq)
+	}
+}
+
+// TestCreateProject_NilSourceControl_SkipsAdopt proves a credential-free dev server
+// (nil sourceControl) still creates projects — repo-less, no adopt.
+func TestCreateProject_NilSourceControl_SkipsAdopt(t *testing.T) {
+	fake := &fakeProjectStateAccess{}
+	m := newCatalogMgr(fake, nil, nil, "")
+
+	id, err := m.CreateProject(rc(), OwnerScope("alice"), "dev-project")
+	if err != nil {
+		t.Fatalf("CreateProject (nil source control): unexpected error: %v", err)
+	}
+	if id != ProjectID("dev-project") {
+		t.Fatalf("CreateProject: id = %q", id)
+	}
+	if fake.createCalls != 1 {
+		t.Fatalf("projectState.CreateProject called %d times, want 1", fake.createCalls)
+	}
+}
+
+// --- ListProjects -----------------------------------------------------------
+
+func TestListProjects_PassesThrough(t *testing.T) {
+	now := time.Now().UTC()
+	src := []projectstate.ProjectSummary{
+		{ProjectID: "alpha", Name: "A", Owner: "alice", Phase: projectstate.PhaseSystemDesign, CommittedCount: 2, TotalCount: 8, UpdatedAt: now},
+		{ProjectID: "beta", Name: "B", Owner: "alice", Phase: projectstate.PhaseProjectDesign, CommittedCount: 9, TotalCount: 9, UpdatedAt: now},
+	}
+	fake := &fakeProjectStateAccess{listSummary: src}
+	m := newCatalogMgr(fake, nil, nil, "")
+
+	got, err := m.ListProjects(rc(), OwnerScope("alice"))
+	if err != nil {
+		t.Fatalf("ListProjects: unexpected error: %v", err)
+	}
+	if fake.listCalls != 1 || fake.listOwner != projectstate.OwnerScope("alice") {
+		t.Fatalf("ListProjects: RA calls=%d owner=%q", fake.listCalls, fake.listOwner)
+	}
+	if len(got) != len(src) {
+		t.Fatalf("ListProjects: got %d summaries, want %d", len(got), len(src))
+	}
+	if got[0].ProjectID != ProjectID("alpha") || got[0].Name != "A" || got[0].Owner != OwnerScope("alice") {
+		t.Fatalf("ListProjects: summary[0] identity mismatch: %+v", got[0])
+	}
+	if got[0].Phase != PhaseSystemDesign || got[0].CommittedCount != 2 || got[0].TotalCount != 8 {
+		t.Fatalf("ListProjects: summary[0] progress mismatch: %+v", got[0])
+	}
+	if got[1].ProjectID != ProjectID("beta") || got[1].Phase != PhaseProjectDesign {
+		t.Fatalf("ListProjects: summary[1] mismatch: %+v", got[1])
+	}
+}
+
+func TestListProjects_RAError_MapsInfrastructure(t *testing.T) {
+	fake := &fakeProjectStateAccess{listErr: fwra.New(fwra.Infrastructure, "db down")}
+	m := newCatalogMgr(fake, nil, nil, "")
+
+	_, err := m.ListProjects(rc(), OwnerScope("alice"))
+	var me *fwmanager.Error
+	if !errors.As(err, &me) || me.Kind != fwmanager.Infrastructure {
+		t.Fatalf("ListProjects: want Infrastructure, got %v", err)
+	}
+}
+
+// --- GetProject -------------------------------------------------------------
+
+func sampleProject(id projectstate.ProjectID) projectstate.Project {
+	return projectstate.Project{
+		ID:      id,
+		Version: 7,
+		Phase:   projectstate.PhaseSystemDesign,
+		Owner:   "alice",
+		Name:    "Sample",
+		Research: projectstate.ResearchCorpus{
+			Sources: []projectstate.ResearchSourceRef{{Title: "Brief", Path: ".aiarch/state/research/00-brief.txt", ContentBytes: 13}},
+		},
+		Mission: projectstate.ArtifactSlot{
+			Status: projectstate.ReviewCommitted,
+			Model:  &projectstate.MissionStatement{},
+		},
+		Glossary: projectstate.ArtifactSlot{
+			Status: projectstate.ReviewAwaitingReview,
+			Model:  &projectstate.Glossary{},
+			Notes:  "needs trimming",
+		},
+		Volatilities: projectstate.ArtifactSlot{
+			Status: projectstate.ReviewRejected,
+			Model:  &projectstate.Volatilities{},
+			Notes:  "redo",
+		},
+	}
+}
+
+func TestGetProject_MapsAggregateToTypedSlots(t *testing.T) {
+	id := ProjectID("my-cool-system")
+	fake := &fakeProjectStateAccess{readProject: sampleProject(projectstate.ProjectID(id))}
+	m := newCatalogMgr(fake, nil, nil, "")
+
+	st, err := m.GetProject(rc(), id)
+	if err != nil {
+		t.Fatalf("GetProject: unexpected error: %v", err)
+	}
+	if fake.readCalls != 1 || fake.readID != projectstate.ProjectID(id) {
+		t.Fatalf("GetProject: RA calls=%d id=%s", fake.readCalls, fake.readID)
+	}
+	if st.ProjectID != id || st.Name != "Sample" || st.Owner != OwnerScope("alice") {
+		t.Fatalf("GetProject: identity mismatch: %+v", st)
+	}
+	if st.Phase != PhaseSystemDesign || st.Version != 7 {
+		t.Fatalf("GetProject: phase/version mismatch: %+v", st)
+	}
+	if len(st.Research.Sources) != 1 || st.Research.Sources[0].Title != "Brief" {
+		t.Fatalf("GetProject: research not mapped: %+v", st.Research)
+	}
+
+	if len(st.Slots) != len(projectstate.AllArtifactKinds()) {
+		t.Fatalf("GetProject: got %d slots, want %d", len(st.Slots), len(projectstate.AllArtifactKinds()))
+	}
+
+	mission, _ := slotByKind(st, projectstate.KindMission)
+	if mission.Stage != ArtifactStageCommitted {
+		t.Fatalf("Mission stage = %v, want ArtifactStageCommitted", mission.Stage)
+	}
+	if mission.Model.Kind != "mission" || mission.Model.Model == nil {
+		t.Fatalf("Mission model not mapped opaquely: %+v", mission.Model)
+	}
+
+	glossary, _ := slotByKind(st, projectstate.KindGlossary)
+	if glossary.Stage != ArtifactStageAwaitingReview {
+		t.Fatalf("Glossary stage = %v, want ArtifactStageAwaitingReview", glossary.Stage)
+	}
+	if glossary.Model.Model == nil {
+		t.Fatal("Glossary model should be populated")
+	}
+	if glossary.Notes == nil || *glossary.Notes != "needs trimming" {
+		t.Fatalf("Glossary notes = %v", glossary.Notes)
+	}
+
+	volatilities, _ := slotByKind(st, projectstate.KindVolatilities)
+	if volatilities.Stage != ArtifactStageRejected {
+		t.Fatalf("Volatilities stage = %v, want ArtifactStageRejected", volatilities.Stage)
+	}
+
+	scrubbed, _ := slotByKind(st, projectstate.KindScrubbedRequirements)
+	if scrubbed.Stage != ArtifactStageEmpty {
+		t.Fatalf("ScrubbedRequirements stage = %v, want ArtifactStageEmpty", scrubbed.Stage)
+	}
+	if scrubbed.Model.Model != nil {
+		t.Fatal("ScrubbedRequirements model should be nil (empty slot)")
+	}
+	if scrubbed.Notes != nil {
+		t.Fatal("ScrubbedRequirements notes should be nil (empty)")
+	}
+}
+
+// decodeNetwork decodes the opaque Network slot model into the canonical projectstate
+// type so the compute-at-read assertions can inspect the enriched figures.
+func decodeNetwork(t *testing.T, st ProjectState) *projectstate.Network {
+	t.Helper()
+	slot, ok := slotByKind(st, projectstate.KindNetwork)
+	if !ok || slot.Model.Model == nil {
+		t.Fatalf("network slot model not present: %+v", slot.Model)
+	}
+	var n projectstate.Network
+	if err := json.Unmarshal(*slot.Model.Model, &n); err != nil {
+		t.Fatalf("decode network model: %v", err)
+	}
+	return &n
+}
+
+// TestGetProject_ComputeNetworkAtRead verifies the compute-at-read wiring over a small
+// diamond network A→{B,C}→D with a milestone fanning in on D — read back through the
+// opaque slot-model envelope.
+func TestGetProject_ComputeNetworkAtRead(t *testing.T) {
+	id := ProjectID("net-proj")
+	p := sampleProject(projectstate.ProjectID(id))
+	p.ActivityList = projectstate.ArtifactSlot{
+		Status: projectstate.ReviewCommitted,
+		Model: &projectstate.ActivityList{Activities: []projectstate.ActivityItem{
+			{Name: "A", EffortDays: 5, WorkerClass: "dev"},
+			{Name: "B", EffortDays: 5, WorkerClass: "dev"},
+			{Name: "C", EffortDays: 15, WorkerClass: "dev"},
+			{Name: "D", EffortDays: 5, WorkerClass: "dev"},
+		}},
+	}
+	p.Network = projectstate.ArtifactSlot{
+		Status: projectstate.ReviewCommitted,
+		Model: &projectstate.Network{
+			Dependencies: []projectstate.NetworkDependency{
+				{Activity: "B", DependsOn: []string{"A"}},
+				{Activity: "C", DependsOn: []string{"A"}},
+				{Activity: "D", DependsOn: []string{"B", "C"}},
+			},
+			CriticalPath: []string{"A", "C", "D"},
+			Milestones: []projectstate.NetworkMilestone{
+				{ID: "M-DONE", Name: "Done", Public: true, DependsOn: []string{"D"}},
+			},
+		},
+	}
+
+	fake := &fakeProjectStateAccess{readProject: p}
+	m := newCatalogMgr(fake, nil, estimation.NewEstimationEngine(), "")
+
+	st, err := m.GetProject(rc(), id)
+	if err != nil {
+		t.Fatalf("GetProject: %v", err)
+	}
+	netModel := decodeNetwork(t, st)
+	if netModel.Summary == nil {
+		t.Fatal("compute-at-read: summary not populated")
+	}
+	if netModel.Summary.TotalDurationDays != 25 {
+		t.Fatalf("project duration = %v, want 25", netModel.Summary.TotalDurationDays)
+	}
+	if len(netModel.Computed) != 4 {
+		t.Fatalf("computed nodes = %d, want 4", len(netModel.Computed))
+	}
+	if cNode := netModel.Computed["C"]; !cNode.OnCriticalPath || cNode.Band != "critical" {
+		t.Fatalf("C should be critical: %+v", cNode)
+	}
+	if bNode := netModel.Computed["B"]; bNode.OnCriticalPath || bNode.TotalFloat != 10 {
+		t.Fatalf("B should be off-CP with float 10: %+v", bNode)
+	}
+	if len(netModel.Dependencies) != 3 {
+		t.Fatalf("authored dependencies perturbed: %v", netModel.Dependencies)
+	}
+	if got := netModel.CriticalPath; len(got) != 3 || got[0] != "A" || got[1] != "C" || got[2] != "D" {
+		t.Fatalf("criticalPath not the computed float-0 set [A C D]: %v", got)
+	}
+	if len(netModel.Milestones) != 1 {
+		t.Fatalf("milestones = %d, want 1", len(netModel.Milestones))
+	}
+	ms := netModel.Milestones[0]
+	if ms.EventTime == nil || *ms.EventTime != 25 || ms.OnCriticalPath == nil || !*ms.OnCriticalPath {
+		t.Fatalf("milestone compute wrong: %+v", ms)
+	}
+}
+
+// TestGetProject_ComputeEarnedValueAtRead verifies the EV/SPI earned-value curve is
+// computed SERVER-SIDE at read (via the constructionEstimationEngine) and surfaced on
+// ConstructionProgress.EV — the relocation of the former web computeEV. A→B→C chain with
+// A,B integrated and C not: earned reaches ~50% (10 of 20 effort days), planned ~100%,
+// SPI ~0.5.
+func TestGetProject_ComputeEarnedValueAtRead(t *testing.T) {
+	id := ProjectID("ev-proj")
+	p := sampleProject(projectstate.ProjectID(id))
+	p.Phase = projectstate.PhaseConstruction
+	p.ActivityList = projectstate.ArtifactSlot{
+		Status: projectstate.ReviewCommitted,
+		Model: &projectstate.ActivityList{Activities: []projectstate.ActivityItem{
+			{Name: "A", EffortDays: 5, WorkerClass: "dev"},
+			{Name: "B", EffortDays: 5, WorkerClass: "dev"},
+			{Name: "C", EffortDays: 10, WorkerClass: "dev"},
+		}},
+	}
+	p.Network = projectstate.ArtifactSlot{
+		Status: projectstate.ReviewCommitted,
+		Model: &projectstate.Network{Dependencies: []projectstate.NetworkDependency{
+			{Activity: "B", DependsOn: []string{"A"}},
+			{Activity: "C", DependsOn: []string{"B"}},
+		}},
+	}
+	p.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
+		"A": {ActivityID: "A", BuildStatus: projectstate.BuildIntegrated},
+		"B": {ActivityID: "B", BuildStatus: projectstate.BuildIntegrated},
+		"C": {ActivityID: "C", BuildStatus: projectstate.BuildInConstruction},
+	}
+	p.ConstructionProgress = &projectstate.ConstructionProgress{Week: 2, TotalWeeks: 4, HandOffModel: "senior", SupervisionCap: 3}
+
+	fake := &fakeProjectStateAccess{readProject: p}
+	m := newCatalogMgr(fake, nil, estimation.NewEstimationEngine(), "")
+
+	st, err := m.GetProject(rc(), id)
+	if err != nil {
+		t.Fatalf("GetProject: %v", err)
+	}
+	if st.ConstructionProgress == nil {
+		t.Fatal("ConstructionProgress should be present")
+	}
+	ev := st.ConstructionProgress.EV
+	if ev.SPI < 0.49 || ev.SPI > 0.51 {
+		t.Fatalf("SPI = %v, want ~0.5", ev.SPI)
+	}
+	if n := len(ev.Earned); n == 0 || ev.Earned[n-1] < 49 || ev.Earned[n-1] > 51 {
+		t.Fatalf("final earned want ~50%%, got %v", ev.Earned)
+	}
+	if n := len(ev.Planned); n == 0 || ev.Planned[n-1] < 99 {
+		t.Fatalf("final planned want ~100%%, got %v", ev.Planned)
+	}
+}
+
+// TestGetProject_ComposesPRRefAtRead verifies the manager composes each git row's
+// prNumber (from the opaque ref) and prUrl (<repoBase>/pull/<ref>) at read — the
+// relocation of the former web projectPRRef onto the contract-owning Manager.
+func TestGetProject_ComposesPRRefAtRead(t *testing.T) {
+	id := ProjectID("pr-proj")
+	p := sampleProject(projectstate.ProjectID(id))
+	p.ActivityGit = map[string]projectstate.ActivityGitStatus{
+		"C-MST": {ActivityID: "C-MST", BranchName: "activity/C-MST", PullRequestRef: "44"},
+	}
+	fake := &fakeProjectStateAccess{readProject: p}
+	m := newCatalogMgr(fake, nil, estimation.NewEstimationEngine(), "https://github.com/acme/proj")
+
+	st, err := m.GetProject(rc(), id)
+	if err != nil {
+		t.Fatalf("GetProject: %v", err)
+	}
+	row, ok := st.GitRows["C-MST"]
+	if !ok {
+		t.Fatalf("gitRows[C-MST] absent: %+v", st.GitRows)
+	}
+	if row.PrNumber != 44 {
+		t.Fatalf("prNumber = %d, want 44 (parsed from opaque ref)", row.PrNumber)
+	}
+	if row.PrURL != "https://github.com/acme/proj/pull/44" {
+		t.Fatalf("prUrl = %q, want composed <repoBase>/pull/44", row.PrURL)
+	}
+	// Provider-opacity: the opaque ref remains the durable truth alongside the projections.
+	if row.PullRequestRef != "44" {
+		t.Fatalf("opaque pullRequestRef must remain: %q", row.PullRequestRef)
+	}
+}
+
+// TestGetProject_NilEstimator_NoCompute verifies the compute-at-read is a no-op when no
+// estimator is injected: the authored network is served unenriched.
+func TestGetProject_NilEstimator_NoCompute(t *testing.T) {
+	id := ProjectID("net-proj")
+	p := sampleProject(projectstate.ProjectID(id))
+	p.Network = projectstate.ArtifactSlot{
+		Status: projectstate.ReviewCommitted,
+		Model: &projectstate.Network{
+			Dependencies: []projectstate.NetworkDependency{{Activity: "B", DependsOn: []string{"A"}}},
+			CriticalPath: []string{"A", "B"},
+		},
+	}
+	fake := &fakeProjectStateAccess{readProject: p}
+	m := newCatalogMgr(fake, nil, nil, "")
+
+	st, err := m.GetProject(rc(), id)
+	if err != nil {
+		t.Fatalf("GetProject: %v", err)
+	}
+	net := decodeNetwork(t, st)
+	if net.Summary != nil || len(net.Computed) != 0 {
+		t.Fatalf("nil estimator should not compute: %+v", net)
+	}
+	if len(net.CriticalPath) != 2 || net.CriticalPath[0] != "A" {
+		t.Fatalf("nil estimator should preserve authored criticalPath: %v", net.CriticalPath)
+	}
+}
+
+// TestGetProject_OverwritesStaleCriticalPath verifies the served criticalPath[] is the
+// COMPUTED float-0 activity set, not the stale authored names.
+func TestGetProject_OverwritesStaleCriticalPath(t *testing.T) {
+	id := ProjectID("net-proj")
+	p := sampleProject(projectstate.ProjectID(id))
+	p.ActivityList = projectstate.ArtifactSlot{
+		Status: projectstate.ReviewCommitted,
+		Model: &projectstate.ActivityList{Activities: []projectstate.ActivityItem{
+			{Name: "A", EffortDays: 5, WorkerClass: "dev"},
+			{Name: "B", EffortDays: 5, WorkerClass: "dev"},
+		}},
+	}
+	p.Network = projectstate.ArtifactSlot{
+		Status: projectstate.ReviewCommitted,
+		Model: &projectstate.Network{
+			Dependencies: []projectstate.NetworkDependency{{Activity: "B", DependsOn: []string{"A"}}},
+			CriticalPath: []string{"STALE", "GONE"},
+		},
+	}
+	fake := &fakeProjectStateAccess{readProject: p}
+	m := newCatalogMgr(fake, nil, estimation.NewEstimationEngine(), "")
+
+	st, err := m.GetProject(rc(), id)
+	if err != nil {
+		t.Fatalf("GetProject: %v", err)
+	}
+	net := decodeNetwork(t, st)
+	if len(net.CriticalPath) != 2 || net.CriticalPath[0] != "A" || net.CriticalPath[1] != "B" {
+		t.Fatalf("criticalPath not overwritten with computed float-0 set: %v", net.CriticalPath)
+	}
+}
+
+func TestGetProject_NotFoundPassesThrough(t *testing.T) {
+	fake := &fakeProjectStateAccess{readErr: fwra.New(fwra.NotFound, "no row")}
+	m := newCatalogMgr(fake, nil, nil, "")
+
+	_, err := m.GetProject(rc(), ProjectID("missing"))
+	var me *fwmanager.Error
+	if !errors.As(err, &me) {
+		t.Fatalf("GetProject: want fwm.Error, got %v", err)
+	}
+	if me.Kind != fwmanager.NotFound {
+		t.Fatalf("GetProject: want NotFound, got %v", me.Kind)
+	}
+}
+
+func TestGetProject_EmptyProjectID_ContractMisuse(t *testing.T) {
+	fake := &fakeProjectStateAccess{}
+	m := newCatalogMgr(fake, nil, nil, "")
+
+	_, err := m.GetProject(rc(), ProjectID(""))
+	var me *fwmanager.Error
+	if !errors.As(err, &me) || me.Kind != fwmanager.ContractMisuse {
+		t.Fatalf("GetProject: want ContractMisuse, got %v", err)
+	}
+	if fake.readCalls != 0 {
+		t.Fatal("GetProject: RA should not be called on nil id")
+	}
+}
+
+// --- opaque envelope wire shape ---------------------------------------------
+
+// TestProjectState_SlotWireShape proves the directly-serialized ArtifactSlotView marshals
+// each slot with a STRING kind discriminator + the opaque {kind, model} envelope (the
+// SAME wire shape the systemdesign session read emits), and that an empty slot omits the
+// inner model payload (and notes).
+func TestProjectState_SlotWireShape(t *testing.T) {
+	id := ProjectID("my-cool-system")
+	fake := &fakeProjectStateAccess{readProject: sampleProject(projectstate.ProjectID(id))}
+	m := newCatalogMgr(fake, nil, nil, "")
+
+	st, err := m.GetProject(rc(), id)
+	if err != nil {
+		t.Fatalf("GetProject: %v", err)
+	}
+
+	data, err := json.Marshal(st.Slots)
+	if err != nil {
+		t.Fatalf("marshal slots: %v", err)
+	}
+	var wire []struct {
+		Kind  string `json:"kind"`
+		Stage int    `json:"stage"`
+		Model struct {
+			Kind  string          `json:"kind"`
+			Model json.RawMessage `json:"model"`
+		} `json:"model"`
+		Notes *string `json:"notes"`
+	}
+	if err := json.Unmarshal(data, &wire); err != nil {
+		t.Fatalf("unmarshal wire: %v", err)
+	}
+	if len(wire) != len(projectstate.AllArtifactKinds()) {
+		t.Fatalf("wire: got %d slots", len(wire))
+	}
+	byKind := map[string]int{}
+	for i, w := range wire {
+		byKind[w.Kind] = i
+	}
+	mission := wire[byKind["mission"]]
+	if mission.Model.Kind != "mission" || len(mission.Model.Model) == 0 {
+		t.Fatalf("wire: mission envelope wrong: %+v", mission.Model)
+	}
+	scrubbed := wire[byKind["scrubbedRequirements"]]
+	if len(scrubbed.Model.Model) != 0 {
+		t.Fatal("wire: empty slot should omit the inner model payload")
+	}
+	if scrubbed.Notes != nil {
+		t.Fatal("wire: empty slot should omit notes")
+	}
+}
+
+// TestPhaseNameLabels pins the PM-P2-5 fix: the human-readable PhaseName label is
+// projected alongside the 0-indexed Phase int in BOTH read models
+// (summaryToContract + projectStateToContract), 0/1/2 → the three lifecycle
+// labels, and an out-of-range Phase yields "" rather than a fabricated label.
+func TestPhaseNameLabels(t *testing.T) {
+	cases := []struct {
+		phase projectstate.Phase
+		want  string
+	}{
+		{projectstate.PhaseSystemDesign, "system-design"},
+		{projectstate.PhaseProjectDesign, "project-design"},
+		{projectstate.PhaseConstruction, "construction"},
+		{projectstate.Phase(9), ""}, // out of range → empty, never fabricated
+	}
+	m := &systemDesignManager{}
+	for _, tc := range cases {
+		if got := summaryToContract(projectstate.ProjectSummary{Phase: tc.phase}).PhaseName; got != tc.want {
+			t.Errorf("summaryToContract(Phase=%d).PhaseName = %q, want %q", tc.phase, got, tc.want)
+		}
+		if got := m.projectStateToContract(projectstate.Project{Phase: tc.phase}).PhaseName; got != tc.want {
+			t.Errorf("projectStateToContract(Phase=%d).PhaseName = %q, want %q", tc.phase, got, tc.want)
+		}
+		// The int Phase must still be carried unchanged next to the new label.
+		if got := summaryToContract(projectstate.ProjectSummary{Phase: tc.phase}).Phase; int(got) != int(tc.phase) {
+			t.Errorf("summaryToContract(Phase=%d).Phase = %d, want %d", tc.phase, got, tc.phase)
+		}
+	}
+}
+
+// ---- from catalog_testingstate_test.go ----
+
+func TestTestingStateToContract(t *testing.T) {
+	if got := testingStateToContract(nil); got != nil {
+		t.Fatalf("nil input: got %v, want nil", got)
+	}
+	in := &projectstate.TestingState{
+		TestRuns: []projectstate.TestRun{{ID: "run-1", Passed: 12, Failed: 1, Note: "nightly"}},
+		Defects:  []projectstate.DefectRecord{{ID: "D-1", Title: "flake", Severity: "high", Note: "retry"}},
+	}
+	got := testingStateToContract(in)
+	if got == nil {
+		t.Fatal("populated input: got nil")
+	}
+	if len(got.TestRuns) != 1 || got.TestRuns[0].Id != "run-1" || got.TestRuns[0].Passed != 12 {
+		t.Errorf("TestRuns mapped wrong: %+v", got.TestRuns)
+	}
+	if len(got.Defects) != 1 || got.Defects[0].Id != "D-1" || got.Defects[0].Severity != "high" {
+		t.Errorf("Defects mapped wrong: %+v", got.Defects)
+	}
+}
+
+// ---- from dynamicfindings_test.go ----
+
+// dynamicfindings_test.go — coverage for the app-side dynamic-view gate the
+// sessionState read-back applies to a System draft (founder extension 2026-07-05).
+// Every committed use case — core AND nonCore variation — must carry its own dynamic
+// view (call chain) in the System model; an uncovered use case surfaces as one
+// ERROR-severity finding on the review panel so the human gate flags it. This is the
+// review-panel twin of methodcheck's USECASE-DYNAMIC-MISSING (the authoritative gate
+// putDraftModel enforces while the agent authors).
+
+// cucWith builds a committed CoreUseCases carrying the named use cases with the given
+// ids and classifications.
+func cucWith(decisions ...projectstate.UseCaseDecision) *projectstate.CoreUseCases {
+	return &projectstate.CoreUseCases{Decisions: decisions}
+}
+
+func uc(id, name string, class projectstate.Classification) projectstate.UseCaseDecision {
+	return projectstate.UseCaseDecision{
+		UseCase: projectstate.UseCase{ID: projectstate.UseCaseID(id), Name: name, Classification: class},
+	}
+}
+
+func systemWithViews(useCaseIDs ...string) *projectstate.System {
+	var dvs []projectstate.DynamicView
+	for _, id := range useCaseIDs {
+		dvs = append(dvs, projectstate.DynamicView{UseCaseID: id, Key: "uc" + id, Title: "view " + id})
+	}
+	return &projectstate.System{DynamicViews: dvs}
+}
+
+// A System draft that leaves committed use cases without a dynamic view flags exactly
+// those use cases (core AND nonCore variation), and none of the covered ones.
+func Test_useCaseDynamicFindings_FlagsUncoveredUseCases(t *testing.T) {
+	committed := cucWith(
+		uc("capture", "Capture", projectstate.ClassCore),              // covered
+		uc("clarify", "Clarify", projectstate.ClassCore),              // UNCOVERED (core)
+		uc("clarify-bulk", "Clarify Bulk", projectstate.ClassNonCore), // UNCOVERED (nonCore variation)
+		uc("engage", "Engage", projectstate.ClassNonCore),             // covered
+	)
+	draft := systemWithViews("capture", "engage")
+
+	findings := useCaseDynamicFindings(KindSystem, draft, committed)
+	if len(findings) != 2 {
+		t.Fatalf("expected 2 ERROR findings (one per uncovered use case), got %d: %+v", len(findings), findings)
+	}
+	wantNames := []string{"Clarify", "Clarify Bulk"}
+	for i, f := range findings {
+		if f.Severity != SeverityError {
+			t.Errorf("finding %d: want SeverityError, got %v", i, f.Severity)
+		}
+		if string(f.RuleID) != "USECASE-DYNAMIC-MISSING" {
+			t.Errorf("finding %d: want RuleID USECASE-DYNAMIC-MISSING, got %q", i, f.RuleID)
+		}
+		if !strings.Contains(f.Message, wantNames[i]) {
+			t.Errorf("finding %d: message %q must name use case %q", i, f.Message, wantNames[i])
+		}
+	}
+	// The nonCore-variation message must name it as such.
+	if !strings.Contains(findings[1].Message, "nonCore use-case variation") {
+		t.Errorf("nonCore finding must be labelled as a variation, got %q", findings[1].Message)
+	}
+	for _, f := range findings {
+		if strings.Contains(f.Message, "Capture") || strings.Contains(f.Message, "Engage") {
+			t.Errorf("covered use case must not be flagged; got %q", f.Message)
+		}
+	}
+}
+
+// The gate is scoped to KindSystem with a committed CoreUseCases: any other kind, a
+// nil/absent committed set, a nil draft, or a wrong-typed draft yields no findings.
+func Test_useCaseDynamicFindings_ScopedToSystemKind(t *testing.T) {
+	committed := cucWith(uc("capture", "Capture", projectstate.ClassCore))
+	draft := systemWithViews() // no views at all
+
+	if got := useCaseDynamicFindings(KindCoreUseCases, draft, committed); got != nil {
+		t.Errorf("non-System kind must yield no findings, got %+v", got)
+	}
+	if got := useCaseDynamicFindings(KindSystem, draft, nil); got != nil {
+		t.Errorf("nil committed CoreUseCases must yield no findings, got %+v", got)
+	}
+	if got := useCaseDynamicFindings(KindSystem, nil, committed); got != nil {
+		t.Errorf("nil draft must yield no findings, got %+v", got)
+	}
+	// Every use case covered → no findings.
+	full := systemWithViews("capture")
+	if got := useCaseDynamicFindings(KindSystem, full, committed); got != nil {
+		t.Errorf("all-covered draft must yield no findings, got %+v", got)
+	}
+}
+
+// ---- from gitrail_proof_test.go ----
+
+// =============================================================================
+// I-DESIGN-DISPATCH Part 3 — the WIRING-LEVEL PROOF (test-engineer). This file
+// EXTENDS gitrail_test.go (the senior's two rail wire-tests) with the load-bearing
+// branch-reconciliation assertions the settled model (Part 1, the exact branch
+// table) demands but the happy-path smoke test does not yet pin:
+//
+//   1. read-back branch == dispatch target_branch (the session branch) — the
+//      reconciliation the whole §2a rail exists to make true.
+//   2. Approve: MergePullRequest lands BEFORE commit-on-main, and the post-merge
+//      commit reads/writes MAIN (the §2a branch table rows 7-8 vs 9a).
+//   3. Reject → redraft on a NEW session branch (attempt+1), a NEW PR — the prior
+//      PR is not reused.
+//   4. Failure (PhaseFailed) → StageDraftFailed with the rail WIRED (the anti-wedge
+//      path still holds; the rail's dispatch-time half ran, the approve-time half
+//      did NOT).
+//   5. Required-check RED → merge BLOCKED, no main-commit (the §2b merge guard) —
+//      the senior covers this; we add the ORDERED-event variant proving the guard
+//      fires before any merge/commit and the session recovers, not crashes.
+//
+// Real Manager under test (the REAL CoAuthorArtifactWorkflow + every Activity);
+// FAKE ONLY the external agentic-job seam (constructionPipelineAccess, reusing
+// fakePipeline from workflow_test.go) + the GitHub PR-rail seam (a coherent
+// SCRIPTED fakeRail) + the branch-aware projectStateAccess read-back. NO internal
+// Manager component is faked. Temporal in-memory test env, runs under -short.
+// The on-disk-git equivalent (the Action's raw CommitSubtree to a branch, then the
+// read-back on that branch) is already proven one layer down by
+// projectstate.TestGitStore_ExternalActionDraftIsReadBack; here we prove the
+// MANAGER SPINE reconciles the branch the rail addressed with the branch the
+// read-back/commit ride over.
+// =============================================================================
+
+// ---- seqLog: a shared ordered event log across the rail + projectstate fakes --
+
+// seqLog records, in call order, the load-bearing spine events so a test can assert
+// the SEQUENCE (merge-before-commit) and the BRANCH each read/write rode over. Both
+// the rail fake and the branch-aware projectstate fake append to the SAME log.
+type seqLog struct {
+	mu     sync.Mutex
+	events []seqEvent
+}
+
+type seqEvent struct {
+	op     string // "merge" | "commit" | "readMain" | "readBranch" | "stageBranch" | "stageMain"
+	branch string // for read/stage events: the branch the op rode over ("" == main)
+}
+
+func (l *seqLog) add(op, branch string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.events = append(l.events, seqEvent{op: op, branch: branch})
+}
+
+func (l *seqLog) ops() []string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	out := make([]string, len(l.events))
+	for i, e := range l.events {
+		out[i] = e.op
+	}
+	return out
+}
+
+// firstIndexOf returns the index of the first event with op, or -1.
+func (l *seqLog) firstIndexOf(op string) int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for i, e := range l.events {
+		if e.op == op {
+			return i
+		}
+	}
+	return -1
+}
+
+// ---- scriptedRail: the EXTERNAL PR-rail seam with a per-attempt PR + ordered log -
+
+// scriptedRail is a coherent IPullRequestRail-subset fake that models the PR rail
+// per attempt: OpenBranch ensures a (per-attempt) session branch, OpenPullRequest
+// mints a DISTINCT PR per head branch (a merged/closed PR is never reused), the
+// status reflects a scripted green/red check, PostReview is the +1, and Merge moves
+// the draft from the session branch to main. It records the ordered merge event into
+// the shared seqLog so a test can assert merge-before-commit and which PR was merged.
+type scriptedRail struct {
+	mu  sync.Mutex
+	log *seqLog
+
+	checkGreen bool
+
+	openedBranches []string
+	openedPRHeads  []string
+	mergedPRs      []string
+	prByHead       map[string]string
+	calls          map[string]int
+}
+
+func newScriptedRail(green bool, log *seqLog) *scriptedRail {
+	return &scriptedRail{checkGreen: green, log: log, prByHead: map[string]string{}, calls: map[string]int{}}
+}
+
+func (r *scriptedRail) count(verb string) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.calls[verb]
+}
+
+// CommitManagedFiles backs the managed-scaffold sync (the free-function composition helper
+// reaches the rail through this verb for a non-managedFileSyncer fake). Recorded under the
+// "SyncManagedScaffold" counter.
+func (r *scriptedRail) CommitManagedFiles(_ fwra.Context, _ sourcecontrol.RepoRef, _ []sourcecontrol.ManagedFile, _ sourcecontrol.RepoCredential) (sourcecontrol.CommitRef, error) {
+	r.mu.Lock()
+	r.calls["SyncManagedScaffold"]++
+	r.mu.Unlock()
+	return sourcecontrol.CommitRef("scaffold-sync"), nil
+}
+
+func (r *scriptedRail) GetInstallationToken(_ fwra.Context, _ sourcecontrol.RepoRef) (sourcecontrol.RepoCredential, error) {
+	r.mu.Lock()
+	r.calls["GetInstallationToken"]++
+	r.mu.Unlock()
+	return sourcecontrol.RepoCredential{Bytes: []byte("tok"), ExpiresAt: time.Now().Add(time.Hour)}, nil
+}
+
+func (r *scriptedRail) OpenBranch(_ fwra.Context, _ sourcecontrol.RepoRef, branch sourcecontrol.BranchName, _ sourcecontrol.RepoCredential) (sourcecontrol.BranchRef, error) {
+	r.mu.Lock()
+	r.calls["OpenBranch"]++
+	r.openedBranches = append(r.openedBranches, string(branch))
+	r.mu.Unlock()
+	return sourcecontrol.BranchRef(""), nil
+}
+
+func (r *scriptedRail) OpenPullRequest(_ fwra.Context, _ sourcecontrol.RepoRef, spec sourcecontrol.PullRequestSpec, _ sourcecontrol.RepoCredential) (sourcecontrol.PullRequestRef, error) {
+	r.mu.Lock()
+	r.calls["OpenPullRequest"]++
+	head := string(spec.Head)
+	pr, ok := r.prByHead[head]
+	if !ok {
+		// A distinct PR per head branch — a fresh attempt branch opens a fresh PR.
+		pr = "pr/" + head
+		r.prByHead[head] = pr
+		r.openedPRHeads = append(r.openedPRHeads, head)
+	}
+	r.mu.Unlock()
+	// Ordered event (F40 openPR-after-read-back proof): record WHEN the PR was opened
+	// relative to the read-back so a test can assert the PR is never opened before a
+	// committed model has been confirmed on the session branch.
+	if r.log != nil {
+		r.log.add("openPR", head)
+	}
+	return sourcecontrol.PullRequestRefFromString(pr), nil
+}
+
+func (r *scriptedRail) GetPullRequestStatus(_ fwra.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.PullRequestRef, _ sourcecontrol.RepoCredential) (sourcecontrol.PullRequestStatus, error) {
+	r.mu.Lock()
+	r.calls["GetPullRequestStatus"]++
+	green := r.checkGreen
+	r.mu.Unlock()
+	rollup := sourcecontrol.CheckFailure
+	if green {
+		rollup = sourcecontrol.CheckSuccess
+	}
+	return sourcecontrol.PullRequestStatus{CheckRollup: rollup, Mergeable: green}, nil
+}
+
+func (r *scriptedRail) PostReview(_ fwra.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.PullRequestRef, _ sourcecontrol.ReviewSubmission, _ sourcecontrol.RepoCredential) error {
+	r.mu.Lock()
+	r.calls["PostReview"]++
+	r.mu.Unlock()
+	return nil
+}
+
+func (r *scriptedRail) MergePullRequest(_ fwra.Context, _ sourcecontrol.RepoRef, pr sourcecontrol.PullRequestRef, _ sourcecontrol.RepoCredential) (sourcecontrol.MergeResult, error) {
+	r.mu.Lock()
+	r.calls["MergePullRequest"]++
+	r.mergedPRs = append(r.mergedPRs, sourcecontrol.PullRequestRefString(pr))
+	r.mu.Unlock()
+	// The merge moves the draft from the session branch onto main — model that by
+	// flipping the projectstate fake to serve the draft on main for the post-merge read.
+	if r.log != nil {
+		r.log.add("merge", sourcecontrol.PullRequestRefString(pr))
+	}
+	return sourcecontrol.MergeResult{Merged: true, Commit: "merged-" + sourcecontrol.PullRequestRefString(pr)}, nil
+}
+
+// The remaining SourceControlAccess ops are outside the design PR-rail lifecycle; inert.
+func (r *scriptedRail) AdoptProjectRepo(_ fwra.Context, _ sourcecontrol.RepoAdoptionSpec) (sourcecontrol.RepoRef, error) {
+	return sourcecontrol.RepoRef(""), nil
+}
+
+func (r *scriptedRail) ConfigureBranchProtection(_ fwra.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.RepoCredential) error {
+	return nil
+}
+
+func (r *scriptedRail) InstallAuthorizeApp(_ fwra.Context, _ sourcecontrol.AccountRef) (sourcecontrol.Installation, error) {
+	return sourcecontrol.Installation(""), nil
+}
+
+// SyncManagedScaffold mirrors the REAL production sourceControlAccess impl
+// ((*access).SyncManagedScaffold, github.go) — it delegates to the free-function
+// composition helper rather than stubbing directly. B10 rewires the generated
+// wf.Acts.RailSyncManagedScaffold invoker straight onto this method, so this method is
+// now the LOAD-BEARING path every proof test's beginSession exercises (previously the
+// free function was called directly by the now-deleted custom Activity, bypassing this
+// method entirely).
+func (r *scriptedRail) SyncManagedScaffold(rc fwra.Context, repo sourcecontrol.RepoRef, cred sourcecontrol.RepoCredential) (bool, error) {
+	return sourcecontrol.SyncManagedScaffold(rc.Context, r, repo, cred)
+}
+
+var _ sourcecontrol.SourceControlAccess = (*scriptedRail)(nil)
+
+// ---- seqProjectState: branch-aware read-back + ordered commit/read events ------
+
+// seqProjectState wraps fakeProjectState with the §2a branch-aware extension AND the
+// shared ordered log: it records which BRANCH each read-back/stage rode over and
+// appends "commit"/"readMain"/"readBranch" events so a test can assert
+// merge-before-commit and post-merge-read-on-main.
+type seqProjectState struct {
+	*fakeProjectState
+	log *seqLog
+
+	mu            sync.Mutex
+	readBranches  []string
+	stageBranches []string
+}
+
+var _ projectstate.BranchAwareProjectStateAccess = (*seqProjectState)(nil)
+
+func (f *seqProjectState) ReadProject(ctx fwra.Context, projectID projectstate.ProjectID) (projectstate.Project, error) {
+	// main-path read (branch override "" ⇒ ReadProject): this is the priors read AND
+	// the post-merge re-read the approve path does before commit-on-main.
+	f.log.add("readMain", "")
+	f.mu.Lock()
+	f.readBranches = append(f.readBranches, "")
+	f.mu.Unlock()
+	return f.fakeProjectState.ReadProject(ctx, projectID)
+}
+
+func (f *seqProjectState) ReadProjectOnBranch(ctx context.Context, projectID projectstate.ProjectID, branch string) (projectstate.Project, error) {
+	f.log.add("readBranch", branch)
+	f.mu.Lock()
+	f.readBranches = append(f.readBranches, branch)
+	f.mu.Unlock()
+	return f.fakeProjectState.ReadProject(fwra.Context{Context: ctx}, projectID)
+}
+
+func (f *seqProjectState) StageArtifactForReviewOnBranch(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, model projectstate.ArtifactModel, key fwra.IdempotencyKey) (projectstate.Version, error) {
+	f.log.add("stageBranch", branch)
+	f.mu.Lock()
+	f.stageBranches = append(f.stageBranches, branch)
+	f.mu.Unlock()
+	return f.StageArtifactForReview(fwra.Context{Context: ctx, IdempotencyKey: key}, projectID, expectedVersion, model)
+}
+
+func (f *seqProjectState) CommitArtifact(ctx fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, kind projectstate.ArtifactKind) (projectstate.Version, error) {
+	f.log.add("commit", "")
+	return f.fakeProjectState.CommitArtifact(ctx, projectID, expectedVersion, kind)
+}
+
+func (f *seqProjectState) RejectArtifactOnBranch(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, key fwra.IdempotencyKey) (projectstate.Version, error) {
+	f.log.add("rejectBranch", branch)
+	return f.RejectArtifact(fwra.Context{Context: ctx, IdempotencyKey: key}, projectID, expectedVersion, kind, notes)
+}
+
+func (f *seqProjectState) WithdrawArtifactOnBranch(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, key fwra.IdempotencyKey) (projectstate.Version, error) {
+	f.log.add("withdrawBranch", branch)
+	return f.WithdrawArtifact(fwra.Context{Context: ctx, IdempotencyKey: key}, projectID, expectedVersion, kind, notes)
+}
+
+func newSeqRailWorkflows(rail sourcecontrol.SourceControlAccess) *workflows {
+	return &workflows{
+		Acts: genInvokers{Opts: activityOptions()},
+		Rail: rail,
+		Repo: func(ProjectID) (sourcecontrol.RepoRef, bool) {
+			return sourcecontrol.RepoRefFromString("acct|owner/repo"), true
+		},
+	}
+}
+
+// PROOF 1+2 — branch reconciliation + merge-before-commit + post-merge-read-on-main.
+// The load-bearing assertions the settled branch table prescribes:
+//   - the read-back rode over EXACTLY the dispatch target_branch (the session branch).
+//   - the AwaitingReview stage rode over that SAME session branch.
+//   - on Approve: MergePullRequest landed BEFORE the commit; the commit was preceded by
+//     a main-path read (the post-merge re-seed) — i.e. commit reflects MAIN, not the
+//     session branch.
+func Test_CoAuthor_Rail_BranchReconciliation_MergeBeforeCommit_PostMergeReadOnMain(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	log := &seqLog{}
+	base := &fakeProjectState{project: systemReadBack(t, id)}
+	ps := &seqProjectState{fakeProjectState: base, log: log}
+	pipe := newFakePipeline() // dispatch observed Succeeded
+	rail := newScriptedRail(true, log)
+	wf := newSeqRailWorkflows(rail)
+	registerRailCoAuthor(env, wf, ps, pipe)
+
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
+	}, 30*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("rail reconciliation workflow error: %v", err)
+	}
+	var outcome coAuthorOutcome
+	if err := env.GetWorkflowResult(&outcome); err != nil {
+		t.Fatalf("decode outcome: %v", err)
+	}
+	if outcome != coAuthorApproved {
+		t.Fatalf("want CoAuthorApproved, got %d", outcome)
+	}
+
+	// The exact session branch the dispatch addressed (from DispatchInputs).
+	if len(pipe.submits) != 1 {
+		t.Fatalf("System draft must be a single dispatch, got %d", len(pipe.submits))
+	}
+	dispatchBranch := pipe.submits[0].dispatchInputs[dispatchInputTargetBranch]
+	if dispatchBranch == "" {
+		t.Fatal("dispatch must carry a non-empty target_branch")
+	}
+
+	// THE PER-PROJECT-DESIGN-DISPATCH ASSERTION (the live-activation gap fix): with the
+	// rail WIRED, the dispatch must target the PER-PROJECT repo (the rail's repoRef) +
+	// aiarch-design.yml — NOT the central construction repo + aiarch-construct.yml. This
+	// is exactly what the systemtests fake could not catch (it intercepted all GitHub
+	// REST regardless of repo). The workflow-side dispatchDesignJob decodes the opaque
+	// RepoRef ("acct|owner/repo") to the RA's RepoTarget{Owner:"owner", Name:"repo"} BEFORE
+	// the generated submit invoker, so the fake records the decoded "owner/repo".
+	if pipe.submits[0].targetRepo != "owner/repo" {
+		t.Fatalf("design dispatch must target the per-project repo %q, got %q", "owner/repo", pipe.submits[0].targetRepo)
+	}
+	if pipe.submits[0].workflowFile != "aiarch-design.yml" {
+		t.Fatalf("design dispatch must target aiarch-design.yml (NOT aiarch-construct.yml), got %q", pipe.submits[0].workflowFile)
+	}
+
+	// The rail opened EXACTLY that branch + a PR with that head.
+	if len(rail.openedBranches) != 1 || rail.openedBranches[0] != dispatchBranch {
+		t.Fatalf("OpenBranch must address the dispatch session branch %q, got %v", dispatchBranch, rail.openedBranches)
+	}
+	if len(rail.openedPRHeads) != 1 || rail.openedPRHeads[0] != dispatchBranch {
+		t.Fatalf("OpenPullRequest head must be the session branch %q, got %v", dispatchBranch, rail.openedPRHeads)
+	}
+
+	// THE LOAD-BEARING RECONCILIATION: the read-back rode over the dispatch target_branch.
+	if len(ps.readBranches) == 0 {
+		t.Fatal("no read recorded")
+	}
+	sawReadBackOnSession := false
+	for _, b := range ps.readBranches {
+		if b == dispatchBranch {
+			sawReadBackOnSession = true
+		}
+	}
+	if !sawReadBackOnSession {
+		t.Fatalf("read-back branch must equal the dispatch target_branch %q, got reads %v", dispatchBranch, ps.readBranches)
+	}
+	// The AwaitingReview stage rode over that same session branch.
+	if len(ps.stageBranches) != 1 || ps.stageBranches[0] != dispatchBranch {
+		t.Fatalf("stage must ride over the dispatch session branch %q, got %v", dispatchBranch, ps.stageBranches)
+	}
+
+	// Merge landed BEFORE commit (the §2a table: merge first, then commit-on-main).
+	mergeIdx := log.firstIndexOf("merge")
+	commitIdx := log.firstIndexOf("commit")
+	if mergeIdx < 0 {
+		t.Fatalf("a green approve must MERGE; ops=%v", log.ops())
+	}
+	if commitIdx < 0 {
+		t.Fatalf("a green approve must COMMIT; ops=%v", log.ops())
+	}
+	if mergeIdx >= commitIdx {
+		t.Fatalf("merge must precede commit-on-main; ops=%v", log.ops())
+	}
+	// The merged PR is the session-branch PR.
+	if len(rail.mergedPRs) != 1 || rail.mergedPRs[0] != "pr/"+dispatchBranch {
+		t.Fatalf("merge must target the session-branch PR pr/%s, got %v", dispatchBranch, rail.mergedPRs)
+	}
+
+	// POST-MERGE READ ON MAIN: between merge and commit there is a main-path read
+	// (branch "") — the approve path re-seeds headVersion from MAIN before committing.
+	postMergeReadOnMain := false
+	for i := mergeIdx + 1; i < commitIdx; i++ {
+		if log.events[i].op == "readMain" {
+			postMergeReadOnMain = true
+		}
+	}
+	if !postMergeReadOnMain {
+		t.Fatalf("after merge the approve path must re-read on MAIN before commit; ops=%v", log.ops())
+	}
+
+	// Commit landed on main exactly once.
+	if len(base.committed) != 1 || base.committed[0] != projectstate.KindSystem {
+		t.Fatalf("want one CommitArtifact(KindSystem) on main, got %v", base.committed)
+	}
+}
+
+// PROOF 3 (F40) — Reject → redraft on the SAME persistent session branch, the SAME PR.
+// The founder ruling: commit to one branch and improve it until it merges (the history of
+// changes lives in git); NOT a PR per draft. So the second dispatch's target_branch EQUALS
+// the first, the rail opened exactly ONE PR (idempotent on head), and the eventual merge is
+// of that one accumulating PR.
+func Test_CoAuthor_Rail_RejectRedraftsOnSameSessionBranchAndSamePR(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	log := &seqLog{}
+	base := &fakeProjectState{project: systemReadBack(t, id)}
+	ps := &seqProjectState{fakeProjectState: base, log: log}
+	pipe := newFakePipeline() // every dispatch Succeeds
+	rail := newScriptedRail(true, log)
+	wf := newSeqRailWorkflows(rail)
+	registerRailCoAuthor(env, wf, ps, pipe)
+
+	// First gate: REJECT → redraft on the SAME branch/PR. Second gate: APPROVE → merge.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewReject, Feedback: &ReviewFeedback{Notes: "rework decomposition"}})
+	}, 30*time.Second)
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
+	}, 70*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("reject-redraft workflow error: %v", err)
+	}
+
+	if len(pipe.submits) < 2 {
+		t.Fatalf("reject must re-dispatch a fresh draft, got %d submits", len(pipe.submits))
+	}
+	b1 := pipe.submits[0].dispatchInputs[dispatchInputTargetBranch]
+	b2 := pipe.submits[1].dispatchInputs[dispatchInputTargetBranch]
+	if b1 == "" || b2 == "" {
+		t.Fatalf("both dispatches must carry a target_branch, got %q / %q", b1, b2)
+	}
+	// THE LOAD-BEARING ASSERTION (F40): the redraft is on the SAME persistent session branch.
+	if b1 != b2 {
+		t.Fatalf("a reject must redraft on the SAME session branch (F40 single-branch); got %q then %q", b1, b2)
+	}
+	// The rail opened exactly ONE PR (idempotent on head — the persistent PR is reused).
+	if len(rail.openedPRHeads) != 1 || rail.openedPRHeads[0] != b1 {
+		t.Fatalf("reject must reuse the ONE PR on the persistent branch, got PR heads %v", rail.openedPRHeads)
+	}
+	// The merge is of that one accumulating PR.
+	if len(rail.mergedPRs) != 1 || rail.mergedPRs[0] != "pr/"+b1 {
+		t.Fatalf("the merged PR must be the persistent PR pr/%s, got %v", b1, rail.mergedPRs)
+	}
+	if len(base.committed) != 1 {
+		t.Fatalf("want one commit after redraft→approve, got %v", base.committed)
+	}
+}
+
+// PROOF 4 — Failure with the rail WIRED. A PhaseFailed draft lands the session in
+// StageDraftFailed (NOT perpetual Drafting, NOT a crash) even with the rail enabled:
+// the dispatch-time rail half ran (mint + OpenBranch), but the approve-time half
+// (status guard / +1 / merge) NEVER runs and NOTHING commits. Withdraw ends clean.
+// This is the rail-aware variant of the existing anti-wedge test.
+func Test_CoAuthor_Rail_PhaseFailed_LandsInStageDraftFailed_NoApproveRailNoCommit(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	log := &seqLog{}
+	base := &fakeProjectState{project: systemReadBack(t, id)}
+	ps := &seqProjectState{fakeProjectState: base, log: log}
+	pipe := newFakePipeline(pipelineFailed)
+	pipe.diagnostic = "aiarch-validate found 2 violations"
+	rail := newScriptedRail(true, log)
+	wf := newSeqRailWorkflows(rail)
+	registerRailCoAuthor(env, wf, ps, pipe)
+
+	env.RegisterDelayedCallback(func() {
+		enc, err := env.QueryWorkflow(querySessionState)
+		if err != nil {
+			t.Fatalf("QueryWorkflow: %v", err)
+		}
+		var view SessionStateView
+		if err := enc.Get(&view); err != nil {
+			t.Fatalf("decode SessionStateView: %v", err)
+		}
+		if view.Stage == StageDrafting {
+			t.Fatal("a failed design job must NOT leave perpetual StageDrafting (the wedge), even with the rail wired")
+		}
+		if view.Stage != StageDraftFailed {
+			t.Fatalf("want StageDraftFailed after a terminal failure phase, got %d", view.Stage)
+		}
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 30*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a terminal job failure must NOT crash the rail-wired workflow: %v", err)
+	}
+	// Dispatch-time rail half ran (the failure is observed AFTER OpenBranch).
+	if rail.count("OpenBranch") == 0 {
+		t.Fatalf("the dispatch-time rail half (OpenBranch) must have run before the observe")
+	}
+	// The approve-time rail half NEVER ran on a failed draft.
+	if rail.count("OpenPullRequest") != 0 {
+		t.Fatalf("a failed draft must NOT open a PR, got %d", rail.count("OpenPullRequest"))
+	}
+	if rail.count("GetPullRequestStatus") != 0 || rail.count("MergePullRequest") != 0 {
+		t.Fatalf("a failed draft must NOT reach the merge guard/merge, got status=%d merge=%d",
+			rail.count("GetPullRequestStatus"), rail.count("MergePullRequest"))
+	}
+	// Nothing staged, nothing committed; withdraw recorded once.
+	if len(base.staged) != 0 || len(base.committed) != 0 {
+		t.Fatalf("a failed draft must stage/commit nothing, got staged=%d committed=%v", len(base.staged), base.committed)
+	}
+	if len(base.withdrawn) != 1 {
+		t.Fatalf("withdraw from the draft-failed gate must call WithdrawArtifact once, got %d", len(base.withdrawn))
+	}
+}
+
+// PROOF 5 — Required-check RED → merge BLOCKED, no commit-on-main, ORDERED. The status
+// guard (GetPullRequestStatus) fires; because the rollup is red the spine does NOT
+// PostReview, does NOT MergePullRequest, and does NOT commit. It routes to the
+// StageDraftFailed recovery gate; Withdraw ends clean. (Complements the senior's
+// count-only guard test with an ordered-event + recovery assertion.)
+func Test_CoAuthor_Rail_RequiredCheckRed_BlocksMerge_NoCommit_Recovers(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	log := &seqLog{}
+	base := &fakeProjectState{project: systemReadBack(t, id)}
+	ps := &seqProjectState{fakeProjectState: base, log: log}
+	pipe := newFakePipeline()           // draft Succeeds (the run was green) ...
+	rail := newScriptedRail(false, log) // ... but the PR's required check is RED at merge time
+	wf := newSeqRailWorkflows(rail)
+	registerRailCoAuthor(env, wf, ps, pipe)
+
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
+	}, 30*time.Second)
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 60*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a not-green merge guard must not crash the workflow: %v", err)
+	}
+	// The guard read happened; the merge + the +1 did NOT.
+	if rail.count("GetPullRequestStatus") == 0 {
+		t.Fatal("the approve path must consult the merge guard (GetPullRequestStatus)")
+	}
+	if rail.count("MergePullRequest") != 0 {
+		t.Fatalf("a RED required check must BLOCK the merge, got %d merge calls", rail.count("MergePullRequest"))
+	}
+	if rail.count("PostReview") != 0 {
+		t.Fatalf("a RED required check must NOT relay the +1, got %d PostReview calls", rail.count("PostReview"))
+	}
+	// No merge, no main-commit.
+	if log.firstIndexOf("merge") != -1 {
+		t.Fatalf("a RED required check must produce NO merge event; ops=%v", log.ops())
+	}
+	if log.firstIndexOf("commit") != -1 {
+		t.Fatalf("a RED required check must produce NO commit event; ops=%v", log.ops())
+	}
+	if len(base.committed) != 0 {
+		t.Fatalf("a not-green merge guard must NEVER commit, got %v", base.committed)
+	}
+	// It RECOVERED (withdraw from the StageDraftFailed gate), it did not wedge or crash.
+	if len(base.withdrawn) != 1 {
+		t.Fatalf("a blocked merge must route to the recovery gate; withdraw expected once, got %d", len(base.withdrawn))
+	}
+}
+
+// PROOF 6 (F40 live-bug fix) — the PR is opened ONLY AFTER the read-back confirms a
+// committed model on the session branch (i.e. only once the branch has ≥1 commit beyond
+// main), never at session start. This regresses the observed gtdapp 422: a PR opened on a
+// freshly-cut, zero-commit branch is rejected by GitHub ("no commits between base and
+// head"). The load-bearing ordered assertion: the FIRST "openPR" event strictly follows
+// the FIRST "readBranch" (read-back) event. Reject → redraft reuses the SAME one PR;
+// approve merges it.
+func Test_CoAuthor_Rail_OpenPR_OnlyAfterReadBack_ReuseThenMerge(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	log := &seqLog{}
+	base := &fakeProjectState{project: systemReadBack(t, id)}
+	ps := &seqProjectState{fakeProjectState: base, log: log}
+	pipe := newFakePipeline() // every dispatch Succeeds
+	rail := newScriptedRail(true, log)
+	wf := newSeqRailWorkflows(rail)
+	registerRailCoAuthor(env, wf, ps, pipe)
+
+	// First gate: REJECT → redraft on the SAME branch/PR. Second gate: APPROVE → merge.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewReject, Feedback: &ReviewFeedback{Notes: "tighten"}})
+	}, 30*time.Second)
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
+	}, 70*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("openPR-after-read-back workflow error: %v", err)
+	}
+
+	// THE LOAD-BEARING ORDERING (the reorder fix): the branch is OpenBranch'd, then the
+	// draft lands a commit, then the read-back confirms it — and ONLY THEN is the PR opened.
+	firstReadBack := log.firstIndexOf("readBranch")
+	firstOpenPR := log.firstIndexOf("openPR")
+	if firstReadBack < 0 {
+		t.Fatalf("expected a session-branch read-back; ops=%v", log.ops())
+	}
+	if firstOpenPR < 0 {
+		t.Fatalf("a successful draft must open the PR; ops=%v", log.ops())
+	}
+	if firstOpenPR <= firstReadBack {
+		t.Fatalf("the PR must be opened AFTER the first read-back (never on a zero-commit branch at session start); ops=%v", log.ops())
+	}
+	// The branch WAS opened before the read-back (dispatch-time half), so the ordering above
+	// is 'PR after read-back', NOT 'no branch at all'.
+	if rail.count("OpenBranch") == 0 {
+		t.Fatalf("OpenBranch (dispatch-time half) must run so the Action has a branch to commit on; ops=%v", log.ops())
+	}
+
+	// Opened EXACTLY ONE PR across the reject→redraft round (idempotent on head), and it is
+	// the session-branch PR that ultimately merges.
+	b1 := pipe.submits[0].dispatchInputs[dispatchInputTargetBranch]
+	if len(rail.openedPRHeads) != 1 || rail.openedPRHeads[0] != b1 {
+		t.Fatalf("reject→redraft must reuse the ONE persistent PR, got heads %v", rail.openedPRHeads)
+	}
+	if len(rail.mergedPRs) != 1 || rail.mergedPRs[0] != "pr/"+b1 {
+		t.Fatalf("approve must merge the one persistent PR pr/%s, got %v", b1, rail.mergedPRs)
+	}
+	if len(base.committed) != 1 {
+		t.Fatalf("want one commit-on-main after redraft→approve, got %v", base.committed)
+	}
+}
+
+// ---- from gitrail_test.go ----
+
+// =============================================================================
+// I-DESIGN-DISPATCH §2b/§2c WIRE-LEVEL regression — the PR-rail-enabled CoAuthor
+// spine. Method product → NO BDD; regression-first, black-box at the WIRE seam.
+// The rail is stubbed at the EXTERNAL sourceControlAccess boundary (a FAKE rail
+// recording every verb) and the read-back is served by a BRANCH-AWARE fake
+// projectstate. The Manager under test is NOT faked; the workflow drives the REAL
+// mint → OpenBranch → dispatch → observe → OpenPullRequest → branch-aware read-back
+// → stage(on-branch) → human gate → status-guard → +1 → merge → commit(on-main)
+// sequence over the Temporal in-memory test env (runs under -short).
+// =============================================================================
+
+// ---- fakeRail: the EXTERNAL PR-rail seam (IPullRequestRail subset) -----------
+
+type railCall struct {
+	verb   string
+	repo   string
+	branch string
+	prRef  string
+}
+
+// fakeRail records every PR-rail verb and serves a scripted PR status. checkGreen
+// drives the merge guard. It satisfies the design Manager's sourceControlRail.
+type fakeRail struct {
+	mu         sync.Mutex
+	calls      []railCall
+	checkGreen bool
+	openedPRs  int
+	// statusAuthFailsRemaining, when >0, makes GetPullRequestStatus return an fwra.Auth
+	// error (the platform's rate-limit-403-as-Auth) and decrement — used to exercise the
+	// QA F35 bounded-retry + approve-window containment.
+	statusAuthFailsRemaining int
+	// openPRAuthFailsRemaining, when >0, makes OpenPullRequest return an fwra.Auth error
+	// (the same rate-limit-403-as-Auth) and decrement — the QA F35 TWIN in the draft
+	// round-trip. Set to railAuthRetryMaxAttempts (3) to exhaust the bounded retry so the
+	// FIRST openPR faults and lands at the failed gate; the resume openPR then succeeds.
+	openPRAuthFailsRemaining int
+	// syncErr, when non-nil, makes SyncManagedScaffold fail terminally — exercises the
+	// managed-scaffold-sync containment (dispatch BLOCKED, session lands at the failed
+	// gate, NO design job submitted).
+	syncErr error
+	// syncChanged scripts the drift report (true ⇔ the seated scaffold drifted and the
+	// sync "committed" a refresh).
+	syncChanged bool
+}
+
+func (r *fakeRail) record(c railCall) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.calls = append(r.calls, c)
+}
+
+func (r *fakeRail) verbCount(verb string) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	n := 0
+	for _, c := range r.calls {
+		if c.verb == verb {
+			n++
+		}
+	}
+	return n
+}
+
+func (r *fakeRail) GetInstallationToken(_ fwra.Context, repo sourcecontrol.RepoRef) (sourcecontrol.RepoCredential, error) {
+	r.record(railCall{verb: "GetInstallationToken", repo: sourcecontrol.RepoRefString(repo)})
+	return sourcecontrol.RepoCredential{Bytes: []byte("tok"), ExpiresAt: time.Now().Add(time.Hour)}, nil
+}
+
+// CommitManagedFiles backs the managed-scaffold sync: sourcecontrol.SyncManagedScaffold
+// (the free-function composition helper the custom SyncManagedScaffoldActivity wraps)
+// reaches the rail through this verb for a non-managedFileSyncer fake. It records the sync
+// call under the "SyncManagedScaffold" counter and honors the scripted syncErr.
+func (r *fakeRail) CommitManagedFiles(_ fwra.Context, repo sourcecontrol.RepoRef, _ []sourcecontrol.ManagedFile, _ sourcecontrol.RepoCredential) (sourcecontrol.CommitRef, error) {
+	r.record(railCall{verb: "SyncManagedScaffold", repo: sourcecontrol.RepoRefString(repo)})
+	r.mu.Lock()
+	err := r.syncErr
+	r.mu.Unlock()
+	if err != nil {
+		return sourcecontrol.CommitRef(""), err
+	}
+	return sourcecontrol.CommitRef("scaffold-sync"), nil
+}
+
+func (r *fakeRail) OpenBranch(_ fwra.Context, repo sourcecontrol.RepoRef, branch sourcecontrol.BranchName, _ sourcecontrol.RepoCredential) (sourcecontrol.BranchRef, error) {
+	r.record(railCall{verb: "OpenBranch", repo: sourcecontrol.RepoRefString(repo), branch: string(branch)})
+	// The Manager discards the BranchRef (it only ensures the branch exists); a zero
+	// ref is fine — the workflow never re-materializes a branch handle.
+	return sourcecontrol.BranchRef(""), nil
+}
+
+func (r *fakeRail) OpenPullRequest(_ fwra.Context, repo sourcecontrol.RepoRef, spec sourcecontrol.PullRequestSpec, _ sourcecontrol.RepoCredential) (sourcecontrol.PullRequestRef, error) {
+	r.record(railCall{verb: "OpenPullRequest", repo: sourcecontrol.RepoRefString(repo), branch: string(spec.Head), prRef: "pr/" + string(spec.Head)})
+	r.mu.Lock()
+	fail := r.openPRAuthFailsRemaining > 0
+	if fail {
+		r.openPRAuthFailsRemaining--
+	}
+	r.mu.Unlock()
+	if fail {
+		// The observed F35-twin fault: OpenPullRequest hits a GitHub secondary rate-limit 403
+		// the platform classifier reports as Auth. The shared bounded retry absorbs it; a
+		// persistent one lands the draft round-trip at the failed gate (draft preserved).
+		return sourcecontrol.PullRequestRefFromString(""), fwra.New(fwra.Auth, "openPullRequest: github auth/permission denied")
+	}
+	r.mu.Lock()
+	r.openedPRs++
+	prRef := "pr/" + string(spec.Head)
+	r.mu.Unlock()
+	return sourcecontrol.PullRequestRefFromString(prRef), nil
+}
+
+func (r *fakeRail) GetPullRequestStatus(_ fwra.Context, repo sourcecontrol.RepoRef, pr sourcecontrol.PullRequestRef, _ sourcecontrol.RepoCredential) (sourcecontrol.PullRequestStatus, error) {
+	r.record(railCall{verb: "GetPullRequestStatus", repo: sourcecontrol.RepoRefString(repo), prRef: sourcecontrol.PullRequestRefString(pr)})
+	r.mu.Lock()
+	fail := r.statusAuthFailsRemaining > 0
+	if fail {
+		r.statusAuthFailsRemaining--
+	}
+	r.mu.Unlock()
+	if fail {
+		// The observed F35 fault: GitHub secondary rate-limit 403 the platform classifier
+		// reports as Auth. railApproveOpts retries it within a bounded budget.
+		return sourcecontrol.PullRequestStatus{}, fwra.New(fwra.Auth, "getPullRequest: github auth/permission denied")
+	}
+	rollup := sourcecontrol.CheckFailure
+	if r.checkGreen {
+		rollup = sourcecontrol.CheckSuccess
+	}
+	return sourcecontrol.PullRequestStatus{CheckRollup: rollup, Mergeable: r.checkGreen}, nil
+}
+
+func (r *fakeRail) PostReview(_ fwra.Context, repo sourcecontrol.RepoRef, pr sourcecontrol.PullRequestRef, _ sourcecontrol.ReviewSubmission, _ sourcecontrol.RepoCredential) error {
+	r.record(railCall{verb: "PostReview", repo: sourcecontrol.RepoRefString(repo), prRef: sourcecontrol.PullRequestRefString(pr)})
+	return nil
+}
+
+func (r *fakeRail) MergePullRequest(_ fwra.Context, repo sourcecontrol.RepoRef, pr sourcecontrol.PullRequestRef, _ sourcecontrol.RepoCredential) (sourcecontrol.MergeResult, error) {
+	r.record(railCall{verb: "MergePullRequest", repo: sourcecontrol.RepoRefString(repo), prRef: sourcecontrol.PullRequestRefString(pr)})
+	return sourcecontrol.MergeResult{Merged: true, Commit: "merged"}, nil
+}
+
+// The remaining SourceControlAccess ops are outside the design PR-rail lifecycle; the stub
+// satisfies the full contract with inert implementations so it can back the GENERATED rail
+// Activities registered via genActivities.
+func (r *fakeRail) AdoptProjectRepo(_ fwra.Context, _ sourcecontrol.RepoAdoptionSpec) (sourcecontrol.RepoRef, error) {
+	return sourcecontrol.RepoRef(""), nil
+}
+
+func (r *fakeRail) ConfigureBranchProtection(_ fwra.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.RepoCredential) error {
+	return nil
+}
+
+func (r *fakeRail) InstallAuthorizeApp(_ fwra.Context, _ sourcecontrol.AccountRef) (sourcecontrol.Installation, error) {
+	return sourcecontrol.Installation(""), nil
+}
+
+// SyncManagedScaffold mirrors the REAL production sourceControlAccess impl
+// ((*access).SyncManagedScaffold, github.go) — it delegates to the free-function
+// composition helper rather than stubbing directly. B10 rewires the generated
+// wf.Acts.RailSyncManagedScaffold invoker straight onto this method (the custom
+// SyncManagedScaffoldActivity that used to call the free function directly is gone), so
+// this method is now the LOAD-BEARING path the syncErr/CommitManagedFiles-counter tests
+// below exercise (previously the free function was called directly, bypassing this
+// method entirely — a latent fake/production divergence this migration surfaced).
+func (r *fakeRail) SyncManagedScaffold(rc fwra.Context, repo sourcecontrol.RepoRef, cred sourcecontrol.RepoCredential) (bool, error) {
+	return sourcecontrol.SyncManagedScaffold(rc.Context, r, repo, cred)
+}
+
+var _ sourcecontrol.SourceControlAccess = (*fakeRail)(nil)
+
+// ---- branchAwareFakeProjectState: read-back/stage capture by branch ----------
+
+// branchAwareFakeProjectState extends fakeProjectState behavior with the §2a
+// branch-aware extension so the rail-enabled spine's read-back + stage land on the
+// session branch. It records the branch each read/stage targeted so the test can
+// assert the session-branch routing.
+type branchAwareFakeProjectState struct {
+	*fakeProjectState
+	mu               sync.Mutex
+	readBranches     []string
+	stageBranches    []string
+	rejectBranches   []string
+	withdrawBranches []string
+	// failRejectOnBranch, when true, makes RejectArtifactOnBranch fault terminally
+	// (a ContractMisuse) — used to exercise the QA F28 crash-containment recovery gate.
+	failRejectOnBranch bool
+	// failWithdrawOnMain, when true, makes the MAIN-path WithdrawArtifact fault (models the
+	// unpopulated-main-slot ContractMisuse of the PR rail). Opt-in so ONLY the F30
+	// review-gate withdraw test arms it — the FAILED-gate withdraw tests (which legitimately
+	// ride main) leave it false and are unperturbed.
+	failWithdrawOnMain bool
+	// failReadBackDecode, when true, makes the branch READ-BACK fault as a TERMINAL decode of
+	// committed state (a ContractMisuse carrying the closed-enum wire-name diagnostic) — the
+	// QA F36 scenario: the drafting agent committed free prose into the "trigger" closed enum,
+	// CI validate went green, but the server codec rejects the value on read-back.
+	failReadBackDecode bool
+	// branchAdvancedModel, when non-nil, is the SystemDesign slot model the branch read-back
+	// returns instead of main's — modeling an AMENDMENT whose Action actually CHANGED the
+	// artifact (so sameArtifactModel(branch, main) is false and the F40 no-change guard does
+	// NOT trip). Left nil, the branch read-back returns main's model verbatim (identical),
+	// which trips the amendment no-change guard — the observed zero-new-commit scenario.
+	branchAdvancedModel projectstate.ArtifactModel
+}
+
+var _ projectstate.BranchAwareProjectStateAccess = (*branchAwareFakeProjectState)(nil)
+
+func (f *branchAwareFakeProjectState) ReadProjectOnBranch(ctx context.Context, projectID projectstate.ProjectID, branch string) (projectstate.Project, error) {
+	f.mu.Lock()
+	f.readBranches = append(f.readBranches, branch)
+	fail := f.failReadBackDecode
+	f.mu.Unlock()
+	if fail {
+		// The QA F36 fault: the committed draft decodes MALFORMED (free prose in the "trigger"
+		// closed enum). The real GitStore codec classifies this TERMINAL (ContractMisuse) and
+		// carries the wire-name diagnostic; retry cannot fix the immutable committed bytes.
+		return projectstate.Project{}, fwra.New(fwra.ContractMisuse,
+			`projectstate: decode slots: decode slot CoreUseCases model: "A commitment of any size appears, however it arrives, and is still held only in the person's memory." is not a recognized Trigger wire name`)
+	}
+	proj, err := f.ReadProject(fwra.Context{Context: ctx}, projectID)
+	if err != nil {
+		return projectstate.Project{}, err
+	}
+	f.mu.Lock()
+	adv := f.branchAdvancedModel
+	f.mu.Unlock()
+	if adv != nil {
+		// The amendment's Action changed the artifact on the branch — serve a branch model
+		// distinct from main so the no-change guard sees advancement and proceeds.
+		proj.SystemDesign = awaitingSlot(adv, "", "")
+	}
+	return proj, nil
+}
+
+func (f *branchAwareFakeProjectState) StageArtifactForReviewOnBranch(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, model projectstate.ArtifactModel, key fwra.IdempotencyKey) (projectstate.Version, error) {
+	f.mu.Lock()
+	f.stageBranches = append(f.stageBranches, branch)
+	f.mu.Unlock()
+	return f.StageArtifactForReview(fwra.Context{Context: ctx, IdempotencyKey: key}, projectID, expectedVersion, model)
+}
+
+// RejectArtifactOnBranch records the Reject on the SESSION BRANCH — the correct PR-rail
+// substrate, where the draft was staged and the branch version matches. It delegates to
+// the embedded fake's bookkeeping (rejected + Notes), then records the branch so the test
+// asserts the reject rode the session branch (non-empty), not main.
+func (f *branchAwareFakeProjectState) RejectArtifactOnBranch(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, key fwra.IdempotencyKey) (projectstate.Version, error) {
+	f.mu.Lock()
+	f.rejectBranches = append(f.rejectBranches, branch)
+	fail := f.failRejectOnBranch
+	f.mu.Unlock()
+	if fail {
+		// A terminal (non-retryable) write fault while recording the Reject — the crash
+		// scenario QA F28 must contain instead of failing the whole workflow.
+		return 0, fwra.New(fwra.ContractMisuse, "projectstate.RejectArtifact: simulated terminal write fault")
+	}
+	return f.fakeProjectState.RejectArtifact(fwra.Context{Context: ctx, IdempotencyKey: key}, projectID, expectedVersion, kind, notes)
+}
+
+// RejectArtifact (MAIN path) models the PRODUCTION PR-rail reality that caused QA F28: in
+// the rail flow the draft is staged ONLY on the session branch, so main's slot is
+// unpopulated and a main-path reject is a ContractMisuse ("stage a model first"), exactly
+// as the real GitStore's statusTransition raises. This shadows the embedded fake so that
+// if the Manager ever regresses to rejecting on main, the workflow crashes here and the
+// regression test fails loudly.
+func (f *branchAwareFakeProjectState) RejectArtifact(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, kind projectstate.ArtifactKind, _ string) (projectstate.Version, error) {
+	return 0, fwra.New(fwra.ContractMisuse, "projectstate.RejectArtifact: slot "+kind.String()+" is unpopulated (stage a model first)")
+}
+
+// WithdrawArtifactOnBranch records the Withdraw on the SESSION BRANCH — the correct PR-rail
+// substrate, where the draft was staged and the branch version matches. It delegates to
+// the embedded fake's bookkeeping (withdrawn), then records the branch so the test asserts
+// the withdraw rode the session branch (non-empty), not main. NOTE: the main-path
+// WithdrawArtifact is intentionally NOT shadowed to fail — the FAILED-gate withdraw
+// legitimately rides main (branch==""), so a blanket-failing shadow would break the
+// not-green recovery test. The F30 regression guard is the withdrawBranches assertion (a
+// regression to main leaves it empty).
+func (f *branchAwareFakeProjectState) WithdrawArtifactOnBranch(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, key fwra.IdempotencyKey) (projectstate.Version, error) {
+	f.mu.Lock()
+	f.withdrawBranches = append(f.withdrawBranches, branch)
+	f.mu.Unlock()
+	return f.fakeProjectState.WithdrawArtifact(fwra.Context{Context: ctx, IdempotencyKey: key}, projectID, expectedVersion, kind, notes)
+}
+
+// WithdrawArtifact (MAIN path) is the base behavior UNLESS failWithdrawOnMain is armed, in
+// which case it models the PR-rail reality that caused QA F30: main's slot is unpopulated,
+// so a main-path withdraw is a ContractMisuse. Armed only by the F30 review-gate test so a
+// regression to withdrawing on main crashes the workflow and the test fails loudly.
+func (f *branchAwareFakeProjectState) WithdrawArtifact(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, kind projectstate.ArtifactKind, notes string) (projectstate.Version, error) {
+	if f.failWithdrawOnMain {
+		return 0, fwra.New(fwra.ContractMisuse, "projectstate.WithdrawArtifact: slot "+kind.String()+" is unpopulated (stage a model first)")
+	}
+	return f.fakeProjectState.WithdrawArtifact(rc, projectID, expectedVersion, kind, notes)
+}
+
+func newRailWorkflows(rail sourcecontrol.SourceControlAccess) *workflows {
+	return &workflows{
+		Acts: genInvokers{Opts: activityOptions()},
+		Rail: rail,
+		Repo: func(ProjectID) (sourcecontrol.RepoRef, bool) {
+			return sourcecontrol.RepoRefFromString("acct|owner/repo"), true
+		},
+	}
+}
+
+// registerRailCoAuthor registers the rail-wired CoAuthor workflow + every generated
+// activity, exactly as production's RegisterWorker does. ps is the fake substrate the
+// generated projectState/designSession activities are backed by (threaded explicitly —
+// the workflows struct no longer carries an RA dep; every Activity is generated).
+func registerRailCoAuthor(env *testsuite.TestWorkflowEnvironment, wf *workflows, ps projectstate.ProjectStateAccess, pipe *fakePipeline) {
+	env.RegisterWorkflowWithOptions(wf.CoAuthorArtifactWorkflow, workflow.RegisterOptions{Name: executionKindCoAuthor})
+	registerGenActivities(env, ps, pipe, wf.Rail)
+}
+
+// THE RAIL HAPPY PATH (§2b/§2c). With the rail wired, the System draft (architect-
+// owned, single dispatch) runs the full settled flow: OpenBranch(sessionBranch) →
+// dispatch → OpenPullRequest(head=sessionBranch) → read-back ON the session branch →
+// stage ON the session branch → AwaitingReview → Approve → status guard (green) → +1 →
+// merge → commit on main.
+func Test_CoAuthor_RailEnabled_BranchPRReadBackPlusOneMerge_HappyPath(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base := &fakeProjectState{project: systemReadBack(t, id)}
+	ps := &branchAwareFakeProjectState{fakeProjectState: base}
+	pipe := newFakePipeline() // dispatch observed Succeeded
+	rail := &fakeRail{checkGreen: true}
+	wf := newRailWorkflows(rail)
+	registerRailCoAuthor(env, wf, ps, pipe)
+
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
+	}, 30*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("rail happy path workflow error: %v", err)
+	}
+	var outcome coAuthorOutcome
+	if err := env.GetWorkflowResult(&outcome); err != nil {
+		t.Fatalf("decode outcome: %v", err)
+	}
+	if outcome != coAuthorApproved {
+		t.Fatalf("want CoAuthorApproved, got %d", outcome)
+	}
+	// The rail ran the full settled sequence exactly once each.
+	for _, verb := range []string{"GetInstallationToken", "OpenBranch", "OpenPullRequest", "GetPullRequestStatus", "PostReview", "MergePullRequest"} {
+		if rail.verbCount(verb) != 1 {
+			t.Fatalf("want exactly one %s rail call, got %d (calls: %+v)", verb, rail.verbCount(verb), rail.calls)
+		}
+	}
+	// The read-back + stage rode over the SESSION BRANCH (non-empty), not main.
+	if len(ps.readBranches) == 0 || ps.readBranches[0] == "" {
+		t.Fatalf("read-back must target the session branch, got %v", ps.readBranches)
+	}
+	if len(ps.stageBranches) != 1 || ps.stageBranches[0] == "" {
+		t.Fatalf("stage must target the session branch, got %v", ps.stageBranches)
+	}
+	// Commit landed on main (the canonical head) exactly once.
+	if len(base.committed) != 1 || base.committed[0] != projectstate.KindSystem {
+		t.Fatalf("want one CommitArtifact(KindSystem) on main, got %v", base.committed)
+	}
+}
+
+// THE MERGE GUARD (§2b). At Approve the required CI check is NOT green: the rail must
+// NOT merge and the spine must NOT commit — it routes to the StageDraftFailed recovery
+// gate. Withdraw ends clean with nothing committed.
+func Test_CoAuthor_RailEnabled_ApproveButPRNotGreen_DoesNotMerge_Recovers(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base := &fakeProjectState{project: systemReadBack(t, id)}
+	ps := &branchAwareFakeProjectState{fakeProjectState: base}
+	pipe := newFakePipeline()
+	rail := &fakeRail{checkGreen: false} // the merge guard is RED
+	wf := newRailWorkflows(rail)
+	registerRailCoAuthor(env, wf, ps, pipe)
+
+	// First Approve hits the not-green guard → StageDraftFailed; then Withdraw ends it.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
+	}, 30*time.Second)
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 60*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a not-green merge guard must not crash the workflow: %v", err)
+	}
+	if rail.verbCount("MergePullRequest") != 0 {
+		t.Fatalf("a not-green PR must NOT be merged, got %d merge calls", rail.verbCount("MergePullRequest"))
+	}
+	if len(base.committed) != 0 {
+		t.Fatalf("a not-green merge guard must NEVER commit, got %v", base.committed)
+	}
+}
+
+// THE QA F36 REGRESSION — a MALFORMED committed draft read-back. The design job reports
+// success and CI validate is GREEN (its Go mirror types the "trigger" field as a free
+// string), but the server codec REJECTS the free-prose value in that closed enum on
+// read-back (a TERMINAL ContractMisuse). Pre-fix the read-back Activity retried the same
+// immutable committed bytes every ~100s FOREVER, leaving the session wedged at Drafting
+// with no failure surface. After the fix the terminal decode fault lands the session at the
+// human-visible StageDraftFailed gate carrying the DECODE DIAGNOSTIC as the FailureReason,
+// and suspends awaiting Retry/Withdraw. Withdraw ends clean with nothing staged/committed.
+func Test_CoAuthor_RailEnabled_MalformedReadBack_LandsInStageDraftFailed_WithDecodeReason(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base := &fakeProjectState{project: systemReadBack(t, id)}
+	ps := &branchAwareFakeProjectState{fakeProjectState: base, failReadBackDecode: true}
+	pipe := newFakePipeline() // dispatch observed Succeeded; CI validate is green
+	rail := &fakeRail{checkGreen: true}
+	wf := newRailWorkflows(rail)
+	registerRailCoAuthor(env, wf, ps, pipe)
+
+	env.RegisterDelayedCallback(func() {
+		enc, err := env.QueryWorkflow(querySessionState)
+		if err != nil {
+			t.Fatalf("QueryWorkflow: %v", err)
+		}
+		var view SessionStateView
+		if err := enc.Get(&view); err != nil {
+			t.Fatalf("decode SessionStateView: %v", err)
+		}
+		// The load-bearing anti-wedge assertion: NOT stuck at Drafting (the F36 wedge).
+		if view.Stage == StageDrafting {
+			t.Fatal("a malformed read-back must NOT leave the session in perpetual StageDrafting (F36 wedge)")
+		}
+		if view.Stage != StageDraftFailed {
+			t.Fatalf("a terminal decode read-back must land in StageDraftFailed, got stage %d", view.Stage)
+		}
+		// The FailureReason must carry the DECODE DIAGNOSTIC (the wire-name rejection) so the
+		// human sees WHY — not a generic "job failed" message.
+		if view.FailureReason == nil || *view.FailureReason == "" {
+			t.Fatal("StageDraftFailed from a malformed read-back must carry a FailureReason")
+		}
+		if !strings.Contains(*view.FailureReason, "is not a recognized Trigger wire name") {
+			t.Fatalf("FailureReason must carry the decode diagnostic; got %q", *view.FailureReason)
+		}
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 30*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindCoreUseCases})
+
+	if !env.IsWorkflowCompleted() {
+		t.Fatal("workflow did not complete after withdraw from the decode-failed gate")
+	}
+	// A terminal decode-of-committed-state is contained at the Manager (human gate), NOT a
+	// workflow crash and NOT an infinite retry loop.
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a terminal decode read-back must NOT fail the workflow, got: %v", err)
+	}
+	if len(ps.stageBranches) != 0 {
+		t.Fatalf("a malformed read-back must stage nothing, got %v", ps.stageBranches)
+	}
+	if len(base.committed) != 0 {
+		t.Fatalf("a malformed read-back must commit nothing, got %v", base.committed)
+	}
+}
+
+// THE QA F28 REGRESSION — Reject/"Send back" against the PR rail. In the rail flow the
+// draft + its AwaitingReview status live ONLY on the session branch (main's slot is
+// unpopulated until an approved draft merges). The architect's Reject must therefore
+// record the Rejected status ON THE SESSION BRANCH — NOT on main, where the version
+// mismatches AND the slot is unpopulated (the ContractMisuse crash that ended the
+// CoAuthor workflow FAILED and silently discarded the review comments). After the fix the
+// Reject lands on the session branch, the workflow survives, and the redraft dispatch
+// carries the architect's anchored comments + notes woven into the design_prompt.
+func Test_CoAuthor_RailEnabled_Reject_RecordsOnSessionBranch_RedraftCarriesFeedback(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base := &fakeProjectState{project: systemReadBack(t, id)}
+	ps := &branchAwareFakeProjectState{fakeProjectState: base}
+	pipe := newFakePipeline() // every dispatch Succeeds
+	rail := &fakeRail{checkGreen: true}
+	wf := newRailWorkflows(rail)
+	registerRailCoAuthor(env, wf, ps, pipe)
+
+	const (
+		rejectNotes = "rework the decomposition"
+		commentPath = "$.containers[0].name"
+		commentText = "this manager name violates the layering rule"
+	)
+	feedback := &ReviewFeedback{
+		Notes:    rejectNotes,
+		Comments: []AnchoredComment{{JSONPath: commentPath, Text: commentText}},
+	}
+
+	// First gate: REJECT with anchored feedback. Second gate (after the redraft reaches
+	// AwaitingReview again): WITHDRAW to end the session cleanly.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewReject, Feedback: feedback})
+	}, 30*time.Second)
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 70*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+
+	// The reject must NOT crash the workflow (QA F28 was a non-retryable ContractMisuse
+	// that ended it FAILED).
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a PR-rail reject must not crash the workflow: %v", err)
+	}
+	// The Reject rode the SESSION BRANCH, not main (main's slot is unpopulated — the
+	// branchAwareFakeProjectState's main-path RejectArtifact would ContractMisuse).
+	if len(ps.rejectBranches) != 1 || ps.rejectBranches[0] == "" {
+		t.Fatalf("reject must target the session branch, got %v", ps.rejectBranches)
+	}
+	if len(base.rejected) != 1 || base.rejected[0].kind != projectstate.KindSystem || base.rejected[0].notes != rejectNotes {
+		t.Fatalf("want one RejectArtifact(KindSystem, %q) on the session branch, got %v", rejectNotes, base.rejected)
+	}
+	// The reject looped to a FRESH redraft dispatch that WEAVES IN the feedback: both the
+	// free-text notes AND the JSONPath-anchored comment text (writeFeedback in prompts.go).
+	if len(pipe.submits) < 2 {
+		t.Fatalf("a reject must re-dispatch a fresh draft, got %d submits", len(pipe.submits))
+	}
+	redraftPrompt := pipe.submits[len(pipe.submits)-1].dispatchInputs[dispatchInputDesignPrompt]
+	for _, want := range []string{rejectNotes, commentPath, commentText} {
+		if !strings.Contains(redraftPrompt, want) {
+			t.Fatalf("redraft design_prompt must carry the architect's feedback %q; prompt:\n%s", want, redraftPrompt)
+		}
+	}
+}
+
+// CRASH CONTAINMENT AT THE REVIEW GATE (QA F28 item 2). An activity fault while RECORDING
+// the Reject must not kill the workflow. The spine lands at the human-visible
+// StageDraftFailed recovery gate KEEPING the received feedback, so a Retry redrafts with
+// the architect's comments woven in rather than silently discarding the send-back.
+func Test_CoAuthor_RailEnabled_RejectWriteFaults_RecoversAtFailedGate_RetainsFeedback(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base := &fakeProjectState{project: systemReadBack(t, id)}
+	ps := &branchAwareFakeProjectState{fakeProjectState: base, failRejectOnBranch: true}
+	pipe := newFakePipeline() // every dispatch Succeeds
+	rail := &fakeRail{checkGreen: true}
+	wf := newRailWorkflows(rail)
+	registerRailCoAuthor(env, wf, ps, pipe)
+
+	const (
+		rejectNotes = "rework the decomposition"
+		commentPath = "$.containers[0].name"
+		commentText = "this manager name violates the layering rule"
+	)
+	feedback := &ReviewFeedback{
+		Notes:    rejectNotes,
+		Comments: []AnchoredComment{{JSONPath: commentPath, Text: commentText}},
+	}
+
+	// First gate: REJECT (the write FAULTS terminally) → crash containment lands at the
+	// StageDraftFailed gate carrying the feedback.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewReject, Feedback: feedback})
+	}, 30*time.Second)
+	// Assert the workflow landed at the recoverable failed gate (NOT crashed) with a reason.
+	env.RegisterDelayedCallback(func() {
+		enc, err := env.QueryWorkflow(querySessionState)
+		if err != nil {
+			t.Fatalf("QueryWorkflow at failed gate: %v", err)
+		}
+		var view SessionStateView
+		if derr := enc.Get(&view); derr != nil {
+			t.Fatalf("decode SessionStateView: %v", derr)
+		}
+		if view.Stage != StageDraftFailed {
+			t.Fatalf("a faulted reject must land at StageDraftFailed, got stage %v", view.Stage)
+		}
+		if view.FailureReason == nil || *view.FailureReason == "" {
+			t.Fatal("the failed gate must surface a human FailureReason")
+		}
+	}, 45*time.Second)
+	// Retry via the redraft lever WITH NO NEW FEEDBACK: the retained feedback must drive
+	// the redraft.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(lSignalRedraft, redraftSignal{})
+	}, 60*time.Second)
+	// After the redraft reaches AwaitingReview, WITHDRAW to end.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 100*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a faulted reject must not crash the workflow: %v", err)
+	}
+	// The retry redrafted, and the RETAINED feedback (set before the faulted write) rode
+	// into the redraft prompt even though the Retry signal carried none.
+	if len(pipe.submits) < 2 {
+		t.Fatalf("the retry must issue a SECOND dispatch, got %d submits", len(pipe.submits))
+	}
+	redraftPrompt := pipe.submits[len(pipe.submits)-1].dispatchInputs[dispatchInputDesignPrompt]
+	for _, want := range []string{rejectNotes, commentPath, commentText} {
+		if !strings.Contains(redraftPrompt, want) {
+			t.Fatalf("the retained feedback %q must survive the fault and drive the redraft; prompt:\n%s", want, redraftPrompt)
+		}
+	}
+}
+
+// ---- f29BranchFake: version-enforcing branch-aware substrate (QA F29) --------
+
+// f29BranchFake models the production reality F29 exposed: MAIN and the SESSION BRANCH
+// sit at DIFFERENT versions. A fresh CoAuthor workflow captures main's version (mainVer),
+// but the Action's prior draft/critique commits left a REUSED session branch AHEAD
+// (branchVer). The read-back reads the BRANCH (branchVer); a stage that expects the stale
+// main version Conflicts. Unlike the version-ignoring base fake, this fake ENFORCES the
+// branch version on stage-on-branch, so a stale expected version surfaces the real
+// fwra.Conflict — the exact non-retryable stage crash of F29 — and the test proves the fix
+// converges. stageFailsRemaining injects terminal stage faults for the containment test.
+type f29BranchFake struct {
+	*fakeProjectState
+	mu                  sync.Mutex
+	mainVer             projectstate.Version
+	branchVer           projectstate.Version
+	stageExpecteds      []projectstate.Version
+	stageFailsRemaining int
+}
+
+var _ projectstate.BranchAwareProjectStateAccess = (*f29BranchFake)(nil)
+
+func (f *f29BranchFake) ReadProject(_ fwra.Context, _ projectstate.ProjectID) (projectstate.Project, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	p := f.project
+	p.Version = f.mainVer
+	return p, nil
+}
+
+func (f *f29BranchFake) ReadProjectVersion(_ fwra.Context, _ projectstate.ProjectID) (projectstate.Version, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.mainVer, nil
+}
+
+func (f *f29BranchFake) ReadProjectOnBranch(_ context.Context, _ projectstate.ProjectID, _ string) (projectstate.Project, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	p := f.project
+	p.Version = f.branchVer // the dirty session branch is AHEAD of main
+	return p, nil
+}
+
+func (f *f29BranchFake) StageArtifactForReviewOnBranch(_ context.Context, _ projectstate.ProjectID, expected projectstate.Version, _ string, model projectstate.ArtifactModel, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.stageExpecteds = append(f.stageExpecteds, expected)
+	if f.stageFailsRemaining > 0 {
+		f.stageFailsRemaining--
+		return 0, fwra.New(fwra.ContractMisuse, "projectstate.StageArtifactForReview: simulated terminal stage fault")
+	}
+	if expected != f.branchVer {
+		// The real GitStore's optimistic-concurrency guard — the F29 Conflict.
+		return 0, fwra.New(fwra.Conflict, fmt.Sprintf("projectstate.StageArtifactForReview: stale version: have %d, expected %d", f.branchVer, expected))
+	}
+	f.branchVer++
+	f.staged = append(f.staged, model)
+	return f.branchVer, nil
+}
+
+func (f *f29BranchFake) RejectArtifactOnBranch(_ context.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ArtifactKind, _ string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.branchVer++
+	return f.branchVer, nil
+}
+
+func (f *f29BranchFake) WithdrawArtifactOnBranch(_ context.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ArtifactKind, _ string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	// Terminal in the F29 tests; leave branchVer untouched so the stage-convergence
+	// assertion stays about the stage, not this withdraw.
+	return f.branchVer, nil
+}
+
+// THE QA F29 REGRESSION — a fresh workflow reusing a session branch already AHEAD of main
+// stages against the ACTUAL branch version and CONVERGES, instead of Conflicting
+// non-recoverably against the stale main-captured version and crashing the workflow.
+func Test_CoAuthor_RailEnabled_StageAgainstDirtyBranch_Converges_NoCrash(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base := &fakeProjectState{project: systemReadBack(t, id)}
+	// main at v2; the reused session branch already advanced to v4 by prior draft/critique
+	// commits — the exact "have 4, expected 2" split from the F29 report.
+	ps := &f29BranchFake{fakeProjectState: base, mainVer: 2, branchVer: 4}
+	pipe := newFakePipeline()
+	rail := &fakeRail{checkGreen: true}
+	wf := newRailWorkflows(rail)
+	registerRailCoAuthor(env, wf, ps, pipe)
+
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
+	}, 30*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+
+	// F29 crashed the workflow (non-retryable Conflict → MutateConflictExhausted). The fix
+	// must let it complete.
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("staging against a dirty session branch must converge, not crash: %v", err)
+	}
+	// A stage SUCCEEDED (the branch version advanced past 4) — it converged on the branch.
+	if ps.branchVer != 5 {
+		t.Fatalf("stage must converge and advance the branch version to 5, got %d (expecteds=%v)", ps.branchVer, ps.stageExpecteds)
+	}
+	// The successful stage expected the ACTUAL branch version (4), never the stale main 2.
+	last := ps.stageExpecteds[len(ps.stageExpecteds)-1]
+	if last != 4 {
+		t.Fatalf("the converged stage must expect the branch version 4, got %d (expecteds=%v)", last, ps.stageExpecteds)
+	}
+	if len(base.committed) != 1 || base.committed[0] != projectstate.KindSystem {
+		t.Fatalf("want one commit after the converged stage → approve, got %v", base.committed)
+	}
+}
+
+// CRASH CONTAINMENT AT THE STAGE STEP (QA F29 item 2). A terminal stage-for-review fault
+// must NOT kill the workflow: the spine lands at the human-visible StageDraftFailed
+// recovery gate. A Retry redrafts and the second stage converges.
+func Test_CoAuthor_RailEnabled_StageFaults_RecoversAtFailedGate(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base := &fakeProjectState{project: systemReadBack(t, id)}
+	// The FIRST stage faults terminally; the retry's stage converges.
+	ps := &f29BranchFake{fakeProjectState: base, mainVer: 2, branchVer: 4, stageFailsRemaining: 1}
+	pipe := newFakePipeline()
+	rail := &fakeRail{checkGreen: true}
+	wf := newRailWorkflows(rail)
+	registerRailCoAuthor(env, wf, ps, pipe)
+
+	// After the stage fault the session is at StageDraftFailed — assert the recoverable
+	// gate (not a crash), then Retry.
+	env.RegisterDelayedCallback(func() {
+		enc, err := env.QueryWorkflow(querySessionState)
+		if err != nil {
+			t.Fatalf("QueryWorkflow at failed gate: %v", err)
+		}
+		var view SessionStateView
+		if derr := enc.Get(&view); derr != nil {
+			t.Fatalf("decode SessionStateView: %v", derr)
+		}
+		if view.Stage != StageDraftFailed {
+			t.Fatalf("a faulted stage must land at StageDraftFailed, got stage %v", view.Stage)
+		}
+		if view.FailureReason == nil || *view.FailureReason == "" {
+			t.Fatal("the failed gate must surface a human FailureReason")
+		}
+	}, 30*time.Second)
+	// Retry via the redraft lever → re-draft → the second stage converges.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(lSignalRedraft, redraftSignal{})
+	}, 45*time.Second)
+	// After the recovered stage reaches AwaitingReview, Withdraw to end.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 80*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a faulted stage must not crash the workflow: %v", err)
+	}
+	// The recovered retry staged successfully (branch advanced past 4).
+	if ps.branchVer != 5 {
+		t.Fatalf("the recovered retry must converge its stage (branch → 5), got %d", ps.branchVer)
+	}
+}
+
+// THE QA F30 REGRESSION — Withdraw against the PR rail records the Withdrawn status ON THE
+// SESSION BRANCH (not main, where the version mismatches AND the slot is unpopulated), the
+// workflow survives, and ends withdrawn. failWithdrawOnMain arms the main-path guard so a
+// regression to withdrawing on main crashes the workflow and this test fails loudly.
+func Test_CoAuthor_RailEnabled_Withdraw_RecordsOnSessionBranch_NoCrash(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base := &fakeProjectState{project: systemReadBack(t, id)}
+	ps := &branchAwareFakeProjectState{fakeProjectState: base, failWithdrawOnMain: true}
+	pipe := newFakePipeline()
+	rail := &fakeRail{checkGreen: true}
+	wf := newRailWorkflows(rail)
+	registerRailCoAuthor(env, wf, ps, pipe)
+
+	// At the AwaitingReview gate, WITHDRAW the not-yet-merged draft.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw, Feedback: &ReviewFeedback{Notes: "abandon this draft"}})
+	}, 30*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+
+	// A rail-flow withdraw must NOT crash (F30 was a main-path ContractMisuse on the
+	// unpopulated main slot).
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a PR-rail withdraw must not crash the workflow: %v", err)
+	}
+	var outcome coAuthorOutcome
+	if err := env.GetWorkflowResult(&outcome); err != nil {
+		t.Fatalf("decode outcome: %v", err)
+	}
+	if outcome != coAuthorWithdrawn {
+		t.Fatalf("want CoAuthorWithdrawn, got %d", outcome)
+	}
+	// The Withdraw rode the SESSION BRANCH, not main.
+	if len(ps.withdrawBranches) != 1 || ps.withdrawBranches[0] == "" {
+		t.Fatalf("withdraw must target the session branch, got %v", ps.withdrawBranches)
+	}
+	if len(base.withdrawn) != 1 || base.withdrawn[0] != projectstate.KindSystem {
+		t.Fatalf("want one WithdrawArtifact(KindSystem) on the session branch, got %v", base.withdrawn)
+	}
+}
+
+// F40 — a Retry at the StageDraftFailed gate redrafts on the SAME persistent session
+// branch (the F32 branch-per-retry topology is unwound; the stale-base problem is now
+// handled by the workflow template's refresh-from-main git step, not a fresh branch). This
+// drives a stage fault → retry-via-reject (with feedback) and asserts the redraft dispatch
+// targets the SAME branch AND still carries the retained feedback.
+func Test_CoAuthor_RailEnabled_RetryAtFailedGate_SameBranch_RetainsFeedback(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base := &fakeProjectState{project: systemReadBack(t, id)}
+	// The FIRST stage faults terminally → StageDraftFailed; the retry's stage converges.
+	ps := &f29BranchFake{fakeProjectState: base, mainVer: 2, branchVer: 4, stageFailsRemaining: 1}
+	pipe := newFakePipeline() // every dispatch Succeeds (the fault is at STAGE, not the job)
+	rail := &fakeRail{checkGreen: true}
+	wf := newRailWorkflows(rail)
+	registerRailCoAuthor(env, wf, ps, pipe)
+
+	const retryNotes = "fix the layering violation before redrafting"
+	// At the StageDraftFailed gate, Retry-via-Reject carrying feedback.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewReject, Feedback: &ReviewFeedback{Notes: retryNotes}})
+	}, 30*time.Second)
+	// After the recovered redraft reaches AwaitingReview, Withdraw to end.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 80*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a failed-gate retry must not crash the workflow: %v", err)
+	}
+	if len(pipe.submits) < 2 {
+		t.Fatalf("the retry must issue a SECOND draft dispatch, got %d submits", len(pipe.submits))
+	}
+	b0 := pipe.submits[0].dispatchInputs[dispatchInputTargetBranch]
+	b1 := pipe.submits[len(pipe.submits)-1].dispatchInputs[dispatchInputTargetBranch]
+	if b0 == "" || b1 == "" {
+		t.Fatalf("both dispatches must carry a target_branch, got %q / %q", b0, b1)
+	}
+	// F40: the retry redrafts on the SAME persistent session branch (the template's
+	// refresh-from-main handles a stale base; no per-attempt suffix).
+	if b1 != b0 {
+		t.Fatalf("a failed-gate retry must redraft on the SAME session branch (F40); got %q then %q", b0, b1)
+	}
+	if strings.Contains(b1, "-amend-") {
+		t.Fatalf("the retry branch must be the stable session branch (no amendment suffix), got %q", b1)
+	}
+	// Retained feedback rides into the redraft prompt.
+	if p := pipe.submits[len(pipe.submits)-1].dispatchInputs[dispatchInputDesignPrompt]; !strings.Contains(p, retryNotes) {
+		t.Fatalf("the retained feedback %q must drive the redraft; prompt:\n%s", retryNotes, p)
+	}
+}
+
+// THE QA F35 REGRESSION — an approve-window fault (GetPullRequestStatus 403 → Auth kind)
+// must NOT kill the workflow. After the bounded retry budget is exhausted, the session
+// RETURNS to AwaitingReview carrying a queryable notice (FailureReason), and a re-approve
+// succeeds and merges. NOT a redraft (which would discard the approved-quality draft).
+func Test_CoAuthor_RailEnabled_ApproveStatusFault_ReturnsToAwaitingReview_ReapproveMerges(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base := &fakeProjectState{project: systemReadBack(t, id)}
+	ps := &branchAwareFakeProjectState{fakeProjectState: base}
+	pipe := newFakePipeline()
+	// The first approve's GetPullRequestStatus 403s on all 3 bounded attempts → contained;
+	// after that the counter is 0 so the re-approve reads green and merges.
+	rail := &fakeRail{checkGreen: true, statusAuthFailsRemaining: 3}
+	wf := newRailWorkflows(rail)
+	registerRailCoAuthor(env, wf, ps, pipe)
+
+	// First approve → status 403s → contained → back to AwaitingReview with a notice.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
+	}, 30*time.Second)
+	// Assert the session returned to AwaitingReview with a queryable re-approve notice.
+	env.RegisterDelayedCallback(func() {
+		enc, err := env.QueryWorkflow(querySessionState)
+		if err != nil {
+			t.Fatalf("QueryWorkflow after approve fault: %v", err)
+		}
+		var view SessionStateView
+		if derr := enc.Get(&view); derr != nil {
+			t.Fatalf("decode SessionStateView: %v", derr)
+		}
+		if view.Stage != StageAwaitingReview {
+			t.Fatalf("an approve fault must return to AwaitingReview, got stage %v", view.Stage)
+		}
+		if view.FailureReason == nil || !strings.Contains(*view.FailureReason, "approve") {
+			t.Fatalf("the returned session must carry a re-approve notice, got %v", view.FailureReason)
+		}
+	}, 70*time.Second)
+	// Re-approve → now the status reads green → merge + commit.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
+	}, 90*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("an approve-window fault must not crash the workflow: %v", err)
+	}
+	var outcome coAuthorOutcome
+	if err := env.GetWorkflowResult(&outcome); err != nil {
+		t.Fatalf("decode outcome: %v", err)
+	}
+	if outcome != coAuthorApproved {
+		t.Fatalf("the re-approve must commit, got outcome %d", outcome)
+	}
+	if rail.verbCount("MergePullRequest") != 1 {
+		t.Fatalf("exactly one merge (on the successful re-approve), got %d", rail.verbCount("MergePullRequest"))
+	}
+	if len(base.committed) != 1 || base.committed[0] != projectstate.KindSystem {
+		t.Fatalf("want one commit after re-approve, got %v", base.committed)
+	}
+}
+
+// BOUNDED RESILIENCE (QA F35). Two transient 403s then success: the bounded retry absorbs
+// them and the merge completes on the FIRST approve — no return-to-review, no crash.
+func Test_CoAuthor_RailEnabled_ApproveStatusTransient_RetriesThenMerges(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base := &fakeProjectState{project: systemReadBack(t, id)}
+	ps := &branchAwareFakeProjectState{fakeProjectState: base}
+	pipe := newFakePipeline()
+	rail := &fakeRail{checkGreen: true, statusAuthFailsRemaining: 2} // fail twice, 3rd succeeds
+	wf := newRailWorkflows(rail)
+	registerRailCoAuthor(env, wf, ps, pipe)
+
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
+	}, 30*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("bounded retry must absorb the transient 403s: %v", err)
+	}
+	var outcome coAuthorOutcome
+	if err := env.GetWorkflowResult(&outcome); err != nil {
+		t.Fatalf("decode outcome: %v", err)
+	}
+	if outcome != coAuthorApproved {
+		t.Fatalf("the first approve must commit after the retries, got %d", outcome)
+	}
+	// GetPullRequestStatus was attempted 3 times (2 faults + 1 success) within the budget.
+	if n := rail.verbCount("GetPullRequestStatus"); n != 3 {
+		t.Fatalf("want 3 bounded GetPullRequestStatus attempts (2 fault + 1 success), got %d", n)
+	}
+	if rail.verbCount("MergePullRequest") != 1 {
+		t.Fatalf("the merge must complete on the first approve, got %d merges", rail.verbCount("MergePullRequest"))
+	}
+	if len(base.committed) != 1 {
+		t.Fatalf("want one commit on the first approve, got %v", base.committed)
+	}
+}
+
+// THE F38 AMENDMENT REGRESSION — reopening a COMMITTED artifact starts a fresh session on a
+// …-amend-N branch and the draft prompt states it AMENDS the committed version. Driven by
+// coAuthorInput.Amendment (which RequestArtifactDraft sets from the committed slot's
+// Revisions). The reopening feedback rides coAuthorInput.Feedback.
+func Test_CoAuthor_RailEnabled_Amendment_UsesAmendBranchAndPrompt(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base := &fakeProjectState{project: systemReadBack(t, id)}
+	ps := &branchAwareFakeProjectState{fakeProjectState: base}
+	pipe := newFakePipeline()
+	rail := &fakeRail{checkGreen: true}
+	wf := newRailWorkflows(rail)
+	registerRailCoAuthor(env, wf, ps, pipe)
+
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 30*time.Second)
+
+	// Amendment 1 with anchored reopening feedback (the "why").
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{
+		ProjectID:    id,
+		ArtifactKind: KindSystem,
+		Amendment:    1,
+		Feedback:     &ReviewFeedback{Comments: []AnchoredComment{{JSONPath: "$.containers[0].name", Text: "rename this manager"}}},
+	})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("amendment session must not crash: %v", err)
+	}
+	if len(pipe.submits) == 0 {
+		t.Fatal("amendment must dispatch a draft")
+	}
+	// The draft rode a fresh …-amend-1 branch (F38 + F40 stable within the amendment session).
+	b := pipe.submits[0].dispatchInputs[dispatchInputTargetBranch]
+	if !strings.HasSuffix(b, "-amend-1") {
+		t.Fatalf("amendment 1 must draft on a …-amend-1 branch, got %q", b)
+	}
+	// The prompt states it amends the committed version.
+	if p := pipe.submits[0].dispatchInputs[dispatchInputDesignPrompt]; !strings.Contains(p, "AMENDMENT (revision 1)") {
+		t.Fatalf("amendment prompt must state it amends the committed version; prompt:\n%s", p)
+	}
+}
+
+// composeIdempotencyKey RUN-SCOPING (F40 root cause) pin RETIRED (B10): the local
+// activityIdempotencyKey/composeIdempotencyKey helpers (activities_custom.go) are gone —
+// every write this Manager makes now derives its key via the platform-generated
+// genActivityIdempotencyKey (activities.gen.go, DO-NOT-EDIT), which the SAME 3-part
+// run-scoped "workflowID:runID:activityID" format the deleted helper computed (verified
+// by reading it before deletion). No pure seam remains in this package to pin the
+// run-scoping property against; it now holds BY CONSTRUCTION in the shared generated
+// derivation (identical for all five managers). Same posture construction (B8) and
+// billing/projectdesign (B7/B9) already ship with — none of them pins the generated key
+// format per-package either.
+
+// F40 dispatch key is RUN-SCOPED end-to-end — the DispatchDesignJobActivity composes the
+// key from activity.GetInfo, which now includes the RunID. Asserted through the fake
+// pipeline's captured key (the test env pins a fixed run id, so we assert its presence).
+func Test_CoAuthor_DispatchKey_CarriesRunID(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base := &fakeProjectState{project: systemReadBack(t, id)}
+	ps := &branchAwareFakeProjectState{fakeProjectState: base}
+	pipe := newFakePipeline(pipelineFailed) // fail after the first dispatch so it lands quickly
+	rail := &fakeRail{checkGreen: true}
+	wf := newRailWorkflows(rail)
+	registerRailCoAuthor(env, wf, ps, pipe)
+
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 30*time.Second)
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	if len(pipe.submits) == 0 {
+		t.Fatal("expected a dispatch")
+	}
+	key := string(pipe.submits[0].idempotencyKey)
+	// The run id must be a segment of the key (run-scoping) — not merely wfID:activityID.
+	if !strings.Contains(key, ":default-test-run-id:") {
+		t.Fatalf("dispatch idempotency key must be run-scoped (contain the RunID segment), got %q", key)
+	}
+}
+
+// F40 AMENDMENT NO-CHANGE GUARD — an amendment session whose Action ran and "succeeded"
+// but committed NOTHING that changed the artifact (branch read-back == committed main
+// model) must land at the StageDraftFailed gate with the honest reason and open NO PR
+// (opening one would 422 on the zero-new-commit branch). Withdraw ends clean.
+func Test_CoAuthor_Rail_Amendment_NoChange_LandsFailedGate_NoPR(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base := &fakeProjectState{project: systemReadBack(t, id)}
+	// branchAdvancedModel left nil ⇒ branch read-back == main ⇒ no advancement.
+	ps := &branchAwareFakeProjectState{fakeProjectState: base}
+	pipe := newFakePipeline() // the design job "succeeds"
+	rail := &fakeRail{checkGreen: true}
+	wf := newRailWorkflows(rail)
+	registerRailCoAuthor(env, wf, ps, pipe)
+
+	env.RegisterDelayedCallback(func() {
+		enc, err := env.QueryWorkflow(querySessionState)
+		if err != nil {
+			t.Fatalf("QueryWorkflow: %v", err)
+		}
+		var view SessionStateView
+		if err := enc.Get(&view); err != nil {
+			t.Fatalf("decode SessionStateView: %v", err)
+		}
+		if view.Stage != StageDraftFailed {
+			t.Fatalf("a no-change amendment must land at StageDraftFailed, got stage %d", view.Stage)
+		}
+		reason := ""
+		if view.FailureReason != nil {
+			reason = *view.FailureReason
+		}
+		if !strings.Contains(reason, "no changes") {
+			t.Fatalf("the failed gate must carry the honest no-change reason, got %q", reason)
+		}
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 30*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{
+		ProjectID:    id,
+		ArtifactKind: KindSystem,
+		Amendment:    1,
+		Feedback:     &ReviewFeedback{Notes: "please tighten"},
+	})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("no-change amendment must not crash: %v", err)
+	}
+	// The dispatch + read-back ran, but NO PR was opened (the branch never advanced).
+	if pipe.submits[0].dispatchInputs[dispatchInputTargetBranch] == "" {
+		t.Fatal("the amendment must still dispatch a draft")
+	}
+	if rail.verbCount("OpenPullRequest") != 0 {
+		t.Fatalf("a no-change amendment must open NO PR (zero-new-commit branch), got %d", rail.verbCount("OpenPullRequest"))
+	}
+	if rail.verbCount("MergePullRequest") != 0 {
+		t.Fatalf("a no-change amendment must NOT merge, got %d", rail.verbCount("MergePullRequest"))
+	}
+	if len(base.committed) != 0 {
+		t.Fatalf("a no-change amendment must commit nothing, got %v", base.committed)
+	}
+}
+
+// F40 AMENDMENT POSITIVE CONTROL — an amendment whose Action DID change the artifact
+// (branch read-back differs from committed main) must NOT trip the no-change guard: it
+// opens the PR and, on approve, merges + commits. Proves the guard blocks only genuine
+// no-ops, not every amendment.
+func Test_CoAuthor_Rail_Amendment_Advanced_OpensPR_Merges(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base := &fakeProjectState{project: systemReadBack(t, id)}
+	ps := &branchAwareFakeProjectState{
+		fakeProjectState:    base,
+		branchAdvancedModel: &projectstate.System{Components: []projectstate.Component{{}}}, // differs from main's empty System
+	}
+	pipe := newFakePipeline()
+	rail := &fakeRail{checkGreen: true}
+	wf := newRailWorkflows(rail)
+	registerRailCoAuthor(env, wf, ps, pipe)
+
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
+	}, 30*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{
+		ProjectID:    id,
+		ArtifactKind: KindSystem,
+		Amendment:    1,
+		Feedback:     &ReviewFeedback{Notes: "add a manager"},
+	})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("advanced amendment must not crash: %v", err)
+	}
+	var outcome coAuthorOutcome
+	if err := env.GetWorkflowResult(&outcome); err != nil {
+		t.Fatalf("decode outcome: %v", err)
+	}
+	if outcome != coAuthorApproved {
+		t.Fatalf("an advanced amendment that is approved must merge+commit, got outcome %d", outcome)
+	}
+	if rail.verbCount("OpenPullRequest") == 0 {
+		t.Fatal("an advanced amendment must OPEN a PR (the branch moved beyond main)")
+	}
+	if rail.verbCount("MergePullRequest") != 1 {
+		t.Fatalf("approve must merge the amendment PR once, got %d", rail.verbCount("MergePullRequest"))
+	}
+	if len(base.committed) != 1 {
+		t.Fatalf("approve must commit the amendment once, got %v", base.committed)
+	}
+}
+
+// amendmentIndexFor — the pre-field fix rule. A COMMITTED slot yields an amendment index of
+// max(1, Revisions): a slot committed BEFORE the Revisions field existed reads Revisions=0
+// yet is still an amendment (index 1). Non-committed slots are the normal path (0).
+func Test_amendmentIndexFor_Rule(t *testing.T) {
+	// Pre-field committed slot (the observed gtdapp glossary case): Revisions 0 → index 1.
+	if got := amendmentIndexFor(projectstate.ArtifactSlot{Status: projectstate.ReviewCommitted, Revisions: 0}); got != 1 {
+		t.Fatalf("pre-field committed slot must yield amendment index 1, got %d", got)
+	}
+	// A committed slot with a real revision count returns it.
+	if got := amendmentIndexFor(projectstate.ArtifactSlot{Status: projectstate.ReviewCommitted, Revisions: 3}); got != 3 {
+		t.Fatalf("committed slot at revision 3 must yield amendment index 3, got %d", got)
+	}
+	// Non-committed slots are NOT amendments regardless of any stray Revisions value.
+	for _, st := range []projectstate.ArtifactReviewStatus{
+		projectstate.ReviewNone, projectstate.ReviewAwaitingReview, projectstate.ReviewRejected, projectstate.ReviewWithdrawn,
+	} {
+		if got := amendmentIndexFor(projectstate.ArtifactSlot{Status: st, Revisions: 5}); got != 0 {
+			t.Fatalf("non-committed slot (status %d) must yield amendment index 0, got %d", st, got)
+		}
+	}
+}
+
+// ledgerFakeProjectState is the branch-aware fake PLUS the review-ledger seam, so the
+// amendment SEED (SeedReviewCommentsActivity → SeedReviewCommentsOnBranch) actually FIRES
+// and is observable. It is a SEPARATE type (not the shared branchAwareFakeProjectState) so
+// existing reject tests — which assert on the non-ledger RejectArtifactOnBranch recorder —
+// are unaffected by the ledger routing.
+type ledgerFakeProjectState struct {
+	*branchAwareFakeProjectState
+	seededRounds   []int64
+	seededComments [][]projectstate.ReviewComment
+}
+
+var _ projectstate.LedgerProjectStateAccess = (*ledgerFakeProjectState)(nil)
+
+func (f *ledgerFakeProjectState) SeedReviewCommentsOnBranch(_ context.Context, _ projectstate.ProjectID, expectedVersion projectstate.Version, _ string, _ projectstate.ArtifactKind, round int64, comments []projectstate.ReviewComment, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	f.seededRounds = append(f.seededRounds, round)
+	f.seededComments = append(f.seededComments, comments)
+	return expectedVersion, nil
+}
+
+func (f *ledgerFakeProjectState) RejectArtifactOnBranchWithComments(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, _ int64, _ []projectstate.ReviewComment, key fwra.IdempotencyKey) (projectstate.Version, error) {
+	return f.RejectArtifactOnBranch(ctx, projectID, expectedVersion, branch, kind, notes, key)
+}
+
+func (f *ledgerFakeProjectState) SetReviewCommentStatusOnBranch(_ context.Context, _ projectstate.ProjectID, expectedVersion projectstate.Version, _ string, _ projectstate.ArtifactKind, _ string, _ string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return expectedVersion, nil
+}
+
+// F38 PRE-FIELD AMENDMENT (the observed gtdapp glossary bug) — a slot COMMITTED before the
+// Revisions field existed (Status=Committed, Revisions=0) must run the FULL amendment path:
+// the index computes to 1 (amendmentIndexFor), the draft rides a …-amend-1 branch with the
+// amendment prompt framing, AND the reopening feedback is SEEDED into the review ledger
+// (round 0). Pre-fix it computed Amendment=0 → a normal draft on the canonical branch with
+// NO seed.
+func Test_CoAuthor_Rail_Amendment_PreFieldCommittedSlot_AmendBranch_Prompt_SeedFires(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	// A PRE-FIELD committed SystemDesign slot: committedSlot sets Status=Committed, Revisions=0.
+	proj := systemReadBack(t, id)
+	proj.SystemDesign = committedSlot(&projectstate.System{})
+	base := &fakeProjectState{project: proj}
+
+	// The index the manager WOULD compute for this pre-field slot must be 1 (not 0).
+	if got := amendmentIndexFor(proj.SystemDesign); got != 1 {
+		t.Fatalf("a pre-field committed slot must compute amendment index 1, got %d", got)
+	}
+
+	// The branch advances the artifact (so the no-change guard passes) and the ledger records seeds.
+	ps := &ledgerFakeProjectState{
+		branchAwareFakeProjectState: &branchAwareFakeProjectState{
+			fakeProjectState:    base,
+			branchAdvancedModel: &projectstate.System{Components: []projectstate.Component{{}}},
+		},
+	}
+	pipe := newFakePipeline()
+	rail := &fakeRail{checkGreen: true}
+	wf := newRailWorkflows(rail)
+	registerRailCoAuthor(env, wf, ps, pipe)
+
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
+	}, 30*time.Second)
+
+	// Drive the workflow with the COMPUTED index (1), as the manager would.
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{
+		ProjectID:    id,
+		ArtifactKind: KindSystem,
+		Amendment:    amendmentIndexFor(proj.SystemDesign),
+		Feedback:     &ReviewFeedback{Comments: []AnchoredComment{{JSONPath: "$.components[0].name", Text: "rename this manager"}}},
+	})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("pre-field amendment must not crash: %v", err)
+	}
+	if len(pipe.submits) == 0 {
+		t.Fatal("the amendment must dispatch a draft")
+	}
+	// -amend-1 branch (NOT the canonical branch).
+	b := pipe.submits[0].dispatchInputs[dispatchInputTargetBranch]
+	if !strings.HasSuffix(b, "-amend-1") {
+		t.Fatalf("a pre-field committed slot must draft on a …-amend-1 branch, got %q", b)
+	}
+	// Amendment prompt framing.
+	if p := pipe.submits[0].dispatchInputs[dispatchInputDesignPrompt]; !strings.Contains(p, "AMENDMENT (revision 1)") {
+		t.Fatalf("the amendment prompt must frame it as revision 1; prompt:\n%s", p)
+	}
+	// THE LOAD-BEARING FIX: the reopening feedback was SEEDED into the review ledger (round 0).
+	if len(ps.seededRounds) == 0 {
+		t.Fatal("the amendment SEED must fire for a pre-field committed slot (pre-fix it did not)")
+	}
+	if ps.seededRounds[0] != 0 {
+		t.Fatalf("the reopening feedback must seed as round 0, got round %d", ps.seededRounds[0])
+	}
+	if len(ps.seededComments) == 0 || len(ps.seededComments[0]) == 0 {
+		t.Fatal("the seed must carry the reopening comments as OPEN ledger entries")
+	}
+}
+
+// F35 TWIN (the draft-round-trip openPR fault) — a GREEN draft + successful read-back, then
+// OpenPullRequest persistently Auth-faults (secondary-rate-limit-403-as-Auth) past the shared
+// bounded retry. The whole CoAuthor workflow must NOT die (as it did live on gtdapp kind 5):
+// it CONTAINS the fault at the StageDraftFailed gate, and on Retry it RESUMES from the
+// read-back — WITHOUT a second dispatch (which would burn another 20+ min draft and red the
+// no-commit guard) — re-opens the PR, and Approve merges.
+func Test_CoAuthor_Rail_OpenPRAuthFault_ContainsAtGate_RetryResumesNoRedispatch_ThenMerges(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base := &fakeProjectState{project: systemReadBack(t, id)}
+	ps := &branchAwareFakeProjectState{fakeProjectState: base}
+	pipe := newFakePipeline() // the draft job succeeds (a green 20+ min draft)
+	// OpenPullRequest Auth-faults for all railAuthRetryMaxAttempts of the FIRST openPR, so the
+	// bounded retry exhausts and the round-trip lands at the failed gate; the resume openPR succeeds.
+	rail := &fakeRail{checkGreen: true, openPRAuthFailsRemaining: railAuthRetryMaxAttempts}
+	wf := newRailWorkflows(rail)
+	registerRailCoAuthor(env, wf, ps, pipe)
+
+	// At the failed gate: assert StageDraftFailed with the honest openPR reason, then RETRY.
+	env.RegisterDelayedCallback(func() {
+		enc, err := env.QueryWorkflow(querySessionState)
+		if err != nil {
+			t.Fatalf("QueryWorkflow: %v", err)
+		}
+		var view SessionStateView
+		if err := enc.Get(&view); err != nil {
+			t.Fatalf("decode SessionStateView: %v", err)
+		}
+		if view.Stage != StageDraftFailed {
+			t.Fatalf("a persistent openPR Auth fault must CONTAIN at StageDraftFailed, got stage %d", view.Stage)
+		}
+		reason := ""
+		if view.FailureReason != nil {
+			reason = *view.FailureReason
+		}
+		if !strings.Contains(reason, "pull request") {
+			t.Fatalf("the failed gate must name the openPR step honestly, got %q", reason)
+		}
+		// Only ONE dispatch so far — the draft is preserved on the branch.
+		if len(pipe.submits) != 1 {
+			t.Fatalf("before retry there must be exactly ONE dispatch, got %d", len(pipe.submits))
+		}
+		env.SignalWorkflow(lSignalRedraft, redraftSignal{})
+	}, 40*time.Second)
+
+	// After the resume re-stages, Approve → merge.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
+	}, 90*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("an openPR Auth fault must NOT kill the workflow: %v", err)
+	}
+	var outcome coAuthorOutcome
+	if err := env.GetWorkflowResult(&outcome); err != nil {
+		t.Fatalf("decode outcome: %v", err)
+	}
+	if outcome != coAuthorApproved {
+		t.Fatalf("after resume + approve the session must be Approved, got %d", outcome)
+	}
+
+	// THE LOAD-BEARING ASSERTION: the Retry RESUMED from read-back — NO second dispatch.
+	if len(pipe.submits) != 1 {
+		t.Fatalf("the retry must NOT re-dispatch (resume from read-back); got %d dispatches", len(pipe.submits))
+	}
+	// OpenPullRequest was attempted railAuthRetryMaxAttempts times (all faulting) in the first
+	// round + once more on the resume (success) = maxAttempts+1.
+	if got, want := rail.verbCount("OpenPullRequest"), railAuthRetryMaxAttempts+1; got != want {
+		t.Fatalf("OpenPullRequest attempts: got %d, want %d (%d bounded-retry faults + 1 resume success)", got, want, railAuthRetryMaxAttempts)
+	}
+	// Exactly one PR was actually opened (the resume success), then merged, then committed once.
+	if rail.openedPRs != 1 {
+		t.Fatalf("exactly one PR must actually open (on the resume), got %d", rail.openedPRs)
+	}
+	if rail.verbCount("MergePullRequest") != 1 {
+		t.Fatalf("approve must merge once, got %d", rail.verbCount("MergePullRequest"))
+	}
+	if len(base.committed) != 1 {
+		t.Fatalf("approve must commit once, got %v", base.committed)
+	}
+}
+
+// F47 — the REDRAFT-SIGNAL feedback path (what RequestArtifactDraft delivers via
+// SignalWithStart). A draft job fails → StageDraftFailed gate; the redraft signal carries the
+// operator's fix notes; the NEXT draft dispatch's prompt must CONTAIN those notes (they were
+// dropped live on the retry-at-failed-gate path). Complements the retry-via-reject test.
+func Test_CoAuthor_RailEnabled_RedraftSignalFeedbackReachesPrompt(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base := &fakeProjectState{project: systemReadBack(t, id)}
+	ps := &branchAwareFakeProjectState{fakeProjectState: base}
+	pipe := newFakePipeline(pipelineFailed) // the draft job fails → the StageDraftFailed gate
+	rail := &fakeRail{checkGreen: true}
+	wf := newRailWorkflows(rail)
+	registerRailCoAuthor(env, wf, ps, pipe)
+
+	const notes = "resources must be plain strings, not objects"
+	// At the failed gate, deliver the REDRAFT signal (the RequestArtifactDraft path) with notes.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(lSignalRedraft, redraftSignal{Feedback: &ReviewFeedback{Notes: notes}})
+	}, 30*time.Second)
+	// Back at the gate after the second (also-failed) dispatch, withdraw to end.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 80*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a redraft-signal retry must not crash: %v", err)
+	}
+	if len(pipe.submits) < 2 {
+		t.Fatalf("the redraft signal must trigger a SECOND draft dispatch, got %d", len(pipe.submits))
+	}
+	// THE LOAD-BEARING ASSERTION: the redraft-signal feedback reached the next draft prompt.
+	if p := pipe.submits[1].dispatchInputs[dispatchInputDesignPrompt]; !strings.Contains(p, notes) {
+		t.Fatalf("the redraft-signal feedback %q must reach the next draft prompt; prompt:\n%s", notes, p)
+	}
+}
+
+// F48 — the Temporal activity-boundary codec MUST carry the durable review ledger (audited from
+// projectdesign; systemdesign had the same hole). Without it, loadReviewThread reads the session
+// branch through this projectEnvelope and returns [] despite the reject-append living in git.
+func Test_projectEnvelope_PreservesReviewThread(t *testing.T) {
+	id := ProjectID(uuid.NewString())
+	p := systemReadBack(t, id)
+	p.SystemDesign = projectstate.ArtifactSlot{
+		Status: projectstate.ReviewAwaitingReview,
+		Model:  &projectstate.System{},
+		ReviewThread: []projectstate.ReviewComment{
+			{ID: "r0c1", Text: "split this Manager per volatility", AuthorRole: "architect", Round: 0, Status: projectstate.ReviewCommentOpen},
+		},
+	}
+	env, err := encodeProject(p)
+	if err != nil {
+		t.Fatalf("encodeProject: %v", err)
+	}
+	got, err := env.Decode()
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	thread := slotFor(got, KindSystem).ReviewThread
+	if len(thread) != 1 {
+		t.Fatalf("the review thread must survive the Temporal codec round-trip, got %d comments: %+v", len(thread), thread)
+	}
+	if thread[0].ID != "r0c1" || thread[0].Status != projectstate.ReviewCommentOpen || thread[0].Text == "" {
+		t.Fatalf("the codec must preserve the comment's id/status/text, got %+v", thread[0])
+	}
+}
+
+// ---------------------------------------------------------------------------
+// MANAGED-SCAFFOLD SYNC (sync-on-dispatch, 2026-07-06). The seated aiarch-design.yml
+// is converged onto the CURRENT template rendering BEFORE any design job is
+// dispatched; a sync failure BLOCKS the dispatch (never run a design job against a
+// scaffold the server could not prove current — the gtdapp stale-pin / F81 incident).
+// ---------------------------------------------------------------------------
+
+// firstCallIndex returns the index of the first recorded rail call with verb, or -1.
+func (r *fakeRail) firstCallIndex(verb string) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for i, c := range r.calls {
+		if c.verb == verb {
+			return i
+		}
+	}
+	return -1
+}
+
+// THE SYNC ORDER. The managed-scaffold sync runs in the dispatch-time rail half,
+// BEFORE OpenBranch and therefore before any design job is dispatched; a drifted
+// scaffold (syncChanged=true) refreshes and the spine proceeds normally to Approve.
+func Test_CoAuthor_Rail_ScaffoldSync_RunsBeforeDispatch(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base := &fakeProjectState{project: systemReadBack(t, id)}
+	ps := &branchAwareFakeProjectState{fakeProjectState: base}
+	pipe := newFakePipeline()
+	rail := &fakeRail{checkGreen: true, syncChanged: true} // the seated scaffold DRIFTED
+	wf := newRailWorkflows(rail)
+	registerRailCoAuthor(env, wf, ps, pipe)
+
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
+	}, 30*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a drifted-then-refreshed scaffold must not perturb the spine: %v", err)
+	}
+	if rail.verbCount("SyncManagedScaffold") != 1 {
+		t.Fatalf("want exactly one managed-scaffold sync per dispatch-time session begin, got %d", rail.verbCount("SyncManagedScaffold"))
+	}
+	iSync, iBranch := rail.firstCallIndex("SyncManagedScaffold"), rail.firstCallIndex("OpenBranch")
+	if iSync < 0 || iBranch < 0 || iSync > iBranch {
+		t.Fatalf("the managed-scaffold sync must run BEFORE OpenBranch (pre-dispatch), got sync=%d openBranch=%d (calls: %+v)", iSync, iBranch, rail.calls)
+	}
+	if len(pipe.submits) != 1 {
+		t.Fatalf("the design job must still dispatch exactly once after a successful sync, got %d", len(pipe.submits))
+	}
+	if len(base.committed) != 1 {
+		t.Fatalf("the approved spine must commit once, got %v", base.committed)
+	}
+}
+
+// THE SYNC GATE. A managed-scaffold sync failure BLOCKS the dispatch: NO design job is
+// submitted, NO session branch is opened, and the session lands at the human-visible
+// StageDraftFailed gate (contained, never a crash). Withdraw ends clean.
+func Test_CoAuthor_Rail_ScaffoldSyncFailure_BlocksDispatch_LandsAtFailedGate(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base := &fakeProjectState{project: systemReadBack(t, id)}
+	ps := &branchAwareFakeProjectState{fakeProjectState: base}
+	pipe := newFakePipeline()
+	rail := &fakeRail{checkGreen: true, syncErr: fwra.New(fwra.ContractMisuse, "seated workflow could not be refreshed")}
+	wf := newRailWorkflows(rail)
+	registerRailCoAuthor(env, wf, ps, pipe)
+
+	env.RegisterDelayedCallback(func() {
+		enc, err := env.QueryWorkflow(querySessionState)
+		if err != nil {
+			t.Fatalf("QueryWorkflow: %v", err)
+		}
+		var view SessionStateView
+		if err := enc.Get(&view); err != nil {
+			t.Fatalf("decode SessionStateView: %v", err)
+		}
+		if view.Stage != StageDraftFailed {
+			t.Fatalf("a failed managed-scaffold sync must land at StageDraftFailed (dispatch blocked), got %d", view.Stage)
+		}
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 30*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a failed managed-scaffold sync must be CONTAINED at the failed gate, not crash: %v", err)
+	}
+	if got := rail.verbCount("SyncManagedScaffold"); got == 0 {
+		t.Fatal("the managed-scaffold sync must have been attempted")
+	}
+	// The dispatch was BLOCKED: no design job submitted, no session branch, no PR.
+	if len(pipe.submits) != 0 {
+		t.Fatalf("a failed sync must BLOCK the design-job dispatch, got %d submits", len(pipe.submits))
+	}
+	if rail.verbCount("OpenBranch") != 0 || rail.verbCount("OpenPullRequest") != 0 {
+		t.Fatalf("a failed sync must not open a branch/PR, got openBranch=%d openPR=%d",
+			rail.verbCount("OpenBranch"), rail.verbCount("OpenPullRequest"))
+	}
+	// Nothing staged/committed; withdraw from the failed gate recorded once.
+	if len(base.staged) != 0 || len(base.committed) != 0 {
+		t.Fatalf("a blocked dispatch must stage/commit nothing, got staged=%d committed=%v", len(base.staged), base.committed)
+	}
+	if len(base.withdrawn) != 1 {
+		t.Fatalf("withdraw from the failed gate must call WithdrawArtifact once, got %d", len(base.withdrawn))
+	}
+}
+
+// THE VERSION GATE (live regression, gtdapp:5). The sync activity was added to
+// beginSession AFTER CoAuthor sessions shipped; an execution already in flight at
+// deploy time has no history event for it, so it must NEVER issue the sync command —
+// workflow.GetVersion("managed-scaffold-sync") pins such executions (DefaultVersion)
+// to the OLD command sequence. This test simulates a pre-feature execution via the
+// testsuite's GetVersion mock, arms syncErr so an UN-GATED sync would derail the run
+// at the failed gate, and proves the spine completes the full pre-feature happy path
+// with ZERO SyncManagedScaffold calls. If the gate is ever removed (or its changeID
+// renamed), the armed syncErr fails this test loudly.
+func Test_CoAuthor_Rail_ScaffoldSync_VersionGate_PreFeatureExecutionSkipsSync(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base := &fakeProjectState{project: systemReadBack(t, id)}
+	ps := &branchAwareFakeProjectState{fakeProjectState: base}
+	pipe := newFakePipeline()
+	// syncErr armed: if the sync ran despite DefaultVersion, the session would land at
+	// the failed gate and the approve below would never commit — a loud failure.
+	rail := &fakeRail{checkGreen: true, syncErr: fwra.New(fwra.ContractMisuse, "sync must not run for a pre-feature execution")}
+	wf := newRailWorkflows(rail)
+	registerRailCoAuthor(env, wf, ps, pipe)
+
+	// Simulate a PRE-FEATURE in-flight execution: GetVersion resolves DefaultVersion
+	// (no version marker in the replayed history).
+	env.OnGetVersion("managed-scaffold-sync", workflow.DefaultVersion, 1).Return(workflow.DefaultVersion)
+
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
+	}, 30*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a pre-feature execution must run the OLD command sequence cleanly: %v", err)
+	}
+	var outcome coAuthorOutcome
+	if err := env.GetWorkflowResult(&outcome); err != nil {
+		t.Fatalf("decode outcome: %v", err)
+	}
+	if outcome != coAuthorApproved {
+		t.Fatalf("want coAuthorApproved on the pre-feature path, got %d", outcome)
+	}
+	if got := rail.verbCount("SyncManagedScaffold"); got != 0 {
+		t.Fatalf("a pre-feature (DefaultVersion) execution must NEVER call SyncManagedScaffold, got %d", got)
+	}
+	if len(pipe.submits) != 1 || len(base.committed) != 1 {
+		t.Fatalf("the pre-feature spine must dispatch and commit exactly once, got submits=%d committed=%v", len(pipe.submits), base.committed)
+	}
+}
+
+// ---- from layerdegenerate_test.go ----
+
+// layerdegenerate_test.go — coverage for the app-side SYSTEM-LAYER-DEGENERATE gate the
+// sessionState read-back applies to a System draft (F81). A layer-degenerate system
+// (zero Managers / zero ResourceAccess, or a component whose name stereotype contradicts
+// its layer) surfaces as ERROR findings on the review panel. This is the review-panel
+// twin of methodcheck's SYSTEM-LAYER-DEGENERATE.
+
+func comp(id, name string, kind projectstate.ComponentKind, layer projectstate.Layer) projectstate.Component {
+	return projectstate.Component{ID: id, Name: name, Kind: kind, Layer: layer}
+}
+
+// A healthy system with a Manager and a ResourceAccess and consistent names raises no
+// degeneracy finding.
+func Test_systemLayerDegenerate_HealthySystemClean(t *testing.T) {
+	sys := &projectstate.System{Components: []projectstate.Component{
+		comp("c", "WebClient", projectstate.CompClient, projectstate.LayerClient),
+		comp("m", "OrderManager", projectstate.CompManager, projectstate.LayerManager),
+		comp("ra", "OrderAccess", projectstate.CompResourceAccess, projectstate.LayerResourceAccess),
+	}}
+	if f := systemLayerDegenerateFindings(KindSystem, sys); len(f) != 0 {
+		t.Fatalf("healthy system should be clean, got: %+v", f)
+	}
+}
+
+// The live F81 corruption: every component defaulted to client (kind+layer both omitted).
+// Zero Managers AND zero ResourceAccess AND every stereotyped name contradicts client.
+func Test_systemLayerDegenerate_AllClientFlagged(t *testing.T) {
+	sys := &projectstate.System{Components: []projectstate.Component{
+		comp("m", "OrderManager", projectstate.CompClient, projectstate.LayerClient),
+		comp("e", "PricingEngine", projectstate.CompClient, projectstate.LayerClient),
+		comp("ra", "OrderAccess", projectstate.CompClient, projectstate.LayerClient),
+	}}
+	f := systemLayerDegenerateFindings(KindSystem, sys)
+	if len(f) == 0 {
+		t.Fatal("an all-client system must be flagged")
+	}
+	var zeroMgr, zeroRA, nameMismatch int
+	for _, fi := range f {
+		if fi.RuleID != "SYSTEM-LAYER-DEGENERATE" {
+			t.Fatalf("unexpected rule id %q", fi.RuleID)
+		}
+		switch {
+		case strings.Contains(fi.Message, "zero Managers"):
+			zeroMgr++
+		case strings.Contains(fi.Message, "zero ResourceAccess"):
+			zeroRA++
+		case strings.Contains(fi.Message, "ends in"):
+			nameMismatch++
+		}
+	}
+	if zeroMgr != 1 || zeroRA != 1 {
+		t.Fatalf("expected one zero-managers and one zero-resourceAccess finding, got mgr=%d ra=%d", zeroMgr, zeroRA)
+	}
+	if nameMismatch != 3 {
+		t.Fatalf("expected 3 name/layer mismatch findings (Manager, Engine, Access), got %d", nameMismatch)
+	}
+}
+
+// Zero managers alone (has RA) still trips the structure rule.
+func Test_systemLayerDegenerate_ZeroManagers(t *testing.T) {
+	sys := &projectstate.System{Components: []projectstate.Component{
+		comp("ra", "OrderAccess", projectstate.CompResourceAccess, projectstate.LayerResourceAccess),
+	}}
+	f := systemLayerDegenerateFindings(KindSystem, sys)
+	if len(f) != 1 || !strings.Contains(f[0].Message, "zero Managers") {
+		t.Fatalf("expected exactly the zero-managers finding, got: %+v", f)
+	}
+}
+
+// A single name/layer contradiction with otherwise-healthy structure trips only the
+// name rule.
+func Test_systemLayerDegenerate_NameLayerMismatch(t *testing.T) {
+	sys := &projectstate.System{Components: []projectstate.Component{
+		comp("m", "OrderManager", projectstate.CompManager, projectstate.LayerManager),
+		comp("ra", "OrderAccess", projectstate.CompResourceAccess, projectstate.LayerResourceAccess),
+		// A component named "…Engine" but sitting in the client layer.
+		comp("e", "PricingEngine", projectstate.CompEngine, projectstate.LayerClient),
+	}}
+	f := systemLayerDegenerateFindings(KindSystem, sys)
+	if len(f) != 1 {
+		t.Fatalf("expected exactly one finding, got: %+v", f)
+	}
+	if !strings.Contains(f[0].Message, "PricingEngine") || !strings.Contains(f[0].Message, "engine") {
+		t.Fatalf("finding should name the offending component and its expected layer, got: %v", f[0].Message)
+	}
+}
+
+// A "…Store"/"…Resource" name implies the resource layer.
+func Test_systemLayerDegenerate_StoreImpliesResource(t *testing.T) {
+	if want, suffix, mismatch := nameLayerMismatch("EventStore", projectstate.LayerClient); !mismatch || want != projectstate.LayerResource || suffix != "Store" {
+		t.Fatalf("EventStore in client layer should mismatch to resource, got want=%v suffix=%q mismatch=%v", want, suffix, mismatch)
+	}
+	if _, _, mismatch := nameLayerMismatch("EventStore", projectstate.LayerResource); mismatch {
+		t.Fatal("EventStore in resource layer should be consistent")
+	}
+}
+
+// A name with no recognized stereotype suffix never mismatches.
+func Test_systemLayerDegenerate_UnstereotypedNameOK(t *testing.T) {
+	if _, _, mismatch := nameLayerMismatch("Utilities", projectstate.LayerUtility); mismatch {
+		t.Fatal("an unstereotyped name must not mismatch")
+	}
+}
+
+// The rule is inert for non-System artifacts.
+func Test_systemLayerDegenerate_NonSystemInert(t *testing.T) {
+	if f := systemLayerDegenerateFindings(KindCoreUseCases, &projectstate.CoreUseCases{}); f != nil {
+		t.Fatalf("rule must be inert for non-System artifacts, got: %+v", f)
+	}
+}
+
+// ---- from operatingmodel_prompt_test.go ----
+
+// operatingmodel_prompt_test.go — coverage for the OPERATING-MODEL deployment
+// constraint the OperationalConcepts draft prompt carries (founder ruling 2026-07-05,
+// from live QA: the gtdapp deployment artifact drafted an arbitrary AWS EKS/RDS/
+// CloudFront topology). Archistrator-operated MUST require the platform palette and
+// forbid bespoke cloud; self-operated (the default) MUST keep today's open guidance
+// (emit nothing extra).
+
+// platformPaletteMarkers are the exact module names the archistrator-operated
+// constraint MUST name so the drafting agent draws only the platform palette.
+var platformPaletteMarkers = []string{
+	"framework-go-infrastructure-postgres",
+	"framework-go-infrastructure-temporal",
+	"framework-go-infrastructure-keycloak",
+	"framework-go-infrastructure-otel",
+	"software/k8s",
+	"CloudNativePG",
+	"Keycloak",
+	"Temporal",
+}
+
+// forbiddenCloudMarkers are bespoke-cloud technologies the constraint MUST forbid.
+var forbiddenCloudMarkers = []string{"AWS", "RDS", "EKS", "CloudFront"}
+
+func Test_OperationalConceptsPrompt_ArchistratorOperated_RequiresPlatformPalette(t *testing.T) {
+	proj := projectstate.Project{OperatingModel: projectstate.OperatingModelArchistratorOperated}
+	prompt := architectDraftPrompt(projectstate.KindOperationalConcepts, proj, ReviewFeedback{}, nil, 0)
+
+	if !strings.Contains(prompt, "ARCHISTRATOR-OPERATED") {
+		t.Fatalf("archistrator-operated opconcepts prompt missing the operating-model header")
+	}
+	for _, m := range platformPaletteMarkers {
+		if !strings.Contains(prompt, m) {
+			t.Errorf("archistrator-operated opconcepts prompt missing required platform marker %q", m)
+		}
+	}
+	for _, m := range forbiddenCloudMarkers {
+		if !strings.Contains(prompt, m) {
+			t.Errorf("archistrator-operated opconcepts prompt should NAME (to forbid) bespoke-cloud marker %q", m)
+		}
+	}
+	if !strings.Contains(prompt, "FORBIDDEN") {
+		t.Errorf("archistrator-operated opconcepts prompt missing the FORBIDDEN clause")
+	}
+}
+
+func Test_OperationalConceptsPrompt_SelfOperated_KeepsOpenGuidance(t *testing.T) {
+	proj := projectstate.Project{OperatingModel: projectstate.OperatingModelSelfOperated}
+	prompt := architectDraftPrompt(projectstate.KindOperationalConcepts, proj, ReviewFeedback{}, nil, 0)
+
+	if strings.Contains(prompt, "ARCHISTRATOR-OPERATED") || strings.Contains(prompt, "framework-go-infrastructure-postgres") {
+		t.Errorf("self-operated opconcepts prompt must NOT carry the platform-palette constraint")
+	}
+}
+
+// Test_OperationalConceptsPrompt_UnsetOperatingModel_DefaultsSelfOperated proves a
+// pre-field project (empty OperatingModel) is treated as self-operated — the
+// back-compat default — so the open guidance is preserved for existing projects.
+func Test_OperationalConceptsPrompt_UnsetOperatingModel_DefaultsSelfOperated(t *testing.T) {
+	prompt := architectDraftPrompt(projectstate.KindOperationalConcepts, projectstate.Project{}, ReviewFeedback{}, nil, 0)
+	if strings.Contains(prompt, "ARCHISTRATOR-OPERATED") {
+		t.Errorf("unset operating model must default to self-operated (no platform constraint)")
+	}
+}
+
+// Test_OperatingModelConstraint_OnlyOnOperationalConcepts proves the constraint is
+// scoped to the deployment-carrying artifact — it must NOT leak into an unrelated
+// Phase-1 kind (e.g. Mission) even when the project is archistrator-operated.
+func Test_OperatingModelConstraint_OnlyOnOperationalConcepts(t *testing.T) {
+	proj := projectstate.Project{OperatingModel: projectstate.OperatingModelArchistratorOperated}
+	prompt := architectDraftPrompt(projectstate.KindSystem, proj, ReviewFeedback{}, nil, 0)
+	if strings.Contains(prompt, "ARCHISTRATOR-OPERATED") {
+		t.Errorf("operating-model deployment constraint leaked into the System (architecture) prompt")
+	}
+}
+
+// ---- from prompts_test.go ----
+
+// prompts_test.go — unit coverage for the Manager-owned prompt composition, focused on
+// the research-corpus POINTER contract (QA finding F11). The mission-draft prompt must
+// POINT the drafting Action at the corpus committed in .aiarch/state/project.json (by
+// JSON path + per-source title) and must NEVER inline the (book-sized) source content —
+// inlining blew the Temporal payload budget and GitHub's 64KB workflow_dispatch input cap.
+
+// F68, made STRUCTURAL: the prompt no longer carries a slot-placement directive at all —
+// putDraftModel writes to the ambient kind's slot, so the agent can never mis-place it
+// positionally. Every Phase-1 draft prompt must state that the job fixes the slot and must
+// NOT carry the old numeric slot-key directive.
+func Test_DraftPrompt_NoSlotPlacementDirective(t *testing.T) {
+	for _, kind := range projectstate.Phase1RequiredKinds() {
+		prompt := architectDraftPrompt(kind, projectstate.Project{}, ReviewFeedback{}, nil, 0)
+		if strings.Contains(prompt, "slot keyed exactly") || strings.Contains(strings.ToUpper(prompt), "SLOT PLACEMENT") {
+			t.Fatalf("kind %s: prompt must not carry a slot-placement directive; got:\n%s", kind, prompt)
+		}
+		if !strings.Contains(prompt, "putDraftModel") {
+			t.Fatalf("kind %s: prompt must direct the agent to submit via putDraftModel; got:\n%s", kind, prompt)
+		}
+		if !strings.Contains(prompt, "never choose a slot") {
+			t.Fatalf("kind %s: prompt must state the job fixes the slot; got:\n%s", kind, prompt)
+		}
+	}
+}
+
+// projWithResearch builds a minimal Project carrying a research corpus whose Content is a
+// distinctive, book-sized sentinel we can assert never leaks into the composed prompt.
+func projWithResearch(sources ...projectstate.ResearchSourceRef) projectstate.Project {
+	return projectstate.Project{
+		ID:       projectstate.ProjectID("11111111-1111-1111-1111-111111111111"),
+		Research: projectstate.ResearchCorpus{Sources: sources},
+	}
+}
+
+// The mission-draft prompt directs the agent to the research corpus via the aiarch-state
+// tools (listResearchSources / getResearchSource) and never inlines content or enumerates
+// file paths (the corpus can be book-sized; F11/F42 guard).
+func Test_MissionPrompt_PointsAtResearchTools_NeverInlinesContent(t *testing.T) {
+	prompt := architectDraftPrompt(
+		projectstate.KindMission,
+		projWithResearch(
+			projectstate.ResearchSourceRef{Title: "Founder brief", Path: ".aiarch/state/research/00-founder-brief.txt", ContentBytes: 620000},
+			projectstate.ResearchSourceRef{Title: "Competitor analysis", Path: ".aiarch/state/research/01-competitor-analysis.txt", ContentBytes: 42000},
+		),
+		ReviewFeedback{},
+		nil,
+		0,
+	)
+
+	// The prompt must direct the agent to the research tools, not a file/JSON path.
+	if !strings.Contains(prompt, "listResearchSources") || !strings.Contains(prompt, "getResearchSource") {
+		t.Errorf("prompt must direct the agent to listResearchSources + getResearchSource; got:\n%s", prompt)
+	}
+	// No file paths and no JSON path are enumerated in the prompt anymore.
+	if strings.Contains(prompt, ".aiarch/state/research/") || strings.Contains(prompt, ".research.Sources") {
+		t.Errorf("prompt must not enumerate research file/JSON paths (the tools do that); got:\n%s", prompt)
+	}
+	// The (book-sized) content must never be inline.
+	if strings.Contains(prompt, "expect any research content inline") == false {
+		t.Errorf("prompt must state research content is not inline; got:\n%s", prompt)
+	}
+}
+
+// The mission draft prompt must NOT instruct the architect to express the mission in
+// component / system-architecture terms and must NOT pre-decide a decomposition
+// (founder ruling 2026-07-05, QA finding F27). The old prompt said the mission "is
+// expressed in terms of the system's COMPONENTS" — that contradicted the PM critique's
+// doctrine and made the draft<->critique loop non-convergent. Guard against regressing to it.
+func Test_MissionPrompt_ForbidsComponentLanguage(t *testing.T) {
+	prompt := architectDraftPrompt(projectstate.KindMission, projWithResearch(
+		projectstate.ResearchSourceRef{Title: "Founder brief", Path: ".aiarch/state/research/00-founder-brief.txt"},
+	), ReviewFeedback{}, nil, 0)
+
+	// The prompt must NOT tell the architect to express the mission in component terms.
+	if strings.Contains(prompt, "terms of the system's COMPONENTS") {
+		t.Errorf("mission prompt must not instruct component-language framing (F27 regression); got:\n%s", prompt)
+	}
+	// It must instead direct the architect to the business capability / user-facing value.
+	if !strings.Contains(prompt, "BUSINESS CAPABILITY") || !strings.Contains(prompt, "USER-FACING VALUE") {
+		t.Errorf("mission prompt must frame the mission as business capability and user-facing value; got:\n%s", prompt)
+	}
+	// It must forbid architecture / decomposition terminology explicitly.
+	if !strings.Contains(prompt, "MUST NOT use the words component") {
+		t.Errorf("mission prompt must forbid component/architecture terminology; got:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "volatility analysis") {
+		t.Errorf("mission prompt must defer structural boundaries to volatility analysis; got:\n%s", prompt)
+	}
+}
+
+// The PM critique for the Mission must ENFORCE the same no-component-language doctrine the
+// draft prompt instructs, so the draft<->critique loop converges (F27). It must not read
+// as generic ratification for the mission kind.
+func Test_MissionCritiquePrompt_EnforcesNoComponentLanguage(t *testing.T) {
+	critique := pmCritiquePrompt(projectstate.KindMission, nil)
+	if !strings.Contains(critique, "component") {
+		t.Errorf("mission critique must name the component-language rule it enforces; got:\n%s", critique)
+	}
+	if !strings.Contains(critique, "volatility analysis") {
+		t.Errorf("mission critique must defer decomposition to volatility analysis; got:\n%s", critique)
+	}
+
+	// A non-mission critique carries no mission-specific doctrine (generic ratification only).
+	glossary := pmCritiquePrompt(projectstate.KindGlossary, nil)
+	if strings.Contains(glossary, "Mission doctrine you MUST enforce") {
+		t.Errorf("non-mission critique must not carry the mission doctrine block; got:\n%s", glossary)
+	}
+}
+
+// The IsZero guard is preserved: with no corpus, no research block is emitted at all.
+func Test_MissionPrompt_EmptyCorpus_EmitsNoResearchBlock(t *testing.T) {
+	prompt := architectDraftPrompt(projectstate.KindMission, projWithResearch(), ReviewFeedback{}, nil, 0)
+	if strings.Contains(prompt, "Research corpus") {
+		t.Errorf("empty corpus must emit no research block; got:\n%s", prompt)
+	}
+}
+
+// writeResearch is the composition unit under the prompt: it points, never inlines, and
+// honours the IsZero guard. Direct coverage so the contract holds independent of the
+// mission-prompt wrapper.
+func Test_writeResearch_ToolForm(t *testing.T) {
+	var b strings.Builder
+	writeResearch(&b, projectstate.ResearchCorpus{Sources: []projectstate.ResearchSourceRef{
+		{Title: "Customer interviews", Path: ".aiarch/state/research/00-customer-interviews.txt", ContentBytes: 12345},
+	}})
+	out := b.String()
+	// It directs the agent to the research tools and inlines neither paths nor content.
+	if !strings.Contains(out, "listResearchSources") || !strings.Contains(out, "getResearchSource") {
+		t.Errorf("writeResearch must direct the agent to the research tools; got:\n%s", out)
+	}
+	if strings.Contains(out, ".aiarch/state/research/") || strings.Contains(out, ".research.Sources") {
+		t.Errorf("writeResearch must not enumerate research paths; got:\n%s", out)
+	}
+
+	var empty strings.Builder
+	writeResearch(&empty, projectstate.ResearchCorpus{})
+	if empty.Len() != 0 {
+		t.Errorf("IsZero guard broken: empty corpus wrote %q", empty.String())
+	}
+}
+
+// wireNameOf marshals a projectstate enum value to its canonical camelCase wire name via
+// the SAME MarshalJSON the server codec uses, so the enum-conformance assertions below are
+// derived from the source of truth (projectstate/enumjson.go) rather than a hand-copy that
+// could drift from it.
+func wireNameOf(t *testing.T, v interface{}) string {
+	t.Helper()
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("marshal enum %v: %v", v, err)
+	}
+	return strings.Trim(string(b), `"`)
+}
+
+// QA F36 is now handled by putDraftModel's in-loop codec validation, so the CoreUseCases
+// prompt no longer carries the closed-enum wire-name dump (a schema dump). It must NOT carry
+// the SCHEMA CONFORMANCE block anymore — the agent learns the exact enum values from
+// putDraftModel's rejection, not a prompt-side enumeration.
+func Test_CoreUseCasesPrompt_NoClosedEnumDump(t *testing.T) {
+	prompt := architectDraftPrompt(projectstate.KindCoreUseCases, projectstate.Project{}, ReviewFeedback{}, nil, 0)
+	if strings.Contains(prompt, "SCHEMA CONFORMANCE") {
+		t.Errorf("prompt must not carry the closed-enum schema dump anymore; got:\n%s", prompt)
+	}
+	// The prompt still carries the drafting DOCTRINE (how to abstract core use cases).
+	if !strings.Contains(prompt, "ABSTRACTION") {
+		t.Errorf("prompt must still carry the core-use-case drafting doctrine; got:\n%s", prompt)
+	}
+}
+
+// Founder ruling 2026-07-05: EVERY use case (core AND supporting) must carry a non-empty
+// activity diagram — a start node plus at least one action step. The CoreUseCases draft
+// prompt must state that hard requirement and must NOT carry the old "purely linear ⇒ leave
+// activity null" exemption that let the committed gtdapp draft ship diagram-less core use
+// cases.
+func Test_CoreUseCasesPrompt_RequiresActivityDiagramForEveryUseCase(t *testing.T) {
+	prompt := architectDraftPrompt(projectstate.KindCoreUseCases, projectstate.Project{}, ReviewFeedback{}, nil, 0)
+
+	// The retired exemption must be gone: no wording that a linear use case may leave
+	// "activity" null / omit the diagram.
+	for _, banned := range []string{
+		"may leave \"activity\" null",
+		"purely linear use case may leave",
+	} {
+		if strings.Contains(prompt, banned) {
+			t.Errorf("CoreUseCases prompt must not carry the retired null-activity exemption %q; got:\n%s", banned, prompt)
+		}
+	}
+
+	// The hard requirement must be present: every use case carries a non-empty activity,
+	// core AND supporting/nonCore, with at minimum a start node and an action step.
+	lower := strings.ToLower(prompt)
+	for _, required := range []string{
+		"every use case",
+		"non-empty",
+		"incomplete draft",
+		"start node",
+		"action node",
+	} {
+		if !strings.Contains(lower, required) {
+			t.Errorf("CoreUseCases prompt must state the activity-diagram requirement (missing %q); got:\n%s", required, prompt)
+		}
+	}
+	// The requirement must explicitly reach supporting/nonCore use cases, not only core.
+	if !strings.Contains(lower, "supporting") && !strings.Contains(lower, "noncore") {
+		t.Errorf("CoreUseCases prompt must extend the activity requirement to supporting (nonCore) use cases; got:\n%s", prompt)
+	}
+}
+
+// A kind whose drafted model carries NO closed enum (Mission) must NOT get the enum block —
+// the guidance is scoped so unrelated prompts stay lean.
+func Test_MissionPrompt_HasNoClosedEnumBlock(t *testing.T) {
+	prompt := architectDraftPrompt(projectstate.KindMission, projectstate.Project{}, ReviewFeedback{}, nil, 0)
+	if strings.Contains(prompt, "SCHEMA CONFORMANCE") {
+		t.Errorf("mission prompt must not carry the closed-enum block; got:\n%s", prompt)
+	}
+}
+
+// The System draft prompt no longer dumps the ComponentKind / CallMode enum wire names
+// (putDraftModel validates them). It must NOT carry the SCHEMA CONFORMANCE block, but it must
+// still carry the decomposition DOCTRINE.
+func Test_SystemPrompt_NoClosedEnumDump(t *testing.T) {
+	prompt := architectDraftPrompt(projectstate.KindSystem, projectstate.Project{}, ReviewFeedback{}, nil, 0)
+	if strings.Contains(prompt, "SCHEMA CONFORMANCE") {
+		t.Errorf("System prompt must not carry the closed-enum schema dump anymore; got:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "Decompose the system by VOLATILITY") {
+		t.Errorf("System prompt must still carry the decomposition doctrine; got:\n%s", prompt)
+	}
+}
+
+// The StandardCheck draft task is SCOPED to the system-design gate (founder ruling
+// 2026-07-05, observed on gtdapp: 52 pass / 59 waived). The Phase-1 check must walk ONLY
+// the design directives + the System Design guideline section, and must EXCLUDE the
+// project-design / project-tracking directives and guideline sections entirely — it must
+// NOT emit them as waived (phase-inapplicable is out-of-scope, not a conscious exception).
+// WAIVED stays reserved for genuine, justified exceptions to in-scope items. Those
+// out-of-scope items are checked at the Phase-2 SDP gate.
+func Test_StandardCheckPrompt_ScopedToSystemDesignGate(t *testing.T) {
+	prompt := architectDraftPrompt(projectstate.KindStandardCheck, projectstate.Project{}, ReviewFeedback{}, nil, 0)
+
+	// It must scope the walk to the in-scope system-design items (directives + SYS section).
+	for _, want := range []string{
+		"ONLY the items checkable",
+		"design directives",
+		"System Design guideline section",
+		"decompose based on volatility",
+		"closed-layer rules",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("StandardCheck prompt missing in-scope marker %q; got:\n%s", want, prompt)
+		}
+	}
+
+	// It must EXPLICITLY exclude the project-design / project-tracking parts as out of scope,
+	// and forbid emitting them as waived — routing them to the Phase-2 SDP gate instead.
+	for _, want := range []string{
+		"OUT OF SCOPE",
+		"do NOT emit them as waived",
+		"phase-inapplicable",
+		"Phase-2 SDP gate",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("StandardCheck prompt missing scope-exclusion marker %q; got:\n%s", want, prompt)
+		}
+	}
+
+	// The old blanket "Walk the App C design-standard checklist" framing (walk the WHOLE
+	// standard, waive later-phase items) must be gone — that is what produced the waiver
+	// pollution the founder ruled against.
+	if strings.Contains(prompt, "Walk the App C design-standard checklist.") {
+		t.Errorf("StandardCheck prompt must not carry the old whole-standard walk framing; got:\n%s", prompt)
+	}
+
+	// WAIVED must be framed as reserved for genuine in-scope exceptions, not phase scope.
+	if !strings.Contains(prompt, "reserved for genuine") {
+		t.Errorf("StandardCheck prompt must reserve WAIVED for genuine in-scope exceptions; got:\n%s", prompt)
+	}
+
+	// The closed-enum status block (pass/waived/fail) is still carried for this kind.
+	statuses := []projectstate.CheckStatus{
+		projectstate.CheckPass, projectstate.CheckWaived, projectstate.CheckFail,
+	}
+	for _, s := range statuses {
+		name := wireNameOf(t, s)
+		if !strings.Contains(prompt, name) {
+			t.Errorf("StandardCheck prompt missing CheckStatus wire name %q; got:\n%s", name, prompt)
+		}
+	}
+}
+
+// The redraft prompt must weave in each OPEN review-ledger comment (id + anchor + anchorText
+// + text) and state the response-carrier contract, and must NOT list addressed/waived
+// comments (review-ledger §3).
+func Test_ArchitectDraftPrompt_WeavesOpenReviewLedger(t *testing.T) {
+	thread := []projectstate.ReviewComment{
+		{ID: "r1c1", Anchor: "$.vision", AnchorText: "the old vision", Text: "sharpen the vision", Status: projectstate.ReviewCommentOpen},
+		{ID: "r1c2", Anchor: "$.mission", AnchorText: "the mission text", Text: "already fixed", Status: projectstate.ReviewCommentAddressed, Response: "done"},
+		{ID: "r1c3", Anchor: "", AnchorText: "", Text: "dismissed nit", Status: projectstate.ReviewCommentWaived},
+	}
+	prompt := architectDraftPrompt(projectstate.KindMission, projWithResearch(), ReviewFeedback{}, thread, 0)
+
+	// The OPEN comment is woven in with its id, anchor, anchorText, and text.
+	for _, want := range []string{"r1c1", "$.vision", "the old vision", "sharpen the vision"} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("open-comment prompt missing %q; got:\n%s", want, prompt)
+		}
+	}
+	// The response contract is stated via the respondToReviewComment tool.
+	for _, want := range []string{"respondToReviewComment", "response", "STAYS OPEN"} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("response contract missing %q; got:\n%s", want, prompt)
+		}
+	}
+	// Addressed + waived comments are NOT listed (only open ones block/redraft).
+	if strings.Contains(prompt, "r1c2") || strings.Contains(prompt, "r1c3") {
+		t.Errorf("non-open comments must not be listed in the redraft prompt; got:\n%s", prompt)
+	}
+}
+
+// The first draft (no ledger) must not emit a review-ledger block.
+func Test_ArchitectDraftPrompt_NoLedgerBlockWhenEmpty(t *testing.T) {
+	prompt := architectDraftPrompt(projectstate.KindMission, projWithResearch(), ReviewFeedback{}, nil, 0)
+	if strings.Contains(prompt, "durable review ledger") {
+		t.Errorf("first-draft prompt must not carry a review-ledger block; got:\n%s", prompt)
+	}
+}
+
+// ---- from qafindings_test.go ----
+
+// ---- F22: read-model research slimming -------------------------------------
+
+// The project read (GetProject → ProjectState) must carry research source TITLES and
+// the per-source content byte-size, but NOT the corpus content itself — a source can be
+// a whole 660KB book and the SPA never renders it. researchToContract is the single
+// mapping seam; prove it empties Content and surfaces ContentBytes.
+func Test_researchToContract_SlimsContentKeepsTitleAndBytes(t *testing.T) {
+	// F42: the persisted corpus is already pointers ({Title, Path, ContentBytes}) — the read
+	// model carries Title + ContentBytes (off the pointer) and never any Content.
+	in := projectstate.ResearchCorpus{Sources: []projectstate.ResearchSourceRef{
+		{Title: "The Founder Brief", Path: ".aiarch/state/research/00-the-founder-brief.txt", ContentBytes: 660_000},
+		{Title: "Competitor Analysis", Path: ".aiarch/state/research/01-competitor-analysis.txt", ContentBytes: 10},
+	}}
+
+	out := researchToContract(in)
+
+	if len(out.Sources) != 2 {
+		t.Fatalf("want 2 sources preserved, got %d", len(out.Sources))
+	}
+	if out.Sources[0].Title != "The Founder Brief" || out.Sources[1].Title != "Competitor Analysis" {
+		t.Fatalf("titles must be preserved, got %q / %q", out.Sources[0].Title, out.Sources[1].Title)
+	}
+	for i, s := range out.Sources {
+		if s.Content != "" {
+			t.Fatalf("source %d content must be empty on the read model, got %d bytes", i, len(s.Content))
+		}
+		if s.ContentBytes == nil {
+			t.Fatalf("source %d must carry ContentBytes so the UI can show what is loaded", i)
+		}
+	}
+	if got := *out.Sources[0].ContentBytes; got != 660_000 {
+		t.Fatalf("ContentBytes must equal the pointer's byte size, want 660000 got %d", got)
+	}
+	if got := *out.Sources[1].ContentBytes; got != 10 {
+		t.Fatalf("ContentBytes[1] want 10 got %d", got)
+	}
+}
+
+// ---- F29 bonus: Temporal-envelope research slimming ------------------------
+
+// The ReadProjectActivity envelope (encodeProject) must carry research source TITLES
+// across the Temporal Activity boundary but NOT the corpus Content — a single source can
+// be a whole book, and the Manager workflow only ever reads titles (writeResearch points
+// the Action at .research.Sources[] in the checked-out repo) plus IsZero. Carrying the
+// full corpus blew the Temporal payload budget (TMPRL1103 warnings). Prove encodeProject
+// strips Content, keeps Titles, preserves IsZero (so writeResearch still lists sources),
+// and that the corpus content never crosses the boundary.
+func Test_encodeProject_SlimsResearchContentAcrossActivityBoundary(t *testing.T) {
+	// F42: the persisted corpus is pointers, so the Temporal envelope carries {Title, Path,
+	// ContentBytes} — inherently tiny, no book-sized Content ever crosses the boundary.
+	p := projectstate.Project{
+		ID:      projectstate.ProjectID("gtdapp"),
+		Version: 3,
+		Research: projectstate.ResearchCorpus{Sources: []projectstate.ResearchSourceRef{
+			{Title: "The Founder Brief", Path: ".aiarch/state/research/00-the-founder-brief.txt", ContentBytes: 660_000},
+			{Title: "Competitor Analysis", Path: ".aiarch/state/research/01-competitor-analysis.txt", ContentBytes: 10},
+		}},
+	}
+
+	env, err := encodeProject(p)
+	if err != nil {
+		t.Fatalf("encodeProject: %v", err)
+	}
+
+	// Titles + paths cross the boundary; the corpus type has no Content field at all.
+	if len(env.Research.Sources) != 2 {
+		t.Fatalf("want 2 source pointers preserved in the envelope, got %d", len(env.Research.Sources))
+	}
+	if env.Research.Sources[0].Title != "The Founder Brief" || env.Research.Sources[1].Title != "Competitor Analysis" {
+		t.Fatalf("titles must survive encoding, got %q / %q", env.Research.Sources[0].Title, env.Research.Sources[1].Title)
+	}
+	if env.Research.Sources[0].Path == "" || env.Research.Sources[1].Path == "" {
+		t.Fatalf("source file paths must survive encoding, got %+v", env.Research.Sources)
+	}
+
+	// The decoded head-state still carries the corpus (IsZero preserved) so writeResearch
+	// emits the research-tools block — the agent reads the sources with listResearchSources /
+	// getResearchSource rather than from an inlined title/path list.
+	dec, err := env.Decode()
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if dec.Research.IsZero() {
+		t.Fatal("decoded research must not be zero — the pointer carrier preserves IsZero")
+	}
+	var b strings.Builder
+	writeResearch(&b, dec.Research)
+	prompt := b.String()
+	if !strings.Contains(prompt, "listResearchSources") || !strings.Contains(prompt, "getResearchSource") {
+		t.Fatalf("writeResearch must direct the agent to the research tools; prompt:\n%s", prompt)
+	}
+}
+
+// ---- F19: review-gate precondition -----------------------------------------
+
+// stubEncodedStage is a minimal converter.EncodedValue whose Get sets only the Stage,
+// letting a test script the sessionState query without a live workflow.
+type stubEncodedStage struct{ stage SessionStage }
+
+func (s stubEncodedStage) HasValue() bool { return true }
+
+func (s stubEncodedStage) Get(ptr interface{}) error {
+	v, ok := ptr.(*SessionStateView)
+	if !ok {
+		return fmt.Errorf("stubEncodedStage: unexpected target %T", ptr)
+	}
+	v.Stage = s.stage
+	return nil
+}
+
+// checkReviewPrecondition is the pure decision×stage gate. Approve is meaningful ONLY
+// at AwaitingReview; reject/withdraw are meaningful at AwaitingReview or the failed
+// recovery gate; everything else is a FailedPrecondition.
+func Test_checkReviewPrecondition_Matrix(t *testing.T) {
+	fp := func(err error) bool {
+		var e *fwmanager.Error
+		return err != nil && errors.As(err, &e) && e.Kind == fwmanager.FailedPrecondition
+	}
+
+	// approve: only AwaitingReview passes.
+	for _, st := range []SessionStage{SessionStageUnknown, StageDrafting, StageRedrafting, StageCommitted, StageWithdrawn, StageRefused, StageDraftFailed} {
+		if err := checkReviewPrecondition(ReviewApprove, st); !fp(err) {
+			t.Fatalf("approve at stage %d must FailedPrecondition, got %v", st, err)
+		}
+	}
+	if err := checkReviewPrecondition(ReviewApprove, StageAwaitingReview); err != nil {
+		t.Fatalf("approve at AwaitingReview must pass, got %v", err)
+	}
+
+	// reject + withdraw: AwaitingReview and DraftFailed pass; others fail.
+	for _, dec := range []ReviewDecision{ReviewReject, ReviewWithdraw} {
+		for _, st := range []SessionStage{StageAwaitingReview, StageDraftFailed} {
+			if err := checkReviewPrecondition(dec, st); err != nil {
+				t.Fatalf("decision %d at stage %d must pass, got %v", dec, st, err)
+			}
+		}
+		for _, st := range []SessionStage{SessionStageUnknown, StageDrafting, StageRedrafting, StageCommitted, StageWithdrawn, StageRefused} {
+			if err := checkReviewPrecondition(dec, st); !fp(err) {
+				t.Fatalf("decision %d at stage %d must FailedPrecondition, got %v", dec, st, err)
+			}
+		}
+	}
+}
+
+// A never-drafted artifact (no workflow execution) must reject an approve with a
+// FailedPrecondition and NEVER fire the signal (the old bug returned success {}).
+func Test_SubmitReviewDecision_Approve_NeverDrafted_FailsWithoutSignal(t *testing.T) {
+	id := ProjectID(uuid.NewString())
+	wfID := coAuthorWorkflowID(id, KindMission)
+
+	mc := &temporalmocks.Client{}
+	mc.On("DescribeWorkflowExecution", mock.Anything, wfID, "").
+		Return((*workflowservice.DescribeWorkflowExecutionResponse)(nil), fmt.Errorf("workflow not found for ID: %s", wfID))
+	// No QueryWorkflow / SignalWorkflow expectations: reaching either fails the mock.
+
+	m := &systemDesignManager{client: mc}
+	err := m.SubmitReviewDecision(bgRC(), id, KindMission, ReviewApprove, nil)
+	if got := asSystemDesignError(t, err).Kind; got != fwmanager.FailedPrecondition {
+		t.Fatalf("approve on a never-drafted artifact must FailedPrecondition, got %d", got)
+	}
+	mc.AssertExpectations(t)
+	mc.AssertNotCalled(t, "SignalWorkflow", mock.Anything, wfID, "", signalReviewDecision, mock.Anything)
+}
+
+// Approve while the session is still drafting must fail without signaling.
+func Test_SubmitReviewDecision_Approve_WhileDrafting_FailsWithoutSignal(t *testing.T) {
+	id := ProjectID(uuid.NewString())
+	wfID := coAuthorWorkflowID(id, KindMission)
+
+	mc := &temporalmocks.Client{}
+	mc.On("DescribeWorkflowExecution", mock.Anything, wfID, "").
+		Return(&workflowservice.DescribeWorkflowExecutionResponse{
+			WorkflowExecutionInfo: &workflowpb.WorkflowExecutionInfo{Status: enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING},
+		}, nil)
+	mc.On("QueryWorkflow", mock.Anything, wfID, "", querySessionState).
+		Return(stubEncodedStage{stage: StageDrafting}, nil)
+
+	m := &systemDesignManager{client: mc}
+	err := m.SubmitReviewDecision(bgRC(), id, KindMission, ReviewApprove, nil)
+	if got := asSystemDesignError(t, err).Kind; got != fwmanager.FailedPrecondition {
+		t.Fatalf("approve while drafting must FailedPrecondition, got %d", got)
+	}
+	mc.AssertNotCalled(t, "SignalWorkflow", mock.Anything, wfID, "", signalReviewDecision, mock.Anything)
+}
+
+// Approve at StageAwaitingReview is the legitimate flow — the precondition passes and
+// the reviewDecision signal fires.
+func Test_SubmitReviewDecision_Approve_AtAwaitingReview_Signals(t *testing.T) {
+	id := ProjectID(uuid.NewString())
+	wfID := coAuthorWorkflowID(id, KindMission)
+
+	mc := &temporalmocks.Client{}
+	mc.On("DescribeWorkflowExecution", mock.Anything, wfID, "").
+		Return(&workflowservice.DescribeWorkflowExecutionResponse{
+			WorkflowExecutionInfo: &workflowpb.WorkflowExecutionInfo{Status: enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING},
+		}, nil)
+	mc.On("QueryWorkflow", mock.Anything, wfID, "", querySessionState).
+		Return(stubEncodedStage{stage: StageAwaitingReview}, nil)
+	mc.On("SignalWorkflow", mock.Anything, wfID, "", signalReviewDecision, mock.Anything).Return(nil)
+
+	m := &systemDesignManager{client: mc}
+	if err := m.SubmitReviewDecision(bgRC(), id, KindMission, ReviewApprove, nil); err != nil {
+		t.Fatalf("approve at AwaitingReview must succeed, got %v", err)
+	}
+	mc.AssertCalled(t, "SignalWorkflow", mock.Anything, wfID, "", signalReviewDecision, mock.Anything)
+}
+
+// ---- from setresearchinput_test.go ----
+
+// These tests cover the SYNC, non-Temporal SetResearchInput op (op 2.6,
+// systemDesignManager.md §2.6). They run entirely on the sync read/write path
+// (no Temporal client), so a nil client is safe — the op never touches Temporal.
+
+// setResearchFakeState is a recording fake of projectStateAccess for the
+// SetResearchInput op. It records each (expectedVersion, research, idempotencyKey)
+// the Manager passes to SetResearchInput, returns the head Version on ReadProject,
+// and can be programmed to surface a Conflict on the first N writes (to exercise
+// the sync-path re-read/re-apply loop). Verbs the op must NOT call panic.
+type setResearchFakeState struct {
+	headVersion projectstate.Version
+	readErr     error
+
+	// conflictsBeforeSuccess: the first N writes return fwra.Conflict; the rest
+	// succeed. The fake bumps headVersion on each Conflict so a re-read sees a
+	// fresh version (mirroring a concurrent writer).
+	conflictsBeforeSuccess int
+
+	// recorded write calls (in order).
+	gotExpected []projectstate.Version
+	gotResearch []projectstate.ResearchInput
+	gotKeys     []fwra.IdempotencyKey
+	readCalls   int
+}
+
+func (f *setResearchFakeState) ReadProject(fwra.Context, projectstate.ProjectID) (projectstate.Project, error) {
+	f.readCalls++
+	if f.readErr != nil {
+		return projectstate.Project{}, f.readErr
+	}
+	return projectstate.Project{Version: f.headVersion}, nil
+}
+
+func (f *setResearchFakeState) ReadProjectVersion(fwra.Context, projectstate.ProjectID) (projectstate.Version, error) {
+	f.readCalls++
+	if f.readErr != nil {
+		return 0, f.readErr
+	}
+	return f.headVersion, nil
+}
+
+func (f *setResearchFakeState) SetResearchInput(rc fwra.Context, _ projectstate.ProjectID, expectedVersion projectstate.Version, research projectstate.ResearchInput) (projectstate.Version, error) {
+	f.gotExpected = append(f.gotExpected, expectedVersion)
+	f.gotResearch = append(f.gotResearch, research)
+	f.gotKeys = append(f.gotKeys, rc.IdempotencyKey)
+	if len(f.gotExpected) <= f.conflictsBeforeSuccess {
+		// Concurrent writer bumped the row: surface Conflict and advance head so the
+		// Manager's re-read sees a fresh expectedVersion.
+		f.headVersion++
+		return 0, fwra.New(fwra.Conflict, "stale version")
+	}
+	f.headVersion++
+	return f.headVersion, nil
+}
+
+func (f *setResearchFakeState) SetOperatingModel(fwra.Context, projectstate.ProjectID, projectstate.Version, projectstate.OperatingModel) (projectstate.Version, error) {
+	panic("setResearchFakeState.SetOperatingModel must not be called by SetResearchInput")
+}
+
+func (f *setResearchFakeState) StageArtifactForReview(fwra.Context, projectstate.ProjectID, projectstate.Version, projectstate.ArtifactModel) (projectstate.Version, error) {
+	panic("setResearchFakeState.StageArtifactForReview must not be called by SetResearchInput")
+}
+
+func (f *setResearchFakeState) CommitArtifact(fwra.Context, projectstate.ProjectID, projectstate.Version, projectstate.ArtifactKind) (projectstate.Version, error) {
+	panic("setResearchFakeState.CommitArtifact must not be called by SetResearchInput")
+}
+
+func (f *setResearchFakeState) RejectArtifact(fwra.Context, projectstate.ProjectID, projectstate.Version, projectstate.ArtifactKind, string) (projectstate.Version, error) {
+	panic("setResearchFakeState.RejectArtifact must not be called by SetResearchInput")
+}
+
+func (f *setResearchFakeState) WithdrawArtifact(fwra.Context, projectstate.ProjectID, projectstate.Version, projectstate.ArtifactKind, string) (projectstate.Version, error) {
+	panic("setResearchFakeState.WithdrawArtifact must not be called by SetResearchInput")
+}
+
+func (f *setResearchFakeState) AdvancePhase(fwra.Context, projectstate.ProjectID, projectstate.Version) (projectstate.Version, error) {
+	panic("setResearchFakeState.AdvancePhase must not be called by SetResearchInput")
+}
+
+func (f *setResearchFakeState) CreateProject(fwra.Context, projectstate.ProjectID, projectstate.OwnerScope, string) (projectstate.Version, error) {
+	panic("setResearchFakeState.CreateProject must not be called by SetResearchInput")
+}
+
+func (f *setResearchFakeState) ListProjects(fwra.Context, projectstate.OwnerScope) ([]projectstate.ProjectSummary, error) {
+	panic("setResearchFakeState.ListProjects must not be called by SetResearchInput")
+}
+
+var _ projectstate.ProjectStateAccess = (*setResearchFakeState)(nil)
+
+func sampleResearch() ResearchInput {
+	return ResearchInput{Sources: []ResearchSource{
+		{Title: "Founder brief", Content: "We are building X for Y."},
+	}}
+}
+
+// ---- façade preconditions ---------------------------------------------------
+
+func Test_SetResearchInput_EmptyProjectID(t *testing.T) {
+	m := NewSystemDesignManager(nil, &setResearchFakeState{}, nil, nil, nil, nil, nil, "")
+	_, err := m.SetResearchInput(bgRC(), ProjectID(""), sampleResearch())
+	if got := asSystemDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
+		t.Fatalf("want ContractMisuse for empty projectId, got %d", got)
+	}
+}
+
+func Test_SetResearchInput_EmptyResearch(t *testing.T) {
+	m := NewSystemDesignManager(nil, &setResearchFakeState{}, nil, nil, nil, nil, nil, "")
+	_, err := m.SetResearchInput(bgRC(), ProjectID(uuid.NewString()), ResearchInput{})
+	if got := asSystemDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
+		t.Fatalf("want ContractMisuse for empty research, got %d", got)
+	}
+}
+
+// A corpus with the right shape (>=1 source) but a source carrying an empty or
+// whitespace-only title/content is a ContractMisuse (BadRequest-class) at the
+// façade boundary, BEFORE any projectStateAccess write — the fake's write verb
+// panics if reached, so this also proves the gate short-circuits before the RA
+// call. The client-facing detail names the offending source by 1-based position.
+func Test_SetResearchInput_PerSourceShapeViolations(t *testing.T) {
+	cases := []struct {
+		name       string
+		sources    []ResearchSource
+		wantDetail string
+	}{
+		{
+			name:       "missing title",
+			sources:    []ResearchSource{{Content: "has content, no title"}},
+			wantDetail: "research source 1: title must not be empty",
+		},
+		{
+			name:       "whitespace-only title",
+			sources:    []ResearchSource{{Title: "   ", Content: "has content"}},
+			wantDetail: "research source 1: title must not be empty",
+		},
+		{
+			name:       "missing content",
+			sources:    []ResearchSource{{Title: "has title, no content"}},
+			wantDetail: "research source 1: content must not be empty",
+		},
+		{
+			name:       "whitespace-only content",
+			sources:    []ResearchSource{{Title: "has title", Content: "\t\n "}},
+			wantDetail: "research source 1: content must not be empty",
+		},
+		{
+			// The offending index is reported (1-based) for a later source, and the
+			// first well-formed source does not mask the second's violation.
+			name: "second source missing content",
+			sources: []ResearchSource{
+				{Title: "Founder brief", Content: "We are building X."},
+				{Title: "Competitor analysis"},
+			},
+			wantDetail: "research source 2: content must not be empty",
+		},
+		{
+			name: "third source missing title",
+			sources: []ResearchSource{
+				{Title: "A", Content: "a"},
+				{Title: "B", Content: "b"},
+				{Content: "c"},
+			},
+			wantDetail: "research source 3: title must not be empty",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// A fake whose write verb panics if reached — proves the gate rejects
+			// BEFORE any projectStateAccess call.
+			m := NewSystemDesignManager(nil, &setResearchFakeState{}, nil, nil, nil, nil, nil, "")
+			_, err := m.SetResearchInput(bgRC(), ProjectID(uuid.NewString()), ResearchInput{Sources: tc.sources})
+			e := asSystemDesignError(t, err)
+			if e.Kind != fwmanager.ContractMisuse {
+				t.Fatalf("want ContractMisuse, got %d", e.Kind)
+			}
+			if e.Detail != tc.wantDetail {
+				t.Fatalf("detail = %q, want %q", e.Detail, tc.wantDetail)
+			}
+		})
+	}
+}
+
+// ---- happy path -------------------------------------------------------------
+
+func Test_SetResearchInput_HappyPath_RecordsWrite(t *testing.T) {
+	ps := &setResearchFakeState{headVersion: 7}
+	m := NewSystemDesignManager(nil, ps, nil, nil, nil, nil, nil, "")
+	research := sampleResearch()
+
+	v, err := m.SetResearchInput(bgRC(), ProjectID(uuid.NewString()), research)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(ps.gotExpected) != 1 {
+		t.Fatalf("want exactly one write, got %d", len(ps.gotExpected))
+	}
+	if ps.gotExpected[0] != 7 {
+		t.Fatalf("want expectedVersion 7 (the head just read), got %d", ps.gotExpected[0])
+	}
+	if len(ps.gotResearch[0].Sources) != 1 || ps.gotResearch[0].Sources[0].Title != "Founder brief" {
+		t.Fatalf("research not passed through faithfully: %+v", ps.gotResearch[0])
+	}
+	if ps.gotKeys[0].IsZero() {
+		t.Fatalf("want a non-empty idempotencyKey")
+	}
+	if v != 8 {
+		t.Fatalf("want resulting Version 8 (head bumped), got %d", v)
+	}
+}
+
+// A stable research payload derives a stable idempotency key (so a retried write
+// of the SAME research collapses to a dedup no-op in the RA ledger).
+func Test_SetResearchInput_IdempotencyKey_StableForSameResearch(t *testing.T) {
+	pid := ProjectID(uuid.NewString())
+	research := sampleResearch()
+
+	ps1 := &setResearchFakeState{}
+	ps2 := &setResearchFakeState{}
+	m1 := NewSystemDesignManager(nil, ps1, nil, nil, nil, nil, nil, "")
+	m2 := NewSystemDesignManager(nil, ps2, nil, nil, nil, nil, nil, "")
+	if _, err := m1.SetResearchInput(bgRC(), pid, research); err != nil {
+		t.Fatalf("write 1: %v", err)
+	}
+	if _, err := m2.SetResearchInput(bgRC(), pid, research); err != nil {
+		t.Fatalf("write 2: %v", err)
+	}
+	if ps1.gotKeys[0] != ps2.gotKeys[0] {
+		t.Fatalf("same (project, research) must derive the same key: %q vs %q", ps1.gotKeys[0], ps2.gotKeys[0])
+	}
+
+	// A different research payload must derive a DIFFERENT key.
+	other := ResearchInput{Sources: []ResearchSource{{Title: "Competitor analysis", Content: "Z does W."}}}
+	ps3 := &setResearchFakeState{}
+	m3 := NewSystemDesignManager(nil, ps3, nil, nil, nil, nil, nil, "")
+	if _, err := m3.SetResearchInput(bgRC(), pid, other); err != nil {
+		t.Fatalf("write 3: %v", err)
+	}
+	if ps3.gotKeys[0] == ps1.gotKeys[0] {
+		t.Fatalf("different research must derive a different key")
+	}
+}
+
+// ---- conflict-then-success sync re-read/re-apply loop -----------------------
+
+func Test_SetResearchInput_ConflictThenSuccess_ReReads(t *testing.T) {
+	ps := &setResearchFakeState{headVersion: 3, conflictsBeforeSuccess: 2}
+	m := NewSystemDesignManager(nil, ps, nil, nil, nil, nil, nil, "")
+
+	v, err := m.SetResearchInput(bgRC(), ProjectID(uuid.NewString()), sampleResearch())
+	if err != nil {
+		t.Fatalf("expected success after conflicts, got %v", err)
+	}
+	if len(ps.gotExpected) != 3 {
+		t.Fatalf("want 3 write attempts (2 conflicts + 1 success), got %d", len(ps.gotExpected))
+	}
+	// Each attempt must re-read the (bumped) head version before re-applying.
+	if ps.readCalls != 3 {
+		t.Fatalf("want 3 ReadProject calls (one per attempt), got %d", ps.readCalls)
+	}
+	if ps.gotExpected[0] >= ps.gotExpected[1] || ps.gotExpected[1] >= ps.gotExpected[2] {
+		t.Fatalf("each re-apply must carry a fresh (higher) expectedVersion, got %v", ps.gotExpected)
+	}
+	// The SAME idempotency key is reused across re-applies (one logical mutation).
+	if ps.gotKeys[0] != ps.gotKeys[1] || ps.gotKeys[1] != ps.gotKeys[2] {
+		t.Fatalf("re-applies must reuse the same idempotencyKey, got %v", ps.gotKeys)
+	}
+	if v == 0 {
+		t.Fatalf("want a non-zero resulting Version")
+	}
+}
+
+func Test_SetResearchInput_ConflictExhausted_Infrastructure(t *testing.T) {
+	ps := &setResearchFakeState{conflictsBeforeSuccess: setResearchInputMaxAttempts + 1}
+	m := NewSystemDesignManager(nil, ps, nil, nil, nil, nil, nil, "")
+	_, err := m.SetResearchInput(bgRC(), ProjectID(uuid.NewString()), sampleResearch())
+	if got := asSystemDesignError(t, err).Kind; got != fwmanager.Infrastructure {
+		t.Fatalf("want Infrastructure after exhausting conflict retries, got %d", got)
+	}
+	if len(ps.gotExpected) != setResearchInputMaxAttempts {
+		t.Fatalf("want exactly %d bounded attempts, got %d", setResearchInputMaxAttempts, len(ps.gotExpected))
+	}
+}
+
+// ---- error passthrough ------------------------------------------------------
+
+func Test_SetResearchInput_NotFound_Passthrough(t *testing.T) {
+	// ReadProject succeeds but the write surfaces NotFound (no project aggregate).
+	ps := &setResearchNotFoundOnWrite{}
+	m := NewSystemDesignManager(nil, ps, nil, nil, nil, nil, nil, "")
+	_, err := m.SetResearchInput(bgRC(), ProjectID(uuid.NewString()), sampleResearch())
+	if got := asSystemDesignError(t, err).Kind; got != fwmanager.NotFound {
+		t.Fatalf("want NotFound passthrough, got %d", got)
+	}
+}
+
+func Test_SetResearchInput_ReadNotFound_Propagates(t *testing.T) {
+	ps := &setResearchFakeState{readErr: fwra.New(fwra.NotFound, "no row yet")}
+	m := NewSystemDesignManager(nil, ps, nil, nil, nil, nil, nil, "")
+	_, err := m.SetResearchInput(bgRC(), ProjectID(uuid.NewString()), sampleResearch())
+	if got := asSystemDesignError(t, err).Kind; got != fwmanager.NotFound {
+		t.Fatalf("want NotFound when ReadProject reports no row, got %d", got)
+	}
+}
+
+// setResearchNotFoundOnWrite reads fine but the write reports NotFound.
+type setResearchNotFoundOnWrite struct{ setResearchFakeState }
+
+func (f *setResearchNotFoundOnWrite) SetResearchInput(fwra.Context, projectstate.ProjectID, projectstate.Version, projectstate.ResearchInput) (projectstate.Version, error) {
+	return 0, fwra.New(fwra.NotFound, "no project aggregate")
+}
+
+var _ projectstate.ProjectStateAccess = (*setResearchNotFoundOnWrite)(nil)
+
+// ---- from stagename_test.go ----
+
+// stagename_test.go — F72 stageName label. The bare Stage int's enum values differ across
+// managers (systemdesign StageAwaitingReview == 2), so a human-readable StageName label ships
+// alongside it. sessionStageLabel is the single authoritative map; withStageName stamps it.
+
+func TestSessionStageLabel_Map(t *testing.T) {
+	cases := map[SessionStage]string{
+		SessionStageUnknown: "not started",
+		StageDrafting:       "drafting",
+		StageAwaitingReview: "awaiting review",
+		StageRedrafting:     "redrafting",
+		StageCommitted:      "committed",
+		StageWithdrawn:      "withdrawn",
+		StageRefused:        "refused",
+		StageDraftFailed:    "draft failed",
+	}
+	for stage, want := range cases {
+		if got := sessionStageLabel(stage); got != want {
+			t.Errorf("sessionStageLabel(%d) = %q, want %q", int(stage), got, want)
+		}
+	}
+}
+
+func TestWithStageName_StampsLabel(t *testing.T) {
+	// systemdesign StageAwaitingReview is the int 2 — the label disambiguates it.
+	if int(StageAwaitingReview) != 2 {
+		t.Fatalf("guard: expected systemdesign StageAwaitingReview == 2, got %d", int(StageAwaitingReview))
+	}
+	v := withStageName(SessionStateView{Stage: StageAwaitingReview})
+	if v.StageName != "awaiting review" {
+		t.Fatalf("withStageName StageName = %q, want %q", v.StageName, "awaiting review")
+	}
+	if v.Stage != StageAwaitingReview {
+		t.Fatalf("withStageName must not alter the Stage int, got %d", int(v.Stage))
+	}
+}
+
+// ---- from statevalidationfindings_test.go ----
+
+// statevalidationfindings_test.go — coverage for the app-side read-back finding
+// generators (architect ratification 2026-07-05) and the AdvancePhase pre-seal gates.
+// Each rule gets a valid fixture (no finding) and a violating fixture (finding with the
+// canonical rule id). A final test confirms a pre-existing VIOLATING committed state
+// decodes WITHOUT erroring and only then surfaces findings (the critical read-safety
+// invariant: reads never hard-fail; violations render as findings until an amendment).
+
+func compE(id, name string, kind projectstate.ComponentKind, layer projectstate.Layer, enc string) projectstate.Component {
+	return projectstate.Component{ID: id, Name: name, Kind: kind, Layer: layer, Encapsulates: enc}
+}
+
+func rel(from, to string, mode projectstate.CallMode, label string) projectstate.Relationship {
+	return projectstate.Relationship{From: from, To: to, Mode: mode, Label: label}
+}
+
+func hasRule(fs []Finding, id string, sev Severity) bool {
+	for _, f := range fs {
+		if string(f.RuleID) == id && f.Severity == sev {
+			return true
+		}
+	}
+	return false
+}
+
+// ---- SYS-RA-ORPHAN ----
+
+func Test_raOrphan_HealthyReachesResource(t *testing.T) {
+	sys := &projectstate.System{
+		Components: []projectstate.Component{
+			compE("ra", "OrderAccess", projectstate.CompResourceAccess, projectstate.LayerResourceAccess, "the order store"),
+			compE("store", "OrderStore", projectstate.CompResource, projectstate.LayerResource, ""),
+		},
+		Relationships: []projectstate.Relationship{rel("ra", "store", projectstate.CallSync, "reads")},
+	}
+	if f := raOrphanFindings(KindSystem, sys); len(f) != 0 {
+		t.Fatalf("an RA that reaches a resource is not orphan, got: %+v", f)
+	}
+}
+
+func Test_raOrphan_NoResourceEdgeFlagged(t *testing.T) {
+	sys := &projectstate.System{
+		Components: []projectstate.Component{
+			compE("mgr", "OrderManager", projectstate.CompManager, projectstate.LayerManager, "the order workflow"),
+			compE("ra", "OrderAccess", projectstate.CompResourceAccess, projectstate.LayerResourceAccess, "the order store"),
+		},
+		Relationships: []projectstate.Relationship{rel("mgr", "ra", projectstate.CallSync, "loads")},
+	}
+	if !hasRule(raOrphanFindings(KindSystem, sys), "SYS-RA-ORPHAN", SeverityError) {
+		t.Fatal("an RA with no outbound edge to a resource must be flagged SYS-RA-ORPHAN")
+	}
+}
+
+func Test_raOrphan_ExternalTargetSatisfies(t *testing.T) {
+	// An edge to an id that is not a modeled component is a documented external system.
+	sys := &projectstate.System{
+		Components: []projectstate.Component{
+			compE("ra", "GitHubAccess", projectstate.CompResourceAccess, projectstate.LayerResourceAccess, "GitHub"),
+		},
+		Relationships: []projectstate.Relationship{rel("ra", "github.com", projectstate.CallQueued, "calls")},
+	}
+	if f := raOrphanFindings(KindSystem, sys); len(f) != 0 {
+		t.Fatalf("an RA reaching an external target is not orphan, got: %+v", f)
+	}
+}
+
+// ---- SYS-ENCAPSULATES ----
+
+func Test_encapsulates_EmptyClientError_EmptyResourceWarning(t *testing.T) {
+	sys := &projectstate.System{Components: []projectstate.Component{
+		compE("c", "WebClient", projectstate.CompClient, projectstate.LayerClient, ""),
+		compE("r", "GitRepo", projectstate.CompResource, projectstate.LayerResource, ""),
+		compE("m", "OrderManager", projectstate.CompManager, projectstate.LayerManager, "the order workflow"),
+	}}
+	f := encapsulatesFindings(KindSystem, sys)
+	if !hasRule(f, "SYS-ENCAPSULATES", SeverityError) {
+		t.Fatal("an empty-encapsulates client must be an ERROR finding")
+	}
+	if !hasRule(f, "SYS-ENCAPSULATES", SeverityWarning) {
+		t.Fatal("an empty-encapsulates resource must be a WARNING finding")
+	}
+	// The non-empty manager raises nothing.
+	for _, fi := range f {
+		if strings.Contains(fi.Message, "OrderManager") {
+			t.Fatalf("a non-empty manager must not be flagged, got: %+v", fi)
+		}
+	}
+}
+
+// ---- SYS-REL-DUP ----
+
+func Test_relDup_ExactDuplicateError(t *testing.T) {
+	sys := &projectstate.System{Relationships: []projectstate.Relationship{
+		rel("a", "b", projectstate.CallSync, "x"),
+		rel("a", "b", projectstate.CallSync, "x"),
+	}}
+	if !hasRule(relDupFindings(KindSystem, sys), "SYS-REL-DUP", SeverityError) {
+		t.Fatal("an exact (from,to,mode) duplicate must be a SYS-REL-DUP error")
+	}
+}
+
+func Test_relDup_LabelSplitWarning(t *testing.T) {
+	sys := &projectstate.System{Relationships: []projectstate.Relationship{
+		rel("a", "b", projectstate.CallSync, "reads"),
+		rel("a", "b", projectstate.CallQueued, "writes"),
+	}}
+	f := relDupFindings(KindSystem, sys)
+	if hasRule(f, "SYS-REL-DUP", SeverityError) {
+		t.Fatal("distinct-mode edges are not an exact duplicate")
+	}
+	if !hasRule(f, "SYS-REL-DUP", SeverityWarning) {
+		t.Fatal("a same-pair label split must be a SYS-REL-DUP warning")
+	}
+}
+
+// ---- DV-CHAIN-CONNECTED ----
+
+func Test_dvChain_ConnectedClean(t *testing.T) {
+	sys := &projectstate.System{
+		Components: []projectstate.Component{
+			compE("web", "WebClient", projectstate.CompClient, projectstate.LayerClient, ""),
+			compE("mgr", "OrderManager", projectstate.CompManager, projectstate.LayerManager, "wf"),
+		},
+		DynamicViews: []projectstate.DynamicView{{
+			UseCaseID:    "uc1",
+			Participants: []string{"web", "mgr"},
+			Edges:        []projectstate.Relationship{rel("web", "mgr", projectstate.CallSync, "")},
+		}},
+	}
+	if f := dvChainFindings(KindSystem, sys); len(f) != 0 {
+		t.Fatalf("a connected client-rooted chain is clean, got: %+v", f)
+	}
+}
+
+func Test_dvChain_DisconnectedWarning(t *testing.T) {
+	sys := &projectstate.System{
+		Components: []projectstate.Component{
+			compE("web", "WebClient", projectstate.CompClient, projectstate.LayerClient, ""),
+			compE("mgr", "OrderManager", projectstate.CompManager, projectstate.LayerManager, "wf"),
+			compE("ra", "OrderAccess", projectstate.CompResourceAccess, projectstate.LayerResourceAccess, "store"),
+		},
+		DynamicViews: []projectstate.DynamicView{{
+			UseCaseID:    "uc1",
+			Participants: []string{"web", "mgr", "ra"},
+			Edges:        []projectstate.Relationship{rel("web", "mgr", projectstate.CallSync, "")},
+		}},
+	}
+	if !hasRule(dvChainFindings(KindSystem, sys), "DV-CHAIN-CONNECTED", SeverityWarning) {
+		t.Fatal("an unreachable participant must warn DV-CHAIN-CONNECTED")
+	}
+}
+
+func Test_dvChain_NoClientRootWarning(t *testing.T) {
+	sys := &projectstate.System{
+		Components: []projectstate.Component{
+			compE("mgr", "OrderManager", projectstate.CompManager, projectstate.LayerManager, "wf"),
+			compE("ra", "OrderAccess", projectstate.CompResourceAccess, projectstate.LayerResourceAccess, "store"),
+		},
+		DynamicViews: []projectstate.DynamicView{{
+			UseCaseID:    "uc1",
+			Participants: []string{"mgr", "ra"},
+			Edges:        []projectstate.Relationship{rel("mgr", "ra", projectstate.CallSync, "")},
+		}},
+	}
+	if !hasRule(dvChainFindings(KindSystem, sys), "DV-CHAIN-CONNECTED", SeverityWarning) {
+		t.Fatal("a chain with no client root must warn DV-CHAIN-CONNECTED")
+	}
+}
+
+// ---- UC-VARIATION-REF ----
+
+func ucDecision(id, name string, class projectstate.Classification, variationOf, rejection string) projectstate.UseCaseDecision {
+	uc := projectstate.UseCase{
+		ID:             projectstate.UseCaseID(id),
+		Name:           name,
+		Trigger:        projectstate.TriggerClientAction,
+		Classification: class,
+	}
+	if variationOf != "" {
+		v := projectstate.UseCaseID(variationOf)
+		uc.VariationOf = &v
+	}
+	return projectstate.UseCaseDecision{UseCase: uc, RejectionReason: rejection}
+}
+
+func Test_variationRef_ValidClean(t *testing.T) {
+	cuc := &projectstate.CoreUseCases{Decisions: []projectstate.UseCaseDecision{
+		ucDecision("base", "Base", projectstate.ClassCore, "", ""),
+		ucDecision("var", "Variation", projectstate.ClassNonCore, "base", "narrower slice"),
+	}}
+	if f := variationRefFindings(KindCoreUseCases, cuc); len(f) != 0 {
+		t.Fatalf("a well-formed variation set is clean, got: %+v", f)
+	}
+}
+
+func Test_variationRef_Violations(t *testing.T) {
+	cuc := &projectstate.CoreUseCases{Decisions: []projectstate.UseCaseDecision{
+		ucDecision("base", "Base", projectstate.ClassCore, "nonsense", ""), // core with variationOf
+		ucDecision("v1", "V1", projectstate.ClassNonCore, "ghost", "why"),  // unresolved variationOf
+		ucDecision("v2", "V2", projectstate.ClassNonCore, "base", ""),      // empty rejectionReason
+	}}
+	f := variationRefFindings(KindCoreUseCases, cuc)
+	if !hasRule(f, "UC-VARIATION-REF", SeverityError) {
+		t.Fatal("expected UC-VARIATION-REF errors")
+	}
+	var coreVar, unresolved, noReason bool
+	for _, fi := range f {
+		switch {
+		case strings.Contains(fi.Message, "core use case") && strings.Contains(fi.Message, "base, not a variation"):
+			coreVar = true
+		case strings.Contains(fi.Message, "does not resolve"):
+			unresolved = true
+		case strings.Contains(fi.Message, "empty rejectionReason"):
+			noReason = true
+		}
+	}
+	if !coreVar || !unresolved || !noReason {
+		t.Fatalf("missing a violation class: coreVar=%v unresolved=%v noReason=%v (%+v)", coreVar, unresolved, noReason, f)
+	}
+}
+
+// ---- GLOSS-FOURQ ----
+
+func Test_glossaryFourQ_NonCanonicalError_And_CoverageWarning(t *testing.T) {
+	g := &projectstate.Glossary{Items: []projectstate.GlossaryItem{
+		{Term: "User", Category: "Who"},
+		{Term: "Bogus", Category: "Nonsense"},
+	}}
+	f := glossaryFourQFindings(KindGlossary, g)
+	if !hasRule(f, "GLOSS-FOURQ", SeverityError) {
+		t.Fatal("a non-canonical category must be a GLOSS-FOURQ error")
+	}
+	// What/How/Where uncovered → warnings.
+	if !hasRule(f, "GLOSS-FOURQ", SeverityWarning) {
+		t.Fatal("uncovered Four-Questions categories must warn")
+	}
+}
+
+func Test_glossaryFourQ_FullCoverageClean(t *testing.T) {
+	g := &projectstate.Glossary{Items: []projectstate.GlossaryItem{
+		{Term: "A", Category: "Who"}, {Term: "B", Category: "What"},
+		{Term: "C", Category: "How"}, {Term: "D", Category: "Where"},
+	}}
+	if f := glossaryFourQFindings(KindGlossary, g); len(f) != 0 {
+		t.Fatalf("full canonical coverage is clean, got: %+v", f)
+	}
+}
+
+// ---- SR-ID-UNIQUE ----
+
+func Test_scrubbedID_Violations(t *testing.T) {
+	sr := &projectstate.ScrubbedRequirements{Items: []projectstate.Requirement{
+		{ID: "R1", Statement: "ok"},
+		{ID: "", Statement: "no id"},
+		{ID: "R1", Statement: "dup id"},
+		{ID: "R2", Statement: ""},
+	}}
+	f := scrubbedIDFindings(KindScrubbedRequirements, sr)
+	var empty, dup, noStmt bool
+	for _, fi := range f {
+		if fi.RuleID != "SR-ID-UNIQUE" || fi.Severity != SeverityError {
+			t.Fatalf("unexpected finding %+v", fi)
+		}
+		switch {
+		case strings.Contains(fi.Message, "empty id"):
+			empty = true
+		case strings.Contains(fi.Message, "duplicated"):
+			dup = true
+		case strings.Contains(fi.Message, "empty statement"):
+			noStmt = true
+		}
+	}
+	if !empty || !dup || !noStmt {
+		t.Fatalf("missing a violation class: empty=%v dup=%v noStmt=%v", empty, dup, noStmt)
+	}
+}
+
+func Test_scrubbedID_Clean(t *testing.T) {
+	sr := &projectstate.ScrubbedRequirements{Items: []projectstate.Requirement{
+		{ID: "R1", Statement: "a"}, {ID: "R2", Statement: "b"},
+	}}
+	if f := scrubbedIDFindings(KindScrubbedRequirements, sr); len(f) != 0 {
+		t.Fatalf("unique non-empty ids are clean, got: %+v", f)
+	}
+}
+
+// ---- OPC-TOPIC-COVERAGE ----
+
+func Test_opcTopic_MissingTopicInfo(t *testing.T) {
+	op := &projectstate.OperationalConcepts{Decisions: []projectstate.OperationalDecision{
+		{Topic: "communication topology"},
+		{Topic: "layering style"},
+		{Topic: "project state storage"},
+	}}
+	f := opcTopicFindings(KindOperationalConcepts, op)
+	// Only sync/queued is unaddressed → exactly one info nudge, addressing "sync/queued".
+	if len(f) != 1 || f[0].Severity != SeverityInfo || !strings.Contains(f[0].Message, `"sync/queued"`) {
+		t.Fatalf("expected a single OPC-TOPIC-COVERAGE nudge for sync/queued, got: %+v", f)
+	}
+}
+
+// ---- AdvancePhase pre-seal gates ----
+
+func Test_standardCheckFailItems(t *testing.T) {
+	proj := projectstate.Project{}
+	proj.StandardCheck = projectstate.ArtifactSlot{
+		Status: projectstate.ReviewCommitted,
+		Model: &projectstate.StandardCheck{Items: []projectstate.CheckItem{
+			{Section: "S1", Guideline: "closed architecture", Status: projectstate.CheckPass},
+			{Section: "S2", Guideline: "no design in a vacuum", Status: projectstate.CheckFail},
+		}},
+	}
+	fails := standardCheckFailItems(proj)
+	if len(fails) != 1 || !strings.Contains(fails[0], "no design in a vacuum") {
+		t.Fatalf("expected one fail item naming the failing guideline, got: %v", fails)
+	}
+	// A pass/waived-only check is fail-free.
+	proj.StandardCheck.Model = &projectstate.StandardCheck{Items: []projectstate.CheckItem{
+		{Status: projectstate.CheckPass}, {Status: projectstate.CheckWaived},
+	}}
+	if f := standardCheckFailItems(proj); len(f) != 0 {
+		t.Fatalf("a fail-free standard check must yield no items, got: %v", f)
+	}
+}
+
+func Test_staleCommittedPhase1Kinds_NamesCause(t *testing.T) {
+	proj := projectstate.Project{}
+	proj.Volatilities = projectstate.ArtifactSlot{
+		Status:          projectstate.ReviewCommitted,
+		StaleBasis:      true,
+		StaleBasisCause: &projectstate.StaleCause{UpstreamKind: "mission", UpstreamRevision: 2},
+		Model:           &projectstate.Volatilities{},
+	}
+	got := staleCommittedPhase1Kinds(proj)
+	if len(got) != 1 || !strings.Contains(got[0], "mission rev 2") {
+		t.Fatalf("stale kind must name its cause (mission rev 2), got: %v", got)
+	}
+}
+
+// ---- read-safety: a pre-existing VIOLATING committed state decodes, then yields findings ----
+
+func Test_ViolatingCommittedState_DecodesThenFindings(t *testing.T) {
+	// A System with an ORPHAN ResourceAccess (no edge to a resource) and an
+	// empty-encapsulates CLIENT — both finding-class violations, NOT codec failures.
+	sys := &projectstate.System{
+		Components: []projectstate.Component{
+			compE("web", "WebClient", projectstate.CompClient, projectstate.LayerClient, ""), // empty client
+			compE("mgr", "OrderManager", projectstate.CompManager, projectstate.LayerManager, "the order workflow"),
+			compE("ra", "OrderAccess", projectstate.CompResourceAccess, projectstate.LayerResourceAccess, "the order store"),
+			compE("store", "OrderStore", projectstate.CompResource, projectstate.LayerResource, ""),
+		},
+		Relationships: []projectstate.Relationship{
+			rel("web", "mgr", projectstate.CallSync, "places"),
+			rel("mgr", "ra", projectstate.CallSync, "loads"),
+			// NOTE: no ra → store edge, so ra is orphan.
+		},
+	}
+	p := projectstate.Project{ID: "p"}
+	p.SystemDesign = projectstate.ArtifactSlot{Status: projectstate.ReviewCommitted, Model: sys, Revisions: 1}
+
+	raw, err := projectstate.EncodeProjectJSON(p)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	// CRITICAL INVARIANT: reading a violating committed state must NOT hard-fail.
+	got, ok, err := projectstate.DecodeProjectJSON(raw, "p")
+	if err != nil || !ok {
+		t.Fatalf("a violating committed state must still decode (read-safety): ok=%v err=%v", ok, err)
+	}
+	model := got.SystemDesign.Model
+	if !hasRule(raOrphanFindings(KindSystem, model), "SYS-RA-ORPHAN", SeverityError) {
+		t.Fatal("orphan RA must surface as a finding on the decoded committed state")
+	}
+	if !hasRule(encapsulatesFindings(KindSystem, model), "SYS-ENCAPSULATES", SeverityError) {
+		t.Fatal("empty-encapsulates client must surface as a finding on the decoded committed state")
+	}
 }
