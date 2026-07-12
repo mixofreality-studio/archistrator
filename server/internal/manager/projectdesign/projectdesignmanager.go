@@ -1,10 +1,58 @@
+// Package projectdesign is the projectDesignManager component of the aiarch
+// server's Manager layer — the use-case façade that drives a project through
+// Phase 2 of The Method (Project Design), per the senior-passed contract
+// designs/aiarch/implementation/contracts/projectDesignManager.md (D-MPD,
+// APPROVED — FROZEN 2026-05-29). It is the Phase-2 TWIN of the systemdesign
+// package (D-MSD) and mirrors it file-by-file.
+//
+// This is the MANAGER layer. It OWNS Temporal: its public ops map to Temporal
+// primitives (Workflow / Signal / Query), it defines and registers one Activity
+// per ResourceAccess call, owns the Signal/Query handlers, and derives the
+// idempotency key "${workflowId}:${activityId}" passed down to each RA verb.
+// Temporal lives ONLY in this component; the downstream Engines
+// (estimation, operationestimation, settlement) and ResourceAccess (projectstate,
+// worker) ports are Temporal-free, and the three estimate Engines are PURE — called
+// DIRECTLY from workflow code, never wrapped in an Activity (contract §6.3/§6.4).
+//
+// SCHEMA-FIRST (full encapsulation): this component OWNS its contract I/O types.
+// The public surface (ProjectDesignManager port + the I/O value types) is GENERATED
+// into contract.gen.go from this component's `.serviceContracts` entry in
+// .aiarch/state/project.json (edit that entry + `make gen`; do
+// NOT hand-edit the generated surface). The generated contract imports NEITHER the
+// projectstate ResourceAccess NOR Temporal: projectdesign mirrors the head-state
+// value shapes (ProjectID / ArtifactKind / OptionID) as its OWN named types and
+// field-maps from projectstate at the Manager boundary (the systemdesign precedent).
+// The staged typed DRAFT (and the assembled SDP review) is carried OPAQUELY — a
+// {kind, model} envelope (DraftModel) — so projectdesign never regenerates or shares
+// projectstate's sealed ArtifactModel sum or its 17 variants.
+//
+// The consumer-side dependency interfaces (ConstructionPipelineAccess /
+// SourceControlRail), the Temporal workflows struct + workflow inputs/signals, and
+// the internal SDP-assembly (assembleSdpReview over projectstate.Project) stay
+// HAND-WRITTEN and are NOT part of the generated contract.
+//
+// File layout within the package:
+//   - projectdesignmanager.go : the Manager + the ProjectDesignManager port (§6.2)
+//   - contract.go             : the public façade types (§2, §3) — generated surface
+//   - behavior.go             : free functions over the contract value types
+//   - workflow.go             : the workflows deps struct + workflow bodies + signal/query handlers (§6.3)
+//   - activities.go           : the Manager-owned Activity wrappers, as methods on workflows (§6.4)
+//   - errors.go               : the port-error -> Temporal-error translation (§6.4)
+//   - prompts.go              : the Phase-2 architect-role draft prompt corpus
+//   - worker.go               : worker registration of workflows + activities (§6.1)
 package projectdesign
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/fnv"
+	"log/slog"
+	"path"
 	"strings"
+	"sync/atomic"
+	"time"
 
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
@@ -17,6 +65,9 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/client"
+	"go.temporal.io/sdk/temporal"
+	"go.temporal.io/sdk/worker"
+	"go.temporal.io/sdk/workflow"
 )
 
 // ProjectDesignManager is the generated service-contract interface for this component
@@ -824,3 +875,1283 @@ func isNotFound(err error) bool {
 }
 
 var errNotFoundSentinel = errors.New("not found")
+
+// ---- from contract.go ----
+// ---------------------------------------------------------------------------
+// Identity / domain scalars (projectdesign's OWN named types — value-identical to
+// projectstate; the Manager converts at the projectStateAccess boundary). They are
+// PURE DATA on the generated surface; behavior lives in behavior.go as free
+// functions so contract.gen.go imports no projectstate.
+// ---------------------------------------------------------------------------
+
+// ProjectID is the project aggregate identifier — its value IS the user-supplied
+// adopted repo name (name-as-identity). Mirrors projectstate.ProjectID.
+
+// OptionID names one project-design option in the SDP review (the architect commits
+// one at the option-commitment gate). Mirrors projectstate.OptionID.
+
+// ArtifactKind is the closed artifact-slot enum. The ordinals MIRROR
+// projectstate.ArtifactKind so int(...) conversion at the boundary is
+// meaning-preserving; behavior (WireName/IsPhase2/...) lives in behavior.go as free
+// functions over a projectstate conversion so the generated type stays pure data.
+
+// ---- Phase 1 (carried for ordinal parity with projectstate; not driven here) ----
+
+// ---- Phase 2 ----
+
+// ---------------------------------------------------------------------------
+// Session reference + review surface.
+// ---------------------------------------------------------------------------
+
+// SessionRef is an opaque, infrastructure-opaque reference to a running Phase-2
+// session (an artifact-co-authoring session or the SDP-review session — contract
+// §3.1). It wraps the underlying durable-execution identity as an opaque string the
+// Client persists/echoes and never parses. Construction is via the newSessionRef
+// free function (behavior.go).
+
+// ReviewDecision is the architect's commit-authority decision at the per-artifact
+// Phase-2 review gate (contract §10 OQ-3 — Phase-2 artifacts ARE individually
+// gated, mirroring Phase 1).
+
+// commit the typed model in its slot
+// loop back to draft with feedback
+// abandon the draft
+
+// ReviewFeedback is the architect's free-text rejection/withdraw rationale
+// (contract §3.2). Required on Reject and on an SDP RejectAll; optional on
+// Withdraw; ignored on Approve.
+
+// SDPDecision is the architect's decision at the option-commitment gate
+// (contract §3.2). Commit binds the named option; RejectAll re-enters Phase 2
+// with feedback to produce a fresh SDP review.
+
+// bind the named option, commit the review
+// record the rejected outcome; re-assemble with feedback
+
+// PhaseAdvanceResult is the gating outcome of advanceToConstruction
+// (contract §3.3). A non-Advanced result is the NORMAL "you still owe artifacts
+// X, Y / no option bound" answer (not an error).
+
+// ---------------------------------------------------------------------------
+// Session read view (getSessionState) + the OPAQUE staged-draft envelope.
+//
+// DraftModel is the discriminated {kind, model} envelope the staged typed draft /
+// assembled SdpReview is carried as — IDENTICAL on the wire to the systemdesign
+// DraftModel envelope. The model is carried OPAQUELY as raw JSON: projectdesign
+// never names the concrete projectstate model types or the sealed ArtifactModel sum
+// here.
+// ---------------------------------------------------------------------------
+
+// DraftModel is the opaque {kind, model} envelope carrying the staged typed draft (or
+// the assembled SdpReview) as raw JSON. Model is omitted when no draft is staged.
+// Kind is the canonical camelCase wire name (e.g. "planningAssumptions").
+
+// SessionStage collapses the technical workflow state into the handful of stages
+// the UI needs (contract §3.4). StageAssemblingSDP sits between drafting and
+// awaiting-review for the SDP-review session.
+
+// worker dispatched; typed model not yet produced
+// SDP-review workflow: assembling options + joining Engine outputs
+// model staged (status AwaitingReview); suspended on the review signal
+// architect rejected; looping back with feedback
+// commitArtifact applied; terminal for this kind/option
+// withdrawArtifact applied; terminal
+// worker refused/cancelled and could not produce a model; terminal
+// StageDraftFailed (agentic-pivot D-MPD-Δ, §3.4 — the twin of systemDesignManager
+// StageDraftFailed) is the human-visible, human-actionable stage the session lands
+// in when the dispatched agentic Phase-2 DESIGN job reaches a TYPED terminal failure
+// phase. It carries the job's neutral Diagnostic in FailureReason. Surfaced by
+// getSessionState so the SPA renders an actionable failure and NEVER a perpetual
+// StageDrafting / StageAssemblingSDP spinner (the anti-wedge requirement).
+
+// SessionStateView is a point-in-time, read-only view of one Phase-2 session's
+// TECHNICAL progress (contract §3.4) — the answer to getSessionState (a Temporal
+// Query), NOT the business-state read. The staged TYPED draft / assembled SdpReview
+// is carried OPAQUELY via DraftModel; Findings explain "why it's being redrafted".
+
+// Draft is the staged typed draft / SdpReview awaiting review, carried as the
+// opaque {kind, model} envelope (model nil before the first stage).
+
+// FailureReason is a short, human, non-leaking explanation set ONLY when Stage is
+// StageDraftFailed (a terminal Phase-2 design-job failure). It gives the SPA a
+// message + recovery affordance instead of a wedged "generating" screen. Empty
+// (nil) otherwise.
+
+// ---------------------------------------------------------------------------
+// Façade error model (projectDesignManager.md §3.5).
+// These are CALLER/PROGRAMMER errors at the façade boundary — distinct from the
+// workflow's own failure handling. Kinds follow the framework-go standard set.
+// ---------------------------------------------------------------------------
+
+func newError(kind fwmanager.Kind, detail string) *fwmanager.Error {
+	return fwmanager.New(kind, detail)
+}
+
+// ---- from behavior.go ----
+// behavior.go holds the FREE FUNCTIONS that carry behavior over the contract value
+// types. The generated contract surface (contract.gen.go) is PURE DATA — enums and
+// structs with no methods — so any logic over a contract value (the canonical-name
+// lookups that used to be methods on the projectstate enums, the opaque SessionRef
+// constructor) lives here as a free function.
+//
+// projectdesign's OWN ArtifactKind mirrors projectstate.ArtifactKind ordinal-for-
+// ordinal, so its behavior is derived by a meaning-preserving int conversion to the
+// canonical projectstate type rather than re-implemented here. This is the Phase-2
+// twin of systemdesign/behavior.go.
+
+// newSessionRef constructs a SessionRef from an infrastructure identity. Internal to
+// the Manager; Clients only ever receive and echo SessionRefs.
+func newSessionRef(opaque string) SessionRef { return SessionRef(opaque) }
+
+// toPSKind converts projectdesign's OWN ArtifactKind to the canonical
+// projectstate.ArtifactKind (ordinal-preserving) for behavior + RA-boundary calls.
+func toPSKind(k ArtifactKind) projectstate.ArtifactKind { return projectstate.ArtifactKind(k) }
+
+// fromPSKind converts a canonical projectstate.ArtifactKind to projectdesign's OWN
+// ArtifactKind (ordinal-preserving) at the read boundary.
+func fromPSKind(k projectstate.ArtifactKind) ArtifactKind { return ArtifactKind(k) }
+
+// artifactKindString returns the PascalCase Go-identifier name for an ArtifactKind
+// (the dispatch-input + PR-title + diagnostic form). Mirrors projectstate String().
+func artifactKindString(k ArtifactKind) string { return toPSKind(k).String() }
+
+// artifactKindWireName returns the canonical camelCase wire name for an ArtifactKind.
+func artifactKindWireName(k ArtifactKind) string { return toPSKind(k).WireName() }
+
+// artifactKindIsPhase2 reports whether the kind belongs to The Method's Phase 2.
+func artifactKindIsPhase2(k ArtifactKind) bool { return toPSKind(k).IsPhase2() }
+
+// phase2RequiredKinds returns the ordered set of Phase-2 artifact kinds (projectdesign's
+// OWN type), mirroring projectstate.Phase2RequiredKinds() — the same order the SPA's
+// PHASE2_ORDER locks steps by.
+func phase2RequiredKinds() []ArtifactKind {
+	ps := projectstate.Phase2RequiredKinds()
+	out := make([]ArtifactKind, 0, len(ps))
+	for _, k := range ps {
+		out = append(out, fromPSKind(k))
+	}
+	return out
+}
+
+// phase2PredecessorKind returns the Phase-2 kind that must be Committed immediately
+// before `kind` may be drafted — the wire-side mirror of the SPA's Phase-2 buildSpine
+// step lock. The first required kind (planningAssumptions) has no predecessor and
+// returns (_, false); a kind not in the Phase-2 set likewise returns (_, false).
+func phase2PredecessorKind(kind ArtifactKind) (ArtifactKind, bool) {
+	req := phase2RequiredKinds()
+	for i, k := range req {
+		if k == kind {
+			if i == 0 {
+				return 0, false
+			}
+			return req[i-1], true
+		}
+	}
+	return 0, false
+}
+
+// predecessorNotCommittedMsg is the FailedPrecondition detail naming the uncommitted
+// predecessor that blocks the requested draft (by its canonical camelCase wire name).
+func predecessorNotCommittedMsg(pred ArtifactKind) string {
+	return fmt.Sprintf("predecessor artifact %q must be committed before this kind can be drafted", artifactKindWireName(pred))
+}
+
+// strPtrOrNil maps a failure-reason string to the optional contract field: nil for
+// the empty string (omitted on the wire), &s otherwise (the project notesPtr pattern).
+func strPtrOrNil(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+// ---- from codec.go ----
+// This file used to OWN the Manager's serialization of the sealed
+// projectstate.ArtifactModel sum across the Temporal Activity boundary. That wire
+// codec (modelEnvelope/slotEnvelope/projectEnvelope + EncodeModel/EncodeProject/Decode)
+// is now PROMOTED DOWN into projectstate (envelope.go) — designSessionAccess absorbed
+// the branch/ledger/provenance capability chains this Manager's custom activities
+// (activities_custom.go) used to run over optional ProjectStateAccess extensions, and
+// the envelope moved with them so ReadProjectOnBranch can return it directly (a
+// concrete, Temporal-serializable projection).
+//
+// The three type names below are ALIASES to the projectstate types, so every existing
+// declaration/field/call site in this package keeps compiling unchanged EXCEPT the
+// Decode method call sites: aliasing preserves type identity but not method-name
+// casing, and the promoted methods are EXPORTED (Decode, not decode) — those call
+// sites were updated in lockstep with this move.
+type (
+	modelEnvelope   = projectstate.ModelEnvelope
+	slotEnvelope    = projectstate.SlotEnvelope
+	projectEnvelope = projectstate.ProjectEnvelope
+)
+
+// draftModelFor builds the OPAQUE public DraftModel envelope ({kind, model}) the
+// session read carries the staged typed draft (or assembled SdpReview) as. Kind is
+// the artifactKind's canonical camelCase wire name (always set, so the SPA gets
+// {"kind":"planningAssumptions"} even before a draft is staged); Model is the concrete
+// model's own JSON, omitted when nil. This is the public-surface twin of modelEnvelope
+// (the Temporal/Activity carrier) — the same {kind, model} wire shape the SPA decodes,
+// with Kind as a plain string so the generated contract carries no projectstate
+// ArtifactKind.
+func draftModelFor(kind ArtifactKind, model projectstate.ArtifactModel) (DraftModel, error) {
+	env := DraftModel{Kind: artifactKindWireName(kind)}
+	if model != nil {
+		raw, err := json.Marshal(model)
+		if err != nil {
+			return DraftModel{}, fmt.Errorf("encode draft model %s: %w", model.Kind(), err)
+		}
+		rm := json.RawMessage(raw)
+		env.Model = &rm
+	}
+	return env, nil
+}
+
+// encodeModel delegates to the promoted projectstate.EncodeModel. Kept as a
+// package-level wrapper (rather than rewriting every call site to the qualified name)
+// so this move stays a minimal, mechanical diff.
+func encodeModel(model projectstate.ArtifactModel) (modelEnvelope, error) {
+	return projectstate.EncodeModel(model)
+}
+
+// encodeProject wraps the head-state aggregate for the Temporal boundary, delegating
+// to the promoted projectstate.EncodeProject.
+//
+// F16 (payload slimming): the Phase-1 ResearchInput corpus is DELIBERATELY NOT
+// carried here — projectstate.EncodeProject leaves ProjectEnvelope.Research nil by
+// default and this wrapper does NOT opt in (unlike systemdesign's own encodeProject).
+// A research source can be a whole book (660KB observed), and every projectdesign
+// Activity payload crosses the Temporal boundary — dead weight that pushes toward
+// Temporal's 2MB kill threshold. Phase-2 project design never reads the corpus (unlike
+// systemdesign, whose mission-draft step legitimately weaves it in — that Manager's
+// envelope opts in), so dropping the field costs nothing here.
+func encodeProject(p projectstate.Project) (projectEnvelope, error) {
+	return projectstate.EncodeProject(p)
+}
+
+// ---- from findings.go ----
+// findings.go owns the SESSION-TRANSIENT validation-finding value types this Manager
+// surfaces on its getSessionState read (SessionStateView.Findings). The SPA renders
+// findings[] to explain "why it's being redrafted". They are part of this component's
+// OWN generated contract surface (registered in cmd/schemagen) — pure data, no methods.
+//
+// Defined LOCALLY (mirroring systemdesign/findings.go) because a Manager importing
+// another Manager is a sideways edge the layer model forbids (TestMethodLayering
+// NoSideways); systemdesign and projectdesign each own their own copy.
+//
+// WIRE: severity is a camelCase STRING name ("info"|"warning"|"error"). It is a STRING
+// enum (the value IS the wire name) so the generated type is pure data AND the wire
+// form is byte-identical — f.severity === 'error' / 'warning' in the SPA decodes
+// unchanged.
+
+// Severity is a finding severity. Only SeverityError fails a verdict; Warning/Info
+// ride along advisory. The value IS its canonical camelCase wire name.
+
+// RuleID is the stable, namespaced id of a validation rule. Stable across runs for
+// finding-diff and worker-prompt continuity.
+
+// Location locates a finding within a typed model. NO Line field: the input is a
+// typed model, not bytes.
+
+// stable position used for deterministic finding ordering
+// human-readable locus, e.g. "Objective 4"
+
+// Finding is a single machine-checkable rule violation surfaced to the SPA.
+
+// human-readable; safe to weave into a redraft prompt; no PII
+// optional; where in the model the finding sits
+
+// ---- from acknowledgestale.go ----
+// acknowledgestale.go implements the F45 per-slot staleness-acknowledge op for Project Design
+// (twin of the systemdesign impl): a reviewer marks a stale COMMITTED Phase-2 artifact
+// "reviewed — unaffected", clearing its StaleBasis WITHOUT a redraft, with a durable staleAck
+// audit entry — both committed atomically on main.
+
+const acknowledgeStaleMaxAttempts = 5
+
+func (m *projectDesignManager) AcknowledgeStaleBasis(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind, note string) error {
+	ctx := rc.Context
+	if projectID == "" {
+		return newError(fwmanager.ContractMisuse, "empty projectId")
+	}
+	if !artifactKindIsPhase2(kind) {
+		return newError(fwmanager.FailedPrecondition, "artifactKind is not a Phase-2 kind")
+	}
+	// F-GTD-12: an acknowledge is a MAIN-branch write (the StaleBasis clear + the staleAck
+	// entry commit on main). While a co-author session is LIVE for this slot — on a committed
+	// slot that is by definition an in-flight AMENDMENT — that main write turns the session's
+	// review PR merge-DIRTY, so the eventual approve's merge fails with a Conflict and the
+	// workflow bounces back to AwaitingReview looking like a silent no-op to the reviewer.
+	// Refuse up front: reconcile RIDES the amendment (its merge clears the staleness).
+	if err := m.refuseAckDuringLiveSession(rc, projectID, kind); err != nil {
+		return err
+	}
+	sa, ok := m.projectState.(projectstate.StaleAckProjectStateAccess)
+	if !ok {
+		return newError(fwmanager.FailedPrecondition, "stale-basis acknowledge not supported by this substrate")
+	}
+	key := acknowledgeStaleIdempotencyKey(projectID, kind, note)
+	psID := projectstate.ProjectID(projectID)
+	psKind := toPSKind(kind)
+
+	var lastErr error
+	for attempt := 0; attempt < acknowledgeStaleMaxAttempts; attempt++ {
+		proj, err := m.projectState.ReadProject(fwra.Context{Context: ctx}, psID)
+		if err != nil {
+			return mapReadProjectError(err)
+		}
+		_, err = sa.AcknowledgeStaleBasis(ctx, psID, proj.Version, psKind, note, key)
+		if err == nil {
+			return nil
+		}
+		if isRAConflict(err) {
+			lastErr = err
+			continue
+		}
+		return mapStaleAckError(err)
+	}
+	return fwmanager.Wrap(fwmanager.Infrastructure, lastErr, "AcknowledgeStaleBasis: exhausted conflict retries")
+}
+
+// refuseAckDuringLiveSession is the F-GTD-12 guard: while the target kind has a LIVE
+// co-author (amendment) session, the acknowledge is refused with a FailedPrecondition
+// (the wire's 409/"failed_precondition" conflict shape). Liveness is read through
+// GetSessionState — the SAME Describe-then-Query path the review gate and the SPA trust
+// (a dead run synthesizes StageDraftFailed; a COMPLETED run is rebuilt from the durable
+// slot) — so ack gating always agrees with what the reviewer sees on screen. A NotFound
+// (no session ever ran for this slot) passes.
+func (m *projectDesignManager) refuseAckDuringLiveSession(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind) error {
+	view, err := m.GetSessionState(rc, projectID, kind)
+	if err != nil {
+		var me *fwmanager.Error
+		if errors.As(err, &me) && me.Kind == fwmanager.NotFound {
+			return nil
+		}
+		return err
+	}
+	if !sessionStageIsLive(view.Stage) {
+		return nil
+	}
+	return newError(fwmanager.FailedPrecondition, fmt.Sprintf(
+		"cannot mark this artifact reviewed: its amendment session is still open (currently %s). Reconcile rides the amendment — acknowledging now would commit to main and merge-conflict the amendment's review PR. Approve or withdraw the session first.",
+		sessionStageLabel(view.Stage)))
+}
+
+// sessionStageIsLive reports whether a co-author session stage means the session still
+// OWNS the slot (its branch/PR is open or recoverable): drafting / assembling /
+// awaiting review / redrafting, plus the StageDraftFailed recovery gate (the session is
+// suspended there with its branch and PR intact — a Retry resumes it). The terminal
+// stages (committed / withdrawn / refused) and the unknown zero value are NOT live.
+func sessionStageIsLive(s SessionStage) bool {
+	switch s {
+	case StageDrafting, StageAssemblingSDP, StageAwaitingReview, StageRedrafting, StageDraftFailed:
+		return true
+	case SessionStageUnknown, StageCommitted, StageWithdrawn, StageRefused:
+		return false
+	default:
+		return false
+	}
+}
+
+func acknowledgeStaleIdempotencyKey(projectID ProjectID, kind ArtifactKind, note string) fwra.IdempotencyKey {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(note))
+	return fwra.IdempotencyKey(fmt.Sprintf("%s:%d:ackStale:%x", projectID, int(kind), h.Sum64()))
+}
+
+// mapStaleAckError surfaces the RA's ContractMisuse (uncommitted / unknown kind) and NotFound
+// (unknown project) as their manager equivalents; everything else is Infrastructure.
+func mapStaleAckError(err error) error {
+	var raErr *fwra.Error
+	if errors.As(err, &raErr) {
+		switch raErr.Kind {
+		case fwra.ContractMisuse:
+			return newError(fwmanager.ContractMisuse, err.Error())
+		case fwra.NotFound:
+			return newError(fwmanager.NotFound, err.Error())
+		case fwra.Unknown, fwra.Transient, fwra.RateLimited, fwra.Infrastructure,
+			fwra.Auth, fwra.Conflict, fwra.QuotaExhausted, fwra.ContentPolicy:
+			// "everything else is Infrastructure" per the doc comment above.
+			return newError(fwmanager.Infrastructure, err.Error())
+		default:
+			return newError(fwmanager.Infrastructure, err.Error())
+		}
+	}
+	return newError(fwmanager.Infrastructure, err.Error())
+}
+
+// ---- from askquestions.go ----
+// askquestions.go implements the question-comments op for Project Design (twin of the
+// systemdesign implementation; founder-ratified 2026-07-05): AskQuestions appends clarifying
+// QUESTIONS to a Phase-2 artifact's review ledger WITHOUT a redraft and dispatches a
+// lightweight ANSWER job so the addressed role answers each in place. Open questions do NOT
+// block approve; asking works on a committed artifact (main) and on a live session (branch).
+
+const askQuestionsMaxAttempts = 5
+
+// Dispatch inputs for the answer job. Project Design has no PM-critique, so its dispatch
+// path never carried a job_mode; the answer job introduces one (defaulting elsewhere to
+// "draft"), so these two keys are defined here alongside the op that needs them.
+const (
+	dispatchInputJobMode = "job_mode"
+	jobModeAnswer        = "answer"
+)
+
+// AskQuestions — the Project-Design question-comments op. See the systemdesign twin for the
+// full contract; the only differences are the Phase-2 kind gate and the Phase-2 slotFor.
+//
+// DISPATCH RECOVERY (F82): the answer job is BEST-EFFORT — the questions are seeded durably
+// first, then a lightweight answer job is dispatched. A dispatch MISS (pipeline/repo not
+// configured, repo unresolved, or a workflow_dispatch fault) is now LOGGED LOUDLY server-side
+// (it was previously discarded, and the construction-pipeline RA has no logger, so a miss
+// vanished — an open question that would never be answered with zero operator signal). To
+// RECOVER a dropped dispatch, simply CALL AskQuestions AGAIN with the same questions: the seed
+// is idempotent on its content key, so NO ledger entry is duplicated (the existing entries'
+// round is reused so the minted ids still match), while the answer-job dispatch RE-FIRES via a
+// per-call-unique key.
+func (m *projectDesignManager) AskQuestions(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind, addressee string, questions []AnchoredComment) error {
+	ctx := rc.Context
+	if projectID == "" {
+		return newError(fwmanager.ContractMisuse, "empty projectId")
+	}
+	if !artifactKindIsPhase2(kind) {
+		return newError(fwmanager.FailedPrecondition, "artifactKind is not a Phase-2 kind")
+	}
+	switch addressee {
+	case projectstate.ReviewAddresseePM, projectstate.ReviewAddresseeArchitect:
+		// ok
+	default:
+		return newError(fwmanager.ContractMisuse, "addressee must be \"pm\" or \"architect\"")
+	}
+	qs := questionsToLedger(addressee, questions)
+	if len(qs) == 0 {
+		return newError(fwmanager.ContractMisuse, "no questions to ask (every question needs text)")
+	}
+
+	led, ok := m.projectState.(projectstate.LedgerProjectStateAccess)
+	if !ok {
+		return newError(fwmanager.FailedPrecondition, "review ledger not supported by this substrate")
+	}
+
+	branch := m.resolveQuestionBranch(rc, projectID, kind)
+	psID := projectstate.ProjectID(projectID)
+	psKind := toPSKind(kind)
+	key := askQuestionsIdempotencyKey(projectID, kind, branch, qs)
+
+	var lastErr error
+	for attempt := 0; attempt < askQuestionsMaxAttempts; attempt++ {
+		proj, err := m.readProjectMaybeBranch(ctx, psID, branch)
+		if err != nil {
+			return mapReadProjectError(err)
+		}
+		thread := slotFor(proj, psKind).ReviewThread
+		round := nextQuestionRound(thread)
+		if r, ok := existingQuestionRound(thread, qs); ok {
+			// A prior ask already seeded these exact questions (its answer-job dispatch may
+			// have been dropped — F82). Reuse their round so the minted ids match the EXISTING
+			// ledger entries, and the re-fired answer job answers the right comments.
+			round = r
+		}
+		_, err = led.SeedReviewCommentsOnBranch(ctx, psID, proj.Version, branch, psKind, round, qs, key)
+		if err == nil {
+			minted := make([]projectstate.ReviewComment, len(qs))
+			for i := range qs {
+				minted[i] = qs[i]
+				minted[i].ID = projectstate.ReviewCommentID(round, i)
+			}
+			m.dispatchAnswerJob(ctx, projectID, kind, branch, addressee, minted)
+			return nil
+		}
+		if isRAConflict(err) {
+			lastErr = err
+			continue
+		}
+		return mapReadProjectError(err)
+	}
+	return fwmanager.Wrap(fwmanager.Infrastructure, lastErr, "AskQuestions: exhausted conflict retries")
+}
+
+// resolveQuestionBranch — twin of the systemdesign impl (see there for the full F73 rationale).
+// A GENUINELY ACTIVE session (co-author workflow OPEN and in a non-terminal stage) keeps its
+// ledger on the session branch; every closed/completed/withdrawn/failed/absent run falls back
+// to main (""). Resolution reuses the P0-2 Describe-first machinery via GetSessionState rather
+// than a bare sessionState Query, which would REPLAY a dead run's stale live stage and wrongly
+// resolve an abandoned amendment's leftover branch.
+func (m *projectDesignManager) resolveQuestionBranch(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind) string {
+	view, err := m.GetSessionState(rc, projectID, kind)
+	if err != nil || !isLiveSessionStage(view.Stage) {
+		return ""
+	}
+	proj, err := m.projectState.ReadProject(fwra.Context{Context: rc.Context}, projectstate.ProjectID(projectID))
+	if err != nil {
+		return ""
+	}
+	return designBranch(projectID, kind, amendmentIndexFor(slotFor(proj, toPSKind(kind))))
+}
+
+func (m *projectDesignManager) readProjectMaybeBranch(ctx context.Context, psID projectstate.ProjectID, branch string) (projectstate.Project, error) {
+	if branch != "" {
+		if ba, ok := m.projectState.(projectstate.BranchAwareProjectStateAccess); ok {
+			return ba.ReadProjectOnBranch(ctx, psID, branch)
+		}
+	}
+	return m.projectState.ReadProject(fwra.Context{Context: ctx}, psID)
+}
+
+// isLiveSessionStage reports whether a co-author session is live (its ledger lives on the
+// session branch, not main).
+func isLiveSessionStage(stage SessionStage) bool {
+	switch stage {
+	case StageDrafting, StageAwaitingReview, StageRedrafting, StageRefused:
+		return true
+	case SessionStageUnknown, StageAssemblingSDP, StageCommitted, StageWithdrawn, StageDraftFailed:
+		return false
+	default:
+		return false
+	}
+}
+
+func questionsToLedger(addressee string, questions []AnchoredComment) []projectstate.ReviewComment {
+	out := make([]projectstate.ReviewComment, 0, len(questions))
+	for _, q := range questions {
+		if strings.TrimSpace(q.Text) == "" {
+			continue
+		}
+		out = append(out, projectstate.ReviewComment{
+			Anchor:     q.JSONPath,
+			AnchorText: q.AnchorText,
+			Text:       q.Text,
+			AuthorRole: reviewAuthorRole,
+			Type:       projectstate.ReviewCommentTypeQuestion,
+			Addressee:  addressee,
+		})
+	}
+	return out
+}
+
+func nextQuestionRound(thread []projectstate.ReviewComment) int64 {
+	var max int64
+	for _, c := range thread {
+		if c.Round > max {
+			max = c.Round
+		}
+	}
+	return max + 1
+}
+
+func askQuestionsIdempotencyKey(projectID ProjectID, kind ArtifactKind, branch string, qs []projectstate.ReviewComment) fwra.IdempotencyKey {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(branch))
+	_, _ = h.Write([]byte{0})
+	for _, q := range qs {
+		_, _ = h.Write([]byte(q.Addressee))
+		_, _ = h.Write([]byte{0})
+		_, _ = h.Write([]byte(q.Anchor))
+		_, _ = h.Write([]byte{0})
+		_, _ = h.Write([]byte(q.Text))
+		_, _ = h.Write([]byte{0})
+	}
+	return fwra.IdempotencyKey(fmt.Sprintf("%s:%d:askQuestions:%x", projectID, int(kind), h.Sum64()))
+}
+
+// answerJobDispatchSeq makes each explicit AskQuestions call produce a UNIQUE answer-job
+// dispatch key, so a re-ask RE-FIRES the answer job (the RA dedups on the whole key, so a
+// content-only key would swallow the re-fire — F82). AskQuestions is a direct, non-retried
+// manager op (exactly one dispatch per successful call), so a per-call nonce cannot
+// double-fire a single logical ask; it only enables the re-ask recovery.
+var answerJobDispatchSeq atomic.Uint64
+
+// answerJobDispatchKey derives a per-call-unique answer-job idempotency key from the
+// content base plus a monotonic nonce (see answerJobDispatchSeq).
+func answerJobDispatchKey(projectID ProjectID, kind ArtifactKind, branch string, qs []projectstate.ReviewComment) fwra.IdempotencyKey {
+	base := askQuestionsIdempotencyKey(projectID, kind, branch, qs)
+	return fwra.IdempotencyKey(fmt.Sprintf("%s:answerJob:%d", base, answerJobDispatchSeq.Add(1)))
+}
+
+// dispatchAnswerJob fires the BEST-EFFORT answer job for the freshly-seeded questions and
+// LOGS the outcome loudly (F82). A dispatch miss previously vanished (the error was discarded
+// and the construction-pipeline RA has no logger); now every failure mode is logged at ERROR
+// (or WARN when the rail is simply not configured) with the projectID/kind/addressee/branch,
+// and a success at INFO. The questions are already recorded, so a miss is recoverable by
+// re-calling AskQuestions (see the op doc) — never silent.
+func (m *projectDesignManager) dispatchAnswerJob(ctx context.Context, projectID ProjectID, kind ArtifactKind, branch, addressee string, qs []projectstate.ReviewComment) {
+	log := slog.Default().With(
+		"op", "projectdesign.AskQuestions.dispatchAnswerJob",
+		"projectID", string(projectID), "artifactKind", artifactKindString(kind),
+		"addressee", addressee, "branch", branch)
+	if m.pipeline == nil || m.repo == nil {
+		log.Warn("answer job NOT dispatched: design pipeline/repo not configured (rail dormant) — the question is recorded but will not be auto-answered")
+		return
+	}
+	repoRef, ok := m.repo(projectID)
+	if !ok {
+		log.Error("answer job NOT dispatched: could not resolve the project repo — the question is recorded but will not be auto-answered; re-run AskQuestions to retry")
+		return
+	}
+	// MANAGED-SCAFFOLD SYNC (sync-on-dispatch): an answer job runs the same seated
+	// aiarch-design.yml (and installs the same aiarch-state-mcp binary) as a draft, so it
+	// too must never run against a stale scaffold. Failure keeps the answer-job miss
+	// semantics: recorded question, loud log, no dispatch — re-run AskQuestions to retry.
+	if m.rail != nil {
+		cred, cerr := m.rail.GetInstallationToken(fwra.Context{Context: ctx}, repoRef)
+		if cerr != nil {
+			log.Error("answer job NOT dispatched: could not mint the repo credential for the managed-scaffold sync; re-run AskQuestions to retry", "err", cerr.Error())
+			return
+		}
+		if _, serr := sourcecontrol.SyncManagedScaffold(ctx, m.rail, repoRef, cred); serr != nil {
+			log.Error("answer job NOT dispatched: managed-scaffold sync failed — the seated design workflow could not be proven current; re-run AskQuestions to retry", "err", serr.Error())
+			return
+		}
+	}
+	// Direct manager-side dispatch (NOT a Temporal workflow): the answer job is a
+	// fire-and-forget submit over the PUBLISHED constructionPipelineAccess RA. The
+	// RepoRef→RepoTarget decode + the placeholder step graph that the retired
+	// pipelineDispatchAdapter added are inlined here (the workflow-side twin is
+	// dispatchDesignJob in dispatch.go).
+	target, terr := designRepoTarget(sourcecontrol.RepoRefString(repoRef))
+	if terr != nil {
+		log.Error("answer job NOT dispatched: could not resolve the target repo for the answer job; re-run AskQuestions to retry", "err", terr.Error())
+		return
+	}
+	inputs := map[string]string{
+		dispatchInputArtifactKind:  artifactKindString(kind),
+		dispatchInputDesignPrompt:  answerPrompt(toPSKind(kind), addressee, qs),
+		dispatchInputTargetBranch:  branch,
+		dispatchInputPriorStateRef: "",
+		dispatchInputJobMode:       jobModeAnswer,
+	}
+	spec := constructionpipeline.PipelineSpec{
+		ProjectID: constructionpipeline.ProjectID(projectID),
+		Steps: []constructionpipeline.PipelineStep{{
+			Name:      "design",
+			Toolchain: constructionpipeline.ToolchainRef(pipelineDefaultToolchain),
+			Command:   []string{"sh", "-c", "true"},
+		}},
+		DispatchInputs: inputs,
+		TargetRepo:     target,
+		WorkflowFile:   designWorkflowFileName,
+	}
+	key := answerJobDispatchKey(projectID, kind, branch, qs)
+	if _, err := m.pipeline.SubmitConstructionPipeline(fwra.Context{Context: ctx, IdempotencyKey: key}, spec); err != nil {
+		log.Error("answer job dispatch FAILED — the question is recorded but not auto-answered; re-run AskQuestions with the same question to retry",
+			"err", err.Error(), "key", string(key))
+		return
+	}
+	log.Info("answer job dispatched", "key", string(key))
+}
+
+// existingQuestionRound returns the round of an EARLIER identical seeding of qs (matched by
+// addressee + anchor + text of the first question), so a re-ask reuses that round rather than
+// minting a fresh one — keeping the minted ids aligned with the already-seeded ledger entries
+// (F82 re-dispatch correctness). ok=false when these questions were never seeded.
+func existingQuestionRound(thread []projectstate.ReviewComment, qs []projectstate.ReviewComment) (int64, bool) {
+	if len(qs) == 0 {
+		return 0, false
+	}
+	first := qs[0]
+	for _, c := range thread {
+		if c.Type == projectstate.ReviewCommentTypeQuestion &&
+			c.Addressee == first.Addressee && c.Anchor == first.Anchor && c.Text == first.Text {
+			return c.Round, true
+		}
+	}
+	return 0, false
+}
+
+func answerPrompt(kind projectstate.ArtifactKind, addressee string, qs []projectstate.ReviewComment) string {
+	var b strings.Builder
+	role := "Product Manager"
+	if addressee == projectstate.ReviewAddresseeArchitect {
+		role = "System Architect"
+	}
+	fmt.Fprintf(&b, "You are the %s agent, following Juval Lowy's The Method. You work ONLY through the aiarch-state MCP tools — never hand-edit files and never run git.\n", role)
+	fmt.Fprintf(&b, "\nA reviewer has asked clarifying QUESTIONS about the %s artifact. Read the artifact with getCommittedSlot (or getDraftSlot if a draft is under review) and the full thread with getReviewThread for context.\n", kind.WireName())
+	b.WriteString("\nAnswer EACH question below concisely and concretely, from your role's perspective. These are QUESTIONS, not change requests: do NOT rewrite the artifact — only answer. For each, call respondToReviewComment with the question's id and your answer.\n\nQuestions:\n")
+	for _, q := range qs {
+		if q.AnchorText != "" {
+			fmt.Fprintf(&b, "- [%s] (re: %q) %s\n", q.ID, q.AnchorText, q.Text)
+		} else {
+			fmt.Fprintf(&b, "- [%s] %s\n", q.ID, q.Text)
+		}
+	}
+	b.WriteString("\nWhen every question has a response, call publishDraft to commit your answers.\n")
+	return b.String()
+}
+
+// isRAConflict reports whether err is the RA's stale-version Conflict on this sync write
+// path (the fwra.Error form; the workflow's isConflict is for temporal-wrapped errors).
+func isRAConflict(err error) bool {
+	var raErr *fwra.Error
+	if errors.As(err, &raErr) {
+		return raErr.Kind == fwra.Conflict
+	}
+	return false
+}
+
+// ---- from dispatch.go ----
+// pipelineDefaultToolchain is the placeholder toolchain stamped on the logical design
+// step (the real design recipe lives in the user's aiarch-design.yml workflow file).
+const pipelineDefaultToolchain = "go-1.23"
+
+// designRepoTarget decodes an opaque per-project RepoRef String() into the RA's
+// infrastructure-neutral RepoTarget{Owner, Name}. Empty ⇒ a zero RepoTarget (the RA
+// falls back to the configured construction repo); a malformed ref surfaces the RA's
+// ContractMisuse. Uses sourcecontrol's own OwnerRepo accessor so the RepoRef encoding
+// stays owned by sourceControlAccess (no encoding leak here).
+func designRepoTarget(repoRef string) (constructionpipeline.RepoTarget, error) {
+	if repoRef == "" {
+		return constructionpipeline.RepoTarget{}, nil
+	}
+	owner, name, err := sourcecontrol.RepoRefOwnerRepo(sourcecontrol.RepoRefFromString(repoRef))
+	if err != nil {
+		return constructionpipeline.RepoTarget{}, err
+	}
+	return constructionpipeline.RepoTarget{Owner: owner, Name: name}, nil
+}
+
+// ===========================================================================
+// Dispatch inputs (C-WF-DESIGN workflow_dispatch schema). These exact key names are
+// the binding contract with aiarch-design.yml's workflow_dispatch.inputs.
+// idempotency_token is RA-controlled and is NOT set here.
+// ===========================================================================
+
+const (
+	dispatchInputArtifactKind  = "artifact_kind"
+	dispatchInputDesignPrompt  = "design_prompt"
+	dispatchInputTargetBranch  = "target_branch"
+	dispatchInputPriorStateRef = "prior_state_ref"
+)
+
+// designBranch derives the ONE persistent design SESSION branch per Phase-2 artifact
+// review session (F40 founder ruling 2026-07-05: commit to the same branch until it
+// merges; the history of changes lives in git). ALL jobs of a session commit here — the
+// initial draft and every redraft — and ONE PR (opened once, idempotent on head) merges
+// it on approve. STABLE across every redraft/reject round (no per-attempt suffix; the F32
+// branch-per-attempt topology is unwound, the stale-base problem now handled by the
+// workflow template's refresh-from-main git step). amendment > 0 selects a FRESH branch
+// for an AMENDMENT session (F38) whose v1 branch/PR already merged.
+func designBranch(projectID ProjectID, kind ArtifactKind, amendment int) string {
+	base := fmt.Sprintf("aiarch-design/%s/%d", projectID, int(kind))
+	if amendment > 0 {
+		return fmt.Sprintf("%s-amend-%d", base, amendment)
+	}
+	return base
+}
+
+// dispatchActivityOptions is the option preset for the generated
+// constructionPipelineAccess.submitConstructionPipeline Activity (consumed by the
+// manager's option hook — workermanifest.go). A transient submit error (ErrTransient /
+// Retryable) auto-retries via this RetryPolicy; a terminal RA fault (ContractMisuse / Auth
+// / QuotaExhausted) is non-retryable and surfaces to the workflow body. A PhaseFailed is
+// NOT a dispatch error — it is a successful observation of a failed job (§0.5.4).
+func dispatchActivityOptions() workflow.ActivityOptions {
+	return workflow.ActivityOptions{
+		StartToCloseTimeout: 30 * time.Second,
+		RetryPolicy: &temporal.RetryPolicy{
+			MaximumAttempts: 5,
+			NonRetryableErrorTypes: []string{
+				fwmanager.RAErrType(fwra.ContractMisuse),
+				fwmanager.RAErrType(fwra.Auth),
+				fwmanager.RAErrType(fwra.QuotaExhausted),
+			},
+		},
+	}
+}
+
+// observeActivityOptions is the option preset for the generated
+// constructionPipelineAccess.observeConstructionPipeline Activity. Transient reads retry;
+// a NotFound (GC'd handle) is non-retryable and surfaces.
+func observeActivityOptions() workflow.ActivityOptions {
+	return workflow.ActivityOptions{
+		StartToCloseTimeout: 15 * time.Second,
+		RetryPolicy: &temporal.RetryPolicy{
+			NonRetryableErrorTypes: []string{
+				fwmanager.RAErrType(fwra.NotFound),
+				fwmanager.RAErrType(fwra.ContractMisuse),
+			},
+		},
+	}
+}
+
+// ---- from gitrail.go ----
+// designWorkflowFileName is the per-project DESIGN workflow file the agentic design
+// dispatch must target (per-project-design-dispatch) — the BASENAME of
+// sourcecontrol.DesignWorkflowPath (".github/workflows/aiarch-design.yml"), i.e.
+// "aiarch-design.yml". Derived from the RA's single source of truth so the dispatch
+// target and the project-birth workflow-file seat can never drift.
+var designWorkflowFileName = path.Base(sourcecontrol.DesignWorkflowPath)
+
+// mintCredActivityOptions — the credential mint (generated sourceControlAccess.
+// getInstallationToken). A rejected/expired App identity is terminal. Feeds the manager's
+// option hook (workermanifest.go).
+func mintCredActivityOptions() workflow.ActivityOptions {
+	return workflow.ActivityOptions{
+		StartToCloseTimeout: 15 * time.Second,
+		RetryPolicy: &temporal.RetryPolicy{
+			NonRetryableErrorTypes: []string{
+				fwmanager.RAErrType(fwra.Auth),
+				fwmanager.RAErrType(fwra.ContractMisuse),
+			},
+		},
+	}
+}
+
+// railActivityOptions — the PR-rail verbs (the generated sourceControlAccess rail ops,
+// INCLUDING syncManagedScaffold since B9). Auth + a merge Conflict (not-mergeable) + bad
+// input are terminal; transport/rate-limit retry. Feeds the manager's option hook
+// (workermanifest.go) for every generated rail verb.
+func railActivityOptions() workflow.ActivityOptions {
+	return workflow.ActivityOptions{
+		StartToCloseTimeout: 30 * time.Second,
+		RetryPolicy: &temporal.RetryPolicy{
+			NonRetryableErrorTypes: []string{
+				fwmanager.RAErrType(fwra.Auth),
+				fwmanager.RAErrType(fwra.NotFound),
+				fwmanager.RAErrType(fwra.Conflict),
+				fwmanager.RAErrType(fwra.ContractMisuse),
+			},
+		},
+	}
+}
+
+// ---- from reviewledger.go ----
+// reviewledger.go holds the durable review-ledger seam for the projectDesign Manager
+// (review-ledger feature, founder-ratified 2026-07-05) — the structural twin of the
+// systemDesign Manager's reviewledger.go. Ledger STORAGE + transition rules live in
+// projectstate (reviewthread.go); this is the Manager-side wiring: the ReviewComment ↔
+// ReviewCommentView projection and the open-comment gate. The SetReviewCommentStatus /
+// SeedReviewComments branch-mutation Activities MIGRATED (B9) onto the generated
+// designSessionAccess.setReviewCommentStatusOnBranch / seedReviewCommentsOnBranch
+// invokers (invokers.gen.go, reached via wf.Acts) — the ledger-extension fallback those
+// custom bodies ran now lives inside the RA (projectstate/designsession.go).
+
+// reviewAuthorRole is the role stamped on every comment the architect files at the
+// Project-Design review gate.
+const reviewAuthorRole = "architect"
+
+// toReviewCommentView projects one stored ledger entry onto its wire view.
+func toReviewCommentView(c projectstate.ReviewComment) ReviewCommentView {
+	return ReviewCommentView{
+		ID:         c.ID,
+		Anchor:     c.Anchor,
+		AnchorText: c.AnchorText,
+		Text:       c.Text,
+		AuthorRole: c.AuthorRole,
+		Round:      c.Round,
+		Status:     c.Status,
+		Response:   c.Response,
+		Type:       c.Type,
+		Addressee:  c.Addressee,
+	}
+}
+
+// reviewThreadToView projects the durable ledger onto the wire thread the sessionState
+// Query returns (nil stays nil so the omitempty wire shape is unchanged).
+func reviewThreadToView(thread []projectstate.ReviewComment) []ReviewCommentView {
+	if len(thread) == 0 {
+		return nil
+	}
+	out := make([]ReviewCommentView, 0, len(thread))
+	for _, c := range thread {
+		out = append(out, toReviewCommentView(c))
+	}
+	return out
+}
+
+// ---- from workflow.go ----
+// ---------------------------------------------------------------------------
+// Shared Temporal identity constants (projectDesignManager.md §6.1/§6.2/§6.5).
+// TaskQueue is defined in the generated worker.gen.go.
+// ---------------------------------------------------------------------------
+
+// Signal and query names (contract §6.5).
+const (
+	// signalReviewDecision resumes a suspended CoAuthorPhase2ArtifactWorkflow at
+	// the per-artifact AwaitingReview gate; backs submitReviewDecision (OQ-3).
+	signalReviewDecision = "reviewDecision"
+	// signalSetCommentStatus resumes a suspended CoAuthorPhase2ArtifactWorkflow at the
+	// AwaitingReview gate to apply a durable review-ledger status transition
+	// (open->waived / addressed->open) to one comment on the session branch; backs
+	// SetReviewCommentStatus (review-ledger feature).
+	signalSetCommentStatus = "setCommentStatus"
+	// signalRedraft resumes a CoAuthorPhase2ArtifactWorkflow that landed in the
+	// StageDraftFailed recovery gate (a terminal Phase-2 design-job failure). It
+	// re-enters the dispatch loop in the SAME live workflow so the user's "Retry
+	// draft" recovers without a fresh run. Backs requestArtifactDraft's retry path
+	// (signal-with-start; projectDesignManager.md §2.1 / §0.5.4).
+	signalRedraft = "redraft"
+	// signalSDPDecision resumes the AssembleSDPReviewWorkflow at the option-commit
+	// gate; backs submitSDPDecision.
+	signalSDPDecision = "sdpDecision"
+	// querySessionState returns a SessionStateView; backs getSessionState.
+	querySessionState = "sessionState"
+)
+
+// ExecutionKinds for the durable-execution control plane (contract §6.2).
+const (
+	// executionKindCoAuthor is the per-artifact Phase-2 co-authoring gate.
+	executionKindCoAuthor = "projectDesignCoAuthor"
+	// executionKindSDPReview is the UC2 SDP-review assembly + option-commit gate.
+	executionKindSDPReview = "projectDesignSDPReview"
+	// executionKindPhaseAdvance is the short-lived Phase-2 seal gating workflow.
+	executionKindPhaseAdvance = "projectDesignPhaseAdvance"
+)
+
+// workflows is the single projectDesignManager component struct — the workflow
+// receiver. It carries ZERO custom Temporal Activities and NO I/O ResourceAccess dep
+// (B9 + its follow-up ruling): every RA op is a GENERATED activity reached through the
+// typed invoker surface (Acts), and the last custom Activity
+// (StageArtifactForReviewActivity) was deleted when the designSessionAccess Stage op's
+// model param became the codable ModelEnvelope at the schema.
+//
+//   - Estimation, OperationEst, Settlement are PURE, deterministic Engines, so the
+//     workflow body calls their verbs DIRECTLY — replay-safe, no Activity wrapper.
+//     They STAY server-side in-workflow (§0.5.5 "RETAINED, unchanged"): they are
+//     by-value joins, NOT LLM work, and do NOT become agentic dispatches.
+//
+// 2026-06-15 agentic-pivot re-cut (projectDesignManager.md §0.5 / D-MPD-Δ): the
+// Phase-2 plan-DRAFTING mechanism flips from a synchronous worker call to an ASYNC
+// dispatch → observe → read-back round-trip. The per-artifact CoAuthorPhase2-
+// ArtifactWorkflow no longer calls workerAccess.GenerateTypedData in-process; instead
+// the Manager DISPATCHES a claude-code-action DESIGN job via the generated
+// constructionPipelineAccess submit/observe activities, OBSERVES it to a typed terminal
+// phase, and READS BACK the typed model the Action committed via the generated
+// designSessionAccess.readProjectOnBranch activity. aiarch makes NO synchronous LLM
+// call and writes NO draft JSON on the main path.
+//
+// DROPPED from the draft path (§0.5.5): workerAccess (no synchronous LLM call
+// survives; the in-flight cancel is constructionPipelineAccess.cancel) and
+// artifactValidationEngine (Phase-2 validation is the required CI check inside the
+// Action, surfaced as the job's terminal phase). Both are removed from this struct.
+type workflows struct {
+	Estimation   estimation.EstimationEngine
+	OperationEst operationestimation.OperationEstimationEngine
+	Settlement   billing.BillingEngine
+
+	// Acts is the GENERATED typed invoker surface (invokers.gen.go) — the workflow's call
+	// surface for EVERY contract-backed RA op: projectStateAccess readProjectVersion /
+	// advancePhase, the constructionPipelineAccess submit/observe design-job pair, the
+	// seven sourceControlAccess PR-rail verbs, and the eight designSessionAccess
+	// branch-session verbs. Each invoker consults the manager's per-op preset hook
+	// (workermanifest.go activityOptions), keyed by the generated activity name.
+	Acts genInvokers
+
+	// Rail + Repo are the OPTIONAL git-forward PR rail (I-DESIGN-DISPATCH §2b). When both
+	// are non-nil AND a repo resolves, the per-artifact CoAuthorPhase2ArtifactWorkflow
+	// draft path wraps each draft in the settled branch→PR→read-back→+1→merge model + the
+	// branch-aware read-back/stage; when nil that path runs UNCHANGED (read-back/stage on
+	// main, no branch/PR ops). The AssembleSDPReviewWorkflow (the in-workflow three-Engine
+	// join) is UNCHANGED — it gets NO rail (only the per-artifact draft path does).
+	//
+	// Rail is the PUBLISHED sourceControlAccess RA. The rail verbs are reached through
+	// the generated invoker surface (wf.Acts.Rail*); this field is held directly ONLY for
+	// the nil/dormant gate (gitEnabled).
+	Rail sourcecontrol.SourceControlAccess
+	// Repo resolves the per-project RepoRef the rail verbs address. nil ⇒ the rail is
+	// dormant. Injected so the repo-resolution policy is swappable without a new RA edge.
+	Repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool)
+}
+
+// maxMutateConflictAttempts bounds the workflow-level Conflict re-read→re-apply
+// loop. The idempotency key is stable per Activity invocation, so a re-apply that
+// races a prior committed attempt collapses to an idempotent no-op success.
+const maxMutateConflictAttempts = 20
+
+// Activity option presets (contract §6.4). Concrete RetryPolicy / timeout choices live
+// here, in the Manager. Each preset is an ActivityOptions VALUE consumed by the
+// generated-invoker option hook in workermanifest.go, keyed by the generated activity
+// name. This Manager has ZERO custom Temporal Activities (B9 follow-up — the last one,
+// StageArtifactForReviewActivity, was deleted when the contract op's model param became
+// the codable ModelEnvelope), so no ctx-wrapper forms remain.
+
+// readProjectActivityOptions is the preset for the read path: since B9 this is EXCLUSIVELY
+// the generated designSessionAccess.readProjectOnBranch invoker (both branch=="" main reads
+// and branch-aware reads funnel through it), plus the generated
+// projectStateAccess.readProjectVersion. Both are keyed onto this VALUE via the
+// workermanifest.go option hook.
+func readProjectActivityOptions() workflow.ActivityOptions {
+	return workflow.ActivityOptions{
+		StartToCloseTimeout: 10 * time.Second,
+		RetryPolicy: &temporal.RetryPolicy{
+			// BOUND the read retries so a RETRYABLE fault (Transient / Infrastructure /
+			// RateLimited) cannot loop forever — decode failures of committed state are now
+			// TERMINAL (ContractMisuse, below), but a genuine persistent infra outage must
+			// still surface rather than wedge invisibly (QA F36, mirrors systemdesign).
+			MaximumAttempts: 8,
+			NonRetryableErrorTypes: []string{
+				fwmanager.RAErrType(fwra.NotFound),
+				fwmanager.RAErrType(fwra.ContractMisuse),
+			},
+		},
+	}
+}
+
+// mutateActivityOptions is the preset for the head-state mutation Activities: every
+// generated designSessionAccess write op (Stage / Commit / Reject / Withdraw / the
+// review-ledger Set/Seed verbs) plus the generated projectStateAccess.advancePhase —
+// each keyed onto this VALUE via the workermanifest.go option hook. Retry Transient via
+// the Activity RetryPolicy; Conflict is handled by the workflow-level re-read→re-apply
+// loop. Terminal on ContractMisuse.
+func mutateActivityOptions() workflow.ActivityOptions {
+	return workflow.ActivityOptions{
+		StartToCloseTimeout: 15 * time.Second,
+		RetryPolicy: &temporal.RetryPolicy{
+			NonRetryableErrorTypes: []string{
+				fwmanager.RAErrType(fwra.ContractMisuse),
+			},
+		},
+	}
+}
+
+// raConflictErrType is the canonical Temporal Type() a head-state mutation Activity
+// surfaces when the optimistic-concurrency token (expectedVersion) is stale.
+var raConflictErrType = fwmanager.RAErrType(fwra.Conflict)
+
+// raNotFoundErrType is the canonical Temporal Type() the ReadProject Activity
+// surfaces when the addressed aggregate has NO row yet.
+var raNotFoundErrType = fwmanager.RAErrType(fwra.NotFound)
+
+// isConflict reports whether err is a head-state mutation's stale-version Conflict.
+func isConflict(err error) bool {
+	var appErr *temporal.ApplicationError
+	if errors.As(err, &appErr) {
+		return appErr.Type() == raConflictErrType
+	}
+	return false
+}
+
+// isReadNotFound reports whether err is the ReadProject Activity's "no row yet"
+// NotFound (a brand-new project).
+func isReadNotFound(err error) bool {
+	var appErr *temporal.ApplicationError
+	if errors.As(err, &appErr) {
+		return appErr.Type() == raNotFoundErrType
+	}
+	return false
+}
+
+// coAuthorWorkflowID derives the continuity token for a per-artifact co-authoring
+// workflow: {projectId}:{int(kind)} (contract §6.1).
+func coAuthorWorkflowID(projectID ProjectID, kind ArtifactKind) string {
+	return fmt.Sprintf("%s:%d", projectID, int(kind))
+}
+
+// railDraftedBy renders the PM-P2-4 draftedBy provenance: the agentic design rail identity,
+// plus the amendment-session marker when this run is a reopening (Amendment > 0).
+func railDraftedBy(amendment int) string {
+	if amendment > 0 {
+		return fmt.Sprintf("agentic-design-rail (amend-%d)", amendment)
+	}
+	return "agentic-design-rail"
+}
+
+// sdpReviewWorkflowID derives the continuity token: {projectId}:sdpReview.
+func sdpReviewWorkflowID(projectID ProjectID) string {
+	return fmt.Sprintf("%s:sdpReview", projectID)
+}
+
+// phaseAdvanceWorkflowID derives the continuity token: {projectId}:phaseAdvance.
+func phaseAdvanceWorkflowID(projectID ProjectID) string {
+	return fmt.Sprintf("%s:phaseAdvance", projectID)
+}
+
+// ---------------------------------------------------------------------------
+// Internal helpers (deterministic; no clock, no RNG).
+// ---------------------------------------------------------------------------
+
+// coAuthorState is the live technical state backing the sessionState Query. Reused
+// (in a slightly fuller form) by both the per-artifact and the SDP-review workflows.
+type coAuthorState struct {
+	projectID    ProjectID
+	artifactKind ArtifactKind
+	stage        SessionStage
+	draft        projectstate.ArtifactModel
+	findings     []Finding
+	headVersion  projectstate.Version
+	// failureReason is set only on StageDraftFailed: the neutral job Diagnostic, the
+	// human "why" for the SPA's retry/withdraw screen (the anti-wedge requirement).
+	failureReason string
+	// reviewThread is the durable review ledger for this artifact (review-ledger feature),
+	// refreshed from the session branch after every (re)stage and every waive/reopen so the
+	// query + approve gate see the live thread. Nil until a read-back carries comments.
+	reviewThread []projectstate.ReviewComment
+	// resumeFromReadBack is the F35-twin checkpoint: set true when a POST-read-back rail step
+	// (openPR) faulted and the session landed at the failed gate WITH the draft already
+	// committed on the branch. On the next Retry the draft round consumes it and RESUMES from
+	// the read-back — SKIPPING the re-dispatch — so it does not redispatch Claude onto a branch
+	// that already carries the model (which the no-commit guard would red). Workflow-local,
+	// deterministic on replay (set from a recorded Activity error, never wall-clock).
+	resumeFromReadBack bool
+}
+
+func (s *coAuthorState) view() (SessionStateView, error) {
+	dm, err := draftModelFor(s.artifactKind, s.draft)
+	if err != nil {
+		return SessionStateView{}, err
+	}
+	return SessionStateView{
+		ProjectID:     s.projectID,
+		ArtifactKind:  s.artifactKind,
+		Stage:         s.stage,
+		Draft:         dm,
+		Findings:      s.findings,
+		FailureReason: strPtrOrNil(s.failureReason),
+		ReviewThread:  reviewThreadToView(s.reviewThread),
+	}, nil
+}
+
+func signalNotes(f *ReviewFeedback) string {
+	if f != nil {
+		return f.Notes
+	}
+	return ""
+}
+
+// slotFor returns the named Project slot for a kind (Phase 1 + Phase 2). Internal
+// (operates on the canonical projectstate.ArtifactKind); own-kind callers convert via
+// toPSKind at the boundary.
+func slotFor(proj projectstate.Project, kind projectstate.ArtifactKind) projectstate.ArtifactSlot {
+	switch kind {
+	case projectstate.KindMission:
+		return proj.Mission
+	case projectstate.KindGlossary:
+		return proj.Glossary
+	case projectstate.KindScrubbedRequirements:
+		return proj.ScrubbedRequirements
+	case projectstate.KindVolatilities:
+		return proj.Volatilities
+	case projectstate.KindCoreUseCases:
+		return proj.CoreUseCases
+	case projectstate.KindSystem:
+		return proj.SystemDesign
+	case projectstate.KindOperationalConcepts:
+		return proj.OperationalConcepts
+	case projectstate.KindStandardCheck:
+		return proj.StandardCheck
+	case projectstate.KindPlanningAssumptions:
+		return proj.PlanningAssumptions
+	case projectstate.KindActivityList:
+		return proj.ActivityList
+	case projectstate.KindNetwork:
+		return proj.Network
+	case projectstate.KindNormalSolution:
+		return proj.NormalSolution
+	case projectstate.KindSubcriticalSolution:
+		return proj.SubcriticalSolution
+	case projectstate.KindCompressedSolution:
+		return proj.CompressedSolution
+	case projectstate.KindDecompressedSolution:
+		return proj.DecompressedSolution
+	case projectstate.KindRiskModel:
+		return proj.RiskModel
+	case projectstate.KindSdpReview:
+		return proj.SdpReview
+	default:
+		return projectstate.ArtifactSlot{}
+	}
+}
+
+// ---- from workermanifest.go ----
+// workermanifest.go is the hand-written bridge between the generated Temporal layer
+// (activities.gen.go / invokers.gen.go / worker.gen.go) and the projectDesignManager
+// impl. It supplies the genWorkerManifest RegisterWorker consumes: the three workflow
+// bodies under their registered names, the per-activity option-preset hook, and the
+// genActivities dep threading. It also hosts the external RegisterManagerWorker
+// entrypoint the composition root calls (cmd/server/main.go). This Manager has ZERO
+// custom Temporal Activities (B9 + its follow-up ruling: the last one,
+// StageArtifactForReviewActivity, was deleted when the designSessionAccess Stage op's
+// model param became the codable ModelEnvelope at the schema) — every Activity is
+// generated and registered by the generated RegisterWorker.
+//
+// The three estimate Engines (Estimation / OperationEst / Settlement) are called DIRECTLY
+// in-workflow (deterministic, by value) and are NOT Activities; the durable-execution
+// in-workflow primitives (awaitSignal / startTimer) are the Manager's own code.
+
+// activityOptions returns the option-preset hook the generated invokers consult for the
+// contract-backed RA Activities (projectState / pipeline / rail / designSession). A name
+// with no entry falls back to the generated default (invokers.gen.go). Keyed by the
+// generated registered activity name (<componentKey>.<opName>); the concrete presets
+// reproduce the pre-migration per-call-site choices exactly (B9 disclosure: every
+// designSessionAccess.* entry below reproduces the retired custom Activity's
+// readProjectOpts/mutateOpts preset byte-for-byte).
+func activityOptions() func(activityName string) (workflow.ActivityOptions, bool) {
+	presets := map[string]workflow.ActivityOptions{
+		"projectStateAccess.readProjectVersion":                  readProjectActivityOptions(),
+		"projectStateAccess.advancePhase":                        mutateActivityOptions(),
+		"constructionPipelineAccess.submitConstructionPipeline":  dispatchActivityOptions(),
+		"constructionPipelineAccess.observeConstructionPipeline": observeActivityOptions(),
+		"sourceControlAccess.getInstallationToken":               mintCredActivityOptions(),
+		"sourceControlAccess.openBranch":                         railActivityOptions(),
+		"sourceControlAccess.openPullRequest":                    railActivityOptions(),
+		"sourceControlAccess.getPullRequestStatus":               railActivityOptions(),
+		"sourceControlAccess.postReview":                         railActivityOptions(),
+		"sourceControlAccess.mergePullRequest":                   railActivityOptions(),
+		"sourceControlAccess.syncManagedScaffold":                railActivityOptions(),
+		"designSessionAccess.readProjectOnBranch":                readProjectActivityOptions(),
+		"designSessionAccess.stageArtifactForReviewOnBranch":     mutateActivityOptions(),
+		"designSessionAccess.commitArtifactWithProvenance":       mutateActivityOptions(),
+		"designSessionAccess.rejectArtifactOnBranchWithComments": mutateActivityOptions(),
+		"designSessionAccess.withdrawArtifactOnBranch":           mutateActivityOptions(),
+		"designSessionAccess.setReviewCommentStatusOnBranch":     mutateActivityOptions(),
+		"designSessionAccess.seedReviewCommentsOnBranch":         mutateActivityOptions(),
+	}
+	return func(name string) (workflow.ActivityOptions, bool) {
+		o, ok := presets[name]
+		return o, ok
+	}
+}
+
+// WorkerManifest assembles the genWorkerManifest RegisterWorker (worker.gen.go) consumes:
+// the three workflow bodies under their registered names, the per-activity option-preset
+// hook, and the genActivities threaded from the impl's stored published deps.
+//
+// The workflows receiver holds the generated invoker surface (Acts) — every
+// contract-backed RA op (readProjectVersion / advancePhase / submit / observe / the
+// seven rail verbs / the eight designSession verbs) is reached through it; the receiver
+// carries no RA dep of its own.
+func (m *projectDesignManager) WorkerManifest() genWorkerManifest {
+	optsHook := activityOptions()
+
+	wf := &workflows{
+		Estimation:   m.estimator,
+		OperationEst: m.opEstimator,
+		Settlement:   m.settlement,
+		Acts:         genInvokers{Opts: optsHook},
+		// Rail is the PUBLISHED sourceControlAccess: nil ⇒ the PR rail is dormant and the
+		// CoAuthor draft path runs the original main-path behavior. Held directly for the
+		// gitEnabled gate; the seven rail verbs (including syncManagedScaffold, since B9) go
+		// through the generated invoker surface (wf.Acts.Rail*).
+		Rail: m.rail,
+		Repo: m.repo,
+	}
+
+	return genWorkerManifest{
+		Workflows: []genRegisteredWorkflow{
+			{Name: executionKindCoAuthor, Fn: wf.CoAuthorPhase2ArtifactWorkflow},
+			{Name: executionKindSDPReview, Fn: wf.AssembleSDPReviewWorkflow},
+			{Name: executionKindPhaseAdvance, Fn: wf.Phase2AdvanceWorkflow},
+		},
+		ActivityOptions: optsHook,
+		Activities: genActivities{
+			ProjectState:  m.projectState,
+			Pipeline:      m.pipeline,
+			Rail:          m.rail,
+			DesignSession: m.designSession,
+		},
+	}
+}
+
+// RegisterManagerWorker wires the projectDesignManager onto a Temporal Worker polling the
+// project-design task queue (projectDesignManager.md §6.1). It preserves the external call
+// shape the composition root used before the generated-layer migration, asserting to the
+// concrete *projectDesignManager the generated constructor returns and delegating to the
+// generated RegisterWorker with the impl's WorkerManifest. Every Activity this Manager's
+// workflows execute is generated, so the generated RegisterWorker registers the complete
+// set — no explicit custom-Activity registration remains (B9 follow-up).
+func RegisterManagerWorker(w worker.Worker, m ProjectDesignManager) {
+	impl, ok := m.(*projectDesignManager)
+	if !ok {
+		panic("projectdesign: RegisterManagerWorker requires a *projectDesignManager from NewProjectDesignManager")
+	}
+	RegisterWorker(w, impl.WorkerManifest())
+}
