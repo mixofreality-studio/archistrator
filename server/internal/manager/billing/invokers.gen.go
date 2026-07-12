@@ -162,3 +162,24 @@ func (i genInvokers) DurableExecutionStartOrSignalExecution(ctx workflow.Context
 	err := workflow.ExecuteActivity(i.options(ctx, "durableExecutionAccess.startOrSignalExecution"), "durableExecutionAccess.startOrSignalExecution", executionKind, executionID, signalName, payload).Get(ctx, &out)
 	return out, err
 }
+
+// RevenueLedgerReadRange invokes activity "revenueLedgerAccess.readRange".
+func (i genInvokers) RevenueLedgerReadRange(ctx workflow.Context, customerID uuid.UUID, cycleID string) ([]billingstate.RevenueEntry, error) {
+	var out []billingstate.RevenueEntry
+	err := workflow.ExecuteActivity(i.options(ctx, "revenueLedgerAccess.readRange"), "revenueLedgerAccess.readRange", customerID, cycleID).Get(ctx, &out)
+	return out, err
+}
+
+// RevenueLedgerRecordInboundRevenue invokes activity "revenueLedgerAccess.recordInboundRevenue".
+func (i genInvokers) RevenueLedgerRecordInboundRevenue(ctx workflow.Context, entry billingstate.RevenueEntry) (billingstate.EntryRef, error) {
+	var out billingstate.EntryRef
+	err := workflow.ExecuteActivity(i.options(ctx, "revenueLedgerAccess.recordInboundRevenue"), "revenueLedgerAccess.recordInboundRevenue", entry).Get(ctx, &out)
+	return out, err
+}
+
+// RevenueLedgerRecordReversal invokes activity "revenueLedgerAccess.recordReversal".
+func (i genInvokers) RevenueLedgerRecordReversal(ctx workflow.Context, reversal billingstate.ReversalEntry) (billingstate.EntryRef, error) {
+	var out billingstate.EntryRef
+	err := workflow.ExecuteActivity(i.options(ctx, "revenueLedgerAccess.recordReversal"), "revenueLedgerAccess.recordReversal", reversal).Get(ctx, &out)
+	return out, err
+}

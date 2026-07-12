@@ -71,6 +71,14 @@ type systemDesignManager struct {
 	// living system design, so these reads belong on this Manager.
 	estimator estimation.EstimationEngine
 	repoBase  string
+
+	// designSession (B6) is the generated designSessionAccess dep — threaded so the
+	// generated invoker surface exists (invokers.gen.go/activities.gen.go), but not
+	// yet consumed by any workflow here: this manager's branch-scoped design flows
+	// still run through the manager-local capability-fallback custom activities
+	// (gitrail.go/reviewledger.go); the systemdesign rewire task (B10) migrates onto
+	// this dep and deletes the duplicate custom activities.
+	designSession projectstate.DesignSessionAccess
 }
 
 // newSystemDesignManager is the hand-written, unexported builder the generated
@@ -78,8 +86,8 @@ type systemDesignManager struct {
 // published deps into the façade. The façade itself uses only client + projectState;
 // pipeline/rail/repo are stored for RegisterWorker (rail may be nil — a dev server
 // with no source-control credentials runs the design spine repo-less).
-func newSystemDesignManager(c client.Client, ps projectstate.ProjectStateAccess, pipeline constructionpipeline.ConstructionPipelineAccess, rail sourcecontrol.SourceControlAccess, repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool), estimator estimation.EstimationEngine, repoBase string) *systemDesignManager {
-	return &systemDesignManager{client: c, projectState: ps, pipeline: pipeline, rail: rail, repo: repo, estimator: estimator, repoBase: repoBase}
+func newSystemDesignManager(c client.Client, ps projectstate.ProjectStateAccess, pipeline constructionpipeline.ConstructionPipelineAccess, rail sourcecontrol.SourceControlAccess, repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool), estimator estimation.EstimationEngine, designSession projectstate.DesignSessionAccess, repoBase string) *systemDesignManager {
+	return &systemDesignManager{client: c, projectState: ps, pipeline: pipeline, rail: rail, repo: repo, estimator: estimator, designSession: designSession, repoBase: repoBase}
 }
 
 // StartSystemDesign — op 2.0 (2026-05-29). Temporal Workflow (entry;

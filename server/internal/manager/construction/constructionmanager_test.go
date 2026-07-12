@@ -34,7 +34,7 @@ func (f *fakeReviewPolicyTransition) RecordReviewPolicy(_ fwra.Context, _ projec
 // RequiresHuman("service", MethodPhaseDetailedDesign) must be true on the persisted policy.
 func TestUpdateReviewPolicy(t *testing.T) {
 	fake := &fakeReviewPolicyTransition{version: 7}
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, fake, nil, 0, "")
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, fake, nil, nil, 0, "")
 
 	err := m.UpdateReviewPolicy(testCtx(), "proj-1", ReviewPolicyInput{
 		GatedPhasesByType: map[string][]string{

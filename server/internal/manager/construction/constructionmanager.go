@@ -53,6 +53,14 @@ type constructionManager struct {
 	gitActivityStatus      projectstate.GitActivityStatusAccess
 	escalationWaitTimeout  time.Duration
 	interventionMode       string
+
+	// designSession (B6) is the generated designSessionAccess dep — threaded so the
+	// generated invoker surface exists (invokers.gen.go/activities.gen.go), but not
+	// yet consumed by any workflow here: this manager still reads/stages project
+	// state through the projectStateAccess-backed activities_custom.go path
+	// (ReadProjectActivity et al.); the construction rewire task (B8) migrates the
+	// branch-aware reads onto this dep and deletes the duplicate custom activity.
+	designSession projectstate.DesignSessionAccess
 }
 
 // Compile-time proof the concrete constructionManager satisfies the generated port.
@@ -73,6 +81,7 @@ func newConstructionManager(
 	rail sourcecontrol.SourceControlAccess,
 	constructionTransition projectstate.ConstructionTransitionAccess,
 	gitActivityStatus projectstate.GitActivityStatusAccess,
+	designSession projectstate.DesignSessionAccess,
 	escalationWaitTimeout time.Duration,
 	interventionMode string,
 ) *constructionManager {
@@ -87,6 +96,7 @@ func newConstructionManager(
 		rail:                   rail,
 		constructionTransition: constructionTransition,
 		gitActivityStatus:      gitActivityStatus,
+		designSession:          designSession,
 		escalationWaitTimeout:  escalationWaitTimeout,
 		interventionMode:       interventionMode,
 	}

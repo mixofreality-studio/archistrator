@@ -122,32 +122,16 @@ type workflows struct {
 	Repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool)
 }
 
-// Activity name constants. The Activity methods are registered under these stable
-// names via the manifest's CustomActivities (workermanifest.go / the test suite), and the
-// workflow bodies invoke them by the method value on wf, so the registered name and the
-// call stay in lockstep. These are the CUSTOM Activities the generated temporalgen layer
-// has no contract for (envelope codec, capability type-assertions incl. the Reconciling
-// extension, the free-function scaffold sync). The contract-backed RA ops
-// (readProjectVersion / advancePhase / submit / observe / the six rail verbs) are GENERATED
-// and reached through wf.Acts — their names live in the generated worker.gen.go, not here.
-const (
-	actReadProject         = "ReadProjectActivity"
-	actReadProjectOnBranch = "ReadProjectOnBranchActivity"
-	actStageForReview      = "StageArtifactForReviewActivity"
-	actCommitArtifact      = "CommitArtifactActivity"
-	actRejectArtifact      = "RejectArtifactActivity"
-	actWithdrawArtifact    = "WithdrawArtifactActivity"
-	// F80c: the server-side diverged-branch reconcile at the approve/merge window.
-	actReconcileBranch = "ReconcileBranchActivity"
-	// review-ledger: the human waive/reopen branch mutation.
-	actSetReviewCommentStatus = "SetReviewCommentStatusActivity"
-	actSeedReviewComments     = "SeedReviewCommentsActivity"
-
-	// SyncManagedScaffold is CUSTOM: it wraps sourcecontrol.SyncManagedScaffold, a
-	// free-function composition helper (NOT a single SourceControlAccess contract op), so
-	// temporalgen has nothing to generate for it.
-	actSyncManagedScaffold = "SyncManagedScaffoldActivity"
-)
+// The Activity methods below (envelope codec, capability type-assertions incl. the
+// Reconciling extension, the free-function scaffold sync) are the CUSTOM Activities the
+// generated temporalgen layer has no contract for. Workflow bodies invoke them by method
+// value on wf. Since app-generator v0.6.1 dropped the CustomActivities manifest surface
+// (B6), they are no longer separately registered under a stable string name in
+// production (the systemdesign rewire task (B10) deletes these methods entirely); the
+// test suite registers them directly by method value (workflow_test.go), unaffected. The
+// contract-backed RA ops (readProjectVersion / advancePhase / submit / observe / the six
+// rail verbs) are GENERATED and reached through wf.Acts — their names live in the
+// generated worker.gen.go, not here.
 
 // maxRedraftAttempts bounds the PM-revise / draft-failure redraft loop before the
 // workflow stages best-effort for the human gate (core-use-cases.md §1a alt-path).

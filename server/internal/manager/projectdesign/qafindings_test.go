@@ -132,7 +132,7 @@ func Test_checkReviewPrecondition_Matrix(t *testing.T) {
 
 func Test_SubmitReviewDecision_Approve_WhileDrafting_FailsWithoutSignal(t *testing.T) {
 	fc := &fakeQueryClient{stage: StageDrafting}
-	m := newProjectDesignManager(fc, nil, nil, nil, nil, nil, nil, nil)
+	m := newProjectDesignManager(fc, nil, nil, nil, nil, nil, nil, nil, nil)
 	err := m.SubmitReviewDecision(fwmanager.Context{Context: context.Background()}, ProjectID(uuid.NewString()), KindActivityList, ReviewApprove, nil)
 	if got := asProjectDesignError(t, err).Kind; got != fwmanager.FailedPrecondition {
 		t.Fatalf("approve while drafting must FailedPrecondition, got %d", got)
@@ -144,7 +144,7 @@ func Test_SubmitReviewDecision_Approve_WhileDrafting_FailsWithoutSignal(t *testi
 
 func Test_SubmitReviewDecision_Approve_AtAwaitingReview_Signals(t *testing.T) {
 	fc := &fakeQueryClient{stage: StageAwaitingReview}
-	m := newProjectDesignManager(fc, nil, nil, nil, nil, nil, nil, nil)
+	m := newProjectDesignManager(fc, nil, nil, nil, nil, nil, nil, nil, nil)
 	if err := m.SubmitReviewDecision(fwmanager.Context{Context: context.Background()}, ProjectID(uuid.NewString()), KindActivityList, ReviewApprove, nil); err != nil {
 		t.Fatalf("approve at AwaitingReview must succeed, got %v", err)
 	}
@@ -157,7 +157,7 @@ func Test_SubmitReviewDecision_Approve_AtAwaitingReview_Signals(t *testing.T) {
 
 func Test_GetSessionState_BeforePhase2_CleanNotFound(t *testing.T) {
 	fc := &fakeQueryClient{queryErr: fmt.Errorf("workflow not found for ID: gtdapp:8")}
-	m := newProjectDesignManager(fc, nil, nil, nil, nil, nil, nil, nil)
+	m := newProjectDesignManager(fc, nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.GetSessionState(fwmanager.Context{Context: context.Background()}, ProjectID("gtdapp"), KindPlanningAssumptions)
 	e := asProjectDesignError(t, err)
 	if e.Kind != fwmanager.NotFound {

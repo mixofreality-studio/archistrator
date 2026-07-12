@@ -244,6 +244,12 @@ var encapsulationAllowlistData = map[string][]string{
 		// design Managers' custom activities used to run inline — a facade, not a Manager-
 		// consumed constructor yet, same VARIANT-CONSTRUCTOR category as the pair above.
 		"NewDesignSessionAccess",
+		"NewGitLocalConstructionTransitionAccess",
+		"NewGitLocalGitActivityStatusAccess",
+		"NewGitHubConstructionTransitionAccess",
+		"NewGitHubGitActivityStatusAccess",
+		"NewGitLocalDesignSessionAccess",
+		"NewGitHubDesignSessionAccess",
 		"ActivityDiagram",
 		"ActivityEdge",
 		"ActivityItem",

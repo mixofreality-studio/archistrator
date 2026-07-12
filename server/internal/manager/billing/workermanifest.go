@@ -199,20 +199,18 @@ func (m *billingManager) WorkerManifest() genWorkerManifest {
 			{Name: executionKindClose, Fn: wf.CloseCycleWorkflow},
 			{Name: executionKindShortfallSweep, Fn: wf.ShortfallSweepWorkflow},
 		},
-		// The custom Activities are registered under their stable names by the same
-		// method value the workflow invokes (wf.Custom.XActivity) — Temporal maps the
-		// function reference to the explicit Name, so invoke-by-reference resolves here.
-		CustomActivities: []genRegisteredActivity{
-			{Name: actRecordInboundRevenue, Fn: wf.Custom.RecordInboundRevenueActivity},
-			{Name: actRecordReversal, Fn: wf.Custom.RecordReversalActivity},
-			{Name: actReadRevenueRange, Fn: wf.Custom.ReadRevenueRangeActivity},
-		},
+		// The custom revenue-ledger Activities (activities_custom.go) are no longer
+		// registered here (B6: app-generator v0.6.1 dropped the CustomActivities
+		// manifest surface). The methods stay — the billing rewire task (B7) migrates
+		// wf.Custom's call sites onto the generated RevenueLedger invoker below and
+		// deletes activities_custom.go.
 		ActivityOptions: optsHook,
 		Activities: genActivities{
 			BillingState:     m.billingState,
 			Usage:            m.usage,
 			MerchantGateway:  m.merchantGateway,
 			DurableExecution: m.durableExecution,
+			RevenueLedger:    m.revenueLedger,
 		},
 	}
 }

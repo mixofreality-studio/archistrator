@@ -150,6 +150,42 @@ func generateMain(m *projectmodel.Model) {
 				{GoType: "projectstate.ProjectCatalog", GoImport: projectstatePkg},
 				{GoType: "projectstate.CredentialMinter", GoImport: projectstatePkg},
 			},
+			// constructionTransitionAccess / gitActivityStatusAccess / designSessionAccess
+			// (B6) are secondary contracts sharing projectStateAccess's own goPackage and
+			// git substrate — each variant constructor builds its OWN second GitStore over
+			// the SAME repoURL (GitLocal) or the SAME shared catalog/minter ports
+			// (GitHub, reusing the identical 4-arg tuple as projectStateAccess/GitHub
+			// above), never raw github-app credentials directly. The GitLocal arm also
+			// needs a hook (not a plain positional settings arg) purely to REUSE
+			// cfg.ProjectStateGitRepoURL rather than declare a duplicate binding-scoped
+			// setting for the same env var.
+			"constructionTransitionAccess/GitLocal": {
+				{GoType: "string"}, // repoURL
+			},
+			"constructionTransitionAccess/GitHub": {
+				{GoType: "string"}, // webHost
+				{GoType: "string"}, // account
+				{GoType: "projectstate.ProjectCatalog", GoImport: projectstatePkg},
+				{GoType: "projectstate.CredentialMinter", GoImport: projectstatePkg},
+			},
+			"gitActivityStatusAccess/GitLocal": {
+				{GoType: "string"}, // repoURL
+			},
+			"gitActivityStatusAccess/GitHub": {
+				{GoType: "string"}, // webHost
+				{GoType: "string"}, // account
+				{GoType: "projectstate.ProjectCatalog", GoImport: projectstatePkg},
+				{GoType: "projectstate.CredentialMinter", GoImport: projectstatePkg},
+			},
+			"designSessionAccess/GitLocal": {
+				{GoType: "string"}, // repoURL
+			},
+			"designSessionAccess/GitHub": {
+				{GoType: "string"}, // webHost
+				{GoType: "string"}, // account
+				{GoType: "projectstate.ProjectCatalog", GoImport: projectstatePkg},
+				{GoType: "projectstate.CredentialMinter", GoImport: projectstatePkg},
+			},
 			"artifactAccess/GitHubCloud": {
 				{GoType: "string"}, // repoURL
 				{GoType: "string"}, // owner

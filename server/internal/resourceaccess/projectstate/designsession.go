@@ -40,6 +40,25 @@ func NewDesignSessionAccess(base ProjectStateAccess) DesignSessionAccess {
 	return &designSessionAccess{base: base}
 }
 
+// NewGitLocalDesignSessionAccess builds the LOCAL git designSessionAccess port
+// (composegen variant token GitLocal, B6) by wrapping its OWN LOCAL
+// projectStateAccess instance — a second, functionally-equivalent *GitStore
+// addressing the same repo, mirroring the constructionTransitionAccess /
+// gitActivityStatusAccess variant constructors (gitadapter.go).
+func NewGitLocalDesignSessionAccess(repoURL string) DesignSessionAccess {
+	return NewDesignSessionAccess(NewGitLocalProjectStateAccess(repoURL))
+}
+
+// NewGitHubDesignSessionAccess builds the CLOUD git designSessionAccess port
+// (composegen variant token GitHub, B6).
+func NewGitHubDesignSessionAccess(webHost, account string, catalog ProjectCatalog, minter CredentialMinter) (DesignSessionAccess, error) {
+	psa, err := NewGitHubProjectStateAccess(webHost, account, catalog, minter)
+	if err != nil {
+		return nil, err
+	}
+	return NewDesignSessionAccess(psa), nil
+}
+
 // ReadProjectOnBranch subsumes the old ReadProjectActivity (branch=="") and
 // ReadProjectOnBranchActivity: routes to the branch-aware extension when base
 // supports it AND a branch is supplied, else reads the default/main. Returns the

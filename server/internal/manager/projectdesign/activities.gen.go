@@ -20,9 +20,10 @@ import (
 // ResourceAccess component dependency — the manager's architecture-approved
 // call surface. Fields are the contract interfaces, threaded by RegisterWorker.
 type genActivities struct {
-	ProjectState projectstate.ProjectStateAccess
-	Pipeline     constructionpipeline.ConstructionPipelineAccess
-	Rail         sourcecontrol.SourceControlAccess
+	ProjectState  projectstate.ProjectStateAccess
+	Pipeline      constructionpipeline.ConstructionPipelineAccess
+	Rail          sourcecontrol.SourceControlAccess
+	DesignSession projectstate.DesignSessionAccess
 }
 
 // genActivityIdempotencyKey derives the run-scoped 3-part key
@@ -200,4 +201,67 @@ func (a *genActivities) RailOpenPullRequest(ctx context.Context, repo sourcecont
 func (a *genActivities) RailPostReview(ctx context.Context, repo sourcecontrol.RepoRef, pr sourcecontrol.PullRequestRef, review sourcecontrol.ReviewSubmission, cred sourcecontrol.RepoCredential) error {
 	err := a.Rail.PostReview(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, repo, pr, review, cred)
 	return fwmanager.MapError(err)
+}
+
+// RailSyncManagedScaffold wraps sourceControlAccess.syncManagedScaffold.
+// Registered as "sourceControlAccess.syncManagedScaffold".
+func (a *genActivities) RailSyncManagedScaffold(ctx context.Context, repo sourcecontrol.RepoRef, cred sourcecontrol.RepoCredential) (bool, error) {
+	v, err := a.Rail.SyncManagedScaffold(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, repo, cred)
+	return v, fwmanager.MapError(err)
+}
+
+// DesignSessionCommitArtifactWithProvenance wraps designSessionAccess.commitArtifactWithProvenance.
+// Registered as "designSessionAccess.commitArtifactWithProvenance".
+func (a *genActivities) DesignSessionCommitArtifactWithProvenance(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, kind projectstate.ArtifactKind, approvedBy string, draftedBy string) (projectstate.Version, error) {
+	v, err := a.DesignSession.CommitArtifactWithProvenance(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, kind, approvedBy, draftedBy)
+	return v, fwmanager.MapError(err)
+}
+
+// DesignSessionReadProjectOnBranch wraps designSessionAccess.readProjectOnBranch.
+// Registered as "designSessionAccess.readProjectOnBranch".
+func (a *genActivities) DesignSessionReadProjectOnBranch(ctx context.Context, projectID projectstate.ProjectID, branch string) (projectstate.ProjectEnvelope, error) {
+	v, err := a.DesignSession.ReadProjectOnBranch(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, branch)
+	return v, fwmanager.MapError(err)
+}
+
+// DesignSessionReconcileBranchFromMain wraps designSessionAccess.reconcileBranchFromMain.
+// Registered as "designSessionAccess.reconcileBranchFromMain".
+func (a *genActivities) DesignSessionReconcileBranchFromMain(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind) (projectstate.Version, error) {
+	v, err := a.DesignSession.ReconcileBranchFromMain(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, branch, kind, genActivityIdempotencyKey(ctx))
+	return v, fwmanager.MapError(err)
+}
+
+// DesignSessionRejectArtifactOnBranchWithComments wraps designSessionAccess.rejectArtifactOnBranchWithComments.
+// Registered as "designSessionAccess.rejectArtifactOnBranchWithComments".
+func (a *genActivities) DesignSessionRejectArtifactOnBranchWithComments(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, round int64, comments []projectstate.ReviewComment) (projectstate.Version, error) {
+	v, err := a.DesignSession.RejectArtifactOnBranchWithComments(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, branch, kind, notes, round, comments, genActivityIdempotencyKey(ctx))
+	return v, fwmanager.MapError(err)
+}
+
+// DesignSessionSeedReviewCommentsOnBranch wraps designSessionAccess.seedReviewCommentsOnBranch.
+// Registered as "designSessionAccess.seedReviewCommentsOnBranch".
+func (a *genActivities) DesignSessionSeedReviewCommentsOnBranch(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, round int64, comments []projectstate.ReviewComment) (projectstate.Version, error) {
+	v, err := a.DesignSession.SeedReviewCommentsOnBranch(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, branch, kind, round, comments, genActivityIdempotencyKey(ctx))
+	return v, fwmanager.MapError(err)
+}
+
+// DesignSessionSetReviewCommentStatusOnBranch wraps designSessionAccess.setReviewCommentStatusOnBranch.
+// Registered as "designSessionAccess.setReviewCommentStatusOnBranch".
+func (a *genActivities) DesignSessionSetReviewCommentStatusOnBranch(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, commentID string, status string) (projectstate.Version, error) {
+	v, err := a.DesignSession.SetReviewCommentStatusOnBranch(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, branch, kind, commentID, status, genActivityIdempotencyKey(ctx))
+	return v, fwmanager.MapError(err)
+}
+
+// DesignSessionStageArtifactForReviewOnBranch wraps designSessionAccess.stageArtifactForReviewOnBranch.
+// Registered as "designSessionAccess.stageArtifactForReviewOnBranch".
+func (a *genActivities) DesignSessionStageArtifactForReviewOnBranch(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, model projectstate.ArtifactModel) (projectstate.Version, error) {
+	v, err := a.DesignSession.StageArtifactForReviewOnBranch(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, branch, model, genActivityIdempotencyKey(ctx))
+	return v, fwmanager.MapError(err)
+}
+
+// DesignSessionWithdrawArtifactOnBranch wraps designSessionAccess.withdrawArtifactOnBranch.
+// Registered as "designSessionAccess.withdrawArtifactOnBranch".
+func (a *genActivities) DesignSessionWithdrawArtifactOnBranch(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string) (projectstate.Version, error) {
+	v, err := a.DesignSession.WithdrawArtifactOnBranch(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, branch, kind, notes, genActivityIdempotencyKey(ctx))
+	return v, fwmanager.MapError(err)
 }

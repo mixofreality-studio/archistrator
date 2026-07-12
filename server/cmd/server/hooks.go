@@ -38,13 +38,17 @@ package main
 //     construction run (only constructionManager does), so the stub is inert
 //     there. Cloud (DRYRUN=false) is identity.
 //
-//  2. SEPARATE CONSTRUCTION-PORTS psa INSTANCE. The
-//     ConstructionManagerConstructionTransition/GitActivityStatus hooks take no
-//     args, so they cannot see the projectStateAccess the generated body
-//     constructs; this file builds its OWN projectStateAccess (identical profile
-//     switch) to extract the git construction ports. For a git store both
-//     instances address the SAME repo, so head-state stays consistent — the
-//     duplication is an instance-count residual, not a correctness one.
+//  2. SEPARATE GIT-SUBSTRATE INSTANCES PER SECONDARY CONTRACT (B6). Once
+//     constructionTransitionAccess/gitActivityStatusAccess/designSessionAccess
+//     became their OWN deployment bindings (sharing projectstate's goPackage +
+//     git substrate with projectStateAccess, but composegen has no notion of a
+//     binding "providing" a second contract), the generated body constructs
+//     THREE separate *GitStore-backed instances alongside projectStateAccess's
+//     own (NewGitLocal/GitHubConstructionTransitionAccess etc., gitadapter.go /
+//     designsession.go) — four total instead of the pre-B6 hand-wired two (one
+//     shared psa's GitConstructionPorts served both ports). All four address the
+//     SAME repo and GitStore holds no connection state, so this is an
+//     instance-count residual, not a correctness one.
 
 import (
 	"context"
@@ -96,12 +100,6 @@ type appHooks struct {
 	// PR rail, exactly as the hand run() did. nil when repo-less (rail dormant).
 	scAccess     sourcecontrol.SourceControlAccess
 	realPipeline constructionpipeline.ConstructionPipelineAccess
-
-	// construction-transition + git-activity-status ports, extracted from a
-	// composition-root-owned projectStateAccess (residual #2). nil for a non-git
-	// projectStateAccess (never today — projectStateAccess is git-only).
-	constructionTransition projectstate.ConstructionTransitionAccess
-	gitActivityStatus      projectstate.GitActivityStatusAccess
 }
 
 // newAppHooks builds the composition-root hook state from the resolved *Config: the
@@ -145,41 +143,7 @@ func newAppHooks(cfg *Config, logger *slog.Logger) (*appHooks, error) {
 		logger.Warn("sourceControlAccess NOT configured — projects are created repo-less (set ARCHISTRATOR_GITHUB_APP_ID + ARCHISTRATOR_GITHUB_APP_PRIVATE_KEY_PEM + ARCHISTRATOR_GITHUB_ACCOUNT for live GitHub repo provisioning)")
 	}
 
-	// Construction-transition + git-activity-status ports (residual #2): build a
-	// projectStateAccess mirroring the generated profile switch and extract its git
-	// ports. This instance is SEPARATE from the managers' psa; consistent because
-	// both address the same git repo.
-	psa, err := h.designProjectState(cfg)
-	if err != nil {
-		return nil, err
-	}
-	if psa != nil {
-		if t, s, ok := projectstate.GitConstructionPorts(psa); ok {
-			h.constructionTransition, h.gitActivityStatus = t, s
-			logger.Info("constructionManager → git substrate (shares the design head-state store; status cascade live)")
-		}
-	}
-
 	return h, nil
-}
-
-// designProjectState builds a projectStateAccess mirroring the generated body's
-// profile switch (LOCAL git on-disk, or CLOUD GitHub with the sourcecontrol-backed
-// ports). Returns nil only when neither profile applies (unreachable —
-// projectStateAccess is git-only; the generated body errors on that default arm).
-func (h *appHooks) designProjectState(cfg *Config) (projectstate.ProjectStateAccess, error) {
-	switch resolveProfile(cfg) {
-	case "local":
-		return projectstate.NewGitLocalProjectStateAccess(cfg.ProjectStateGitRepoURL), nil
-	case "cloud":
-		if h.scCatalog == nil {
-			return nil, nil //nolint:nilnil // cloud profile with no App creds is not bootable; the generated projectStateAccess GitHub arm surfaces it. Repo-less design ports are simply unavailable.
-		}
-		webHost, account, catalog, minter := h.projectStateCloudPorts(cfg)
-		return projectstate.NewGitHubProjectStateAccess(webHost, account, catalog, minter)
-	default:
-		return nil, nil //nolint:nilnil // unreachable: the generated body errors on a profile with no projectStateAccess arm.
-	}
 }
 
 // projectStateCloudPorts builds the CLOUD projectStateAccess port tuple (the same
@@ -282,6 +246,40 @@ func (h *appHooks) ConstructionPipelineAccessGitHubActionsArgs(cfg *Config) (*gi
 // the projectstate package cannot import).
 func (h *appHooks) ProjectStateAccessGitHubArgs(cfg *Config) (string, string, projectstate.ProjectCatalog, projectstate.CredentialMinter) {
 	return h.projectStateCloudPorts(cfg)
+}
+
+// ConstructionTransitionAccessGitHubArgs / GitActivityStatusAccessGitHubArgs /
+// DesignSessionAccessGitHubArgs (B6) supply the SAME CLOUD ports as
+// ProjectStateAccessGitHubArgs above — these three secondary contracts build
+// their own git substrate over the identical sourcecontrol-backed catalog +
+// credential minter, never raw github-app credentials directly.
+func (h *appHooks) ConstructionTransitionAccessGitHubArgs(cfg *Config) (string, string, projectstate.ProjectCatalog, projectstate.CredentialMinter) {
+	return h.projectStateCloudPorts(cfg)
+}
+
+func (h *appHooks) GitActivityStatusAccessGitHubArgs(cfg *Config) (string, string, projectstate.ProjectCatalog, projectstate.CredentialMinter) {
+	return h.projectStateCloudPorts(cfg)
+}
+
+func (h *appHooks) DesignSessionAccessGitHubArgs(cfg *Config) (string, string, projectstate.ProjectCatalog, projectstate.CredentialMinter) {
+	return h.projectStateCloudPorts(cfg)
+}
+
+// ConstructionTransitionAccessGitLocalArgs / GitActivityStatusAccessGitLocalArgs /
+// DesignSessionAccessGitLocalArgs (B6) supply the SAME LOCAL repoURL setting
+// projectStateAccess's own GitLocal arm reads (cfg.ProjectStateGitRepoURL) — a hook
+// purely to REUSE that existing binding-scoped setting rather than declare a
+// duplicate one for the same env var.
+func (h *appHooks) ConstructionTransitionAccessGitLocalArgs(cfg *Config) string {
+	return cfg.ProjectStateGitRepoURL
+}
+
+func (h *appHooks) GitActivityStatusAccessGitLocalArgs(cfg *Config) string {
+	return cfg.ProjectStateGitRepoURL
+}
+
+func (h *appHooks) DesignSessionAccessGitLocalArgs(cfg *Config) string {
+	return cfg.ProjectStateGitRepoURL
 }
 
 // SourceControlAccessGitHubArgs supplies the shared AppClient + the App identity the
@@ -388,6 +386,29 @@ func (h *appHooks) FinalizeUsageAccess(cfg *Config, v usage.UsageAccess) usage.U
 	return v
 }
 
+// FinalizeConstructionTransitionAccess / FinalizeGitActivityStatusAccess /
+// FinalizeDesignSessionAccess (B6) are identity — the three secondary git-substrate
+// contracts are profile-switched exactly like projectStateAccess, with no
+// orthogonal toggle of their own.
+func (h *appHooks) FinalizeConstructionTransitionAccess(cfg *Config, v projectstate.ConstructionTransitionAccess) projectstate.ConstructionTransitionAccess {
+	return v
+}
+
+func (h *appHooks) FinalizeGitActivityStatusAccess(cfg *Config, v projectstate.GitActivityStatusAccess) projectstate.GitActivityStatusAccess {
+	return v
+}
+
+func (h *appHooks) FinalizeDesignSessionAccess(cfg *Config, v projectstate.DesignSessionAccess) projectstate.DesignSessionAccess {
+	return v
+}
+
+// FinalizeRevenueLedgerAccess is identity — revenueLedgerAccess is the required,
+// arm-less stub binding (billingstate.NewRevenueLedgerAccess, a permanent no-op per
+// the charge-only R-013 rationale); no composition-root policy applies.
+func (h *appHooks) FinalizeRevenueLedgerAccess(cfg *Config, v billingstate.RevenueLedgerAccess) billingstate.RevenueLedgerAccess {
+	return v
+}
+
 // registerConstruction is the construction Worker gate (run()'s selectConstructionDeps):
 // register when dry-run, or when BOTH external-effect deps are configured (the
 // pipeline repo + the artifact store).
@@ -410,14 +431,6 @@ func (h *appHooks) RegisterConstructionManagerWorker(cfg *Config) bool {
 func (h *appHooks) RegisterOperationsManagerWorker(cfg *Config) bool    { return true }
 func (h *appHooks) RegisterProjectDesignManagerWorker(cfg *Config) bool { return true }
 func (h *appHooks) RegisterSystemDesignManagerWorker(cfg *Config) bool  { return true }
-
-func (h *appHooks) ConstructionManagerConstructionTransition() projectstate.ConstructionTransitionAccess {
-	return h.constructionTransition
-}
-
-func (h *appHooks) ConstructionManagerGitActivityStatus() projectstate.GitActivityStatusAccess {
-	return h.gitActivityStatus
-}
 
 func (h *appHooks) ConstructionManagerEscalationWaitTimeout() time.Duration {
 	return h.config.ConstructionEscalationTimeout

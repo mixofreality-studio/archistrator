@@ -122,30 +122,16 @@ type workflows struct {
 
 // Activity name constants. The Activity methods are registered under these stable
 // names (worker.go / the test suite), and the workflow bodies invoke them by the
-// method value on wf, so the registered name and the call stay in lockstep.
-// These are the CUSTOM Activities the generated temporalgen layer has no contract for
-// (envelope codec, capability type-assertions, the free-function scaffold sync). They are
-// methods on the workflows struct, registered under these stable names via the manifest's
-// CustomActivities (workermanifest.go) and invoked by method value from the workflow body.
-// The contract-backed RA ops (readProjectVersion / advancePhase / submit / observe / the
-// six rail verbs) are GENERATED and reached through wf.Acts — their names live in the
+// method value on wf. These are the CUSTOM Activities the generated temporalgen layer
+// has no contract for (envelope codec, capability type-assertions, the free-function
+// scaffold sync) — methods on the workflows struct, invoked by method value from the
+// workflow body. Since app-generator v0.6.1 dropped the CustomActivities manifest
+// surface (B6), they are no longer separately REGISTERED under a stable string name
+// (their registered names WERE actReadProject et al.; that const block is deleted as
+// dangling — the projectdesign rewire task (B9) deletes these methods entirely). The
+// contract-backed RA ops (readProjectVersion / advancePhase / submit / observe / the six
+// rail verbs) are GENERATED and reached through wf.Acts — their names live in the
 // generated worker.gen.go, not here.
-const (
-	actReadProject         = "ReadProjectActivity"
-	actReadProjectOnBranch = "ReadProjectOnBranchActivity"
-	actStageForReview      = "StageArtifactForReviewActivity"
-	actCommitArtifact      = "CommitArtifactActivity"
-	actRejectArtifact      = "RejectArtifactActivity"
-	actWithdrawArtifact    = "WithdrawArtifactActivity"
-	// review-ledger: the human waive/reopen branch mutation.
-	actSetReviewCommentStatus = "SetReviewCommentStatusActivity"
-	actSeedReviewComments     = "SeedReviewCommentsActivity"
-
-	// SyncManagedScaffold is CUSTOM: it wraps sourcecontrol.SyncManagedScaffold, a
-	// free-function composition helper (NOT a single SourceControlAccess contract op), so
-	// temporalgen has nothing to generate for it.
-	actSyncManagedScaffold = "SyncManagedScaffoldActivity"
-)
 
 // maxSDPReassembleAttempts bounds the SDP RejectAll re-assemble loop (contract
 // §6.3 step 7 — bound the loop like systemdesign's maxRedraftAttempts).

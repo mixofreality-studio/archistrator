@@ -107,7 +107,7 @@ func sampleResearch() ResearchInput {
 // ---- façade preconditions ---------------------------------------------------
 
 func Test_SetResearchInput_EmptyProjectID(t *testing.T) {
-	m := NewSystemDesignManager(nil, &setResearchFakeState{}, nil, nil, nil, nil, "")
+	m := NewSystemDesignManager(nil, &setResearchFakeState{}, nil, nil, nil, nil, nil, "")
 	_, err := m.SetResearchInput(bgRC(), ProjectID(""), sampleResearch())
 	if got := asSystemDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse for empty projectId, got %d", got)
@@ -115,7 +115,7 @@ func Test_SetResearchInput_EmptyProjectID(t *testing.T) {
 }
 
 func Test_SetResearchInput_EmptyResearch(t *testing.T) {
-	m := NewSystemDesignManager(nil, &setResearchFakeState{}, nil, nil, nil, nil, "")
+	m := NewSystemDesignManager(nil, &setResearchFakeState{}, nil, nil, nil, nil, nil, "")
 	_, err := m.SetResearchInput(bgRC(), ProjectID(uuid.NewString()), ResearchInput{})
 	if got := asSystemDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse for empty research, got %d", got)
@@ -177,7 +177,7 @@ func Test_SetResearchInput_PerSourceShapeViolations(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// A fake whose write verb panics if reached — proves the gate rejects
 			// BEFORE any projectStateAccess call.
-			m := NewSystemDesignManager(nil, &setResearchFakeState{}, nil, nil, nil, nil, "")
+			m := NewSystemDesignManager(nil, &setResearchFakeState{}, nil, nil, nil, nil, nil, "")
 			_, err := m.SetResearchInput(bgRC(), ProjectID(uuid.NewString()), ResearchInput{Sources: tc.sources})
 			e := asSystemDesignError(t, err)
 			if e.Kind != fwmanager.ContractMisuse {
@@ -194,7 +194,7 @@ func Test_SetResearchInput_PerSourceShapeViolations(t *testing.T) {
 
 func Test_SetResearchInput_HappyPath_RecordsWrite(t *testing.T) {
 	ps := &setResearchFakeState{headVersion: 7}
-	m := NewSystemDesignManager(nil, ps, nil, nil, nil, nil, "")
+	m := NewSystemDesignManager(nil, ps, nil, nil, nil, nil, nil, "")
 	research := sampleResearch()
 
 	v, err := m.SetResearchInput(bgRC(), ProjectID(uuid.NewString()), research)
@@ -226,8 +226,8 @@ func Test_SetResearchInput_IdempotencyKey_StableForSameResearch(t *testing.T) {
 
 	ps1 := &setResearchFakeState{}
 	ps2 := &setResearchFakeState{}
-	m1 := NewSystemDesignManager(nil, ps1, nil, nil, nil, nil, "")
-	m2 := NewSystemDesignManager(nil, ps2, nil, nil, nil, nil, "")
+	m1 := NewSystemDesignManager(nil, ps1, nil, nil, nil, nil, nil, "")
+	m2 := NewSystemDesignManager(nil, ps2, nil, nil, nil, nil, nil, "")
 	if _, err := m1.SetResearchInput(bgRC(), pid, research); err != nil {
 		t.Fatalf("write 1: %v", err)
 	}
@@ -241,7 +241,7 @@ func Test_SetResearchInput_IdempotencyKey_StableForSameResearch(t *testing.T) {
 	// A different research payload must derive a DIFFERENT key.
 	other := ResearchInput{Sources: []ResearchSource{{Title: "Competitor analysis", Content: "Z does W."}}}
 	ps3 := &setResearchFakeState{}
-	m3 := NewSystemDesignManager(nil, ps3, nil, nil, nil, nil, "")
+	m3 := NewSystemDesignManager(nil, ps3, nil, nil, nil, nil, nil, "")
 	if _, err := m3.SetResearchInput(bgRC(), pid, other); err != nil {
 		t.Fatalf("write 3: %v", err)
 	}
@@ -254,7 +254,7 @@ func Test_SetResearchInput_IdempotencyKey_StableForSameResearch(t *testing.T) {
 
 func Test_SetResearchInput_ConflictThenSuccess_ReReads(t *testing.T) {
 	ps := &setResearchFakeState{headVersion: 3, conflictsBeforeSuccess: 2}
-	m := NewSystemDesignManager(nil, ps, nil, nil, nil, nil, "")
+	m := NewSystemDesignManager(nil, ps, nil, nil, nil, nil, nil, "")
 
 	v, err := m.SetResearchInput(bgRC(), ProjectID(uuid.NewString()), sampleResearch())
 	if err != nil {
@@ -281,7 +281,7 @@ func Test_SetResearchInput_ConflictThenSuccess_ReReads(t *testing.T) {
 
 func Test_SetResearchInput_ConflictExhausted_Infrastructure(t *testing.T) {
 	ps := &setResearchFakeState{conflictsBeforeSuccess: setResearchInputMaxAttempts + 1}
-	m := NewSystemDesignManager(nil, ps, nil, nil, nil, nil, "")
+	m := NewSystemDesignManager(nil, ps, nil, nil, nil, nil, nil, "")
 	_, err := m.SetResearchInput(bgRC(), ProjectID(uuid.NewString()), sampleResearch())
 	if got := asSystemDesignError(t, err).Kind; got != fwmanager.Infrastructure {
 		t.Fatalf("want Infrastructure after exhausting conflict retries, got %d", got)
@@ -296,7 +296,7 @@ func Test_SetResearchInput_ConflictExhausted_Infrastructure(t *testing.T) {
 func Test_SetResearchInput_NotFound_Passthrough(t *testing.T) {
 	// ReadProject succeeds but the write surfaces NotFound (no project aggregate).
 	ps := &setResearchNotFoundOnWrite{}
-	m := NewSystemDesignManager(nil, ps, nil, nil, nil, nil, "")
+	m := NewSystemDesignManager(nil, ps, nil, nil, nil, nil, nil, "")
 	_, err := m.SetResearchInput(bgRC(), ProjectID(uuid.NewString()), sampleResearch())
 	if got := asSystemDesignError(t, err).Kind; got != fwmanager.NotFound {
 		t.Fatalf("want NotFound passthrough, got %d", got)
@@ -305,7 +305,7 @@ func Test_SetResearchInput_NotFound_Passthrough(t *testing.T) {
 
 func Test_SetResearchInput_ReadNotFound_Propagates(t *testing.T) {
 	ps := &setResearchFakeState{readErr: fwra.New(fwra.NotFound, "no row yet")}
-	m := NewSystemDesignManager(nil, ps, nil, nil, nil, nil, "")
+	m := NewSystemDesignManager(nil, ps, nil, nil, nil, nil, nil, "")
 	_, err := m.SetResearchInput(bgRC(), ProjectID(uuid.NewString()), sampleResearch())
 	if got := asSystemDesignError(t, err).Kind; got != fwmanager.NotFound {
 		t.Fatalf("want NotFound when ReadProject reports no row, got %d", got)

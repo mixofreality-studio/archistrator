@@ -53,29 +53,12 @@ const (
 	executionKindProjectSupervision = "constructionProjectSupervision"
 )
 
-// Custom Activity registered names — stable across the temporalgen migration. The
-// workflow invokes these Activities by METHOD VALUE on the workflows receiver
-// (activities_custom.go / gitactivities.go); the manifest registers them under these
-// same names via CustomActivities. They cover the ops the generated layer has no
-// contract for: the projectEnvelope-codec reads, the constructionTransition head-state
-// transition writes, and the git head-state RecordActivity* writes.
-const (
-	actReadProject          = "ReadProjectActivity"
-	actReadProjectVersion   = "ReadProjectVersionActivity"
-	actRecordChangeReviewed = "RecordChangeReviewedActivity"
-	actRecordActivityExited = "RecordActivityExitedActivity"
-	actRecordActivityFailed = "RecordActivityFailedActivity"
-	actRecordOperatorPaused = "RecordOperatorPausedActivity"
-	actRecordPhaseStarted   = "RecordPhaseStartedActivity"
-	actRecordPhaseCompleted = "RecordPhaseCompletedActivity"
-
-	actRecordActivityBranchOpened = "RecordActivityBranchOpenedActivity"
-	actRecordActivityCIObserved   = "RecordActivityCIObservedActivity"
-	actRecordActivityArchApproved = "RecordActivityArchApprovedActivity"
-	actRecordActivityMerged       = "RecordActivityMergedActivity"
-	actRecordActivityStarted      = "RecordActivityStartedActivity"
-	actRecordActivityCompleted    = "RecordActivityCompletedActivity"
-)
+// Custom Activity METHODS (activities_custom.go / gitactivities.go) are no longer
+// registered here (B6: app-generator v0.6.1 dropped the CustomActivities manifest
+// surface — genWorkerManifest carries only Workflows/ActivityOptions/Activities
+// now). The methods themselves stay — the construction rewire task (B8) migrates
+// their call sites onto the generated invokers and deletes the methods (+ the
+// now-dead activities_custom.go/gitactivities.go files) in one cut.
 
 // activityOptions returns the option-preset hook the generated invokers consult for the
 // contract-backed RA Activities (pipeline / artifact / rail). A name with no entry falls
@@ -149,28 +132,15 @@ func (m *constructionManager) WorkerManifest() genWorkerManifest {
 			{Name: executionKindReplanSweep, Fn: wf.ReplanSweepWorkflow},
 			{Name: executionKindProjectSupervision, Fn: wf.ProjectSupervisionWorkflow},
 		},
-		CustomActivities: []genRegisteredActivity{
-			{Name: actReadProject, Fn: wf.ReadProjectActivity},
-			{Name: actReadProjectVersion, Fn: wf.ReadProjectVersionActivity},
-			{Name: actRecordChangeReviewed, Fn: wf.RecordChangeReviewedActivity},
-			{Name: actRecordActivityExited, Fn: wf.RecordActivityExitedActivity},
-			{Name: actRecordActivityFailed, Fn: wf.RecordActivityFailedActivity},
-			{Name: actRecordOperatorPaused, Fn: wf.RecordOperatorPausedActivity},
-			{Name: actRecordPhaseStarted, Fn: wf.RecordPhaseStartedActivity},
-			{Name: actRecordPhaseCompleted, Fn: wf.RecordPhaseCompletedActivity},
-			{Name: actRecordActivityBranchOpened, Fn: wf.RecordActivityBranchOpenedActivity},
-			{Name: actRecordActivityCIObserved, Fn: wf.RecordActivityCIObservedActivity},
-			{Name: actRecordActivityArchApproved, Fn: wf.RecordActivityArchApprovedActivity},
-			{Name: actRecordActivityMerged, Fn: wf.RecordActivityMergedActivity},
-			{Name: actRecordActivityStarted, Fn: wf.RecordActivityStartedActivity},
-			{Name: actRecordActivityCompleted, Fn: wf.RecordActivityCompletedActivity},
-		},
 		ActivityOptions: optsHook,
 		Activities: genActivities{
-			ProjectState: m.projectState,
-			Artifact:     m.artifact,
-			Pipeline:     m.pipeline,
-			Rail:         m.rail,
+			ProjectState:           m.projectState,
+			Artifact:               m.artifact,
+			Pipeline:               m.pipeline,
+			Rail:                   m.rail,
+			ConstructionTransition: m.constructionTransition,
+			GitStatus:              m.gitActivityStatus,
+			DesignSession:          m.designSession,
 		},
 	}
 }

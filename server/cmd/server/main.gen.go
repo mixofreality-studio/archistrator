@@ -113,6 +113,42 @@ type Hooks interface {
 	// generated variant constructor call.
 	ConstructionPipelineAccessGitHubActionsArgs(cfg *Config) (*github.AppClient, string, string, string, string, int64)
 
+	// ConstructionTransitionAccessGitHubArgs supplies the constructionTransitionAccess GitHub variant's constructor
+	// arguments the deployment model cannot express (composition-root ports /
+	// typed values). Read from cfg; the returned tuple is spread into the
+	// generated variant constructor call.
+	ConstructionTransitionAccessGitHubArgs(cfg *Config) (string, string, projectstate.ProjectCatalog, projectstate.CredentialMinter)
+
+	// ConstructionTransitionAccessGitLocalArgs supplies the constructionTransitionAccess GitLocal variant's constructor
+	// arguments the deployment model cannot express (composition-root ports /
+	// typed values). Read from cfg; the returned tuple is spread into the
+	// generated variant constructor call.
+	ConstructionTransitionAccessGitLocalArgs(cfg *Config) string
+
+	// DesignSessionAccessGitHubArgs supplies the designSessionAccess GitHub variant's constructor
+	// arguments the deployment model cannot express (composition-root ports /
+	// typed values). Read from cfg; the returned tuple is spread into the
+	// generated variant constructor call.
+	DesignSessionAccessGitHubArgs(cfg *Config) (string, string, projectstate.ProjectCatalog, projectstate.CredentialMinter)
+
+	// DesignSessionAccessGitLocalArgs supplies the designSessionAccess GitLocal variant's constructor
+	// arguments the deployment model cannot express (composition-root ports /
+	// typed values). Read from cfg; the returned tuple is spread into the
+	// generated variant constructor call.
+	DesignSessionAccessGitLocalArgs(cfg *Config) string
+
+	// GitActivityStatusAccessGitHubArgs supplies the gitActivityStatusAccess GitHub variant's constructor
+	// arguments the deployment model cannot express (composition-root ports /
+	// typed values). Read from cfg; the returned tuple is spread into the
+	// generated variant constructor call.
+	GitActivityStatusAccessGitHubArgs(cfg *Config) (string, string, projectstate.ProjectCatalog, projectstate.CredentialMinter)
+
+	// GitActivityStatusAccessGitLocalArgs supplies the gitActivityStatusAccess GitLocal variant's constructor
+	// arguments the deployment model cannot express (composition-root ports /
+	// typed values). Read from cfg; the returned tuple is spread into the
+	// generated variant constructor call.
+	GitActivityStatusAccessGitLocalArgs(cfg *Config) string
+
 	// ProjectStateAccessGitHubArgs supplies the projectStateAccess GitHub variant's constructor
 	// arguments the deployment model cannot express (composition-root ports /
 	// typed values). Read from cfg; the returned tuple is spread into the
@@ -143,6 +179,24 @@ type Hooks interface {
 	// dry-run stub swap-in) — the identity implementation is always correct.
 	FinalizeConstructionPipelineAccess(cfg *Config, v constructionpipeline.ConstructionPipelineAccess) constructionpipeline.ConstructionPipelineAccess
 
+	// FinalizeConstructionTransitionAccess is called immediately after constructionTransitionAccess's construction
+	// (presence required). Return v unchanged unless
+	// composition policy needs to swap or wrap it (e.g. a construction
+	// dry-run stub swap-in) — the identity implementation is always correct.
+	FinalizeConstructionTransitionAccess(cfg *Config, v projectstate.ConstructionTransitionAccess) projectstate.ConstructionTransitionAccess
+
+	// FinalizeDesignSessionAccess is called immediately after designSessionAccess's construction
+	// (presence required). Return v unchanged unless
+	// composition policy needs to swap or wrap it (e.g. a construction
+	// dry-run stub swap-in) — the identity implementation is always correct.
+	FinalizeDesignSessionAccess(cfg *Config, v projectstate.DesignSessionAccess) projectstate.DesignSessionAccess
+
+	// FinalizeGitActivityStatusAccess is called immediately after gitActivityStatusAccess's construction
+	// (presence required). Return v unchanged unless
+	// composition policy needs to swap or wrap it (e.g. a construction
+	// dry-run stub swap-in) — the identity implementation is always correct.
+	FinalizeGitActivityStatusAccess(cfg *Config, v projectstate.GitActivityStatusAccess) projectstate.GitActivityStatusAccess
+
 	// FinalizeMerchantGatewayAccess is called immediately after merchantGatewayAccess's construction
 	// (presence required). Return v unchanged unless
 	// composition policy needs to swap or wrap it (e.g. a construction
@@ -166,6 +220,12 @@ type Hooks interface {
 	// composition policy needs to swap or wrap it (e.g. a construction
 	// dry-run stub swap-in) — the identity implementation is always correct.
 	FinalizeProjectStateAccess(cfg *Config, v projectstate.ProjectStateAccess) projectstate.ProjectStateAccess
+
+	// FinalizeRevenueLedgerAccess is called immediately after revenueLedgerAccess's construction
+	// (presence required). Return v unchanged unless
+	// composition policy needs to swap or wrap it (e.g. a construction
+	// dry-run stub swap-in) — the identity implementation is always correct.
+	FinalizeRevenueLedgerAccess(cfg *Config, v billingstate.RevenueLedgerAccess) billingstate.RevenueLedgerAccess
 
 	// FinalizeSourceControlAccess is called immediately after sourceControlAccess's construction
 	// (presence optional-dormant). Return v unchanged unless
@@ -202,18 +262,6 @@ type Hooks interface {
 	// Worker registration is composition-root policy (return true to always
 	// register; gate on the dep presence / a dry-run stub otherwise).
 	RegisterSystemDesignManagerWorker(cfg *Config) bool
-
-	// ConstructionManagerConstructionTransition supplies a composition-root value the deployment model
-	// cannot express (a func-typed resolver, or a scalar/interface dep with no
-	// setting/binding link). Return the zero value (nil for an interface) for a
-	// dependency that stays unbuilt in the active profile.
-	ConstructionManagerConstructionTransition() projectstate.ConstructionTransitionAccess
-
-	// ConstructionManagerGitActivityStatus supplies a composition-root value the deployment model
-	// cannot express (a func-typed resolver, or a scalar/interface dep with no
-	// setting/binding link). Return the zero value (nil for an interface) for a
-	// dependency that stays unbuilt in the active profile.
-	ConstructionManagerGitActivityStatus() projectstate.GitActivityStatusAccess
 
 	// ConstructionManagerEscalationWaitTimeout supplies a composition-root value the deployment model
 	// cannot express (a func-typed resolver, or a scalar/interface dep with no
@@ -331,6 +379,54 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 		logger.Info("constructionPipelineAccess (GitHubActions) ready")
 	}
 	constructionPipelineAccess = hooks.FinalizeConstructionPipelineAccess(cfg, constructionPipelineAccess)
+	var constructionTransitionAccess projectstate.ConstructionTransitionAccess
+	switch profile {
+	case "cloud":
+		v, err := projectstate.NewGitHubConstructionTransitionAccess(hooks.ConstructionTransitionAccessGitHubArgs(cfg))
+		if err != nil {
+			return err
+		}
+		constructionTransitionAccess = v
+		logger.Info("constructionTransitionAccess (GitHub) ready")
+	case "local":
+		constructionTransitionAccess = projectstate.NewGitLocalConstructionTransitionAccess(hooks.ConstructionTransitionAccessGitLocalArgs(cfg))
+		logger.Info("constructionTransitionAccess (GitLocal) ready")
+	default:
+		return errors.New("constructionTransitionAccess: no ResourceAccess variant for the active profile")
+	}
+	constructionTransitionAccess = hooks.FinalizeConstructionTransitionAccess(cfg, constructionTransitionAccess)
+	var designSessionAccess projectstate.DesignSessionAccess
+	switch profile {
+	case "cloud":
+		v, err := projectstate.NewGitHubDesignSessionAccess(hooks.DesignSessionAccessGitHubArgs(cfg))
+		if err != nil {
+			return err
+		}
+		designSessionAccess = v
+		logger.Info("designSessionAccess (GitHub) ready")
+	case "local":
+		designSessionAccess = projectstate.NewGitLocalDesignSessionAccess(hooks.DesignSessionAccessGitLocalArgs(cfg))
+		logger.Info("designSessionAccess (GitLocal) ready")
+	default:
+		return errors.New("designSessionAccess: no ResourceAccess variant for the active profile")
+	}
+	designSessionAccess = hooks.FinalizeDesignSessionAccess(cfg, designSessionAccess)
+	var gitActivityStatusAccess projectstate.GitActivityStatusAccess
+	switch profile {
+	case "cloud":
+		v, err := projectstate.NewGitHubGitActivityStatusAccess(hooks.GitActivityStatusAccessGitHubArgs(cfg))
+		if err != nil {
+			return err
+		}
+		gitActivityStatusAccess = v
+		logger.Info("gitActivityStatusAccess (GitHub) ready")
+	case "local":
+		gitActivityStatusAccess = projectstate.NewGitLocalGitActivityStatusAccess(hooks.GitActivityStatusAccessGitLocalArgs(cfg))
+		logger.Info("gitActivityStatusAccess (GitLocal) ready")
+	default:
+		return errors.New("gitActivityStatusAccess: no ResourceAccess variant for the active profile")
+	}
+	gitActivityStatusAccess = hooks.FinalizeGitActivityStatusAccess(cfg, gitActivityStatusAccess)
 	merchantGatewayAccess := merchantgateway.NewMerchantGatewayAccess()
 	logger.Info("merchantGatewayAccess (stub) ready")
 	merchantGatewayAccess = hooks.FinalizeMerchantGatewayAccess(cfg, merchantGatewayAccess)
@@ -382,6 +478,9 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 		return errors.New("projectStateAccess: no ResourceAccess variant for the active profile")
 	}
 	projectStateAccess = hooks.FinalizeProjectStateAccess(cfg, projectStateAccess)
+	revenueLedgerAccess := billingstate.NewRevenueLedgerAccess()
+	logger.Info("revenueLedgerAccess (stub) ready")
+	revenueLedgerAccess = hooks.FinalizeRevenueLedgerAccess(cfg, revenueLedgerAccess)
 	var sourceControlAccess sourcecontrol.SourceControlAccess
 	switch profile {
 	case "cloud":
@@ -424,7 +523,7 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 	reviewEngine := review.NewReviewEngine()
 
 	// Managers — generated DI constructors + one embedded Worker each.
-	billingManager := managerbilling.NewBillingManager(tc, billingStateAccess, usageAccess, merchantGatewayAccess, nil, billingEngine, interventionEngine)
+	billingManager := managerbilling.NewBillingManager(tc, billingStateAccess, usageAccess, merchantGatewayAccess, nil, billingEngine, interventionEngine, revenueLedgerAccess)
 	wBillingManager := worker.New(tc, managerbilling.TaskQueue, worker.Options{})
 	managerbilling.RegisterManagerWorker(wBillingManager, billingManager)
 	if err := wBillingManager.Start(); err != nil {
@@ -432,7 +531,7 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 	}
 	defer wBillingManager.Stop()
 	logger.Info("embedded temporal worker started", "taskQueue", managerbilling.TaskQueue)
-	constructionManager := construction.NewConstructionManager(tc, projectStateAccess, artifactAccess, handOffEngine, interventionEngine, reviewEngine, constructionPipelineAccess, sourceControlAccess, hooks.ConstructionManagerConstructionTransition(), hooks.ConstructionManagerGitActivityStatus(), hooks.ConstructionManagerEscalationWaitTimeout(), hooks.ConstructionManagerInterventionMode())
+	constructionManager := construction.NewConstructionManager(tc, projectStateAccess, artifactAccess, handOffEngine, interventionEngine, reviewEngine, constructionPipelineAccess, sourceControlAccess, constructionTransitionAccess, gitActivityStatusAccess, designSessionAccess, hooks.ConstructionManagerEscalationWaitTimeout(), hooks.ConstructionManagerInterventionMode())
 	if hooks.RegisterConstructionManagerWorker(cfg) {
 		wConstructionManager := worker.New(tc, construction.TaskQueue, worker.Options{})
 		construction.RegisterManagerWorker(wConstructionManager, constructionManager)
@@ -456,7 +555,7 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 	} else {
 		logger.Warn("operationsManager Worker NOT registered — optional-dormant dependencies absent (RegisterOperationsManagerWorker gate returned false)")
 	}
-	projectDesignManager := projectdesign.NewProjectDesignManager(tc, projectStateAccess, constructionPipelineAccess, sourceControlAccess, estimationEngine, operationEstimationEngine, billingEngine, hooks.ProjectDesignManagerRepo())
+	projectDesignManager := projectdesign.NewProjectDesignManager(tc, projectStateAccess, constructionPipelineAccess, sourceControlAccess, estimationEngine, operationEstimationEngine, billingEngine, designSessionAccess, hooks.ProjectDesignManagerRepo())
 	if hooks.RegisterProjectDesignManagerWorker(cfg) {
 		wProjectDesignManager := worker.New(tc, projectdesign.TaskQueue, worker.Options{})
 		projectdesign.RegisterManagerWorker(wProjectDesignManager, projectDesignManager)
@@ -468,7 +567,7 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 	} else {
 		logger.Warn("projectDesignManager Worker NOT registered — optional-dormant dependencies absent (RegisterProjectDesignManagerWorker gate returned false)")
 	}
-	systemDesignManager := systemdesign.NewSystemDesignManager(tc, projectStateAccess, constructionPipelineAccess, sourceControlAccess, hooks.SystemDesignManagerRepo(), estimationEngine, hooks.SystemDesignManagerRepoBase())
+	systemDesignManager := systemdesign.NewSystemDesignManager(tc, projectStateAccess, constructionPipelineAccess, sourceControlAccess, hooks.SystemDesignManagerRepo(), estimationEngine, designSessionAccess, hooks.SystemDesignManagerRepoBase())
 	if hooks.RegisterSystemDesignManagerWorker(cfg) {
 		wSystemDesignManager := worker.New(tc, systemdesign.TaskQueue, worker.Options{})
 		systemdesign.RegisterManagerWorker(wSystemDesignManager, systemDesignManager)

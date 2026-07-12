@@ -26,6 +26,7 @@ type genActivities struct {
 	Usage            usage.UsageAccess
 	MerchantGateway  merchantgateway.MerchantGatewayAccess
 	DurableExecution durableexecution.DurableExecutionAccess
+	RevenueLedger    billingstate.RevenueLedgerAccess
 }
 
 // genActivityIdempotencyKey derives the run-scoped 3-part key
@@ -153,5 +154,26 @@ func (a *genActivities) DurableExecutionRegisterSchedule(ctx context.Context, sc
 // Registered as "durableExecutionAccess.startOrSignalExecution".
 func (a *genActivities) DurableExecutionStartOrSignalExecution(ctx context.Context, executionKind durableexecution.ExecutionKind, executionID durableexecution.ExecutionID, signalName durableexecution.SignalName, payload durableexecution.ExecutionPayload) (durableexecution.ExecutionHandle, error) {
 	v, err := a.DurableExecution.StartOrSignalExecution(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, executionKind, executionID, signalName, payload)
+	return v, fwmanager.MapError(err)
+}
+
+// RevenueLedgerReadRange wraps revenueLedgerAccess.readRange.
+// Registered as "revenueLedgerAccess.readRange".
+func (a *genActivities) RevenueLedgerReadRange(ctx context.Context, customerID uuid.UUID, cycleID string) ([]billingstate.RevenueEntry, error) {
+	v, err := a.RevenueLedger.ReadRange(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, customerID, cycleID)
+	return v, fwmanager.MapError(err)
+}
+
+// RevenueLedgerRecordInboundRevenue wraps revenueLedgerAccess.recordInboundRevenue.
+// Registered as "revenueLedgerAccess.recordInboundRevenue".
+func (a *genActivities) RevenueLedgerRecordInboundRevenue(ctx context.Context, entry billingstate.RevenueEntry) (billingstate.EntryRef, error) {
+	v, err := a.RevenueLedger.RecordInboundRevenue(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, entry)
+	return v, fwmanager.MapError(err)
+}
+
+// RevenueLedgerRecordReversal wraps revenueLedgerAccess.recordReversal.
+// Registered as "revenueLedgerAccess.recordReversal".
+func (a *genActivities) RevenueLedgerRecordReversal(ctx context.Context, reversal billingstate.ReversalEntry) (billingstate.EntryRef, error) {
+	v, err := a.RevenueLedger.RecordReversal(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, reversal)
 	return v, fwmanager.MapError(err)
 }

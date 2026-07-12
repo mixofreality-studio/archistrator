@@ -75,6 +75,6 @@ type BillingManager interface {
 // builder newBillingManager in the manager package (which owns the stateful facade setup:
 // the Temporal client, the deps, and config). The constructor returns the
 // interface, so the concrete manager impl stays unexported.
-func NewBillingManager(client client.Client, billingState billingstate.BillingStateAccess, usage usage.UsageAccess, merchantGateway merchantgateway.MerchantGatewayAccess, durableExecution durableexecution.DurableExecutionAccess, billing billing.BillingEngine, intervention intervention.InterventionEngine) BillingManager {
-	return newBillingManager(client, billingState, usage, merchantGateway, durableExecution, billing, intervention)
+func NewBillingManager(client client.Client, billingState billingstate.BillingStateAccess, usage usage.UsageAccess, merchantGateway merchantgateway.MerchantGatewayAccess, durableExecution durableexecution.DurableExecutionAccess, billing billing.BillingEngine, intervention intervention.InterventionEngine, revenueLedger billingstate.RevenueLedgerAccess) BillingManager {
+	return newBillingManager(client, billingState, usage, merchantGateway, durableExecution, billing, intervention, revenueLedger)
 }

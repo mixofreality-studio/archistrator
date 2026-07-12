@@ -99,6 +99,54 @@ func GitConstructionPorts(psa ProjectStateAccess) (ConstructionTransitionAccess,
 	return nil, nil, false
 }
 
+// ---------------------------------------------------------------------------
+// constructionTransitionAccess / gitActivityStatusAccess VARIANT CONSTRUCTORS
+// (B6). These are composegen DI entry points for the two secondary contracts
+// promoted off the SAME git substrate as projectStateAccess (B2/B3) — each
+// builds its OWN *GitStore via the identical Git* projectStateAccess
+// constructor (a second, functionally-equivalent instance addressing the same
+// repo; GitStore holds no mutable connection state, so this mirrors the
+// composition root's pre-existing "SEPARATE instance, consistent because both
+// address the same git repo" pattern, formerly in cmd/server/hooks.go) and
+// narrows it via GitConstructionPorts.
+// ---------------------------------------------------------------------------
+
+// NewGitLocalConstructionTransitionAccess builds the LOCAL git
+// constructionTransitionAccess port (composegen variant token GitLocal).
+func NewGitLocalConstructionTransitionAccess(repoURL string) ConstructionTransitionAccess {
+	t, _, _ := GitConstructionPorts(NewGitLocalProjectStateAccess(repoURL))
+	return t
+}
+
+// NewGitLocalGitActivityStatusAccess builds the LOCAL git gitActivityStatusAccess
+// port (composegen variant token GitLocal).
+func NewGitLocalGitActivityStatusAccess(repoURL string) GitActivityStatusAccess {
+	_, s, _ := GitConstructionPorts(NewGitLocalProjectStateAccess(repoURL))
+	return s
+}
+
+// NewGitHubConstructionTransitionAccess builds the CLOUD git
+// constructionTransitionAccess port (composegen variant token GitHub).
+func NewGitHubConstructionTransitionAccess(webHost, account string, catalog ProjectCatalog, minter CredentialMinter) (ConstructionTransitionAccess, error) {
+	psa, err := NewGitHubProjectStateAccess(webHost, account, catalog, minter)
+	if err != nil {
+		return nil, err
+	}
+	t, _, _ := GitConstructionPorts(psa)
+	return t, nil
+}
+
+// NewGitHubGitActivityStatusAccess builds the CLOUD git gitActivityStatusAccess
+// port (composegen variant token GitHub).
+func NewGitHubGitActivityStatusAccess(webHost, account string, catalog ProjectCatalog, minter CredentialMinter) (GitActivityStatusAccess, error) {
+	psa, err := NewGitHubProjectStateAccess(webHost, account, catalog, minter)
+	if err != nil {
+		return nil, err
+	}
+	_, s, _ := GitConstructionPorts(psa)
+	return s, nil
+}
+
 // cloudPerProjectRepoURL composes the clone URL of a project's per-project repo in the
 // CLOUD profile. Under NAME-AS-IDENTITY (C-PA-AD, 2026-06-15) the project identity IS the
 // (user-supplied) repo name, so the URL is <webHost>/<account>/<name>.git — the old

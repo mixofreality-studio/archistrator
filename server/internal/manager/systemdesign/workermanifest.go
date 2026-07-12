@@ -76,23 +76,18 @@ func (m *systemDesignManager) WorkerManifest() genWorkerManifest {
 			{Name: executionKindCoAuthor, Fn: wf.CoAuthorArtifactWorkflow},
 			{Name: executionKindPhaseAdvance, Fn: wf.PhaseAdvanceWorkflow},
 		},
-		CustomActivities: []genRegisteredActivity{
-			{Name: actReadProject, Fn: wf.ReadProjectActivity},
-			{Name: actReadProjectOnBranch, Fn: wf.ReadProjectOnBranchActivity},
-			{Name: actStageForReview, Fn: wf.StageArtifactForReviewActivity},
-			{Name: actCommitArtifact, Fn: wf.CommitArtifactActivity},
-			{Name: actRejectArtifact, Fn: wf.RejectArtifactActivity},
-			{Name: actWithdrawArtifact, Fn: wf.WithdrawArtifactActivity},
-			{Name: actReconcileBranch, Fn: wf.ReconcileBranchActivity},
-			{Name: actSetReviewCommentStatus, Fn: wf.SetReviewCommentStatusActivity},
-			{Name: actSeedReviewComments, Fn: wf.SeedReviewCommentsActivity},
-			{Name: actSyncManagedScaffold, Fn: wf.SyncManagedScaffoldActivity},
-		},
+		// The custom Activities (envelope codec / capability type-assertions / the
+		// free-function scaffold sync — activities_custom.go / reviewledger.go /
+		// gitrail.go) are no longer registered here (B6: app-generator v0.6.1 dropped
+		// the CustomActivities manifest surface). The methods stay — the systemdesign
+		// rewire task (B10) migrates their call sites onto the generated DesignSession
+		// invoker below and deletes them.
 		ActivityOptions: optsHook,
 		Activities: genActivities{
-			ProjectState: m.projectState,
-			Pipeline:     m.pipeline,
-			Rail:         m.rail,
+			ProjectState:  m.projectState,
+			Pipeline:      m.pipeline,
+			Rail:          m.rail,
+			DesignSession: m.designSession,
 		},
 	}
 }

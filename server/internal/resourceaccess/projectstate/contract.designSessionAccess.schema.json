@@ -22,7 +22,7 @@
           {"name": "expectedVersion", "schema": {"$ref": "#/$defs/Version"}},
           {"name": "branch", "schema": {"type": "string"}},
           {"name": "model", "schema": {"x-go-type": "ArtifactModel"}},
-          {"name": "idempotencyKey", "schema": {"x-go-type": "fwra.IdempotencyKey", "x-go-import": "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"}}
+          {"name": "idempotencyKey", "schema": {"x-go-type": "fwra.IdempotencyKey"}}
         ],
         "result": {"$ref": "#/$defs/Version"},
         "error": true
@@ -47,9 +47,9 @@
           {"name": "branch", "schema": {"type": "string"}},
           {"name": "kind", "schema": {"$ref": "#/$defs/ArtifactKind"}},
           {"name": "notes", "schema": {"type": "string"}},
-          {"name": "round", "schema": {"type": "integer"}},
+          {"name": "round", "schema": {"type": "integer", "x-go-type": "int64"}},
           {"name": "comments", "schema": {"type": "array", "items": {"$ref": "#/$defs/ReviewComment"}}},
-          {"name": "idempotencyKey", "schema": {"x-go-type": "fwra.IdempotencyKey", "x-go-import": "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"}}
+          {"name": "idempotencyKey", "schema": {"x-go-type": "fwra.IdempotencyKey"}}
         ],
         "result": {"$ref": "#/$defs/Version"},
         "error": true
@@ -62,7 +62,7 @@
           {"name": "branch", "schema": {"type": "string"}},
           {"name": "kind", "schema": {"$ref": "#/$defs/ArtifactKind"}},
           {"name": "notes", "schema": {"type": "string"}},
-          {"name": "idempotencyKey", "schema": {"x-go-type": "fwra.IdempotencyKey", "x-go-import": "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"}}
+          {"name": "idempotencyKey", "schema": {"x-go-type": "fwra.IdempotencyKey"}}
         ],
         "result": {"$ref": "#/$defs/Version"},
         "error": true
@@ -74,7 +74,7 @@
           {"name": "expectedVersion", "schema": {"$ref": "#/$defs/Version"}},
           {"name": "branch", "schema": {"type": "string"}},
           {"name": "kind", "schema": {"$ref": "#/$defs/ArtifactKind"}},
-          {"name": "idempotencyKey", "schema": {"x-go-type": "fwra.IdempotencyKey", "x-go-import": "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"}}
+          {"name": "idempotencyKey", "schema": {"x-go-type": "fwra.IdempotencyKey"}}
         ],
         "result": {"$ref": "#/$defs/Version"},
         "error": true
@@ -88,7 +88,7 @@
           {"name": "kind", "schema": {"$ref": "#/$defs/ArtifactKind"}},
           {"name": "commentID", "schema": {"type": "string"}},
           {"name": "status", "schema": {"type": "string"}},
-          {"name": "idempotencyKey", "schema": {"x-go-type": "fwra.IdempotencyKey", "x-go-import": "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"}}
+          {"name": "idempotencyKey", "schema": {"x-go-type": "fwra.IdempotencyKey"}}
         ],
         "result": {"$ref": "#/$defs/Version"},
         "error": true
@@ -100,9 +100,9 @@
           {"name": "expectedVersion", "schema": {"$ref": "#/$defs/Version"}},
           {"name": "branch", "schema": {"type": "string"}},
           {"name": "kind", "schema": {"$ref": "#/$defs/ArtifactKind"}},
-          {"name": "round", "schema": {"type": "integer"}},
+          {"name": "round", "schema": {"type": "integer", "x-go-type": "int64"}},
           {"name": "comments", "schema": {"type": "array", "items": {"$ref": "#/$defs/ReviewComment"}}},
-          {"name": "idempotencyKey", "schema": {"x-go-type": "fwra.IdempotencyKey", "x-go-import": "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"}}
+          {"name": "idempotencyKey", "schema": {"x-go-type": "fwra.IdempotencyKey"}}
         ],
         "result": {"$ref": "#/$defs/Version"},
         "error": true

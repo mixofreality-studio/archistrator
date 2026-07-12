@@ -18,7 +18,7 @@
           {"name": "crLabel", "schema": {"type": "string"}},
           {"name": "isRevert", "schema": {"type": "boolean"}},
           {"name": "cred", "schema": {"$ref": "#/$defs/RepoCredential"}},
-          {"name": "idempotencyKey", "schema": {"x-go-type": "fwra.IdempotencyKey", "x-go-import": "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"}}
+          {"name": "idempotencyKey", "schema": {"x-go-type": "fwra.IdempotencyKey"}}
         ],
         "result": {"$ref": "#/$defs/Version"},
         "error": true
@@ -31,7 +31,7 @@
           {"name": "activityID", "schema": {"type": "string"}},
           {"name": "ci", "schema": {"$ref": "#/$defs/CICheckState"}},
           {"name": "cred", "schema": {"$ref": "#/$defs/RepoCredential"}},
-          {"name": "idempotencyKey", "schema": {"x-go-type": "fwra.IdempotencyKey", "x-go-import": "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"}}
+          {"name": "idempotencyKey", "schema": {"x-go-type": "fwra.IdempotencyKey"}}
         ],
         "result": {"$ref": "#/$defs/Version"},
         "error": true
@@ -43,7 +43,7 @@
           {"name": "expectedVersion", "schema": {"$ref": "#/$defs/Version"}},
           {"name": "activityID", "schema": {"type": "string"}},
           {"name": "cred", "schema": {"$ref": "#/$defs/RepoCredential"}},
-          {"name": "idempotencyKey", "schema": {"x-go-type": "fwra.IdempotencyKey", "x-go-import": "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"}}
+          {"name": "idempotencyKey", "schema": {"x-go-type": "fwra.IdempotencyKey"}}
         ],
         "result": {"$ref": "#/$defs/Version"},
         "error": true
@@ -55,7 +55,7 @@
           {"name": "expectedVersion", "schema": {"$ref": "#/$defs/Version"}},
           {"name": "activityID", "schema": {"type": "string"}},
           {"name": "cred", "schema": {"$ref": "#/$defs/RepoCredential"}},
-          {"name": "idempotencyKey", "schema": {"x-go-type": "fwra.IdempotencyKey", "x-go-import": "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"}}
+          {"name": "idempotencyKey", "schema": {"x-go-type": "fwra.IdempotencyKey"}}
         ],
         "result": {"$ref": "#/$defs/Version"},
         "error": true
@@ -67,7 +67,7 @@
           {"name": "expectedVersion", "schema": {"$ref": "#/$defs/Version"}},
           {"name": "activityID", "schema": {"type": "string"}},
           {"name": "cred", "schema": {"$ref": "#/$defs/RepoCredential"}},
-          {"name": "idempotencyKey", "schema": {"x-go-type": "fwra.IdempotencyKey", "x-go-import": "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"}}
+          {"name": "idempotencyKey", "schema": {"x-go-type": "fwra.IdempotencyKey"}}
         ],
         "result": {"$ref": "#/$defs/Version"},
         "error": true
@@ -79,7 +79,7 @@
           {"name": "expectedVersion", "schema": {"$ref": "#/$defs/Version"}},
           {"name": "activityID", "schema": {"type": "string"}},
           {"name": "cred", "schema": {"$ref": "#/$defs/RepoCredential"}},
-          {"name": "idempotencyKey", "schema": {"x-go-type": "fwra.IdempotencyKey", "x-go-import": "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"}}
+          {"name": "idempotencyKey", "schema": {"x-go-type": "fwra.IdempotencyKey"}}
         ],
         "result": {"$ref": "#/$defs/Version"},
         "error": true

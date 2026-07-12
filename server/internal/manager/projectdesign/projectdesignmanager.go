@@ -66,7 +66,16 @@ type projectDesignManager struct {
 	estimator    estimation.EstimationEngine
 	opEstimator  operationestimation.OperationEstimationEngine
 	settlement   billing.BillingEngine
-	repo         func(projectID ProjectID) (sourcecontrol.RepoRef, bool)
+
+	// designSession (B6) is the generated designSessionAccess dep — threaded so the
+	// generated invoker surface exists (invokers.gen.go/activities.gen.go), but not
+	// yet consumed by any workflow here: this manager's branch-scoped design flows
+	// still run through the manager-local capability-fallback custom activities
+	// (gitrail.go/reviewledger.go); the projectdesign rewire task (B9) migrates onto
+	// this dep and deletes the duplicate custom activities.
+	designSession projectstate.DesignSessionAccess
+
+	repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool)
 }
 
 // newProjectDesignManager is the hand-written, unexported builder the generated
@@ -83,17 +92,19 @@ func newProjectDesignManager(
 	estimator estimation.EstimationEngine,
 	opEstimator operationestimation.OperationEstimationEngine,
 	settle billing.BillingEngine,
+	designSession projectstate.DesignSessionAccess,
 	repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool),
 ) *projectDesignManager {
 	return &projectDesignManager{
-		client:       c,
-		projectState: projectState,
-		pipeline:     pipeline,
-		rail:         rail,
-		estimator:    estimator,
-		opEstimator:  opEstimator,
-		settlement:   settle,
-		repo:         repo,
+		client:        c,
+		projectState:  projectState,
+		pipeline:      pipeline,
+		rail:          rail,
+		estimator:     estimator,
+		opEstimator:   opEstimator,
+		settlement:    settle,
+		designSession: designSession,
+		repo:          repo,
 	}
 }
 

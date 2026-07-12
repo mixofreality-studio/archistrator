@@ -7871,6 +7871,60 @@
               }
             },
             {
+              "component": "constructionTransitionAccess",
+              "presence": "required",
+              "provides": [],
+              "settings": [],
+              "perProfile": {
+                "local": {
+                  "variant": "GitLocal",
+                  "infra": []
+                },
+                "cloud": {
+                  "variant": "GitHub",
+                  "infra": [
+                    "github-app"
+                  ]
+                }
+              }
+            },
+            {
+              "component": "gitActivityStatusAccess",
+              "presence": "required",
+              "provides": [],
+              "settings": [],
+              "perProfile": {
+                "local": {
+                  "variant": "GitLocal",
+                  "infra": []
+                },
+                "cloud": {
+                  "variant": "GitHub",
+                  "infra": [
+                    "github-app"
+                  ]
+                }
+              }
+            },
+            {
+              "component": "designSessionAccess",
+              "presence": "required",
+              "provides": [],
+              "settings": [],
+              "perProfile": {
+                "local": {
+                  "variant": "GitLocal",
+                  "infra": []
+                },
+                "cloud": {
+                  "variant": "GitHub",
+                  "infra": [
+                    "github-app"
+                  ]
+                }
+              }
+            },
+            {
               "component": "artifactAccess",
               "presence": "optional-dormant",
               "provides": [],
@@ -7982,6 +8036,13 @@
             },
             {
               "component": "billingStateAccess",
+              "presence": "required",
+              "provides": [],
+              "settings": [],
+              "perProfile": {}
+            },
+            {
+              "component": "revenueLedgerAccess",
               "presence": "required",
               "provides": [],
               "settings": [],
@@ -11035,6 +11096,10 @@
         {
           "name": "intervention",
           "component": "interventionEngine"
+        },
+        {
+          "name": "revenueLedger",
+          "component": "revenueLedgerAccess"
         }
       ],
       "title": "billing-manager contract",
@@ -11742,13 +11807,15 @@
         },
         {
           "name": "constructionTransition",
-          "goType": "projectstate.ConstructionTransitionAccess",
-          "goImport": "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
+          "component": "constructionTransitionAccess"
         },
         {
-          "name": "gitActivityStatus",
-          "goType": "projectstate.GitActivityStatusAccess",
-          "goImport": "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
+          "name": "gitStatus",
+          "component": "gitActivityStatusAccess"
+        },
+        {
+          "name": "designSession",
+          "component": "designSessionAccess"
         },
         {
           "name": "escalationWaitTimeout",
@@ -12701,8 +12768,7 @@
               {
                 "name": "idempotencyKey",
                 "schema": {
-                  "x-go-type": "fwra.IdempotencyKey",
-                  "x-go-import": "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+                  "x-go-type": "fwra.IdempotencyKey"
                 }
               }
             ],
@@ -12747,8 +12813,7 @@
               {
                 "name": "idempotencyKey",
                 "schema": {
-                  "x-go-type": "fwra.IdempotencyKey",
-                  "x-go-import": "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+                  "x-go-type": "fwra.IdempotencyKey"
                 }
               }
             ],
@@ -12799,8 +12864,7 @@
               {
                 "name": "idempotencyKey",
                 "schema": {
-                  "x-go-type": "fwra.IdempotencyKey",
-                  "x-go-import": "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+                  "x-go-type": "fwra.IdempotencyKey"
                 }
               }
             ],
@@ -12839,8 +12903,7 @@
               {
                 "name": "idempotencyKey",
                 "schema": {
-                  "x-go-type": "fwra.IdempotencyKey",
-                  "x-go-import": "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+                  "x-go-type": "fwra.IdempotencyKey"
                 }
               }
             ],
@@ -12879,8 +12942,7 @@
               {
                 "name": "idempotencyKey",
                 "schema": {
-                  "x-go-type": "fwra.IdempotencyKey",
-                  "x-go-import": "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+                  "x-go-type": "fwra.IdempotencyKey"
                 }
               }
             ],
@@ -12925,8 +12987,7 @@
               {
                 "name": "idempotencyKey",
                 "schema": {
-                  "x-go-type": "fwra.IdempotencyKey",
-                  "x-go-import": "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+                  "x-go-type": "fwra.IdempotencyKey"
                 }
               }
             ],
@@ -12977,8 +13038,7 @@
               {
                 "name": "idempotencyKey",
                 "schema": {
-                  "x-go-type": "fwra.IdempotencyKey",
-                  "x-go-import": "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+                  "x-go-type": "fwra.IdempotencyKey"
                 }
               }
             ],
@@ -13023,8 +13083,7 @@
               {
                 "name": "idempotencyKey",
                 "schema": {
-                  "x-go-type": "fwra.IdempotencyKey",
-                  "x-go-import": "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+                  "x-go-type": "fwra.IdempotencyKey"
                 }
               }
             ],
@@ -13075,8 +13134,7 @@
               {
                 "name": "idempotencyKey",
                 "schema": {
-                  "x-go-type": "fwra.IdempotencyKey",
-                  "x-go-import": "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+                  "x-go-type": "fwra.IdempotencyKey"
                 }
               }
             ],
@@ -13269,8 +13327,7 @@
               {
                 "name": "idempotencyKey",
                 "schema": {
-                  "x-go-type": "fwra.IdempotencyKey",
-                  "x-go-import": "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+                  "x-go-type": "fwra.IdempotencyKey"
                 }
               }
             ],
@@ -13354,7 +13411,8 @@
               {
                 "name": "round",
                 "schema": {
-                  "type": "integer"
+                  "type": "integer",
+                  "x-go-type": "int64"
                 }
               },
               {
@@ -13369,8 +13427,7 @@
               {
                 "name": "idempotencyKey",
                 "schema": {
-                  "x-go-type": "fwra.IdempotencyKey",
-                  "x-go-import": "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+                  "x-go-type": "fwra.IdempotencyKey"
                 }
               }
             ],
@@ -13415,8 +13472,7 @@
               {
                 "name": "idempotencyKey",
                 "schema": {
-                  "x-go-type": "fwra.IdempotencyKey",
-                  "x-go-import": "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+                  "x-go-type": "fwra.IdempotencyKey"
                 }
               }
             ],
@@ -13455,8 +13511,7 @@
               {
                 "name": "idempotencyKey",
                 "schema": {
-                  "x-go-type": "fwra.IdempotencyKey",
-                  "x-go-import": "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+                  "x-go-type": "fwra.IdempotencyKey"
                 }
               }
             ],
@@ -13507,8 +13562,7 @@
               {
                 "name": "idempotencyKey",
                 "schema": {
-                  "x-go-type": "fwra.IdempotencyKey",
-                  "x-go-import": "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+                  "x-go-type": "fwra.IdempotencyKey"
                 }
               }
             ],
@@ -13547,7 +13601,8 @@
               {
                 "name": "round",
                 "schema": {
-                  "type": "integer"
+                  "type": "integer",
+                  "x-go-type": "int64"
                 }
               },
               {
@@ -13562,8 +13617,7 @@
               {
                 "name": "idempotencyKey",
                 "schema": {
-                  "x-go-type": "fwra.IdempotencyKey",
-                  "x-go-import": "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+                  "x-go-type": "fwra.IdempotencyKey"
                 }
               }
             ],
@@ -14492,8 +14546,7 @@
               {
                 "name": "idempotencyKey",
                 "schema": {
-                  "x-go-type": "fwra.IdempotencyKey",
-                  "x-go-import": "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+                  "x-go-type": "fwra.IdempotencyKey"
                 }
               }
             ],
@@ -14538,8 +14591,7 @@
               {
                 "name": "idempotencyKey",
                 "schema": {
-                  "x-go-type": "fwra.IdempotencyKey",
-                  "x-go-import": "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+                  "x-go-type": "fwra.IdempotencyKey"
                 }
               }
             ],
@@ -14578,8 +14630,7 @@
               {
                 "name": "idempotencyKey",
                 "schema": {
-                  "x-go-type": "fwra.IdempotencyKey",
-                  "x-go-import": "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+                  "x-go-type": "fwra.IdempotencyKey"
                 }
               }
             ],
@@ -14618,8 +14669,7 @@
               {
                 "name": "idempotencyKey",
                 "schema": {
-                  "x-go-type": "fwra.IdempotencyKey",
-                  "x-go-import": "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+                  "x-go-type": "fwra.IdempotencyKey"
                 }
               }
             ],
@@ -14658,8 +14708,7 @@
               {
                 "name": "idempotencyKey",
                 "schema": {
-                  "x-go-type": "fwra.IdempotencyKey",
-                  "x-go-import": "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+                  "x-go-type": "fwra.IdempotencyKey"
                 }
               }
             ],
@@ -14698,8 +14747,7 @@
               {
                 "name": "idempotencyKey",
                 "schema": {
-                  "x-go-type": "fwra.IdempotencyKey",
-                  "x-go-import": "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+                  "x-go-type": "fwra.IdempotencyKey"
                 }
               }
             ],
@@ -17166,6 +17214,10 @@
         {
           "name": "billingEstimator",
           "component": "billingEngine"
+        },
+        {
+          "name": "designSession",
+          "component": "designSessionAccess"
         },
         {
           "name": "repo",
@@ -21414,6 +21466,10 @@
         {
           "name": "estimator",
           "component": "estimationEngine"
+        },
+        {
+          "name": "designSession",
+          "component": "designSessionAccess"
         },
         {
           "name": "repoBase",

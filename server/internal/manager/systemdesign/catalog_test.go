@@ -26,7 +26,7 @@ func rc() fwm.Context { return fwm.Context{Context: context.Background()} }
 // it wires the projectState + (optional) rail + estimator + repoBase deps and leaves
 // the Temporal client / pipeline / repo-resolver nil (those ops never touch them).
 func newCatalogMgr(ps projectstate.ProjectStateAccess, sc sourcecontrol.SourceControlAccess, est estimation.EstimationEngine, repoBase string) SystemDesignManager {
-	return NewSystemDesignManager(nil, ps, nil, sc, nil, est, repoBase)
+	return NewSystemDesignManager(nil, ps, nil, sc, nil, est, nil, repoBase)
 }
 
 // slotByKind finds the contract slot whose Kind is the canonical wire name of the

@@ -82,7 +82,7 @@ func newIRADeltaHarness(t *testing.T) *iraDeltaHarness {
 
 	// --- REAL Manager over both real RAs. nil estimator: this harness exercises
 	// project birth (CreateProject), not the GetProject compute-at-read path. ---
-	mgr := systemdesign.NewSystemDesignManager(nil, stateAdapter, nil, scAccess, nil, nil, "")
+	mgr := systemdesign.NewSystemDesignManager(nil, stateAdapter, nil, scAccess, nil, nil, nil, "")
 
 	return &iraDeltaHarness{mgr: mgr, fakeGH: fake, gitRepo: rawRepo, ctx: context.Background()}
 }

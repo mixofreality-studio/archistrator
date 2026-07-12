@@ -211,3 +211,66 @@ func (i genInvokers) RailPostReview(ctx workflow.Context, repo sourcecontrol.Rep
 	err := workflow.ExecuteActivity(i.options(ctx, "sourceControlAccess.postReview"), "sourceControlAccess.postReview", repo, pr, review, cred).Get(ctx, nil)
 	return err
 }
+
+// RailSyncManagedScaffold invokes activity "sourceControlAccess.syncManagedScaffold".
+func (i genInvokers) RailSyncManagedScaffold(ctx workflow.Context, repo sourcecontrol.RepoRef, cred sourcecontrol.RepoCredential) (bool, error) {
+	var out bool
+	err := workflow.ExecuteActivity(i.options(ctx, "sourceControlAccess.syncManagedScaffold"), "sourceControlAccess.syncManagedScaffold", repo, cred).Get(ctx, &out)
+	return out, err
+}
+
+// DesignSessionCommitArtifactWithProvenance invokes activity "designSessionAccess.commitArtifactWithProvenance".
+func (i genInvokers) DesignSessionCommitArtifactWithProvenance(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, kind projectstate.ArtifactKind, approvedBy string, draftedBy string) (projectstate.Version, error) {
+	var out projectstate.Version
+	err := workflow.ExecuteActivity(i.options(ctx, "designSessionAccess.commitArtifactWithProvenance"), "designSessionAccess.commitArtifactWithProvenance", projectID, expectedVersion, kind, approvedBy, draftedBy).Get(ctx, &out)
+	return out, err
+}
+
+// DesignSessionReadProjectOnBranch invokes activity "designSessionAccess.readProjectOnBranch".
+func (i genInvokers) DesignSessionReadProjectOnBranch(ctx workflow.Context, projectID projectstate.ProjectID, branch string) (projectstate.ProjectEnvelope, error) {
+	var out projectstate.ProjectEnvelope
+	err := workflow.ExecuteActivity(i.options(ctx, "designSessionAccess.readProjectOnBranch"), "designSessionAccess.readProjectOnBranch", projectID, branch).Get(ctx, &out)
+	return out, err
+}
+
+// DesignSessionReconcileBranchFromMain invokes activity "designSessionAccess.reconcileBranchFromMain".
+func (i genInvokers) DesignSessionReconcileBranchFromMain(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind) (projectstate.Version, error) {
+	var out projectstate.Version
+	err := workflow.ExecuteActivity(i.options(ctx, "designSessionAccess.reconcileBranchFromMain"), "designSessionAccess.reconcileBranchFromMain", projectID, expectedVersion, branch, kind).Get(ctx, &out)
+	return out, err
+}
+
+// DesignSessionRejectArtifactOnBranchWithComments invokes activity "designSessionAccess.rejectArtifactOnBranchWithComments".
+func (i genInvokers) DesignSessionRejectArtifactOnBranchWithComments(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, round int64, comments []projectstate.ReviewComment) (projectstate.Version, error) {
+	var out projectstate.Version
+	err := workflow.ExecuteActivity(i.options(ctx, "designSessionAccess.rejectArtifactOnBranchWithComments"), "designSessionAccess.rejectArtifactOnBranchWithComments", projectID, expectedVersion, branch, kind, notes, round, comments).Get(ctx, &out)
+	return out, err
+}
+
+// DesignSessionSeedReviewCommentsOnBranch invokes activity "designSessionAccess.seedReviewCommentsOnBranch".
+func (i genInvokers) DesignSessionSeedReviewCommentsOnBranch(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, round int64, comments []projectstate.ReviewComment) (projectstate.Version, error) {
+	var out projectstate.Version
+	err := workflow.ExecuteActivity(i.options(ctx, "designSessionAccess.seedReviewCommentsOnBranch"), "designSessionAccess.seedReviewCommentsOnBranch", projectID, expectedVersion, branch, kind, round, comments).Get(ctx, &out)
+	return out, err
+}
+
+// DesignSessionSetReviewCommentStatusOnBranch invokes activity "designSessionAccess.setReviewCommentStatusOnBranch".
+func (i genInvokers) DesignSessionSetReviewCommentStatusOnBranch(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, commentID string, status string) (projectstate.Version, error) {
+	var out projectstate.Version
+	err := workflow.ExecuteActivity(i.options(ctx, "designSessionAccess.setReviewCommentStatusOnBranch"), "designSessionAccess.setReviewCommentStatusOnBranch", projectID, expectedVersion, branch, kind, commentID, status).Get(ctx, &out)
+	return out, err
+}
+
+// DesignSessionStageArtifactForReviewOnBranch invokes activity "designSessionAccess.stageArtifactForReviewOnBranch".
+func (i genInvokers) DesignSessionStageArtifactForReviewOnBranch(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, model projectstate.ArtifactModel) (projectstate.Version, error) {
+	var out projectstate.Version
+	err := workflow.ExecuteActivity(i.options(ctx, "designSessionAccess.stageArtifactForReviewOnBranch"), "designSessionAccess.stageArtifactForReviewOnBranch", projectID, expectedVersion, branch, model).Get(ctx, &out)
+	return out, err
+}
+
+// DesignSessionWithdrawArtifactOnBranch invokes activity "designSessionAccess.withdrawArtifactOnBranch".
+func (i genInvokers) DesignSessionWithdrawArtifactOnBranch(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string) (projectstate.Version, error) {
+	var out projectstate.Version
+	err := workflow.ExecuteActivity(i.options(ctx, "designSessionAccess.withdrawArtifactOnBranch"), "designSessionAccess.withdrawArtifactOnBranch", projectID, expectedVersion, branch, kind, notes).Get(ctx, &out)
+	return out, err
+}

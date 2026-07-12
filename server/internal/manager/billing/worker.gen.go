@@ -13,14 +13,12 @@ import (
 const TaskQueue = "billing"
 
 // genWorkerManifest is what the hand-written manager supplies to
-// RegisterWorker: the workflow functions (codegen cannot know them), any
-// hybrid hand-written activities, the invoker options hook, and the
-// genActivities dep threading.
+// RegisterWorker: the workflow functions (codegen cannot know them), the
+// invoker options hook, and the genActivities dep threading.
 type genWorkerManifest struct {
-	Workflows        []genRegisteredWorkflow
-	CustomActivities []genRegisteredActivity
-	ActivityOptions  func(activityName string) (workflow.ActivityOptions, bool)
-	Activities       genActivities
+	Workflows       []genRegisteredWorkflow
+	ActivityOptions func(activityName string) (workflow.ActivityOptions, bool)
+	Activities      genActivities
 }
 
 type genRegisteredWorkflow struct {
@@ -28,14 +26,9 @@ type genRegisteredWorkflow struct {
 	Fn   any
 }
 
-type genRegisteredActivity struct {
-	Name string
-	Fn   any
-}
-
-// RegisterWorker registers every workflow + generated activity + custom
-// activity on w. Forgetting a generated activity is impossible; workflows and
-// hybrids are exactly what the manifest declares.
+// RegisterWorker registers every workflow + generated activity on w.
+// Forgetting a generated activity is impossible; workflows are exactly what
+// the manifest declares.
 func RegisterWorker(w worker.Worker, mf genWorkerManifest) {
 	for _, wf := range mf.Workflows {
 		w.RegisterWorkflowWithOptions(wf.Fn, workflow.RegisterOptions{Name: wf.Name})
@@ -55,10 +48,10 @@ func RegisterWorker(w worker.Worker, mf genWorkerManifest) {
 	w.RegisterActivityWithOptions(acts.MerchantGatewayCreateConnectedAccount, activity.RegisterOptions{Name: "merchantGatewayAccess.createConnectedAccount"})
 	w.RegisterActivityWithOptions(acts.MerchantGatewayPayoutCustomer, activity.RegisterOptions{Name: "merchantGatewayAccess.payoutCustomer"})
 	w.RegisterActivityWithOptions(acts.MerchantGatewayValidateStoredInstrument, activity.RegisterOptions{Name: "merchantGatewayAccess.validateStoredInstrument"})
+	w.RegisterActivityWithOptions(acts.RevenueLedgerReadRange, activity.RegisterOptions{Name: "revenueLedgerAccess.readRange"})
+	w.RegisterActivityWithOptions(acts.RevenueLedgerRecordInboundRevenue, activity.RegisterOptions{Name: "revenueLedgerAccess.recordInboundRevenue"})
+	w.RegisterActivityWithOptions(acts.RevenueLedgerRecordReversal, activity.RegisterOptions{Name: "revenueLedgerAccess.recordReversal"})
 	w.RegisterActivityWithOptions(acts.UsageReadRange, activity.RegisterOptions{Name: "usageAccess.readRange"})
 	w.RegisterActivityWithOptions(acts.UsageRecordComputeUsage, activity.RegisterOptions{Name: "usageAccess.recordComputeUsage"})
 	w.RegisterActivityWithOptions(acts.UsageRecordFinalUsage, activity.RegisterOptions{Name: "usageAccess.recordFinalUsage"})
-	for _, ca := range mf.CustomActivities {
-		w.RegisterActivityWithOptions(ca.Fn, activity.RegisterOptions{Name: ca.Name})
-	}
 }
