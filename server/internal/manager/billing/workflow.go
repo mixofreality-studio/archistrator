@@ -33,20 +33,16 @@ import (
 //     fweng.Context{Context: context.Background()} supplied inline at each call site.
 //   - The ResourceAccess layer is I/O and NON-deterministic; the workflow reaches it
 //     ONLY through the generated typed invoker surface (Acts, invokers.gen.go) — the
-//     former RA consumer seams + composition-root adapters are retired. The three
-//     revenue-ledger operations have no contract, so they stay hand-written custom
-//     Activities (activities_custom.go), invoked by METHOD VALUE off the Custom field
-//     (workflow.ExecuteActivity(ctx, wf.Custom.XActivity, ...)) — the same
-//     invoke-by-function-reference discipline the generated invokers use and the four
-//     other migrated managers follow, so the arch checker
-//     (arch_activitynames_test.go) can prove no hand file names an activity by string.
+//     former RA consumer seams + composition-root adapters are retired. B7 completed
+//     the revenue-ledger cutover: the three revenueLedgerAccess ops are now reached the
+//     same way as every other RA — through Acts — so no hand file in this package names
+//     an activity by string (arch_activitynames_test.go proves it).
 
 // wfDeps bundles every downstream dependency the billingManager orchestrates, passed to
 // newWorkflows (from WorkerManifest, workermanifest.go) and held on the Workflows struct.
 // The two Engines are typed as their PUBLISHED contract interfaces (no Manager-local
 // seam), called DIRECTLY in-workflow. The ResourceAccess layer is reached through the
-// generated typed invokers (Acts); the contract-less revenue-ledger Activities through
-// the Custom receiver.
+// generated typed invokers (Acts).
 type wfDeps struct {
 	Billing      billingengine.BillingEngine
 	Intervention intervention.InterventionEngine
@@ -55,24 +51,16 @@ type wfDeps struct {
 	// per ResourceAccess activity, carrying contract types. Its Opts hook supplies the
 	// per-activity option presets (workermanifest.go).
 	Acts genInvokers
-
-	// Custom holds the three hand-written revenue-ledger Activities (activities_custom.go)
-	// that have no frozen contract for temporalgen to generate. The workflow invokes them
-	// by method value (wf.Custom.XActivity) so Temporal resolves them via the same
-	// function-reference → registered-name mapping the manifest registers them under.
-	Custom *customActivities
 }
 
 // workflows is the single billingManager component struct — the workflow receiver. The
 // RA activities are the generated genActivities (activities.gen.go); this struct reaches
-// them through the typed invokers (Acts). The contract-less custom revenue Activities are
-// invoked by method value off Custom (activities_custom.go).
+// them through the typed invokers (Acts).
 type workflows struct {
 	Billing      billingengine.BillingEngine
 	Intervention intervention.InterventionEngine
 
-	Acts   genInvokers
-	Custom *customActivities
+	Acts genInvokers
 }
 
 // newWorkflows builds the Workflows receiver from the injected wfDeps.
@@ -81,7 +69,6 @@ func newWorkflows(d wfDeps) *workflows {
 		Billing:      d.Billing,
 		Intervention: d.Intervention,
 		Acts:         d.Acts,
-		Custom:       d.Custom,
 	}
 }
 
@@ -387,11 +374,11 @@ func (wf *workflows) drainInboundRevenue(ctx workflow.Context, customerID custom
 		if event.CycleID != cycleID {
 			continue
 		}
-		_ = wf.recordInboundRevenue(ctx, revenueEntrySeam{
+		_ = wf.recordInboundRevenue(ctx, billingstate.RevenueEntry{
 			CustomerID:     customerID,
-			CycleID:        cycleID,
-			Kind:           revenueKindInbound,
-			Amount:         event.Amount,
+			CycleID:        string(cycleID),
+			Kind:           billingstate.RevenueKindInbound,
+			Amount:         billingstate.Money{MinorUnits: event.Amount.MinorUnits, Currency: event.Amount.Currency},
 			GatewayEventID: event.GatewayEventID,
 			OccurredAt:     event.OccurredAt,
 		})
@@ -424,14 +411,14 @@ func (wf *workflows) awaitChargeback(ctx workflow.Context, customerID customerID
 //  5. route the DELTA charge/payout via the gateway. No rollback (forward-only).
 func (wf *workflows) recomputeCycle(ctx workflow.Context, customerID customerID, cycleID cycleID, event GatewayReversalEvent, prior billingengine.BillingResult) error {
 	// Append the reversal (idempotent on the chargeback's gateway event id).
-	if err := wf.recordReversal(ctx, reversalEntrySeam{
+	if err := wf.recordReversal(ctx, billingstate.ReversalEntry{
 		CustomerID:     customerID,
-		CycleID:        cycleID,
-		Amount:         event.Amount,
+		CycleID:        string(cycleID),
+		Amount:         billingstate.Money{MinorUnits: event.Amount.MinorUnits, Currency: event.Amount.Currency},
 		GatewayEventID: event.GatewayEventID,
 		// ReversesGatewayEventID is an optional back-link; the generated façade type
-		// carries it as *string (`,omitempty`), the RA seam as a plain string (empty ⇒
-		// absent), so deref nil-safe at the boundary.
+		// carries it as *string (`,omitempty`), the generated RA contract type as a
+		// plain string (empty ⇒ absent), so deref nil-safe at the boundary.
 		ReversesGatewayEventID: derefString(event.ReversesGatewayEventID),
 		OccurredAt:             event.OccurredAt,
 	}); err != nil {
@@ -537,15 +524,12 @@ func (wf *workflows) readBillingByDeployedApp(ctx workflow.Context, deployedAppI
 	return wf.readBilling(ctx, deployedAppID)
 }
 
-// foldRevenue reads the cycle's revenue facts (custom revenue-ledger Activity) and folds
-// them into the published billingengine.CycleRevenue value snapshot (exact minor-unit
-// signed sum; never a float).
+// foldRevenue invokes revenueLedgerAccess.readRange and folds the cycle's revenue facts
+// into the published billingengine.CycleRevenue value snapshot (exact minor-unit signed
+// sum; never a float).
 func (wf *workflows) foldRevenue(ctx workflow.Context, customerID customerID, cycleID cycleID) (billingengine.CycleRevenue, error) {
-	c := workflow.WithActivityOptions(ctx, ledgerActivityOptions())
-	var entries []revenueEntrySeam
-	if err := workflow.ExecuteActivity(c, wf.Custom.ReadRevenueRangeActivity, readRevenueRangeArgs{
-		CustomerID: customerID, CycleID: cycleID,
-	}).Get(ctx, &entries); err != nil {
+	entries, err := wf.Acts.RevenueLedgerReadRange(ctx, customerID, string(cycleID))
+	if err != nil {
 		return billingengine.CycleRevenue{}, err
 	}
 
@@ -630,16 +614,18 @@ func (wf *workflows) chargeCustomer(ctx workflow.Context, customerID customerID,
 		merchantgateway.Money{MinorUnits: amount.MinorUnits, Currency: amount.Currency}, key)
 }
 
-// recordInboundRevenue runs the custom RecordInboundRevenueActivity (revenue-ledger no-op).
-func (wf *workflows) recordInboundRevenue(ctx workflow.Context, entry revenueEntrySeam) error {
-	c := workflow.WithActivityOptions(ctx, ledgerActivityOptions())
-	return workflow.ExecuteActivity(c, wf.Custom.RecordInboundRevenueActivity, entry).Get(ctx, nil)
+// recordInboundRevenue invokes revenueLedgerAccess.recordInboundRevenue (dedup on the
+// gateway event id; NO Conflict kind on this append-only ledger).
+func (wf *workflows) recordInboundRevenue(ctx workflow.Context, entry billingstate.RevenueEntry) error {
+	_, err := wf.Acts.RevenueLedgerRecordInboundRevenue(ctx, entry)
+	return err
 }
 
-// recordReversal runs the custom RecordReversalActivity (revenue-ledger no-op).
-func (wf *workflows) recordReversal(ctx workflow.Context, reversal reversalEntrySeam) error {
-	c := workflow.WithActivityOptions(ctx, ledgerActivityOptions())
-	return workflow.ExecuteActivity(c, wf.Custom.RecordReversalActivity, reversal).Get(ctx, nil)
+// recordReversal invokes revenueLedgerAccess.recordReversal (dedup on the chargeback's
+// gateway event id; NO Conflict kind on this append-only ledger).
+func (wf *workflows) recordReversal(ctx workflow.Context, reversal billingstate.ReversalEntry) error {
+	_, err := wf.Acts.RevenueLedgerRecordReversal(ctx, reversal)
+	return err
 }
 
 // deliverDelinquencySignal invokes durableExecutionAccess.deliverSignal — the one

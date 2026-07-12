@@ -61,12 +61,10 @@ type billingManager struct {
 	billing          billingengine.BillingEngine
 	intervention     intervention.InterventionEngine
 
-	// revenueLedger (B6) is the generated revenueLedgerAccess dep — threaded so the
-	// generated invoker surface exists (invokers.gen.go/activities.gen.go), but not
-	// yet consumed by any workflow: the manager's OWN private ctx-based
-	// revenueLedgerAccess seam (deps.go) + noopRevenueLedger (adapters.go) still run
-	// the live custom-activity path (activities_custom.go) until the billing rewire
-	// task migrates onto this generated dep and deletes the duplicate.
+	// revenueLedger (B6/B7) is the generated revenueLedgerAccess dep, threaded into
+	// genActivities (workermanifest.go) exactly like billingState/usage/merchantGateway
+	// /durableExecution: the workflow reaches it through the generated invoker surface
+	// (invokers.gen.go/activities.gen.go) — no Manager-local seam or custom Activity.
 	revenueLedger billingstate.RevenueLedgerAccess
 }
 

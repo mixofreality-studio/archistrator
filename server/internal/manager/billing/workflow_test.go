@@ -1,7 +1,6 @@
 package billing
 
 import (
-	"context"
 	"encoding/json"
 	"sync"
 	"testing"
@@ -26,10 +25,10 @@ import (
 // billingManager workflow unit tests over the Temporal in-memory test environment
 // (testsuite.WorkflowTestSuite). Post-temporalgen migration: the ResourceAccess layer is
 // reached through the GENERATED activities (activities.gen.go) + invokers
-// (invokers.gen.go). The contract-backed RA ports (billingState/usage/merchantGateway/
-// durableExecution) are constructed as CONTRACT-interface test doubles, wired into
-// genActivities and registered under the generated activity names; the revenue-ledger
-// no-op is a seam fake registered under the custom Activity names. The two Engines are
+// (invokers.gen.go). ALL FIVE contract-backed RA ports (billingState/usage/
+// merchantGateway/durableExecution/revenueLedger — B7 folded the revenue-ledger fake in
+// alongside the rest) are constructed as CONTRACT-interface test doubles, wired into
+// genActivities and registered under the generated activity names. The two Engines are
 // direct-in-workflow fakes over their PUBLISHED contracts (billingengine.BillingEngine /
 // intervention.InterventionEngine — no Manager-local seam). No Docker, no dev server.
 //
@@ -123,45 +122,45 @@ func (f *fakeBillingState) ResettleCycle(_ fwra.Context, _ uuid.UUID, _ billings
 
 var _ billingstate.BillingStateAccess = (*fakeBillingState)(nil)
 
-// fakeRevenueLedger records appends + serves a scripted range. Satisfies the manager-
-// local revenueLedgerAccess seam (the custom revenue Activities' no-op contract).
+// fakeRevenueLedger records appends + serves a scripted range. Satisfies the generated
+// billingstate.RevenueLedgerAccess contract.
 type fakeRevenueLedger struct {
 	mu sync.Mutex
 
-	rangeEntries []revenueEntrySeam
-	inbound      []revenueEntrySeam
-	reversals    []reversalEntrySeam
+	rangeEntries []billingstate.RevenueEntry
+	inbound      []billingstate.RevenueEntry
+	reversals    []billingstate.ReversalEntry
 }
 
-func (r *fakeRevenueLedger) RecordInboundRevenue(_ context.Context, entry revenueEntrySeam) (entryRefSeam, error) {
+func (r *fakeRevenueLedger) RecordInboundRevenue(_ fwra.Context, entry billingstate.RevenueEntry) (billingstate.EntryRef, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.inbound = append(r.inbound, entry)
 	r.rangeEntries = append(r.rangeEntries, entry)
-	return entryRefSeam("ref"), nil
+	return billingstate.EntryRef("ref"), nil
 }
 
-func (r *fakeRevenueLedger) RecordReversal(_ context.Context, reversal reversalEntrySeam) (entryRefSeam, error) {
+func (r *fakeRevenueLedger) RecordReversal(_ fwra.Context, reversal billingstate.ReversalEntry) (billingstate.EntryRef, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.reversals = append(r.reversals, reversal)
 	// A reversal is a new negative fact appended to the same log readRange replays.
-	r.rangeEntries = append(r.rangeEntries, revenueEntrySeam{
+	r.rangeEntries = append(r.rangeEntries, billingstate.RevenueEntry{
 		CustomerID: reversal.CustomerID, CycleID: reversal.CycleID,
-		Kind: revenueKindReversal, Amount: reversal.Amount, GatewayEventID: reversal.GatewayEventID,
+		Kind: billingstate.RevenueKindReversal, Amount: reversal.Amount, GatewayEventID: reversal.GatewayEventID,
 	})
-	return entryRefSeam("revref"), nil
+	return billingstate.EntryRef("revref"), nil
 }
 
-func (r *fakeRevenueLedger) ReadRange(_ context.Context, _ customerID, _ cycleID) ([]revenueEntrySeam, error) {
+func (r *fakeRevenueLedger) ReadRange(_ fwra.Context, _ uuid.UUID, _ string) ([]billingstate.RevenueEntry, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	out := make([]revenueEntrySeam, len(r.rangeEntries))
+	out := make([]billingstate.RevenueEntry, len(r.rangeEntries))
 	copy(out, r.rangeEntries)
 	return out, nil
 }
 
-var _ revenueLedgerAccess = (*fakeRevenueLedger)(nil)
+var _ billingstate.RevenueLedgerAccess = (*fakeRevenueLedger)(nil)
 
 // fakeUsage serves a scripted usage range. Satisfies usage.UsageAccess.
 type fakeUsage struct {
@@ -339,25 +338,21 @@ func baseDeps() (wfDeps, *fakes) {
 		Billing:      f.engine,
 		Intervention: f.interv,
 		Acts:         genInvokers{Opts: activityOptions()},
-		// Custom holds the revenue-ledger Activities the workflow now invokes by method
-		// value (wf.Custom.XActivity). The instance the test env actually dispatches is
-		// the one registered in registerActs (also over f.ledger); this field only has to
-		// supply the method-value function reference the workflow resolves the name from.
-		Custom: &customActivities{revenueLedger: f.ledger},
 	}, f
 }
 
 // registerActs wires the contract-backed RA fakes into genActivities and registers each
-// generated activity under its stable registered name — the names the workflow's Acts
-// invokers call by — plus the three custom revenue Activities (over the revenue-ledger
-// seam fake) under their custom names. Registering the full set each test is harmless
-// (unused ones are never dispatched) and keeps the per-workflow register helpers uniform.
+// generated activity — including the three revenueLedgerAccess ops (B7: no longer custom
+// Activities) — under its stable registered name, the name the workflow's Acts invokers
+// call by. Registering the full set each test is harmless (unused ones are never
+// dispatched) and keeps the per-workflow register helpers uniform.
 func registerActs(env *testsuite.TestWorkflowEnvironment, f *fakes) {
 	acts := &genActivities{
 		BillingState:     f.state,
 		Usage:            f.usage,
 		MerchantGateway:  f.gateway,
 		DurableExecution: f.durable,
+		RevenueLedger:    f.ledger,
 	}
 	reg := func(fn any, name string) {
 		env.RegisterActivityWithOptions(fn, activity.RegisterOptions{Name: name})
@@ -375,11 +370,9 @@ func registerActs(env *testsuite.TestWorkflowEnvironment, f *fakes) {
 	reg(acts.MerchantGatewayValidateStoredInstrument, "merchantGatewayAccess.validateStoredInstrument")
 	reg(acts.DurableExecutionDeliverSignal, "durableExecutionAccess.deliverSignal")
 	reg(acts.DurableExecutionRegisterSchedule, "durableExecutionAccess.registerSchedule")
-
-	custom := &customActivities{revenueLedger: f.ledger}
-	reg(custom.RecordInboundRevenueActivity, actRecordInboundRevenue)
-	reg(custom.RecordReversalActivity, actRecordReversal)
-	reg(custom.ReadRevenueRangeActivity, actReadRevenueRange)
+	reg(acts.RevenueLedgerReadRange, "revenueLedgerAccess.readRange")
+	reg(acts.RevenueLedgerRecordInboundRevenue, "revenueLedgerAccess.recordInboundRevenue")
+	reg(acts.RevenueLedgerRecordReversal, "revenueLedgerAccess.recordReversal")
 }
 
 func registerOnboard(env *testsuite.TestWorkflowEnvironment, wf *workflows, f *fakes) {

@@ -2,10 +2,10 @@ package billing
 
 // workermanifest.go is the hand-written bridge between the generated Temporal layer
 // (activities.gen.go / invokers.gen.go / worker.gen.go) and the billingManager impl.
-// It supplies the genWorkerManifest (the workflow set codegen cannot know, the custom
-// revenue-ledger Activities codegen has no contract for, the per-activity option
-// presets, and the genActivities dep threading), the external RegisterManagerWorker
-// entrypoint the composition root calls, and the startup Schedule registration.
+// It supplies the genWorkerManifest (the workflow set codegen cannot know, the
+// per-activity option presets, and the genActivities dep threading), the external
+// RegisterManagerWorker entrypoint the composition root calls, and the startup
+// Schedule registration.
 
 import (
 	"context"
@@ -100,10 +100,9 @@ func recordHeadActivityOptions() workflow.ActivityOptions {
 	}
 }
 
-// ledgerActivityOptions — revenueLedgerAccess (custom) / usageAccess appends + reads
-// (30s; terminal ContractMisuse). Append-only ledgers: NO Conflict (gateway/runtime-
-// event-id idempotent). Also consumed directly by the workflow for the custom revenue
-// Activities (they are not on the generated invoker surface).
+// ledgerActivityOptions — revenueLedgerAccess / usageAccess appends + reads (30s;
+// terminal ContractMisuse). Append-only ledgers: NO Conflict (gateway/runtime-event-id
+// idempotent).
 func ledgerActivityOptions() workflow.ActivityOptions {
 	return workflow.ActivityOptions{
 		StartToCloseTimeout: 30 * time.Second,
@@ -158,6 +157,9 @@ func activityOptions() func(activityName string) (workflow.ActivityOptions, bool
 		"billingStateAccess.settleCycle":                         recordHeadActivityOptions(),
 		"billingStateAccess.resettleCycle":                       recordHeadActivityOptions(),
 		"usageAccess.readRange":                                  ledgerActivityOptions(),
+		"revenueLedgerAccess.readRange":                          ledgerActivityOptions(),
+		"revenueLedgerAccess.recordInboundRevenue":               ledgerActivityOptions(),
+		"revenueLedgerAccess.recordReversal":                     ledgerActivityOptions(),
 		"merchantGatewayAccess.payoutCustomer":                   gatewayActivityOptions(),
 		"merchantGatewayAccess.chargeCustomer":                   gatewayActivityOptions(),
 		"merchantGatewayAccess.createConnectedAccount":           gatewayActivityOptions(),
@@ -172,10 +174,12 @@ func activityOptions() func(activityName string) (workflow.ActivityOptions, bool
 }
 
 // WorkerManifest assembles the genWorkerManifest RegisterWorker (worker.gen.go)
-// consumes: the four workflow bodies under their registered names, the three custom
-// revenue-ledger Activities (no contract behind them — activities_custom.go), the
-// per-activity option-preset hook, and the genActivities threaded from the impl's
-// stored published deps.
+// consumes: the four workflow bodies under their registered names, the per-activity
+// option-preset hook, and the genActivities threaded from the impl's stored published
+// deps. B7 completed the cutover: the three revenue-ledger Activities are now the
+// GENERATED revenueLedgerAccess.* activities (activities.gen.go/worker.gen.go), reached
+// workflow-side through wf.Acts (invokers.gen.go) exactly like every other RA — the
+// former custom Activities (activities_custom.go) and their manifest wiring are deleted.
 //
 // Unlike operations, billing's durableExecutionAccess IS wired into genActivities: the
 // close-schedule registration (op 2.1) and the queued applyDelinquencyPolicy cross-
@@ -184,12 +188,10 @@ func activityOptions() func(activityName string) (workflow.ActivityOptions, bool
 // through a workflow.)
 func (m *billingManager) WorkerManifest() genWorkerManifest {
 	optsHook := activityOptions()
-	custom := &customActivities{revenueLedger: noopRevenueLedger{}}
 	wf := newWorkflows(wfDeps{
 		Billing:      m.billing,
 		Intervention: m.intervention,
 		Acts:         genInvokers{Opts: optsHook},
-		Custom:       custom,
 	})
 
 	return genWorkerManifest{
@@ -199,11 +201,6 @@ func (m *billingManager) WorkerManifest() genWorkerManifest {
 			{Name: executionKindClose, Fn: wf.CloseCycleWorkflow},
 			{Name: executionKindShortfallSweep, Fn: wf.ShortfallSweepWorkflow},
 		},
-		// The custom revenue-ledger Activities (activities_custom.go) are no longer
-		// registered here (B6: app-generator v0.6.1 dropped the CustomActivities
-		// manifest surface). The methods stay — the billing rewire task (B7) migrates
-		// wf.Custom's call sites onto the generated RevenueLedger invoker below and
-		// deletes activities_custom.go.
 		ActivityOptions: optsHook,
 		Activities: genActivities{
 			BillingState:     m.billingState,

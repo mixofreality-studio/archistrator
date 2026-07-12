@@ -2,32 +2,24 @@ package billing
 
 import (
 	"context"
-	"time"
 )
 
 // This file declares billingManager's CONSUMER-SIDE dependency interfaces (the Go
-// "accept interfaces" idiom) for the two collaborators still reached through a
-// Manager-local seam, plus the seam data types they carry:
+// "accept interfaces" idiom) for the one collaborator still reached through a
+// Manager-local seam, plus the seam data types it carries:
 //
-//   - RevenueLedgerAccess — not a Go package to build against; charge-only removed the
-//     revenue-ledger component from the design entirely (slot 5 has no revenue-ledger
-//     RA). The interface and its data mirrors (entryRefSeam, revenueEntrySeam,
-//     reversalEntrySeam) stay only so the close/recompute workflow spine keeps
-//     compiling; the composition root wires them to a permanent no-op adapter
-//     (adapters.go noopRevenueLedger — see its TODO for the follow-up to excise the
-//     spine outright).
 //   - DurableExecutionAccess — exists as internal/resourceaccess/durableexecution;
 //     consumed here via a NARROW seam interface (RegisterSchedule only, for the
 //     startup shortfallSweep registration). The composition root adapts the concrete
 //     *durableexecution.Runtime (durableAdapter, adapters.go).
 //
 // Every other collaborator — billingStateAccess, usageAccess, merchantGatewayAccess,
-// billingengine.BillingEngine, intervention.InterventionEngine — is reached directly
-// through the generated typed invokers/Activities and their published contracts
-// (workflow.go); no Manager-local seam or data mirror remains for any of them (see the
-// per-collaborator notes below). The in-workflow awaitSignal primitive (the
-// inbound/reversal/chargeback waits) is the Manager's OWN workflow code (D-DA category
-// A), NOT an RA method.
+// revenueLedgerAccess, billingengine.BillingEngine, intervention.InterventionEngine —
+// is reached directly through the generated typed invokers/Activities and their
+// published contracts (workflow.go); no Manager-local seam or data mirror remains for
+// any of them (see the per-collaborator notes below). The in-workflow awaitSignal
+// primitive (the inbound/reversal/chargeback waits) is the Manager's OWN workflow code
+// (D-DA category A), NOT an RA method.
 
 // ===========================================================================
 // billingStateAccess — the billing/customer head-state RA. Each WRITE carries
@@ -43,59 +35,15 @@ import (
 // ===========================================================================
 
 // ===========================================================================
-// revenueLedgerAccess — FROZEN, NOT YET BUILT. Narrow consumer interface
-// (revenueLedgerAccess.md §2). Two append-writes (recordInboundRevenue /
-// recordReversal, dedup on the GATEWAY EVENT ID — NO Conflict, NO version guard) +
-// one range-read. Keyed on CustomerID per §3.0.
+// revenueLedgerAccess — B7: the former Manager-local seam (interface +
+// entryRefSeam/revenueEntrySeam/reversalEntrySeam mirrors) and the three custom
+// Temporal Activities that wrapped it (activities_custom.go) are RETIRED. The
+// close/recompute workflow spine now reaches this RA through the generated typed
+// invokers (invokers.gen.go) and speaks the generated billingstate contract types
+// (RevenueEntry, ReversalEntry, EntryRef, RevenueKind) directly, with no Manager-local
+// wrapper — the same discipline billingStateAccess already followed. The append-only
+// dedup semantics (idempotent on entry.GatewayEventID; NO Conflict kind) are unchanged.
 // ===========================================================================
-
-// RevenueLedgerAccess mirrors revenueLedgerAccess.md §2 — the append-only Revenue
-// Ledger. Writes are idempotent on entry.GatewayEventID (a duplicate is success, not
-// an error); reads are pure. There is NO Conflict kind on this contract.
-type revenueLedgerAccess interface {
-	// RecordInboundRevenue appends an inbound revenue fact (dedup on GatewayEventID).
-	RecordInboundRevenue(ctx context.Context, entry revenueEntrySeam) (entryRefSeam, error)
-	// RecordReversal appends a reversal/chargeback fact (dedup on GatewayEventID).
-	RecordReversal(ctx context.Context, reversal reversalEntrySeam) (entryRefSeam, error)
-	// ReadRange replays the cycle's revenue facts (inbound + reversals, append order).
-	ReadRange(ctx context.Context, customerID customerID, cycleID cycleID) ([]revenueEntrySeam, error)
-}
-
-// EntryRefSeam mirrors revenueLedgerAccess.md §3 EntryRef — an opaque ref to a
-// recorded ledger entry.
-type entryRefSeam string
-
-// RevenueKindSeam mirrors revenueLedgerAccess.md §3 RevenueKind.
-type revenueKindSeam int
-
-const (
-	// RevenueKindInbound is an end-user payment collected via the gateway.
-	revenueKindInbound revenueKindSeam = iota
-	// RevenueKindReversal is a chargeback/dispute reversal of a prior inbound fact.
-	revenueKindReversal
-)
-
-// RevenueEntrySeam mirrors revenueLedgerAccess.md §3 RevenueEntry — one immutable
-// revenue fact (the recordInboundRevenue payload and the readRange element type).
-type revenueEntrySeam struct {
-	CustomerID     customerID
-	CycleID        cycleID
-	Kind           revenueKindSeam
-	Amount         Money // signed minor units + currency (exact; never a float)
-	GatewayEventID string
-	OccurredAt     time.Time
-}
-
-// ReversalEntrySeam mirrors revenueLedgerAccess.md §3 ReversalEntry — the
-// recordReversal payload (negative Amount + optional back-link).
-type reversalEntrySeam struct {
-	CustomerID             customerID
-	CycleID                cycleID
-	Amount                 Money // negative minor units + currency
-	GatewayEventID         string
-	ReversesGatewayEventID string // optional back-link; empty if absent
-	OccurredAt             time.Time
-}
 
 // ===========================================================================
 // usageAccess — FROZEN. This Manager only READS (the cycle fold at close; OperatedAppID

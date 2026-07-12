@@ -10,7 +10,8 @@ package billing
 
 // derefString returns the pointed-to string, or "" for nil. The generated
 // GatewayReversalEvent.ReversesGatewayEventID is optional (`,omitempty` ⇒ *string);
-// the revenueLedgerAccess seam carries it as a plain string (empty ⇒ absent).
+// the generated billingstate.ReversalEntry carries it as a plain string (empty ⇒
+// absent).
 func derefString(s *string) string {
 	if s == nil {
 		return ""

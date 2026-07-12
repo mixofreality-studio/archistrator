@@ -28,6 +28,12 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/durableexecution"
 )
 
+// revenueLedgerAccess (B7): the former Manager-local seam + noopRevenueLedger stub
+// adapter are RETIRED. The workflow now reaches this RA through the generated typed
+// invokers (invokers.gen.go), speaking billingstate.RevenueEntry/ReversalEntry/EntryRef
+// directly — no adapter needed (see workermanifest.go WorkerManifest, which threads
+// m.revenueLedger straight into genActivities.RevenueLedger).
+
 // ===========================================================================
 // billingStateAccess contract converters. The former billingStateAdapter struct AND
 // the Manager-local billingHead/billingOutcomeSeam/gatewayBindingSeam/customerSummary/
@@ -64,37 +70,6 @@ func routingDirectiveToState(d billingengine.RoutingDirective) billingstate.Rout
 	default:
 		return billingstate.RoutingNoAction
 	}
-}
-
-// ===========================================================================
-// revenueLedgerAccess NO-OP stub.
-//
-// TODO(charge-only): the append-only inbound-revenue ledger (revenueLedgerAccess)
-// was REMOVED under the charge-only model (slot 5 has no revenue-ledger component;
-// inbound end-user revenue is no longer platform-tracked). The billing Manager's
-// workflow still carries the revenue-fold seam (deps.go revenueLedgerAccess + the
-// record/read Activities) so the close/recompute spine keeps compiling unchanged,
-// but it is wired to this no-op: RecordInboundRevenue / RecordReversal are dropped
-// (return a stub ref) and ReadRange returns no facts (GrossInbound folds to zero —
-// under charge-only there is no revenue share, only the hosting-cost charge). A
-// follow-up should excise the revenue-fold spine from the workflow entirely rather
-// than keep the dormant seam.
-// ===========================================================================
-
-type noopRevenueLedger struct{}
-
-var _ revenueLedgerAccess = noopRevenueLedger{}
-
-func (noopRevenueLedger) RecordInboundRevenue(_ context.Context, _ revenueEntrySeam) (entryRefSeam, error) {
-	return entryRefSeam(""), nil
-}
-
-func (noopRevenueLedger) RecordReversal(_ context.Context, _ reversalEntrySeam) (entryRefSeam, error) {
-	return entryRefSeam(""), nil
-}
-
-func (noopRevenueLedger) ReadRange(_ context.Context, _ customerID, _ cycleID) ([]revenueEntrySeam, error) {
-	return nil, nil
 }
 
 // ===========================================================================
