@@ -566,19 +566,15 @@ func (a *access) putManagedFiles(ctx context.Context, repo RepoRef, files []Mana
 // (aiarch-design.yml on the repo's default branch) onto the CURRENT template
 // rendering — the managed-scaffold sync the design Managers run before every
 // design-job dispatch: drifted → one refresh commit naming the new state-MCP pin
-// (changed=true); already current → no commit (changed=false). Reached here as a
-// first-class op, the concrete access already knows its own AppSlug and the
-// optimized SyncManagedFiles path directly — no rail type-assertion needed (compare
-// the free-function helper's managedFileSyncer discovery, still used by callers that
-// hold only the SourceControlAccess interface, e.g. the manager-side custom
-// SyncManagedScaffoldActivity wrappers, which are unaffected by this promotion).
+// (changed=true); already current → no commit (changed=false). The body is a
+// LITERAL delegation to the free function, which stays the single owner of the
+// converge semantics (template rendering, sync message, drift report): on this
+// concrete access the free function's managedFileSyncer type-assertion resolves
+// to (*access).SyncManagedFiles and RailAppSlug reads a.appSlug via AppSlug(),
+// so the delegation takes the exact optimized path with no duplicated logic to
+// drift.
 func (a *access) SyncManagedScaffold(rc fwra.Context, repo RepoRef, cred RepoCredential) (bool, error) {
-	file, err := DesignWorkflowFile(a.appSlug)
-	if err != nil {
-		return false, err
-	}
-	_, changed, err := a.SyncManagedFiles(rc.Context, repo, []ManagedFile{file}, syncManagedScaffoldMessage(), cred)
-	return changed, err
+	return SyncManagedScaffold(rc.Context, a, repo, cred)
 }
 
 // asFwraError returns the underlying *fwra.Error or nil.
