@@ -8,6 +8,7 @@ import (
 	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/constructionpipeline"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
@@ -18,28 +19,6 @@ import (
 // resumes on awaitSignal, runs interventionEngine.applyPausePolicy → pausePlan
 // (DECIDE), then the Manager EXECUTES the plan (cancelConstructionPipeline per
 // pipeline + recordOperatorPaused).
-
-// operatorPauseSignal is the operatorPauseRequested payload (constructionManager.md
-// §2.3). The Reason rides on the signal and is safe to log.
-type operatorPauseSignal struct {
-	ProjectID ProjectID
-	Reason    string
-}
-
-// operatorOverrideSignal is the operatorOverride payload (constructionManager.md
-// §2.4). Delivered to the per-activity child {projectId}:{activityId}.
-type operatorOverrideSignal struct {
-	Override ActivityOverride
-}
-
-// phaseDecisionSignal is the phaseDecision payload (constructionManager.md §2.6).
-// Delivered to the per-activity child {projectId}:{activityId}; Phase identifies
-// which review gate the decision closes (e.g. "detailed_design").
-type phaseDecisionSignal struct {
-	Phase    string
-	Decision PhaseDecision
-	Feedback *ReviewFeedback
-}
 
 // projectSupervisionInput is the start payload for the project-level supervision
 // workflow. It is started (signal-with-start) by the pause Signal.
@@ -110,4 +89,9 @@ func (wf *workflows) runPauseBranch(ctx workflow.Context, projectID ProjectID, r
 
 	state.stage = StagePaused
 	return nil
+}
+
+// cancelPipeline calls the GENERATED cancel invoker (idempotent-on-intent in the RA).
+func (wf *workflows) cancelPipeline(ctx workflow.Context, handle pipelineHandle) error {
+	return wf.Acts.PipelineCancelConstructionPipeline(ctx, constructionpipeline.ParsePipelineHandle(handle.Name))
 }

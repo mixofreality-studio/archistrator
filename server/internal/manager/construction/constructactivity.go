@@ -2,18 +2,16 @@ package construction
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	"sort"
 	"strings"
 	"time"
 
-	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
 	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
-	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/handoff"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/review"
@@ -22,189 +20,22 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 )
 
-// This file holds the workflows struct (the Manager's downstream dependency set),
-// the three workflow bodies (the encapsulated ConstructionPhaseWorkflow volatility
-// — constructionManager.md §6.3), the signal/query handlers, the workflow-level
-// Conflict re-read→re-apply loop (§6.5), and the pump's eligibility helper.
-//
-// How the two dependency kinds are reached differs by determinism class:
-//   - The three Engines (handoff.HandOffEngine / intervention.InterventionEngine /
-//     review.ReviewEngine — the PUBLISHED contracts, no Manager-local seam) are PURE,
-//     deterministic, called DIRECTLY in-workflow (no Activity wrapper — replay-safe),
-//     with fweng.Context{Context: context.Background()} supplied inline at each call site.
-//   - The ResourceAccess ports are I/O and NON-deterministic, and ALL of them are
-//     GENERATED and reached through the generated invoker surface (Acts): pipeline /
-//     artifact / rail / projectState-version / constructionTransition /
-//     gitActivityStatus (B8 migrated the head-state writes off their former
-//     hand-written Activity wrappers) and the whole-aggregate read
-//     (designSessionAccess.readProjectOnBranch — B8 follow-up, once the shared
-//     projectstate.ProjectEnvelope grew the construction-fidelity sections the pump
-//     needs; see readProject below). This Manager has NO custom Activities left.
-
-// wfDeps bundles every downstream dependency the constructionManager orchestrates,
-// assembled by WorkerManifest (workermanifest.go) from the Manager's stored PUBLISHED
-// deps and held on the workflows struct. The three Engines are typed as their
-// PUBLISHED contract interfaces (no Manager-local seam), called DIRECTLY in-workflow.
-// The ResourceAccess layer is reached ENTIRELY through the generated invoker surface
-// (Acts) — the whole-aggregate read included (B8 follow-up); the unit tests register
-// contract-typed fakes behind the generated activity names. It is a package-internal
-// builder input. There is no ProjectState/ConstructionTransition field anymore: the
-// reads ride Acts.DesignSessionReadProjectOnBranch / Acts.ProjectStateReadProjectVersion
-// and the cred-threaded writes ride Acts.ConstructionTransition* (B8).
-type wfDeps struct {
-	HandOff      handoff.HandOffEngine
-	Intervention intervention.InterventionEngine
-	Review       review.ReviewEngine
-
-	// GitStatus is the OPTIONAL per-activity git head-state mirror (C-MCN-GIT). Its
-	// writes are reached through the GENERATED invoker surface (Acts.GitStatus*); this
-	// field's ONLY remaining role is the nil-check "is the mirror wired" feature flag
-	// (gitforward.go's gitEnabled/startedCred) that gates the started/completed records
-	// and the branch→PR→CI→+1→merge mirror.
-	GitStatus projectstate.GitActivityStatusAccess
-
-	// Acts is the GENERATED workflow-side call surface for the contract-backed RA
-	// Activities (pipeline / artifact / rail); its Opts hook applies the per-op presets.
-	Acts genInvokers
-
-	// RailEnabled reports whether the PR rail dep is wired (impl.rail != nil). It gates
-	// the PR-rail lifecycle (gitEnabled) alongside GitStatus + Repo.
-	RailEnabled bool
-
-	// Repo resolves the per-project RepoRef the rail verbs address. nil ⇒ the
-	// PR-rail lifecycle is dormant (no repo to open branches/PRs in).
-	Repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool)
-
-	// NextEligibleActivity resolves the next eligible construction activity for a
-	// project from its head-state (the Manager's own pure selection).
-	NextEligibleActivity func(proj projectstate.Project) (constructionActivity, bool)
-
-	// HandOffPolicy / InterventionPolicy are the project's committed policy snapshots
-	// the Manager feeds the Engines by value, typed DIRECTLY as each Engine's own
-	// published input. InterventionPolicy is resolved ONCE from the composition root's
-	// raw interventionMode config via constructionInterventionPolicy (adapters.go,
-	// WorkerManifest() — workermanifest.go) — the SAME fixed value every DecideOnVariance
-	// / ApplyPausePolicy call fed under the retired per-call adapter conversion.
-	HandOffPolicy      handoff.HandOffPolicy
-	InterventionPolicy intervention.InterventionPolicy
-
-	// EscalationWaitTimeout bounds how long an escalated/architectOnly activity waits
-	// for an operator override before it terminally FAILS the activity. 0 == wait-forever.
-	EscalationWaitTimeout time.Duration
+// pipelineSpec is the Manager's infrastructure-neutral dispatch spec.
+type pipelineSpec struct {
+	ActivityID  string
+	ComponentID string
+	RepoURL     string
+	Ref         string
+	// Phase is the ActivityMethodPhase.String() for the current activity phase.
+	Phase string
+	// Role is the WorkerClass.String() for the assigned worker role.
+	Role string
 }
 
-// workflows is the single constructionManager component struct — the workflow receiver
-// (it no longer hosts any Activity methods; every RA op is reached through the
-// generated invoker surface, Acts).
-type workflows struct {
-	HandOff      handoff.HandOffEngine
-	Intervention intervention.InterventionEngine
-	Review       review.ReviewEngine
-
-	GitStatus projectstate.GitActivityStatusAccess
-
-	Acts genInvokers
-
-	RailEnabled bool
-	Repo        func(projectID ProjectID) (sourcecontrol.RepoRef, bool)
-
-	NextEligibleActivity  func(proj projectstate.Project) (constructionActivity, bool)
-	HandOffPolicy         handoff.HandOffPolicy
-	InterventionPolicy    intervention.InterventionPolicy
-	EscalationWaitTimeout time.Duration
-}
-
-// newWorkflows builds the workflows receiver from the injected seams.
-func newWorkflows(d wfDeps) *workflows {
-	return &workflows{
-		HandOff:               d.HandOff,
-		Intervention:          d.Intervention,
-		Review:                d.Review,
-		GitStatus:             d.GitStatus,
-		Acts:                  d.Acts,
-		RailEnabled:           d.RailEnabled,
-		Repo:                  d.Repo,
-		NextEligibleActivity:  d.NextEligibleActivity,
-		HandOffPolicy:         d.HandOffPolicy,
-		InterventionPolicy:    d.InterventionPolicy,
-		EscalationWaitTimeout: d.EscalationWaitTimeout,
-	}
-}
-
-// Bounds + cadences (in-workflow guards; NOT contract surface).
-const (
-	// maxMutateConflictAttempts bounds the workflow-level Conflict re-read→re-apply
-	// loop (§6.5).
-	maxMutateConflictAttempts = 20
-	// maxVarianceAttempts bounds the dispatch→review→variance supervision loop
-	// before the Engine's Escalate/Takeover must terminate it.
-	maxVarianceAttempts = 10
-	// maxPhaseRedrafts bounds a gated phase's human-paced SendBack redraft budget —
-	// SEPARATE from maxVarianceAttempts. SendBack is NOT a variance: it redrafts THIS
-	// phase in place; on exhaustion the gate keeps awaiting the human (it never
-	// re-enters the variance loop or fails the activity).
-	maxPhaseRedrafts = 5
-	// pipelinePollInterval is the durable wait between observeConstructionPipeline
-	// polls (the Manager's own startTimer cadence; §6.3 step 3).
-	pipelinePollInterval = 15 * time.Second
-	// maxPipelinePolls bounds the observe loop (a stuck pipeline escalates).
-	maxPipelinePolls = 240
-	// pumpPaceInterval is the short durable wait between cascade iterations (the pump's
-	// self-cascade pacing; Task 3) — a workflow.Sleep, NOT time.Sleep. Keeps the
-	// continue-as-new loop from busy-spinning while still draining the network promptly.
-	pumpPaceInterval = 1 * time.Second
-)
-
-// ---------------------------------------------------------------------------
-// Activity option presets (constructionManager.md §6.4). Concrete RetryPolicy /
-// timeout choices live here, in the Manager.
-// ---------------------------------------------------------------------------
-
-// readProjectActivityOptions is the read preset VALUE (10s; NotFound+ContractMisuse
-// terminal) the manifest's Opts hook (workermanifest.go) applies to the two GENERATED
-// read invokers the workflows consume — "projectStateAccess.readProjectVersion" and
-// "designSessionAccess.readProjectOnBranch" (the whole-aggregate read, B8 follow-up) —
-// reproducing the identical pre-migration readProjectOpts preset for both. NotFound
-// stays terminal so a brand-new project's read fails fast into the pump's quiet-tick
-// handling (isReadNotFound) instead of retrying.
-func readProjectActivityOptions() workflow.ActivityOptions {
-	return workflow.ActivityOptions{
-		StartToCloseTimeout: 10 * time.Second,
-		RetryPolicy: &temporal.RetryPolicy{
-			NonRetryableErrorTypes: []string{
-				fwmanager.RAErrType(fwra.NotFound),
-				fwmanager.RAErrType(fwra.ContractMisuse),
-			},
-		},
-	}
-}
-
-// submitPipelineActivityOptions / observePipelineActivityOptions are the pipeline preset
-// VALUES the manifest's Opts hook (workermanifest.go) applies to the GENERATED pipeline
-// invokers by registered name — reproducing the pre-migration per-call-site presets
-// exactly (submit 60s Auth/ContractMisuse-terminal; observe/cancel 30s NotFound/Auth-terminal).
-func submitPipelineActivityOptions() workflow.ActivityOptions {
-	return workflow.ActivityOptions{
-		StartToCloseTimeout: 60 * time.Second,
-		RetryPolicy: &temporal.RetryPolicy{
-			NonRetryableErrorTypes: []string{
-				fwmanager.RAErrType(fwra.Auth),
-				fwmanager.RAErrType(fwra.ContractMisuse),
-			},
-		},
-	}
-}
-
-func observePipelineActivityOptions() workflow.ActivityOptions {
-	return workflow.ActivityOptions{
-		StartToCloseTimeout: 30 * time.Second,
-		RetryPolicy: &temporal.RetryPolicy{
-			NonRetryableErrorTypes: []string{
-				fwmanager.RAErrType(fwra.NotFound),
-				fwmanager.RAErrType(fwra.Auth),
-			},
-		},
-	}
+// pipelineObservation is the Manager's neutral pipeline observation.
+type pipelineObservation struct {
+	Phase      PipelinePhase
+	Diagnostic string
 }
 
 // pipelineDefaultToolchain is the single logical build step the Manager's neutral
@@ -283,164 +114,491 @@ func (wf *workflows) observePipeline(ctx workflow.Context, handle pipelineHandle
 	return pipelineObservation{Phase: managerPipelinePhase(obs.Phase), Diagnostic: obs.Diagnostic}, nil
 }
 
-// cancelPipeline calls the GENERATED cancel invoker (idempotent-on-intent in the RA).
-func (wf *workflows) cancelPipeline(ctx workflow.Context, handle pipelineHandle) error {
-	return wf.Acts.PipelineCancelConstructionPipeline(ctx, constructionpipeline.ParsePipelineHandle(handle.Name))
+// gitforward.go is the WORKFLOW-LEVEL wiring of the git-forward (branch→PR→CI→+1→
+// merge) lifecycle into the per-activity construction spine (C-MCN-GIT; D-PA-GIT §5).
+// It is the ONLY place that composes the two seams the constructionManager alone
+// touches: the PR rail (sourceControlAccess / IPullRequestRail) and the per-activity
+// git head-state mirror (projectStateAccess §GIT-HEAD-STATE). The division of labor
+// (D-PA-GIT §5):
+//
+//   - the rail OWNS the git provider interaction (cut branch, open PR, read CI,
+//     relay +1, perform merge) and RETURNS opaque handles + a status reflection;
+//   - this Manager receives the opaque returns and MIRRORS them onto the head-state
+//     via the additive Record* verbs;
+//   - projectStateAccess stores the opaque strings + typed CI enum — it never calls
+//     the rail (RA-never-calls-RA).
+//
+// The merge AUTHORITY split is preserved: interventionEngine DECIDES when to merge
+// (the existing variance machinery), the Manager PERFORMS it here. The +1 is the
+// architect's in-app approval; the existing reviewEngine fan-out is the technical
+// review and is unchanged — the git +1 relay is the SEPARATE, audit-worthy human
+// architecture sign-off the head-state records.
+//
+// CRASH-SAFETY / IDEMPOTENCY: every rail call is on a deterministic name (idempotent
+// in the rail) and every Record* goes through applyRecovering — the workflow-level
+// Conflict re-read→re-apply loop (§6.5) — with the per-Activity idempotency key, so a
+// workflow retry re-running any step is a no-op (the rail's deterministic-name
+// idempotency + the git store's dedup-first ledger). The cred is minted ONCE per
+// activity lifecycle and threaded into every rail + record verb.
+
+// gitForward is the per-activity git-lifecycle state the spine carries across its
+// steps. It is workflow-local (rebuilt deterministically on replay) and holds the
+// opaque handles the rail returned + the credential the Manager minted. headVersion
+// is shared with the non-git transition records (read-your-writes; §6.5) — the caller
+// passes a pointer to the spine's headVersion so both record families advance one
+// monotonic token.
+type gitForward struct {
+	enabled   bool
+	repoRef   sourcecontrol.RepoRef
+	cred      railCredEnvelope
+	branch    string
+	branchRef string
+	prRef     string
+	crLabel   string
+	isRevert  bool
 }
 
-// recordActivityOptions is the head-state Record-verb preset VALUE (10s; ContractMisuse
-// terminal only — Conflict must reach the workflow so the §6.5 re-read→re-apply loop can
-// recover it) the manifest's Opts hook (workermanifest.go) applies to the GENERATED
-// constructionTransitionAccess / gitActivityStatusAccess Record* invokers by registered
-// name — reproducing the pre-migration (B8) recordOpts preset exactly. Unlike
-// readProjectActivityOptions, there is no remaining direct-ExecuteActivity call site for
-// this preset (every Record* verb now goes through the generated invoker surface), so
-// only the VALUE form survives.
-func recordActivityOptions() workflow.ActivityOptions {
-	return workflow.ActivityOptions{
-		StartToCloseTimeout: 10 * time.Second,
-		RetryPolicy: &temporal.RetryPolicy{
-			NonRetryableErrorTypes: []string{
-				fwmanager.RAErrType(fwra.ContractMisuse),
-			},
-		},
+// gitEnabled reports whether the git-forward slice is wired AND a repo resolves for
+// this project. When false the spine runs unchanged (the live Postgres-store
+// composition that predates the GitStore).
+func (wf *workflows) gitEnabled(projectID ProjectID) (sourcecontrol.RepoRef, bool) {
+	if !wf.RailEnabled || wf.GitStatus == nil || wf.Repo == nil {
+		return sourcecontrol.RepoRef(""), false
 	}
+	return wf.Repo(projectID)
 }
 
-// raConflictErrType is the canonical Temporal Type() a head-state mutation Activity
-// surfaces when expectedVersion is stale; the workflow recovers with the bounded
-// re-read→re-apply loop (§6.5).
-var raConflictErrType = fwmanager.RAErrType(fwra.Conflict)
-
-// raNotFoundErrType is the canonical Temporal Type() ReadProject surfaces for a
-// brand-new project (no row yet).
-var raNotFoundErrType = fwmanager.RAErrType(fwra.NotFound)
-
-// ===========================================================================
-// PumpNextActivityWorkflow — op 2.1 entry (scheduler-triggered, 30s).
-// ===========================================================================
-
-// pumpInput is the start payload for PumpNextActivityWorkflow.
-type pumpInput struct {
-	ProjectID ProjectID
-}
-
-// pumpDispatch is THIS pump run's synchronous dispatch decision, surfaced to the
-// façade via the queryPumpDispatch Query so ExecuteNextActivity can return this tick's
-// outcome (dispatched X, or quiescent) WITHOUT blocking on the background self-cascade
-// drain. Decided flips true the moment this run reaches its decision point — quiescent
-// (pause / no-project / nothing eligible) or an eligible dispatch — which is BEFORE the
-// blocking child.Get self-cascade below; until then the façade keeps polling.
-type pumpDispatch struct {
-	Decided    bool        `json:"decided"`
-	Dispatched bool        `json:"dispatched"`
-	ActivityID *ActivityID `json:"activityId,omitempty"`
-}
-
-func (wf *workflows) PumpNextActivityWorkflow(ctx workflow.Context, in pumpInput) (PumpResult, error) {
-	logger := workflow.GetLogger(ctx)
-
-	// The per-run dispatch decision the façade reads synchronously. Registering the
-	// Query handler and reading a captured local var emit NO workflow commands, so this
-	// is a PURE ADDITION to the pump body — in-flight pump executions replay
-	// deterministically against the unchanged command sequence (ExecuteChildWorkflow →
-	// child.Get → Sleep → ContinueAsNew), so no GetVersion guard is required.
-	var dispatch pumpDispatch
-	if err := workflow.SetQueryHandler(ctx, queryPumpDispatch, func() (pumpDispatch, error) {
-		return dispatch, nil
-	}); err != nil {
-		return PumpResult{}, err
-	}
-
-	// PAUSE GATE (Task 3): the cascade halts the moment a pause Signal is observed on
-	// THIS pump execution. The pump listens on the SAME operatorPauseRequested signal
-	// channel the project supervision workflow uses; a pause delivered to the cascading
-	// pump is observed here (ReceiveAsync — non-blocking, replay-deterministic) and the
-	// pump goes quiet WITHOUT ContinueAsNew. The resume path re-triggers the pump (a
-	// fresh begin/schedule firing), which starts a new cascade. Checked BEFORE every
-	// dispatch so a pause never races a half-dispatched activity. The signal survives
-	// ContinueAsNew (same workflow id across the cascade), so a pause sent mid-cascade
-	// is honored on the next iteration even if it arrives between ticks.
-	pauseCh := workflow.GetSignalChannel(ctx, signalOperatorPauseRequested)
-	var pauseSig operatorPauseSignal
-	if pauseCh.ReceiveAsync(&pauseSig) {
-		logger.Info("pump cascade paused by operator signal — going quiet without continue-as-new",
-			"projectId", string(in.ProjectID), "reason", pauseSig.Reason)
-		dispatch = pumpDispatch{Decided: true, Dispatched: false}
-		return PumpResult{Dispatched: false}, nil
+// openActivityBranchAndPR runs the dispatch-time half of the lifecycle: mint the
+// credential, OpenBranch + OpenPullRequest on the rail, then RecordActivityBranchOpened
+// (the PR-tolerant fused upsert — births the row with branch+PR and CICheck=Pending).
+// It returns the populated gitForward and advances *headVersion. A nil/dormant slice
+// returns a disabled gitForward and touches nothing.
+func (wf *workflows) openActivityBranchAndPR(
+	ctx workflow.Context,
+	in constructActivityInput,
+	preMintedCred railCredEnvelope,
+	headVersion *projectstate.Version,
+) (gitForward, error) {
+	repoRef, ok := wf.gitEnabled(in.ProjectID)
+	if !ok {
+		return gitForward{enabled: false}, nil
 	}
 
-	proj, err := wf.readProject(ctx, in.ProjectID)
+	gf := gitForward{
+		enabled:  true,
+		repoRef:  repoRef,
+		branch:   activityBranchName(in.ActivityID),
+		crLabel:  in.Activity.CRLabel,
+		isRevert: in.Activity.IsRevert,
+	}
+
+	// REUSE the credential minted ONCE at the top of the spine for the started
+	// record (Task 3) — one mint per activity git lifecycle, threaded into every
+	// rail + record verb. (Empty when no started cred was minted, which only happens
+	// if the slice is dormant — and then gitEnabled is false above and we never get
+	// here.)
+	gf.cred = preMintedCred
+	cred := preMintedCred
+
+	// Rail: cut the per-activity branch (GENERATED invoker).
+	br, err := wf.Acts.RailOpenBranch(ctx, repoRef, sourcecontrol.BranchName(gf.branch), cred.toRail())
 	if err != nil {
-		if isReadNotFound(err) {
-			// No project state yet — a normal quiet tick, not an error.
-			dispatch = pumpDispatch{Decided: true, Dispatched: false}
-			return PumpResult{Dispatched: false}, nil
+		return gitForward{}, err
+	}
+	gf.branchRef = sourcecontrol.BranchRefString(br)
+
+	// Rail: open the PR (base = main; cr-NN label rides in Hints) (GENERATED invoker).
+	pr, err := wf.Acts.RailOpenPullRequest(ctx, repoRef, sourcecontrol.PullRequestSpec{
+		Head:  sourcecontrol.BranchName(gf.branch),
+		Base:  sourcecontrol.BranchName(mainBranch),
+		Title: prTitle(in.ActivityID),
+		Body:  prBody(in.Activity),
+		Hints: crLabelHints(gf.crLabel),
+	}, cred.toRail())
+	if err != nil {
+		return gitForward{}, err
+	}
+	gf.prRef = sourcecontrol.PullRequestRefString(pr)
+
+	// Mirror: birth the per-activity git head-state row (PR-tolerant fused upsert).
+	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+		return wf.Acts.GitStatusRecordActivityBranchOpened(ctx, projectstate.ProjectID(in.ProjectID), expected, string(in.ActivityID),
+			gf.branch, gf.branchRef, gf.prRef, gf.crLabel, gf.isRevert, cred.toProjectState())
+	})
+	if err != nil {
+		return gitForward{}, err
+	}
+	*headVersion = v
+	return gf, nil
+}
+
+// observeCIAndRecord reads the PR's CI rollup once and mirrors it onto the head-state
+// (the poll-loop verb — D-PA-GIT §5). Called between the spine's durable waits while
+// the pipeline runs. Returns the observed reflection so the caller can feed it into the
+// variance machinery. A dormant slice is a no-op returning Pending.
+func (wf *workflows) observeCIAndRecord(
+	ctx workflow.Context,
+	in constructActivityInput,
+	gf *gitForward,
+	headVersion *projectstate.Version,
+) (pullRequestStatusView, error) {
+	if !gf.enabled {
+		return pullRequestStatusView{CheckRollup: projectstate.CICheckPending}, nil
+	}
+
+	prStatus, err := wf.Acts.RailGetPullRequestStatus(ctx, gf.repoRef, sourcecontrol.PullRequestRefFromString(gf.prRef), gf.cred.toRail())
+	if err != nil {
+		return pullRequestStatusView{}, err
+	}
+	st := pullRequestStatusView{
+		CheckRollup:   mapCheckState(prStatus.CheckRollup),
+		ApprovalCount: int(prStatus.ApprovalCount),
+		Mergeable:     prStatus.Mergeable,
+	}
+
+	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+		return wf.Acts.GitStatusRecordActivityCIObserved(ctx, projectstate.ProjectID(in.ProjectID), expected, string(in.ActivityID),
+			st.CheckRollup, gf.cred.toProjectState())
+	})
+	if err != nil {
+		return pullRequestStatusView{}, err
+	}
+	*headVersion = v
+	return st, nil
+}
+
+// relayArchApprovalAndRecord relays the architecture +1 (PostReview Approve) to the PR
+// and records the audit-worthy ArchApproved fact (D-PA-GIT §5). Called once the
+// activity's review has passed (the architect's in-app sign-off). A dormant slice is a
+// no-op.
+func (wf *workflows) relayArchApprovalAndRecord(
+	ctx workflow.Context,
+	in constructActivityInput,
+	gf *gitForward,
+	headVersion *projectstate.Version,
+) error {
+	if !gf.enabled {
+		return nil
+	}
+
+	if err := wf.Acts.RailPostReview(ctx, gf.repoRef, sourcecontrol.PullRequestRefFromString(gf.prRef),
+		sourcecontrol.ReviewSubmission{Verdict: sourcecontrol.ReviewApprove, Body: archApprovalBody(in.ActivityID)},
+		gf.cred.toRail()); err != nil {
+		return err
+	}
+
+	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+		return wf.Acts.GitStatusRecordActivityArchApproved(ctx, projectstate.ProjectID(in.ProjectID), expected, string(in.ActivityID), gf.cred.toProjectState())
+	})
+	if err != nil {
+		return err
+	}
+	*headVersion = v
+	return nil
+}
+
+// mergeAndRecord PERFORMS the gated merge (the interventionEngine gate already
+// cleared in workflow code) and, on a Merged result, records the terminal git fact
+// (D-PA-GIT §5). A dormant slice is a no-op. A non-Merged result (e.g. not yet
+// mergeable) is surfaced as a non-retryable terminal so the spine does NOT record a
+// false merge — the activity's variance machinery handles the not-yet-mergeable case.
+func (wf *workflows) mergeAndRecord(
+	ctx workflow.Context,
+	in constructActivityInput,
+	gf *gitForward,
+	headVersion *projectstate.Version,
+) error {
+	if !gf.enabled {
+		return nil
+	}
+
+	mr, err := wf.Acts.RailMergePullRequest(ctx, gf.repoRef, sourcecontrol.PullRequestRefFromString(gf.prRef), gf.cred.toRail())
+	if err != nil {
+		return err
+	}
+	if !mr.Merged {
+		return temporal.NewNonRetryableApplicationError(
+			"gated merge did not complete (PR not mergeable)", "MergeNotCompleted", nil)
+	}
+
+	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+		return wf.Acts.GitStatusRecordActivityMerged(ctx, projectstate.ProjectID(in.ProjectID), expected, string(in.ActivityID), gf.cred.toProjectState())
+	})
+	if err != nil {
+		return err
+	}
+	*headVersion = v
+	return nil
+}
+
+// recordActivityStarted marks the activity Running in the per-activity construction
+// head-state at the TOP of the spine (Task 3), BEFORE any dispatch. This is what
+// flips the activity out of NotStarted so the pump's eligibility selection
+// (nextEligibleActivity over proj.ActivityConstruction) does not re-dispatch it on a
+// concurrent/redundant tick. Cred-threaded like the four git head-state records; a
+// dormant slice (git unwired) is a no-op (the live Postgres composition has no
+// per-activity construction head-state, so the gate degrades to the child-workflow-id
+// idempotency the pump already relies on). It mints a credential ONCE for the
+// started+completed pair via the supplied gitForward.cred when the branch lifecycle
+// has already minted one, else mints its own.
+func (wf *workflows) recordActivityStarted(
+	ctx workflow.Context,
+	in constructActivityInput,
+	cred railCredEnvelope,
+	headVersion *projectstate.Version,
+) error {
+	if wf.GitStatus == nil {
+		return nil
+	}
+	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+		return wf.Acts.GitStatusRecordActivityStarted(ctx, projectstate.ProjectID(in.ProjectID), expected, string(in.ActivityID), cred.toProjectState())
+	})
+	if err != nil {
+		return err
+	}
+	*headVersion = v
+	return nil
+}
+
+// recordActivityCompleted marks the activity Done in the per-activity construction
+// head-state at the END of the spine (Task 3), alongside RecordActivityExited. This
+// is what unblocks dependents in the pump's eligibility selection (allDepsDone). A
+// dormant slice is a no-op.
+func (wf *workflows) recordActivityCompleted(
+	ctx workflow.Context,
+	in constructActivityInput,
+	cred railCredEnvelope,
+	headVersion *projectstate.Version,
+) error {
+	if wf.GitStatus == nil {
+		return nil
+	}
+	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+		return wf.Acts.GitStatusRecordActivityCompleted(ctx, projectstate.ProjectID(in.ProjectID), expected, string(in.ActivityID), cred.toProjectState())
+	})
+	if err != nil {
+		return err
+	}
+	*headVersion = v
+	return nil
+}
+
+// startedCred resolves the credential the construction started/completed records
+// thread, and reports whether those records fire at all. It deliberately gates on the
+// CONSTRUCTION-STATUS slice (GitStatus), NOT the full PR-rail slice — the per-activity
+// Running/Done head-state is what drives the pump's eligibility cascade and is
+// independent of the branch→PR→merge lifecycle:
+//
+//   - PR-rail wired (gitEnabled — Rail+GitStatus+Repo, the CLOUD GitHub profile): mint
+//     the short-lived installation token via the rail; it is reused by the branch/PR
+//     lifecycle AND the started/completed records.
+//   - GitStatus wired but no PR rail (the LOCAL/dry-run profile — file:// repo, no
+//     GitHub): the status records still fire so the cascade advances, threading a ZERO
+//     credential. The local git store's gitAuth ignores the credential entirely
+//     (GitAuth{Local:true}), so no token is needed; the PR-rail lifecycle stays dormant
+//     (gitEnabled is false, so gf.enabled is false on every branch/PR/CI/merge step).
+//   - GitStatus unwired (the legacy Postgres-store composition): false — the
+//     started/completed records are no-ops and the pump degrades to child-workflow-id
+//     idempotency.
+//
+// Minted/resolved ONCE at the top of the spine and reused for the completed record.
+func (wf *workflows) startedCred(ctx workflow.Context, projectID ProjectID) (railCredEnvelope, bool, error) {
+	if wf.GitStatus == nil {
+		return railCredEnvelope{}, false, nil
+	}
+	// CLOUD profile: a PR rail + repo resolve ⇒ mint the real installation token.
+	if repoRef, ok := wf.gitEnabled(projectID); ok {
+		cred, err := wf.mintCred(ctx, repoRef)
+		if err != nil {
+			return railCredEnvelope{}, false, err
 		}
-		return PumpResult{}, err
+		return cred, true, nil
 	}
-
-	activity, eligible := wf.nextEligible(proj)
-	if !eligible {
-		// Network drained (or nothing eligible this tick) ⇒ the cascade ENDS here:
-		// return quiet WITHOUT ContinueAsNew so the pump goes dormant (the next
-		// begin/schedule firing re-triggers it).
-		logger.Info("no eligible activity — cascade quiescent", "projectId", string(in.ProjectID))
-		dispatch = pumpDispatch{Decided: true, Dispatched: false}
-		return PumpResult{Dispatched: false}, nil
-	}
-
-	// Eligible ⇒ start a per-activity child workflow (idempotent on its id; a
-	// redundant tick collapses to the running child). PARENT_CLOSE_POLICY ABANDON:
-	// the construction activity is its own durable execution, independent of this
-	// pump tick's continue-as-new chain.
-	childID := constructActivityWorkflowID(in.ProjectID, ActivityID(activity.ActivityID))
-	cctx := workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{
-		WorkflowID:        childID,
-		ParentClosePolicy: enumspb.PARENT_CLOSE_POLICY_ABANDON,
-	})
-	child := workflow.ExecuteChildWorkflow(cctx, executionKindConstructActivity, constructActivityInput{
-		ProjectID:  in.ProjectID,
-		ActivityID: ActivityID(activity.ActivityID),
-		Activity:   activity,
-	})
-	// Record the dispatch decision NOW — after the child-start command is queued but
-	// BEFORE the blocking child.Get — so the façade's synchronous ExecuteNextActivity
-	// returns {Dispatched:true, ActivityID} for THIS tick while the cascade drains on in
-	// the background. The child-start command commits with this same workflow task, so a
-	// caller reading queryPumpDispatch after this point observes both the decision and a
-	// started (GetSessionState-observable) child.
-	dispatchedActivity := ActivityID(activity.ActivityID)
-	dispatch = pumpDispatch{Decided: true, Dispatched: true, ActivityID: &dispatchedActivity}
-	// SELF-CASCADE (Task 3): wait for the child to COMPLETE (not just start) so the
-	// activity's RecordActivityCompleted has landed in head-state before we pick the
-	// next eligible activity — otherwise nextEligible would re-select the same
-	// still-Running activity. child.Get blocks on the child's terminal result.
-	if err := child.Get(ctx, nil); err != nil {
-		return PumpResult{}, err
-	}
-
-	// Pace the cascade with a short durable wait (workflow.Sleep — replay-safe; NOT
-	// time.Sleep), then ContinueAsNew to pick the next eligible activity. ContinueAsNew
-	// carries ONLY pumpInput (no accumulated state ⇒ unbounded history is avoided and
-	// determinism is trivial). The conflict/quiet-tick semantics keep the prod 30s
-	// schedule compatible: a schedule re-fire onto a cascading pump uses the existing
-	// USE_EXISTING conflict policy (constructionmanager.go) and the cascade's own
-	// drain-to-quiet ends it.
-	if err := workflow.Sleep(ctx, pumpPaceInterval); err != nil {
-		return PumpResult{}, err
-	}
-	return PumpResult{}, workflow.NewContinueAsNewError(ctx, executionKindPump, pumpInput{ProjectID: in.ProjectID})
+	// LOCAL/dry-run profile: status records fire with a zero (ignored) credential.
+	return railCredEnvelope{}, true, nil
 }
 
-// nextEligible resolves the next eligible activity via the injected helper. With no
-// helper wired (or no eligible activity) it is a quiet tick.
-func (wf *workflows) nextEligible(proj projectstate.Project) (constructionActivity, bool) {
-	if wf.NextEligibleActivity == nil {
-		return constructionActivity{}, false
+// mintCred runs the GENERATED getInstallationToken invoker → the short-lived credential
+// the Manager threads into every rail + record verb for this activity's lifecycle.
+func (wf *workflows) mintCred(ctx workflow.Context, repoRef sourcecontrol.RepoRef) (railCredEnvelope, error) {
+	cred, err := wf.Acts.RailGetInstallationToken(ctx, repoRef)
+	if err != nil {
+		return railCredEnvelope{}, err
 	}
-	return wf.NextEligibleActivity(proj)
+	return railCredEnvelope{Bytes: cred.Bytes, ExpiresAt: cred.ExpiresAt}, nil
 }
+
+// gitnaming.go holds the Manager's provider-NEUTRAL, DETERMINISTIC naming + the git
+// Activity option presets for the git-forward slice (C-MCN-GIT). The names are
+// Manager-derived (the branch/PR/label vocabulary the rail maps to a git ref INSIDE
+// the seam); determinism is load-bearing for the rail's deterministic-name idempotency
+// (a workflow retry re-opening the same branch/PR is a no-op in the rail).
+
+// mainBranch is the flat git-forward base every per-activity PR targets
+// (op-concepts §15 — branch per activity, no long-lived integration branch).
+const mainBranch = "main"
+
+// activityBranchName derives the provider-neutral per-activity branch name
+// "activity/<activityID>" (D-PA-GIT GIT.1 example). Deterministic in the activity id.
+func activityBranchName(activityID ActivityID) string {
+	return "activity/" + string(activityID)
+}
+
+// prTitle / prBody are the human-facing PR text the Manager's sequence owns.
+func prTitle(activityID ActivityID) string {
+	return fmt.Sprintf("aiarch: construction activity %s", activityID)
+}
+
+func prBody(activity constructionActivity) string {
+	return fmt.Sprintf("Automated construction of component %s (%s, layer %s).",
+		activity.ComponentID, activityKindName(activity.Kind), activity.Layer)
+}
+
+// activityKindName returns the canonical activity-kind name — a free-function
+// replacement for the retired Manager-local activityKind.String() method (methods
+// cannot be added to the published handoff.ActivityKind from this package). Produces
+// the IDENTICAL strings the former Stringer did (PR body text — zero behavior change).
+func activityKindName(k handoff.ActivityKind) string {
+	switch k {
+	case handoff.ActivityKindUnknown:
+		// zero-value sentinel, not a real activity kind — same as any unmapped value.
+		return "Unknown"
+	case handoff.ActivityKindDetailedDesign:
+		return "DetailedDesign"
+	case handoff.ActivityKindConstruction:
+		return "Construction"
+	case handoff.ActivityKindIntegration:
+		return "Integration"
+	case handoff.ActivityKindNoncoding:
+		return "Noncoding"
+	default:
+		return "Unknown"
+	}
+}
+
+// archApprovalBody is the +1 relay's review body — the architect's in-app
+// architecture sign-off relayed onto the PR.
+func archApprovalBody(activityID ActivityID) string {
+	return fmt.Sprintf("architecture +1 relayed for %s", activityID)
+}
+
+// crLabelHints encodes the cr-NN change-request group label into the rail's opaque
+// PullRequestSpec.Hints (labels ride in Hints, not a first-class field —
+// sourcecontrol.go §3). Empty label ⇒ nil hints.
+func crLabelHints(crLabel string) []byte {
+	if crLabel == "" {
+		return nil
+	}
+	return []byte(crLabel)
+}
+
+// pullRequestStatusView is the Manager-local Activity-boundary projection of the
+// rail's PullRequestStatus (a reflection the Manager feeds interventionEngine — NOT a
+// gate). CheckRollup is the provider-neutral CI rollup the git head-state mirrors.
+type pullRequestStatusView struct {
+	CheckRollup   projectstate.CICheckState
+	ApprovalCount int
+	Mergeable     bool
+}
+
+// mapCheckState maps the rail's CheckState onto the git head-state's provider-neutral
+// CICheckState (the two enums are aligned-by-identity, mapped here so a future re-order
+// is safe). A DUMB reflection — it never gates any Approve control.
+func mapCheckState(s sourcecontrol.CheckState) projectstate.CICheckState {
+	switch s {
+	case sourcecontrol.CheckPending:
+		// explicit: pending check state maps directly, same as any unmapped value.
+		return projectstate.CICheckPending
+	case sourcecontrol.CheckSuccess:
+		return projectstate.CICheckSuccess
+	case sourcecontrol.CheckFailure:
+		return projectstate.CICheckFailure
+	default:
+		return projectstate.CICheckPending
+	}
+}
+
+// adapters.go holds the bridges between the Manager's OWN broader domain vocabulary
+// (constructionActivity, this component's generated façade ReviewSet/Reviewer) and
+// each dependency's PUBLISHED contract shape, for the calls that are NOT identity —
+// either because the Manager's own type carries strictly more fields than the Engine
+// needs (handoffActivityFromConstruction), or because the target is this component's
+// OWN generated public façade type with a real field-shape divergence
+// (reviewSetFromEngine), or because the Manager derives a real config value from raw
+// composition-root config (constructionInterventionPolicy).
+//
+// After Task 6 the three Engines (handoff.HandOffEngine / intervention.InterventionEngine
+// / review.ReviewEngine) have NO adapter STRUCT — the workflow calls their published
+// contracts DIRECTLY (workflow.go / signals.go), with fweng.Context{Context:
+// context.Background()} supplied inline at each call site. The identity enum maps that
+// used to bridge Manager-local mirror enums onto the Engines' published enums
+// (handoffActivityKind, managerWorkerClass, interventionVarianceKind,
+// managerVarianceDirective) are deleted along with the mirror types themselves
+// (deps.go) — every Manager-local enum that was ordinal-identical to its published
+// counterpart is now typed AS that published enum directly.
+
+// ===========================================================================
+// handOffEngine — handoffActivityFromConstruction narrows the Manager's broader
+// constructionActivity (used package-wide — git-forward fields, resolved Phases) onto
+// the Engine's published handoff.ConstructionActivity input. A REAL (if today
+// field-for-field trivial) projection, not an identity mirror to delete: the two
+// structs are NOT the same shape (constructionActivity carries CRLabel/IsRevert/Phases
+// the Engine never sees).
+// ===========================================================================
+
+func handoffActivityFromConstruction(a constructionActivity) handoff.ConstructionActivity {
+	return handoff.ConstructionActivity{
+		ActivityID:   a.ActivityID,
+		Kind:         a.Kind,
+		ComponentID:  a.ComponentID,
+		Layer:        a.Layer,
+		EstimateDays: a.EstimateDays,
+	}
+}
+
+// ===========================================================================
+// reviewEngine — reviewSetFromEngine bridges the published review.ReviewSet/Reviewer
+// onto THIS component's OWN generated façade ReviewSet/Reviewer (contract.gen.go,
+// off-limits — DO NOT EDIT). A REAL divergence, not an identity mirror: the façade's
+// Reviewer.ReferenceArtifact is *string (optional, omitempty) while the Engine's own
+// Reviewer.ReferenceArtifact is a plain string (empty ⇒ none) — the nil/empty-string
+// boundary is exactly the kind of zero-value divergence that must be bridged
+// explicitly, not cast.
+// ===========================================================================
+
+func reviewSetFromEngine(set review.ReviewSet) ReviewSet {
+	reviewers := make([]Reviewer, 0, len(set.Reviewers))
+	for _, r := range set.Reviewers {
+		cr := Reviewer{
+			Role:        r.Role,
+			Perspective: r.Perspective,
+			MayAmend:    r.MayAmend,
+		}
+		if r.ReferenceArtifact != "" {
+			ref := r.ReferenceArtifact
+			cr.ReferenceArtifact = &ref
+		}
+		reviewers = append(reviewers, cr)
+	}
+	return ReviewSet{Reviewers: reviewers}
+}
+
+// maxVarianceAttempts bounds the dispatch→review→variance supervision loop
+// before the Engine's Escalate/Takeover must terminate it.
+const maxVarianceAttempts = 10
+
+// maxPhaseRedrafts bounds a gated phase's human-paced SendBack redraft budget —
+// SEPARATE from maxVarianceAttempts. SendBack is NOT a variance: it redrafts THIS
+// phase in place; on exhaustion the gate keeps awaiting the human (it never
+// re-enters the variance loop or fails the activity).
+const maxPhaseRedrafts = 5
+
+// pipelinePollInterval is the durable wait between observeConstructionPipeline
+// polls (the Manager's own startTimer cadence; §6.3 step 3).
+const pipelinePollInterval = 15 * time.Second
+
+// maxPipelinePolls bounds the observe loop (a stuck pipeline escalates).
+const maxPipelinePolls = 240
 
 // ===========================================================================
 // ConstructActivityWorkflow — the per-activity UC3 spine (constructionManager.md
@@ -452,47 +610,6 @@ type constructActivityInput struct {
 	ProjectID  ProjectID
 	ActivityID ActivityID
 	Activity   constructionActivity
-}
-
-// constructState is the live technical state backing the sessionState Query.
-type constructState struct {
-	projectID     ProjectID
-	activityID    ActivityID
-	stage         ConstructionStage
-	pipelinePhase *PipelinePhase
-	reviewSet     *ReviewSet
-	variance      *FlaggedVariance
-
-	// completedPhases is the LIVE in-memory skip-guard the phase loop consults so an
-	// already-completed phase is never re-dispatched or re-gated. It is SEEDED at
-	// workflow start from the start-snapshot activity's PhaseCompletion slice and
-	// MARKED unconditionally on EVERY phase completion (Approve / no-gate / inert) —
-	// independent of gitOn. This is what stops the outer variance-retry loop (which
-	// re-walks phases from index 0) from re-gating an already-approved phase across a
-	// non-git execution where no head-state completion record exists to re-read.
-	completedPhases map[projectstate.ActivityMethodPhase]bool
-
-	// redraftExhausted records that a gated phase burned its human-paced SendBack
-	// redraft budget. It does NOT fail the activity or re-enter the variance loop — the
-	// gate keeps awaiting the human; the flag surfaces that redrafting is spent.
-	redraftExhausted bool
-
-	// reviewContracts is the per-execution set of contract identifiers captured from
-	// the start-snapshot project (B5) and fed to reviewEngine.ProposeReviews so the
-	// gate's reviewer set is display-populated without re-reading mid-loop.
-	reviewContracts []string
-}
-
-func (s *constructState) view() (ConstructionSessionView, error) {
-	aid := s.activityID
-	return ConstructionSessionView{
-		ProjectID:     s.projectID,
-		ActivityID:    &aid,
-		Stage:         s.stage,
-		PipelinePhase: s.pipelinePhase,
-		ReviewSet:     s.reviewSet,
-		Variance:      s.variance,
-	}, nil
 }
 
 func (wf *workflows) ConstructActivityWorkflow(ctx workflow.Context, in constructActivityInput) error {
@@ -1238,91 +1355,6 @@ func (wf *workflows) awaitOverrideBounded(ctx workflow.Context, overrideCh workf
 	return sig, got
 }
 
-// ===========================================================================
-// ReplanSweepWorkflow — op 2.2 (scheduler-triggered, 5m). Flags over-threshold
-// variances; NO dispatch, NO auto-replan.
-// ===========================================================================
-
-// replanSweepInput is the start payload for ReplanSweepWorkflow.
-type replanSweepInput struct {
-	ProjectID *ProjectID // nil ⇒ sweep all in-flight projects
-}
-
-func (wf *workflows) ReplanSweepWorkflow(ctx workflow.Context, in replanSweepInput) (ReplanSweepResult, error) {
-	// v1: the sweep reads the named project's head-state (the all-projects sweep is
-	// a future fan-out — constructionManager.md §2.2). It surfaces over-threshold
-	// variances; it never dispatches and never auto-replans. With no project named
-	// (the all-sweep) it returns an empty (quiet) result — the per-project fan-out
-	// is the documented follow-up, not a new façade op.
-	if in.ProjectID == nil {
-		return ReplanSweepResult{}, nil
-	}
-
-	proj, err := wf.readProject(ctx, *in.ProjectID)
-	if err != nil {
-		if isReadNotFound(err) {
-			return ReplanSweepResult{}, nil
-		}
-		return ReplanSweepResult{}, err
-	}
-
-	flagged := wf.flagVariances(proj)
-	return ReplanSweepResult{FlaggedVariances: flagged}, nil
-}
-
-// flagVariances surfaces over-threshold variances for the project. v1 surfaces an
-// empty set unless an eligibility/variance helper is wired (the head-state
-// variance-aggregate fill is the D-PA follow-up); the sweep's role is to SURFACE,
-// never to auto-replan.
-func (wf *workflows) flagVariances(_ projectstate.Project) []FlaggedVariance {
-	return nil
-}
-
-// ---------------------------------------------------------------------------
-// Head-state read + recovering write helpers (§6.5).
-// ---------------------------------------------------------------------------
-
-// readProject reads the whole-aggregate head-state through the GENERATED
-// designSessionAccess.readProjectOnBranch invoker with branch "" — the RA-side
-// empty-branch fallback always reads main (pinned by
-// TestDesignSessionAccess_ReadProjectOnBranch_EmptyBranchAlwaysBase,
-// projectstate/designsession_test.go). This replaced the last CUSTOM Activity
-// (ReadProjectActivity) once the shared projectstate.ProjectEnvelope grew the three
-// construction-fidelity sections the pump reads (ActivityConstruction /
-// ServiceContracts / ReviewPolicy — B8 follow-up, envelope.go); Decode restores the
-// committed Network/ActivityList slots concretely typed, so nextEligibleActivity's
-// committed-slot guards and type assertions are served identically to the former
-// local codec. Decode is pure JSON reconstruction over the history-recorded activity
-// result — deterministic, replay-safe in-workflow.
-func (wf *workflows) readProject(ctx workflow.Context, projectID ProjectID) (projectstate.Project, error) {
-	env, err := wf.Acts.DesignSessionReadProjectOnBranch(ctx, projectstate.ProjectID(projectID), "")
-	if err != nil {
-		return projectstate.Project{}, err
-	}
-	return env.Decode()
-}
-
-// readVersionE runs the cheap ReadProjectVersion GENERATED invoker (B8: migrated off the
-// custom ReadProjectVersionActivity) and returns ONLY the head-state optimistic-
-// concurrency token, surfacing errors (including the brand-new project's fwra.NotFound)
-// to the caller. Replaces the wasteful whole-aggregate read that shipped the entire
-// encoded Project across the Temporal Activity boundary for a uint64 (architect's
-// fast-follow). The invoker's Opts hook applies readProjectActivityOptions (identical
-// preset, keyed "projectStateAccess.readProjectVersion" — workermanifest.go).
-func (wf *workflows) readVersionE(ctx workflow.Context, projectID ProjectID) (projectstate.Version, error) {
-	return wf.Acts.ProjectStateReadProjectVersion(ctx, projectstate.ProjectID(projectID))
-}
-
-// readVersion reads the current head Version (0 for a brand-new project or on any
-// read error — the read-your-writes seed treats absence as version 0).
-func (wf *workflows) readVersion(ctx workflow.Context, projectID ProjectID) projectstate.Version {
-	v, err := wf.readVersionE(ctx, projectID)
-	if err != nil {
-		return 0
-	}
-	return v
-}
-
 // recordChangeReviewed applies the head-state transition with the Conflict loop. The
 // Manager-minted cred is threaded into the write (empty/zero in dev/dry-run).
 func (wf *workflows) recordChangeReviewed(ctx workflow.Context, in constructActivityInput, seed projectstate.Version, cred railCredEnvelope) (projectstate.Version, error) {
@@ -1352,6 +1384,54 @@ func (wf *workflows) recordActivityFailed(ctx workflow.Context, in constructActi
 	})
 }
 
+// operatorOverrideSignal is the operatorOverride payload (constructionManager.md
+// §2.4). Delivered to the per-activity child {projectId}:{activityId}.
+type operatorOverrideSignal struct {
+	Override ActivityOverride
+}
+
+// phaseDecisionSignal is the phaseDecision payload (constructionManager.md §2.6).
+// Delivered to the per-activity child {projectId}:{activityId}; Phase identifies
+// which review gate the decision closes (e.g. "detailed_design").
+type phaseDecisionSignal struct {
+	Phase    string
+	Decision PhaseDecision
+	Feedback *ReviewFeedback
+}
+
+// FIXME(file-layout): shared workflow-context helper — reachable from more than
+// one workflow's call tree; cannot legally live in constructionmanager.go (the gate
+// forbids workflow.Context funcs there). Placed in its first caller's file
+// pending a controller ruling. See task-C5-C9-report.md.
+// readVersionE runs the cheap ReadProjectVersion GENERATED invoker (B8: migrated off the
+// custom ReadProjectVersionActivity) and returns ONLY the head-state optimistic-
+// concurrency token, surfacing errors (including the brand-new project's fwra.NotFound)
+// to the caller. Replaces the wasteful whole-aggregate read that shipped the entire
+// encoded Project across the Temporal Activity boundary for a uint64 (architect's
+// fast-follow). The invoker's Opts hook applies readProjectActivityOptions (identical
+// preset, keyed "projectStateAccess.readProjectVersion" — workermanifest.go).
+func (wf *workflows) readVersionE(ctx workflow.Context, projectID ProjectID) (projectstate.Version, error) {
+	return wf.Acts.ProjectStateReadProjectVersion(ctx, projectstate.ProjectID(projectID))
+}
+
+// FIXME(file-layout): shared workflow-context helper — reachable from more than
+// one workflow's call tree; cannot legally live in constructionmanager.go (the gate
+// forbids workflow.Context funcs there). Placed in its first caller's file
+// pending a controller ruling. See task-C5-C9-report.md.
+// readVersion reads the current head Version (0 for a brand-new project or on any
+// read error — the read-your-writes seed treats absence as version 0).
+func (wf *workflows) readVersion(ctx workflow.Context, projectID ProjectID) projectstate.Version {
+	v, err := wf.readVersionE(ctx, projectID)
+	if err != nil {
+		return 0
+	}
+	return v
+}
+
+// FIXME(file-layout): shared workflow-context helper — reachable from more than
+// one workflow's call tree; cannot legally live in constructionmanager.go (the gate
+// forbids workflow.Context funcs there). Placed in its first caller's file
+// pending a controller ruling. See task-C5-C9-report.md.
 // applyRecovering executes one head-state mutation Activity with a workflow-level
 // Conflict re-read→re-apply loop (§6.5; identical discipline to systemdesign).
 func (wf *workflows) applyRecovering(
@@ -1386,22 +1466,4 @@ func (wf *workflows) applyRecovering(
 		workflow.GetLogger(ctx).Info("head-state conflict; re-read version and retrying",
 			"attempt", attempt+1, "nextExpectedVersion", expected)
 	}
-}
-
-// isConflict reports whether err is a head-state mutation's stale-version Conflict.
-func isConflict(err error) bool {
-	var appErr *temporal.ApplicationError
-	if errors.As(err, &appErr) {
-		return appErr.Type() == raConflictErrType
-	}
-	return false
-}
-
-// isReadNotFound reports whether err is ReadProject's "no row yet" NotFound.
-func isReadNotFound(err error) bool {
-	var appErr *temporal.ApplicationError
-	if errors.As(err, &appErr) {
-		return appErr.Type() == raNotFoundErrType
-	}
-	return false
 }

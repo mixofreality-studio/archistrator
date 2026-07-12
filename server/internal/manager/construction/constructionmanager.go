@@ -1,15 +1,59 @@
+// Package construction is the constructionManager component of the aiarch server's
+// Manager layer — the use-case façade that drives a project through Phase 3 of
+// The Method (Construction), per the senior-frozen contract
+// designs/aiarch/implementation/contracts/constructionManager.md (C-MCN).
+//
+// This is the MANAGER layer. It OWNS Temporal: its public ops map to Temporal
+// primitives (Workflow / Signal / Query), it registers the nextActivity (30s) and
+// replanSweep (5m) Schedules at startup, defines one Activity per ResourceAccess
+// call, owns the Signal/Query handlers and the in-workflow primitives
+// (awaitSignal / startTimer / executeChild), and derives the idempotency key
+// "${workflowId}:${activityId}" passed down to each RA verb. Temporal lives ONLY
+// in this component; the downstream Engines (handOffEngine, interventionEngine,
+// reviewEngine — pure, in-workflow, by value) and ResourceAccess ports
+// (projectStateAccess, artifactAccess, workerAccess, constructionPipelineAccess,
+// durableExecutionAccess) import no Temporal.
+//
+// The FIVE frozen public ops (constructionManager.md §2):
+//   - ExecuteNextActivity — Workflow (entry; scheduler-triggered pump; per-activity child)
+//   - RunReplanSweep      — Workflow (entry; scheduler-triggered variance sweep)
+//   - PauseProject        — Signal (operatorPauseRequested)
+//   - OverrideActivity    — Signal (operatorOverride)
+//   - GetSessionState     — Query (sessionState, read-only)
+//
+// File layout (mirrors internal/manager/systemdesign):
+//   - constructionmanager.go : the Manager that translates public ops into Temporal client calls (§6.2)
+//   - contract.go            : the public façade types + the consumer-side dep interfaces (§3, §5)
+//   - workflow.go            : the workflows deps struct + workflow bodies + signal/query handlers (§6.3, §6.6)
+//   - activities.go          : the Manager-owned Activity wrappers, as methods on workflows (§6.4)
+//   - errors.go              : the port-error -> Temporal-error translation (§6.4)
+//   - worker.go              : worker registration of workflows + activities + Schedules (§6.1)
+//
+// 2026-05-29 agent-role rework note (constructionManager.md top note + workerAccess.md
+// §0b): the worker-text → typed-ConstructionOutput parse is NOT a "future
+// constructionEngine" / Dispatch-FileUpload concern — workerAccess is now the
+// generic typed worker (Generate / GenerateTypedData[T] / Cancel). This Manager's
+// SEQUENCE owns the per-step prompt and asks worker.GenerateTypedData[artifact.ConstructionOutput]
+// (Manager-Activity-wrapped) for the produced change, and worker.Cancel for the
+// operator-pause / takeover abandon path (the DSL-static Cancel(key) edge). The
+// five frozen public ops are stable across this; see C-MCN.md completion notes.
 package construction
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/client"
+	"go.temporal.io/sdk/temporal"
+	"go.temporal.io/sdk/worker"
+	"go.temporal.io/sdk/workflow"
 
 	fwm "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
@@ -448,3 +492,903 @@ func isNotFound(err error) bool {
 }
 
 var errNotFoundSentinel = errors.New("not found")
+
+// ---- from contract.go ----
+var _ ConstructionManager = (*constructionManager)(nil)
+
+// overrideKindName returns the canonical name for an override kind. Kept as a FREE
+// FUNCTION (not a method) so the generated OverrideKind scalar carries no behavior
+// (the contract surface is pure data).
+func overrideKindName(k OverrideKind) string {
+	switch k {
+	case OverrideUnknown:
+		// zero-value sentinel, not a real override kind — same as any unmapped value.
+		return "Unknown"
+	case OverrideTakeover:
+		return "Takeover"
+	case OverrideRetry:
+		return "Retry"
+	case OverrideSkip:
+		return "Skip"
+	case OverrideReassign:
+		return "Reassign"
+	default:
+		return "Unknown"
+	}
+}
+
+// ---- from contract.go ----
+// ---------------------------------------------------------------------------
+// Façade error model (constructionManager.md §3.5).
+// CALLER/PROGRAMMER errors at the façade boundary — distinct from the workflow's
+// own failure handling (Temporal RetryPolicy + the intervention/variance
+// alternative paths inside the workflow body). Kinds used: ContractMisuse,
+// FailedPrecondition, NotFound, Unauthorized, Infrastructure.
+// ---------------------------------------------------------------------------
+
+func newError(kind fwm.Kind, detail string) *fwm.Error {
+	return fwm.New(kind, detail)
+}
+
+// ---- from deps.go ----
+// deps.go declares the hand-written domain VALUE types the Manager's workflow
+// vocabulary uses. Per the founder DI model (2026-06-28) the constructionManager's
+// GENERATED constructor (contract.gen.go: NewConstructionManager) takes the
+// dependencies' PUBLISHED interfaces directly. The three Engines (handOff /
+// intervention / review) are typed as their PUBLISHED contract interfaces DIRECTLY on
+// wfDeps/workflows (workflow.go) — no Manager-local seam interface, no adapter (Task 6).
+//
+// B8 (custom activities → generated, clean cut) + its follow-up removed EVERY
+// Manager-local RA seam that used to live here:
+//   - constructionTransitionAccess (10 ops) and gitActivityStatusAccess (6 ops): every
+//     write verb is reached through the GENERATED invoker surface (invokers.gen.go:
+//     genInvokers.ConstructionTransition* / genInvokers.GitStatus*). wfDeps/workflows
+//     carry no ConstructionTransition field; GitStatus survives as a plain
+//     projectstate.GitActivityStatusAccess-typed field whose ONLY remaining role is
+//     the nil-check "is the per-activity git head-state mirror wired" feature flag
+//     (gitforward.go's gitEnabled/startedCred), never a direct method call.
+//   - projectStateReader (the whole-aggregate read seam behind the last custom
+//     Activity, ReadProjectActivity): GONE in the B8 follow-up. The shared
+//     projectstate.ProjectEnvelope (envelope.go) was extended with the three
+//     construction-fidelity sections the pump reads (ActivityConstruction /
+//     ServiceContracts / ReviewPolicy), so the read now rides the GENERATED
+//     designSessionAccess.readProjectOnBranch invoker with branch "" (main) and the
+//     Manager's former local codec (codec.go) + activities_custom.go are deleted.
+//     Construction now has NO custom Temporal Activities at all.
+//
+// How each dependency kind is reached differs by determinism class:
+//   - the three Engines (handoff.HandOffEngine / intervention.InterventionEngine /
+//     review.ReviewEngine) are PURE, deterministic, called DIRECTLY in-workflow (no
+//     Activity wrapper — replay-safe) with fweng.Context{Context: context.Background()}
+//     supplied inline at each call site (workflow.go / signals.go);
+//   - the ResourceAccess ports are I/O and reached EXCLUSIVELY through the generated
+//     invoker surface (Acts — invokers.gen.go/activities.gen.go).
+
+// ===========================================================================
+// handOffEngine — RETIRED (Task 6). The workflow calls the published
+// handoff.HandOffEngine DIRECTLY (workflow.go), with fweng.Context{Context:
+// context.Background()} supplied inline at the call site. ActivityKind (5 values,
+// Unknown=0/DetailedDesign=1/Construction=2/Integration=3/Noncoding=4) and
+// WorkerClass (5 values, Unknown=0/AIWorker=1/HumanSeniorWorker=2/HumanJuniorWorker=3/
+// ArchitectOnly=4) are IDENTICAL, ordinal-for-ordinal, to the former Manager-local
+// activityKind/workerClass — substituted directly, no converter. HandOffPolicy is
+// likewise IDENTICAL (PreferAI, SeniorOnlyLayers) — substituted directly. The former
+// identity maps handoffActivityKind/managerWorkerClass (adapters.go) are deleted.
+//
+// activityKind.String() (used by gitnaming.go's PR body text) has no equivalent
+// method on the published handoff.ActivityKind (methods cannot be added to a type
+// from another package) — replaced by the free function activityKindName
+// (gitnaming.go), producing the IDENTICAL strings.
+//
+// workerClass.String() had no live caller (dead code) — retired with no replacement.
+// ===========================================================================
+
+// constructionActivity is the by-value activity snapshot the Manager's own workflow
+// vocabulary uses broadly (eligibility.go, gitforward.go, dispatch) — CRLabel/IsRevert
+// are the git-forward per-activity facts threaded into the PR open + the head-state
+// mirror, and Phases is the resolved per-activity phase profile; none of these ride
+// the handOffEngine call. Kind is typed DIRECTLY as the published handoff.ActivityKind
+// (identity substitution — see the retirement note above). At the one handOffEngine
+// call site (workflow.go), handoffActivityFromConstruction (adapters.go) narrows this
+// broader struct onto the Engine's published handoff.ConstructionActivity — a REAL
+// (if now-trivial) projection, since constructionActivity carries strictly MORE fields
+// than the Engine needs, not an identity mirror to delete.
+type constructionActivity struct {
+	ActivityID   string
+	Kind         handoff.ActivityKind
+	ComponentID  string
+	Layer        string
+	EstimateDays float64
+	CRLabel      string
+	IsRevert     bool
+	Phases       []projectstate.ActivityMethodPhase
+}
+
+// activityTypeName returns the canonical activity-type wire name
+// ("service"/"frontend"/"testing") derived from the activity id. These are the exact
+// keys the ReviewPolicy's GatedPhasesByType map is keyed by (and the keys the webApp
+// PolicyPanel must emit) — the gate consults RequiresHuman(activityTypeName(), phase).
+func (a constructionActivity) activityTypeName() string {
+	return projectstate.DeriveType(a.ActivityID).String()
+}
+
+// ===========================================================================
+// interventionEngine — RETIRED (Task 6). The workflow calls the published
+// intervention.InterventionEngine DIRECTLY (workflow.go / signals.go), with
+// fweng.Context{Context: context.Background()} supplied inline at each call site. The
+// consumer-seam interface AND its local data mirrors (interventionMode + consts,
+// interventionPolicy, constructionVariance, varianceKind + consts, varianceDirective +
+// consts, pauseRequestContext, pausePlan) are retired:
+//
+//   - interventionMode/interventionPolicy were the Manager-local mirror
+//     constructionInterventionPolicy (adapters.go) ALSO returned alongside the real
+//     engPolicy (intervention.InterventionPolicy) fed to the retired interventionAdapter.
+//     Neither the mirror value nor its Mode/RetryBudget/SLATier fields were EVER read
+//     anywhere downstream (dead data threaded through wfDeps.InterventionPolicy) — the
+//     field survives, retyped DIRECTLY to intervention.InterventionPolicy (the value the
+//     retired adapter actually used), now genuinely read at each DecideOnVariance /
+//     ApplyPausePolicy call site (workflow.go / signals.go) since there is no more
+//     adapter closure to hold it.
+//   - constructionVariance's Detail/OperatorSourced fields were likewise write-only —
+//     populated at the single call site (workflow.go handleVariance) but never read by
+//     the former converter (interventionVarianceKind only touched Kind). The struct is
+//     retired outright; intervention.ConstructionVariance is now built inline at that
+//     call site from the still-live inputs (ActivityID, Kind, AttemptCount, Policy),
+//     preserving the historical adapter's ProjectID-from-ActivityID quirk verbatim.
+//   - varianceKind (5 values) had only ONE live call site (variancePipelineFailed); the
+//     other four consts were declared but never constructed anywhere (dead vocabulary).
+//     The former converter interventionVarianceKind was a genuine MANY-TO-ONE fold (5
+//     local values onto the published VarianceKind's 3), but since only
+//     variancePipelineFailed was ever exercised — folding onto intervention.WorkerMiss —
+//     the live call site substitutes intervention.WorkerMiss directly; the whole local
+//     type + converter retire together with no behavior change.
+//   - varianceDirective HAD an explicit directiveUnknown=0 zero-value sentinel the
+//     published intervention.VarianceDirective does NOT carry (VarianceRetry=0 is its
+//     zero value) — traced: the only place directiveUnknown could reach the workflow's
+//     switch was the retired adapter's own error path, which the caller already
+//     short-circuits on derr!=nil BEFORE the switch runs, so the switch's
+//     `case directiveUnknown` was unreachable dead code. The workflow's switch now
+//     matches {VarianceRetry, VarianceEscalate, VarianceTakeover} with a `default:`
+//     catch-all for the same non-retryable rejection (identical to operations'
+//     healthDirectiveUnknown retirement, Task 5).
+//   - pauseRequestContext/pausePlan mirrored only the FIELDS actually read
+//     (Reason/PipelinesToCancel/RecordPaused); NotifyTargets/ResumeHint were converted
+//     by the retired adapter but never consumed downstream (dead reads). Substituted
+//     directly with intervention.PauseRequestContext/PausePlan — PipelinesToCancel's
+//     published element type ([]PipelineRef, a named string) is cast to string at the
+//     one read site (signals.go), same as InFlightPipelines/ResumeHint simply staying
+//     unread (zero value, unchanged behavior).
+//
+// The former identity maps interventionVarianceKind/managerVarianceDirective
+// (adapters.go) are deleted; constructionInterventionPolicy (adapters.go) survives,
+// retyped to return ONLY intervention.InterventionPolicy (the manager-mirror second
+// return value dies with interventionPolicy).
+// ===========================================================================
+
+// ===========================================================================
+// reviewEngine — RETIRED (Task 6). The workflow calls the published
+// review.ReviewEngine DIRECTLY (workflow.go), with fweng.Context{Context:
+// context.Background()} supplied inline at the call site. reviewChange was an EXACT
+// 1:1 mirror of review.ReviewChange (ActivityID/ComponentID/ContentAddress,
+// identical) — substituted directly, no converter. ReviewSet/Reviewer (contract.gen.go,
+// this component's OWN generated public façade — off-limits) are NOT retired: they
+// are a REAL divergence from review.ReviewSet/Reviewer (Reviewer.ReferenceArtifact is
+// *string, optional, on the façade vs plain string on the Engine's own type), so the
+// former reviewAdapter's conversion body survives as the free function
+// reviewSetFromEngine (adapters.go).
+// ===========================================================================
+
+// ===========================================================================
+// constructionPipeline value vocabulary — the Manager's infrastructure-neutral
+// dispatch spec / handle / observation. The pipeline ops are GENERATED and reached
+// through the generated invoker surface (genInvokers.Pipeline*); these neutral types
+// feed the workflow-side composition/mapping helpers (workflow.go) that bridge to the
+// contract constructionpipeline.PipelineSpec / PipelineHandle / PipelineObservation.
+// ===========================================================================
+
+// ---- from deps.go ----
+// pipelineHandle is the Manager's opaque handle.
+type pipelineHandle struct {
+	Name string
+}
+
+// ---- from adapters.go ----
+// ===========================================================================
+// interventionEngine — constructionInterventionPolicy is the ONE surviving
+// config→contract-type builder: it resolves the composition-root's raw
+// interventionMode STRING config (constructionmanager.go) onto the published
+// intervention.InterventionPolicy. There is no Manager-local InterventionPolicy mirror
+// left to build alongside it (deps.go) — the former second return value (the
+// Manager-mirror interventionPolicy) is retired; nothing downstream ever read it.
+// ===========================================================================
+
+func constructionInterventionPolicy(mode string) intervention.InterventionPolicy {
+	switch mode {
+	case "escalate-everything", "escalateEverything", "supervised":
+		return intervention.InterventionPolicy{Mode: intervention.EscalateEverything}
+	default:
+		return intervention.InterventionPolicy{Mode: intervention.Tiered, RetryBudget: 2}
+	}
+}
+
+// ---- from eligibility.go ----
+// eligibility.go holds the pump's PURE eligibility selection over committed head-state
+// (constructionManager.md §6.3 step 1) — the Manager's own workflow-side selection logic,
+// deterministic and replay-safe (called directly in-workflow via the injected
+// NextEligibleActivity helper). It was folded out of adapters.go so adapters.go carries
+// only the engine boundary adapters; none of this touches Temporal or any RA seam.
+
+// ---- from eligibility.go ----
+// nextEligibleActivity resolves the next eligible construction activity for a project
+// from its head-state. An activity is eligible iff it is NotStarted and every dep is
+// Done. Iteration is ActivityList declaration order with a name tie-break.
+func nextEligibleActivity(proj projectstate.Project) (constructionActivity, bool) {
+	if proj.Network.Status != projectstate.ReviewCommitted {
+		return constructionActivity{}, false
+	}
+	network, ok := proj.Network.Model.(*projectstate.Network)
+	if !ok || network == nil {
+		return constructionActivity{}, false
+	}
+	if proj.ActivityList.Status != projectstate.ReviewCommitted {
+		return constructionActivity{}, false
+	}
+	activityList, ok := proj.ActivityList.Model.(*projectstate.ActivityList)
+	if !ok || activityList == nil {
+		return constructionActivity{}, false
+	}
+
+	itemByName := make(map[string]projectstate.ActivityItem, len(activityList.Activities))
+	for _, item := range activityList.Activities {
+		itemByName[item.Name] = item
+	}
+
+	depsByActivity := make(map[string][]string, len(network.Dependencies))
+	for _, dep := range network.Dependencies {
+		depsByActivity[dep.Activity] = dep.DependsOn
+	}
+
+	type candidate struct {
+		declIdx  int
+		activity string
+	}
+	var candidates []candidate
+	for i, item := range activityList.Activities {
+		name := item.Name
+		if !isActivityNotStarted(name, proj.ActivityConstruction) {
+			continue
+		}
+		if !allDepsDone(depsByActivity[name], proj.ActivityConstruction) {
+			continue
+		}
+		candidates = append(candidates, candidate{declIdx: i, activity: name})
+	}
+	if len(candidates) == 0 {
+		return constructionActivity{}, false
+	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		if candidates[i].declIdx != candidates[j].declIdx {
+			return candidates[i].declIdx < candidates[j].declIdx
+		}
+		return candidates[i].activity < candidates[j].activity
+	})
+
+	chosen := candidates[0].activity
+	item := itemByName[chosen]
+	var produced []projectstate.ProducedArtifact
+	if proj.ActivityConstruction != nil {
+		produced = proj.ActivityConstruction[chosen].Produced
+	}
+	component, ok := resolveComponentID(item.Title, produced, proj.ServiceContracts)
+	if !ok {
+		slog.Warn("construction pump: no service-contract key resolves for activity — skipping dispatch",
+			"activityId", chosen, "title", item.Title)
+		return constructionActivity{}, false
+	}
+	return hydrateConstructionActivity(chosen, item, component), true
+}
+
+// resolveComponentID maps an activity to its service-contract component KEY.
+func resolveComponentID(title string, produced []projectstate.ProducedArtifact, contracts map[string]projectstate.ServiceContract) (string, bool) {
+	for _, art := range produced {
+		if art.Kind != "service-contract" {
+			continue
+		}
+		if key, ok := matchContractKey(art.Title, contracts); ok {
+			return key, true
+		}
+	}
+
+	base := title
+	if i := strings.IndexByte(base, '('); i >= 0 {
+		base = base[:i]
+	}
+	n := normalizeIdent(base)
+	best, bestLen := "", 0
+	for comp := range contracts {
+		cn := normalizeIdent(comp)
+		if cn != "" && len(cn) > bestLen && strings.Contains(n, cn) {
+			best, bestLen = comp, len(cn)
+		}
+	}
+	if best != "" {
+		return best, true
+	}
+	return "", false
+}
+
+// matchContractKey resolves a produced service-contract artifact title to a real key.
+func matchContractKey(title string, contracts map[string]projectstate.ServiceContract) (string, bool) {
+	n := normalizeIdent(title)
+	if n == "" {
+		return "", false
+	}
+	best, bestLen := "", 0
+	for comp := range contracts {
+		cn := normalizeIdent(comp)
+		if cn == "" {
+			continue
+		}
+		if cn == n {
+			return comp, true
+		}
+		if len(cn) > bestLen && strings.Contains(n, cn) {
+			best, bestLen = comp, len(cn)
+		}
+	}
+	if best != "" {
+		return best, true
+	}
+	return "", false
+}
+
+// normalizeIdent lowercases s and keeps only [a-z0-9].
+func normalizeIdent(s string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(s) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+// isActivityNotStarted reports whether the activity is in the NotStarted phase.
+func isActivityNotStarted(activityID string, status map[string]projectstate.ActivityConstructionStatus) bool {
+	if status == nil {
+		return true
+	}
+	s, exists := status[activityID]
+	if !exists {
+		return true
+	}
+	return s.Phase == projectstate.ActivityConstructionNotStarted
+}
+
+// allDepsDone reports whether every dependency has Phase == Done.
+func allDepsDone(deps []string, status map[string]projectstate.ActivityConstructionStatus) bool {
+	for _, dep := range deps {
+		if status == nil {
+			return false
+		}
+		s, exists := status[dep]
+		if !exists || s.Phase != projectstate.ActivityConstructionDone {
+			return false
+		}
+	}
+	return true
+}
+
+// hydrateConstructionActivity populates a constructionActivity from the activity id +
+// its ActivityList item. Coding=true → Construction; Coding=false → Noncoding.
+func hydrateConstructionActivity(activityID string, item projectstate.ActivityItem, componentID string) constructionActivity {
+	kind := handoff.ActivityKindNoncoding
+	if item.Coding {
+		kind = handoff.ActivityKindConstruction
+	}
+	typ := projectstate.DeriveType(activityID)
+	variant := projectstate.DeriveVariant(activityID)
+	return constructionActivity{
+		ActivityID:   activityID,
+		Kind:         kind,
+		ComponentID:  componentID,
+		EstimateDays: item.EffortDays,
+		Phases:       projectstate.ProfileFor(typ, variant).PhaseIDs(),
+	}
+}
+
+// ---- from gitactivities.go ----
+// gitactivities.go held the CUSTOM per-activity git head-state Record Activities
+// (branch-open / CI-observed / arch-approved / merged / started / completed). B8
+// (custom activities → generated, clean cut) migrated all six onto the GENERATED
+// invoker surface (invokers.gen.go: genInvokers.GitStatus*), called directly from
+// gitforward.go — the projectStateAccess §GIT-HEAD-STATE facet is now a real generated
+// contract (projectstate.GitActivityStatusAccess), not a plain-goType dep temporalgen
+// has no op for. This file now holds only the git-forward VALUE CARRIERS (Phase C
+// folding candidates, per the task brief): the credential envelope, the PR-status
+// projection, and the CI-state mapper.
+//
+// The PR-rail verbs (mint / OpenBranch / OpenPullRequest / GetPullRequestStatus /
+// PostReview / MergePullRequest) are likewise GENERATED (activities.gen.go) and reached
+// through the generated invoker surface (genInvokers.Rail*); the workflow-side value
+// mapping (opaque-handle *FromString/*String marshalling, CheckState→CICheckState,
+// cr-label→Hints) lives in gitforward.go.
+//
+// CRED OPACITY ACROSS THE RA SEAM: the rail returns a sourcecontrol.RepoCredential; the
+// git head-state verbs take a projectstate.RepoCredential. These are
+// structurally-identical-but-distinct opaque carriers (the NoSideways layer rule keeps
+// projectstate from importing sourcecontrol — projectstate/credential.go). The Manager is
+// the one seam allowed to touch both, so it converts (railCredEnvelope.toRail /
+// toProjectState).
+
+// railCredEnvelope carries the opaque short-lived credential across the Activity
+// boundary (and back into the workflow, where it is held for the activity's git
+// lifecycle). It is the Manager's OWN transport carrier — it converts to either RA's
+// credential type at the call site (the Manager is the seam allowed to touch both).
+// The Bytes are write-only at every consumer (never logged); they ride the Temporal
+// payload exactly as the rail itself returns them.
+type railCredEnvelope struct {
+	Bytes     []byte
+	ExpiresAt time.Time
+}
+
+func (c railCredEnvelope) toRail() sourcecontrol.RepoCredential {
+	return sourcecontrol.RepoCredential{Bytes: c.Bytes, ExpiresAt: c.ExpiresAt}
+}
+
+func (c railCredEnvelope) toProjectState() projectstate.RepoCredential {
+	return projectstate.RepoCredential{Bytes: c.Bytes, ExpiresAt: c.ExpiresAt}
+}
+
+// ---- from gitnaming.go ----
+// ---------------------------------------------------------------------------
+// git Activity option presets (constructionManager.md §6.4 pattern). Concrete
+// RetryPolicy / timeout choices live here, in the Manager.
+// ---------------------------------------------------------------------------
+
+// mintCredActivityOptions — the credential mint preset VALUE the manifest's Opts hook
+// (workermanifest.go) applies to the GENERATED getInstallationToken invoker. A
+// rejected/expired App identity is terminal (fwra.Auth); transport blips retry.
+func mintCredActivityOptions() workflow.ActivityOptions {
+	return workflow.ActivityOptions{
+		StartToCloseTimeout: 15 * time.Second,
+		RetryPolicy: &temporal.RetryPolicy{
+			NonRetryableErrorTypes: []string{
+				fwm.RAErrType(fwra.Auth),
+				fwm.RAErrType(fwra.ContractMisuse),
+			},
+		},
+	}
+}
+
+// railActivityOptions — the PR-rail verbs preset VALUE (OpenBranch / OpenPullRequest /
+// GetPullRequestStatus / PostReview / MergePullRequest), applied to the GENERATED rail
+// invokers via the manifest's Opts hook. Auth + a merge Conflict (not-mergeable) + bad
+// input are terminal; transport/rate-limit retry.
+func railActivityOptions() workflow.ActivityOptions {
+	return workflow.ActivityOptions{
+		StartToCloseTimeout: 30 * time.Second,
+		RetryPolicy: &temporal.RetryPolicy{
+			NonRetryableErrorTypes: []string{
+				fwm.RAErrType(fwra.Auth),
+				fwm.RAErrType(fwra.NotFound),
+				fwm.RAErrType(fwra.Conflict),
+				fwm.RAErrType(fwra.ContractMisuse),
+			},
+		},
+	}
+}
+
+// ---- from workflow.go ----
+// wfDeps bundles every downstream dependency the constructionManager orchestrates,
+// assembled by WorkerManifest (workermanifest.go) from the Manager's stored PUBLISHED
+// deps and held on the workflows struct. The three Engines are typed as their
+// PUBLISHED contract interfaces (no Manager-local seam), called DIRECTLY in-workflow.
+// The ResourceAccess layer is reached ENTIRELY through the generated invoker surface
+// (Acts) — the whole-aggregate read included (B8 follow-up); the unit tests register
+// contract-typed fakes behind the generated activity names. It is a package-internal
+// builder input. There is no ProjectState/ConstructionTransition field anymore: the
+// reads ride Acts.DesignSessionReadProjectOnBranch / Acts.ProjectStateReadProjectVersion
+// and the cred-threaded writes ride Acts.ConstructionTransition* (B8).
+type wfDeps struct {
+	HandOff      handoff.HandOffEngine
+	Intervention intervention.InterventionEngine
+	Review       review.ReviewEngine
+
+	// GitStatus is the OPTIONAL per-activity git head-state mirror (C-MCN-GIT). Its
+	// writes are reached through the GENERATED invoker surface (Acts.GitStatus*); this
+	// field's ONLY remaining role is the nil-check "is the mirror wired" feature flag
+	// (gitforward.go's gitEnabled/startedCred) that gates the started/completed records
+	// and the branch→PR→CI→+1→merge mirror.
+	GitStatus projectstate.GitActivityStatusAccess
+
+	// Acts is the GENERATED workflow-side call surface for the contract-backed RA
+	// Activities (pipeline / artifact / rail); its Opts hook applies the per-op presets.
+	Acts genInvokers
+
+	// RailEnabled reports whether the PR rail dep is wired (impl.rail != nil). It gates
+	// the PR-rail lifecycle (gitEnabled) alongside GitStatus + Repo.
+	RailEnabled bool
+
+	// Repo resolves the per-project RepoRef the rail verbs address. nil ⇒ the
+	// PR-rail lifecycle is dormant (no repo to open branches/PRs in).
+	Repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool)
+
+	// NextEligibleActivity resolves the next eligible construction activity for a
+	// project from its head-state (the Manager's own pure selection).
+	NextEligibleActivity func(proj projectstate.Project) (constructionActivity, bool)
+
+	// HandOffPolicy / InterventionPolicy are the project's committed policy snapshots
+	// the Manager feeds the Engines by value, typed DIRECTLY as each Engine's own
+	// published input. InterventionPolicy is resolved ONCE from the composition root's
+	// raw interventionMode config via constructionInterventionPolicy (adapters.go,
+	// WorkerManifest() — workermanifest.go) — the SAME fixed value every DecideOnVariance
+	// / ApplyPausePolicy call fed under the retired per-call adapter conversion.
+	HandOffPolicy      handoff.HandOffPolicy
+	InterventionPolicy intervention.InterventionPolicy
+
+	// EscalationWaitTimeout bounds how long an escalated/architectOnly activity waits
+	// for an operator override before it terminally FAILS the activity. 0 == wait-forever.
+	EscalationWaitTimeout time.Duration
+}
+
+// workflows is the single constructionManager component struct — the workflow receiver
+// (it no longer hosts any Activity methods; every RA op is reached through the
+// generated invoker surface, Acts).
+type workflows struct {
+	HandOff      handoff.HandOffEngine
+	Intervention intervention.InterventionEngine
+	Review       review.ReviewEngine
+
+	GitStatus projectstate.GitActivityStatusAccess
+
+	Acts genInvokers
+
+	RailEnabled bool
+	Repo        func(projectID ProjectID) (sourcecontrol.RepoRef, bool)
+
+	NextEligibleActivity  func(proj projectstate.Project) (constructionActivity, bool)
+	HandOffPolicy         handoff.HandOffPolicy
+	InterventionPolicy    intervention.InterventionPolicy
+	EscalationWaitTimeout time.Duration
+}
+
+// newWorkflows builds the workflows receiver from the injected seams.
+func newWorkflows(d wfDeps) *workflows {
+	return &workflows{
+		HandOff:               d.HandOff,
+		Intervention:          d.Intervention,
+		Review:                d.Review,
+		GitStatus:             d.GitStatus,
+		Acts:                  d.Acts,
+		RailEnabled:           d.RailEnabled,
+		Repo:                  d.Repo,
+		NextEligibleActivity:  d.NextEligibleActivity,
+		HandOffPolicy:         d.HandOffPolicy,
+		InterventionPolicy:    d.InterventionPolicy,
+		EscalationWaitTimeout: d.EscalationWaitTimeout,
+	}
+}
+
+// ---- from workflow.go ----
+// Bounds (in-workflow guards; NOT contract surface).
+// maxMutateConflictAttempts bounds the workflow-level Conflict re-read→re-apply
+// loop (§6.5).
+const maxMutateConflictAttempts = 20
+
+// ---- from workflow.go ----
+// ---------------------------------------------------------------------------
+// Activity option presets (constructionManager.md §6.4). Concrete RetryPolicy /
+// timeout choices live here, in the Manager.
+// ---------------------------------------------------------------------------
+
+// readProjectActivityOptions is the read preset VALUE (10s; NotFound+ContractMisuse
+// terminal) the manifest's Opts hook (workermanifest.go) applies to the two GENERATED
+// read invokers the workflows consume — "projectStateAccess.readProjectVersion" and
+// "designSessionAccess.readProjectOnBranch" (the whole-aggregate read, B8 follow-up) —
+// reproducing the identical pre-migration readProjectOpts preset for both. NotFound
+// stays terminal so a brand-new project's read fails fast into the pump's quiet-tick
+// handling (isReadNotFound) instead of retrying.
+func readProjectActivityOptions() workflow.ActivityOptions {
+	return workflow.ActivityOptions{
+		StartToCloseTimeout: 10 * time.Second,
+		RetryPolicy: &temporal.RetryPolicy{
+			NonRetryableErrorTypes: []string{
+				fwm.RAErrType(fwra.NotFound),
+				fwm.RAErrType(fwra.ContractMisuse),
+			},
+		},
+	}
+}
+
+// ---- from workflow.go ----
+// submitPipelineActivityOptions / observePipelineActivityOptions are the pipeline preset
+// VALUES the manifest's Opts hook (workermanifest.go) applies to the GENERATED pipeline
+// invokers by registered name — reproducing the pre-migration per-call-site presets
+// exactly (submit 60s Auth/ContractMisuse-terminal; observe/cancel 30s NotFound/Auth-terminal).
+func submitPipelineActivityOptions() workflow.ActivityOptions {
+	return workflow.ActivityOptions{
+		StartToCloseTimeout: 60 * time.Second,
+		RetryPolicy: &temporal.RetryPolicy{
+			NonRetryableErrorTypes: []string{
+				fwm.RAErrType(fwra.Auth),
+				fwm.RAErrType(fwra.ContractMisuse),
+			},
+		},
+	}
+}
+
+// ---- from workflow.go ----
+func observePipelineActivityOptions() workflow.ActivityOptions {
+	return workflow.ActivityOptions{
+		StartToCloseTimeout: 30 * time.Second,
+		RetryPolicy: &temporal.RetryPolicy{
+			NonRetryableErrorTypes: []string{
+				fwm.RAErrType(fwra.NotFound),
+				fwm.RAErrType(fwra.Auth),
+			},
+		},
+	}
+}
+
+// ---- from workflow.go ----
+// recordActivityOptions is the head-state Record-verb preset VALUE (10s; ContractMisuse
+// terminal only — Conflict must reach the workflow so the §6.5 re-read→re-apply loop can
+// recover it) the manifest's Opts hook (workermanifest.go) applies to the GENERATED
+// constructionTransitionAccess / gitActivityStatusAccess Record* invokers by registered
+// name — reproducing the pre-migration (B8) recordOpts preset exactly. Unlike
+// readProjectActivityOptions, there is no remaining direct-ExecuteActivity call site for
+// this preset (every Record* verb now goes through the generated invoker surface), so
+// only the VALUE form survives.
+func recordActivityOptions() workflow.ActivityOptions {
+	return workflow.ActivityOptions{
+		StartToCloseTimeout: 10 * time.Second,
+		RetryPolicy: &temporal.RetryPolicy{
+			NonRetryableErrorTypes: []string{
+				fwm.RAErrType(fwra.ContractMisuse),
+			},
+		},
+	}
+}
+
+// ---- from workflow.go ----
+// raConflictErrType is the canonical Temporal Type() a head-state mutation Activity
+// surfaces when expectedVersion is stale; the workflow recovers with the bounded
+// re-read→re-apply loop (§6.5).
+var raConflictErrType = fwm.RAErrType(fwra.Conflict)
+
+// ---- from workflow.go ----
+// raNotFoundErrType is the canonical Temporal Type() ReadProject surfaces for a
+// brand-new project (no row yet).
+var raNotFoundErrType = fwm.RAErrType(fwra.NotFound)
+
+// ---- from workflow.go ----
+// constructState is the live technical state backing the sessionState Query.
+type constructState struct {
+	projectID     ProjectID
+	activityID    ActivityID
+	stage         ConstructionStage
+	pipelinePhase *PipelinePhase
+	reviewSet     *ReviewSet
+	variance      *FlaggedVariance
+
+	// completedPhases is the LIVE in-memory skip-guard the phase loop consults so an
+	// already-completed phase is never re-dispatched or re-gated. It is SEEDED at
+	// workflow start from the start-snapshot activity's PhaseCompletion slice and
+	// MARKED unconditionally on EVERY phase completion (Approve / no-gate / inert) —
+	// independent of gitOn. This is what stops the outer variance-retry loop (which
+	// re-walks phases from index 0) from re-gating an already-approved phase across a
+	// non-git execution where no head-state completion record exists to re-read.
+	completedPhases map[projectstate.ActivityMethodPhase]bool
+
+	// redraftExhausted records that a gated phase burned its human-paced SendBack
+	// redraft budget. It does NOT fail the activity or re-enter the variance loop — the
+	// gate keeps awaiting the human; the flag surfaces that redrafting is spent.
+	redraftExhausted bool
+
+	// reviewContracts is the per-execution set of contract identifiers captured from
+	// the start-snapshot project (B5) and fed to reviewEngine.ProposeReviews so the
+	// gate's reviewer set is display-populated without re-reading mid-loop.
+	reviewContracts []string
+}
+
+func (s *constructState) view() (ConstructionSessionView, error) {
+	aid := s.activityID
+	return ConstructionSessionView{
+		ProjectID:     s.projectID,
+		ActivityID:    &aid,
+		Stage:         s.stage,
+		PipelinePhase: s.pipelinePhase,
+		ReviewSet:     s.reviewSet,
+		Variance:      s.variance,
+	}, nil
+}
+
+// ---- from workflow.go ----
+// isConflict reports whether err is a head-state mutation's stale-version Conflict.
+func isConflict(err error) bool {
+	var appErr *temporal.ApplicationError
+	if errors.As(err, &appErr) {
+		return appErr.Type() == raConflictErrType
+	}
+	return false
+}
+
+// ---- from workflow.go ----
+// isReadNotFound reports whether err is ReadProject's "no row yet" NotFound.
+func isReadNotFound(err error) bool {
+	var appErr *temporal.ApplicationError
+	if errors.As(err, &appErr) {
+		return appErr.Type() == raNotFoundErrType
+	}
+	return false
+}
+
+// ---- from signals.go ----
+// operatorPauseSignal is the operatorPauseRequested payload (constructionManager.md
+// §2.3). The Reason rides on the signal and is safe to log.
+type operatorPauseSignal struct {
+	ProjectID ProjectID
+	Reason    string
+}
+
+// ---- from workermanifest.go ----
+// workermanifest.go is the hand-written bridge between the generated Temporal layer
+// (activities.gen.go / invokers.gen.go / worker.gen.go) and the constructionManager
+// impl. It supplies the genWorkerManifest RegisterWorker consumes: the four workflow
+// bodies under their registered names, the per-activity option-preset hook, and the
+// genActivities dep threading. It also hosts the external RegisterManagerWorker
+// entrypoint the composition root calls (cmd/server/main.go).
+//
+// B8 (custom activities → generated, clean cut) + its follow-up migrated ALL of the
+// former 14 CUSTOM Activities (activities_custom.go / gitactivities.go, both since
+// deleted or reduced to value carriers) onto the GENERATED invoker surface — the last
+// one, the whole-aggregate ReadProjectActivity, once the shared
+// projectstate.ProjectEnvelope grew the construction-fidelity sections the pump reads
+// (envelope.go). Registration is now ENTIRELY automatic via the generated
+// RegisterWorker (worker.gen.go), which registers every genActivities op
+// unconditionally; construction has NO hand-registered Activities. This also closed a
+// real pre-existing defect: since B6 dropped the CustomActivities manifest surface,
+// NONE of the 14 custom Activities had been registered in production — any
+// workflow.ExecuteActivity call reaching one would have failed with "unable to find
+// activity type" on a real worker (the identical systemic gap billing's B7 rewire
+// found for its 3 revenue-ledger ops).
+//
+// The three Engines (handOff / intervention / review) are called DIRECTLY in-workflow
+// (deterministic, by value) and are NOT Activities; the durableExecutionAccess in-workflow
+// primitives (awaitSignal / startTimer / executeChild) are the Manager's own code.
+
+// ---- from workermanifest.go ----
+// Signal and query names (constructionManager.md §6.1/§6.2).
+const (
+	// signalOperatorPauseRequested resumes a suspended construction execution at
+	// its awaitSignal; backs PauseProject (NCUC2).
+	signalOperatorPauseRequested = "operatorPauseRequested"
+	// signalOperatorOverride resumes a per-activity child workflow; backs
+	// OverrideActivity.
+	signalOperatorOverride = "operatorOverride"
+	// signalPhaseDecision delivers a phase-gated approval/send-back decision to a
+	// per-activity child workflow; backs SubmitPhaseDecision.
+	signalPhaseDecision = "phaseDecision"
+	// querySessionState returns a ConstructionSessionView; backs GetSessionState.
+	querySessionState = "sessionState"
+	// queryPumpDispatch returns THIS pump run's pumpDispatch decision; backs the
+	// synchronous dispatch outcome ExecuteNextActivity returns WITHOUT awaiting the
+	// background self-cascade drain (constructionManager.md §2.1).
+	queryPumpDispatch = "pumpDispatchDecision"
+)
+
+// ExecutionKinds — the registered workflow names (constructionManager.md §6.2).
+const (
+	// executionKindPump is the per-tick PumpNextActivityWorkflow (the 30s pump).
+	executionKindPump = "constructionPumpNextActivity"
+	// executionKindConstructActivity is the per-activity child workflow.
+	executionKindConstructActivity = "constructionConstructActivity"
+	// executionKindReplanSweep is the per-tick ReplanSweepWorkflow (the 5m sweep).
+	executionKindReplanSweep = "constructionReplanSweep"
+	// executionKindProjectSupervision is the long-lived project-level supervision
+	// workflow that hosts the operator-pause branch + project-level session Query.
+	executionKindProjectSupervision = "constructionProjectSupervision"
+)
+
+// activityOptions returns the option-preset hook the generated invokers consult for the
+// contract-backed RA Activities. A name with no entry falls back to the generated
+// default (invokers.gen.go). Keyed by the generated registered activity name
+// (<componentKey>.<opName>); the concrete presets reproduce the pre-migration
+// per-call-site choices exactly, including the 14 head-state Record*/read presets B8
+// (+ follow-up) moved here from the retired workflow.ExecuteActivity call sites
+// (recordOpts / readProjectOpts's VALUE forms — recordActivityOptions /
+// readProjectActivityOptions, workflow.go).
+func activityOptions() func(activityName string) (workflow.ActivityOptions, bool) {
+	presets := map[string]workflow.ActivityOptions{
+		"constructionPipelineAccess.submitConstructionPipeline":  submitPipelineActivityOptions(),
+		"constructionPipelineAccess.observeConstructionPipeline": observePipelineActivityOptions(),
+		"constructionPipelineAccess.cancelConstructionPipeline":  observePipelineActivityOptions(),
+		"sourceControlAccess.getInstallationToken":               mintCredActivityOptions(),
+		"sourceControlAccess.openBranch":                         railActivityOptions(),
+		"sourceControlAccess.openPullRequest":                    railActivityOptions(),
+		"sourceControlAccess.getPullRequestStatus":               railActivityOptions(),
+		"sourceControlAccess.postReview":                         railActivityOptions(),
+		"sourceControlAccess.mergePullRequest":                   railActivityOptions(),
+		// B8 (+ follow-up): re-keyed from the retired custom-Activity call sites onto
+		// their generated registered names, preserving the identical timeout/retry scope.
+		// designSessionAccess.readProjectOnBranch is the whole-aggregate read the pump
+		// runs (branch "" ⇒ main) — the former ReadProjectActivity preset.
+		"designSessionAccess.readProjectOnBranch":            readProjectActivityOptions(),
+		"projectStateAccess.readProjectVersion":              readProjectActivityOptions(),
+		"constructionTransitionAccess.recordChangeReviewed":  recordActivityOptions(),
+		"constructionTransitionAccess.recordActivityExited":  recordActivityOptions(),
+		"constructionTransitionAccess.recordActivityFailed":  recordActivityOptions(),
+		"constructionTransitionAccess.recordOperatorPaused":  recordActivityOptions(),
+		"constructionTransitionAccess.recordPhaseStarted":    recordActivityOptions(),
+		"constructionTransitionAccess.recordPhaseCompleted":  recordActivityOptions(),
+		"gitActivityStatusAccess.recordActivityBranchOpened": recordActivityOptions(),
+		"gitActivityStatusAccess.recordActivityCIObserved":   recordActivityOptions(),
+		"gitActivityStatusAccess.recordActivityArchApproved": recordActivityOptions(),
+		"gitActivityStatusAccess.recordActivityMerged":       recordActivityOptions(),
+		"gitActivityStatusAccess.recordActivityStarted":      recordActivityOptions(),
+		"gitActivityStatusAccess.recordActivityCompleted":    recordActivityOptions(),
+	}
+	return func(name string) (workflow.ActivityOptions, bool) {
+		o, ok := presets[name]
+		return o, ok
+	}
+}
+
+// WorkerManifest assembles the genWorkerManifest RegisterWorker (worker.gen.go) consumes:
+// the four workflow bodies under their registered names, the per-activity option-preset
+// hook, and the genActivities threaded from the impl's stored published deps.
+func (m *constructionManager) WorkerManifest() genWorkerManifest {
+	optsHook := activityOptions()
+	wf := newWorkflows(wfDeps{
+		HandOff:      m.handOff,
+		Intervention: m.intervention,
+		Review:       m.review,
+		// GitStatus's ONLY remaining role is the "is the mirror wired" nil-check feature
+		// flag (gitforward.go) — its writes are reached through Acts.GitStatus* (B8), so
+		// no type-assertion onto a local seam is needed; m.gitActivityStatus already
+		// speaks projectstate.GitActivityStatusAccess directly (constructionmanager.go).
+		GitStatus: m.gitActivityStatus,
+		Acts:      genInvokers{Opts: optsHook},
+		// RailEnabled gates the PR-rail lifecycle (gitEnabled) alongside GitStatus + Repo.
+		// The per-project Repo resolver is not wired, so the PR-rail slice stays dormant
+		// (the started/completed construction records still fire when GitStatus is wired).
+		RailEnabled:           m.rail != nil,
+		NextEligibleActivity:  nextEligibleActivity,
+		HandOffPolicy:         handoff.HandOffPolicy{},
+		InterventionPolicy:    constructionInterventionPolicy(m.interventionMode),
+		EscalationWaitTimeout: m.escalationWaitTimeout,
+	})
+
+	return genWorkerManifest{
+		Workflows: []genRegisteredWorkflow{
+			{Name: executionKindPump, Fn: wf.PumpNextActivityWorkflow},
+			{Name: executionKindConstructActivity, Fn: wf.ConstructActivityWorkflow},
+			{Name: executionKindReplanSweep, Fn: wf.ReplanSweepWorkflow},
+			{Name: executionKindProjectSupervision, Fn: wf.ProjectSupervisionWorkflow},
+		},
+		ActivityOptions: optsHook,
+		Activities: genActivities{
+			ProjectState:           m.projectState,
+			Artifact:               m.artifact,
+			Pipeline:               m.pipeline,
+			Rail:                   m.rail,
+			ConstructionTransition: m.constructionTransition,
+			GitStatus:              m.gitActivityStatus,
+			DesignSession:          m.designSession,
+		},
+	}
+}
+
+// RegisterManagerWorker wires the constructionManager onto a Temporal Worker polling the
+// construction task queue (constructionManager.md §6.1). It preserves the external call
+// shape the composition root used before the generated-layer migration, asserting to the
+// concrete *constructionManager the generated constructor returns and delegating to the
+// generated RegisterWorker with the impl's WorkerManifest.
+func RegisterManagerWorker(w worker.Worker, m ConstructionManager) {
+	impl, ok := m.(*constructionManager)
+	if !ok {
+		panic("construction: RegisterManagerWorker requires a *constructionManager from NewConstructionManager")
+	}
+	RegisterWorker(w, impl.WorkerManifest())
+}
