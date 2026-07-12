@@ -1339,7 +1339,6 @@ func toPSResearch(r ResearchInput) projectstate.ResearchInput {
 // sites were updated in lockstep with this move.
 type (
 	modelEnvelope   = projectstate.ModelEnvelope
-	slotEnvelope    = projectstate.SlotEnvelope
 	projectEnvelope = projectstate.ProjectEnvelope
 )
 
