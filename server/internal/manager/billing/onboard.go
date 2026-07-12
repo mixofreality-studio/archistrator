@@ -72,10 +72,7 @@ func (wf *workflows) OnboardWorkflow(ctx workflow.Context, in onboardInput) (Bil
 	return BillingRef{CustomerID: customerID}, nil
 }
 
-// FIXME(file-layout): shared workflow-context helper — reachable from more than
-// one workflow's call tree; cannot legally live in billingmanager.go (the gate
-// forbids workflow.Context funcs there). Placed in its first caller's file
-// pending a controller ruling. See task-C5-C9-report.md.
+// Shared workflow-context helper (used by 2 workflows); lives in its first caller's file per the file-layout standard.
 // readBilling invokes billingStateAccess.readBilling. The workflow speaks the
 // generated billingstate.Billing contract type directly — no Manager-local mirror.
 func (wf *workflows) readBilling(ctx workflow.Context, customerID customerID) (billingstate.Billing, error) {
@@ -125,10 +122,7 @@ func (wf *workflows) registerCloseSchedule(ctx workflow.Context, customerID cust
 		})
 }
 
-// FIXME(file-layout): shared workflow-context helper — reachable from more than
-// one workflow's call tree; cannot legally live in billingmanager.go (the gate
-// forbids workflow.Context funcs there). Placed in its first caller's file
-// pending a controller ruling. See task-C5-C9-report.md.
+// Shared workflow-context helper (used by 3 workflows); lives in its first caller's file per the file-layout standard.
 // applyRecovering executes one head-state mutation Activity with a workflow-level
 // Conflict re-read→re-apply loop (§6.5; identical discipline to operations/construction).
 // On a stale-version fwra.Conflict it re-reads the true head Version and re-applies with

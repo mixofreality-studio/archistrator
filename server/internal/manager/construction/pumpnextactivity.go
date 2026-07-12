@@ -140,10 +140,7 @@ func (wf *workflows) nextEligible(proj projectstate.Project) (constructionActivi
 	return wf.NextEligibleActivity(proj)
 }
 
-// FIXME(file-layout): shared workflow-context helper — reachable from more than
-// one workflow's call tree; cannot legally live in constructionmanager.go (the gate
-// forbids workflow.Context funcs there). Placed in its first caller's file
-// pending a controller ruling. See task-C5-C9-report.md.
+// Shared workflow-context helper (used by 3 workflows); lives in its first caller's file per the file-layout standard.
 // readProject reads the whole-aggregate head-state through the GENERATED
 // designSessionAccess.readProjectOnBranch invoker with branch "" — the RA-side
 // empty-branch fallback always reads main (pinned by

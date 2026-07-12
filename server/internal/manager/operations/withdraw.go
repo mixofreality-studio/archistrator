@@ -72,10 +72,7 @@ func (wf *workflows) WithdrawWorkflow(ctx workflow.Context, in withdrawInput) (W
 }
 
 // withdrawRuntime invokes operatedRuntimeAccess.withdraw (NotFound ⇒ success in the RA).
-// FIXME(file-layout): shared workflow-context helper — reachable from more than
-// one workflow's call tree; cannot legally live in operationsmanager.go (the
-// gate forbids workflow.Context funcs there). Placed in its first caller's file
-// pending a controller ruling. See task-C5-C9-report.md.
+// Shared workflow-context helper (used by 2 workflows); lives in its first caller's file per the file-layout standard.
 func (wf *workflows) withdrawRuntime(ctx workflow.Context, appID operatedAppID) error {
 	return wf.Acts.OperatedRuntimeWithdraw(ctx, appID)
 }

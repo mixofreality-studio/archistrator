@@ -65,10 +65,7 @@ func isTerminalReadBack(err error) (string, bool) {
 // readProject runs the generated designSessionAccess.readProjectOnBranch invoker (branch
 // "" ⇒ main) and returns the whole head-state aggregate. A brand-new project surfaces
 // fwra.NotFound (see isReadNotFound).
-// FIXME(file-layout): shared workflow-context helper — reachable from more than
-// one workflow's call tree; cannot legally live in systemdesignmanager.go (the
-// gate forbids workflow.Context funcs there). Placed in its first caller's file
-// pending a controller ruling. See task-C5-C9-report.md.
+// Shared workflow-context helper (used by 3 workflows); lives in its first caller's file per the file-layout standard.
 func (wf *workflows) readProject(ctx workflow.Context, projectID ProjectID) (projectstate.Project, error) {
 	pe, err := wf.Acts.DesignSessionReadProjectOnBranch(ctx, projectstate.ProjectID(projectID), "")
 	if err != nil {
@@ -83,10 +80,7 @@ func (wf *workflows) readProject(ctx workflow.Context, projectID ProjectID) (pro
 // (see isReadNotFound), identical to readProject's absence semantics. Replaces the
 // wasteful whole-aggregate read that shipped the entire encoded Project across the
 // Temporal Activity boundary for a uint64.
-// FIXME(file-layout): shared workflow-context helper — reachable from more than
-// one workflow's call tree; cannot legally live in systemdesignmanager.go (the
-// gate forbids workflow.Context funcs there). Placed in its first caller's file
-// pending a controller ruling. See task-C5-C9-report.md.
+// Shared workflow-context helper (used by 3 workflows); lives in its first caller's file per the file-layout standard.
 func (wf *workflows) readVersion(ctx workflow.Context, projectID ProjectID) (projectstate.Version, error) {
 	return wf.Acts.ProjectStateReadProjectVersion(ctx, projectstate.ProjectID(projectID))
 }
@@ -98,10 +92,7 @@ func (wf *workflows) readVersion(ctx workflow.Context, projectID ProjectID) (pro
 // This is the fix for QA F29: a Conflict on a branch mutation that re-read main could
 // never converge (main's version never catches up to the branch's), wedging the bounded
 // loop into a non-retryable MutateConflictExhausted crash.
-// FIXME(file-layout): shared workflow-context helper — reachable from more than
-// one workflow's call tree; cannot legally live in systemdesignmanager.go (the
-// gate forbids workflow.Context funcs there). Placed in its first caller's file
-// pending a controller ruling. See task-C5-C9-report.md.
+// Shared workflow-context helper (used by 3 workflows); lives in its first caller's file per the file-layout standard.
 func (wf *workflows) readVersionOnBranch(ctx workflow.Context, projectID ProjectID, branch string) (projectstate.Version, error) {
 	if branch == "" {
 		return wf.readVersion(ctx, projectID)
@@ -118,10 +109,7 @@ func (wf *workflows) readVersionOnBranch(ctx workflow.Context, projectID Project
 // targets so the Conflict re-read reads the RIGHT version (the session branch for a
 // review-window branch mutation, main for a main mutation) — see readVersionOnBranch (QA
 // F29). branch=="" is the original main-only behavior every existing caller relied on.
-// FIXME(file-layout): shared workflow-context helper — reachable from more than
-// one workflow's call tree; cannot legally live in systemdesignmanager.go (the
-// gate forbids workflow.Context funcs there). Placed in its first caller's file
-// pending a controller ruling. See task-C5-C9-report.md.
+// Shared workflow-context helper (used by 3 workflows); lives in its first caller's file per the file-layout standard.
 func (wf *workflows) applyRecovering(
 	ctx workflow.Context,
 	projectID ProjectID,
@@ -2275,10 +2263,7 @@ func (wf *workflows) mintCred(ctx workflow.Context, repoRef sourcecontrol.RepoRe
 // designSessionAccess.readProjectOnBranch invoker (B10) for both cases; branch=="" is
 // short-circuited to readProject (its own DesignSessionReadProjectOnBranch call) so the
 // two collapse to the SAME activity registration, matching pre-migration behavior.
-// FIXME(file-layout): shared workflow-context helper — reachable from more than
-// one workflow's call tree; cannot legally live in systemdesignmanager.go (the
-// gate forbids workflow.Context funcs there). Placed in its first caller's file
-// pending a controller ruling. See task-C5-C9-report.md.
+// Shared workflow-context helper (used by 3 workflows); lives in its first caller's file per the file-layout standard.
 func (wf *workflows) readProjectOnBranch(ctx workflow.Context, projectID ProjectID, branch string) (projectstate.Project, error) {
 	if branch == "" {
 		return wf.readProject(ctx, projectID)

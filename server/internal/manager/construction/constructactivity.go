@@ -1399,10 +1399,7 @@ type phaseDecisionSignal struct {
 	Feedback *ReviewFeedback
 }
 
-// FIXME(file-layout): shared workflow-context helper — reachable from more than
-// one workflow's call tree; cannot legally live in constructionmanager.go (the gate
-// forbids workflow.Context funcs there). Placed in its first caller's file
-// pending a controller ruling. See task-C5-C9-report.md.
+// Shared workflow-context helper (used by 2 workflows); lives in its first caller's file per the file-layout standard.
 // readVersionE runs the cheap ReadProjectVersion GENERATED invoker (B8: migrated off the
 // custom ReadProjectVersionActivity) and returns ONLY the head-state optimistic-
 // concurrency token, surfacing errors (including the brand-new project's fwra.NotFound)
@@ -1414,10 +1411,7 @@ func (wf *workflows) readVersionE(ctx workflow.Context, projectID ProjectID) (pr
 	return wf.Acts.ProjectStateReadProjectVersion(ctx, projectstate.ProjectID(projectID))
 }
 
-// FIXME(file-layout): shared workflow-context helper — reachable from more than
-// one workflow's call tree; cannot legally live in constructionmanager.go (the gate
-// forbids workflow.Context funcs there). Placed in its first caller's file
-// pending a controller ruling. See task-C5-C9-report.md.
+// Shared workflow-context helper (used by 2 workflows); lives in its first caller's file per the file-layout standard.
 // readVersion reads the current head Version (0 for a brand-new project or on any
 // read error — the read-your-writes seed treats absence as version 0).
 func (wf *workflows) readVersion(ctx workflow.Context, projectID ProjectID) projectstate.Version {
@@ -1428,10 +1422,7 @@ func (wf *workflows) readVersion(ctx workflow.Context, projectID ProjectID) proj
 	return v
 }
 
-// FIXME(file-layout): shared workflow-context helper — reachable from more than
-// one workflow's call tree; cannot legally live in constructionmanager.go (the gate
-// forbids workflow.Context funcs there). Placed in its first caller's file
-// pending a controller ruling. See task-C5-C9-report.md.
+// Shared workflow-context helper (used by 2 workflows); lives in its first caller's file per the file-layout standard.
 // applyRecovering executes one head-state mutation Activity with a workflow-level
 // Conflict re-read→re-apply loop (§6.5; identical discipline to systemdesign).
 func (wf *workflows) applyRecovering(

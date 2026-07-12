@@ -64,10 +64,7 @@ func (wf *workflows) SystemDesignPhaseWorkflow(ctx workflow.Context, in phaseInp
 
 // runPhaseAdvance is the shared seal gate body, called by both the standalone
 // PhaseAdvanceWorkflow and the parent SystemDesignPhaseWorkflow.
-// FIXME(file-layout): shared workflow-context helper — reachable from more than
-// one workflow's call tree; cannot legally live in systemdesignmanager.go (the
-// gate forbids workflow.Context funcs there). Placed in its first caller's file
-// pending a controller ruling. See task-C5-C9-report.md.
+// Shared workflow-context helper (used by 2 workflows); lives in its first caller's file per the file-layout standard.
 func (wf *workflows) runPhaseAdvance(ctx workflow.Context, projectID ProjectID) (PhaseAdvanceResult, error) {
 	var proj projectstate.Project
 	if p, err := wf.readProject(ctx, projectID); err != nil {

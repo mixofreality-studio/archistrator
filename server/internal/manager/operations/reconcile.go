@@ -156,10 +156,7 @@ func (wf *workflows) reconcileOne(ctx workflow.Context, app operatedsystemstate.
 // readInFlightOperatedApps invokes operatedSystemStateAccess.readInFlightOperatedApps.
 // Task 4: the former Manager-local operatedSystemSummary/inFlightScope mirrors are
 // retired in favor of the invoker's contract types directly.
-// FIXME(file-layout): shared workflow-context helper — reachable from more than
-// one workflow's call tree; cannot legally live in operationsmanager.go (the
-// gate forbids workflow.Context funcs there). Placed in its first caller's file
-// pending a controller ruling. See task-C5-C9-report.md.
+// Shared workflow-context helper (used by 2 workflows); lives in its first caller's file per the file-layout standard.
 func (wf *workflows) readInFlightOperatedApps(ctx workflow.Context, scope operatedsystemstate.InFlightScope) ([]operatedsystemstate.OperatedSystemSummary, error) {
 	return wf.Acts.OperatedSystemStateReadInFlightOperatedApps(ctx, scope)
 }
@@ -168,10 +165,7 @@ func (wf *workflows) readInFlightOperatedApps(ctx workflow.Context, scope operat
 // canonicalizing the observed operatedruntime.RuntimeStatus into the
 // operatedsystemstate.RuntimeStatus vocabulary via the surviving DIVERGENT converter
 // (runtimeStatusFromRuntime — two RAs' independently generated enums).
-// FIXME(file-layout): shared workflow-context helper — reachable from more than
-// one workflow's call tree; cannot legally live in operationsmanager.go (the
-// gate forbids workflow.Context funcs there). Placed in its first caller's file
-// pending a controller ruling. See task-C5-C9-report.md.
+// Shared workflow-context helper (used by 2 workflows); lives in its first caller's file per the file-layout standard.
 func (wf *workflows) getApplicationHealth(ctx workflow.Context, appID operatedAppID) (operatedsystemstate.RuntimeStatus, error) {
 	s, err := wf.Acts.OperatedRuntimeGetApplicationHealth(ctx, appID)
 	if err != nil {
@@ -182,10 +176,7 @@ func (wf *workflows) getApplicationHealth(ctx workflow.Context, appID operatedAp
 
 // getSloStatus invokes operatedRuntimeAccess.getSloStatus (pure read). Task 4: the
 // former Manager-local sloStatusSeam mirror is retired.
-// FIXME(file-layout): shared workflow-context helper — reachable from more than
-// one workflow's call tree; cannot legally live in operationsmanager.go (the
-// gate forbids workflow.Context funcs there). Placed in its first caller's file
-// pending a controller ruling. See task-C5-C9-report.md.
+// Shared workflow-context helper (used by 2 workflows); lives in its first caller's file per the file-layout standard.
 func (wf *workflows) getSloStatus(ctx workflow.Context, appID operatedAppID) (operatedruntime.SloStatus, error) {
 	return wf.Acts.OperatedRuntimeGetSloStatus(ctx, appID)
 }
@@ -194,10 +185,7 @@ func (wf *workflows) getSloStatus(ctx workflow.Context, appID operatedAppID) (op
 // read). The Manager pins the window to a default (open) window here; the RA attributes
 // since last observation. Task 4: the former Manager-local computeAttribution mirror is
 // retired.
-// FIXME(file-layout): shared workflow-context helper — reachable from more than
-// one workflow's call tree; cannot legally live in operationsmanager.go (the
-// gate forbids workflow.Context funcs there). Placed in its first caller's file
-// pending a controller ruling. See task-C5-C9-report.md.
+// Shared workflow-context helper (used by 2 workflows); lives in its first caller's file per the file-layout standard.
 func (wf *workflows) readComputeAttribution(ctx workflow.Context, appID operatedAppID) (operatedruntime.ComputeAttribution, error) {
 	return wf.Acts.OperatedRuntimeReadComputeAttribution(ctx, appID, operatedruntime.AttributionWindow{})
 }
@@ -212,10 +200,7 @@ func (wf *workflows) recordComputeUsage(ctx workflow.Context, appID operatedAppI
 // usageEvent assembles one contract UsageEvent from an observed attribution. The
 // RuntimeEventID is the append-only ledger's dedup token (usageAccess.md §2/§3).
 // OccurredAt is read from the deterministic workflow clock (replay-safe).
-// FIXME(file-layout): shared workflow-context helper — reachable from more than
-// one workflow's call tree; cannot legally live in operationsmanager.go (the
-// gate forbids workflow.Context funcs there). Placed in its first caller's file
-// pending a controller ruling. See task-C5-C9-report.md.
+// Shared workflow-context helper (used by 2 workflows); lives in its first caller's file per the file-layout standard.
 func (wf *workflows) usageEvent(ctx workflow.Context, appID operatedAppID, attribution operatedruntime.ComputeAttribution) usage.UsageEvent {
 	return usage.UsageEvent{
 		OperatedAppID:  appID,
