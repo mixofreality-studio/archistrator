@@ -1003,11 +1003,16 @@ const GoVersion = "1.25.0"
 // FrameworkGoVersion is the PINNED framework-go module version the seated go.mod
 // requires. The user repo's `go test` must RESOLVE github.com/mixofreality-studio/archistrator-platform/framework-go
 // at this version (published/tagged, or served via GOPROXY) — see the founder
-// checklist. framework-go/v0.4.4 is published (C4-aware deployment model +
-// methodcheck conformance, including the state-validation rule twins), so the seated
-// gate resolves it from GOPROXY without a local replace. Updated here when framework-go
-// is tagged.
-const FrameworkGoVersion = "v0.4.4"
+// checklist. framework-go/v0.5.2 is published (the layer file-layout standard
+// gate — TestFileLayout — plus the v0.5.1 methodcheck shared-goPackage align
+// join and the v0.5.2 FileLayout entry-func semantics fix), so newly seated
+// consumer repos resolve it from GOPROXY without a local replace and inherit
+// the gate immediately. EXISTING consumer repos keep their own seated pin
+// unchanged by this bump — they adopt the gate only when THEY bump
+// framework-go, and their layer packages may need the same file-layout
+// migration this app repo just went through, at that time. Updated here when
+// framework-go is tagged.
+const FrameworkGoVersion = "v0.5.2"
 
 // StateMcpModulePath is the Go package path of the local stdio project-state MCP server
 // the DESIGN workflow launches inside the GitHub Actions job (cmd/aiarch-state-mcp). The

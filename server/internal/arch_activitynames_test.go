@@ -51,9 +51,15 @@ const registerWithOptionsMsg = "%s:%d: direct call to %s outside the generated w
 //
 // Exclusions are keyed off the path so they are table-testable too: *.gen.go
 // and *_test.go files are skipped entirely (generated / allowed to construct
-// fake registrations); the Register*WithOptions rule additionally exempts
-// workermanifest.go (the hand bridge that declares genRegisteredActivity
-// Name+Fn pairs but never itself calls Register*WithOptions).
+// fake registrations). There is no remaining hand-file exemption for the
+// Register*WithOptions rule: the workermanifest.go bridge that used to declare
+// genRegisteredActivity Name+Fn pairs was folded into <pkg>manager.go during
+// the framework-go v0.5.x migration, and the platform's own FileLayout +
+// registration checks now cover hand registration too — so this app-level
+// rule goes strictly tighter (no hand file may call Register*WithOptions at
+// all) without going red; verified via `grep -rn
+// "RegisterActivityWithOptions\|RegisterWorkflowWithOptions"` finding no hits
+// outside *.gen.go before this exemption was pruned.
 func findNoStringActivityViolations(files map[string]string) []string {
 	var violations []string
 	paths := make([]string, 0, len(files))
@@ -67,7 +73,6 @@ func findNoStringActivityViolations(files map[string]string) []string {
 		if strings.HasSuffix(base, ".gen.go") || strings.HasSuffix(base, "_test.go") {
 			continue
 		}
-		isManifest := base == "workermanifest.go"
 
 		fset := token.NewFileSet()
 		f, err := parser.ParseFile(fset, path, files[path], 0)
@@ -89,7 +94,7 @@ func findNoStringActivityViolations(files map[string]string) []string {
 				violations = append(violations, v)
 				return true
 			}
-			if v := checkRegisterCall(sel, call, isManifest, files[path], fset, path); v != "" {
+			if v := checkRegisterCall(sel, call, files[path], fset, path); v != "" {
 				violations = append(violations, v)
 				return true
 			}
@@ -127,13 +132,10 @@ func checkExecuteActivityCall(sel *ast.SelectorExpr, call *ast.CallExpr, src str
 }
 
 // checkRegisterCall examines a Register*WithOptions call and returns a
-// violation message if it's called outside generated files or the manifest.
-func checkRegisterCall(sel *ast.SelectorExpr, call *ast.CallExpr, isManifest bool, src string, fset *token.FileSet, path string) string {
+// violation message if it's called outside generated files.
+func checkRegisterCall(sel *ast.SelectorExpr, call *ast.CallExpr, src string, fset *token.FileSet, path string) string {
 	switch sel.Sel.Name {
 	case "RegisterActivityWithOptions", "RegisterWorkflowWithOptions":
-		if isManifest {
-			return ""
-		}
 		pos := fset.Position(sel.Sel.Pos())
 		return fmt.Sprintf(registerWithOptionsMsg,
 			path, pos.Line, sel.Sel.Name, snippet(src, fset, call))
@@ -243,12 +245,6 @@ func x() {
 			want: 1,
 		},
 		{
-			name: "Register*WithOptions inside workermanifest.go is exempt",
-			path: "billing/workermanifest.go",
-			src:  "package p\nfunc x() { w.RegisterActivityWithOptions(fn, activity.RegisterOptions{Name: \"x\"}) }\n",
-			want: 0,
-		},
-		{
 			name: "generated file is skipped entirely",
 			path: "invokers.gen.go",
 			src:  "package p\nfunc x() { workflow.ExecuteActivity(ctx, \"fooAccess.bar\", arg) }\n",
@@ -286,10 +282,12 @@ func x() {
 // internal/manager/**/*.go (excluding *.gen.go and *_test.go, which are
 // generated/allowed to construct fake registrations respectively) and fails the
 // build the moment a hand file invokes an activity by anything other than a
-// method value, or registers one directly. workermanifest.go is in scope like
-// every other hand file — it builds the genWorkerManifest by NAME+method-value
-// pairs (genRegisteredActivity{Name: ..., Fn: wf.XActivity}), which this checker
-// does not flag; it never itself calls ExecuteActivity or Register*WithOptions.
+// method value, or registers one directly. Every hand file is in scope,
+// including the folded <pkg>manager.go files that build the genWorkerManifest
+// by NAME+method-value pairs (genRegisteredActivity{Name: ..., Fn:
+// wf.XActivity}) — that construction does not itself call ExecuteActivity or
+// Register*WithOptions, so it passes this checker without needing an
+// exemption.
 func TestNoHandTemporalStringActivityNames(t *testing.T) {
 	root := filepath.Join("manager")
 	files := map[string]string{}

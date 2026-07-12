@@ -46,6 +46,13 @@ func TestMethodLayering(t *testing.T) {
 	arch.Check(t, appArchSpec())
 }
 
+// TestFileLayout enforces the 2026-07-11 layer file-layout standard (one impl
+// file, one file per workflow, one test file, generated-only otherwise) —
+// docs/superpowers/specs/2026-07-11-layer-file-layout-standard-design.md.
+func TestFileLayout(t *testing.T) {
+	arch.CheckFileLayout(t, appArchSpec())
+}
+
 // appArchSpec is the app's Method layer model — the SINGLE source of truth shared by
 // the standalone layer/encapsulation tests here AND the full methodcheck.Check gate
 // in method_design_test.go (so the app validates its architecture ONE way, not two
@@ -369,7 +376,6 @@ var encapsulationAllowlistData = map[string][]string{
 		"EncodeProject",
 		"EncodeProjectJSON",
 		"Error",
-		"GitActivityConstructionAccess",
 		"GitActivityStatusAccess",
 		"GitConstructionTransitionAccess",
 		"GitProjectStateAccess",
