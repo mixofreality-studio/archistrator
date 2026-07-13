@@ -397,7 +397,7 @@ Full content of `mission-draft.md` (the canonical instance — write it exactly 
 5. **Finish** with `publishDraft` (exactly once). Do not open PRs, do not merge, do not touch phase status — the server owns the loop.
 ```
 
-Generate the other 16 by substituting three fields; everything else is identical:
+Generate the other 15 by substituting three fields; everything else is identical EXCEPT step 1's research clause: the `listResearchSources`/`getResearchSource` fragment appears ONLY in mission-draft (the Go kind-switch grants research access solely to KindMission, coauthorartifact.go:2510; downstream kinds draft from committed slots) — the other 15 open step 1 with `getCommittedSlot` directly:
 
 | Command file | H1 + blockquote artifact phrase | Skill wikilink | Basis note appended to step 1 |
 |---|---|---|---|
