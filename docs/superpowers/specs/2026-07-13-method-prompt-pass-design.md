@@ -201,6 +201,21 @@ to all roles; scoping is about write authority.
 | software-tester | `recordTestingState`, `publishDraft`, `respondToReviewComment` | testRun/defect fields |
 | qa-engineer | `recordTestingState`, `publishDraft`, `respondToReviewComment` | qualityGate/audit fields |
 
+**Amendment 2026-07-13 (final branch review):** the original table was
+incomplete against the 30 construction commands' record steps — 18 commands
+instruct writes their role lacked. Grants extended to match command reality,
+each with a field-scoping prose line: system-architect + senior-developer +
+test-engineer + software-tester + qa-engineer + project-manager gain
+`recordPhaseArtifact` (integration notes / SRS / test plans / provisioning
+spec per their commands); system-architect gains `recordServiceContract`
+(the service-detailed-design SA-assignment path). A module test now enforces
+command-verbs ⊆ agent-grants so the two layers can never contradict again.
+
+**Amendment 2 (same review):** construction commands/agents/skills still
+carry archistrator-repo layout (`server/internal/...`, `research/...` book
+links) — EARMARKED for Plan 2's venue switch: normalize to app-module-root
+language before construction dispatches into app repos.
+
 **Known coarseness (accepted):** frontmatter cannot split one verb's fields
 (`recordTestingState` across the three testing roles) or `putDraftModel` per
 kind. Those stay governed by server-side job-mode ambient scoping plus agent
