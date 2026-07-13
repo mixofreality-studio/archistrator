@@ -730,6 +730,8 @@ git add -A method-assets && git commit -m "feat(method-assets): thin-prompt desi
 
 ### Task 9: Scaffold templates + `ScaffoldFiles(data)`
 
+> CORRECTIONS (verified during implementation): (1) `project.json.tmpl` is DROPPED — `projectStateAccess.CreateProject` seeds the repo's project.json at Version 1 (projectstateaccess.go:516); the scaffold must not double-write it. `ScaffoldFiles` output excludes `.aiarch/state/project.json`. (2) go.mod `tool` directives cover only the CLIs that exist: `framework-go-http-generator/cmd/httpgen`, `framework-go-mcp-generator/cmd/mcpgen`; app-generator/modelgen tool lines are EARMARKED pending platform cmd wrappers (no such mains exist — a seeded directive breaks go mod tidy).
+
 **Files:**
 - Create: `method-assets/assets/scaffold/go.mod.tmpl`, `assets/scaffold/aiarch_method_test.go.tmpl` (copy from `$ARCH/server/internal/resourceaccess/sourcecontrol/assets/aiarch_method_test.go.tmpl`), `assets/scaffold/project.json.tmpl`
 - Create: `method-assets/scaffold.go`

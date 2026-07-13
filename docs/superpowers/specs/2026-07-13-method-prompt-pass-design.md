@@ -49,8 +49,11 @@ A Go module that owns **every file seated into an app repo**, embedded via
   archistrator-local; the dead structurizr hook/scripts are deleted, §7)
 - `workflows/aiarch-design.yml.tmpl` and `workflows/aiarch-construct.yml.tmpl`
 - `go.mod.tmpl`, `aiarch_method_test.go.tmpl`
-- `project.json.tmpl` — seed state: `id`/`name`/`owner`, `phase: 0`, empty
-  `slots` (fixes "empty project.json id blocks local catalog")
+- ~~`project.json.tmpl`~~ DROPPED (2026-07-13 implementation finding):
+  `projectStateAccess.CreateProject` already seeds the repo's `project.json`
+  at Version 1 (projectstateaccess.go:516, git-as-DB) — the scaffold must not
+  double-write a server-owned path. The "empty project.json id" annoyance was
+  archistrator-local, not an app-repo gap.
 
 **API:**
 
@@ -226,10 +229,12 @@ proposal; local and platform-funded modes remain future work.
 ## 6. go.mod template
 
 - `require github.com/mixofreality-studio/archistrator-platform/framework-go v0.5.2`
-- Go 1.25 `tool` directives (CLIs — plain requires with no imports would be
-  stripped by `go mod tidy`): `framework-go-app-generator v0.6.1`,
-  `framework-go-http-generator v0.3.0`, `framework-go-mcp-generator v0.2.0`,
-  `framework-go-projectmodel v0.2.1`.
+- Go 1.25 `tool` directives for the generator CLIs that actually ship `cmd/`
+  mains today: `framework-go-http-generator/cmd/httpgen v0.3.0`,
+  `framework-go-mcp-generator/cmd/mcpgen v0.2.0`. EARMARK (2026-07-13):
+  app-generator and projectmodel expose only library packages — their tool
+  directives land when the platform ships CLI wrappers; a seeded directive
+  today would break `go mod tidy` in every new app.
 - Infra modules (postgres/temporal/keycloak/otel/github/llm) still arrive via
   generated code when needed.
 
