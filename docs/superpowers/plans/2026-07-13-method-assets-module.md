@@ -339,16 +339,18 @@ git add -A method-assets && git commit -m "feat(method-assets): merge Phase-2 Go
 
 ---
 
-### Task 5: The 17 per-kind draft commands
+### Task 5: The 16 per-kind draft commands
+
+> CORRECTION (found during Task 4): `KindSdpReview` is REJECTED at the coauthor workflow façade (`coauthorphase2artifact.go:234`) — the SDP review is assembled server-side by `AssembleSDPReviewWorkflow`, never dispatched as a CI draft job. `sdp-review-draft` is therefore dropped (it could never be dispatched). Counts below adjusted 17→16, 52→51; Task 6 total 57→56.
 
 **Files:**
-- Create: `method-assets/assets/claude/commands/<name>.md` × 17 (names in the table)
-- Test: extend `TestClaudeFilesInventory` (commands 35 → 52)
+- Create: `method-assets/assets/claude/commands/<name>.md` × 16 (names in the table)
+- Test: extend `TestClaudeFilesInventory` (commands 35 → 51)
 
 **Interfaces:**
-- Produces: command names consumed verbatim by Plan 2's `DesignCommandFor(kind, mode)`: `mission-draft`, `glossary-draft`, `scrubbed-requirements-draft`, `volatilities-draft`, `core-use-cases-draft`, `system-draft`, `operational-concepts-draft`, `standard-check-draft`, `planning-assumptions-draft`, `activity-list-draft`, `network-draft`, `normal-solution-draft`, `subcritical-solution-draft`, `decompressed-solution-draft`, `compressed-solution-draft`, `risk-model-draft`, `sdp-review-draft`.
+- Produces: command names consumed verbatim by Plan 2's `DesignCommandFor(kind, mode)`: `mission-draft`, `glossary-draft`, `scrubbed-requirements-draft`, `volatilities-draft`, `core-use-cases-draft`, `system-draft`, `operational-concepts-draft`, `standard-check-draft`, `planning-assumptions-draft`, `activity-list-draft`, `network-draft`, `normal-solution-draft`, `subcritical-solution-draft`, `decompressed-solution-draft`, `compressed-solution-draft`, `risk-model-draft`.
 
-- [ ] **Step 1: Update the inventory test** to `want 52` commands and add:
+- [ ] **Step 1: Update the inventory test** to `want 51` commands and add:
 
 ```go
 func TestDesignDraftCommandsExist(t *testing.T) {
@@ -360,7 +362,7 @@ func TestDesignDraftCommandsExist(t *testing.T) {
 		"planning-assumptions-draft", "activity-list-draft", "network-draft",
 		"normal-solution-draft", "subcritical-solution-draft",
 		"decompressed-solution-draft", "compressed-solution-draft",
-		"risk-model-draft", "sdp-review-draft",
+		"risk-model-draft",
 	} {
 		if _, ok := files[".claude/commands/"+name+".md"]; !ok {
 			t.Errorf("missing draft command %s", name)
@@ -414,7 +416,6 @@ Generate the other 16 by substituting three fields; everything else is identical
 | decompressed-solution-draft | **Decompressed-Normal Solution** | [[the-method-decompressed-solution]] | basis: `.normalSolution` + its risk |
 | compressed-solution-draft | **Compressed Solution** | [[the-method-compressed-solution]] | basis: `.normalSolution`, `.network`, `.planningAssumptions` |
 | risk-model-draft | **Risk Model** | [[the-method-risk-modeling]] | basis: all four solution options |
-| sdp-review-draft | **SDP Review** | [[the-method-sdp-review]] | basis: all Phase-2 slots + `.mission`, `.systemDesign` |
 
 For Phase-2 commands (planning-assumptions-draft onward) the agent line stays `system-architect`; add one sentence after it: "The **`project-manager`** agent's constraint data is already committed in the basis slots — you design; the PM slot-ownership rules in [[the-method-network-draft]] still apply."
 
@@ -433,13 +434,13 @@ git add -A method-assets && git commit -m "feat(method-assets): 17 per-kind desi
 **Files:**
 - Create: `assets/claude/commands/mission-critique.md`, `glossary-critique.md`, `scrubbed-requirements-critique.md`, `core-use-cases-critique.md`, `design-answer.md`
 - Modify: `assets/claude/agents/product-manager.md` (critique discipline section)
-- Test: extend inventory test (commands 52 → 57) + names test
+- Test: extend inventory test (commands 51 → 56) + names test
 
 **Interfaces:**
 - Consumes: Go `pmCritiquePrompt` at `coauthorartifact.go:2593` and `answerPrompt` at `systemdesignmanager.go:1796` / `projectdesignmanager.go:1560` (read for content to preserve).
 - Produces: command names for Plan 2: `mission-critique`, `glossary-critique`, `scrubbed-requirements-critique`, `core-use-cases-critique`, `design-answer`.
 
-- [ ] **Step 1: Extend tests** (inventory `want 57`; add the 5 names to a `TestDesignReviewCommandsExist` copy of the Task 5 test). Run → FAIL.
+- [ ] **Step 1: Extend tests** (inventory `want 56`; add the 5 names to a `TestDesignReviewCommandsExist` copy of the Task 5 test). Run → FAIL.
 
 - [ ] **Step 2: Write `mission-critique.md`** (canonical instance):
 
