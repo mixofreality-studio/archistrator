@@ -262,8 +262,8 @@ For each kind, open the target skill and add a section `## Draft-job doctrine (C
 | ScrubbedRequirements | the-method-requirements-analysis (own subsection) | — |
 | Volatilities | the-method-volatility-identification | — |
 | CoreUseCases | the-method-core-use-cases | full `activityDiagramGuide` text as a `### Activity diagram rules` subsection |
-| System | the-method-architecture | `operatingModelDeploymentConstraint` variants as `### Operating-model deployment constraint` (present each operating-model case with its constraint text and when it applies) |
-| OperationalConcepts | the-method-operational-concepts | — |
+| System | the-method-architecture | — |
+| OperationalConcepts | the-method-operational-concepts | `operatingModelDeploymentConstraint` variants as `### Operating-model deployment constraint` — the Go source gates this on `KindOperationalConcepts` (coauthorartifact.go:2551), corrected from an earlier draft of this table |
 | StandardCheck | the-method-system-design-standard-check | — |
 
 Rules: if the skill already states a doctrine sentence (several overlap), keep ONE copy — prefer the Go wording where it is stricter (e.g. the Mission body's "you MUST NOT use the words component, module, service…" list). Do NOT copy the `architectHeader`/`pmHeader` MCP-mechanics sentences — [[the-method-project-state]] already teaches the tool flow; the commands (Task 5) reference it.
