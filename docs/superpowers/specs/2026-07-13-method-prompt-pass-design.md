@@ -265,6 +265,62 @@ proposal; local and platform-funded modes remain future work.
    amendment with the improved prompts; drain in-flight workflows before
    deploying server changes.
 
+## 9. Honest role-driven loading states
+
+**Requirement (founder):** loading screens must say who is doing what —
+"Architect is crafting the vision and mission statement", then "Product
+manager is reviewing the vision and mission statement" — driven by the
+workflow's REAL state, never simulated.
+
+**What exists:** the design-session workflow exposes a Temporal-queried
+`SessionStateView.Stage` (drafting / awaitingReview / redrafting / committed /
+withdrawn / refused / draftFailed; Phase 2 adds assemblingSdp) that the SPA
+polls (`useSessionState` → `GeneratingScene`). The stage is too coarse to
+distinguish the architect's draft dispatch from the PM's critique dispatch —
+both report `drafting`/`redrafting`. QA F15 already removed a fake wall-clock
+phase ticker from `GeneratingScene`; that honesty bar is binding here.
+
+**Change — server:**
+
+- Extend the session-state contract (schema-first: contract change →
+  regenerated Go + TS) with sub-step fields on `SessionStateView`:
+  - `activeRole`: `none | architect | productManager`
+  - `activeStep`: `none | drafting | critiquing | revising`
+  - `round`: the current review round (int)
+- The workflow sets these at **dispatch boundaries only** — immediately before
+  submitting a pipeline job (it knows the job_mode and therefore the role) and
+  clears/advances them when it observes completion. No timers, no inference.
+  Transitions: draft dispatch → (architect, drafting); critique dispatch →
+  (productManager, critiquing); redraft dispatch → (architect, revising,
+  round N); awaitingReview / terminal stages → (none, none).
+- Mirror in the Phase-2 projectdesign session workflow (no critique step
+  there; architect-only labels, plus assemblingSdp).
+
+**Change — webApp:**
+
+- `GeneratingScene` renders the role-driven status line from the polled
+  sub-step: `RoleAvatar` (exists) + verb + per-kind display phrase, e.g.
+  "Architect is crafting the vision and mission statement", "Product manager
+  is reviewing the vision and mission statement", "Architect is revising the
+  vision and mission statement (round 2)". Kind → display-phrase map lives
+  with the existing artifact-name mapping in the SPA.
+- The indeterminate pulse and the tracked-CI-job affordance stay. When
+  sub-step fields are absent/`none` (e.g. old server), the scene falls back to
+  today's honest "DRAFTING…" — never a fabricated role line.
+- `awaitingReview` is not a loading state (it is the founder's turn) and is
+  unaffected.
+
+**Construction rail:** construction dispatch inputs already carry `role` +
+`command` + `component_id`; the supervision surface applies the same labeling
+scheme from observed pipeline state ("Junior developer is constructing
+NotificationEngine") — same honesty rule: labels derive from the dispatched
+run the server actually observes, no simulated progress.
+
+**Tests:** manager unit tests assert the sub-step transition sequence across a
+draft → critique → revise → approve session (including draftFailed clearing
+to `none`); a webApp test asserts the scene copy for each (role, step) pair
+and the fallback when sub-step is absent.
+
 ## Out of scope
 
 - Local and platform-funded construction venues (multi-venue rev 2 remainder).
