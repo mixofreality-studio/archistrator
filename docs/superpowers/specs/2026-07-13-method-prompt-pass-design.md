@@ -166,8 +166,11 @@ no anti-thrash doctrine. The critique commands/skills gain:
 `mission-critique`, `glossary-critique`, `scrubbed-requirements-critique`,
 `core-use-cases-critique`.
 
-**Answer** — one shared `design-answer` (kind-agnostic Q&A over the review
-ledger; deviation from strict per-kind, ratified in session).
+**Answer** — kind-agnostic Q&A over the review ledger (deviation from strict
+per-kind, ratified in session), split by addressee because the server's
+AskQuestions addresses questions to "pm" or "architect" and the roles carry
+different tool scopes: `design-answer` (system-architect) and
+`design-answer-pm` (product-manager).
 
 Each command is thin: names the agent, invokes its `the-method-*` skill, and
 walks read-basis → draft via `putDraftModel` → `respondToReviewComment` →

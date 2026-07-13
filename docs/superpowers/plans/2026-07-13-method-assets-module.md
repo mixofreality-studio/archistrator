@@ -177,7 +177,7 @@ func TestClaudeFilesInventory(t *testing.T) {
 	if agents != 10 {
 		t.Errorf("agents = %d, want 10", agents)
 	}
-	if commands != 35 { // grows to 56 in Tasks 5-6; update there
+	if commands != 35 { // grows to 57 in Tasks 5-6; update there
 		t.Errorf("commands = %d, want 35", commands)
 	}
 	if len(skills) != 27 {
@@ -429,18 +429,20 @@ git add -A method-assets && git commit -m "feat(method-assets): 17 per-kind desi
 
 ---
 
-### Task 6: Critique commands (4), `design-answer`, and anti-thrash doctrine
+### Task 6: Critique commands (4), `design-answer` + `design-answer-pm`, and anti-thrash doctrine
+
+> CORRECTION (found during Task 6): the Go answer job is addressee-parameterized — `AskQuestions` accepts addressee "pm" | "architect" (systemdesignmanager.go:1521). One architect-pinned answer command cannot serve PM-addressed questions, and the roles hold different tool scopes. Add `design-answer-pm.md` (product-manager agent, same steps, answers grounded in customer/business reality). Counts: 51 → 57.
 
 **Files:**
-- Create: `assets/claude/commands/mission-critique.md`, `glossary-critique.md`, `scrubbed-requirements-critique.md`, `core-use-cases-critique.md`, `design-answer.md`
+- Create: `assets/claude/commands/mission-critique.md`, `glossary-critique.md`, `scrubbed-requirements-critique.md`, `core-use-cases-critique.md`, `design-answer.md`, `design-answer-pm.md`
 - Modify: `assets/claude/agents/product-manager.md` (critique discipline section)
-- Test: extend inventory test (commands 51 → 56) + names test
+- Test: extend inventory test (commands 51 → 57) + names test
 
 **Interfaces:**
 - Consumes: Go `pmCritiquePrompt` at `coauthorartifact.go:2593` and `answerPrompt` at `systemdesignmanager.go:1796` / `projectdesignmanager.go:1560` (read for content to preserve).
-- Produces: command names for Plan 2: `mission-critique`, `glossary-critique`, `scrubbed-requirements-critique`, `core-use-cases-critique`, `design-answer`.
+- Produces: command names for Plan 2: `mission-critique`, `glossary-critique`, `scrubbed-requirements-critique`, `core-use-cases-critique`, `design-answer`, `design-answer-pm`.
 
-- [ ] **Step 1: Extend tests** (inventory `want 56`; add the 5 names to a `TestDesignReviewCommandsExist` copy of the Task 5 test). Run → FAIL.
+- [ ] **Step 1: Extend tests** (inventory `want 57`; add the 5 names to a `TestDesignReviewCommandsExist` copy of the Task 5 test). Run → FAIL.
 
 - [ ] **Step 2: Write `mission-critique.md`** (canonical instance):
 
