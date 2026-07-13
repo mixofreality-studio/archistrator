@@ -177,7 +177,7 @@ func TestClaudeFilesInventory(t *testing.T) {
 	if agents != 10 {
 		t.Errorf("agents = %d, want 10", agents)
 	}
-	if commands != 35 { // grows to 57 in Tasks 5-6; update there
+	if commands != 35 { // grows to 56 in Tasks 5-6; update there
 		t.Errorf("commands = %d, want 35", commands)
 	}
 	if len(skills) != 27 {
