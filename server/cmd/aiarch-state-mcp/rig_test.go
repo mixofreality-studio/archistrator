@@ -54,7 +54,7 @@ func TestRig_FullDraftCycleOverStdio(t *testing.T) {
 	for _, tl := range tools.Tools {
 		names[tl.Name] = true
 	}
-	for _, want := range []string{"listResearchSources", "getCommittedSlot", "getDraftSlot", "getReviewThread", "putDraftModel", "respondToReviewComment", "publishDraft"} {
+	for _, want := range []string{"listResearchSources", "getCommittedSlot", "getDraftSlot", "getReviewThread", "getCritique", "putDraftModel", "respondToReviewComment", "publishDraft"} {
 		if !names[want] {
 			t.Fatalf("draft-mode tool %q missing from tools/list: %v", want, names)
 		}

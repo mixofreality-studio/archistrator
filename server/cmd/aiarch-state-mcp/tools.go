@@ -143,6 +143,14 @@ func composedVerbs(s *Session) []composedVerb {
 				Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 			}, textHandler(func(context.Context, emptyInput) (string, error) { return s.getDraftSlot() }))
 		}},
+		{name: "getCritique", modes: all, register: func(srv *mcp.Server) {
+			mcp.AddTool(srv, &mcp.Tool{
+				Name: "getCritique",
+				Description: "Read the PM critique verdict + notes on the ambient artifact slot. On a redraft after a revise verdict, " +
+					"you MUST address these notes.",
+				Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+			}, textHandler(func(context.Context, emptyInput) (string, error) { return s.getCritique() }))
+		}},
 		{name: "getReviewThread", modes: all, register: func(srv *mcp.Server) {
 			mcp.AddTool(srv, &mcp.Tool{
 				Name: "getReviewThread",

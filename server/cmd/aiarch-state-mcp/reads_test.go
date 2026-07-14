@@ -81,3 +81,40 @@ func TestGetDraftSlotAndReviewThread(t *testing.T) {
 		t.Fatalf("expected from-scratch message, got %q, %v", msg, err)
 	}
 }
+
+func TestGetCritique(t *testing.T) {
+	// No critique recorded yet reports plainly.
+	s, _ := seedProject(t, minimalProject(), jobModeDraft, projectstate.KindVolatilities)
+	msg, err := s.getCritique()
+	if err != nil || !strings.Contains(msg, "No critique has been recorded") {
+		t.Fatalf("expected no-critique message, got %q, %v", msg, err)
+	}
+
+	// A revise verdict surfaces its notes.
+	p := minimalProject()
+	p.Volatilities = projectstate.ArtifactSlot{
+		Status:          projectstate.ReviewAwaitingReview,
+		Model:           &projectstate.Volatilities{Items: []projectstate.Volatility{{Name: "N", Rationale: "r", Axis: projectstate.AxisAllCustomersAtOneTime}}},
+		CritiqueVerdict: projectstate.CritiqueVerdictRevise,
+		CritiqueNotes:   "tighten the rationale for N",
+	}
+	s2, _ := seedProject(t, p, jobModeDraft, projectstate.KindVolatilities)
+	got, err := s2.getCritique()
+	if err != nil || !strings.Contains(got, "revise") || !strings.Contains(got, "tighten the rationale for N") {
+		t.Fatalf("getCritique(revise) = %q, %v", got, err)
+	}
+
+	// An approve verdict clears notes.
+	p2 := minimalProject()
+	p2.Volatilities = projectstate.ArtifactSlot{
+		Status:          projectstate.ReviewAwaitingReview,
+		Model:           &projectstate.Volatilities{Items: []projectstate.Volatility{{Name: "N", Rationale: "r", Axis: projectstate.AxisAllCustomersAtOneTime}}},
+		CritiqueVerdict: projectstate.CritiqueVerdictApprove,
+		CritiqueNotes:   "",
+	}
+	s3, _ := seedProject(t, p2, jobModeDraft, projectstate.KindVolatilities)
+	got2, err := s3.getCritique()
+	if err != nil || !strings.Contains(got2, "approve") || strings.Contains(got2, "tighten") {
+		t.Fatalf("getCritique(approve) = %q, %v", got2, err)
+	}
+}

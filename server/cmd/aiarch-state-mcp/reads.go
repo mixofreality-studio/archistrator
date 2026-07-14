@@ -95,6 +95,31 @@ func (s *Session) getDraftSlot() (string, error) {
 	return marshalModel(slot.Model)
 }
 
+// getCritique returns the ambient slot's PM-critique verdict + notes — the read-back
+// carrier setCritiqueVerdict writes (state.go:170-204). On a redraft after a "revise"
+// verdict, this is the only place the guidance is reachable under thin dispatch.
+func (s *Session) getCritique() (string, error) {
+	proj, _, err := s.readProject()
+	if err != nil {
+		return "", err
+	}
+	slot, ok := slotFor(&proj, s.Kind)
+	if !ok {
+		return "", fmt.Errorf("no slot for artifact kind %s", s.Kind)
+	}
+	if slot.CritiqueVerdict == "" {
+		return "No critique has been recorded on this slot.", nil
+	}
+	b, err := json.MarshalIndent(struct {
+		Verdict string `json:"verdict"`
+		Notes   string `json:"notes"`
+	}{Verdict: slot.CritiqueVerdict, Notes: slot.CritiqueNotes}, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
+}
+
 // getReviewThread returns the ambient slot's durable review ledger as JSON (each entry's
 // id / anchor / text / status / response). Empty when no reviewer comments exist. The
 // drafting agent MUST respond to every OPEN entry via respondToReviewComment.

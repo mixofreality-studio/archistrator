@@ -102,7 +102,7 @@ func TestRecordPhaseArtifact_MissingAmbientActivity(t *testing.T) {
 
 // TestConstructModeToolSet proves the construct fallback set: the three record verbs +
 // the ambient-independent reads + publishDraft, and NOT the design verbs (putDraftModel,
-// setCritiqueVerdict) nor the ambient-Kind reads (getDraftSlot, getReviewThread).
+// setCritiqueVerdict) nor the ambient-Kind reads (getDraftSlot, getReviewThread, getCritique).
 func TestConstructModeToolSet(t *testing.T) {
 	s := &Session{Mode: jobModeConstruct}
 	names := map[string]bool{}
@@ -116,7 +116,7 @@ func TestConstructModeToolSet(t *testing.T) {
 			t.Errorf("construct mode must expose %q", want)
 		}
 	}
-	for _, absent := range []string{"putDraftModel", "setCritiqueVerdict", "getDraftSlot", "getReviewThread"} {
+	for _, absent := range []string{"putDraftModel", "setCritiqueVerdict", "getDraftSlot", "getReviewThread", "getCritique"} {
 		if names[absent] {
 			t.Errorf("construct mode must NOT expose %q", absent)
 		}
