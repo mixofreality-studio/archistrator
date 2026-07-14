@@ -42,6 +42,12 @@ const OUTPUT_NAMES = {
   ProjectDesignReviewDecision: 'ReviewDecision',
   SystemDesignSeverity: 'Severity',
   ProjectDesignSeverity: 'Severity',
+  // ActiveRole / ActiveStep are byte-identical across both design managers
+  // (see DEDUPE_GROUPS) — the drafting sub-step the UI's role line reads.
+  SystemDesignActiveRole: 'ActiveRole',
+  ProjectDesignActiveRole: 'ActiveRole',
+  SystemDesignActiveStep: 'ActiveStep',
+  ProjectDesignActiveStep: 'ActiveStep',
   // distinct per-manager enums
   SystemDesignSessionStage: 'SessionStage',
   ProjectDesignSessionStage: 'ProjectSessionStage',
@@ -74,6 +80,8 @@ const DEDUPE_GROUPS = [
   ['SystemDesignArtifactKind', 'ProjectDesignArtifactKind'],
   ['SystemDesignReviewDecision', 'ProjectDesignReviewDecision'],
   ['SystemDesignSeverity', 'ProjectDesignSeverity'],
+  ['SystemDesignActiveRole', 'ProjectDesignActiveRole'],
+  ['SystemDesignActiveStep', 'ProjectDesignActiveStep'],
 ];
 
 /** Logical output names for which the mechanical derivation does NOT

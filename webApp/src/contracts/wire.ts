@@ -25,6 +25,10 @@
  */
 import type { components } from './schema';
 import {
+  ACTIVE_ROLE_ORDINAL_TO_APP,
+  type ActiveRole,
+  ACTIVE_STEP_ORDINAL_TO_APP,
+  type ActiveStep,
   ACTIVITY_TYPE_ORDINAL_TO_APP,
   ARTIFACT_KIND_APP_TO_ORDINAL,
   ARTIFACT_KIND_ORDINAL_TO_APP,
@@ -106,6 +110,16 @@ export function projectArtifactKindFromOrdinal(ordinal: number): ProjectArtifact
 
 function sessionStageFromOrdinal(ordinal: number): SessionStage {
   return SESSION_STAGE_ORDINAL_TO_APP[ordinal] ?? 'unknown';
+}
+
+/** ActiveRole (0 none,1 architect,2 productManager); old servers omit → none. */
+function activeRoleFromOrdinal(ordinal: number): ActiveRole {
+  return ACTIVE_ROLE_ORDINAL_TO_APP[ordinal] ?? 'none';
+}
+
+/** ActiveStep (0 none,1 drafting,2 critiquing,3 revising); old servers omit → none. */
+function activeStepFromOrdinal(ordinal: number): ActiveStep {
+  return ACTIVE_STEP_ORDINAL_TO_APP[ordinal] ?? 'none';
 }
 
 function projectPhaseFromOrdinal(ordinal: number): ProjectPhase {
@@ -464,6 +478,9 @@ export function mapSessionState(w: Schemas['SystemDesignSessionStateView']): Ses
       projectId: w.projectId,
       artifactKind,
       stage: w.stage,
+      activeRole: activeRoleFromOrdinal(w.activeRole),
+      activeStep: activeStepFromOrdinal(w.activeStep),
+      round: w.round,
       draft: mapEnvelope(w.draft),
       ...(w.findings !== undefined && w.findings !== null
         ? { findings: w.findings.map(mapFinding) }
@@ -495,6 +512,9 @@ export function mapProjectSessionState(
       projectId: w.projectId,
       artifactKind,
       stage: w.stage,
+      activeRole: activeRoleFromOrdinal(w.activeRole),
+      activeStep: activeStepFromOrdinal(w.activeStep),
+      round: w.round,
       draft: mapProjectEnvelope(w.draft),
       ...(w.findings !== undefined && w.findings !== null
         ? { findings: w.findings.map(mapFinding) }

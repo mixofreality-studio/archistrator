@@ -83,6 +83,7 @@ export const UI_IDENTIFIERS = {
     RESEARCH_INPUT_TEXT: 'research-input-text',
     RESEARCH_INPUT_SUBMIT: 'research-input-submit',
     GENERATING_SCENE: 'generating-scene',
+    GENERATING_ROLE_LINE: 'generating-role-line',
     AMENDING_NOTICE: 'generating-amending-notice',
     CI_JOB_NOTICE: 'ci-job-notice',
     CI_JOB_LINK: 'ci-job-link',

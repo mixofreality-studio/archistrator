@@ -15,6 +15,56 @@
 // hand code, not a bug — see the NOTE on the block), this file exports ONLY
 // the raw Go varnames; keep a small hand mapping for those.
 
+// --- ActiveRole ----------------------------------------------------------
+// Sources: SystemDesignActiveRole, ProjectDesignActiveRole (identical; folded)
+export const ACTIVE_ROLE_GO_VARNAMES = [
+  'ActiveRoleNone',
+  'ActiveRoleArchitect',
+  'ActiveRoleProductManager',
+] as const;
+
+export type ActiveRoleGoVarname = (typeof ACTIVE_ROLE_GO_VARNAMES)[number];
+
+export const ACTIVE_ROLE_ORDINAL_TO_GO_VARNAME: readonly ActiveRoleGoVarname[] =
+  ACTIVE_ROLE_GO_VARNAMES;
+
+export const ACTIVE_ROLE_APP_STRINGS = ['none', 'architect', 'productManager'] as const;
+
+export type ActiveRole = (typeof ACTIVE_ROLE_APP_STRINGS)[number];
+
+export const ACTIVE_ROLE_ORDINAL_TO_APP: readonly ActiveRole[] = ACTIVE_ROLE_APP_STRINGS;
+
+export const ACTIVE_ROLE_APP_TO_ORDINAL: Readonly<Record<ActiveRole, number>> = {
+  none: 0,
+  architect: 1,
+  productManager: 2,
+};
+// --- ActiveStep ----------------------------------------------------------
+// Sources: SystemDesignActiveStep, ProjectDesignActiveStep (identical; folded)
+export const ACTIVE_STEP_GO_VARNAMES = [
+  'ActiveStepNone',
+  'ActiveStepDrafting',
+  'ActiveStepCritiquing',
+  'ActiveStepRevising',
+] as const;
+
+export type ActiveStepGoVarname = (typeof ACTIVE_STEP_GO_VARNAMES)[number];
+
+export const ACTIVE_STEP_ORDINAL_TO_GO_VARNAME: readonly ActiveStepGoVarname[] =
+  ACTIVE_STEP_GO_VARNAMES;
+
+export const ACTIVE_STEP_APP_STRINGS = ['none', 'drafting', 'critiquing', 'revising'] as const;
+
+export type ActiveStep = (typeof ACTIVE_STEP_APP_STRINGS)[number];
+
+export const ACTIVE_STEP_ORDINAL_TO_APP: readonly ActiveStep[] = ACTIVE_STEP_APP_STRINGS;
+
+export const ACTIVE_STEP_APP_TO_ORDINAL: Readonly<Record<ActiveStep, number>> = {
+  none: 0,
+  drafting: 1,
+  critiquing: 2,
+  revising: 3,
+};
 // --- ActivityBuildStatus -------------------------------------------------
 // Sources: SystemDesignActivityBuildStatus
 export const ACTIVITY_BUILD_STATUS_GO_VARNAMES = [

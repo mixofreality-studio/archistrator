@@ -4,14 +4,21 @@
  * gears) plus an HONEST indeterminate status line + the standing "design job running
  * in your GitHub Actions" affordance. Recolored from tokens.
  *
- * HONESTY (QA F15 gap 2c): the server exposes only a single coarse stage
- * (drafting/redrafting) — it does NOT report per-phase DRAFT/VALIDATE/CRITIQUE
- * progress. The former animated ticker rendered cumulative ✓ checkmarks on those
- * phases purely off a wall-clock timer (and rotating quips asserting specific machine
- * activities like "Machine checking cross-artifact rules…"), which LIED that work had
- * completed while nothing had. Both are removed: this scene now shows only what is
- * TRUE — an indeterminate "drafting" indicator and the tracked-CI-job explanation.
- * The drafting-desk illustration stays as clearly-decorative chrome.
+ * HONESTY (QA F15 gap 2c): the former animated ticker rendered cumulative ✓
+ * checkmarks on DRAFT/VALIDATE/CRITIQUE phases purely off a wall-clock timer (and
+ * rotating quips asserting specific machine activity like "Machine checking
+ * cross-artifact rules…"), which LIED that work had completed while nothing had.
+ * That fabrication is gone for good — this scene shows only what the server
+ * actually reports. The drafting-desk illustration stays as clearly-decorative chrome.
+ *
+ * What the server DOES now report (Plan-3 C1/C2) is the current drafting SUB-STEP —
+ * who is working the slot and what they are doing — as real workflow state SET AT THE
+ * DISPATCH BOUNDARY and CLEARED on observed completion/terminal: activeRole /
+ * activeStep / round. The role line below renders exactly that via the pure
+ * roleLineFor mapping — still no timers and no inference, just an honest restatement
+ * of the reported sub-step. When the server reports none (the zero value, incl. old
+ * servers predating the field) the line falls back to the plain indeterminate
+ * "DRAFTING…" pill — today's UI, byte-for-byte.
  *
  * Drafting is ASYNC: the draft is produced by a GitHub Action running in the USER's CI
  * (minutes per draft), not an inline server call. The standing affordance (+ optional
@@ -26,11 +33,18 @@ import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import { useTokens } from '../../utilities/theme/ThemeContext';
 import type { Tokens } from '../../utilities/theme/themes';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
+import type { ActiveRole, ActiveStep } from '../../contracts/enums.gen';
+import { RoleAvatar } from '../RoleAvatar';
+import { roleLineFor } from './roleLine';
 
 export function GeneratingScene({
   artifact,
   actionsUrl,
   amendingRevision,
+  activeRole,
+  activeStep,
+  round,
+  phrase,
 }: {
   artifact: string;
   /**
@@ -46,8 +60,27 @@ export function GeneratingScene({
    * revision is approved. Omitted for a first-time draft.
    */
   amendingRevision?: number | undefined;
+  /**
+   * The current drafting sub-step the server set at its last dispatch boundary
+   * (real workflow state — see the honesty note above). Together with {@link phrase}
+   * these drive the honest role line that replaces the plain "DRAFTING…" text.
+   * Absent, or role/step = none (the zero value, incl. old servers), falls back to
+   * today's pill byte-for-byte.
+   */
+  activeRole?: ActiveRole | undefined;
+  activeStep?: ActiveStep | undefined;
+  round?: number | undefined;
+  /** The artifact's noun phrase (METHOD_METADATA[kind].phrase) for the role line. */
+  phrase?: string | undefined;
 }): ReactNode {
   const t = useTokens();
+
+  // The honest role line, when the server reports a live sub-step; undefined →
+  // fall back to the plain indeterminate "DRAFTING…" pill (today's UI, unchanged).
+  const roleLine =
+    activeRole !== undefined && phrase !== undefined
+      ? roleLineFor(activeRole, activeStep ?? 'none', round ?? 0, phrase)
+      : undefined;
 
   return (
     <Box
@@ -103,25 +136,55 @@ export function GeneratingScene({
 
       <DraftingDesk t={t} />
 
-      {/* HONEST indeterminate indicator: a single "drafting" pill that only claims what
-          is true (a draft job is in progress), with no fabricated per-phase checkmarks. */}
-      <Box
-        sx={{
-          fontFamily: t.mono,
-          fontWeight: 700,
-          fontSize: 11,
-          letterSpacing: '0.12em',
-          px: 1.25,
-          py: 0.5,
-          border: `1.5px solid ${t.accent}`,
-          borderRadius: t.radius / 8 + 0.5,
-          color: t.accent,
-          animation: 'pulse 1.4s ease-in-out infinite',
-          '@keyframes pulse': { '0%,100%': { opacity: 1 }, '50%': { opacity: 0.5 } },
-        }}
-      >
-        DRAFTING…
-      </Box>
+      {/* HONEST indeterminate indicator: the same pulsing pill either way. When the
+          server reports a live sub-step (roleLine), the pill carries the role avatar +
+          the honest "who is doing what" sentence; otherwise it keeps the plain
+          "DRAFTING…" text — today's UI, byte-for-byte. No fabricated per-phase progress
+          in either case. */}
+      {roleLine !== undefined ? (
+        <Box
+          data-testid={UI_IDENTIFIERS.DesignExperience.GENERATING_ROLE_LINE}
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1,
+            pl: 0.75,
+            pr: 1.25,
+            py: 0.5,
+            border: `1.5px solid ${t.accent}`,
+            borderRadius: t.radius / 8 + 0.5,
+            color: t.accent,
+            animation: 'pulse 1.4s ease-in-out infinite',
+            '@keyframes pulse': { '0%,100%': { opacity: 1 }, '50%': { opacity: 0.5 } },
+          }}
+        >
+          <RoleAvatar seed={roleLine.seed} size={26} />
+          <Typography
+            component="span"
+            sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 11, letterSpacing: '0.04em' }}
+          >
+            {roleLine.text}
+          </Typography>
+        </Box>
+      ) : (
+        <Box
+          sx={{
+            fontFamily: t.mono,
+            fontWeight: 700,
+            fontSize: 11,
+            letterSpacing: '0.12em',
+            px: 1.25,
+            py: 0.5,
+            border: `1.5px solid ${t.accent}`,
+            borderRadius: t.radius / 8 + 0.5,
+            color: t.accent,
+            animation: 'pulse 1.4s ease-in-out infinite',
+            '@keyframes pulse': { '0%,100%': { opacity: 1 }, '50%': { opacity: 0.5 } },
+          }}
+        >
+          DRAFTING…
+        </Box>
+      )}
 
       {/* Async-job affordance: the draft runs as a GitHub Action in the user's CI
           (minutes), so we say so explicitly — never a hung-looking spinner. */}

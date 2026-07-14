@@ -32,6 +32,12 @@ export interface MethodArtifactMeta {
   file: string;
   /** One-line description of the artifact's purpose. */
   blurb: string;
+  /**
+   * Short natural-language noun phrase for this artifact, used mid-sentence in the
+   * generating scene's role line (e.g. "Architect is crafting the {phrase}"). Kept
+   * lowercase and Method-true so it reads naturally after "the".
+   */
+  phrase: string;
   /** Whether the Method assigns a PM critic to this step. */
   hasPmCritic: boolean;
 }
@@ -67,6 +73,7 @@ export const METHOD_METADATA: Record<ArtifactKindFull, MethodArtifactMeta> = {
     title: 'Mission',
     file: 'mission.md',
     blurb: 'Business alignment — vision, objectives, mission statement.',
+    phrase: 'vision and mission statement',
     hasPmCritic: true,
   },
   glossary: {
@@ -74,6 +81,7 @@ export const METHOD_METADATA: Record<ArtifactKindFull, MethodArtifactMeta> = {
     title: 'Glossary',
     file: 'glossary.md',
     blurb: 'The ubiquitous language via the Four Questions.',
+    phrase: 'glossary',
     hasPmCritic: true,
   },
   scrubbedRequirements: {
@@ -81,6 +89,7 @@ export const METHOD_METADATA: Record<ArtifactKindFull, MethodArtifactMeta> = {
     title: 'Scrubbed Requirements',
     file: 'scrubbed-requirements.md',
     blurb: 'Solutions-masquerading-as-requirements removed.',
+    phrase: 'scrubbed requirements',
     hasPmCritic: true,
   },
   volatilities: {
@@ -88,6 +97,7 @@ export const METHOD_METADATA: Record<ArtifactKindFull, MethodArtifactMeta> = {
     title: 'Volatilities',
     file: 'volatilities.md',
     blurb: 'Areas of change along the two axes — the architect’s signature.',
+    phrase: 'areas of volatility',
     hasPmCritic: false,
   },
   coreUseCases: {
@@ -95,6 +105,7 @@ export const METHOD_METADATA: Record<ArtifactKindFull, MethodArtifactMeta> = {
     title: 'Core Use Cases',
     file: 'core-use-cases.md',
     blurb: 'The 2–6 use cases the architecture must satisfy.',
+    phrase: 'core use cases',
     hasPmCritic: true,
   },
   system: {
@@ -102,6 +113,7 @@ export const METHOD_METADATA: Record<ArtifactKindFull, MethodArtifactMeta> = {
     title: 'Architecture',
     file: 'architecture.dsl',
     blurb: 'Layered decomposition + a dynamic view for every use case.',
+    phrase: 'architecture',
     hasPmCritic: false,
   },
   operationalConcepts: {
@@ -109,6 +121,7 @@ export const METHOD_METADATA: Record<ArtifactKindFull, MethodArtifactMeta> = {
     title: 'Operational Concepts',
     file: 'operational-concepts.md',
     blurb: 'Runtime interaction decisions, each tied to a business objective.',
+    phrase: 'operational concepts',
     hasPmCritic: true,
   },
   standardCheck: {
@@ -116,6 +129,7 @@ export const METHOD_METADATA: Record<ArtifactKindFull, MethodArtifactMeta> = {
     title: 'Standard Check',
     file: 'standard-checklist.md',
     blurb: 'The Appendix C design-standard gate before Phase 2.',
+    phrase: 'standard check',
     hasPmCritic: false,
   },
   planningAssumptions: {
@@ -123,6 +137,7 @@ export const METHOD_METADATA: Record<ArtifactKindFull, MethodArtifactMeta> = {
     title: 'Planning Assumptions',
     file: 'planning-assumptions.md',
     blurb: 'Explicit resource, calendar, and dependency assumptions.',
+    phrase: 'planning assumptions',
     hasPmCritic: false,
   },
   activityList: {
@@ -130,6 +145,7 @@ export const METHOD_METADATA: Record<ArtifactKindFull, MethodArtifactMeta> = {
     title: 'Activity List',
     file: 'activities.md',
     blurb: 'Coding + noncoding activities with 5-day quantum estimates.',
+    phrase: 'activity list',
     hasPmCritic: false,
   },
   network: {
@@ -137,6 +153,7 @@ export const METHOD_METADATA: Record<ArtifactKindFull, MethodArtifactMeta> = {
     title: 'Project Network',
     file: 'network.yaml',
     blurb: 'Activities as a network with float and the critical path.',
+    phrase: 'project network',
     hasPmCritic: false,
   },
   normalSolution: {
@@ -144,6 +161,7 @@ export const METHOD_METADATA: Record<ArtifactKindFull, MethodArtifactMeta> = {
     title: 'Normal Solution',
     file: 'normal.md',
     blurb: 'Minimum staffing for unimpeded critical-path progress.',
+    phrase: 'normal solution',
     hasPmCritic: false,
   },
   decompressedSolution: {
@@ -151,6 +169,7 @@ export const METHOD_METADATA: Record<ArtifactKindFull, MethodArtifactMeta> = {
     title: 'Decompressed Solution',
     file: 'decompressed.md',
     blurb: 'Extended duration to drop criticality risk toward the tipping point.',
+    phrase: 'decompressed solution',
     hasPmCritic: false,
   },
   subcriticalSolution: {
@@ -158,6 +177,7 @@ export const METHOD_METADATA: Record<ArtifactKindFull, MethodArtifactMeta> = {
     title: 'Subcritical Solution',
     file: 'subcritical.md',
     blurb: 'Deliberately understaffed — longer, costlier, riskier than normal.',
+    phrase: 'subcritical solution',
     hasPmCritic: false,
   },
   compressedSolution: {
@@ -165,6 +185,7 @@ export const METHOD_METADATA: Record<ArtifactKindFull, MethodArtifactMeta> = {
     title: 'Compressed Solution',
     file: 'compressed.md',
     blurb: 'Shorter duration via parallel work then top resources.',
+    phrase: 'compressed solution',
     hasPmCritic: false,
   },
   riskModel: {
@@ -172,6 +193,7 @@ export const METHOD_METADATA: Record<ArtifactKindFull, MethodArtifactMeta> = {
     title: 'Risk Model',
     file: 'risk.md',
     blurb: 'Criticality + activity risk per option; time-risk / time-cost curves.',
+    phrase: 'risk model',
     hasPmCritic: false,
   },
   sdpReview: {
@@ -179,6 +201,7 @@ export const METHOD_METADATA: Record<ArtifactKindFull, MethodArtifactMeta> = {
     title: 'SDP Review',
     file: 'sdp-review.md',
     blurb: 'The four options with duration / cost / risk and a recommendation.',
+    phrase: 'SDP review',
     hasPmCritic: false,
   },
 };

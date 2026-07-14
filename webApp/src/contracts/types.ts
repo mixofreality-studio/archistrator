@@ -13,7 +13,7 @@
  * `models.ts` mirror is deleted. Consumers keep importing model types from here.
  */
 import type { components } from './schema';
-import type { ARTIFACT_STAGE_GO_VARNAMES } from './enums.gen';
+import type { ActiveRole, ActiveStep, ARTIFACT_STAGE_GO_VARNAMES } from './enums.gen';
 
 type S = components['schemas'];
 
@@ -347,6 +347,14 @@ export interface SessionStateView {
   artifactKind: ArtifactKind;
   /** Integer SessionStage ordinal on the inner view; the SPA reads the outer string stage. */
   stage: number;
+  /**
+   * The role/step/round the server set at the current drafting dispatch boundary
+   * (cleared to none/none/0 on observed completion). Drives the honest role line
+   * on the generating scene. `none` (the zero value, incl. old servers) → fallback.
+   */
+  activeRole: ActiveRole;
+  activeStep: ActiveStep;
+  round: number;
   draft: ArtifactModelEnvelope;
   findings?: Finding[];
   failureReason?: string;
@@ -437,6 +445,10 @@ export interface ProjectSessionStateView {
   projectId: string;
   artifactKind: ProjectArtifactKind;
   stage: number;
+  /** See {@link SessionStateView} — same drafting sub-step, Phase-2 side. */
+  activeRole: ActiveRole;
+  activeStep: ActiveStep;
+  round: number;
   draft: ProjectArtifactModelEnvelope;
   findings?: Finding[];
   failureReason?: string;

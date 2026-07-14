@@ -649,8 +649,12 @@ function StepBody({
     // committed header + this scene read honestly (the committed revision stays current).
     const scene = (
       <GeneratingScene
+        activeRole={view?.activeRole}
+        activeStep={view?.activeStep}
         amendingRevision={committed ? (committedRevisions ?? 0) : undefined}
         artifact={title}
+        phrase={METHOD_METADATA[activeKind].phrase}
+        round={view?.round}
       />
     );
     // Reviewers must be able to READ the committed revision while its amendment

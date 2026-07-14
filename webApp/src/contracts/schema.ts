@@ -1115,6 +1115,10 @@ export interface components {
     OperationsWithdrawResult: {
       withdrawn: boolean;
     };
+    /** @enum {integer} */
+    ProjectDesignActiveRole: 0 | 1 | 2;
+    /** @enum {integer} */
+    ProjectDesignActiveStep: 0 | 1 | 2 | 3;
     ProjectDesignAnchoredComment: {
       anchorText: string;
       jsonPath: string;
@@ -1202,17 +1206,24 @@ export interface components {
     /** @enum {integer} */
     ProjectDesignSessionStage: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
     ProjectDesignSessionStateView: {
+      activeRole: components['schemas']['ProjectDesignActiveRole'];
+      activeStep: components['schemas']['ProjectDesignActiveStep'];
       artifactKind: components['schemas']['ProjectDesignArtifactKind'];
       draft: components['schemas']['ProjectDesignDraftModel'];
       failureReason?: null | string;
       findings?: null | components['schemas']['ProjectDesignFinding'][];
       projectId: components['schemas']['ProjectDesignProjectID'];
       reviewThread?: null | components['schemas']['ProjectDesignReviewCommentView'][];
+      round: number;
       stage: components['schemas']['ProjectDesignSessionStage'];
       stageName: string;
     };
     /** @enum {string} */
     ProjectDesignSeverity: 'info' | 'warning' | 'error';
+    /** @enum {integer} */
+    SystemDesignActiveRole: 0 | 1 | 2;
+    /** @enum {integer} */
+    SystemDesignActiveStep: 0 | 1 | 2 | 3;
     /** @enum {integer} */
     SystemDesignActivityBuildStatus: 0 | 1 | 2 | 3;
     /** @enum {integer} */
@@ -1507,6 +1518,8 @@ export interface components {
     /** @enum {integer} */
     SystemDesignSessionStage: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
     SystemDesignSessionStateView: {
+      activeRole: components['schemas']['SystemDesignActiveRole'];
+      activeStep: components['schemas']['SystemDesignActiveStep'];
       artifactKind: components['schemas']['SystemDesignArtifactKind'];
       draft: components['schemas']['SystemDesignDraftModel'];
       failureReason?: null | string;
@@ -1514,6 +1527,7 @@ export interface components {
       findings?: null | components['schemas']['SystemDesignFinding'][];
       projectId: components['schemas']['SystemDesignProjectID'];
       reviewThread?: null | components['schemas']['SystemDesignReviewCommentView'][];
+      round: number;
       stage: components['schemas']['SystemDesignSessionStage'];
       stageName: string;
     };

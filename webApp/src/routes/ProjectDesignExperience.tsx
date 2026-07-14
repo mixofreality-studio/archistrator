@@ -37,6 +37,7 @@ import type {
   ProjectArtifactKind,
   ProjectArtifactModelEnvelope,
   ProjectPhaseAdvanceResponse,
+  ProjectSessionStateView,
   ProjectState,
   Finding,
   ReviewCommentView,
@@ -542,7 +543,7 @@ function ProjectStepBody({
   stage: string | undefined;
   title: string;
   blurb: string;
-  view: { draft: ProjectArtifactModelEnvelope } | undefined;
+  view: ProjectSessionStateView | undefined;
   activityEnvelope: ProjectArtifactModelEnvelope | undefined;
   planningAssumptionsEnvelope: ProjectArtifactModelEnvelope | undefined;
   findings: Finding[];
@@ -587,8 +588,12 @@ function ProjectStepBody({
     // committed header + this scene read honestly (the committed revision stays current).
     return (
       <GeneratingScene
+        activeRole={view?.activeRole}
+        activeStep={view?.activeStep}
         amendingRevision={committed ? (committedRevisions ?? 0) : undefined}
         artifact={title}
+        phrase={METHOD_METADATA[activeKind].phrase}
+        round={view?.round}
       />
     );
   }
