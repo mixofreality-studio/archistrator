@@ -96,6 +96,12 @@ func startServerWithEnv(t *testing.T, devAuth bool, extraEnv []string) *harness.
 	if err != nil {
 		t.Fatalf("start server (devAuth=%t): %v", devAuth, err)
 	}
+	// Leak containment (registered BEFORE srv.Stop so it runs AFTER it, LIFO): once this
+	// server's worker has stopped polling, terminate any workflow still Running in the
+	// shared namespace so a design/construction workflow this test failed to drain cannot
+	// be picked up off the shared task queue by a LATER test's worker and dispatched
+	// against that test's fake (cross-test bleed). See harness/workflow_cleanup.go.
+	t.Cleanup(func() { harness.TerminateRunningWorkflows(infra.TemporalHostPort, infra.TemporalNamespace) })
 	t.Cleanup(func() { _ = srv.Stop() })
 	return srv
 }

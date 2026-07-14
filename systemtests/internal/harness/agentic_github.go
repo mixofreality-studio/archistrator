@@ -267,27 +267,43 @@ func (f *AgenticGitHub) DispatchTargets() []DispatchTarget {
 }
 
 // AssertDispatchedToPerProjectRepo fails the test unless AT LEAST ONE workflow_dispatch
-// was received AND every dispatch addressed the PER-PROJECT repo (owner=account,
-// repo=projectID — name-as-identity) + the aiarch-design.yml workflow. This is the
-// load-bearing assertion that catches the live-activation gap: before the
-// per-project-design-dispatch fix the DESIGN dispatch hit the FIXED construction repo
-// (repo="construction") + aiarch-construct.yml, so this assertion would fail.
+// addressed THIS test's PER-PROJECT repo (owner=account, repo=projectID — name-as-identity)
+// with the aiarch-design.yml workflow, and no such per-project-repo dispatch used a
+// different (e.g. aiarch-construct.yml) workflow. This is the load-bearing assertion that
+// catches the live-activation gap: before the per-project-design-dispatch fix the DESIGN
+// dispatch hit the FIXED construction repo (repo="construction") + aiarch-construct.yml, so
+// NO dispatch would address (account, projectID) and this assertion fails.
+//
+// CROSS-TEST BLEED. The systemtests all run in ONE process against ONE shared Temporal
+// namespace, and every server registers its Managers' workers on the SAME fixed
+// task-queue names (system-design/project-design/...). A design workflow another test in
+// this process started but did not terminate can therefore be picked up by THIS test's
+// worker off the shared queue and have its dispatch activity executed against THIS fake —
+// carrying the OTHER test's (owner, repo) into f.dispatchTargets (observed: a "dispatch 0"
+// whose owner was a sibling test's account). Such bleed is NOT this test's design
+// dispatch, so the assertion scopes to dispatches addressed to MY per-project repo
+// (owner==f.account AND repo==projectID) and ignores the rest — preserving the original
+// intent (my design dispatch hit my per-project repo + aiarch-design.yml) without letting
+// a foreign leak turn a real proof into a flake. Leak containment itself is handled at
+// the harness level (server cleanup terminates the process's running workflows).
 func (f *AgenticGitHub) AssertDispatchedToPerProjectRepo(t *testing.T, projectID string) {
 	t.Helper()
 	targets := f.DispatchTargets()
-	if len(targets) == 0 {
-		t.Fatal("no workflow_dispatch recorded — the agentic design path did not dispatch")
-	}
-	for i, tgt := range targets {
-		if tgt.Owner != f.account {
-			t.Fatalf("dispatch %d owner = %q, want the account %q (per-project repo owner)", i, tgt.Owner, f.account)
+	matched := 0
+	for _, tgt := range targets {
+		// Only dispatches addressed to MY per-project repo are mine to assert on;
+		// anything else (a foreign owner, or my account but another test's projectID)
+		// is cross-test bleed off the shared task queue — skip it.
+		if tgt.Owner != f.account || tgt.Repo != projectID {
+			continue
 		}
-		if tgt.Repo != projectID {
-			t.Fatalf("dispatch %d repo = %q, want the PER-PROJECT repo %q (name-as-identity) — NOT the central construction repo", i, tgt.Repo, projectID)
-		}
+		matched++
 		if tgt.WorkflowFile != "aiarch-design.yml" {
-			t.Fatalf("dispatch %d workflow = %q, want aiarch-design.yml — NOT aiarch-construct.yml", i, tgt.WorkflowFile)
+			t.Fatalf("design dispatch to per-project repo %s/%s used workflow %q, want aiarch-design.yml — NOT aiarch-construct.yml", tgt.Owner, tgt.Repo, tgt.WorkflowFile)
 		}
+	}
+	if matched == 0 {
+		t.Fatalf("no workflow_dispatch addressed the per-project repo %s/%s + aiarch-design.yml (saw %d dispatch(es), none mine) — the DESIGN dispatch did not hit the per-project repo (regression: it targeted the central construction repo)", f.account, projectID, len(targets))
 	}
 }
 
