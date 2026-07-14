@@ -51,6 +51,26 @@ func newMCPServer(
 	return srv
 }
 
+// devCORS permits browser-based MCP hosts (the ext-apps basic-host pilot
+// harness) to call /mcp cross-origin. DEV ONLY: production hosts call
+// server-to-server; enabled strictly rides the dev-mode auth flag.
+func devCORS(enabled bool, next http.Handler) http.Handler {
+	if !enabled {
+		return next
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Mcp-Session-Id, Mcp-Protocol-Version")
+		w.Header().Set("Access-Control-Expose-Headers", "Mcp-Session-Id")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // newMCPHandler returns the http.Handler mounted at /mcp: the SDK streamable-HTTP
 // transport in front of the shared MCP server, wrapped by the SAME auth boundary
 // as the REST surface. The dev-mode principal (or the validated bearer principal)
@@ -68,5 +88,5 @@ func newMCPHandler(
 ) http.Handler {
 	srv := newMCPServer(sd, pd, cons, ops, webAppOrigin, assetVersion)
 	transport := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv }, nil)
-	return web.AuthMiddleware(dev, validator)(transport)
+	return devCORS(dev.Enabled, web.AuthMiddleware(dev, validator)(transport))
 }
