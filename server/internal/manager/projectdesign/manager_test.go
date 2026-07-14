@@ -723,6 +723,9 @@ type fakePipeline struct {
 	// handlePhase tracks the phase to return for each issued handle.
 	handlePhase map[string]pipelinePhase
 	nextID      int
+	// onObserve, when set, is invoked on each observe (used to snapshot/mutate state
+	// mid-flight — the ONLY moment a dispatch is genuinely in flight; systemdesign twin).
+	onObserve func()
 }
 
 type submitRecord struct {
@@ -786,7 +789,11 @@ func (p *fakePipeline) ObserveConstructionPipeline(_ fwra.Context, handle constr
 	p.mu.Lock()
 	phase := p.handlePhase[constructionpipeline.PipelineHandleString(handle)]
 	diag := p.diagnostic
+	hook := p.onObserve
 	p.mu.Unlock()
+	if hook != nil {
+		hook()
+	}
 	obs := constructionpipeline.PipelineObservation{Phase: neutralToRAPhase(phase)}
 	if phase == pipelineFailed || phase == pipelineCancelled {
 		obs.Diagnostic = diag
@@ -1278,6 +1285,159 @@ func Test_CoAuthor_Reject_LoopsToFreshDispatch(t *testing.T) {
 	}
 }
 
+// Plan-3 C2: the honest role-driven sub-step indicator (projectdesign twin of the
+// systemdesign C1 test). Phase 2 has NO PM critique — every kind is Architect-only
+// (drafting/revising) — so a draft → retry-via-reject (after a terminal job failure) →
+// approve sequence must surface the live (ActiveRole, ActiveStep, Round) at each dispatch
+// boundary, and none/none/0 at the human gate. The redraft rides the StageDraftFailed
+// Retry-via-Reject lever (NOT a plain AwaitingReview-gate reject) because redraftCount —
+// the round the Manager's OWN stageForAttempt/markActive both key off — is bumped ONLY on
+// a failed-gate retry in this workflow (F40: a plain AwaitingReview reject stays on the
+// SAME persistent branch/PR and advances only the review-ledger round, not the attempt
+// counter); this is the scenario that genuinely reaches ActiveStepRevising round 1. The
+// in-flight snapshot is captured from the observe activity (the ONLY moment a dispatch is
+// genuinely in flight — the fake's onObserve hook, which the workflow is blocked on); the
+// gate snapshot from a delayed-callback query while the workflow is suspended.
+func Test_CoAuthor_ActiveSubStep_SequenceThroughDraftReviseApprove(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	ps := &fakeProjectState{project: planningAssumptionsReadBack(projectstate.ProjectID(id))}
+	// First dispatch fails (terminal); the retry dispatch (2nd) succeeds → AwaitingReview.
+	pipe := newFakePipeline(pipelineFailed, pipelineSucceeded)
+	pipe.diagnostic = "aiarch-validate found 2 violations"
+
+	type subStep struct {
+		role  ActiveRole
+		step  ActiveStep
+		round int64
+	}
+	var mu sync.Mutex
+	var seq []subStep
+	pipe.onObserve = func() {
+		enc, err := env.QueryWorkflow(querySessionState)
+		if err != nil {
+			return
+		}
+		var v SessionStateView
+		if err := enc.Get(&v); err != nil {
+			return
+		}
+		mu.Lock()
+		seq = append(seq, subStep{v.ActiveRole, v.ActiveStep, v.Round})
+		mu.Unlock()
+	}
+
+	wf := newWorkflows()
+	registerCoAuthor(env, wf, ps, pipe)
+
+	// The first dispatch fails terminally, landing at StageDraftFailed. Retry-via-Reject
+	// (with feedback) re-dispatches — this is the lever that bumps redraftCount to 1.
+	env.RegisterDelayedCallback(func() {
+		enc, err := env.QueryWorkflow(querySessionState)
+		if err != nil {
+			t.Fatalf("QueryWorkflow: %v", err)
+		}
+		var v SessionStateView
+		if err := enc.Get(&v); err != nil {
+			t.Fatalf("decode SessionStateView: %v", err)
+		}
+		if v.Stage != StageDraftFailed {
+			t.Fatalf("want StageDraftFailed after the terminal job failure, got %d", v.Stage)
+		}
+		if v.ActiveRole != ActiveRoleNone || v.ActiveStep != ActiveStepNone || v.Round != 0 {
+			t.Fatalf("StageDraftFailed must show no active role, got role=%d step=%d round=%d", v.ActiveRole, v.ActiveStep, v.Round)
+		}
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewReject, Feedback: &ReviewFeedback{Notes: "rework it"}})
+	}, 30*time.Second)
+
+	// After the successful retry reaches AwaitingReview, the sub-step must read
+	// none/none/0; approve to end.
+	env.RegisterDelayedCallback(func() {
+		enc, err := env.QueryWorkflow(querySessionState)
+		if err != nil {
+			t.Fatalf("QueryWorkflow: %v", err)
+		}
+		var v SessionStateView
+		if err := enc.Get(&v); err != nil {
+			t.Fatalf("decode SessionStateView: %v", err)
+		}
+		if v.Stage != StageAwaitingReview {
+			t.Fatalf("want StageAwaitingReview after the retry, got %d", v.Stage)
+		}
+		if v.ActiveRole != ActiveRoleNone || v.ActiveStep != ActiveStepNone || v.Round != 0 {
+			t.Fatalf("the human gate must show no active role, got role=%d step=%d round=%d", v.ActiveRole, v.ActiveStep, v.Round)
+		}
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
+	}, 70*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindPlanningAssumptions})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	if len(ps.committed) != 1 {
+		t.Fatalf("want one commit after retry->approve, got %v", ps.committed)
+	}
+
+	want := []subStep{
+		{ActiveRoleArchitect, ActiveStepDrafting, 0}, // first draft in flight (round 0, will fail)
+		{ActiveRoleArchitect, ActiveStepRevising, 1}, // retry-via-reject redraft in flight (round 1)
+	}
+	mu.Lock()
+	got := append([]subStep(nil), seq...)
+	mu.Unlock()
+	if len(got) != len(want) {
+		t.Fatalf("want %d in-flight sub-step snapshots, got %d: %+v", len(want), len(got), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("in-flight snapshot %d = %+v, want %+v (full sequence: %+v)", i, got[i], want[i], got)
+		}
+	}
+}
+
+// Plan-3 C2: a design job that reaches a terminal FAILURE phase must clear the in-flight
+// sub-step stamp — the belt-and-braces clear in awaitDraftFailedRecovery — so the
+// StageDraftFailed gate never shows a stale "architect drafting" pill while the human
+// decides Retry/Withdraw.
+func Test_CoAuthor_ActiveSubStep_ClearsAtDraftFailedGate(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	ps := &fakeProjectState{project: planningAssumptionsReadBack(projectstate.ProjectID(id))}
+	pipe := newFakePipeline(pipelineFailed)
+	pipe.diagnostic = "aiarch-validate found 2 violations"
+	wf := newWorkflows()
+	registerCoAuthor(env, wf, ps, pipe)
+
+	env.RegisterDelayedCallback(func() {
+		enc, err := env.QueryWorkflow(querySessionState)
+		if err != nil {
+			t.Fatalf("QueryWorkflow: %v", err)
+		}
+		var v SessionStateView
+		if err := enc.Get(&v); err != nil {
+			t.Fatalf("decode SessionStateView: %v", err)
+		}
+		if v.Stage != StageDraftFailed {
+			t.Fatalf("want StageDraftFailed, got %d", v.Stage)
+		}
+		if v.ActiveRole != ActiveRoleNone || v.ActiveStep != ActiveStepNone || v.Round != 0 {
+			t.Fatalf("StageDraftFailed must show no active role, got role=%d step=%d round=%d", v.ActiveRole, v.ActiveStep, v.Round)
+		}
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 30*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindPlanningAssumptions})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a terminal job failure must NOT fail the workflow, got: %v", err)
+	}
+}
+
 // ---- AssembleSDPReviewWorkflow: the SDP/human gate + in-workflow Engine join -
 
 // The SDP-review workflow still ASSEMBLES the four options and runs the three
@@ -1336,6 +1496,53 @@ func Test_AssembleSDPReviewWorkflow_Commit_HappyPath_EnginesRunInProcess(t *test
 	last := ps.staged[len(ps.staged)-1].(*projectstate.SdpReview)
 	if last.Recommendation != projectstate.OptionID(chosen) {
 		t.Fatalf("committed review recommendation = %s, want chosen %s", last.Recommendation, chosen)
+	}
+}
+
+// Plan-3 C2: the SDP assembly is server-side (assembleSdpReview — a deterministic join,
+// not an agentic dispatch), so its sub-step indicator must NEVER stamp a role — the query
+// view must read none/none/0 at every observable point (the AwaitingReview human gate here;
+// StageAssemblingSDP itself is never externally observable within one workflow task since
+// no activity/timer separates it from the immediately-following stage, so the gate is the
+// meaningful assertion point).
+func Test_AssembleSDPReviewWorkflow_ActiveSubStep_AlwaysNone(t *testing.T) {
+	id := ProjectID(uuid.NewString())
+	ps := &fakeProjectState{project: sdpReadyProject(projectstate.ProjectID(id))}
+	wf := newWorkflows()
+
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	env.RegisterWorkflowWithOptions(wf.AssembleSDPReviewWorkflow, registerName(executionKindSDPReview))
+	registerGenActivities(env, ps, nil, nil)
+
+	pre, err := wf.assembleSdpReview(ps.project, "")
+	if err != nil {
+		t.Fatalf("pre-assembly: %v", err)
+	}
+	chosen := OptionID(pre.Recommendation)
+
+	env.RegisterDelayedCallback(func() {
+		enc, err := env.QueryWorkflow(querySessionState)
+		if err != nil {
+			t.Fatalf("QueryWorkflow: %v", err)
+		}
+		var v SessionStateView
+		if err := enc.Get(&v); err != nil {
+			t.Fatalf("decode SessionStateView: %v", err)
+		}
+		if v.Stage != StageAwaitingReview {
+			t.Fatalf("want StageAwaitingReview at the human gate, got %d", v.Stage)
+		}
+		if v.ActiveRole != ActiveRoleNone || v.ActiveStep != ActiveStepNone || v.Round != 0 {
+			t.Fatalf("SDP assembly must never stamp a role, got role=%d step=%d round=%d", v.ActiveRole, v.ActiveStep, v.Round)
+		}
+		env.SignalWorkflow(signalSDPDecision, sdpDecisionSignal{Decision: SDPCommit, OptionID: &chosen})
+	}, time.Second)
+
+	env.ExecuteWorkflow(executionKindSDPReview, sdpReviewInput{ProjectID: id})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
 	}
 }
 

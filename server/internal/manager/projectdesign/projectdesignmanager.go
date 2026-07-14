@@ -1986,6 +1986,36 @@ type coAuthorState struct {
 	// seedFailedGateFeedback to seed the retained anchored comments, while a true flag skips it
 	// so an already-seeded path is never double-seeded.
 	feedbackSeeded bool
+	// activeRole / activeStep / activeRound are the WORKFLOW-LOCAL sub-step indicator
+	// backing the honest role-driven loading pill (Plan-3 C2, mirroring systemdesign's C1).
+	// They are SET immediately before each dispatch boundary (architect drafting/revising —
+	// Phase 2 has NO PM critique, so ActiveRoleProductManager / ActiveStepCritiquing are
+	// never stamped here) and CLEARED to none/none/0 the instant that dispatch is observed
+	// complete or the session reaches any terminal / AwaitingReview stage. Pure in-workflow
+	// state served by view() (NOT boundary-stamped like StageName) — setting it issues NO
+	// Temporal history command, so no GetVersion gate is needed (the honesty invariant). Also
+	// reused, always at its zero value, by AssembleSDPReviewWorkflow — the SDP assembly is
+	// server-side (no role/step to stamp), so its view() naturally reports none/none/0.
+	activeRole  ActiveRole
+	activeStep  ActiveStep
+	activeRound int
+}
+
+// markActive stamps the in-flight sub-step (role / step / round) the loading pill renders.
+// Pure workflow-local state; no history command.
+func (s *coAuthorState) markActive(role ActiveRole, step ActiveStep, round int) {
+	s.activeRole = role
+	s.activeStep = step
+	s.activeRound = round
+}
+
+// clearActive resets the sub-step to none/none/0 — the honest "no role is working" state
+// the pill falls back to today's plain "DRAFTING…" copy for. Called on observed dispatch
+// completion and on every terminal / AwaitingReview stage.
+func (s *coAuthorState) clearActive() {
+	s.activeRole = ActiveRoleNone
+	s.activeStep = ActiveStepNone
+	s.activeRound = 0
 }
 
 func (s *coAuthorState) view() (SessionStateView, error) {
@@ -2001,6 +2031,9 @@ func (s *coAuthorState) view() (SessionStateView, error) {
 		Findings:      s.findings,
 		FailureReason: strPtrOrNil(s.failureReason),
 		ReviewThread:  reviewThreadToView(s.reviewThread),
+		ActiveRole:    s.activeRole,
+		ActiveStep:    s.activeStep,
+		Round:         int64(s.activeRound),
 	}, nil
 }
 

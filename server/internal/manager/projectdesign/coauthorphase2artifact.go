@@ -484,6 +484,17 @@ func (wf *workflows) dispatchDraftAndReadBack(
 	// REVIEW LEDGER: on a redraft, the durable open comments (state.reviewThread, reloaded after
 	// the reject-append or the failed-gate seed above) and the reopening feedback reach the
 	// drafting agent via the ledger it reads with getReviewThread — no longer woven into a prompt.
+	//
+	// SUB-STEP (Plan-3 C2): the architect is now drafting (round 0) or revising (round N>0) on
+	// this session branch — Phase 2 has NO PM critique, so this is the ONLY role this workflow
+	// ever stamps. Stamp it for the loading pill immediately BEFORE the dispatch; it is cleared
+	// the instant the job is observed done (success below, or a terminal fault routed through
+	// the StageDraftFailed gate, whose belt-and-braces clear lives in awaitDraftFailedRecovery).
+	if *redraftCount == 0 {
+		state.markActive(ActiveRoleArchitect, ActiveStepDrafting, *redraftCount)
+	} else {
+		state.markActive(ActiveRoleArchitect, ActiveStepRevising, *redraftCount)
+	}
 	draftObs, derr := wf.dispatchAndObserve(ctx, dispatchDesignJobArgs{
 		ProjectID:     in.ProjectID,
 		ArtifactKind:  in.ArtifactKind,
@@ -519,6 +530,10 @@ func (wf *workflows) dispatchDraftAndReadBack(
 		}
 		return nil, 0, coAuthorProceed, coAuthorUnknown, rbErr
 	}
+	// SUB-STEP (Plan-3 C2): the draft dispatch is observed complete — clear the in-flight
+	// architect stamp. There is no PM critique to re-stamp next; the caller proceeds straight
+	// to staging, where the AwaitingReview clear (below) is then a no-op.
+	state.clearActive()
 	return model, readBackVersion, coAuthorProceed, coAuthorUnknown, nil
 }
 
@@ -674,6 +689,9 @@ func (wf *workflows) coAuthorDraftRound(
 	}
 	*headVersion = newVersion
 	state.stage = StageAwaitingReview
+	// SUB-STEP (Plan-3 C2): staged for the human gate — no role is working. Belt-and-braces
+	// (the draft success path already cleared its stamp before returning, above).
+	state.clearActive()
 	// A fresh AwaitingReview supersedes any prior approve-fault notice (QA F35 —
 	// systemdesign twin parity): without this a send-back after a contained merge-window
 	// fault would carry the stale "approving did not complete" notice into the NEXT
@@ -776,6 +794,10 @@ func (wf *workflows) coAuthorApplyDecision(
 		// the review-round counter so the NEXT reject's ledger ids do not collide with this round's.
 		*reviewRound++
 		state.stage = StageRedrafting
+		// SUB-STEP (Plan-3 C2): the reject is observed done — clear any stale stamp before the
+		// outer loop re-enters coAuthorDraftRound (which does branch-prep work BEFORE its own
+		// markActive call ahead of the next dispatch) — no role is working during that window.
+		state.clearActive()
 		return coAuthorContinue, coAuthorUnknown, nil
 
 	case ReviewWithdraw:
@@ -793,6 +815,7 @@ func (wf *workflows) coAuthorApplyDecision(
 			return coAuthorProceed, coAuthorUnknown, err
 		}
 		state.stage = StageWithdrawn
+		state.clearActive() // SUB-STEP (Plan-3 C2): terminal — no role is working.
 		return coAuthorReturn, coAuthorWithdrawn, nil
 
 	case ReviewDecisionUnknown:
@@ -886,6 +909,7 @@ func (wf *workflows) coAuthorApprove(
 		return wf.reAwaitAfterApproveFault(state, approveFailedReason(err)), coAuthorUnknown, nil
 	}
 	state.stage = StageCommitted
+	state.clearActive() // SUB-STEP (Plan-3 C2): terminal — no role is working.
 	return coAuthorReturn, coAuthorApproved, nil
 }
 
@@ -897,6 +921,8 @@ func (wf *workflows) coAuthorApprove(
 func (wf *workflows) reAwaitAfterApproveFault(state *coAuthorState, reason string) coAuthorStep {
 	state.stage = StageAwaitingReview
 	state.failureReason = reason
+	// SUB-STEP (Plan-3 C2): back at the human gate for a re-approve — no role is working.
+	state.clearActive()
 	return coAuthorReAwait
 }
 
@@ -950,6 +976,13 @@ func (wf *workflows) awaitDraftFailedRecovery(
 	// rejectFailedReason for a review-write fault) so this gate is reason-agnostic.
 	state.stage = StageDraftFailed
 	state.failureReason = reason
+	// SUB-STEP (Plan-3 C2): the failed-gate sink for EVERY draft/stage/reject/approve fault —
+	// no role is working while the human decides Retry/Withdraw. This is the SINGLE clear that
+	// covers every StageDraftFailed entry (the job-failed and terminal-readback-decode branches
+	// route here with no per-site clear of their own — safe, since Temporal never answers a
+	// query mid-workflow-task, only at the next blocking point, which is this function's own
+	// selector wait below).
+	state.clearActive()
 
 	redraftCh := workflow.GetSignalChannel(ctx, signalRedraft)
 	reviewCh := workflow.GetSignalChannel(ctx, signalReviewDecision)

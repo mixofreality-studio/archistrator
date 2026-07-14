@@ -57,6 +57,10 @@ func (wf *workflows) AssembleSDPReviewWorkflow(ctx workflow.Context, in sdpRevie
 		artifactKind: KindSdpReview,
 		stage:        StageAssemblingSDP,
 	}
+	// SUB-STEP (Plan-3 C2): this workflow NEVER calls markActive — the SDP assembly is a
+	// server-side deterministic join (assembleSdpReview), not an agentic dispatch, so there is
+	// no role/step to stamp. state.activeRole/activeStep/activeRound stay at their zero value
+	// (None/None/0) for the workflow's whole life, and view() reports that honestly.
 	if err := workflow.SetQueryHandler(ctx, querySessionState, state.view); err != nil {
 		return err
 	}
