@@ -60,7 +60,10 @@ func devCORS(enabled bool, next http.Handler) http.Handler {
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
+		// DELETE tears down a streamable-HTTP session (Mcp-Session-Id) — without it
+		// in the allow-list, a browser host's session-teardown DELETE is blocked by
+		// the CORS preflight before it ever reaches the transport.
+		w.Header().Set("Access-Control-Allow-Methods", "POST, GET, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Mcp-Session-Id, Mcp-Protocol-Version")
 		w.Header().Set("Access-Control-Expose-Headers", "Mcp-Session-Id")
 		if r.Method == http.MethodOptions {
