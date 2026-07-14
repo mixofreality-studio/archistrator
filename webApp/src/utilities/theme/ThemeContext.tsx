@@ -42,8 +42,19 @@ export function useThemeSwitch(): Ctx {
   return c;
 }
 
-export function ThemeProvider({ children }: { children: ReactNode }): ReactNode {
-  const [themeKey, setThemeKey] = useState<ThemeKey>(readStoredTheme);
+export function ThemeProvider({
+  children,
+  initialThemeKey,
+}: {
+  children: ReactNode;
+  /**
+   * Seed the initial theme instead of reading localStorage. The MCP shell passes
+   * a key mapped from the host's light/dark context (localStorage is unreliable in
+   * a sandboxed iframe); the SPA omits it and keeps the persisted-choice behavior.
+   */
+  initialThemeKey?: ThemeKey;
+}): ReactNode {
+  const [themeKey, setThemeKey] = useState<ThemeKey>(() => initialThemeKey ?? readStoredTheme());
 
   const selectTheme = useCallback((k: ThemeKey): void => {
     setThemeKey(k);

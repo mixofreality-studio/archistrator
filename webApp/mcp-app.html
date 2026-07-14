@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>archistrator · MCP</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <!-- Local-dev / build entry only. The host serves its own stub HTML that
+         <script src>'s the built mcp-app.js; this file exists so Vite has an
+         entry point and `vite dev`/`vite preview` can load the app directly. -->
+    <script type="module" src="/src/mcpShell/main.tsx"></script>
+  </body>
+</html>
