@@ -17,7 +17,7 @@
 - Tool naming (existing): `<manager><PascalOp>`, e.g. `systemDesignGetSessionState`. REST paths (existing): `/api/v1/<kebab-manager>/<kebab-op>/...`.
 - UI annotation goes on state-read ops only. Pilot: `systemDesignGetSessionState` only.
 - No `go:embed` of web assets; the stub is a config-templated constant string. Server env: `GOWORK=off` for all go commands.
-- MCP Vite entry emits FIXED names `mcp-app.js` / `mcp-app.css` (no content hashes).
+- MCP Vite entry emits FIXED names `mcp-app.js` / `mcp-app.css` (no content hashes) as a **classic IIFE** (not ESM); the stub references them with plain `<script src>` / `<link>` tags (no `type="module"`, no `crossorigin`) — this keeps asset delivery CORS-exempt, and NO CORS config exists in production anywhere.
 - Never edit `*.gen.go` / `*.gen.ts` by hand; change the generator and re-run.
 - No `dangerouslySetInnerHTML`, no `rehype-raw` — lint-enforced from Task 6 on.
 - In MCP context there is no background polling (`refetchInterval` off) and no `/api/userinfo` probe.
@@ -153,10 +153,14 @@ import (
 
 func TestShellStubHTML(t *testing.T) {
 	got := shellStubHTML("https://app.example.com", "42")
+	if strings.Contains(got, "module") || strings.Contains(got, "crossorigin") {
+		t.Error("stub must use classic CORS-exempt tags (no module/crossorigin)")
+	}
 	for _, want := range []string{
 		`<!DOCTYPE html>`,
-		`<script type="module" crossorigin src="https://app.example.com/mcp-app.js?v=42"></script>`,
-		`<link rel="stylesheet" crossorigin href="https://app.example.com/mcp-app.css?v=42">`,
+		// CLASSIC tags — no type="module", no crossorigin: CORS-exempt (spec §3.4)
+		`<script src="https://app.example.com/mcp-app.js?v=42"></script>`,
+		`<link rel="stylesheet" href="https://app.example.com/mcp-app.css?v=42">`,
 		`<div id="root"></div>`,
 	} {
 		if !strings.Contains(got, want) {
@@ -198,11 +202,11 @@ func shellStubHTML(webAppOrigin, assetVersion string) string {
 <head>
 <meta charset="UTF-8">
 <title>archistrator</title>
-<link rel="stylesheet" crossorigin href="%[1]s/mcp-app.css?v=%[2]s">
+<link rel="stylesheet" href="%[1]s/mcp-app.css?v=%[2]s">
 </head>
 <body>
 <div id="root"></div>
-<script type="module" crossorigin src="%[1]s/mcp-app.js?v=%[2]s"></script>
+<script src="%[1]s/mcp-app.js?v=%[2]s"></script>
 </body>
 </html>`, webAppOrigin, assetVersion)
 }
@@ -606,6 +610,9 @@ export default defineConfig({
     rollupOptions: {
       input: 'mcp-app.html',
       output: {
+        // CLASSIC IIFE, single chunk: keeps the stub's <script> tag CORS-exempt (spec §3.4)
+        format: 'iife',
+        inlineDynamicImports: true,
         entryFileNames: 'mcp-app.js',
         assetFileNames: (a) => (a.name?.endsWith('.css') ? 'mcp-app.css' : 'mcp-assets/[name][extname]'),
       },
@@ -701,16 +708,16 @@ git add webApp/ && git commit -m "feat(webapp): MCP shell — view registry, hos
 - [ ] **Step 1: nginx location block for the two fixed-name assets:**
 
 ```nginx
+# NO CORS headers anywhere — classic-script delivery is CORS-exempt (spec §3.4)
 location ~ ^/(mcp-app\.js|mcp-app\.css)$ {
-    add_header Access-Control-Allow-Origin "*" always;   # public, credential-less static assets only
-    add_header Cache-Control "public, max-age=300";       # short TTL: fixed names, version query busts
+    add_header Cache-Control "public, max-age=300";   # short TTL: fixed names, version query busts
 }
 ```
 
 - [ ] **Step 2: Deploy dist per the usual PUSH-APP flow; verify:**
 
-Run: `curl -sI https://<webapp-origin>/mcp-app.js | grep -i 'access-control\|cache-control'`
-Expected: both headers present. Also verify `/api` does NOT emit ACAO: `curl -sI https://<webapp-origin>/api/userinfo | grep -ci access-control` → 0.
+Run: `curl -sI https://<webapp-origin>/mcp-app.js | grep -i 'cache-control\|access-control'`
+Expected: `cache-control` present, NO `access-control-*` headers anywhere (grep count for access-control → 0 on this path and on `/api/userinfo`).
 
 - [ ] **Step 3: Commit** any repo-tracked config; note out-of-repo infra changes in the PR description.
 
