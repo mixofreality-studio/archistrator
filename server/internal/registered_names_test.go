@@ -262,7 +262,7 @@ func mustRegisteredNames(t *testing.T) []string {
 	billingMgr := billing.NewBillingManager(nil, nil, nil, nil, nil, nil, nil, nil)
 	billing.RegisterManagerWorker(&reg, billingMgr)
 
-	constructionMgr := construction.NewConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "")
+	constructionMgr := construction.NewConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
 	construction.RegisterManagerWorker(&reg, constructionMgr)
 
 	operationsMgr := operations.NewOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)

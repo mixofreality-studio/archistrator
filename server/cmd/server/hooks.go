@@ -63,6 +63,7 @@ import (
 	tlog "go.temporal.io/sdk/log"
 
 	"github.com/mixofreality-studio/archistrator/server/internal/client/web"
+	"github.com/mixofreality-studio/archistrator/server/internal/manager/construction"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/projectdesign"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/systemdesign"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact"
@@ -457,6 +458,19 @@ func (h *appHooks) SystemDesignManagerRepo() func(projectID systemdesign.Project
 		return nil
 	}
 	return func(pid systemdesign.ProjectID) (sourcecontrol.RepoRef, bool) {
+		return h.repoForProject(projectstate.ProjectID(pid))
+	}
+}
+
+// ConstructionManagerRepo is the construction venue resolver (B5, gh-mode): projectID →
+// the project's own RepoRef via the sourcecontrol catalog. Non-nil retargets every
+// construction dispatch to the project repo (aiarch-construct.yml) AND activates the
+// branch→PR rail; nil (repo-less server) keeps the central-repo fallback + dormant rail.
+func (h *appHooks) ConstructionManagerRepo() func(projectID construction.ProjectID) (sourcecontrol.RepoRef, bool) {
+	if h.scCatalog == nil {
+		return nil
+	}
+	return func(pid construction.ProjectID) (sourcecontrol.RepoRef, bool) {
 		return h.repoForProject(projectstate.ProjectID(pid))
 	}
 }

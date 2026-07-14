@@ -275,6 +275,12 @@ type Hooks interface {
 	// dependency that stays unbuilt in the active profile.
 	ConstructionManagerInterventionMode() string
 
+	// ConstructionManagerRepo supplies a composition-root value the deployment model
+	// cannot express (a func-typed resolver, or a scalar/interface dep with no
+	// setting/binding link). Return the zero value (nil for an interface) for a
+	// dependency that stays unbuilt in the active profile.
+	ConstructionManagerRepo() func(projectID construction.ProjectID) (sourcecontrol.RepoRef, bool)
+
 	// ProjectDesignManagerRepo supplies a composition-root value the deployment model
 	// cannot express (a func-typed resolver, or a scalar/interface dep with no
 	// setting/binding link). Return the zero value (nil for an interface) for a
@@ -531,7 +537,7 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 	}
 	defer wBillingManager.Stop()
 	logger.Info("embedded temporal worker started", "taskQueue", managerbilling.TaskQueue)
-	constructionManager := construction.NewConstructionManager(tc, projectStateAccess, artifactAccess, handOffEngine, interventionEngine, reviewEngine, constructionPipelineAccess, sourceControlAccess, constructionTransitionAccess, gitActivityStatusAccess, designSessionAccess, hooks.ConstructionManagerEscalationWaitTimeout(), hooks.ConstructionManagerInterventionMode())
+	constructionManager := construction.NewConstructionManager(tc, projectStateAccess, artifactAccess, handOffEngine, interventionEngine, reviewEngine, constructionPipelineAccess, sourceControlAccess, constructionTransitionAccess, gitActivityStatusAccess, designSessionAccess, hooks.ConstructionManagerEscalationWaitTimeout(), hooks.ConstructionManagerInterventionMode(), hooks.ConstructionManagerRepo())
 	if hooks.RegisterConstructionManagerWorker(cfg) {
 		wConstructionManager := worker.New(tc, construction.TaskQueue, worker.Options{})
 		construction.RegisterManagerWorker(wConstructionManager, constructionManager)

@@ -11888,6 +11888,11 @@
         {
           "name": "interventionMode",
           "goType": "string"
+        },
+        {
+          "name": "repo",
+          "goType": "func(projectID ProjectID) (sourcecontrol.RepoRef, bool)",
+          "goImport": "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
         }
       ],
       "title": "construction contract",

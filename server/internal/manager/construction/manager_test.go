@@ -56,7 +56,7 @@ func (f *fakeTemporalClient) SignalWorkflow(_ context.Context, workflowID string
 // constructionManager (all other deps nil — only used for pre-Temporal checks
 // and signal dispatch tests).
 func newTestConstructionManager(c client.Client) *constructionManager {
-	return newConstructionManager(c, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "")
+	return newConstructionManager(c, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
 }
 
 // testCtx returns a minimal fwmanager.Context backed by context.Background.
@@ -81,7 +81,7 @@ func asConstructionError(t *testing.T, err error) *fwmanager.Error {
 // ---- ExecuteNextActivity (op 2.1) ------------------------------------------
 
 func Test_ExecuteNextActivity_EmptyProjectID(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "")
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
 	_, err := m.ExecuteNextActivity(fwmanager.Context{Context: context.Background()}, ProjectID(""), "tick-1")
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -89,7 +89,7 @@ func Test_ExecuteNextActivity_EmptyProjectID(t *testing.T) {
 }
 
 func Test_ExecuteNextActivity_EmptyTickID(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "")
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
 	_, err := m.ExecuteNextActivity(fwmanager.Context{Context: context.Background()}, ProjectID(uuid.NewString()), "")
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -99,7 +99,7 @@ func Test_ExecuteNextActivity_EmptyTickID(t *testing.T) {
 // ---- RunReplanSweep (op 2.2) ------------------------------------------------
 
 func Test_RunReplanSweep_EmptyTickID(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "")
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
 	_, err := m.RunReplanSweep(fwmanager.Context{Context: context.Background()}, nil, "")
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -107,7 +107,7 @@ func Test_RunReplanSweep_EmptyTickID(t *testing.T) {
 }
 
 func Test_RunReplanSweep_EmptyProjectID(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "")
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
 	nilID := ProjectID("")
 	_, err := m.RunReplanSweep(fwmanager.Context{Context: context.Background()}, &nilID, "tick-1")
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
@@ -118,7 +118,7 @@ func Test_RunReplanSweep_EmptyProjectID(t *testing.T) {
 // ---- PauseProject (op 2.3) --------------------------------------------------
 
 func Test_PauseProject_EmptyProjectID(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "")
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
 	err := m.PauseProject(fwmanager.Context{Context: context.Background()}, ProjectID(""), "reason")
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -126,7 +126,7 @@ func Test_PauseProject_EmptyProjectID(t *testing.T) {
 }
 
 func Test_PauseProject_EmptyReason(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "")
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
 	err := m.PauseProject(fwmanager.Context{Context: context.Background()}, ProjectID(uuid.NewString()), "")
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse for an empty pause reason, got %s", got)
@@ -136,7 +136,7 @@ func Test_PauseProject_EmptyReason(t *testing.T) {
 // ---- OverrideActivity (op 2.4) ----------------------------------------------
 
 func Test_OverrideActivity_EmptyProjectID(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "")
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
 	err := m.OverrideActivity(fwmanager.Context{Context: context.Background()}, ProjectID(""), "C-1", ActivityOverride{Kind: OverrideRetry})
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -144,7 +144,7 @@ func Test_OverrideActivity_EmptyProjectID(t *testing.T) {
 }
 
 func Test_OverrideActivity_EmptyActivityID(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "")
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
 	err := m.OverrideActivity(fwmanager.Context{Context: context.Background()}, ProjectID(uuid.NewString()), "", ActivityOverride{Kind: OverrideRetry})
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse for an empty activityId, got %s", got)
@@ -152,7 +152,7 @@ func Test_OverrideActivity_EmptyActivityID(t *testing.T) {
 }
 
 func Test_OverrideActivity_UnknownOverrideKind(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "")
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
 	err := m.OverrideActivity(fwmanager.Context{Context: context.Background()}, ProjectID(uuid.NewString()), "C-1", ActivityOverride{Kind: OverrideUnknown})
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse for an unknown override kind, got %s", got)
@@ -162,7 +162,7 @@ func Test_OverrideActivity_UnknownOverrideKind(t *testing.T) {
 // ---- GetSessionState (op 2.5) -----------------------------------------------
 
 func Test_GetSessionState_EmptyProjectID(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "")
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
 	_, err := m.GetSessionState(fwmanager.Context{Context: context.Background()}, ProjectID(""), nil)
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -170,7 +170,7 @@ func Test_GetSessionState_EmptyProjectID(t *testing.T) {
 }
 
 func Test_GetSessionState_EmptyActivityID(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "")
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
 	empty := ActivityID("")
 	_, err := m.GetSessionState(fwmanager.Context{Context: context.Background()}, ProjectID(uuid.NewString()), &empty)
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
@@ -479,7 +479,7 @@ func (f *fakeReviewPolicyTransition) RecordReviewPolicy(_ fwra.Context, _ projec
 // RequiresHuman("service", MethodPhaseDetailedDesign) must be true on the persisted policy.
 func TestUpdateReviewPolicy(t *testing.T) {
 	fake := &fakeReviewPolicyTransition{version: 7}
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, fake, nil, nil, 0, "")
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, fake, nil, nil, 0, "", nil)
 
 	err := m.UpdateReviewPolicy(testCtx(), "proj-1", ReviewPolicyInput{
 		GatedPhasesByType: map[string][]string{
@@ -795,7 +795,7 @@ func gitWiredWorkflows(ps *fakeProjectState, rail *stubRail, git *stubGitStatus,
 		RailEnabled: true,
 		GitStatus:   git,
 		Repo: func(_ ProjectID) (sourcecontrol.RepoRef, bool) {
-			return sourcecontrol.RepoRefFromString("repo-1"), true
+			return sourcecontrol.RepoRefFromString("acct|owner/repo-1"), true
 		},
 	}
 	return newWorkflows(d)
@@ -2007,6 +2007,102 @@ func Test_Construct_HappyPath_RecordsReviewedAndExited(t *testing.T) {
 	// Detailed Design → Test Plan → Construction → Integration).
 	if len(pipe.submitted) != len(sampleActivity().Phases) {
 		t.Fatalf("want %d pipeline submits (one per App-A phase), got %d", len(sampleActivity().Phases), len(pipe.submitted))
+	}
+}
+
+// Test_Construct_VenueSwitch_TargetsProjectRepo pins the gh-mode venue switch (B5):
+// when the per-project Repo resolver resolves a RepoRef, every construction pipeline
+// dispatch carries the DECODED {Owner,Name} TargetRepo + the construct workflow file
+// so the agentic construction job runs in the PROJECT's own repo, not the central repo.
+func Test_Construct_VenueSwitch_TargetsProjectRepo(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(uuid.NewString()), Version: 3, Phase: 2}}
+	pipe := &fakePipeline{phase: PipelineSucceeded}
+	wf := newWorkflows(wfDeps{
+		HandOff: &fakeHandOff{class: handoff.AIWorker}, Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
+		Review: &fakeReview{},
+		// Repo resolves — the venue switch fires INDEPENDENTLY of the PR rail
+		// (RailEnabled/GitStatus unwired here, so the git-forward slice stays dormant).
+		Repo: func(_ ProjectID) (sourcecontrol.RepoRef, bool) {
+			return sourcecontrol.RepoRefFromString("acct|acme/gtdapp"), true
+		},
+	})
+	registerConstruct(env, wf, ps, pipe)
+
+	env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{
+		ProjectID: ProjectID(ps.project.ID), ActivityID: "C-XYZ", Activity: sampleActivity(),
+	})
+
+	if !env.IsWorkflowCompleted() {
+		t.Fatal("workflow did not complete")
+	}
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	if len(pipe.submitted) == 0 {
+		t.Fatal("expected at least one pipeline submit")
+	}
+	for i, spec := range pipe.submitted {
+		if spec.TargetRepo.Owner != "acme" || spec.TargetRepo.Name != "gtdapp" {
+			t.Fatalf("submit[%d]: want TargetRepo{acme,gtdapp}, got %+v", i, spec.TargetRepo)
+		}
+		if spec.WorkflowFile != constructWorkflowFileName {
+			t.Fatalf("submit[%d]: want WorkflowFile %q, got %q", i, constructWorkflowFileName, spec.WorkflowFile)
+		}
+	}
+}
+
+// Test_Construct_VenueSwitch_FallbackToCentralRepo pins the legacy fallback: when the
+// Repo resolver is absent (nil) OR does not resolve, the dispatch carries a ZERO
+// TargetRepo + empty WorkflowFile, so constructionPipelineAccess.resolveTarget falls
+// back to the configured central construction repo (the pre-B5 behavior, preserved for
+// unresolvable projects).
+func Test_Construct_VenueSwitch_FallbackToCentralRepo(t *testing.T) {
+	cases := []struct {
+		name string
+		repo func(ProjectID) (sourcecontrol.RepoRef, bool)
+	}{
+		{"resolver absent", nil},
+		{"resolver misses", func(_ ProjectID) (sourcecontrol.RepoRef, bool) { return sourcecontrol.RepoRef(""), false }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var ts testsuite.WorkflowTestSuite
+			env := ts.NewTestWorkflowEnvironment()
+
+			ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(uuid.NewString()), Version: 3, Phase: 2}}
+			pipe := &fakePipeline{phase: PipelineSucceeded}
+			wf := newWorkflows(wfDeps{
+				HandOff: &fakeHandOff{class: handoff.AIWorker}, Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
+				Review: &fakeReview{},
+				Repo:   tc.repo,
+			})
+			registerConstruct(env, wf, ps, pipe)
+
+			env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{
+				ProjectID: ProjectID(ps.project.ID), ActivityID: "C-XYZ", Activity: sampleActivity(),
+			})
+
+			if !env.IsWorkflowCompleted() {
+				t.Fatal("workflow did not complete")
+			}
+			if err := env.GetWorkflowError(); err != nil {
+				t.Fatalf("workflow error: %v", err)
+			}
+			if len(pipe.submitted) == 0 {
+				t.Fatal("expected at least one pipeline submit")
+			}
+			for i, spec := range pipe.submitted {
+				if !constructionpipeline.RepoTargetIsZero(spec.TargetRepo) {
+					t.Fatalf("submit[%d]: want ZERO TargetRepo (central-repo fallback), got %+v", i, spec.TargetRepo)
+				}
+				if spec.WorkflowFile != "" {
+					t.Fatalf("submit[%d]: want empty WorkflowFile (central-repo fallback), got %q", i, spec.WorkflowFile)
+				}
+			}
+		})
 	}
 }
 

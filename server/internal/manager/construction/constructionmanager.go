@@ -98,6 +98,14 @@ type constructionManager struct {
 	escalationWaitTimeout  time.Duration
 	interventionMode       string
 
+	// repo (B5) is the per-project Repo resolver the gh-mode venue switch dispatches
+	// through: projectID → the project's own RepoRef. nil ⇒ every construction dispatch
+	// falls back to the configured central construction repo AND the PR-rail slice stays
+	// dormant (gitEnabled). Non-nil retargets the dispatch (aiarch-construct.yml in the
+	// project repo) AND activates the branch→PR rail. Threaded into the workflows via
+	// wfDeps.Repo (WorkerManifest).
+	repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool)
+
 	// designSession (B6) is the generated designSessionAccess dep. Since the B8
 	// follow-up it is CONSUMED by the workflows: the pump's whole-aggregate read rides
 	// the generated designSessionAccess.readProjectOnBranch invoker with branch ""
@@ -129,6 +137,7 @@ func newConstructionManager(
 	designSession projectstate.DesignSessionAccess,
 	escalationWaitTimeout time.Duration,
 	interventionMode string,
+	repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool),
 ) *constructionManager {
 	return &constructionManager{
 		client:                 c,
@@ -144,6 +153,7 @@ func newConstructionManager(
 		designSession:          designSession,
 		escalationWaitTimeout:  escalationWaitTimeout,
 		interventionMode:       interventionMode,
+		repo:                   repo,
 	}
 }
 
@@ -1351,9 +1361,11 @@ func (m *constructionManager) WorkerManifest() genWorkerManifest {
 		GitStatus: m.gitActivityStatus,
 		Acts:      genInvokers{Opts: optsHook},
 		// RailEnabled gates the PR-rail lifecycle (gitEnabled) alongside GitStatus + Repo.
-		// The per-project Repo resolver is not wired, so the PR-rail slice stays dormant
-		// (the started/completed construction records still fire when GitStatus is wired).
+		// Repo (B5) is the per-project venue resolver: non-nil retargets every construction
+		// dispatch to the project's own repo (aiarch-construct.yml) AND activates the
+		// branch→PR rail; nil keeps the central-repo fallback + dormant rail.
 		RailEnabled:           m.rail != nil,
+		Repo:                  m.repo,
 		NextEligibleActivity:  nextEligibleActivity,
 		HandOffPolicy:         handoff.HandOffPolicy{},
 		InterventionPolicy:    constructionInterventionPolicy(m.interventionMode),

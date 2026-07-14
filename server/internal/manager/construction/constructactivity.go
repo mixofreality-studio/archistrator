@@ -22,6 +22,7 @@ import (
 
 // pipelineSpec is the Manager's infrastructure-neutral dispatch spec.
 type pipelineSpec struct {
+	ProjectID   ProjectID
 	ActivityID  string
 	ComponentID string
 	RepoURL     string
@@ -41,6 +42,37 @@ type pipelineObservation struct {
 // pipelineDefaultToolchain is the single logical build step the Manager's neutral
 // pipelineSpec implies (the image map resolves it to a concrete image).
 const pipelineDefaultToolchain = "go-1.23"
+
+// constructWorkflowFileName is the per-project CONSTRUCTION workflow file the agentic
+// construction job dispatches into (the gh-mode venue switch, B5). It rides on the
+// contract PipelineSpec.WorkflowFile alongside the per-project TargetRepo; the RA's
+// resolveTarget falls back to the configured central construction workflow file when
+// this (and TargetRepo) is zero. The scaffold seats this file in every app repo (B4);
+// archistrator's own repo keeps its hand-maintained copy (self-hosting divergence).
+const constructWorkflowFileName = "aiarch-construct.yml"
+
+// constructRepoTarget resolves the per-project construction venue: it runs the injected
+// Repo resolver and DECODES the opaque RepoRef into the RA's infrastructure-neutral
+// RepoTarget{Owner,Name} + the construct workflow file. A nil/unresolving resolver
+// yields a ZERO RepoTarget + empty workflow file, so submitPipeline leaves the contract
+// fields zero and the RA falls back to the configured central construction repo (the
+// pre-B5 legacy behavior, preserved for unresolvable projects). A malformed RepoRef
+// surfaces the RA's ContractMisuse — decoded via sourcecontrol's own OwnerRepo accessor
+// so the RepoRef encoding stays owned by sourceControlAccess (no encoding leak here).
+func (wf *workflows) constructRepoTarget(projectID ProjectID) (constructionpipeline.RepoTarget, string, error) {
+	if wf.Repo == nil {
+		return constructionpipeline.RepoTarget{}, "", nil
+	}
+	repoRef, ok := wf.Repo(projectID)
+	if !ok {
+		return constructionpipeline.RepoTarget{}, "", nil
+	}
+	owner, name, err := sourcecontrol.RepoRefOwnerRepo(repoRef)
+	if err != nil {
+		return constructionpipeline.RepoTarget{}, "", err
+	}
+	return constructionpipeline.RepoTarget{Owner: owner, Name: name}, constructWorkflowFileName, nil
+}
 
 // dispatchInputsFor builds the DispatchInputs bag for a construction pipeline dispatch.
 // The `command` input is the thin slash-command the workflow runs; it is computed here
@@ -88,6 +120,13 @@ func managerPipelinePhase(p constructionpipeline.PipelinePhase) PipelinePhase {
 // / workspaceRef / dispatch inputs) from the Manager's neutral pipelineSpec and calls the
 // GENERATED submit invoker, mapping the opaque handle back to the neutral pipelineHandle.
 func (wf *workflows) submitPipeline(ctx workflow.Context, spec pipelineSpec) (pipelineHandle, error) {
+	// gh-mode venue switch (B5): retarget the dispatch to the project's OWN repo +
+	// aiarch-construct.yml when the per-project Repo resolves; a zero target leaves the
+	// central-repo fallback (resolveTarget) intact for unresolvable projects.
+	target, workflowFile, terr := wf.constructRepoTarget(spec.ProjectID)
+	if terr != nil {
+		return pipelineHandle{}, terr
+	}
 	handle, err := wf.Acts.PipelineSubmitConstructionPipeline(ctx, constructionpipeline.PipelineSpec{
 		ActivityID: constructionpipeline.ConstructionActivityID(spec.ActivityID),
 		Steps: []constructionpipeline.PipelineStep{{
@@ -97,6 +136,8 @@ func (wf *workflows) submitPipeline(ctx workflow.Context, spec pipelineSpec) (pi
 		}},
 		WorkspaceRef:   constructionpipeline.ArtifactRef(spec.RepoURL + "@" + spec.Ref),
 		DispatchInputs: dispatchInputsFor(spec),
+		TargetRepo:     target,
+		WorkflowFile:   workflowFile,
 	})
 	if err != nil {
 		return pipelineHandle{}, err
@@ -973,6 +1014,7 @@ func (wf *workflows) finalizeActivity(
 // poll-loop verb, C-MCN-GIT) — dormant when the git slice is unwired.
 func (wf *workflows) runPipeline(ctx workflow.Context, in constructActivityInput, phase projectstate.ActivityMethodPhase, state *constructState, gf *gitForward, headVersion *projectstate.Version) (pipelineObservation, error) {
 	handle, err := wf.submitPipeline(ctx, pipelineSpec{
+		ProjectID:   in.ProjectID,
 		ActivityID:  string(in.ActivityID),
 		ComponentID: in.Activity.ComponentID,
 		Phase:       phase.String(),
