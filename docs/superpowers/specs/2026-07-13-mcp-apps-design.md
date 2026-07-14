@@ -45,13 +45,17 @@ The reusable eslint-boundaries package (the TS counterpart to framework-go/arch)
 
 This ruleset ships in the app-generator webApp template so **every archistrator-generated app is MCP-Apps-ready by construction**, not by convention. Existing archistrator webApp screens migrate to comply (per-screen mechanical work; see rollout).
 
-### 3.4 Shell app + bundling
+### 3.4 Shell app + bundling: CSP stub, assets from nginx (founder ruling)
 
-A second Vite entry, `mcp-app.html`, builds a **single-file shell bundle** (`vite-plugin-singlefile`): one `ui://` resource shared by all views so the host preloads it once per conversation and MUI/xyflow are not duplicated per view. The shell: `App.connect()` → receive tool result → look up the screen in a static **view registry** (keyed by view id carried in tool metadata/result) → provide `McpOpsClient` + seeded query cache + theme → mount that screen's shared container, minus router shell and chat panel. Expected bundle 2–4 MB inlined; measure at the pilot. **Size fallback:** a tiny stub resource whose script/style tags load from the webApp origin via `_meta.ui.csp` (assets then served and cached by nginx directly); per-manager shell splitting is the last resort.
+A second Vite entry, `mcp-app.html`, builds the shell as a **normal asset bundle with fixed (unhashed) output names** (`mcp-app.js`, `mcp-app.css`) into the same `dist` that `PUSH-APP.sh` already publishes to nginx. The `ui://archistrator/shell.html` resource is a **~1–2 KB constant HTML stub** whose script/style tags point at the webApp origin, with `_meta.ui.csp` declaring that origin. Responsibility split: Go serves a config-templated constant string (no fetching, no caching, no asset awareness); nginx serves and cache-controls the assets (plus CORS for the sandbox origin); the browser HTTP-caches them normally; the MCP host caches the stub resource per conversation. Fixed names keep the stub constant; cache-busting via a version query param from config or short TTLs. No multi-MB blob travels through JSON-RPC, so bundle size is a non-issue.
+
+Shell behavior: `App.connect()` → receive tool result → look up the screen in a static **view registry** (keyed by view id carried in tool metadata/result) → provide `McpOpsClient` + seeded query cache + theme → mount that screen's shared container, minus router shell and chat panel.
+
+**Fallback** (only if a host's `_meta.ui.csp` support proves broken at pilot): single-file inlined bundle via `vite-plugin-singlefile` served as the resource body.
 
 ### 3.5 Go server: resources capability + tool metadata
 
-- **MCP resources** (greenfield): register `ui://archistrator/shell.html` via go-sdk `AddResource`, serving the built shell HTML with the MCP-Apps mimetype. **Byte source: the webApp static origin (nginx).** The Vite build adds `mcp-app.html` to the same `dist` that `PUSH-APP.sh` already publishes; the Go resource handler fetches `https://<webapp-origin>/mcp-app.html` on `resources/read` with a short in-memory cache, and returns a graceful resource error if the origin is unreachable. This keeps nginx the single system of record for all built UI (one deploy pipeline; a webApp deploy updates in-chat views with no server redeploy). No `go:embed`, no bundle in the server container — the Go server is only the protocol shim. Wiring beside `mcp_mount.go` in the hooks seam; one config value for the origin.
+- **MCP resources** (greenfield): register `ui://archistrator/shell.html` via go-sdk `AddResource`, returning the §3.4 constant stub with the MCP-Apps mimetype and `_meta.ui.csp`. The handler renders a config-templated string (webApp origin + version) — no file reads, no fetching, no caching in Go. nginx remains the single system of record for all built UI; a webApp deploy updates in-chat views with no server redeploy. Wiring beside `mcp_mount.go` in the hooks seam; one config value for the origin.
 - **`_meta.ui.resourceUri` on tools**: stamped by `mcpemit` during codegen. Which operations have a view is declared **in `project.json`** — a small optional `ui` annotation on service-contract operations (schema-first, consistent with doctrine; exact slot shape settled during planning recon). Tools without a view stay plain tools.
 
 ## 4. Auth + testing
@@ -73,8 +77,8 @@ A second Vite entry, `mcp-app.html`, builds a **single-file shell bundle** (`vit
 - **Screen/chat coupling**: how cleanly `DesignExperience` screens factor away from the chat panel is the main refactor unknown — recon item; sizes the redesign.
 - **CSP**: nothing in the iframe may call REST; the lint rules are the guard.
 - **go-sdk resource support**: verify v1.6.1 exposes what `AddResource` + `_meta` stamping need; upgrade if not.
-- **Bundle size**: measured at pilot; CSP-stub (assets from nginx) is the fallback, per-manager shells the last resort (§3.4).
-- **Server→webApp-origin runtime dependency**: `resources/read` now depends on nginx availability; handler must degrade gracefully (§3.5).
+- **Host `_meta.ui.csp` support is load-bearing** (§3.4): Claude documents it; pilot verifies against basic-host and Claude. Fallback = single-file inlined bundle as the resource body.
+- **nginx CORS + cache headers** for the fixed-name shell assets, and per-environment origin config in the stub — small, but new surface; plan recon items.
 
 ## 7. Non-goals
 
