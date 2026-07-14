@@ -8,10 +8,11 @@
  * the DraftFailedPanel rather than spinning.
  */
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
-import { apiClient } from '../api/client';
-import { ApiError, toApiError } from '../contracts/errors';
+import { useOpsClient } from '../api/opsContext';
+import { ApiError } from '../contracts/errors';
 import { artifactKindToOrdinal, mapSessionState } from '../contracts/wire';
 import type { ArtifactKind, SessionStage, SessionStateResponse } from '../contracts/types';
+import type { components } from '../contracts/schema';
 
 const POLL_INTERVAL_MS = 2000;
 
@@ -43,14 +44,17 @@ export function useSessionState(
   kind: ArtifactKind,
   enabled: boolean
 ): UseQueryResult<SessionStateResponse> {
+  const { ops, transport } = useOpsClient();
   return useQuery<SessionStateResponse>({
     queryKey: sessionStateKey(projectId, kind),
     queryFn: async () => {
-      const { data, error, response } = await apiClient.GET(
-        '/api/v1/system-design/get-session-state/{projectID}',
-        { params: { path: { projectID: projectId }, query: { kind: artifactKindToOrdinal(kind) } } }
+      const data = await ops.call<components['schemas']['SystemDesignSessionStateView']>(
+        'systemDesignGetSessionState',
+        {
+          path: { projectID: projectId },
+          query: { kind: artifactKindToOrdinal(kind) },
+        }
       );
-      if (error !== undefined) throw toApiError(response.status, error);
       return mapSessionState(data);
     },
     enabled: enabled && projectId.length > 0,
@@ -67,7 +71,12 @@ export function useSessionState(
     // network-log noise stops repeating.
     refetchOnWindowFocus: false,
     staleTime: Infinity,
+    // MCP context never background-polls (spec §3.4) — an MCP host drives its own
+    // refresh cadence around tool calls, so a 2s client-side poll would just be
+    // redundant traffic. The SPA (REST transport) keeps the existing live-stage
+    // poll unchanged.
     refetchInterval: (query) => {
+      if (transport === 'mcp') return false;
       const stage = query.state.data?.stage;
       // Poll only while a LIVE session sits in a non-terminal stage. If there is no
       // session data at all — a committed / not-yet-started artifact 404s, leaving

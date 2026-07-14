@@ -9,8 +9,7 @@ import {
   type UseMutationResult,
   type QueryClient,
 } from '@tanstack/react-query';
-import { apiClient } from '../api/client';
-import { toApiError } from '../contracts/errors';
+import { useOpsClient } from '../api/opsContext';
 import {
   artifactKindToOrdinal,
   reviewDecisionToOrdinal,
@@ -25,6 +24,7 @@ import type {
   ReviewDecision,
   ReviewDecisionDetail,
 } from '../contracts/types';
+import type { components } from '../contracts/schema';
 import { projectKey } from './useProject';
 import { sessionStateKey } from './useSessionState';
 
@@ -48,20 +48,19 @@ export function useRequestArtifactDraft(
   projectId: string
 ): UseMutationResult<string, Error, RequestDraftVars> {
   const client = useQueryClient();
+  const { ops } = useOpsClient();
   return useMutation<string, Error, RequestDraftVars>({
     mutationFn: async (vars) => {
-      const { data, error, response } = await apiClient.POST(
-        '/api/v1/system-design/request-artifact-draft/{projectID}',
+      return ops.call<components['schemas']['SystemDesignSessionRef']>(
+        'systemDesignRequestArtifactDraft',
         {
-          params: { path: { projectID: projectId } },
+          path: { projectID: projectId },
           body: {
             kind: artifactKindToOrdinal(vars.kind),
             ...(vars.feedback !== undefined ? { feedback: { notes: vars.feedback } } : {}),
           },
         }
       );
-      if (error !== undefined) throw toApiError(response.status, error);
-      return data;
     },
     onSuccess: (_data, vars) => invalidateArtifact(client, projectId, vars.kind),
   });
@@ -77,29 +76,26 @@ export function useSubmitReviewDecision(
   projectId: string
 ): UseMutationResult<undefined, Error, ReviewDecisionVars> {
   const client = useQueryClient();
+  const { ops } = useOpsClient();
   return useMutation<undefined, Error, ReviewDecisionVars>({
     mutationFn: async (vars) => {
       const detail = vars.detail ?? {};
       const hasFeedback = detail.feedback !== undefined || detail.comments !== undefined;
-      const { error, response } = await apiClient.POST(
-        '/api/v1/system-design/submit-review-decision/{projectID}',
-        {
-          params: { path: { projectID: projectId } },
-          body: {
-            kind: artifactKindToOrdinal(vars.kind),
-            decision: reviewDecisionToOrdinal(vars.decision),
-            ...(hasFeedback
-              ? {
-                  feedback: {
-                    notes: detail.feedback ?? '',
-                    ...(detail.comments !== undefined ? { comments: detail.comments } : {}),
-                  },
-                }
-              : {}),
-          },
-        }
-      );
-      if (error !== undefined) throw toApiError(response.status, error);
+      await ops.call('systemDesignSubmitReviewDecision', {
+        path: { projectID: projectId },
+        body: {
+          kind: artifactKindToOrdinal(vars.kind),
+          decision: reviewDecisionToOrdinal(vars.decision),
+          ...(hasFeedback
+            ? {
+                feedback: {
+                  notes: detail.feedback ?? '',
+                  ...(detail.comments !== undefined ? { comments: detail.comments } : {}),
+                },
+              }
+            : {}),
+        },
+      });
       return undefined;
     },
     onSuccess: (_data, vars) => invalidateArtifact(client, projectId, vars.kind),
@@ -122,20 +118,17 @@ export function useSetReviewCommentStatus(
   projectId: string
 ): UseMutationResult<undefined, Error, SetReviewCommentStatusVars> {
   const client = useQueryClient();
+  const { ops } = useOpsClient();
   return useMutation<undefined, Error, SetReviewCommentStatusVars>({
     mutationFn: async (vars) => {
-      const { error, response } = await apiClient.POST(
-        '/api/v1/system-design/set-review-comment-status/{projectID}',
-        {
-          params: { path: { projectID: projectId } },
-          body: {
-            kind: artifactKindToOrdinal(vars.kind),
-            commentID: vars.commentID,
-            status: vars.status,
-          },
-        }
-      );
-      if (error !== undefined) throw toApiError(response.status, error);
+      await ops.call('systemDesignSetReviewCommentStatus', {
+        path: { projectID: projectId },
+        body: {
+          kind: artifactKindToOrdinal(vars.kind),
+          commentID: vars.commentID,
+          status: vars.status,
+        },
+      });
       return undefined;
     },
     onSuccess: (_data, vars) => invalidateArtifact(client, projectId, vars.kind),
@@ -159,20 +152,17 @@ export function useAskQuestions(
   projectId: string
 ): UseMutationResult<undefined, Error, AskQuestionsVars> {
   const client = useQueryClient();
+  const { ops } = useOpsClient();
   return useMutation<undefined, Error, AskQuestionsVars>({
     mutationFn: async (vars) => {
-      const { error, response } = await apiClient.POST(
-        '/api/v1/system-design/ask-questions/{projectID}',
-        {
-          params: { path: { projectID: projectId } },
-          body: {
-            kind: artifactKindToOrdinal(vars.kind),
-            addressee: vars.addressee,
-            questions: vars.questions,
-          },
-        }
-      );
-      if (error !== undefined) throw toApiError(response.status, error);
+      await ops.call('systemDesignAskQuestions', {
+        path: { projectID: projectId },
+        body: {
+          kind: artifactKindToOrdinal(vars.kind),
+          addressee: vars.addressee,
+          questions: vars.questions,
+        },
+      });
       return undefined;
     },
     onSuccess: (_data, vars) => invalidateArtifact(client, projectId, vars.kind),
@@ -194,16 +184,13 @@ export function useAcknowledgeStaleBasis(
   projectId: string
 ): UseMutationResult<undefined, Error, AcknowledgeStaleVars> {
   const client = useQueryClient();
+  const { ops } = useOpsClient();
   return useMutation<undefined, Error, AcknowledgeStaleVars>({
     mutationFn: async (vars) => {
-      const { error, response } = await apiClient.POST(
-        '/api/v1/system-design/acknowledge-stale-basis/{projectID}',
-        {
-          params: { path: { projectID: projectId } },
-          body: { kind: artifactKindToOrdinal(vars.kind), note: vars.note },
-        }
-      );
-      if (error !== undefined) throw toApiError(response.status, error);
+      await ops.call('systemDesignAcknowledgeStaleBasis', {
+        path: { projectID: projectId },
+        body: { kind: artifactKindToOrdinal(vars.kind), note: vars.note },
+      });
       return undefined;
     },
     onSuccess: (_data, vars) => invalidateArtifact(client, projectId, vars.kind),
@@ -220,16 +207,16 @@ export function useAdvancePhase(
   projectId: string
 ): UseMutationResult<PhaseAdvanceResponse, Error, boolean> {
   const client = useQueryClient();
+  const { ops } = useOpsClient();
   return useMutation<PhaseAdvanceResponse, Error, boolean>({
     mutationFn: async (acknowledgeStale: boolean) => {
-      const { data, error, response } = await apiClient.POST(
-        '/api/v1/system-design/advance-phase/{projectID}',
+      const data = await ops.call<components['schemas']['SystemDesignPhaseAdvanceResult']>(
+        'systemDesignAdvancePhase',
         {
-          params: { path: { projectID: projectId } },
+          path: { projectID: projectId },
           body: { acknowledgeStale },
         }
       );
-      if (error !== undefined) throw toApiError(response.status, error);
       return {
         advanced: data.advanced,
         missingArtifacts: (data.missingArtifacts ?? []).map(systemArtifactKindFromOrdinal),

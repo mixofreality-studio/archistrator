@@ -18,6 +18,9 @@ import '@fontsource/jetbrains-mono/400.css';
 import '@fontsource/jetbrains-mono/500.css';
 import '@fontsource/jetbrains-mono/700.css';
 import { ApiError } from './contracts/errors';
+import { apiClient } from './api/client';
+import { restOpsClient } from './api/ops.gen';
+import { OpsClientProvider } from './api/opsContext';
 import './index.css';
 import App from './App';
 
@@ -44,7 +47,9 @@ if (rootElement === null) {
 createRoot(rootElement).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <App />
+      <OpsClientProvider value={{ ops: restOpsClient(apiClient), transport: 'rest' }}>
+        <App />
+      </OpsClientProvider>
     </QueryClientProvider>
   </StrictMode>
 );
