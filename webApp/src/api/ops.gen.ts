@@ -282,12 +282,52 @@ function toolErrorMessage(content: unknown): string {
   return texts.length > 0 ? texts.join(' ') : 'tool call failed';
 }
 
+/**
+ * MCP flattens path+query+body into one arguments object; unlike REST (where
+ * path/query/body are structurally separate), a key present in more than one
+ * part would silently be decided by merge order (body over query over path).
+ * Guard loudly instead: a collision aborts the call with an ApiError rather
+ * than resolving to whichever part happened to merge last.
+ */
+function assertNoArgCollision(
+  opId: string,
+  path: Record<string, unknown>,
+  query: Record<string, unknown>,
+  body: Record<string, unknown>
+): void {
+  const seen = new Map<string, string[]>();
+  for (const [partName, part] of [
+    ['path', path],
+    ['query', query],
+    ['body', body],
+  ] as const) {
+    for (const key of Object.keys(part)) {
+      const parts = seen.get(key) ?? [];
+      parts.push(partName);
+      seen.set(key, parts);
+    }
+  }
+  const collidingKeys = [...seen.entries()]
+    .filter(([, parts]) => parts.length > 1)
+    .map(([key]) => key);
+  if (collidingKeys.length > 0) {
+    throw new ApiError(
+      500,
+      'argCollision',
+      `argument key collision on ${opId}: ${collidingKeys.join(', ')}`
+    );
+  }
+}
+
 export function mcpOpsClient(app: App): OpsClient {
   return {
     async call<R = unknown>(op: OpId, params: OpParams = {}): Promise<R> {
       const binding = OP_BINDINGS[op];
+      const pathArgs = (params.path ?? {}) as Record<string, unknown>;
+      const queryArgs = params.query ?? {};
       const bodyArgs = (params.body ?? {}) as Record<string, unknown>;
-      const args = { ...(params.path ?? {}), ...(params.query ?? {}), ...bodyArgs };
+      assertNoArgCollision(op, pathArgs, queryArgs, bodyArgs);
+      const args = { ...pathArgs, ...queryArgs, ...bodyArgs };
       const result = await app.callServerTool({ name: binding.tool, arguments: args });
       if (result.isError === true) {
         const status = isNotFoundToolError(result.content) ? 404 : 500;

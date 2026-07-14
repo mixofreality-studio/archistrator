@@ -103,6 +103,27 @@ void test('mcp impl maps any other tool error to ApiError(500)', async () => {
   );
 });
 
+void test('mcp impl rejects with ApiError(500) on a path/body arg-key collision, without calling the tool', async () => {
+  const { app, calls } = spyApp(() => ({
+    structuredContent: {},
+    content: [],
+  }));
+  const ops: OpsClient = mcpOpsClient(app as never);
+  await assert.rejects(
+    ops.call('systemDesignGetSessionState', {
+      path: { projectID: 'p1' },
+      body: { projectID: 'p2' },
+    }),
+    (err: unknown) => {
+      assert.ok(err instanceof ApiError);
+      assert.equal(err.status, 500);
+      assert.match(err.message, /collision/);
+      return true;
+    }
+  );
+  assert.deepEqual(calls, []);
+});
+
 // -- REST transport ------------------------------------------------------------
 
 interface RestCall {
