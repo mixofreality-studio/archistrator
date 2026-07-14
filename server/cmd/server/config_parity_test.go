@@ -56,171 +56,181 @@ const testPEM = "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAA==\n-----END RSA PRI
 // TestLoadConfigParity pins the historical loadConfig contract: for identical env
 // input the required-var errors and effective config values must match the
 // pre-configgen hand loader. Each case clears ALL config env first, then applies
-// its overrides.
+// its overrides. Each case's assertions are decomposed into its own subtest
+// function below (gocognit is scored per-function; this preserves the exact same
+// coverage while keeping each function under the complexity gate).
 func TestLoadConfigParity(t *testing.T) {
-	// devLocalRig is the systemtests / local-dogfood boot env: dry-run construction,
-	// on-disk git project state, dev auth injected.
-	t.Run("dev-local-rig", func(t *testing.T) {
-		clearConfigEnv(t)
-		setEnv(t, map[string]string{
-			"ARCHISTRATOR_POSTGRES_URL":               "postgres://archistrator@localhost:5432/db",
-			"ARCHISTRATOR_TEMPORAL_HOSTPORT":          "localhost:7233",
-			"ARCHISTRATOR_TEMPORAL_NAMESPACE":         "st-1",
-			"ARCHISTRATOR_AUTH_DEV_MODE":              "true",
-			"ARCHISTRATOR_CONSTRUCTION_DRYRUN":        "true",
-			"ARCHISTRATOR_PROJECT_STATE_GIT_LOCAL":    "true",
-			"ARCHISTRATOR_PROJECT_STATE_GIT_REPO_URL": "file:///tmp/proj.git",
-		})
-		cfg, err := loadResolvedConfig()
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		wantStr := map[string]string{
-			"PostgresURL":            cfg.PostgresURL,
-			"TemporalHostport":       cfg.TemporalHostport,
-			"TemporalNamespace":      cfg.TemporalNamespace,
-			"ProjectStateGitRepoURL": cfg.ProjectStateGitRepoURL,
-			"ListenAddr":             cfg.ListenAddr,
-		}
-		if wantStr["PostgresURL"] != "postgres://archistrator@localhost:5432/db" {
-			t.Errorf("PostgresURL = %q", cfg.PostgresURL)
-		}
-		if cfg.TemporalHostport != "localhost:7233" || cfg.TemporalNamespace != "st-1" {
-			t.Errorf("temporal = %q / %q", cfg.TemporalHostport, cfg.TemporalNamespace)
-		}
-		if cfg.ListenAddr != ":8080" { // default preserved
-			t.Errorf("ListenAddr default = %q, want :8080", cfg.ListenAddr)
-		}
-		if cfg.ShutdownTimeout != 20*time.Second {
-			t.Errorf("ShutdownTimeout default = %v, want 20s", cfg.ShutdownTimeout)
-		}
-		if !cfg.ConstructionDryRun {
-			t.Error("ConstructionDryRun = false, want true")
-		}
-		if !cfg.ProjectStateGitLocal || cfg.ProjectStateGitRepoURL != "file:///tmp/proj.git" {
-			t.Errorf("project-state-git local=%v url=%q", cfg.ProjectStateGitLocal, cfg.ProjectStateGitRepoURL)
-		}
-		if !cfg.AuthDevMode {
-			t.Error("AuthDevMode = false, want true")
-		}
-		// The dev principal is built in the DevConfig hook from devPrincipal(); assert
-		// it directly (it is no longer a *Config field).
-		if p := devPrincipal(); p.Subject != "dev-architect" {
-			t.Errorf("dev subject = %q, want dev-architect (default)", p.Subject)
-		}
-		if got := devPrincipal().Roles; len(got) != 2 || got[0] != "drive-phase" || got[1] != "approve-artifact" {
-			t.Errorf("dev roles = %v, want [drive-phase approve-artifact]", got)
-		}
-		if cfg.ConstructionWorkflowFile != "aiarch-construct.yml" {
-			t.Errorf("ConstructionWorkflowFile default = %q", cfg.ConstructionWorkflowFile)
-		}
-		if cfg.ConstructionEscalationTimeout != 30*time.Minute {
-			t.Errorf("ConstructionEscalationTimeout default = %v, want 30m", cfg.ConstructionEscalationTimeout)
-		}
-		if cfg.ConstructionInterventionMode != "tiered" {
-			t.Errorf("ConstructionInterventionMode default = %q, want tiered", cfg.ConstructionInterventionMode)
-		}
-		_ = wantStr
-	})
+	t.Run("dev-local-rig", testLoadConfigParityDevLocalRig)
+	t.Run("cloudish", testLoadConfigParityCloudish)
+	t.Run("account-explicit-and-bad-installation-id", testLoadConfigParityAccountExplicitBadInstallationID)
+	t.Run("empty-env-requires-postgres", testLoadConfigParityEmptyEnvRequiresPostgres)
+	t.Run("dryrun-false-missing-creds", testLoadConfigParityDryrunFalseMissingCreds)
+}
 
-	// cloudish exercises the real construction path: all creds present, PEM inline,
-	// installation-id int64 coercion, GitHubAccount chained default off
-	// CONSTRUCTION_REPO_OWNER, keycloak configured.
-	t.Run("cloudish", func(t *testing.T) {
-		clearConfigEnv(t)
-		setEnv(t, map[string]string{
-			"ARCHISTRATOR_POSTGRES_URL":               "postgres://cloud",
-			"ARCHISTRATOR_CONSTRUCTION_DRYRUN":        "false",
-			"ARCHISTRATOR_CONSTRUCTION_REPO_OWNER":    "acme",
-			"ARCHISTRATOR_CONSTRUCTION_REPO_NAME":     "widget",
-			"ARCHISTRATOR_GITHUB_APP_ID":              "999",
-			"ARCHISTRATOR_GITHUB_APP_PRIVATE_KEY_PEM": testPEM,
-			// Required on a cloud-profile server with App creds (the allowed_bots
-			// fail-fast, validateGithubAppSlug) — a real cloud rig always sets it.
-			"ARCHISTRATOR_GITHUB_APP_SLUG":        "acme-app",
-			"ARCHISTRATOR_GITHUB_INSTALLATION_ID": "42",
-			"ARCHISTRATOR_ARTIFACT_REPO_URL":      "https://github.com/acme/widget.git",
-			"ARCHISTRATOR_KEYCLOAK_JWKS_URL":      "https://kc/realms/x/certs",
-			"ARCHISTRATOR_KEYCLOAK_ISSUER":        "https://kc/realms/x",
-		})
-		cfg, err := loadResolvedConfig()
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if cfg.ConstructionDryRun {
-			t.Error("ConstructionDryRun = true, want false")
-		}
-		if got := parseInt64(cfg.GithubAppInstallationID); got != 42 { // int64 coercion (in the variant hooks)
-			t.Errorf("installationID = %d, want 42", got)
-		}
-		if cfg.GithubAppAccount != "acme" { // chained default off CONSTRUCTION_REPO_OWNER
-			t.Errorf("GithubAppAccount = %q, want acme (chained default)", cfg.GithubAppAccount)
-		}
-		if cfg.GithubAppPrivateKeyPEM != testPEM {
-			t.Errorf("GithubAppPrivateKeyPEM = %q, want inline PEM verbatim", cfg.GithubAppPrivateKeyPEM)
-		}
-		if cfg.KeycloakJWKSURL == "" || cfg.KeycloakIssuer == "" {
-			t.Errorf("keycloak = %q / %q", cfg.KeycloakJWKSURL, cfg.KeycloakIssuer)
-		}
+// testLoadConfigParityDevLocalRig is the systemtests / local-dogfood boot env:
+// dry-run construction, on-disk git project state, dev auth injected.
+func testLoadConfigParityDevLocalRig(t *testing.T) {
+	clearConfigEnv(t)
+	setEnv(t, map[string]string{
+		"ARCHISTRATOR_POSTGRES_URL":               "postgres://archistrator@localhost:5432/db",
+		"ARCHISTRATOR_TEMPORAL_HOSTPORT":          "localhost:7233",
+		"ARCHISTRATOR_TEMPORAL_NAMESPACE":         "st-1",
+		"ARCHISTRATOR_AUTH_DEV_MODE":              "true",
+		"ARCHISTRATOR_CONSTRUCTION_DRYRUN":        "true",
+		"ARCHISTRATOR_PROJECT_STATE_GIT_LOCAL":    "true",
+		"ARCHISTRATOR_PROJECT_STATE_GIT_REPO_URL": "file:///tmp/proj.git",
 	})
+	cfg, err := loadResolvedConfig()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	wantStr := map[string]string{
+		"PostgresURL":            cfg.PostgresURL,
+		"TemporalHostport":       cfg.TemporalHostport,
+		"TemporalNamespace":      cfg.TemporalNamespace,
+		"ProjectStateGitRepoURL": cfg.ProjectStateGitRepoURL,
+		"ListenAddr":             cfg.ListenAddr,
+	}
+	if wantStr["PostgresURL"] != "postgres://archistrator@localhost:5432/db" {
+		t.Errorf("PostgresURL = %q", cfg.PostgresURL)
+	}
+	if cfg.TemporalHostport != "localhost:7233" || cfg.TemporalNamespace != "st-1" {
+		t.Errorf("temporal = %q / %q", cfg.TemporalHostport, cfg.TemporalNamespace)
+	}
+	if cfg.ListenAddr != ":8080" { // default preserved
+		t.Errorf("ListenAddr default = %q, want :8080", cfg.ListenAddr)
+	}
+	if cfg.ShutdownTimeout != 20*time.Second {
+		t.Errorf("ShutdownTimeout default = %v, want 20s", cfg.ShutdownTimeout)
+	}
+	if !cfg.ConstructionDryRun {
+		t.Error("ConstructionDryRun = false, want true")
+	}
+	if !cfg.ProjectStateGitLocal || cfg.ProjectStateGitRepoURL != "file:///tmp/proj.git" {
+		t.Errorf("project-state-git local=%v url=%q", cfg.ProjectStateGitLocal, cfg.ProjectStateGitRepoURL)
+	}
+	if !cfg.AuthDevMode {
+		t.Error("AuthDevMode = false, want true")
+	}
+	// The dev principal is built in the DevConfig hook from devPrincipal(); assert
+	// it directly (it is no longer a *Config field).
+	if p := devPrincipal(); p.Subject != "dev-architect" {
+		t.Errorf("dev subject = %q, want dev-architect (default)", p.Subject)
+	}
+	if got := devPrincipal().Roles; len(got) != 2 || got[0] != "drive-phase" || got[1] != "approve-artifact" {
+		t.Errorf("dev roles = %v, want [drive-phase approve-artifact]", got)
+	}
+	if cfg.ConstructionWorkflowFile != "aiarch-construct.yml" {
+		t.Errorf("ConstructionWorkflowFile default = %q", cfg.ConstructionWorkflowFile)
+	}
+	if cfg.ConstructionEscalationTimeout != 30*time.Minute {
+		t.Errorf("ConstructionEscalationTimeout default = %v, want 30m", cfg.ConstructionEscalationTimeout)
+	}
+	if cfg.ConstructionInterventionMode != "tiered" {
+		t.Errorf("ConstructionInterventionMode default = %q, want tiered", cfg.ConstructionInterventionMode)
+	}
+	_ = wantStr
+}
 
-	// account-explicit: an explicit ARCHISTRATOR_GITHUB_ACCOUNT wins over the
-	// chained CONSTRUCTION_REPO_OWNER default; unparseable installation id ⇒ 0.
-	t.Run("account-explicit-and-bad-installation-id", func(t *testing.T) {
-		clearConfigEnv(t)
-		setEnv(t, map[string]string{
-			"ARCHISTRATOR_POSTGRES_URL":            "postgres://x",
-			"ARCHISTRATOR_CONSTRUCTION_DRYRUN":     "true",
-			"ARCHISTRATOR_GITHUB_ACCOUNT":          "explicit-org",
-			"ARCHISTRATOR_CONSTRUCTION_REPO_OWNER": "fallback-owner",
-			"ARCHISTRATOR_GITHUB_INSTALLATION_ID":  "not-a-number",
-		})
-		cfg, err := loadResolvedConfig()
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if cfg.GithubAppAccount != "explicit-org" {
-			t.Errorf("GithubAppAccount = %q, want explicit-org", cfg.GithubAppAccount)
-		}
-		if got := parseInt64(cfg.GithubAppInstallationID); got != 0 {
-			t.Errorf("installationID = %d, want 0 (unparseable)", got)
-		}
+// testLoadConfigParityCloudish exercises the real construction path: all creds
+// present, PEM inline, installation-id int64 coercion, GitHubAccount chained
+// default off CONSTRUCTION_REPO_OWNER, keycloak configured.
+func testLoadConfigParityCloudish(t *testing.T) {
+	clearConfigEnv(t)
+	setEnv(t, map[string]string{
+		"ARCHISTRATOR_POSTGRES_URL":               "postgres://cloud",
+		"ARCHISTRATOR_CONSTRUCTION_DRYRUN":        "false",
+		"ARCHISTRATOR_CONSTRUCTION_REPO_OWNER":    "acme",
+		"ARCHISTRATOR_CONSTRUCTION_REPO_NAME":     "widget",
+		"ARCHISTRATOR_GITHUB_APP_ID":              "999",
+		"ARCHISTRATOR_GITHUB_APP_PRIVATE_KEY_PEM": testPEM,
+		// Required on a cloud-profile server with App creds (the allowed_bots
+		// fail-fast, validateGithubAppSlug) — a real cloud rig always sets it.
+		"ARCHISTRATOR_GITHUB_APP_SLUG":        "acme-app",
+		"ARCHISTRATOR_GITHUB_INSTALLATION_ID": "42",
+		"ARCHISTRATOR_ARTIFACT_REPO_URL":      "https://github.com/acme/widget.git",
+		"ARCHISTRATOR_KEYCLOAK_JWKS_URL":      "https://kc/realms/x/certs",
+		"ARCHISTRATOR_KEYCLOAK_ISSUER":        "https://kc/realms/x",
 	})
+	cfg, err := loadResolvedConfig()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.ConstructionDryRun {
+		t.Error("ConstructionDryRun = true, want false")
+	}
+	if got := parseInt64(cfg.GithubAppInstallationID); got != 42 { // int64 coercion (in the variant hooks)
+		t.Errorf("installationID = %d, want 42", got)
+	}
+	if cfg.GithubAppAccount != "acme" { // chained default off CONSTRUCTION_REPO_OWNER
+		t.Errorf("GithubAppAccount = %q, want acme (chained default)", cfg.GithubAppAccount)
+	}
+	if cfg.GithubAppPrivateKeyPEM != testPEM {
+		t.Errorf("GithubAppPrivateKeyPEM = %q, want inline PEM verbatim", cfg.GithubAppPrivateKeyPEM)
+	}
+	if cfg.KeycloakJWKSURL == "" || cfg.KeycloakIssuer == "" {
+		t.Errorf("keycloak = %q / %q", cfg.KeycloakJWKSURL, cfg.KeycloakIssuer)
+	}
+}
 
-	// empty env ⇒ the unconditional PostgresURL requirement fires first.
-	t.Run("empty-env-requires-postgres", func(t *testing.T) {
-		clearConfigEnv(t)
-		_, err := loadResolvedConfig()
-		if err == nil {
-			t.Fatal("expected error on empty env")
-		}
-		if got := err.Error(); got != "ARCHISTRATOR_POSTGRES_URL is required" {
-			t.Fatalf("error = %q, want exact ARCHISTRATOR_POSTGRES_URL is required", got)
-		}
+// testLoadConfigParityAccountExplicitBadInstallationID: an explicit
+// ARCHISTRATOR_GITHUB_ACCOUNT wins over the chained CONSTRUCTION_REPO_OWNER
+// default; unparseable installation id ⇒ 0.
+func testLoadConfigParityAccountExplicitBadInstallationID(t *testing.T) {
+	clearConfigEnv(t)
+	setEnv(t, map[string]string{
+		"ARCHISTRATOR_POSTGRES_URL":            "postgres://x",
+		"ARCHISTRATOR_CONSTRUCTION_DRYRUN":     "true",
+		"ARCHISTRATOR_GITHUB_ACCOUNT":          "explicit-org",
+		"ARCHISTRATOR_CONSTRUCTION_REPO_OWNER": "fallback-owner",
+		"ARCHISTRATOR_GITHUB_INSTALLATION_ID":  "not-a-number",
 	})
+	cfg, err := loadResolvedConfig()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.GithubAppAccount != "explicit-org" {
+		t.Errorf("GithubAppAccount = %q, want explicit-org", cfg.GithubAppAccount)
+	}
+	if got := parseInt64(cfg.GithubAppInstallationID); got != 0 {
+		t.Errorf("installationID = %d, want 0 (unparseable)", got)
+	}
+}
 
-	// postgres set, DRYRUN=false, creds missing ⇒ the construction-creds error set,
-	// naming every missing var.
-	t.Run("dryrun-false-missing-creds", func(t *testing.T) {
-		clearConfigEnv(t)
-		setEnv(t, map[string]string{
-			"ARCHISTRATOR_POSTGRES_URL":        "postgres://x",
-			"ARCHISTRATOR_CONSTRUCTION_DRYRUN": "false",
-		})
-		_, err := loadResolvedConfig()
-		if err == nil {
-			t.Fatal("expected construction-creds error")
-		}
-		for _, want := range []string{
-			"ARCHISTRATOR_GITHUB_APP_ID",
-			"ARCHISTRATOR_GITHUB_APP_PRIVATE_KEY_PEM",
-			"ARCHISTRATOR_CONSTRUCTION_REPO_OWNER",
-			"ARCHISTRATOR_CONSTRUCTION_REPO_NAME",
-			"ARCHISTRATOR_ARTIFACT_REPO_URL",
-		} {
-			if !strings.Contains(err.Error(), want) {
-				t.Errorf("error %q missing %q", err.Error(), want)
-			}
-		}
+// testLoadConfigParityEmptyEnvRequiresPostgres: empty env ⇒ the unconditional
+// PostgresURL requirement fires first.
+func testLoadConfigParityEmptyEnvRequiresPostgres(t *testing.T) {
+	clearConfigEnv(t)
+	_, err := loadResolvedConfig()
+	if err == nil {
+		t.Fatal("expected error on empty env")
+	}
+	if got := err.Error(); got != "ARCHISTRATOR_POSTGRES_URL is required" {
+		t.Fatalf("error = %q, want exact ARCHISTRATOR_POSTGRES_URL is required", got)
+	}
+}
+
+// testLoadConfigParityDryrunFalseMissingCreds: postgres set, DRYRUN=false,
+// creds missing ⇒ the construction-creds error set, naming every missing var.
+func testLoadConfigParityDryrunFalseMissingCreds(t *testing.T) {
+	clearConfigEnv(t)
+	setEnv(t, map[string]string{
+		"ARCHISTRATOR_POSTGRES_URL":        "postgres://x",
+		"ARCHISTRATOR_CONSTRUCTION_DRYRUN": "false",
 	})
+	_, err := loadResolvedConfig()
+	if err == nil {
+		t.Fatal("expected construction-creds error")
+	}
+	for _, want := range []string{
+		"ARCHISTRATOR_GITHUB_APP_ID",
+		"ARCHISTRATOR_GITHUB_APP_PRIVATE_KEY_PEM",
+		"ARCHISTRATOR_CONSTRUCTION_REPO_OWNER",
+		"ARCHISTRATOR_CONSTRUCTION_REPO_NAME",
+		"ARCHISTRATOR_ARTIFACT_REPO_URL",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q missing %q", err.Error(), want)
+		}
+	}
 }

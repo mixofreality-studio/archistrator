@@ -57,7 +57,7 @@ func main() {
 	if len(os.Args) > 1 {
 		path = os.Args[1]
 	}
-	raw, err := os.ReadFile(path) // #nosec G304 -- path is the CLI argument to a developer-run codegen tool, no trust boundary
+	raw, err := os.ReadFile(path) // #nosec G304 G703 -- path is the CLI argument to a developer-run codegen tool, no trust boundary
 	if err != nil {
 		fatal("read %s: %v", path, err)
 	}

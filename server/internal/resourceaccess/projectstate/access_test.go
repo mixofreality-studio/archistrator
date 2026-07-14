@@ -1673,8 +1673,8 @@ func assertReconcileUnsupported(t *testing.T, err error) {
 	if err == nil {
 		t.Fatal("want a non-nil error, got nil")
 	}
-	rae, ok := err.(*fwra.Error)
-	if !ok {
+	var rae *fwra.Error
+	if !errors.As(err, &rae) {
 		t.Fatalf("want *fwra.Error, got %T: %v", err, err)
 	}
 	if rae.Kind != fwra.NotFound {
@@ -1691,8 +1691,8 @@ func TestDesignSessionAccess_SetReviewCommentStatusOnBranch_UnsupportedBySubstra
 	base := &baseOnlyStore{}
 	s := NewDesignSessionAccess(base)
 	_, err := s.SetReviewCommentStatusOnBranch(fwra.Context{Context: context.Background()}, "proj-1", 1, "session-branch", KindMission, "c1", "waived", "idem-1")
-	rae, ok := err.(*fwra.Error)
-	if !ok || rae.Kind != fwra.NotFound {
+	var rae *fwra.Error
+	if !errors.As(err, &rae) || rae.Kind != fwra.NotFound {
 		t.Fatalf("want *fwra.Error{Kind: NotFound}, got %T: %v", err, err)
 	}
 }
@@ -1716,8 +1716,8 @@ func TestDesignSessionAccess_SeedReviewCommentsOnBranch_UnsupportedBySubstrate(t
 	base := &baseOnlyStore{}
 	s := NewDesignSessionAccess(base)
 	_, err := s.SeedReviewCommentsOnBranch(fwra.Context{Context: context.Background()}, "proj-1", 1, "session-branch", KindMission, 0, nil, "idem-1")
-	rae, ok := err.(*fwra.Error)
-	if !ok || rae.Kind != fwra.NotFound {
+	var rae *fwra.Error
+	if !errors.As(err, &rae) || rae.Kind != fwra.NotFound {
 		t.Fatalf("want *fwra.Error{Kind: NotFound}, got %T: %v", err, err)
 	}
 }

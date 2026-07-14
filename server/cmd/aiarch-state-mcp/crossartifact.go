@@ -251,6 +251,8 @@ func isCodeComponentKind(k projectstate.ComponentKind) bool {
 	switch k {
 	case projectstate.CompClient, projectstate.CompManager, projectstate.CompEngine, projectstate.CompResourceAccess:
 		return true
+	case projectstate.CompResource, projectstate.CompUtility:
+		return false
 	default:
 		return false
 	}

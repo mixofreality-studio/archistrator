@@ -223,7 +223,7 @@ func generateMain(m *projectmodel.Model) {
 	if !ok {
 		fatal(fmt.Errorf("composegen: emitter returned no main.gen.go"))
 	}
-	// #nosec G306 -- generated source, no secret content
+	// #nosec G306 G703 -- generated source, no secret content; mainOut is a fixed constant path, no trust boundary
 	if err := os.WriteFile(mainOut, src, 0o600); err != nil {
 		fatal(fmt.Errorf("write %s: %w", mainOut, err))
 	}
@@ -303,7 +303,7 @@ func generateConfig(m *projectmodel.Model) {
 	if !ok {
 		fatal(fmt.Errorf("configgen: emitter returned no config.gen.go"))
 	}
-	// #nosec G306 -- generated source, no secret content; standard 0644 like the other gen targets
+	// #nosec G306 G703 -- generated source, no secret content; configOut is a fixed constant path, no trust boundary
 	if err := os.WriteFile(configOut, src, 0o600); err != nil {
 		fatal(fmt.Errorf("write %s: %w", configOut, err))
 	}
