@@ -52,3 +52,18 @@ void test('revising with round 0 omits the suffix (N shown only when > 0)', () =
     text: 'Architect is revising the risk model',
   });
 });
+
+// Only three (role, step) pairs are legal: architect+drafting, productManager+critiquing,
+// architect+revising. Every other combo must fall back to undefined (the honest plain pill)
+// rather than render a mismatched avatar/caption.
+void test('illegal combo productManager+drafting → undefined', () => {
+  assert.equal(roleLineFor('productManager', 'drafting', 0, PHRASE), undefined);
+});
+
+void test('illegal combo architect+critiquing → undefined', () => {
+  assert.equal(roleLineFor('architect', 'critiquing', 0, PHRASE), undefined);
+});
+
+void test('illegal combo productManager+revising → undefined', () => {
+  assert.equal(roleLineFor('productManager', 'revising', 1, PHRASE), undefined);
+});

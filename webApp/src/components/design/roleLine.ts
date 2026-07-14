@@ -40,15 +40,23 @@ export function roleLineFor(
   phrase: string
 ): RoleLine | undefined {
   if (role === 'none' || step === 'none') return undefined;
-  const seed = SEED_FOR[role];
-  if (step === 'drafting') return { seed, text: `Architect is crafting the ${phrase}` };
-  if (step === 'critiquing') return { seed, text: `Product manager is reviewing the ${phrase}` };
-  // step === 'revising'
-  return {
-    seed,
-    text:
-      round > 0
-        ? `Architect is revising the ${phrase} (round ${String(round)})`
-        : `Architect is revising the ${phrase}`,
-  };
+  // Only three (role, step) pairs are legal: architect+drafting, productManager+critiquing,
+  // architect+revising. Any other combo (e.g. an old/future server misreporting the pair) is
+  // dishonest to render as an avatar/caption — fall back to the plain pill instead.
+  if (role === 'architect' && step === 'drafting') {
+    return { seed: SEED_FOR.architect, text: `Architect is crafting the ${phrase}` };
+  }
+  if (role === 'productManager' && step === 'critiquing') {
+    return { seed: SEED_FOR.productManager, text: `Product manager is reviewing the ${phrase}` };
+  }
+  if (role === 'architect' && step === 'revising') {
+    return {
+      seed: SEED_FOR.architect,
+      text:
+        round > 0
+          ? `Architect is revising the ${phrase} (round ${String(round)})`
+          : `Architect is revising the ${phrase}`,
+    };
+  }
+  return undefined;
 }

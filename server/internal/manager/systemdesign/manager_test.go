@@ -1846,6 +1846,48 @@ func Test_CoAuthor_ActiveSubStep_SequenceThroughDraftCritiqueReviseApprove(t *te
 	}
 }
 
+// THE DRAFT-FAILED GATE MUST SHOW NO ACTIVE ROLE. Twin of the projectdesign
+// Test_CoAuthor_ActiveSubStep_ClearsAtDraftFailedGate — a terminal PipelineFailed job
+// must not merely land in StageDraftFailed (already covered by
+// Test_CoAuthor_PhaseFailed_LandsInStageDraftFailed_NotPerpetualDrafting), it must also
+// clear the in-flight (ActiveRole, ActiveStep, Round) sub-step stamp, so the human gate
+// never shows a stale "architect drafting" caption alongside the failure.
+func Test_CoAuthor_ActiveSubStep_ClearsAtDraftFailedGate(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	ps := &fakeProjectState{project: systemReadBack(t, id)}
+	pipe := newFakePipeline(pipelineFailed)
+	pipe.diagnostic = "aiarch-validate found 2 violations"
+	wf := newWorkflows()
+	registerCoAuthor(env, wf, ps, pipe)
+
+	env.RegisterDelayedCallback(func() {
+		enc, err := env.QueryWorkflow(querySessionState)
+		if err != nil {
+			t.Fatalf("QueryWorkflow: %v", err)
+		}
+		var v SessionStateView
+		if err := enc.Get(&v); err != nil {
+			t.Fatalf("decode SessionStateView: %v", err)
+		}
+		if v.Stage != StageDraftFailed {
+			t.Fatalf("want StageDraftFailed, got %d", v.Stage)
+		}
+		if v.ActiveRole != ActiveRoleNone || v.ActiveStep != ActiveStepNone || v.Round != 0 {
+			t.Fatalf("StageDraftFailed must show no active role, got role=%d step=%d round=%d", v.ActiveRole, v.ActiveStep, v.Round)
+		}
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 30*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a terminal job failure must NOT fail the workflow, got: %v", err)
+	}
+}
+
 // THE MISSING-VERDICT SAFE DEFAULT. A critique dispatch reaches PipelineSucceeded but
 // the slot's CritiqueVerdict read-back carrier is EMPTY (the job claimed success yet
 // committed no verdict). The safe rule is NOT a silent approve: the session lands in
