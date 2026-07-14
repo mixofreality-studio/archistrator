@@ -233,8 +233,14 @@ grows from 4 files to:
   `.aiarch/state/project.json`
 
 `scaffoldRootPaths` allowlist grows accordingly (`.claude/**`,
-`.aiarch/state/project.json`). `SyncManagedScaffold` converges everything —
-retroactively healing gtdapp's stale workflow and missing `.claude`.
+`.aiarch/state/project.json`). `SyncManagedScaffold` converges the PROMPT surface —
+both workflows + the `.claude` tree + the seat manifest — retroactively
+healing gtdapp's stale workflow and missing `.claude`. AMENDED 2026-07-13
+(B4 implementation ruling): `go.mod` / `aiarch_method_test.go` /
+`internal/.gitkeep` are BIRTH-ONLY — the existing sync deliberately never
+rewrites go.mod because a growing app owns its requires; converging it
+would clobber user-evolved dependencies. gtdapp's stale framework-go pin
+heals when construction's generated code updates it, not via sync.
 
 Construction dispatch: the construction manager sets `TargetRepo` /
 `WorkflowFile` to the project's own repo (the constructionpipeline RA already
