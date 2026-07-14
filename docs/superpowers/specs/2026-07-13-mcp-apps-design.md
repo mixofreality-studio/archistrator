@@ -51,7 +51,7 @@ A second Vite entry, `mcp-app.html`, builds the shell as a **normal asset bundle
 
 **Lifecycle (spec-verified):** the iframe is instantiated **per tool call** and torn down via `ui/resource-teardown` — not one persistent app per conversation. Consequences: the shell must boot fast from HTTP cache (fixed-name assets make this a 304 after first load); the view registry keys off **`hostContext.toolInfo.tool` from the `ui/initialize` response** (the host tells the app which tool fired — no viewId smuggled through tool results); and SPA-style background polling (e.g. the 2s `useSessionState` poll) is wrong in MCP context — the MCP `OpsClient` provider disables polling intervals and refreshes on user action instead (hosts may rate-limit app-initiated calls; the spec flags resource consumption).
 
-Shell behavior: `App.connect()` → `ui/initialize` handshake (declares `availableDisplayModes`, receives `toolInfo` + host `theme`) → registry lookup → provide `McpOpsClient` + seeded query cache (from `ui/notifications/tool-result`) + theme (mapped from host light/dark) → mount that screen's shared container, minus router shell and chat panel.
+Shell behavior: `App.connect()` → `ui/initialize` handshake (declares `availableDisplayModes`, receives `toolInfo` + host `theme`) → registry lookup → provide `McpOpsClient` + seeded query cache (from `ui/notifications/tool-result`) + theme (mapped from host light/dark) → mount that screen's shared container, minus router shell, chat panel, **and all comment/annotation UI** (founder ruling: comment display, selection-anchoring, and `SelectionPopover` are SPA-only; in MCP context the user reads and answers review comments through the host conversation, which the agent carries via the existing tools — `askQuestions`, `setReviewCommentStatus`, `submitReviewDecision`). Pure screens therefore take comment overlays as optional props; MCP containers omit them.
 
 **Fallback** (only if a host's `_meta.ui.csp` support proves broken at pilot): single-file inlined bundle via `vite-plugin-singlefile` served as the resource body.
 
@@ -76,7 +76,7 @@ Shell behavior: `App.connect()` → `ui/initialize` handshake (declares `availab
 ## 6. Risks / open items
 
 - **Contract parity**: assumed 1:1 REST-op ↔ MCP-tool from shared contracts; planning recon must verify every webApp-consumed operation actually has a tool. Diagram render-on-read (Structurizr DSL) is the known suspect.
-- **Screen/chat coupling**: how cleanly `DesignExperience` screens factor away from the chat panel is the main refactor unknown — recon item; sizes the redesign.
+- **Screen/chat coupling**: recon (2026-07-13) mapped it — `ChatRail` and `StepBody` share `CommentContext` (`CommentProvider` wraps the screen; `SelectionPopover` posts anchors from `ArtifactRenderer`), and `ExperienceChrome` expects chat props. Resolution per §3.4 ruling: ChatRail *and* the whole comment/annotation surface stay SPA-only; pure screens make comment context/chrome chat props optional.
 - **CSP**: nothing in the iframe may call REST; the lint rules are the guard.
 - **go-sdk resource support**: verify v1.6.1 exposes what `AddResource` + `_meta` stamping need; upgrade if not.
 - **Host `_meta.ui.csp` support is load-bearing** (§3.4): Claude documents it; pilot verifies against basic-host and Claude. Fallback = single-file inlined bundle as the resource body.
