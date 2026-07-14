@@ -223,11 +223,20 @@ func (h *appHooks) WrapManagers(managers WebManagers) WebManagers {
 
 // ExtraMounts adds the composition-root-only routes behind the same auth boundary:
 // GET /api/userinfo (the SPA session probe — not a manager op) and /mcp (the MCP
-// transport over the SAME four wrapped managers the REST handlers use).
+// transport over the SAME four wrapped managers the REST handlers use, plus the
+// ui://archistrator/shell.html MCP-Apps resource).
+//
+// WEBAPP_ORIGIN/WEBAPP_ASSET_VERSION are NOT configgen-owned (configgen emits
+// config.gen.go from project.json's deployment model, which does not yet declare
+// these two settings): read directly here, mirroring config_adapter.go's pattern
+// of hand env reads for composition-root-only values (envSecret, devPrincipal).
 func (h *appHooks) ExtraMounts(root *http.ServeMux, cfg *Config, dev web.DevConfig, validator security.Validator, managers WebManagers) {
 	root.Handle("GET /api/userinfo", web.AuthMiddleware(dev, validator)(http.HandlerFunc(security.UserInfoHandler)))
+	webAppOrigin := getenvString("ARCHISTRATOR_WEBAPP_ORIGIN", "http://localhost:5173")
+	assetVersion := getenvString("ARCHISTRATOR_WEBAPP_ASSET_VERSION", "dev")
 	root.Handle("/mcp", newMCPHandler(dev, validator,
-		managers.SystemDesignManager, managers.ProjectDesignManager, managers.ConstructionManager, managers.OperationsManager))
+		managers.SystemDesignManager, managers.ProjectDesignManager, managers.ConstructionManager, managers.OperationsManager,
+		webAppOrigin, assetVersion))
 }
 
 // ArtifactAccessGitHubCloudArgs supplies the CLOUD artifactAccess ctor args: the

@@ -33,17 +33,21 @@ import (
 // newMCPServer builds the single MCP server carrying every generated tool. Tool
 // names are manager-namespaced (systemDesign*/projectDesign*/construction*/
 // operations*), so registering all four Handlers on one server never collides.
+// webAppOrigin/assetVersion configure the ui://archistrator/shell.html resource
+// (mcp_apps.go) registered alongside the four generated tool Handlers.
 func newMCPServer(
 	sd systemdesign.SystemDesignManager,
 	pd projectdesign.ProjectDesignManager,
 	cons construction.ConstructionManager,
 	ops operations.OperationsManager,
+	webAppOrigin, assetVersion string,
 ) *mcp.Server {
 	srv := mcp.NewServer(&mcp.Implementation{Name: "archistrator-server", Version: "1.0.0"}, nil)
 	(&systemdesignmcp.Handler{Manager: sd}).Register(srv)
 	(&projectdesignmcp.Handler{Manager: pd}).Register(srv)
 	(&constructionmcp.Handler{Manager: cons}).Register(srv)
 	(&operationsmcp.Handler{Manager: ops}).Register(srv)
+	registerShellResource(srv, webAppOrigin, assetVersion)
 	return srv
 }
 
@@ -60,8 +64,9 @@ func newMCPHandler(
 	pd projectdesign.ProjectDesignManager,
 	cons construction.ConstructionManager,
 	ops operations.OperationsManager,
+	webAppOrigin, assetVersion string,
 ) http.Handler {
-	srv := newMCPServer(sd, pd, cons, ops)
+	srv := newMCPServer(sd, pd, cons, ops, webAppOrigin, assetVersion)
 	transport := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv }, nil)
 	return web.AuthMiddleware(dev, validator)(transport)
 }

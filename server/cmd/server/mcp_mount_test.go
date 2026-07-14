@@ -21,7 +21,7 @@ import (
 func TestMCPMountInitializeAndListTools(t *testing.T) {
 	// Dev mode: AuthMiddleware injects a principal and validates no token, so a
 	// nil validator is fine (mirrors the local ARCHISTRATOR_AUTH_DEV_MODE=true run).
-	handler := newMCPHandler(web.DevConfig{Enabled: true}, nil, nil, nil, nil, nil)
+	handler := newMCPHandler(web.DevConfig{Enabled: true}, nil, nil, nil, nil, nil, "http://localhost:5173", "dev")
 	ts := httptest.NewServer(handler)
 	defer ts.Close()
 
