@@ -42,7 +42,14 @@ function caseToDynamic(
 } {
   const steps = c.steps ?? [];
   const participants: C4Component[] = [
-    { id: 'test-harness', name: 'Test harness', kind: 'client', layer: 'client', encapsulates: '', contractKey: '' },
+    {
+      id: 'test-harness',
+      name: 'Test harness',
+      kind: 'client',
+      layer: 'client',
+      encapsulates: '',
+      contractKey: '',
+    },
   ];
   const seen = new Set<string>(['test-harness']);
   for (const st of steps) {

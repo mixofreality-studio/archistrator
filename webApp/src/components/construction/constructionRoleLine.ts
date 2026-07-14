@@ -49,17 +49,23 @@ function verbFor(phase: string | undefined): string | undefined {
   return PHASE_VERB[phase as CanonicalPhase];
 }
 
+/** Words in the worker-class roster that are acronyms, rendered upper-case. */
+const ACRONYM_WORDS = new Set(['qa', 'ui', 'ux']);
+
 /**
- * "junior-developer" -> "Junior developer". An empty/unassigned workerClass
- * (no real data to report) honestly resolves to "Someone" rather than
- * fabricating a specific role.
+ * "junior-developer" -> "Junior developer"; "qa-engineer" -> "QA engineer"
+ * (roster acronyms — qa/ui/ux — render upper-case rather than sentence-case).
+ * An empty/unassigned workerClass (no real data to report) honestly resolves
+ * to "Someone" rather than fabricating a specific role.
  */
 export function humanizeWorkerClass(workerClass: string): string {
-  const spaced = workerClass
-    .split('-')
-    .filter((w) => w.length > 0)
-    .join(' ');
-  return spaced.length > 0 ? spaced.charAt(0).toUpperCase() + spaced.slice(1) : 'Someone';
+  const words = workerClass.split('-').filter((w) => w.length > 0);
+  if (words.length === 0) return 'Someone';
+  const cased = words.map((w, i) => {
+    if (ACRONYM_WORDS.has(w)) return w.toUpperCase();
+    return i === 0 ? w.charAt(0).toUpperCase() + w.slice(1) : w;
+  });
+  return cased.join(' ');
 }
 
 /**

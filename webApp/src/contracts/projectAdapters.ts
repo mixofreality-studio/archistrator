@@ -540,7 +540,15 @@ export function toSolutionView(
   );
   if (model === undefined) return undefined;
   // classRates is nullable on the wire (a draft may omit it entirely — seen live on the
-  // gtdapp decompressed draft, which crashed this adapter with Object.entries(null)).
+  // gtdapp decompressed draft, which crashed this adapter with Object.entries(null),
+  // fixed as F-GTD-15 @2ba728e). The generated TS type says otherwise: schemagen's
+  // struct-field reflector (github.com/google/jsonschema-go@v0.4.3 infer.go:202-224)
+  // marks Go slice fields nullable (nil slice -> JSON null, e.g. ModelSdpReview.options
+  // is `null | X[]`) but NOT Go map fields, even though a nil Go map serializes to
+  // `null` identically — an asymmetry in that library's own reflector, not a real
+  // narrowing here. Earmark: fix server-side (schemagen map-field nullability, or a
+  // ModelMoney-map wrapper) so classRates round-trips as `null | {...}` like arrays do.
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- see earmark above; the generated type is wrong, not this guard
   const classRates = Object.entries(model.classRates ?? {}).map(([workerClass, rate]) => ({
     workerClass,
     rate,

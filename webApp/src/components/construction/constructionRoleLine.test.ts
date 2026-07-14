@@ -11,8 +11,18 @@ import { constructionRoleLine, humanizeWorkerClass } from './constructionRoleLin
 
 void test('humanizeWorkerClass: kebab slug -> sentence-case display name', () => {
   assert.equal(humanizeWorkerClass('junior-developer'), 'Junior developer');
-  assert.equal(humanizeWorkerClass('qa-engineer'), 'Qa engineer');
   assert.equal(humanizeWorkerClass('senior-developer'), 'Senior developer');
+  assert.equal(humanizeWorkerClass('system-architect'), 'System architect');
+  assert.equal(humanizeWorkerClass('product-manager'), 'Product manager');
+  assert.equal(humanizeWorkerClass('project-manager'), 'Project manager');
+  assert.equal(humanizeWorkerClass('test-engineer'), 'Test engineer');
+  assert.equal(humanizeWorkerClass('software-tester'), 'Software tester');
+});
+
+void test('humanizeWorkerClass: roster acronyms (qa/ui/ux) render upper-case', () => {
+  assert.equal(humanizeWorkerClass('qa-engineer'), 'QA engineer');
+  assert.equal(humanizeWorkerClass('ui-designer'), 'UI designer');
+  assert.equal(humanizeWorkerClass('ux-reviewer'), 'UX reviewer');
 });
 
 void test('humanizeWorkerClass: empty slug -> "Someone" (no fabricated role)', () => {
