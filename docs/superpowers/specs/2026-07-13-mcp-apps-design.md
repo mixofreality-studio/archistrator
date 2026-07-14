@@ -26,10 +26,14 @@ The founder ruled for a **container/presentational redesign** rather than a tran
 
 All screens and components are **prop-driven only**: data and callbacks arrive as props. No data hooks, no `api` imports, no TanStack Query, no fetches inside the `components` layer. This is what makes a screen mountable in either host.
 
-### 3.2 Two container flavors
+### 3.2 The OpsClient abstraction (one clean client→server seam)
 
-- **webApp containers** (SPA): wrap each screen; call TanStack Query hooks → REST `api` layer; map responses to the screen's props; wire callbacks (approve, reject, advance, dispatch, …) to REST mutations. Live in the new `containers` layer element (§3.3).
-- **MCP shell containers**: same screens, other data path. Initial data arrives as the host-pushed tool result (`app.ontoolresult`); callbacks and refreshes go through `app.callServerTool()`. Both directions use a **generated op→tool mapping module** (TS, sibling to `gen:api`/`gen-enums` outputs) so tool names, argument shapes, and result unwrapping are typed and mechanical — REST handlers and MCP tools are generated from the same service contracts, so the mapping is derivable, never hand-maintained.
+All client→server communication goes through a single **generated, transport-agnostic ops client** so the app works identically in browser or chat/agent/MCP-app context:
+
+- **`OpsClient` interface** — generated from the service contracts (sibling to `gen:api`/`gen-enums` outputs): one typed method per operation (`getSessionState`, `submitReviewDecision`, …).
+- **Two generated implementations:** `RestOpsClient` wrapping `openapi-fetch`, and `McpOpsClient` wrapping the ext-apps `app.callServerTool()` with the op→tool-name mapping baked in. Same contracts drive REST handlers, MCP tools, and both client impls — parity is mechanical, never hand-maintained.
+- **Injected via React context.** TanStack Query runs in both hosts: the `hooks` layer (`useSessionState`, `useSubmitReviewDecision`, …) is written once against `OpsClient` — `queryFn`/`mutationFn` don't care whether bytes travel over HTTP or postMessage. **One shared container per screen**; only the root provider differs: the SPA wires `RestOpsClient`, the MCP shell wires `McpOpsClient` and seeds the query cache from the host-pushed initial tool result (`app.ontoolresult`). Mutations invalidate queries identically in both hosts.
+- **Loading/pending UX:** hosts mediate app-initiated tool calls and may interpose consent prompts on mutations (host policy, uncontrollable from the server side), so click handlers use pending states, not optimistic flips — a direct continuation of the existing workflow loading-state patterns (§9 role-driven loading states), which work unchanged over either transport.
 
 ### 3.3 Lint enforcement, platform-wide
 
@@ -43,23 +47,24 @@ This ruleset ships in the app-generator webApp template so **every archistrator-
 
 ### 3.4 Shell app + bundling
 
-A second Vite entry, `mcp-app.html`, builds a **single-file shell bundle** (`vite-plugin-singlefile`): one `ui://` resource shared by all views so the host preloads it once per conversation and MUI/xyflow are not duplicated per view. The shell: `App.connect()` → receive tool result → look up the screen in a static **view registry** (keyed by view id carried in tool metadata/result) → mount the MCP container for that screen with theme, minus router shell and chat panel. Expected bundle 2–4 MB inlined; measure at the pilot; split into per-manager shells (systemdesign / projectdesign / construction / operations) only if a host chokes on size.
+A second Vite entry, `mcp-app.html`, builds a **single-file shell bundle** (`vite-plugin-singlefile`): one `ui://` resource shared by all views so the host preloads it once per conversation and MUI/xyflow are not duplicated per view. The shell: `App.connect()` → receive tool result → look up the screen in a static **view registry** (keyed by view id carried in tool metadata/result) → provide `McpOpsClient` + seeded query cache + theme → mount that screen's shared container, minus router shell and chat panel. Expected bundle 2–4 MB inlined; measure at the pilot. **Size fallback:** a tiny stub resource whose script/style tags load from the webApp origin via `_meta.ui.csp` (assets then served and cached by nginx directly); per-manager shell splitting is the last resort.
 
 ### 3.5 Go server: resources capability + tool metadata
 
-- **MCP resources** (greenfield): register `ui://archistrator/shell.html` via go-sdk `AddResource`, serving the built shell HTML with the MCP-Apps mimetype. The bundle ships as a runtime asset in the server container (config-pathed file, **no `go:embed`** — the Go build must not grow a Node dependency). Wiring beside `mcp_mount.go` in the hooks seam.
+- **MCP resources** (greenfield): register `ui://archistrator/shell.html` via go-sdk `AddResource`, serving the built shell HTML with the MCP-Apps mimetype. **Byte source: the webApp static origin (nginx).** The Vite build adds `mcp-app.html` to the same `dist` that `PUSH-APP.sh` already publishes; the Go resource handler fetches `https://<webapp-origin>/mcp-app.html` on `resources/read` with a short in-memory cache, and returns a graceful resource error if the origin is unreachable. This keeps nginx the single system of record for all built UI (one deploy pipeline; a webApp deploy updates in-chat views with no server redeploy). No `go:embed`, no bundle in the server container — the Go server is only the protocol shim. Wiring beside `mcp_mount.go` in the hooks seam; one config value for the origin.
 - **`_meta.ui.resourceUri` on tools**: stamped by `mcpemit` during codegen. Which operations have a view is declared **in `project.json`** — a small optional `ui` annotation on service-contract operations (schema-first, consistent with doctrine; exact slot shape settled during planning recon). Tools without a view stay plain tools.
 
 ## 4. Auth + testing
 
+- **Host-mediated auth model**: the iframe never holds credentials. `app.callServerTool()` is postMessage to the host, which forwards it as an ordinary `tools/call` over its already-authenticated `/mcp` connection — same bearer token, same `AuthMiddleware` principal as model-initiated calls. Consequences: (a) the server cannot distinguish click-initiated from model-initiated calls (by design); (b) there is no per-request header/interceptor equivalent in `McpOpsClient` — anything the server needs must derive from the principal or be a tool argument (generated tools already comply); (c) hosts may apply consent policy to app-initiated mutations (see §3.2 pending-state rule).
 - **Pilot**: dev-mode principal injection + `cloudflared` tunnel → Claude custom connector; plus the ext-apps `basic-host` (and/or MCPJam) locally for fast iteration against real local state (fits the run-locally/playwright/STOP-for-review UI loop).
 - **Production auth is an explicit earmark, not in this slice**: hosts require MCP-spec OAuth (protected-resource metadata) in front of `/mcp`; the current bearer validator does not advertise that.
 
 ## 5. Rollout
 
-1. Build the seam once: eslint ruleset, generated op→tool mapping, shell entry + view registry, Go resources capability, `mcpemit` `_meta.ui` stamping, project.json annotation.
+1. Build the seam once: eslint ruleset, generated `OpsClient` (interface + REST + MCP impls), shell entry + view registry, Go resources capability (nginx byte-source), `mcpemit` `_meta.ui` stamping, project.json annotation.
 2. Wire **two pilot screens** end-to-end: session state (read-mostly) and design review (write-heavy — exercises host consent prompts on `submitReviewDecision`). Each pilot screen is refactored to presentational-pure as part of its migration.
-3. Migrate remaining screens mechanically (each screen: purify → webApp container → MCP container → registry entry → project.json annotation).
+3. Migrate remaining screens mechanically (each screen: purify components → shared container over `OpsClient` hooks → registry entry → project.json annotation).
 4. Follow-on spec: replicate the pattern in app-generator (template gains shell entry, ruleset, mapping codegen; generated Go server gains resources capability).
 
 ## 6. Risks / open items
@@ -68,11 +73,13 @@ A second Vite entry, `mcp-app.html`, builds a **single-file shell bundle** (`vit
 - **Screen/chat coupling**: how cleanly `DesignExperience` screens factor away from the chat panel is the main refactor unknown — recon item; sizes the redesign.
 - **CSP**: nothing in the iframe may call REST; the lint rules are the guard.
 - **go-sdk resource support**: verify v1.6.1 exposes what `AddResource` + `_meta` stamping need; upgrade if not.
-- **Bundle size**: measured at pilot; per-manager shells are the fallback.
+- **Bundle size**: measured at pilot; CSP-stub (assets from nginx) is the fallback, per-manager shells the last resort (§3.4).
+- **Server→webApp-origin runtime dependency**: `resources/read` now depends on nginx availability; handler must degrade gracefully (§3.5).
 
 ## 7. Non-goals
 
 - Server B (aiarch-state stdio) changes.
 - Production OAuth for `/mcp` (earmarked).
 - webApp acting as an MCP *host*.
+- SSR / TanStack Start: explicitly deferred, explicitly unblocked. SSR cannot reach the MCP surface (the app is a static resource blob booting in a sandboxed iframe), so it carries no MCP payoff; if adopted later for SPA reasons, the prop-driven component purity helps it, and the §3.5 byte-source just points at the TS server instead of nginx.
 - app-generator replication (follow-on spec after the pattern is proven).
