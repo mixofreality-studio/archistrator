@@ -71,10 +71,29 @@ void test('mcp impl routes through callServerTool and unwraps structuredContent'
   assert.deepEqual(out, { stage: 'drafting' });
 });
 
-void test('mcp impl maps a not-found tool error to ApiError(404)', async () => {
+void test('mcp impl maps the real NotFound manager-error grammar to ApiError(404)', async () => {
+  // Byte-exact server grammar: `${Kind.String()}: ${message}` — no space
+  // before the colon (see server/internal/manager errors, and gen-ops.mjs's
+  // isNotFoundToolError doc comment).
   const { app } = spyApp(() => ({
     isError: true,
-    content: [{ type: 'text', text: 'session not found' }],
+    content: [{ type: 'text', text: 'NotFound: no active design session for project "p1"' }],
+  }));
+  const ops: OpsClient = mcpOpsClient(app as never);
+  await assert.rejects(
+    ops.call('systemDesignGetSessionState', { path: { projectID: 'p1' }, query: { kind: 1 } }),
+    (err: unknown) => {
+      assert.ok(err instanceof ApiError);
+      assert.equal(err.status, 404);
+      return true;
+    }
+  );
+});
+
+void test('mcp impl maps the tolerant "not found" fallback wording to ApiError(404)', async () => {
+  const { app } = spyApp(() => ({
+    isError: true,
+    content: [{ type: 'text', text: 'session not found for project "p1"' }],
   }));
   const ops: OpsClient = mcpOpsClient(app as never);
   await assert.rejects(

@@ -256,17 +256,22 @@ export function restOpsClient(client: ReturnType<typeof createClient<paths>>): O
   };
 }
 
-/** Best-effort not-found detection over a failed tool call's content blocks: a
- * text block whose text mentions "not found" (case-insensitive) maps the
- * ApiError to 404 so useSessionState's no-session-yet retry/poll suppression
- * keeps working over the MCP transport too. Anything else maps to 500 — MCP
- * tool errors do not carry a structured status code the way REST responses do. */
+/** Not-found detection over a failed tool call's content blocks. The server's
+ * manager errors serialize as `${Kind.String()}: ${message}` (see
+ * server/internal/manager errors), so a NotFound tool error always reads
+ * NotFound: no active design session for project "x" — no space between
+ * "NotFound" and the colon. Match that exact grammar at the start of a block
+ * first; keep a tolerant "not found"/"not_found" fallback (case-insensitive,
+ * optional separator) for any other error shape so a wording drift elsewhere
+ * doesn't silently fall back to 500. Anything else maps to 500 — MCP tool
+ * errors do not carry a structured status code the way REST responses do. */
 function isNotFoundToolError(content: unknown): boolean {
   if (!Array.isArray(content)) return false;
   return content.some((block) => {
     if (typeof block !== 'object' || block === null) return false;
     const text = (block as { text?: unknown }).text;
-    return typeof text === 'string' && /not found/i.test(text);
+    if (typeof text !== 'string') return false;
+    return text.startsWith('NotFound:') || /not[\s_]?found/i.test(text);
   });
 }
 

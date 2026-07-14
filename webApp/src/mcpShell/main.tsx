@@ -19,6 +19,7 @@ import { mcpOpsClient } from '../api/ops.gen';
 import { ThemeProvider } from '../utilities/theme/ThemeContext';
 import { AppTheme } from '../utilities/theme/AppTheme';
 import { VIEW_REGISTRY } from './registry';
+import { resolveViewKey } from './resolveView';
 import { McpErrorBoundary } from './McpErrorBoundary';
 import { McpThemeSync } from './McpThemeSync';
 import { app, bootHost, currentToolArgs, firstToolStructuredContent, themeKeyFromHost } from './host';
@@ -28,7 +29,24 @@ async function main(): Promise<void> {
 
   const ctx = app.getHostContext();
   const toolName = ctx?.toolInfo?.tool.name ?? '';
-  const View = VIEW_REGISTRY[toolName];
+  // Resolve PRIMARILY from the tool's own _meta.ui.view (mcpemit-stamped, mirrors
+  // project.json's ui.view — see resolveView.ts), FALLING BACK to the tool name.
+  // Logged to the host (app.sendLog) so which path fired is visible per-host —
+  // a host-variance datum, not just a debugging aid.
+  const resolution = resolveViewKey(
+    ctx?.toolInfo?.tool._meta,
+    toolName,
+    (key) => VIEW_REGISTRY[key] !== undefined
+  );
+  const View = resolution.key !== undefined ? VIEW_REGISTRY[resolution.key] : undefined;
+  void app.sendLog({
+    level: 'info',
+    logger: 'mcpShell.registry',
+    data:
+      resolution.resolvedBy === 'none'
+        ? `no view registered for tool "${toolName}" (no _meta.ui.view either)`
+        : `resolved view "${resolution.key}" via ${resolution.resolvedBy} (tool "${toolName}")`,
+  });
 
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },

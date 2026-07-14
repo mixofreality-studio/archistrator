@@ -200,8 +200,15 @@ func genTools(doc *projectmodel.Doc, enums map[string]enumDef, opts Options) ([]
 		}
 		lcName := projectmodel.LowerFirst(op.Name)
 		if op.UI != nil {
-			fmt.Fprintf(&b, "\tmcp.AddTool(srv, &mcp.Tool{Name: %q, Description: %q, InputSchema: %sInputSchema(), OutputSchema: %sOutputSchema(), Meta: mcp.Meta{\"ui\": map[string]any{\"resourceUri\": shellResourceURI}}}, h.handle%s)\n",
-				toolName, desc, lcName, lcName, op.Name)
+			// Both the shell resource URI AND the view id ride the tool's _meta so the
+			// shell can resolve the view WITHOUT falling back to a tool-name lookup —
+			// tool name and view id are two names for the same routing decision, and
+			// only one (this one) is authoritative (see the ratified spec: "the same
+			// view ids drive the registry"). The shell's registry keeps the tool-name
+			// mapping too, as a fallback for any older/other host that doesn't forward
+			// _meta.
+			fmt.Fprintf(&b, "\tmcp.AddTool(srv, &mcp.Tool{Name: %q, Description: %q, InputSchema: %sInputSchema(), OutputSchema: %sOutputSchema(), Meta: mcp.Meta{\"ui\": map[string]any{\"resourceUri\": shellResourceURI, \"view\": %q}}}, h.handle%s)\n",
+				toolName, desc, lcName, lcName, op.UI.View, op.Name)
 		} else {
 			fmt.Fprintf(&b, "\tmcp.AddTool(srv, &mcp.Tool{Name: %q, Description: %q, InputSchema: %sInputSchema(), OutputSchema: %sOutputSchema()}, h.handle%s)\n",
 				toolName, desc, lcName, lcName, op.Name)
