@@ -7034,6 +7034,11 @@ func designKindHasPMCritique(k ArtifactKind) bool {
 	switch k {
 	case KindMission, KindGlossary, KindScrubbedRequirements, KindCoreUseCases:
 		return true
+	case KindVolatilities, KindSystem, KindOperationalConcepts, KindStandardCheck,
+		KindPlanningAssumptions, KindActivityList, KindNetwork, KindNormalSolution,
+		KindSubcriticalSolution, KindCompressedSolution, KindDecompressedSolution,
+		KindRiskModel, KindSdpReview:
+		return false
 	default:
 		return false
 	}
