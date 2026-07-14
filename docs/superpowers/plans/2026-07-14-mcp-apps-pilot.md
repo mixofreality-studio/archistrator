@@ -747,7 +747,7 @@ At `http://localhost:8080`: call `systemDesignGetSessionState` for a real local 
 ### Task 12: docs + earmarks wrap-up
 
 - [ ] **Step 1:** Update the spec's §6 risks with pilot findings; move verified items out of risk status.
-- [ ] **Step 2:** Record earmarks where they're tracked: platform eslint-config-web needs the same DAG change released (vendored copy edited here); production OAuth on `/mcp` is a release-blocker before real state meets a connector; screen-migration checklist (remaining screens × {purify, container, registry, annotation, inline-compact variant}); `visibility:["app"]` unused for now.
+- [ ] **Step 2:** Record earmarks where they're tracked: platform eslint-config-web needs the same DAG change released (vendored copy edited here); UserContext fetch-ban exemption removal (relocate session probe: src/api helper → src/hooks hook → container-mounted provider; see eslint.platform.config.js burn-down comment); production OAuth on `/mcp` is a release-blocker before real state meets a connector; screen-migration checklist (remaining screens × {purify, container, registry, annotation, inline-compact variant}); `visibility:["app"]` unused for now.
 - [ ] **Step 3:** Final gates on both repos, commit, and stop — founder decides merge/PR per finishing-a-development-branch.
 
 ## Self-review notes

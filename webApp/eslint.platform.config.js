@@ -197,11 +197,13 @@ export default function archWeb({ tsconfigRootDir, ignores = [] } = {}) {
       rules: { 'no-restricted-globals': 'off' },
     },
     {
-      // LEGACY: the session gate probes GET /api/userinfo to decide whether to
-      // render the router at all — it runs above/outside the app's OpsClient
-      // context (see App.tsx), so it predates and sits outside the api layer by
-      // design, not by omission. EARMARK (not tracked by a numbered task yet):
-      // fold this probe into src/api once OpsClient supports a pre-render usage.
+      // BURN-DOWN EXEMPTION (tracked: plan Task 12 earmark "UserContext fetch relocation").
+      // UserContext.tsx is classified `utilities`, which the DAG bars from importing
+      // hooks/api — that classification, NOT any OpsClient limitation, is why its
+      // session probe can't use the api layer today. DAG-compliant fix (removes this
+      // exemption): move the probe into an api-layer helper (src/api/ is fetch-ban-
+      // exempt by design), expose it via a src/hooks/ hook, and mount the provider
+      // from a container. Do not add further files to this exemption.
       files: ['src/utilities/auth/UserContext.tsx'],
       rules: { 'no-restricted-globals': 'off' },
     },
