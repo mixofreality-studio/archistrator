@@ -167,6 +167,20 @@ func genTools(doc *projectmodel.Doc, enums map[string]enumDef, opts Options) ([]
 	fmt.Fprintf(&b, "\t%s %q\n", managerAlias, opts.ManagerImport)
 	b.WriteString(")\n\n")
 
+	// shellResourceURI is emitted once per file iff at least one op carries a UI
+	// annotation, referenced by that op's AddTool Meta below.
+	hasUIOp := false
+	for _, op := range doc.Interface.Operations {
+		if op.UI != nil {
+			hasUIOp = true
+			break
+		}
+	}
+	if hasUIOp {
+		b.WriteString("// shellResourceURI is the single MCP-Apps UI resource all view-bearing tools reference.\n")
+		b.WriteString("const shellResourceURI = \"ui://archistrator/shell.html\"\n\n")
+	}
+
 	// --- Handler ---
 	fmt.Fprintf(&b, "// Handler binds the %s manager to MCP tools.\n", iface)
 	b.WriteString("type Handler struct {\n")
@@ -184,8 +198,14 @@ func genTools(doc *projectmodel.Doc, enums map[string]enumDef, opts Options) ([]
 		if strings.TrimSpace(desc) == "" {
 			return nil, fmt.Errorf("mcpemit: no documentation for operation %q on %s (add it to clientgen's op-doc table)", op.Name, iface)
 		}
-		fmt.Fprintf(&b, "\tmcp.AddTool(srv, &mcp.Tool{Name: %q, Description: %q, InputSchema: %sInputSchema(), OutputSchema: %sOutputSchema()}, h.handle%s)\n",
-			toolName, desc, projectmodel.LowerFirst(op.Name), projectmodel.LowerFirst(op.Name), op.Name)
+		lcName := projectmodel.LowerFirst(op.Name)
+		if op.UI != nil {
+			fmt.Fprintf(&b, "\tmcp.AddTool(srv, &mcp.Tool{Name: %q, Description: %q, InputSchema: %sInputSchema(), OutputSchema: %sOutputSchema(), Meta: mcp.Meta{\"ui\": map[string]any{\"resourceUri\": shellResourceURI}}}, h.handle%s)\n",
+				toolName, desc, lcName, lcName, op.Name)
+		} else {
+			fmt.Fprintf(&b, "\tmcp.AddTool(srv, &mcp.Tool{Name: %q, Description: %q, InputSchema: %sInputSchema(), OutputSchema: %sOutputSchema()}, h.handle%s)\n",
+				toolName, desc, lcName, lcName, op.Name)
+		}
 	}
 	b.WriteString("}\n\n")
 
