@@ -18,7 +18,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline';
 
 import { ThemeSwitcher } from '../ThemeSwitcher';
-import { SelectionPopover } from '../comments/SelectionPopover';
+import { SelectionPopover, type SelectionCommentSurface } from '../comments/SelectionPopover';
 import { useTokens } from '../../utilities/theme/ThemeContext';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 
@@ -31,6 +31,7 @@ export function ExperienceChrome({
   chat,
   chatOpen,
   onOpenChat,
+  commentSurface,
   children,
 }: {
   phaseNum: number;
@@ -41,6 +42,12 @@ export function ExperienceChrome({
   chat?: ReactNode;
   chatOpen?: boolean | undefined;
   onOpenChat?: (() => void) | undefined;
+  /**
+   * Threaded into SelectionPopover. Omitted (the Phase-2 Project Design
+   * experience, and any caller that hasn't migrated) → SelectionPopover falls
+   * back to ambient CommentContext, today's behavior, unchanged.
+   */
+  commentSurface?: SelectionCommentSurface | undefined;
   children: ReactNode;
 }): ReactNode {
   const t = useTokens();
@@ -61,7 +68,7 @@ export function ExperienceChrome({
         },
       }}
     >
-      <SelectionPopover />
+      <SelectionPopover commentSurface={commentSurface} />
 
       {/* experience header */}
       <Box

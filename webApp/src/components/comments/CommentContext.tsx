@@ -194,10 +194,37 @@ interface CommentCtx {
 
 const Ctx = createContext<CommentCtx | null>(null);
 
+/**
+ * A fully-disabled default: every mutator is a no-op, every accessor reads
+ * empty/zero. Returned by {@link useComments} when no {@link CommentProvider}
+ * ancestor exists, so a consumer mounted outside any provider (e.g. the pure
+ * `SystemDesignView` composed by an MCP host with no CommentProvider at all —
+ * see Task 8) degrades to "no comment affordances" instead of throwing. Every
+ * SPA call site keeps rendering inside a real CommentProvider, so this is
+ * purely a safety net — behavior there is unchanged.
+ */
+/* eslint-disable @typescript-eslint/no-empty-function -- deliberate no-op mutators */
+const DISABLED_COMMENT_CTX: CommentCtx = {
+  enabled: false,
+  comments: [],
+  anchor: null,
+  setAnchor: () => {},
+  setDraftPending: () => {},
+  post: () => {},
+  remove: () => {},
+  reset: () => {},
+  clearQuestions: () => {},
+  setActiveKey: () => {},
+  toWire: () => [],
+  freeformNotes: () => '',
+  pendingQuestions: () => [],
+  requestId: 0,
+};
+/* eslint-enable @typescript-eslint/no-empty-function */
+
 export function useComments(): CommentCtx {
   const c = useContext(Ctx);
-  if (c === null) throw new Error('useComments must be used within a CommentProvider');
-  return c;
+  return c ?? DISABLED_COMMENT_CTX;
 }
 
 export function CommentProvider({

@@ -18,11 +18,22 @@
  * that commits on Enter/Space as well as click; Escape dismisses it. Focus is NOT
  * auto-moved to it, so keyboard users can keep extending the selection first, then
  * Tab to the button to commit.
+ *
+ * ── `commentSurface` (Task 8) ────────────────────────────────────────────────
+ * The System Design pure screen (`components/design/SystemDesignView`) threads
+ * its own local `commentSurface` prop through ExperienceChrome into here rather
+ * than relying purely on ambient CommentContext, so a caller that doesn't wrap a
+ * CommentProvider at all (an eventual MCP host) can still supply an `enabled`/
+ * `setAnchor` pair from whatever local state it prefers. When omitted (every
+ * caller pre-dating Task 8, e.g. the Phase-2 Project Design experience), this
+ * falls back to `useComments()` — today's behavior, byte-for-byte. `useComments()`
+ * itself degrades gracefully (returns a disabled default) when no
+ * CommentProvider ancestor exists, so this component never throws either way.
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline';
-import { useComments, proseAnchor } from './CommentContext';
+import { useComments, proseAnchor, type Anchor } from './CommentContext';
 import { useTokens } from '../../utilities/theme/ThemeContext';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 
@@ -32,9 +43,27 @@ interface Pending {
   kind: string;
 }
 
-export function SelectionPopover(): ReactNode {
+/**
+ * The minimal comment-surface shape SelectionPopover needs to arm an anchor:
+ * whether comment affordances should render, and where to arm the selection.
+ * Re-exported by `SystemDesignView` as its own `CommentSurfaceProps` (that
+ * screen's props carry a couple of additional fields, e.g. `commentCount`, that
+ * this component doesn't need).
+ */
+export interface SelectionCommentSurface {
+  enabled: boolean;
+  setAnchor: (anchor: Anchor | null) => void;
+}
+
+export function SelectionPopover({
+  commentSurface,
+}: {
+  commentSurface?: SelectionCommentSurface | undefined;
+}): ReactNode {
   const t = useTokens();
-  const { setAnchor, enabled } = useComments();
+  const ctx = useComments();
+  const enabled = commentSurface?.enabled ?? ctx.enabled;
+  const setAnchor = commentSurface?.setAnchor ?? ctx.setAnchor;
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
   const [pending, setPending] = useState<Pending | null>(null);
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
