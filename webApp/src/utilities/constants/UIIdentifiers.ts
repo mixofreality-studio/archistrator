@@ -215,6 +215,7 @@ export const UI_IDENTIFIERS = {
     TRACKER: 'construction-tracker',
     AWAITING: 'construction-awaiting',
     ACTIVE_DETAIL: 'construction-active-detail',
+    ROLE_LINE: 'construction-role-line',
     INTERVENTIONS: 'construction-interventions',
     ARTIFACTS: 'construction-artifacts',
     artifactRow: (id: string) => `construction-artifact-row-${id}`,

@@ -36,11 +36,14 @@ import {
 import { narrowProject } from '../../contracts/projectAdapters';
 import { useTokens } from '../../utilities/theme/ThemeContext';
 import type { Tokens } from '../../utilities/theme/themes';
+import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 import { ComputedBadge } from '../project/computed';
+import { RoleAvatar } from '../RoleAvatar';
 import { StatusLegend } from './status';
 import { NetworkView } from '../project/NetworkView';
 import { ActivityTrackingDetail } from './ActivityTrackingDetail';
 import { AwaitingPanel } from './AwaitingPanel';
+import { constructionRoleLine } from './constructionRoleLine';
 import { EvTrackingChart } from './EvTrackingChart';
 import { HeadStateRollup, type StatusCount } from './HeadStateRollup';
 import { NearCriticalFloat, type FloatChain } from './NearCriticalFloat';
@@ -165,6 +168,27 @@ export function ConstructionTracker({
         : undefined,
     [constructionRows]
   );
+
+  // The ONE in-flight activity's role line — RoleAvatar + "who is doing what"
+  // sentence — derived ONLY from already-flowing dispatched state (honesty bar):
+  // the activity-list entry's workerClass/title (schema.ts ModelActivityItem,
+  // joined by id off the committed Phase-2 activity list) and
+  // ConstructionRow.phase (set at the server's RecordPhaseStarted/
+  // RecordPhaseCompleted dispatch boundaries — the real per-activity Method
+  // phase; NOT the coarser BuildStatus lens). No timers, no inference — see
+  // constructionRoleLine.ts.
+  const activityListModel = useMemo(
+    () => narrowProject(activityEnvelope, 'activityList'),
+    [activityEnvelope]
+  );
+  const activeRoleLine = useMemo(() => {
+    if (!live || activeId === undefined) return undefined;
+    const item = (activityListModel?.activities ?? []).find((a) => a.name === activeId);
+    if (item === undefined) return undefined;
+    const title = item.title !== undefined && item.title.length > 0 ? item.title : item.name;
+    const phase = constructionRowFor?.(activeId)?.phase;
+    return constructionRoleLine(item.workerClass, phase, title);
+  }, [live, activeId, activityListModel, constructionRowFor]);
 
   // Build the full status map from the committed network + constructionRows (primary)
   // + git head-state (secondary/compat) + the one live activity (session override).
@@ -379,13 +403,28 @@ export function ConstructionTracker({
 
       {/* ---- Active activity detail / awaiting ------------------------------ */}
       {live && session !== undefined ? (
-        <ActivityTrackingDetail
-          git={activeId !== undefined ? gitFor(activeId) : undefined}
-          overrideError={overrideError}
-          overridePending={overridePending}
-          session={session}
-          onOverride={onOverride}
-        />
+        <>
+          {activeRoleLine !== undefined && (
+            <Box
+              data-testid={UI_IDENTIFIERS.Construction.ROLE_LINE}
+              sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 0.5 }}
+            >
+              <RoleAvatar seed={activeRoleLine.seed} size={32} />
+              <Typography
+                sx={{ fontFamily: t.mono, fontSize: 12.5, color: t.ink, fontWeight: 700 }}
+              >
+                {activeRoleLine.text}
+              </Typography>
+            </Box>
+          )}
+          <ActivityTrackingDetail
+            git={activeId !== undefined ? gitFor(activeId) : undefined}
+            overrideError={overrideError}
+            overridePending={overridePending}
+            session={session}
+            onOverride={onOverride}
+          />
+        </>
       ) : (
         <AwaitingPanel
           detail={
