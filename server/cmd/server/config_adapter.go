@@ -89,7 +89,7 @@ func loadResolvedConfig() (*Config, error) {
 // (ProjectStateGitLocal=false) has its GitHub App rail configured (App id + PEM +
 // account — the exact newAppHooks condition that activates the seated design rail)
 // but NO ARCHISTRATOR_GITHUB_APP_SLUG. The slug renders the seated design workflow's
-// `allowed_bots:` line (sourcecontrol/agenticdesign.go renderDesignWorkflow); an empty
+// `allowed_bots:` line (sourcecontrol.DesignWorkflowFile via methodassets); an empty
 // slug OMITS the line, and then EVERY claude-code-action draft run the server
 // dispatches fails with "Workflow initiated by non-human actor" (observed in
 // production QA 2026-07-10). On a git-local dev server the omission stays valid (the

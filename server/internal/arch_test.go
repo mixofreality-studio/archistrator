@@ -634,9 +634,9 @@ var encapsulationAllowlistData = map[string][]string{
 		"DesignWorkflowFile",
 		"DesignWorkflowPath",
 		"Error",
-		"FrameworkGoVersion",
+		// (GoVersion / FrameworkGoVersion were deleted with the B4 methodassets
+		// delegation — the seated go.mod pins are module-owned now.)
 		"GoModPath",
-		"GoVersion",
 		"InstallationIsZero",
 		"InstallationString",
 		"ManagedCommitMessage",

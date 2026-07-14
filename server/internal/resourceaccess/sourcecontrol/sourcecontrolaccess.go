@@ -21,9 +21,8 @@ package sourcecontrol
 // valid only with a safety margin before its real ExpiresAt.
 
 import (
-	"bytes"
 	"context"
-	_ "embed"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -32,25 +31,32 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"text/template"
 	"time"
 
 	fwgithub "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+	methodassets "github.com/mixofreality-studio/archistrator-platform/method-assets"
 )
 
 // workflowPathPrefix is the bounded path-prefix the workflow file must live under.
 // Files under it are aiarch-managed (the agentic design workflow).
 const workflowPathPrefix = ".github/workflows/"
 
+// claudePathPrefix is the bounded path-prefix of the methodassets prompt surface —
+// the .claude/ agents/commands/skills tree (plus the module's seat manifest) the
+// managed scaffold seats and the managed-scaffold sync converges (spec §5 amendment,
+// 2026-07-13). Files under it are aiarch-managed method-assets content.
+const claudePathPrefix = ".claude/"
+
 // scaffoldRootPaths is the exact set of non-workflow repo-root files CommitManagedFiles
 // is permitted to seat — the go-test gate scaffold. Together with workflowPathPrefix
-// these form the managed-file ALLOWLIST: the verb seats ONLY aiarch-managed files
-// (the design workflow + the go.mod and method-test that make `go test ./...` the
-// merge gate + the internal/.gitkeep that keeps the method gate's `./internal/...`
-// load pattern from hard-erroring on a fresh repo), never arbitrary content (§2.6,
-// Non-goal #2). A path that is neither under .github/workflows/ NOR one of these
-// roots is a ContractMisuse.
+// and claudePathPrefix these form the managed-file ALLOWLIST: the verb seats ONLY
+// aiarch-managed files (the workflows + the methodassets .claude tree + the go.mod and
+// method-test that make `go test ./...` the merge gate + the internal/.gitkeep that
+// keeps the method gate's `./internal/...` load pattern from hard-erroring on a fresh
+// repo), never arbitrary content (§2.6, Non-goal #2). A path that is neither under
+// .github/workflows/ NOR a clean .claude/ path NOR one of these roots is a
+// ContractMisuse.
 //
 // internal/.gitkeep is listed as a LITERAL path (not an internal/ prefix) to keep the
 // allowlist tight: only the single seeded placeholder is permitted, never arbitrary
@@ -61,14 +67,38 @@ var scaffoldRootPaths = map[string]bool{
 	"internal/.gitkeep":     true,
 }
 
-// isManagedFilePath reports whether path is on the managed-file allowlist: under
-// .github/workflows/ OR one of the known scaffold roots. This is the single
-// gatekeeper that keeps CommitManagedFiles from becoming a "commit any file" smell.
-func isManagedFilePath(path string) bool {
-	if strings.HasPrefix(path, workflowPathPrefix) {
+// isManagedFilePath reports whether p is on the managed-file allowlist: under
+// .github/workflows/, a clean path under .claude/ (the methodassets prompt surface),
+// OR one of the known scaffold roots. This is the single gatekeeper that keeps
+// CommitManagedFiles from becoming a "commit any file" smell.
+func isManagedFilePath(p string) bool {
+	if strings.HasPrefix(p, workflowPathPrefix) {
 		return true
 	}
-	return scaffoldRootPaths[path]
+	if isManagedClaudePath(p) {
+		return true
+	}
+	return scaffoldRootPaths[p]
+}
+
+// isManagedClaudePath reports whether p is a CLEAN path under the managed .claude/
+// tree. Path traversal can never ride the prefix onto the allowlist: the path must
+// equal its own path.Clean (so ".claude/../x" — which cleans to "x" — and any
+// embedded "a/.." segment are rejected structurally), must not be absolute, and must
+// carry no ".." segment (belt-and-braces; Clean already removes them).
+func isManagedClaudePath(p string) bool {
+	if !strings.HasPrefix(p, claudePathPrefix) {
+		return false
+	}
+	if p != path.Clean(p) || path.IsAbs(p) {
+		return false
+	}
+	for _, seg := range strings.Split(p, "/") {
+		if seg == ".." {
+			return false
+		}
+	}
+	return true
 }
 
 // tokenSafetyMargin keeps a cached token from being served when it is within this
@@ -120,6 +150,13 @@ type githubClient interface {
 	// was removed in the 2026-06-15 correction — aiarch does no secret management;
 	// CLAUDE_CODE_OAUTH_TOKEN is user-provisioned via the Claude Code GitHub App.)
 	PutRepoContentsFile(ctx context.Context, fullName, path string, content []byte, message, instToken string) (commitSHA string, changed bool, err error)
+
+	// GetRepoContentsFile reads one file's bytes off the default branch (satellite
+	// v0.1.4). It backs the managed-scaffold sync FAST-PATH: read the seated
+	// .claude/.method-assets-manifest.json and compare its version against the
+	// server's methodassets pin instead of converging every .claude/** file on
+	// every design dispatch. A missing file is found=false, NOT an error.
+	GetRepoContentsFile(ctx context.Context, fullName, path, instToken string) (content []byte, found bool, err error)
 
 	CreateBranch(ctx context.Context, fullName, base, branch, instToken string) (alreadyExists bool, err error)
 	OpenPullRequest(ctx context.Context, fullName, head, base, title, body, instToken string) (number int, alreadyExists bool, err error)
@@ -515,6 +552,26 @@ func (a *access) SyncManagedFiles(ctx context.Context, repo RepoRef, files []Man
 	return a.putManagedFiles(ctx, repo, files, message, cred)
 }
 
+// ReadManagedFile is the hand-written auxiliary MANAGED-FILE READ surface (B4
+// sync fast-path), OFF the frozen contract like SyncManagedFiles / AppSlug: read one
+// aiarch-managed file's bytes off the repo's default branch. A missing file is
+// found=false (not an error). The SAME allowlist gatekeeper as the write path guards
+// it, so this can never become a "read any file" smell. Reached via the
+// sourcecontrol.SyncManagedScaffold package helper (managedFileReader), which reads
+// the seated .claude/.method-assets-manifest.json to fingerprint the seated .claude
+// tree by version instead of converging ~100 files on every design dispatch.
+func (a *access) ReadManagedFile(ctx context.Context, repo RepoRef, p string, cred RepoCredential) ([]byte, bool, error) {
+	_, fullName, err := a.requireRepoCred(repo, cred)
+	if err != nil {
+		return nil, false, err
+	}
+	if !isManagedFilePath(p) {
+		return nil, false, fwra.New(fwra.ContractMisuse,
+			"ReadManagedFile: path "+p+" is not an aiarch-managed file")
+	}
+	return a.client.GetRepoContentsFile(ctx, fullName, p, credStr(cred))
+}
+
 // putManagedFiles is the SHARED seat/sync write behind CommitManagedFiles (the frozen
 // birth-seat verb, fixed ManagedCommitMessage) and SyncManagedFiles (the auxiliary
 // sync, caller message + drift report). One implementation, one allowlist gatekeeper.
@@ -538,7 +595,7 @@ func (a *access) putManagedFiles(ctx context.Context, repo RepoRef, files []Mana
 		}
 		if !isManagedFilePath(f.Path) {
 			return "", false, fwra.New(fwra.ContractMisuse,
-				"CommitManagedFiles: path "+f.Path+" is not an aiarch-managed file (must be under "+workflowPathPrefix+" or a scaffold root: go.mod / aiarch_method_test.go / internal/.gitkeep)")
+				"CommitManagedFiles: path "+f.Path+" is not an aiarch-managed file (must be under "+workflowPathPrefix+", a clean path under "+claudePathPrefix+", or a scaffold root: go.mod / aiarch_method_test.go / internal/.gitkeep)")
 		}
 		if len(f.Content) == 0 {
 			return "", false, fwra.New(fwra.ContractMisuse, "CommitManagedFiles: empty content for "+f.Path)
@@ -896,21 +953,22 @@ func itoa64(n int64) string { return strconv.FormatInt(n, 10) }
 // ---- from agenticdesign.go ----
 
 // agenticdesign.go supplies the aiarch-MANAGED project scaffold archistrator-server
-// seats into each user project repo at project birth (CommitManagedFiles). The
-// scaffold is FOUR files committed in one birth seat:
+// seats into each user project repo at project birth (CommitManagedFiles). Since the
+// B4 delegation the scaffold is RENDERED by the platform method-assets module
+// (methodassets.ScaffoldFiles) and wrapped here in the RA's provider-neutral
+// ManagedFile value type; it comprises:
 //
-//   1. .github/workflows/aiarch-design.yml — the claude-code-action DESIGN workflow
-//      (the DESIGN counterpart of the construction reference workflow
-//      products/archistrator/deploy/construction-workflow/aiarch-construct.yml). It
-//      is COMMITTED by the server (not hand-installed), so the template is embedded
-//      (//go:embed) and wrapped in the RA's provider-neutral ManagedFile value type.
-//      It is TEMPLATED with the configured GitHub App slug so the claude-code-action
-//      step allow-lists that bot (allowed_bots) — the design workflow is ALWAYS
-//      workflow_dispatch'ed by the aiarch App (a Bot actor), which the action refuses
-//      unless allow-listed. The slug varies per deployment, so it is not hardcoded.
+//   1. .github/workflows/aiarch-design.yml + aiarch-construct.yml — the
+//      claude-code-action DESIGN and CONSTRUCTION workflows. They are COMMITTED by
+//      the server (not hand-installed) and TEMPLATED with the configured GitHub App
+//      slug so the claude-code-action step allow-lists that bot (allowed_bots) —
+//      both workflows are ALWAYS workflow_dispatch'ed by the aiarch App (a Bot
+//      actor), which the action refuses unless allow-listed. The slug varies per
+//      deployment, so it is not hardcoded.
 //   2. go.mod — `module <REPO_MODULE>` (github.com/<owner>/<repo>, derived from the
 //      adopted RepoRef) + a go directive + `require github.com/mixofreality-studio/archistrator-platform/framework-go`
-//      pinned to FrameworkGoVersion, so a `go test` in the repo resolves methodcheck.
+//      pinned to methodassets.FrameworkGoVersion, so a `go test` in the repo
+//      resolves methodcheck.
 //   3. aiarch_method_test.go — the single test calling methodcheck.Check (the
 //      all-in-one Method gate). Since 2026-07-06 the DESIGN workflow's REQUIRED
 //      `validate` job runs `aiarch-state-mcp validate` (the pinned, self-updating
@@ -929,14 +987,13 @@ func itoa64(n int64) string { return strconv.FormatInt(n, 10) }
 //      gate is green from the first commit. It is a static one-liner (not templated):
 //      git needs a non-empty tracked file, and CommitManagedFiles rejects empty
 //      content, so it carries a single explanatory comment line.
-//
-// (1)–(3) are TEMPLATED at birth: (2) and (3) with the repo's module path (and the
-// pinned framework-go version); (1) with the configured GitHub App slug (allowed_bots).
-// (1) uses custom Go-template delimiters [[ ]] so GitHub's own ${{ ... }} expressions
-// are left untouched. (4) is static content.
+//   5. the full .claude agents/commands/skills tree + its seat manifest
+//      (.claude/.method-assets-manifest.json) — the PROMPT SURFACE the seated
+//      workflows' thin slash-command dispatch routes into, fingerprinted by the
+//      manifest's methodassets version for the sync fast-path.
 //
 // This asset accessor lives DIRECTLY in the sourceControlAccess package (not a
-// sub-package) on purpose: the embedded templates are consumed only by this RA's own
+// sub-package) on purpose: the rendered assets are consumed only by this RA's own
 // frozen CommitManagedFiles verb and are wrapped in this RA's own ManagedFile value
 // type, so they are part of the sourceControlAccess component, not a peer of it. A
 // sub-package would classify as a SECOND ResourceAccess component and its import of
@@ -951,27 +1008,23 @@ func itoa64(n int64) string { return strconv.FormatInt(n, 10) }
 // input names the workflow template declares are a CONTRACT with those Managers —
 // see designs/aiarch/implementation/log/C-WF-DESIGN.md.
 
-// designWorkflowTmplText is the embedded DESIGN workflow text/template source. It is
-// rendered (renderDesignWorkflow) with the configured GitHub App slug, then committed
-// into the user repo at .github/workflows/aiarch-design.yml. It uses custom [[ ]]
-// delimiters so GitHub Actions' own ${{ ... }} expressions pass through verbatim.
-//
-//go:embed assets/aiarch-design.yml.tmpl
-var designWorkflowTmplText string
-
-// goModTemplateText / methodTestTemplateText are the embedded text/template sources
-// for the go-test gate scaffold, rendered with the adopted repo's module path (+ the
-// pinned framework-go version) at project birth.
-//
-//go:embed assets/go.mod.tmpl
-var goModTemplateText string
-
-//go:embed assets/aiarch_method_test.go.tmpl
-var methodTestTemplateText string
+// The scaffold ASSETS themselves (both workflow templates, the go.mod / method-test
+// templates, and the full .claude agents/commands/skills tree) live in the platform
+// method-assets module (B4 delegation, 2026-07-13) — this RA no longer embeds or
+// renders any template of its own. methodassets.ScaffoldFiles is the single rendering
+// both the birth seat and the sync converge against, so the server, the materializer,
+// and archistrator's own dogfood repo can never disagree about the target bytes.
 
 // DesignWorkflowPath is the path under .github/workflows/ the DESIGN workflow is
 // committed to. It satisfies the managed-file allowlist's .github/workflows/ prefix.
 const DesignWorkflowPath = ".github/workflows/aiarch-design.yml"
+
+// scaffoldManifestPath is the seat manifest methodassets.ScaffoldFiles emits alongside
+// the .claude tree ({version, files[] sorted}, version == methodassets.Version()). The
+// managed-scaffold sync FAST-PATH reads THIS ONE FILE off the repo and compares the
+// version — NEVER the files list: a materializer-written manifest may transiently
+// carry retained orphans (self-healing prune), so the list is not a stable fingerprint.
+const scaffoldManifestPath = ".claude/.method-assets-manifest.json"
 
 // GoModPath / MethodTestPath are the repo-root scaffold paths the go-test gate is
 // seated to. They MUST match the sourcecontrol managed-file allowlist scaffold roots
@@ -995,24 +1048,10 @@ const internalGitkeepPath = "internal/.gitkeep"
 // line explaining why it exists.
 const internalGitkeepContent = "# keeps internal/ present for the Method arch gate (./internal/... load pattern)\n"
 
-// GoVersion is the Go directive the seated go.mod declares. It tracks framework-go's
-// own go.mod `go` line so the user module and framework-go agree on the language
-// version (framework-go is go 1.25.0).
-const GoVersion = "1.25.0"
-
-// FrameworkGoVersion is the PINNED framework-go module version the seated go.mod
-// requires. The user repo's `go test` must RESOLVE github.com/mixofreality-studio/archistrator-platform/framework-go
-// at this version (published/tagged, or served via GOPROXY) — see the founder
-// checklist. framework-go/v0.5.2 is published (the layer file-layout standard
-// gate — TestFileLayout — plus the v0.5.1 methodcheck shared-goPackage align
-// join and the v0.5.2 FileLayout entry-func semantics fix), so newly seated
-// consumer repos resolve it from GOPROXY without a local replace and inherit
-// the gate immediately. EXISTING consumer repos keep their own seated pin
-// unchanged by this bump — they adopt the gate only when THEY bump
-// framework-go, and their layer packages may need the same file-layout
-// migration this app repo just went through, at that time. Updated here when
-// framework-go is tagged.
-const FrameworkGoVersion = "v0.5.2"
+// (The former GoVersion / FrameworkGoVersion consts were DELETED with the B4
+// delegation: the seated go.mod's language + framework-go pins are owned by the
+// method-assets module — methodassets.GoVersion / methodassets.FrameworkGoVersion —
+// and version with the assets they template into.)
 
 // StateMcpModulePath is the Go package path of the local stdio project-state MCP server
 // the DESIGN workflow launches inside the GitHub Actions job (cmd/aiarch-state-mcp). The
@@ -1056,127 +1095,128 @@ var StateMcpModulePin = "e9d18ca0e5cd9b9880b7caa02a9da5e9e5278a35"
 // Actions secret is provisioned by the Claude Code GitHub App when the USER runs
 // /install-github-app on their repo — aiarch does NOT seat it.
 
-// renderDesignWorkflow renders the embedded DESIGN workflow template with the given
-// GitHub App slug. It uses custom [[ ]] delimiters so GitHub's ${{ ... }} expressions
-// are literal text. An EMPTY appSlug omits the allowed_bots line entirely — the seated
-// workflow then still runs for a human-dispatched run (a bot-dispatched run would fail
-// the action's non-human-actor guard, which is the correct signal in an unconfigured
-// deployment rather than an empty/invalid allowed_bots value).
-func renderDesignWorkflow(appSlug string) ([]byte, error) {
-	t, err := template.New("aiarch-design.yml").Delims("[[", "]]").Parse(designWorkflowTmplText)
+// managedScaffoldData maps the RA's repo coordinates onto methodassets.ScaffoldData —
+// the SINGLE place the repo→render-context derivation lives. Under name-as-identity
+// (A1 §10.1, deterministicRepoName is the identity map) the repo name IS the project
+// id AND the display name, so all three fields derive from the one RepoRef.
+// StateMcpModulePath / StateMcpModulePin stay SERVER-owned (the pin is
+// ldflags-stampable) and are threaded into the module's rendering here.
+func managedScaffoldData(repo RepoRef, appSlug string) (methodassets.ScaffoldData, error) {
+	owner, name, err := RepoRefOwnerRepo(repo)
 	if err != nil {
-		return nil, fmt.Errorf("sourcecontrol: parse aiarch-design.yml template: %w", err)
+		return methodassets.ScaffoldData{}, err
 	}
-	var buf bytes.Buffer
-	if err := t.Execute(&buf, scaffoldTemplateData{
-		AppSlug:            appSlug,
-		StateMcpModulePath: StateMcpModulePath,
-		StateMcpModulePin:  StateMcpModulePin,
-	}); err != nil {
-		return nil, fmt.Errorf("sourcecontrol: render aiarch-design.yml template: %w", err)
+	return methodassets.ScaffoldData{
+		ModulePath:            fmt.Sprintf("github.com/%s/%s", owner, name),
+		AppSlug:               appSlug,
+		ProjectID:             name,
+		Owner:                 owner,
+		Name:                  name,
+		StateMcpModulePath:    StateMcpModulePath,
+		StateMcpModuleVersion: StateMcpModulePin,
+	}, nil
+}
+
+// renderManagedScaffold renders the COMPLETE managed scaffold via
+// methodassets.ScaffoldFiles (both workflows + go.mod + method test + the full
+// .claude tree + the seat manifest + internal/.gitkeep) as a path-sorted
+// []ManagedFile. One override: the module emits internal/.gitkeep EMPTY (a plain git
+// placeholder), but the managed-file write path rejects empty content (no empty
+// Contents PUT), so the seat carries the explanatory one-liner instead — same
+// placeholder, non-empty bytes.
+func renderManagedScaffold(repo RepoRef, appSlug string) ([]ManagedFile, error) {
+	data, err := managedScaffoldData(repo, appSlug)
+	if err != nil {
+		return nil, err
 	}
-	return buf.Bytes(), nil
+	rendered, err := methodassets.ScaffoldFiles(data)
+	if err != nil {
+		return nil, fmt.Errorf("sourcecontrol: render managed scaffold: %w", err)
+	}
+	rendered[internalGitkeepPath] = []byte(internalGitkeepContent)
+
+	files := make([]ManagedFile, 0, len(rendered))
+	for p, b := range rendered {
+		files = append(files, ManagedFile{Path: p, Content: b})
+	}
+	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
+	return files, nil
 }
 
 // DesignWorkflowFile returns the claude-code-action DESIGN workflow rendered with
 // the configured App slug as a provider-neutral ManagedFile — EXACTLY the file the
-// birth seat commits. Exported (2026-07-06 managed-scaffold sync) so the design
-// Managers' sync-on-dispatch can re-render the CURRENT template and converge the
-// seated copy against it; the seat path (ManagedScaffoldFiles) and the sync path
-// share this single rendering, so they can never disagree about the target bytes.
+// birth seat commits (the design workflow templates only the App slug + the
+// state-MCP pins, never the repo coordinates, so it renders repo-independently).
+// Exported (2026-07-06 managed-scaffold sync) as the stable single-file rendering
+// anchor: seat, sync, and tests compare against this one rendering, so they can
+// never disagree about the target bytes.
 func DesignWorkflowFile(appSlug string) (ManagedFile, error) {
-	content, err := renderDesignWorkflow(appSlug)
+	rendered, err := methodassets.ScaffoldFiles(methodassets.ScaffoldData{
+		AppSlug:               appSlug,
+		StateMcpModulePath:    StateMcpModulePath,
+		StateMcpModuleVersion: StateMcpModulePin,
+	})
 	if err != nil {
-		return ManagedFile{}, err
+		return ManagedFile{}, fmt.Errorf("sourcecontrol: render design workflow: %w", err)
+	}
+	content, ok := rendered[DesignWorkflowPath]
+	if !ok || len(content) == 0 {
+		return ManagedFile{}, fmt.Errorf("sourcecontrol: methodassets scaffold is missing %s", DesignWorkflowPath)
 	}
 	return ManagedFile{Path: DesignWorkflowPath, Content: content}, nil
 }
 
-// scaffoldTemplateData is the render context for the birth-scaffold templates: the
-// repo's Go module path + the Go + framework-go version pins (go.mod + method test),
-// plus the configured GitHub App slug (the DESIGN workflow's allowed_bots actor). Each
-// template uses only the fields it needs.
-type scaffoldTemplateData struct {
-	Module             string
-	GoVersion          string
-	FrameworkGoVersion string
-	AppSlug            string
-	// StateMcpModulePath / StateMcpModulePin template the `go install <path>@<pin>` the
-	// DESIGN workflow uses to obtain the local project-state MCP server binary.
-	StateMcpModulePath string
-	StateMcpModulePin  string
-}
-
-// renderScaffoldFile renders one embedded text/template with the module path + pins.
-func renderScaffoldFile(name, tmplText string, data scaffoldTemplateData) ([]byte, error) {
-	t, err := template.New(name).Parse(tmplText)
-	if err != nil {
-		return nil, fmt.Errorf("sourcecontrol: parse %s template: %w", name, err)
-	}
-	var buf bytes.Buffer
-	if err := t.Execute(&buf, data); err != nil {
-		return nil, fmt.Errorf("sourcecontrol: render %s template: %w", name, err)
-	}
-	return buf.Bytes(), nil
-}
-
 // ManagedScaffoldFiles returns the FULL aiarch-managed project scaffold bundle to
-// seat at project birth — the design workflow + the go-test gate (go.mod +
-// aiarch_method_test.go) + the internal/.gitkeep placeholder — templated with the
-// adopted repo's Go module path (github.com/<owner>/<repo>, derived from repo via
-// RepoRef.OwnerRepo), the pinned Go + framework-go versions, and the configured
-// GitHub App slug (the design workflow's allowed_bots actor). The internal/.gitkeep
-// file is static (the method gate's arch.MethodSpec `./internal/...` load pattern
-// hard-errors on a missing internal/ dir, so the placeholder makes it exist at birth).
-// The C-PM-Δ caller hands the returned slice to CommitManagedFiles, which seats all
-// four in one birth seat.
+// seat at project birth — the methodassets rendering in its entirety: both agentic
+// workflows (design + construct), the go-test gate (go.mod + aiarch_method_test.go),
+// the complete .claude agents/commands/skills tree with its seat manifest, and the
+// internal/.gitkeep placeholder (the method gate's arch.MethodSpec `./internal/...`
+// load pattern hard-errors on a missing internal/ dir, so the placeholder makes it
+// exist at birth). The C-PM-Δ caller hands the returned slice to CommitManagedFiles,
+// which seats the whole set in one birth seat. (It deliberately does NOT include
+// .aiarch/state/project.json — projectStateAccess.CreateProject owns seeding that.)
 //
 // appSlug is the deployment's GitHub App slug (from the composition root). The caller
 // reads it off the rail with RailAppSlug so it is never hardcoded. An EMPTY slug
-// (unconfigured dev server) is valid: the design workflow simply omits allowed_bots.
+// (unconfigured dev server) renders a design workflow without allowed_bots (a
+// human-dispatched run still works) — but note the CONSTRUCT workflow templates the
+// slug unguarded, so construction dispatch requires a configured slug.
 //
 // An empty/malformed RepoRef (owner/repo unresolvable) is a ContractMisuse the caller
 // surfaces — the module path cannot be templated without the repo coordinates.
 func ManagedScaffoldFiles(repo RepoRef, appSlug string) ([]ManagedFile, error) {
-	owner, name, err := RepoRefOwnerRepo(repo)
-	if err != nil {
-		return nil, err
-	}
-	module := fmt.Sprintf("github.com/%s/%s", owner, name)
-	data := scaffoldTemplateData{
-		Module:             module,
-		GoVersion:          GoVersion,
-		FrameworkGoVersion: FrameworkGoVersion,
-	}
+	return renderManagedScaffold(repo, appSlug)
+}
 
-	workflow, err := DesignWorkflowFile(appSlug)
+// managedSyncFiles returns the SYNC-SCOPED subset of the managed scaffold — the
+// PROMPT SURFACE only (spec §5 amendment, 2026-07-13): both workflows + the full
+// .claude tree + the seat manifest. go.mod / aiarch_method_test.go /
+// internal/.gitkeep are BIRTH-ONLY: go.mod is user-evolved after birth (their
+// requires) and re-seating it would destroy user content, so the sync never
+// touches the scaffold roots.
+func managedSyncFiles(repo RepoRef, appSlug string) ([]ManagedFile, error) {
+	all, err := renderManagedScaffold(repo, appSlug)
 	if err != nil {
 		return nil, err
 	}
-	goMod, err := renderScaffoldFile("go.mod", goModTemplateText, data)
-	if err != nil {
-		return nil, err
+	out := make([]ManagedFile, 0, len(all))
+	for _, f := range all {
+		if strings.HasPrefix(f.Path, workflowPathPrefix) || strings.HasPrefix(f.Path, claudePathPrefix) {
+			out = append(out, f)
+		}
 	}
-	methodTest, err := renderScaffoldFile("aiarch_method_test.go", methodTestTemplateText, data)
-	if err != nil {
-		return nil, err
-	}
-
-	return []ManagedFile{
-		workflow,
-		{Path: GoModPath, Content: goMod},
-		{Path: MethodTestPath, Content: methodTest},
-		{Path: internalGitkeepPath, Content: []byte(internalGitkeepContent)},
-	}, nil
+	return out, nil
 }
 
 // syncManagedScaffoldMessage is the commit message a managed-scaffold SYNC commit
-// carries (distinct from the birth-seat ManagedCommitMessage): it names the refreshed
-// file AND the state-MCP pin the refreshed rendering installs, so the repo history
-// records exactly when the scaffold was brought current and to which binary generation.
+// carries (distinct from the birth-seat ManagedCommitMessage): it names the two
+// generations the refreshed rendering carries — the method-assets module version
+// (the .claude prompt surface) and the state-MCP pin (the workflows' validator
+// binary) — so the repo history records exactly when the scaffold was brought
+// current and to which generations.
 func syncManagedScaffoldMessage() string {
-	return fmt.Sprintf("aiarch: sync managed scaffold (%s) to aiarch-state-mcp@%s",
-		path.Base(DesignWorkflowPath), StateMcpModulePin)
+	return fmt.Sprintf("aiarch: sync managed scaffold to method-assets@%s aiarch-state-mcp@%s",
+		methodassets.Version(), StateMcpModulePin)
 }
 
 // managedFileSyncer is the OPTIONAL hand-written auxiliary sync surface a concrete
@@ -1187,24 +1227,47 @@ type managedFileSyncer interface {
 	SyncManagedFiles(ctx context.Context, repo RepoRef, files []ManagedFile, message string, cred RepoCredential) (CommitRef, bool, error)
 }
 
-// SyncManagedScaffold ensures the SEATED design workflow (aiarch-design.yml on the
-// repo's DEFAULT branch) matches the CURRENT template rendering — the managed-scaffold
-// sync the design Managers run BEFORE every design-job dispatch (2026-07-06; closes
-// the CreateProject-seats-once drift: the birth seat's constant idempotency key means
-// a seated copy was otherwise never refreshed, so server upgrades stranded live repos
-// on a stale aiarch-state-mcp pin whose binary the new validators reject).
+// managedFileReader is the OPTIONAL hand-written auxiliary read surface a concrete
+// SourceControlAccess may expose (the GitHub-backed access does — see
+// (*access).ReadManagedFile): read one managed file's bytes off the default branch,
+// found=false on a missing file. Same discovery pattern as managedFileSyncer; a rail
+// without it (a test fake) simply never takes the sync fast-path.
+type managedFileReader interface {
+	ReadManagedFile(ctx context.Context, repo RepoRef, path string, cred RepoCredential) ([]byte, bool, error)
+}
+
+// SyncManagedScaffold ensures the SEATED prompt surface — both agentic workflows
+// (aiarch-design.yml + aiarch-construct.yml) and the full .claude tree with its seat
+// manifest, on the repo's DEFAULT branch — matches the CURRENT methodassets rendering.
+// It is the managed-scaffold sync the design Managers run BEFORE every design-job
+// dispatch (2026-07-06; closes the CreateProject-seats-once drift: the birth seat's
+// constant idempotency key means a seated copy was otherwise never refreshed, so
+// server upgrades stranded live repos on stale prompts/pins the new validators
+// reject).
 //
-// It re-renders the workflow exactly as seat-time would TODAY (DesignWorkflowFile with
-// the rail's own App slug) and converges the seated copy through the rail:
-//   - drifted   → ONE commit to the default branch (sync message naming the new pin),
+// FAST-PATH (B4): converging ~100 .claude files by fetch-compare-put on EVERY design
+// dispatch is wasteful, so when the rail can read files (managedFileReader) the sync
+// first reads the seated .claude/.method-assets-manifest.json and compares its
+// version — VERSION ONLY, never the files list (a materializer-written manifest may
+// transiently carry retained orphans) — against this server's methodassets pin
+// (methodassets.Version()). On a match the .claude tree is proven current and the
+// sync converges ONLY the two workflow files: their rendering also carries the
+// SERVER-owned (ldflags-stampable) StateMcpModulePin, which the module version
+// cannot fingerprint, so the workflows are always converged. An absent/unreadable/
+// mismatched manifest (or a rail without the read surface) takes the FULL seat:
+// every sync-scoped file through the same putManagedFiles converge.
+//
+// Either way the write is fetch-compare-put per file (byte-identical short-circuits,
+// no empty commits):
+//   - anything drifted → commit(s) under the sync message (naming both generations),
 //     changed=true
-//   - identical → NO commit (the contents write is fetch-compare-put, byte-identical
-//     short-circuits), changed=false
+//   - everything identical → NO commit, changed=false (a fast-path hit where the
+//     workflows are also current is exactly this)
 //
-// SCOPE: the design workflow file ONLY. The rest of the birth scaffold (go.mod /
-// aiarch_method_test.go / internal/.gitkeep) is deliberately NOT synced — go.mod is
-// user-evolved after birth (their requires) and re-seating it would destroy user
-// content; see docs/later.md for the earmarked follow-ups.
+// SCOPE: the prompt surface ONLY (spec §5 amendment, 2026-07-13). The rest of the
+// birth scaffold (go.mod / aiarch_method_test.go / internal/.gitkeep) is BIRTH-ONLY —
+// go.mod is user-evolved after birth (their requires) and re-seating it would destroy
+// user content.
 //
 // When the concrete rail lacks the auxiliary sync surface (a test fake), it falls back
 // to the FROZEN CommitManagedFiles verb — the identical converge semantics under the
@@ -1215,16 +1278,51 @@ func SyncManagedScaffold(ctx context.Context, rail SourceControlAccess, repo Rep
 	if rail == nil {
 		return false, fmt.Errorf("sourcecontrol: SyncManagedScaffold: nil rail")
 	}
-	file, err := DesignWorkflowFile(RailAppSlug(rail))
+	files, err := managedSyncFiles(repo, RailAppSlug(rail))
 	if err != nil {
 		return false, err
 	}
+	if seatedManifestVersionCurrent(ctx, rail, repo, cred) {
+		// Fast path: the manifest proves the seated .claude tree current — converge
+		// only the workflows (server-owned pins ride in them).
+		workflows := files[:0]
+		for _, f := range files {
+			if strings.HasPrefix(f.Path, workflowPathPrefix) {
+				workflows = append(workflows, f)
+			}
+		}
+		files = workflows
+	}
 	if s, ok := rail.(managedFileSyncer); ok {
-		_, changed, serr := s.SyncManagedFiles(ctx, repo, []ManagedFile{file}, syncManagedScaffoldMessage(), cred)
+		_, changed, serr := s.SyncManagedFiles(ctx, repo, files, syncManagedScaffoldMessage(), cred)
 		return changed, serr
 	}
-	_, err = rail.CommitManagedFiles(fwra.Context{Context: ctx}, repo, []ManagedFile{file}, cred)
+	_, err = rail.CommitManagedFiles(fwra.Context{Context: ctx}, repo, files, cred)
 	return false, err
+}
+
+// seatedManifestVersionCurrent reports whether the SEATED scaffold manifest can be
+// read AND carries exactly this server's methodassets version. Any failure to prove
+// currency — a rail without the read surface, a read error, a missing manifest
+// (pre-B4 repos), or a corrupt/mismatched document — answers false, and the caller
+// converges the full sync set instead (which is always correct, just slower). The
+// comparison is VERSION ONLY by design; see SyncManagedScaffold.
+func seatedManifestVersionCurrent(ctx context.Context, rail SourceControlAccess, repo RepoRef, cred RepoCredential) bool {
+	r, ok := rail.(managedFileReader)
+	if !ok {
+		return false
+	}
+	b, found, err := r.ReadManagedFile(ctx, repo, scaffoldManifestPath, cred)
+	if err != nil || !found {
+		return false
+	}
+	var m struct {
+		Version string `json:"version"`
+	}
+	if json.Unmarshal(b, &m) != nil {
+		return false
+	}
+	return m.Version != "" && m.Version == methodassets.Version()
 }
 
 // RailAppSlug reads the configured GitHub App slug off a SourceControlAccess when the

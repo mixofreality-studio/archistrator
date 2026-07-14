@@ -97,6 +97,7 @@ import (
 	fwgithub "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github"
 	gh "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github/testinfra"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+	methodassets "github.com/mixofreality-studio/archistrator-platform/method-assets"
 	"gopkg.in/yaml.v3"
 )
 
@@ -1042,11 +1043,38 @@ func putMessage(t *testing.T, fake *gh.FakeGitHub, path string) string {
 	return ""
 }
 
-// U43: DRIFT → COMMIT. A stale seated design workflow (e.g. an old aiarch-state-mcp
-// pin) is refreshed by exactly ONE contents PUT to the default branch, the stored
-// bytes equal the CURRENT template rendering, the commit message is the SYNC message
-// (file + new pin — not the birth-seat message), and changed=true is reported. The
-// sync touches ONLY the workflow file — never go.mod (user-evolved after birth).
+// seedSyncedScaffold seats the ENTIRE sync-scoped file set (both workflows + the
+// .claude tree + the seat manifest) into the fake repo at the CURRENT rendering, so a
+// subsequent sync finds everything byte-identical and the manifest version current.
+func seedSyncedScaffold(t *testing.T, fake *gh.FakeGitHub, repoName, appSlug string) []ManagedFile {
+	t.Helper()
+	files, err := managedSyncFiles(RepoRefFromString(testAccount+"|"+testAccount+"/"+repoName), appSlug)
+	if err != nil {
+		t.Fatalf("managedSyncFiles: %v", err)
+	}
+	for _, f := range files {
+		fake.SeedRepoFile(testAccount, repoName, f.Path, f.Content)
+	}
+	return files
+}
+
+// countClaudePuts counts contents PUTs under the repo's .claude/ tree.
+func countClaudePuts(fake *gh.FakeGitHub, repoName string) int {
+	n := 0
+	for _, r := range fake.Requests() {
+		if r.Method == "PUT" && strings.HasPrefix(r.Path, "/repos/"+testAccount+"/"+repoName+"/contents/.claude/") {
+			n++
+		}
+	}
+	return n
+}
+
+// U43: DRIFT (no manifest) → FULL CONVERGE + COMMIT. A pre-B4 repo (stale seated
+// design workflow, no seat manifest) takes the full-seat path: the whole prompt
+// surface converges — the design workflow is refreshed to the CURRENT rendering
+// under the SYNC message, the .claude tree (incl. the manifest) is seated — and
+// changed=true is reported. The sync NEVER touches the birth-only scaffold roots
+// (go.mod / method test / internal/.gitkeep — user-territory after birth).
 func TestU43_SyncManagedScaffoldDriftCommitsRefresh(t *testing.T) {
 	fake, a, repo, cred := adoptedFixture(t, "alpha")
 	defer fake.Close()
@@ -1057,7 +1085,7 @@ func TestU43_SyncManagedScaffoldDriftCommitsRefresh(t *testing.T) {
 		t.Fatalf("SyncManagedScaffold: %v", err)
 	}
 	if !changed {
-		t.Fatal("a drifted seated workflow must report changed=true")
+		t.Fatal("a drifted seated scaffold must report changed=true")
 	}
 	if got := countRequests(fake, "PUT", "/repos/acme/alpha/contents/"+DesignWorkflowPath); got != 1 {
 		t.Fatalf("a drifted workflow must issue exactly one contents PUT, got %d", got)
@@ -1071,50 +1099,170 @@ func TestU43_SyncManagedScaffoldDriftCommitsRefresh(t *testing.T) {
 		t.Fatal("the refreshed seated workflow must equal the CURRENT template rendering")
 	}
 	msg := putMessage(t, fake, "/repos/acme/alpha/contents/"+DesignWorkflowPath)
-	wantMsg := "aiarch: sync managed scaffold (aiarch-design.yml) to aiarch-state-mcp@" + StateMcpModulePin
-	if msg != wantMsg {
-		t.Fatalf("sync commit message = %q, want %q", msg, wantMsg)
+	if msg != syncManagedScaffoldMessage() {
+		t.Fatalf("sync commit message = %q, want %q", msg, syncManagedScaffoldMessage())
 	}
-	// The sync scope is the design workflow ONLY — go.mod and the method test are
-	// user-territory after birth and must never be re-seated by the sync.
+	// The full converge seats the prompt surface: the manifest (and tree) land.
+	if _, ok := fake.RepoFile(testAccount, "alpha", scaffoldManifestPath); !ok {
+		t.Fatal("the full-seat sync must seat the .claude seat manifest")
+	}
+	if countClaudePuts(fake, "alpha") == 0 {
+		t.Fatal("the full-seat sync must seat the .claude tree")
+	}
+	// The sync scope is the PROMPT SURFACE only — go.mod, the method test, and the
+	// gitkeep are birth-only and must never be re-seated by the sync.
 	if countRequests(fake, "PUT", "/repos/acme/alpha/contents/go.mod") != 0 ||
-		countRequests(fake, "PUT", "/repos/acme/alpha/contents/aiarch_method_test.go") != 0 {
-		t.Fatal("the sync must touch ONLY the design workflow file")
+		countRequests(fake, "PUT", "/repos/acme/alpha/contents/aiarch_method_test.go") != 0 ||
+		countRequests(fake, "PUT", "/repos/acme/alpha/contents/internal/.gitkeep") != 0 {
+		t.Fatal("the sync must never touch the birth-only scaffold roots")
 	}
 }
 
-// U44: MATCH → NO COMMIT. A seated workflow already at the current rendering is a
-// no-op: zero contents PUTs (no empty commit), changed=false.
+// U44: EVERYTHING CURRENT → FAST PATH, NO COMMIT. With the whole prompt surface
+// seated at the current rendering, the manifest version matches: the sync skips the
+// .claude tree entirely (fast path — no per-file .claude round-trips) and finds the
+// workflows byte-identical: zero contents PUTs (no empty commit), changed=false.
 func TestU44_SyncManagedScaffoldByteIdenticalNoCommit(t *testing.T) {
 	fake, a, repo, cred := adoptedFixture(t, "alpha")
 	defer fake.Close()
-	current, err := DesignWorkflowFile(stpAppSlug)
-	if err != nil {
-		t.Fatalf("DesignWorkflowFile: %v", err)
-	}
-	fake.SeedRepoFile(testAccount, "alpha", DesignWorkflowPath, current.Content)
+	seedSyncedScaffold(t, fake, "alpha", stpAppSlug)
+	preCount := len(fake.Requests())
 
 	changed, err := SyncManagedScaffold(context.Background(), a, repo, cred)
 	if err != nil {
 		t.Fatalf("SyncManagedScaffold: %v", err)
 	}
 	if changed {
-		t.Fatal("a byte-identical seated workflow must report changed=false")
+		t.Fatal("a byte-identical seated scaffold must report changed=false")
 	}
-	if got := countRequests(fake, "PUT", "/repos/acme/alpha/contents/"+DesignWorkflowPath); got != 0 {
-		t.Fatalf("a byte-identical seated workflow must issue NO contents PUT, got %d", got)
+	for _, r := range fake.Requests()[preCount:] {
+		if r.Method == "PUT" {
+			t.Fatalf("a current seated scaffold must issue NO contents PUT, got PUT %s", r.Path)
+		}
+		// FAST-PATH PROOF: the only .claude read is the ONE manifest GET — the tree
+		// is fingerprinted by version, never walked file-by-file.
+		if strings.Contains(r.Path, "/contents/.claude/") && !strings.HasSuffix(r.Path, scaffoldManifestPath) {
+			t.Fatalf("the fast path must not touch .claude files beyond the manifest, got %s %s", r.Method, r.Path)
+		}
 	}
 }
 
-// U45: FALLBACK. A rail that lacks the auxiliary sync surface (here: the real access
-// hidden behind an interface-embedding wrapper, so the type assertion misses) still
-// CONVERGES through the frozen CommitManagedFiles verb — the refreshed bytes land —
-// but reports changed=false (the frozen verb does not report drift).
+// U44b: FAST PATH IS VERSION-ONLY. A seated manifest whose VERSION matches but whose
+// files list is garbage (a materializer-written manifest may transiently carry
+// retained orphans) still takes the fast path: a drifted .claude file is NOT
+// converged (the tree is proven by version, the list is never compared), and with
+// current workflows the sync is a no-op (changed=false).
+func TestU44b_SyncManagedScaffoldFastPathComparesVersionOnly(t *testing.T) {
+	fake, a, repo, cred := adoptedFixture(t, "alpha")
+	defer fake.Close()
+	seedSyncedScaffold(t, fake, "alpha", stpAppSlug)
+	// Overwrite the manifest: matching version, nonsense files list.
+	manifest, err := json.Marshal(map[string]any{
+		"version": methodassets.Version(),
+		"files":   []string{".claude/retained-orphan.md", ".claude/not-a-real-file.md"},
+	})
+	if err != nil {
+		t.Fatalf("marshal manifest: %v", err)
+	}
+	fake.SeedRepoFile(testAccount, "alpha", scaffoldManifestPath, manifest)
+	// Drift one .claude asset — the version-only fast path must NOT converge it.
+	fake.SeedRepoFile(testAccount, "alpha", ".claude/commands/mission-draft.md", []byte("stale prompt body"))
+
+	changed, err := SyncManagedScaffold(context.Background(), a, repo, cred)
+	if err != nil {
+		t.Fatalf("SyncManagedScaffold: %v", err)
+	}
+	if changed {
+		t.Fatal("fast path with current workflows must report changed=false")
+	}
+	if got := countClaudePuts(fake, "alpha"); got != 0 {
+		t.Fatalf("the version-matched fast path must not write any .claude file, got %d PUTs", got)
+	}
+	if stored, _ := fake.RepoFile(testAccount, "alpha", ".claude/commands/mission-draft.md"); string(stored) != "stale prompt body" {
+		t.Fatal("the fast path must leave the (version-covered) .claude tree untouched")
+	}
+}
+
+// U44c: FAST PATH STILL CONVERGES THE WORKFLOWS. The workflows carry the
+// SERVER-owned (ldflags-stampable) state-MCP pin, which the module version cannot
+// fingerprint — so even on a manifest-version hit, a drifted seated workflow is
+// refreshed (changed=true) while the .claude tree stays untouched.
+func TestU44c_SyncManagedScaffoldFastPathConvergesWorkflows(t *testing.T) {
+	fake, a, repo, cred := adoptedFixture(t, "alpha")
+	defer fake.Close()
+	seedSyncedScaffold(t, fake, "alpha", stpAppSlug)
+	fake.SeedRepoFile(testAccount, "alpha", DesignWorkflowPath, []byte("stale seated workflow (old stamped pin)"))
+
+	changed, err := SyncManagedScaffold(context.Background(), a, repo, cred)
+	if err != nil {
+		t.Fatalf("SyncManagedScaffold: %v", err)
+	}
+	if !changed {
+		t.Fatal("a drifted workflow must report changed=true even on a manifest fast-path hit")
+	}
+	want, err := DesignWorkflowFile(stpAppSlug)
+	if err != nil {
+		t.Fatalf("DesignWorkflowFile: %v", err)
+	}
+	stored, ok := fake.RepoFile(testAccount, "alpha", DesignWorkflowPath)
+	if !ok || string(stored) != string(want.Content) {
+		t.Fatal("the fast path must still converge the seated workflow onto the current rendering")
+	}
+	if got := countClaudePuts(fake, "alpha"); got != 0 {
+		t.Fatalf("the fast path must not write any .claude file, got %d PUTs", got)
+	}
+}
+
+// U44d: VERSION MISMATCH → FULL CONVERGE. A seated manifest carrying a DIFFERENT
+// methodassets version misses the fast path: the whole prompt surface converges,
+// refreshing the stale .claude asset and the manifest itself (changed=true).
+func TestU44d_SyncManagedScaffoldVersionMismatchFullSeat(t *testing.T) {
+	fake, a, repo, cred := adoptedFixture(t, "alpha")
+	defer fake.Close()
+	files := seedSyncedScaffold(t, fake, "alpha", stpAppSlug)
+	manifest, err := json.Marshal(map[string]any{"version": "v0.0.0-not-current", "files": []string{}})
+	if err != nil {
+		t.Fatalf("marshal manifest: %v", err)
+	}
+	fake.SeedRepoFile(testAccount, "alpha", scaffoldManifestPath, manifest)
+	fake.SeedRepoFile(testAccount, "alpha", ".claude/commands/mission-draft.md", []byte("stale prompt body"))
+
+	changed, err := SyncManagedScaffold(context.Background(), a, repo, cred)
+	if err != nil {
+		t.Fatalf("SyncManagedScaffold: %v", err)
+	}
+	if !changed {
+		t.Fatal("a version-mismatched scaffold must report changed=true")
+	}
+	var wantCmd []byte
+	for _, f := range files {
+		if f.Path == ".claude/commands/mission-draft.md" {
+			wantCmd = f.Content
+		}
+	}
+	stored, ok := fake.RepoFile(testAccount, "alpha", ".claude/commands/mission-draft.md")
+	if !ok || !bytes.Equal(stored, wantCmd) {
+		t.Fatal("the full converge must refresh the stale .claude asset to the current rendering")
+	}
+	storedMan, ok := fake.RepoFile(testAccount, "alpha", scaffoldManifestPath)
+	var m struct {
+		Version string `json:"version"`
+	}
+	if !ok || json.Unmarshal(storedMan, &m) != nil || m.Version != methodassets.Version() {
+		t.Fatal("the full converge must refresh the seat manifest to the current version")
+	}
+}
+
+// U45: FALLBACK. A rail that lacks the auxiliary sync + read surfaces (here: the real
+// access hidden behind an interface-embedding wrapper, so the type assertions miss)
+// still CONVERGES the full sync set through the frozen CommitManagedFiles verb — the
+// refreshed bytes land — but reports changed=false (the frozen verb does not report
+// drift) and never takes the fast path (no read surface).
 func TestU45_SyncManagedScaffoldFallsBackToFrozenVerb(t *testing.T) {
 	fake, a, repo, cred := adoptedFixture(t, "alpha")
 	defer fake.Close()
 	fake.SeedRepoFile(testAccount, "alpha", DesignWorkflowPath, []byte("stale seated workflow"))
-	wrapped := struct{ SourceControlAccess }{a} // hides the auxiliary SyncManagedFiles
+	wrapped := struct{ SourceControlAccess }{a} // hides SyncManagedFiles + ReadManagedFile + AppSlug
 
 	changed, err := SyncManagedScaffold(context.Background(), wrapped, repo, cred)
 	if err != nil {
@@ -1135,17 +1283,12 @@ func TestU45_SyncManagedScaffoldFallsBackToFrozenVerb(t *testing.T) {
 
 // ---- from agenticdesign_test.go ----
 
-// agenticdesign_test.go — structural tests over the embedded DESIGN workflow asset
-// (agenticdesign.go). It is an INTERNAL test package (package sourcecontrol) so it
-// can read the unexported designWorkflowTmplText embed var + renderDesignWorkflow; the
-// component's external service tests live in sourcecontrol_test.go (package
-// sourcecontrol_test). Both test packages coexisting in one directory is permitted by
-// go test.
-//
-// The workflow asset is now a Go text/template (custom [[ ]] delimiters) rendered with
-// the GitHub App slug, so the structural tests assert against the RENDERED bytes
-// (renderDesignWorkflow) rather than the raw template (which is not valid YAML on its
-// own — the [[ if ]] control line is not YAML).
+// agenticdesign_test.go — structural tests over the RENDERED design workflow. The
+// asset itself lives in the platform method-assets module (B4 delegation); these
+// tests pin the WIRING CONTRACTS the app depends on — the dispatch-input names the
+// design Managers fill, the satellite run-name/idempotency anchors, the state-MCP
+// pin handshake — against the exact bytes the seat/sync commits (DesignWorkflowFile),
+// so a module bump that breaks a server-side contract fails HERE, not live.
 //
 // These assert the asset WIRING (the contract anchors), not a live Actions run.
 // The yaml.v3 + framework-go-infrastructure-github imports here are TEST-ONLY, so
@@ -1155,35 +1298,38 @@ func TestU45_SyncManagedScaffoldFallsBackToFrozenVerb(t *testing.T) {
 // workflow with.
 const testAppSlug = "archistrator-bot"
 
-// renderedDesignWorkflow renders the embedded template with the given slug or fails the
+// renderedDesignWorkflow renders the design workflow with the given slug or fails the
 // test. Most structural assertions are slug-independent, so they use testAppSlug.
 func renderedDesignWorkflow(t *testing.T, appSlug string) []byte {
 	t.Helper()
-	b, err := renderDesignWorkflow(appSlug)
+	f, err := DesignWorkflowFile(appSlug)
 	if err != nil {
-		t.Fatalf("renderDesignWorkflow(%q): %v", appSlug, err)
+		t.Fatalf("DesignWorkflowFile(%q): %v", appSlug, err)
 	}
-	return b
+	return f.Content
 }
 
-// expectedDispatchInputs is the CONTRACT between this template and the design
+// expectedDispatchInputs is the CONTRACT between the workflow template and the design
 // Managers (C-MSD-Δ / C-MPD-Δ DispatchInputs on PipelineSpec). idempotency_token
 // is the load-bearing dispatch anchor shared with the construction workflow; the
-// other four are the additive DESIGN-job parameters.
+// other five are the additive DESIGN-job parameters (thin dispatch: `command` routes
+// to the slash command under .claude/commands/ — design_prompt no longer exists).
 var expectedDispatchInputs = []string{
 	"idempotency_token",
+	"command",
 	"artifact_kind",
-	"design_prompt",
 	"target_branch",
 	"prior_state_ref",
+	"job_mode",
 }
 
 // requiredDispatchInputs are the inputs that MUST be required:true. prior_state_ref
-// is intentionally optional (empty on the first artifact of a fresh project).
+// is intentionally optional (empty on the first artifact of a fresh project);
+// job_mode is optional (defaulted to "draft").
 var requiredDispatchInputs = []string{
 	"idempotency_token",
+	"command",
 	"artifact_kind",
-	"design_prompt",
 	"target_branch",
 }
 
@@ -1203,13 +1349,7 @@ type workflowDoc struct {
 	} `yaml:"on"`
 }
 
-func TestEmbeddedTemplateNonEmpty(t *testing.T) {
-	if len(designWorkflowTmplText) == 0 {
-		t.Fatal("embedded aiarch-design.yml.tmpl is empty")
-	}
-}
-
-func TestEmbeddedTemplateParsesAsYAML(t *testing.T) {
+func TestRenderedDesignWorkflowParsesAsYAML(t *testing.T) {
 	var doc workflowDoc
 	if err := yaml.Unmarshal(renderedDesignWorkflow(t, testAppSlug), &doc); err != nil {
 		t.Fatalf("rendered template does not parse as YAML: %v", err)
@@ -1242,9 +1382,17 @@ func TestDeclaresExpectedDispatchInputs(t *testing.T) {
 			t.Errorf("input %q must be required:true", name)
 		}
 	}
-	// prior_state_ref is the one intentionally-optional input.
+	// prior_state_ref + job_mode are the intentionally-optional inputs.
 	if in, ok := inputs["prior_state_ref"]; ok && in.Required {
 		t.Error("prior_state_ref must be optional (required:false) — empty on a fresh project")
+	}
+	if in, ok := inputs["job_mode"]; ok && in.Required {
+		t.Error("job_mode must be optional (required:false) — defaulted to draft")
+	}
+	// Thin dispatch: the composed-prompt input is GONE (the command routes to the
+	// slash command under .claude/commands/, which carries the drafting logic).
+	if _, ok := inputs["design_prompt"]; ok {
+		t.Error("design_prompt must no longer exist as a dispatch input (thin dispatch)")
 	}
 }
 
@@ -1324,29 +1472,24 @@ func TestReferencesGoTestGateAndStatePath(t *testing.T) {
 	}
 }
 
-// TestDesignWorkflowCritiqueDoesNotOpenPR asserts the F39 rail-debris fix: the
-// prompt block instructs DRAFT mode to open a pull request but CRITIQUE mode to
-// commit to the branch and NOT open a PR (the manager reads critiqueVerdict off the
-// branch; a critique PR is never merged and would accumulate as debris). It also
-// pins the invariant that nothing in the template depends on a critique PR existing:
-// the run-name and the validate job both key off the branch, never a PR.
-func TestDesignWorkflowCritiqueDoesNotOpenPR(t *testing.T) {
+// TestDesignWorkflowThinDispatchNoPRDependency asserts the thin-dispatch prompt
+// contract (Plan-2): the Claude step's prompt is EXACTLY the slash-command
+// invocation — no drafting logic, no composed design_prompt — with the intent
+// living in the per-kind command under .claude/commands/. It also pins the F39
+// invariant that nothing in the template depends on a critique PR existing: the
+// run-name and the validate job both key off the branch, never a PR.
+func TestDesignWorkflowThinDispatchNoPRDependency(t *testing.T) {
 	body := string(renderedDesignWorkflow(t, testAppSlug))
 
-	// The agent NEVER opens a PR — the server (Manager) opens the review PR after
-	// read-back in draft mode; the agent only publishes via the aiarch-state MCP tool.
-	if !strings.Contains(body, "You do NOT open a pull request") {
-		t.Error("the prompt must tell the agent it does NOT open a pull request")
+	// THIN PROMPT: the prompt is the slash command, verbatim.
+	if !strings.Contains(body, "/${{ inputs.command }}") {
+		t.Error("the Claude step's prompt must be the thin slash-command invocation /${{ inputs.command }}")
 	}
-	// DRAFT mode: the review PR is opened automatically for the agent.
-	if !strings.Contains(body, "opened for you automatically") {
-		t.Error("draft mode must state the review PR is opened automatically after publish")
+	// The composed-prompt input and the old agent-facing file-edit / open-a-PR
+	// instructions must be gone.
+	if strings.Contains(body, "design_prompt") {
+		t.Error("the workflow must no longer reference design_prompt (thin dispatch)")
 	}
-	// CRITIQUE mode: no PR is opened.
-	if !strings.Contains(body, "in critique mode no PR is opened") {
-		t.Error("critique mode must state no PR is opened")
-	}
-	// The stale agent-facing JSON-editing / open-a-PR instructions must be gone.
 	if strings.Contains(body, "ALSO open a pull request") ||
 		strings.Contains(body, "In both modes, commit onto the branch") ||
 		strings.Contains(body, "set \"critiqueVerdict\" to") {
@@ -1361,7 +1504,7 @@ func TestDesignWorkflowCritiqueDoesNotOpenPR(t *testing.T) {
 	// token, and the validate job checks out the target branch — never a PR ref.
 	var doc workflowDoc
 	if err := yaml.Unmarshal([]byte(body), &doc); err != nil {
-		t.Fatalf("rendered template must still parse as YAML after the critique-mode edit: %v", err)
+		t.Fatalf("rendered template must still parse as YAML: %v", err)
 	}
 	if !strings.Contains(doc.RunName, "idempotency_token") {
 		t.Errorf("run-name must key off idempotency_token, not a PR: %q", doc.RunName)
@@ -1491,10 +1634,11 @@ func TestDesignWorkflowAllowedBots(t *testing.T) {
 	}
 }
 
-// TestManagedScaffoldFiles asserts the birth scaffold bundle: the design workflow +
-// the templated go-test gate (go.mod + aiarch_method_test.go) + the internal/.gitkeep
-// placeholder, all on the managed-file allowlist, with the repo's module path
-// templated in.
+// TestManagedScaffoldFiles asserts the FULL birth scaffold bundle (methodassets
+// delegation, B4): both agentic workflows + the templated go-test gate (go.mod +
+// aiarch_method_test.go) + the complete .claude tree with its seat manifest + the
+// internal/.gitkeep placeholder — all on the managed-file allowlist, all non-empty,
+// with the repo's module path templated in and NO server-owned path double-written.
 func TestManagedScaffoldFiles(t *testing.T) {
 	// owner|owner/repo encoding the RA produces (makeRepoRef): account=acme,
 	// fullName=acme/widgets.
@@ -1503,25 +1647,26 @@ func TestManagedScaffoldFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ManagedScaffoldFiles: %v", err)
 	}
-	if len(files) != 4 {
-		t.Fatalf("want 4 managed files (workflow + go.mod + method test + internal/.gitkeep), got %d", len(files))
-	}
 
 	byPath := map[string]ManagedFile{}
-	for _, f := range files {
+	for i, f := range files {
 		byPath[f.Path] = f
 		// Every seated file MUST be on the managed-file allowlist (the verb rejects
-		// anything else).
+		// anything else) and non-empty (the verb rejects empty content).
 		if !isManagedFilePath(f.Path) {
 			t.Errorf("scaffold file %q is not on the managed-file allowlist", f.Path)
 		}
 		if len(f.Content) == 0 {
 			t.Errorf("scaffold file %q has empty content", f.Path)
 		}
+		// Deterministic seat order (stable commit history).
+		if i > 0 && files[i-1].Path >= f.Path {
+			t.Errorf("scaffold files must be path-sorted: %q before %q", files[i-1].Path, f.Path)
+		}
 	}
 
-	// (1) the design workflow is the template RENDERED with the App slug, under
-	// .github/workflows/. It must equal renderDesignWorkflow(slug) and carry allowed_bots.
+	// (1) BOTH workflows are present; the design workflow equals the single-file
+	// rendering (seat and sync share one rendering) and carries allowed_bots.
 	wf, ok := byPath[DesignWorkflowPath]
 	if !ok {
 		t.Fatalf("missing %s in the scaffold bundle", DesignWorkflowPath)
@@ -1532,8 +1677,18 @@ func TestManagedScaffoldFiles(t *testing.T) {
 	if !strings.Contains(string(wf.Content), "allowed_bots: "+testAppSlug) {
 		t.Errorf("seated workflow must allow-list the configured App slug; got:\n%s", wf.Content)
 	}
+	cwf, ok := byPath[".github/workflows/aiarch-construct.yml"]
+	if !ok {
+		t.Fatal("missing .github/workflows/aiarch-construct.yml in the scaffold bundle")
+	}
+	// The construct workflow templates the slug UNGUARDED (methodassets contract:
+	// AppSlug is REQUIRED for construction dispatch).
+	if !strings.Contains(string(cwf.Content), testAppSlug) {
+		t.Error("seated construct workflow must carry the configured App slug")
+	}
 
-	// (2) go.mod templated with the derived module path + the framework-go require pin.
+	// (2) go.mod templated with the derived module path + the framework-go require pin
+	// (the pin is module-owned now: methodassets.FrameworkGoVersion).
 	goMod, ok := byPath[GoModPath]
 	if !ok {
 		t.Fatalf("missing %s in the scaffold bundle", GoModPath)
@@ -1542,8 +1697,8 @@ func TestManagedScaffoldFiles(t *testing.T) {
 	if !strings.Contains(gm, "module github.com/acme/widgets") {
 		t.Errorf("go.mod must declare the derived module path; got:\n%s", gm)
 	}
-	if !strings.Contains(gm, "require github.com/mixofreality-studio/archistrator-platform/framework-go "+FrameworkGoVersion) {
-		t.Errorf("go.mod must require framework-go at the pinned version %q; got:\n%s", FrameworkGoVersion, gm)
+	if !strings.Contains(gm, "require github.com/mixofreality-studio/archistrator-platform/framework-go "+methodassets.FrameworkGoVersion) {
+		t.Errorf("go.mod must require framework-go at the module-pinned version %q; got:\n%s", methodassets.FrameworkGoVersion, gm)
 	}
 
 	// (3) the method test templates the module path into arch.MethodSpec + calls
@@ -1556,27 +1711,52 @@ func TestManagedScaffoldFiles(t *testing.T) {
 	if !strings.Contains(mts, "methodcheck.Check") {
 		t.Error("method test must call methodcheck.Check")
 	}
-	if !strings.Contains(mts, `arch.MethodSpec(".", "github.com/acme/widgets/")`) {
+	if !strings.Contains(mts, "github.com/acme/widgets") {
 		t.Errorf("method test must template the module path into arch.MethodSpec; got:\n%s", mts)
 	}
 
 	// (4) internal/.gitkeep keeps the internal/ directory present so the method gate's
-	// arch.MethodSpec ./internal/... load pattern resolves instead of hard-erroring on a
-	// fresh repo. It is static (not templated), non-empty (CommitManagedFiles rejects
-	// empty content), and its path is on the managed-file allowlist (asserted above in
-	// the per-file loop).
+	// arch.MethodSpec ./internal/... load pattern resolves instead of hard-erroring on
+	// a fresh repo. The module emits it EMPTY; the seat overrides it with the
+	// explanatory one-liner because CommitManagedFiles rejects empty content.
 	gk, ok := byPath[internalGitkeepPath]
 	if !ok {
 		t.Fatalf("missing %s in the scaffold bundle", internalGitkeepPath)
 	}
-	if internalGitkeepPath != "internal/.gitkeep" {
-		t.Errorf("internalGitkeepPath must be the literal internal/.gitkeep; got %q", internalGitkeepPath)
-	}
 	if string(gk.Content) != internalGitkeepContent {
 		t.Errorf("internal/.gitkeep content = %q, want %q", gk.Content, internalGitkeepContent)
 	}
-	if len(gk.Content) == 0 {
-		t.Error("internal/.gitkeep must be non-empty (CommitManagedFiles rejects empty content)")
+
+	// (5) the .claude prompt surface rides the seat: a known command asset + the seat
+	// manifest, whose version fingerprint IS this server's methodassets version.
+	if _, ok := byPath[".claude/commands/mission-draft.md"]; !ok {
+		t.Fatal("missing .claude/commands/mission-draft.md in the scaffold bundle")
+	}
+	man, ok := byPath[scaffoldManifestPath]
+	if !ok {
+		t.Fatalf("missing %s in the scaffold bundle", scaffoldManifestPath)
+	}
+	var m struct {
+		Version string   `json:"version"`
+		Files   []string `json:"files"`
+	}
+	if err := json.Unmarshal(man.Content, &m); err != nil {
+		t.Fatalf("seat manifest is not valid JSON: %v", err)
+	}
+	// The manifest version must equal what the sync fast-path will compare against —
+	// never a specific literal (build-info derived; "devel" outside a versioned build).
+	if m.Version != methodassets.Version() {
+		t.Errorf("seat manifest version = %q, want methodassets.Version() = %q", m.Version, methodassets.Version())
+	}
+	if len(m.Files) == 0 {
+		t.Error("seat manifest must list the .claude files it owns")
+	}
+
+	// (6) the server-owned state path is NEVER double-written by the scaffold.
+	for p := range byPath {
+		if strings.HasPrefix(p, ".aiarch/") {
+			t.Errorf("scaffold must not seat server-owned path %q (CreateProject seeds .aiarch/state)", p)
+		}
 	}
 }
 
@@ -1590,6 +1770,38 @@ func TestInternalGitkeepAcceptedByAllowlist(t *testing.T) {
 	}
 	if isManagedFilePath("internal/main.go") {
 		t.Error("an arbitrary file under internal/ must NOT be on the allowlist — only the literal internal/.gitkeep is")
+	}
+}
+
+// TestClaudeTreeAllowlist proves the .claude/ prefix allowance (B4): clean paths under
+// the methodassets prompt surface are managed files, while path traversal, absolute
+// paths, and non-clean forms can never ride the prefix onto the allowlist.
+func TestClaudeTreeAllowlist(t *testing.T) {
+	for _, p := range []string{
+		".claude/agents/x.md",
+		".claude/commands/mission-draft.md",
+		".claude/skills/the-method/SKILL.md",
+		scaffoldManifestPath,
+	} {
+		if !isManagedFilePath(p) {
+			t.Errorf("%q must be on the managed-file allowlist (.claude prefix)", p)
+		}
+	}
+	for _, p := range []string{
+		".claude/../x",               // escapes the tree (cleans to "x")
+		".claude/a/../../etc/pw",     // escapes via embedded ..
+		".claude/a/../b.md",          // non-clean even though it stays inside
+		".claude//double-slash.md",   // non-clean
+		".claude/./self.md",          // non-clean
+		"/.claude/abs.md",            // absolute
+		".claudefile",                // prefix must be the DIRECTORY .claude/
+		".claude",                    // the bare directory is not a file path
+		"x/.claude/nested.md",        // prefix must anchor at the repo root
+		".aiarch/state/project.json", // server-owned, never scaffold-managed
+	} {
+		if isManagedFilePath(p) {
+			t.Errorf("%q must NOT be on the managed-file allowlist", p)
+		}
 	}
 }
 
@@ -1709,12 +1921,16 @@ func TestDesignWorkflowFileIsTheSeatRendering(t *testing.T) {
 	}
 }
 
-// TestSyncManagedScaffoldMessageNamesFileAndPin pins the sync commit-message contract:
-// it names the refreshed file and the state-MCP pin it refreshed to, so the repo
-// history records when and to which binary generation the scaffold was synced.
-func TestSyncManagedScaffoldMessageNamesFileAndPin(t *testing.T) {
+// TestSyncManagedScaffoldMessageNamesGenerations pins the sync commit-message
+// contract: it names BOTH generations the refreshed rendering carries — the
+// method-assets module version (the prompt surface) and the state-MCP pin (the
+// workflows' validator binary) — so the repo history records exactly what the
+// scaffold was synced to. The methodassets version is asserted DYNAMICALLY
+// (build-info derived; never a literal).
+func TestSyncManagedScaffoldMessageNamesGenerations(t *testing.T) {
 	msg := syncManagedScaffoldMessage()
-	want := "aiarch: sync managed scaffold (aiarch-design.yml) to aiarch-state-mcp@" + StateMcpModulePin
+	want := "aiarch: sync managed scaffold to method-assets@" + methodassets.Version() +
+		" aiarch-state-mcp@" + StateMcpModulePin
 	if msg != want {
 		t.Fatalf("syncManagedScaffoldMessage() = %q, want %q", msg, want)
 	}
