@@ -23227,7 +23227,8 @@
             "result": {
               "$ref": "#/$defs/SessionStateView"
             },
-            "error": true
+            "error": true,
+            "ui": { "view": "system-design-session" }
           },
           {
             "name": "ListProjects",
