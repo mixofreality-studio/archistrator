@@ -633,14 +633,13 @@ func (wf *workflows) dispatchDraftAndReadBack(
 	state *coAuthorState,
 ) (projectstate.ArtifactModel, projectstate.Version, coAuthorStep) {
 	logger := workflow.GetLogger(ctx)
-	// REVIEW LEDGER: on a redraft, state.reviewThread carries the durable open comments
-	// (reloaded after the reject-append); the prompt lists each for the agent to respond to.
-	draftPrompt := architectDraftPrompt(toPSKind(in.ArtifactKind), proj, *feedback, state.reviewThread, in.Amendment)
+	// REVIEW LEDGER: on a redraft, the durable open comments (state.reviewThread, reloaded
+	// after the reject-append) and the reopening feedback reach the drafting agent via the
+	// ledger it reads with getReviewThread — no longer woven into a design_prompt.
 	draftObs, derr := wf.dispatchAndObserve(ctx, dispatchDesignJobArgs{
 		ProjectID:     in.ProjectID,
 		ArtifactKind:  in.ArtifactKind,
 		Target:        dispatchTargetDraft,
-		Prompt:        draftPrompt,
 		TargetBranch:  sessionBranch,
 		PriorStateRef: "",
 		// Per-project-design-dispatch: dispatch to the per-project repo + aiarch-design.yml
@@ -703,12 +702,10 @@ func (wf *workflows) runPMCritique(
 	// critique branch, no PR/merge for critique (the asset template opens no critique PR).
 	// Inert when the rail is dormant.
 	sessionBranch := designBranch(in.ProjectID, in.ArtifactKind, in.Amendment)
-	critPrompt := pmCritiquePrompt(toPSKind(in.ArtifactKind), draft)
 	critObs, cerr := wf.dispatchAndObserve(ctx, dispatchDesignJobArgs{
 		ProjectID:     in.ProjectID,
 		ArtifactKind:  in.ArtifactKind,
 		Target:        dispatchTargetCritique,
-		Prompt:        critPrompt,
 		TargetBranch:  sessionBranch,
 		PriorStateRef: "",
 		// Per-project-design-dispatch: the critique job also runs in the per-project repo.
@@ -1630,12 +1627,13 @@ func dispatchErrSummary(err error) string {
 // drafting MECHANISM flips from a synchronous workerAccess call to an ASYNC
 // dispatch → observe → read-back round-trip:
 //
-//   - DISPATCH  the Manager composes the Method-role prompt IN-MEMORY (never
-//               persisted) and dispatches a claude-code-action DESIGN job via the
-//               FROZEN constructionPipelineAccess.SubmitConstructionPipeline verb,
-//               carrying {artifact_kind, design_prompt, target_branch,
-//               prior_state_ref} on the additive PipelineSpec.DispatchInputs field
-//               (C-WF-DESIGN input schema). The RA reserves + stamps
+//   - DISPATCH  the Manager selects the Method-role .claude command slug
+//               (DesignCommandFor) and dispatches a claude-code-action DESIGN job via
+//               the FROZEN constructionPipelineAccess.SubmitConstructionPipeline verb,
+//               carrying {artifact_kind, command, target_branch, prior_state_ref,
+//               job_mode} on the additive PipelineSpec.DispatchInputs field
+//               (C-WF-DESIGN input schema). The doctrine lives in the command's
+//               method-assets, not a composed prompt. The RA reserves + stamps
 //               idempotency_token itself; the Manager MUST NOT set it.
 //   - OBSERVE   the Manager polls ObserveConstructionPipeline(handle) between
 //               durableExecutionAccess timer waits until a TYPED terminal phase.
@@ -1727,6 +1725,24 @@ func jobModeFor(target dispatchTarget) string {
 	}
 }
 
+// designModeFor maps a dispatchTarget to the projectstate.DesignJobMode that
+// DesignCommandFor consumes — the command-slug counterpart of jobModeFor. Draft
+// and Critique are the only targets dispatchDesignJob ever carries (the Answer job
+// dispatches directly from the Manager via dispatchAnswerJob); Answer is mapped for
+// completeness so the switch stays total.
+func designModeFor(target dispatchTarget) projectstate.DesignJobMode {
+	switch target {
+	case dispatchTargetDraft:
+		return projectstate.DesignJobModeDraft
+	case dispatchTargetCritique:
+		return projectstate.DesignJobModeCritique
+	case dispatchTargetAnswer:
+		return projectstate.DesignJobModeAnswer
+	default:
+		return projectstate.DesignJobModeDraft
+	}
+}
+
 // dispatchTarget discriminates which Method-role agentic job the dispatch round-
 // trip produces: an architect/PM DRAFT of the artifact, or a PM CRITIQUE of the
 // just-committed draft. Both are dispatch → observe → read-back round-trips; only
@@ -1750,14 +1766,15 @@ const observePollInterval = 15 * time.Second
 // routed to the human gate (never a perpetual Drafting — the anti-wedge rule).
 const maxObservePolls = 240 // 240 * 15s = 1h ceiling
 
-// dispatchDesignJobArgs bundles the dispatch inputs for the Activity boundary. The
-// Manager's SEQUENCE composed Prompt in-memory (prompts.go); ArtifactKind + Target
-// + Branch + PriorStateRef ride into the DispatchInputs map inside the Activity.
+// dispatchDesignJobArgs bundles the dispatch inputs for the Activity boundary.
+// ArtifactKind + Target select the .claude command slug (DesignCommandFor); Branch
+// + PriorStateRef ride into the DispatchInputs map inside the Activity. The prompt
+// prose is GONE — the doctrine lives in the method-assets .claude commands the design
+// job runs; the Manager ships only the command name + the target metadata.
 type dispatchDesignJobArgs struct {
 	ProjectID     ProjectID
 	ArtifactKind  ArtifactKind
 	Target        dispatchTarget
-	Prompt        string
 	TargetBranch  string
 	PriorStateRef string
 	// TargetRepo is the opaque per-project RepoRef (gitSession.repoRef.String()) the
@@ -1776,9 +1793,18 @@ type dispatchDesignJobArgs struct {
 // (genActivityIdempotencyKey), so a redraft (fresh ExecuteActivity → new ActivityID) is a
 // distinct job while a transient auto-retry collapses to the same handle at the RA.
 func (wf *workflows) dispatchDesignJob(ctx workflow.Context, a dispatchDesignJobArgs) (constructionpipeline.PipelineHandle, error) {
+	// The .claude command slug the design job runs — the doctrine that used to be
+	// composed into design_prompt now lives in that command's method-assets. An empty
+	// slug is contract misuse (an undispatchable (kind, mode) — e.g. SdpReview, which is
+	// assembled server-side, never dispatched); fail terminally before dispatch.
+	command := projectstate.DesignCommandFor(toPSKind(a.ArtifactKind), designModeFor(a.Target), "")
+	if command == "" {
+		return constructionpipeline.PipelineHandle(""), temporal.NewNonRetryableApplicationError(
+			"no design command slug for this (artifactKind, jobMode) — undispatchable design job", "UndispatchableDesignJob", nil)
+	}
 	inputs := map[string]string{
 		dispatchInputArtifactKind:  artifactKindString(a.ArtifactKind),
-		dispatchInputDesignPrompt:  a.Prompt,
+		dispatchInputCommand:       command,
 		dispatchInputTargetBranch:  a.TargetBranch,
 		dispatchInputPriorStateRef: a.PriorStateRef,
 		dispatchInputJobMode:       jobModeFor(a.Target),
@@ -2457,251 +2483,6 @@ func (wf *workflows) applyCommentStatus(ctx workflow.Context, in coAuthorInput, 
 	}
 }
 
-// The Manager OWNS the per-step prompt corpus (2026-05-29 rework §2.1; rework §6).
-// The fixed Method sequence drives WHICH role-prompt the Manager sends at each
-// step — that is the SystemDesignPhaseWorkflow volatility (the sequence), made
-// explicit. The generic worker (workerAccess.generateTypedData[T]) holds NO
-// Method-specific prompt corpus; the prompt + tool choice are the CALLER's. This
-// file is where the deleted systemDesignEngine's prompts.go content belongs —
-// owned by the sequence that drives it.
-//
-// Two role families:
-//   - ARCHITECT-role draft prompts (one per Phase-1 artifact kind) — the worker
-//     returns the typed <Kind> model.
-//   - PM-role critique prompts (only for mission / glossary+scrubbed /
-//     core-use-cases — the kinds the Method assigns a PM reviewer) — the worker
-//     returns a typed Critique.
-//
-// Each prompt is plain text composed IN-MEMORY by the Manager and shipped as a
-// DISPATCH INPUT to the claude-code-action DESIGN job (§0d.2 step 2 — never
-// aiarch-persisted). It carries a role header, the target artifact kind, a pointer
-// to the prior committed state BY PATH/KIND (the Action runs IN the user's repo and
-// reads .aiarch/state/ directly — priors are NOT embedded as bytes), the Method
-// doctrine for HOW to draft a good X, and (optionally) a feedback block woven in
-// verbatim on a redraft. The Action drafts the typed JSON into .aiarch/state/ and
-// the required CI validation check enforces its shape — the schema/DTO injection the
-// old in-process worker needed is GONE (validation is the CI check, §0d.5).
-
-const architectHeader = "You are the Architect agent drafting a typed Method artifact for an architecture project, following Juval Lowy's The Method to the letter. You author the project's Method state ONLY through the aiarch-state MCP tools — never hand-edit files and never run git. Read prior committed artifacts with getCommittedSlot, read your current draft (on an amendment) with getDraftSlot, submit your draft with putDraftModel (it validates the model and returns actionable errors if it is wrong — fix them and resubmit), and finish by calling publishDraft.\n"
-
-const pmHeader = "You are the Product Manager agent critiquing a drafted Method artifact, following Juval Lowy's The Method. You work ONLY through the aiarch-state MCP tools — never hand-edit files and never run git. Read the drafted artifact with getDraftSlot and its prior committed predecessors with getCommittedSlot; record your verdict with setCritiqueVerdict; finish by calling publishDraft.\n"
-
-// architectDraftPrompt assembles the architect-role draft prompt for the given
-// Phase-1 artifact kind. It points the Action at the prior committed state by
-// path/kind (NOT embedded bytes — the Action reads .aiarch/state/ in the repo),
-// carries the Method drafting doctrine, and weaves in any rejection / PM-revision
-// feedback. The ResearchInput pointer is named for the MISSION step. The composed
-// prompt is the DESIGN job's design_prompt dispatch input.
-func architectDraftPrompt(kind projectstate.ArtifactKind, proj projectstate.Project, feedback ReviewFeedback, reviewThread []projectstate.ReviewComment, amendment int) string {
-	var b strings.Builder
-	b.WriteString(architectHeader)
-	fmt.Fprintf(&b, "Target artifact: %s. The design job already fixes which artifact you are drafting — putDraftModel writes it to the correct slot; you never choose a slot or a kind.\n", kind.WireName())
-
-	// F38 AMENDMENT: this session REOPENS an already-committed artifact. State that the agent
-	// is AMENDING the committed version (read it back with getDraftSlot) rather than drafting
-	// from scratch, and that the reopening reasons are the OPEN review ledger entries below.
-	if amendment > 0 {
-		fmt.Fprintf(&b, "\nThis is an AMENDMENT (revision %d) of the already-COMMITTED %s. Read the committed version with getDraftSlot and REVISE it to address the reopening feedback — do NOT discard it and redraft from scratch. The specific reasons this artifact was reopened are the OPEN review-ledger comments listed below; address each and respond to it with respondToReviewComment.\n", amendment, kind.WireName())
-	}
-
-	// Per-kind priors: name the committed predecessor artifacts the Method draws on,
-	// by kind (the Action reads them from .aiarch/state/project.json in the repo).
-	switch kind {
-	case projectstate.KindMission:
-		writeResearch(&b, proj.Research)
-	case projectstate.KindGlossary:
-		writePriorsPointer(&b, "Mission")
-	case projectstate.KindScrubbedRequirements:
-		writePriorsPointer(&b, "Mission", "Glossary")
-	case projectstate.KindVolatilities:
-		writePriorsPointer(&b, "Mission", "Glossary", "ScrubbedRequirements")
-	case projectstate.KindCoreUseCases:
-		writePriorsPointer(&b, "Mission", "Glossary", "Volatilities")
-	case projectstate.KindSystem:
-		writePriorsPointer(&b, "Mission", "Glossary", "Volatilities", "CoreUseCases")
-	case projectstate.KindOperationalConcepts:
-		writePriorsPointer(&b, "Mission", "System")
-	case projectstate.KindStandardCheck:
-		writePriorsPointer(&b, "System", "OperationalConcepts")
-	case projectstate.KindPlanningAssumptions, projectstate.KindActivityList, projectstate.KindNetwork,
-		projectstate.KindNormalSolution, projectstate.KindSubcriticalSolution, projectstate.KindCompressedSolution,
-		projectstate.KindDecompressedSolution, projectstate.KindRiskModel, projectstate.KindSdpReview:
-		// Phase-2 kinds never reach this Phase-1-only prompt assembler (see the
-		// doc comment above); no priors pointer to add — same no-op as before
-		// this switch was made exhaustive.
-	}
-
-	writeFeedback(&b, feedback)
-	// REVIEW LEDGER (review-ledger §3): on a redraft, weave in every OPEN durable ledger
-	// comment (with its stable id + anchor + anchor-text snapshot) and the response-carrier
-	// contract, mirroring the PM-critique carrier language. The agent commits a per-comment
-	// response back into the slot's reviewThread; the server reads it back and decides the
-	// effective status. Empty on the first draft (no ledger).
-	writeReviewLedger(&b, reviewThread)
-	fmt.Fprintf(&b, "\nTask: %s\n", draftTask(kind))
-	// CLOSED-ENUM discipline is no longer taught in the prompt (QA F36 was the enum-prose
-	// stall): putDraftModel validates the model through the FULL server codec, so a
-	// closed-enum field carrying free prose is rejected in-loop with an actionable error the
-	// agent self-corrects — the enum wire-name dump the prompt used to carry is obsolete.
-	// OPERATING-MODEL CONSTRAINT (founder ruling 2026-07-05): when the project is
-	// archistrator-operated the deployment topology is CONSTRAINED to the platform
-	// palette — the OperationalConcepts draft carries the deployment topology, so this
-	// is where the constraint is enforced. Self-operated emits nothing (today's open
-	// guidance is preserved verbatim).
-	if kind == projectstate.KindOperationalConcepts {
-		if c := operatingModelDeploymentConstraint(proj.OperatingModel); c != "" {
-			b.WriteString("\n")
-			b.WriteString(c)
-		}
-	}
-	b.WriteString("\nSubmit the finished artifact with putDraftModel; if it reports validation errors, fix the model and submit again. When it is accepted (and every open review comment has a response), call publishDraft.\n")
-	return b.String()
-}
-
-// operatingModelDeploymentConstraint returns the deployment-topology infrastructure
-// constraint the OperationalConcepts draft prompt carries for the project's operating
-// model (founder ruling 2026-07-05, from live QA — the gtdapp deployment artifact
-// drafted an arbitrary AWS EKS/RDS/CloudFront topology).
-//
-//   - archistrator-operated: archistrator OPERATES the app on the shared platform, so
-//     the design is CONSTRAINED to the archistrator-platform palette ONLY (CNPG
-//     Postgres, Temporal, Keycloak, the otel stack, deployed to the platform k8s
-//     cluster via ArgoCD at software/k8s) and FORBIDDEN bespoke cloud (AWS/GCP/Azure).
-//   - self-operated (the default): the customer runs the app in their OWN infra, so
-//     today's OPEN guidance stands — emit nothing extra.
-func operatingModelDeploymentConstraint(m projectstate.OperatingModel) string {
-	if m.OrDefault() != projectstate.OperatingModelArchistratorOperated {
-		return ""
-	}
-	return "OPERATING MODEL — ARCHISTRATOR-OPERATED (platform-constrained deployment). " +
-		"This project is OPERATED BY ARCHISTRATOR on the shared platform, so the deployment topology is CONSTRAINED to the archistrator-platform infrastructure ONLY. " +
-		"Model the deployment using EXACTLY these platform building blocks and do NOT introduce any bespoke or third-party cloud infrastructure:\n" +
-		"- Data / persistence: CloudNativePG (CNPG) Postgres — the framework-go-infrastructure-postgres module. Model every relational Resource as a CNPG Postgres cluster infrastructureNode.\n" +
-		"- Workflows / durable execution: Temporal — the framework-go-infrastructure-temporal module (the SHARED platform Temporal at software/k8s/shared/temporal). Do NOT model a bespoke queue or worker pool.\n" +
-		"- Authentication / identity: Keycloak — the framework-go-infrastructure-keycloak module (the archistrator auth platform lib, software/k8s/argocd/auth).\n" +
-		"- Observability: the OpenTelemetry stack — the framework-go-infrastructure-otel module.\n" +
-		"- Deploy target: the platform Kubernetes cluster via the ArgoCD stack at software/k8s (namespaces/apps under k8s/argocd/applications). deliveryStyle MUST be cloud; every container is a Kubernetes Deployment in the platform cluster and every infrastructureNode names the exact framework-go-infrastructure-* module above.\n" +
-		"FORBIDDEN for this operating model: AWS (RDS, EKS, ECS, CloudFront, S3, Lambda), GCP, Azure, or any other bespoke / self-managed / third-party-managed cloud infrastructure — those are legitimate ONLY for self-operated projects. If a Resource needs a database it is CNPG Postgres; if it needs workflows it is Temporal; if it needs auth it is Keycloak; if it needs telemetry it is the otel stack."
-}
-
-// pmCritiquePrompt assembles the PM-role critique prompt for a drafted artifact.
-// Only mission / glossary+scrubbed / core-use-cases route through PM-critique (the
-// kinds the Method assigns a PM reviewer). The PM reads the just-committed draft from
-// .aiarch/state/ and either ratifies it (Approve) or records concrete revision
-// guidance (Revise); Revise loops back to the architect-role draft BEFORE the human
-// gate. The composed prompt is the critique DESIGN job's design_prompt dispatch input.
-func pmCritiquePrompt(kind projectstate.ArtifactKind, draft projectstate.ArtifactModel) string {
-	var b strings.Builder
-	b.WriteString(pmHeader)
-	fmt.Fprintf(&b, "Artifact under review: %s (read its just-drafted model with getDraftSlot)\n", kind.WireName())
-	b.WriteString("\nTask: as the Product Manager, ratify the draft (approve) or request a concrete revision (revise, with notes naming the revision the architect should make). Ratify only what faithfully serves the business; the human makes the final commit decision.\n")
-	// Per-kind critique doctrine — kept in lockstep with draftTask so the
-	// draft<->critique loop is CONVERGENT (QA finding F27, founder ruling 2026-07-05).
-	// For the Mission the critique enforces exactly what the mission draft prompt now
-	// instructs: business/user language only, no component/architecture terminology,
-	// no pre-decided decomposition (that is derived later from volatility analysis).
-	if kind == projectstate.KindMission {
-		b.WriteString("\nMission doctrine you MUST enforce: the mission and vision must describe the BUSINESS CAPABILITY and USER-FACING VALUE in business and user language only. REVISE the draft if it uses the words component, module, service, subsystem, layer, or any other system-architecture / software-decomposition terminology, or if it asserts or implies any breakdown of the system into parts — the structural boundaries are derived LATER from volatility analysis, so pre-deciding a decomposition in the mission is a defect to send back. Do NOT ask the architect to ADD component or architecture language; that is exactly what must be kept out.\n")
-	}
-	// CRITIQUE READ-BACK CONTRACT (D-MSD-Δ amendment). The PM-critique job does NOT rewrite
-	// the artifact model. It records its verdict through setCritiqueVerdict — the first-class
-	// carrier the Manager reads back — never touching the architect's model or notes.
-	b.WriteString("\nRecord your verdict with setCritiqueVerdict: verdict is exactly \"approve\" or \"revise\". On \"revise\", give concrete revision notes naming the change the architect should make; on \"approve\" leave the notes empty. Do NOT rewrite the model. A verdict is REQUIRED. Then call publishDraft to commit it.\n")
-	return b.String()
-}
-
-// activityDiagramGuide teaches the architect role HOW TO COMPOSE a well-formed UML
-// activity diagram from the typed node/edge model — not just the per-field shape
-// the JSON Schema already carries. It is woven into the Core Use Cases draft prompt.
-// The rules mirror the artifactValidationEngine's UC-ACTDIAG checks, so the model is
-// told exactly what the machine will reject (decision must branch >=2 and reconverge
-// at a merge; fork is unguarded concurrency that joins; guards only on decisions).
-// No backticks appear inside — JSON examples use their natural double quotes — so
-// this stays a single raw string literal.
-const activityDiagramGuide = `ACTIVITY DIAGRAM: EVERY use case — CORE and SUPPORTING (nonCore) alike — MUST carry a NON-EMPTY "activity": a WELL-FORMED UML activity diagram, a graph of "nodes" (each {ref, kind, label, roleName, linkedActor, linkedComp}) and "edges" (each {from, to, kind, guard}). There is NO "purely linear, so leave it null" exemption — a use case with a null or empty "activity" (missing "nodes" or "edges") is an INCOMPLETE DRAFT and will be rejected. At an ABSOLUTE MINIMUM the diagram has a start node, at least one action node, and an end node wired start -> action -> end; a use case that branches or runs steps concurrently adds decision/merge or fork/join per the rules below. Walk the use case's real flow — do not stub a placeholder one-action diagram to satisfy the rule when the use case genuinely has steps. NEVER emit a bare string for "activity" — it is always a non-empty object with "nodes" and "edges".
-
-IDENTITY BY NAME (no ids): you NEVER emit any opaque id or uuid. Give each node a short "ref" slug of your own (e.g. "n1", "n2") UNIQUE within the diagram; edges reference nodes by that "ref" in "from"/"to". "linkedActor" (optional) is an actor's ROLE name from this use case; "linkedComp" (optional) is a System component NAME. The server resolves all of these by name.
-
-Node kinds and their edge cardinality:
-- start: one per diagram; 0 incoming, exactly 1 outgoing.
-- action: a step; 1 incoming, 1 outgoing.
-- decision: a CHOICE; 1 incoming, >=2 outgoing.
-- merge: rejoins a decision's alternative branches; >=2 incoming, 1 outgoing.
-- fork: splits into CONCURRENT paths; 1 incoming, >=2 outgoing.
-- join: synchronizes concurrent paths; >=2 incoming, 1 outgoing.
-- end: a final node; >=1 incoming, 0 outgoing.
-Put every node in its business-role swim-lane via "roleName" (e.g. "Customer", "Trusted System") — a business role or area of interest, NOT a Method layer or subsystem name.
-
-Edge kinds:
-- guardedFlow: carries a "guard" condition; used ONLY on the outgoing edges of a decision.
-- controlFlow: no guard (set "guard" to ""); EVERY other edge, including ALL fork outgoing edges.
-
-Composition rules you MUST follow (a violation is rejected and redrafted):
-0. EVERY use case has a non-empty "activity" with EXACTLY ONE start node (0 incoming, 1 outgoing), at least ONE action node, and at least ONE end node — a diagram-less or node-less use case is an incomplete draft. This is NON-NEGOTIABLE for core use cases and equally REQUIRED for supporting (nonCore) ones; never leave "activity" null.
-1. A decision is a CHOICE: it MUST have >=2 outgoing guardedFlow edges, each with a distinct, mutually-exclusive guard; give exactly ONE edge the guard "[else]" for the remaining case. Its branches MUST reconverge at a merge node before the flow continues — a branch must not run straight into the next step or dangle.
-2. A fork is CONCURRENCY (not a choice): >=2 outgoing controlFlow (UNguarded) edges, ALL of which run; the concurrent paths MUST reconverge at a join. Never put a guard on a fork edge.
-3. guardedFlow edges originate ONLY from decision nodes; every other node's outgoing edges are controlFlow.
-4. A LOOP is a merge loop-head -> ...body... -> a decision whose "[repeat]" guarded edge BACK-EDGES to the loop-head merge and whose "[else]" guarded edge exits.
-Decision/merge model an ALTERNATIVE (exactly one branch taken); fork/join model CONCURRENCY (all paths taken) — do not confuse them.
-
-Worked examples (each node carries your own short "ref" slug — NOT a uuid; edges reference those refs):
-
-if/else — a decision's two branches reconverge at a merge:
-{"nodes":[{"ref":"n1","kind":"decision","label":"Is the item actionable?","roleName":"Trusted System"},{"ref":"n2","kind":"action","label":"Create next step and assign context","roleName":"Trusted System"},{"ref":"n3","kind":"action","label":"File or incubate item","roleName":"Trusted System"},{"ref":"n4","kind":"merge","label":"","roleName":"Trusted System"}],"edges":[{"from":"n1","to":"n2","kind":"guardedFlow","guard":"[actionable]"},{"from":"n1","to":"n3","kind":"guardedFlow","guard":"[else]"},{"from":"n2","to":"n4","kind":"controlFlow","guard":""},{"from":"n3","to":"n4","kind":"controlFlow","guard":""}]}
-
-fork/join — two concurrent paths synchronize:
-{"nodes":[{"ref":"n1","kind":"fork","label":"","roleName":"Marketplace"},{"ref":"n2","kind":"action","label":"Search the registry","roleName":"Marketplace"},{"ref":"n3","kind":"action","label":"Notify the tradesman","roleName":"Tradesman"},{"ref":"n4","kind":"join","label":"","roleName":"Marketplace"}],"edges":[{"from":"n1","to":"n2","kind":"controlFlow","guard":""},{"from":"n1","to":"n3","kind":"controlFlow","guard":""},{"from":"n2","to":"n4","kind":"controlFlow","guard":""},{"from":"n3","to":"n4","kind":"controlFlow","guard":""}]}
-
-while-loop — a decision back-edges to the loop-head merge:
-{"nodes":[{"ref":"n1","kind":"merge","label":"","roleName":"Trusted System"},{"ref":"n2","kind":"action","label":"Process the next item","roleName":"Trusted System"},{"ref":"n3","kind":"decision","label":"More items?","roleName":"Trusted System"},{"ref":"n4","kind":"end","label":"","roleName":"Trusted System"}],"edges":[{"from":"n1","to":"n2","kind":"controlFlow","guard":""},{"from":"n2","to":"n3","kind":"controlFlow","guard":""},{"from":"n3","to":"n1","kind":"guardedFlow","guard":"[more]"},{"from":"n3","to":"n4","kind":"guardedFlow","guard":"[else]"}]}`
-
-// draftTask returns the per-kind task instruction — the Method doctrine for HOW to
-// draft a good artifact of this kind, distilled from Juval Lowy's The Method (the
-// the-method-* skills). The schema (draftSchema) already fixes the SHAPE; this prose
-// teaches the architect role the THINKING the kind demands so the draft is sound,
-// not merely well-typed.
-func draftTask(kind projectstate.ArtifactKind) string {
-	switch kind {
-	case projectstate.KindMission:
-		return "Produce the mission from the research corpus. The vision is ONE terse sentence naming the future the system creates. First distill the 2-3 business pillars that DIFFERENTIATE this system from competitors; ground the vision, mission, and objectives in those. The mission narrative describes the BUSINESS CAPABILITY and USER-FACING VALUE of the end-to-end workflow — why it matters, and what outcome or trust it produces for the user — NOT a feature list. Write it PURELY in business and user language: you MUST NOT use the words component, module, service, subsystem, layer, or any system-architecture / software-decomposition terminology, and you MUST NOT assert or imply any breakdown of the system into parts. The structural boundaries are derived LATER from volatility analysis in the Structure artifact — pre-deciding a decomposition here is a defect. Each objective is a numbered, measurable BUSINESS outcome (not a feature deliverable)."
-
-	case projectstate.KindGlossary:
-		return "Extract the system's ubiquitous-language terms, each categorised by the Four Questions: Who interacts with the system, What is required of it, How (the business activity), Where (state lives). Define each term crisply in business language with NO solution/implementation wording. These terms are the shared vocabulary every later artifact must reuse verbatim."
-
-	case projectstate.KindScrubbedRequirements:
-		return "Scrub every solution out of the requirements and emit the underlying NEEDS only. A need states what the business requires; a solution states how to build it — strip the how. 'Users log in with OAuth' is a solution; 'the system authenticates users' is the need. Each item must be solution-free and traceable to the mission."
-
-	case projectstate.KindVolatilities:
-		return "Identify the areas of VOLATILITY the architecture must encapsulate, along TWO independent axes. Axis sameCustomerOverTime: for each requirement ask 'what in THIS customer's business will change in 1, 3, 5 years?'. Axis allCustomersAtOneTime: ask 'do ALL customers do this identically today, or do markets/regulations/languages/customer-types vary?'. Encapsulate the open-ended (VOLATILE); REJECT anything a simple conditional handles (that is merely VARIABLE). Reject by-reflex 'Logging'/'Reporting' blocks with no business volatility, speculative 'might-need-someday' encapsulation, and nature-of-the-business items competitors do identically. Aim for ~6-15 entries, each with a rationale paragraph and its axis."
-
-	case projectstate.KindCoreUseCases:
-		return "Select the CORE use cases by ABSTRACTION, not by listing what the customer asked for. For each candidate ask: does this capture the ESSENCE of the business (what differentiates it, what creates value), or is it a permutation/utility (onboarding, payment, account admin)? Could a single higher abstraction — often a NEW name not in the customer's vocabulary — subsume several raw use cases? Target 2-6 core use cases; if you have more than 6 you have not abstracted enough. Sanity check: a one-slide brochure for the system would have roughly this many bullets. Record each rejected permutation with its rejection reason and link it to the core it permutes by setting its \"variationOf\" to that core use case's NAME (exactly as you wrote it).\n\n" +
-			"IDENTITY BY NAME: every use case and actor is identified by its human-readable NAME — you do NOT emit any id. Use case names must be UNIQUE; actor roles must be unique within a use case. Reference the core use case in \"variationOf\" by its name; the server assigns and resolves all internal ids.\n\n" +
-			activityDiagramGuide
-
-	case projectstate.KindSystem:
-		return "Decompose the system by VOLATILITY into layered components, then validate by drawing the call chains. Bin each volatility with the Four Questions: Who -> Client, What -> Manager, How(activity) -> Engine, How(resource) -> ResourceAccess, Where(state) -> Resource, cross-cutting reuse -> Utility. Each component encapsulates EXACTLY ONE volatility and sits in EXACTLY ONE layer; Component.Layer MUST equal Component.Kind. Obey closed layering: calls go downward only, never upward, never sideways except queued Manager->Manager. REJECT functional decomposition (components named after features) and domain decomposition (components named after entities) — name components after the volatility they hide. Keep it small: order-of-magnitude ~10 components, Managers <=5, fewer Engines than Managers. Emit one dynamicView per use case — CORE and SUPPORTING (nonCore) variations ALIKE — tracing its call chain (exactly one Manager entered from the Client; every edge labelled in the destination layer's vocabulary, not infrastructure terms). FOUNDER EXTENSION (beyond Löwy, who validates only the core): EVERY use case in the committed CoreUseCases set MUST carry its own dynamic view — you may NOT ship the architecture with any use case (core or a nonCore variation) left without a call chain. If a use case cannot be drawn cleanly, the DECOMPOSITION is wrong — fix the components, not the use case.\n\nIDENTITY BY NAME: every component is identified by its NAME — you do NOT emit any id, and you do NOT emit a component's layer (it is fixed by its kind and the server derives it). Component names must be UNIQUE. In \"relationships\" and a dynamic view's \"participants\"/\"edges\", reference components by their NAME (the from/to are component names). In each dynamic view set \"useCase\" to that use case's NAME (exactly as it appears in the CoreUseCases context — core OR nonCore) — do NOT emit a view key; the server derives it. The server resolves every name to its internal id and rejects any name that does not match a component or use case."
-
-	case projectstate.KindOperationalConcepts:
-		return "Document the runtime/operational decisions that bring the static architecture to life: communication topology (direct vs message bus), manager-execution infrastructure (in-process vs durable workflow engine), the sync-vs-queued boundary for each cross-component edge (prefer queued for Manager<->Manager), and every pub/sub event (only Clients and Managers may publish or subscribe). Each decision MUST cite the numbered mission objective it serves and state its cost; if a decision cannot be justified against an objective, cut it as gratuitous complexity.\n\n" +
-			"Then populate the deployment topology in C4-container shape. First declare the system's deliveryStyle (cloud, local, or both). The set of deployment environments is DERIVED from it and a test profile is ALWAYS present: cloud -> {cloud, test}; local -> {local, test}; both -> {cloud, local, test}. Emit exactly that set of environments — no more, no fewer. Next declare the top-level \"containers\" array — the deployable UNITS, not the components — each with a \"key\", \"name\", \"technology\", \"description\", and \"components\" listing the exact NAMES of the System components it packages (e.g. an application-server container packages the Managers, Engines, ResourceAccess, and Utilities; a web/SPA container packages the web Client). Every CODE component — every Client, Manager, Engine, and ResourceAccess, plus every Utility — MUST be packaged into EXACTLY ONE container; none may be left out and none may appear in two containers. Resources are NOT container members — they are deployment INFRASTRUCTURE, never packaged: model each Resource (database, queue, external API) as an infrastructureNode (a self-describing name/technology/description) or, for a genuinely external third-party system, as a softwareSystemInstance. The SAME logical Resource may be realized differently per environment (a managed Postgres cluster in cloud vs a local docker/sqlite instance in test) — that per-profile realization detail belongs on the infrastructure node, never on the abstract Resource. Each environment nests deploymentNodes (e.g. cluster -> namespace -> deployment) whose containerInstances reference a declared container BY ITS \"containerKey\" (not a component name) and set an \"instances\" integer for its replica count (e.g. 2); put infrastructureNodes and softwareSystemInstances on whichever deploymentNode they run alongside. CROSS-PROFILE INVARIANT: operating mode is configuration, not architecture — the set of deployed CONTAINERS MUST be IDENTICAL across the cloud and local environments (the underlying infrastructure MAY legitimately differ per profile — a managed database in cloud vs a local one in test is exactly the point of separate environments, not a violation). The test environment MUST instance EVERY container so every code component is covered; represent external systems and resources there as stubs. Reference containers in a deploymentNode's containerInstances by \"containerKey\", and reference System components inside a container's \"components\" list by their NAME exactly as they appear in the System context — you do NOT emit any id for either; the server resolves both by name/key."
-
-	case projectstate.KindStandardCheck:
-		return "Walk the App C design standard, but ONLY the items checkable at THIS system-design gate — the design directives and the System Design guideline section. Check the design directives: avoid functional decomposition, decompose based on volatility, provide a composable design, treat features as aspects of integration (not as building blocks), design iteratively while building incrementally, and — where the design makes an architectural choice that had real alternatives — drive that decision with options. Then walk the System Design guideline section: capture behaviour not functionality, every component traces to a volatility (no functional or domain decomposition), cardinality limits respected (Managers a handful, fewer Engines than Managers), volatility decreases and reuse increases top-down, Managers do no I/O, closed-layer rules respected (no calling up, sideways, or skipping layers), and the interaction don'ts (one Manager per client call chain; no queued or pub/sub from the wrong layers). For each IN-SCOPE item emit pass (the design satisfies it), waived (with a concrete justification for why THIS system consciously accepts the exception — e.g. a cardinality guideline deliberately exceeded for a documented reason), or fail (the design violates it). A waiver without a real justification is itself a fail.\n\n" +
-			"SCOPE — do NOT walk the project-design or project-tracking parts of the standard at this gate. The project directives (design the project to build the system, build along the critical path, be on time throughout), the Project Design guideline sections (general, staffing, integration, estimations, network, time-and-cost, risk), and the Project Tracking guideline section are OUT OF SCOPE at the system-design gate — no project design exists yet, so there is nothing to check them against. Do NOT emit them at all, and in particular do NOT emit them as waived: waived is reserved for genuine, justified exceptions to IN-SCOPE system-design items, NOT for phase-inapplicable items (marking an out-of-scope item 'waived: no project design exists yet' pollutes the waiver as a conscious-exception signal). Those items are checked at their own Phase-2 SDP gate (the project-design standard check), so nothing is lost by leaving them out here."
-
-	case projectstate.KindPlanningAssumptions, projectstate.KindActivityList, projectstate.KindNetwork,
-		projectstate.KindNormalSolution, projectstate.KindSubcriticalSolution, projectstate.KindCompressedSolution,
-		projectstate.KindDecompressedSolution, projectstate.KindRiskModel, projectstate.KindSdpReview:
-		// Phase-2 kinds are never drafted through this Phase-1-only task table;
-		// same generic fallback as the default below.
-		return "draft the artifact."
-
-	default:
-		return "draft the artifact."
-	}
-}
-
 // kindHasPMCritique reports whether the Method assigns a PM reviewer to this kind
 // (mission / glossary+scrubbed / core-use-cases — rework §2.1, §6.6). The
 // architect-owned steps (volatilities, architecture, standard-check) skip PM
@@ -2729,104 +2510,6 @@ func kindHasPMCritique(kind projectstate.ArtifactKind) bool {
 	default:
 		return false
 	}
-}
-
-// writePriorsPointer names the committed predecessor artifacts (by kind) the Method
-// step draws on, pointing the Action at .aiarch/state/project.json rather than
-// embedding model bytes (§0d.2 step 2 — the Action runs in the repo and reads the
-// priors by path/kind). An empty list writes nothing.
-func writePriorsPointer(b *strings.Builder, kinds ...string) {
-	if len(kinds) == 0 {
-		return
-	}
-	fmt.Fprintf(b, "Read these prior committed artifacts as context with getCommittedSlot: %s.\n", strings.Join(kinds, ", "))
-}
-
-// writeResearch POINTS the mission-draft prompt at the Phase-1 research corpus
-// committed in .aiarch/state/project.json rather than INLINING the source content
-// (rework §2.6 / §8; QA finding F11). The corpus is already committed at the JSON path
-// .research.Sources[] on the checked-out project state (the Action runs IN the repo and
-// prior_state_ref is always empty ⇒ github.ref, the default branch, which carries the
-// committed research from the very first SetResearchInput). Inlining a book-sized corpus
-// blew both the Temporal workflow-payload budget (TMPRL1103) and GitHub's 64KB
-// workflow_dispatch input cap (422 ContractMisuse), making system design impossible. We
-// UNIFORMLY point — never inline, no size cliff — listing only each source's short TITLE
-// so the drafting agent knows what is there and can read the full text by title. An empty
-// corpus is skipped (IsZero guard preserved).
-func writeResearch(b *strings.Builder, research projectstate.ResearchCorpus) {
-	if research.IsZero() {
-		return
-	}
-	// The corpus never rides this prompt (it can be book-sized). The agent enumerates the
-	// sources with listResearchSources and reads each one's full text with getResearchSource
-	// — so no path list and no content is inlined here.
-	b.WriteString("\nResearch corpus (the raw material for the mission): call listResearchSources to see every source, then getResearchSource to read each one's full text. Do NOT expect any research content inline in this prompt.\n")
-}
-
-// writeFeedback appends a revision-feedback block weaving in the architect's
-// free-text Notes (or PM-critique / validation notes) AND each JSONPath-anchored
-// comment as a "- at {jsonPath}: {text}" guidance line beneath the notes. An empty
-// ReviewFeedback (no notes, no comments) writes nothing. The JSONPath is carried
-// verbatim — the server does not evaluate it (systemDesignManager.md §3.2).
-func writeFeedback(b *strings.Builder, feedback ReviewFeedback) {
-	notes := strings.TrimSpace(feedback.Notes)
-	comments := nonEmptyComments(feedback.Comments)
-	if notes == "" && len(comments) == 0 {
-		return
-	}
-	b.WriteString("\nThis is a revision. Address the following feedback:\n")
-	if notes != "" {
-		fmt.Fprintf(b, "%s\n", notes)
-	}
-	for _, c := range comments {
-		fmt.Fprintf(b, "- at %s: %s\n", c.JSONPath, strings.TrimSpace(c.Text))
-	}
-}
-
-// writeReviewLedger weaves the OPEN durable review-ledger comments into a redraft prompt
-// and states the response-carrier contract the drafting agent must honor (review-ledger §3).
-// It mirrors the PM-critique carrier (pmCritiquePrompt): the agent does NOT invent or reorder
-// comments — it commits a per-comment "response" (and a proposed "addressed" status) back onto
-// the SAME slot's "reviewThread" array in .aiarch/state/project.json, matched by the stable
-// comment "id". The server, not the agent, decides the effective status on read-back (an empty
-// response keeps a comment open — so a comment the agent cannot honestly address must be left
-// with an empty response or a reasoned pushback the human then waives). Nothing is written when
-// no comment is open (the common first-draft case).
-func writeReviewLedger(b *strings.Builder, thread []projectstate.ReviewComment) {
-	var open []projectstate.ReviewComment
-	for _, c := range thread {
-		if c.Status == projectstate.ReviewCommentOpen && strings.TrimSpace(c.Text) != "" {
-			open = append(open, c)
-		}
-	}
-	if len(open) == 0 {
-		return
-	}
-	b.WriteString("\nThis artifact has OPEN reviewer comments in its durable review ledger (read them with getReviewThread). For EACH open comment listed below you MUST: (1) revise the draft to address it; and (2) call respondToReviewComment with the matching comment id and your response — how you addressed it, or a concise reasoned pushback if you disagree. A comment whose response you leave empty STAYS OPEN and blocks approval — so respond to every one.\n")
-	for _, c := range open {
-		anchor := c.Anchor
-		if strings.TrimSpace(anchor) == "" {
-			anchor = "(whole artifact)"
-		}
-		if strings.TrimSpace(c.AnchorText) != "" {
-			fmt.Fprintf(b, "- comment %s at %s (%q): %s\n", c.ID, anchor, c.AnchorText, strings.TrimSpace(c.Text))
-		} else {
-			fmt.Fprintf(b, "- comment %s at %s: %s\n", c.ID, anchor, strings.TrimSpace(c.Text))
-		}
-	}
-}
-
-// nonEmptyComments filters out anchored comments with no text — defensive against
-// a wire payload that sent an empty comment.
-func nonEmptyComments(comments []AnchoredComment) []AnchoredComment {
-	out := comments[:0:0]
-	for _, c := range comments {
-		if strings.TrimSpace(c.Text) == "" {
-			continue
-		}
-		out = append(out, c)
-	}
-	return out
 }
 
 // sameArtifactModel reports whether two typed models are byte-identical in their

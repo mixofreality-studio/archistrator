@@ -1762,9 +1762,18 @@ func (m *systemDesignManager) dispatchAnswerJob(ctx context.Context, projectID P
 		log.Error("answer job NOT dispatched: could not resolve the target repo for the answer job; re-run AskQuestions to retry", "err", terr.Error())
 		return
 	}
+	// The addressee rides the .claude command NAME now (design-answer vs design-answer-pm)
+	// rather than a composed answer prompt. An empty slug is contract misuse — an addressee
+	// that is neither "architect" nor "pm"; keep the answer-job miss semantics (recorded
+	// question, loud log, no dispatch).
+	command := projectstate.DesignCommandFor(toPSKind(kind), projectstate.DesignJobModeAnswer, addressee)
+	if command == "" {
+		log.Error("answer job NOT dispatched: no design-answer command slug for the addressee (contract misuse — expected \"architect\" or \"pm\")")
+		return
+	}
 	inputs := map[string]string{
 		dispatchInputArtifactKind:  artifactKindString(kind),
-		dispatchInputDesignPrompt:  answerPrompt(toPSKind(kind), addressee, qs),
+		dispatchInputCommand:       command,
 		dispatchInputTargetBranch:  branch,
 		dispatchInputPriorStateRef: "",
 		dispatchInputJobMode:       jobModeAnswer,
@@ -1787,30 +1796,6 @@ func (m *systemDesignManager) dispatchAnswerJob(ctx context.Context, projectID P
 		return
 	}
 	log.Info("answer job dispatched", "key", string(key))
-}
-
-// answerPrompt builds the agentic ANSWER job prompt: it puts the agent in the ADDRESSEE's
-// role (pm / architect), lists the questions to answer, and instructs it to answer each in
-// place via respondToReviewComment then publishDraft. It never rewrites the artifact model
-// (the answer job has no putDraftModel tool).
-func answerPrompt(kind projectstate.ArtifactKind, addressee string, qs []projectstate.ReviewComment) string {
-	var b strings.Builder
-	role := "Product Manager"
-	if addressee == projectstate.ReviewAddresseeArchitect {
-		role = "System Architect"
-	}
-	fmt.Fprintf(&b, "You are the %s agent, following Juval Lowy's The Method. You work ONLY through the aiarch-state MCP tools — never hand-edit files and never run git.\n", role)
-	fmt.Fprintf(&b, "\nA reviewer has asked clarifying QUESTIONS about the %s artifact. Read the artifact with getCommittedSlot (or getDraftSlot if a draft is under review) and the full thread with getReviewThread for context.\n", kind.WireName())
-	b.WriteString("\nAnswer EACH question below concisely and concretely, from your role's perspective. These are QUESTIONS, not change requests: do NOT rewrite the artifact — only answer. For each, call respondToReviewComment with the question's id and your answer.\n\nQuestions:\n")
-	for _, q := range qs {
-		if q.AnchorText != "" {
-			fmt.Fprintf(&b, "- [%s] (re: %q) %s\n", q.ID, q.AnchorText, q.Text)
-		} else {
-			fmt.Fprintf(&b, "- [%s] %s\n", q.ID, q.Text)
-		}
-	}
-	b.WriteString("\nWhen every question has a response, call publishDraft to commit your answers.\n")
-	return b.String()
 }
 
 // ---- from catalog.go ----
@@ -3000,8 +2985,12 @@ func designRepoTarget(repoRef string) (constructionpipeline.RepoTarget, error) {
 // ===========================================================================
 
 const (
-	dispatchInputArtifactKind  = "artifact_kind"
-	dispatchInputDesignPrompt  = "design_prompt"
+	dispatchInputArtifactKind = "artifact_kind"
+	// dispatchInputCommand carries the .claude command slug the seated design job runs
+	// (DesignCommandFor). It REPLACES the retired design_prompt input: the Method doctrine
+	// that used to be composed into a prompt now lives in the command's method-assets, so
+	// the Manager ships only the command NAME, not prose.
+	dispatchInputCommand       = "command"
 	dispatchInputTargetBranch  = "target_branch"
 	dispatchInputPriorStateRef = "prior_state_ref"
 	// dispatchInputJobMode discriminates a DRAFT job (the Action commits the typed
