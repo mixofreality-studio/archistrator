@@ -1557,6 +1557,12 @@ func Test_CoAuthor_PMCritiqueRevise_SecondRoundTrip_StagesForHumanGate(t *testin
 		if view.Stage != StageAwaitingReview {
 			t.Fatalf("non-converging PM critique must stage for the human gate, got stage %d", view.Stage)
 		}
+		// The max-redraft non-converge branch must clear the PM sub-step before staging
+		// for review — otherwise the query keeps claiming (ProductManager, Critiquing)
+		// after PM work has stopped (mirrors the revise/proceed clearActive() sibling paths).
+		if view.ActiveRole != ActiveRoleNone || view.ActiveStep != ActiveStepNone || view.Round != 0 {
+			t.Fatalf("the human gate must show no active role after non-convergence, got role=%d step=%d round=%d", view.ActiveRole, view.ActiveStep, view.Round)
+		}
 		var sawWarning bool
 		for _, f := range view.Findings {
 			if string(f.RuleID) == "PM-CRITIQUE-UNRESOLVED" {

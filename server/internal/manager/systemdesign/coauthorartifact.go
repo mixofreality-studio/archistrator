@@ -811,6 +811,10 @@ func (wf *workflows) runPMCritique(
 			// call instead of an oscillating critic killing the loop.
 			logger.Warn("PM-critique did not converge within max attempts; staging for human review")
 			state.unresolvedCritique = critique.Notes
+			// SUB-STEP (Plan-3 C1): the critique loop is giving up and staging for human
+			// review — clear the PM stamp so the query doesn't keep claiming PM-critiquing
+			// after PM work has stopped.
+			state.clearActive()
 			return stepProceed() // fall through to stage for review.
 		}
 		// Re-dispatch the architect draft with the PM notes woven in. Memory-only feedback
