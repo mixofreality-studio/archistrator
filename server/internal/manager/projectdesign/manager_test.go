@@ -774,6 +774,14 @@ func (p *fakePipeline) SubmitConstructionPipeline(rc fwra.Context, spec construc
 	return constructionpipeline.PipelineHandle(name), nil
 }
 
+// submitCount returns how many dispatches have been submitted so far (thread-safe), so a
+// ledger fake can record the dispatch count at seed time and a test can assert ordering.
+func (p *fakePipeline) submitCount() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return len(p.submits)
+}
+
 func (p *fakePipeline) ObserveConstructionPipeline(_ fwra.Context, handle constructionpipeline.PipelineHandle) (constructionpipeline.PipelineObservation, error) {
 	p.mu.Lock()
 	phase := p.handlePhase[constructionpipeline.PipelineHandleString(handle)]
@@ -1087,8 +1095,12 @@ func Test_CoAuthor_PlanDraftRoundTrip_DispatchObserveReadBack_AwaitsReview(t *te
 	if sub.dispatchInputs[dispatchInputTargetBranch] == "" {
 		t.Fatal("dispatch must carry a non-empty target_branch")
 	}
-	if sub.dispatchInputs[dispatchInputDesignPrompt] == "" {
-		t.Fatal("dispatch must carry the composed design_prompt")
+	// Thin dispatch: the Manager ships the .claude command NAME, not a composed prompt.
+	if got := sub.dispatchInputs[dispatchInputCommand]; got != "planning-assumptions-draft" {
+		t.Fatalf("dispatch command = %q, want planning-assumptions-draft", got)
+	}
+	if sub.dispatchInputs[dispatchInputJobMode] != jobModeDraft {
+		t.Fatalf("draft dispatch job_mode = %q, want draft", sub.dispatchInputs[dispatchInputJobMode])
 	}
 	// The Manager MUST NOT set idempotency_token in DispatchInputs (RA-controlled).
 	if _, present := sub.dispatchInputs["idempotency_token"]; present {
@@ -2043,8 +2055,10 @@ func (f *branchAwareRejectFake) WithdrawArtifact(rc fwra.Context, projectID proj
 
 // THE QA F28 REGRESSION (Phase-2 twin) — Reject/"Send back" against the PR rail records
 // the Rejected status ON THE SESSION BRANCH (not main, where the version mismatches AND
-// the slot is unpopulated), the workflow survives, and the redraft dispatch carries the
-// architect's notes woven into the design_prompt.
+// the slot is unpopulated), the workflow survives, and a fresh redraft is re-dispatched.
+// (Under thin dispatch the reject's feedback reaches the agent via the review ledger, not a
+// composed prompt — the anchored-comment seed is exercised by the dedicated seed tests below;
+// this Notes-only reject seeds nothing.)
 func Test_CoAuthorPhase2_Rail_Reject_RecordsOnSessionBranch_RedraftCarriesFeedback(t *testing.T) {
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
@@ -2079,9 +2093,9 @@ func Test_CoAuthorPhase2_Rail_Reject_RecordsOnSessionBranch_RedraftCarriesFeedba
 	if len(pipe.submits) < 2 {
 		t.Fatalf("a reject must re-dispatch a fresh draft, got %d submits", len(pipe.submits))
 	}
-	redraftPrompt := pipe.submits[len(pipe.submits)-1].dispatchInputs[dispatchInputDesignPrompt]
-	if !strings.Contains(redraftPrompt, rejectNotes) {
-		t.Fatalf("redraft design_prompt must carry the architect's feedback %q; prompt:\n%s", rejectNotes, redraftPrompt)
+	// Thin dispatch: the redraft ships the command NAME, not a feedback-laden prompt.
+	if got := pipe.submits[len(pipe.submits)-1].dispatchInputs[dispatchInputCommand]; got != "planning-assumptions-draft" {
+		t.Fatalf("redraft command = %q, want planning-assumptions-draft", got)
 	}
 }
 
@@ -2141,9 +2155,11 @@ func Test_CoAuthorPhase2_Rail_RejectWriteFaults_RecoversAtFailedGate_RetainsFeed
 	if len(pipe.submits) < 2 {
 		t.Fatalf("the retry must issue a SECOND dispatch, got %d submits", len(pipe.submits))
 	}
-	redraftPrompt := pipe.submits[len(pipe.submits)-1].dispatchInputs[dispatchInputDesignPrompt]
-	if !strings.Contains(redraftPrompt, rejectNotes) {
-		t.Fatalf("the retained feedback %q must survive the fault and drive the redraft; prompt:\n%s", rejectNotes, redraftPrompt)
+	// Thin dispatch: the retry ships the command NAME. The retained feedback's survival across
+	// the fault is what matters here (a Notes-only reject seeds no ledger comments); the
+	// anchored-comment seed-before-redraft is proven by the dedicated seed tests below.
+	if got := pipe.submits[len(pipe.submits)-1].dispatchInputs[dispatchInputCommand]; got != "planning-assumptions-draft" {
+		t.Fatalf("retry command = %q, want planning-assumptions-draft", got)
 	}
 }
 
@@ -2296,7 +2312,8 @@ func Test_CoAuthorPhase2_Rail_Withdraw_RecordsOnSessionBranch_NoCrash(t *testing
 // F40 (Phase-2 twin) — a Retry at the StageDraftFailed gate redrafts on the SAME persistent
 // session branch (the F32 branch-per-retry topology is unwound; the template's refresh-from-
 // main handles a stale base). Drives a stage fault → retry-via-reject (with feedback) and
-// asserts the redraft dispatch targets the SAME branch AND still carries the retained feedback.
+// asserts the redraft dispatch targets the SAME branch. (Under thin dispatch the retained
+// feedback reaches the agent via the ledger, not the prompt; this Notes-only reject seeds none.)
 func Test_CoAuthorPhase2_Rail_RetryAtFailedGate_SameBranch_RetainsFeedback(t *testing.T) {
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
@@ -2335,9 +2352,6 @@ func Test_CoAuthorPhase2_Rail_RetryAtFailedGate_SameBranch_RetainsFeedback(t *te
 	}
 	if strings.Contains(b1, "-amend-") {
 		t.Fatalf("the retry branch must be the stable session branch (no amendment suffix), got %q", b1)
-	}
-	if p := pipe.submits[len(pipe.submits)-1].dispatchInputs[dispatchInputDesignPrompt]; !strings.Contains(p, retryNotes) {
-		t.Fatalf("the retained feedback %q must drive the redraft; prompt:\n%s", retryNotes, p)
 	}
 }
 
@@ -2595,25 +2609,31 @@ func Test_amendmentIndexFor_Rule(t *testing.T) {
 	}
 }
 
-// F47 — the REDRAFT-SIGNAL feedback path (what RequestArtifactDraft now delivers via
+// F47 (thin dispatch) — the REDRAFT-SIGNAL feedback path (what RequestArtifactDraft delivers via
 // SignalWithStart, replacing the bare ExecuteWorkflow that DROPPED the feedback). A draft job
-// fails → StageDraftFailed gate; the redraft signal carries the operator's fix notes; the NEXT
-// draft dispatch's prompt must CONTAIN those notes.
-func Test_CoAuthorPhase2_RedraftSignalFeedbackReachesPrompt(t *testing.T) {
+// fails → StageDraftFailed gate; the redraft signal carries the operator's anchored fix comment.
+// Under thin dispatch the drafting agent reads context ONLY via getReviewThread, so that memory-
+// only redraft-signal feedback must be SEEDED into the durable review ledger BEFORE the next draft
+// dispatch — else it evaporates (the redraft-signal sibling of the failed-gate-reject seed gap).
+func Test_CoAuthorPhase2_RedraftSignal_SeedsAnchoredFeedbackToLedger_BeforeRedraft(t *testing.T) {
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
 
 	id := ProjectID(uuid.NewString())
 	base := &fakeProjectState{project: planningAssumptionsReadBack(projectstate.ProjectID(id))}
-	ps := &seqProjectState{fakeProjectState: base, log: &seqLog{}}
-	pipe := newFakePipeline(pipelineFailed) // the draft job fails → the StageDraftFailed gate
+	// First draft FAILS (→ StageDraftFailed gate); the redraft (after the signal) succeeds.
+	pipe := newFakePipeline(pipelineFailed, pipelineSucceeded)
+	ps := &ledgerThreadFake{seqProjectState: &seqProjectState{fakeProjectState: base, log: &seqLog{}}, pipe: pipe}
 	rail := newScriptedRail(true, &seqLog{})
 	wf := newRailWorkflows(rail)
 	registerRailCoAuthor(env, wf, ps, pipe)
 
-	const notes = "resources must be plain strings, not objects"
+	const (
+		fixPath = "$.resources"
+		fixText = "resources must be plain strings, not objects"
+	)
 	env.RegisterDelayedCallback(func() {
-		env.SignalWorkflow(signalRedraft, redraftSignal{Feedback: &ReviewFeedback{Notes: notes}})
+		env.SignalWorkflow(signalRedraft, redraftSignal{Feedback: &ReviewFeedback{Comments: []AnchoredComment{{JSONPath: fixPath, Text: fixText}}}})
 	}, 30*time.Second)
 	env.RegisterDelayedCallback(func() {
 		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
@@ -2627,17 +2647,25 @@ func Test_CoAuthorPhase2_RedraftSignalFeedbackReachesPrompt(t *testing.T) {
 	if len(pipe.submits) < 2 {
 		t.Fatalf("the redraft signal must trigger a SECOND draft dispatch, got %d", len(pipe.submits))
 	}
-	// THE LOAD-BEARING ASSERTION: the redraft-signal feedback reached the next draft prompt
-	// (dropped live on gtdapp kind 8 because RequestArtifactDraft used a bare ExecuteWorkflow).
-	if p := pipe.submits[1].dispatchInputs[dispatchInputDesignPrompt]; !strings.Contains(p, notes) {
-		t.Fatalf("the redraft-signal feedback %q must reach the next draft prompt; prompt:\n%s", notes, p)
+	// THE FIX: the redraft-signal feedback was seeded into the review ledger exactly once, carrying
+	// the operator's anchored comment as a durable OPEN entry the agent reads with getReviewThread.
+	if len(ps.seededRounds) != 1 || len(ps.seededComments) != 1 || len(ps.seededComments[0]) != 1 {
+		t.Fatalf("the redraft-signal feedback must seed exactly one anchored comment, got rounds=%v comments=%v", ps.seededRounds, ps.seededComments)
+	}
+	if c := ps.seededComments[0][0]; c.Anchor != fixPath || c.Text != fixText {
+		t.Fatalf("the seeded comment must be the redraft-signal feedback, got %+v", c)
+	}
+	// ORDERING: the seed landed BEFORE the redraft dispatch — only the first (failed) dispatch had
+	// been submitted at seed time (count == 1), so the seed precedes the SECOND dispatch.
+	if len(ps.seededAtSubmits) != 1 || ps.seededAtSubmits[0] != 1 {
+		t.Fatalf("the ledger seed must land BEFORE the redraft dispatch (want 1 prior dispatch at seed time), got %v", ps.seededAtSubmits)
 	}
 }
 
 // F48 — the Temporal activity-boundary codec MUST carry the durable review ledger. Without it,
 // loadReviewThread (which reads the session branch through this projectEnvelope) returned [] even
-// though the reject-with-comments append lives in the branch git — so the session-state query,
-// the redraft prompt's writeReviewLedger block, and the approve gate all saw an empty thread.
+// though the reject-with-comments append lives in the branch git — so the session-state query, the
+// ledger the drafting agent reads with getReviewThread, and the approve gate all saw an empty thread.
 func Test_projectEnvelope_PreservesReviewThread(t *testing.T) {
 	var p projectstate.Project
 	p.PlanningAssumptions = projectstate.ArtifactSlot{
@@ -2672,6 +2700,14 @@ type ledgerThreadFake struct {
 	*seqProjectState
 	tmu    sync.Mutex
 	thread []projectstate.ReviewComment
+	// The following record the failed-gate ledger seed (thin dispatch) so a test can assert the
+	// seed fired with exactly the retained comments and landed BEFORE the redraft dispatch.
+	seededRounds   []int64
+	seededComments [][]projectstate.ReviewComment
+	// pipe, when set, lets the seed recorder capture the dispatch count AT SEED TIME
+	// (seededAtSubmits[i] = dispatches already submitted when the i-th seed fired).
+	pipe            *fakePipeline
+	seededAtSubmits []int
 }
 
 var (
@@ -2721,8 +2757,13 @@ func (f *ledgerThreadFake) SetReviewCommentStatusOnBranch(_ context.Context, _ p
 
 func (f *ledgerThreadFake) SeedReviewCommentsOnBranch(_ context.Context, _ projectstate.ProjectID, expectedVersion projectstate.Version, _ string, _ projectstate.ArtifactKind, round int64, comments []projectstate.ReviewComment, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	f.tmu.Lock()
+	f.seededRounds = append(f.seededRounds, round)
+	f.seededComments = append(f.seededComments, comments)
+	if f.pipe != nil {
+		f.seededAtSubmits = append(f.seededAtSubmits, f.pipe.submitCount())
+	}
 	for i, c := range comments {
-		f.thread = append(f.thread, projectstate.ReviewComment{ID: fmt.Sprintf("r%dc%d", round, i+1), Text: c.Text, AuthorRole: c.AuthorRole, Round: round, Status: projectstate.ReviewCommentOpen})
+		f.thread = append(f.thread, projectstate.ReviewComment{ID: fmt.Sprintf("r%dc%d", round, i+1), Anchor: c.Anchor, AnchorText: c.AnchorText, Text: c.Text, AuthorRole: c.AuthorRole, Round: round, Status: projectstate.ReviewCommentOpen})
 	}
 	f.tmu.Unlock()
 	return expectedVersion, nil
@@ -2730,8 +2771,9 @@ func (f *ledgerThreadFake) SeedReviewCommentsOnBranch(_ context.Context, _ proje
 
 // F48 END-TO-END — reject-with-comments must flow through the whole review-ledger loop now that
 // the Temporal codec carries the thread: (a) the session-state query shows the open entry, (b)
-// the redraft prompt contains the writeReviewLedger block, and (c) Approve is BLOCKED until the
-// open comment is waived. All three read the workflow's in-memory reviewThread, which is
+// the reject loops to a redraft dispatch (the comment now reaches the agent via getReviewThread),
+// and (c) Approve is BLOCKED until the open comment is waived. All three read the workflow's
+// in-memory reviewThread, which is
 // reloaded from the branch read-back — the read that silently dropped the thread pre-F48.
 func Test_CoAuthorPhase2_RejectWithComments_ThreadRefreshes_QueryPromptAndApproveGate(t *testing.T) {
 	var ts testsuite.WorkflowTestSuite
@@ -2810,12 +2852,58 @@ func Test_CoAuthorPhase2_RejectWithComments_ThreadRefreshes_QueryPromptAndApprov
 	if len(base.committed) != 1 {
 		t.Fatalf("approve-after-waive must commit once, got %v", base.committed)
 	}
-	// (b) the REDRAFT prompt (the second dispatch, after the reject) carried the ledger block.
+	// (b) the reject looped to a REDRAFT dispatch (the second submit). Under thin dispatch the
+	// open review-ledger comment reaches the drafting agent via getReviewThread (proven by (a)
+	// showing it in the live thread), not a composed prompt — the redraft ships only the command.
 	if len(pipe.submits) < 2 {
 		t.Fatalf("the reject must trigger a redraft dispatch, got %d", len(pipe.submits))
 	}
-	if p := pipe.submits[1].dispatchInputs[dispatchInputDesignPrompt]; !strings.Contains(p, commentText) {
-		t.Fatalf("(b) the redraft prompt must carry the open review-ledger comment; prompt:\n%s", p)
+	if got := pipe.submits[1].dispatchInputs[dispatchInputCommand]; got != "planning-assumptions-draft" {
+		t.Fatalf("(b) the redraft must dispatch command=planning-assumptions-draft, got %q", got)
+	}
+}
+
+// NO DOUBLE-SEED. A review-gate REJECT folds its feedback into the ledger via the reject write
+// itself (RejectArtifactOnBranchWithComments). The pre-dispatch failed-gate seed must therefore
+// SKIP it — otherwise the same comments would be seeded a SECOND time (at a different round →
+// duplicate ledger entries). Proven here: after a review-gate reject → redraft, the failed-gate
+// SEED activity never fired (the reject write is the sole ledger write for that feedback).
+func Test_CoAuthorPhase2_ReviewGateReject_NotDoubleSeeded(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base := &fakeProjectState{project: planningAssumptionsReadBack(projectstate.ProjectID(id))}
+	pipe := newFakePipeline() // every dispatch succeeds → reaches the REVIEW gate (not a failed gate)
+	ps := &ledgerThreadFake{seqProjectState: &seqProjectState{fakeProjectState: base, log: &seqLog{}}, pipe: pipe}
+	rail := newScriptedRail(true, &seqLog{})
+	wf := newRailWorkflows(rail)
+	registerRailCoAuthor(env, wf, ps, pipe)
+
+	// First gate: REJECT with anchored feedback (the reject write seeds it). Second gate: WITHDRAW.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{
+			Decision: ReviewReject,
+			Feedback: &ReviewFeedback{Comments: []AnchoredComment{{JSONPath: "$.resources", Text: "layering violation"}}},
+		})
+	}, 30*time.Second)
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 70*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindPlanningAssumptions})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a review-gate reject must not crash the workflow: %v", err)
+	}
+	// The reject looped to a redraft (a SECOND dispatch).
+	if len(pipe.submits) < 2 {
+		t.Fatalf("a reject must re-dispatch a fresh draft, got %d submits", len(pipe.submits))
+	}
+	// THE GUARD: the failed-gate SEED activity never ran for the reject-seeded feedback — the
+	// reject write is its ONLY ledger write, so there is no duplicate.
+	if len(ps.seededRounds) != 0 {
+		t.Fatalf("a review-gate reject must NOT be double-seeded via the failed-gate seed; got %d spurious seeds (%v)", len(ps.seededRounds), ps.seededRounds)
 	}
 }
 
@@ -3182,8 +3270,9 @@ func TestDispatchAnswerJob_FiresForPM(t *testing.T) {
 	if spec.TargetRepo.Owner != "acme" || spec.TargetRepo.Name != "gtdapp" {
 		t.Fatalf("answer job must target the project repo, got %+v", spec.TargetRepo)
 	}
-	if !strings.Contains(spec.DispatchInputs[dispatchInputDesignPrompt], "Product Manager") {
-		t.Fatalf("a pm-addressed answer prompt must put the agent in the Product Manager role")
+	// Thin dispatch: the pm addressee rides the command NAME (design-answer-pm), not a prompt role.
+	if got := spec.DispatchInputs[dispatchInputCommand]; got != "design-answer-pm" {
+		t.Fatalf("a pm-addressed answer job must dispatch command=design-answer-pm, got %q", got)
 	}
 }
 
@@ -3278,285 +3367,6 @@ func TestAnswerJobDispatchKey_Unique(t *testing.T) {
 	k2 := answerJobDispatchKey("gtdapp", KindPlanningAssumptions, "", qs)
 	if k1 == k2 {
 		t.Fatalf("answerJobDispatchKey must be unique per call, both were %q", k1)
-	}
-}
-
-// ---- from operatingmodel_prompt_test.go ----
-// operatingmodel_prompt_test.go — coverage for the OPERATING-MODEL launch-infrastructure
-// constraint the PlanningAssumptions draft prompt carries (founder ruling 2026-07-05).
-// This is the Phase-2 sibling of the systemDesign OperationalConcepts constraint:
-// archistrator-operated MUST fix the launch infrastructure to the platform palette and
-// forbid bespoke cloud; self-operated (the default) keeps today's open guidance.
-
-var platformPaletteMarkers = []string{
-	"framework-go-infrastructure-postgres",
-	"framework-go-infrastructure-temporal",
-	"framework-go-infrastructure-keycloak",
-	"framework-go-infrastructure-otel",
-	"software/k8s",
-}
-
-var forbiddenCloudMarkers = []string{"AWS", "RDS", "EKS", "CloudFront"}
-
-func Test_PlanningAssumptionsPrompt_ArchistratorOperated_FixesPlatformPalette(t *testing.T) {
-	proj := projectstate.Project{OperatingModel: projectstate.OperatingModelArchistratorOperated}
-	prompt := architectDraftPrompt(projectstate.KindPlanningAssumptions, proj, "", nil, 0)
-
-	if !strings.Contains(prompt, "ARCHISTRATOR-OPERATED") {
-		t.Fatalf("archistrator-operated planning-assumptions prompt missing the operating-model header")
-	}
-	for _, m := range platformPaletteMarkers {
-		if !strings.Contains(prompt, m) {
-			t.Errorf("archistrator-operated planning-assumptions prompt missing required platform marker %q", m)
-		}
-	}
-	for _, m := range forbiddenCloudMarkers {
-		if !strings.Contains(prompt, m) {
-			t.Errorf("archistrator-operated planning-assumptions prompt should NAME (to forbid) bespoke-cloud marker %q", m)
-		}
-	}
-	if !strings.Contains(prompt, "FORBIDDEN") {
-		t.Errorf("archistrator-operated planning-assumptions prompt missing the FORBIDDEN clause")
-	}
-}
-
-func Test_PlanningAssumptionsPrompt_SelfOperated_KeepsOpenGuidance(t *testing.T) {
-	proj := projectstate.Project{OperatingModel: projectstate.OperatingModelSelfOperated}
-	prompt := architectDraftPrompt(projectstate.KindPlanningAssumptions, proj, "", nil, 0)
-	if strings.Contains(prompt, "ARCHISTRATOR-OPERATED") || strings.Contains(prompt, "framework-go-infrastructure-postgres") {
-		t.Errorf("self-operated planning-assumptions prompt must NOT carry the platform-palette constraint")
-	}
-}
-
-// Test_PlanningAssumptionsPrompt_UnsetDefaultsSelfOperated proves a pre-field project
-// (empty OperatingModel) is treated as self-operated (the back-compat default).
-func Test_PlanningAssumptionsPrompt_UnsetDefaultsSelfOperated(t *testing.T) {
-	prompt := architectDraftPrompt(projectstate.KindPlanningAssumptions, projectstate.Project{}, "", nil, 0)
-	if strings.Contains(prompt, "ARCHISTRATOR-OPERATED") {
-		t.Errorf("unset operating model must default to self-operated (no platform constraint)")
-	}
-}
-
-// Test_OperatingModelConstraint_OnlyOnPlanningAssumptions proves the constraint is
-// scoped to the launch-infrastructure artifact — it must NOT leak into another Phase-2
-// kind (e.g. ActivityList) even when the project is archistrator-operated.
-func Test_OperatingModelConstraint_OnlyOnPlanningAssumptions(t *testing.T) {
-	proj := projectstate.Project{OperatingModel: projectstate.OperatingModelArchistratorOperated}
-	prompt := architectDraftPrompt(projectstate.KindActivityList, proj, "", nil, 0)
-	if strings.Contains(prompt, "ARCHISTRATOR-OPERATED") {
-		t.Errorf("operating-model infrastructure constraint leaked into the ActivityList prompt")
-	}
-}
-
-// ---- from prompts_test.go ----
-// prompts_test.go — unit coverage for the Manager-owned Phase-2 draft-prompt composition.
-// The prompts now shrink to role + task + doctrine + comment context: all reads and writes
-// of the project state go through the aiarch-state MCP tools, and putDraftModel validates
-// the model through the FULL server codec (the F36 Phase-2 shape-stall killer), so the
-// prompt no longer carries slot-placement directives or per-kind shape dumps.
-
-// draftedPhase2Kinds are the Phase-2 artifact kinds the architect role actually DRAFTS through
-// architectDraftPrompt (SdpReview is excluded — it is assembled deterministically by the
-// workflow, see prompts.go package doc).
-var draftedPhase2Kinds = []projectstate.ArtifactKind{
-	projectstate.KindPlanningAssumptions,
-	projectstate.KindActivityList,
-	projectstate.KindNetwork,
-	projectstate.KindNormalSolution,
-	projectstate.KindSubcriticalSolution,
-	projectstate.KindCompressedSolution,
-	projectstate.KindDecompressedSolution,
-	projectstate.KindRiskModel,
-}
-
-// draftFor composes the first-draft prompt for a kind (no feedback, no ledger, no amendment).
-func draftFor(kind projectstate.ArtifactKind) string {
-	return architectDraftPrompt(kind, projectstate.Project{}, "", nil, 0)
-}
-
-// F68, made STRUCTURAL: the prompt no longer carries a slot-placement directive — putDraftModel
-// writes to the ambient kind's slot, so the four Solution siblings that share one model type can
-// never be positionally cross-written. Every drafted prompt must state the job fixes the slot and
-// must NOT carry the old numeric slot-key directive.
-func Test_DraftPrompt_NoSlotPlacementDirective(t *testing.T) {
-	for _, kind := range draftedPhase2Kinds {
-		prompt := draftFor(kind)
-		if strings.Contains(prompt, "slot keyed exactly") || strings.Contains(strings.ToUpper(prompt), "SLOT PLACEMENT") {
-			t.Fatalf("kind %s: prompt must not carry a slot-placement directive; got:\n%s", kind, prompt)
-		}
-		if !strings.Contains(prompt, "putDraftModel") {
-			t.Fatalf("kind %s: prompt must direct the agent to submit via putDraftModel; got:\n%s", kind, prompt)
-		}
-		if !strings.Contains(prompt, "never choose a slot") {
-			t.Fatalf("kind %s: prompt must state the job fixes the slot; got:\n%s", kind, prompt)
-		}
-	}
-}
-
-// The prompt no longer carries the per-kind typed-shape dump (putDraftModel validates the model
-// through the codec, so a wrong shape is rejected in-loop). No drafted prompt may carry the
-// SCHEMA CONFORMANCE block, but each must direct reads/writes through the aiarch-state tools.
-func Test_DraftPrompt_NoShapeDump_UsesTools(t *testing.T) {
-	for _, kind := range draftedPhase2Kinds {
-		prompt := draftFor(kind)
-		if strings.Contains(prompt, "SCHEMA CONFORMANCE") {
-			t.Errorf("%s prompt must not carry the typed-shape dump anymore; got:\n%s", kind, prompt)
-		}
-		// No hand-editing / JSON-path / git instructions leak into the prompt.
-		if strings.Contains(prompt, ".aiarch/state/project.json") || strings.Contains(prompt, ".serviceContracts") {
-			t.Errorf("%s prompt must not reference the on-disk state file/schema paths; got:\n%s", kind, prompt)
-		}
-		// Reads go through getCommittedSlot; the finish is publishDraft.
-		if !strings.Contains(prompt, "getCommittedSlot") || !strings.Contains(prompt, "publishDraft") {
-			t.Errorf("%s prompt must direct the agent to the aiarch-state tools; got:\n%s", kind, prompt)
-		}
-	}
-}
-
-// The drafting DOCTRINE (the how-to for each kind) survives the shrink — it is what the prompt
-// carries besides role + tools. Spot-check the representative doctrine lines per kind.
-func Test_DraftPrompt_KeepsDoctrine(t *testing.T) {
-	cases := map[projectstate.ArtifactKind]string{
-		projectstate.KindPlanningAssumptions: "explicit planning assumptions",
-		projectstate.KindNetwork:             "critical path",
-		projectstate.KindNormalSolution:      "minimum staffing",
-		projectstate.KindSubcriticalSolution: "deliberately understaffed",
-		projectstate.KindCompressedSolution:  "shorter duration",
-		projectstate.KindRiskModel:           "criticality risk",
-	}
-	for kind, want := range cases {
-		if prompt := draftFor(kind); !strings.Contains(prompt, want) {
-			t.Errorf("%s prompt must keep its drafting doctrine (missing %q); got:\n%s", kind, want, prompt)
-		}
-	}
-}
-
-// ActivityList doctrine — the base list is ONE coding activity per component (detailed design and
-// construction are internal lifecycle phases of that single activity, NOT separate network nodes);
-// integration and noncoding activities remain separate. This doctrine must survive the shrink.
-func Test_ActivityListPrompt_OneCodingActivityPerComponent(t *testing.T) {
-	prompt := draftFor(projectstate.KindActivityList)
-	if !strings.Contains(prompt, "ONE coding activity per component") {
-		t.Errorf("activity-list prompt must state one coding activity per component; got:\n%s", prompt)
-	}
-	if !strings.Contains(prompt, "internal lifecycle phases") {
-		t.Errorf("activity-list prompt must frame detailed-design/construction as internal lifecycle phases; got:\n%s", prompt)
-	}
-	if !strings.Contains(prompt, "NOT separate network nodes") {
-		t.Errorf("activity-list prompt must forbid splitting a component into separate network nodes; got:\n%s", prompt)
-	}
-	if !strings.Contains(prompt, "Integration") || !strings.Contains(prompt, "noncoding") {
-		t.Errorf("activity-list prompt must keep integration and noncoding activities separate; got:\n%s", prompt)
-	}
-	if !strings.Contains(prompt, "5-day quanta") {
-		t.Errorf("activity-list prompt must state effort in 5-day quanta; got:\n%s", prompt)
-	}
-}
-
-// methodTeamRoster is the FIXED worker-class roster — the .claude agent team the platform
-// dispatches (mirrors roleModel in assemblesdpreview.go and webApp team.ts). The gtdapp
-// Phase-2 run (2026-07-12) invented domain-flavored classes (Capture-Engineer,
-// Platform-DevOps-Engineer, …) because the prompts never stated the roster; unknown classes
-// silently ride default sonnet token rates in the cost engines and misclassify in ClassifyType.
-var methodTeamRoster = []string{
-	"system-architect", "product-manager", "project-manager",
-	"senior-developer", "junior-developer", "ui-designer", "ux-reviewer",
-	"qa-engineer", "test-engineer", "software-tester",
-}
-
-// The PlanningAssumptions and ActivityList prompts MUST pin worker classes to the fixed
-// Method team roster and forbid inventing domain-flavored classes (F-GTD worker-class defect).
-func Test_DraftPrompt_CarriesWorkerClassRoster(t *testing.T) {
-	for _, kind := range []projectstate.ArtifactKind{projectstate.KindPlanningAssumptions, projectstate.KindActivityList} {
-		prompt := draftFor(kind)
-		for _, class := range methodTeamRoster {
-			if !strings.Contains(prompt, class) {
-				t.Errorf("%s prompt missing roster class %q", kind, class)
-			}
-		}
-		if !strings.Contains(prompt, "NEVER invent") {
-			t.Errorf("%s prompt must forbid inventing worker classes; got:\n%s", kind, prompt)
-		}
-	}
-}
-
-// The roster doctrine is scoped to the two class-authoring kinds — it must not bloat the
-// other Phase-2 prompts (solutions derive classRates from the rateCard, never author classes).
-func Test_WorkerClassRoster_OnlyOnClassAuthoringKinds(t *testing.T) {
-	for _, kind := range []projectstate.ArtifactKind{projectstate.KindNetwork, projectstate.KindNormalSolution, projectstate.KindRiskModel} {
-		if prompt := draftFor(kind); strings.Contains(prompt, "NEVER invent") {
-			t.Errorf("%s prompt must not carry the worker-class roster doctrine", kind)
-		}
-	}
-}
-
-// The ActivityList prompt must teach the activity-id naming convention (the classifiers key
-// on the prefixes: U-SPA* → frontend, N-* → testing variants) and the standard inventory —
-// the always-emitted testing set and the UI-design + SPA construction activities. gtdapp
-// (2026-07-12) emitted long prose names and neither U-SPA nor any N-ST* activity, so every
-// activity classified as a generic service and the plan had no webApp/uitests/systemtests work.
-func Test_ActivityListPrompt_NamingConventionAndStandardInventory(t *testing.T) {
-	prompt := draftFor(projectstate.KindActivityList)
-	for _, want := range []string{"U-SPA", "G-", "I-", "R-", "N-STP", "N-STH", "N-RTH", "N-SMOKE", "N-QA", "N-IT", "N-PERF"} {
-		if !strings.Contains(prompt, want) {
-			t.Errorf("activity-list prompt missing id-convention/standard-activity marker %q; got:\n%s", want, prompt)
-		}
-	}
-	if !strings.Contains(prompt, "title") {
-		t.Errorf("activity-list prompt must direct the human label into title (name is the short network id); got:\n%s", prompt)
-	}
-}
-
-// The ActivityList prompt must exclude GENERATED client-tier transport from the coding
-// activities: the platform generates REST handlers, typed API clients, MCP tool surfaces,
-// and the OAS from the committed service contracts — an *-client component whose substance
-// is that transport gets NO coding activity. The handwritten SPA (webApp) is real work and
-// is emitted as U-SPA* activities instead. gtdapp (2026-07-12) emitted webapp-client-coding /
-// mcp-client-coding / agent-client-coding — exactly the generated tier.
-func Test_ActivityListPrompt_ExcludesGeneratedClientTier(t *testing.T) {
-	prompt := draftFor(projectstate.KindActivityList)
-	for _, want := range []string{"GENERATED", "MCP tool", "NO coding activity"} {
-		if !strings.Contains(prompt, want) {
-			t.Errorf("activity-list prompt missing generated-client-tier doctrine marker %q; got:\n%s", want, prompt)
-		}
-	}
-}
-
-// The redraft prompt weaves in each OPEN review-ledger comment and states the response contract
-// via the respondToReviewComment tool (not an in-file reviewThread edit). Addressed/waived
-// comments are not listed.
-func Test_DraftPrompt_WeavesOpenReviewLedger(t *testing.T) {
-	thread := []projectstate.ReviewComment{
-		{ID: "r1c1", Anchor: "$.resources", AnchorText: "the resources", Text: "name the contractors", Status: projectstate.ReviewCommentOpen},
-		{ID: "r1c2", Text: "already fixed", Status: projectstate.ReviewCommentAddressed, Response: "done"},
-	}
-	prompt := architectDraftPrompt(projectstate.KindPlanningAssumptions, projectstate.Project{}, "", thread, 0)
-
-	for _, want := range []string{"r1c1", "$.resources", "name the contractors", "respondToReviewComment", "STAYS OPEN"} {
-		if !strings.Contains(prompt, want) {
-			t.Errorf("open-comment redraft prompt missing %q; got:\n%s", want, prompt)
-		}
-	}
-	if strings.Contains(prompt, "r1c2") {
-		t.Errorf("addressed comments must not be listed in the redraft prompt; got:\n%s", prompt)
-	}
-}
-
-// A first draft (no ledger) carries no review-ledger block.
-func Test_DraftPrompt_NoLedgerBlockWhenEmpty(t *testing.T) {
-	prompt := draftFor(projectstate.KindNetwork)
-	if strings.Contains(prompt, "durable review ledger") {
-		t.Errorf("first-draft prompt must not carry a review-ledger block; got:\n%s", prompt)
-	}
-}
-
-// Non-drafted kinds (the deterministically-assembled SdpReview and Phase-1 kinds) carry no
-// shape/enum block — the guidance is scoped to the agent-drafted Phase-2 kinds.
-func Test_DraftPrompt_NoShapeBlockOnNonDraftedKinds(t *testing.T) {
-	for _, kind := range []projectstate.ArtifactKind{projectstate.KindSdpReview, projectstate.KindMission} {
-		if prompt := draftFor(kind); strings.Contains(prompt, "SCHEMA CONFORMANCE") {
-			t.Errorf("%s prompt must not carry a typed-shape block; got:\n%s", kind, prompt)
-		}
 	}
 }
 

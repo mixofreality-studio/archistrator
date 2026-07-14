@@ -262,9 +262,18 @@ func (wf *workflows) CoAuthorPhase2ArtifactWorkflow(ctx workflow.Context, in coA
 		headVersion = p.Version
 	}
 
-	feedback := ""
+	feedback := ReviewFeedback{}
 	if in.Feedback != nil {
-		feedback = in.Feedback.Notes
+		feedback = *in.Feedback
+	}
+	// An AMENDMENT session's reopening feedback is OWNED by the amendment seed path
+	// (maybeSeedAmendment, below) — it lands in the ledger at round 0 right after the first
+	// stage. Mark it seeded up front so the pre-dispatch failed-gate seed does not race that
+	// path and double-seed the same comments on the first draft. A non-amendment session's
+	// initial feedback is NOT ledger-backed, so it stays false and is seeded before its first
+	// dispatch like any other memory-only feedback.
+	if in.Amendment > 0 {
+		state.feedbackSeeded = true
 	}
 
 	// redraftCount bounds the attempt label progression and drives the StageRedrafting
@@ -291,7 +300,7 @@ func (wf *workflows) CoAuthorPhase2ArtifactWorkflow(ctx workflow.Context, in coA
 		// and suspends at the human gate (the anti-wedge rule, §0.5.4) — never a perpetual
 		// Drafting. The begun git session is written through &gf for the approve/merge step.
 		var gf gitSession
-		step, outcome, err := wf.coAuthorDraftRound(ctx, in, proj, &feedback, &headVersion, &redraftCount, state, &gf)
+		step, outcome, err := wf.coAuthorDraftRound(ctx, in, proj, &feedback, &headVersion, &redraftCount, &reviewRound, state, &gf)
 		if err != nil {
 			return coAuthorUnknown, err
 		}
@@ -375,7 +384,7 @@ func (wf *workflows) amendmentNoChangeGate(
 	proj projectstate.Project,
 	branchModel projectstate.ArtifactModel,
 	headVersion projectstate.Version,
-	feedback *string,
+	feedback *ReviewFeedback,
 	redraftCount *int,
 	state *coAuthorState,
 ) (coAuthorStep, coAuthorOutcome, error) {
@@ -414,7 +423,7 @@ func (wf *workflows) containAtFailedGate(
 	headVersion projectstate.Version,
 	reason string,
 	state *coAuthorState,
-	feedback *string,
+	feedback *ReviewFeedback,
 	redraftCount *int,
 ) (coAuthorStep, coAuthorOutcome, error) {
 	outcome, retry, recErr := wf.awaitDraftFailedRecovery(ctx, in.ProjectID, in.ArtifactKind, headVersion, reason, state, feedback)
@@ -442,19 +451,42 @@ func (wf *workflows) dispatchDraftAndReadBack(
 	proj projectstate.Project,
 	gf *gitSession,
 	sessionBranch string,
-	feedback *string,
+	feedback *ReviewFeedback,
 	headVersion *projectstate.Version,
 	redraftCount *int,
+	reviewRound *int,
 	state *coAuthorState,
 ) (projectstate.ArtifactModel, projectstate.Version, coAuthorStep, coAuthorOutcome, error) {
 	logger := workflow.GetLogger(ctx)
-	// REVIEW LEDGER: on a redraft, state.reviewThread carries the durable open comments
-	// (reloaded after the reject-append); the prompt lists each for the agent to respond to.
-	draftPrompt := architectDraftPrompt(toPSKind(in.ArtifactKind), proj, *feedback, state.reviewThread, in.Amendment)
+	// FAILED-GATE FEEDBACK SEED (thin-dispatch). The memory-only failed-gate recovery paths
+	// (a redraft signal, a Retry-via-Reject at a failed gate, a faulted reject) retain the
+	// architect's feedback in the workflow's feedback variable ONLY — unlike the review-gate
+	// reject and the amendment seed, which fold it into the DURABLE review ledger. Under thin
+	// dispatch the drafting agent reads context ONLY via getReviewThread, so that memory-only
+	// feedback would evaporate. Seed it here, right BEFORE the redraft dispatch, reusing the
+	// SAME seeding activity + comment conversion the reject path uses, so the agent reads it off
+	// the branch. state.feedbackSeeded gates it — an already-seeded reject/amendment path is
+	// skipped so its comments are never double-seeded.
+	//
+	// Temporal versioning guard (replay safety; mirrors the managed-scaffold-sync gate in
+	// beginSession): this seed was ADDED to the redraft dispatch path AFTER the CoAuthor workflow
+	// first shipped, so a design session already in flight at deploy time has NO history event
+	// for it — replaying such a history against unguarded new code fails the workflow task with a
+	// non-determinism error. GetVersion pins pre-feature executions (DefaultVersion) to the OLD
+	// command sequence (they skip the seed for their WHOLE run), while every execution STARTED
+	// after this deploy resolves v1 and seeds before each memory-only redraft. The founder's
+	// deploy drains in-flight design workflows first, so this gate is belt-and-braces.
+	if workflow.GetVersion(ctx, "failed-gate-ledger-seed-p2", workflow.DefaultVersion, 1) >= 1 {
+		if !state.feedbackSeeded && wf.seedFailedGateFeedback(ctx, in, *gf, *headVersion, feedback, reviewRound, state) {
+			state.feedbackSeeded = true
+		}
+	}
+	// REVIEW LEDGER: on a redraft, the durable open comments (state.reviewThread, reloaded after
+	// the reject-append or the failed-gate seed above) and the reopening feedback reach the
+	// drafting agent via the ledger it reads with getReviewThread — no longer woven into a prompt.
 	draftObs, derr := wf.dispatchAndObserve(ctx, dispatchDesignJobArgs{
 		ProjectID:     in.ProjectID,
 		ArtifactKind:  in.ArtifactKind,
-		Prompt:        draftPrompt,
 		TargetBranch:  sessionBranch,
 		PriorStateRef: "",
 		// Per-project-design-dispatch: dispatch to the per-project repo + aiarch-design.yml
@@ -494,9 +526,10 @@ func (wf *workflows) coAuthorDraftRound(
 	ctx workflow.Context,
 	in coAuthorInput,
 	proj projectstate.Project,
-	feedback *string,
+	feedback *ReviewFeedback,
 	headVersion *projectstate.Version,
 	redraftCount *int,
+	reviewRound *int,
 	state *coAuthorState,
 	gf *gitSession,
 ) (coAuthorStep, coAuthorOutcome, error) {
@@ -553,7 +586,7 @@ func (wf *workflows) coAuthorDraftRound(
 		}
 	}
 	if !haveDraft {
-		m, v, step, outcome, err := wf.dispatchDraftAndReadBack(ctx, in, proj, gf, sessionBranch, feedback, headVersion, redraftCount, state)
+		m, v, step, outcome, err := wf.dispatchDraftAndReadBack(ctx, in, proj, gf, sessionBranch, feedback, headVersion, redraftCount, reviewRound, state)
 		if step != coAuthorProceed || err != nil {
 			return step, outcome, err
 		}
@@ -666,7 +699,7 @@ func (wf *workflows) coAuthorApplyDecision(
 	headVersion *projectstate.Version,
 	redraftCount *int,
 	reviewRound *int,
-	feedback *string,
+	feedback *ReviewFeedback,
 	state *coAuthorState,
 ) (coAuthorStep, coAuthorOutcome, error) {
 	switch sig.Decision {
@@ -684,8 +717,13 @@ func (wf *workflows) coAuthorApplyDecision(
 		// RETAIN the architect's feedback in workflow state BEFORE the head-state write, so
 		// that if the reject write itself faults (below), the crash-containment recovery
 		// gate still holds the feedback for a Retry instead of silently discarding the
-		// send-back (QA F28).
-		*feedback = notes
+		// send-back (QA F28). Retain the FULL ReviewFeedback (Notes + anchored Comments) so a
+		// faulted-reject Retry can seed those comments to the ledger before redraft (thin dispatch).
+		*feedback = reviewFeedbackOrZero(sig.Feedback)
+		// Not YET in the ledger — the reject write below seeds it (and flips this true on
+		// success). If that write FAULTS (crash containment, below), the flag stays false so the
+		// failed-gate seed persists these comments before the Retry redraft dispatch.
+		state.feedbackSeeded = false
 		newVersion, err := wf.applyRecovering(ctx, in.ProjectID, gf.readBackBranch(), *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
 			// REVIEW LEDGER (review-ledger §2): fold the reviewer's anchored comments into the
 			// reject as durable, server-minted ledger entries, round-stamped by the per-reject
@@ -722,6 +760,10 @@ func (wf *workflows) coAuthorApplyDecision(
 			return coAuthorContinue, coAuthorUnknown, nil
 		}
 		*headVersion = newVersion
+		// The reject folded the architect's anchored comments into the ledger
+		// (feedbackToLedgerComments, above), so this feedback is durably seeded — the pre-dispatch
+		// failed-gate seed skips it (no double-seed).
+		state.feedbackSeeded = true
 		// REVIEW LEDGER: reload the thread from the SAME persistent session branch the reject
 		// just wrote so it carries the freshly-appended OPEN comments — the redraft prompt lists
 		// them for the drafting agent to respond to. Under the F40 single-branch topology the
@@ -774,7 +816,7 @@ func (wf *workflows) coAuthorApprove(
 	gf *gitSession,
 	headVersion *projectstate.Version,
 	redraftCount *int,
-	feedback *string,
+	feedback *ReviewFeedback,
 	state *coAuthorState,
 	approver string,
 ) (coAuthorStep, coAuthorOutcome, error) {
@@ -901,7 +943,7 @@ func (wf *workflows) awaitDraftFailedRecovery(
 	headVersion projectstate.Version,
 	reason string,
 	state *coAuthorState,
-	feedback *string,
+	feedback *ReviewFeedback,
 ) (coAuthorOutcome, bool, error) {
 	// Surface the human-visible failed stage + the pre-formatted human reason for the
 	// Query. Callers pass the rendered reason (draftFailedReason for a job failure,
@@ -924,9 +966,11 @@ func (wf *workflows) awaitDraftFailedRecovery(
 			if sig.Feedback != nil {
 				// F47: MERGE the request feedback (from RequestArtifactDraft) with any gate-
 				// retained feedback — the request WINS/appends — so the operator's new
-				// instruction reaches the next draft prompt without discarding retained context.
-				*feedback = mergeRedraftNotes(*feedback, sig.Feedback.Notes)
+				// instruction reaches the next draft dispatch without discarding retained context.
+				*feedback = mergeRedraftFeedback(*feedback, *sig.Feedback)
 			}
+			// Memory-only until the pre-dispatch failed-gate seed persists it (thin dispatch).
+			state.feedbackSeeded = false
 			retry = true
 		})
 		sel.AddReceive(reviewCh, func(c workflow.ReceiveChannel, _ bool) {
@@ -937,8 +981,12 @@ func (wf *workflows) awaitDraftFailedRecovery(
 				withdraw = true
 				withdrawNotes = signalNotes(sig.Feedback)
 			case ReviewReject:
-				// Retry-via-Reject: re-dispatch with the architect's feedback woven in.
-				*feedback = signalNotes(sig.Feedback)
+				// Retry-via-Reject: re-dispatch with the architect's feedback woven in. This is
+				// the CORE gap thin dispatch exposes — at a FAILED gate (unlike the review gate)
+				// the reject never touches the ledger, so the feedback is memory-only until the
+				// pre-dispatch failed-gate seed persists its anchored comments before the redraft.
+				*feedback = reviewFeedbackOrZero(sig.Feedback)
+				state.feedbackSeeded = false
 				retry = true
 			case ReviewDecisionUnknown, ReviewApprove:
 				// Approve at a failed gate is meaningless (no staged draft); the zero
@@ -999,19 +1047,31 @@ func amendmentNoChangeReason() string {
 	return "the amendment draft committed no changes to the artifact — there is nothing to review or merge — retry or withdraw"
 }
 
-// mergeRedraftNotes merges the request notes (from a RequestArtifactDraft redraft signal) with
-// any gate-retained notes (F47). The request WINS: an empty request keeps the retained; an empty
-// retained takes the request; otherwise the request is APPENDED after the retained so the newest
-// instruction is present (and last) in the next draft prompt without discarding earlier context.
-func mergeRedraftNotes(retained, req string) string {
-	req = strings.TrimSpace(req)
-	if req == "" {
-		return retained
+// mergeRedraftFeedback merges the request feedback (from a RequestArtifactDraft redraft signal)
+// with any gate-retained feedback (F47). The request WINS: its Notes are APPENDED after the
+// retained Notes (newest instruction present and last, earlier context kept), and its anchored
+// Comments are unioned. Empty request Notes keep the retained; empty retained takes the request.
+func mergeRedraftFeedback(retained, req ReviewFeedback) ReviewFeedback {
+	out := retained
+	if reqNotes := strings.TrimSpace(req.Notes); reqNotes != "" {
+		if strings.TrimSpace(out.Notes) == "" {
+			out.Notes = reqNotes
+		} else {
+			out.Notes = strings.TrimSpace(out.Notes) + "\n\n" + reqNotes
+		}
 	}
-	if strings.TrimSpace(retained) == "" {
-		return req
+	out.Comments = append(out.Comments, req.Comments...)
+	return out
+}
+
+// reviewFeedbackOrZero dereferences the signal's optional ReviewFeedback, returning the zero
+// value (empty Notes, no Comments) when absent. Used on the Reject / Retry-via-Reject paths,
+// whose anchored Comments are seeded into the review ledger before the redraft (thin dispatch).
+func reviewFeedbackOrZero(f *ReviewFeedback) ReviewFeedback {
+	if f != nil {
+		return *f
 	}
-	return strings.TrimSpace(retained) + "\n\n" + req
+	return ReviewFeedback{}
 }
 
 // railStepFailedReason renders the human "why" for the StageDraftFailed screen when a rail
@@ -1122,11 +1182,22 @@ func dispatchErrSummary(err error) string {
 // RepoRef) + WorkflowFile target the user's per-project repo + aiarch-design.yml, else an
 // empty target falls back to the RA's configured construction repo.
 func (wf *workflows) dispatchDesignJob(ctx workflow.Context, a dispatchDesignJobArgs) (constructionpipeline.PipelineHandle, error) {
+	// The .claude command slug the design job runs — the Phase-2 doctrine that used to be
+	// composed into design_prompt now lives in that command's method-assets. Project Design
+	// only ever dispatches a DRAFT (there is no PM-critique; the answer job dispatches manager-
+	// side). An empty slug is contract misuse (an undispatchable kind — e.g. SdpReview, which is
+	// assembled server-side, never dispatched); fail terminally before dispatch.
+	command := projectstate.DesignCommandFor(toPSKind(a.ArtifactKind), projectstate.DesignJobModeDraft, "")
+	if command == "" {
+		return constructionpipeline.PipelineHandle(""), temporal.NewNonRetryableApplicationError(
+			"no design command slug for this artifactKind — undispatchable design job", "UndispatchableDesignJob", nil)
+	}
 	inputs := map[string]string{
 		dispatchInputArtifactKind:  artifactKindString(a.ArtifactKind),
-		dispatchInputDesignPrompt:  a.Prompt,
+		dispatchInputCommand:       command,
 		dispatchInputTargetBranch:  a.TargetBranch,
 		dispatchInputPriorStateRef: a.PriorStateRef,
+		dispatchInputJobMode:       jobModeDraft,
 	}
 	// Per-project-design-dispatch: decode the opaque per-project RepoRef → owner/repo so
 	// the RA dispatches to the USER'S per-project repo + aiarch-design.yml (NOT the central
@@ -1233,13 +1304,14 @@ const observePollInterval = 15 * time.Second
 // the human gate (never a perpetual Drafting — the anti-wedge rule).
 const maxObservePolls = 240 // 240 * 15s = 1h ceiling
 
-// dispatchDesignJobArgs bundles the dispatch inputs for the Activity boundary. The
-// Manager's SEQUENCE composed Prompt in-memory (prompts.go); ArtifactKind + Branch +
-// PriorStateRef ride into the DispatchInputs map inside the Activity.
+// dispatchDesignJobArgs bundles the dispatch inputs for the Activity boundary. ArtifactKind
+// selects the .claude command slug (DesignCommandFor); Branch + PriorStateRef ride into the
+// DispatchInputs map inside the Activity. The prompt prose is GONE — the Phase-2 doctrine
+// lives in the method-assets .claude command the design job runs; the Manager ships only the
+// command name + the target metadata.
 type dispatchDesignJobArgs struct {
 	ProjectID     ProjectID
 	ArtifactKind  ArtifactKind
-	Prompt        string
 	TargetBranch  string
 	PriorStateRef string
 	// TargetRepo is the opaque per-project RepoRef (gitSession.repoRef.String()) the
@@ -1761,9 +1833,46 @@ func (wf *workflows) seedAmendmentLedger(ctx workflow.Context, in coAuthorInput,
 		return
 	}
 	*headVersion = newVersion
+	// The amendment feedback is now durably in the ledger; keep feedbackSeeded true so the
+	// pre-dispatch failed-gate seed does not re-seed the same round-0 comments.
+	state.feedbackSeeded = true
 	if thread, terr := wf.loadReviewThread(ctx, in, gf); terr == nil {
 		state.reviewThread = thread
 	}
+}
+
+// seedFailedGateFeedback durably records the architect feedback that a MEMORY-ONLY failed-gate
+// recovery path (a redraft signal / a Retry-via-Reject AT a failed gate / a faulted reject)
+// retained ONLY in the workflow's feedback variable. Unlike the review-gate reject and the
+// amendment seed, those paths never wrote it to the durable review ledger — so under thin
+// dispatch (the drafting agent reads context ONLY via getReviewThread) it would evaporate. This
+// folds the SAME anchored comments the reject path uses (feedbackToLedgerComments) into the
+// ledger on the SAME session branch, consuming a review round (reviewRound, like a reject) so
+// the seeded ids do not collide with a later reject's on the one accumulating thread. Best-
+// effort, mirroring seedAmendmentLedger: a Notes-only feedback (no anchored comments), an
+// unpopulated slot, a non-ledger substrate, or a transient fault leaves the feedback un-seeded
+// and RETRIES on the next redraft dispatch. Returns whether the seed durably landed, so the
+// caller marks feedbackSeeded and stops re-seeding. headVersion is a hint only — applyRecovering
+// re-reads on a version conflict.
+func (wf *workflows) seedFailedGateFeedback(ctx workflow.Context, in coAuthorInput, gf gitSession, headVersion projectstate.Version, feedback *ReviewFeedback, reviewRound *int, state *coAuthorState) bool {
+	comments := feedbackToLedgerComments(feedback)
+	if len(comments) == 0 {
+		return false
+	}
+	branch := gf.readBackBranch()
+	round := int64(*reviewRound)
+	if _, err := wf.applyRecovering(ctx, in.ProjectID, branch, headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+		return wf.Acts.DesignSessionSeedReviewCommentsOnBranch(ctx, projectstate.ProjectID(in.ProjectID), expected, branch, toPSKind(in.ArtifactKind), round, comments)
+	}); err != nil {
+		return false
+	}
+	// A durable ledger write consumes a review round (exactly like the reject path), so a LATER
+	// reject's r{round}c{n} ids do not collide with these on the accumulating thread.
+	*reviewRound++
+	if thread, terr := wf.loadReviewThread(ctx, in, gf); terr == nil {
+		state.reviewThread = thread
+	}
+	return true
 }
 
 // loadReviewThread reads the artifact slot's durable ledger from the session branch ("" ⇒
@@ -1793,234 +1902,6 @@ func (wf *workflows) applyCommentStatus(ctx workflow.Context, in coAuthorInput, 
 	if thread, terr := wf.loadReviewThread(ctx, in, gf); terr == nil {
 		state.reviewThread = thread
 	}
-}
-
-// The Manager OWNS the per-step Phase-2 prompt corpus (mirroring systemdesign's
-// prompts.go, the agentic-pivot D-MPD-Δ §0.5.2). The fixed Phase-2 Method sequence
-// drives WHICH role-prompt the Manager sends at each step — that is the
-// ProjectDesignPhaseWorkflow volatility (the sequence), made explicit.
-//
-// Each prompt is plain text composed IN-MEMORY by the Manager and shipped as a
-// DISPATCH INPUT to the claude-code-action DESIGN job (§0.5.2 step 2 — never
-// aiarch-persisted). It carries a role header, the target artifact kind, a pointer to
-// the prior committed state BY PATH/KIND (the Action runs IN the user's repo and reads
-// .aiarch/state/ directly — priors are NOT embedded as bytes), and (optionally) a
-// feedback block woven in verbatim on a redraft. The Action drafts the typed JSON into
-// .aiarch/state/ and the required CI validation check enforces its shape — the
-// schema/DTO injection the old in-process worker needed is GONE (validation is the CI
-// check, §0.5.5).
-//
-// Phase 2 has ONLY architect-role draft prompts (one per draftable Phase-2 artifact
-// kind — planning-assumptions / activity-list / network / the four solutions /
-// risk-model). There is NO PM critique in Phase 2 (the SDP review is the architect's
-// recommendation to management; the human architect is the gate). The SDP-review
-// artifact itself is ASSEMBLED deterministically by the workflow from the three Engine
-// outputs (workflow.go), not drafted by the worker — so it has no prompt.
-
-const architectHeader = "You are the Architect agent drafting a typed Phase-2 (Project Design) Method artifact for an architecture project, following Juval Lowy's The Method to the letter. You author the project's Method state ONLY through the aiarch-state MCP tools — never hand-edit files and never run git. Read prior committed artifacts with getCommittedSlot, read your current draft (on an amendment) with getDraftSlot, submit your draft with putDraftModel (it validates the model and returns actionable errors if it is wrong — fix them and resubmit), and finish by calling publishDraft.\n"
-
-// architectDraftPrompt assembles the architect-role draft prompt for the given Phase-2
-// artifact kind. It points the Action at the prior committed state by path/kind (NOT
-// embedded bytes — the Action reads .aiarch/state/ in the repo), carries the Method
-// drafting doctrine, and weaves in any rejection feedback. The composed prompt is the
-// DESIGN job's design_prompt dispatch input. (The proj parameter is retained for
-// signature parity / future per-kind prior selection; priors are named by kind, not
-// embedded.)
-func architectDraftPrompt(kind projectstate.ArtifactKind, proj projectstate.Project, feedback string, reviewThread []projectstate.ReviewComment, amendment int) string {
-	var b strings.Builder
-	b.WriteString(architectHeader)
-	fmt.Fprintf(&b, "Target artifact: %s. The design job already fixes which artifact you are drafting — putDraftModel writes it to the correct slot (even for the four solution siblings that share one model type), so you never choose a slot or a kind.\n", kind.WireName())
-
-	// F38 AMENDMENT: this session REOPENS an already-committed Phase-2 artifact. Read the
-	// committed version with getDraftSlot and REVISE it rather than drafting from scratch; the
-	// reopening reasons are the OPEN review-ledger comments below.
-	if amendment > 0 {
-		fmt.Fprintf(&b, "\nThis is an AMENDMENT (revision %d) of the already-COMMITTED %s. Read the committed version with getDraftSlot and REVISE it to address the reopening feedback — do NOT discard it and redraft from scratch. The reasons this artifact was reopened are the OPEN review-ledger comments listed below; address each and respond to it with respondToReviewComment.\n", amendment, kind.WireName())
-		// F-GTD-10 (2026-07-11 gtdapp QA): an amendment draft silently DROPPED an optional
-		// field (rateCard) and zeroed another (indirectDailyRate) while its notes claimed
-		// both were preserved — putDraftModel replaces the whole model, so an omitted field
-		// is a deletion, not a "keep". Teach the replace-semantics explicitly.
-		b.WriteString("putDraftModel REPLACES the whole model: every field you are not changing — including optional ones (e.g. a rate card) — must be re-submitted VERBATIM from the committed version. Omitting a field deletes it and zeroing one overwrites it; that is a real change you must only make when the feedback asks for it, and must state explicitly in your notes.\n")
-	}
-
-	// Per-kind priors: name the committed predecessor artifacts the Method draws on, by
-	// kind (the Action reads them from .aiarch/state/project.json in the repo). The
-	// architecture (Phase-1 System slot) anchors the activity list; planning assumptions
-	// anchor the network and the solutions.
-	switch kind {
-	case projectstate.KindPlanningAssumptions:
-		writePriorsPointer(&b, "System (architecture)")
-	case projectstate.KindActivityList:
-		writePriorsPointer(&b, "System (architecture)", "PlanningAssumptions")
-	case projectstate.KindNetwork:
-		writePriorsPointer(&b, "ActivityList", "PlanningAssumptions")
-	case projectstate.KindNormalSolution,
-		projectstate.KindSubcriticalSolution,
-		projectstate.KindCompressedSolution,
-		projectstate.KindDecompressedSolution:
-		writePriorsPointer(&b, "PlanningAssumptions", "ActivityList", "Network")
-	case projectstate.KindRiskModel:
-		writePriorsPointer(&b, "Network", "NormalSolution", "DecompressedSolution", "SubcriticalSolution", "CompressedSolution")
-	case projectstate.KindMission, projectstate.KindGlossary, projectstate.KindScrubbedRequirements,
-		projectstate.KindVolatilities, projectstate.KindCoreUseCases, projectstate.KindSystem,
-		projectstate.KindOperationalConcepts, projectstate.KindStandardCheck, projectstate.KindSdpReview:
-		// Phase-1 kinds (and the deterministically-assembled SdpReview, see the
-		// package doc above) never reach this Phase-2-only prompt assembler; no
-		// priors to add — same no-op as before this switch was made exhaustive.
-	}
-
-	writeFeedback(&b, feedback)
-	// REVIEW LEDGER (review-ledger §3): on a redraft, weave in every OPEN durable ledger
-	// comment (with its stable id + anchor + anchor-text snapshot) and the response contract
-	// (respondToReviewComment). Empty on the first draft (no ledger).
-	writeReviewLedger(&b, reviewThread)
-	fmt.Fprintf(&b, "\nTask: %s\n", draftTask(kind))
-	// TYPED-SHAPE discipline is no longer taught in the prompt (QA F36 Phase-2 sibling was the
-	// wrong-shape read-back stall): putDraftModel validates the model through the FULL server
-	// codec, so a field drafted with the wrong shape (an array of objects where []string is
-	// expected, a bare number where a Money object is expected) is rejected in-loop with an
-	// actionable error the agent self-corrects — the per-kind shape dump is obsolete.
-	// OPERATING-MODEL CONSTRAINT (founder ruling 2026-07-05): when the project is
-	// archistrator-operated the PlanningAssumptions launch infrastructure is
-	// CONSTRAINED to the platform palette (CNPG Postgres, Temporal, Keycloak, the otel
-	// stack, deployed to the platform k8s cluster via ArgoCD at software/k8s). This is
-	// the Phase-2 sibling of the systemDesign OperationalConcepts constraint — the
-	// deployment topology (Phase-1) and the launch infrastructure assumptions (Phase-2)
-	// must agree. Self-operated emits nothing (today's open guidance is preserved).
-	if kind == projectstate.KindPlanningAssumptions {
-		if c := operatingModelInfrastructureConstraint(proj.OperatingModel); c != "" {
-			b.WriteString("\n")
-			b.WriteString(c)
-		}
-	}
-	b.WriteString("\nSubmit the finished artifact with putDraftModel; if it reports validation errors, fix the model and submit again. When it is accepted (and every open review comment has a response), call publishDraft.\n")
-	return b.String()
-}
-
-// operatingModelInfrastructureConstraint returns the launch-infrastructure constraint
-// the PlanningAssumptions draft prompt carries for the project's operating model
-// (founder ruling 2026-07-05). Archistrator-operated CONSTRAINS the launch
-// infrastructure to the archistrator-platform palette ONLY and FORBIDS bespoke cloud;
-// self-operated (the default) emits nothing (today's open guidance stands).
-func operatingModelInfrastructureConstraint(m projectstate.OperatingModel) string {
-	if m.OrDefault() != projectstate.OperatingModelArchistratorOperated {
-		return ""
-	}
-	return "OPERATING MODEL — ARCHISTRATOR-OPERATED (platform-constrained infrastructure). " +
-		"This project is OPERATED BY ARCHISTRATOR on the shared platform, so the launch-infrastructure assumption is FIXED, not a choice: the app runs on the archistrator-platform palette ONLY. " +
-		"When you capture the launch infrastructure assumption you MUST assume EXACTLY these platform building blocks and MUST NOT assume any bespoke or third-party cloud infrastructure:\n" +
-		"- Data / persistence: CloudNativePG (CNPG) Postgres — the framework-go-infrastructure-postgres module.\n" +
-		"- Workflows / durable execution: Temporal — the framework-go-infrastructure-temporal module (the SHARED platform Temporal at software/k8s/shared/temporal).\n" +
-		"- Authentication / identity: Keycloak — the framework-go-infrastructure-keycloak module (software/k8s/argocd/auth).\n" +
-		"- Observability: the OpenTelemetry stack — the framework-go-infrastructure-otel module.\n" +
-		"- Deploy target: the platform Kubernetes cluster via the ArgoCD stack at software/k8s (namespaces/apps under k8s/argocd/applications).\n" +
-		"FORBIDDEN for this operating model: AWS (RDS, EKS, ECS, CloudFront, S3, Lambda), GCP, Azure, or any other bespoke / self-managed / third-party-managed cloud infrastructure or hosting — those are legitimate ONLY for self-operated projects. The launch infrastructure is the platform cluster; there is no per-project cloud-provider decision to assume."
-}
-
-// writeReviewLedger weaves the OPEN durable review-ledger comments into a redraft prompt and
-// states the response-carrier contract the drafting agent must honor (review-ledger §3): the
-// agent commits a per-comment "response" (and proposed "addressed" status) back onto the SAME
-// slot's "reviewThread" array in .aiarch/state/project.json, matched by the stable comment
-// "id". The server, not the agent, decides the effective status on read-back (empty response
-// keeps a comment open). Nothing is written when no comment is open (the first-draft case).
-func writeReviewLedger(b *strings.Builder, thread []projectstate.ReviewComment) {
-	var open []projectstate.ReviewComment
-	for _, c := range thread {
-		if c.Status == projectstate.ReviewCommentOpen && strings.TrimSpace(c.Text) != "" {
-			open = append(open, c)
-		}
-	}
-	if len(open) == 0 {
-		return
-	}
-	b.WriteString("\nThis artifact has OPEN reviewer comments in its durable review ledger (read them with getReviewThread). For EACH open comment listed below you MUST: (1) revise the draft to address it; and (2) call respondToReviewComment with the matching comment id and your response — how you addressed it, or a concise reasoned pushback if you disagree. A comment whose response you leave empty STAYS OPEN and blocks approval — so respond to every one.\n")
-	for _, c := range open {
-		anchor := c.Anchor
-		if strings.TrimSpace(anchor) == "" {
-			anchor = "(whole artifact)"
-		}
-		if strings.TrimSpace(c.AnchorText) != "" {
-			fmt.Fprintf(b, "- comment %s at %s (%q): %s\n", c.ID, anchor, c.AnchorText, strings.TrimSpace(c.Text))
-		} else {
-			fmt.Fprintf(b, "- comment %s at %s: %s\n", c.ID, anchor, strings.TrimSpace(c.Text))
-		}
-	}
-}
-
-// methodTeamRosterDoctrine rides the two class-authoring Phase-2 tasks (the
-// PlanningAssumptions resources/rateCard and the ActivityList workerClass): the gtdapp
-// run (2026-07-12) invented domain-flavored classes (Capture-Engineer, Clarify-Engineer,
-// Platform-DevOps-Engineer, …) because no prompt stated the roster. Worker classes are
-// NOT open vocabulary — they are the fixed .claude agent team the platform dispatches
-// (roleModel in assemblesdpreview.go; the webApp team page): an unknown class silently
-// rides the default sonnet rate spec in the cost engines and falls to the generic branch
-// of every workerClass-keyed classifier (ClassifyType).
-const methodTeamRosterDoctrine = " WORKER CLASSES ARE A FIXED ROSTER, not open vocabulary: every worker class MUST be spelled exactly as one of system-architect, product-manager, project-manager, senior-developer, junior-developer, ui-designer, ux-reviewer, qa-engineer, test-engineer, software-tester — the Method team the platform actually dispatches. NEVER invent a domain-, component-, or platform-flavored class (no Capture-Engineer, no Platform-DevOps-Engineer): an unknown class silently rides default token rates in the cost engines and misclassifies in every downstream view. Typical assignment: junior-developer builds components and the SPA; senior-developer integrates and owns regression/CI/smoke/provisioning; system-architect owns schema and ADR work; ui-designer the UI-design concepts; test-engineer the system test plan, harness, and perf rig; qa-engineer the QA process; software-tester the terminal system-testing gate."
-
-// activityInventoryDoctrine rides the ActivityList task: the same gtdapp run named
-// activities with long prose ids (webapp-client-coding), emitted coding activities for
-// the GENERATED client transport tier, and omitted the SPA/UI-design/testing inventory
-// entirely — so nothing classified as frontend or testing downstream (DeriveType /
-// DeriveVariant / ClassifyType key on the id prefixes) and the plan had no
-// webApp/uitests/systemtests work. Teach the id conventions, the generated-tier
-// exclusion, and the always-emitted standard activities.
-const activityInventoryDoctrine = " NAME each activity with its SHORT NETWORK ID using the fixed prefix conventions — downstream classifiers key on them: C-<abbrev> per-component coding, U-SPA* SPA/webApp construction (the frontend), G-* UI-design concepts, I-* integration, R-* resource provisioning, N-* noncoding — and put the human-readable label in title. GENERATED CLIENT TIER: the platform GENERATES the entire transport scaffolding from the committed service contracts — REST handlers, typed API clients, MCP tool surfaces, and the OpenAPI document — so a client-tier component whose substance is that generated transport (an api / mcp / agent client) gets NO coding activity; do not plan work the generator does. The handwritten UI IS real work: for a product with a UI surface emit one G-SPA ui-design activity (ui-designer) and U-SPA* construction activities (junior-developer, one per core-use-case screen cluster), with UI construction depending on G-SPA. Emit one I-UC* integration activity per core use case (senior-developer). ALWAYS emit the standard testing set: N-STP system test plan (test-engineer), N-STH system test harness — the Playwright UI-test and Go system-test rigs (test-engineer), N-RTH regression test harness (senior-developer), N-SMOKE daily build and smoke (senior-developer), N-QA process QA (qa-engineer), N-PERF performance testing (test-engineer), and the terminal N-IT system-testing gate (software-tester)."
-
-// solutionClassRatesDoctrine rides every solution-option task: three consecutive live
-// drafts (gtdapp normal r2, decompressed, subcritical — 2026-07-11) invented
-// human-contractor day rates ($550–800/day) with no token basis, which makes the SDP
-// time-cost curve meaningless. The workers are AI agents; the ONLY legitimate rate
-// basis is the PlanningAssumptions rate card, identical across all four options.
-const solutionClassRatesDoctrine = " classRates MUST be the PlanningAssumptions rateCard derivation — for each class: megatokensInPerDay×(input $/MTok) + megatokensOutPerDay×(output $/MTok) for its modelId, in USD minor units — IDENTICAL across all four solution options (the workers are AI agents; a class's day-cost does not change between options). Option economics differ ONLY through duration, staffing cap, calendar, and buffer — never through invented per-day rates."
-
-// draftTask returns the per-kind task instruction.
-func draftTask(kind projectstate.ArtifactKind) string {
-	switch kind {
-	case projectstate.KindPlanningAssumptions:
-		return "capture the explicit planning assumptions — the resources, working calendar (days/week), launch infrastructure, the customer's declared usage, the settlement terms, the per-worker-class AI rate card (rateCard: an entry for EVERY declared resource class, keyed by its exact class name, with modelId and megatokens in/out per day), and the indirect daily rate — that the project network and the SDP-review estimates are built on. A resource class without a rateCard entry silently rides default token rates in the cost engines, so author all of them. ENUM FIELDS (the estimate/settlement engines REFUSE the 0=unknown value, no silent default): infrastructureKind is 1=goTemporalPostgres; terms.revenueShare / terms.computeCost / terms.schedule are KIND enums, NOT amounts — revenueShare 1=launchFlat10 2=negotiatedRate, computeCost 1=flatMarkup 2=tieredFloors, schedule 1=monthly 2=weekly 3=daily; the percents live in revenueSharePercent / computeMarkupPercent." + methodTeamRosterDoctrine
-	case projectstate.KindActivityList:
-		return "convert the architecture into the activity list. Emit exactly ONE coding activity per component of the committed System, named after that component — detailed design and construction are internal lifecycle phases of that single activity (a per-phase role hand-off), NOT separate network nodes; do NOT split a component into a D### design activity and a C### construction activity in the base list. Integration (I-*) and noncoding (N-*) activities — test plan, test harness, environment setup, etc. — are separate activities. Give each activity its effort in 5-day quanta, its worker class, and a Fibonacci risk bucket." + activityInventoryDoctrine + methodTeamRosterDoctrine
-	case projectstate.KindNetwork:
-		return "convert the activity list into a project network: declare each activity's predecessor dependencies and identify the critical path (the activity names on it)."
-	case projectstate.KindNormalSolution:
-		return "design the NORMAL solution: minimum staffing for unimpeded critical-path progress; set the staffing cap, calendar days/week, and per-worker-class build-cost rates. Zero schedule buffer." + solutionClassRatesDoctrine
-	case projectstate.KindDecompressedSolution:
-		return "design the DECOMPRESSED-NORMAL solution: extend the normal duration with a schedule buffer to drop criticality risk toward the ~0.5 tipping point without cutting staff (decompression buys risk down with time, never by shedding resources). Set bufferDays > 0." + solutionClassRatesDoctrine
-	case projectstate.KindSubcriticalSolution:
-		return "design the SUBCRITICAL solution: deliberately understaffed (lower the staffing cap below normal). It is counterintuitively longer, costlier, and riskier — the point is to disprove the 'fewer people = cheaper' intuition for management." + solutionClassRatesDoctrine
-	case projectstate.KindCompressedSolution:
-		return "design the COMPRESSED solution: shorter duration via parallel work first and top resources second; raise the staffing cap and/or calendar days/week. Compression beyond ~30% of the normal duration is the death zone — target a modest compression (well under 30%) and stop short of it." + solutionClassRatesDoctrine
-	case projectstate.KindRiskModel:
-		return "quantify and compare risk across the four options: for each, decompose criticality risk and activity risk into a composite score for the SDP-review time-risk curve."
-	case projectstate.KindMission, projectstate.KindGlossary, projectstate.KindScrubbedRequirements,
-		projectstate.KindVolatilities, projectstate.KindCoreUseCases, projectstate.KindSystem,
-		projectstate.KindOperationalConcepts, projectstate.KindStandardCheck, projectstate.KindSdpReview:
-		// Phase-1 kinds (and the deterministically-assembled SdpReview) are never
-		// drafted through this Phase-2-only task table; same generic fallback.
-		return "draft the artifact."
-	default:
-		return "draft the artifact."
-	}
-}
-
-// writePriorsPointer names the committed predecessor artifacts (by kind) the Action
-// should read from .aiarch/state/project.json — NOT embedded as bytes.
-func writePriorsPointer(b *strings.Builder, kinds ...string) {
-	if len(kinds) == 0 {
-		return
-	}
-	fmt.Fprintf(b, "Prior committed artifacts to read as context with getCommittedSlot: %s\n", strings.Join(kinds, ", "))
-}
-
-// writeFeedback appends a revision-feedback block (architect rejection notes)
-// verbatim.
-func writeFeedback(b *strings.Builder, feedback string) {
-	notes := strings.TrimSpace(feedback)
-	if notes == "" {
-		return
-	}
-	b.WriteString("\nThis is a revision. Address the following feedback:\n")
-	fmt.Fprintf(b, "%s\n", notes)
 }
 
 // sameArtifactModel reports whether two typed models are byte-identical in their
