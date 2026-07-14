@@ -6963,6 +6963,124 @@ func CommandFor(t ActivityType, v TestingVariant, p ActivityMethodPhase) string 
 	return profileSlug(t, v) + "-" + kebabPhase(p)
 }
 
+// ---- from designcommand.go ----
+
+// DesignJobMode is the dispatch shape of a design job (Plan-2 Task B1): a fresh
+// draft, a PM-critique pass over a drafted artifact, or an answer to open review
+// questions. It is a NEW dispatch-wire concept, not derived from ArtifactKind —
+// the same kind is drafted, critiqued, and answered-against at different points
+// in a design session.
+type DesignJobMode string
+
+const (
+	DesignJobModeDraft    DesignJobMode = "draft"
+	DesignJobModeCritique DesignJobMode = "critique"
+	DesignJobModeAnswer   DesignJobMode = "answer"
+)
+
+// designKindSlug is the ArtifactKind -> kebab .claude command-slug stem for
+// design jobs, mirroring profileSlug's explicit-switch style above. Distinct
+// from WireName (camelCase, JSON discriminator) and String (PascalCase,
+// diagnostics) — this is the THIRD, kebab-case rendering, and DesignCommandFor
+// is its only caller.
+func designKindSlug(k ArtifactKind) string {
+	switch k {
+	case KindMission:
+		return "mission"
+	case KindGlossary:
+		return "glossary"
+	case KindScrubbedRequirements:
+		return "scrubbed-requirements"
+	case KindVolatilities:
+		return "volatilities"
+	case KindCoreUseCases:
+		return "core-use-cases"
+	case KindSystem:
+		return "system"
+	case KindOperationalConcepts:
+		return "operational-concepts"
+	case KindStandardCheck:
+		return "standard-check"
+	case KindPlanningAssumptions:
+		return "planning-assumptions"
+	case KindActivityList:
+		return "activity-list"
+	case KindNetwork:
+		return "network"
+	case KindNormalSolution:
+		return "normal-solution"
+	case KindSubcriticalSolution:
+		return "subcritical-solution"
+	case KindCompressedSolution:
+		return "compressed-solution"
+	case KindDecompressedSolution:
+		return "decompressed-solution"
+	case KindRiskModel:
+		return "risk-model"
+	case KindSdpReview:
+		return "sdp-review"
+	default:
+		return ""
+	}
+}
+
+// designKindHasPMCritique reports whether kind takes a PM-critique design job.
+// LOCKSTEP PIN: this switch's case list is a DELIBERATE, non-imported duplicate
+// of kindHasPMCritique (manager/systemdesign/coauthorartifact.go) — projectstate
+// is a ResourceAccess and sits BELOW manager/systemdesign in the layer graph, so
+// it cannot import that package's func; the two switches must be edited together.
+// kindHasPMCritique carries the matching lockstep pointer back to this func.
+func designKindHasPMCritique(k ArtifactKind) bool {
+	switch k {
+	case KindMission, KindGlossary, KindScrubbedRequirements, KindCoreUseCases:
+		return true
+	default:
+		return false
+	}
+}
+
+// DesignCommandFor maps a design job (kind, mode, addressee) to its .claude
+// command slug — the design-dispatch counterpart to CommandFor's
+// construction-activity mapping above. addressee is consulted ONLY for
+// DesignJobModeAnswer ("pm" | "architect" select design-answer-pm vs
+// design-answer); it is ignored for draft/critique. Returns "" for
+// undispatchable combinations — SdpReview in any mode (assembled server-side,
+// never dispatched), critique for a kind designKindHasPMCritique excludes, or
+// an unrecognized addressee in answer mode. Callers treat "" as a
+// contract-misuse error: the caller asked for a job shape the Method doesn't
+// produce.
+func DesignCommandFor(k ArtifactKind, mode DesignJobMode, addressee string) string {
+	if k == KindSdpReview {
+		return ""
+	}
+	switch mode {
+	case DesignJobModeDraft:
+		if slug := designKindSlug(k); slug != "" {
+			return slug + "-draft"
+		}
+		return ""
+	case DesignJobModeCritique:
+		if !designKindHasPMCritique(k) {
+			return ""
+		}
+		if slug := designKindSlug(k); slug != "" {
+			return slug + "-critique"
+		}
+		return ""
+	case DesignJobModeAnswer:
+		switch addressee {
+		case "architect":
+			return "design-answer"
+		case "pm":
+			return "design-answer-pm"
+		default:
+			return ""
+		}
+	default:
+		return ""
+	}
+}
+
 // ---- from reviewthread.go ----
 
 // reviewthread.go holds the DURABLE review-ledger logic for an ArtifactSlot — the

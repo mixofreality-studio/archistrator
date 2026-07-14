@@ -19,6 +19,7 @@ import (
 	fwgithub "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github"
 	gh "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github/testinfra"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+	methodassets "github.com/mixofreality-studio/archistrator-platform/method-assets"
 )
 
 // access_test.go merges every hand-written test file for the projectstate
@@ -6380,6 +6381,92 @@ func TestEveryProfilePhaseHasCommandFile(t *testing.T) {
 	// Sanity: the matrix is exactly 30 distinct commands.
 	if len(seen) != 30 {
 		t.Errorf("expected 30 distinct commands, got %d", len(seen))
+	}
+}
+
+// ---- from designcommand_test.go ----
+
+// TestDesignCommandFor is the failing-first table test for Plan-2 Task B1: every
+// draft slug (16 dispatchable kinds — SdpReview is excluded, assembled
+// server-side), every critique slug (the 4 kindHasPMCritique kinds), the two
+// answer slugs (by addressee), and the "" cases for undispatchable combinations.
+func TestDesignCommandFor(t *testing.T) {
+	cases := []struct {
+		name      string
+		k         ArtifactKind
+		mode      DesignJobMode
+		addressee string
+		want      string
+	}{
+		// ---- draft: all 16 dispatchable kinds, verbatim slugs ----
+		{"draft mission", KindMission, DesignJobModeDraft, "", "mission-draft"},
+		{"draft glossary", KindGlossary, DesignJobModeDraft, "", "glossary-draft"},
+		{"draft scrubbedRequirements", KindScrubbedRequirements, DesignJobModeDraft, "", "scrubbed-requirements-draft"},
+		{"draft volatilities", KindVolatilities, DesignJobModeDraft, "", "volatilities-draft"},
+		{"draft coreUseCases", KindCoreUseCases, DesignJobModeDraft, "", "core-use-cases-draft"},
+		{"draft system", KindSystem, DesignJobModeDraft, "", "system-draft"},
+		{"draft operationalConcepts", KindOperationalConcepts, DesignJobModeDraft, "", "operational-concepts-draft"},
+		{"draft standardCheck", KindStandardCheck, DesignJobModeDraft, "", "standard-check-draft"},
+		{"draft planningAssumptions", KindPlanningAssumptions, DesignJobModeDraft, "", "planning-assumptions-draft"},
+		{"draft activityList", KindActivityList, DesignJobModeDraft, "", "activity-list-draft"},
+		{"draft network", KindNetwork, DesignJobModeDraft, "", "network-draft"},
+		{"draft normalSolution", KindNormalSolution, DesignJobModeDraft, "", "normal-solution-draft"},
+		{"draft subcriticalSolution", KindSubcriticalSolution, DesignJobModeDraft, "", "subcritical-solution-draft"},
+		{"draft compressedSolution", KindCompressedSolution, DesignJobModeDraft, "", "compressed-solution-draft"},
+		{"draft decompressedSolution", KindDecompressedSolution, DesignJobModeDraft, "", "decompressed-solution-draft"},
+		{"draft riskModel", KindRiskModel, DesignJobModeDraft, "", "risk-model-draft"},
+
+		// ---- critique: exactly the kindHasPMCritique 4 ----
+		{"critique mission", KindMission, DesignJobModeCritique, "", "mission-critique"},
+		{"critique glossary", KindGlossary, DesignJobModeCritique, "", "glossary-critique"},
+		{"critique scrubbedRequirements", KindScrubbedRequirements, DesignJobModeCritique, "", "scrubbed-requirements-critique"},
+		{"critique coreUseCases", KindCoreUseCases, DesignJobModeCritique, "", "core-use-cases-critique"},
+
+		// ---- answer: addressee-selected, kind-independent ----
+		{"answer architect", KindMission, DesignJobModeAnswer, "architect", "design-answer"},
+		{"answer pm", KindMission, DesignJobModeAnswer, "pm", "design-answer-pm"},
+
+		// ---- undispatchable combinations ----
+		{"sdpReview draft undispatchable (assembled server-side)", KindSdpReview, DesignJobModeDraft, "", ""},
+		{"sdpReview critique undispatchable", KindSdpReview, DesignJobModeCritique, "", ""},
+		{"volatilities critique: non-critique kind", KindVolatilities, DesignJobModeCritique, "", ""},
+		{"answer unknown addressee", KindMission, DesignJobModeAnswer, "nobody", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := DesignCommandFor(c.k, c.mode, c.addressee); got != c.want {
+				t.Errorf("DesignCommandFor(%v,%v,%q) = %q, want %q", c.k, c.mode, c.addressee, got, c.want)
+			}
+		})
+	}
+}
+
+// TestDesignCommandsExistInMethodAssets is the CROSS-REPO WIRE TEST: for every
+// (kind, mode[, addressee]) combination DesignCommandFor deems dispatchable
+// (non-"" slug), the method-assets embedded .claude/commands tree must carry a
+// matching file — proving the server's command-slug derivation and the seeded
+// .claude corpus can never drift apart.
+func TestDesignCommandsExistInMethodAssets(t *testing.T) {
+	files, err := methodassets.ClaudeFiles()
+	if err != nil {
+		t.Fatalf("methodassets.ClaudeFiles: %v", err)
+	}
+	assertCommandFile := func(slug string) {
+		t.Helper()
+		if slug == "" {
+			return
+		}
+		path := ".claude/commands/" + slug + ".md"
+		if _, ok := files[path]; !ok {
+			t.Errorf("missing %s in method-assets embedded corpus", path)
+		}
+	}
+	for _, k := range AllArtifactKinds() {
+		assertCommandFile(DesignCommandFor(k, DesignJobModeDraft, ""))
+		assertCommandFile(DesignCommandFor(k, DesignJobModeCritique, ""))
+	}
+	for _, addressee := range []string{"architect", "pm"} {
+		assertCommandFile(DesignCommandFor(KindMission, DesignJobModeAnswer, addressee))
 	}
 }
 

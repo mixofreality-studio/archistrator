@@ -2706,6 +2706,11 @@ func draftTask(kind projectstate.ArtifactKind) string {
 // (mission / glossary+scrubbed / core-use-cases — rework §2.1, §6.6). The
 // architect-owned steps (volatilities, architecture, standard-check) skip PM
 // critique entirely.
+//
+// LOCKSTEP PIN: projectstate.DesignCommandFor's critique-slug gate
+// (designKindHasPMCritique, resourceaccess/projectstate/projectstateaccess.go)
+// is a deliberate, non-imported duplicate of this switch's case list — RA sits
+// below this Manager layer and cannot import it. Edit both switches together.
 func kindHasPMCritique(kind projectstate.ArtifactKind) bool {
 	switch kind {
 	case projectstate.KindMission,

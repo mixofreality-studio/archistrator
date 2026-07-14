@@ -317,6 +317,18 @@ var encapsulationAllowlistData = map[string][]string{
 		// adapters.go). Both are total, side-effect-free functions of already-public
 		// projectstate enum values; there is nothing to generate a contract op for.
 		"ClassifyType",
+		// DesignCommandFor (Plan-2 Task B1) + its DesignJobMode dispatch-shape enum: the
+		// (kind, mode, addressee) → .claude slash-command name mapping the design Managers
+		// need to dispatch draft/critique/answer jobs. Same category as CommandFor above —
+		// a total, side-effect-free function of already-public projectstate enum values plus
+		// the new DesignJobMode wire concept; its supporting designKindSlug/
+		// designKindHasPMCritique stay unexported (see designcommand.go / commandfor.go
+		// precedent).
+		"DesignCommandFor",
+		"DesignJobMode",
+		"DesignJobModeAnswer",
+		"DesignJobModeCritique",
+		"DesignJobModeDraft",
 		"CoarseBuildStatus",
 		"CoarseBuildStatusFor",
 		"CoarsePhase",
