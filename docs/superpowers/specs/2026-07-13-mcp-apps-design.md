@@ -47,15 +47,17 @@ This ruleset ships in the app-generator webApp template so **every archistrator-
 
 ### 3.4 Shell app + bundling: CSP stub, assets from nginx (founder ruling)
 
-A second Vite entry, `mcp-app.html`, builds the shell as a **normal asset bundle with fixed (unhashed) output names** (`mcp-app.js`, `mcp-app.css`) into the same `dist` that `PUSH-APP.sh` already publishes to nginx. The `ui://archistrator/shell.html` resource is a **~1–2 KB constant HTML stub** whose script/style tags point at the webApp origin, with `_meta.ui.csp` declaring that origin. Responsibility split: Go serves a config-templated constant string (no fetching, no caching, no asset awareness); nginx serves and cache-controls the assets (plus CORS for the sandbox origin); the browser HTTP-caches them normally; the MCP host caches the stub resource per conversation. Fixed names keep the stub constant; cache-busting via a version query param from config or short TTLs. No multi-MB blob travels through JSON-RPC, so bundle size is a non-issue.
+A second Vite entry, `mcp-app.html`, builds the shell as a **normal asset bundle with fixed (unhashed) output names** (`mcp-app.js`, `mcp-app.css`) into the same `dist` that `PUSH-APP.sh` already publishes to nginx. The `ui://archistrator/shell.html` resource is a **~1–2 KB constant HTML stub** whose script/style tags point at the webApp origin, with `_meta.ui.csp.resourceDomains: ["https://<webapp-origin>"]` (spec-verified field name; scripts/styles/fonts/images class). **`connectDomains` stays empty** — the app makes no fetch/XHR at all, which doubles as the exfiltration barrier (§8). Responsibility split: Go serves a config-templated constant string (no fetching, no caching, no asset awareness); nginx serves and cache-controls the assets (plus CORS for the sandbox origin); the browser HTTP-caches them normally; the MCP host caches the stub resource. Fixed names keep the stub constant; cache-busting via a version query param from config or short TTLs. No multi-MB blob travels through JSON-RPC, so bundle size is a non-issue.
 
-Shell behavior: `App.connect()` → receive tool result → look up the screen in a static **view registry** (keyed by view id carried in tool metadata/result) → provide `McpOpsClient` + seeded query cache + theme → mount that screen's shared container, minus router shell and chat panel.
+**Lifecycle (spec-verified):** the iframe is instantiated **per tool call** and torn down via `ui/resource-teardown` — not one persistent app per conversation. Consequences: the shell must boot fast from HTTP cache (fixed-name assets make this a 304 after first load); the view registry keys off **`hostContext.toolInfo.tool` from the `ui/initialize` response** (the host tells the app which tool fired — no viewId smuggled through tool results); and SPA-style background polling (e.g. the 2s `useSessionState` poll) is wrong in MCP context — the MCP `OpsClient` provider disables polling intervals and refreshes on user action instead (hosts may rate-limit app-initiated calls; the spec flags resource consumption).
+
+Shell behavior: `App.connect()` → `ui/initialize` handshake (declares `availableDisplayModes`, receives `toolInfo` + host `theme`) → registry lookup → provide `McpOpsClient` + seeded query cache (from `ui/notifications/tool-result`) + theme (mapped from host light/dark) → mount that screen's shared container, minus router shell and chat panel.
 
 **Fallback** (only if a host's `_meta.ui.csp` support proves broken at pilot): single-file inlined bundle via `vite-plugin-singlefile` served as the resource body.
 
 ### 3.5 Go server: resources capability + tool metadata
 
-- **MCP resources** (greenfield): register `ui://archistrator/shell.html` via go-sdk `AddResource`, returning the §3.4 constant stub with the MCP-Apps mimetype and `_meta.ui.csp`. The handler renders a config-templated string (webApp origin + version) — no file reads, no fetching, no caching in Go. nginx remains the single system of record for all built UI; a webApp deploy updates in-chat views with no server redeploy. Wiring beside `mcp_mount.go` in the hooks seam; one config value for the origin.
+- **MCP resources** (greenfield): register `ui://archistrator/shell.html` via go-sdk `AddResource`, returning the §3.4 constant stub with mimetype **`text/html;profile=mcp-app`** (spec-verified) and `_meta.ui.csp`. The handler renders a config-templated string (webApp origin + version) — no file reads, no fetching, no caching in Go. nginx remains the single system of record for all built UI; a webApp deploy updates in-chat views with no server redeploy. Wiring beside `mcp_mount.go` in the hooks seam; one config value for the origin.
 - **`_meta.ui.resourceUri` on tools**: stamped by `mcpemit` during codegen. Which operations have a view is declared **in `project.json`** — a small optional `ui` annotation on service-contract operations (schema-first, consistent with doctrine; exact slot shape settled during planning recon). Tools without a view stay plain tools.
 
 ## 4. Auth + testing
@@ -87,3 +89,28 @@ Shell behavior: `App.connect()` → receive tool result → look up the screen i
 - webApp acting as an MCP *host*.
 - SSR / TanStack Start: explicitly deferred, explicitly unblocked. SSR cannot reach the MCP surface (the app is a static resource blob booting in a sandboxed iframe), so it carries no MCP payoff; if adopted later for SPA reasons, the prop-driven component purity helps it, and the §3.5 byte-source just points at the TS server instead of nginx.
 - app-generator replication (follow-on spec after the pattern is proven).
+
+## 8. Security & spec-compliance review (2026-07-13, OWASP × ext-apps spec 2026-01-26)
+
+### 8.1 Spec compliance (verified against `specification/2026-01-26/apps.mdx`)
+
+| Requirement | Our design |
+|---|---|
+| Tool meta key `_meta.ui.resourceUri` (not the deprecated `ui/resourceUri`) | ✅ mcpemit stamps the nested form |
+| Resource mimetype `text/html;profile=mcp-app` | ✅ §3.5 |
+| CSP via `_meta.ui.csp.resourceDomains`; hosts MUST NOT allow undeclared domains | ✅ webApp origin only; `connectDomains`/`frameDomains`/`baseUriDomains` empty |
+| Server MUST include meaningful fallback `content[]` even when UI renders | ⚠️ **rule for mcpemit**: tool results keep their full text/structured payloads; never "see the UI above" |
+| Server SHOULD validate the client's `io.modelcontextprotocol/ui` extension capability before advertising UI tools | ⚠️ plan item: check capability at initialize if go-sdk exposes it; `_meta` is inert to non-supporting hosts, so graceful either way |
+| View MUST use postMessage only, declare `availableDisplayModes` in `ui/initialize` | ✅ ext-apps `App` class handles |
+| Per-tool-call iframe lifecycle + `ui/resource-teardown` | ✅ §3.4 (fast cached boot, no background polling) |
+| `_meta.ui.visibility` (`model`/`app`) | Default (both) for all ops in this slice; no app-only tools |
+
+### 8.2 OWASP findings
+
+- **A03 XSS-in-iframe is the top threat, and it is not "contained by the sandbox":** script injected into the app can call `tools/call` with the user's principal (approve reviews, `executeNextActivity` → spends real money), poison the conversation via `ui/update-model-context`, and phish via `ui/open-link`. The app renders LLM/user-authored artifact content, so this is a live concern. Current state verified clean: `react-markdown` without `rehype-raw`, zero `dangerouslySetInnerHTML` in `webApp/src`. **Control: lint rules ban `dangerouslySetInnerHTML` and `rehype-raw` in the components layer** (ships in the platform eslint config). Empty `connectDomains` means even successful injection has no direct exfil channel — everything auditable rides host-mediated JSON-RPC.
+- **A01 access control:** every tool must be safe to call directly by a hostile client holding the user's session — server-side per-operation authorization on the principal, never "the model wouldn't call this." Already the manager-op posture; named here as an invariant the MCP surface inherits. Host consent on app-initiated mutations is defense-in-depth, not the authz boundary.
+- **A07 pilot exposure (highest operational risk):** dev-mode principal + cloudflared = **unauthenticated archistrator reachable from the public internet** while the tunnel is up. Controls: throwaway project state only, tunnel up only during active sessions, and **production OAuth graduates from earmark to release-blocker** before any connector touches real state.
+- **A05 misconfiguration:** the `Access-Control-Allow-Origin: *` header is scoped to an nginx location matching only the fixed-name `mcp-app.*` assets — never `/api/*`, never the SPA HTML. Config reviewed in the plan's nginx task.
+- **A08 integrity:** assets over TLS from our origin; ext-apps package version pinned. SRI considered and deferred — integrity hashes would make the stub non-constant per deploy (revisit if assets ever move to a third-party CDN).
+- **A10 SSRF:** eliminated by design — the CSP-stub ruling removed all server-side fetching.
+- **Social engineering (spec-acknowledged):** the UI renders model-influenced content next to real action buttons; irreversible/spending ops (`advanceToConstruction`, `executeNextActivity`) keep an explicit in-UI confirm step rather than single-click, independent of host consent behavior.
