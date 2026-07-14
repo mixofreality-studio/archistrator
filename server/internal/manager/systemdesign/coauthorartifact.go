@@ -635,7 +635,7 @@ func (wf *workflows) runDraftRoundTrip(
 func (wf *workflows) dispatchDraftAndReadBack(
 	ctx workflow.Context,
 	in coAuthorInput,
-	proj projectstate.Project,
+	_ projectstate.Project,
 	gf gitSession,
 	sessionBranch string,
 	feedback *ReviewFeedback,

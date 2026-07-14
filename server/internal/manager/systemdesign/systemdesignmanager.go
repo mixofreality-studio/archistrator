@@ -2146,8 +2146,8 @@ func summaryToContract(s projectstate.ProjectSummary) ProjectSummary {
 
 // projectStateToContract maps the head-state Project aggregate to the contract
 // ProjectState transport shape. Read-time projections (each git row's prUrl/prNumber
-// composed from m.repoBase + the opaque ref, and the EV/SPI earned-value curve from
-// m.estimator) are sourced server-side here rather than re-derived by the webClient.
+// composed from the per-project repo base + the opaque ref, and the EV/SPI earned-value
+// curve from m.estimator) are sourced server-side here rather than re-derived by the webClient.
 func (m *systemDesignManager) projectStateToContract(p projectstate.Project) ProjectState {
 	phase := Phase(int(p.Phase))
 	return ProjectState{
@@ -2162,7 +2162,7 @@ func (m *systemDesignManager) projectStateToContract(p projectstate.Project) Pro
 		OperatingModel:       OperatingModel(string(p.OperatingModel.OrDefault())),
 		Research:             researchToContract(p.Research),
 		Slots:                slotsToContract(p),
-		GitRows:              m.gitRowsToContract(p.ActivityGit),
+		GitRows:              m.gitRowsToContract(ProjectID(p.ID), p.ActivityGit),
 		ActivityConstruction: constructionRowsToContract(p.ActivityConstruction, activityMetaByID(p)),
 		ConstructionProgress: m.constructionProgressToContract(p),
 		ServiceContracts:     serviceContractsToContract(p.ServiceContracts),
@@ -2386,16 +2386,23 @@ func stageForStatus(s projectstate.ArtifactReviewStatus) ArtifactStage {
 }
 
 // gitRowsToContract maps the per-activity git head-state map (honest-empty: nil in ⇒
-// nil out). It composes each row's READ-TIME prUrl/prNumber projections from
-// m.repoBase + the opaque pullRequestRef — the durable aggregate stays
+// nil out). It composes each row's READ-TIME prUrl/prNumber projections from the
+// PER-PROJECT repo base + the opaque pullRequestRef — the durable aggregate stays
 // provider-opaque; prUrl/prNumber are pure read-time projections, never stored.
-func (m *systemDesignManager) gitRowsToContract(rows map[string]projectstate.ActivityGitStatus) map[string]ActivityGitStatus {
+//
+// Since the venue switch (0df2ce0) gh-mode construction PRs open in the PROJECT's own
+// repo, not the central construction repo, so the base is resolved per-project via
+// projectRepoBase(projectID) (which falls back to the central m.repoBase exactly when
+// the dispatch resolver is nil or misses — links stay central-pointing precisely when
+// dispatch does).
+func (m *systemDesignManager) gitRowsToContract(projectID ProjectID, rows map[string]projectstate.ActivityGitStatus) map[string]ActivityGitStatus {
 	if len(rows) == 0 {
 		return nil
 	}
+	base := m.projectRepoBase(projectID)
 	out := make(map[string]ActivityGitStatus, len(rows))
 	for id, g := range rows {
-		prNumber, prURL := projectPRRef(g.PullRequestRef, m.repoBase)
+		prNumber, prURL := projectPRRef(g.PullRequestRef, base)
 		out[id] = ActivityGitStatus{
 			ActivityID:     g.ActivityID,
 			BranchName:     g.BranchName,
@@ -2433,6 +2440,54 @@ func projectPRRef(ref, repoBase string) (prNumber int, prURL string) {
 		prURL = repoBase + "/pull/" + ref
 	}
 	return prNumber, prURL
+}
+
+// projectRepoBase resolves the WEB base each git row's prUrl is composed against FOR THIS
+// PROJECT. Since the venue switch (0df2ce0) gh-mode construction PRs open in the project's
+// OWN repo, so a per-project base must be projected rather than reusing the central
+// construction repo's base (m.repoBase) — those URLs would otherwise point at the wrong
+// repo and lie. The host stays the same as the configured central base (github.com or the
+// GHES web root); only owner/repo swap to the project's own.
+//
+// Fallback (mirrors the dispatch fallback so links stay central-pointing EXACTLY when
+// dispatch stays central): the central m.repoBase is returned verbatim when the resolver
+// is nil, misses the project, yields a malformed ref, or the central base has no host to
+// borrow (unconfigured ⇒ "" ⇒ prUrl omitted downstream).
+func (m *systemDesignManager) projectRepoBase(projectID ProjectID) string {
+	if m.repo == nil {
+		return m.repoBase
+	}
+	repoRef, ok := m.repo(projectID)
+	if !ok {
+		return m.repoBase
+	}
+	owner, name, err := sourcecontrol.RepoRefOwnerRepo(repoRef)
+	if err != nil {
+		return m.repoBase
+	}
+	host := repoWebHost(m.repoBase)
+	if host == "" {
+		return m.repoBase
+	}
+	return host + "/" + owner + "/" + name
+}
+
+// repoWebHost recovers the <host> prefix from a <host>/<owner>/<repo> web base by
+// stripping the final two path segments. The host retains its scheme (https://…); a
+// GHES subpath host (e.g. https://ghe.example.com/prefix) is preserved because only the
+// trailing owner/repo pair is removed. "" in (unconfigured central base) ⇒ "" out.
+func repoWebHost(repoBase string) string {
+	s := strings.TrimRight(repoBase, "/")
+	i := strings.LastIndex(s, "/")
+	if i < 0 {
+		return ""
+	}
+	s = s[:i] // drop /<repo>
+	i = strings.LastIndex(s, "/")
+	if i < 0 {
+		return ""
+	}
+	return s[:i] // drop /<owner>
 }
 
 // constructionRowsToContract maps the per-activity construction head-state map

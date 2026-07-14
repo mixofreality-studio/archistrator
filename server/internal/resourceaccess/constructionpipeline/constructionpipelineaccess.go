@@ -1054,7 +1054,7 @@ func RepoTargetIsZero(t RepoTarget) bool { return t.Owner == "" && t.Name == "" 
 // construction caller (UC3) leaves it nil and is untouched. The DESIGN-dispatch
 // caller (the UC1/UC2 design Managers — a NEW caller of the FROZEN submit verb)
 // populates it with the agentic DESIGN job's parameters:
-//   {"artifact_kind", "design_prompt", "target_branch", "prior_state_ref"}
+//   {"artifact_kind", "command", "target_branch", "prior_state_ref", "job_mode"}
 // (the exact workflow_dispatch input names the aiarch-design.yml template
 // declares — C-WF-DESIGN). These keys ride into the runtime's input map.
 //

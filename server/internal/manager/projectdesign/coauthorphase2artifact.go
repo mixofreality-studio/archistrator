@@ -448,7 +448,7 @@ func (wf *workflows) containAtFailedGate(
 func (wf *workflows) dispatchDraftAndReadBack(
 	ctx workflow.Context,
 	in coAuthorInput,
-	proj projectstate.Project,
+	_ projectstate.Project,
 	gf *gitSession,
 	sessionBranch string,
 	feedback *ReviewFeedback,
@@ -1135,13 +1135,14 @@ func dispatchErrSummary(err error) string {
 // flips from a synchronous workerAccess call to an ASYNC dispatch → observe →
 // read-back round-trip:
 //
-//   - DISPATCH  the Manager composes the Method Phase-2 role prompt IN-MEMORY
-//               (never persisted) and dispatches a claude-code-action DESIGN job via
+//   - DISPATCH  the Manager selects the Method Phase-2 role .claude command slug
+//               (DesignCommandFor) and dispatches a claude-code-action DESIGN job via
 //               the FROZEN constructionPipelineAccess.SubmitConstructionPipeline verb,
-//               carrying {artifact_kind, design_prompt, target_branch,
-//               prior_state_ref} on the additive pipelineSpec.DispatchInputs field
-//               (C-WF-DESIGN input schema, ADDED by C-MSD-Δ). The RA reserves +
-//               stamps idempotency_token itself; the Manager MUST NOT set it.
+//               carrying {artifact_kind, command, target_branch, prior_state_ref,
+//               job_mode} on the additive PipelineSpec.DispatchInputs field
+//               (C-WF-DESIGN input schema). The Method Phase-2 doctrine lives in the
+//               command's method-assets, not a composed in-memory prompt. The RA
+//               reserves + stamps idempotency_token itself; the Manager MUST NOT set it.
 //   - OBSERVE   the Manager polls ObserveConstructionPipeline(handle) between
 //               durableExecutionAccess timer waits until a TYPED terminal phase.
 //   - READ-BACK on PhaseSucceeded the Manager reads the committed typed Phase-2 Kind

@@ -3046,6 +3046,37 @@ func TestGetProject_ComposesPRRefAtRead(t *testing.T) {
 	}
 }
 
+// TestGetProject_PRUrl_ProjectsPerProjectRepo verifies that when the per-project repo
+// resolver resolves, each git row's prUrl is composed against the PROJECT's own repo
+// (owner/name) with the configured central host borrowed — since the venue switch,
+// gh-mode construction PRs open in the project repo, not the central construction repo.
+func TestGetProject_PRUrl_ProjectsPerProjectRepo(t *testing.T) {
+	id := ProjectID("gh-proj")
+	p := sampleProject(projectstate.ProjectID(id))
+	p.ActivityGit = map[string]projectstate.ActivityGitStatus{
+		"C-MST": {ActivityID: "C-MST", BranchName: "activity/C-MST", PullRequestRef: "44"},
+	}
+	fake := &fakeProjectStateAccess{readProject: p}
+	// Central base points at the construction repo; the resolver points the project at its
+	// OWN repo (acme/gtdapp). The prUrl must use the project repo with the central host.
+	repoFn := func(ProjectID) (sourcecontrol.RepoRef, bool) {
+		return sourcecontrol.RepoRef("acme|acme/gtdapp"), true
+	}
+	m := newSystemDesignManager(nil, fake, nil, nil, repoFn, estimation.NewEstimationEngine(), nil, "https://github.com/central/constructrepo")
+
+	st, err := m.GetProject(rc(), id)
+	if err != nil {
+		t.Fatalf("GetProject: %v", err)
+	}
+	row := st.GitRows["C-MST"]
+	if row.PrURL != "https://github.com/acme/gtdapp/pull/44" {
+		t.Fatalf("prUrl = %q, want per-project repo base with central host", row.PrURL)
+	}
+	if row.PrNumber != 44 {
+		t.Fatalf("prNumber = %d, want 44", row.PrNumber)
+	}
+}
+
 // TestGetProject_NilEstimator_NoCompute verifies the compute-at-read is a no-op when no
 // estimator is injected: the authored network is served unenriched.
 func TestGetProject_NilEstimator_NoCompute(t *testing.T) {
