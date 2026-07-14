@@ -145,6 +145,13 @@ export interface SystemDesignViewProps {
   onAcknowledgeStale: (note: string) => void;
   acknowledgeStalePending: boolean;
   acknowledgeStaleError?: string | undefined;
+  /**
+   * SPA default (false, unset): GatePanel's "Send back" stays gated on
+   * `commentSurface.commentCount > 0`. MCP (no client-side comment accumulator)
+   * passes `true` so the click is reachable — see GatePanel's own doc comment for
+   * why that doesn't weaken the "redraft always carries guidance" invariant.
+   */
+  allowEmptySendBack?: boolean;
   // ── SPA-only optional surfaces (see file header) ──────────────────────────
   chat?: ReactNode;
   chatOpen?: boolean;
@@ -177,6 +184,7 @@ export function SystemDesignView({
   onAcknowledgeStale,
   acknowledgeStalePending,
   acknowledgeStaleError,
+  allowEmptySendBack = false,
   chat,
   chatOpen,
   onOpenChat,
@@ -311,6 +319,7 @@ export function SystemDesignView({
         {/* body */}
         <StepBody
           activeKind={activeKind}
+          allowEmptySendBack={allowEmptySendBack}
           amendPending={amendPending}
           asyncFailed={asyncFailed}
           beginPending={beginPending}
@@ -363,6 +372,7 @@ export function SystemDesignView({
 function StepBody({
   t,
   activeKind,
+  allowEmptySendBack,
   committed,
   committedEnvelope,
   committedRevisions,
@@ -400,6 +410,7 @@ function StepBody({
 }: {
   t: Tokens;
   activeKind: ArtifactKind;
+  allowEmptySendBack: boolean;
   committed: boolean;
   committedEnvelope: ArtifactModelEnvelope | undefined;
   committedRevisions: number | undefined;
@@ -601,6 +612,7 @@ function StepBody({
       ) : null}
       {gateOpen ? (
         <GatePanel
+          allowEmptySendBack={allowEmptySendBack}
           commentCount={commentCount}
           findings={findings}
           gateError={gateError}

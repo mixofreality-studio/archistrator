@@ -98,12 +98,25 @@ function projectIdFromToolArgs(toolArgs: Record<string, unknown>): string {
 }
 
 /** Ambient model-context text: what the architect is currently looking at. Sent on
- *  view/stage/selection change so the agent's next turn is grounded in the screen. */
+ *  view/stage/selection/lastFiledComment change so the agent's next turn is
+ *  grounded in the screen.
+ *
+ *  `lastFiledComment`, when present, is folded into this text rather than left to
+ *  a one-shot post: `submitSelectionComment` stages the comment as model context
+ *  and then sends a user turn asking the agent to file it, but closing the
+ *  composer afterward flips `composer` back to null, which re-runs THIS effect
+ *  (it depends on `composer`) and would otherwise immediately overwrite that
+ *  staged text with plain view text before the agent's next turn ever sees it.
+ *  Folding (vs. a one-shot suppress-next-post ref) survives any number of
+ *  subsequent ambient re-fires — e.g. a stage change landing in the same tick as
+ *  the composer close — because the fold lives in state, not in a flag that only
+ *  protects a single post. It's cleared on step navigation (see onSelectStep). */
 function viewContextText(
   projectName: string | undefined,
   kind: ArtifactKind,
   stage: SessionStage | undefined,
-  anchor: Anchor | null
+  anchor: Anchor | null,
+  lastFiledComment: string | null
 ): string {
   const lines = [
     `The architect is viewing the "${METHOD_METADATA[kind].title}" system-design artifact` +
@@ -113,6 +126,9 @@ function viewContextText(
   ];
   if (anchor !== null) {
     lines.push(`They have selected: "${anchor.anchorText ?? anchor.label}" (${anchor.jsonPath}).`);
+  }
+  if (lastFiledComment !== null) {
+    lines.push('', `They just filed this comment: ${lastFiledComment}`);
   }
   return lines.join('\n');
 }
@@ -126,7 +142,7 @@ function commentContextText(
   text: string
 ): string {
   return [
-    viewContextText(projectName, kind, stage, anchor),
+    viewContextText(projectName, kind, stage, anchor, null),
     '',
     `The architect wants to file this comment on the selected element:`,
     text,
@@ -189,6 +205,9 @@ export function McpSystemDesignContainer({
   const [composer, setComposer] = useState<{ mode: 'comment' | 'reject'; anchor: Anchor | null } | null>(null);
   const [composerText, setComposerText] = useState('');
   const [sendFallbackHint, setSendFallbackHint] = useState(false);
+  // Folded into the ambient view-context text (see viewContextText's doc comment)
+  // so the composer-close ambient re-post doesn't clobber a just-filed comment.
+  const [lastFiledComment, setLastFiledComment] = useState<string | null>(null);
 
   const sessionMissing = session.error instanceof ApiError && session.error.status === 404;
   const stage = session.data?.stage;
@@ -198,9 +217,14 @@ export function McpSystemDesignContainer({
   // update reaches the model, and it does so on the NEXT user turn).
   useEffect(() => {
     void app.updateModelContext({
-      content: [{ type: 'text', text: viewContextText(projectName, activeKind, stage, composer?.anchor ?? null) }],
+      content: [
+        {
+          type: 'text',
+          text: viewContextText(projectName, activeKind, stage, composer?.anchor ?? null, lastFiledComment),
+        },
+      ],
     });
-  }, [app, projectName, activeKind, stage, composer]);
+  }, [app, projectName, activeKind, stage, composer, lastFiledComment]);
 
   // The two-call comment path (spec §3.4): stage the anchor + comment as model
   // context, THEN post a brief user turn asking the agent to file it. A comment has
@@ -222,6 +246,7 @@ export function McpSystemDesignContainer({
   const onSelectStep = (i: number): void => {
     setGateError(undefined);
     setComposer(null);
+    setLastFiledComment(null);
     setActiveIndex(i);
   };
 
@@ -275,7 +300,11 @@ export function McpSystemDesignContainer({
       return;
     }
     if (composer.anchor !== null) {
-      await submitSelectionComment(composer.anchor, text.length > 0 ? text : `(comment on ${composer.anchor.label})`);
+      // The composer's "Comment" submit is disabled below while `text` is empty
+      // (a filed comment always carries the architect's own words), so `text` is
+      // guaranteed non-empty here.
+      await submitSelectionComment(composer.anchor, text);
+      setLastFiledComment(text);
       closeComposer();
     }
   };
@@ -297,6 +326,7 @@ export function McpSystemDesignContainer({
   return (
     <>
       <SystemDesignView
+        allowEmptySendBack
         {...(displayMode !== undefined ? { displayMode } : {})}
         acknowledgeStaleError={acknowledgeStale.error?.message}
         acknowledgeStalePending={acknowledgeStale.isPending}
@@ -381,7 +411,7 @@ export function McpSystemDesignContainer({
                 Cancel
               </Button>
               <Button
-                disabled={composer.mode === 'reject' && composerText.trim().length === 0}
+                disabled={composerText.trim().length === 0}
                 variant="contained"
                 onClick={() => void submitComposer()}
               >

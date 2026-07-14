@@ -5,7 +5,9 @@
  *   Send back          → submitReviewDecision(reject, { feedback, comments })
  *   Withdraw           → submitReviewDecision(withdraw)
  * Send-back is disabled until at least one feedback entry — a free-form note or an
- * anchored comment — is accumulated, so the redraft always carries guidance.
+ * anchored comment — is accumulated, so the redraft always carries guidance. That
+ * accumulation happens client-side (SPA: CommentContext's pending-comment count;
+ * MCP: there is no such client-side accumulator — see `allowEmptySendBack`).
  * Findings are the real engine.Finding[] from the
  * session view; an empty findings list reads as "all checks passed".
  */
@@ -24,6 +26,7 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import type { Finding } from '../../contracts/types';
 import { useTokens } from '../../utilities/theme/ThemeContext';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
+import { sendBackDisabled } from './sendBackLogic';
 
 export function GatePanel({
   findings,
@@ -31,6 +34,7 @@ export function GatePanel({
   openCommentCount = 0,
   gateError,
   pending,
+  allowEmptySendBack = false,
   onApprove,
   onSendBack,
   onWithdraw,
@@ -48,6 +52,17 @@ export function GatePanel({
   gateError?: string | undefined;
   /** A decision mutation is in flight — disable the buttons. */
   pending: boolean;
+  /**
+   * SPA default (false): "Send back" stays disabled until `commentCount > 0`, so
+   * the redraft always carries client-accumulated guidance. MCP has no client-side
+   * comment accumulator (feedback text is collected AFTER the click, in the host's
+   * own composer) — `commentCount` there is always 0, which would make send-back
+   * permanently unreachable. MCP passes `true` here to unblock the click; the
+   * composer that follows enforces non-empty feedback before it actually submits
+   * the reject decision, so the "redraft always carries guidance" invariant still
+   * holds — it's just enforced one step later, by the composer, not this button.
+   */
+  allowEmptySendBack?: boolean;
   onApprove: () => void;
   onSendBack: () => void;
   onWithdraw: () => void;
@@ -234,7 +249,7 @@ export function GatePanel({
             <Button
               color="inherit"
               data-testid={UI_IDENTIFIERS.GatePanel.SENDBACK}
-              disabled={pending || commentCount === 0}
+              disabled={sendBackDisabled(pending, commentCount, allowEmptySendBack)}
               startIcon={<ReplayIcon />}
               sx={{ color: t.ink, borderColor: t.line }}
               variant="outlined"
