@@ -10,13 +10,13 @@ The activity list becomes a directed graph of dependencies. Calculate floats. Id
 ## Canonical source
 
 **Primary:**
-- Löwy, [Ch. 7 §7 "Critical Path Analysis"](../../../research/rightingsoftware/OEBPS/xhtml/ch07.xhtml#ch07lev1sec7)
-- [Ch. 7 §7.1 "Project Network"](../../../research/rightingsoftware/OEBPS/xhtml/ch07.xhtml#ch07lev2sec11)
-- [Ch. 7 §7.2 "The Critical Path"](../../../research/rightingsoftware/OEBPS/xhtml/ch07.xhtml#ch07lev2sec12)
-- [Ch. 8 §1 "The Network Diagram"](../../../research/rightingsoftware/OEBPS/xhtml/ch08.xhtml#ch08lev1sec1) — node vs arrow diagrams
-- [Ch. 8 §2 "Floats"](../../../research/rightingsoftware/OEBPS/xhtml/ch08.xhtml#ch08lev1sec2) — total and free float
+- Löwy, Ch. 7 §7 "Critical Path Analysis"
+- Ch. 7 §7.1 "Project Network"
+- Ch. 7 §7.2 "The Critical Path"
+- Ch. 8 §1 "The Network Diagram" — node vs arrow diagrams
+- Ch. 8 §2 "Floats" — total and free float
 
-**Standard reference:** [Appendix C §4.5 "Project network"](../../../research/rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec4) — items 5a–5j.
+**Standard reference:** Appendix C §4.5 "Project network" — items 5a–5j.
 
 **Schema:** [NETWORK-SCHEMA.md](NETWORK-SCHEMA.md) (co-located with this skill) — documents the shape of the network data. The typed `.network` JSON slot mirrors this shape; the YAML in the schema doc is illustrative of the fields, not a file you write.
 
@@ -172,6 +172,12 @@ For each activity, pre-flag:
 - **Assumption-dependent activities**: activities that rely on a flagged planning assumption
 
 Capture these in `network_metadata.warnings[]`. They feed [[the-method-risk-modeling]].
+
+## Draft-job doctrine (CI dispatch)
+
+This is the normative task the CI draft job (and a local `/project-design` run) executes to produce the `Network`. It is self-contained: everything a draft agent needs to build the project network is stated here (the forward/backward-pass and float computations in the Procedure above are the mechanics behind it).
+
+Convert the activity list into a project network: declare each activity's predecessor dependencies and identify the critical path (the activity names on it).
 
 ## Exit criteria (for router)
 

@@ -11,7 +11,7 @@ The authoritative statement of how Löwy treats testing and quality assurance.
 Other skills ([[the-method-activity-list]], [[the-method-review-routing]],
 [[the-method-handoff]]) cite this rather than re-deriving it.
 
-Canonical sources (book in repo at `../../../rightingsoftware/`): ch02
+Canonical sources (Löwy, *Righting Software*): ch02
 (unit vs regression), ch09 (roles, cost, daily build), ch11 (test activities in
 the network), ch12 (quality multiplication), ch13 (TradeMe staffing), ch14
 (the hand-off, smoke tests, QA), App A (per-service test plan).
@@ -85,7 +85,7 @@ entry for the component. Per-activity status lives in `.activityConstruction`.
 | System Test Plan (`N-STP`) | early | high | test-engineer | `.testingState.systemTestPlan` |
 | System Test Harness (`N-STH`) | early | high | test-engineer | `.testingState.harnessModule` |
 | Regression Test Harness (`N-RTH`) | early, run continuously | — | senior-developer | harness module (sibling to server) + `.activityConstruction` |
-| Daily build + smoke (`N-SMOKE`) | ongoing | indirect | devops | CI (`GOWORK=off go build/test` under `server/`) |
+| Daily build + smoke (`N-SMOKE`) | ongoing | indirect | devops | CI (`GOWORK=off go build/test` from the module root) |
 | QA process + gates (`N-QA`) | spans project | — | qa-engineer | `.testingState.qualityGates` / `.testingState.qualityAuditReport` |
 | System Testing (`N-IT`) | **terminal, on critical path** | 0 | software-tester | `.testingState.testRuns` + `.testingState.defects` |
 | Performance test (`N-PERF`) | terminal | — | test-engineer | `.testingState.perfHarness` |

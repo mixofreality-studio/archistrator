@@ -11,14 +11,14 @@ You produce it for the SDP review so management can see the trap and reject it.
 
 ## Canonical source
 
-**Primary:** Löwy, [Ch. 11 §3.3 "Going Subcritical"](../../../research/rightingsoftware/OEBPS/xhtml/ch11.xhtml#ch11lev2sec9) — the worked example with the 7th iteration of the normal-solution search.
+**Primary:** Löwy, Ch. 11 §3.3 "Going Subcritical" — the worked example with the 7th iteration of the normal-solution search.
 
 **Supporting:**
-- [Ch. 7 §9 "Project Cost"](../../../research/rightingsoftware/OEBPS/xhtml/ch07.xhtml#ch07lev1sec9) — indirect cost behavior over time
-- [Ch. 9 §5 "Project Cost Elements"](../../../research/rightingsoftware/OEBPS/xhtml/ch09.xhtml#ch09lev1sec5) — total/direct/indirect costs
-- [Ch. 9 §5.7 "Staffing and Cost Elements"](../../../research/rightingsoftware/OEBPS/xhtml/ch09.xhtml#ch09lev2sec13)
+- Ch. 7 §9 "Project Cost" — indirect cost behavior over time
+- Ch. 9 §5 "Project Cost Elements" — total/direct/indirect costs
+- Ch. 9 §5.7 "Staffing and Cost Elements"
 
-**Standard reference:** [Appendix C §4.1e](../../../research/rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec4) — *"Design several options for the project; at a minimum, design normal, compressed, and subcritical solutions."*
+**Standard reference:** Appendix C §4.1e — *"Design several options for the project; at a minimum, design normal, compressed, and subcritical solutions."*
 
 ## Input
 
@@ -154,6 +154,16 @@ The line between "subcritical" and "infeasible" is real. Check:
 - Is the duration extension realistic, or did you accidentally produce a fantasy timeline?
 
 If the subcritical solution is infeasible, your removal was wrong. Pick a different resource to remove.
+
+## Draft-job doctrine (CI dispatch)
+
+This is the normative task the CI draft job (and a local `/project-design` run) executes to produce the `SubcriticalSolution`. It is self-contained: everything a draft agent needs to design the subcritical option is stated here.
+
+Design the SUBCRITICAL solution: deliberately understaffed (lower the staffing cap below normal). It is counterintuitively longer, costlier, and riskier — the point is to disprove the 'fewer people = cheaper' intuition for management.
+
+### Solution class rates
+
+classRates MUST be the PlanningAssumptions rateCard derivation — for each class: megatokensInPerDay×(input $/MTok) + megatokensOutPerDay×(output $/MTok) for its modelId, in USD minor units — IDENTICAL across all four solution options (the workers are AI agents; a class's day-cost does not change between options). Option economics differ ONLY through duration, staffing cap, calendar, and buffer — never through invented per-day rates.
 
 ## Exit criteria (for router)
 

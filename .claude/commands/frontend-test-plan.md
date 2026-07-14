@@ -11,6 +11,6 @@
 ## Steps
 
 1. **Read what you need** from `.aiarch/state/project.json` per [[the-method-project-state]]: the activity, this surface's approved UI design concept, the core use cases and persona journeys it serves, and the frozen contracts of the Manager/Engine components its flows call.
-2. **Produce** the phase artifact: this surface's flows test-plan slice — the enumerated ways each flow could fail to satisfy the approved UI design or the contracts it depends on, traced to specific flows and contract operations — recorded into the phase-artifacts store per [[the-method-project-state]] and committed onto branch `activity/<activity_id>`.
+2. **Produce** the phase artifact: this surface's flows test-plan slice — the enumerated ways each flow could fail to satisfy the approved UI design or the contracts it depends on, traced to specific flows and contract operations — recorded into the phase-artifacts store via `recordPhaseArtifact` per [[the-method-project-state]] and committed onto branch `activity/<activity_id>`.
 3. **Verify** (only your own output; fast checks): every item in the plan traces to a real flow named in the UI design or a real operation on a called component's frozen contract — no speculative failure modes; the plan contains no implementation or test code, only the plan.
 4. **Stop.** Do not mark phase status (the Manager owns that) and do not merge. Leave the PR open for the gate.

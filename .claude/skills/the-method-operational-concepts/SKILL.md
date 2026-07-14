@@ -11,13 +11,13 @@ When the chosen execution infrastructure for Managers is a durable workflow engi
 
 ## Canonical source
 
-**Primary:** Löwy, [Ch. 5 §4.3a "Operational Concepts"](../../../research/rightingsoftware/OEBPS/xhtml/ch05.xhtml#ch05lev2sec13a) — the TradeMe walkthrough.
+**Primary:** Löwy, Ch. 5 §4.3a "Operational Concepts" — the TradeMe walkthrough.
 
 **Supporting:**
-- [Ch. 3 §6 "Open and Closed Architectures"](../../../research/rightingsoftware/OEBPS/xhtml/ch03.xhtml#ch03lev1sec6) — layering style decision
-- [Ch. 3 §6.4 "Relaxing the Rules"](../../../research/rightingsoftware/OEBPS/xhtml/ch03.xhtml#ch03lev2sec17) — when to deviate from closed
-- [Ch. 3 §5 "Subsystems and Services"](../../../research/rightingsoftware/OEBPS/xhtml/ch03.xhtml#ch03lev1sec5) — subsystem boundaries
-- [Ch. 3 §3.5 "Utilities Bar"](../../../research/rightingsoftware/OEBPS/xhtml/ch03.xhtml#ch03lev2sec7) — Message Bus, etc.
+- Ch. 3 §6 "Open and Closed Architectures" — layering style decision
+- Ch. 3 §6.4 "Relaxing the Rules" — when to deviate from closed
+- Ch. 3 §5 "Subsystems and Services" — subsystem boundaries
+- Ch. 3 §3.5 "Utilities Bar" — Message Bus, etc.
 
 **Temporal vocabulary (when applicable):**
 - Workflow / Activity / Signal / Query / Update / Timer / Schedule / ChildWorkflow / ContinueAsNew — the canonical naming + edge-label grammar (Manager-layer only)
@@ -33,7 +33,7 @@ State is git-as-DB: archistrator is a single Go-server repo whose canonical proj
 
 ## Output
 
-The typed **`OperationalConcepts`** model (Go shape in `server/internal/resourceaccess/projectstate/models_phase1.go`), committed to **`.aiarch/state/project.json` → `.operationalConcepts`**. NOT an `operational-concepts.md` file — any markdown below is a render-on-read of this slot. Per the two usage patterns (agentic/CI dispatch and local interactive), the agent emits the typed model and commits it into `.operationalConcepts`; the server stages it (`StageArtifactForReview`) for the human review gate.
+The typed **`OperationalConcepts`** model (Go shape in `internal/resourceaccess/projectstate/models_phase1.go`), committed to **`.aiarch/state/project.json` → `.operationalConcepts`**. NOT an `operational-concepts.md` file — any markdown below is a render-on-read of this slot. Per the two usage patterns (agentic/CI dispatch and local interactive), the agent emits the typed model and commits it into `.operationalConcepts`; the server stages it (`StageArtifactForReview`) for the human review gate.
 
 ## Procedure
 
@@ -235,6 +235,30 @@ Walk the document and verify:
 | (Temporal infrastructure) Determinism rules documented | Add the list (no system clock, no random IDs, all I/O via Activities, versioning policy) |
 | (Temporal infrastructure) External-system idempotency boundaries enumerated per Activity | Add the per-Activity dedup-key table (Stripe Idempotency-Key, k8s manifest name, gateway event id, etc.) |
 | (Temporal infrastructure) Workflow checkpoint store distinguished from business event log | Add the table — they are separate concerns |
+
+## Draft-job doctrine (CI dispatch)
+
+This is the normative task the CI draft job (and a local `/system-design` run) executes to produce the `OperationalConcepts`. It is self-contained: everything a draft agent needs to draft sound operational concepts — including the deployment topology — is stated here.
+
+Document the runtime/operational decisions that bring the static architecture to life: communication topology (direct vs message bus), manager-execution infrastructure (in-process vs durable workflow engine), the sync-vs-queued boundary for each cross-component edge (prefer queued for Manager<->Manager), and every pub/sub event (only Clients and Managers may publish or subscribe). Each decision MUST cite the numbered mission objective it serves and state its cost; if a decision cannot be justified against an objective, cut it as gratuitous complexity.
+
+Then populate the deployment topology in C4-container shape. First declare the system's deliveryStyle (cloud, local, or both). The set of deployment environments is DERIVED from it and a test profile is ALWAYS present: cloud -> {cloud, test}; local -> {local, test}; both -> {cloud, local, test}. Emit exactly that set of environments — no more, no fewer. Next declare the top-level `containers` array — the deployable UNITS, not the components — each with a `key`, `name`, `technology`, `description`, and `components` listing the exact NAMES of the System components it packages (e.g. an application-server container packages the Managers, Engines, ResourceAccess, and Utilities; a web/SPA container packages the web Client). Every CODE component — every Client, Manager, Engine, and ResourceAccess, plus every Utility — MUST be packaged into EXACTLY ONE container; none may be left out and none may appear in two containers. Resources are NOT container members — they are deployment INFRASTRUCTURE, never packaged: model each Resource (database, queue, external API) as an infrastructureNode (a self-describing name/technology/description) or, for a genuinely external third-party system, as a softwareSystemInstance. The SAME logical Resource may be realized differently per environment (a managed Postgres cluster in cloud vs a local docker/sqlite instance in test) — that per-profile realization detail belongs on the infrastructure node, never on the abstract Resource. Each environment nests deploymentNodes (e.g. cluster -> namespace -> deployment) whose containerInstances reference a declared container BY ITS `containerKey` (not a component name) and set an `instances` integer for its replica count (e.g. 2); put infrastructureNodes and softwareSystemInstances on whichever deploymentNode they run alongside. CROSS-PROFILE INVARIANT: operating mode is configuration, not architecture — the set of deployed CONTAINERS MUST be IDENTICAL across the cloud and local environments (the underlying infrastructure MAY legitimately differ per profile — a managed database in cloud vs a local one in test is exactly the point of separate environments, not a violation). The test environment MUST instance EVERY container so every code component is covered; represent external systems and resources there as stubs. Reference containers in a deploymentNode's containerInstances by `containerKey`, and reference System components inside a container's `components` list by their NAME exactly as they appear in the System context — you do NOT emit any id for either; the server resolves both by name/key.
+
+### Operating-model deployment constraint
+
+The project's operating model constrains the deployment topology the design may model. There are two cases:
+
+**self-operated (`selfOperated`, the default).** The customer runs the built app in their OWN infrastructure, so today's OPEN guidance stands — no extra deployment constraint is imposed. The draft prompt emits nothing beyond the standard deployment-topology guidance.
+
+**archistrator-operated (`archistratorOperated`).** OPERATING MODEL — ARCHISTRATOR-OPERATED (platform-constrained deployment). This project is OPERATED BY ARCHISTRATOR on the shared platform, so the deployment topology is CONSTRAINED to the archistrator-platform infrastructure ONLY. Model the deployment using EXACTLY these platform building blocks and do NOT introduce any bespoke or third-party cloud infrastructure:
+
+- Data / persistence: CloudNativePG (CNPG) Postgres — the framework-go-infrastructure-postgres module. Model every relational Resource as a CNPG Postgres cluster infrastructureNode.
+- Workflows / durable execution: Temporal — the framework-go-infrastructure-temporal module (the SHARED platform Temporal at software/k8s/shared/temporal). Do NOT model a bespoke queue or worker pool.
+- Authentication / identity: Keycloak — the framework-go-infrastructure-keycloak module (the archistrator auth platform lib, software/k8s/argocd/auth).
+- Observability: the OpenTelemetry stack — the framework-go-infrastructure-otel module.
+- Deploy target: the platform Kubernetes cluster via the ArgoCD stack at software/k8s (namespaces/apps under k8s/argocd/applications). deliveryStyle MUST be cloud; every container is a Kubernetes Deployment in the platform cluster and every infrastructureNode names the exact framework-go-infrastructure-* module above.
+
+FORBIDDEN for this operating model: AWS (RDS, EKS, ECS, CloudFront, S3, Lambda), GCP, Azure, or any other bespoke / self-managed / third-party-managed cloud infrastructure — those are legitimate ONLY for self-operated projects. If a Resource needs a database it is CNPG Postgres; if it needs workflows it is Temporal; if it needs auth it is Keycloak; if it needs telemetry it is the otel stack.
 
 ## Exit criteria (for router)
 

@@ -11,6 +11,6 @@
 ## Steps
 
 1. **Read what you need** from `.aiarch/state/project.json` per [[the-method-project-state]]: the activity, the rig produced in the Rig Construction phase, and the Perf Scenario Design's scenarios and thresholds it should cover.
-2. **Produce** the phase artifact: the rig-review note — confirming the rig's structural boundary holds and its scenario coverage matches the Perf Scenario Design with no gaps, or naming the specific process gaps back to the test-engineer — recorded into the phase-artifacts store per [[the-method-project-state]] and committed onto branch `activity/<activity_id>`.
+2. **Produce** the phase artifact: the rig-review note — confirming the rig's structural boundary holds and its scenario coverage matches the Perf Scenario Design with no gaps, or naming the specific process gaps back to the test-engineer — recorded into the phase-artifacts store via `recordPhaseArtifact` per [[the-method-project-state]] and committed onto branch `activity/<activity_id>`.
 3. **Verify** (only your own output; fast checks): the note addresses process and structural quality only (module placement, import boundary, scenario-coverage completeness, readiness for a later load run) and does not restate or alter the rig's code; it contains no rig or test code changes and does not attempt to execute the rig or produce a pass/fail verdict itself.
 4. **Stop.** Do not mark phase status (the Manager owns that) and do not merge. Leave the PR open for the gate.

@@ -189,7 +189,7 @@ Invoke [[the-method-architecture]] via `system-architect`. This single skill cov
 >
 > Once the decomposition is clean, author the typed `System` model
 > (`Components` + `Relationships` + `DynamicViews`; Go shape in
-> `server/internal/resourceaccess/projectstate/system.go`) so that it
+> `internal/resourceaccess/projectstate/system.go`) so that it
 > renders cleanly per
 > `.claude/skills/the-method-architecture/STRUCTURIZR-CONVENTIONS.md`.
 > Commit it to `.aiarch/state/project.json` → `.systemDesign`:
@@ -245,7 +245,7 @@ Invoke [[the-method-operational-concepts]] via `system-architect`:
 Invoke [[the-method-system-design-standard-check]] via `system-architect`:
 
 > Run the System Design Guidelines checklist from
-> `../../research/rightingsoftware/OEBPS/xhtml/appc.xhtml`:
+> Löwy App C §3:
 >
 > - Requirements: behavior captured as use cases, activity diagrams where nested, solutions-masquerading scrubbed, core use cases drive validation
 > - Cardinality: limits respected
@@ -299,4 +299,4 @@ All step citations are to:
 - ch. 5: TradeMe worked example (business alignment, anti-design effort, the architecture, design validation)
 - App C: Design Standard (the checklist)
 
-Source files at `../../research/rightingsoftware/OEBPS/xhtml/`.
+All citations are to Löwy, *Righting Software* (2019).

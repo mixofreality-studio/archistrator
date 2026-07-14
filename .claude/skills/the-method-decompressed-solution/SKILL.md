@@ -9,24 +9,24 @@ The decompressed solution is the cost-risk sweet spot option. It takes the norma
 
 This is usually the **recommended** option in the SDP review. It exists as a sibling to normal, subcritical, and compressed — not as a sub-step of risk modeling.
 
-Critical rule ([ch. 10 §5](../../../research/rightingsoftware/OEBPS/xhtml/ch10.xhtml#ch10lev1sec5)): *keep the original staffing.* Do not be tempted to consume the new float by reducing the team. That defeats the entire point of decompression.
+Critical rule (ch. 10 §5): *keep the original staffing.* Do not be tempted to consume the new float by reducing the team. That defeats the entire point of decompression.
 
 This is a Phase 2 project-design activity. The layer model from `[[the-method-layers]]` does not apply here. Per `[[the-method-doctrine]]` Directive 7, this option exists so management has a viable middle-ground choice with quantified risk reduction — not just normal-vs-compressed-vs-subcritical.
 
 ## Canonical source
 
 **Primary:**
-- Löwy, [Ch. 10 §5 "Risk Decompression"](../../../research/rightingsoftware/OEBPS/xhtml/ch10.xhtml#ch10lev1sec5)
-- [Ch. 10 §5 "How To Decompress"](../../../research/rightingsoftware/OEBPS/xhtml/ch10.xhtml#ch10lev2sec10)
-- [Ch. 10 §5 "Decompression Target"](../../../research/rightingsoftware/OEBPS/xhtml/ch10.xhtml#ch10lev2sec11)
-- [Ch. 12 §3 "Finding the Decompression Target"](../../../research/rightingsoftware/OEBPS/xhtml/ch12.xhtml#ch12lev1sec3) — calculus-based identification of the inflection point
+- Löwy, Ch. 10 §5 "Risk Decompression"
+- Ch. 10 §5 "How To Decompress"
+- Ch. 10 §5 "Decompression Target"
+- Ch. 12 §3 "Finding the Decompression Target" — calculus-based identification of the inflection point
 
 **Advanced (for skewed projects):**
-- [Ch. 12 §4 "Geometric Risk"](../../../research/rightingsoftware/OEBPS/xhtml/ch12.xhtml#ch12lev1sec4) — use geometric risk instead of arithmetic when the float distribution is uneven (god activities, large outliers)
+- Ch. 12 §4 "Geometric Risk" — use geometric risk instead of arithmetic when the float distribution is uneven (god activities, large outliers)
 
-**Worked example:** [Ch. 11 §7 "Planning and Risk"](../../../research/rightingsoftware/OEBPS/xhtml/ch11.xhtml#ch11lev1sec7) — `D3` chosen as decompression target.
+**Worked example:** Ch. 11 §7 "Planning and Risk" — `D3` chosen as decompression target.
 
-**Standard reference:** [Appendix C §4.7c "Decompress the normal solution past the tipping point on the risk curve"](../../../research/rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec4) and §4.7d ("Do not over-decompress").
+**Standard reference:** Appendix C §4.7c "Decompress the normal solution past the tipping point on the risk curve" and §4.7d ("Do not over-decompress").
 
 ## Input
 
@@ -106,7 +106,7 @@ Track the (duration, criticality_risk, activity_risk) point.
 
 ### Step 5 — Iterate to the decompression target (~0.5 risk)
 
-Per [Ch. 10 §5 "Decompression Target"](../../../research/rightingsoftware/OEBPS/xhtml/ch10.xhtml#ch10lev2sec11): *"the ideal decompression target is a risk of 0.5, as it targets the tipping point in the risk curve."*
+Per Ch. 10 §5 "Decompression Target": *"the ideal decompression target is a risk of 0.5, as it targets the tipping point in the risk curve."*
 
 Procedure:
 
@@ -125,7 +125,7 @@ If the float distribution is heavily uneven (god activities, large outliers), ar
 
 ### Step 6 — Stop before over-decompressing
 
-Per [Ch. 10 §6](../../../research/rightingsoftware/OEBPS/xhtml/ch10.xhtml#ch10lev1sec6) and App C §4.7d: *"Do not over-decompress."*
+Per Ch. 10 §6 and App C §4.7d: *"Do not over-decompress."*
 
 Stop criteria:
 
@@ -209,6 +209,16 @@ Total: 130 days
 - Hard external commitment date that benefits from a buffer
 - Management's risk appetite is low and the small total-cost increase is acceptable
 ```
+
+## Draft-job doctrine (CI dispatch)
+
+This is the normative task the CI draft job (and a local `/project-design` run) executes to produce the `DecompressedSolution`. It is self-contained: everything a draft agent needs to design the decompressed-normal option is stated here.
+
+Design the DECOMPRESSED-NORMAL solution: extend the normal duration with a schedule buffer to drop criticality risk toward the ~0.5 tipping point without cutting staff (decompression buys risk down with time, never by shedding resources). Set bufferDays > 0.
+
+### Solution class rates
+
+classRates MUST be the PlanningAssumptions rateCard derivation — for each class: megatokensInPerDay×(input $/MTok) + megatokensOutPerDay×(output $/MTok) for its modelId, in USD minor units — IDENTICAL across all four solution options (the workers are AI agents; a class's day-cost does not change between options). Option economics differ ONLY through duration, staffing cap, calendar, and buffer — never through invented per-day rates.
 
 ## Exit criteria (for router)
 

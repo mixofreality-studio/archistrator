@@ -9,12 +9,12 @@ The final gate before project design begins. Every item in Appendix C's System D
 
 ## Canonical source
 
-**Primary:** Löwy, [Appendix C — Design Standard](../../../research/rightingsoftware/OEBPS/xhtml/appc.xhtml). Focus areas:
+**Primary:** Löwy, Appendix C — Design Standard. Focus areas:
 
-- [§1 "The Prime Directive"](../../../research/rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec1)
-- [§2 "Directives"](../../../research/rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec2)
-- [§3 "System Design Guidelines"](../../../research/rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec3)
-- [§6 "Service Contract Design Guidelines"](../../../research/rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec6) (forward-look — full check during construction)
+- §1 "The Prime Directive"
+- §2 "Directives"
+- §3 "System Design Guidelines"
+- §6 "Service Contract Design Guidelines" (forward-look — full check during construction)
 
 ## Input
 
@@ -174,6 +174,14 @@ Reviewer: <agent or user>
 
 Phase 1 design is complete.
 ```
+
+## Draft-job doctrine (CI dispatch)
+
+This is the normative task the CI draft job (and a local `/system-design` run) executes to produce the system-design `StandardCheck`. It is self-contained: everything a draft agent needs to run a sound gate — including exactly which items are in scope — is stated here.
+
+Walk the App C design standard, but ONLY the items checkable at THIS system-design gate — the design directives and the System Design guideline section. Check the design directives: avoid functional decomposition, decompose based on volatility, provide a composable design, treat features as aspects of integration (not as building blocks), design iteratively while building incrementally, and — where the design makes an architectural choice that had real alternatives — drive that decision with options. Then walk the System Design guideline section: capture behaviour not functionality, every component traces to a volatility (no functional or domain decomposition), cardinality limits respected (Managers a handful, fewer Engines than Managers), volatility decreases and reuse increases top-down, Managers do no I/O, closed-layer rules respected (no calling up, sideways, or skipping layers), and the interaction don'ts (one Manager per client call chain; no queued or pub/sub from the wrong layers). For each IN-SCOPE item emit pass (the design satisfies it), waived (with a concrete justification for why THIS system consciously accepts the exception — e.g. a cardinality guideline deliberately exceeded for a documented reason), or fail (the design violates it). A waiver without a real justification is itself a fail.
+
+SCOPE — do NOT walk the project-design or project-tracking parts of the standard at this gate. The project directives (design the project to build the system, build along the critical path, be on time throughout), the Project Design guideline sections (general, staffing, integration, estimations, network, time-and-cost, risk), and the Project Tracking guideline section are OUT OF SCOPE at the system-design gate — no project design exists yet, so there is nothing to check them against. Do NOT emit them at all, and in particular do NOT emit them as waived: waived is reserved for genuine, justified exceptions to IN-SCOPE system-design items, NOT for phase-inapplicable items (marking an out-of-scope item "waived: no project design exists yet" pollutes the waiver as a conscious-exception signal). Those items are checked at their own Phase-2 SDP gate (the project-design standard check), so nothing is lost by leaving them out here.
 
 ## Exit criteria (for router)
 

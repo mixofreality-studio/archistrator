@@ -12,22 +12,22 @@ Per ch. 11: this is not the "best" solution — it's the *natural* solution. Oth
 ## Canonical source
 
 **Primary:**
-- Löwy, [Ch. 11 §3 "Finding the Normal Solution"](../../../research/rightingsoftware/OEBPS/xhtml/ch11.xhtml#ch11lev1sec3)
-- [Ch. 11 §3.4 "Choosing the Normal Solution"](../../../research/rightingsoftware/OEBPS/xhtml/ch11.xhtml#ch11lev2sec10)
+- Löwy, Ch. 11 §3 "Finding the Normal Solution"
+- Ch. 11 §3.4 "Choosing the Normal Solution"
 
 **Resource assignment rules:**
-- [Ch. 7 §7.3 "Assigning Resources"](../../../research/rightingsoftware/OEBPS/xhtml/ch07.xhtml#ch07lev2sec13)
-- [Ch. 8 §3 "Floats-Based Scheduling"](../../../research/rightingsoftware/OEBPS/xhtml/ch08.xhtml#ch08lev1sec3)
+- Ch. 7 §7.3 "Assigning Resources"
+- Ch. 8 §3 "Floats-Based Scheduling"
 
 **Cost calculation:**
-- [Ch. 7 §9 "Project Cost"](../../../research/rightingsoftware/OEBPS/xhtml/ch07.xhtml#ch07lev1sec9)
-- [Ch. 7 §9.1 "Project Efficiency"](../../../research/rightingsoftware/OEBPS/xhtml/ch07.xhtml#ch07lev2sec15)
+- Ch. 7 §9 "Project Cost"
+- Ch. 7 §9.1 "Project Efficiency"
 
 **Earned value:**
-- [Ch. 7 §10 "Earned Value Planning"](../../../research/rightingsoftware/OEBPS/xhtml/ch07.xhtml#ch07lev1sec10)
-- [Ch. 7 §10.2 "The Shallow S Curve"](../../../research/rightingsoftware/OEBPS/xhtml/ch07.xhtml#ch07lev2sec17)
+- Ch. 7 §10 "Earned Value Planning"
+- Ch. 7 §10.2 "The Shallow S Curve"
 
-**Standard reference:** [Appendix C §4.2 "Staffing"](../../../research/rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec4) — lowest staffing for unimpeded critical path, assign by float, shallow S curve.
+**Standard reference:** Appendix C §4.2 "Staffing" — lowest staffing for unimpeded critical path, assign by float, shallow S curve.
 
 ## Input
 
@@ -202,6 +202,16 @@ Total critical-path duration: N days
 ## Risk flags
 - ...
 ```
+
+## Draft-job doctrine (CI dispatch)
+
+This is the normative task the CI draft job (and a local `/project-design` run) executes to produce the `NormalSolution`. It is self-contained: everything a draft agent needs to design the normal option is stated here.
+
+Design the NORMAL solution: minimum staffing for unimpeded critical-path progress; set the staffing cap, calendar days/week, and per-worker-class build-cost rates. Zero schedule buffer.
+
+### Solution class rates
+
+classRates MUST be the PlanningAssumptions rateCard derivation — for each class: megatokensInPerDay×(input $/MTok) + megatokensOutPerDay×(output $/MTok) for its modelId, in USD minor units — IDENTICAL across all four solution options (the workers are AI agents; a class's day-cost does not change between options). Option economics differ ONLY through duration, staffing cap, calendar, and buffer — never through invented per-day rates.
 
 ## Exit criteria (for router)
 

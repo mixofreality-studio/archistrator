@@ -4,8 +4,9 @@
 >
 > **archistrator is a single Go server repo. State is git-as-DB:** all project
 > state lives in typed slots in `.aiarch/state/project.json`, NOT in
-> `methodpoc/designs/<product>/*.md` files. Components live under
-> `server/internal/<layer>/<pkg>/`. Markdown/DSL is render-on-read.
+> `designs/<product>/*.md` files. Each component lives in the package its
+> contract names — the `goPackage` in `.serviceContracts["<component>"]`.
+> Markdown/DSL is render-on-read.
 
 **Skill reference:** Invoke `the-method` skill. This command orchestrates the Phase 3 sub-skills:
 
@@ -117,13 +118,13 @@ Dispatch the implementer (`junior-developer` by default; `senior-developer` if t
 > Implement `<next.component>` against its service contract in
 > `.aiarch/state/project.json` → `.serviceContracts["<next.component>"]`.
 > Activity: `<next.id> — <next.name>`. Duration estimate:
-> `<next.duration_days>` days. Component package:
-> `server/internal/<layer>/<pkg>/`.
+> `<next.duration_days>` days. Component package: the contract's
+> `goPackage` in `.serviceContracts["<next.component>"]`.
 >
 > System context: the committed `.systemDesign` artifact.
 >
-> Execute the activity. Verify with `GOWORK=off go build/vet/test` under
-> `server/`. Put completion notes (what was built, any contract deviation,
+> Execute the activity. Verify with `GOWORK=off go build/vet/test` from the
+> Go module directory containing that package. Put completion notes (what was built, any contract deviation,
 > test results) in the **PR body + commit messages**; the activity record
 > in `.activityConstruction[<next.id>]` captures phase exits and build status.
 
@@ -143,7 +144,7 @@ The dispatched agent gets the activity context (id, name, type, component, durat
 
 After the role agent returns:
 
-- For `construction` activities: verify `GOWORK=off go build/vet/test` passes under `server/` AND that the senior review (per hand-off model) is recorded against `.activityConstruction[<next.id>]`. If failing, **do not mark done**. The activity stays in-progress and the user must fix.
+- For `construction` activities: verify `GOWORK=off go build/vet/test` passes from the target package's module root AND that the senior review (per hand-off model) is recorded against `.activityConstruction[<next.id>]`. If failing, **do not mark done**. The activity stays in-progress and the user must fix.
 - For `detailed-design` activities: verify the contract entry exists at `.serviceContracts[<component>]` and that the appropriate reviewer (per hand-off model) has signed off (recorded on the contract / activity record). The Appendix C §6 contract checklist must pass.
 - For `noncoding` / `integration` / testing activities: verify the named output exists in its `.phaseArtifacts` / `.testingState` slot.
 

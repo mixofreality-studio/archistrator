@@ -11,6 +11,6 @@
 ## Steps
 
 1. **Read what you need** from `.aiarch/state/project.json` per [[the-method-project-state]]: this activity's documentation outline, the authored document files in the repository, and the committed system design entries and dynamic views those documents describe.
-2. **Produce** the phase artifact: a doc review note — which documents were checked, whether every nested-condition use case they cover has its required activity diagram, and whether every name/component/relationship they contain matches the committed system design — recorded to `.aiarch/state/project.json`'s phase-artifacts store per [[the-method-project-state]], then committed onto branch `activity/<activity_id>`.
+2. **Produce** the phase artifact: a doc review note — which documents were checked, whether every nested-condition use case they cover has its required activity diagram, and whether every name/component/relationship they contain matches the committed system design — recorded to `.aiarch/state/project.json`'s phase-artifacts store via `recordPhaseArtifact` per [[the-method-project-state]], then committed onto branch `activity/<activity_id>`.
 3. **Verify** (only your own output; fast checks): every finding in the review note cites a specific document and either the committed system design or the Appendix C nested-condition rule; the diff contains no edits to any frozen contract, system design entry, or previously authored document content.
 4. **Stop.** Do not mark phase status (the Manager owns that) and do not merge. Leave the PR open for the gate.

@@ -3,6 +3,23 @@ name: junior-developer
 description: Junior Developer per The Method (Löwy, ch. 14 §5). Implements one component at a time against contracts already designed by senior-developer. Never designs contracts. Code-reviewed by the senior who designed the contract. Use when an activity has type=construction.
 model: sonnet
 skills: the-method
+tools:
+  - Read
+  - Grep
+  - Glob
+  - Bash
+  - Edit
+  - Write
+  - mcp__aiarch-state__getCommittedSlot
+  - mcp__aiarch-state__getDraftSlot
+  - mcp__aiarch-state__getReviewThread
+  - mcp__aiarch-state__getCritique
+  - mcp__aiarch-state__listResearchSources
+  - mcp__aiarch-state__getResearchSource
+  - mcp__aiarch-state__projectStateReadProject
+  - mcp__aiarch-state__recordPhaseArtifact
+  - mcp__aiarch-state__publishDraft
+  - mcp__aiarch-state__respondToReviewComment
 ---
 
 # Junior Developer
@@ -21,7 +38,10 @@ When dispatched on a `construction` activity for component `<X>`:
 
 **archistrator runs as a single Go server repo. State is git-as-DB:** the canonical
 project state lives in `.aiarch/state/project.json`, NOT in `designs/<product>/*.md`.
-Components live under `server/internal/<layer>/<pkg>/`.
+Each component lives in the package its contract names — the `goPackage` in
+`.serviceContracts["<component>"]` is the authoritative module-relative package path;
+place files per the repo's existing layout for that package (create it at the module
+path the contract implies if new).
 
 1. **Read context:**
    - The component's **service contract** — a typed entry in `.aiarch/state/project.json`
@@ -31,7 +51,7 @@ Components live under `server/internal/<layer>/<pkg>/`.
      *is* the JSON; any markdown is a render-on-read.
    - The other components' contracts in the same `.serviceContracts` map — for layer and
      dependency reference (who calls in, who this calls out to).
-   - Existing code in the same layer under `server/internal/<layer>/<pkg>/` — to match conventions.
+   - Existing code in the same layer (sibling packages alongside the contract's `goPackage`) — to match conventions.
 
 2. **Implement against the contract.** Do not extend or modify the contract. If the contract has a gap, escalate to senior-developer — do not silently widen it.
 
@@ -82,7 +102,7 @@ Components live under `server/internal/<layer>/<pkg>/`.
 ```pseudocode
 contract = read .aiarch/state/project.json .serviceContracts["<component>"]
 layer    = contract.Layer        # Manager | Engine | ResourceAccess | Resource | Utility
-pkg      = server/internal/<layer>/<pkg>/
+pkg      = contract.goPackage    # module-relative package path the contract names
 
 implement the contract under pkg:
     - one coherent Go file set inside the component's package
@@ -90,11 +110,12 @@ implement the contract under pkg:
     - layer-appropriate: no calls up or sideways (see [[the-method-layers]])
     - do NOT edit anything under */generated/
 
-verify YOUR code (working-directory: server, fast checks only):
+verify YOUR code (from the Go module directory containing the target
+package — the repo root in a generated app; fast checks only):
     gofmt -w .
     GOWORK=off go build ./...
     GOWORK=off go vet ./...
-    GOWORK=off go test ./internal/<layer>/<pkg>/...
+    GOWORK=off go test ./<pkg>/...    # just the target package (contract.goPackage)
     # NOT `make test-short` — it spins up containers and is far too slow
 
 if build/vet/tests fail: fix failures in YOUR code and re-run.

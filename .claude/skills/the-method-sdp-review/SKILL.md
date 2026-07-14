@@ -12,15 +12,15 @@ Per Löwy: this is the moment of *educated decisions with viable options that di
 ## Canonical source
 
 **Primary:**
-- Löwy, [Ch. 7 §3.2 "Software Development Plan Review"](../../../research/rightingsoftware/OEBPS/xhtml/ch07.xhtml#ch07lev2sec5)
-- [Ch. 11 §8 "SDP Review"](../../../research/rightingsoftware/OEBPS/xhtml/ch11.xhtml#ch11lev1sec8)
-- [Ch. 11 §8.1 "Presenting the Options"](../../../research/rightingsoftware/OEBPS/xhtml/ch11.xhtml#ch11lev2sec21)
+- Löwy, Ch. 7 §3.2 "Software Development Plan Review"
+- Ch. 11 §8 "SDP Review"
+- Ch. 11 §8.1 "Presenting the Options"
 
 **Worked examples:**
-- TradeMe SDP options: [Ch. 11 Table 11-11 "Project design options for review"](../../../research/rightingsoftware/OEBPS/xhtml/ch11.xhtml)
-- Second worked example SDP: [Ch. 13 §7 "Comparing the Options"](../../../research/rightingsoftware/OEBPS/xhtml/ch13.xhtml#ch13lev1sec7) + [§9 "Preparing for the SDP Review"](../../../research/rightingsoftware/OEBPS/xhtml/ch13.xhtml#ch13lev1sec9)
+- TradeMe SDP options: Ch. 11 Table 11-11 "Project design options for review"
+- Second worked example SDP: Ch. 13 §7 "Comparing the Options" + §9 "Preparing for the SDP Review"
 
-**Standard reference:** [Appendix C §4.1g "Always go through SDP review before the main work starts"](../../../research/rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec4) and [§4.1f "Communicate with management in Optionality"](../../../research/rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec4).
+**Standard reference:** Appendix C §4.1g "Always go through SDP review before the main work starts" and §4.1f "Communicate with management in Optionality".
 
 ## Input
 
@@ -221,6 +221,10 @@ project:
 ```
 
 Then `AdvancePhase` moves the project into Phase 3 (or run `/implement-project` locally) to begin construction.
+
+## Draft-job doctrine (CI dispatch)
+
+Unlike the other Phase-2 artifacts, the SDP review is NOT co-authored by a CI draft job. The Phase-2 co-author spine REJECTS `SdpReview` at its entry — "the SDP review is assembled, not co-authored; use RequestSDPCommit" — and the per-kind draft-task table falls `SdpReview` through to the generic "draft the artifact." fallback precisely because no draft job ever runs for it. The SDP review is DETERMINISTICALLY ASSEMBLED by the server from the already-committed Phase-2 slots (`.planningAssumptions`, `.activityList`, `.network`, the four solution options, and `.riskModel`, plus `.mission` and `.systemDesign`) via `RequestSDPCommit`, then staged for the human review gate. There is no per-kind draft prompt to make self-contained here; the assembly reads the committed slots directly. The Procedure above is the specification the assembler (and a local `/sdp-review` run) follows.
 
 ## Exit criteria (for router)
 

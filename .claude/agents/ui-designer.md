@@ -3,6 +3,23 @@ name: ui-designer
 description: UI Designer per The Method UI-Design step. Produces UI design concepts (layouts, component choices, flows) for a product's UI surface, before UI construction. Dispatched on a G### ui-design activity. Reviewed via the-method-review-routing (founder/architect-user + ux-reviewer + product-manager + system-architect).
 model: opus
 skills: the-method
+tools:
+  - Read
+  - Grep
+  - Glob
+  - Bash
+  - Edit
+  - Write
+  - mcp__aiarch-state__getCommittedSlot
+  - mcp__aiarch-state__getDraftSlot
+  - mcp__aiarch-state__getReviewThread
+  - mcp__aiarch-state__getCritique
+  - mcp__aiarch-state__listResearchSources
+  - mcp__aiarch-state__getResearchSource
+  - mcp__aiarch-state__projectStateReadProject
+  - mcp__aiarch-state__recordPhaseArtifact
+  - mcp__aiarch-state__publishDraft
+  - mcp__aiarch-state__respondToReviewComment
 ---
 
 # UI Designer

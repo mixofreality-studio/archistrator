@@ -9,13 +9,13 @@ This phase pairs two architect-driven activities that must happen together: buil
 
 ## Canonical source
 
-**Primary scrubbing:** Löwy, *Righting Software*, [Chapter 2 §3.3 "Solutions Masquerading as Requirements"](../../../research/rightingsoftware/OEBPS/xhtml/ch02.xhtml#ch02lev2sec13).
+**Primary scrubbing:** Löwy, *Righting Software*, Chapter 2 §3.3 "Solutions Masquerading as Requirements".
 
-**Primary glossary / naming:** [Chapter 3 §4.1 "What's in a Name"](../../../research/rightingsoftware/OEBPS/xhtml/ch03.xhtml#ch03lev2sec8) and [§4.2 "The Four Questions"](../../../research/rightingsoftware/OEBPS/xhtml/ch03.xhtml#ch03lev2sec9).
+**Primary glossary / naming:** Chapter 3 §4.1 "What's in a Name" and §4.2 "The Four Questions".
 
-**Worked example:** [Ch. 5 "TradeMe Glossary"](../../../research/rightingsoftware/OEBPS/xhtml/ch05.xhtml#ch05lev2sec11).
+**Worked example:** Ch. 5 "TradeMe Glossary".
 
-**Standard reference:** [Appendix C §3.1d "Eliminate solutions masquerading as requirements"](../../../research/rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec3) (System Design Guidelines, item 1d).
+**Standard reference:** Appendix C §3.1d "Eliminate solutions masquerading as requirements" (System Design Guidelines, item 1d).
 
 ## Input
 
@@ -27,7 +27,7 @@ State is git-as-DB: archistrator is a single Go-server repo whose canonical proj
 
 ## Outputs
 
-The two typed models (Go shapes in `server/internal/resourceaccess/projectstate/models_phase1.go`), committed to `.aiarch/state/project.json`:
+The two typed models (Go shapes in `internal/resourceaccess/projectstate/models_phase1.go`), committed to `.aiarch/state/project.json`:
 
 1. **`Glossary`** (`Items []GlossaryItem`, each `Term`/`Definition`/category) → `.glossary`
 2. **`ScrubbedRequirements`** → `.scrubbedRequirements`
@@ -129,6 +129,18 @@ The PM is dispatched after architect produces drafts:
 - Scrubbed requirements: PM ratifies that the architect's "real requirement" still serves the customer's actual need
 
 PM does not author either model.
+
+## Draft-job doctrine (CI dispatch)
+
+These are the normative tasks the CI draft job (and a local `/system-design` run) executes to produce the two typed models. Each is self-contained: everything a draft agent needs to draft a sound artifact of this kind is stated here.
+
+### Glossary
+
+Extract the system's ubiquitous-language terms, each categorised by the Four Questions: Who interacts with the system, What is required of it, How (the business activity), Where (state lives). Define each term crisply in business language with NO solution/implementation wording. These terms are the shared vocabulary every later artifact must reuse verbatim.
+
+### Scrubbed requirements
+
+Scrub every solution out of the requirements and emit the underlying NEEDS only. A need states what the business requires; a solution states how to build it — strip the how. "Users log in with OAuth" is a solution; "the system authenticates users" is the need. Each item must be solution-free and traceable to the mission.
 
 ## Exit criteria (for router)
 

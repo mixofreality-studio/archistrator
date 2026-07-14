@@ -7,12 +7,12 @@ description: System Design — distill vision, business objectives, and mission 
 
 ## Canonical source
 
-**Primary:** Löwy, *Righting Software*, [Chapter 5 §3 "Business Alignment"](../../../research/rightingsoftware/OEBPS/xhtml/ch05.xhtml#ch05lev1sec3) — Vision, Objectives, Mission Statement subsections.
+**Primary:** Löwy, *Righting Software*, Chapter 5 §3 "Business Alignment" — Vision, Objectives, Mission Statement subsections.
 
 **Supporting:**
-- [Ch. 5 §3.1 "The Vision"](../../../research/rightingsoftware/OEBPS/xhtml/ch05.xhtml#ch05lev2sec8)
-- [Ch. 5 §3.2 "The Business Objectives"](../../../research/rightingsoftware/OEBPS/xhtml/ch05.xhtml#ch05lev2sec9)
-- [Ch. 5 §3.3 "Mission Statement"](../../../research/rightingsoftware/OEBPS/xhtml/ch05.xhtml#ch05lev2sec10)
+- Ch. 5 §3.1 "The Vision"
+- Ch. 5 §3.2 "The Business Objectives"
+- Ch. 5 §3.3 "Mission Statement"
 
 The TradeMe walkthrough in ch. 5 is the worked example. Re-read it if the team has not yet internalized this phase.
 
@@ -25,7 +25,7 @@ State is git-as-DB: archistrator is a single Go-server repo whose canonical proj
 
 ## Output
 
-The typed **`MissionStatement`** model (Go shape in `server/internal/resourceaccess/projectstate/models_phase1.go`: `Vision string`, `Objectives []Objective`, `Mission string`), committed to **`.aiarch/state/project.json` → `.mission`**. NOT a `mission.md` file — any markdown rendering is produced render-on-read from this slot.
+The typed **`MissionStatement`** model (Go shape in `internal/resourceaccess/projectstate/models_phase1.go`: `Vision string`, `Objectives []Objective`, `Mission string`), committed to **`.aiarch/state/project.json` → `.mission`**. NOT a `mission.md` file — any markdown rendering is produced render-on-read from this slot.
 
 Two usage patterns produce the same result:
 1. **Agentic / CI dispatch** — the agent emits the typed `MissionStatement` JSON and commits it into `.mission` on its session branch; the server reads it back and stages it (`StageArtifactForReview`) for the human review gate.
@@ -35,7 +35,7 @@ The model carries:
 
 1. **Vision** — exactly one sentence. Terse and legal-statement-precise. (`Vision`)
 2. **Business Objectives** — numbered list. Business perspective only. (`Objectives`, each an `Objective`)
-3. **Mission Statement** — how, expressed in components not features. (`Mission`)
+3. **Mission Statement** — how, expressed in components not features (in Löwy's book framing — the draft-job doctrine below constrains the drafted narrative to business/user language; see the reconciliation note). (`Mission`)
 4. **Traceability** — every objective maps to vision; every architectural concern will map back to an objective. (Captured in the objectives + mission; verify per Step 4.)
 
 ## Procedure
@@ -92,9 +92,23 @@ Hand to the Product Manager (or the user) for ratification. They review for:
 
 They do not author. They ratify or push back. If they push back, iterate until aligned.
 
+## Draft-job doctrine (CI dispatch)
+
+This is the normative task the CI draft job (and a local `/system-design` run) executes to produce the `MissionStatement`. It is self-contained: everything a draft agent needs to draft a sound mission is stated here.
+
+Produce the mission from the research corpus.
+
+- The vision is ONE terse sentence naming the future the system creates.
+- First distill the 2-3 business pillars that DIFFERENTIATE this system from competitors; ground the vision, mission, and objectives in those.
+- The mission narrative describes the BUSINESS CAPABILITY and USER-FACING VALUE of the end-to-end workflow — why it matters, and what outcome or trust it produces for the user — NOT a feature list.
+- Write it PURELY in business and user language: you MUST NOT use the words component, module, service, subsystem, layer, or any system-architecture / software-decomposition terminology, and you MUST NOT assert or imply any breakdown of the system into parts. The structural boundaries are derived LATER from volatility analysis in the Structure artifact — pre-deciding a decomposition here is a defect.
+- Each objective is a numbered, measurable BUSINESS outcome (not a feature deliverable).
+
+**Reconciliation with the book framing above.** Löwy frames the mission as "build components, not features" (Step 3, and the TradeMe quote). That is his rhetorical device to *force* volatility-based decomposition downstream — it is NOT license to put software-decomposition words in the committed mission text. For archistrator's committed `.mission`, the business-and-user-language rule above is binding and stricter: the mission narrative names business capability and user-facing value, and never uses component / module / service / subsystem / layer terminology.
+
 ## Exit criteria (for router)
 
-`.aiarch/state/project.json` → `.mission` holds a typed `MissionStatement` with a one-sentence vision, business-only numbered objectives, a component-framed mission, and verified bidirectional traceability. Move to `the-method-requirements-analysis`.
+`.aiarch/state/project.json` → `.mission` holds a typed `MissionStatement` with a one-sentence vision, business-only numbered objectives, a business-and-user-language mission (no software-decomposition terminology per the draft-job doctrine above), and verified bidirectional traceability. Move to `the-method-requirements-analysis`.
 
 ## Anti-patterns to reject
 
@@ -106,10 +120,10 @@ They do not author. They ratify or push back. If they push back, iterate until a
 
 ## TradeMe reference example
 
-See `ch05.xhtml#ch05lev1sec3` for the full TradeMe distillation. The architect produced:
+See Löwy Ch. 5 §3 for the full TradeMe distillation. The architect produced:
 
 - **Vision**: "A platform for building applications to support the TradeMe marketplace."
 - **Objectives**: 7 numbered items, all business-perspective.
 - **Mission**: "Design and build a collection of software components that the development team can assemble into applications and features."
 
-Use this as a template for cadence and tone.
+Use this as a template for cadence and tone ONLY — not vocabulary. The drafted mission text must still obey the business-and-user-language MUST-NOT rule in the draft-job doctrine above (no component / module / service / subsystem / layer terminology); see the reconciliation note.

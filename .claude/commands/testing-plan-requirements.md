@@ -11,6 +11,6 @@
 ## Steps
 
 1. **Read what you need** from `.aiarch/state/project.json` per [[the-method-project-state]]: the activity, the committed core use cases, and the components/relationships/dynamic views in the committed system design that realize each core use case.
-2. **Produce** the phase artifact: the use-case trace — every core use case in scope mapped to the call chains and components it exercises, establishing the coverage the forthcoming System Test Plan must include — recorded into the phase-artifacts store per [[the-method-project-state]] and committed onto branch `activity/<activity_id>`.
+2. **Produce** the phase artifact: the use-case trace — every core use case in scope mapped to the call chains and components it exercises, establishing the coverage the forthcoming System Test Plan must include — recorded into the phase-artifacts store via `recordPhaseArtifact` per [[the-method-project-state]] and committed onto branch `activity/<activity_id>`.
 3. **Verify** (only your own output; fast checks): every entry in the trace maps to a real core use case and a real call chain in the committed system design — no invented coverage; the trace contains no enumerated ways-to-break and no test or harness code, only the mapping.
 4. **Stop.** Do not mark phase status (the Manager owns that) and do not merge. Leave the PR open for the gate.

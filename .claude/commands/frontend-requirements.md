@@ -11,6 +11,6 @@
 ## Steps
 
 1. **Read what you need** from `.aiarch/state/project.json` per [[the-method-project-state]]: the activity, the committed core use cases and the personas they name, and this surface's entry (its Client/SPA container, relationships in/out) in the committed system design.
-2. **Produce** the phase artifact: the UX requirements note for this surface — the core use cases and persona journeys it must support, and any non-functional constraints called out in the core use cases — recorded into the phase-artifacts store per [[the-method-project-state]] and committed onto branch `activity/<activity_id>`.
+2. **Produce** the phase artifact: the UX requirements note for this surface — the core use cases and persona journeys it must support, and any non-functional constraints called out in the core use cases — recorded into the phase-artifacts store via `recordPhaseArtifact` per [[the-method-project-state]] and committed onto branch `activity/<activity_id>`.
 3. **Verify** (only your own output; fast checks): every use case or persona journey named traces to a real entry in the committed core use cases — no invented scope; no screens, flows, layouts, or component choices are proposed; the note reads as scope capture, not as a design document.
 4. **Stop.** Do not mark phase status (the Manager owns that) and do not merge. Leave the PR open for the gate.

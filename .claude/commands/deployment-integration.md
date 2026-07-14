@@ -11,6 +11,6 @@
 ## Steps
 
 1. **Read what you need** from `.aiarch/state/project.json` per [[the-method-project-state]]: the activity, the frozen provisioning spec for this deployment, and the committed system design's relationships to identify which components actually depend on this infrastructure.
-2. **Produce** the phase artifact: verify the dependent components run against the real provisioned infrastructure (not a stub), and record a convergence/integration note into `.aiarch/state/project.json`'s phase-artifacts store per [[the-method-project-state]], committed onto branch `activity/<activity_id>`.
+2. **Produce** the phase artifact: verify the dependent components run against the real provisioned infrastructure (not a stub), and record a convergence/integration note into `.aiarch/state/project.json`'s phase-artifacts store via `recordPhaseArtifact` per [[the-method-project-state]], committed onto branch `activity/<activity_id>`.
 3. **Verify** (only your own output; fast checks): every dependency the note claims is verified actually traces to a relationship in the committed system design; no contract or provisioning-spec edits are present in the diff.
 4. **Stop.** Do not mark phase status (the Manager owns that) and do not merge. Leave the PR open for the gate.

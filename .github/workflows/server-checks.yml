@@ -6,12 +6,14 @@ on:
     paths:
       - 'server/**'
       - '.aiarch/**/*.json'
+      - '.claude/**'
       - '.github/workflows/server-checks.yml'
   pull_request:
     branches: [main]
     paths:
       - 'server/**'
       - '.aiarch/**/*.json'
+      - '.claude/**'
       - '.github/workflows/server-checks.yml'
 
 jobs:
@@ -102,3 +104,13 @@ jobs:
       # regenerate-then-diff shape as the other gen-*-check gates.
       - name: Generated UI lifecycle-profile drift check
         run: make gen-uiprofiles-check
+
+      # Drift gate for the materialized root .claude tree (method-assets
+      # install --dest .). Root .claude/** is a materialized copy of
+      # method-assets/assets/claude, pinned to a release; this fails on any
+      # diff between the pinned release's output and the committed tree.
+      - name: claude-assets drift check
+        working-directory: ${{ github.workspace }}
+        run: |
+          go run github.com/mixofreality-studio/archistrator-platform/method-assets/cmd/method-assets@v0.1.2 install --dest .
+          git diff --exit-code -- .claude

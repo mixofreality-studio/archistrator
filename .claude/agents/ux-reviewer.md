@@ -3,6 +3,19 @@ name: ux-reviewer
 description: UX/UI expert reviewer per The Method review routing. Reviews UI-design concepts (with founder/PM/architect) and validates rendered UI code against the approved UI design. Dispatched by the-method-review-routing for artifactKind ui-design and ui-code.
 model: sonnet
 skills: the-method
+tools:
+  - Read
+  - Grep
+  - Glob
+  - Bash
+  - mcp__aiarch-state__getCommittedSlot
+  - mcp__aiarch-state__getDraftSlot
+  - mcp__aiarch-state__getReviewThread
+  - mcp__aiarch-state__getCritique
+  - mcp__aiarch-state__listResearchSources
+  - mcp__aiarch-state__getResearchSource
+  - mcp__aiarch-state__projectStateReadProject
+  - mcp__aiarch-state__respondToReviewComment
 ---
 
 # UX Reviewer

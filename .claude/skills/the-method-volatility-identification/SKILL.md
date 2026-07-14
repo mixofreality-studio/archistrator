@@ -9,18 +9,18 @@ This is the most important phase of system design. The book (ch. 2): *"the whole
 
 ## Canonical source
 
-**Primary:** Löwy, *Righting Software*, [Chapter 2 §3 "Identifying Volatility"](../../../research/rightingsoftware/OEBPS/xhtml/ch02.xhtml#ch02lev1sec3).
+**Primary:** Löwy, *Righting Software*, Chapter 2 §3 "Identifying Volatility".
 
 **Subsections:**
-- [§3.1 "Volatile versus Variable"](../../../research/rightingsoftware/OEBPS/xhtml/ch02.xhtml#ch02lev2sec11)
-- [§3.2 "Axes of Volatility"](../../../research/rightingsoftware/OEBPS/xhtml/ch02.xhtml#ch02lev2sec12)
-- [§3.4 "Volatilities List"](../../../research/rightingsoftware/OEBPS/xhtml/ch02.xhtml#ch02lev2sec14)
-- [§3.6 "Resist the Siren Song"](../../../research/rightingsoftware/OEBPS/xhtml/ch02.xhtml#ch02lev2sec16)
-- [§3.7 "Volatility and the Business"](../../../research/rightingsoftware/OEBPS/xhtml/ch02.xhtml#ch02lev2sec17)
-- [§3.8 "Design for Your Competitors"](../../../research/rightingsoftware/OEBPS/xhtml/ch02.xhtml#ch02lev2sec18)
-- [§3.9 "Volatility and Longevity"](../../../research/rightingsoftware/OEBPS/xhtml/ch02.xhtml#ch02lev2sec19)
+- §3.1 "Volatile versus Variable"
+- §3.2 "Axes of Volatility"
+- §3.4 "Volatilities List"
+- §3.6 "Resist the Siren Song"
+- §3.7 "Volatility and the Business"
+- §3.8 "Design for Your Competitors"
+- §3.9 "Volatility and Longevity"
 
-**Worked example:** [Ch. 2 §3.5 "Example: Volatility-Based Trading System"](../../../research/rightingsoftware/OEBPS/xhtml/ch02.xhtml#ch02lev2sec15) and [Ch. 5 "TradeMe Areas of Volatility"](../../../research/rightingsoftware/OEBPS/xhtml/ch05.xhtml#ch05lev2sec12).
+**Worked example:** Ch. 2 §3.5 "Example: Volatility-Based Trading System" and Ch. 5 "TradeMe Areas of Volatility".
 
 ## Input
 
@@ -33,7 +33,7 @@ State is git-as-DB: archistrator is a single Go-server repo whose canonical proj
 
 ## Output
 
-The typed **`Volatilities`** model (Go shape in `server/internal/resourceaccess/projectstate/models_phase1.go`), committed to **`.aiarch/state/project.json` → `.volatilities`** — the **Volatilities List**, grouped by axis. NOT a `volatilities.md` file; any markdown is a render-on-read of this slot.
+The typed **`Volatilities`** model (Go shape in `internal/resourceaccess/projectstate/models_phase1.go`), committed to **`.aiarch/state/project.json` → `.volatilities`** — the **Volatilities List**, grouped by axis. NOT a `volatilities.md` file; any markdown is a render-on-read of this slot.
 
 Per the two usage patterns (agentic/CI dispatch and local interactive): the agent emits the typed `Volatilities` JSON and commits it into `.volatilities`; the server stages it (`StageArtifactForReview`) for the human review gate.
 
@@ -136,6 +136,17 @@ Enterprise customers require SAML; consumer tier uses OAuth; some regulated cust
 ### Step 7 — Cross-check independence of axes
 
 Re-read the list. If a single volatility entry naturally belongs to both axes, that's a signal it might be a feature in disguise (functional decomposition). Split or rename.
+
+## Draft-job doctrine (CI dispatch)
+
+This is the normative task the CI draft job (and a local `/system-design` run) executes to produce the `Volatilities`. It is self-contained: everything a draft agent needs to draft a sound volatilities list is stated here.
+
+Identify the areas of VOLATILITY the architecture must encapsulate, along TWO independent axes.
+
+- Axis `sameCustomerOverTime`: for each requirement ask "what in THIS customer's business will change in 1, 3, 5 years?".
+- Axis `allCustomersAtOneTime`: ask "do ALL customers do this identically today, or do markets/regulations/languages/customer-types vary?".
+
+Encapsulate the open-ended (VOLATILE); REJECT anything a simple conditional handles (that is merely VARIABLE). Reject by-reflex "Logging"/"Reporting" blocks with no business volatility, speculative "might-need-someday" encapsulation, and nature-of-the-business items competitors do identically. Aim for ~6-15 entries, each with a rationale paragraph and its axis.
 
 ## Exit criteria (for router)
 

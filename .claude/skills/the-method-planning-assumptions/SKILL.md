@@ -9,14 +9,14 @@ The project network calculates duration and cost as functions of resources and d
 
 ## Canonical source
 
-**Primary:** Löwy, [Ch. 11 §1.4 "Planning Assumptions"](../../../research/rightingsoftware/OEBPS/xhtml/ch11.xhtml#ch11lev2sec4) — the worked example shows what to capture.
+**Primary:** Löwy, Ch. 11 §1.4 "Planning Assumptions" — the worked example shows what to capture.
 
 **Supporting:**
-- [Ch. 7 §3 "Educated Decisions"](../../../research/rightingsoftware/OEBPS/xhtml/ch07.xhtml#ch07lev1sec3) — why planning assumptions matter
-- [Ch. 7 §3.1 "Plans, Not Plan"](../../../research/rightingsoftware/OEBPS/xhtml/ch07.xhtml#ch07lev2sec4) — assumptions drive multiple plans
-- [Ch. 13 §1 "Estimations"](../../../research/rightingsoftware/OEBPS/xhtml/ch13.xhtml#ch13lev1sec1) — second worked example, planning assumptions section
+- Ch. 7 §3 "Educated Decisions" — why planning assumptions matter
+- Ch. 7 §3.1 "Plans, Not Plan" — assumptions drive multiple plans
+- Ch. 13 §1 "Estimations" — second worked example, planning assumptions section
 
-**Standard reference:** [Appendix C §4.1c "Capture and verify planning assumptions"](../../../research/rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec4).
+**Standard reference:** Appendix C §4.1c "Capture and verify planning assumptions".
 
 ## Input
 
@@ -73,7 +73,7 @@ Record raw answers as you go.
 
 ### Step 1b — Worker classes are a fixed roster
 
-Resources (and every `rateCard` key) MUST be spelled exactly as one of the Method team roster the platform dispatches — `system-architect`, `product-manager`, `project-manager`, `senior-developer`, `junior-developer`, `ui-designer`, `ux-reviewer`, `qa-engineer`, `test-engineer`, `software-tester`. NEVER invent a domain-, component-, or platform-flavored class (no "Capture-Engineer", no "Platform-DevOps-Engineer" — the 2026-07-12 gtdapp defect): an unknown class silently rides default token rates in the cost engines and misclassifies in every downstream view. The book's UX-designer and DevOps roles map onto `ui-designer` and `senior-developer` respectively in this roster.
+Resources (and every `rateCard` key) MUST be drawn from the fixed Method team roster the platform dispatches — the canonical statement is under **Draft-job doctrine → Worker classes are a fixed roster** below, and it applies identically to the interactive gather. The book's UX-designer and DevOps roles map onto `ui-designer` and `senior-developer` respectively in this roster.
 
 ### Step 2 — Normalize into the typed planning-assumptions model
 
@@ -150,6 +150,34 @@ For each assumption that has a non-trivial probability of being wrong (e.g., "we
 - Activity dependencies in [[the-method-activity-list]]
 - Risk model in [[the-method-risk-modeling]]
 - SDP review options in [[the-method-sdp-review]]
+
+## Draft-job doctrine (CI dispatch)
+
+This is the normative task the CI draft job (and a local `/project-design` run) executes to produce the `PlanningAssumptions`. It is self-contained: everything a draft agent needs to author sound planning assumptions is stated here.
+
+Capture the explicit planning assumptions — the resources, working calendar (days/week), launch infrastructure, the customer's declared usage, the settlement terms, the per-worker-class AI rate card (rateCard: an entry for EVERY declared resource class, keyed by its exact class name, with modelId and megatokens in/out per day), and the indirect daily rate — that the project network and the SDP-review estimates are built on. A resource class without a rateCard entry silently rides default token rates in the cost engines, so author all of them.
+
+ENUM FIELDS (the estimate/settlement engines REFUSE the 0=unknown value, no silent default): infrastructureKind is 1=goTemporalPostgres; terms.revenueShare / terms.computeCost / terms.schedule are KIND enums, NOT amounts — revenueShare 1=launchFlat10 2=negotiatedRate, computeCost 1=flatMarkup 2=tieredFloors, schedule 1=monthly 2=weekly 3=daily; the percents live in revenueSharePercent / computeMarkupPercent.
+
+### Worker classes are a fixed roster
+
+WORKER CLASSES ARE A FIXED ROSTER, not open vocabulary: every worker class MUST be spelled exactly as one of system-architect, product-manager, project-manager, senior-developer, junior-developer, ui-designer, ux-reviewer, qa-engineer, test-engineer, software-tester — the Method team the platform actually dispatches. NEVER invent a domain-, component-, or platform-flavored class (no Capture-Engineer, no Platform-DevOps-Engineer): an unknown class silently rides default token rates in the cost engines and misclassifies in every downstream view. Typical assignment: junior-developer builds components and the SPA; senior-developer integrates and owns regression/CI/smoke/provisioning; system-architect owns schema and ADR work; ui-designer the UI-design concepts; test-engineer the system test plan, harness, and perf rig; qa-engineer the QA process; software-tester the terminal system-testing gate.
+
+### Operating-model infrastructure constraint
+
+The project's operating model constrains the launch infrastructure the planning assumptions may assume. There are two cases:
+
+**self-operated (`selfOperated`, the default).** The customer runs the built app in their OWN infrastructure, so today's OPEN guidance stands — no extra constraint is imposed and the draft prompt emits nothing beyond the standard planning-assumptions guidance. (This is the Phase-2 sibling of the systemDesign operational-concepts deployment constraint — the deployment topology and the launch-infrastructure assumptions must agree.)
+
+**archistrator-operated (`archistratorOperated`).** OPERATING MODEL — ARCHISTRATOR-OPERATED (platform-constrained infrastructure). This project is OPERATED BY ARCHISTRATOR on the shared platform, so the launch-infrastructure assumption is FIXED, not a choice: the app runs on the archistrator-platform palette ONLY. When you capture the launch infrastructure assumption you MUST assume EXACTLY these platform building blocks and MUST NOT assume any bespoke or third-party cloud infrastructure:
+
+- Data / persistence: CloudNativePG (CNPG) Postgres — the framework-go-infrastructure-postgres module.
+- Workflows / durable execution: Temporal — the framework-go-infrastructure-temporal module (the SHARED platform Temporal at software/k8s/shared/temporal).
+- Authentication / identity: Keycloak — the framework-go-infrastructure-keycloak module (software/k8s/argocd/auth).
+- Observability: the OpenTelemetry stack — the framework-go-infrastructure-otel module.
+- Deploy target: the platform Kubernetes cluster via the ArgoCD stack at software/k8s (namespaces/apps under k8s/argocd/applications).
+
+FORBIDDEN for this operating model: AWS (RDS, EKS, ECS, CloudFront, S3, Lambda), GCP, Azure, or any other bespoke / self-managed / third-party-managed cloud infrastructure or hosting — those are legitimate ONLY for self-operated projects. The launch infrastructure is the platform cluster; there is no per-project cloud-provider decision to assume.
 
 ## Exit criteria (for router)
 

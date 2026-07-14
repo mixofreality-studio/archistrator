@@ -11,6 +11,6 @@
 ## Steps
 
 1. **Read what you need** from `.aiarch/state/project.json` per [[the-method-project-state]]: the activity, its component's entry in the committed system design (layer, relationships in/out), the volatility it encapsulates, and its sync/queued + pub/sub treatment in the committed operational concepts.
-2. **Produce** the phase artifact: a scope note for the component — its responsibilities, its callers/consumers, its non-functional constraints (maintainability, extensibility, security), and open questions for the next phase — recorded into the phase-artifacts store per [[the-method-project-state]] and committed onto branch `activity/<activity_id>`.
+2. **Produce** the phase artifact: a scope note for the component — its responsibilities, its callers/consumers, its non-functional constraints (maintainability, extensibility, security), and open questions for the next phase — recorded into the phase-artifacts store via `recordPhaseArtifact` per [[the-method-project-state]] and committed onto branch `activity/<activity_id>`.
 3. **Verify** (only your own output; fast checks): every responsibility you captured traces to an actual relationship or dynamic-view edge in the committed system design — no invented scope; no contract operations or interface shapes are proposed; the note reads as scope capture, not as a design document.
 4. **Stop.** Do not mark phase status (the Manager owns that) and do not merge. Leave the PR open for the gate.

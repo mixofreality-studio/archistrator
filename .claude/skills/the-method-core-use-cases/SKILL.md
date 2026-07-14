@@ -7,16 +7,16 @@ description: System Design — identify the 2–6 core use cases through abstrac
 
 ## Canonical source
 
-**Primary:** Löwy, *Righting Software*, [Chapter 4 §2.1 "Core Use Cases"](../../../research/rightingsoftware/OEBPS/xhtml/ch04.xhtml#ch04lev2sec3) and [§2.2 "The Architect's Mission"](../../../research/rightingsoftware/OEBPS/xhtml/ch04.xhtml#ch04lev2sec4).
+**Primary:** Löwy, *Righting Software*, Chapter 4 §2.1 "Core Use Cases" and §2.2 "The Architect's Mission".
 
 **Supporting:**
-- [Ch. 3 §1 "Use Cases and Requirements"](../../../research/rightingsoftware/OEBPS/xhtml/ch03.xhtml#ch03lev1sec1)
-- [Ch. 4 §1 "Requirements and Changes"](../../../research/rightingsoftware/OEBPS/xhtml/ch04.xhtml#ch04lev1sec1)
-- [Ch. 4 §2 "Composable Design"](../../../research/rightingsoftware/OEBPS/xhtml/ch04.xhtml#ch04lev1sec2)
+- Ch. 3 §1 "Use Cases and Requirements"
+- Ch. 4 §1 "Requirements and Changes"
+- Ch. 4 §2 "Composable Design"
 
-**Worked example:** [Ch. 5 §1.4 "Use Cases"](../../../research/rightingsoftware/OEBPS/xhtml/ch05.xhtml#ch05lev2sec4) and the rest of ch. 5 §6 where each use case becomes a call chain. The TradeMe customer provided 8 use cases (Add Tradesman, Pay Tradesman, etc.) — the architect identified only **one** as core (Match Tradesman). Re-read the reasoning in ch. 5.
+**Worked example:** Ch. 5 §1.4 "Use Cases" and the rest of ch. 5 §6 where each use case becomes a call chain. The TradeMe customer provided 8 use cases (Add Tradesman, Pay Tradesman, etc.) — the architect identified only **one** as core (Match Tradesman). Re-read the reasoning in ch. 5.
 
-**Standard reference:** [Appendix C §3.1a–c](../../../research/rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec3) — capture behavior not functionality; describe with use cases; document nested conditions with activity diagrams.
+**Standard reference:** Appendix C §3.1a–c — capture behavior not functionality; describe with use cases; document nested conditions with activity diagrams.
 
 ## Input
 
@@ -30,7 +30,7 @@ State is git-as-DB: archistrator is a single Go-server repo whose canonical proj
 
 ## Output
 
-The typed **`CoreUseCases`** model (Go shape in `server/internal/resourceaccess/projectstate/models_phase1.go`), committed to **`.aiarch/state/project.json` → `.coreUseCases`** — NOT a `core-use-cases.md` file; any markdown is a render-on-read of this slot. Per the two usage patterns (agentic/CI dispatch and local interactive), the agent emits the typed model and commits it into `.coreUseCases`; the server stages it (`StageArtifactForReview`) for the human review gate.
+The typed **`CoreUseCases`** model (Go shape in `internal/resourceaccess/projectstate/models_phase1.go`), committed to **`.aiarch/state/project.json` → `.coreUseCases`** — NOT a `core-use-cases.md` file; any markdown is a render-on-read of this slot. Per the two usage patterns (agentic/CI dispatch and local interactive), the agent emits the typed model and commits it into `.coreUseCases`; the server stages it (`StageArtifactForReview`) for the human review gate.
 
 The model carries:
 
@@ -101,11 +101,11 @@ For each core use case, write (if nested conditions exist, add an activity diagr
 
 Per App C §3.1c: *"Document all use cases that contain nested conditions with activity diagrams."* Use **PlantUML activity diagrams (new syntax)** — the `start` / `:action;` / `if (cond?) then (yes) ... else (no) ... endif` / `repeat ... repeat while (cond?)` / `switch (val?) case (x) ... endswitch` / `fork ... fork again ... end fork` / `stop` vocabulary. Use `goto`/`label` for arbitrary loop-backs the structured constructs can't capture. **Do not use Mermaid `flowchart`** — PlantUML activity is more expressive (swimlanes, structured switch, fork, goto/label) and renders via the project's PlantUML hook. Wrap every diagram in `@startuml` / `@enduml` so the validator picks it up.
 
-**Swimlanes (Pass 1 — use-case modeling):** Löwy introduces swimlanes during use-case modeling ([Ch. 5 §1.4 "Use Cases"](../../../research/rightingsoftware/OEBPS/xhtml/ch05.xhtml#ch05lev2sec4), "Simplifying the Use Cases"): *"It is useful to show the flow of control between roles, organizations, and other responsible entities, using 'swim lanes' in your activity diagrams"* — and notes that the technique will be used *"to both initiate and validate the design."* That means **two passes**: (1) here, labeling lanes by **area of interest / role / responsible entity** — NOT yet by subsystem; (2) later in [[the-method-architecture]] during call-chain validation, where lanes are remapped to specific subsystems (Pass 2). Add swimlanes to any use-case activity diagram that crosses more than one role or area of responsibility.
+**Swimlanes (Pass 1 — use-case modeling):** Löwy introduces swimlanes during use-case modeling (Ch. 5 §1.4 "Use Cases", "Simplifying the Use Cases"): *"It is useful to show the flow of control between roles, organizations, and other responsible entities, using 'swim lanes' in your activity diagrams"* — and notes that the technique will be used *"to both initiate and validate the design."* That means **two passes**: (1) here, labeling lanes by **area of interest / role / responsible entity** — NOT yet by subsystem; (2) later in [[the-method-architecture]] during call-chain validation, where lanes are remapped to specific subsystems (Pass 2). Add swimlanes to any use-case activity diagram that crosses more than one role or area of responsibility.
 
-**Granularity rule — aim for ~3 lanes that map to future subsystems.** If your initial pass draws more than ~3 lanes, collapse sub-areas into their parent business concern. Löwy demonstrates this exact refactor at [Ch. 5 §1.5 Fig 5-21→5-22](../../../research/rightingsoftware/OEBPS/xhtml/ch05.xhtml#ch05lev2sec4): Fig 5-21 has 5 lanes (Client / Market / Regulations / Search / Membership); Fig 5-22 collapses to 3 (Client / Market / Membership) because *"Regulations and Search are all elements of the market"* — caption: *"This enables easy mapping to your subsystems design."* Each remaining lane should correspond to a future subsystem or an external participant — that is what *"to both initiate and validate the design"* means: the lanes you draw here pre-shape the subsystem boundaries you will commit to in [[the-method-architecture]]. **DON'T:** lanes are NEVER one-per-Manager, one-per-Engine, or one-per-ResourceAccess. Layer-typed lanes pre-bake the decomposition and defeat both Pass 1 and Pass 2.
+**Granularity rule — aim for ~3 lanes that map to future subsystems.** If your initial pass draws more than ~3 lanes, collapse sub-areas into their parent business concern. Löwy demonstrates this exact refactor at Ch. 5 §1.5 Fig 5-21→5-22: Fig 5-21 has 5 lanes (Client / Market / Regulations / Search / Membership); Fig 5-22 collapses to 3 (Client / Market / Membership) because *"Regulations and Search are all elements of the market"* — caption: *"This enables easy mapping to your subsystems design."* Each remaining lane should correspond to a future subsystem or an external participant — that is what *"to both initiate and validate the design"* means: the lanes you draw here pre-shape the subsystem boundaries you will commit to in [[the-method-architecture]]. **DON'T:** lanes are NEVER one-per-Manager, one-per-Engine, or one-per-ResourceAccess. Layer-typed lanes pre-bake the decomposition and defeat both Pass 1 and Pass 2.
 
-**Fork/join:** Use a fork bar whenever two paths run **concurrently against the same subject** — for example, a publish-path and an observe-path against the same operated system, or a scheduled-cycle close and an event-driven dispute webhook against the same settlement cycle. Parallel execution is the central reason The Method prefers activity diagrams over flowcharts ([Ch. 3 §1.1, Fig 3-2](../../../research/rightingsoftware/OEBPS/xhtml/ch03.xhtml#ch03lev1sec1)): *"You cannot represent parallel execution, blocking, or waiting for some event to take place in a flowchart. Activity diagrams, by contrast, incorporate a notion of concurrency."*
+**Fork/join:** Use a fork bar whenever two paths run **concurrently against the same subject** — for example, a publish-path and an observe-path against the same operated system, or a scheduled-cycle close and an event-driven dispute webhook against the same settlement cycle. Parallel execution is the central reason The Method prefers activity diagrams over flowcharts (Ch. 3 §1.1, Fig 3-2): *"You cannot represent parallel execution, blocking, or waiting for some event to take place in a flowchart. Activity diagrams, by contrast, incorporate a notion of concurrency."*
 
 Example diagram showing both role-based swimlanes (Pass 1 — areas of interest, not subsystem names) and a fork. Lane labels are **business roles / areas of interest** (names a customer would recognise), never Method layer names — `Manager`, `Engine`, `ResourceAccess` are Pass 2 subsystem labels that belong in [[the-method-architecture]], not here.
 
@@ -165,6 +165,66 @@ If they cannot agree, the dispute usually means one of:
 - The architect over-abstracted (resolve by promoting one rejected use case to core)
 - The PM is feature-attached (resolve by educating: features are integration, not architecture)
 
+## Draft-job doctrine (CI dispatch)
+
+This is the normative task the CI draft job (and a local `/system-design` run) executes to produce the `CoreUseCases`. It is self-contained: everything a draft agent needs to draft a sound set of core use cases — including how to compose each use case's typed activity diagram — is stated here.
+
+Select the CORE use cases by ABSTRACTION, not by listing what the customer asked for. For each candidate ask: does this capture the ESSENCE of the business (what differentiates it, what creates value), or is it a permutation/utility (onboarding, payment, account admin)? Could a single higher abstraction — often a NEW name not in the customer's vocabulary — subsume several raw use cases? Target 2-6 core use cases; if you have more than 6 you have not abstracted enough. Sanity check: a one-slide brochure for the system would have roughly this many bullets. Record each rejected permutation with its rejection reason and link it to the core it permutes by setting its `variationOf` to that core use case's NAME (exactly as you wrote it).
+
+IDENTITY BY NAME: every use case and actor is identified by its human-readable NAME — you do NOT emit any id. Use case names must be UNIQUE; actor roles must be unique within a use case. Reference the core use case in `variationOf` by its name; the server assigns and resolves all internal ids.
+
+### Activity diagram rules
+
+The CI draft job emits each use case's `activity` as a typed node/edge model (not PlantUML — the PlantUML guidance above is for human-readable rendering; the committed draft carries the typed graph the server validates). The rules below are what the machine validates and are copied verbatim from the draft doctrine.
+
+ACTIVITY DIAGRAM: EVERY use case — CORE and SUPPORTING (nonCore) alike — MUST carry a NON-EMPTY `activity`: a WELL-FORMED UML activity diagram, a graph of `nodes` (each `{ref, kind, label, roleName, linkedActor, linkedComp}`) and `edges` (each `{from, to, kind, guard}`). There is NO "purely linear, so leave it null" exemption — a use case with a null or empty `activity` (missing `nodes` or `edges`) is an INCOMPLETE DRAFT and will be rejected. At an ABSOLUTE MINIMUM the diagram has a start node, at least one action node, and an end node wired start -> action -> end; a use case that branches or runs steps concurrently adds decision/merge or fork/join per the rules below. Walk the use case's real flow — do not stub a placeholder one-action diagram to satisfy the rule when the use case genuinely has steps. NEVER emit a bare string for `activity` — it is always a non-empty object with `nodes` and `edges`.
+
+IDENTITY BY NAME (no ids): you NEVER emit any opaque id or uuid. Give each node a short `ref` slug of your own (e.g. `n1`, `n2`) UNIQUE within the diagram; edges reference nodes by that `ref` in `from`/`to`. `linkedActor` (optional) is an actor's ROLE name from this use case; `linkedComp` (optional) is a System component NAME. The server resolves all of these by name.
+
+Node kinds and their edge cardinality:
+- start: one per diagram; 0 incoming, exactly 1 outgoing.
+- action: a step; 1 incoming, 1 outgoing.
+- decision: a CHOICE; 1 incoming, >=2 outgoing.
+- merge: rejoins a decision's alternative branches; >=2 incoming, 1 outgoing.
+- fork: splits into CONCURRENT paths; 1 incoming, >=2 outgoing.
+- join: synchronizes concurrent paths; >=2 incoming, 1 outgoing.
+- end: a final node; >=1 incoming, 0 outgoing.
+
+Put every node in its business-role swim-lane via `roleName` (e.g. "Customer", "Trusted System") — a business role or area of interest, NOT a Method layer or subsystem name.
+
+Edge kinds:
+- guardedFlow: carries a `guard` condition; used ONLY on the outgoing edges of a decision.
+- controlFlow: no guard (set `guard` to ""); EVERY other edge, including ALL fork outgoing edges.
+
+Composition rules you MUST follow (a violation is rejected and redrafted):
+0. EVERY use case has a non-empty `activity` with EXACTLY ONE start node (0 incoming, 1 outgoing), at least ONE action node, and at least ONE end node — a diagram-less or node-less use case is an incomplete draft. This is NON-NEGOTIABLE for core use cases and equally REQUIRED for supporting (nonCore) ones; never leave `activity` null.
+1. A decision is a CHOICE: it MUST have >=2 outgoing guardedFlow edges, each with a distinct, mutually-exclusive guard; give exactly ONE edge the guard `[else]` for the remaining case. Its branches MUST reconverge at a merge node before the flow continues — a branch must not run straight into the next step or dangle.
+2. A fork is CONCURRENCY (not a choice): >=2 outgoing controlFlow (UNguarded) edges, ALL of which run; the concurrent paths MUST reconverge at a join. Never put a guard on a fork edge.
+3. guardedFlow edges originate ONLY from decision nodes; every other node's outgoing edges are controlFlow.
+4. A LOOP is a merge loop-head -> ...body... -> a decision whose `[repeat]` guarded edge BACK-EDGES to the loop-head merge and whose `[else]` guarded edge exits.
+
+Decision/merge model an ALTERNATIVE (exactly one branch taken); fork/join model CONCURRENCY (all paths taken) — do not confuse them.
+
+Worked examples (each node carries your own short `ref` slug — NOT a uuid; edges reference those refs):
+
+if/else — a decision's two branches reconverge at a merge:
+
+```json
+{"nodes":[{"ref":"n1","kind":"decision","label":"Is the item actionable?","roleName":"Trusted System"},{"ref":"n2","kind":"action","label":"Create next step and assign context","roleName":"Trusted System"},{"ref":"n3","kind":"action","label":"File or incubate item","roleName":"Trusted System"},{"ref":"n4","kind":"merge","label":"","roleName":"Trusted System"}],"edges":[{"from":"n1","to":"n2","kind":"guardedFlow","guard":"[actionable]"},{"from":"n1","to":"n3","kind":"guardedFlow","guard":"[else]"},{"from":"n2","to":"n4","kind":"controlFlow","guard":""},{"from":"n3","to":"n4","kind":"controlFlow","guard":""}]}
+```
+
+fork/join — two concurrent paths synchronize:
+
+```json
+{"nodes":[{"ref":"n1","kind":"fork","label":"","roleName":"Marketplace"},{"ref":"n2","kind":"action","label":"Search the registry","roleName":"Marketplace"},{"ref":"n3","kind":"action","label":"Notify the tradesman","roleName":"Tradesman"},{"ref":"n4","kind":"join","label":"","roleName":"Marketplace"}],"edges":[{"from":"n1","to":"n2","kind":"controlFlow","guard":""},{"from":"n1","to":"n3","kind":"controlFlow","guard":""},{"from":"n2","to":"n4","kind":"controlFlow","guard":""},{"from":"n3","to":"n4","kind":"controlFlow","guard":""}]}
+```
+
+while-loop — a decision back-edges to the loop-head merge:
+
+```json
+{"nodes":[{"ref":"n1","kind":"merge","label":"","roleName":"Trusted System"},{"ref":"n2","kind":"action","label":"Process the next item","roleName":"Trusted System"},{"ref":"n3","kind":"decision","label":"More items?","roleName":"Trusted System"},{"ref":"n4","kind":"end","label":"","roleName":"Trusted System"}],"edges":[{"from":"n1","to":"n2","kind":"controlFlow","guard":""},{"from":"n2","to":"n3","kind":"controlFlow","guard":""},{"from":"n3","to":"n1","kind":"guardedFlow","guard":"[more]"},{"from":"n3","to":"n4","kind":"guardedFlow","guard":"[else]"}]}
+```
+
 ## Exit criteria (for router)
 
 `.aiarch/state/project.json` → `.coreUseCases` holds the typed `CoreUseCases` model with:
@@ -182,4 +242,4 @@ Move to `the-method-architecture`.
 - **CRUD as core** ("Create Order", "Update Order") — these are mechanics, never core.
 - **No activity diagram** for a use case that has alternative paths — App C requires it. Activity diagrams use PlantUML new syntax; Mermaid `flowchart` is no longer accepted.
 - **Rejections without reasons** — every non-core needs a one-line justification.
-- **Missing swimlanes on a multi-role use case** — any use case that crosses more than one role or area of interest must have swimlanes. Omitting them loses the clarity that Löwy shows as essential for *"transform, clarify, and consolidate the raw data"* ([Ch. 5 §1.4](../../../research/rightingsoftware/OEBPS/xhtml/ch05.xhtml#ch05lev2sec4), "Simplifying the Use Cases"). Note: lanes here are labeled by area of interest/role, not by subsystem (that remapping happens in Pass 2 during [[the-method-architecture]]).
+- **Missing swimlanes on a multi-role use case** — any use case that crosses more than one role or area of interest must have swimlanes. Omitting them loses the clarity that Löwy shows as essential for *"transform, clarify, and consolidate the raw data"* (Ch. 5 §1.4, "Simplifying the Use Cases"). Note: lanes here are labeled by area of interest/role, not by subsystem (that remapping happens in Pass 2 during [[the-method-architecture]]).

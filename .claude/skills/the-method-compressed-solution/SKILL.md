@@ -12,14 +12,14 @@ Rules from the book: parallel work *first*, top resources *second*, never below 
 ## Canonical source
 
 **Primary:**
-- Löwy, [Ch. 9 §1 "Accelerating Software Projects"](../../../research/rightingsoftware/OEBPS/xhtml/ch09.xhtml#ch09lev1sec1)
-- [Ch. 9 §2 "Schedule Compression"](../../../research/rightingsoftware/OEBPS/xhtml/ch09.xhtml#ch09lev1sec2)
-- [Ch. 9 §3 "Time-Cost Curve"](../../../research/rightingsoftware/OEBPS/xhtml/ch09.xhtml#ch09lev1sec3)
-- [Ch. 9 §4 "Avoiding Classic Mistakes"](../../../research/rightingsoftware/OEBPS/xhtml/ch09.xhtml#ch09lev1sec4) — death zone
-- [Ch. 9 §6 "Network Compression"](../../../research/rightingsoftware/OEBPS/xhtml/ch09.xhtml#ch09lev1sec6)
-- [Ch. 11 §4 "Network Compression"](../../../research/rightingsoftware/OEBPS/xhtml/ch11.xhtml#ch11lev1sec4) — worked example with iterations
+- Löwy, Ch. 9 §1 "Accelerating Software Projects"
+- Ch. 9 §2 "Schedule Compression"
+- Ch. 9 §3 "Time-Cost Curve"
+- Ch. 9 §4 "Avoiding Classic Mistakes" — death zone
+- Ch. 9 §6 "Network Compression"
+- Ch. 11 §4 "Network Compression" — worked example with iterations
 
-**Standard reference:** [Appendix C §4.6 "Time and cost"](../../../research/rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec4) — items 6a–6g.
+**Standard reference:** Appendix C §4.6 "Time and cost" — items 6a–6g.
 
 ## Input
 
@@ -191,6 +191,16 @@ Total: 90 days
 - Revenue/strategic value of earlier delivery > N man-months in extra cost
 - Team genuinely has the bench depth for parallel pipelines
 ```
+
+## Draft-job doctrine (CI dispatch)
+
+This is the normative task the CI draft job (and a local `/project-design` run) executes to produce the `CompressedSolution`. It is self-contained: everything a draft agent needs to design the compressed option is stated here.
+
+Design the COMPRESSED solution: shorter duration via parallel work first and top resources second; raise the staffing cap and/or calendar days/week. Compression beyond ~30% of the normal duration is the death zone — target a modest compression (well under 30%) and stop short of it.
+
+### Solution class rates
+
+classRates MUST be the PlanningAssumptions rateCard derivation — for each class: megatokensInPerDay×(input $/MTok) + megatokensOutPerDay×(output $/MTok) for its modelId, in USD minor units — IDENTICAL across all four solution options (the workers are AI agents; a class's day-cost does not change between options). Option economics differ ONLY through duration, staffing cap, calendar, and buffer — never through invented per-day rates.
 
 ## Exit criteria (for router)
 
