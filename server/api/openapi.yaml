@@ -1674,6 +1674,30 @@ components:
             required:
                 - withdrawn
             type: object
+        ProjectDesignActiveRole:
+            enum:
+                - 0
+                - 1
+                - 2
+            type: integer
+            x-enum-varnames:
+                - ActiveRoleNone
+                - ActiveRoleArchitect
+                - ActiveRoleProductManager
+            x-go-base: int
+        ProjectDesignActiveStep:
+            enum:
+                - 0
+                - 1
+                - 2
+                - 3
+            type: integer
+            x-enum-varnames:
+                - ActiveStepNone
+                - ActiveStepDrafting
+                - ActiveStepCritiquing
+                - ActiveStepRevising
+            x-go-base: int
         ProjectDesignAnchoredComment:
             additionalProperties: false
             properties:
@@ -1917,6 +1941,10 @@ components:
         ProjectDesignSessionStateView:
             additionalProperties: false
             properties:
+                activeRole:
+                    $ref: '#/components/schemas/ProjectDesignActiveRole'
+                activeStep:
+                    $ref: '#/components/schemas/ProjectDesignActiveStep'
                 artifactKind:
                     $ref: '#/components/schemas/ProjectDesignArtifactKind'
                 draft:
@@ -1940,6 +1968,8 @@ components:
                     type:
                         - "null"
                         - array
+                round:
+                    type: integer
                 stage:
                     $ref: '#/components/schemas/ProjectDesignSessionStage'
                 stageName:
@@ -1951,6 +1981,9 @@ components:
                 - stage
                 - stageName
                 - draft
+                - activeRole
+                - activeStep
+                - round
             type: object
         ProjectDesignSeverity:
             enum:
@@ -1963,6 +1996,30 @@ components:
                 - SeverityWarning
                 - SeverityError
             x-go-base: string
+        SystemDesignActiveRole:
+            enum:
+                - 0
+                - 1
+                - 2
+            type: integer
+            x-enum-varnames:
+                - ActiveRoleNone
+                - ActiveRoleArchitect
+                - ActiveRoleProductManager
+            x-go-base: int
+        SystemDesignActiveStep:
+            enum:
+                - 0
+                - 1
+                - 2
+                - 3
+            type: integer
+            x-enum-varnames:
+                - ActiveStepNone
+                - ActiveStepDrafting
+                - ActiveStepCritiquing
+                - ActiveStepRevising
+            x-go-base: int
         SystemDesignActivityBuildStatus:
             enum:
                 - 0
@@ -2874,6 +2931,10 @@ components:
         SystemDesignSessionStateView:
             additionalProperties: false
             properties:
+                activeRole:
+                    $ref: '#/components/schemas/SystemDesignActiveRole'
+                activeStep:
+                    $ref: '#/components/schemas/SystemDesignActiveStep'
                 artifactKind:
                     $ref: '#/components/schemas/SystemDesignArtifactKind'
                 draft:
@@ -2902,6 +2963,8 @@ components:
                     type:
                         - "null"
                         - array
+                round:
+                    type: integer
                 stage:
                     $ref: '#/components/schemas/SystemDesignSessionStage'
                 stageName:
@@ -2913,6 +2976,9 @@ components:
                 - stage
                 - stageName
                 - draft
+                - activeRole
+                - activeStep
+                - round
             type: object
         SystemDesignSeverity:
             enum:

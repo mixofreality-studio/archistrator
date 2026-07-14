@@ -355,6 +355,9 @@ func (wf *workflows) CoAuthorArtifactWorkflow(ctx workflow.Context, in coAuthorI
 		}
 		headVersion = newVersion
 		state.stage = StageAwaitingReview
+		// SUB-STEP (Plan-3 C1): staged for the human gate — no role is working. Belt-and-braces
+		// (the draft/critique success paths already cleared their stamp before returning).
+		state.clearActive()
 		// A fresh AwaitingReview supersedes any prior approve-fault notice (QA F35).
 		state.failureReason = ""
 		// F38 AMENDMENT SEED: on the first stage of an amendment session, record the reopening
@@ -673,6 +676,15 @@ func (wf *workflows) dispatchDraftAndReadBack(
 	// after the reject-append or the failed-gate seed above) and the reopening feedback reach
 	// the drafting agent via the ledger it reads with getReviewThread — no longer woven into a
 	// design_prompt.
+	//
+	// SUB-STEP (Plan-3 C1): the architect is now drafting (round 0) or revising (round N>0)
+	// on this session branch. Stamp it for the loading pill immediately BEFORE the dispatch;
+	// it is cleared the instant the job is observed done (success or terminal fault, below).
+	if *redraftCount == 0 {
+		state.markActive(ActiveRoleArchitect, ActiveStepDrafting, *redraftCount)
+	} else {
+		state.markActive(ActiveRoleArchitect, ActiveStepRevising, *redraftCount)
+	}
 	draftObs, derr := wf.dispatchAndObserve(ctx, dispatchDesignJobArgs{
 		ProjectID:     in.ProjectID,
 		ArtifactKind:  in.ArtifactKind,
@@ -688,12 +700,14 @@ func (wf *workflows) dispatchDraftAndReadBack(
 		// workflow_dispatch. Route it to the human-visible StageDraftFailed gate (never an
 		// invisible crash; QA F15 gap 2a). A workflow-cancellation still propagates.
 		logger.Warn("design draft dispatch failed terminally; entering StageDraftFailed", "error", derr.Error())
+		state.clearActive()
 		return nil, 0, wf.recoverDispatchFailed(ctx, in, headVersion, derr, state, feedback, redraftCount)
 	}
 	if draftObs.Phase != pipelineSucceeded {
 		// The job RAN and FAILED (drafting failed or CI validation went red): land the session
 		// in the human-visible StageDraftFailed and suspend on the gate (§0d.4 anti-wedge).
 		logger.Warn("design draft job reached a terminal failure phase; entering StageDraftFailed", "diagnostic", draftObs.Diagnostic)
+		state.clearActive()
 		return nil, 0, wf.recoverDraftFailed(ctx, in, headVersion, draftObs.Diagnostic, draftObs.RunURL, state, feedback, redraftCount)
 	}
 	// READ-BACK on the SESSION BRANCH (§2a): the Action committed the typed JSON on the session
@@ -711,6 +725,10 @@ func (wf *workflows) dispatchDraftAndReadBack(
 		}
 		return nil, 0, stepErr(rbErr)
 	}
+	// SUB-STEP (Plan-3 C1): the draft dispatch is observed complete — clear the in-flight
+	// architect stamp. A PM-critiqued kind re-stamps it as PM-critiquing next (runPMCritique);
+	// an architect-owned kind proceeds to staging, where the AwaitingReview clear is a no-op.
+	state.clearActive()
 	return model, readBackVersion, stepProceed()
 }
 
@@ -739,6 +757,9 @@ func (wf *workflows) runPMCritique(
 	// critique branch, no PR/merge for critique (the asset template opens no critique PR).
 	// Inert when the rail is dormant.
 	sessionBranch := designBranch(in.ProjectID, in.ArtifactKind, in.Amendment)
+	// SUB-STEP (Plan-3 C1): the PM is now critiquing the draft. Round is not a critique
+	// concept (it counts architect redraft rounds), so it stays at its cleared 0.
+	state.markActive(ActiveRoleProductManager, ActiveStepCritiquing, 0)
 	critObs, cerr := wf.dispatchAndObserve(ctx, dispatchDesignJobArgs{
 		ProjectID:     in.ProjectID,
 		ArtifactKind:  in.ArtifactKind,
@@ -798,8 +819,14 @@ func (wf *workflows) runPMCritique(
 		*feedback = ReviewFeedback{Notes: critique.Notes}
 		state.feedbackSeeded = false
 		state.stage = StageRedrafting
+		// SUB-STEP (Plan-3 C1): the critique is observed done and asked for a revise. Clear the
+		// PM stamp; the redraft loop re-stamps architect-revising (round N) before its dispatch.
+		state.clearActive()
 		return stepRedraft()
 	}
+	// SUB-STEP (Plan-3 C1): the critique is observed done and ratified — clear the PM stamp
+	// before proceeding to staging (where the AwaitingReview clear is then a no-op).
+	state.clearActive()
 	return stepProceed()
 }
 
@@ -991,6 +1018,7 @@ func (wf *workflows) handleReviewDecision(
 			return stepErr(err)
 		}
 		state.stage = StageWithdrawn
+		state.clearActive() // SUB-STEP (Plan-3 C1): terminal — no role is working.
 		return stepReturn(coAuthorWithdrawn)
 
 	case ReviewDecisionUnknown:
@@ -1080,6 +1108,7 @@ func (wf *workflows) commitOnApprove(
 		return wf.reAwaitAfterApproveFault(state, approveFailedReason(err))
 	}
 	state.stage = StageCommitted
+	state.clearActive() // SUB-STEP (Plan-3 C1): terminal — no role is working.
 	return stepReturn(coAuthorApproved)
 }
 
@@ -1092,6 +1121,8 @@ func (wf *workflows) reAwaitAfterApproveFault(state *coAuthorState, reason strin
 	state.stage = StageAwaitingReview
 	state.failureReason = reason
 	state.failureRunURL = ""
+	// SUB-STEP (Plan-3 C1): back at the human gate for a re-approve — no role is working.
+	state.clearActive()
 	return stepReAwait()
 }
 
@@ -1158,6 +1189,33 @@ type coAuthorState struct {
 	// a false flag triggers seedFailedGateFeedback (below) to seed the retained feedback,
 	// while a true flag skips it so an already-seeded path is never double-seeded.
 	feedbackSeeded bool
+	// activeRole / activeStep / activeRound are the WORKFLOW-LOCAL sub-step indicator
+	// backing the honest role-driven loading pill (Plan-3 C1). They are SET immediately
+	// before each dispatch boundary (architect drafting/revising; PM critiquing) and
+	// CLEARED to none/none/0 the instant that dispatch is observed complete or the session
+	// reaches any terminal / AwaitingReview stage. Pure in-workflow state served by view()
+	// (NOT boundary-stamped like StageName) — setting it issues NO Temporal history
+	// command, so no GetVersion gate is needed (the honesty invariant).
+	activeRole  ActiveRole
+	activeStep  ActiveStep
+	activeRound int
+}
+
+// markActive stamps the in-flight sub-step (role / step / round) the loading pill renders.
+// Pure workflow-local state; no history command.
+func (s *coAuthorState) markActive(role ActiveRole, step ActiveStep, round int) {
+	s.activeRole = role
+	s.activeStep = step
+	s.activeRound = round
+}
+
+// clearActive resets the sub-step to none/none/0 — the honest "no role is working" state
+// the pill falls back to today's plain "DRAFTING…" copy for. Called on observed dispatch
+// completion and on every terminal / AwaitingReview stage.
+func (s *coAuthorState) clearActive() {
+	s.activeRole = ActiveRoleNone
+	s.activeStep = ActiveStepNone
+	s.activeRound = 0
 }
 
 func (s *coAuthorState) view() (SessionStateView, error) {
@@ -1219,6 +1277,9 @@ func (s *coAuthorState) view() (SessionStateView, error) {
 		FailureReason: strPtrOrNil(s.failureReason),
 		FailureRunURL: strPtrOrNil(s.failureRunURL),
 		ReviewThread:  reviewThreadToView(s.reviewThread),
+		ActiveRole:    s.activeRole,
+		ActiveStep:    s.activeStep,
+		Round:         int64(s.activeRound),
 	}, nil
 }
 
@@ -1503,6 +1564,10 @@ func (wf *workflows) awaitDraftFailedRecovery(
 	state.stage = StageDraftFailed
 	state.failureReason = reason
 	state.failureRunURL = runURL
+	// SUB-STEP (Plan-3 C1): the failed-gate sink for EVERY draft/critique/stage/approve
+	// fault — no role is working while the human decides Retry/Withdraw. Belt-and-braces
+	// over the per-site clears at the dispatch failure returns.
+	state.clearActive()
 
 	redraftCh := workflow.GetSignalChannel(ctx, lSignalRedraft)
 	reviewCh := workflow.GetSignalChannel(ctx, signalReviewDecision)

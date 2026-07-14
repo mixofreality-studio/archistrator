@@ -14,6 +14,23 @@ import (
 	"time"
 )
 
+type ActiveRole int
+
+const (
+	ActiveRoleNone           ActiveRole = 0
+	ActiveRoleArchitect      ActiveRole = 1
+	ActiveRoleProductManager ActiveRole = 2
+)
+
+type ActiveStep int
+
+const (
+	ActiveStepNone       ActiveStep = 0
+	ActiveStepDrafting   ActiveStep = 1
+	ActiveStepCritiquing ActiveStep = 2
+	ActiveStepRevising   ActiveStep = 3
+)
+
 type ActivityBuildStatus int
 
 const (
@@ -376,6 +393,9 @@ type SessionStateView struct {
 	FailureRunURL *string             `json:"failureRunUrl,omitempty"`
 	StageName     string              `json:"stageName"`
 	ReviewThread  []ReviewCommentView `json:"reviewThread,omitempty"`
+	ActiveRole    ActiveRole          `json:"activeRole"`
+	ActiveStep    ActiveStep          `json:"activeStep"`
+	Round         int64               `json:"round"`
 }
 
 type Severity string

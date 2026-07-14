@@ -23,6 +23,9 @@ func TestF26_GetSessionStateOutputAcceptsPopulatedModel(t *testing.T) {
 			"artifactKind": 0,
 			"stage":        0,
 			"stageName":    "drafting",
+			"activeRole":   0,
+			"activeStep":   0,
+			"round":        0,
 			"draft": map[string]any{
 				"kind":  "mission",
 				"model": map[string]any{"mission": "Right software.", "vision": "..."},

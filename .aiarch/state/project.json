@@ -17295,6 +17295,36 @@
       ],
       "title": "projectdesign contract",
       "$defs": {
+        "ActiveRole": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2
+          ],
+          "x-enum-varnames": [
+            "ActiveRoleNone",
+            "ActiveRoleArchitect",
+            "ActiveRoleProductManager"
+          ],
+          "x-go-base": "int"
+        },
+        "ActiveStep": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "x-enum-varnames": [
+            "ActiveStepNone",
+            "ActiveStepDrafting",
+            "ActiveStepCritiquing",
+            "ActiveStepRevising"
+          ],
+          "x-go-base": "int"
+        },
         "AnchoredComment": {
           "type": "object",
           "properties": {
@@ -17624,6 +17654,15 @@
               "items": {
                 "$ref": "#/$defs/ReviewCommentView"
               }
+            },
+            "activeRole": {
+              "$ref": "#/$defs/ActiveRole"
+            },
+            "activeStep": {
+              "$ref": "#/$defs/ActiveStep"
+            },
+            "round": {
+              "type": "integer"
             }
           },
           "required": [
@@ -17631,7 +17670,10 @@
             "artifactKind",
             "stage",
             "stageName",
-            "draft"
+            "draft",
+            "activeRole",
+            "activeStep",
+            "round"
           ],
           "additionalProperties": false
         },
@@ -21546,6 +21588,36 @@
       ],
       "title": "systemdesign contract",
       "$defs": {
+        "ActiveRole": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2
+          ],
+          "x-enum-varnames": [
+            "ActiveRoleNone",
+            "ActiveRoleArchitect",
+            "ActiveRoleProductManager"
+          ],
+          "x-go-base": "int"
+        },
+        "ActiveStep": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "x-enum-varnames": [
+            "ActiveStepNone",
+            "ActiveStepDrafting",
+            "ActiveStepCritiquing",
+            "ActiveStepRevising"
+          ],
+          "x-go-base": "int"
+        },
         "ActivityBuildStatus": {
           "type": "integer",
           "enum": [
@@ -22789,6 +22861,15 @@
               "items": {
                 "$ref": "#/$defs/ReviewCommentView"
               }
+            },
+            "activeRole": {
+              "$ref": "#/$defs/ActiveRole"
+            },
+            "activeStep": {
+              "$ref": "#/$defs/ActiveStep"
+            },
+            "round": {
+              "type": "integer"
             }
           },
           "required": [
@@ -22796,7 +22877,10 @@
             "artifactKind",
             "stage",
             "stageName",
-            "draft"
+            "draft",
+            "activeRole",
+            "activeStep",
+            "round"
           ],
           "additionalProperties": false
         },

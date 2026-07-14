@@ -1683,6 +1683,114 @@ func Test_CoAuthor_RejectNotes_DoNotLeakIntoCritiqueReadBack(t *testing.T) {
 	}
 }
 
+// Plan-3 C1: the honest role-driven sub-step indicator. A PM-critiqued kind (Mission)
+// driven through draft → critique(revise) → revise → critique(approve) → approve must
+// surface the live (ActiveRole, ActiveStep, Round) at each dispatch boundary, and
+// none/none/0 at the human gate. The in-flight snapshot is captured from the observe
+// activity (the ONLY moment a dispatch is genuinely in flight — the fake's onObserve hook,
+// which the workflow is blocked on); the gate snapshot from a delayed-callback query while
+// the workflow is suspended awaiting the review decision. This is the workflow-LOCAL sub-
+// step (no activity, no history command) served by the SAME sessionState query.
+func Test_CoAuthor_ActiveSubStep_SequenceThroughDraftCritiqueReviseApprove(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	// Mission read-back carries a "revise" critique verdict so the FIRST critique drives a
+	// redraft; the SECOND critique is flipped to "approve" (in onObserve) so the loop converges.
+	ps := &fakeProjectState{project: projectstate.Project{
+		ID:      projectstate.ProjectID(id),
+		Version: 1,
+		Mission: awaitingSlot(mustMission(t), projectstate.CritiqueVerdictRevise, "tighten the vision"),
+	}}
+	pipe := newFakePipeline() // every draft + critique dispatch observed Succeeded
+
+	type subStep struct {
+		role  ActiveRole
+		step  ActiveStep
+		round int64
+	}
+	var mu sync.Mutex
+	var seq []subStep
+	critiqueObserves := 0
+	// onObserve runs synchronously INSIDE the observe activity, i.e. exactly while a dispatch
+	// is in flight — the one place the in-flight sub-step is live. Snapshot the query view
+	// there, and flip the critique verdict to "approve" on the second critique so the revise
+	// loop terminates.
+	pipe.onObserve = func() {
+		enc, err := env.QueryWorkflow(querySessionState)
+		if err != nil {
+			return
+		}
+		var v SessionStateView
+		if err := enc.Get(&v); err != nil {
+			return
+		}
+		mu.Lock()
+		seq = append(seq, subStep{v.ActiveRole, v.ActiveStep, v.Round})
+		if v.ActiveStep == ActiveStepCritiquing {
+			critiqueObserves++
+			if critiqueObserves >= 2 {
+				ps.setSlotCritique(projectstate.KindMission, projectstate.CritiqueVerdictApprove, "")
+			}
+		}
+		mu.Unlock()
+	}
+
+	wf := newWorkflows()
+	registerCoAuthor(env, wf, ps, pipe)
+
+	// At the human gate the sub-step must read none/none/0 (no role is working); approve to end.
+	env.RegisterDelayedCallback(func() {
+		enc, err := env.QueryWorkflow(querySessionState)
+		if err != nil {
+			t.Fatalf("QueryWorkflow: %v", err)
+		}
+		var v SessionStateView
+		if err := enc.Get(&v); err != nil {
+			t.Fatalf("decode SessionStateView: %v", err)
+		}
+		if v.Stage != StageAwaitingReview {
+			t.Fatalf("want StageAwaitingReview at the human gate, got %d", v.Stage)
+		}
+		if v.ActiveRole != ActiveRoleNone || v.ActiveStep != ActiveStepNone || v.Round != 0 {
+			t.Fatalf("the human gate must show no active role, got role=%d step=%d round=%d", v.ActiveRole, v.ActiveStep, v.Round)
+		}
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
+	}, 120*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindMission})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	var outcome coAuthorOutcome
+	if err := env.GetWorkflowResult(&outcome); err != nil {
+		t.Fatalf("decode outcome: %v", err)
+	}
+	if outcome != coAuthorApproved {
+		t.Fatalf("want CoAuthorApproved after the revise loop converged, got %d", outcome)
+	}
+
+	want := []subStep{
+		{ActiveRoleArchitect, ActiveStepDrafting, 0},        // draft in flight (round 0)
+		{ActiveRoleProductManager, ActiveStepCritiquing, 0}, // PM critique in flight
+		{ActiveRoleArchitect, ActiveStepRevising, 1},        // redraft/revise in flight (round 1)
+		{ActiveRoleProductManager, ActiveStepCritiquing, 0}, // second PM critique in flight
+	}
+	mu.Lock()
+	got := append([]subStep(nil), seq...)
+	mu.Unlock()
+	if len(got) != len(want) {
+		t.Fatalf("want %d in-flight sub-step snapshots, got %d: %+v", len(want), len(got), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("in-flight snapshot %d = %+v, want %+v (full sequence: %+v)", i, got[i], want[i], got)
+		}
+	}
+}
+
 // THE MISSING-VERDICT SAFE DEFAULT. A critique dispatch reaches PipelineSucceeded but
 // the slot's CritiqueVerdict read-back carrier is EMPTY (the job claimed success yet
 // committed no verdict). The safe rule is NOT a silent approve: the session lands in

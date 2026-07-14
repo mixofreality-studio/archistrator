@@ -6,6 +6,23 @@ import (
 	"encoding/json"
 )
 
+type ActiveRole int
+
+const (
+	ActiveRoleNone           ActiveRole = 0
+	ActiveRoleArchitect      ActiveRole = 1
+	ActiveRoleProductManager ActiveRole = 2
+)
+
+type ActiveStep int
+
+const (
+	ActiveStepNone       ActiveStep = 0
+	ActiveStepDrafting   ActiveStep = 1
+	ActiveStepCritiquing ActiveStep = 2
+	ActiveStepRevising   ActiveStep = 3
+)
+
 type ArtifactKind int
 
 const (
@@ -85,6 +102,36 @@ const (
 	SeverityWarning Severity = "warning"
 	SeverityError   Severity = "error"
 )
+
+// ActiveRoleName returns the declared varname of a ActiveRole value.
+func ActiveRoleName(v ActiveRole) string {
+	switch v {
+	case ActiveRoleNone:
+		return "ActiveRoleNone"
+	case ActiveRoleArchitect:
+		return "ActiveRoleArchitect"
+	case ActiveRoleProductManager:
+		return "ActiveRoleProductManager"
+	default:
+		return ""
+	}
+}
+
+// ActiveStepName returns the declared varname of a ActiveStep value.
+func ActiveStepName(v ActiveStep) string {
+	switch v {
+	case ActiveStepNone:
+		return "ActiveStepNone"
+	case ActiveStepDrafting:
+		return "ActiveStepDrafting"
+	case ActiveStepCritiquing:
+		return "ActiveStepCritiquing"
+	case ActiveStepRevising:
+		return "ActiveStepRevising"
+	default:
+		return ""
+	}
+}
 
 // ArtifactKindName returns the declared varname of a ArtifactKind value.
 func ArtifactKindName(v ArtifactKind) string {

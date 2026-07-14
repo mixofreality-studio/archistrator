@@ -297,6 +297,9 @@ type SystemDesignSessionStateView struct {
 	FailureRunURL *string                  `json:"failureRunUrl,omitempty"`
 	StageName     string                   `json:"stageName"`
 	ReviewThread  []ReviewCommentView      `json:"reviewThread,omitempty"`
+	ActiveRole    ActiveRole               `json:"activeRole"`
+	ActiveStep    ActiveStep               `json:"activeStep"`
+	Round         int64                    `json:"round"`
 }
 
 type SystemTestPlanView struct {
