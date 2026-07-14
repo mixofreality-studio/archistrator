@@ -202,6 +202,54 @@ func Test_GetSessionState_DeadWorkflow_SynthesizesFailedView(t *testing.T) {
 	mc.AssertExpectations(t)
 }
 
+// Plan-3 C2 (regression pin). isAbnormalClosedStatus → failedSessionView exists precisely so
+// a session that dies mid-dispatch — e.g. the TRANSIENT dispatch/observe fault that exhausts
+// its retry budget at coauthorphase2artifact.go:507-510 (the derr branch, closing the
+// workflow while state.markActive had JUST stamped ActiveRoleArchitect/ActiveStepDrafting or
+// Revising ahead of the dispatch) — can never leak that in-flight sub-step stamp through
+// GetSessionState. failedSessionView is a PURE synthesis (it builds a fresh SessionStateView
+// literal and never touches the replayed Query), so the guard holds for every abnormal
+// terminal status Temporal can report for a dead workflow, not only FAILED.
+func Test_GetSessionState_AbnormalClose_SubStepNeverLeaks(t *testing.T) {
+	id := ProjectID(uuid.NewString())
+	wfID := coAuthorWorkflowID(id, KindPlanningAssumptions)
+
+	abnormal := []enumspb.WorkflowExecutionStatus{
+		enumspb.WORKFLOW_EXECUTION_STATUS_FAILED,
+		enumspb.WORKFLOW_EXECUTION_STATUS_TERMINATED,
+		enumspb.WORKFLOW_EXECUTION_STATUS_TIMED_OUT,
+		enumspb.WORKFLOW_EXECUTION_STATUS_CANCELED,
+	}
+	for _, status := range abnormal {
+		t.Run(status.String(), func(t *testing.T) {
+			mc := &temporalmocks.Client{}
+			resp := &workflowservice.DescribeWorkflowExecutionResponse{
+				WorkflowExecutionInfo: &workflowpb.WorkflowExecutionInfo{
+					Status: status,
+				},
+			}
+			mc.On("DescribeWorkflowExecution", mock.Anything, wfID, "").Return(resp, nil)
+			// NO QueryWorkflow expectation: the guard must bypass the live query entirely — if
+			// GetSessionState fell through to it (surfacing whatever ActiveRole/ActiveStep/Round
+			// the dying dispatch had stamped moments before the abnormal close), the mock would
+			// panic, proving the synthesis path never reaches it.
+
+			m := &projectDesignManager{client: mc}
+			view, err := m.GetSessionState(fwmanager.Context{Context: context.Background()}, id, KindPlanningAssumptions)
+			if err != nil {
+				t.Fatalf("GetSessionState on an abnormally-closed workflow must synthesize a view, got err: %v", err)
+			}
+			if view.Stage != StageDraftFailed {
+				t.Fatalf("abnormal close must surface StageDraftFailed, got %d", view.Stage)
+			}
+			if view.ActiveRole != ActiveRoleNone || view.ActiveStep != ActiveStepNone || view.Round != 0 {
+				t.Fatalf("abnormal close must never leak the in-flight sub-step stamp, got role=%d step=%d round=%d", view.ActiveRole, view.ActiveStep, view.Round)
+			}
+			mc.AssertExpectations(t)
+		})
+	}
+}
+
 // A Phase-2 draft whose immediate predecessor slot is uncommitted is refused with
 // FailedPrecondition naming that predecessor — the wire enforces the Method's ordered
 // Phase-2 spine, not only the SPA. Short-circuits before any Temporal client call.
