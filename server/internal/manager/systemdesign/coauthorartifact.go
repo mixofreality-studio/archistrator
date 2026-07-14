@@ -278,6 +278,15 @@ func (wf *workflows) CoAuthorArtifactWorkflow(ctx workflow.Context, in coAuthorI
 	if in.Feedback != nil {
 		feedback = *in.Feedback
 	}
+	// An AMENDMENT session's reopening feedback is OWNED by the amendment seed path
+	// (maybeSeedAmendment, below) — it lands in the ledger at round 0 right after the first
+	// stage. Mark it seeded up front so the pre-dispatch failed-gate seed does not race that
+	// path and double-seed the same comments on the first draft. A non-amendment session's
+	// initial feedback (the OQ6 re-request) is NOT ledger-backed, so it stays false and is
+	// seeded before its first dispatch like any other memory-only feedback.
+	if in.Amendment > 0 {
+		state.feedbackSeeded = true
+	}
 
 	// redraftCount bounds the PM-critique-revise / draft-failure retry loop before the
 	// workflow stages best-effort for the human gate. It persists across the outer
@@ -303,7 +312,7 @@ func (wf *workflows) CoAuthorArtifactWorkflow(ctx workflow.Context, in coAuthorI
 	// architect's decision. The per-step control flow (proceed / redraft / return) is
 	// carried out of the phase helpers as a coAuthorStep so the loop body stays flat.
 	for {
-		gf, draft, readBackVersion, step := wf.produceReviewableDraft(ctx, in, proj, &feedback, &redraftCount, headVersion, state)
+		gf, draft, readBackVersion, step := wf.produceReviewableDraft(ctx, in, proj, &feedback, &redraftCount, &reviewRound, headVersion, state)
 		switch step.action {
 		case actionReturn:
 			return step.outcome, step.err
@@ -477,10 +486,11 @@ func (wf *workflows) produceReviewableDraft(
 	proj projectstate.Project,
 	feedback *ReviewFeedback,
 	redraftCount *int,
+	reviewRound *int,
 	headVersion projectstate.Version,
 	state *coAuthorState,
 ) (gitSession, projectstate.ArtifactModel, projectstate.Version, coAuthorStep) {
-	draft, gf, readBackVersion, step := wf.runDraftRoundTrip(ctx, in, proj, feedback, headVersion, redraftCount, state)
+	draft, gf, readBackVersion, step := wf.runDraftRoundTrip(ctx, in, proj, feedback, headVersion, redraftCount, reviewRound, state)
 	if step.action != actionProceed {
 		return gf, draft, readBackVersion, step
 	}
@@ -503,6 +513,7 @@ func (wf *workflows) runDraftRoundTrip(
 	feedback *ReviewFeedback,
 	headVersion projectstate.Version,
 	redraftCount *int,
+	reviewRound *int,
 	state *coAuthorState,
 ) (projectstate.ArtifactModel, gitSession, projectstate.Version, coAuthorStep) {
 	logger := workflow.GetLogger(ctx)
@@ -562,7 +573,7 @@ func (wf *workflows) runDraftRoundTrip(
 		}
 	}
 	if !haveDraft {
-		m, v, step := wf.dispatchDraftAndReadBack(ctx, in, proj, gf, sessionBranch, feedback, headVersion, redraftCount, state)
+		m, v, step := wf.dispatchDraftAndReadBack(ctx, in, proj, gf, sessionBranch, feedback, headVersion, redraftCount, reviewRound, state)
 		if step.action != actionProceed {
 			return draft, gf, 0, step
 		}
@@ -630,12 +641,38 @@ func (wf *workflows) dispatchDraftAndReadBack(
 	feedback *ReviewFeedback,
 	headVersion projectstate.Version,
 	redraftCount *int,
+	reviewRound *int,
 	state *coAuthorState,
 ) (projectstate.ArtifactModel, projectstate.Version, coAuthorStep) {
 	logger := workflow.GetLogger(ctx)
+	// FAILED-GATE FEEDBACK SEED (thin-dispatch). The memory-only failed-gate recovery paths
+	// (a redraft signal, a Retry-via-Reject at a failed gate, a faulted reject, a PM-critique
+	// revise) retain the architect's feedback in the workflow's feedback variable ONLY — unlike
+	// the review-gate reject and the amendment seed, which fold it into the DURABLE review
+	// ledger. Under thin dispatch the drafting agent reads context ONLY via getReviewThread, so
+	// that memory-only feedback would evaporate. Seed it here, right BEFORE the redraft dispatch,
+	// reusing the SAME seeding activity + comment conversion the reject path uses, so the agent
+	// reads it off the branch. state.feedbackSeeded gates it — an already-seeded reject/amendment
+	// path is skipped so its comments are never double-seeded.
+	//
+	// Temporal versioning guard (replay safety; mirrors the managed-scaffold-sync gate in
+	// beginSession): this seed was ADDED to the redraft dispatch path AFTER the CoAuthor workflow
+	// first shipped, so a design session already in flight at deploy time has NO history event
+	// for it — replaying such a history against unguarded new code fails the workflow task with a
+	// non-determinism error. GetVersion pins pre-feature executions (DefaultVersion) to the OLD
+	// command sequence (they skip the seed for their WHOLE run — including post-recovery redrafts,
+	// the version resolved at first replay being cached per execution), while every execution
+	// STARTED after this deploy resolves v1 and seeds before each memory-only redraft. The
+	// founder's deploy drains in-flight design workflows first, so this gate is belt-and-braces.
+	if workflow.GetVersion(ctx, "failed-gate-ledger-seed", workflow.DefaultVersion, 1) >= 1 {
+		if !state.feedbackSeeded && wf.seedFailedGateFeedback(ctx, in, gf, headVersion, feedback, reviewRound, state) {
+			state.feedbackSeeded = true
+		}
+	}
 	// REVIEW LEDGER: on a redraft, the durable open comments (state.reviewThread, reloaded
-	// after the reject-append) and the reopening feedback reach the drafting agent via the
-	// ledger it reads with getReviewThread — no longer woven into a design_prompt.
+	// after the reject-append or the failed-gate seed above) and the reopening feedback reach
+	// the drafting agent via the ledger it reads with getReviewThread — no longer woven into a
+	// design_prompt.
 	draftObs, derr := wf.dispatchAndObserve(ctx, dispatchDesignJobArgs{
 		ProjectID:     in.ProjectID,
 		ArtifactKind:  in.ArtifactKind,
@@ -755,8 +792,11 @@ func (wf *workflows) runPMCritique(
 			state.unresolvedCritique = critique.Notes
 			return stepProceed() // fall through to stage for review.
 		}
-		// Re-dispatch the architect draft with the PM notes woven in.
+		// Re-dispatch the architect draft with the PM notes woven in. Memory-only feedback
+		// (Notes carry no anchored comments, so the pre-dispatch seed is a no-op here, but the
+		// flag stays honest for the general case).
 		*feedback = ReviewFeedback{Notes: critique.Notes}
+		state.feedbackSeeded = false
 		state.stage = StageRedrafting
 		return stepRedraft()
 	}
@@ -881,6 +921,10 @@ func (wf *workflows) handleReviewDecision(
 		// crash-containment recovery gate still holds the feedback so a Retry reuses it
 		// instead of silently discarding the architect's send-back (QA F28).
 		*feedback = rejectFeedback
+		// Not YET in the ledger — the reject write below seeds it (and flips this true on
+		// success). If that write FAULTS (crash containment, below), the flag stays false so
+		// the failed-gate seed persists this feedback before the Retry redraft dispatch.
+		state.feedbackSeeded = false
 		branch := gf.readBackBranch()
 		newVersion, err := wf.applyRecovering(ctx, in.ProjectID, branch, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
 			// REVIEW LEDGER (review-ledger §2): fold the reviewer's anchored comments into the
@@ -910,6 +954,10 @@ func (wf *workflows) handleReviewDecision(
 			return wf.recoverAtFailedGate(ctx, in, *headVersion, rejectFailedReason(err), "", state, feedback, redraftCount)
 		}
 		*headVersion = newVersion
+		// The reject folded the architect's comments into the ledger (feedbackToLedgerComments,
+		// above), so this feedback is durably seeded — the pre-dispatch failed-gate seed skips it
+		// (no double-seed).
+		state.feedbackSeeded = true
 		// REVIEW LEDGER: reload the thread from the SAME persistent session branch the reject
 		// just wrote so it carries the freshly-appended OPEN comments — the redraft prompt lists
 		// them for the drafting agent to respond to. Under the F40 single-branch topology the
@@ -1100,6 +1148,16 @@ type coAuthorState struct {
 	// branch that already carries the model (which the no-commit guard would red). Workflow-
 	// local, deterministic on replay (set from a recorded Activity error, never wall-clock).
 	resumeFromReadBack bool
+	// feedbackSeeded reports whether the CURRENT contents of the workflow's feedback variable
+	// are already durably in the review ledger. The review-gate REJECT and the AMENDMENT seed
+	// fold their feedback into the ledger themselves (feedbackToLedgerComments / seedAmendment
+	// Ledger), so they set this true. The MEMORY-ONLY failed-gate paths — a redraft-signal
+	// (F47), a Retry-via-Reject AT a failed gate, a faulted reject, a PM-critique revise — only
+	// retain the feedback in this workflow variable, so they set it false. Under thin dispatch
+	// the drafting agent reads context ONLY via getReviewThread, so before each redraft dispatch
+	// a false flag triggers seedFailedGateFeedback (below) to seed the retained feedback,
+	// while a true flag skips it so an already-seeded path is never double-seeded.
+	feedbackSeeded bool
 }
 
 func (s *coAuthorState) view() (SessionStateView, error) {
@@ -1464,6 +1522,8 @@ func (wf *workflows) awaitDraftFailedRecovery(
 				// instruction reaches the next draft prompt without discarding retained context.
 				*feedback = mergeRedraftFeedback(*feedback, *sig.Feedback)
 			}
+			// Memory-only until the pre-dispatch failed-gate seed persists it (thin dispatch).
+			state.feedbackSeeded = false
 			retry = true
 		})
 		sel.AddReceive(reviewCh, func(c workflow.ReceiveChannel, _ bool) {
@@ -1474,8 +1534,12 @@ func (wf *workflows) awaitDraftFailedRecovery(
 				withdraw = true
 				withdrawNotes = signalNotes(sig.Feedback)
 			case ReviewReject:
-				// Retry-via-Reject: re-dispatch with the architect's feedback woven in.
+				// Retry-via-Reject: re-dispatch with the architect's feedback woven in. This is
+				// the CORE gap this fix closes — at a FAILED gate (unlike the review gate) the
+				// reject never touches the ledger, so the feedback is memory-only until the
+				// pre-dispatch failed-gate seed persists it before the redraft dispatch.
 				*feedback = reviewFeedbackOrZero(sig.Feedback)
+				state.feedbackSeeded = false
 				retry = true
 			case ReviewDecisionUnknown, ReviewApprove:
 				// Approve at a failed gate is meaningless (no staged draft); the zero
@@ -2443,9 +2507,46 @@ func (wf *workflows) seedAmendmentLedger(ctx workflow.Context, in coAuthorInput,
 		return
 	}
 	*headVersion = newVersion
+	// The amendment feedback is now durably in the ledger; keep feedbackSeeded true so the
+	// pre-dispatch failed-gate seed does not re-seed the same round-0 comments.
+	state.feedbackSeeded = true
 	if thread, terr := wf.loadReviewThread(ctx, in, gf); terr == nil {
 		state.reviewThread = thread
 	}
+}
+
+// seedFailedGateFeedback durably records the architect feedback that a MEMORY-ONLY failed-gate
+// recovery path (a redraft signal / a Retry-via-Reject AT a failed gate / a faulted reject /
+// a PM-critique revise) retained ONLY in the workflow's feedback variable. Unlike the review-
+// gate reject and the amendment seed, those paths never wrote it to the durable review ledger —
+// so under thin dispatch (the drafting agent reads context ONLY via getReviewThread) it would
+// evaporate. This folds the SAME anchored comments the reject path uses (feedbackToLedgerComments)
+// into the ledger on the SAME session branch, consuming a review round (reviewRound, like a
+// reject) so the seeded ids do not collide with a later reject's on the one accumulating thread.
+// Best-effort, mirroring seedAmendmentLedger: a Notes-only feedback (no anchored comments), an
+// unpopulated slot (no prior staged draft to anchor to on a first-round dispatch), a non-ledger
+// substrate, or a transient fault leaves the feedback un-seeded and RETRIES on the next redraft
+// dispatch. Returns whether the seed durably landed, so the caller marks feedbackSeeded and
+// stops re-seeding. headVersion is a hint only — applyRecovering re-reads on a version conflict.
+func (wf *workflows) seedFailedGateFeedback(ctx workflow.Context, in coAuthorInput, gf gitSession, headVersion projectstate.Version, feedback *ReviewFeedback, reviewRound *int, state *coAuthorState) bool {
+	comments := feedbackToLedgerComments(*feedback)
+	if len(comments) == 0 {
+		return false
+	}
+	branch := gf.readBackBranch()
+	round := int64(*reviewRound)
+	if _, err := wf.applyRecovering(ctx, in.ProjectID, branch, headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+		return wf.Acts.DesignSessionSeedReviewCommentsOnBranch(ctx, projectstate.ProjectID(in.ProjectID), expected, branch, toPSKind(in.ArtifactKind), round, comments)
+	}); err != nil {
+		return false
+	}
+	// A durable ledger write consumes a review round (exactly like the reject path), so a LATER
+	// reject's r{round}c{n} ids do not collide with these on the accumulating thread.
+	*reviewRound++
+	if thread, terr := wf.loadReviewThread(ctx, in, gf); terr == nil {
+		state.reviewThread = thread
+	}
+	return true
 }
 
 // loadReviewThread reads the artifact slot's durable ledger from the session branch (the

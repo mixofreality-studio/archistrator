@@ -993,6 +993,14 @@ func (p *fakePipeline) SubmitConstructionPipeline(rc fwra.Context, spec construc
 	return constructionpipeline.PipelineHandle(name), nil
 }
 
+// submitCount returns how many dispatches have been submitted so far (thread-safe), so a
+// ledger fake can record the dispatch count at seed time and a test can assert ordering.
+func (p *fakePipeline) submitCount() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return len(p.submits)
+}
+
 func (p *fakePipeline) ObserveConstructionPipeline(_ fwra.Context, handle constructionpipeline.PipelineHandle) (constructionpipeline.PipelineObservation, error) {
 	p.mu.Lock()
 	phase := p.handlePhase[constructionpipeline.PipelineHandleString(handle)]
@@ -4558,11 +4566,12 @@ func Test_CoAuthor_RailEnabled_RejectWriteFaults_RecoversAtFailedGate_RetainsFee
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("a faulted reject must not crash the workflow: %v", err)
 	}
-	// The retry redrafted. With the reject-write faulted the LEDGER was never seeded, and
-	// dispatch inputs no longer carry feedback prose — so there is no feedback channel to
-	// assert on the redraft here. What this test still proves is crash-containment (asserted
-	// above: no crash, lands at StageDraftFailed with a reason) plus the retry re-dispatching
-	// the architect draft command.
+	// The retry redrafted. This test uses a NON-ledger substrate (branchAwareFakeProjectState),
+	// so the pre-dispatch failed-gate seed best-effort no-ops (NotFound) and there is no ledger
+	// channel to assert on the redraft here — the seeding onto a ledger substrate is proven by
+	// Test_CoAuthor_RailEnabled_FailedGateRetry_SeedsRetainedFeedbackToLedger_BeforeRedraft. What
+	// this test proves is crash-containment (asserted above: no crash, lands at StageDraftFailed
+	// with a reason) plus the retry re-dispatching the architect draft command.
 	if len(pipe.submits) < 2 {
 		t.Fatalf("the retry must issue a SECOND dispatch, got %d submits", len(pipe.submits))
 	}
@@ -4836,9 +4845,9 @@ func Test_CoAuthor_RailEnabled_RetryAtFailedGate_SameBranch_RetainsFeedback(t *t
 		t.Fatalf("the retry branch must be the stable session branch (no amendment suffix), got %q", b1)
 	}
 	// The retry re-dispatches the architect draft command on the SAME session branch
-	// (asserted above). NOTE: a retry-via-reject at a FAILED gate does not seed the review
-	// ledger, and dispatch inputs no longer carry feedback prose — so this test no longer
-	// asserts a feedback channel on the redraft (see the B2 report's behavior note).
+	// (asserted above). NOTE: this retry-via-reject carries NOTES ONLY (no anchored comments),
+	// so the failed-gate ledger seed is a no-op here; the anchored-comment seeding is proven by
+	// Test_CoAuthor_RailEnabled_FailedGateRetry_SeedsRetainedFeedbackToLedger_BeforeRedraft.
 	if got := pipe.submits[len(pipe.submits)-1].dispatchInputs[dispatchInputCommand]; got != "system-draft" {
 		t.Fatalf("retry must dispatch command=system-draft, got %q", got)
 	}
@@ -5187,6 +5196,11 @@ type ledgerFakeProjectState struct {
 	*branchAwareFakeProjectState
 	seededRounds   []int64
 	seededComments [][]projectstate.ReviewComment
+	// pipe, when set, lets the seed recorder capture the dispatch count AT SEED TIME so a test
+	// can prove a failed-gate ledger seed lands BEFORE the redraft dispatch (seededAtSubmits[i]
+	// is the number of dispatches already submitted when the i-th seed fired).
+	pipe            *fakePipeline
+	seededAtSubmits []int
 }
 
 var _ projectstate.LedgerProjectStateAccess = (*ledgerFakeProjectState)(nil)
@@ -5194,6 +5208,9 @@ var _ projectstate.LedgerProjectStateAccess = (*ledgerFakeProjectState)(nil)
 func (f *ledgerFakeProjectState) SeedReviewCommentsOnBranch(_ context.Context, _ projectstate.ProjectID, expectedVersion projectstate.Version, _ string, _ projectstate.ArtifactKind, round int64, comments []projectstate.ReviewComment, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	f.seededRounds = append(f.seededRounds, round)
 	f.seededComments = append(f.seededComments, comments)
+	if f.pipe != nil {
+		f.seededAtSubmits = append(f.seededAtSubmits, f.pipe.submitCount())
+	}
 	return expectedVersion, nil
 }
 
@@ -5275,6 +5292,122 @@ func Test_CoAuthor_Rail_Amendment_PreFieldCommittedSlot_AmendBranch_Prompt_SeedF
 	}
 	if len(ps.seededComments) == 0 || len(ps.seededComments[0]) == 0 {
 		t.Fatal("the seed must carry the reopening comments as OPEN ledger entries")
+	}
+}
+
+// FAILED-GATE FEEDBACK SEED (thin dispatch). A Retry-via-Reject AT a failed gate retains the
+// architect's anchored feedback in workflow MEMORY only — unlike a review-gate reject, a
+// failed-gate reject never touches the ledger. Under thin dispatch the drafting agent reads
+// context ONLY via getReviewThread, so the manager must SEED that retained feedback into the
+// durable review ledger BEFORE the redraft dispatch (else it evaporates — the B2 report gap).
+// This proves the seed fires with EXACTLY the retained comment AND lands before the redraft.
+func Test_CoAuthor_RailEnabled_FailedGateRetry_SeedsRetainedFeedbackToLedger_BeforeRedraft(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base := &fakeProjectState{project: systemReadBack(t, id)}
+	// The FIRST draft job FAILS (lands the session at the StageDraftFailed gate); the retry's
+	// redraft succeeds and reaches AwaitingReview.
+	pipe := newFakePipeline(pipelineFailed, pipelineSucceeded)
+	pipe.diagnostic = "the drafting job failed in CI"
+	ps := &ledgerFakeProjectState{
+		branchAwareFakeProjectState: &branchAwareFakeProjectState{fakeProjectState: base},
+		pipe:                        pipe,
+	}
+	rail := &fakeRail{checkGreen: true}
+	wf := newRailWorkflows(rail)
+	registerRailCoAuthor(env, wf, ps, pipe)
+
+	const (
+		retainedPath = "$.components[0].name"
+		retainedText = "this manager name violates the layering rule — fix before redrafting"
+	)
+	// At the failed gate: Retry-via-Reject carrying anchored feedback.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{
+			Decision: ReviewReject,
+			Feedback: &ReviewFeedback{Notes: "redo the decomposition", Comments: []AnchoredComment{{JSONPath: retainedPath, Text: retainedText}}},
+		})
+	}, 30*time.Second)
+	// After the recovered redraft reaches AwaitingReview, Withdraw to end cleanly.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 80*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a failed-gate retry must not crash the workflow: %v", err)
+	}
+	// The retry re-dispatched (a SECOND draft).
+	if len(pipe.submits) < 2 {
+		t.Fatalf("the retry must issue a SECOND draft dispatch, got %d submits", len(pipe.submits))
+	}
+	// THE FIX: the retained feedback was SEEDED into the review ledger exactly once, carrying
+	// the architect's anchored comment as a durable OPEN ledger entry.
+	if len(ps.seededRounds) != 1 {
+		t.Fatalf("the retained failed-gate feedback must seed exactly once, got %d seeds (%v)", len(ps.seededRounds), ps.seededRounds)
+	}
+	if len(ps.seededComments) != 1 || len(ps.seededComments[0]) != 1 {
+		t.Fatalf("the seed must carry exactly the one retained anchored comment, got %v", ps.seededComments)
+	}
+	if c := ps.seededComments[0][0]; c.Anchor != retainedPath || c.Text != retainedText {
+		t.Fatalf("the seeded comment must be the retained feedback, got %+v", c)
+	}
+	// ORDERING: the seed landed BEFORE the redraft dispatch — only the first (failed) dispatch
+	// had been submitted when the seed fired (count == 1), so the seed precedes the SECOND
+	// dispatch (which brings the count to 2).
+	if len(ps.seededAtSubmits) != 1 || ps.seededAtSubmits[0] != 1 {
+		t.Fatalf("the ledger seed must land BEFORE the redraft dispatch (want 1 prior dispatch at seed time), got %v", ps.seededAtSubmits)
+	}
+}
+
+// NO DOUBLE-SEED. A review-gate REJECT folds its feedback into the ledger via the reject write
+// itself (RejectArtifactOnBranchWithComments). The pre-dispatch failed-gate seed must therefore
+// SKIP it — otherwise the same comments would be seeded a SECOND time (at a different round →
+// duplicate ledger entries). Proven here: after a review-gate reject → redraft, the failed-gate
+// SEED activity never fired (the reject write is the sole ledger write for that feedback).
+func Test_CoAuthor_RailEnabled_ReviewGateReject_NotDoubleSeeded(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base := &fakeProjectState{project: systemReadBack(t, id)}
+	pipe := newFakePipeline() // every dispatch succeeds → reaches the REVIEW gate (not a failed gate)
+	ps := &ledgerFakeProjectState{
+		branchAwareFakeProjectState: &branchAwareFakeProjectState{fakeProjectState: base},
+		pipe:                        pipe,
+	}
+	rail := &fakeRail{checkGreen: true}
+	wf := newRailWorkflows(rail)
+	registerRailCoAuthor(env, wf, ps, pipe)
+
+	feedback := &ReviewFeedback{
+		Notes:    "rework the decomposition",
+		Comments: []AnchoredComment{{JSONPath: "$.components[0].name", Text: "layering violation"}},
+	}
+	// First gate: REJECT with anchored feedback (the reject write seeds it). Second gate: WITHDRAW.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewReject, Feedback: feedback})
+	}, 30*time.Second)
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 70*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a review-gate reject must not crash the workflow: %v", err)
+	}
+	// The reject looped to a redraft (a SECOND dispatch).
+	if len(pipe.submits) < 2 {
+		t.Fatalf("a reject must re-dispatch a fresh draft, got %d submits", len(pipe.submits))
+	}
+	// THE GUARD: the failed-gate SEED activity never ran for the reject-seeded feedback — the
+	// reject write is its ONLY ledger write, so there is no duplicate.
+	if len(ps.seededRounds) != 0 {
+		t.Fatalf("a review-gate reject must NOT be double-seeded via the failed-gate seed; got %d spurious seeds (%v)", len(ps.seededRounds), ps.seededRounds)
 	}
 }
 
