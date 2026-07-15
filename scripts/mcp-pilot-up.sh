@@ -99,13 +99,13 @@ else
   fi
   # asdf: the clone needs a node version; reuse the webApp's pin.
   [[ -f "${EXT_APPS_DIR}/.tool-versions" ]] || cp "$ROOT/webApp/.tool-versions" "${EXT_APPS_DIR}/.tool-versions"
-  if [[ ! -d "${EXT_APPS_DIR}/node_modules" ]]; then
-    note "basic-host: npm install (monorepo root — its prepare/build needs root devDeps)..."
-    (cd "${EXT_APPS_DIR}" && npm install) >> "$RUN/basic-host.log" 2>&1
-  fi
-  if [[ ! -d "${EXT_APPS_DIR}/examples/basic-host/node_modules" ]]; then
-    note "basic-host: npm install (example)..."
-    (cd "${EXT_APPS_DIR}/examples/basic-host" && npm install) >> "$RUN/basic-host.log" 2>&1
+  # The examples are npm workspaces — one ROOT install provisions everything
+  # (hoisted .bin). A bare node_modules dir is not proof of success: use a
+  # hoisted binary the example needs as the completeness marker.
+  if [[ ! -x "${EXT_APPS_DIR}/node_modules/.bin/cross-env" ]]; then
+    note "basic-host: npm install (monorepo root, provisions all workspaces)..."
+    (cd "${EXT_APPS_DIR}" && npm install) >> "$RUN/basic-host.log" 2>&1 \
+      || { echo "FATAL: ext-apps root npm install failed — see .mcp-pilot/basic-host.log" >&2; exit 1; }
   fi
   note "basic-host: starting on :8080 (log: .mcp-pilot/basic-host.log)"
   (cd "${EXT_APPS_DIR}/examples/basic-host" && SERVERS='["http://localhost:8888/mcp"]' nohup npm start >> "$RUN/basic-host.log" 2>&1 &
