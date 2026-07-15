@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -121,6 +123,128 @@ func TestMCPAppsSeam(t *testing.T) {
 	for _, want := range []string{"mcp-app.js", "mcp-app.css"} {
 		if !strings.Contains(content.Text, want) {
 			t.Errorf("resource body missing fixed asset name %q:\n%s", want, content.Text)
+		}
+	}
+}
+
+// mustListTools spins up the same in-memory MCP mount as TestMCPAppsSeam /
+// TestMCPMountInitializeAndListTools and returns the live tools/list result.
+// Managers are nil — tools/list never invokes a manager, so no backing infra
+// is required.
+func mustListTools(t *testing.T) []*mcp.Tool {
+	t.Helper()
+	handler := newMCPHandler(web.DevConfig{Enabled: true}, nil, nil, nil, nil, nil, "http://localhost:5173", "dev")
+	ts := httptest.NewServer(handler)
+	defer ts.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "archistrator-test-client", Version: "0.0.1"}, nil)
+	session, err := client.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: ts.URL}, nil)
+	if err != nil {
+		t.Fatalf("MCP initialize against /mcp failed: %v", err)
+	}
+	defer func() { _ = session.Close() }()
+
+	res, err := session.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatalf("tools/list against /mcp failed: %v", err)
+	}
+	return res.Tools
+}
+
+// TestMCPToolsListUUIDParamSchema proves the generator's fixUUIDStrings fix
+// (T11 finding F-T11-1): a uuid.UUID input param must be typed as a JSON
+// string with format "uuid" — matching what the value actually marshals as on
+// the wire — instead of the SDK's structural [16]byte-array inference, which
+// the prior relaxRawJSON pass then blanked to bare JSON `true` (rejected by
+// the TS MCP SDK's Zod validator, which requires an object).
+//
+// mcp.Tool.InputSchema/OutputSchema are declared `any` on the wire type (not
+// *jsonschema.Schema), so the client-decoded value is generic JSON
+// (map[string]any / bool) — this asserts against that shape, exactly what a
+// real TS SDK host sees.
+func TestMCPToolsListUUIDParamSchema(t *testing.T) {
+	const toolName = "operationsApplyDelinquencyPolicy"
+	var tool *mcp.Tool
+	for _, tl := range mustListTools(t) {
+		if tl.Name == toolName {
+			tool = tl
+			break
+		}
+	}
+	if tool == nil {
+		t.Fatalf("tools/list missing %q", toolName)
+	}
+	inSchema, ok := tool.InputSchema.(map[string]any)
+	if !ok {
+		t.Fatalf("%s inputSchema is not a JSON object: %#v", toolName, tool.InputSchema)
+	}
+	props, ok := inSchema["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("%s inputSchema.properties is not a JSON object: %#v", toolName, inSchema["properties"])
+	}
+	prop, ok := props["customerID"]
+	if !ok {
+		t.Fatalf("%s inputSchema.properties missing customerID", toolName)
+	}
+	got, err := json.Marshal(prop)
+	if err != nil {
+		t.Fatalf("marshal customerID schema: %v", err)
+	}
+	var gotMap map[string]any
+	if err := json.Unmarshal(got, &gotMap); err != nil {
+		t.Fatalf("customerID schema %s did not unmarshal as a JSON object: %v", got, err)
+	}
+	want := map[string]any{"format": "uuid", "type": "string"}
+	if len(gotMap) != len(want) || gotMap["format"] != want["format"] || gotMap["type"] != want["type"] {
+		t.Errorf("customerID schema = %s, want %v", got, want)
+	}
+}
+
+// TestMCPToolsListNoBooleanPropertySchemas is the regression test for the Zod
+// failure class behind F-T11-1: the TS MCP SDK rejects a tools/list response
+// where any property schema is the JSON boolean `true` (the zero-value
+// jsonschema.Schema{} marshaled by the library) — `true` is valid JSON
+// Schema, but Zod requires every property schema to be an object. Walk every
+// tool's input and output schema tree, as decoded into generic JSON (matching
+// what a real client sees), and fail on any node reachable via `properties`
+// that is a bare boolean.
+func TestMCPToolsListNoBooleanPropertySchemas(t *testing.T) {
+	for _, tool := range mustListTools(t) {
+		walkSchemaProperties(t, tool.Name+".inputSchema", tool.InputSchema)
+		walkSchemaProperties(t, tool.Name+".outputSchema", tool.OutputSchema)
+	}
+}
+
+// walkSchemaProperties walks a generic-JSON-decoded schema node (map[string]any
+// for an object schema, bool for `true`/`false`) and fails on any property
+// value that is a bare boolean.
+func walkSchemaProperties(t *testing.T, path string, node any) {
+	t.Helper()
+	if node == nil {
+		return
+	}
+	m, ok := node.(map[string]any)
+	if !ok {
+		return
+	}
+	if props, ok := m["properties"].(map[string]any); ok {
+		for name, p := range props {
+			propPath := fmt.Sprintf("%s.properties.%s", path, name)
+			if _, isBool := p.(bool); isBool {
+				t.Errorf("%s is JSON boolean %v, not an object (TS SDK Zod validator rejects this)", propPath, p)
+				continue
+			}
+			walkSchemaProperties(t, propPath, p)
+		}
+	}
+	walkSchemaProperties(t, path+".items", m["items"])
+	walkSchemaProperties(t, path+".additionalProperties", m["additionalProperties"])
+	if prefix, ok := m["prefixItems"].([]any); ok {
+		for i, p := range prefix {
+			walkSchemaProperties(t, fmt.Sprintf("%s.prefixItems[%d]", path, i), p)
 		}
 	}
 }

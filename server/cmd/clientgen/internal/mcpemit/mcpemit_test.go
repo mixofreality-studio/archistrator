@@ -110,6 +110,42 @@ func TestGenerate_EmitsExplicitRelaxedOutputSchema(t *testing.T) {
 	if strings.Count(src, "relaxRawJSON(s)") < 2 {
 		t.Errorf("relaxRawJSON should run on both input and output schema builders")
 	}
+	// relaxRawJSON's blank-out must marshal as a JSON OBJECT, not the zero-value
+	// Schema{} (which the library marshals as bare `true` — rejected by the TS MCP
+	// SDK's Zod validator; T11 finding F-T11-1).
+	if !strings.Contains(src, `*s = jsonschema.Schema{Description: "any JSON value"}`) {
+		t.Errorf("relaxRawJSON must blank to a schema that marshals as a JSON object, not Schema{}:\n%s", src)
+	}
+}
+
+// TestGenerate_FixesUUIDStringsBeforeRelaxing proves fixUUIDStrings (T11
+// finding F-T11-1) is emitted and runs on both input and output schema
+// builders, and runs BEFORE relaxRawJSON — otherwise relaxRawJSON's
+// raw-byte-array signature match (isRawByteArray) would blank a uuid.UUID
+// node to a permissive schema before fixUUIDStrings ever sees it, since a
+// uuid.UUID and a raw byte array share the same structural inference shape.
+func TestGenerate_FixesUUIDStringsBeforeRelaxing(t *testing.T) {
+	src := generate(t, func(string) string { return "doc" })
+	if !strings.Contains(src, "func fixUUIDStrings(s *jsonschema.Schema)") ||
+		!strings.Contains(src, "func isUUIDArray(s *jsonschema.Schema) bool") {
+		t.Errorf("missing fixUUIDStrings / isUUIDArray helpers:\n%s", src)
+	}
+	if !strings.Contains(src, `*s = jsonschema.Schema{Type: "string", Format: "uuid"}`) {
+		t.Errorf("fixUUIDStrings must retype a uuid node to {type: string, format: uuid}:\n%s", src)
+	}
+	if strings.Count(src, "fixUUIDStrings(s)") < 2 {
+		t.Errorf("fixUUIDStrings should run on both input and output schema builders")
+	}
+	idx := strings.Index(src, "func requestArtifactDraftInputSchema")
+	if idx < 0 {
+		t.Fatalf("missing requestArtifactDraftInputSchema builder:\n%s", src)
+	}
+	body := src[idx:]
+	fixIdx := strings.Index(body, "fixUUIDStrings(s)")
+	relaxIdx := strings.Index(body, "relaxRawJSON(s)")
+	if fixIdx < 0 || relaxIdx < 0 || fixIdx > relaxIdx {
+		t.Errorf("fixUUIDStrings must be called before relaxRawJSON in each schema builder:\n%s", body)
+	}
 }
 
 func TestGenerate_MissingDocIsAnError(t *testing.T) {

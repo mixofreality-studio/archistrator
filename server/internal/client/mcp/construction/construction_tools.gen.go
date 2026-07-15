@@ -96,6 +96,7 @@ type updateReviewPolicyOutput struct{}
 // executeNextActivityInputSchema is the explicit MCP input schema for the ExecuteNextActivity operation.
 func executeNextActivityInputSchema() *jsonschema.Schema {
 	s := objectSchema[executeNextActivityInput]()
+	fixUUIDStrings(s)
 	relaxRawJSON(s)
 	allowNullMaps(s)
 	s.Required = []string{"projectID", "tickID"}
@@ -105,6 +106,7 @@ func executeNextActivityInputSchema() *jsonschema.Schema {
 // getSessionStateInputSchema is the explicit MCP input schema for the GetSessionState operation.
 func getSessionStateInputSchema() *jsonschema.Schema {
 	s := objectSchema[getSessionStateInput]()
+	fixUUIDStrings(s)
 	relaxRawJSON(s)
 	allowNullMaps(s)
 	s.Required = []string{"projectID"}
@@ -114,6 +116,7 @@ func getSessionStateInputSchema() *jsonschema.Schema {
 // overrideActivityInputSchema is the explicit MCP input schema for the OverrideActivity operation.
 func overrideActivityInputSchema() *jsonschema.Schema {
 	s := objectSchema[overrideActivityInput]()
+	fixUUIDStrings(s)
 	relaxRawJSON(s)
 	allowNullMaps(s)
 	s.Required = []string{"projectID", "activityID", "override"}
@@ -123,6 +126,7 @@ func overrideActivityInputSchema() *jsonschema.Schema {
 // pauseProjectInputSchema is the explicit MCP input schema for the PauseProject operation.
 func pauseProjectInputSchema() *jsonschema.Schema {
 	s := objectSchema[pauseProjectInput]()
+	fixUUIDStrings(s)
 	relaxRawJSON(s)
 	allowNullMaps(s)
 	s.Required = []string{"projectID", "reason"}
@@ -132,6 +136,7 @@ func pauseProjectInputSchema() *jsonschema.Schema {
 // runReplanSweepInputSchema is the explicit MCP input schema for the RunReplanSweep operation.
 func runReplanSweepInputSchema() *jsonschema.Schema {
 	s := objectSchema[runReplanSweepInput]()
+	fixUUIDStrings(s)
 	relaxRawJSON(s)
 	allowNullMaps(s)
 	s.Required = []string{"tickID"}
@@ -141,6 +146,7 @@ func runReplanSweepInputSchema() *jsonschema.Schema {
 // submitPhaseDecisionInputSchema is the explicit MCP input schema for the SubmitPhaseDecision operation.
 func submitPhaseDecisionInputSchema() *jsonschema.Schema {
 	s := objectSchema[submitPhaseDecisionInput]()
+	fixUUIDStrings(s)
 	relaxRawJSON(s)
 	allowNullMaps(s)
 	s.Required = []string{"projectID", "activityID", "phase", "decision"}
@@ -151,6 +157,7 @@ func submitPhaseDecisionInputSchema() *jsonschema.Schema {
 // updateReviewPolicyInputSchema is the explicit MCP input schema for the UpdateReviewPolicy operation.
 func updateReviewPolicyInputSchema() *jsonschema.Schema {
 	s := objectSchema[updateReviewPolicyInput]()
+	fixUUIDStrings(s)
 	relaxRawJSON(s)
 	allowNullMaps(s)
 	s.Required = []string{"projectID", "policy"}
@@ -160,6 +167,7 @@ func updateReviewPolicyInputSchema() *jsonschema.Schema {
 // executeNextActivityOutputSchema is the explicit MCP output schema for the ExecuteNextActivity operation.
 func executeNextActivityOutputSchema() *jsonschema.Schema {
 	s := objectSchema[executeNextActivityOutput]()
+	fixUUIDStrings(s)
 	relaxRawJSON(s)
 	allowNullMaps(s)
 	return s
@@ -168,6 +176,7 @@ func executeNextActivityOutputSchema() *jsonschema.Schema {
 // getSessionStateOutputSchema is the explicit MCP output schema for the GetSessionState operation.
 func getSessionStateOutputSchema() *jsonschema.Schema {
 	s := objectSchema[getSessionStateOutput]()
+	fixUUIDStrings(s)
 	relaxRawJSON(s)
 	allowNullMaps(s)
 	return s
@@ -176,6 +185,7 @@ func getSessionStateOutputSchema() *jsonschema.Schema {
 // overrideActivityOutputSchema is the explicit MCP output schema for the OverrideActivity operation.
 func overrideActivityOutputSchema() *jsonschema.Schema {
 	s := objectSchema[overrideActivityOutput]()
+	fixUUIDStrings(s)
 	relaxRawJSON(s)
 	allowNullMaps(s)
 	return s
@@ -184,6 +194,7 @@ func overrideActivityOutputSchema() *jsonschema.Schema {
 // pauseProjectOutputSchema is the explicit MCP output schema for the PauseProject operation.
 func pauseProjectOutputSchema() *jsonschema.Schema {
 	s := objectSchema[pauseProjectOutput]()
+	fixUUIDStrings(s)
 	relaxRawJSON(s)
 	allowNullMaps(s)
 	return s
@@ -192,6 +203,7 @@ func pauseProjectOutputSchema() *jsonschema.Schema {
 // runReplanSweepOutputSchema is the explicit MCP output schema for the RunReplanSweep operation.
 func runReplanSweepOutputSchema() *jsonschema.Schema {
 	s := objectSchema[runReplanSweepOutput]()
+	fixUUIDStrings(s)
 	relaxRawJSON(s)
 	allowNullMaps(s)
 	return s
@@ -200,6 +212,7 @@ func runReplanSweepOutputSchema() *jsonschema.Schema {
 // submitPhaseDecisionOutputSchema is the explicit MCP output schema for the SubmitPhaseDecision operation.
 func submitPhaseDecisionOutputSchema() *jsonschema.Schema {
 	s := objectSchema[submitPhaseDecisionOutput]()
+	fixUUIDStrings(s)
 	relaxRawJSON(s)
 	allowNullMaps(s)
 	return s
@@ -208,6 +221,7 @@ func submitPhaseDecisionOutputSchema() *jsonschema.Schema {
 // updateReviewPolicyOutputSchema is the explicit MCP output schema for the UpdateReviewPolicy operation.
 func updateReviewPolicyOutputSchema() *jsonschema.Schema {
 	s := objectSchema[updateReviewPolicyOutput]()
+	fixUUIDStrings(s)
 	relaxRawJSON(s)
 	allowNullMaps(s)
 	return s
@@ -323,17 +337,55 @@ func objectSchema[T any]() *jsonschema.Schema {
 	return s
 }
 
+// fixUUIDStrings walks an inferred schema and retypes every uuid.UUID ([16]byte)
+// property from the SDK's structural inference (an array of 16 0-255 bytes) to
+// the schema the value actually marshals as on the wire: a string in RFC 4122
+// form. It MUST run before relaxRawJSON, which would otherwise blank the same
+// node as an indistinguishable raw-byte-array signature (T11 finding).
+func fixUUIDStrings(s *jsonschema.Schema) {
+	if s == nil {
+		return
+	}
+	if isUUIDArray(s) {
+		*s = jsonschema.Schema{Type: "string", Format: "uuid"}
+		return
+	}
+	for _, p := range s.Properties {
+		fixUUIDStrings(p)
+	}
+	fixUUIDStrings(s.Items)
+	fixUUIDStrings(s.AdditionalProperties)
+	for _, p := range s.PrefixItems {
+		fixUUIDStrings(p)
+	}
+}
+
+// isUUIDArray reports whether a schema is the jsonschema-go signature of a Go
+// uuid.UUID ([16]byte): the same raw-byte-array shape as isRawByteArray, further
+// narrowed to exactly 16 items (a fixed-size array), which is unique to UUIDs
+// among this codebase's byte-carrier fields.
+func isUUIDArray(s *jsonschema.Schema) bool {
+	if !isRawByteArray(s) {
+		return false
+	}
+	return s.MinItems != nil && *s.MinItems == 16 && s.MaxItems != nil && *s.MaxItems == 16
+}
+
 // relaxRawJSON walks an inferred schema and relaxes every json.RawMessage /
 // []byte JSON-carrier property to a permissive (accept-anything) schema. The SDK
 // infers such a Go field as an array of 0-255 bytes, which rejects the real JSON
 // object/string the manager actually emits or accepts (QA finding F26); the rest
-// of the inferred shape is preserved.
+// of the inferred shape is preserved. The permissive schema carries a
+// Description so it marshals as a JSON OBJECT (`{"description":...}`) rather
+// than the zero-value Schema{}, which the library marshals as bare JSON `true`
+// — valid JSON Schema, but rejected by the TS MCP SDK's Zod validator, which
+// requires every property schema to be an object (T11 finding).
 func relaxRawJSON(s *jsonschema.Schema) {
 	if s == nil {
 		return
 	}
 	if isRawByteArray(s) {
-		*s = jsonschema.Schema{}
+		*s = jsonschema.Schema{Description: "any JSON value"}
 		return
 	}
 	for _, p := range s.Properties {

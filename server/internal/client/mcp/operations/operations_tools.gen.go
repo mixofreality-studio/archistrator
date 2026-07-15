@@ -92,6 +92,7 @@ type withdrawSystemOutput struct {
 // applyDelinquencyPolicyInputSchema is the explicit MCP input schema for the ApplyDelinquencyPolicy operation.
 func applyDelinquencyPolicyInputSchema() *jsonschema.Schema {
 	s := objectSchema[applyDelinquencyPolicyInput]()
+	fixUUIDStrings(s)
 	relaxRawJSON(s)
 	allowNullMaps(s)
 	s.Required = []string{"customerID", "delinquencyContext"}
@@ -101,6 +102,7 @@ func applyDelinquencyPolicyInputSchema() *jsonschema.Schema {
 // deployAfterConstructionInputSchema is the explicit MCP input schema for the DeployAfterConstruction operation.
 func deployAfterConstructionInputSchema() *jsonschema.Schema {
 	s := objectSchema[deployAfterConstructionInput]()
+	fixUUIDStrings(s)
 	relaxRawJSON(s)
 	allowNullMaps(s)
 	s.Required = []string{"operatedAppID", "change"}
@@ -110,6 +112,7 @@ func deployAfterConstructionInputSchema() *jsonschema.Schema {
 // queryCostProjectionInputSchema is the explicit MCP input schema for the QueryCostProjection operation.
 func queryCostProjectionInputSchema() *jsonschema.Schema {
 	s := objectSchema[queryCostProjectionInput]()
+	fixUUIDStrings(s)
 	relaxRawJSON(s)
 	allowNullMaps(s)
 	s.Required = []string{"operatedAppID", "requestID"}
@@ -119,6 +122,7 @@ func queryCostProjectionInputSchema() *jsonschema.Schema {
 // queryOperatedSystemViewInputSchema is the explicit MCP input schema for the QueryOperatedSystemView operation.
 func queryOperatedSystemViewInputSchema() *jsonschema.Schema {
 	s := objectSchema[queryOperatedSystemViewInput]()
+	fixUUIDStrings(s)
 	relaxRawJSON(s)
 	allowNullMaps(s)
 	s.Required = []string{"operatedAppID", "requestID"}
@@ -128,6 +132,7 @@ func queryOperatedSystemViewInputSchema() *jsonschema.Schema {
 // reconcileOperatedStateInputSchema is the explicit MCP input schema for the ReconcileOperatedState operation.
 func reconcileOperatedStateInputSchema() *jsonschema.Schema {
 	s := objectSchema[reconcileOperatedStateInput]()
+	fixUUIDStrings(s)
 	relaxRawJSON(s)
 	allowNullMaps(s)
 	s.Required = []string{"tickID"}
@@ -137,6 +142,7 @@ func reconcileOperatedStateInputSchema() *jsonschema.Schema {
 // withdrawSystemInputSchema is the explicit MCP input schema for the WithdrawSystem operation.
 func withdrawSystemInputSchema() *jsonschema.Schema {
 	s := objectSchema[withdrawSystemInput]()
+	fixUUIDStrings(s)
 	relaxRawJSON(s)
 	allowNullMaps(s)
 	s.Required = []string{"operatedAppID", "changeID", "reason"}
@@ -146,6 +152,7 @@ func withdrawSystemInputSchema() *jsonschema.Schema {
 // applyDelinquencyPolicyOutputSchema is the explicit MCP output schema for the ApplyDelinquencyPolicy operation.
 func applyDelinquencyPolicyOutputSchema() *jsonschema.Schema {
 	s := objectSchema[applyDelinquencyPolicyOutput]()
+	fixUUIDStrings(s)
 	relaxRawJSON(s)
 	allowNullMaps(s)
 	return s
@@ -154,6 +161,7 @@ func applyDelinquencyPolicyOutputSchema() *jsonschema.Schema {
 // deployAfterConstructionOutputSchema is the explicit MCP output schema for the DeployAfterConstruction operation.
 func deployAfterConstructionOutputSchema() *jsonschema.Schema {
 	s := objectSchema[deployAfterConstructionOutput]()
+	fixUUIDStrings(s)
 	relaxRawJSON(s)
 	allowNullMaps(s)
 	return s
@@ -162,6 +170,7 @@ func deployAfterConstructionOutputSchema() *jsonschema.Schema {
 // queryCostProjectionOutputSchema is the explicit MCP output schema for the QueryCostProjection operation.
 func queryCostProjectionOutputSchema() *jsonschema.Schema {
 	s := objectSchema[queryCostProjectionOutput]()
+	fixUUIDStrings(s)
 	relaxRawJSON(s)
 	allowNullMaps(s)
 	return s
@@ -170,6 +179,7 @@ func queryCostProjectionOutputSchema() *jsonschema.Schema {
 // queryOperatedSystemViewOutputSchema is the explicit MCP output schema for the QueryOperatedSystemView operation.
 func queryOperatedSystemViewOutputSchema() *jsonschema.Schema {
 	s := objectSchema[queryOperatedSystemViewOutput]()
+	fixUUIDStrings(s)
 	relaxRawJSON(s)
 	allowNullMaps(s)
 	return s
@@ -178,6 +188,7 @@ func queryOperatedSystemViewOutputSchema() *jsonschema.Schema {
 // reconcileOperatedStateOutputSchema is the explicit MCP output schema for the ReconcileOperatedState operation.
 func reconcileOperatedStateOutputSchema() *jsonschema.Schema {
 	s := objectSchema[reconcileOperatedStateOutput]()
+	fixUUIDStrings(s)
 	relaxRawJSON(s)
 	allowNullMaps(s)
 	return s
@@ -186,6 +197,7 @@ func reconcileOperatedStateOutputSchema() *jsonschema.Schema {
 // withdrawSystemOutputSchema is the explicit MCP output schema for the WithdrawSystem operation.
 func withdrawSystemOutputSchema() *jsonschema.Schema {
 	s := objectSchema[withdrawSystemOutput]()
+	fixUUIDStrings(s)
 	relaxRawJSON(s)
 	allowNullMaps(s)
 	return s
@@ -285,17 +297,55 @@ func objectSchema[T any]() *jsonschema.Schema {
 	return s
 }
 
+// fixUUIDStrings walks an inferred schema and retypes every uuid.UUID ([16]byte)
+// property from the SDK's structural inference (an array of 16 0-255 bytes) to
+// the schema the value actually marshals as on the wire: a string in RFC 4122
+// form. It MUST run before relaxRawJSON, which would otherwise blank the same
+// node as an indistinguishable raw-byte-array signature (T11 finding).
+func fixUUIDStrings(s *jsonschema.Schema) {
+	if s == nil {
+		return
+	}
+	if isUUIDArray(s) {
+		*s = jsonschema.Schema{Type: "string", Format: "uuid"}
+		return
+	}
+	for _, p := range s.Properties {
+		fixUUIDStrings(p)
+	}
+	fixUUIDStrings(s.Items)
+	fixUUIDStrings(s.AdditionalProperties)
+	for _, p := range s.PrefixItems {
+		fixUUIDStrings(p)
+	}
+}
+
+// isUUIDArray reports whether a schema is the jsonschema-go signature of a Go
+// uuid.UUID ([16]byte): the same raw-byte-array shape as isRawByteArray, further
+// narrowed to exactly 16 items (a fixed-size array), which is unique to UUIDs
+// among this codebase's byte-carrier fields.
+func isUUIDArray(s *jsonschema.Schema) bool {
+	if !isRawByteArray(s) {
+		return false
+	}
+	return s.MinItems != nil && *s.MinItems == 16 && s.MaxItems != nil && *s.MaxItems == 16
+}
+
 // relaxRawJSON walks an inferred schema and relaxes every json.RawMessage /
 // []byte JSON-carrier property to a permissive (accept-anything) schema. The SDK
 // infers such a Go field as an array of 0-255 bytes, which rejects the real JSON
 // object/string the manager actually emits or accepts (QA finding F26); the rest
-// of the inferred shape is preserved.
+// of the inferred shape is preserved. The permissive schema carries a
+// Description so it marshals as a JSON OBJECT (`{"description":...}`) rather
+// than the zero-value Schema{}, which the library marshals as bare JSON `true`
+// — valid JSON Schema, but rejected by the TS MCP SDK's Zod validator, which
+// requires every property schema to be an object (T11 finding).
 func relaxRawJSON(s *jsonschema.Schema) {
 	if s == nil {
 		return
 	}
 	if isRawByteArray(s) {
-		*s = jsonschema.Schema{}
+		*s = jsonschema.Schema{Description: "any JSON value"}
 		return
 	}
 	for _, p := range s.Properties {
