@@ -99,8 +99,12 @@ else
   fi
   # asdf: the clone needs a node version; reuse the webApp's pin.
   [[ -f "${EXT_APPS_DIR}/.tool-versions" ]] || cp "$ROOT/webApp/.tool-versions" "${EXT_APPS_DIR}/.tool-versions"
+  if [[ ! -d "${EXT_APPS_DIR}/node_modules" ]]; then
+    note "basic-host: npm install (monorepo root — its prepare/build needs root devDeps)..."
+    (cd "${EXT_APPS_DIR}" && npm install) >> "$RUN/basic-host.log" 2>&1
+  fi
   if [[ ! -d "${EXT_APPS_DIR}/examples/basic-host/node_modules" ]]; then
-    note "basic-host: npm install..."
+    note "basic-host: npm install (example)..."
     (cd "${EXT_APPS_DIR}/examples/basic-host" && npm install) >> "$RUN/basic-host.log" 2>&1
   fi
   note "basic-host: starting on :8080 (log: .mcp-pilot/basic-host.log)"
