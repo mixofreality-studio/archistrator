@@ -16,7 +16,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUN="$ROOT/.mcp-pilot"
-EXT_APPS_DIR="${EXT_APPS_DIR:-/tmp/ext-apps}"
+EXT_APPS_DIR="${EXT_APPS_DIR:-$RUN/ext-apps}"   # inside the repo so asdf resolves node (seeded with webApp/.tool-versions below)
 mkdir -p "$RUN"
 touch "$RUN/pids"   # cleared by mcp-pilot-down.sh, appended here (dead PIDs are harmless)
 
@@ -97,6 +97,8 @@ else
     note "basic-host: cloning ext-apps into $EXT_APPS_DIR..."
     git clone --depth 1 https://github.com/modelcontextprotocol/ext-apps.git "${EXT_APPS_DIR}" > "$RUN/basic-host.log" 2>&1
   fi
+  # asdf: the clone needs a node version; reuse the webApp's pin.
+  [[ -f "${EXT_APPS_DIR}/.tool-versions" ]] || cp "$ROOT/webApp/.tool-versions" "${EXT_APPS_DIR}/.tool-versions"
   if [[ ! -d "${EXT_APPS_DIR}/examples/basic-host/node_modules" ]]; then
     note "basic-host: npm install..."
     (cd "${EXT_APPS_DIR}/examples/basic-host" && npm install) >> "$RUN/basic-host.log" 2>&1
