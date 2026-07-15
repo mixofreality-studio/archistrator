@@ -36,7 +36,8 @@ async function main(): Promise<void> {
   const resolution = resolveViewKey(
     ctx?.toolInfo?.tool._meta,
     toolName,
-    (key) => VIEW_REGISTRY[key] !== undefined
+    (key) => VIEW_REGISTRY[key] !== undefined,
+    [...new Set(Object.values(VIEW_REGISTRY))].length === 1 ? Object.keys(VIEW_REGISTRY).slice(0, 1) : []
   );
   const View = resolution.key !== undefined ? VIEW_REGISTRY[resolution.key] : undefined;
   void app.sendLog({

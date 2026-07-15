@@ -16,7 +16,10 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUN="$ROOT/.mcp-pilot"
-EXT_APPS_DIR="${EXT_APPS_DIR:-$RUN/ext-apps}"   # inside the repo so asdf resolves node (seeded with webApp/.tool-versions below)
+# NOT under .mcp-pilot: express's `send` treats dot-segments as hidden files and
+# 404s basic-host's sandbox.html when ANY parent dir starts with a dot. /tmp is
+# fine because we seed the clone with webApp/.tool-versions for asdf (below).
+EXT_APPS_DIR="${EXT_APPS_DIR:-/tmp/ext-apps}"
 mkdir -p "$RUN"
 touch "$RUN/pids"   # cleared by mcp-pilot-down.sh, appended here (dead PIDs are harmless)
 

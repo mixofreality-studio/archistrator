@@ -53,3 +53,17 @@ void test('tolerates a malformed _meta.ui shape (non-object, missing view, non-s
     { key: 'systemDesignGetSessionState', resolvedBy: 'toolName' }
   );
 });
+
+test('falls back to the single distinct view when the host omits toolInfo entirely (F-T11-3)', () => {
+  const hasKey = (k: string) => k === 'system-design-session' || k === 'systemDesignGetSessionState';
+  const res = resolveViewKey(undefined, undefined, hasKey, ['system-design-session']);
+  assert.equal(res.resolvedBy, 'singleViewDefault');
+  assert.equal(res.key, 'system-design-session');
+});
+
+test('does NOT guess among multiple distinct views when toolInfo is absent', () => {
+  const hasKey = () => true;
+  const res = resolveViewKey(undefined, '', hasKey, ['view-a', 'view-b']);
+  assert.equal(res.resolvedBy, 'none');
+  assert.equal(res.key, undefined);
+});

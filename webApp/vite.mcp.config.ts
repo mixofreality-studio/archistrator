@@ -45,6 +45,12 @@ function emitMcpStubHtml(): Plugin {
 
 export default defineConfig({
   plugins: [react(), emitMcpStubHtml()],
+  // Lib mode does NOT define process.env.NODE_ENV the way app builds do (library
+  // consumers usually handle it); React references it, so an undefined `process`
+  // crashes the iframe at boot (T11 finding F-T11-2). Inline it here.
+  define: {
+    'process.env.NODE_ENV': JSON.stringify('production'),
+  },
   build: {
     outDir: 'dist',
     emptyOutDir: false,

@@ -247,7 +247,16 @@ export function mcpOpsClient(app: App): OpsClient {
         const code = status === 404 ? 'not_found' : 'internal';
         throw new ApiError(status, code, toolErrorMessage(result.content));
       }
-      return (result.structuredContent ?? {}) as R;
+      // Transport parity (T11 finding F-T11-4): mcpemit wraps every op result in
+      // a single-field envelope struct ({ "result": <value> }) for the MCP output
+      // schema, while the REST handler returns the bare value. Unwrap so both
+      // OpsClient transports hand hooks the identical shape. Void ops have no
+      // envelope and fall through to {}.
+      const sc = result.structuredContent as Record<string, unknown> | null | undefined;
+      if (sc !== null && sc !== undefined && typeof sc === 'object' && 'result' in sc) {
+        return sc['result'] as R;
+      }
+      return (sc ?? {}) as R;
     },
   };
 }
