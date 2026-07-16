@@ -79,14 +79,21 @@ Shell behavior: `App.connect()` → `ui/initialize` handshake (declares `availab
 3. Migrate remaining screens mechanically (each screen: purify components → shared container over `OpsClient` hooks → registry entry → project.json annotation).
 4. Follow-on spec: replicate the pattern in app-generator (template gains shell entry, ruleset, mapping codegen; generated Go server gains resources capability).
 
-## 6. Risks / open items
+## 6. Risks / open items — pilot-resolved status (2026-07-15)
 
-- **Contract parity**: assumed 1:1 REST-op ↔ MCP-tool from shared contracts; planning recon must verify every webApp-consumed operation actually has a tool. Diagram render-on-read (Structurizr DSL) is the known suspect. Escape hatch if a gap is real: a `visibility: ["app"]` tool — callable by the app, invisible to the model — serves UI-only reads without polluting the model's tool list (earmark, not in the pilot slice).
-- **Screen/chat coupling**: recon (2026-07-13) mapped it — `ChatRail` and `StepBody` share `CommentContext` (`CommentProvider` wraps the screen; `SelectionPopover` posts anchors from `ArtifactRenderer`), and `ExperienceChrome` expects chat props. Resolution per §3.4 ruling: ChatRail *and* the whole comment/annotation surface stay SPA-only; pure screens make comment context/chrome chat props optional.
-- **CSP**: nothing in the iframe may call REST; the lint rules are the guard.
-- **go-sdk resource support**: verify v1.6.1 exposes what `AddResource` + `_meta` stamping need; upgrade if not.
-- **Host `_meta.ui.csp` support is load-bearing** (§3.4): Claude documents it; pilot verifies against basic-host and Claude. Fallback = single-file inlined bundle as the resource body.
-- **nginx cache headers** for the fixed-name shell assets, and per-environment origin config in the stub — small, but new surface; plan recon items. (No CORS: classic-script delivery, §3.4.)
+Resolved during implementation + the basic-host pilot (details: branch `mcp-apps-pilot`, findings in `.superpowers/sdd/task-11-findings.md`):
+
+- ✅ **Contract parity** — full: the webApp consumes only manager ops (diagrams are client-side xyflow; the render ops live in an internal Engine). `visibility:["app"]` escape hatch unused, still earmarked.
+- ✅ **Screen/chat coupling** — resolved per §3.4; pilot renders the full committed-artifact view without chat/comment surfaces.
+- ✅ **go-sdk v1.6.1** — `Tool.Meta`/`Resource.Meta`/`AddResource` all present; no upgrade.
+- ✅ **Host CSP support** — basic-host builds its sandbox CSP from `_meta.ui.csp.resourceDomains` correctly; classic-tag assets load with zero CORS config. Claude-host verification pending (Task 11 remainder).
+- ⚠️ **toolInfo is spec-optional and the reference host omits it** (F-T11-3): registry resolution falls back to the sole distinct view; whether Claude supplies `toolInfo` (and `_meta.ui.view` through it) is the key host-variance datum still to collect.
+- ⚠️ **Transport-shape parity is a standing invariant, not a one-time fix** (F-T11-4): mcpemit's single-`result` envelope is unwrapped by `McpOpsClient`; any future divergence between REST and MCP result shapes silently breaks hooks. Owned by the testing earmark below.
+- ⚠️ **Legacy-allowlist components break in the iframe**: `VolatilityMap`/`OperationalConceptsView` (un-purified, hooks-importing) error in MCP context — un-migrated `apiClient`-based hooks cannot fetch inside the sandbox (by design). Fix = their burn-down migration; the per-kind render matrix (testing earmark) pins it.
+
+## 6b. Testing earmark (direction ratified 2026-07-15, deferred)
+
+Three tiers: (1) protocol regression in `server/cmd/server` (seam test, no-boolean-schemas — SHIPPED); (2) **transport-parameterized systemtests** — founder ruling: NOT call-both-and-compare, but the same suite run twice against the two generated client impls (REST / MCP), the OpsClient abstraction mirrored at the test-suite level; (3) `mcptests` — Playwright over an in-repo instrumented host harness built on `@modelcontextprotocol/ext-apps/app-bridge` (records ui/* messages for assertions; simulates host variance incl. toolInfo on/off), with a per-artifact-kind × session-stage render matrix. Same use-case parameterization should eventually unify mcptests/uitests. Land tier 3 BEFORE the remaining-screens migration wave.
 
 ## 7. Non-goals
 
