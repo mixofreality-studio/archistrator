@@ -75,6 +75,14 @@ jobs:
       - name: Generated model layer drift check
         run: make gen-models-check
 
+      # Drift gate for the generated Fake<Iface> test-double layer (cmd/modelgen,
+      # driving framework-go-app-generator/modelgen's GenerateFakes). Same
+      # GOWORK=off-safe shape as gen-models-check; gen-fakes is an alias of
+      # gen-models (one cmd/modelgen run emits both outputs), so this scopes the
+      # diff to just the fake tree.
+      - name: Generated fakes drift check
+        run: make gen-fakes-check
+
       # Drift gate for the generated CLIENT layer + merged OAS (cmd/clientgen,
       # driving framework-go-http-generator + framework-go-mcp-generator). Same
       # GOWORK=off-safe shape.

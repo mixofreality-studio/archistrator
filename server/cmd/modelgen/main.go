@@ -13,7 +13,10 @@
 // which owns the actual emitter (built on github.com/google/jsonschema-go — the
 // same complete draft 2020-12 implementation used for reflection). The shim
 // supplies the two archistrator-specific inputs (the server module path and the
-// engine-impl allowlist) and writes each returned <goPackage>/contract.gen.go.
+// engine-impl allowlist) and writes each returned <goPackage>/contract.gen.go,
+// then a second, symmetric pass writes each <goPackage>/fake/fake.gen.go
+// (modelgen.GenerateFakes — one Fake<Iface> test double per contract that has
+// an interface).
 //
 // For each `.serviceContracts` entry with a non-empty `goPackage` it writes
 // `<goPackage>/contract.gen.go` (e.g. internal/resourceaccess/artifact/
@@ -21,6 +24,11 @@
 // Entries without a `goPackage` are skipped. An entry flagged `"stub": true` is
 // CONTRACTED-BUT-UNBUILT: it still carries a goPackage + $defs + interface, and
 // modelgen emits a fully generated not-implemented impl for it.
+//
+// It also writes `<goPackage>/fake/fake.gen.go` for every contract with an
+// interface (e.g. internal/resourceaccess/artifact/fake/fake.gen.go), in a
+// package named `<base>fake`. These generated fakes replace hand-written test
+// doubles. Contracts with no interface are skipped by the library.
 //
 // Usage:
 //
@@ -88,6 +96,37 @@ func main() {
 	for _, goPackage := range goPackages {
 		dest := goPackage + "/contract.gen.go"
 		if err := os.WriteFile(dest, out[goPackage], 0o600); err != nil { // #nosec G703 -- dest is derived from project.json's own .serviceContracts goPackage keys, a trusted repo-local document, not an external trust boundary
+			fatal("write %s: %v", dest, err)
+		}
+		fmt.Fprintf(os.Stderr, "wrote %s\n", dest)
+	}
+
+	// GenerateFakes emits one Fake<Iface> test double per contract that has an
+	// interface, keyed by "<goPackage>/fake" (e.g.
+	// internal/resourceaccess/artifact/fake). These generated fakes replace
+	// hand-written test doubles; contracts with no interface are skipped by the
+	// library. Written in a second, symmetric pass so a contract-emission
+	// failure never leaves a half-written fake tree.
+	fakes, err := modelgen.GenerateFakes(raw, modelgen.Config{
+		ModulePath:          serverModulePath,
+		EngineImplAllowlist: engineImplAllowlist,
+	})
+	if err != nil {
+		fatal("modelgen: generate fakes: %v", err)
+	}
+
+	fakePackages := make([]string, 0, len(fakes))
+	for fakePackage := range fakes {
+		fakePackages = append(fakePackages, fakePackage)
+	}
+	sort.Strings(fakePackages)
+
+	for _, fakePackage := range fakePackages {
+		if err := os.MkdirAll(fakePackage, 0o750); err != nil { // #nosec G703 -- fakePackage is derived from project.json's own .serviceContracts goPackage keys, a trusted repo-local document, not an external trust boundary
+			fatal("mkdir %s: %v", fakePackage, err)
+		}
+		dest := fakePackage + "/fake.gen.go"
+		if err := os.WriteFile(dest, fakes[fakePackage], 0o600); err != nil { // #nosec G703 -- dest is derived from project.json's own .serviceContracts goPackage keys, a trusted repo-local document, not an external trust boundary
 			fatal("write %s: %v", dest, err)
 		}
 		fmt.Fprintf(os.Stderr, "wrote %s\n", dest)

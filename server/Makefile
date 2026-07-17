@@ -1,6 +1,6 @@
 # aiarch server — developer make targets.
 
-.PHONY: test test-short fmt vet lint sumtype-check method-check encapsulation-check gen-schemas gen-models gen-models-check gen gen-client gen-client-check gen-internal-tools gen-temporal gen-temporal-check gen-sdk gen-sdk-check gen-config gen-config-check gen-uiprofiles gen-uiprofiles-check bootstrap
+.PHONY: test test-short fmt vet lint sumtype-check method-check encapsulation-check gen-schemas gen-models gen-models-check gen-fakes gen-fakes-check gen gen-client gen-client-check gen-internal-tools gen-temporal gen-temporal-check gen-sdk gen-sdk-check gen-config gen-config-check gen-uiprofiles gen-uiprofiles-check bootstrap
 
 # Contract codegen pipeline, all-Go (jsonschema-go). project.json
 # (.serviceContracts) is the OWNER of every built component's contract; modelgen
@@ -10,7 +10,10 @@
 # the Go workspace is no longer required for server build/codegen/test.
 #   gen-models  — generate contract.gen.go from project.json .serviceContracts
 #                 (cmd/modelgen). project.json is the source of truth.
-#   gen         — steady-state regen (idempotent); just gen-models.
+#   gen-fakes   — generate each contract's Fake<Iface> test double
+#                 (<goPackage>/fake/fake.gen.go). Alias of gen-models — same
+#                 cmd/modelgen run emits both outputs.
+#   gen         — steady-state regen (idempotent); gen-models + gen-fakes + …
 #   gen-schemas — BOOTSTRAP-ONLY re-seed, fully mechanical (no hand-edit):
 #                   1. cmd/schemagen  reflects current Go into each registered
 #                      component's <dir>/contract.schema.json.
@@ -36,6 +39,22 @@ gen-models:
 gen-models-check: gen-models
 	git diff --exit-code -- 'internal/**/contract.gen.go'
 
+# gen-fakes — generate each contract's Fake<Iface> test double
+# (<goPackage>/fake/fake.gen.go, cmd/modelgen driving the published
+# framework-go-app-generator/modelgen's GenerateFakes). cmd/modelgen emits BOTH
+# contract.gen.go and fake.gen.go from a single project.json read, so gen-fakes
+# is an ALIAS of gen-models rather than a second invocation. Kept as its own
+# target (not silently folded into gen-models) so gen-fakes-check can scope its
+# diff to just the fake tree, and so the generated files' own header comment
+# ("re-run `make gen-fakes`") names a real target.
+gen-fakes: gen-models
+
+# gen-fakes-check — drift gate for the generated Fake<Iface> test-double layer,
+# same shape as gen-models-check: regenerate, then fail on any diff.
+# GOWORK=off-safe (see gen-fakes above), so it runs in CI (server-checks.yml).
+gen-fakes-check: gen-fakes
+	git diff --exit-code -- 'internal/**/fake/fake.gen.go'
+
 # gen-client — generate the entire CLIENT layer (internal/client/{web,mcp}) +
 # the merged api/openapi.yaml from project.json .serviceContracts (cmd/clientgen,
 # driving the published framework-go-http-generator + framework-go-mcp-generator).
@@ -58,7 +77,7 @@ gen-client-check: gen-client
 gen-internal-tools:
 	GOWORK=off go run ./cmd/internaltoolsgen
 
-gen: gen-models gen-client gen-internal-tools gen-temporal gen-sdk gen-config gen-uiprofiles
+gen: gen-models gen-fakes gen-client gen-internal-tools gen-temporal gen-sdk gen-config gen-uiprofiles
 
 # gen-temporal — ONE appgen run (cmd/appgen, driving framework-go-app-generator's
 # temporalgen + transportgen + configgen) that emits, from a single project.json

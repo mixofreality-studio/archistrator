@@ -138,8 +138,8 @@ github.com/magiconair/properties v1.8.10 h1:s31yESBquKXCV9a/ScB3ESkOjUYYv+X0rg8S
 github.com/magiconair/properties v1.8.10/go.mod h1:Dhd985XPs7jluiymwWYZ0G4Z61jb3vdS329zhj2hYo0=
 github.com/mdelapenya/tlscert v0.2.0 h1:7H81W6Z/4weDvZBNOfQte5GpIMo0lGYEeWbkGp5LJHI=
 github.com/mdelapenya/tlscert v0.2.0/go.mod h1:O4njj3ELLnJjGdkN7M/vIVCpZ+Cf0L6muqOG4tLSl8o=
-github.com/mixofreality-studio/archistrator-platform/framework-go v0.5.2 h1:Jp2XmY7tyYSf2jj8S7mA+VVm2gA+6s3fPskFSrXlXKM=
-github.com/mixofreality-studio/archistrator-platform/framework-go v0.5.2/go.mod h1:O/JX3XM7bg+1HOfyQ0TCG4nnkED0w7R1vwcqzD5hEgM=
+github.com/mixofreality-studio/archistrator-platform/framework-go v0.6.0 h1:E5yro5NlAsvxkyv1i7cyYr2lA2OXn/kJcXBBG7rZOns=
+github.com/mixofreality-studio/archistrator-platform/framework-go v0.6.0/go.mod h1:O/JX3XM7bg+1HOfyQ0TCG4nnkED0w7R1vwcqzD5hEgM=
 github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator v0.7.0 h1:XvrPOg16ggL5jVDJoYpRtdlEG3H9DB7U878ZL7SWVE4=
 github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator v0.7.0/go.mod h1:xkq/M6YCUIY8bFlU7md378H8eonKPclUVtgq2e0Ho+4=
 github.com/mixofreality-studio/archistrator-platform/framework-go-http-generator v0.3.0 h1:bhVk+0c352bbwax2Zi/8t8U6hWYxvOAh9nAI8JmcUSs=
