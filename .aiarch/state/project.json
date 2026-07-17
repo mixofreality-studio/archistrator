@@ -10405,68 +10405,6 @@
         ]
       }
     },
-    "artifactRenderingAccess": {
-      "component": "artifactRenderingAccess",
-      "layer": "Engine",
-      "title": "artifactRenderingAccess contract",
-      "interface": {
-        "name": "ArtifactRenderingAccess",
-        "layer": "engine",
-        "operations": [
-          {
-            "name": "renderSystem",
-            "params": null,
-            "error": true
-          },
-          {
-            "name": "renderUseCase",
-            "params": null,
-            "error": true
-          },
-          {
-            "name": "renderArtifact",
-            "params": null,
-            "error": true
-          }
-        ]
-      }
-    },
-    "artifactValidationEngine": {
-      "component": "artifactValidationEngine",
-      "layer": "Engine",
-      "title": "artifactValidationEngine contract",
-      "interface": {
-        "name": "ArtifactValidationEngine",
-        "layer": "engine",
-        "operations": [
-          {
-            "name": "ValidateVolatilities",
-            "params": null,
-            "error": true
-          },
-          {
-            "name": "ValidateCoreUseCases",
-            "params": null,
-            "error": true
-          },
-          {
-            "name": "ValidateArchitecture",
-            "params": null,
-            "error": true
-          },
-          {
-            "name": "ValidateOperationalConcepts",
-            "params": null,
-            "error": true
-          },
-          {
-            "name": "ValidateStandardCheck",
-            "params": null,
-            "error": true
-          }
-        ]
-      }
-    },
     "autoscalerEngine": {
       "component": "autoscalerEngine",
       "layer": "Engine",
@@ -21544,57 +21482,6 @@
             "result": {
               "type": "boolean"
             },
-            "error": true
-          }
-        ]
-      }
-    },
-    "systemDesignEngine": {
-      "component": "systemDesignEngine",
-      "layer": "Engine",
-      "title": "systemDesignEngine contract",
-      "interface": {
-        "name": "SystemDesignEngine",
-        "layer": "engine",
-        "operations": [
-          {
-            "name": "GenerateMission",
-            "params": null,
-            "error": true
-          },
-          {
-            "name": "GenerateGlossary",
-            "params": null,
-            "error": true
-          },
-          {
-            "name": "GenerateScrubbedRequirements",
-            "params": null,
-            "error": true
-          },
-          {
-            "name": "GenerateVolatilities",
-            "params": null,
-            "error": true
-          },
-          {
-            "name": "GenerateCoreUseCases",
-            "params": null,
-            "error": true
-          },
-          {
-            "name": "GenerateSystem",
-            "params": null,
-            "error": true
-          },
-          {
-            "name": "GenerateOperationalConcepts",
-            "params": null,
-            "error": true
-          },
-          {
-            "name": "GenerateStandardCheck",
-            "params": null,
             "error": true
           }
         ]

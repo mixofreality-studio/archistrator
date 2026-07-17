@@ -190,17 +190,17 @@ lint:
 sumtype-check:
 	GOWORK=off go tool go-check-sumtype ./...
 
-# Run the Method conformance gate. With -tags methoddesign this runs BOTH the
-# layer rules (TestMethodLayering) and the DESIGN-rule gate over the committed
-# .aiarch/state/project.json (TestMethodDesignArtifacts) against the PUBLISHED
-# framework-go v0.4.0, which decodes the C4 container deployment model. -count=1
-# defeats the test cache: TestMethodDesignArtifacts reads an out-of-tree file
+# Run the FULL Method conformance gate. With -tags methoddesign this runs the
+# layer rules (TestMethodLayering) AND the DESIGN-rule + design↔code
+# ALIGNMENT/conformance gate over the committed .aiarch/state/project.json
+# (TestMethodDesignArtifacts), against the PUBLISHED framework-go (alignment
+# wired since v0.4.1), which decodes the C4 container deployment model and
+# cross-checks it against the built code. -count=1 defeats the test cache:
+# TestMethodDesignArtifacts reads an out-of-tree file
 # (../.aiarch/state/project.json), so a green run would otherwise cache and a
-# later project.json edit would never re-run.
-# NOTE: the design↔code ALIGNMENT pass is intentionally NOT enabled yet — see the
-# SCOPE note in method_design_test.go (a component/package naming reconciliation +
-# a not-yet-built mechanism must be decided first). This target guards the design
-# rules + the layer rules.
+# later project.json edit would never re-run. This is the FULL gate — layer
+# rules + design rules + alignment/conformance — and it is CI-enforced (see
+# the "Method conformance gate" step in server-checks.yml).
 method-check:
 	GOWORK=off go test -tags methoddesign ./internal/... -run TestMethod -count=1 -v
 

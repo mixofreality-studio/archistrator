@@ -57,6 +57,13 @@ jobs:
       - name: Test (container-free)
         run: GOWORK=off make test-short
 
+      # Full Method conformance gate: design rules + layer rules + the
+      # design↔code ALIGNMENT/conformance passes over the committed
+      # .aiarch/state/project.json (build-tagged methoddesign, so the default
+      # test suite above does not cover TestMethodDesignArtifacts).
+      - name: Method conformance gate
+        run: make method-check
+
       # Drift gate for the generated Temporal layer (cmd/appgen, driving
       # framework-go-app-generator/temporalgen). Release-backed pins make this
       # GOWORK=off-safe — no go.work or ../archistrator-platform checkout needed.

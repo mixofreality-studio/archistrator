@@ -69,3 +69,30 @@ func TestProjectJSONLoadsUnderPublishedProjectmodel(t *testing.T) {
 		}
 	}
 }
+
+// TestServiceContractsMatchSystemComponents guards the direction the
+// alignment pass in method_design_test.go does NOT check: contracts →
+// architecture. TestMethodDesignArtifacts checks components→code (and flags
+// orphaned packages), but nothing previously checked that every
+// .serviceContracts entry still joins to a systemDesign component. That gap
+// is exactly how fossil contract entries (removed from the architecture
+// diagram by later design rulings but never pruned from project.json)
+// survived undetected. This test closes it: every key in model.Contracts
+// must resolve via model.System.ComponentByContractKey, or the entry is
+// stale and the architecture diagram (systemDesign, the source of truth)
+// says it should not exist.
+func TestServiceContractsMatchSystemComponents(t *testing.T) {
+	root := findRepoRootFromCwd(t)
+	model, err := projectmodel.LoadFile(filepath.Join(root, ".aiarch", "state", "project.json"))
+	if err != nil {
+		t.Fatalf("load project.json: %v", err)
+	}
+
+	for key := range model.Contracts {
+		if _, ok := model.System.ComponentByContractKey(key); !ok {
+			t.Errorf("service contract %q has no corresponding systemDesign component — "+
+				"it is a stale/fossil entry (the architecture diagram is the source of "+
+				"truth; either add a systemDesign component for it or delete the contract)", key)
+		}
+	}
+}
