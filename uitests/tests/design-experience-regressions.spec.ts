@@ -20,6 +20,7 @@ import { TESTID } from './support/testids.js';
 import {
   stubCommittedCoreUseCases,
   stubDraftFailedArchitecture,
+  stubRetryableDraftFailedGlossary,
 } from './support/designStubs.js';
 
 /** The inline transform React-Flow writes on its pan/zoom viewport element. */
@@ -134,4 +135,27 @@ test.describe('Architecture draft-failed panel — centered at wide viewports (r
       expect(Math.abs(centerX(panelBox) - contentCenter)).toBeLessThan(tolerance);
     });
   }
+});
+
+test.describe('Retry from the failed card reaches the review gate (F-QA2-50)', () => {
+  test('failed → Retry → the gate renders WITHOUT a reload', async ({ page }) => {
+    // The live defect: after Retry, the server resumed the SAME session
+    // (failed → awaitingReview within seconds, no new CI job) but the SPA froze
+    // on a stale generating view for 4+ minutes — the failed stage stopped the
+    // poll permanently and the retry mutation's single invalidation refetch was
+    // the only (racy) escape. The failure gates now keep an 8s safety-net poll,
+    // so the polled server stage must win within one interval, reload never.
+    const projectId = await stubRetryableDraftFailedGlossary(page, [
+      { term: 'Engagement', definition: 'A billable client project.', category: 'How' },
+    ]);
+    await page.goto(`/project/${projectId}/design/system`);
+
+    const retry = page.getByTestId(TESTID.retryDraft);
+    await expect(retry).toBeVisible();
+    await retry.click();
+
+    // No reload: the SAME document must flip the failed card to the review gate.
+    await expect(page.getByTestId(TESTID.gatePanel)).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId(TESTID.draftFailed)).toHaveCount(0);
+  });
 });

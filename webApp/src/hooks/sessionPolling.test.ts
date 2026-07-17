@@ -12,6 +12,12 @@
  *    refetch), so one no-poll decision is permanent — a single failed fetch froze
  *    a stale DRAFTING… view forever while the server had already failed the draft.
  *    Errors now poll DEGRADED (5s) and the view self-heals.
+ *  - 2026-07-16 (F-QA2-50): the FAILURE gates (refused / draftFailed) must keep
+ *    watching. Retry resumes the SAME session server-side (failed → redrafting →
+ *    awaitingReview within seconds, no new CI job); with the failed stage treated
+ *    as a stop state, the retry mutation's SINGLE invalidation refetch was the
+ *    only escape, and losing that race froze a stale generating view for 4+
+ *    minutes until a hard reload while the server sat at the review gate.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -38,10 +44,40 @@ void test('F-QA2-48: the review gate is NOT terminal — it watches at the slow 
   assert.equal(sessionPollIntervalMs('awaitingReview', null), GATE_POLL_INTERVAL_MS);
 });
 
-void test('terminal stages stop polling', () => {
-  for (const stage of ['committed', 'withdrawn', 'refused', 'draftFailed'] as const) {
+void test('REST stages (committed / withdrawn) stop polling', () => {
+  for (const stage of ['committed', 'withdrawn'] as const) {
     assert.equal(sessionPollIntervalMs(stage, null), false, stage);
   }
+});
+
+void test('F-QA2-50: the failure gates (refused / draftFailed) watch at the slow gate cadence', () => {
+  // Verified live: with draftFailed treated as a stop state, the Retry click's
+  // single invalidation refetch raced the server's in-place resume and the SPA
+  // froze on a stale generating view until a hard reload.
+  for (const stage of ['refused', 'draftFailed'] as const) {
+    assert.equal(sessionPollIntervalMs(stage, null), GATE_POLL_INTERVAL_MS, stage);
+  }
+});
+
+void test('F-QA2-50: failed → retry → server-says-awaitingReview renders the gate without a reload', () => {
+  // The pinned regression as a cadence walk: at EVERY evaluation the query can
+  // reach between the Retry click and the review gate — the parked failed stage,
+  // the brief server-side redrafting transient, and the gate itself — the
+  // interval decision must be a live number (never false). One false is
+  // permanent (staleTime Infinity, no focus refetch), which is exactly how the
+  // stale REDRAFTING… view survived 4+ minutes of server-side awaitingReview.
+  const walk = ['draftFailed', 'redrafting', 'awaitingReview'] as const;
+  for (const stage of walk) {
+    const interval = sessionPollIntervalMs(stage, null);
+    assert.notEqual(interval, false, `${stage} must keep a live interval`);
+    assert.equal(typeof interval, 'number', stage);
+  }
+  // Even when the invalidation refetch itself faults transiently mid-transition,
+  // the failed stage keeps probing (degraded), so the flip still renders.
+  assert.equal(
+    sessionPollIntervalMs('draftFailed', new ApiError(500, 'internal', 'blip')),
+    DEGRADED_POLL_INTERVAL_MS
+  );
 });
 
 void test('INCIDENT 2026-07-15: a no-session 404 polls gently instead of stopping', () => {
@@ -81,12 +117,30 @@ void test('F-QA2-28: a transient error with NO data polls DEGRADED (bootstrap re
   );
 });
 
-void test('an error with a TERMINAL last-known stage still stops polling', () => {
-  for (const stage of ['committed', 'withdrawn', 'refused', 'draftFailed'] as const) {
+void test('an error with a REST last-known stage still stops polling', () => {
+  for (const stage of ['committed', 'withdrawn'] as const) {
     assert.equal(sessionPollIntervalMs(stage, new ApiError(500, 'internal', 'boom')), false, stage);
     assert.equal(
       sessionPollIntervalMs(stage, new ApiError(404, 'not_found', 'gone')),
       false,
+      `${stage} + 404`
+    );
+  }
+});
+
+void test('F-QA2-50: an error at a failure gate degrades / re-probes, never stops', () => {
+  // The old rule ran the terminal check BEFORE the error branch, so a transient
+  // fault landing while the last-known stage was draftFailed latched the query
+  // dead. The failure gates now fall through to the error cadences.
+  for (const stage of ['refused', 'draftFailed'] as const) {
+    assert.equal(
+      sessionPollIntervalMs(stage, new ApiError(500, 'internal', 'boom')),
+      DEGRADED_POLL_INTERVAL_MS,
+      stage
+    );
+    assert.equal(
+      sessionPollIntervalMs(stage, new ApiError(404, 'not_found', 'gone')),
+      NO_SESSION_POLL_INTERVAL_MS,
       `${stage} + 404`
     );
   }

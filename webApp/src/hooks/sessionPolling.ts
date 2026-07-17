@@ -1,14 +1,24 @@
 /**
  * Pure poll-cadence logic for the Phase-1 session-state query (useSessionState).
  * Extracted so the QA-incident cadence rules (2026-07-15 gtdapp:1, 2026-07-16
- * F-QA2-28, F-QA2-48) are unit-testable without a react-query harness.
+ * F-QA2-28, F-QA2-48, F-QA2-50) are unit-testable without a react-query harness.
  *
  * DECISION TABLE (stage = last-known data's stage, error = last fetch error):
  *
  *   stage          | error            | interval | why
  *   ---------------|------------------|----------|---------------------------------
- *   TERMINAL       | (any)            | stop     | only a user action changes it,
- *                  |                  |          | and that action invalidates the query
+ *   REST (committed| (any)            | stop     | only a user action changes it,
+ *   / withdrawn)   |                  |          | and that action invalidates the query
+ *   FAILURE GATE   | none             | 8s       | refused / draftFailed are human
+ *   (refused /     |                  |          | gates, NOT stop states (F-QA2-50):
+ *   draftFailed)   |                  |          | Retry resumes the SAME session
+ *                  |                  |          | server-side (failed → redrafting →
+ *                  |                  |          | awaitingReview in seconds, no new
+ *                  |                  |          | CI job) and the retry mutation's
+ *                  |                  |          | single invalidation refetch RACES
+ *                  |                  |          | that transition — keep watching so
+ *                  |                  |          | the polled stage wins within one
+ *                  |                  |          | interval
  *   awaitingReview | none             | 8s       | the GATE is NOT terminal (F-QA2-48):
  *                  |                  |          | the server-side stage can move without
  *                  |                  |          | this tab (another tab's decision, or a
@@ -44,12 +54,39 @@
  * DRAFTING… scene for a session the server had long since failed. Degraded 5s
  * polling costs one cheap failed fetch per tick against a dead dev server and
  * self-heals the moment the server returns.
+ *
+ * Why the FAILURE gates must KEEP polling (F-QA2-50, 2026-07-16): draftFailed
+ * (and its sync sibling refused) host the Retry button. Retry resumes the SAME
+ * session server-side WITHOUT dispatching a new CI job, so the stage moves
+ * failed → (brief redrafting) → awaitingReview within seconds — decoupled from
+ * the mutation's HTTP round-trip. Under the old "terminal: stop" rule the retry's
+ * ONLY escape hatch was the mutation's single invalidateQueries refetch; any
+ * outcome of that one refetch that left the evaluation on the cached failed stage
+ * (raced ahead of the server's transition, or hit a transient fault — the
+ * terminal check ran BEFORE the error branch) froze the query PERMANENTLY, and
+ * the founder watched a stale generating view for 4+ minutes while the server sat
+ * at the review gate — only a hard reload (whose mount fetch ignores the frozen
+ * interval) recovered. The failure gates now watch at the slow gate cadence: the
+ * polled server stage always wins within one interval, reload never required.
  */
 // Runtime imports carry explicit .ts extensions (allowImportingTsExtensions) so this
 // module also loads under node:test's type-stripping (sessionPolling.test.ts).
 import { ApiError } from '../contracts/errors.ts';
-import { REVIEWABLE_STAGE, TERMINAL_STAGES } from '../contracts/types.ts';
+import { REVIEWABLE_STAGE } from '../contracts/types.ts';
 import type { SessionStage } from '../contracts/types.ts';
+
+/**
+ * The poll-REST stages: the only stages with NO in-place server-side transition
+ * (a committed or withdrawn session never moves again — amendments and fresh
+ * drafts start a NEW session the mutations invalidate into view). Deliberately a
+ * SUBSET of the contract's TERMINAL_STAGES: refused / draftFailed are terminal at
+ * the Manager but are FAILURE GATES here (F-QA2-50) — Retry resumes the same
+ * session, so they keep watching (see the decision table).
+ */
+const REST_STAGES: readonly SessionStage[] = ['committed', 'withdrawn'];
+
+/** The human failure gates: terminal-at-the-Manager, but Retry moves them in place. */
+const FAILURE_GATE_STAGES: readonly SessionStage[] = ['refused', 'draftFailed'];
 
 export const POLL_INTERVAL_MS = 2000;
 
@@ -86,16 +123,20 @@ export function sessionPollIntervalMs(
   stage: SessionStage | undefined,
   error: unknown
 ): number | false {
-  // Terminal stage: stop. Only a user action (retry / withdraw / new draft) moves a
-  // terminal session, and every such mutation invalidates the query.
-  if (stage !== undefined && TERMINAL_STAGES.includes(stage)) return false;
+  // REST stage (committed / withdrawn): stop. No in-place transition exists — a new
+  // draft or amendment starts a NEW session, and that mutation invalidates the query.
+  // NOT the failure gates (F-QA2-50): Retry moves those in place, so one stopped
+  // evaluation racing the single invalidation refetch froze the view until reload.
+  if (stage !== undefined && REST_STAGES.includes(stage)) return false;
   if (error === null || error === undefined) {
-    // Healthy: the review gate watches slowly (F-QA2-48 — not terminal, but the
-    // human is the actor), any other live stage polls at 2s; a pristine mount (no
-    // data, no error — the first fetch is in flight) adds no interval, its settle
-    // re-evaluates this.
+    // Healthy: the review gate and the failure gates watch slowly (F-QA2-48 /
+    // F-QA2-50 — the human is the actor, the poll is the safety net), any other
+    // live stage polls at 2s; a pristine mount (no data, no error — the first
+    // fetch is in flight) adds no interval, its settle re-evaluates this.
     if (stage === undefined) return false;
-    return stage === REVIEWABLE_STAGE ? GATE_POLL_INTERVAL_MS : POLL_INTERVAL_MS;
+    return stage === REVIEWABLE_STAGE || FAILURE_GATE_STAGES.includes(stage)
+      ? GATE_POLL_INTERVAL_MS
+      : POLL_INTERVAL_MS;
   }
   // The deterministic "no session" 404 — the gentle probe (also when the last-known
   // stage was live: the server says that session is GONE, so probe for its successor).

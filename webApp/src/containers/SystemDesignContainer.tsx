@@ -178,10 +178,13 @@ export function SystemDesignContainer({ projectId }: { projectId: string }): Rea
 
   // Retry after a terminal Refused/draftFailed: re-enter drafting on the same
   // live session (or revive a dead one — the server starts a fresh run). The
-  // mutation invalidates the session query, which refetches once and — now that
-  // the stage has left the terminal state — re-enables the 2s poll. A FAILED
-  // retry must not be invisible (2026-07-16 incident: dead-session recovery
-  // clicks rendered zero feedback): name its error on the failed panel.
+  // mutation invalidates the session query for an immediate refetch; that refetch
+  // RACES the server-side resume (failed → redrafting → awaitingReview within
+  // seconds), so it is NOT the only recovery path — the failure gates keep an 8s
+  // safety-net poll (F-QA2-50, sessionPolling.ts) that guarantees the polled
+  // server stage wins within one interval even when the refetch loses the race.
+  // A FAILED retry must not be invisible (2026-07-16 incident: dead-session
+  // recovery clicks rendered zero feedback): name its error on the failed panel.
   const retryDraft = (): void => {
     setGateError(undefined);
     requestDraft.mutate(

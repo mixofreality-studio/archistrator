@@ -1,12 +1,16 @@
 /**
  * Polls one Phase-1 co-authoring session's state. Polling runs every 2s while the
- * session is live (drafting / redrafting), watches the review gate at the slow 8s
- * gate cadence (awaitingReview is NOT terminal — F-QA2-48), and stops once it
- * reaches a terminal stage (committed / withdrawn / refused / draftFailed).
+ * session is live (drafting / redrafting), watches the review gate AND the human
+ * failure gates (refused / draftFailed) at the slow 8s gate cadence (awaitingReview
+ * is NOT terminal — F-QA2-48; the failure gates move IN PLACE on Retry — F-QA2-50),
+ * and stops only at the REST stages (committed / withdrawn).
  *
  * draftFailed is the async-design-job failure stage: terminal-at-the-Manager,
- * human-actionable via Retry or Withdraw — so polling stops and the SPA renders
- * the DraftFailedPanel rather than spinning.
+ * human-actionable via Retry or Withdraw. The SPA renders the DraftFailedPanel and
+ * keeps a slow safety-net poll: a Retry resumes the SAME session server-side
+ * (failed → redrafting → awaitingReview within seconds, no new CI job), so a
+ * stopped poll racing the retry mutation's single invalidation refetch used to
+ * freeze a stale view until a hard reload (F-QA2-50).
  *
  * A no-session 404 polls GENTLY (4s) instead of stopping (QA incident 2026-07-15):
  * the phase workflow auto-starts the next step's session after a gate approve, and a
@@ -75,8 +79,9 @@ export function useSessionState(
     // approve auto-starts the next step's session server-side — the QA-incident
     // fix), 5s DEGRADED on any other error (F-QA2-28: a transient fault must never
     // stop the poll — with staleTime Infinity and focus-refetch off, a single
-    // `false` here is PERMANENT until a mutation invalidates), and not at all once
-    // terminal.
+    // `false` here is PERMANENT until a mutation invalidates), 8s at the FAILURE
+    // gates (F-QA2-50: Retry moves them in place), and not at all once at REST
+    // (committed / withdrawn).
     // On a failed refetch react-query keeps state.data (the last good view) and
     // sets state.error — this callback reads both, so a stale-but-live stage keeps
     // polling and self-heals. A 404 refetch keeps the query in error state (data

@@ -285,4 +285,71 @@ export async function stubDraftFailedArchitecture(page: Page): Promise<string> {
   return projectId;
 }
 
+/**
+ * stubRetryableDraftFailedGlossary stubs a project whose Glossary step sits at the
+ * async `draftFailed` stage, where the Retry POST (request-artifact-draft) flips
+ * the SAME session to the review gate — the server-side "resume from read-back"
+ * transition (failed → awaitingReview within seconds, NO new CI job). Drives the
+ * F-QA2-50 regression: the flip must render WITHOUT a reload. Returns the
+ * project id.
+ */
+export async function stubRetryableDraftFailedGlossary(
+  page: Page,
+  items: { term: string; definition: string; category: string }[],
+): Promise<string> {
+  const projectId = 'retryable-draft-failed-fixture';
+  let stage: number = STAGE_DRAFT_FAILED;
+  // Model the LIVE race that froze the SPA: the server resumes on its own clock,
+  // so the read the retry mutation's invalidation triggers still observes the
+  // stale failed stage — only a LATER poll can ever deliver the flip. (With the
+  // failed stage treated as a poll stop, that later poll never came.)
+  let staleReadsAfterRetry = 0;
+
+  await stubSessionGate(page);
+  await stubGetProject(
+    page,
+    projectId,
+    projectState(projectId, 'Retryable Failed Fixture', [committedSlot('mission', {})]),
+  );
+  // The Retry mutation: acknowledge the draft request and move the session to the
+  // gate — the SPA only ever learns the new stage from the polled session state.
+  await page.route('**/api/v1/system-design/request-artifact-draft/**', (route) => {
+    stage = STAGE_AWAITING_REVIEW;
+    staleReadsAfterRetry = 1;
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify('sess-retry-1'),
+    });
+  });
+  await page.route('**/api/v1/system-design/get-session-state/**', (route) => {
+    const stillFailed = stage === STAGE_DRAFT_FAILED || staleReadsAfterRetry > 0;
+    if (staleReadsAfterRetry > 0) staleReadsAfterRetry--;
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(
+        stillFailed
+          ? {
+              projectId,
+              artifactKind: KIND_ORDINAL.glossary,
+              stage: STAGE_DRAFT_FAILED,
+              draft: { kind: 'glossary' },
+              failureReason:
+                'The design job failed in your CI: the drafting Action exited non-zero before committing an artifact.',
+              failureRunUrl: 'https://github.com/acme/archistrator/actions/runs/123456',
+            }
+          : {
+              projectId,
+              artifactKind: KIND_ORDINAL.glossary,
+              stage,
+              draft: { kind: 'glossary', model: { items } },
+              findings: [],
+            },
+      ),
+    });
+  });
+  return projectId;
+}
+
 export const DESIGN_STUB_KIND_ORDINAL = KIND_ORDINAL;
