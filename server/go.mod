@@ -5,7 +5,7 @@ go 1.25.4
 require (
 	github.com/google/jsonschema-go v0.4.3
 	github.com/jackc/pgx/v5 v5.9.2
-	github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator v0.6.1
+	github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator v0.7.0
 	github.com/mixofreality-studio/archistrator-platform/framework-go-http-generator v0.3.0
 	github.com/mixofreality-studio/archistrator-platform/framework-go-projectmodel v0.2.2
 	github.com/mixofreality-studio/archistrator-platform/method-assets v0.1.3-0.20260717173003-84883ab0ab0c
