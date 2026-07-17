@@ -4844,7 +4844,7 @@ type Project struct {
 // lives as a file at .aiarch/state/research/<slug>.txt in the project repo, NOT inside
 // project.json. SetResearchInput writes the file + this pointer in ONE atomic commit.
 type ResearchCorpus struct {
-	Sources []ResearchSourceRef `json:"Sources"`
+	Sources []ResearchSourceRef `json:"sources"`
 }
 
 // ResearchSourceRef is one persisted research pointer: the human Title, the repo-relative
@@ -4852,10 +4852,15 @@ type ResearchCorpus struct {
 // drafting Action reads it straight off the checked-out repo), and ContentBytes (the byte
 // size, so the read model can show "N KB loaded" without shipping the corpus). The raw
 // content is deliberately ABSENT — it is structurally gone from project.json (F42/F22).
+// JSON keys are lowerCamel per the project.json schema-first casing convention (QA
+// defect fix 2026-07-16); project.json documents written before the fix carry the
+// legacy capitalized keys ("Sources"/"Title"/"Path"/"ContentBytes") and still decode —
+// Go's json.Unmarshal matches field names case-insensitively (regression-tested in
+// access_test.go Test_ResearchCorpus_LegacyCapitalizedKeysStillDecode).
 type ResearchSourceRef struct {
-	Title        string `json:"Title"`
-	Path         string `json:"Path"`
-	ContentBytes int64  `json:"ContentBytes"`
+	Title        string `json:"title"`
+	Path         string `json:"path"`
+	ContentBytes int64  `json:"contentBytes"`
 }
 
 // IsZero reports whether the persisted corpus is unprovided (no sources).
@@ -5392,9 +5397,17 @@ func requireStandardCheckFields(raw []byte) error {
 // silently reads as that axis (the F81 class) — a volatility placed on the wrong axis
 // masquerades as deliberately placed. Demand the field present and a recognized enum on
 // every item.
+//
+// It also guards the OPTIONAL rejected[] roster (the ch. 2 false-volatility record):
+// each rejected candidate must carry a non-empty name, a non-empty reason, and an
+// EXPLICIT recognized class — RejectionClass's zero value is variableNotVolatile, so an
+// omitted "class" would silently file every rejection under that filter (the same F81
+// zero-value hole axis closes above). An absent/null rejected field stays legal: older
+// committed Volatilities carry no rejected roster and must keep decoding.
 func requireVolatilitiesFields(raw []byte) error {
 	var top struct {
-		Items []json.RawMessage `json:"items"`
+		Items    []json.RawMessage `json:"items"`
+		Rejected []json.RawMessage `json:"rejected"`
 	}
 	if err := json.Unmarshal(raw, &top); err != nil {
 		return fmt.Errorf("the volatilities model is not a JSON object: %w", err)
@@ -5411,6 +5424,26 @@ func requireVolatilitiesFields(raw []byte) error {
 		var ax Axis
 		if err := json.Unmarshal(obj["axis"], &ax); err != nil {
 			return fmt.Errorf("%s has an unrecognized axis: %w — use one of sameCustomerOverTime|allCustomersAtOneTime", label, err)
+		}
+	}
+	for i, rRaw := range top.Rejected {
+		obj, err := rawObject(rRaw)
+		if err != nil {
+			return fmt.Errorf("rejected volatility %d is not a JSON object: %w", i+1, err)
+		}
+		label := rejectedVolatilityLabel(obj, i)
+		if err := requireNonEmptyString(obj, "name", label); err != nil {
+			return err
+		}
+		if err := requireNonEmptyString(obj, "reason", label); err != nil {
+			return err
+		}
+		if err := requirePresent(obj, "class", label); err != nil {
+			return err
+		}
+		var rc RejectionClass
+		if err := json.Unmarshal(obj["class"], &rc); err != nil {
+			return fmt.Errorf("%s has an unrecognized class: %w — use one of variableNotVolatile|natureOfTheBusiness|speculative|foldedInto", label, err)
 		}
 	}
 	return nil
@@ -5490,6 +5523,16 @@ func volatilityLabel(obj map[string]json.RawMessage, i int) string {
 		}
 	}
 	return fmt.Sprintf("volatility %d", i+1)
+}
+
+func rejectedVolatilityLabel(obj map[string]json.RawMessage, i int) string {
+	if v, ok := obj["name"]; ok {
+		var s string
+		if json.Unmarshal(v, &s) == nil && strings.TrimSpace(s) != "" {
+			return fmt.Sprintf("rejected volatility %d (%q)", i+1, s)
+		}
+	}
+	return fmt.Sprintf("rejected volatility %d", i+1)
 }
 
 func useCaseLabel(obj map[string]json.RawMessage, i int) string {
@@ -5862,6 +5905,31 @@ func (a *Axis) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	*a = v
+	return nil
+}
+
+// ---- RejectionClass ----
+
+var rejectionClassNames = map[RejectionClass]string{
+	RejectionVariableNotVolatile: "variableNotVolatile",
+	RejectionNatureOfTheBusiness: "natureOfTheBusiness",
+	RejectionSpeculative:         "speculative",
+	RejectionFoldedInto:          "foldedInto",
+}
+var rejectionClassByName = invert(rejectionClassNames)
+
+// MarshalJSON encodes the RejectionClass as its camelCase wire name.
+func (r RejectionClass) MarshalJSON() ([]byte, error) {
+	return marshalEnum(r, rejectionClassNames, "RejectionClass")
+}
+
+// UnmarshalJSON decodes a wire name (or legacy ordinal) into a RejectionClass.
+func (r *RejectionClass) UnmarshalJSON(data []byte) error {
+	v, err := unmarshalEnum(data, rejectionClassByName, "RejectionClass")
+	if err != nil {
+		return err
+	}
+	*r = v
 	return nil
 }
 

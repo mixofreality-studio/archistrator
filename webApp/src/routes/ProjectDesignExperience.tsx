@@ -158,9 +158,14 @@ function ProjectDesignBody({ projectId }: { projectId: string }): ReactNode {
 
   // Bind the pending-comment accumulator to this (project, kind) localStorage slot
   // so unsent notes survive a reload and swap when the architect changes steps.
+  // Deferred until the project loads so the bind carries the head-state Version —
+  // the incarnation stamp that invalidates drafts persisted by a previous
+  // incarnation of the same ProjectID (F-QA2-5; see pendingCommentsStore.ts).
+  const projectVersion = project?.version;
   useEffect(() => {
-    setActiveKey(`${projectId}:${activeKind}`);
-  }, [projectId, activeKind, setActiveKey]);
+    if (projectVersion === undefined) return;
+    setActiveKey(`${projectId}:${activeKind}`, projectVersion);
+  }, [projectId, activeKind, projectVersion, setActiveKey]);
 
   // Chat rail open-state mirrors the Phase-1 derivation (newer anchor re-opens it).
   const [closedAt, setClosedAt] = useState<number | null>(null);

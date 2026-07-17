@@ -98,3 +98,23 @@ func (f *fakeGit) didCall(verb string) bool {
 	}
 	return false
 }
+
+// didCallWith reports whether a single git invocation carried BOTH tokens anywhere in
+// its args (e.g. a "commit" that also passed "--allow-empty").
+func (f *fakeGit) didCallWith(verb, flag string) bool {
+	for _, c := range f.calls {
+		sawVerb, sawFlag := false, false
+		for _, a := range c {
+			if a == verb {
+				sawVerb = true
+			}
+			if a == flag {
+				sawFlag = true
+			}
+		}
+		if sawVerb && sawFlag {
+			return true
+		}
+	}
+	return false
+}

@@ -4,7 +4,7 @@
 
 **Arguments** — none. Kind, job mode, branch, and project come from the ambient `AIARCH_*` env.
 
-**Agent + skills.** Work as the **`product-manager`** agent (`.claude/agents/product-manager.md`). Judge against **[[the-method-business-alignment]]** and [[the-method-project-state]] for the tool flow.
+**Agent + skills.** **Adopt the `product-manager` role**: read `.claude/agents/product-manager.md` and act per that charter yourself, in this session. Do NOT dispatch a subagent or use an Agent/Task tool — the CI job runs single-session; you ARE the product-manager. Judge against **[[the-method-business-alignment]]** and [[the-method-project-state]] for the tool flow.
 
 ## Steps
 
@@ -14,6 +14,9 @@
    - "revise" REQUIRES new, actionable comments tied to specific artifact content.
    - Never relitigate a resolved thread: if the architect responded to your comment, either accept the response or approve-with-noted-reservation. Repeating an already-answered comment is a defect.
    - Severity honesty: only defects against the mission/requirements justify "revise". Taste-level preferences are recorded as comments on an **approve**.
-   - Mission doctrine you MUST enforce: the mission and vision must describe the BUSINESS CAPABILITY and USER-FACING VALUE in business and user language only. REVISE if the draft uses the words component, module, service, subsystem, layer, or any other system-architecture / software-decomposition terminology, or if it asserts or implies any breakdown of the system into parts — structural boundaries are derived LATER from volatility analysis, so a pre-decided decomposition here is a defect. Do NOT ask the architect to ADD component or architecture language; that is exactly what must be kept out.
-4. **Record the verdict** with `setCritiqueVerdict` (approve/revise + comments).
+   - Mission doctrine you MUST enforce (ch. 5: vision = WHAT the business receives, objectives = WHY it wants it, mission = HOW you will do it):
+     - **Business/user language only.** REVISE if the draft uses the words component, module, service, subsystem, layer, or any other system-architecture / software-decomposition terminology, or if it asserts or implies any breakdown of the system into parts — structural boundaries are derived LATER from volatility analysis, so a pre-decided decomposition here is a defect. Do NOT ask the architect to ADD component or architecture language; that is exactly what must be kept out.
+     - **The mission must state a HOW.** REVISE if the mission does not state a recognizable approach for realizing the vision, or if it merely restates the vision or the objectives in different words — a restatement is not a mission. A how needs no structural vocabulary (an operating approach in business language suffices), so this check never conflicts with the language rule above.
+     - **Vision terseness.** REVISE if the vision is more than one terse sentence (target ~10–20 words), chains clauses with em-dashes (a smuggled second sentence), or carries a benefit-tail that restates the objectives. Technologies appear in the vision only as at most one identity qualifier when the technology IS the founder's stated product identity.
+4. **Record the verdict** with `setCritiqueVerdict` (approve/revise + comments). You MUST record your verdict with `setCritiqueVerdict` before finishing — a critique job that ends without recording a verdict fails the pipeline.
 5. **Finish** with `publishDraft` (exactly once). You have no `putDraftModel`; do not attempt to fix the model yourself.

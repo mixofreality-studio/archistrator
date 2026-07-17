@@ -2,6 +2,7 @@ package systemdesign
 
 import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
+	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 )
 
@@ -26,10 +27,39 @@ type phaseInput struct {
 func (wf *workflows) SystemDesignPhaseWorkflow(ctx workflow.Context, in phaseInput) error {
 	logger := workflow.GetLogger(ctx)
 
+	// SKIP-COMMITTED (2026-07-16 incident; restartability). A phase run RESTARTED via
+	// startSystemDesign after an earlier run halted (a withdrawn step, or a contained
+	// child failure — below) must NOT re-draft steps that are already Committed on main:
+	// pre-fix, a restart re-spawned the mission child over the committed mission. Read
+	// the head-state once at start and skip every already-committed step, so the restart
+	// resumes at the first open step. Steps committed DURING this run are never in this
+	// snapshot, so the live sequence is unchanged.
+	//
+	// Temporal versioning guard (replay safety; mirrors failed-gate-ledger-seed): this
+	// adds a read Activity a pre-deploy phase execution's history does not carry.
+	// GetVersion pins in-flight executions (DefaultVersion) to the old no-read sequence;
+	// every execution started after this deploy resolves v1.
+	skipCommitted := workflow.GetVersion(ctx, "phase-skip-committed-steps", workflow.DefaultVersion, 1) >= 1
+	var startProj projectstate.Project
+	if skipCommitted {
+		if p, err := wf.readProject(ctx, in.ProjectID); err != nil {
+			if !isReadNotFound(err) {
+				return err
+			}
+			startProj = projectstate.Project{ID: projectstate.ProjectID(in.ProjectID)}
+		} else {
+			startProj = p
+		}
+	}
+
 	// Drive the seven steps in fixed Method order. For each step, spawn the child
 	// gate and auto-advance only on the child's Approve outcome; a Withdraw holds
 	// the phase at that step (the operator re-enters via requestArtifactDraft).
 	for _, kind := range phase1RequiredKinds() {
+		if skipCommitted && slotFor(startProj, kind).Status == projectstate.ReviewCommitted {
+			logger.Info("co-author step already committed at phase start; skipping", "kind", artifactKindString(kind))
+			continue
+		}
 		childID := coAuthorWorkflowID(in.ProjectID, kind)
 		cctx := workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{
 			WorkflowID: childID,
@@ -39,7 +69,21 @@ func (wf *workflows) SystemDesignPhaseWorkflow(ctx workflow.Context, in phaseInp
 			ProjectID:    in.ProjectID,
 			ArtifactKind: kind,
 		}).Get(ctx, &outcome); err != nil {
-			return err
+			// CHILD-FAILURE CONTAINMENT (2026-07-16 incident): a child co-author failure
+			// must NOT fail the phase — pre-fix, one ContractMisuse in the glossary child
+			// terminated the ENTIRE Phase-1 rail (gtdapp:systemDesign FAILED). Contain it
+			// exactly like a Withdraw: log the cause and halt the sequence GRACEFULLY, so
+			// the step is restartable — a fresh requestArtifactDraft revives the step as a
+			// standalone session (the established withdraw re-entry path), or a fresh
+			// startSystemDesign restarts this phase rail (which now skips committed steps
+			// and resumes here). Only a workflow-cancellation (teardown) propagates.
+			// Pure error-handling change (no new commands) — replay-safe unversioned.
+			if temporal.IsCanceledError(err) {
+				return err
+			}
+			logger.Error("co-author step FAILED; containing — phase halts gracefully (restart the step via requestArtifactDraft, or the phase via startSystemDesign)",
+				"kind", artifactKindString(kind), "error", err.Error())
+			return nil
 		}
 		if outcome != coAuthorApproved {
 			// The human withdrew this step; the phase does not advance. The parent

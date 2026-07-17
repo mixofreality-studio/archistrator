@@ -90,11 +90,19 @@ func buildServer(s *Session) *mcp.Server {
 // (raw tools are <component><Operation>, composed verbs are the hand-named verbs).
 func registerRawReadTools(srv *mcp.Server, s *Session) {
 	for _, tool := range projectstate.InternalToolCatalog() {
-		if tool.AgentHidden || !tool.ReadOnly {
+		if !rawToolEligible(tool) {
 			continue
 		}
 		registerRawTool(srv, s, tool)
 	}
+}
+
+// rawToolEligible is the SINGLE eligibility predicate for the raw generated surface:
+// non-hidden AND read-only (Engine ops are pure, RA reads are side-effect-free). It is
+// shared by registerRawReadTools and the prompt-surface gate (promptsurface_test.go),
+// so the gate's view of the registry can never drift from what actually registers.
+func rawToolEligible(t projectstate.InternalTool) bool {
+	return !t.AgentHidden && t.ReadOnly
 }
 
 // composedVerbs returns the composed-verb registry bound to this session, each with

@@ -511,16 +511,20 @@ func TestObserveStatusMapping(t *testing.T) {
 	}
 }
 
-// QA F15 gap 2b — a terminal-FAILURE observation surfaces the run's resolved URL as the
-// operator's "why" pointer; a SUCCESS observation carries none.
-func TestObserveSurfacesRunURLOnFailure(t *testing.T) {
+// QA F15 gap 2b + F-GTD-6 — EVERY observation the realisation resolved the run URL for
+// carries it: terminal failures surface it as the operator's "why" pointer, and a live
+// (in_progress / queued) or succeeded run surfaces it as the "view the run" deep-link
+// the generating view renders while the job drafts.
+func TestObserveSurfacesRunURL(t *testing.T) {
 	cases := []struct {
+		status     string
 		conclusion string
-		wantURL    bool
 	}{
-		{"failure", true},
-		{"cancelled", true},
-		{"success", false},
+		{"completed", "failure"},
+		{"completed", "cancelled"},
+		{"completed", "success"},
+		{"in_progress", ""},
+		{"queued", ""},
 	}
 	for _, tc := range cases {
 		f := newFakeActions()
@@ -529,19 +533,32 @@ func TestObserveSurfacesRunURLOnFailure(t *testing.T) {
 		if err != nil {
 			t.Fatalf("submit: %v", err)
 		}
-		f.runs[0].status = "completed"
+		f.runs[0].status = tc.status
 		f.runs[0].conclusion = tc.conclusion
 		f.runs[0].htmlURL = "https://github.com/acme/widgets/actions/runs/42"
 		obs, err := a.ObserveConstructionPipeline(obsRC(context.Background()), h)
 		if err != nil {
 			t.Fatalf("observe: %v", err)
 		}
-		if tc.wantURL && obs.RunURL != "https://github.com/acme/widgets/actions/runs/42" {
-			t.Errorf("(%s) want RunURL surfaced, got %q", tc.conclusion, obs.RunURL)
+		if obs.RunURL != "https://github.com/acme/widgets/actions/runs/42" {
+			t.Errorf("(%s/%s) want RunURL surfaced on every resolvable observation, got %q", tc.status, tc.conclusion, obs.RunURL)
 		}
-		if !tc.wantURL && obs.RunURL != "" {
-			t.Errorf("(%s) a non-failure observation must carry no RunURL, got %q", tc.conclusion, obs.RunURL)
-		}
+	}
+	// An unresolvable URL (the realisation could not build it) stays empty — never fabricated.
+	f := newFakeActions()
+	a := newAccessForTest(t, f)
+	h, err := a.SubmitConstructionPipeline(subRC(context.Background(), "k"), goodSpec())
+	if err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	f.runs[0].status = "in_progress"
+	f.runs[0].htmlURL = ""
+	obs, err := a.ObserveConstructionPipeline(obsRC(context.Background()), h)
+	if err != nil {
+		t.Fatalf("observe: %v", err)
+	}
+	if obs.RunURL != "" {
+		t.Errorf("an unresolvable run URL must stay empty, got %q", obs.RunURL)
 	}
 }
 

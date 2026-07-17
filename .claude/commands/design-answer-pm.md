@@ -4,7 +4,7 @@
 
 **Arguments** — none. Ambient `AIARCH_*` env fixes kind, branch, project.
 
-**Agent + skills.** Work as the **`product-manager`** agent (`.claude/agents/product-manager.md`). Ground every answer in the committed customer/business reality and priorities — the PM's authority — and the relevant `the-method-*` skill for the ambient artifact kind (see [[the-method]] index).
+**Agent + skills.** **Adopt the `product-manager` role**: read `.claude/agents/product-manager.md` and act per that charter yourself, in this session. Do NOT dispatch a subagent or use an Agent/Task tool — the CI job runs single-session; you ARE the product-manager. Ground every answer in the committed customer/business reality and priorities — the PM's authority — and the relevant `the-method-*` skill for the ambient artifact kind (see [[the-method]] index).
 
 ## Steps
 

@@ -11,7 +11,7 @@
  * `SystemDesignBody`, which mixed this orchestration directly into the render
  * tree. The route file is now just `CommentProvider → SystemDesignContainer`.
  */
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 
 import { ApiError } from '../contracts/errors';
@@ -91,6 +91,22 @@ export function SystemDesignContainer({ projectId }: { projectId: string }): Rea
   const safeIndex = Math.min(activeIndex, PHASE1_KINDS.length - 1);
   const activeKind: ArtifactKind = PHASE1_KINDS[safeIndex] ?? 'mission';
 
+  // F-GTD-14: the useState initializer above runs BEFORE the project query
+  // resolves (empty spine → firstOpen = 0), so the experience always opened at
+  // Mission regardless of progress — and every later pip read as locked until
+  // the data arrived, silently swallowing clicks. Snap to the real first-open
+  // step exactly once, when the project first loads, unless the founder has
+  // already navigated somewhere on their own.
+  const userNavigatedRef = useRef(false);
+  const snappedRef = useRef(false);
+  useEffect(() => {
+    if (snappedRef.current || project === undefined) return;
+    snappedRef.current = true;
+    if (!userNavigatedRef.current) {
+      setActiveIndex(firstOpen < 0 ? spine.length - 1 : firstOpen);
+    }
+  }, [project, firstOpen, spine.length]);
+
   // Disarm any pending anchor when the active artifact changes, so an anchor
   // armed on one step never bleeds onto the next (it would attach a comment to a
   // stale, unrelated location).
@@ -100,9 +116,14 @@ export function SystemDesignContainer({ projectId }: { projectId: string }): Rea
 
   // Bind the pending-comment accumulator to this (project, kind) localStorage slot
   // so unsent notes survive a reload and swap when the architect changes steps.
+  // Deferred until the project loads so the bind carries the head-state Version —
+  // the incarnation stamp that invalidates drafts persisted by a previous
+  // incarnation of the same ProjectID (F-QA2-5; see pendingCommentsStore.ts).
+  const projectVersion = project?.version;
   useEffect(() => {
-    setActiveKey(`${projectId}:${activeKind}`);
-  }, [projectId, activeKind, setActiveKey]);
+    if (projectVersion === undefined) return;
+    setActiveKey(`${projectId}:${activeKind}`, projectVersion);
+  }, [projectId, activeKind, projectVersion, setActiveKey]);
 
   // The rail auto-opens whenever the architect arms an anchor (requestId bumps).
   // We derive open-state from (requestId, manual toggles) rather than an effect:
@@ -137,6 +158,7 @@ export function SystemDesignContainer({ projectId }: { projectId: string }): Rea
     // Clear any held gate error so a prior step's failed decision never bleeds
     // onto the next step's gate (F79).
     setGateError(undefined);
+    userNavigatedRef.current = true;
     setActiveIndex(i);
   };
 
@@ -154,11 +176,21 @@ export function SystemDesignContainer({ projectId }: { projectId: string }): Rea
   };
 
   // Retry after a terminal Refused/draftFailed: re-enter drafting on the same
-  // live session. The mutation invalidates the session query, which refetches
-  // once and — now that the stage has left the terminal state — re-enables the
-  // 2s poll.
+  // live session (or revive a dead one — the server starts a fresh run). The
+  // mutation invalidates the session query, which refetches once and — now that
+  // the stage has left the terminal state — re-enables the 2s poll. A FAILED
+  // retry must not be invisible (2026-07-16 incident: dead-session recovery
+  // clicks rendered zero feedback): name its error on the failed panel.
   const retryDraft = (): void => {
-    requestDraft.mutate({ kind: activeKind });
+    setGateError(undefined);
+    requestDraft.mutate(
+      { kind: activeKind },
+      {
+        onError: (err) => {
+          setGateError(err.message);
+        },
+      }
+    );
   };
 
   const onAcknowledgeStale = (note: string): void => {

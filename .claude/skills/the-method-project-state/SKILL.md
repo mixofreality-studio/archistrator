@@ -40,7 +40,7 @@ There is **no** `.handoff` slot. Worker-class / hand-off is decided by the Manag
 
 | ordinal | slot name | Go type | holds |
 |---|---|---|---|
-| 0 | Mission | `*projectstate.MissionStatement` (`models_phase1.go`) | `vision`, numbered `objectives`, `mission` statement expressed in components |
+| 0 | Mission | `*projectstate.MissionStatement` (`models_phase1.go`) | `vision`, numbered `objectives`, `mission` statement (the business-language "how"; see [[the-method-business-alignment]]) |
 | 1 | Glossary | `*projectstate.Glossary` (`models_phase1.go`) | `items[]`: term/definition/category (the Four Questions) |
 | 2 | ScrubbedRequirements | `*projectstate.ScrubbedRequirements` (`models_phase1.go`) | `items[]`: `id`/`statement` |
 | 3 | Volatilities | `*projectstate.Volatilities` (`models_phase1.go`) | `items[]`: name/rationale/axis |

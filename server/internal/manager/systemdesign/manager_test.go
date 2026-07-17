@@ -24,7 +24,9 @@ import (
 	workflowpb "go.temporal.io/api/workflow/v1"
 	"go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/sdk/activity"
+	"go.temporal.io/sdk/client"
 	temporalmocks "go.temporal.io/sdk/mocks"
+	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/testsuite"
 	"go.temporal.io/sdk/workflow"
 )
@@ -204,6 +206,169 @@ func Test_CheckPhase1Predecessor_RedraftUnaffected(t *testing.T) {
 	if err := m.checkPhase1Predecessor(context.Background(), pid, KindGlossary); err != nil {
 		t.Fatalf("redraft with committed predecessor must pass, got %v", err)
 	}
+}
+
+// ---- RequestArtifactDraft generating guard (QA incident 2026-07-15) ---------
+
+// fakeSignalWorkflowRun satisfies client.WorkflowRun for the mocked SignalWithStart result.
+type fakeSignalWorkflowRun struct {
+	client.WorkflowRun
+	id string
+}
+
+func (r fakeSignalWorkflowRun) GetID() string { return r.id }
+
+// runningSessionClient mocks the Describe-then-Query pair GetSessionState runs for a
+// RUNNING co-author workflow, answering the sessionState query with the given stage.
+func runningSessionClient(wfID string, stage SessionStage) *temporalmocks.Client {
+	mc := &temporalmocks.Client{}
+	mc.On("DescribeWorkflowExecution", mock.Anything, wfID, "").Return(
+		&workflowservice.DescribeWorkflowExecutionResponse{
+			WorkflowExecutionInfo: &workflowpb.WorkflowExecutionInfo{
+				Status: enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING,
+			},
+		}, nil)
+	mc.On("QueryWorkflow", mock.Anything, wfID, "", querySessionState).Return(
+		fakeEncodedSessionView{view: SessionStateView{Stage: stage}}, nil)
+	return mc
+}
+
+// THE INCIDENT GUARD (gtdapp:1, 2026-07-15): a draft request while the session is DRAFTING
+// is refused with FailedPrecondition — the redraft signal would be consumable by no open
+// gate and would sit buffered until it stale-consumed a later StageDraftFailed gate. The
+// mock carries NO SignalWithStartWorkflow expectation: reaching it fails the test loudly.
+func Test_RequestArtifactDraft_WhileDrafting_FailedPrecondition_NoSignal(t *testing.T) {
+	for _, stage := range []SessionStage{StageDrafting, StageRedrafting} {
+		pid := ProjectID(uuid.NewString())
+		mc := runningSessionClient(coAuthorWorkflowID(pid, KindMission), stage)
+		m := &systemDesignManager{client: mc, projectState: &renderFakeProjectState{}}
+
+		_, err := m.RequestArtifactDraft(bgRC(), pid, KindMission, nil)
+		sde := asSystemDesignError(t, err)
+		if sde.Kind != fwmanager.FailedPrecondition {
+			t.Fatalf("stage %d: want FailedPrecondition while a draft is generating, got %d (%v)", stage, sde.Kind, err)
+		}
+		if !strings.Contains(err.Error(), "already generating") {
+			t.Fatalf("stage %d: the refusal must say a draft is already generating, got %q", stage, err.Error())
+		}
+		mc.AssertExpectations(t)
+	}
+}
+
+// The receptive stages still SIGNAL: AwaitingReview (an open review gate) and DraftFailed
+// (the recovery gate's Retry lever) deliver the redraft signal via SignalWithStart.
+func Test_RequestArtifactDraft_ReceptiveStages_SignalDelivered(t *testing.T) {
+	for _, stage := range []SessionStage{StageAwaitingReview, StageDraftFailed} {
+		pid := ProjectID(uuid.NewString())
+		wfID := coAuthorWorkflowID(pid, KindMission)
+		mc := runningSessionClient(wfID, stage)
+		mc.On("SignalWithStartWorkflow", mock.Anything, wfID, lSignalRedraft,
+			mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+			Return(fakeSignalWorkflowRun{id: wfID}, nil)
+		m := &systemDesignManager{client: mc, projectState: &renderFakeProjectState{}}
+
+		ref, err := m.RequestArtifactDraft(bgRC(), pid, KindMission, nil)
+		if err != nil {
+			t.Fatalf("stage %d: a receptive stage must accept the draft request, got %v", stage, err)
+		}
+		if ref == "" {
+			t.Fatalf("stage %d: expected a session ref", stage)
+		}
+		mc.AssertExpectations(t)
+	}
+}
+
+// No session has ever run (Describe reports the execution missing → GetSessionState
+// NotFound): the guard passes and the request STARTS the first session.
+func Test_RequestArtifactDraft_NoSession_StartsFirstDraft(t *testing.T) {
+	pid := ProjectID(uuid.NewString())
+	wfID := coAuthorWorkflowID(pid, KindMission)
+	mc := &temporalmocks.Client{}
+	mc.On("DescribeWorkflowExecution", mock.Anything, wfID, "").
+		Return((*workflowservice.DescribeWorkflowExecutionResponse)(nil), errors.New("workflow not found for ID: "+wfID))
+	mc.On("SignalWithStartWorkflow", mock.Anything, wfID, lSignalRedraft,
+		mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(fakeSignalWorkflowRun{id: wfID}, nil)
+	m := &systemDesignManager{client: mc, projectState: &renderFakeProjectState{}}
+
+	if _, err := m.RequestArtifactDraft(bgRC(), pid, KindMission, nil); err != nil {
+		t.Fatalf("no-session must start the first draft, got %v", err)
+	}
+	mc.AssertExpectations(t)
+}
+
+// THE 2026-07-16 INCIDENT REGRESSION (manager half — revival). A DEAD session (the previous
+// run closed FAILED, as gtdapp:1 did) is receptive: "Retry design job" must start a brand-new
+// run. The manager must pin WorkflowIDReusePolicy ALLOW_DUPLICATE on the SignalWithStart
+// (a stricter policy silently turns the retry into a no-op 200) and then VERIFY the session's
+// latest execution is live before reporting success.
+func Test_RequestArtifactDraft_DeadSession_RevivesFreshRun(t *testing.T) {
+	pid := ProjectID(uuid.NewString())
+	wfID := coAuthorWorkflowID(pid, KindMission)
+
+	mc := &temporalmocks.Client{}
+	// Describe #1 (the receptive check): the previous run is FAILED → synthesized
+	// StageDraftFailed → receptive.
+	mc.On("DescribeWorkflowExecution", mock.Anything, wfID, "").
+		Return(&workflowservice.DescribeWorkflowExecutionResponse{
+			WorkflowExecutionInfo: &workflowpb.WorkflowExecutionInfo{Status: enumspb.WORKFLOW_EXECUTION_STATUS_FAILED},
+		}, nil).Once()
+	mc.On("SignalWithStartWorkflow", mock.Anything, wfID, lSignalRedraft,
+		mock.Anything,
+		mock.MatchedBy(func(o client.StartWorkflowOptions) bool {
+			return o.WorkflowIDReusePolicy == enumspb.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE &&
+				o.WorkflowIDConflictPolicy == enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING
+		}),
+		mock.Anything, mock.Anything).
+		Return(fakeSignalWorkflowRun{id: wfID}, nil)
+	// Describe #2 (the revival verification): a fresh run is now RUNNING.
+	mc.On("DescribeWorkflowExecution", mock.Anything, wfID, "").
+		Return(&workflowservice.DescribeWorkflowExecutionResponse{
+			WorkflowExecutionInfo: &workflowpb.WorkflowExecutionInfo{Status: enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING},
+		}, nil).Once()
+
+	m := &systemDesignManager{client: mc, projectState: &renderFakeProjectState{}}
+	ref, err := m.RequestArtifactDraft(bgRC(), pid, KindMission, nil)
+	if err != nil {
+		t.Fatalf("a dead session's retry must revive a fresh run, got %v", err)
+	}
+	if ref == "" {
+		t.Fatal("expected a session ref")
+	}
+	mc.AssertExpectations(t)
+}
+
+// NO FALSE 200s (2026-07-16 incident): when the SignalWithStart reports success but the
+// session's latest execution is STILL abnormally closed (nothing actually started — the
+// observed live failure), the manager must return an honest error, never success.
+func Test_RequestArtifactDraft_RevivalDidNotStart_HonestError(t *testing.T) {
+	pid := ProjectID(uuid.NewString())
+	wfID := coAuthorWorkflowID(pid, KindMission)
+
+	mc := &temporalmocks.Client{}
+	// Both Describes (receptive check AND post-start verification) report FAILED — the
+	// session never revived.
+	mc.On("DescribeWorkflowExecution", mock.Anything, wfID, "").
+		Return(&workflowservice.DescribeWorkflowExecutionResponse{
+			WorkflowExecutionInfo: &workflowpb.WorkflowExecutionInfo{Status: enumspb.WORKFLOW_EXECUTION_STATUS_FAILED},
+		}, nil)
+	mc.On("SignalWithStartWorkflow", mock.Anything, wfID, lSignalRedraft,
+		mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(fakeSignalWorkflowRun{id: wfID}, nil)
+
+	m := &systemDesignManager{client: mc, projectState: &renderFakeProjectState{}}
+	_, err := m.RequestArtifactDraft(bgRC(), pid, KindMission, nil)
+	if err == nil {
+		t.Fatal("a retry that revived nothing must NOT return success (the false-200)")
+	}
+	sde := asSystemDesignError(t, err)
+	if sde.Kind != fwmanager.Infrastructure {
+		t.Fatalf("want Infrastructure for a failed revival, got %d (%v)", sde.Kind, err)
+	}
+	if !strings.Contains(sde.Detail, "could not be revived") {
+		t.Fatalf("the error must name the failed revival, got %q", sde.Detail)
+	}
+	mc.AssertExpectations(t)
 }
 
 // phase1PredecessorKind returns the immediate predecessor for each Phase-1 kind, and
@@ -904,11 +1069,32 @@ func (f *fakeProjectState) mutateSlotLocked(kind projectstate.ArtifactKind, fn f
 		fn(&f.project.Glossary)
 	case projectstate.KindScrubbedRequirements:
 		fn(&f.project.ScrubbedRequirements)
+	case projectstate.KindVolatilities:
+		fn(&f.project.Volatilities)
 	case projectstate.KindCoreUseCases:
 		fn(&f.project.CoreUseCases)
 	case projectstate.KindSystem:
 		fn(&f.project.SystemDesign)
+	case projectstate.KindOperationalConcepts:
+		fn(&f.project.OperationalConcepts)
+	case projectstate.KindStandardCheck:
+		fn(&f.project.StandardCheck)
 	}
+}
+
+// markCommitted flips the named slot to ReviewCommitted on the served head-state (with the
+// supplied model so populated-slot semantics hold) — used by the phase-workflow tests'
+// mocked children to model each step's approve→commit, so the parent's SEAL gate (which
+// re-reads head-state) sees the progression.
+func (f *fakeProjectState) markCommitted(kind projectstate.ArtifactKind, model projectstate.ArtifactModel) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.mutateSlotLocked(kind, func(s *projectstate.ArtifactSlot) {
+		s.Status = projectstate.ReviewCommitted
+		if s.Model == nil {
+			s.Model = model
+		}
+	})
 }
 
 // setSlotCritique scripts the served head-state's critique carrier for kind — what a
@@ -972,7 +1158,9 @@ type fakePipeline struct {
 	phases []pipelinePhase
 	// diagnostic is attached to a failed/cancelled observation.
 	diagnostic string
-	// runURL is attached to a failed/cancelled observation (the RA's resolved run URL).
+	// runURL is attached to EVERY observation (the RA's resolved run URL — the real RA
+	// surfaces it on live runs for the generating deep-link and on terminal failures
+	// for the failed card's "why" pointer).
 	runURL string
 	// submitErr, when non-nil, makes SubmitConstructionPipeline FAIL (a terminal
 	// dispatch-rejection fault, e.g. GitHub 422 → ContractMisuse) — the F15 gap-2a path.
@@ -1061,9 +1249,11 @@ func (p *fakePipeline) ObserveConstructionPipeline(_ fwra.Context, handle constr
 		hook()
 	}
 	obs := constructionpipeline.PipelineObservation{Phase: neutralToRAPhase(phase)}
+	// Mirror the real RA: the resolved run URL rides on EVERY observation (live runs
+	// power the generating deep-link; terminal failures power the failed card).
+	obs.RunURL = runURL
 	if phase == pipelineFailed || phase == pipelineCancelled {
 		obs.Diagnostic = diag
-		obs.RunURL = runURL
 	}
 	return obs, nil
 }
@@ -1397,8 +1587,18 @@ func Test_CoAuthor_PhaseFailed_LandsInStageDraftFailed_NotPerpetualDrafting(t *t
 	if len(ps.staged) != 0 {
 		t.Fatalf("a failed draft must stage nothing, got %d", len(ps.staged))
 	}
-	if len(ps.withdrawn) != 1 {
-		t.Fatalf("withdraw from the draft-failed gate must call WithdrawArtifact once, got %d", len(ps.withdrawn))
+	// 2026-07-16 incident: NOTHING was ever staged, so the withdraw must SKIP the unstage
+	// write (an unpopulated-slot WithdrawArtifact is a ContractMisuse that killed the whole
+	// rail) and still end the session cleanly as withdrawn.
+	if len(ps.withdrawn) != 0 {
+		t.Fatalf("a never-staged withdraw must NOT call WithdrawArtifact (nothing to unstage), got %d", len(ps.withdrawn))
+	}
+	var outcome coAuthorOutcome
+	if err := env.GetWorkflowResult(&outcome); err != nil {
+		t.Fatalf("decode outcome: %v", err)
+	}
+	if outcome != coAuthorWithdrawn {
+		t.Fatalf("want CoAuthorWithdrawn, got %d", outcome)
 	}
 }
 
@@ -1428,6 +1628,82 @@ func Test_CoAuthor_PhaseCancelled_LandsInStageDraftFailed(t *testing.T) {
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("PhaseCancelled must not crash the workflow: %v", err)
+	}
+}
+
+// QA incident 2026-07-15 (gtdapp:1) — THE STALE-REDRAFT GATE-HYGIENE TEST. A redraft
+// signal delivered while the job is still DRAFTING (the founder's "Request draft" click
+// against a stale no-session SPA view; also every SignalWithStart START's ride-along
+// signal) is buffered — no gate consumes it mid-draft. When the job then FAILS and the
+// session lands at the human StageDraftFailed gate, that pre-failure signal must NOT
+// auto-satisfy the gate's Retry selector: the human never saw the failure, so it cannot
+// be an informed Retry. The gate-entry drain (failed-gate-redraft-drain, GetVersion-
+// gated) discards it; the session must SIT at the failed gate until a real decision.
+func Test_CoAuthor_StaleRedraftBufferedDuringDrafting_DoesNotAutoConsumeFailedGate(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	ps := &fakeProjectState{project: systemReadBack(t, id)}
+	// Observe #1 (t≈0) reports RUNNING and flips the handle to FAILED, holding a live
+	// drafting window across the 15s poll timer — the stale signal lands inside it.
+	pipe := newFakePipeline(pipelineRunning)
+	pipe.diagnostic = "the PM-critique job committed no verdict"
+	pipe.onObserve = func() {
+		pipe.mu.Lock()
+		defer pipe.mu.Unlock()
+		for k := range pipe.handlePhase {
+			pipe.handlePhase[k] = pipelineFailed
+		}
+	}
+	wf := newWorkflows()
+	registerCoAuthor(env, wf, ps, pipe)
+
+	// t=5s — MID-DRAFTING, before the failure lands at the t=15s observe: the incident's
+	// stale "Request draft" click reaches the running workflow and buffers.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(lSignalRedraft, redraftSignal{})
+	}, 5*time.Second)
+
+	// t=60s — long after the failure: the session must still SIT at the human-visible
+	// failed gate. Without the drain the buffered signal auto-consumed the gate the
+	// instant it armed (an invisible, unwanted redraft round — asserted via the dispatch
+	// count below). A Withdraw then ends the session.
+	env.RegisterDelayedCallback(func() {
+		enc, err := env.QueryWorkflow(querySessionState)
+		if err != nil {
+			t.Fatalf("QueryWorkflow: %v", err)
+		}
+		var view SessionStateView
+		if err := enc.Get(&view); err != nil {
+			t.Fatalf("decode SessionStateView: %v", err)
+		}
+		if view.Stage != StageDraftFailed {
+			t.Fatalf("the session must sit at StageDraftFailed awaiting a HUMAN decision (stale buffered redraft discarded), got %d", view.Stage)
+		}
+		if view.FailureReason == nil || *view.FailureReason == "" {
+			t.Fatal("the failed gate must surface the human FailureReason the stale signal would have skipped")
+		}
+		if got := pipe.submitCount(); got != 1 {
+			t.Fatalf("the stale buffered redraft must NOT trigger a redraft dispatch, got %d dispatches", got)
+		}
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 60*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+
+	if !env.IsWorkflowCompleted() {
+		t.Fatal("workflow did not complete after withdraw from the failed gate")
+	}
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("the drain must not crash the workflow: %v", err)
+	}
+	if got := pipe.submitCount(); got != 1 {
+		t.Fatalf("exactly ONE draft dispatch expected (the stale redraft discarded), got %d", got)
+	}
+	// Never staged → the withdraw skips the unstage write (2026-07-16 incident) and ends clean.
+	if len(ps.withdrawn) != 0 {
+		t.Fatalf("a never-staged withdraw must NOT call WithdrawArtifact, got %d", len(ps.withdrawn))
 	}
 }
 
@@ -1528,6 +1804,160 @@ func Test_CoAuthor_RunFailed_SurfacesRunURL(t *testing.T) {
 	}
 }
 
+// QA F-GTD-6 — while the dispatched design job is LIVE (StageDrafting, between the
+// dispatch and the terminal observation) the session view surfaces the run's URL, so
+// the SPA's GENERATING scene can deep-link the operator to the actual GitHub Actions
+// run instead of an unlinked "the job is running in your CI" notice. Once the job
+// completes and the session reaches AwaitingReview, no run is in flight — the live
+// link must be GONE (never a stale one).
+func Test_CoAuthor_Generating_SurfacesLiveRunURL(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	ps := &fakeProjectState{project: systemReadBack(t, id)}
+	// Scripted RUNNING on the first observation, flipped to SUCCEEDED after it, so the
+	// test holds a live in-flight window (observe #1) and then completes (observe #2).
+	pipe := newFakePipeline(pipelineRunning)
+	pipe.runURL = "https://github.com/acme/widgets/actions/runs/777"
+	pipe.onObserve = func() {
+		pipe.mu.Lock()
+		defer pipe.mu.Unlock()
+		for k := range pipe.handlePhase {
+			pipe.handlePhase[k] = pipelineSucceeded
+		}
+	}
+	wf := newWorkflows()
+	registerCoAuthor(env, wf, ps, pipe)
+
+	// Mid-drafting (after observe #1 at t≈0, before the 15s poll timer fires): the
+	// generating view must carry the live run's URL.
+	env.RegisterDelayedCallback(func() {
+		enc, err := env.QueryWorkflow(querySessionState)
+		if err != nil {
+			t.Fatalf("QueryWorkflow: %v", err)
+		}
+		var view SessionStateView
+		if err := enc.Get(&view); err != nil {
+			t.Fatalf("decode SessionStateView: %v", err)
+		}
+		if view.Stage != StageDrafting {
+			t.Fatalf("want StageDrafting while the job is live, got %d", view.Stage)
+		}
+		if view.RunURL == nil || *view.RunURL != "https://github.com/acme/widgets/actions/runs/777" {
+			t.Fatalf("a LIVE design job must surface its run URL on the generating view (F-GTD-6), got %v", view.RunURL)
+		}
+	}, 5*time.Second)
+	// After the successful draft reaches AwaitingReview no run is in flight — the live
+	// link is gone. Withdraw to end the session.
+	env.RegisterDelayedCallback(func() {
+		enc, err := env.QueryWorkflow(querySessionState)
+		if err != nil {
+			t.Fatalf("QueryWorkflow (post-draft): %v", err)
+		}
+		var view SessionStateView
+		if err := enc.Get(&view); err != nil {
+			t.Fatalf("decode SessionStateView (post-draft): %v", err)
+		}
+		if view.Stage == StageAwaitingReview && view.RunURL != nil {
+			t.Errorf("no run is in flight at AwaitingReview — the live run URL must be cleared, got %q", *view.RunURL)
+		}
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 60*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+}
+
+// F-QA2-7 — the PM-critique CONCLUSION (verdict + the PM's rationale + the draft
+// round it judged) is surfaced on the session view at the human gate, so the founder
+// never approves a PM-reviewed artifact blind to what the PM concluded. An APPROVE
+// carries the PM's approve-with-reservation notes too. A human REJECT then CLEARS the
+// stamp — the surfaced verdict judged the now-rejected draft, so the view must never
+// attribute it to the upcoming redraft (asserted deterministically by failing the
+// redraft dispatch and querying at the StageDraftFailed gate).
+func Test_CoAuthor_PMCritique_SurfacesConclusionAtGate_AndRejectClearsIt(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	const reservation = "solid mission; one taste-level wording reservation noted"
+	// The Mission slot's critique carrier is an APPROVE that carries notes — the
+	// verdict-discipline "approve with noted reservation" the PM records as comments.
+	ps := &fakeProjectState{project: projectstate.Project{
+		ID:      projectstate.ProjectID(id),
+		Version: 1,
+		Mission: awaitingSlot(mustMission(t), projectstate.CritiqueVerdictApprove, reservation),
+	}}
+	// draft Succeeded, critique Succeeded → gate; the post-reject REDRAFT dispatch
+	// FAILS so the session parks deterministically at StageDraftFailed for the
+	// cleared-stamp query.
+	pipe := newFakePipeline(pipelineSucceeded, pipelineSucceeded, pipelineFailed)
+	pipe.diagnostic = "redraft CI flake"
+	wf := newWorkflows()
+	registerCoAuthor(env, wf, ps, pipe)
+
+	env.RegisterDelayedCallback(func() {
+		enc, err := env.QueryWorkflow(querySessionState)
+		if err != nil {
+			t.Fatalf("QueryWorkflow: %v", err)
+		}
+		var view SessionStateView
+		if err := enc.Get(&view); err != nil {
+			t.Fatalf("decode SessionStateView: %v", err)
+		}
+		if view.Stage != StageAwaitingReview {
+			t.Fatalf("want StageAwaitingReview, got %d", view.Stage)
+		}
+		// The load-bearing F-QA2-7 assertion: the gate view carries the PM conclusion.
+		if view.Critique == nil {
+			t.Fatal("a PM-reviewed artifact at the human gate must surface the PM critique conclusion (F-QA2-7), got nil")
+		}
+		if view.Critique.Role != critiqueRoleProductManager {
+			t.Errorf("critique role: want %q, got %q", critiqueRoleProductManager, view.Critique.Role)
+		}
+		if view.Critique.Verdict != projectstate.CritiqueVerdictApprove {
+			t.Errorf("critique verdict: want approve, got %q", view.Critique.Verdict)
+		}
+		if view.Critique.Summary != reservation {
+			t.Errorf("an APPROVE must carry the PM's notes (approve-with-reservation), want %q got %q", reservation, view.Critique.Summary)
+		}
+		if view.Critique.Round != 0 {
+			t.Errorf("critique judged draft round 0, got %d", view.Critique.Round)
+		}
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewReject, Feedback: &ReviewFeedback{Notes: "tighten the objectives"}})
+	}, 30*time.Second)
+
+	// The rejected draft's redraft dispatch failed → StageDraftFailed. The stale PM
+	// verdict (it judged the REJECTED draft) must be gone from the view.
+	env.RegisterDelayedCallback(func() {
+		enc, err := env.QueryWorkflow(querySessionState)
+		if err != nil {
+			t.Fatalf("QueryWorkflow (post-reject): %v", err)
+		}
+		var view SessionStateView
+		if err := enc.Get(&view); err != nil {
+			t.Fatalf("decode SessionStateView (post-reject): %v", err)
+		}
+		if view.Stage != StageDraftFailed {
+			t.Fatalf("want StageDraftFailed after the failed redraft, got %d", view.Stage)
+		}
+		if view.Critique != nil {
+			t.Errorf("a human REJECT must clear the surfaced PM critique (it judged the rejected draft), got %+v", view.Critique)
+		}
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 90*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindMission})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+}
+
 // A REDRAFT (the human Retry-via-Reject after a draft-failed gate) issues a SECOND
 // dispatch with a DISTINCT idempotency key — a fresh, idempotent job, not a dedup of
 // the stale one (the key is derived inside the dispatch Activity from a fresh
@@ -1565,6 +1995,14 @@ func Test_CoAuthor_DraftFailedThenRetry_DistinctIdempotencyKey(t *testing.T) {
 	k2 := pipe.submits[1].idempotencyKey
 	if k1 == k2 {
 		t.Fatalf("a redraft must get a DISTINCT idempotency key (fresh job), got identical %q", k1)
+	}
+	// F-QA2-24 pin: when the DRAFT is the job that failed, the gate's Retry REDRAFTS —
+	// both dispatches are DRAFT jobs (the critique-retry resume applies only when the
+	// critique was the failed job).
+	for i := 0; i < 2; i++ {
+		if got := pipe.submits[i].dispatchInputs[dispatchInputJobMode]; got != jobModeDraft {
+			t.Fatalf("dispatch %d job_mode = %q, want %q (a draft failure's Retry must redraft)", i, got, jobModeDraft)
+		}
 	}
 	// The successful redraft staged the read-back model once.
 	if len(ps.staged) != 1 {
@@ -1620,6 +2058,15 @@ func Test_CoAuthor_PMCritiqueRevise_SecondRoundTrip_StagesForHumanGate(t *testin
 		}
 		if !sawWarning {
 			t.Fatalf("expected a PM-CRITIQUE-UNRESOLVED warning at the gate, got %+v", view.Findings)
+		}
+		// F-QA2-7: the non-converged push-back is ALSO surfaced as the structured PM
+		// conclusion (not only the warning finding) — the founder sees the PM pushed
+		// back on the staged draft, and why, before approving it.
+		if view.Critique == nil || view.Critique.Verdict != projectstate.CritiqueVerdictRevise {
+			t.Fatalf("the staged-best-effort gate must surface the PM revise conclusion, got %+v", view.Critique)
+		}
+		if view.Critique.Summary != "tighten the vision sentence" {
+			t.Errorf("critique summary: want the PM's rationale, got %q", view.Critique.Summary)
 		}
 		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
 	}, 90*time.Second)
@@ -1943,6 +2390,167 @@ func Test_CoAuthor_CritiqueMissingVerdict_LandsInStageDraftFailed_NotSilentAppro
 	}
 }
 
+// F-QA2-24 — THE CRITIQUE-RETRY TEST (live forensics, gtdapp). When the PM-CRITIQUE job
+// fails terminally, the DRAFT on the session branch is complete and read back fine — so
+// the failed gate's Retry must RE-RUN THE CRITIQUE against that draft, NOT dispatch a
+// feedbackless redraft (which finds no open comments and no revise verdict, commits
+// nothing, and the template's silent-failure guard reds the run — a retry loop that never
+// converges; observed twice consecutively on gtdapp). The gate copy must name the
+// PM-critique (not the generic "the design job failed in CI"), and the successful critique
+// retry must route the session to AwaitingReview with the F-QA2-7 PM conclusion stamped.
+func Test_CoAuthor_CritiqueFailed_RetryRerunsCritique_NotRedraft(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	// Mission draft read-back is fine; the critique carrier already holds "approve" so the
+	// RETRIED critique ratifies and the session stages for the human gate.
+	ps := &fakeProjectState{project: projectstate.Project{
+		ID:      projectstate.ProjectID(id),
+		Version: 1,
+		Mission: awaitingSlot(mustMission(t), projectstate.CritiqueVerdictApprove, ""),
+	}}
+	// Dispatch #1 (draft) Succeeds, #2 (critique) FAILS terminally, #3 (the retried
+	// critique) Succeeds.
+	pipe := newFakePipeline(pipelineSucceeded, pipelineFailed, pipelineSucceeded)
+	pipe.diagnostic = "critique agent crashed before committing a verdict"
+	wf := newWorkflows()
+	registerCoAuthor(env, wf, ps, pipe)
+
+	// t=30s — at the failed gate: the reason must name the CRITIQUE. Then Retry (the
+	// SPA's "Retry draft" lever — the redraft signal).
+	env.RegisterDelayedCallback(func() {
+		enc, err := env.QueryWorkflow(querySessionState)
+		if err != nil {
+			t.Fatalf("QueryWorkflow: %v", err)
+		}
+		var view SessionStateView
+		if err := enc.Get(&view); err != nil {
+			t.Fatalf("decode SessionStateView: %v", err)
+		}
+		if view.Stage != StageDraftFailed {
+			t.Fatalf("a terminal critique failure must land in StageDraftFailed, got %d", view.Stage)
+		}
+		if view.FailureReason == nil || !strings.Contains(*view.FailureReason, "PM-critique") {
+			t.Fatalf("the failed-gate copy must name the PM-critique (the draft did not fail), got %v", view.FailureReason)
+		}
+		env.SignalWorkflow(lSignalRedraft, redraftSignal{})
+	}, 30*time.Second)
+
+	// t=60s — the retried CRITIQUE succeeded and ratified: the session must be at the
+	// human AwaitingReview gate with the PM conclusion stamped. Withdraw to end.
+	env.RegisterDelayedCallback(func() {
+		enc, err := env.QueryWorkflow(querySessionState)
+		if err != nil {
+			t.Fatalf("QueryWorkflow: %v", err)
+		}
+		var view SessionStateView
+		if err := enc.Get(&view); err != nil {
+			t.Fatalf("decode SessionStateView: %v", err)
+		}
+		if view.Stage != StageAwaitingReview {
+			t.Fatalf("a successful critique retry must route to AwaitingReview, got %d", view.Stage)
+		}
+		// The retry reused the FULL runPMCritique flow — the F-QA2-7 stamp included.
+		if view.Critique == nil || view.Critique.Verdict != projectstate.CritiqueVerdictApprove {
+			t.Fatalf("the retried critique must stamp the PM conclusion at the gate, got %+v", view.Critique)
+		}
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 60*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindMission})
+
+	if !env.IsWorkflowCompleted() {
+		t.Fatal("workflow did not complete")
+	}
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	// THE dispatch-shape assertion: draft, failed critique, retried CRITIQUE — the Retry
+	// dispatched a critique pipeline, and NO redraft was ever dispatched.
+	if len(pipe.submits) != 3 {
+		t.Fatalf("want exactly 3 dispatches (draft, failed critique, retried critique), got %d", len(pipe.submits))
+	}
+	wantModes := []string{jobModeDraft, jobModeCritique, jobModeCritique}
+	for i, want := range wantModes {
+		if got := pipe.submits[i].dispatchInputs[dispatchInputJobMode]; got != want {
+			t.Fatalf("dispatch %d job_mode = %q, want %q (a critique failure's Retry must NOT redraft)", i, got, want)
+		}
+	}
+	// The retried critique ratified → the kept draft staged exactly once for the gate.
+	if len(ps.staged) != 1 {
+		t.Fatalf("the ratified draft must stage exactly once, got %d", len(ps.staged))
+	}
+}
+
+// THE F-QA2-24 VERSION GATE. The critique-retry resume was added AFTER design sessions
+// shipped; an execution already suspended at a StageDraftFailed gate (gtdapp:1 sits at
+// the glossary gate RIGHT NOW) has history in which a Retry after a critique failure
+// dispatched a DRAFT job — replaying it against un-gated new code would schedule the
+// resume read-back where history recorded a dispatch (a non-determinism failure).
+// workflow.GetVersion("failed-gate-critique-retry") pins such executions (DefaultVersion)
+// to the OLD redraft-on-retry sequence for their whole run — behavior AND gate copy
+// together (the pinned view must not promise a critique re-run it will not perform).
+// Mirrors Test_CoAuthor_Rail_ScaffoldSync_VersionGate_PreFeatureExecutionSkipsSync.
+func Test_CoAuthor_CritiqueRetry_VersionGate_PreFeatureExecutionRedrafts(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	ps := &fakeProjectState{project: projectstate.Project{
+		ID:      projectstate.ProjectID(id),
+		Version: 1,
+		Mission: awaitingSlot(mustMission(t), projectstate.CritiqueVerdictApprove, ""),
+	}}
+	// #1 draft Succeeds, #2 critique FAILS; then (old semantics) the Retry REDRAFTS:
+	// #3 draft Succeeds, #4 critique Succeeds (phases exhausted → last repeats).
+	pipe := newFakePipeline(pipelineSucceeded, pipelineFailed, pipelineSucceeded)
+	pipe.diagnostic = "critique agent crashed"
+	wf := newWorkflows()
+	registerCoAuthor(env, wf, ps, pipe)
+
+	// Simulate a PRE-FEATURE in-flight execution: GetVersion resolves DefaultVersion
+	// (no version marker in the replayed history).
+	env.OnGetVersion("failed-gate-critique-retry", workflow.DefaultVersion, 1).Return(workflow.DefaultVersion)
+
+	env.RegisterDelayedCallback(func() {
+		enc, err := env.QueryWorkflow(querySessionState)
+		if err != nil {
+			t.Fatalf("QueryWorkflow: %v", err)
+		}
+		var view SessionStateView
+		if err := enc.Get(&view); err != nil {
+			t.Fatalf("decode SessionStateView: %v", err)
+		}
+		if view.Stage != StageDraftFailed {
+			t.Fatalf("want StageDraftFailed, got %d", view.Stage)
+		}
+		// The pinned gate keeps the OLD copy: its Retry redrafts, so it must NOT promise
+		// a critique re-run.
+		if view.FailureReason == nil || strings.Contains(*view.FailureReason, "retry re-runs the critique") {
+			t.Fatalf("a pinned pre-feature gate must keep the old redraft copy, got %v", view.FailureReason)
+		}
+		env.SignalWorkflow(lSignalRedraft, redraftSignal{})
+	}, 30*time.Second)
+
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 90*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindMission})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a pre-feature execution must run the OLD command sequence cleanly: %v", err)
+	}
+	// OLD command sequence: the Retry dispatched a DRAFT, then its critique — 4 dispatches.
+	if len(pipe.submits) != 4 {
+		t.Fatalf("want 4 dispatches on the pinned path (draft, failed critique, REDRAFT, critique), got %d", len(pipe.submits))
+	}
+	if got := pipe.submits[2].dispatchInputs[dispatchInputJobMode]; got != jobModeDraft {
+		t.Fatalf("a pinned pre-feature Retry must REDRAFT (the old command sequence), got job_mode=%q", got)
+	}
+}
+
 // ---- Tests: parent sequence (SystemDesignPhaseWorkflow) ---------------------
 
 func registerPhase(env *testsuite.TestWorkflowEnvironment, wf *workflows, ps projectstate.ProjectStateAccess) {
@@ -1951,20 +2559,58 @@ func registerPhase(env *testsuite.TestWorkflowEnvironment, wf *workflows, ps pro
 	registerGenActivities(env, ps, nil, nil)
 }
 
-// The parent drives the seven steps in fixed order; each child Approve auto-advances;
-// after step 7 the parent seals Phase 1. The child is MOCKED to Approve so this test
-// isolates the parent's sequencing + seal (unchanged by the agentic pivot).
+// zeroCommittedModelFor builds the minimal valid committed model for a kind — what the
+// phase tests' mocked children "commit" so the served head-state round-trips the strict
+// codec (mission/glossary have non-empty invariants; the rest accept their zero model).
+func zeroCommittedModelFor(t *testing.T, kind projectstate.ArtifactKind) projectstate.ArtifactModel {
+	t.Helper()
+	switch kind {
+	case projectstate.KindMission:
+		return mustMission(t)
+	case projectstate.KindGlossary:
+		return mustGlossary(t)
+	case projectstate.KindScrubbedRequirements:
+		return &projectstate.ScrubbedRequirements{}
+	case projectstate.KindVolatilities:
+		return &projectstate.Volatilities{}
+	case projectstate.KindCoreUseCases:
+		return &projectstate.CoreUseCases{}
+	case projectstate.KindSystem:
+		return &projectstate.System{}
+	case projectstate.KindOperationalConcepts:
+		return &projectstate.OperationalConcepts{}
+	case projectstate.KindStandardCheck:
+		return &projectstate.StandardCheck{}
+	default:
+		t.Fatalf("no zero model for kind %s", kind)
+		return nil
+	}
+}
+
+// The parent drives the steps in fixed order; each child Approve auto-advances; after the
+// last step the parent seals Phase 1. The child is MOCKED to Approve (each mocked approve
+// commits its slot on the served head-state, in spine order — the parent is strictly
+// sequential) so this test isolates the parent's sequencing + seal. The project starts
+// with NOTHING committed, so the skip-committed restart gate skips nothing here.
 func Test_Phase_AllStepsApproved_SealsPhase1(t *testing.T) {
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
 
-	proj := allPhase1Committed(t)
+	proj := projectstate.Project{ID: projectstate.ProjectID(uuid.NewString()), Version: 1}
 	ps := &fakeProjectState{project: proj}
 	wf := newWorkflows()
 	registerPhase(env, wf, ps)
 
+	kinds := projectstate.Phase1RequiredKinds()
+	var childCalls int
 	env.OnWorkflow(executionKindCoAuthor, mock.Anything, mock.Anything).
-		Return(coAuthorApproved, nil).Times(len(projectstate.Phase1RequiredKinds()))
+		Return(coAuthorApproved, nil).Times(len(kinds)).
+		Run(func(mock.Arguments) {
+			// Model the approve→commit each real child performs: commit the NEXT kind in
+			// spine order (the parent is strictly sequential, so order is deterministic).
+			ps.markCommitted(kinds[childCalls], zeroCommittedModelFor(t, kinds[childCalls]))
+			childCalls++
+		})
 
 	env.ExecuteWorkflow(executionKindPhase, phaseInput{ProjectID: ProjectID(proj.ID)})
 
@@ -1974,17 +2620,21 @@ func Test_Phase_AllStepsApproved_SealsPhase1(t *testing.T) {
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("parent workflow error: %v", err)
 	}
+	if childCalls != len(kinds) {
+		t.Fatalf("parent must run every step's child once, got %d of %d", childCalls, len(kinds))
+	}
 	if ps.advanced != 1 {
 		t.Fatalf("parent must seal Phase 1 exactly once after all steps approved, advanced=%d", ps.advanced)
 	}
 }
 
-// If a child gate reports Withdraw, the parent HALTS and does not seal.
+// If a child gate reports Withdraw, the parent HALTS and does not seal. (Empty project —
+// the first step's child runs and withdraws.)
 func Test_Phase_StepWithdrawn_HaltsSequence_NoSeal(t *testing.T) {
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
 
-	proj := allPhase1Committed(t)
+	proj := projectstate.Project{ID: projectstate.ProjectID(uuid.NewString()), Version: 1}
 	ps := &fakeProjectState{project: proj}
 	wf := newWorkflows()
 	registerPhase(env, wf, ps)
@@ -2002,6 +2652,82 @@ func Test_Phase_StepWithdrawn_HaltsSequence_NoSeal(t *testing.T) {
 	}
 	if ps.advanced != 0 {
 		t.Fatalf("a withdrawn step must NOT seal the phase, advanced=%d", ps.advanced)
+	}
+}
+
+// THE 2026-07-16 INCIDENT REGRESSION (parent half). A child co-author FAILURE (gtdapp:1's
+// withdraw-crash ContractMisuse) must NOT fail the phase workflow: the parent CONTAINS it
+// — logs the cause, halts the sequence gracefully (COMPLETED, never FAILED), and does not
+// seal — so the step stays restartable (a fresh requestArtifactDraft revives the step; a
+// fresh startSystemDesign restarts the phase rail).
+func Test_Phase_ChildFailure_Contained_PhaseCompletesGracefully_NoSeal(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	proj := projectstate.Project{ID: projectstate.ProjectID(uuid.NewString()), Version: 1}
+	ps := &fakeProjectState{project: proj}
+	wf := newWorkflows()
+	registerPhase(env, wf, ps)
+
+	env.OnWorkflow(executionKindCoAuthor, mock.Anything, mock.Anything).
+		Return(coAuthorUnknown, temporal.NewNonRetryableApplicationError(
+			"resourceaccess: projectstate.WithdrawArtifact: slot Glossary is unpopulated (stage a model first)",
+			fwmanager.RAErrType(fwra.ContractMisuse), nil)).Once()
+
+	env.ExecuteWorkflow(executionKindPhase, phaseInput{ProjectID: ProjectID(proj.ID)})
+
+	if !env.IsWorkflowCompleted() {
+		t.Fatal("parent workflow did not complete")
+	}
+	// THE load-bearing assertion: the phase workflow must survive the child failure.
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a child failure must NOT fail the phase workflow (the whole Phase-1 rail died from one recovery click), got: %v", err)
+	}
+	if ps.advanced != 0 {
+		t.Fatalf("a failed step must NOT seal the phase, advanced=%d", ps.advanced)
+	}
+}
+
+// RESTART SEMANTICS (2026-07-16 incident recovery). A phase run started over a head-state
+// that ALREADY carries committed steps (the restart of a halted/failed rail via
+// startSystemDesign) must SKIP them and resume at the first open step — never re-draft a
+// committed artifact. Mission is committed; the first (and only) child spawned must be the
+// GLOSSARY step, which withdraws to halt.
+func Test_Phase_Restart_SkipsCommittedSteps_ResumesAtFirstOpenStep(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	proj := projectstate.Project{
+		ID:      projectstate.ProjectID(uuid.NewString()),
+		Version: 2,
+		Mission: committedSlot(mustMission(t)),
+	}
+	ps := &fakeProjectState{project: proj}
+	wf := newWorkflows()
+	registerPhase(env, wf, ps)
+
+	var gotKinds []ArtifactKind
+	env.OnWorkflow(executionKindCoAuthor, mock.Anything, mock.Anything).
+		Return(coAuthorWithdrawn, nil).Once().
+		Run(func(args mock.Arguments) {
+			if in, ok := args.Get(1).(coAuthorInput); ok {
+				gotKinds = append(gotKinds, in.ArtifactKind)
+			}
+		})
+
+	env.ExecuteWorkflow(executionKindPhase, phaseInput{ProjectID: ProjectID(proj.ID)})
+
+	if !env.IsWorkflowCompleted() {
+		t.Fatal("parent workflow did not complete")
+	}
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("parent workflow error: %v", err)
+	}
+	if len(gotKinds) != 1 || gotKinds[0] != KindGlossary {
+		t.Fatalf("a restarted phase must skip committed mission and spawn the GLOSSARY child first, got %v", gotKinds)
+	}
+	if ps.advanced != 0 {
+		t.Fatalf("the halted restart must NOT seal, advanced=%d", ps.advanced)
 	}
 }
 
@@ -4074,12 +4800,13 @@ func Test_CoAuthor_Rail_PhaseFailed_LandsInStageDraftFailed_NoApproveRailNoCommi
 		t.Fatalf("a failed draft must NOT reach the merge guard/merge, got status=%d merge=%d",
 			rail.count("GetPullRequestStatus"), rail.count("MergePullRequest"))
 	}
-	// Nothing staged, nothing committed; withdraw recorded once.
+	// Nothing staged, nothing committed; the withdraw SKIPS the unstage write (nothing was
+	// ever staged — 2026-07-16 incident) and ends the session cleanly.
 	if len(base.staged) != 0 || len(base.committed) != 0 {
 		t.Fatalf("a failed draft must stage/commit nothing, got staged=%d committed=%v", len(base.staged), base.committed)
 	}
-	if len(base.withdrawn) != 1 {
-		t.Fatalf("withdraw from the draft-failed gate must call WithdrawArtifact once, got %d", len(base.withdrawn))
+	if len(base.withdrawn) != 0 {
+		t.Fatalf("a never-staged withdraw must NOT call WithdrawArtifact, got %d", len(base.withdrawn))
 	}
 }
 
@@ -4395,10 +5122,14 @@ type branchAwareFakeProjectState struct {
 	// (a ContractMisuse) — used to exercise the QA F28 crash-containment recovery gate.
 	failRejectOnBranch bool
 	// failWithdrawOnMain, when true, makes the MAIN-path WithdrawArtifact fault (models the
-	// unpopulated-main-slot ContractMisuse of the PR rail). Opt-in so ONLY the F30
-	// review-gate withdraw test arms it — the FAILED-gate withdraw tests (which legitimately
-	// ride main) leave it false and are unperturbed.
+	// unpopulated-main-slot ContractMisuse of the PR rail — the 2026-07-16 gtdapp incident's
+	// exact error). Armed by the F30 review-gate withdraw test AND the never-staged
+	// failed-gate withdraw test, so any regression to a blind main write crashes loudly.
 	failWithdrawOnMain bool
+	// failWithdrawOnBranchRemaining injects N terminal faults into the BRANCH-path
+	// WithdrawArtifactOnBranch (then succeeds) — exercises the 2026-07-16 anti-wedge rule:
+	// a fault while RECORDING a withdraw must land back at the gate, never kill the workflow.
+	failWithdrawOnBranchRemaining int
 	// failReadBackDecode, when true, makes the branch READ-BACK fault as a TERMINAL decode of
 	// committed state (a ContractMisuse carrying the closed-enum wire-name diagnostic) — the
 	// QA F36 scenario: the drafting agent committed free prose into the "trigger" closed enum,
@@ -4486,7 +5217,16 @@ func (f *branchAwareFakeProjectState) RejectArtifact(_ fwra.Context, _ projectst
 func (f *branchAwareFakeProjectState) WithdrawArtifactOnBranch(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, key fwra.IdempotencyKey) (projectstate.Version, error) {
 	f.mu.Lock()
 	f.withdrawBranches = append(f.withdrawBranches, branch)
+	fail := f.failWithdrawOnBranchRemaining > 0
+	if fail {
+		f.failWithdrawOnBranchRemaining--
+	}
 	f.mu.Unlock()
+	if fail {
+		// A terminal (non-retryable) write fault while recording the Withdraw — the
+		// 2026-07-16 anti-wedge scenario the recovery path must contain.
+		return 0, fwra.New(fwra.ContractMisuse, "projectstate.WithdrawArtifact: simulated terminal write fault")
+	}
 	return f.fakeProjectState.WithdrawArtifact(fwra.Context{Context: ctx, IdempotencyKey: key}, projectID, expectedVersion, kind, notes)
 }
 
@@ -5028,6 +5768,191 @@ func Test_CoAuthor_RailEnabled_Withdraw_RecordsOnSessionBranch_NoCrash(t *testin
 	}
 	if len(base.withdrawn) != 1 || base.withdrawn[0] != projectstate.KindSystem {
 		t.Fatalf("want one WithdrawArtifact(KindSystem) on the session branch, got %v", base.withdrawn)
+	}
+}
+
+// THE 2026-07-16 INCIDENT REGRESSION (child half — gtdapp glossary). The session sits at
+// the StageDraftFailed gate having NEVER staged (the draft job failed before any
+// StageArtifactForReview). Withdraw must SKIP the unstage write entirely — pre-fix it blindly
+// wrote main, whose slot is unpopulated, raising the non-retryable ContractMisuse that
+// TERMINATED this workflow and its parent phase. failWithdrawOnMain arms the exact production
+// fault so any regression to the blind main write crashes this test loudly.
+func Test_CoAuthor_FailedGate_Withdraw_NeverStaged_SkipsUnstage_EndsWithdrawn(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base := &fakeProjectState{project: systemReadBack(t, id)}
+	ps := &branchAwareFakeProjectState{fakeProjectState: base, failWithdrawOnMain: true}
+	pipe := newFakePipeline(pipelineFailed) // the draft job fails BEFORE anything stages
+	pipe.diagnostic = "the design job failed before staging"
+	rail := &fakeRail{checkGreen: true}
+	wf := newRailWorkflows(rail)
+	registerRailCoAuthor(env, wf, ps, pipe)
+
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw, Feedback: &ReviewFeedback{Notes: "abandon"}})
+	}, 30*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+
+	// THE load-bearing assertion: one recovery click must never terminate the workflow.
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a never-staged failed-gate withdraw must NOT crash the workflow, got: %v", err)
+	}
+	var outcome coAuthorOutcome
+	if err := env.GetWorkflowResult(&outcome); err != nil {
+		t.Fatalf("decode outcome: %v", err)
+	}
+	if outcome != coAuthorWithdrawn {
+		t.Fatalf("want CoAuthorWithdrawn, got %d", outcome)
+	}
+	// NO unstage write anywhere — nothing was ever staged, so there is nothing to flip.
+	if len(base.withdrawn) != 0 {
+		t.Fatalf("a never-staged withdraw must NOT call WithdrawArtifact, got %v", base.withdrawn)
+	}
+	if len(ps.withdrawBranches) != 0 {
+		t.Fatalf("a never-staged withdraw must NOT call WithdrawArtifactOnBranch, got %v", ps.withdrawBranches)
+	}
+}
+
+// FIX-2 ANTI-WEDGE (failed gate) + staged-branch targeting. The session STAGED on the
+// session branch, then a faulted reject landed it at the StageDraftFailed gate. The first
+// Withdraw's write FAULTS terminally: the workflow must land BACK at the failed gate with an
+// honest "withdraw failed: …" reason — never a workflow failure. The second Withdraw
+// succeeds and must ride the STAGED BRANCH (the blind main write was the same
+// unpopulated-slot crash; failWithdrawOnMain arms that regression guard).
+func Test_CoAuthor_FailedGate_StagedWithdrawFaults_StaysAtGate_SecondWithdrawRidesStagedBranch(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base := &fakeProjectState{project: systemReadBack(t, id)}
+	ps := &branchAwareFakeProjectState{
+		fakeProjectState:              base,
+		failRejectOnBranch:            true, // reject write faults → StageDraftFailed with the draft STAGED
+		failWithdrawOnBranchRemaining: 1,    // first withdraw write faults; the second succeeds
+		failWithdrawOnMain:            true, // any regression to a blind main write crashes loudly
+	}
+	pipe := newFakePipeline()
+	rail := &fakeRail{checkGreen: true}
+	wf := newRailWorkflows(rail)
+	registerRailCoAuthor(env, wf, ps, pipe)
+
+	// AwaitingReview → Reject (write faults → failed gate, staged draft intact).
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewReject, Feedback: &ReviewFeedback{Notes: "rework"}})
+	}, 30*time.Second)
+	// Withdraw #1 — the write FAULTS: must stay at the failed gate with the honest reason.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 60*time.Second)
+	// Assert the gate re-armed with the withdraw-failed reason (workflow ALIVE).
+	env.RegisterDelayedCallback(func() {
+		enc, err := env.QueryWorkflow(querySessionState)
+		if err != nil {
+			t.Fatalf("QueryWorkflow after faulted withdraw: %v", err)
+		}
+		var view SessionStateView
+		if derr := enc.Get(&view); derr != nil {
+			t.Fatalf("decode SessionStateView: %v", derr)
+		}
+		if view.Stage != StageDraftFailed {
+			t.Fatalf("a faulted failed-gate withdraw must land BACK at StageDraftFailed, got %d", view.Stage)
+		}
+		if view.FailureReason == nil || !strings.Contains(*view.FailureReason, "withdraw failed") {
+			t.Fatalf("the re-armed gate must carry the honest withdraw-failed reason, got %v", view.FailureReason)
+		}
+	}, 75*time.Second)
+	// Withdraw #2 — succeeds and ends the session.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 90*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("no recovery-path error may terminate the workflow, got: %v", err)
+	}
+	var outcome coAuthorOutcome
+	if err := env.GetWorkflowResult(&outcome); err != nil {
+		t.Fatalf("decode outcome: %v", err)
+	}
+	if outcome != coAuthorWithdrawn {
+		t.Fatalf("want CoAuthorWithdrawn, got %d", outcome)
+	}
+	// Both withdraw attempts rode the STAGED session branch (never main).
+	if len(ps.withdrawBranches) != 2 || ps.withdrawBranches[0] == "" || ps.withdrawBranches[1] == "" {
+		t.Fatalf("failed-gate withdraw of a STAGED draft must target the staged session branch on every attempt, got %v", ps.withdrawBranches)
+	}
+	if len(base.withdrawn) != 1 || base.withdrawn[0] != projectstate.KindSystem {
+		t.Fatalf("want exactly one successful WithdrawArtifact(KindSystem), got %v", base.withdrawn)
+	}
+}
+
+// FIX-2 ANTI-WEDGE (review gate). A withdraw submitted at the AwaitingReview gate whose
+// write FAULTS must return the session to AwaitingReview carrying the honest notice (the
+// QA F35 approve-fault containment pattern) — never a workflow failure. A second withdraw
+// then ends the session on the session branch.
+func Test_CoAuthor_ReviewGate_WithdrawFaults_ReturnsToAwaitingReview_SecondWithdrawEnds(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base := &fakeProjectState{project: systemReadBack(t, id)}
+	ps := &branchAwareFakeProjectState{
+		fakeProjectState:              base,
+		failWithdrawOnBranchRemaining: 1,
+		failWithdrawOnMain:            true,
+	}
+	pipe := newFakePipeline()
+	rail := &fakeRail{checkGreen: true}
+	wf := newRailWorkflows(rail)
+	registerRailCoAuthor(env, wf, ps, pipe)
+
+	// Withdraw #1 at AwaitingReview — the write FAULTS.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 30*time.Second)
+	// The session must be BACK at AwaitingReview with the honest withdraw-failed notice.
+	env.RegisterDelayedCallback(func() {
+		enc, err := env.QueryWorkflow(querySessionState)
+		if err != nil {
+			t.Fatalf("QueryWorkflow after faulted review-gate withdraw: %v", err)
+		}
+		var view SessionStateView
+		if derr := enc.Get(&view); derr != nil {
+			t.Fatalf("decode SessionStateView: %v", derr)
+		}
+		if view.Stage != StageAwaitingReview {
+			t.Fatalf("a faulted review-gate withdraw must return to AwaitingReview (staged draft intact), got %d", view.Stage)
+		}
+		if view.FailureReason == nil || !strings.Contains(*view.FailureReason, "withdraw failed") {
+			t.Fatalf("the re-armed review gate must carry the honest withdraw-failed notice, got %v", view.FailureReason)
+		}
+	}, 50*time.Second)
+	// Withdraw #2 — succeeds.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 70*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a faulted review-gate withdraw must not crash the workflow: %v", err)
+	}
+	var outcome coAuthorOutcome
+	if err := env.GetWorkflowResult(&outcome); err != nil {
+		t.Fatalf("decode outcome: %v", err)
+	}
+	if outcome != coAuthorWithdrawn {
+		t.Fatalf("want CoAuthorWithdrawn, got %d", outcome)
+	}
+	if len(ps.withdrawBranches) != 2 || ps.withdrawBranches[1] == "" {
+		t.Fatalf("both withdraw attempts must ride the session branch, got %v", ps.withdrawBranches)
+	}
+	if len(base.withdrawn) != 1 {
+		t.Fatalf("want exactly one successful WithdrawArtifact, got %v", base.withdrawn)
 	}
 }
 
@@ -5911,12 +6836,13 @@ func Test_CoAuthor_Rail_ScaffoldSyncFailure_BlocksDispatch_LandsAtFailedGate(t *
 		t.Fatalf("a failed sync must not open a branch/PR, got openBranch=%d openPR=%d",
 			rail.verbCount("OpenBranch"), rail.verbCount("OpenPullRequest"))
 	}
-	// Nothing staged/committed; withdraw from the failed gate recorded once.
+	// Nothing staged/committed; the withdraw SKIPS the unstage write (nothing was ever
+	// staged — 2026-07-16 incident) and ends the session cleanly.
 	if len(base.staged) != 0 || len(base.committed) != 0 {
 		t.Fatalf("a blocked dispatch must stage/commit nothing, got staged=%d committed=%v", len(base.staged), base.committed)
 	}
-	if len(base.withdrawn) != 1 {
-		t.Fatalf("withdraw from the failed gate must call WithdrawArtifact once, got %d", len(base.withdrawn))
+	if len(base.withdrawn) != 0 {
+		t.Fatalf("a never-staged withdraw must NOT call WithdrawArtifact, got %d", len(base.withdrawn))
 	}
 }
 
@@ -6283,6 +7209,48 @@ func Test_SubmitReviewDecision_Approve_AtAwaitingReview_Signals(t *testing.T) {
 		t.Fatalf("approve at AwaitingReview must succeed, got %v", err)
 	}
 	mc.AssertCalled(t, "SignalWorkflow", mock.Anything, wfID, "", signalReviewDecision, mock.Anything)
+}
+
+// THE 2026-07-16 INCIDENT REGRESSION (manager half — decisions). A decision against a DEAD
+// session (the run closed FAILED, as gtdapp:1 did) synthesizes StageDraftFailed, which passes
+// the reject/withdraw precondition — but a signal to that corpse is refused by Temporal
+// ("workflow execution already completed") and pre-fix surfaced as 503 noise with zero SPA
+// feedback. The manager must refuse with a typed, actionable FailedPrecondition and NEVER
+// fire the signal.
+func Test_SubmitReviewDecision_DeadSession_TypedFailedPrecondition_NoSignal(t *testing.T) {
+	cases := []struct {
+		name     string
+		decision ReviewDecision
+		feedback *ReviewFeedback
+	}{
+		{name: "withdraw", decision: ReviewWithdraw},
+		{name: "reject", decision: ReviewReject, feedback: &ReviewFeedback{Notes: "send back"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			id := ProjectID(uuid.NewString())
+			wfID := coAuthorWorkflowID(id, KindMission)
+
+			mc := &temporalmocks.Client{}
+			mc.On("DescribeWorkflowExecution", mock.Anything, wfID, "").
+				Return(&workflowservice.DescribeWorkflowExecutionResponse{
+					WorkflowExecutionInfo: &workflowpb.WorkflowExecutionInfo{Status: enumspb.WORKFLOW_EXECUTION_STATUS_FAILED},
+				}, nil)
+			// NO QueryWorkflow / SignalWorkflow expectations: reaching either fails the mock.
+
+			m := &systemDesignManager{client: mc}
+			err := m.SubmitReviewDecision(bgRC(), id, KindMission, tc.decision, tc.feedback)
+			sde := asSystemDesignError(t, err)
+			if sde.Kind != fwmanager.FailedPrecondition {
+				t.Fatalf("a decision on a dead session must be a typed FailedPrecondition (never 503 noise), got %d (%v)", sde.Kind, err)
+			}
+			if !strings.Contains(sde.Detail, "no longer running") || !strings.Contains(sde.Detail, "Retry design job") {
+				t.Fatalf("the refusal must name the dead session and the recovery lever, got %q", sde.Detail)
+			}
+			mc.AssertExpectations(t)
+			mc.AssertNotCalled(t, "SignalWorkflow", mock.Anything, wfID, "", signalReviewDecision, mock.Anything)
+		})
+	}
 }
 
 // ---- from setresearchinput_test.go ----

@@ -53,6 +53,7 @@ import type { SelectionCommentSurface } from '../comments/SelectionPopover';
 import { ArtifactRenderer } from '../ArtifactRenderer';
 import { ArtifactIntro, ArtifactInfoButton } from './ArtifactIntro';
 import { StageChip } from '../StageChip';
+import { headerChipStage } from './headerChipStage';
 import { ExperienceChrome } from './ExperienceChrome';
 import { SlimSpine, type SpineStep } from './SlimSpine';
 import { GeneratingScene } from './GeneratingScene';
@@ -251,15 +252,7 @@ export function SystemDesignView({
               <Typography component="h1" sx={{ color: t.ink }} variant="h4">
                 {meta.title}
               </Typography>
-              <StageChip
-                stage={
-                  activeCommitted
-                    ? 'committed'
-                    : stage === 'awaitingReview'
-                      ? 'awaitingReview'
-                      : 'empty'
-                }
-              />
+              <StageChip stage={headerChipStage(activeCommitted, stage)} />
               {/* Committed framing copy moved off the full-width banner into a (?) info
                   popover; staleness moved off the amber banner into a compact chip —
                   so the first paint of a committed step is content, not banners. */}
@@ -458,6 +451,9 @@ function StepBody({
       <DraftFailedPanel
         artifact={title}
         async={asyncFailed}
+        // A failed Retry/Withdraw decision surfaces inline here too (2026-07-16
+        // incident: dead-session decisions 503'd with zero feedback rendered).
+        gateError={gateError}
         pending={retryPending}
         reason={failureReason}
         runUrl={failureRunUrl}
@@ -472,6 +468,10 @@ function StepBody({
     // committed header + this scene read honestly (the committed revision stays current).
     const scene = (
       <GeneratingScene
+        // F-GTD-6: the server surfaces the LIVE run's URL while the design job is in
+        // flight, so the CI-job notice deep-links the actual GitHub Actions run.
+        // Absent (older server / URL not yet resolved) → the notice renders unlinked.
+        actionsUrl={view?.runUrl}
         activeRole={view?.activeRole}
         activeStep={view?.activeStep}
         amendingRevision={committed ? (committedRevisions ?? 0) : undefined}
@@ -614,6 +614,7 @@ function StepBody({
         <GatePanel
           allowEmptySendBack={allowEmptySendBack}
           commentCount={commentCount}
+          critique={view?.critique}
           findings={findings}
           gateError={gateError}
           openCommentCount={openCommentCount}

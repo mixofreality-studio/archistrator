@@ -829,6 +829,12 @@ export interface components {
       resources: null | string[];
       terms: components['schemas']['ModelSettlementTerms'];
     };
+    ModelRejectedVolatility: {
+      /** @enum {string} */
+      class: 'variableNotVolatile' | 'natureOfTheBusiness' | 'speculative' | 'foldedInto';
+      name: string;
+      reason: string;
+    };
     ModelRelationship: {
       from: string;
       label: string;
@@ -1000,12 +1006,14 @@ export interface components {
     };
     ModelVolatilities: {
       items: null | components['schemas']['ModelVolatility'][];
+      rejected?: null | components['schemas']['ModelRejectedVolatility'][];
     };
     ModelVolatility: {
       /** @enum {string} */
       axis: 'sameCustomerOverTime' | 'allCustomersAtOneTime';
       name: string;
       rationale: string;
+      traces?: null | string[];
     };
     ModelWorkerRateSpec: {
       megatokensInPerDay: number;
@@ -1350,6 +1358,12 @@ export interface components {
       Fields: null | components['schemas']['SystemDesignGoField'][];
       Name: string;
     };
+    SystemDesignCritiqueView: {
+      role: string;
+      round: number;
+      summary: string;
+      verdict: string;
+    };
     SystemDesignDefectView: {
       id: string;
       note: string;
@@ -1521,6 +1535,7 @@ export interface components {
       activeRole: components['schemas']['SystemDesignActiveRole'];
       activeStep: components['schemas']['SystemDesignActiveStep'];
       artifactKind: components['schemas']['SystemDesignArtifactKind'];
+      critique?: components['schemas']['SystemDesignCritiqueView'];
       draft: components['schemas']['SystemDesignDraftModel'];
       failureReason?: null | string;
       failureRunUrl?: null | string;
@@ -1528,6 +1543,7 @@ export interface components {
       projectId: components['schemas']['SystemDesignProjectID'];
       reviewThread?: null | components['schemas']['SystemDesignReviewCommentView'][];
       round: number;
+      runUrl?: null | string;
       stage: components['schemas']['SystemDesignSessionStage'];
       stageName: string;
     };

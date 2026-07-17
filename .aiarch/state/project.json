@@ -19666,6 +19666,42 @@
           ],
           "additionalProperties": false
         },
+        "RejectedVolatility": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "string"
+            },
+            "class": {
+              "$ref": "#/$defs/RejectionClass"
+            }
+          },
+          "required": [
+            "name",
+            "reason",
+            "class"
+          ],
+          "additionalProperties": false
+        },
+        "RejectionClass": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "x-enum-varnames": [
+            "RejectionVariableNotVolatile",
+            "RejectionNatureOfTheBusiness",
+            "RejectionSpeculative",
+            "RejectionFoldedInto"
+          ],
+          "x-go-base": "int"
+        },
         "Relationship": {
           "type": "object",
           "properties": {
@@ -20353,6 +20389,15 @@
               "items": {
                 "$ref": "#/$defs/Volatility"
               }
+            },
+            "rejected": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/RejectedVolatility"
+              }
             }
           },
           "required": [
@@ -20371,6 +20416,15 @@
             },
             "axis": {
               "$ref": "#/$defs/Axis"
+            },
+            "traces": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "string"
+              }
             }
           },
           "required": [
@@ -22115,6 +22169,30 @@
           ],
           "additionalProperties": false
         },
+        "CritiqueView": {
+          "type": "object",
+          "properties": {
+            "role": {
+              "type": "string"
+            },
+            "verdict": {
+              "type": "string"
+            },
+            "summary": {
+              "type": "string"
+            },
+            "round": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "role",
+            "verdict",
+            "summary",
+            "round"
+          ],
+          "additionalProperties": false
+        },
         "DefectView": {
           "type": "object",
           "properties": {
@@ -22848,6 +22926,19 @@
                 "string"
               ],
               "x-go-name": "FailureRunURL"
+            },
+            "runUrl": {
+              "type": [
+                "null",
+                "string"
+              ],
+              "x-go-name": "RunURL"
+            },
+            "critique": {
+              "type": [
+                "null"
+              ],
+              "$ref": "#/$defs/CritiqueView"
             },
             "stageName": {
               "type": "string",

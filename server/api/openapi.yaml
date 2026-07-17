@@ -888,6 +888,25 @@ components:
                 - notes
                 - indirectDailyRate
             type: object
+        ModelRejectedVolatility:
+            additionalProperties: false
+            properties:
+                class:
+                    enum:
+                        - variableNotVolatile
+                        - natureOfTheBusiness
+                        - speculative
+                        - foldedInto
+                    type: string
+                name:
+                    type: string
+                reason:
+                    type: string
+            required:
+                - name
+                - reason
+                - class
+            type: object
         ModelRelationship:
             additionalProperties: false
             properties:
@@ -1285,6 +1304,12 @@ components:
                     type:
                         - "null"
                         - array
+                rejected:
+                    items:
+                        $ref: '#/components/schemas/ModelRejectedVolatility'
+                    type:
+                        - "null"
+                        - array
             required:
                 - items
             type: object
@@ -1300,6 +1325,12 @@ components:
                     type: string
                 rationale:
                     type: string
+                traces:
+                    items:
+                        type: string
+                    type:
+                        - "null"
+                        - array
             required:
                 - name
                 - rationale
@@ -2404,6 +2435,23 @@ components:
                 - Name
                 - Fields
             type: object
+        SystemDesignCritiqueView:
+            additionalProperties: false
+            properties:
+                role:
+                    type: string
+                round:
+                    type: integer
+                summary:
+                    type: string
+                verdict:
+                    type: string
+            required:
+                - role
+                - verdict
+                - summary
+                - round
+            type: object
         SystemDesignDefectView:
             additionalProperties: false
             properties:
@@ -2937,6 +2985,10 @@ components:
                     $ref: '#/components/schemas/SystemDesignActiveStep'
                 artifactKind:
                     $ref: '#/components/schemas/SystemDesignArtifactKind'
+                critique:
+                    $ref: '#/components/schemas/SystemDesignCritiqueView'
+                    type:
+                        - "null"
                 draft:
                     $ref: '#/components/schemas/SystemDesignDraftModel'
                 failureReason:
@@ -2965,6 +3017,11 @@ components:
                         - array
                 round:
                     type: integer
+                runUrl:
+                    type:
+                        - "null"
+                        - string
+                    x-go-name: RunURL
                 stage:
                     $ref: '#/components/schemas/SystemDesignSessionStage'
                 stageName:

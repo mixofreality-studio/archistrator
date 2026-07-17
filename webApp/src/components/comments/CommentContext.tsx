@@ -51,35 +51,7 @@ import type {
   CommentCtx,
 } from './commentContextTypes';
 import { DISABLED_COMMENT_CTX } from './disabledCommentContext';
-
-/** localStorage namespace for pending (client-side, unsent) send-back comments. */
-const PENDING_STORAGE_PREFIX = 'aiarch.pendingComments';
-
-function storageKeyFor(activeKey: string): string {
-  return `${PENDING_STORAGE_PREFIX}.${activeKey}`;
-}
-
-/** Best-effort load of a slot's persisted pending entries (storage may be unavailable). */
-function loadPending(activeKey: string): PostedComment[] {
-  try {
-    const raw = localStorage.getItem(storageKeyFor(activeKey));
-    if (raw === null) return [];
-    const parsed = JSON.parse(raw) as unknown;
-    return Array.isArray(parsed) ? (parsed as PostedComment[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-/** Best-effort persist (empty list removes the slot so a cleared step leaves no orphan). */
-function savePending(activeKey: string, list: PostedComment[]): void {
-  try {
-    if (list.length === 0) localStorage.removeItem(storageKeyFor(activeKey));
-    else localStorage.setItem(storageKeyFor(activeKey), JSON.stringify(list));
-  } catch {
-    /* storage unavailable (private mode / quota) — pending stays in-memory only. */
-  }
-}
+import { browserPendingCommentStorage, loadPending, savePending } from './pendingCommentsStore';
 
 // Type definitions imported from commentContextTypes.ts for reusability across
 // the comment system (including the test file, which cannot import .tsx files).
@@ -92,12 +64,13 @@ function isQuestion(c: PostedComment): boolean {
 
 const Ctx = createContext<CommentCtx | null>(null);
 
-
 export function useComments(): CommentCtx {
   const c = useContext(Ctx);
   if (c === null) {
     if (import.meta.env.DEV) {
-      console.warn('useComments: no CommentProvider above this component — comment affordances are disabled. If this tree should support comments, mount CommentProvider (see DesignExperience.tsx).');
+      console.warn(
+        'useComments: no CommentProvider above this component — comment affordances are disabled. If this tree should support comments, mount CommentProvider (see DesignExperience.tsx).'
+      );
     }
     return DISABLED_COMMENT_CTX;
   }
@@ -127,21 +100,45 @@ export function CommentProvider({
   // (not state) so post/remove/reset persist to the current slot synchronously
   // without re-subscribing every mutator on each key change.
   const activeKeyRef = useRef<string | null>(null);
+  // The project head-state Version observed at bind time — the incarnation stamp
+  // written alongside every persist (see pendingCommentsStore.ts, F-QA2-5). A ref
+  // for the same synchronous-read reason as activeKeyRef.
+  const projectVersionRef = useRef<number | null>(null);
 
   // Persist to the bound slot (no-op on read-only surfaces / before a key is set).
   const persist = useCallback(
     (list: PostedComment[]): void => {
-      if (!enabled || activeKeyRef.current === null) return;
-      savePending(activeKeyRef.current, list);
+      if (!enabled || activeKeyRef.current === null || projectVersionRef.current === null) return;
+      savePending(
+        browserPendingCommentStorage(),
+        activeKeyRef.current,
+        list,
+        projectVersionRef.current
+      );
     },
     [enabled]
   );
 
   const setActiveKey = useCallback(
-    (key: string): void => {
-      if (!enabled || activeKeyRef.current === key) return;
+    (key: string, projectVersion: number): void => {
+      if (!enabled) return;
+      if (
+        activeKeyRef.current === key &&
+        projectVersionRef.current !== null &&
+        projectVersion >= projectVersionRef.current
+      ) {
+        // Same slot, same-or-advanced Version — an ordinary same-incarnation
+        // head-state mutation (Version only ever increases within one
+        // incarnation). Just refresh the stamp used by subsequent persists;
+        // reloading/disarming here would drop an armed anchor on every
+        // background poll. A DECREASE for the same key falls through to a full
+        // rebind + validation (a different incarnation was observed).
+        projectVersionRef.current = projectVersion;
+        return;
+      }
       activeKeyRef.current = key;
-      setComments(loadPending(key));
+      projectVersionRef.current = projectVersion;
+      setComments(loadPending(browserPendingCommentStorage(), key, projectVersion));
       armedAnchorRef.current = null;
       setArmedAnchor(null);
     },
@@ -327,6 +324,12 @@ export function proseAnchor(kind: string, section: string): string {
 /** A volatility scatter-point anchor by its index in `items`. */
 export function volatilityAnchor(index: number): string {
   return `$.items[${String(index)}]`;
+}
+
+/** A rejected volatility-candidate anchor by its index in `rejected` — a path
+ *  disjoint from volatilityAnchor's `$.items[n]`, so the two never collide. */
+export function rejectedVolatilityAnchor(index: number): string {
+  return `$.rejected[${String(index)}]`;
 }
 
 /** A C4 component anchor by component id. */

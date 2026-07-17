@@ -354,6 +354,15 @@ func (wf *workflows) CoAuthorArtifactWorkflow(ctx workflow.Context, in coAuthorI
 			}
 		}
 		headVersion = newVersion
+		// STAGED TRACKING (2026-07-16 incident, gtdapp:1). The workflow — not the RA — knows
+		// whether THIS session ever populated its slot. Record the substrate the stage landed
+		// on so a later failed-gate Withdraw targets the SAME branch (the session branch under
+		// the PR rail; "" == main when the rail is dormant) instead of blindly unstaging on
+		// main, and a NEVER-staged session's Withdraw can skip the unstage write entirely
+		// (an unpopulated-slot withdraw is a ContractMisuse that killed the whole rail).
+		// Workflow-local state derived from recorded Activity results — replay-deterministic.
+		state.staged = true
+		state.stagedBranch = gf.readBackBranch()
 		state.stage = StageAwaitingReview
 		// SUB-STEP (Plan-3 C1): staged for the human gate — no role is working. Belt-and-braces
 		// (the draft/critique success paths already cleared their stamp before returning).
@@ -694,7 +703,7 @@ func (wf *workflows) dispatchDraftAndReadBack(
 		// Per-project-design-dispatch: dispatch to the per-project repo + aiarch-design.yml
 		// (the rail's repoRef). "" when the rail is dormant ⇒ RA falls back to construction.
 		TargetRepo: gf.dispatchRepo(),
-	})
+	}, state)
 	if derr != nil {
 		// The DISPATCH/observe round-trip itself FAILED terminally — e.g. GitHub 422s the
 		// workflow_dispatch. Route it to the human-visible StageDraftFailed gate (never an
@@ -768,18 +777,37 @@ func (wf *workflows) runPMCritique(
 		PriorStateRef: "",
 		// Per-project-design-dispatch: the critique job also runs in the per-project repo.
 		TargetRepo: gf.dispatchRepo(),
-	})
+	}, state)
 	if cerr != nil {
 		// The critique DISPATCH itself failed terminally — route to the human-visible
 		// StageDraftFailed gate (same anti-wedge rule as the draft dispatch), never crash.
+		// F-QA2-24: the DRAFT on the session branch is intact (it read back fine before
+		// this round) — only the critique failed to start — so arm the critique-retry
+		// resume before landing at the gate: a Retry re-runs the CRITIQUE, not a
+		// feedbackless redraft. A cancellation is a teardown, not a retryable fault
+		// (recoverDispatchFailed propagates it), so it is never armed.
 		logger.Warn("PM-critique dispatch failed terminally; entering StageDraftFailed", "error", cerr.Error())
+		if !temporal.IsCanceledError(cerr) {
+			wf.armCritiqueRetry(ctx, state)
+		}
 		return wf.recoverDispatchFailed(ctx, in, headVersion, cerr, state, feedback, redraftCount)
 	}
 	if critObs.Phase != pipelineSucceeded {
 		// A terminal PM-critique job failure routes to the same StageDraftFailed human
-		// gate as a terminal draft failure — never crash the workflow.
+		// gate as a terminal draft failure — never crash the workflow. F-QA2-24: the
+		// DRAFT is complete on the session branch, so the gate's Retry must RE-RUN THE
+		// CRITIQUE against it — a feedbackless redraft finds no open comments and no
+		// revise verdict, commits nothing, and the template's silent-failure guard reds
+		// the run: a retry loop that can never converge (observed live on gtdapp, 2
+		// consecutive occurrences). The gate copy names the critique ONLY when the retry
+		// semantics actually re-run it (armCritiqueRetry's version pin keeps mid-history
+		// executions on the old redraft-on-retry copy AND behavior together).
 		logger.Warn("PM-critique job reached a terminal failure phase; entering StageDraftFailed", "diagnostic", critObs.Diagnostic)
-		return wf.recoverDraftFailed(ctx, in, headVersion, critObs.Diagnostic, critObs.RunURL, state, feedback, redraftCount)
+		reason := draftFailedReason(critObs.Diagnostic)
+		if wf.armCritiqueRetry(ctx, state) {
+			reason = critiqueFailedReason(critObs.Diagnostic)
+		}
+		return wf.recoverAtFailedGate(ctx, in, headVersion, reason, critObs.RunURL, state, feedback, redraftCount)
 	}
 	// Read the critique verdict back off the SAME session branch it was committed to.
 	critique, crbErr := wf.readBackCritiqueOn(ctx, in.ProjectID, in.ArtifactKind, gf.readBackBranch())
@@ -789,8 +817,12 @@ func (wf *workflows) runPMCritique(
 			// ran-but-incomplete job — the missing-verdict safe default (dispatch.go).
 			// Route it to the SAME human-visible StageDraftFailed gate as a terminal job
 			// failure (NOT a silent approve, NOT a workflow crash — the anti-wedge rule),
-			// awaiting human Retry-via-Reject / Withdraw.
+			// awaiting human Retry-via-Reject / Withdraw. F-QA2-24: the draft is complete —
+			// the CRITIQUE is what committed nothing — so the gate's Retry re-runs the
+			// critique against the kept draft (armCritiqueRetry), never a feedbackless
+			// redraft. The reason already names the critique on both pinned versions.
 			logger.Warn("PM-critique read-back found no verdict (missing-verdict safe default); entering StageDraftFailed")
+			wf.armCritiqueRetry(ctx, state)
 			return wf.recoverDraftFailed(ctx, in, headVersion, critiqueMissingVerdictDiagnostic, "", state, feedback, redraftCount)
 		}
 		if decodeMsg, terminal := isTerminalReadBack(crbErr); terminal {
@@ -802,6 +834,11 @@ func (wf *workflows) runPMCritique(
 		}
 		return stepErr(crbErr)
 	}
+	// F-QA2-7: stamp the PM's conclusion (verdict + rationale + the draft round it
+	// judged) on the live session view the moment the workflow observes it, so the
+	// human gate shows what the PM concluded — not just the machine validation.
+	// Derived from the recorded read-back Activity result; no history command.
+	state.critique = critiqueViewFor(critique, *redraftCount)
 	if critique.Verdict == critiqueRevise {
 		*redraftCount++
 		if *redraftCount >= maxRedraftAttempts {
@@ -1004,6 +1041,10 @@ func (wf *workflows) handleReviewDecision(
 		*reviewRound++
 		// Loop to step 2 (re-draft AND re-run PM-critique) with the architect's feedback woven in.
 		state.stage = StageRedrafting
+		// F-QA2-7: the surfaced PM conclusion judged the draft the human just REJECTED —
+		// clear it so the view never attributes a stale verdict to the upcoming redraft.
+		// The redraft's own critique round re-stamps it before the next gate.
+		state.critique = nil
 		return stepRedraft()
 
 	case ReviewWithdraw:
@@ -1019,7 +1060,17 @@ func (wf *workflows) handleReviewDecision(
 		if _, err := wf.applyRecovering(ctx, in.ProjectID, withdrawBranch, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
 			return wf.Acts.DesignSessionWithdrawArtifactOnBranch(ctx, projectstate.ProjectID(in.ProjectID), expected, withdrawBranch, toPSKind(in.ArtifactKind), notes)
 		}); err != nil {
-			return stepErr(err)
+			// ANTI-WEDGE (2026-07-16 incident twin). A fault while RECORDING the Withdraw must
+			// NOT terminate the workflow (a terminal error here killed the CoAuthor spine AND
+			// its parent phase rail). The staged draft is intact on its branch, so mirror the
+			// QA F35 approve-fault containment: return to AwaitingReview carrying an honest
+			// queryable notice so the human simply withdraws (or decides) again. Only a
+			// workflow-cancellation (teardown) still propagates.
+			if temporal.IsCanceledError(err) {
+				return stepErr(err)
+			}
+			workflow.GetLogger(ctx).Warn("withdraw write faulted; returning to AwaitingReview for another decision", "error", err.Error())
+			return wf.reAwaitAfterApproveFault(state, withdrawFailedReason(err))
 		}
 		state.stage = StageWithdrawn
 		state.clearActive() // SUB-STEP (Plan-3 C1): terminal — no role is working.
@@ -1162,10 +1213,33 @@ type coAuthorState struct {
 	// that explain WHY (QA F15 gap 2b). Empty for the dispatch-REJECTION path (no run
 	// was ever created) and for the not-green-PR gate.
 	failureRunURL string
+	// runURL is the LIVE dispatched design job's run URL while a dispatch → observe
+	// round-trip is in flight (the Drafting/Redrafting stages): resolved from the run's
+	// observations, so the SPA's GENERATING scene can deep-link the operator to the
+	// actual GitHub Actions run instead of an unlinked "the job is running in your CI"
+	// notice (QA F-GTD-6). Owned entirely by dispatchAndObserve — reset on each fresh
+	// dispatch, stamped per observation, cleared on the terminal observation. Empty
+	// whenever no run is in flight (or the RA could not resolve the URL — never
+	// fabricated). Workflow-local state served by view(); setting it issues NO Temporal
+	// history command (the same honesty invariant as activeRole/activeStep).
+	runURL string
 	// unresolvedCritique, when non-empty, is the PM critique note that did not
 	// converge within maxRedraftAttempts; surfaced at the human gate as a WARNING
 	// finding so the architect makes the final call (warnings don't block Approve).
 	unresolvedCritique string
+	// critique is the LAST PM-critique conclusion the workflow observed (verdict +
+	// the PM's rationale + the draft round it judged), surfaced on the session view so
+	// the founder never approves a PM-reviewed artifact blind to what the PM concluded
+	// (F-QA2-7). Stamped on every successful critique read-back — an APPROVE shows the
+	// ratification (with any approve-with-reservation notes), a REVISE stays visible
+	// through the automatic redraft it triggered (the "why is it redrafting" honesty)
+	// and through the non-convergence best-effort stage. Cleared on a human REJECT
+	// (that critique judged the now-rejected draft; the redraft's own critique
+	// re-stamps it). Nil for kinds with no PM critic and until the first critique
+	// completes. Workflow-local state served by view(); setting it issues NO Temporal
+	// history command (the same honesty invariant as runURL/activeRole), so no
+	// GetVersion gate is needed and mid-history executions replay unchanged.
+	critique *CritiqueView
 	// reviewThread is the durable review ledger for this artifact (review-ledger feature),
 	// refreshed from the session branch after every (re)stage and after every waive/reopen
 	// so the sessionState Query surfaces the live thread and the approve gate can block
@@ -1176,13 +1250,28 @@ type coAuthorState struct {
 	// that leaves any committed use case without a dynamic view (USECASE-DYNAMIC-MISSING,
 	// founder extension 2026-07-05). Nil for every other kind and until it is populated.
 	committedCoreUseCases *projectstate.CoreUseCases
-	// resumeFromReadBack is the F35-twin checkpoint: set true when a POST-read-back rail step
-	// (openPR) faulted and the session landed at the failed gate WITH the draft already
-	// committed on the branch. On the next Retry the draft round-trip consumes it and RESUMES
-	// from the read-back — SKIPPING the re-dispatch — so it does not redispatch Claude onto a
-	// branch that already carries the model (which the no-commit guard would red). Workflow-
-	// local, deterministic on replay (set from a recorded Activity error, never wall-clock).
+	// resumeFromReadBack is the F35-twin checkpoint: set true when a POST-read-back step
+	// faulted and the session landed at the failed gate WITH the draft already committed on
+	// the branch — an openPR rail fault (F35 twin), or ANY critique-round fault (F-QA2-24,
+	// version-gated in armCritiqueRetry: terminal critique job failure, rejected critique
+	// dispatch, missing verdict). On the next Retry the draft round-trip consumes it and
+	// RESUMES from the read-back — SKIPPING the draft re-dispatch — so it does not
+	// redispatch Claude onto a branch that already carries the model (which the no-commit
+	// guard would red); for a PM-critiqued kind the spine then falls through to
+	// runPMCritique, re-running the critique against the kept draft. Workflow-local,
+	// deterministic on replay (set from recorded Activity results, never wall-clock).
 	resumeFromReadBack bool
+	// staged / stagedBranch record whether THIS session ever staged its draft into the
+	// slot, and on which substrate ("" == main; the session branch under the PR rail) —
+	// set on every successful stageDraftForReview (2026-07-16 incident). The failed-gate
+	// Withdraw consults them: a NEVER-staged session skips the unstage write entirely
+	// (an unpopulated-slot withdraw is a non-retryable ContractMisuse that terminated
+	// the workflow and its parent phase rail), and a staged session's withdraw targets
+	// the branch the stage actually landed on (never a blind main write). Workflow-local
+	// state derived from recorded Activity results — deterministic on replay; the
+	// command-sequence change it gates is version-pinned (failed-gate-withdraw-honest).
+	staged       bool
+	stagedBranch string
 	// feedbackSeeded reports whether the CURRENT contents of the workflow's feedback variable
 	// are already durably in the review ledger. The review-gate REJECT and the AMENDMENT seed
 	// fold their feedback into the ledger themselves (feedbackToLedgerComments / seedAmendment
@@ -1280,6 +1369,8 @@ func (s *coAuthorState) view() (SessionStateView, error) {
 		Findings:      findings,
 		FailureReason: strPtrOrNil(s.failureReason),
 		FailureRunURL: strPtrOrNil(s.failureRunURL),
+		RunURL:        strPtrOrNil(s.runURL),
+		Critique:      s.critique,
 		ReviewThread:  reviewThreadToView(s.reviewThread),
 		ActiveRole:    s.activeRole,
 		ActiveStep:    s.activeStep,
@@ -1576,6 +1667,42 @@ func (wf *workflows) awaitDraftFailedRecovery(
 	redraftCh := workflow.GetSignalChannel(ctx, lSignalRedraft)
 	reviewCh := workflow.GetSignalChannel(ctx, signalReviewDecision)
 
+	// STALE-SIGNAL DRAIN (QA incident 2026-07-15, gtdapp:1 — gate hygiene). Any redraft
+	// signal ALREADY buffered when this gate opens was sent BEFORE the failure was human-
+	// visible (the query could not have reported DraftFailed yet: state.stage flips above,
+	// in the same workflow task this drain runs in), so it cannot be an informed Retry.
+	// Two senders produce such signals: (a) RequestArtifactDraft's SignalWithStart START
+	// path — every user-initiated first draft rides in with one redraft signal the drafting
+	// spine never consumes; (b) a "Request draft" click landing while the session was
+	// drafting (now ALSO refused at the manager — checkDraftRequestReceptive — but raw
+	// signals and anything already buffered remain). Letting the selector consume one would
+	// auto-satisfy Retry the instant the gate arms, skipping the human decision (observed
+	// live: a queued click auto-redrafted over a PM-critique failure nobody ever saw).
+	// Discarding is deterministic: buffered signals are part of workflow history, and
+	// ReceiveAsync consumes them identically on replay. Any feedback such a signal carried
+	// is not lost where it matters — the start-path signal's feedback also rides
+	// coAuthorInput.Feedback.
+	//
+	// Temporal versioning guard (replay safety; mirrors the failed-gate-ledger-seed gate):
+	// executions in flight at deploy time have histories in which a buffered redraft DID
+	// satisfy this gate immediately. GetVersion pins them (DefaultVersion, cached per
+	// execution at first replay) to the old arm-immediately sequence, while every execution
+	// STARTED after this deploy resolves v1 and drains at each failed-gate entry.
+	if workflow.GetVersion(ctx, "failed-gate-redraft-drain", workflow.DefaultVersion, 1) >= 1 {
+		drained := 0
+		for {
+			var stale redraftSignal
+			if !redraftCh.ReceiveAsync(&stale) {
+				break
+			}
+			drained++
+		}
+		if drained > 0 {
+			workflow.GetLogger(ctx).Info("discarded buffered redraft signal(s) at StageDraftFailed gate entry — sent before the failure was visible, so they cannot auto-consume the human gate",
+				"count", drained)
+		}
+	}
+
 	for {
 		var retry bool
 		var withdraw bool
@@ -1627,17 +1754,78 @@ func (wf *workflows) awaitDraftFailedRecovery(
 			return coAuthorUnknown, true, nil
 		}
 		if withdraw {
-			// Withdraw at the failed gate is a MAIN write; its Conflict re-read targets main
-			// (branch=="").
-			if _, err := wf.applyRecovering(ctx, projectID, "", headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
-				return wf.Acts.DesignSessionWithdrawArtifactOnBranch(ctx, projectstate.ProjectID(projectID), expected, "", toPSKind(kind), withdrawNotes)
-			}); err != nil {
-				return coAuthorUnknown, false, err
+			done, werr := wf.withdrawAtFailedGate(ctx, projectID, kind, headVersion, withdrawNotes, state)
+			if werr != nil {
+				return coAuthorUnknown, false, werr
 			}
-			return coAuthorWithdrawn, false, nil
+			if done {
+				return coAuthorWithdrawn, false, nil
+			}
+			// The withdraw write faulted and was CONTAINED (Fix 2 anti-wedge): the gate is
+			// re-armed with the honest withdraw-failed reason — stay suspended for another
+			// human decision.
+			continue
 		}
 		// A non-actionable review decision at the failed gate: stay suspended.
 	}
+}
+
+// withdrawAtFailedGate performs the failed-gate Withdraw (2026-07-16 incident, gtdapp:1 +
+// its parent phase rail killed). The old path was a blind MAIN write with two crash modes:
+//
+//  1. NEVER-STAGED session (the incident): no slot is populated ANYWHERE — the unstage
+//     write raises non-retryable ContractMisuse ("slot X is unpopulated"), which terminated
+//     this workflow AND the parent phase workflow. The workflow KNOWS it never staged
+//     (state.staged) — there is nothing durable to flip, so the correct withdraw simply
+//     ends the session as withdrawn with NO write.
+//  2. STAGED-ON-BRANCH session (reject-fault / not-green gates): the slot lives on the
+//     SESSION BRANCH, not main — the main write was the same unpopulated-slot crash (QA
+//     F30's failed-gate twin). Target the branch the stage landed on (state.stagedBranch;
+//     "" == main when the rail is dormant).
+//
+// Temporal versioning guard (replay safety; mirrors failed-gate-redraft-drain): GetVersion
+// pins executions whose history already recorded the old main-write (DefaultVersion — e.g.
+// a query replay of a dead run) to the old command sequence, while every fresh decision
+// resolves v1. A LIVE suspended session receiving its first withdraw post-deploy executes
+// fresh code (no recorded commands here yet), so it gets the fix too.
+//
+// Returns (done, err): done=true → the session is withdrawn (the caller returns the
+// terminal outcome); done=false with nil err → the write FAULTED and was CONTAINED (Fix 2
+// anti-wedge — the gate is re-armed carrying withdrawFailedReason; NO recovery-path error
+// may terminate the workflow); a non-nil err is ONLY a workflow-cancellation (teardown).
+func (wf *workflows) withdrawAtFailedGate(
+	ctx workflow.Context,
+	projectID ProjectID,
+	kind ArtifactKind,
+	headVersion projectstate.Version,
+	notes string,
+	state *coAuthorState,
+) (bool, error) {
+	v := workflow.GetVersion(ctx, "failed-gate-withdraw-honest", workflow.DefaultVersion, 1)
+	if v >= 1 && !state.staged {
+		workflow.GetLogger(ctx).Info("withdraw at the failed gate with nothing ever staged; skipping the unstage write and ending withdrawn")
+		state.stage = StageWithdrawn
+		state.clearActive()
+		return true, nil
+	}
+	withdrawBranch := ""
+	if v >= 1 {
+		withdrawBranch = state.stagedBranch
+	}
+	if _, err := wf.applyRecovering(ctx, projectID, withdrawBranch, headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+		return wf.Acts.DesignSessionWithdrawArtifactOnBranch(ctx, projectstate.ProjectID(projectID), expected, withdrawBranch, toPSKind(kind), notes)
+	}); err != nil {
+		if temporal.IsCanceledError(err) {
+			return false, err
+		}
+		workflow.GetLogger(ctx).Warn("failed-gate withdraw write faulted; staying at the failed gate", "error", err.Error())
+		state.failureReason = withdrawFailedReason(err)
+		state.failureRunURL = ""
+		return false, nil
+	}
+	state.stage = StageWithdrawn
+	state.clearActive()
+	return true, nil
 }
 
 // draftFailedReason renders the human "why" for the StageDraftFailed screen from
@@ -1648,6 +1836,51 @@ func draftFailedReason(diagnostic string) string {
 		return "the design job failed in CI — retry or withdraw"
 	}
 	return "the design job failed in CI: " + diagnostic + " — retry or withdraw"
+}
+
+// critiqueFailedReason renders the human "why" for the StageDraftFailed screen when the
+// PM-CRITIQUE job (not the draft) reached a terminal failure phase (F-QA2-24). The draft
+// is intact on the session branch, so the copy names the critique and frames Retry as
+// re-running it — never the generic "the design job failed in CI", which reads as a draft
+// failure and misleads the operator about what a Retry does. Used ONLY when
+// armCritiqueRetry armed the critique-retry resume (v1 semantics) so copy and behavior
+// stay honest together on every pinned version.
+func critiqueFailedReason(diagnostic string) string {
+	if diagnostic == "" {
+		return "the PM-critique job failed in CI — your draft is kept; retry re-runs the critique, or withdraw"
+	}
+	return "the PM-critique job failed in CI: " + diagnostic + " — your draft is kept; retry re-runs the critique, or withdraw"
+}
+
+// armCritiqueRetry checkpoints the F-QA2-24 critique-retry resume: the DRAFT is already
+// committed (and read back) on the session branch — only the PM-CRITIQUE round failed
+// (terminal job failure, rejected dispatch, or a success that committed no verdict) — so
+// the StageDraftFailed gate's Retry must resume from the draft read-back and re-dispatch
+// the CRITIQUE, not a redraft. A feedbackless redraft against an already-complete draft
+// finds no open comments and no revise verdict, does no commit, and the template's
+// silent-failure guard reds the run — a retry loop that can never converge (observed live
+// on gtdapp: 2 consecutive occurrences). Setting resumeFromReadBack reuses the F35-twin
+// resume path: the retry probes the read-back, SKIPS the draft dispatch, and
+// produceReviewableDraft falls through to runPMCritique — the full dispatch → observe →
+// read-back → verdict routing, including the F-QA2-7 critique-view stamp.
+//
+// Temporal versioning guard (replay safety; mirrors the failed-gate-redraft-drain gate):
+// executions in flight at deploy time (gtdapp:1 is suspended at the glossary failed gate
+// with critique-fail → Retry → DRAFT-dispatch rounds already RECORDED) have histories in
+// which the retry scheduled a draft dispatch; replaying them against un-gated new code
+// would schedule the resume read-back where history recorded a dispatch — a
+// non-determinism failure. GetVersion pins pre-feature executions (DefaultVersion,
+// resolved at first replay and cached per execution) to the OLD redraft-on-retry sequence
+// for their WHOLE run, while every execution started after this deploy resolves v1 and
+// resumes the critique. Returns whether the resume was armed so the caller keeps the gate
+// copy honest per pinned version (never promising a critique re-run a pinned execution
+// will not perform).
+func (wf *workflows) armCritiqueRetry(ctx workflow.Context, state *coAuthorState) bool {
+	if workflow.GetVersion(ctx, "failed-gate-critique-retry", workflow.DefaultVersion, 1) < 1 {
+		return false
+	}
+	state.resumeFromReadBack = true
+	return true
 }
 
 // dispatchFailedReason renders the human "why" for the StageDraftFailed screen when the
@@ -1725,6 +1958,19 @@ func stageFailedReason(err error) string {
 		return "staging the draft for your review failed — retry or withdraw"
 	}
 	return "staging the draft for your review failed: " + summary + " — retry or withdraw"
+}
+
+// withdrawFailedReason renders the human "why" when the write RECORDING a Withdraw
+// faulted (2026-07-16 anti-wedge): at the failed gate it re-arms the SAME gate with this
+// reason; at the review gate it rides the AwaitingReview notice (reAwaitAfterApproveFault).
+// Either way the session stays alive and the human simply retries or withdraws again —
+// a recovery-path fault must never terminate the workflow.
+func withdrawFailedReason(err error) string {
+	summary := dispatchErrSummary(err)
+	if summary == "" {
+		return "withdraw failed — retry or withdraw again"
+	}
+	return "withdraw failed: " + summary + " — retry or withdraw again"
 }
 
 // rejectFailedReason renders the human "why" for the StageDraftFailed screen when the
@@ -1838,9 +2084,10 @@ func (p pipelinePhase) IsTerminal() bool {
 type pipelineObservation struct {
 	Phase      pipelinePhase
 	Diagnostic string
-	// RunURL is the failed CI run's URL on a terminal-failure observation (QA F15 gap
-	// 2b) — the "why" pointer the Manager threads onto the StageDraftFailed card. Empty
-	// when the RA could not resolve it (or on a non-failure observation).
+	// RunURL is the CI run's URL on ANY observation the RA resolved it for: while the
+	// run is live it is the generating view's "view the run" deep-link (F-GTD-6);
+	// on a terminal failure it is the "why" pointer the Manager threads onto the
+	// StageDraftFailed card (QA F15 gap 2b). Empty when the RA could not resolve it.
 	RunURL string
 }
 
@@ -1991,7 +2238,18 @@ func (wf *workflows) observeDesignJob(ctx workflow.Context, handle constructionp
 // timeout-as-success (§0d.4): a stuck job that never terminates within the bounded poll
 // budget is surfaced as an explicit PipelineFailed with a neutral diagnostic, so the
 // caller still lands the session at the human gate.
-func (wf *workflows) dispatchAndObserve(ctx workflow.Context, args dispatchDesignJobArgs) (pipelineObservation, error) {
+//
+// While the round-trip is in flight it OWNS state.runURL (F-GTD-6): reset on the fresh
+// dispatch, stamped from each observation that resolved the run's URL (so the
+// sessionState Query's generating view can deep-link the live GitHub Actions run), and
+// cleared on the terminal observation / any exit — the failed card gets its OWN
+// failureRunURL from the returned observation instead. Setting it is workflow-local
+// state served by view(); no Temporal history command, so no GetVersion gate is needed
+// (the activeRole honesty invariant).
+func (wf *workflows) dispatchAndObserve(ctx workflow.Context, args dispatchDesignJobArgs, state *coAuthorState) (pipelineObservation, error) {
+	// Fresh dispatch — no observation yet, so no run to link (never a stale one).
+	state.runURL = ""
+	defer func() { state.runURL = "" }()
 	handle, err := wf.dispatchDesignJob(ctx, args)
 	if err != nil {
 		return pipelineObservation{}, err
@@ -2005,6 +2263,9 @@ func (wf *workflows) dispatchAndObserve(ctx workflow.Context, args dispatchDesig
 		obs, err := wf.observeDesignJob(ctx, handle)
 		if err != nil {
 			return pipelineObservation{}, err
+		}
+		if obs.RunURL != "" {
+			state.runURL = obs.RunURL
 		}
 		if obs.Phase.IsTerminal() {
 			return obs, nil
@@ -2065,7 +2326,12 @@ func (wf *workflows) readBackCritiqueOn(ctx workflow.Context, projectID ProjectI
 	slot := slotFor(proj, kind)
 	switch slot.CritiqueVerdict {
 	case projectstate.CritiqueVerdictApprove:
-		return critique{Verdict: critiqueApprove}, nil
+		// Carry the PM's notes on APPROVE too (F-QA2-7): the critique prompt's verdict
+		// discipline records taste-level reservations as comments ON an approve, and the
+		// session view now surfaces the PM conclusion at the human gate — dropping the
+		// notes here would show the founder a bare verdict with the rationale erased.
+		// The spine itself still consults Notes only on Revise, so this is display-only.
+		return critique{Verdict: critiqueApprove, Notes: slot.CritiqueNotes}, nil
 	case projectstate.CritiqueVerdictRevise:
 		return critique{Verdict: critiqueRevise, Notes: slot.CritiqueNotes}, nil
 	default:
@@ -2714,6 +2980,29 @@ func encodeModel(model projectstate.ArtifactModel) (modelEnvelope, error) {
 type critique struct {
 	Verdict critiqueVerdict `json:"verdict"`
 	Notes   string          `json:"notes"`
+}
+
+// critiqueRoleProductManager is the CritiqueView.Role wire label for the PM critic —
+// the only critique-issuing role today. Matches the SPA's ActiveRole wire naming
+// ("productManager") so both surfaces name the role identically.
+const critiqueRoleProductManager = "productManager"
+
+// critiqueViewFor renders the observed PM-critique conclusion as the SessionStateView
+// carrier (F-QA2-7): the wire verdict reuses the projectstate carrier's closed string
+// set ("approve" | "revise"), Summary is the PM's rationale verbatim, and round is the
+// redraft-round counter of the draft the critique judged. Pure mapping over the
+// recorded read-back result — deterministic on replay, no history command.
+func critiqueViewFor(c critique, round int) *CritiqueView {
+	verdict := projectstate.CritiqueVerdictApprove
+	if c.Verdict == critiqueRevise {
+		verdict = projectstate.CritiqueVerdictRevise
+	}
+	return &CritiqueView{
+		Role:    critiqueRoleProductManager,
+		Verdict: verdict,
+		Summary: c.Notes,
+		Round:   int64(round),
+	}
 }
 
 // critiqueVerdict is the closed PM verdict set.

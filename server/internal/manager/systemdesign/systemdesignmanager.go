@@ -177,9 +177,17 @@ func (m *systemDesignManager) StartSystemDesign(rc fwmanager.Context, projectID 
 
 	wfID := systemDesignPhaseWorkflowID(projectID)
 	opts := client.StartWorkflowOptions{
-		ID:                       wfID,
-		TaskQueue:                TaskQueue,
+		ID:        wfID,
+		TaskQueue: TaskQueue,
+		// A RUNNING phase is reused (idempotent start); a CLOSED phase — FAILED (the
+		// 2026-07-16 incident: a child crash killed the rail pre-containment) or COMPLETED
+		// (a step was withdrawn / a child failure was contained and the phase halted
+		// gracefully) — is RESTARTED as a fresh run. The restarted run skips already-
+		// committed steps (SystemDesignPhaseWorkflow's skip-committed gate) and resumes at
+		// the first open step. ALLOW_DUPLICATE is the server default; pinned explicitly
+		// because the restart-a-dead-phase recovery path depends on it.
 		WorkflowIDConflictPolicy: enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
+		WorkflowIDReusePolicy:    enumspb.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
 	}
 	we, err := m.client.ExecuteWorkflow(ctx, opts, executionKindPhase, phaseInput{ProjectID: projectID})
 	if err != nil {
@@ -204,16 +212,18 @@ func isResearchReadNotFound(err error) bool {
 // "Retry draft" recovery lever:
 //
 //   - First request (no running session): starts the CoAuthorArtifactWorkflow,
-//     which drafts immediately. The buffered redraft signal is harmless (the fresh
-//     run does not await the refused gate before it drafts).
+//     which drafts immediately. The buffered ride-along redraft signal is harmless:
+//     the fresh run does not await a recovery gate before it drafts, and the
+//     failed-gate entry DRAIN discards it if the first draft fails (it must never
+//     auto-consume the human gate — QA incident 2026-07-15).
 //   - Retry on a REFUSED session (Bug B; the session ended a draft attempt in the
 //     queryable StageRefused state after a terminal worker fault): the redraft
 //     signal is delivered to the still-live, suspended workflow, which re-enters the
 //     draft loop in place — no new workflow run, the getSessionState Query stays
 //     continuously available.
-//   - Retry on an otherwise-running session: idempotent — the existing execution is
-//     reused (UseExisting), and the redraft signal is consumed only if/when that
-//     session is at the refused gate.
+//   - A session that is currently DRAFTING/REDRAFTING is NOT receptive: the request
+//     is refused with FailedPrecondition (checkDraftRequestReceptive) — a signal
+//     sent then would buffer and later stale-consume a recovery gate.
 //
 // Signal-with-start is the one call that covers all three (start-if-absent, signal
 // the existing run otherwise), preserving the §2.1 idempotent-on-id post-condition.
@@ -257,6 +267,20 @@ func (m *systemDesignManager) RequestArtifactDraft(rc fwmanager.Context, project
 		return "", err
 	}
 
+	// GENERATING GUARD (QA incident 2026-07-15, gtdapp:1). While the session is DRAFTING /
+	// REDRAFTING no gate consumes the redraft signal — SignalWithStart would BUFFER it in the
+	// workflow's signal channel, where it later auto-satisfies the StageDraftFailed recovery
+	// selector the instant that gate arms, silently skipping the human Retry/Withdraw decision
+	// (observed live: a stale "Request draft" click queued during drafting consumed the failed
+	// gate after a PM-critique flake, and an unwanted redraft round ran with nobody ever seeing
+	// the failure). Refuse the request up front with a FailedPrecondition naming the stage.
+	// Every other stage is receptive: AwaitingReview / DraftFailed have an open human gate, and
+	// the terminal/no-session stages mean the SignalWithStart STARTS a fresh run (re-begin /
+	// amendment semantics), whose gate-entry drain discards the start-path signal if unused.
+	if err := m.checkDraftRequestReceptive(rc, projectID, kind); err != nil {
+		return "", err
+	}
+
 	// F38 BACK-EDGE / AMENDMENT (founder ruling 2026-07-05, fixes F37). A draft request on
 	// an already-COMMITTED artifact is the LEGAL AMENDMENT path: it reopens the artifact and
 	// starts a FRESH review session on a new …-amend-N branch (N = the slot's prior commit
@@ -279,6 +303,13 @@ func (m *systemDesignManager) RequestArtifactDraft(rc fwmanager.Context, project
 		// reuses the existing execution rather than failing or duplicating
 		// (systemDesignManager.md §2.1 post-condition). The signal rides along.
 		WorkflowIDConflictPolicy: enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
+		// REVIVAL (2026-07-16 incident): a session whose previous run CLOSED — normally
+		// (committed/withdrawn → amendment/fresh draft) or ABNORMALLY (the run FAILED, as
+		// gtdapp:1 did) — must be revivable: this SignalWithStart STARTS a brand-new run.
+		// ALLOW_DUPLICATE is the server default; pinned explicitly because the dead-session
+		// recovery path depends on it (a stricter policy silently turns "Retry design job"
+		// into a no-op 200 — the observed false success).
+		WorkflowIDReusePolicy: enumspb.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
 	}
 	in := coAuthorInput{ProjectID: projectID, ArtifactKind: kind, Feedback: feedback, Amendment: amendment}
 
@@ -286,7 +317,61 @@ func (m *systemDesignManager) RequestArtifactDraft(rc fwmanager.Context, project
 	if err != nil {
 		return "", mapStartError(err)
 	}
+	// NO FALSE 200s (2026-07-16 incident): the founder's "Retry design job" against the dead
+	// gtdapp:1 returned success while no run started. SignalWithStart's return alone cannot
+	// distinguish "fresh run started" from "signal bound to something that will never act", so
+	// VERIFY: the session's latest execution must now be live. Best-effort — only a confirmed
+	// abnormal-closed latest run is refused (a Describe blip never masks a genuine start).
+	if err := m.verifySessionRevived(ctx, wfID); err != nil {
+		return "", err
+	}
 	return newSessionRef(we.GetID()), nil
+}
+
+// verifySessionRevived confirms the co-author session's LATEST execution is not sitting
+// abnormally CLOSED right after a SignalWithStart — the honest-error backstop for the
+// false-200 revival failure (see RequestArtifactDraft). Describe errors are ignored
+// (best-effort verification; the start already durably succeeded).
+func (m *systemDesignManager) verifySessionRevived(ctx context.Context, wfID string) error {
+	desc, derr := m.client.DescribeWorkflowExecution(ctx, wfID, "")
+	if derr != nil {
+		return nil
+	}
+	if status := desc.GetWorkflowExecutionInfo().GetStatus(); isAbnormalClosedStatus(status) {
+		return newError(fwmanager.Infrastructure,
+			"the design session could not be revived — the previous session ended abnormally and no fresh run started; restart the phase (Start System Design) or try again")
+	}
+	return nil
+}
+
+// checkDraftRequestReceptive is the manager-side generating guard for RequestArtifactDraft
+// (QA incident 2026-07-15): reject the request while the live session's stage is Drafting or
+// Redrafting — a redraft signal sent then is consumable by NO open gate and would sit buffered
+// until it stale-consumes a later recovery gate. The stage is read through GetSessionState —
+// the SAME Describe-then-Query path the review-decision precondition (F19) and the SPA trust
+// (a dead run synthesizes StageDraftFailed, a COMPLETED run is rebuilt from the durable slot,
+// a live run answers the authoritative sessionState query) — so the refusal always agrees
+// with what the founder sees on screen. NotFound (no session ever ran) is receptive: the
+// request STARTS the first session. Purely a manager-side precondition — no workflow logic
+// changes, so it is replay-safe by construction.
+func (m *systemDesignManager) checkDraftRequestReceptive(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind) error {
+	view, err := m.GetSessionState(rc, projectID, kind)
+	if err != nil {
+		var me *fwmanager.Error
+		if errors.As(err, &me) && me.Kind == fwmanager.NotFound {
+			return nil // no session yet — this request starts one
+		}
+		return err
+	}
+	switch view.Stage {
+	case StageDrafting, StageRedrafting:
+		return newError(fwmanager.FailedPrecondition,
+			"a draft is already generating for this artifact (currently "+sessionStageLabel(view.Stage)+") — wait for it to finish before requesting another")
+	case SessionStageUnknown, StageAwaitingReview, StageCommitted, StageWithdrawn, StageRefused, StageDraftFailed:
+		return nil
+	default:
+		return nil
+	}
 }
 
 // checkPhase1Predecessor enforces the Phase-1 spine-ordering gate for a draft request:
@@ -355,12 +440,24 @@ func (m *systemDesignManager) SubmitReviewDecision(rc fwmanager.Context, project
 	// ignored), yet the op returns success {} — a no-op masquerading as a decision that
 	// wedges the reviewer. Query the stage first and refuse a decision the current gate
 	// cannot honor with a FailedPrecondition naming the actual stage.
-	view, err := m.reviewGateView(ctx, wfID)
+	view, live, err := m.reviewGateView(ctx, wfID)
 	if err != nil {
 		return err
 	}
 	if perr := checkReviewPrecondition(decision, view.Stage); perr != nil {
 		return perr
+	}
+	// DEAD-SESSION HONESTY (2026-07-16 incident). An abnormally-CLOSED run synthesizes a
+	// StageDraftFailed view (so the SPA renders the failed card), which PASSES the reject/
+	// withdraw precondition above — but a signal to that corpse is refused by Temporal
+	// ("workflow execution already completed") and pre-fix surfaced as 503 noise with zero
+	// feedback. Refuse with an actionable FailedPrecondition instead: the ONLY lever on a
+	// dead session is requestArtifactDraft ("Retry design job"), which starts a fresh run.
+	// (Ordered AFTER the precondition so a never-started session keeps its "not started"
+	// message — checkReviewPrecondition refuses every decision at SessionStageUnknown.)
+	if !live {
+		return newError(fwmanager.FailedPrecondition,
+			"the design session for this artifact is no longer running (it ended abnormally) — review decisions cannot reach it. Use \"Retry design job\" to start a fresh session, then decide on its review gate")
 	}
 	// REVIEW LEDGER (review-ledger §4): approve is blocked while any comment is still open —
 	// the reviewer must address (redraft) or waive each one first. The message lists the open ids.
@@ -382,30 +479,31 @@ func (m *systemDesignManager) SubmitReviewDecision(rc fwmanager.Context, project
 }
 
 // reviewGateView returns the session's full gate view (stage + the durable review thread)
-// for the F19 review precondition AND the review-ledger approve/waive preconditions. Same
-// dead-workflow defense as GetSessionState: a CLOSED-ABNORMAL run reports StageDraftFailed,
-// a missing execution reports SessionStageUnknown, a live run is read from the authoritative
-// sessionState query.
-func (m *systemDesignManager) reviewGateView(ctx context.Context, wfID string) (SessionStateView, error) {
+// for the F19 review precondition AND the review-ledger approve/waive preconditions, plus
+// whether a LIVE workflow can still honor a signal. Same dead-workflow defense as
+// GetSessionState: a CLOSED-ABNORMAL run reports StageDraftFailed with live=false (a signal
+// to it can never be honored — 2026-07-16 incident), a missing execution reports
+// SessionStageUnknown, a live run is read from the authoritative sessionState query.
+func (m *systemDesignManager) reviewGateView(ctx context.Context, wfID string) (SessionStateView, bool, error) {
 	if desc, derr := m.client.DescribeWorkflowExecution(ctx, wfID, ""); derr == nil {
 		if status := desc.GetWorkflowExecutionInfo().GetStatus(); isAbnormalClosedStatus(status) {
-			return SessionStateView{Stage: StageDraftFailed}, nil
+			return SessionStateView{Stage: StageDraftFailed}, false, nil
 		}
 	} else if isNotFound(derr) {
-		return SessionStateView{Stage: SessionStageUnknown}, nil
+		return SessionStateView{Stage: SessionStageUnknown}, false, nil
 	}
 	enc, err := m.client.QueryWorkflow(ctx, wfID, "", querySessionState)
 	if err != nil {
 		if isNotFound(err) {
-			return SessionStateView{Stage: SessionStageUnknown}, nil
+			return SessionStateView{Stage: SessionStageUnknown}, false, nil
 		}
-		return SessionStateView{}, mapQueryError(err)
+		return SessionStateView{}, false, mapQueryError(err)
 	}
 	var view SessionStateView
 	if err := enc.Get(&view); err != nil {
-		return SessionStateView{}, newError(fwmanager.Infrastructure, err.Error())
+		return SessionStateView{}, false, newError(fwmanager.Infrastructure, err.Error())
 	}
-	return view, nil
+	return view, true, nil
 }
 
 // SetReviewCommentStatus applies a human status transition to one durable review-ledger
@@ -432,11 +530,14 @@ func (m *systemDesignManager) SetReviewCommentStatus(rc fwmanager.Context, proje
 	}
 
 	wfID := coAuthorWorkflowID(projectID, kind)
-	view, err := m.reviewGateView(ctx, wfID)
+	view, live, err := m.reviewGateView(ctx, wfID)
 	if err != nil {
 		return err
 	}
-	if view.Stage != StageAwaitingReview {
+	// A dead (abnormally-closed) session synthesizes StageDraftFailed and a never-started
+	// one SessionStageUnknown — both refuse below (neither is AwaitingReview), so the
+	// !live case needs no separate message here.
+	if view.Stage != StageAwaitingReview || !live {
 		return newError(fwmanager.FailedPrecondition,
 			"cannot change a review comment: the design is not awaiting review (current stage: "+sessionStageLabel(view.Stage)+")")
 	}
@@ -3155,6 +3256,17 @@ func mintCredActivityOptions() workflow.ActivityOptions {
 // syncManagedScaffold (B10). Auth + a merge Conflict (not-mergeable) + bad input are
 // terminal; transport/rate-limit retry. Feeds the manager's option hook (workermanifest.go),
 // keyed by each op's generated activity name.
+// scaffoldSyncActivityOptions carries a StartToClose long enough for a FULL scaffold
+// converge — ~100 file reads plus up to a whole-tree of contents-API writes on a torn
+// or version-bumped repo (F-QA2-36 addendum: the shared 30s rail deadline expired
+// mid-loop and the sync only progressed via retry-persisted writes). The sync is
+// resumable/idempotent (manifest written last), so a long deadline is safe.
+func scaffoldSyncActivityOptions() workflow.ActivityOptions {
+	o := railActivityOptions()
+	o.StartToCloseTimeout = 5 * time.Minute
+	return o
+}
+
 func railActivityOptions() workflow.ActivityOptions {
 	return workflow.ActivityOptions{
 		StartToCloseTimeout: 30 * time.Second,
@@ -3523,7 +3635,7 @@ func activityOptions() func(activityName string) (workflow.ActivityOptions, bool
 		"sourceControlAccess.getPullRequestStatus":               railActivityOptions(),
 		"sourceControlAccess.postReview":                         railActivityOptions(),
 		"sourceControlAccess.mergePullRequest":                   railActivityOptions(),
-		"sourceControlAccess.syncManagedScaffold":                railActivityOptions(),
+		"sourceControlAccess.syncManagedScaffold":                scaffoldSyncActivityOptions(),
 		"designSessionAccess.readProjectOnBranch":                readProjectActivityOptions(),
 		"designSessionAccess.stageArtifactForReviewOnBranch":     mutateActivityOptions(),
 		"designSessionAccess.commitArtifactWithProvenance":       mutateActivityOptions(),

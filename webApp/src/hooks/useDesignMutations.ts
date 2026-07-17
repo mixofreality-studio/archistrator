@@ -26,7 +26,7 @@ import type {
 } from '../contracts/types';
 import type { components } from '../contracts/schema';
 import { projectKey } from './useProject';
-import { sessionStateKey } from './useSessionState';
+import { sessionStateKey, sessionStateProjectKey } from './useSessionState';
 
 function invalidateArtifact(
   client: QueryClient,
@@ -63,6 +63,11 @@ export function useRequestArtifactDraft(
       );
     },
     onSuccess: (_data, vars) => invalidateArtifact(client, projectId, vars.kind),
+    // A refused request (409 failed_precondition: "a draft is already generating…")
+    // means the SPA's no-session view was STALE — a session is running server-side
+    // (e.g. auto-started by the phase advance). Refetch the session state so the UI
+    // flips to the truthful generating scene instead of a dead "Request draft" card.
+    onError: (_error, vars) => invalidateArtifact(client, projectId, vars.kind),
   });
 }
 
@@ -98,7 +103,17 @@ export function useSubmitReviewDecision(
       });
       return undefined;
     },
-    onSuccess: (_data, vars) => invalidateArtifact(client, projectId, vars.kind),
+    // An APPROVE auto-advances the phase workflow, which AUTO-STARTS the next step's
+    // co-author session server-side (QA incident 2026-07-15) — invalidate the whole
+    // project's session probes (not just this kind) so the next step's cached
+    // no-session 404 refetches immediately and discovers the auto-started session.
+    onSuccess: (_data, vars) =>
+      vars.decision === 'approve'
+        ? Promise.all([
+            client.invalidateQueries({ queryKey: projectKey(projectId) }),
+            client.invalidateQueries({ queryKey: sessionStateProjectKey(projectId) }),
+          ]).then(() => undefined)
+        : invalidateArtifact(client, projectId, vars.kind),
   });
 }
 

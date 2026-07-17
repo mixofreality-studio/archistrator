@@ -89,7 +89,7 @@ func modelWellKnown() map[reflect.Type]*jsonschema.Schema {
 }
 
 // stringEnumTypes is the authoritative set of projectstate ordinal-enum Go types
-// that carry a custom string MarshalJSON — the 13 in enumjson.go plus ArtifactKind
+// that carry a custom string MarshalJSON — the 14 in enumjson.go plus ArtifactKind
 // (identity.go). Every such type is declared `type X int`, so jsonschema.ForType
 // reflects the STATIC int type and emits `integer`; but the wire actually ships the
 // canonical camelCase STRING (Layer(0) -> "client"). This slice enumerates the type
@@ -102,6 +102,7 @@ func modelWellKnown() map[reflect.Type]*jsonschema.Schema {
 func stringEnumTypes() []reflect.Type {
 	return []reflect.Type{
 		reflect.TypeOf(projectstate.Axis(0)),
+		reflect.TypeOf(projectstate.RejectionClass(0)),
 		reflect.TypeOf(projectstate.CheckStatus(0)),
 		reflect.TypeOf(projectstate.ComponentKind(0)),
 		reflect.TypeOf(projectstate.Layer(0)),

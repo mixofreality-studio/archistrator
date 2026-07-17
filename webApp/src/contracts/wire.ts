@@ -77,6 +77,7 @@ import type {
   ReviewCommentAddressee,
   ReviewCommentStatus,
   ReviewCommentType,
+  PmCritiqueView,
   ReviewCommentView,
   ReviewDecision,
   SDPDecision,
@@ -468,8 +469,22 @@ export function mapProjectState(w: Schemas['SystemDesignProjectState']): Project
 
 // --- system-design session -------------------------------------------------
 
+/**
+ * The surfaced PM-critique conclusion (F-QA2-7). An unknown wire verdict (a
+ * future server) is dropped entirely — rendering a made-up verdict badge would
+ * be dishonest, and absence already means "no PM conclusion to show".
+ */
+function mapCritique(
+  w: Schemas['SystemDesignCritiqueView'] | null | undefined
+): PmCritiqueView | undefined {
+  if (w === undefined || w === null) return undefined;
+  if (w.verdict !== 'approve' && w.verdict !== 'revise') return undefined;
+  return { role: w.role, verdict: w.verdict, summary: w.summary, round: w.round };
+}
+
 export function mapSessionState(w: Schemas['SystemDesignSessionStateView']): SessionStateResponse {
   const artifactKind = systemArtifactKindFromOrdinal(w.artifactKind);
+  const critique = mapCritique(w.critique);
   return {
     projectId: w.projectId,
     artifactKind,
@@ -491,9 +506,11 @@ export function mapSessionState(w: Schemas['SystemDesignSessionStateView']): Ses
       ...(w.failureRunUrl !== undefined && w.failureRunUrl !== null
         ? { failureRunUrl: w.failureRunUrl }
         : {}),
+      ...(w.runUrl !== undefined && w.runUrl !== null ? { runUrl: w.runUrl } : {}),
       ...(w.reviewThread !== undefined && w.reviewThread !== null
         ? { reviewThread: w.reviewThread.map(mapReviewComment) }
         : {}),
+      ...(critique !== undefined ? { critique } : {}),
     },
   };
 }

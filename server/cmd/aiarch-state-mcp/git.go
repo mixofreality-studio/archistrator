@@ -66,18 +66,30 @@ func (s *Session) publishDraft(message string) (string, error) {
 		return "", err
 	}
 
-	// Nothing actually staged (e.g. the drafted content equals what is already committed):
-	// treat as a clean no-op rather than failing the commit with "nothing to commit".
+	// Nothing actually staged (e.g. the drafted content equals what is already
+	// committed): publish an EMPTY re-affirm commit instead of skipping the commit.
+	// The design pipeline's silent-failure guard treats "branch did not advance" as a
+	// failed job, so a commitless no-op turns an honestly-converged redraft into a red
+	// run that retries forever (F-QA2-29, observed live: every gtdapp glossary redraft
+	// after the draft stabilized). The empty commit makes convergence auditable and
+	// advances the branch so the guard and this contract agree.
+	noNetChange := false
 	if staged, err := s.git(s.StateRoot, "status", "--porcelain", "--", statePathPrefix); err == nil && strings.TrimSpace(staged) == "" {
-		s.published = true
-		return "No net change to the committed state — nothing to publish.", nil
+		noNetChange = true
+		msg = fmt.Sprintf("%s [re-affirmed: no net change]", msg)
 	}
 
-	if _, err := s.git(s.StateRoot,
+	commitArgs := []string{
 		"-c", "user.name=aiarch-state-mcp",
 		"-c", "user.email=aiarch-state-mcp@users.noreply.github.com",
-		"commit", "-m", msg, "--", statePathPrefix,
-	); err != nil {
+		"commit", "-m", msg,
+	}
+	if noNetChange {
+		commitArgs = append(commitArgs, "--allow-empty")
+	} else {
+		commitArgs = append(commitArgs, "--", statePathPrefix)
+	}
+	if _, err := s.git(s.StateRoot, commitArgs...); err != nil {
 		return "", err
 	}
 
@@ -91,6 +103,9 @@ func (s *Session) publishDraft(message string) (string, error) {
 	branch := s.TargetBranch
 	if branch == "" {
 		branch = "(local; no target branch configured)"
+	}
+	if noNetChange {
+		return fmt.Sprintf("Re-affirmed the %s %s onto %s (no net change; empty commit published so the pipeline records the convergence).", s.Kind.WireName(), s.Mode, branch), nil
 	}
 	return fmt.Sprintf("Published the %s %s onto %s.", s.Kind.WireName(), s.Mode, branch), nil
 }

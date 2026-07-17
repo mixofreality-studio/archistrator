@@ -97,6 +97,7 @@ export const UI_IDENTIFIERS = {
     DRAFT_FAILED: 'draft-failed',
     DRAFT_FAILURE_REASON: 'draft-failure-reason',
     DRAFT_FAILURE_RUN_LINK: 'draft-failure-run-link',
+    DRAFT_FAILED_GATE_ERROR: 'draft-failed-gate-error',
     RETRY_DRAFT: 'retry-draft',
     WITHDRAW_DRAFT: 'withdraw-draft',
     // Committed-panel amendment affordances: the header Amend button, its small
@@ -133,6 +134,46 @@ export const UI_IDENTIFIERS = {
     // Compact stale marker on a spine step, keyed by slot kind.
     spineStale: (kind: string) => `spine-stale-${kind}`,
   },
+  Glossary: {
+    // The glossary reference widget (GlossaryView): search + Four-Questions
+    // filter chips + the grouped, alphabetized term list.
+    ROOT: 'glossary-view',
+    SEARCH: 'glossary-search',
+    // The "All · N" reset chip.
+    CHIP_ALL: 'glossary-chip-all',
+    // A category filter chip, keyed by its Four-Questions BASE label
+    // (Who/What/How/Where/Uncategorized — refined How-* sub-labels roll up).
+    chip: (base: string) => `glossary-chip-${base}`,
+    // A category section header, keyed by its (possibly refined) display label.
+    section: (label: string) => `glossary-section-${label}`,
+    // The "no terms match" filtered-empty state.
+    EMPTY: 'glossary-empty',
+  },
+  VolatilityMap: {
+    // The volatilities artifact's two-lane single-select map (VolatilityMap).
+    ROOT: 'volatility-map',
+    // One lane listbox, keyed by its Löwy axis value (the adapters Axis union).
+    lane: (axis: string) => `volatility-lane-${axis}`,
+    // One chip (role=option), keyed by the point's index in the flat points
+    // array — the comment-anchor identity ($.items[n]).
+    chip: (index: number) => `volatility-chip-${String(index)}`,
+    // The side-rail inspect card for the selected volatility + its clear (×).
+    DETAIL: 'volatility-detail',
+    DETAIL_CLOSE: 'volatility-detail-close',
+    // The side-rail summary shown when nothing is selected.
+    SUMMARY: 'volatility-summary',
+    // The compact axes-overview SVG above the lanes (decorative for AT — the
+    // lanes are the accessible surface; dots are pointer-clickable only).
+    AXES: 'volatility-axes',
+    // One clickable dot in the axes overview, keyed by the SAME flat points
+    // index as chip() — clicking selects the same item as the lane chip.
+    dot: (index: number) => `volatility-dot-${String(index)}`,
+    // The rejected-candidates disclosure (GatePanel button pattern) + its rows,
+    // keyed by the candidate's index in the model's `rejected` array.
+    REJECTED_TOGGLE: 'volatility-rejected-toggle',
+    REJECTED_LIST: 'volatility-rejected-list',
+    rejectedItem: (index: number) => `volatility-rejected-${String(index)}`,
+  },
   Architecture: {
     VIEW_SWITCH: 'arch-view-switch',
     VIEW_STATIC: 'static',
@@ -152,6 +193,9 @@ export const UI_IDENTIFIERS = {
     SENDBACK: 'gate-sendback',
     WITHDRAW: 'gate-withdraw',
     FINDINGS: 'findings',
+    // The surfaced PM-critique conclusion (F-QA2-7): disclosure header + body.
+    PM_REVIEW: 'gate-pm-review',
+    PM_REVIEW_BADGE: 'gate-pm-review-badge',
     // Banner naming the open-comment count that blocks approve.
     OPEN_BLOCK: 'gate-open-block',
     // Graceful FailedPrecondition surface after an approve race.

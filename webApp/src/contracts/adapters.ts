@@ -39,6 +39,7 @@ import type {
   MissionStatement,
   OperationalConcepts,
   OperationalDecision,
+  RejectedVolatility,
   Requirement,
   ScrubbedRequirements,
   StandardCheck,
@@ -195,63 +196,53 @@ function toArtifactMeta(slot: ArtifactSlotView): ArtifactMeta {
 }
 
 // ---------------------------------------------------------------------------
-// Volatilities → scatter points on the two axes.
+// Volatilities → per-axis points + rejected candidates.
 // ---------------------------------------------------------------------------
 
-/** One volatility placed on the two-axis map. */
+/**
+ * One volatility on its Löwy axis. Deliberately carries NO 2D coordinates: the
+ * typed model is categorical (one axis per volatility), and the old fabricated
+ * x/y scatter placement collapsed everything onto a diagonal (see VolatilityMap).
+ * Rendering positions (lane order, axes-diagram spacing) are derived honestly
+ * from the point's per-axis order by volatilityMapLogic.axesLayout.
+ */
 export interface VolatilityPoint {
   name: string;
   rationale: string;
   axis: Axis;
-  /** 0..1 — strength on Axis 2 (all customers, one moment). */
-  x: number;
-  /** 0..1 — strength on Axis 1 (same customer, over time). */
-  y: number;
+  /** Scrubbed-requirement ids (SR-…) this volatility traces to, when recorded. */
+  traces?: string[];
 }
 
 export interface VolatilityView {
   points: VolatilityPoint[];
+  /** Candidates the architect explicitly rejected, with the classified reason.
+   *  Empty for older artifacts drafted before the model carried them. */
+  rejected: RejectedVolatility[];
 }
 
-const EMPTY_VOLATILITY_VIEW: VolatilityView = { points: [] };
+const EMPTY_VOLATILITY_VIEW: VolatilityView = { points: [], rejected: [] };
 
 /**
- * Maps the typed Volatilities model into scatter points. The typed model carries
- * no coordinates, so we place each point deterministically: axis decides the
- * dominant dimension, and the per-axis index spreads points across the band.
+ * Maps the typed Volatilities model into the view: accepted items in model order
+ * (the index in `points` is the stable `$.items[n]` comment anchor) plus the
+ * rejected-candidate list (`$.rejected[n]`).
  */
 export function toVolatilityView(envelope: ArtifactModelEnvelope | undefined): VolatilityView {
   const model = narrow(envelope, 'volatilities');
   if (model === undefined) return EMPTY_VOLATILITY_VIEW;
   const items = model.items ?? [];
 
-  const axisCounts: Record<Axis, number> = {
-    sameCustomerOverTime: 0,
-    allCustomersAtOneTime: 0,
-  };
-  const totals: Record<Axis, number> = {
-    sameCustomerOverTime: items.filter((i) => i.axis === 'sameCustomerOverTime').length,
-    allCustomersAtOneTime: items.filter((i) => i.axis === 'allCustomersAtOneTime').length,
-  };
-
-  const points = items.map((item): VolatilityPoint => {
-    const index = axisCounts[item.axis];
-    axisCounts[item.axis] += 1;
-    const total = Math.max(totals[item.axis], 1);
-    const spread = (index + 1) / (total + 1); // 0..1 within the band
-    const strong = 0.55 + spread * 0.4; // dominant dimension
-    const weak = 0.1 + spread * 0.25; // secondary dimension
-    const isAxis1 = item.axis === 'sameCustomerOverTime';
-    return {
+  const points = items.map(
+    (item): VolatilityPoint => ({
       name: item.name,
       rationale: item.rationale,
       axis: item.axis,
-      x: isAxis1 ? weak : strong,
-      y: isAxis1 ? strong : weak,
-    };
-  });
+      ...(item.traces != null && item.traces.length > 0 ? { traces: item.traces } : {}),
+    })
+  );
 
-  return { points };
+  return { points, rejected: model.rejected ?? [] };
 }
 
 export const AXIS1_LABEL = 'Axis 1 — same customer, over time';

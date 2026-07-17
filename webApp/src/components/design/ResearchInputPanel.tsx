@@ -3,7 +3,9 @@
  * requires a ResearchInput corpus to be present; when the server reports it
  * missing (409 failed_precondition), this panel collects a single research source
  * (title + content) and submits it via setResearchInput. On success the caller
- * retries start. Minimal, deliberately one-source — the corpus can grow later.
+ * retries start. Minimal, deliberately one-source — and setResearchInput
+ * REPLACES the whole corpus (it does not append), so this single source IS the
+ * corpus until a replacing resubmission.
  */
 import { useState, type ReactNode } from 'react';
 import Box from '@mui/material/Box';
@@ -40,7 +42,7 @@ export function ResearchInputPanel({
         </Typography>
       </Box>
       <Typography sx={{ color: t.muted, fontSize: 14, lineHeight: 1.6, mb: 3 }}>
-        System Design distills the mission from your research corpus. Add at least one source — a
+        System Design distills the mission from your research. Add your primary research source — a
         founder brief, competitor analysis, or customer interview — to start the workflow.
       </Typography>
       <TextField

@@ -15,6 +15,7 @@
  * Recolored from tokens to match the retro chrome.
  */
 import type { ReactNode } from 'react';
+import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
@@ -40,6 +41,7 @@ export function DraftFailedPanel({
   onWithdraw,
   withdrawPending = false,
   async: isAsync = false,
+  gateError,
 }: {
   /** Title of the artifact whose draft failed (for the header label). */
   artifact: string;
@@ -62,6 +64,12 @@ export function DraftFailedPanel({
    * "your design job failed" framing rather than the inline worker-fault framing.
    */
   async?: boolean;
+  /**
+   * A failed Retry/Withdraw DECISION's error message (2026-07-16 incident: dead-session
+   * decisions 503'd with ZERO feedback rendered). Surfaced inline — same pattern as
+   * GatePanel's gateError — until the next attempt clears it.
+   */
+  gateError?: string | undefined;
 }): ReactNode {
   const t = useTokens();
   const fallback = isAsync ? ASYNC_FALLBACK_REASON : FALLBACK_REASON;
@@ -142,6 +150,18 @@ export function DraftFailedPanel({
             View the failed run
             <OpenInNewIcon sx={{ fontSize: 14 }} />
           </Link>
+        ) : null}
+        {/* A failed Retry/Withdraw decision must not be invisible (2026-07-16 incident):
+            name its error inline. MUI Alert carries role="alert" so screen readers
+            announce it — the same a11y pattern as GatePanel's gate error. */}
+        {gateError !== undefined && gateError.length > 0 ? (
+          <Alert
+            data-testid={UI_IDENTIFIERS.DesignExperience.DRAFT_FAILED_GATE_ERROR}
+            severity="error"
+            sx={{ alignItems: 'flex-start', textAlign: 'left', maxWidth: 520 }}
+          >
+            {gateError}
+          </Alert>
         ) : null}
         <Box sx={{ display: 'flex', gap: 1.5, mt: 1 }}>
           <Button

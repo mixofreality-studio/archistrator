@@ -48,11 +48,12 @@ export function GeneratingScene({
 }: {
   artifact: string;
   /**
-   * Optional deep-link to the repo's GitHub Actions tab where the design job runs.
-   * When absent (we don't always hold the repo host), the affordance still explains
-   * the CI wait — it just omits the link rather than fabricating one.
+   * Optional deep-link to the live GitHub Actions run the design job is executing as
+   * (the server resolves it from the dispatched run's observations — F-GTD-6).
+   * When absent (older server, or the run URL not yet resolved), the affordance still
+   * explains the CI wait — it just omits the link rather than fabricating one.
    */
-  actionsUrl?: string;
+  actionsUrl?: string | undefined;
   /**
    * When set, this drafting run is amending an ALREADY-COMMITTED artifact (revision
    * N). Surfaces an honest framing line so the committed header + generating scene

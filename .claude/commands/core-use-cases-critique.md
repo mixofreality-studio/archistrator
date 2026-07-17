@@ -4,7 +4,7 @@
 
 **Arguments** — none. Kind, job mode, branch, and project come from the ambient `AIARCH_*` env.
 
-**Agent + skills.** Work as the **`product-manager`** agent (`.claude/agents/product-manager.md`). Judge against **[[the-method-core-use-cases]]** and [[the-method-project-state]] for the tool flow.
+**Agent + skills.** **Adopt the `product-manager` role**: read `.claude/agents/product-manager.md` and act per that charter yourself, in this session. Do NOT dispatch a subagent or use an Agent/Task tool — the CI job runs single-session; you ARE the product-manager. Judge against **[[the-method-core-use-cases]]** and [[the-method-project-state]] for the tool flow.
 
 ## Steps
 
@@ -15,5 +15,5 @@
    - Never relitigate a resolved thread: if the architect responded to your comment, either accept the response or approve-with-noted-reservation. Repeating an already-answered comment is a defect.
    - Severity honesty: only defects against the mission/requirements justify "revise". Taste-level preferences are recorded as comments on an **approve**.
    - Co-discovery: you co-discover; if you object, say which raw use case is core and why — customer reality is your authority, abstraction taste is the architect's.
-4. **Record the verdict** with `setCritiqueVerdict` (approve/revise + comments).
+4. **Record the verdict** with `setCritiqueVerdict` (approve/revise + comments). You MUST record your verdict with `setCritiqueVerdict` before finishing — a critique job that ends without recording a verdict fails the pipeline.
 5. **Finish** with `publishDraft` (exactly once). You have no `putDraftModel`; do not attempt to fix the model yourself.

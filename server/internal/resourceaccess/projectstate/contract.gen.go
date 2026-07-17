@@ -551,6 +551,21 @@ type QualityGate struct {
 	Mode         string `json:"mode"`
 }
 
+type RejectedVolatility struct {
+	Name   string         `json:"name"`
+	Reason string         `json:"reason"`
+	Class  RejectionClass `json:"class"`
+}
+
+type RejectionClass int
+
+const (
+	RejectionVariableNotVolatile RejectionClass = 0
+	RejectionNatureOfTheBusiness RejectionClass = 1
+	RejectionSpeculative         RejectionClass = 2
+	RejectionFoldedInto          RejectionClass = 3
+)
+
 type Relationship struct {
 	From  string   `json:"from"`
 	To    string   `json:"to"`
@@ -741,13 +756,15 @@ type UseCaseDecision struct {
 type Version int64
 
 type Volatilities struct {
-	Items []Volatility `json:"items"`
+	Items    []Volatility         `json:"items"`
+	Rejected []RejectedVolatility `json:"rejected,omitempty"`
 }
 
 type Volatility struct {
-	Name      string `json:"name"`
-	Rationale string `json:"rationale"`
-	Axis      Axis   `json:"axis"`
+	Name      string   `json:"name"`
+	Rationale string   `json:"rationale"`
+	Axis      Axis     `json:"axis"`
+	Traces    []string `json:"traces,omitempty"`
 }
 
 type WorkerMix struct {

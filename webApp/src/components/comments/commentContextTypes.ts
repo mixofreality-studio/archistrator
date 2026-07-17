@@ -106,8 +106,14 @@ export interface CommentCtx {
    * slot's persisted pending entries and routes subsequent post/remove/reset
    * writes to it, so unsent notes survive a reload and switching artifact steps
    * swaps to that step's own pending set. A no-op on read-only surfaces.
+   *
+   * `projectVersion` is the project head-state Version the surface just read
+   * (GetProject) — the incarnation stamp persisted alongside the entries so
+   * drafts written against a DELETED-and-RECREATED project under the same
+   * ProjectID are invalidated on load instead of resurrected (F-QA2-5; see
+   * pendingCommentsStore.ts). Callers bind only once the project has loaded.
    */
-  setActiveKey: (key: string) => void;
+  setActiveKey: (key: string, projectVersion: number) => void;
   /** Maps the ANCHORED CHANGE-REQUEST entries into the wire AnchoredComment[] shape (questions excluded). */
   toWire: () => AnchoredComment[];
   /** The FREE-FORM CHANGE-REQUEST entries joined into the reject `feedback` notes string (questions excluded). */

@@ -73,7 +73,10 @@ func TestPublishDraft_DirtyTreeWithoutFlag(t *testing.T) {
 	}
 }
 
-// TestPublishDraft_NoNetChange treats an add that stages nothing as a clean no-op.
+// TestPublishDraft_NoNetChange publishes an EMPTY re-affirm commit when the add stages
+// nothing, so the pipeline's branch-advanced guard records the convergence instead of
+// failing a green job (F-QA2-29). The commit must carry --allow-empty and the message
+// must say the draft was re-affirmed.
 func TestPublishDraft_NoNetChange(t *testing.T) {
 	s, fg := seedProject(t, minimalProject(), jobModeDraft, projectstate.KindVolatilities)
 	s.wroteState = true
@@ -82,10 +85,16 @@ func TestPublishDraft_NoNetChange(t *testing.T) {
 	if err != nil {
 		t.Fatalf("publish: %v", err)
 	}
-	if !strings.Contains(msg, "No net change") {
-		t.Fatalf("expected no-net-change message, got %q", msg)
+	if !strings.Contains(msg, "Re-affirmed") {
+		t.Fatalf("expected re-affirm message, got %q", msg)
 	}
-	if fg.didCall("commit") {
-		t.Fatalf("committed despite no staged change")
+	if !fg.didCall("commit") {
+		t.Fatalf("no re-affirm commit was made on a no-net-change publish")
+	}
+	if !fg.didCallWith("commit", "--allow-empty") {
+		t.Fatalf("re-affirm commit was not --allow-empty")
+	}
+	if !fg.didCall("push") {
+		t.Fatalf("re-affirm commit was not pushed")
 	}
 }

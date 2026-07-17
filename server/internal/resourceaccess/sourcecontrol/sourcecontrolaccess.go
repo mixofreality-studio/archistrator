@@ -194,6 +194,10 @@ type access struct {
 
 	mu         sync.Mutex
 	tokenCache map[string]cachedToken // key: RepoRef.String()
+	// scaffoldSynced memoizes, per repo, the methodassets version whose FULL
+	// sync-scoped file set this process has successfully converged (F-QA2-36
+	// torn-state guard — see managedSyncMemo). key: RepoRef.String().
+	scaffoldSynced map[string]string
 }
 
 type cachedToken struct {
@@ -228,6 +232,7 @@ func newGitHubSourceControlAccess(client *fwgithub.AppClient, defaultAccount, ap
 		repoPrivate:    repoPrivate,
 		now:            time.Now,
 		tokenCache:     map[string]cachedToken{},
+		scaffoldSynced: map[string]string{},
 	}, nil
 }
 
@@ -531,8 +536,9 @@ func (a *access) GetInstallationToken(rc fwra.Context, repo RepoRef) (RepoCreden
 // overwrite-if-changed: a byte-identical file is a no-op). This trades a single
 // atomic Git-tree commit for the existing, well-tested Contents primitive — each PUT
 // is independently idempotent, so a retry after a partial seat re-converges every
-// file. Files are committed in a STABLE order (sorted by path) for deterministic
-// commit history. The returned CommitRef is the LAST file's resulting commit.
+// file. Files are committed in a STABLE order (sorted by path, seat manifest LAST —
+// see putManagedFiles) for deterministic commit history. The returned CommitRef is
+// the LAST file's resulting commit.
 func (a *access) CommitManagedFiles(rc fwra.Context, repo RepoRef, files []ManagedFile, cred RepoCredential) (CommitRef, error) {
 	ref, _, err := a.putManagedFiles(rc.Context, repo, files, ManagedCommitMessage, cred)
 	return ref, err
@@ -572,6 +578,23 @@ func (a *access) ReadManagedFile(ctx context.Context, repo RepoRef, p string, cr
 	return a.client.GetRepoContentsFile(ctx, fullName, p, credStr(cred))
 }
 
+// ManagedScaffoldSynced / RecordManagedScaffoldSynced implement the managedSyncMemo
+// auxiliary surface (F-QA2-36): the per-process record of which repos this access has
+// proven current by a FULL sync-set converge, keyed by repo and methodassets version
+// (a server upgrade naturally invalidates every entry). Same off-contract discovery
+// pattern as SyncManagedFiles / ReadManagedFile / AppSlug.
+func (a *access) ManagedScaffoldSynced(repo RepoRef, version string) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.scaffoldSynced[RepoRefString(repo)] == version
+}
+
+func (a *access) RecordManagedScaffoldSynced(repo RepoRef, version string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.scaffoldSynced[RepoRefString(repo)] = version
+}
+
 // putManagedFiles is the SHARED seat/sync write behind CommitManagedFiles (the frozen
 // birth-seat verb, fixed ManagedCommitMessage) and SyncManagedFiles (the auxiliary
 // sync, caller message + drift report). One implementation, one allowlist gatekeeper.
@@ -601,7 +624,24 @@ func (a *access) putManagedFiles(ctx context.Context, repo RepoRef, files []Mana
 			return "", false, fwra.New(fwra.ContractMisuse, "CommitManagedFiles: empty content for "+f.Path)
 		}
 	}
-	sort.Slice(ordered, func(i, j int) bool { return ordered[i].Path < ordered[j].Path })
+	// Path-sorted, with ONE fixed exception: the seat manifest commits LAST
+	// (F-QA2-36). The manifest is the sync fast-path's currency fingerprint; under a
+	// plain path sort it lands FIRST (".claude/.method-…" sorts before every
+	// ".claude/agents|commands|skills/…" file), so a write that dies mid-loop left a
+	// CURRENT manifest over a half-old tree — and every later sync trusted it and
+	// skipped the torn .claude tree forever. Committing content first and the
+	// manifest last makes the per-file loop RESUMABLE: an interrupted seat leaves
+	// the OLD (or no) manifest in place, the fast-path misses, and the next sync
+	// completes the converge. (A truly atomic multi-file Git-tree commit needs a
+	// trees-API primitive the satellite does not expose yet — earmarked; it would
+	// also collapse the one-commit-per-drifted-file history noise, F-QA2-1.)
+	sort.Slice(ordered, func(i, j int) bool {
+		im, jm := ordered[i].Path == scaffoldManifestPath, ordered[j].Path == scaffoldManifestPath
+		if im != jm {
+			return jm // every content file sorts before the manifest
+		}
+		return ordered[i].Path < ordered[j].Path
+	})
 
 	var last CommitRef
 	var anyChanged bool
@@ -1024,6 +1064,9 @@ const DesignWorkflowPath = ".github/workflows/aiarch-design.yml"
 // managed-scaffold sync FAST-PATH reads THIS ONE FILE off the repo and compares the
 // version — NEVER the files list: a materializer-written manifest may transiently
 // carry retained orphans (self-healing prune), so the list is not a stable fingerprint.
+// Because it IS the currency fingerprint, putManagedFiles commits it LAST in any seat
+// or sync bundle (F-QA2-36): it may only ever assert a version whose content files all
+// landed before it.
 const scaffoldManifestPath = ".claude/.method-assets-manifest.json"
 
 // GoModPath / MethodTestPath are the repo-root scaffold paths the go-test gate is
@@ -1088,7 +1131,17 @@ const StateMcpModulePath = "github.com/mixofreality-studio/archistrator/server/c
 // older pin are refreshed by the design Managers' sync-on-dispatch (SyncManagedScaffold)
 // before every design job, so a seated repo can no longer run against a pin this server's
 // validators do not understand.
-var StateMcpModulePin = "e9d18ca0e5cd9b9880b7caa02a9da5e9e5278a35"
+//
+// TOOL-SURFACE COUPLING (F-QA2-23). The materialized method-assets prompts name
+// aiarch-state MCP tools the agents must call; the binary installed AT THIS PIN is what
+// registers them. When the prompts start referencing a NEW tool, this pin must move to a
+// PUSHED commit whose binary registers it — otherwise every design/construction job
+// bails on a nonexistent tool (the getCritique incident). The source-tree side is
+// enforced by TestPromptSurfaceToolReferencesExistInRegistry
+// (cmd/aiarch-state-mcp/promptsurface_test.go): a prompt-referenced tool must exist at
+// HEAD, so a correct pin bump to a commit at-or-after the tool's introduction closes the
+// skew. TestStateMcpPinIsFullCommitSHA (below, access_test.go) enforces the pin's shape.
+var StateMcpModulePin = "9869710606ca2697722023b7294d4a9cab863593"
 
 // NOTE (2026-06-15 correction): the embedded DESIGN workflow reads
 // ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }} to authenticate claude-code-action, but that
@@ -1236,6 +1289,43 @@ type managedFileReader interface {
 	ReadManagedFile(ctx context.Context, repo RepoRef, path string, cred RepoCredential) ([]byte, bool, error)
 }
 
+// managedSyncMemo is the OPTIONAL per-process sync-verification memo a concrete
+// SourceControlAccess may expose (the GitHub-backed access does — see
+// (*access).ManagedScaffoldSynced): has THIS process already converged the FULL
+// sync-scoped set for repo at this methodassets version? Same discovery pattern as
+// managedFileSyncer / managedFileReader.
+//
+// WHY (F-QA2-36, torn-state belt-and-braces): the seat manifest carries a version
+// and a files list but NO per-file content hashes, and the satellite exposes no
+// trees-API primitive to compare seated blob SHAs in one call — so a manifest whose
+// version matches cannot, by itself, prove the seated tree's CONTENT. A live repo
+// (gtdapp) was torn exactly this way: an interrupted pre-fix sync wrote the manifest
+// first, died mid-loop, and every later dispatch's version-only fast-path trusted
+// the lying manifest and skipped the half-old tree forever. The memo makes the
+// fast-path's trust EARNED per process: the first sync of a repo in a process
+// lifetime always runs the full fetch-compare-put converge (byte-exact verification
+// AND repair in one pass — a current tree costs only reads, no commits), and only
+// then may later syncs skip the tree on a manifest-version hit. A rail without the
+// memo simply never takes the fast path. (Earmark: a satellite trees-API read would
+// make the verification O(1) API calls and this memo unnecessary.)
+type managedSyncMemo interface {
+	ManagedScaffoldSynced(repo RepoRef, version string) bool
+	RecordManagedScaffoldSynced(repo RepoRef, version string)
+}
+
+// scaffoldSyncedThisProcess / recordScaffoldSynced adapt the optional memo surface:
+// absent memo ⇒ never verified / record is a no-op.
+func scaffoldSyncedThisProcess(rail SourceControlAccess, repo RepoRef) bool {
+	m, ok := rail.(managedSyncMemo)
+	return ok && m.ManagedScaffoldSynced(repo, methodassets.Version())
+}
+
+func recordScaffoldSynced(rail SourceControlAccess, repo RepoRef) {
+	if m, ok := rail.(managedSyncMemo); ok {
+		m.RecordManagedScaffoldSynced(repo, methodassets.Version())
+	}
+}
+
 // SyncManagedScaffold ensures the SEATED prompt surface — both agentic workflows
 // (aiarch-design.yml + aiarch-construct.yml) and the full .claude tree with its seat
 // manifest, on the repo's DEFAULT branch — matches the CURRENT methodassets rendering.
@@ -1245,17 +1335,29 @@ type managedFileReader interface {
 // server upgrades stranded live repos on stale prompts/pins the new validators
 // reject).
 //
-// FAST-PATH (B4): converging ~100 .claude files by fetch-compare-put on EVERY design
-// dispatch is wasteful, so when the rail can read files (managedFileReader) the sync
-// first reads the seated .claude/.method-assets-manifest.json and compares its
-// version — VERSION ONLY, never the files list (a materializer-written manifest may
-// transiently carry retained orphans) — against this server's methodassets pin
-// (methodassets.Version()). On a match the .claude tree is proven current and the
-// sync converges ONLY the two workflow files: their rendering also carries the
-// SERVER-owned (ldflags-stampable) StateMcpModulePin, which the module version
-// cannot fingerprint, so the workflows are always converged. An absent/unreadable/
-// mismatched manifest (or a rail without the read surface) takes the FULL seat:
-// every sync-scoped file through the same putManagedFiles converge.
+// FAST-PATH (B4; hardened for F-QA2-36): converging ~100 .claude files by
+// fetch-compare-put on EVERY design dispatch is wasteful, so the sync may skip the
+// .claude tree — but only when BOTH proofs hold:
+//
+//  1. THIS PROCESS has already converged the FULL sync set for this repo at this
+//     methodassets version (managedSyncMemo) — byte-exact verification-and-repair,
+//     which is what heals a repo torn by a pre-fix interrupted sync whose manifest
+//     lies (the gtdapp incident: manifest written first, loop died mid-tree, every
+//     version-only fast-path thereafter trusted it and the tear never self-healed);
+//     AND
+//  2. the seated .claude/.method-assets-manifest.json (managedFileReader) carries
+//     exactly this server's methodassets pin — VERSION ONLY, never the files list
+//     (a materializer-written manifest may transiently carry retained orphans) —
+//     which catches cross-process drift the in-process memo cannot see. Since
+//     putManagedFiles commits the manifest LAST, an interrupted converge leaves the
+//     old (or no) manifest behind and this check misses until the converge completes.
+//
+// On both proofs the sync converges ONLY the two workflow files: their rendering
+// also carries the SERVER-owned (ldflags-stampable) StateMcpModulePin, which the
+// module version cannot fingerprint, so the workflows are always converged. Anything
+// less — first sync of a process, absent/unreadable/mismatched manifest, or a rail
+// without the read surface — takes the FULL seat: every sync-scoped file through the
+// same putManagedFiles converge (a current file costs a read, never a commit).
 //
 // Either way the write is fetch-compare-put per file (byte-identical short-circuits,
 // no empty commits):
@@ -1282,9 +1384,13 @@ func SyncManagedScaffold(ctx context.Context, rail SourceControlAccess, repo Rep
 	if err != nil {
 		return false, err
 	}
-	if seatedManifestVersionCurrent(ctx, rail, repo, cred) {
-		// Fast path: the manifest proves the seated .claude tree current — converge
-		// only the workflows (server-owned pins ride in them).
+	fullSet := true
+	// Memo first (free), manifest read second (one API call): a memo miss always
+	// takes the full converge, so the manifest read would be wasted.
+	if scaffoldSyncedThisProcess(rail, repo) && seatedManifestVersionCurrent(ctx, rail, repo, cred) {
+		// Fast path: this process has verified the seated .claude tree byte-exact at
+		// this version AND the manifest still fingerprints it current — converge only
+		// the workflows (server-owned pins ride in them).
 		workflows := files[:0]
 		for _, f := range files {
 			if strings.HasPrefix(f.Path, workflowPathPrefix) {
@@ -1292,12 +1398,19 @@ func SyncManagedScaffold(ctx context.Context, rail SourceControlAccess, repo Rep
 			}
 		}
 		files = workflows
+		fullSet = false
 	}
 	if s, ok := rail.(managedFileSyncer); ok {
 		_, changed, serr := s.SyncManagedFiles(ctx, repo, files, syncManagedScaffoldMessage(), cred)
+		if serr == nil && fullSet {
+			recordScaffoldSynced(rail, repo)
+		}
 		return changed, serr
 	}
 	_, err = rail.CommitManagedFiles(fwra.Context{Context: ctx}, repo, files, cred)
+	if err == nil && fullSet {
+		recordScaffoldSynced(rail, repo)
+	}
 	return false, err
 }
 

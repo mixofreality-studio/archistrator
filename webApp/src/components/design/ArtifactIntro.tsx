@@ -29,7 +29,7 @@ import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 const INTRO: Partial<Record<ArtifactKind, { draft: string; committed: string }>> = {
   volatilities: {
     draft:
-      'DRAFT — the two-axis decomposition. Up = evolves for one customer over time; right = differs across customers at one moment. Click a chip to inspect or comment.',
+      'DRAFT — the two-axis decomposition as side-by-side lanes. Left lane = changes for one customer over time; right lane = differs across customers at one moment. Click a chip to inspect or comment.',
     committed:
       'COMMITTED — the two-axis decomposition is sealed and in context for Core Use Cases.',
   },

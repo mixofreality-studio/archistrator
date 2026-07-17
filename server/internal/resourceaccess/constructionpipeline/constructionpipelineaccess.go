@@ -79,9 +79,10 @@ type ghRun struct {
 	status     string // "queued" | "in_progress" | "completed" | …
 	conclusion string // "success" | "failure" | "cancelled" | … (when completed)
 	// htmlURL is the run's browser URL, built by the concrete realisation (the ONLY
-	// place the github.com lexeme lives). Surfaced on a terminal-failure observation so
-	// the Manager can deep-link the operator to the failed run (QA F15 gap 2b). Empty
-	// when the realisation cannot resolve it (e.g. the fake in a test that does not set it).
+	// place the github.com lexeme lives). Surfaced on EVERY observation so the Manager
+	// can deep-link the operator to the live run while it drafts (QA F-GTD-6) and to
+	// the failed run on a terminal failure (QA F15 gap 2b). Empty when the realisation
+	// cannot resolve it (e.g. the fake in a test that does not set it).
 	htmlURL string
 }
 
@@ -528,12 +529,13 @@ func observationFrom(handle PipelineHandle, run ghRun) PipelineObservation {
 	if obs.Phase == PhaseFailed {
 		obs.Diagnostic = neutralDiagnostic(run.conclusion)
 	}
-	// On any terminal non-success (Failed / Cancelled) surface the run's URL as the
-	// operator's "why" pointer (QA F15 gap 2b) — the deep-link the Manager threads onto
-	// the failed card. Empty when the realisation could not resolve it.
-	if obs.Phase == PhaseFailed || obs.Phase == PhaseCancelled {
-		obs.RunURL = run.htmlURL
-	}
+	// Surface the run's URL on EVERY observation the realisation resolved it for:
+	// while the run is Pending/Running it is the caller's live "view the run"
+	// deep-link (QA F-GTD-6 — the generating view's link to the in-flight CI run);
+	// on a terminal non-success it is the operator's "why" pointer (QA F15 gap 2b)
+	// the Manager threads onto the failed card. Empty when the realisation could
+	// not resolve it.
+	obs.RunURL = run.htmlURL
 	return obs
 }
 

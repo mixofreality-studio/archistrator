@@ -4688,6 +4688,52 @@ func TestRequireModelFields_Volatilities(t *testing.T) {
 	}
 }
 
+// ---- rejected[] (the ch. 2 false-volatility record) + traces[] (SR traceability) ----
+
+func TestRequireModelFields_Volatilities_RejectedAndTraces(t *testing.T) {
+	// A fully-populated model — accepted item with structured SR traces, plus one
+	// rejected candidate per RejectionClass filter — must pass.
+	valid := `{
+      "items":[{"name":"V","rationale":"r","axis":"sameCustomerOverTime","traces":["SR-1","SR-2"]}],
+      "rejected":[
+        {"name":"UI theme","reason":"conditional config, not open-ended","class":"variableNotVolatile"},
+        {"name":"Tax rules","reason":"identical across customers","class":"natureOfTheBusiness"},
+        {"name":"Reporting","reason":"habitual block, no volatility","class":"speculative"},
+        {"name":"Email transport","reason":"folded into notification volatility","class":"foldedInto"}
+      ]
+    }`
+	if err := RequireModelFields(KindVolatilities, []byte(valid)); err != nil {
+		t.Fatalf("valid volatilities with rejected+traces should pass, got: %v", err)
+	}
+
+	// BACK-COMPAT: an older model with no rejected roster (and no traces) stays legal.
+	legacy := `{"items":[{"name":"V","rationale":"r","axis":"sameCustomerOverTime"}]}`
+	if err := RequireModelFields(KindVolatilities, []byte(legacy)); err != nil {
+		t.Fatalf("a legacy volatilities model without rejected/traces must keep passing, got: %v", err)
+	}
+
+	// A rejected candidate omitting its class must be rejected naming class —
+	// RejectionClass's zero value (variableNotVolatile) would otherwise silently
+	// absorb the omission (the F81 zero-value hole).
+	missingClass := `{"items":[],"rejected":[{"name":"X","reason":"r"}]}`
+	if err := RequireModelFields(KindVolatilities, []byte(missingClass)); err == nil || !strings.Contains(err.Error(), "class") {
+		t.Fatalf("a rejected candidate omitting class must be rejected naming class, got: %v", err)
+	}
+
+	// An unrecognized class wire name must be rejected listing the valid filters.
+	badClass := `{"items":[],"rejected":[{"name":"X","reason":"r","class":"bogus"}]}`
+	if err := RequireModelFields(KindVolatilities, []byte(badClass)); err == nil || !strings.Contains(err.Error(), "variableNotVolatile") {
+		t.Fatalf("an unrecognized rejection class must be rejected naming the valid wire values, got: %v", err)
+	}
+
+	// A rejected candidate with an empty reason must be rejected: the record IS the
+	// reasoning (TradeMe precedent — every rejection is documented).
+	noReason := `{"items":[],"rejected":[{"name":"X","reason":" ","class":"speculative"}]}`
+	if err := RequireModelFields(KindVolatilities, []byte(noReason)); err == nil || !strings.Contains(err.Error(), "reason") {
+		t.Fatalf("a rejected candidate with an empty reason must be rejected naming reason, got: %v", err)
+	}
+}
+
 // TestRequireModelFields_ReadBackParity confirms the check integrates into the codec:
 // a System draft that omits every component's layer (the live F81 corruption) fails to
 // re-decode through DecodeProjectJSON, exactly as the write path rejects it.
@@ -6754,5 +6800,223 @@ func TestProjectDoc_ReviewPolicy_RoundTrip(t *testing.T) {
 	}
 	if got.ReviewPolicy.RequiresHuman("frontend", MethodPhaseConstruction) {
 		t.Error("frontend/construction should not be gated after round-trip")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Persisted-state JSON key casing (QA defect B, 2026-07-16).
+//
+// The committed .aiarch/state/project.json follows the schema-first lowerCamel
+// casing convention everywhere. The handwritten ResearchCorpus /
+// ResearchSourceRef types carried capitalized json tags ("Sources", "Title",
+// "Path", "ContentBytes") and leaked PascalCase keys into the committed state.
+// These suites (1) prove the research block now persists camelCase keys end to
+// end, (2) prove documents written with the LEGACY capitalized keys still
+// decode (Go's json.Unmarshal matches case-insensitively), and (3) gate the
+// whole persisted type tree so a new capitalized json tag can never land
+// unnoticed again.
+// ---------------------------------------------------------------------------
+
+// Test_ResearchCorpus_PersistsCamelCaseKeys drives the real write path
+// (SetResearchInput over a local git repo) and asserts the committed
+// project.json research block uses lowerCamel keys — not the legacy
+// capitalized ones.
+func Test_ResearchCorpus_PersistsCamelCaseKeys(t *testing.T) {
+	store, raw, cred, ctx := newLocalGitStoreWithRepo(t)
+	id := ProjectID(uuid.NewString())
+	if _, err := store.CreateProject(ctx, id, "alice", "Demo", cred, "wf:create"); err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	research := ResearchInput{Sources: []ResearchSource{{Title: "Founder Brief", Content: "corpus body"}}}
+	if _, err := store.SetResearchInput(ctx, id, 1, research, cred, "wf:research"); err != nil {
+		t.Fatalf("SetResearchInput: %v", err)
+	}
+
+	snap, err := raw.ReadSubtree(ctx, ".aiarch/state", fwgithub.GitAuth{Local: true})
+	if err != nil {
+		t.Fatalf("raw ReadSubtree: %v", err)
+	}
+	pj, ok := snap.Files["project.json"]
+	if !ok {
+		t.Fatal("project.json not committed")
+	}
+	var doc map[string]json.RawMessage
+	if err := json.Unmarshal(pj, &doc); err != nil {
+		t.Fatalf("unmarshal project.json: %v", err)
+	}
+	var researchBlock struct {
+		Sources []map[string]json.RawMessage `json:"sources"`
+	}
+	if err := json.Unmarshal(doc["research"], &researchBlock); err != nil {
+		t.Fatalf("unmarshal research block: %v", err)
+	}
+	if len(researchBlock.Sources) != 1 {
+		t.Fatalf("committed research block has no lowerCamel `sources` array: %s", doc["research"])
+	}
+	src := researchBlock.Sources[0]
+	for _, want := range []string{"title", "path", "contentBytes"} {
+		if _, ok := src[want]; !ok {
+			t.Errorf("committed research source missing lowerCamel key %q; keys present: %v", want, keysOf(src))
+		}
+	}
+	for _, legacy := range []string{"Sources", "Title", "Path", "ContentBytes"} {
+		if bytes.Contains(doc["research"], []byte(`"`+legacy+`"`)) {
+			t.Errorf("committed research block still carries legacy capitalized key %q: %s", legacy, doc["research"])
+		}
+	}
+}
+
+// Test_ResearchCorpus_LegacyCapitalizedKeysStillDecode proves back-compat: a
+// project.json committed BEFORE the casing fix (capitalized "Sources"/"Title"/
+// "Path"/"ContentBytes") still decodes into the corpus — Go's json.Unmarshal
+// matches struct fields case-insensitively, so no migration of existing state
+// files is needed.
+func Test_ResearchCorpus_LegacyCapitalizedKeysStillDecode(t *testing.T) {
+	legacy := []byte(`{
+		"id": "p1",
+		"version": 3,
+		"phase": 1,
+		"owner": "alice",
+		"name": "Demo",
+		"research": {"Sources": [{"Title": "Founder Brief", "Path": ".aiarch/state/research/00-founder-brief.txt", "ContentBytes": 42}]},
+		"slots": {}
+	}`)
+	p, exists, err := decodeProjectDoc(legacy, ProjectID("p1"))
+	if err != nil {
+		t.Fatalf("decodeProjectDoc(legacy casing): %v", err)
+	}
+	if !exists {
+		t.Fatal("decodeProjectDoc: exists=false")
+	}
+	if len(p.Research.Sources) != 1 {
+		t.Fatalf("legacy capitalized research keys no longer decode; got %+v", p.Research)
+	}
+	got := p.Research.Sources[0]
+	want := ResearchSourceRef{Title: "Founder Brief", Path: ".aiarch/state/research/00-founder-brief.txt", ContentBytes: 42}
+	if got != want {
+		t.Fatalf("legacy decode = %+v, want %+v", got, want)
+	}
+}
+
+// Test_PersistedStateJSONTags_AreLowerCamel is the regression gate for the
+// whole persisted type tree: every json tag reachable from projectDoc (the
+// on-disk project.json shape), from appliedRecord (the dedup ledger file), and
+// from every artifact model in the closed ArtifactKind sum (the slot payloads)
+// must begin with a lowercase letter. A field with NO json tag is equally an
+// offender — encoding/json then uses the exported (capitalized) Go name.
+//
+// KNOWN OFFENDERS (ratchet, not waiver): the entries in
+// legacyUpperCamelPersistedTags below predate this gate. They are GENERATED
+// from project.json .serviceContracts (contract.gen.go — e.g. ProducedArtifact,
+// Profile), so fixing them means fixing the casing in the committed service
+// contracts and re-running `make gen`, which changes the persisted shape AND
+// the wire surface together — earmarked as a follow-up contract-casing pass.
+// This list must only ever SHRINK; adding to it fails review by construction
+// (the test message says to fix the tag, not to extend the list).
+func Test_PersistedStateJSONTags_AreLowerCamel(t *testing.T) {
+	roots := []reflect.Type{
+		reflect.TypeOf(projectDoc{}),
+		reflect.TypeOf(appliedRecord{}),
+	}
+	for _, k := range AllArtifactKinds() {
+		m, ok := NewModelForKind(k)
+		if !ok {
+			t.Fatalf("NewModelForKind(%v): no factory", k)
+		}
+		roots = append(roots, reflect.TypeOf(m))
+	}
+
+	offenders := map[string]bool{}
+	seen := map[reflect.Type]bool{}
+	for _, r := range roots {
+		collectUpperJSONTags(r, seen, offenders)
+	}
+
+	for o := range offenders {
+		if legacyUpperCamelPersistedTags[o] {
+			continue
+		}
+		t.Errorf("persisted JSON key not lowerCamel: %s — give the field a camelCase json tag (project.json is schema-first lowerCamel)", o)
+	}
+	// Ratchet: every allowlisted entry must still exist; a fixed offender must be
+	// REMOVED from the list so the gate only ever tightens.
+	for l := range legacyUpperCamelPersistedTags {
+		if !offenders[l] {
+			t.Errorf("legacyUpperCamelPersistedTags entry %q no longer offends — remove it from the allowlist (the gate must only shrink)", l)
+		}
+	}
+}
+
+// legacyUpperCamelPersistedTags is the closed set of PRE-EXISTING capitalized
+// json keys in the persisted state, all owned by generated contract types
+// (contract.gen.go ← project.json .serviceContracts). See the gate test's doc
+// comment: fix = contract casing pass + `make gen`; this list only shrinks.
+var legacyUpperCamelPersistedTags = map[string]bool{
+	// ActivityGitStatus (projectDoc.activityGit map values) — generated; the
+	// webApp wire layer (GitStatus.tsx et al.) consumes these capitalized keys,
+	// so the fix must move contract + regen + webApp together.
+	"ActivityGitStatus.ActivityID:ActivityID":         true,
+	"ActivityGitStatus.BranchName:BranchName":         true,
+	"ActivityGitStatus.BranchRef:BranchRef":           true,
+	"ActivityGitStatus.CRLabel:CRLabel":               true,
+	"ActivityGitStatus.PullRequestRef:PullRequestRef": true,
+	"ActivityGitStatus.CICheck:CICheck":               true,
+	"ActivityGitStatus.Merged:Merged":                 true,
+	"ActivityGitStatus.ArchApproved:ArchApproved":     true,
+	"ActivityGitStatus.IsRevert:IsRevert":             true,
+	"ActivityGitStatus.UpdatedAt:UpdatedAt":           true,
+	// ProducedArtifact (activityConstruction produced[]) — generated.
+	"ProducedArtifact.Kind:Kind":         true,
+	"ProducedArtifact.Title:Title":       true,
+	"ProducedArtifact.Source:Source":     true,
+	"ProducedArtifact.Produced:Produced": true,
+	"ProducedArtifact.Note:Note":         true,
+	// ConstructionProgress (projectDoc.constructionProgress) — generated.
+	"ConstructionProgress.Week:Week":                     true,
+	"ConstructionProgress.TotalWeeks:TotalWeeks":         true,
+	"ConstructionProgress.HandOffModel:HandOffModel":     true,
+	"ConstructionProgress.SupervisionCap:SupervisionCap": true,
+}
+
+// collectUpperJSONTags walks the struct type tree reachable from t (through
+// pointers, slices, arrays and maps) and records every field whose effective
+// JSON key starts with an uppercase letter, as "<Type>.<Field>:<key>".
+func collectUpperJSONTags(t reflect.Type, seen map[reflect.Type]bool, out map[string]bool) {
+	switch t.Kind() {
+	case reflect.Pointer, reflect.Slice, reflect.Array:
+		collectUpperJSONTags(t.Elem(), seen, out)
+		return
+	case reflect.Map:
+		// Map KEYS are data (activity IDs, component names), not schema fields.
+		collectUpperJSONTags(t.Elem(), seen, out)
+		return
+	case reflect.Struct:
+	default:
+		return
+	}
+	if seen[t] {
+		return
+	}
+	seen[t] = true
+	if t == reflect.TypeOf(time.Time{}) {
+		return // marshals as an RFC3339 string, no keys
+	}
+	for i := 0; i < t.NumField(); i++ {
+		f := t.Field(i)
+		if !f.IsExported() {
+			continue
+		}
+		tag := f.Tag.Get("json")
+		if tag == "-" {
+			continue
+		}
+		key := strings.Split(tag, ",")[0]
+		if key == "" {
+			key = f.Name // no tag: encoding/json uses the Go field name
+		}
+		if !f.Anonymous && key != "" && key[0] >= 'A' && key[0] <= 'Z' {
+			out[t.Name()+"."+f.Name+":"+key] = true
+		}
+		collectUpperJSONTags(f.Type, seen, out)
 	}
 }

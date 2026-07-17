@@ -190,6 +190,13 @@ type ContractStruct struct {
 	Fields []GoField `json:"Fields"`
 }
 
+type CritiqueView struct {
+	Role    string `json:"role"`
+	Verdict string `json:"verdict"`
+	Summary string `json:"summary"`
+	Round   int64  `json:"round"`
+}
+
 type DefectView struct {
 	Id       string `json:"id"`
 	Title    string `json:"title"`
@@ -391,6 +398,8 @@ type SessionStateView struct {
 	Findings      []Finding           `json:"findings,omitempty"`
 	FailureReason *string             `json:"failureReason,omitempty"`
 	FailureRunURL *string             `json:"failureRunUrl,omitempty"`
+	RunURL        *string             `json:"runUrl,omitempty"`
+	Critique      *CritiqueView       `json:"critique,omitempty"`
 	StageName     string              `json:"stageName"`
 	ReviewThread  []ReviewCommentView `json:"reviewThread,omitempty"`
 	ActiveRole    ActiveRole          `json:"activeRole"`

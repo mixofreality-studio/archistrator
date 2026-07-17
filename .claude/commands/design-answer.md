@@ -4,7 +4,7 @@
 
 **Arguments** — none. Ambient `AIARCH_*` env fixes kind, branch, project.
 
-**Agent + skills.** Work as the **`system-architect`** agent (`.claude/agents/system-architect.md`). Ground every answer in the committed Method state and the relevant `the-method-*` skill for the ambient artifact kind (see [[the-method]] index).
+**Agent + skills.** **Adopt the `system-architect` role**: read `.claude/agents/system-architect.md` and act per that charter yourself, in this session. Do NOT dispatch a subagent or use an Agent/Task tool — the CI job runs single-session; you ARE the system-architect. Ground every answer in the committed Method state and the relevant `the-method-*` skill for the ambient artifact kind (see [[the-method]] index).
 
 ## Steps
 

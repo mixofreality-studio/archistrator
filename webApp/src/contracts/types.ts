@@ -58,6 +58,8 @@ export type ScrubbedRequirements = S['ModelScrubbedRequirements'];
 export type Axis = S['ModelVolatility']['axis'];
 export type Volatility = S['ModelVolatility'];
 export type Volatilities = S['ModelVolatilities'];
+export type RejectedVolatility = S['ModelRejectedVolatility'];
+export type RejectionClass = S['ModelRejectedVolatility']['class'];
 export type ActivityNodeKind = S['ModelActivityNode']['kind'];
 export type ActivityNode = S['ModelActivityNode'];
 export type EdgeKind = S['ModelActivityEdge']['kind'];
@@ -360,8 +362,35 @@ export interface SessionStateView {
   failureReason?: string;
   /** URL of the failed CI run, when the failure came from a job that actually ran. */
   failureRunUrl?: string;
+  /**
+   * URL of the LIVE GitHub Actions run while the design job is drafting
+   * (drafting/redrafting stages only) — the generating scene's "view the run"
+   * deep-link. Absent when no run is in flight or the server could not resolve it.
+   */
+  runUrl?: string;
   /** The durable review-ledger thread for this slot (open/addressed/waived entries). */
   reviewThread?: ReviewCommentView[];
+  /**
+   * The last PM-critique conclusion the server observed for this session (F-QA2-7):
+   * what the PM concluded about the draft under review — verdict, rationale, and the
+   * redraft round it judged. Absent for architect-owned kinds (no PM critic), before
+   * the first critique completes, and on older servers.
+   */
+  critique?: PmCritiqueView;
+}
+
+/** The PM's closed verdict set ('approve' includes approve-with-reservation notes). */
+export type PmCritiqueVerdict = 'approve' | 'revise';
+
+/** The surfaced PM-critique conclusion for the draft under review (F-QA2-7). */
+export interface PmCritiqueView {
+  /** Wire role label of the critic — 'productManager' today. */
+  role: string;
+  verdict: PmCritiqueVerdict;
+  /** The PM's rationale verbatim (may be empty on a clean approve). */
+  summary: string;
+  /** The redraft round the critique judged (0 = the first draft). */
+  round: number;
 }
 
 /** The Phase-1 session-state poll result (outer string stage drives the machine). */

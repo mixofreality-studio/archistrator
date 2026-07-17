@@ -516,6 +516,7 @@ function ComposerToggle({
 }): ReactNode {
   return (
     <Box
+      aria-pressed={active}
       component="button"
       data-testid={testid}
       sx={{

@@ -3,7 +3,7 @@
  * `kind`, choosing the right client-side renderer:
  *
  *   glossary      → GlossaryView      (search + category filter, toGlossaryView)
- *   volatilities  → VolatilityMap     (two-axis scatter, toVolatilityView)
+ *   volatilities  → VolatilityMap     (two axis lanes, toVolatilityView)
  *   system        → ArchitectureFlow  (xyflow C4 layered view, toC4View)
  *   coreUseCases  → UseCaseCarousel   (xyflow activity diagrams, toCoreUseCasesView)
  *   prose kinds   → Prose(toMarkdown(...))  (react-markdown)
