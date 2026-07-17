@@ -8399,6 +8399,152 @@ func Test_dvChain_NoClientRootWarning(t *testing.T) {
 	}
 }
 
+// ---- DV-TITLE-EMPTY (F10 gate lint) ----
+
+func Test_dvTitle_PresentClean(t *testing.T) {
+	sys := &projectstate.System{DynamicViews: []projectstate.DynamicView{
+		{UseCaseID: "uc1", Key: "uc1-chain", Title: "Match Tradesman call chain"},
+	}}
+	if f := dvTitleFindings(KindSystem, sys); len(f) != 0 {
+		t.Fatalf("a titled dynamic view is clean, got: %+v", f)
+	}
+}
+
+func Test_dvTitle_EmptyAndWhitespaceError(t *testing.T) {
+	sys := &projectstate.System{DynamicViews: []projectstate.DynamicView{
+		{UseCaseID: "uc1", Key: "uc1-chain", Title: ""},
+		{UseCaseID: "uc2", Key: "uc2-chain", Title: "   "},
+	}}
+	f := dvTitleFindings(KindSystem, sys)
+	if len(f) != 2 {
+		t.Fatalf("want one DV-TITLE-EMPTY error per untitled view, got: %+v", f)
+	}
+	if !hasRule(f, "DV-TITLE-EMPTY", SeverityError) {
+		t.Fatal("an empty dynamic-view title must be a DV-TITLE-EMPTY error")
+	}
+}
+
+func Test_dvTitle_OtherKindNil(t *testing.T) {
+	if f := dvTitleFindings(KindCoreUseCases, &projectstate.CoreUseCases{}); f != nil {
+		t.Fatalf("dvTitleFindings must be nil for non-System kinds, got: %+v", f)
+	}
+}
+
+// ---- SYS-VOLATILITY-COVERAGE (F10 gate lint) ----
+
+func Test_volatilityCoverage_ClaimedClean(t *testing.T) {
+	committed := &projectstate.Volatilities{Items: []projectstate.Volatility{
+		{Name: "notification transport", Axis: projectstate.AxisSameCustomerOverTime},
+		{Name: "matching algorithm", Axis: projectstate.AxisAllCustomersAtOneTime},
+	}}
+	sys := &projectstate.System{Components: []projectstate.Component{
+		compE("mgr", "OrderManager", projectstate.CompManager, projectstate.LayerManager, "workflow volatility; notification transport"),
+		compE("eng", "MatchingEngine", projectstate.CompEngine, projectstate.LayerEngine, "Matching algorithm volatility"),
+	}}
+	if f := volatilityCoverageFindings(KindSystem, sys, committed); len(f) != 0 {
+		t.Fatalf("claimed volatilities (case-insensitive prose match) are clean, got: %+v", f)
+	}
+}
+
+func Test_volatilityCoverage_DispositionNoteClean(t *testing.T) {
+	// An explicit disposition in encapsulates prose (not an encapsulation claim per se)
+	// still counts — the lint fires only on TOTAL silence.
+	committed := &projectstate.Volatilities{Items: []projectstate.Volatility{
+		{Name: "report layout", Axis: projectstate.AxisSameCustomerOverTime},
+	}}
+	sys := &projectstate.System{Components: []projectstate.Component{
+		compE("mgr", "OrderManager", projectstate.CompManager, projectstate.LayerManager,
+			"order workflow. report layout: deferred — variable handled by client-side templates, not architectural"),
+	}}
+	if f := volatilityCoverageFindings(KindSystem, sys, committed); len(f) != 0 {
+		t.Fatalf("a dispositioned volatility is clean, got: %+v", f)
+	}
+}
+
+func Test_volatilityCoverage_UnclaimedError(t *testing.T) {
+	committed := &projectstate.Volatilities{Items: []projectstate.Volatility{
+		{Name: "notification transport", Axis: projectstate.AxisSameCustomerOverTime},
+		{Name: "storage substrate", Axis: projectstate.AxisSameCustomerOverTime},
+	}}
+	sys := &projectstate.System{Components: []projectstate.Component{
+		compE("mgr", "OrderManager", projectstate.CompManager, projectstate.LayerManager, "notification transport"),
+	}}
+	f := volatilityCoverageFindings(KindSystem, sys, committed)
+	if len(f) != 1 || !hasRule(f, "SYS-VOLATILITY-COVERAGE", SeverityError) {
+		t.Fatalf("want exactly one SYS-VOLATILITY-COVERAGE error for the silent volatility, got: %+v", f)
+	}
+	if !strings.Contains(f[0].Message, "storage substrate") {
+		t.Fatalf("the finding must name the unclaimed volatility, got: %q", f[0].Message)
+	}
+}
+
+func Test_volatilityCoverage_NoCommittedVolatilitiesNil(t *testing.T) {
+	sys := &projectstate.System{}
+	if f := volatilityCoverageFindings(KindSystem, sys, nil); f != nil {
+		t.Fatalf("no committed Volatilities ⇒ nil findings, got: %+v", f)
+	}
+}
+
+// ---- SYS-SERVICES-EXPLOSION (F10 gate lint) ----
+
+func explosionCoreUseCases(names ...string) *projectstate.CoreUseCases {
+	cuc := &projectstate.CoreUseCases{}
+	for i, n := range names {
+		cuc.Decisions = append(cuc.Decisions,
+			ucDecision(fmt.Sprintf("uc%d", i+1), n, projectstate.ClassCore, "", ""))
+	}
+	return cuc
+}
+
+func Test_servicesExplosion_MirroredOnePerUseCaseWarns(t *testing.T) {
+	committed := explosionCoreUseCases("Capture Commitment", "Clarify Inbox", "Review Projects")
+	sys := &projectstate.System{Components: []projectstate.Component{
+		compE("m1", "CaptureCommitmentManager", projectstate.CompManager, projectstate.LayerManager, "x"),
+		compE("m2", "ClarifyInboxManager", projectstate.CompManager, projectstate.LayerManager, "y"),
+		compE("m3", "ReviewProjectsManager", projectstate.CompManager, projectstate.LayerManager, "z"),
+	}}
+	f := servicesExplosionFindings(KindSystem, sys, committed)
+	if !hasRule(f, "SYS-SERVICES-EXPLOSION", SeverityWarning) {
+		t.Fatalf("|Managers| == |core use cases| with 100%% name-mirroring must warn, got: %+v", f)
+	}
+}
+
+func Test_servicesExplosion_VolatilityNamedManagersClean(t *testing.T) {
+	// Same counts, but Manager names encode volatilities (not use cases): below the
+	// 60%% mirroring threshold ⇒ no warning (equal counts alone are not the signal).
+	committed := explosionCoreUseCases("Capture Commitment", "Clarify Inbox", "Review Projects")
+	sys := &projectstate.System{Components: []projectstate.Component{
+		compE("m1", "IntakeManager", projectstate.CompManager, projectstate.LayerManager, "x"),
+		compE("m2", "SchedulingManager", projectstate.CompManager, projectstate.LayerManager, "y"),
+		compE("m3", "ReviewProjectsManager", projectstate.CompManager, projectstate.LayerManager, "z"),
+	}}
+	if f := servicesExplosionFindings(KindSystem, sys, committed); len(f) != 0 {
+		t.Fatalf("1 of 3 mirrored (33%%) is below the 60%% threshold, got: %+v", f)
+	}
+}
+
+func Test_servicesExplosion_CountMismatchClean(t *testing.T) {
+	// Fewer Managers than core use cases — the Method-typical shape — never warns,
+	// even with a mirrored name.
+	committed := explosionCoreUseCases("Capture Commitment", "Clarify Inbox", "Review Projects")
+	sys := &projectstate.System{Components: []projectstate.Component{
+		compE("m1", "CaptureCommitmentManager", projectstate.CompManager, projectstate.LayerManager, "x"),
+		compE("m2", "PlanningManager", projectstate.CompManager, projectstate.LayerManager, "y"),
+	}}
+	if f := servicesExplosionFindings(KindSystem, sys, committed); len(f) != 0 {
+		t.Fatalf("|Managers| != |core use cases| must not warn, got: %+v", f)
+	}
+}
+
+func Test_servicesExplosion_NoCommittedUseCasesNil(t *testing.T) {
+	sys := &projectstate.System{Components: []projectstate.Component{
+		compE("m1", "CaptureCommitmentManager", projectstate.CompManager, projectstate.LayerManager, "x"),
+	}}
+	if f := servicesExplosionFindings(KindSystem, sys, nil); f != nil {
+		t.Fatalf("no committed CoreUseCases ⇒ nil findings, got: %+v", f)
+	}
+}
+
 // ---- UC-VARIATION-REF ----
 
 func ucDecision(id, name string, class projectstate.Classification, variationOf, rejection string) projectstate.UseCaseDecision {

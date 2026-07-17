@@ -295,6 +295,13 @@ func (wf *workflows) CoAuthorArtifactWorkflow(ctx workflow.Context, in coAuthorI
 	if cuc, ok := proj.CoreUseCases.Model.(*projectstate.CoreUseCases); ok {
 		state.committedCoreUseCases = cuc
 	}
+	// Capture the committed Volatilities the same way (F10 gate lint, QA amendment
+	// 2026-07-17): the KindSystem read-back check needs it to flag committed
+	// volatilities the System draft neither claims nor dispositions
+	// (SYS-VOLATILITY-COVERAGE). Deterministic head-state read — replay-safe.
+	if vol, ok := proj.Volatilities.Model.(*projectstate.Volatilities); ok {
+		state.committedVolatilities = vol
+	}
 
 	// feedback carried into the next draft dispatch: seeded from the explicit
 	// re-request feedback (OQ6), then replaced by PM-revise / reject-loop / validation
@@ -1360,6 +1367,12 @@ type coAuthorState struct {
 	// that leaves any committed use case without a dynamic view (USECASE-DYNAMIC-MISSING,
 	// founder extension 2026-07-05). Nil for every other kind and until it is populated.
 	committedCoreUseCases *projectstate.CoreUseCases
+	// committedVolatilities is the head-state Volatilities (captured once at workflow
+	// start, exactly like committedCoreUseCases), threaded here so the KindSystem
+	// read-back check can flag a System draft that leaves any committed volatility
+	// unclaimed and undispositioned (SYS-VOLATILITY-COVERAGE, F10 gate lint, QA
+	// amendment 2026-07-17). Nil for every other kind and until it is populated.
+	committedVolatilities *projectstate.Volatilities
 	// resumeFromReadBack is the F35-twin checkpoint: set true when a POST-read-back step
 	// faulted and the session landed at the failed gate WITH the draft already committed on
 	// the branch — an openPR rail fault (F35 twin), or ANY critique-round fault (F-QA2-24,
@@ -1446,6 +1459,18 @@ func (s *coAuthorState) view() (SessionStateView, error) {
 	// committed use case (core AND nonCore variation). Twin of the activity check above;
 	// surfaces one ERROR finding per uncovered use case at the review panel.
 	if extra := useCaseDynamicFindings(s.artifactKind, s.draft, s.committedCoreUseCases); len(extra) > 0 {
+		findings = append(append([]Finding{}, findings...), extra...)
+	}
+	// F10 gate lints (QA amendment 2026-07-17) — the two cross-artifact System checks
+	// that need COMMITTED priors (the (kind, draft)-only F10 lint, DV-TITLE-EMPTY, rides
+	// stateValidationFindingGenerators below): every committed volatility must be claimed
+	// or dispositioned in the draft's encapsulates prose (SYS-VOLATILITY-COVERAGE, error),
+	// and a one-Manager-per-core-use-case decomposition with mirrored names is flagged as
+	// the services-explosion fingerprint (SYS-SERVICES-EXPLOSION, warning).
+	if extra := volatilityCoverageFindings(s.artifactKind, s.draft, s.committedVolatilities); len(extra) > 0 {
+		findings = append(append([]Finding{}, findings...), extra...)
+	}
+	if extra := servicesExplosionFindings(s.artifactKind, s.draft, s.committedCoreUseCases); len(extra) > 0 {
 		findings = append(append([]Finding{}, findings...), extra...)
 	}
 	// F81 (2026-07-05): a System draft must not be layer-DEGENERATE. A drafting agent that
@@ -3234,10 +3259,172 @@ var stateValidationFindingGenerators = []func(ArtifactKind, projectstate.Artifac
 	encapsulatesFindings,  // SYS-ENCAPSULATES
 	relDupFindings,        // SYS-REL-DUP
 	dvChainFindings,       // DV-CHAIN-CONNECTED
+	dvTitleFindings,       // DV-TITLE-EMPTY (F10)
 	variationRefFindings,  // UC-VARIATION-REF
 	glossaryFourQFindings, // GLOSS-FOURQ
 	scrubbedIDFindings,    // SR-ID-UNIQUE
 	opcTopicFindings,      // OPC-TOPIC-COVERAGE
+}
+
+// dvTitleFindings — DV-TITLE-EMPTY (error; F10 gate lint, QA amendment 2026-07-17: the
+// gtdapp architecture staged dynamic views with empty titles and no lint flagged them).
+// Every dynamic view must carry a non-empty, non-whitespace title — the title is the
+// human name of the call chain at the review panel and in the rendered DSL; an untitled
+// view is unreviewable.
+func dvTitleFindings(kind ArtifactKind, draft projectstate.ArtifactModel) []Finding {
+	if kind != KindSystem {
+		return nil
+	}
+	sys, ok := draft.(*projectstate.System)
+	if !ok || sys == nil {
+		return nil
+	}
+	var out []Finding
+	for i, dv := range sys.DynamicViews {
+		if strings.TrimSpace(dv.Title) != "" {
+			continue
+		}
+		label := dv.Key
+		if label == "" {
+			label = fmt.Sprintf("dynamic view %d", i+1)
+		}
+		out = append(out, Finding{
+			RuleID:   "DV-TITLE-EMPTY",
+			Severity: SeverityError,
+			Message:  fmt.Sprintf("dynamic view %q (use case %q) has an empty title; every dynamic view must carry a human-readable call-chain title.", label, dv.UseCaseID),
+			Location: &Location{Ordinal: int64(i), Section: "dynamic view " + label},
+		})
+	}
+	return out
+}
+
+// volatilityCoverageFindings — SYS-VOLATILITY-COVERAGE (error; F10 gate lint, QA
+// amendment 2026-07-17: gtdapp committed volatilities that no component claimed and
+// nothing flagged the hole). Every COMMITTED volatility must be encapsulated by a
+// component — i.e. its name appears in some component's encapsulates prose — or carry
+// an explicit disposition. The System model has no dedicated disposition field, so a
+// disposition note also lives in a component's encapsulates prose (e.g. "storage
+// volatility: deferred — variable, handled by configuration"); this lint therefore
+// fires only on TOTAL SILENCE — a committed volatility that appears in NO component's
+// encapsulates text at all. Nil for every other kind, for a nil/absent draft, and when
+// no Volatilities model is committed yet.
+func volatilityCoverageFindings(kind ArtifactKind, draft projectstate.ArtifactModel, committed *projectstate.Volatilities) []Finding {
+	if kind != KindSystem || committed == nil {
+		return nil
+	}
+	sys, ok := draft.(*projectstate.System)
+	if !ok || sys == nil {
+		return nil
+	}
+	var encapsulations []string
+	for _, c := range sys.Components {
+		if e := strings.ToLower(strings.TrimSpace(c.Encapsulates)); e != "" {
+			encapsulations = append(encapsulations, e)
+		}
+	}
+	var out []Finding
+	for i, v := range committed.Items {
+		name := strings.ToLower(strings.TrimSpace(v.Name))
+		if name == "" {
+			continue // an unnamed volatility is the Volatilities artifact's own defect
+		}
+		mentioned := false
+		for _, e := range encapsulations {
+			if strings.Contains(e, name) {
+				mentioned = true
+				break
+			}
+		}
+		if mentioned {
+			continue
+		}
+		out = append(out, Finding{
+			RuleID:   "SYS-VOLATILITY-COVERAGE",
+			Severity: SeverityError,
+			Message:  fmt.Sprintf("committed volatility %q is claimed by no component's encapsulates and carries no disposition note; encapsulate it in a component, or record an explicit disposition (e.g. \"%s: deferred — <why>\") in the owning component's encapsulates prose.", v.Name, v.Name),
+			Location: &Location{Ordinal: int64(i), Section: "volatility " + v.Name},
+		})
+	}
+	return out
+}
+
+// servicesExplosionFindings — SYS-SERVICES-EXPLOSION (warning; F10 gate lint, QA
+// amendment 2026-07-17). The one-Manager-per-use-case anti-pattern (ch. 3 services
+// explosion / functional decomposition in disguise): when the Manager count exactly
+// equals the committed CORE use-case count AND at least 60% of Manager names mirror a
+// core use case's name, the decomposition likely encapsulates use cases, not
+// volatilities. Heuristic — a WARNING, not an error: a small system can legitimately
+// land on equal counts, so the name-mirroring threshold gates the signal. Nil for every
+// other kind, for a nil/absent draft, and when no CoreUseCases is committed yet.
+func servicesExplosionFindings(kind ArtifactKind, draft projectstate.ArtifactModel, committed *projectstate.CoreUseCases) []Finding {
+	if kind != KindSystem || committed == nil {
+		return nil
+	}
+	sys, ok := draft.(*projectstate.System)
+	if !ok || sys == nil {
+		return nil
+	}
+	var managerStems []string
+	var managerNames []string
+	for _, c := range sys.Components {
+		if c.Kind != projectstate.CompManager {
+			continue
+		}
+		managerNames = append(managerNames, c.Name)
+		managerStems = append(managerStems, normalizeNameToken(strings.TrimSuffix(strings.TrimSpace(c.Name), "Manager")))
+	}
+	var coreNames []string
+	for _, d := range committed.Decisions {
+		if d.UseCase.Classification == projectstate.ClassCore {
+			coreNames = append(coreNames, normalizeNameToken(d.UseCase.Name))
+		}
+	}
+	managers := len(managerStems)
+	if managers == 0 || managers != len(coreNames) {
+		return nil
+	}
+	mirrored := 0
+	var mirroredNames []string
+	for i, stem := range managerStems {
+		if stem == "" {
+			continue
+		}
+		for _, ucName := range coreNames {
+			if ucName == "" {
+				continue
+			}
+			if strings.Contains(ucName, stem) || strings.Contains(stem, ucName) {
+				mirrored++
+				mirroredNames = append(mirroredNames, managerNames[i])
+				break
+			}
+		}
+	}
+	// >= 60% name-mirroring (integer arithmetic; no float drift in workflow code).
+	if mirrored*100 < 60*managers {
+		return nil
+	}
+	return []Finding{{
+		RuleID:   "SYS-SERVICES-EXPLOSION",
+		Severity: SeverityWarning,
+		Message: fmt.Sprintf(
+			"the System declares exactly one Manager per committed core use case (%d each) and %d of %d Manager names mirror a core use case (%s); this is the services-explosion fingerprint — a Manager encapsulates a VOLATILITY for a family of use cases, not a single use case. Re-examine the decomposition axis.",
+			managers, mirrored, managers, strings.Join(mirroredNames, ", ")),
+		Location: &Location{Section: "system managers"},
+	}}
+}
+
+// normalizeNameToken lowercases and strips every non-alphanumeric rune so Manager
+// stems and use-case names compare on their word content ("Match Tradesman" ==
+// "MatchTradesman" == "match-tradesman").
+func normalizeNameToken(s string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(s) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 // raOrphanFindings — SYS-RA-ORPHAN (error). Every ResourceAccess component must have at
