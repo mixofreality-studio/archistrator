@@ -727,6 +727,16 @@ func (wf *workflows) coAuthorApplyDecision(
 	// (reAwaitAfterApproveFault). Workflow-local view state served by the query; setting
 	// it issues NO history command, so no GetVersion gate is needed.
 	state.failureReason = ""
+	// F-QA2-44 (systemdesign twin parity): one monotonic sequence number per HANDLED
+	// review decision — replay-stable, driven purely by the recorded signal order. It keys
+	// the PER-ATTEMPT version gate (gate-decision-token-remint-p2-<seq>) guarding the
+	// approve arm's credential re-mint; see coAuthorApprove for why the gate must be
+	// per-attempt. Pure workflow-local bookkeeping — no history command. Consumer audit:
+	// only the APPROVE arm consumes the session's cached rail credential (mergeOnApprove);
+	// Reject / Withdraw / waive-reopen and the failed-gate paths ride designSessionAccess
+	// activities that carry no workflow-cached credential, and a failed-gate Retry's
+	// re-dispatch re-mints in beginSession — so only the approve arm re-mints.
+	state.decisionSeq++
 	switch sig.Decision {
 	case ReviewApprove:
 		// REVIEW LEDGER (review-ledger §4): approve is blocked while any comment is still open.
@@ -852,6 +862,45 @@ func (wf *workflows) coAuthorApprove(
 ) (coAuthorStep, coAuthorOutcome, error) {
 	logger := workflow.GetLogger(ctx)
 
+	// F-QA2-44 (systemdesign twin parity): RE-MINT the installation token at gate-decision
+	// time. The session's cached credential (gf.cred) was minted at DISPATCH time
+	// (beginSession), and GitHub App installation tokens expire after ~1 hour — while this
+	// approve arrives whenever the human returns to the review (observed live on the
+	// systemdesign spine: an approve 8+ hours after the last dispatch 403'd forever on the
+	// expired token; the platform classifier reports that 403 as a NON-RETRYABLE Auth
+	// fault, so neither the Activity RetryPolicy nor railWithAuthRetry could heal it).
+	// Mint a FRESH token for THIS decision's merge window; the dispatch-time mint is
+	// unchanged (it still covers sync / openBranch / openPR in the dispatch scope).
+	//
+	// Temporal versioning guard (replay safety): the mint is a NEW Activity command in the
+	// decision path, so an in-flight session whose history recorded merge-window verbs
+	// WITHOUT a preceding mint would replay non-deterministically against unguarded new
+	// code. The change id is PER DECISION ATTEMPT (gate-decision-token-remint-p2-<seq>) —
+	// deliberately NOT a static id — because GetVersion caches its resolution PER CHANGE ID
+	// for the lifetime of the execution: a static id resolved to DefaultVersion while
+	// replaying an old recorded attempt would pin every FUTURE approve on that execution to
+	// the old no-mint behavior too, and a stuck live session could never heal. With a
+	// per-attempt id, each OLD recorded attempt resolves DefaultVersion (no mint — replay
+	// matches its history) while the NEXT decision on the SAME execution is a first-time
+	// GetVersion in executing mode → v1 → re-mints. Decisions are human-gated (a handful
+	// per session), so marker/search-attribute growth is bounded.
+	if gf.enabled {
+		if workflow.GetVersion(ctx, fmt.Sprintf("gate-decision-token-remint-p2-%d", state.decisionSeq), workflow.DefaultVersion, 1) >= 1 {
+			cred, cerr := wf.mintCred(ctx, gf.repoRef)
+			if cerr != nil {
+				// Contain exactly like a merge-window fault (QA F35): the staged draft is
+				// intact on the session branch and main is untouched — return to
+				// AwaitingReview so the human simply re-approves. Cancellation propagates.
+				if temporal.IsCanceledError(cerr) {
+					return coAuthorProceed, coAuthorUnknown, cerr
+				}
+				logger.Warn("approve-time credential re-mint fault; returning to AwaitingReview for re-approve", "error", cerr.Error())
+				return wf.reAwaitAfterApproveFault(state, approveFailedReason(cerr)), coAuthorUnknown, nil
+			}
+			gf.cred = cred
+		}
+	}
+
 	// Rail (approve-time half, §2b): merge GUARD (CI must be green) + the architecture
 	// +1 relay + the App-mediated merge of sessionBranch → main. A dormant rail returns
 	// merged=true with no rail ops (the non-git spine).
@@ -934,16 +983,16 @@ func (wf *workflows) reAwaitAfterApproveFault(state *coAuthorState, reason strin
 }
 
 // approveFailedReason renders the human "why" for the AwaitingReview re-approve notice when
-// an approve/merge-window activity faulted transiently (QA F35 — e.g. a GitHub secondary
-// rate-limit 403 the platform classifier reports as Auth). It frames a re-approve, NOT a
-// redraft. Wording is founder-ratified (F-QA2-41, systemdesign twin parity): lead with what
-// failed, state that the draft is unchanged, and suggest waiting out a rate limit. The live
-// 403 case gets the ratified copy verbatim; other faults keep their honest summary in the
-// same frame. Deterministic across replay (pure string ops on the reconstructed error).
+// an approve/merge-window activity faulted (QA F35). It frames a re-approve, NOT a redraft.
+// Wording per F-QA2-41 as corrected by F-QA2-44 (systemdesign twin parity): the 403 copy is
+// CAUSE-NEUTRAL — a 403 here is not reliably a rate limit (the live gtdapp incident was an
+// EXPIRED installation token), so the notice neither blames a rate limit nor promises that
+// waiting helps; it points at the operator credential on repetition instead. Deterministic
+// across replay (pure string ops on the reconstructed error).
 func approveFailedReason(err error) string {
 	summary := dispatchErrSummary(err)
 	if strings.Contains(summary, "403") {
-		return "The approve could not complete: GitHub rejected the merge step (403 — often a rate limit). The draft is unchanged; try approving again in a few minutes."
+		return "The approve could not complete: GitHub rejected the merge step. The draft is unchanged; try approving again — if this repeats, the operator credential may need refreshing."
 	}
 	if summary == "" {
 		return "The approve could not complete (a transient repository/API fault). The draft is unchanged; try approving again in a few minutes."

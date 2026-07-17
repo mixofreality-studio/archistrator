@@ -1986,6 +1986,13 @@ type coAuthorState struct {
 	// seedFailedGateFeedback to seed the retained anchored comments, while a true flag skips it
 	// so an already-seeded path is never double-seeded.
 	feedbackSeeded bool
+	// decisionSeq counts the review decisions HANDLED at the AwaitingReview gate — one
+	// monotonic increment per received reviewDecision signal (F-QA2-44, systemdesign twin
+	// parity). Replay-stable: driven purely by the recorded signal order. It keys the
+	// per-attempt version gate (gate-decision-token-remint-p2-<seq>) guarding the approve
+	// arm's gate-time credential re-mint; see coAuthorApprove for why that gate is
+	// per-attempt rather than static. Stays zero for AssembleSDPReviewWorkflow (no gate).
+	decisionSeq int
 	// activeRole / activeStep / activeRound are the WORKFLOW-LOCAL sub-step indicator
 	// backing the honest role-driven loading pill (Plan-3 C2, mirroring systemdesign's C1).
 	// They are SET immediately before each dispatch boundary (architect drafting/revising —

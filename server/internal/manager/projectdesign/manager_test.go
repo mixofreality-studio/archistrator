@@ -1767,12 +1767,46 @@ type scriptedRail struct {
 	// syncErr, when non-nil, makes SyncManagedScaffold fail terminally — exercises the
 	// managed-scaffold-sync containment (dispatch BLOCKED, session at the failed gate).
 	syncErr error
+	// F-QA2-44 token-lifetime modeling (systemdesign twin parity). Each mint issues a
+	// DISTINCT token (tok-1, tok-2, …) and makes it the currently-valid one. When
+	// enforceTokenValidity is armed, the merge-window verbs 403 (fwra.Auth — the platform's
+	// non-retryable classification) on any credential that is not the currently-valid
+	// token; expireCurrentToken() models the ~1h GitHub App installation-token expiry
+	// between dispatch and a late human approve.
+	enforceTokenValidity bool
+	mintSeq              int
+	validToken           string
 
 	openedBranches []string
 	openedPRHeads  []string
 	mergedPRs      []string
 	prByHead       map[string]string
 	calls          map[string]int
+	// creds records, per merge-window verb, the credential bytes each call presented —
+	// lets a test assert WHICH minted token a call rode (F-QA2-44).
+	creds map[string][]string
+}
+
+// expireCurrentToken invalidates the currently-valid token — the dispatch-time credential
+// has aged past the ~1h installation-token lifetime (F-QA2-44). The next mint issues a
+// fresh valid token.
+func (r *scriptedRail) expireCurrentToken() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.validToken = ""
+}
+
+// staleCred reports whether the presented credential must be rejected (validity
+// enforcement armed AND the credential is not the currently-valid token). Records the
+// presented credential under verb first.
+func (r *scriptedRail) staleCred(verb string, cred sourcecontrol.RepoCredential) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.creds == nil {
+		r.creds = map[string][]string{}
+	}
+	r.creds[verb] = append(r.creds[verb], string(cred.Bytes))
+	return r.enforceTokenValidity && string(cred.Bytes) != r.validToken
 }
 
 func newScriptedRail(green bool, log *seqLog) *scriptedRail {
@@ -1804,8 +1838,13 @@ func (r *scriptedRail) CommitManagedFiles(_ fwra.Context, _ sourcecontrol.RepoRe
 func (r *scriptedRail) GetInstallationToken(_ fwra.Context, _ sourcecontrol.RepoRef) (sourcecontrol.RepoCredential, error) {
 	r.mu.Lock()
 	r.calls["GetInstallationToken"]++
+	// Each mint issues a DISTINCT token and makes it the currently-valid one (F-QA2-44):
+	// tok-1 for the dispatch-time mint, tok-2 for the gate-decision re-mint, …
+	r.mintSeq++
+	tok := fmt.Sprintf("tok-%d", r.mintSeq)
+	r.validToken = tok
 	r.mu.Unlock()
-	return sourcecontrol.RepoCredential{Bytes: []byte("tok"), ExpiresAt: time.Now().Add(time.Hour)}, nil
+	return sourcecontrol.RepoCredential{Bytes: []byte(tok), ExpiresAt: time.Now().Add(time.Hour)}, nil
 }
 
 func (r *scriptedRail) OpenBranch(_ fwra.Context, _ sourcecontrol.RepoRef, branch sourcecontrol.BranchName, _ sourcecontrol.RepoCredential) (sourcecontrol.BranchRef, error) {
@@ -1836,9 +1875,16 @@ func (r *scriptedRail) OpenPullRequest(_ fwra.Context, _ sourcecontrol.RepoRef, 
 	return sourcecontrol.PullRequestRefFromString(pr), nil
 }
 
-func (r *scriptedRail) GetPullRequestStatus(_ fwra.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.PullRequestRef, _ sourcecontrol.RepoCredential) (sourcecontrol.PullRequestStatus, error) {
+func (r *scriptedRail) GetPullRequestStatus(_ fwra.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.PullRequestRef, cred sourcecontrol.RepoCredential) (sourcecontrol.PullRequestStatus, error) {
 	r.mu.Lock()
 	r.calls["GetPullRequestStatus"]++
+	r.mu.Unlock()
+	if r.staleCred("GetPullRequestStatus", cred) {
+		// The F-QA2-44 live fault: the presented installation token has EXPIRED; GitHub
+		// 403s and the platform classifier reports a non-retryable Auth fault.
+		return sourcecontrol.PullRequestStatus{}, fwra.New(fwra.Auth, "getPullRequest: github auth/permission denied (expired installation token)")
+	}
+	r.mu.Lock()
 	green := r.checkGreen
 	fail := r.statusAuthFailsRemaining > 0
 	if fail {
@@ -1857,14 +1903,20 @@ func (r *scriptedRail) GetPullRequestStatus(_ fwra.Context, _ sourcecontrol.Repo
 	return sourcecontrol.PullRequestStatus{CheckRollup: rollup, Mergeable: green}, nil
 }
 
-func (r *scriptedRail) PostReview(_ fwra.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.PullRequestRef, _ sourcecontrol.ReviewSubmission, _ sourcecontrol.RepoCredential) error {
+func (r *scriptedRail) PostReview(_ fwra.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.PullRequestRef, _ sourcecontrol.ReviewSubmission, cred sourcecontrol.RepoCredential) error {
 	r.mu.Lock()
 	r.calls["PostReview"]++
 	r.mu.Unlock()
+	if r.staleCred("PostReview", cred) {
+		return fwra.New(fwra.Auth, "postReview: github auth/permission denied (expired installation token)")
+	}
 	return nil
 }
 
-func (r *scriptedRail) MergePullRequest(_ fwra.Context, _ sourcecontrol.RepoRef, pr sourcecontrol.PullRequestRef, _ sourcecontrol.RepoCredential) (sourcecontrol.MergeResult, error) {
+func (r *scriptedRail) MergePullRequest(_ fwra.Context, _ sourcecontrol.RepoRef, pr sourcecontrol.PullRequestRef, cred sourcecontrol.RepoCredential) (sourcecontrol.MergeResult, error) {
+	if r.staleCred("MergePullRequest", cred) {
+		return sourcecontrol.MergeResult{}, fwra.New(fwra.Auth, "mergePullRequest: github auth/permission denied (expired installation token)")
+	}
 	r.mu.Lock()
 	r.calls["MergePullRequest"]++
 	r.mergedPRs = append(r.mergedPRs, sourcecontrol.PullRequestRefString(pr))
@@ -2710,6 +2762,121 @@ func Test_CoAuthorPhase2_Rail_ApproveStatusTransient_RetriesThenMerges(t *testin
 	}
 	if len(base.committed) != 1 {
 		t.Fatalf("want one commit on the first approve, got %v", base.committed)
+	}
+}
+
+// F-QA2-44 (Phase-2 twin of the live gtdapp kind=3 defect). The approve arrives AFTER the
+// dispatch-time installation token expired (~1h lifetime; the observed approve came 8+
+// hours later). The workflow used to thread the ONE cached dispatch-time credential into
+// the merge window, so every approve 403'd forever (non-retryable Auth). The fix: the
+// approve arm mints a FRESH token at gate-decision time. This test arms token-validity
+// enforcement, expires the dispatch-time token before the approve, and proves the approve
+// still merges+commits via a second mint whose fresh token every merge-window verb rode.
+func Test_CoAuthorPhase2_Rail_ApproveAfterTokenExpiry_RemintsFreshToken_Merges(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base := &fakeProjectState{project: planningAssumptionsReadBack(projectstate.ProjectID(id))}
+	ps := &seqProjectState{fakeProjectState: base, log: &seqLog{}}
+	pipe := newFakePipeline()
+	rail := newScriptedRail(true, &seqLog{})
+	rail.enforceTokenValidity = true
+
+	wf := newRailWorkflows(rail)
+	registerRailCoAuthor(env, wf, ps, pipe)
+
+	env.RegisterDelayedCallback(func() {
+		// The human returns hours later: the dispatch-time token (tok-1) has EXPIRED.
+		// Any merge-window verb presenting it now 403s.
+		rail.expireCurrentToken()
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
+	}, 30*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindPlanningAssumptions})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("an approve after token expiry must succeed via the gate re-mint: %v", err)
+	}
+	var outcome coAuthorOutcome
+	if err := env.GetWorkflowResult(&outcome); err != nil {
+		t.Fatalf("decode outcome: %v", err)
+	}
+	if outcome != coAuthorApproved {
+		t.Fatalf("want coAuthorApproved after the re-mint, got %d", outcome)
+	}
+	// TWO mints: the dispatch-time mint (tok-1) + the gate-decision re-mint (tok-2).
+	if n := rail.count("GetInstallationToken"); n != 2 {
+		t.Fatalf("want two GetInstallationToken mints (dispatch + approve re-mint), got %d", n)
+	}
+	// Every merge-window verb rode the FRESH token — never the expired dispatch-time one.
+	for _, verb := range []string{"GetPullRequestStatus", "PostReview", "MergePullRequest"} {
+		creds := rail.creds[verb]
+		if len(creds) == 0 {
+			t.Fatalf("expected %s to run in the approve window (creds: %+v)", verb, rail.creds)
+		}
+		for _, c := range creds {
+			if c != "tok-2" {
+				t.Fatalf("%s must present the freshly-minted token tok-2, got %q (creds: %+v)", verb, c, rail.creds)
+			}
+		}
+	}
+	if len(rail.mergedPRs) != 1 {
+		t.Fatalf("exactly one merge on the re-minted approve, got %v", rail.mergedPRs)
+	}
+	if len(base.committed) != 1 || base.committed[0] != projectstate.KindPlanningAssumptions {
+		t.Fatalf("want one CommitArtifact(KindPlanningAssumptions) on main, got %v", base.committed)
+	}
+}
+
+// F-QA2-44 VERSION GATE (replay pin — Phase-2 twin). A PRE-FEATURE decision attempt (its
+// history recorded the merge-window verbs WITHOUT a preceding gate mint) must replay the
+// OLD command sequence: GetVersion resolves DefaultVersion for that attempt's PER-DECISION
+// change id (gate-decision-token-remint-p2-<seq>) and the approve arm must NOT schedule
+// the re-mint activity. (The id is per attempt — NOT static — so a live stuck execution's
+// old recorded attempts stay pinned while its NEXT attempt resolves v1 and heals.)
+func Test_CoAuthorPhase2_Rail_GateRemint_VersionGate_PreFeatureAttemptSkipsRemint(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base := &fakeProjectState{project: planningAssumptionsReadBack(projectstate.ProjectID(id))}
+	ps := &seqProjectState{fakeProjectState: base, log: &seqLog{}}
+	pipe := newFakePipeline()
+	// No validity enforcement: pre-feature histories only ever succeeded INSIDE the token's
+	// fresh hour, so the dispatch-time credential still works on this replayed attempt.
+	rail := newScriptedRail(true, &seqLog{})
+
+	wf := newRailWorkflows(rail)
+	registerRailCoAuthor(env, wf, ps, pipe)
+
+	// Simulate the PRE-FEATURE recorded attempt: GetVersion resolves DefaultVersion for
+	// decision attempt #1 (no version marker in the replayed history).
+	env.OnGetVersion("gate-decision-token-remint-p2-1", workflow.DefaultVersion, 1).Return(workflow.DefaultVersion)
+
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
+	}, 30*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindPlanningAssumptions})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a pre-feature decision attempt must run the OLD command sequence cleanly: %v", err)
+	}
+	var outcome coAuthorOutcome
+	if err := env.GetWorkflowResult(&outcome); err != nil {
+		t.Fatalf("decode outcome: %v", err)
+	}
+	if outcome != coAuthorApproved {
+		t.Fatalf("want coAuthorApproved on the pre-feature path, got %d", outcome)
+	}
+	// ONE mint only (the dispatch-time beginSession mint) — the pinned attempt must never
+	// schedule the gate re-mint command.
+	if n := rail.count("GetInstallationToken"); n != 1 {
+		t.Fatalf("a pre-feature (DefaultVersion) decision attempt must NOT re-mint: want 1 mint, got %d", n)
+	}
+	if len(base.committed) != 1 {
+		t.Fatalf("the pre-feature approve must still commit exactly once, got %v", base.committed)
 	}
 }
 
