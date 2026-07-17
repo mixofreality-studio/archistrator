@@ -26,7 +26,7 @@
  * `chat` slot), so this screen does not yet wire it to anything — Task 9 owns
  * designing the MCP submit path.
  */
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
@@ -597,18 +597,12 @@ function StepBody({
           <ArtifactRenderer envelope={view?.draft} height={620} title={title} />
         )}
       </Box>
-      {/* QA F35 / F-GTD-12b: a contained approve/merge-window fault returns the session
-          to awaitingReview carrying failureReason — without this the reviewer just sees
-          AWAITING YOU again and the approve looks like a silent no-op. */}
+      {/* QA F35 / F-GTD-12b / F-QA2-41: a contained approve/merge-window fault returns the
+          session to awaitingReview carrying failureReason — without this the reviewer just
+          sees AWAITING YOU again and the approve looks like a silent no-op. Keyed by the
+          reason so a NEW fault re-surfaces after a dismissal. */}
       {gateOpen && failureReason !== undefined ? (
-        <Alert
-          data-testid={UI_IDENTIFIERS.DesignExperience.APPROVE_FAULT}
-          severity="warning"
-          sx={{ mb: 2 }}
-        >
-          {failureReason} If approving again fails the same way, a send-back refreshes the draft
-          from main.
-        </Alert>
+        <ApproveFaultBanner key={failureReason} reason={failureReason} />
       ) : null}
       {gateOpen ? (
         <GatePanel
@@ -625,5 +619,31 @@ function StepBody({
         />
       ) : null}
     </>
+  );
+}
+
+/**
+ * The approve-fault notice rendered above the commit-authority bar when a
+ * contained merge-window fault returned the session to the review gate
+ * (F-QA2-41). Dismissible (founder direction) — the parent keys this component
+ * by the reason text, so dismissal is per-notice and a NEW fault re-surfaces.
+ * MUI Alert already carries role="alert"; stated explicitly for the contract.
+ * Exported for the Phase-2 twin gate (routes/ProjectDesignExperience.tsx).
+ */
+export function ApproveFaultBanner({ reason }: { reason: string }): ReactNode {
+  const [dismissed, setDismissed] = useState(false);
+  if (dismissed) return null;
+  return (
+    <Alert
+      data-testid={UI_IDENTIFIERS.DesignExperience.APPROVE_FAULT}
+      role="alert"
+      severity="warning"
+      sx={{ mb: 2 }}
+      onClose={() => {
+        setDismissed(true);
+      }}
+    >
+      {reason} If approving again fails the same way, a send-back refreshes the draft from main.
+    </Alert>
   );
 }

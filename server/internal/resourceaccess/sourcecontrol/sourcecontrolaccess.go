@@ -144,12 +144,18 @@ type githubClient interface {
 	// longer needs them.)
 	GetRepoMetadata(ctx context.Context, fullName, instToken string) (fwgithub.RepoMetadata, error)
 
-	// Agentic-standing back-end (2026-06-15 SC-B; generalized 2026-06-16): seat the
-	// managed-file scaffold. CommitManagedFiles drives one PutRepoContentsFile per
-	// file in the bundle (design workflow + go-test gate). (The seat-secret primitive
-	// was removed in the 2026-06-15 correction — aiarch does no secret management;
-	// CLAUDE_CODE_OAUTH_TOKEN is user-provisioned via the Claude Code GitHub App.)
-	PutRepoContentsFile(ctx context.Context, fullName, path string, content []byte, message, instToken string) (commitSHA string, changed bool, err error)
+	// Agentic-standing back-end (2026-06-15 SC-B; generalized 2026-06-16; trees-API
+	// transport 2026-07-17): seat/sync the managed-file scaffold. The converge COMPARES
+	// via ONE recursive tree read (GetRepoTree — the entries carry git blob ids the RA
+	// diffs against locally computed fwgithub.GitBlobSHA values, no per-file Contents
+	// GET) and WRITES via ONE atomic multi-file commit (CommitFilesAtomic: blobs → tree
+	// → commit → unforced ref fast-forward), replacing the old one-Contents-PUT-per-file
+	// loop (~100 requests + one commit per drifted file — the App-quota burn). (The
+	// seat-secret primitive was removed in the 2026-06-15 correction — aiarch does no
+	// secret management; CLAUDE_CODE_OAUTH_TOKEN is user-provisioned via the Claude
+	// Code GitHub App.)
+	GetRepoTree(ctx context.Context, fullName, ref string, recursive bool, instToken string) (fwgithub.RepoTree, error)
+	CommitFilesAtomic(ctx context.Context, fullName, branch, message string, files map[string][]byte, committer fwgithub.CommitSignature, instToken string) (commitSHA string, err error)
 
 	// GetRepoContentsFile reads one file's bytes off the default branch (satellite
 	// v0.1.4). It backs the managed-scaffold sync FAST-PATH: read the seated
@@ -532,13 +538,12 @@ func (a *access) GetInstallationToken(rc fwra.Context, repo RepoRef) (RepoCreden
 // this verb can never become a general "commit any file" smell (§2.6, Non-goal #2);
 // a path off the allowlist is a ContractMisuse.
 //
-// The bundle is seated by SEQUENTIAL per-file Contents PUTs (each
-// overwrite-if-changed: a byte-identical file is a no-op). This trades a single
-// atomic Git-tree commit for the existing, well-tested Contents primitive — each PUT
-// is independently idempotent, so a retry after a partial seat re-converges every
-// file. Files are committed in a STABLE order (sorted by path, seat manifest LAST —
-// see putManagedFiles) for deterministic commit history. The returned CommitRef is
-// the LAST file's resulting commit.
+// TREES-API TRANSPORT (2026-07-17; replaces the sequential per-file Contents-PUT
+// loop): the bundle is compared via ONE recursive tree read (blob-SHA diff computed
+// locally) and every drifted file lands in ONE atomic git-data commit — see
+// putManagedFiles. A bundle already byte-identical on the branch writes nothing.
+// The returned CommitRef is the single resulting commit (or the converged tip's
+// opaque tree token on a no-op).
 func (a *access) CommitManagedFiles(rc fwra.Context, repo RepoRef, files []ManagedFile, cred RepoCredential) (CommitRef, error) {
 	ref, _, err := a.putManagedFiles(rc.Context, repo, files, ManagedCommitMessage, cred)
 	return ref, err
@@ -546,7 +551,7 @@ func (a *access) CommitManagedFiles(rc fwra.Context, repo RepoRef, files []Manag
 
 // SyncManagedFiles is the hand-written auxiliary MANAGED-SCAFFOLD SYNC surface
 // (2026-07-06), OFF the frozen contract like AppSlug / GetInstallationTokenForProject:
-// the same allowlist-guarded, fetch-compare-put converge as CommitManagedFiles, but
+// the same allowlist-guarded, tree-diff + atomic-commit converge as CommitManagedFiles, but
 // with a CALLER-SUPPLIED commit message (a sync commit names the file + the pin it
 // refreshed to, not the birth-seat message) and an explicit changed report (true ⇔ at
 // least one file drifted and a commit was written; false ⇔ byte-identical, no commit).
@@ -595,9 +600,35 @@ func (a *access) RecordManagedScaffoldSynced(repo RepoRef, version string) {
 	a.scaffoldSynced[RepoRefString(repo)] = version
 }
 
+// managedScaffoldBranch is the branch the managed-scaffold seat/sync converges —
+// "main", the rail-wide default-branch assumption this RA already bakes into
+// OpenBranch (cuts from main) and ConfigureBranchProtection (protects main).
+const managedScaffoldBranch = "main"
+
 // putManagedFiles is the SHARED seat/sync write behind CommitManagedFiles (the frozen
 // birth-seat verb, fixed ManagedCommitMessage) and SyncManagedFiles (the auxiliary
 // sync, caller message + drift report). One implementation, one allowlist gatekeeper.
+//
+// TREES-API TRANSPORT (2026-07-17; replaces the fetch-compare-put Contents loop that
+// cost ~1 GET + up to 1 PUT/commit PER FILE — the App-quota burn):
+//
+//   - COMPARE: ONE recursive GetRepoTree of the branch head. The tree entries carry
+//     git blob ids, and the expected id of each desired file is computed LOCALLY
+//     (fwgithub.GitBlobSHA over the embedded bytes), so the whole diff is in-memory —
+//     zero per-file reads. A NotFound tree (unborn branch / fresh repo) means
+//     everything drifts. A truncated listing (repos beyond the recursive-tree cap)
+//     is not a sound diff base, so every file is treated as drifted — the write is
+//     converging and idempotent, so over-writing is always correct, just less lazy.
+//   - WRITE: ONE CommitFilesAtomic carrying ALL drifted files — INCLUDING the seat
+//     manifest — as a single commit (blobs → tree-on-base → commit → unforced ref
+//     fast-forward). TRUE ATOMICITY replaces the old manifest-last ordering
+//     (F-QA2-36): nothing is reachable until the final ref update, so an interrupted
+//     write leaves the old manifest AND tree fully intact and the next sync retries
+//     the whole converge; a torn manifest-over-half-old-tree state is structurally
+//     impossible.
+//
+// A concurrent-writer ref race surfaces as Conflict; per §3 this is the ONE
+// retryable Conflict on this seam (retry-by-re-read).
 func (a *access) putManagedFiles(ctx context.Context, repo RepoRef, files []ManagedFile, message string, cred RepoCredential) (CommitRef, bool, error) {
 	_, fullName, err := a.requireRepoCred(repo, cred)
 	if err != nil {
@@ -607,12 +638,9 @@ func (a *access) putManagedFiles(ctx context.Context, repo RepoRef, files []Mana
 		return "", false, fwra.New(fwra.ContractMisuse, "CommitManagedFiles: empty fileset")
 	}
 
-	// Validate the whole set BEFORE any write, so an off-allowlist or empty-content
-	// file rejects the bundle atomically at the pre-condition (no partial seat from a
-	// bad input). Sort a copy by path for a deterministic commit order.
-	ordered := make([]ManagedFile, len(files))
-	copy(ordered, files)
-	for _, f := range ordered {
+	// Validate the whole set BEFORE any wire call, so an off-allowlist or
+	// empty-content file rejects the bundle atomically at the pre-condition.
+	for _, f := range files {
 		if strings.TrimSpace(f.Path) == "" {
 			return "", false, fwra.New(fwra.ContractMisuse, "CommitManagedFiles: empty path")
 		}
@@ -624,42 +652,51 @@ func (a *access) putManagedFiles(ctx context.Context, repo RepoRef, files []Mana
 			return "", false, fwra.New(fwra.ContractMisuse, "CommitManagedFiles: empty content for "+f.Path)
 		}
 	}
-	// Path-sorted, with ONE fixed exception: the seat manifest commits LAST
-	// (F-QA2-36). The manifest is the sync fast-path's currency fingerprint; under a
-	// plain path sort it lands FIRST (".claude/.method-…" sorts before every
-	// ".claude/agents|commands|skills/…" file), so a write that dies mid-loop left a
-	// CURRENT manifest over a half-old tree — and every later sync trusted it and
-	// skipped the torn .claude tree forever. Committing content first and the
-	// manifest last makes the per-file loop RESUMABLE: an interrupted seat leaves
-	// the OLD (or no) manifest in place, the fast-path misses, and the next sync
-	// completes the converge. (A truly atomic multi-file Git-tree commit needs a
-	// trees-API primitive the satellite does not expose yet — earmarked; it would
-	// also collapse the one-commit-per-drifted-file history noise, F-QA2-1.)
-	sort.Slice(ordered, func(i, j int) bool {
-		im, jm := ordered[i].Path == scaffoldManifestPath, ordered[j].Path == scaffoldManifestPath
-		if im != jm {
-			return jm // every content file sorts before the manifest
-		}
-		return ordered[i].Path < ordered[j].Path
-	})
 
-	var last CommitRef
-	var anyChanged bool
-	for _, f := range ordered {
-		commitSHA, changed, perr := a.client.PutRepoContentsFile(ctx, fullName, f.Path, f.Content, message, credStr(cred))
-		if perr != nil {
-			// A concurrent-write race surfaces as Conflict; per §3 this is the ONE
-			// retryable Conflict on this seam (retry-by-re-read). Override Retryable=true.
-			if fe := asFwraError(perr); fe != nil && fe.Kind == fwra.Conflict {
-				fe.Retryable = true
-				return "", anyChanged, fe
+	// COMPARE — one tree read; blob-SHA diff computed locally.
+	seated := map[string]string{}
+	treeSHA := ""
+	unsound := false // absent or truncated tree → every file drifts
+	tree, terr := a.client.GetRepoTree(ctx, fullName, managedScaffoldBranch, true, credStr(cred))
+	switch {
+	case terr == nil:
+		treeSHA = tree.SHA
+		unsound = tree.Truncated
+		for _, e := range tree.Entries {
+			if e.Type == "blob" {
+				seated[e.Path] = e.SHA
 			}
-			return "", anyChanged, perr
 		}
-		anyChanged = anyChanged || changed
-		last = CommitRef(commitSHA)
+	case kindOfErr(terr) == fwra.NotFound:
+		unsound = true // unborn branch / fresh repo: nothing seated yet
+	default:
+		return "", false, terr
 	}
-	return last, anyChanged, nil
+
+	drifted := map[string][]byte{}
+	for _, f := range files {
+		if unsound || seated[f.Path] != fwgithub.GitBlobSHA(f.Content) {
+			drifted[f.Path] = f.Content
+		}
+	}
+	if len(drifted) == 0 {
+		// Fully converged — NO write, no commit. The returned CommitRef is the
+		// converged tip's tree id: an OPAQUE existing-state token (callers never
+		// parse a CommitRef), kept non-zero so idempotent re-seats still return a
+		// handle without paying an extra head-resolving request.
+		return CommitRef(treeSHA), false, nil
+	}
+
+	// WRITE — one atomic commit carrying every drifted file (manifest included).
+	commitSHA, cerr := a.client.CommitFilesAtomic(ctx, fullName, managedScaffoldBranch, message, drifted, fwgithub.CommitSignature{}, credStr(cred))
+	if cerr != nil {
+		if fe := asFwraError(cerr); fe != nil && fe.Kind == fwra.Conflict {
+			fe.Retryable = true
+			return "", false, fe
+		}
+		return "", false, cerr
+	}
+	return CommitRef(commitSHA), true, nil
 }
 
 // SyncManagedScaffold is the CONTRACT op (B5) promoting the former free-function
@@ -1027,10 +1064,17 @@ func itoa64(n int64) string { return strconv.FormatInt(n, 10) }
 //      gate is green from the first commit. It is a static one-liner (not templated):
 //      git needs a non-empty tracked file, and CommitManagedFiles rejects empty
 //      content, so it carries a single explanatory comment line.
-//   5. the full .claude agents/commands/skills tree + its seat manifest
-//      (.claude/.method-assets-manifest.json) — the PROMPT SURFACE the seated
-//      workflows' thin slash-command dispatch routes into, fingerprinted by the
-//      manifest's methodassets version for the sync fast-path.
+//   5. (REMOVED from the committed set — runtime materialization, founder-ratified
+//      2026-07-17.) The full .claude agents/commands/skills tree + its seat manifest
+//      — the PROMPT SURFACE the seated workflows' thin slash-command dispatch routes
+//      into — is NO LONGER repo-committed into operated repos. Both seated workflows
+//      materialize it into the RUNNER CHECKOUT at job start instead
+//      (`aiarch-state-mcp seat-assets --dest .`), from the SAME pinned module
+//      generation as the state-MCP binary (StateMcpModulePin is the provenance), so
+//      the prompt surface can never drift from the validators. A legacy repo's
+//      stale committed .claude copy is force-overwritten by that step (the render
+//      runs after checkout and overwrites owned paths); proactive DELETION of
+//      legacy committed .claude trees is a deliberate follow-up, not done here.
 //
 // This asset accessor lives DIRECTLY in the sourceControlAccess package (not a
 // sub-package) on purpose: the rendered assets are consumed only by this RA's own
@@ -1064,9 +1108,10 @@ const DesignWorkflowPath = ".github/workflows/aiarch-design.yml"
 // managed-scaffold sync FAST-PATH reads THIS ONE FILE off the repo and compares the
 // version — NEVER the files list: a materializer-written manifest may transiently
 // carry retained orphans (self-healing prune), so the list is not a stable fingerprint.
-// Because it IS the currency fingerprint, putManagedFiles commits it LAST in any seat
-// or sync bundle (F-QA2-36): it may only ever assert a version whose content files all
-// landed before it.
+// Because it IS the currency fingerprint, putManagedFiles lands it in the SAME single
+// atomic commit as every drifted content file (trees-API transport, 2026-07-17 —
+// supersedes the F-QA2-36 manifest-last ordering): it can never assert a version whose
+// content files did not land with it.
 const scaffoldManifestPath = ".claude/.method-assets-manifest.json"
 
 // GoModPath / MethodTestPath are the repo-root scaffold paths the go-test gate is
@@ -1141,7 +1186,7 @@ const StateMcpModulePath = "github.com/mixofreality-studio/archistrator/server/c
 // (cmd/aiarch-state-mcp/promptsurface_test.go): a prompt-referenced tool must exist at
 // HEAD, so a correct pin bump to a commit at-or-after the tool's introduction closes the
 // skew. TestStateMcpPinIsFullCommitSHA (below, access_test.go) enforces the pin's shape.
-var StateMcpModulePin = "9869710606ca2697722023b7294d4a9cab863593"
+var StateMcpModulePin = "cb352f76cdb8242a3b34bb815f564e971ff4da8f"
 
 // NOTE (2026-06-15 correction): the embedded DESIGN workflow reads
 // ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }} to authenticate claude-code-action, but that
@@ -1170,13 +1215,22 @@ func managedScaffoldData(repo RepoRef, appSlug string) (methodassets.ScaffoldDat
 	}, nil
 }
 
-// renderManagedScaffold renders the COMPLETE managed scaffold via
-// methodassets.ScaffoldFiles (both workflows + go.mod + method test + the full
-// .claude tree + the seat manifest + internal/.gitkeep) as a path-sorted
-// []ManagedFile. One override: the module emits internal/.gitkeep EMPTY (a plain git
-// placeholder), but the managed-file write path rejects empty content (no empty
-// Contents PUT), so the seat carries the explanatory one-liner instead — same
-// placeholder, non-empty bytes.
+// renderManagedScaffold renders the REPO-COMMITTED managed scaffold via
+// methodassets.ScaffoldFiles as a path-sorted []ManagedFile: both workflows +
+// go.mod + method test + internal/.gitkeep. Two deviations from the module's full
+// rendering:
+//
+//   - the .claude tree + its seat manifest are EXCLUDED (runtime materialization,
+//     founder-ratified 2026-07-17): operated repos do not commit the prompt
+//     surface — the seated workflows render it into the runner checkout at job
+//     start (`aiarch-state-mcp seat-assets --dest .`) from the SAME pinned module
+//     generation as the state-MCP binary, so the pin is the provenance and a
+//     committed copy cannot drift. (Legacy repos' already-committed .claude trees
+//     are left in place — cleanup is a follow-up — and are force-overwritten in
+//     the checkout by the workflow's post-checkout seat-assets step.)
+//   - the module emits internal/.gitkeep EMPTY (a plain git placeholder), but the
+//     managed-file write path rejects empty content, so the seat carries the
+//     explanatory one-liner instead — same placeholder, non-empty bytes.
 func renderManagedScaffold(repo RepoRef, appSlug string) ([]ManagedFile, error) {
 	data, err := managedScaffoldData(repo, appSlug)
 	if err != nil {
@@ -1190,6 +1244,11 @@ func renderManagedScaffold(repo RepoRef, appSlug string) ([]ManagedFile, error) 
 
 	files := make([]ManagedFile, 0, len(rendered))
 	for p, b := range rendered {
+		if strings.HasPrefix(p, claudePathPrefix) {
+			// Runtime-materialized by the workflows' seat-assets step, never
+			// repo-committed (2026-07-17) — includes the seat manifest.
+			continue
+		}
 		files = append(files, ManagedFile{Path: p, Content: b})
 	}
 	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
@@ -1220,14 +1279,16 @@ func DesignWorkflowFile(appSlug string) (ManagedFile, error) {
 }
 
 // ManagedScaffoldFiles returns the FULL aiarch-managed project scaffold bundle to
-// seat at project birth — the methodassets rendering in its entirety: both agentic
-// workflows (design + construct), the go-test gate (go.mod + aiarch_method_test.go),
-// the complete .claude agents/commands/skills tree with its seat manifest, and the
-// internal/.gitkeep placeholder (the method gate's arch.MethodSpec `./internal/...`
-// load pattern hard-errors on a missing internal/ dir, so the placeholder makes it
-// exist at birth). The C-PM-Δ caller hands the returned slice to CommitManagedFiles,
-// which seats the whole set in one birth seat. (It deliberately does NOT include
-// .aiarch/state/project.json — projectStateAccess.CreateProject owns seeding that.)
+// seat at project birth: both agentic workflows (design + construct), the go-test
+// gate (go.mod + aiarch_method_test.go), and the internal/.gitkeep placeholder (the
+// method gate's arch.MethodSpec `./internal/...` load pattern hard-errors on a
+// missing internal/ dir, so the placeholder makes it exist at birth). The C-PM-Δ
+// caller hands the returned slice to CommitManagedFiles, which seats the whole set
+// in one birth seat. (It deliberately does NOT include .aiarch/state/project.json —
+// projectStateAccess.CreateProject owns seeding that. Nor, since the 2026-07-17
+// runtime-materialization ratification, the .claude prompt surface — the seated
+// workflows render it into the runner checkout per job via
+// `aiarch-state-mcp seat-assets`; see renderManagedScaffold.)
 //
 // appSlug is the deployment's GitHub App slug (from the composition root). The caller
 // reads it off the rail with RailAppSlug so it is never hardcoded. An EMPTY slug
@@ -1242,11 +1303,13 @@ func ManagedScaffoldFiles(repo RepoRef, appSlug string) ([]ManagedFile, error) {
 }
 
 // managedSyncFiles returns the SYNC-SCOPED subset of the managed scaffold — the
-// PROMPT SURFACE only (spec §5 amendment, 2026-07-13): both workflows + the full
-// .claude tree + the seat manifest. go.mod / aiarch_method_test.go /
-// internal/.gitkeep are BIRTH-ONLY: go.mod is user-evolved after birth (their
-// requires) and re-seating it would destroy user content, so the sync never
-// touches the scaffold roots.
+// two seated workflows ONLY. go.mod / aiarch_method_test.go / internal/.gitkeep
+// are BIRTH-ONLY: go.mod is user-evolved after birth (their requires) and
+// re-seating it would destroy user content, so the sync never touches the
+// scaffold roots. The .claude prompt surface left this set with the 2026-07-17
+// runtime-materialization ratification (it left the whole committed scaffold —
+// see renderManagedScaffold): the workflows themselves materialize it into the
+// runner checkout per job, so there is no committed prompt copy to converge.
 func managedSyncFiles(repo RepoRef, appSlug string) ([]ManagedFile, error) {
 	all, err := renderManagedScaffold(repo, appSlug)
 	if err != nil {
@@ -1254,7 +1317,7 @@ func managedSyncFiles(repo RepoRef, appSlug string) ([]ManagedFile, error) {
 	}
 	out := make([]ManagedFile, 0, len(all))
 	for _, f := range all {
-		if strings.HasPrefix(f.Path, workflowPathPrefix) || strings.HasPrefix(f.Path, claudePathPrefix) {
+		if strings.HasPrefix(f.Path, workflowPathPrefix) {
 			out = append(out, f)
 		}
 	}
@@ -1296,18 +1359,19 @@ type managedFileReader interface {
 // managedFileSyncer / managedFileReader.
 //
 // WHY (F-QA2-36, torn-state belt-and-braces): the seat manifest carries a version
-// and a files list but NO per-file content hashes, and the satellite exposes no
-// trees-API primitive to compare seated blob SHAs in one call — so a manifest whose
-// version matches cannot, by itself, prove the seated tree's CONTENT. A live repo
+// and a files list but NO per-file content hashes — so a manifest whose version
+// matches cannot, by itself, prove the seated tree's CONTENT. A live repo
 // (gtdapp) was torn exactly this way: an interrupted pre-fix sync wrote the manifest
 // first, died mid-loop, and every later dispatch's version-only fast-path trusted
 // the lying manifest and skipped the half-old tree forever. The memo makes the
 // fast-path's trust EARNED per process: the first sync of a repo in a process
-// lifetime always runs the full fetch-compare-put converge (byte-exact verification
-// AND repair in one pass — a current tree costs only reads, no commits), and only
-// then may later syncs skip the tree on a manifest-version hit. A rail without the
-// memo simply never takes the fast path. (Earmark: a satellite trees-API read would
-// make the verification O(1) API calls and this memo unnecessary.)
+// lifetime always runs the full converge (byte-exact verification AND repair in one
+// pass — since the trees-API transport, a current tree costs ONE recursive tree
+// read, no commits), and only then may later syncs skip the tree on a
+// manifest-version hit. A rail without the memo simply never takes the fast path.
+// (The 2026-07-17 trees-API transport also made a NEW tear structurally impossible —
+// the manifest lands in the same atomic commit as the content — so the memo now
+// guards only pre-transport repos and out-of-band tampering.)
 type managedSyncMemo interface {
 	ManagedScaffoldSynced(repo RepoRef, version string) bool
 	RecordManagedScaffoldSynced(repo RepoRef, version string)
@@ -1326,18 +1390,28 @@ func recordScaffoldSynced(rail SourceControlAccess, repo RepoRef) {
 	}
 }
 
-// SyncManagedScaffold ensures the SEATED prompt surface — both agentic workflows
-// (aiarch-design.yml + aiarch-construct.yml) and the full .claude tree with its seat
-// manifest, on the repo's DEFAULT branch — matches the CURRENT methodassets rendering.
-// It is the managed-scaffold sync the design Managers run BEFORE every design-job
-// dispatch (2026-07-06; closes the CreateProject-seats-once drift: the birth seat's
-// constant idempotency key means a seated copy was otherwise never refreshed, so
-// server upgrades stranded live repos on stale prompts/pins the new validators
-// reject).
+// SyncManagedScaffold ensures the SEATED scaffold — both agentic workflows
+// (aiarch-design.yml + aiarch-construct.yml) on the repo's DEFAULT branch — matches
+// the CURRENT methodassets rendering. It is the managed-scaffold sync the design
+// Managers run BEFORE every design-job dispatch (2026-07-06; closes the
+// CreateProject-seats-once drift: the birth seat's constant idempotency key means a
+// seated copy was otherwise never refreshed, so server upgrades stranded live repos
+// on stale prompts/pins the new validators reject).
 //
-// FAST-PATH (B4; hardened for F-QA2-36): converging ~100 .claude files by
-// fetch-compare-put on EVERY design dispatch is wasteful, so the sync may skip the
-// .claude tree — but only when BOTH proofs hold:
+// SINCE 2026-07-17 (runtime-materialization ratification) the sync set is the TWO
+// WORKFLOW FILES ONLY: the .claude prompt surface is no longer repo-committed —
+// the seated workflows render it into the runner checkout per job
+// (`aiarch-state-mcp seat-assets`), so there is no committed prompt copy to
+// converge. The .claude fast-path machinery below (memo + seated-manifest
+// fingerprint) is therefore VESTIGIAL — with a workflows-only set both branches
+// converge the identical files and the outcome is never wrong, it can only waste
+// one manifest GET on legacy repos — and is EARMARKED for removal as a follow-up
+// (kept now to avoid churning the converge surface a concurrent transport rework
+// owns).
+//
+// FAST-PATH (B4; hardened for F-QA2-36; kept under the 2026-07-17 trees-API
+// transport with UNCHANGED semantics): the sync may skip the .claude tree — but
+// only when BOTH proofs hold:
 //
 //  1. THIS PROCESS has already converged the FULL sync set for this repo at this
 //     methodassets version (managedSyncMemo) — byte-exact verification-and-repair,
@@ -1349,8 +1423,9 @@ func recordScaffoldSynced(rail SourceControlAccess, repo RepoRef) {
 //     exactly this server's methodassets pin — VERSION ONLY, never the files list
 //     (a materializer-written manifest may transiently carry retained orphans) —
 //     which catches cross-process drift the in-process memo cannot see. Since
-//     putManagedFiles commits the manifest LAST, an interrupted converge leaves the
-//     old (or no) manifest behind and this check misses until the converge completes.
+//     putManagedFiles lands the manifest in the SAME atomic commit as the content
+//     files, an interrupted converge leaves the old (or no) manifest behind and this
+//     check misses until the converge completes.
 //
 // On both proofs the sync converges ONLY the two workflow files: their rendering
 // also carries the SERVER-owned (ldflags-stampable) StateMcpModulePin, which the
@@ -1359,10 +1434,10 @@ func recordScaffoldSynced(rail SourceControlAccess, repo RepoRef) {
 // without the read surface — takes the FULL seat: every sync-scoped file through the
 // same putManagedFiles converge (a current file costs a read, never a commit).
 //
-// Either way the write is fetch-compare-put per file (byte-identical short-circuits,
-// no empty commits):
-//   - anything drifted → commit(s) under the sync message (naming both generations),
-//     changed=true
+// Either way the write is ONE tree-read compare + ONE atomic commit (trees-API
+// transport; a byte-identical set short-circuits, no empty commits):
+//   - anything drifted → a single commit under the sync message (naming both
+//     generations), changed=true
 //   - everything identical → NO commit, changed=false (a fast-path hit where the
 //     workflows are also current is exactly this)
 //

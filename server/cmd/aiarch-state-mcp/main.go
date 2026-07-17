@@ -41,6 +41,15 @@ func main() {
 		}
 		return
 	}
+	// `seat-assets` materializes the .claude prompt surface into the runner checkout
+	// at job start (seatassets.go): operated repos do not commit the prompt surface —
+	// the pinned binary generation renders it, so the pin is the provenance.
+	if len(os.Args) > 1 && os.Args[1] == "seat-assets" {
+		if err := runSeatAssets(os.Args[2:]); err != nil {
+			fatalf("seat-assets: %v", err)
+		}
+		return
+	}
 
 	wd, err := os.Getwd()
 	if err != nil {

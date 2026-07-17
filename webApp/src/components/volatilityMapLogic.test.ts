@@ -11,18 +11,21 @@
  *     axis label;
  *   • the axes-overview geometry (axesLayout) — dots evenly spaced ALONG their
  *     own axis line, strictly between origin and arrow tip, viewport growing
- *     with the counts, dotless axes still drawing a visible axis;
- *   • the rejected-candidate classification labels and dot-label truncation.
+ *     with the counts UNTIL the height cap (then the vertical pitch scales down
+ *     to fit — the compact-quadrant rule), a minimum width for the axis labels,
+ *     dotless axes still drawing a visible axis;
+ *   • the rejected-candidate classification labels.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  AXES_HEIGHT_CAP,
+  AXES_MIN_WIDTH,
   axesLayout,
   axisLabel,
   laneKeyAction,
   rejectionClassLabel,
   selectionAnnouncement,
-  truncateLabel,
 } from './volatilityMapLogic.ts';
 
 void test('ArrowDown/ArrowUp move the focus position by one', () => {
@@ -93,9 +96,13 @@ void test('axesLayout puts every dot exactly ON its own axis line', () => {
 
 void test('axesLayout spaces dots evenly from the origin (no fabricated positions)', () => {
   const l = axesLayout(4, 3);
-  const yGaps = l.yDots.map((d, k) => (k === 0 ? l.origin.y - d.y : (l.yDots[k - 1]?.y ?? 0) - d.y));
+  const yGaps = l.yDots.map((d, k) =>
+    k === 0 ? l.origin.y - d.y : (l.yDots[k - 1]?.y ?? 0) - d.y
+  );
   assert.equal(new Set(yGaps).size, 1); // identical pitch, including origin→first
-  const xGaps = l.xDots.map((d, k) => (k === 0 ? d.x - l.origin.x : d.x - (l.xDots[k - 1]?.x ?? 0)));
+  const xGaps = l.xDots.map((d, k) =>
+    k === 0 ? d.x - l.origin.x : d.x - (l.xDots[k - 1]?.x ?? 0)
+  );
   assert.equal(new Set(xGaps).size, 1);
 });
 
@@ -119,14 +126,40 @@ void test('axesLayout arrows leave the shared origin along the two axes', () => 
   assert.ok(l.xArrowTip.x > l.origin.x);
 });
 
-void test('axesLayout viewport grows with the dot counts (never crowds the pitch)', () => {
+void test('axesLayout viewport grows with the dot counts until the height cap', () => {
   const small = axesLayout(1, 1);
-  const tall = axesLayout(8, 1);
-  const wide = axesLayout(1, 8);
+  const tall = axesLayout(6, 1);
+  const wide = axesLayout(1, 9); // past the minimum-width floor
   assert.ok(tall.height > small.height);
+  assert.ok(tall.height <= AXES_HEIGHT_CAP);
   assert.equal(tall.width, small.width);
   assert.ok(wide.width > small.width);
   assert.equal(wide.height, small.height);
+});
+
+void test('axesLayout caps the height and scales the vertical pitch to fit', () => {
+  const base = axesLayout(2, 2);
+  const big = axesLayout(40, 2);
+  assert.ok(big.height <= AXES_HEIGHT_CAP, 'height never exceeds the cap');
+  assert.equal(big.yDots.length, 40);
+  // Every dot still strictly between origin and arrow tip on the capped axis.
+  for (const d of big.yDots) {
+    assert.ok(d.y < big.origin.y && d.y > big.yArrowTip.y);
+  }
+  // The pitch SHRANK below the uncapped base pitch instead of the diagram towering…
+  const basePitch = base.origin.y - (base.yDots[0]?.y ?? 0);
+  const bigPitch = big.origin.y - (big.yDots[0]?.y ?? 0);
+  assert.ok(bigPitch < basePitch);
+  // …and the spacing stays even at the scaled (fractional) pitch.
+  for (let k = 1; k < big.yDots.length; k++) {
+    const gap = (big.yDots[k - 1]?.y ?? 0) - (big.yDots[k]?.y ?? 0);
+    assert.ok(Math.abs(gap - bigPitch) < 1e-9);
+  }
+});
+
+void test('axesLayout keeps a minimum width so the axis labels always fit', () => {
+  assert.equal(axesLayout(1, 1).width, AXES_MIN_WIDTH);
+  assert.equal(axesLayout(6, 1).width, AXES_MIN_WIDTH);
 });
 
 void test('axesLayout draws a visible axis even with zero dots on it', () => {
@@ -137,6 +170,15 @@ void test('axesLayout draws a visible axis even with zero dots on it', () => {
   assert.ok(l.xArrowTip.x - l.origin.x > 0, 'horizontal axis has length');
 });
 
+void test('axesLayout pads keep the sketch off its frame corner (F4 rebalance)', () => {
+  // origin.x is LEFT_PAD, yArrowTip.y is TOP_PAD, height − origin.y is
+  // BOTTOM_PAD — pinned so the fit-content frame keeps its breathing room.
+  const l = axesLayout(3, 3);
+  assert.equal(l.origin.x, 28);
+  assert.equal(l.yArrowTip.y, 24);
+  assert.equal(l.height - l.origin.y, 32);
+});
+
 void test('axesLayout fits every dot and tip inside the viewport', () => {
   const l = axesLayout(7, 7);
   const all = [...l.yDots, ...l.xDots, l.origin, l.yArrowTip, l.xArrowTip];
@@ -144,15 +186,4 @@ void test('axesLayout fits every dot and tip inside the viewport', () => {
     assert.ok(p.x >= 0 && p.x <= l.width);
     assert.ok(p.y >= 0 && p.y <= l.height);
   }
-});
-
-// ── truncateLabel ────────────────────────────────────────────────────────────
-
-void test('truncateLabel passes short names through and caps long ones with an ellipsis', () => {
-  assert.equal(truncateLabel('Billing'), 'Billing');
-  assert.equal(truncateLabel('exactly-eighteen!!'), 'exactly-eighteen!!'); // 18 chars, at the cap
-  const long = truncateLabel('Notification Delivery Channels');
-  assert.ok(long.endsWith('…'));
-  assert.ok(long.length <= 18);
-  assert.equal(truncateLabel('Notification Deli x', 16), 'Notification De…'); // trims the trailing space
 });

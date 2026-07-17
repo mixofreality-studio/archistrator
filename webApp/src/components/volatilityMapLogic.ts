@@ -70,8 +70,11 @@ export function rejectionClassLabel(cls: RejectionClass): string {
 // ── Axes-overview geometry ───────────────────────────────────────────────────
 // The compact two-axis diagram above the lanes draws each volatility as a dot
 // ALONG ITS OWN AXIS LINE — evenly spaced by per-axis order, never a fabricated
-// 2D coordinate (the scrapped scatter collapsed those onto a diagonal). All
-// geometry is computed here so it is unit-testable without an SVG harness.
+// 2D coordinate (the scrapped scatter collapsed those onto a diagonal). Dots
+// carry NO inline name labels (founder 2026-07-17): the name surfaces in a hover
+// tooltip and a click selects the item, so the sketch stays a compact quadrant
+// instead of a tall label-driven L. All geometry is computed here so it is
+// unit-testable without an SVG harness.
 
 /** A point in SVG user units (y grows downward, per SVG convention). */
 export interface XY {
@@ -95,52 +98,62 @@ export interface AxesLayout {
   xDots: XY[];
 }
 
-/** Fixed dot pitch along the vertical axis. */
-const Y_STEP = 30;
-/** Fixed dot pitch along the horizontal axis — wide enough that the rotated
- *  dot labels underneath never collide (pitch ≫ line-height / sin 35°). */
-const X_STEP = 64;
+/** Base dot pitch along the vertical axis — shrinks once the height cap engages. */
+const Y_STEP = 28;
+/** Fixed dot pitch along the horizontal axis (dots only — no labels to clear). */
+const X_STEP = 34;
 /** Axis continues this far past the last dot before the arrowhead. */
-const AXIS_TAIL = 26;
-/** Room above the vertical arrow tip for its axis label. */
-const TOP_PAD = 30;
-/** Room under the horizontal axis for the rotated (−35°) truncated dot labels. */
-const BOTTOM_PAD = 88;
+const AXIS_TAIL = 22;
+/** Room above the vertical arrow tip (its axis label sits BESIDE the tip).
+ *  Pads sized so the sketch breathes inside its now fit-content frame. */
+const TOP_PAD = 24;
+/** Room under the horizontal axis for the Axis-2 caption. */
+const BOTTOM_PAD = 32;
 /** Origin inset from the left edge. */
-const LEFT_PAD = 26;
-/** Room past the horizontal arrow tip for its axis label and the y-dot labels
- *  that extend rightward into the (empty) quadrant. */
-const RIGHT_PAD = 190;
+const LEFT_PAD = 28;
+/** Small overshoot past the horizontal arrow tip. */
+const RIGHT_PAD = 24;
+/**
+ * The diagram never grows taller than this (founder 2026-07-17: ~260–300px).
+ * Once the vertical dot count would exceed the capped span, the vertical pitch
+ * scales DOWN to fit instead of the diagram towering.
+ */
+export const AXES_HEIGHT_CAP = 280;
+/**
+ * The diagram never gets narrower than this: the axis labels (drawn beside the
+ * vertical arrow tip and as the caption under the horizontal axis) need the room
+ * even when the dot counts are tiny.
+ */
+export const AXES_MIN_WIDTH = 300;
 
 /**
  * Compute the axes-overview geometry for `yCount` dots on the vertical axis and
  * `xCount` dots on the horizontal axis. Dots are evenly spaced from the origin
- * at a fixed pitch (dot k sits at (k+1)·pitch), so the diagram grows with the
- * counts instead of crowding, and every dot lies exactly on its axis line. A
- * dotless axis still draws one full step so it reads as an axis, not a stub.
+ * (dot k sits at (k+1)·pitch) so every dot lies exactly on its axis line. The
+ * horizontal pitch is fixed (the container scrolls); the vertical pitch is fixed
+ * until the AXES_HEIGHT_CAP engages, then scales down so the diagram stays a
+ * compact quadrant sketch at any count. A dotless axis still draws one full
+ * step so it reads as an axis, not a stub.
  */
 export function axesLayout(yCount: number, xCount: number): AxesLayout {
-  const yLen = Math.max(yCount, 1) * Y_STEP + AXIS_TAIL;
+  const ySpan = AXES_HEIGHT_CAP - TOP_PAD - BOTTOM_PAD - AXIS_TAIL;
+  const yPitch = Math.min(Y_STEP, ySpan / Math.max(yCount, 1));
+  const yLen = Math.max(yCount, 1) * yPitch + AXIS_TAIL;
   const xLen = Math.max(xCount, 1) * X_STEP + AXIS_TAIL;
   const origin: XY = { x: LEFT_PAD, y: TOP_PAD + yLen };
   return {
-    width: origin.x + xLen + RIGHT_PAD,
+    width: Math.max(origin.x + xLen + RIGHT_PAD, AXES_MIN_WIDTH),
     height: origin.y + BOTTOM_PAD,
     origin,
     yArrowTip: { x: origin.x, y: origin.y - yLen },
     xArrowTip: { x: origin.x + xLen, y: origin.y },
     yDots: Array.from({ length: yCount }, (_, k) => ({
       x: origin.x,
-      y: origin.y - (k + 1) * Y_STEP,
+      y: origin.y - (k + 1) * yPitch,
     })),
     xDots: Array.from({ length: xCount }, (_, k) => ({
       x: origin.x + (k + 1) * X_STEP,
       y: origin.y,
     })),
   };
-}
-
-/** Truncate a dot label so the fixed label margins always contain it. */
-export function truncateLabel(name: string, max = 18): string {
-  return name.length <= max ? name : `${name.slice(0, max - 1).trimEnd()}…`;
 }

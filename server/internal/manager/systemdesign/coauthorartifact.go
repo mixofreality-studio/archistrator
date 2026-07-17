@@ -969,6 +969,13 @@ func (wf *workflows) handleReviewDecision(
 	gf *gitSession,
 	state *coAuthorState,
 ) coAuthorStep {
+	// F-QA2-41: a fresh decision at this gate supersedes any prior approve/withdraw-fault
+	// notice — clear it so the NEXT stage (Committed on a successful re-approve,
+	// Redrafting on a send-back) never carries the stale notice forward. A decision arm
+	// that faults below re-stamps its own notice (reAwaitAfterApproveFault). Workflow-local
+	// view state served by the query; setting it issues NO history command (the same
+	// honesty invariant as runURL/activeRole), so no GetVersion gate is needed.
+	state.failureReason = ""
 	switch sig.Decision {
 	case ReviewApprove:
 		// REVIEW LEDGER (review-ledger §4): approve is blocked while any comment is still open.
@@ -1184,13 +1191,19 @@ func (wf *workflows) reAwaitAfterApproveFault(state *coAuthorState, reason strin
 // approveFailedReason renders the human "why" for the AwaitingReview re-approve notice when
 // an approve/merge-window activity faulted transiently (QA F35 — e.g. a GitHub secondary
 // rate-limit 403 the platform classifier reports as Auth). It frames a re-approve, NOT a
-// redraft.
+// redraft. Wording is founder-ratified (F-QA2-41): lead with what failed, state that the
+// draft is unchanged, and suggest waiting out a rate limit. The live 403 case gets the
+// ratified copy verbatim; other faults keep their honest summary in the same frame.
+// Deterministic across replay (pure string ops on the history-reconstructed error).
 func approveFailedReason(err error) string {
 	summary := dispatchErrSummary(err)
-	if summary == "" {
-		return "approving your draft did not complete (a transient repository/API error) — please approve again"
+	if strings.Contains(summary, "403") {
+		return "The approve could not complete: GitHub rejected the merge step (403 — often a rate limit). The draft is unchanged; try approving again in a few minutes."
 	}
-	return "approving your draft did not complete: " + summary + " — please approve again"
+	if summary == "" {
+		return "The approve could not complete (a transient repository/API fault). The draft is unchanged; try approving again in a few minutes."
+	}
+	return "The approve could not complete: " + summary + ". The draft is unchanged; try approving again in a few minutes."
 }
 
 // ---------------------------------------------------------------------------

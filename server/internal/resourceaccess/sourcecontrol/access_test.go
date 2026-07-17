@@ -71,11 +71,13 @@ package sourcecontrol
 //   CLAUDE_CODE_OAUTH_TOKEN is user-provisioned via the Claude Code GitHub App. The
 //   old U32–U35 seal/plaintext-leak/upsert/auth cases are deleted.)
 //
-//   COMMIT-MANAGED-FILES — commitManagedFiles (SC-B, generalized 2026-06-16):
-//     U36 seat-bundle happy: workflow + go.mod + method test → sequential PUTs →
-//         CommitRef; all three committed bytes match
-//     U37 overwrite-if-changed: differing content → a new commit
-//     U38 byte-identical → no-op success (NO PUT), returns a CommitRef
+//   COMMIT-MANAGED-FILES — commitManagedFiles (SC-B, generalized 2026-06-16;
+//   trees-API transport 2026-07-17):
+//     U36 seat-bundle happy: workflow + go.mod + method test → ONE atomic
+//         git-data commit → CommitRef; all three committed bytes match
+//     U37 overwrite-if-changed: differing content → a new (single) commit
+//     U38 byte-identical → no-op success (no commit; the compare is ONE tree
+//         read + a local blob-SHA diff), returns an opaque CommitRef
 //     U39 allowlist guard: a path off the managed-file allowlist rejects the WHOLE
 //         bundle → ContractMisuse (no wire call), even bundled with a valid file
 //     U40 guards: zero repo / zero cred / empty fileset / empty content → ContractMisuse;
@@ -682,9 +684,9 @@ func TestU37_CommitManagedFilesOverwriteIfChanged(t *testing.T) {
 	if CommitRefIsZero(ref) {
 		t.Fatalf("expected a CommitRef on a changed write")
 	}
-	// A PUT was issued (the content changed).
-	if countRequests(fake, "PUT", "/repos/acme/alpha/contents/"+path) != 1 {
-		t.Fatalf("a changed file must issue exactly one contents PUT")
+	// A commit was written (the content changed).
+	if countGitCommits(fake, "alpha") != 1 {
+		t.Fatalf("a changed file must land in exactly one atomic commit")
 	}
 	stored, _ := fake.RepoFile(testAccount, "alpha", path)
 	if string(stored) != "new content" {
@@ -706,11 +708,14 @@ func TestU38_CommitManagedFilesByteIdenticalNoOp(t *testing.T) {
 		t.Fatalf("byte-identical commit: %v", err)
 	}
 	if CommitRefIsZero(ref) {
-		t.Fatalf("a no-op commit should still return the existing tip CommitRef")
+		t.Fatalf("a no-op commit should still return an opaque converged-state CommitRef")
 	}
-	// No PUT — byte-identical short-circuits.
-	if countRequests(fake, "PUT", "/repos/acme/alpha/contents/"+path) != 0 {
-		t.Fatalf("a byte-identical file must NOT issue a contents PUT (no empty commit)")
+	// No write — the local blob-SHA diff against the single tree read short-circuits.
+	if countGitCommits(fake, "alpha") != 0 {
+		t.Fatalf("a byte-identical file must NOT write a commit")
+	}
+	if got := countRequests(fake, "GET", "/repos/acme/alpha/git/trees/main"); got != 1 {
+		t.Fatalf("the compare must be exactly one tree read, got %d", got)
 	}
 }
 
@@ -1021,36 +1026,75 @@ func countRequests(fake *gh.FakeGitHub, method, path string) int {
 
 // ---------------------------------------------------------------------------
 // U43–U47  managed-scaffold sync (sync-on-dispatch, 2026-07-06; torn-state
-// hardening F-QA2-36, 2026-07-16). The design Managers converge the seated
-// prompt surface onto the CURRENT rendering before every design-job dispatch:
-// drift → commit(s) with the sync message naming the refreshed pins;
-// byte-identical → NO commit. The seat manifest commits LAST, and the
-// manifest-version fast path is only trusted after this process has once
-// converged the full set (managedSyncMemo), so an interrupted or torn seat is
-// always healed by the next dispatch.
+// hardening F-QA2-36, 2026-07-16; trees-API transport, 2026-07-17; runtime
+// prompt materialization, 2026-07-17). The design Managers converge the seated
+// scaffold — since the runtime-materialization ratification that is the TWO
+// WORKFLOW FILES ONLY, the .claude prompt surface is rendered into the runner
+// checkout per job by `aiarch-state-mcp seat-assets` and never repo-committed —
+// onto the CURRENT rendering before every design-job dispatch: the compare is
+// ONE recursive tree read diffed against locally computed blob SHAs; drift →
+// ONE atomic git-data commit with the sync message naming the refreshed pins;
+// byte-identical → NO commit. A legacy repo's committed .claude tree is left
+// entirely alone by the sync (deletion is a deliberate follow-up); the
+// workflows' post-checkout seat-assets step overwrites it in the working tree.
+// (U44d — version-mismatched seat manifest forces a full .claude converge —
+// was DELETED with the ratification: there is no committed .claude set left to
+// converge, so a stale manifest simply means the vestigial fast path never
+// arms, which U44 covers.)
 // ---------------------------------------------------------------------------
 
-// putMessage extracts the commit "message" from the recorded contents-PUT body at path.
-func putMessage(t *testing.T, fake *gh.FakeGitHub, path string) string {
+// gitCommitMessages returns the "message" of every git-data commit POSTed for repo,
+// in wire order.
+func gitCommitMessages(t *testing.T, fake *gh.FakeGitHub, repoName string) []string {
 	t.Helper()
+	var out []string
 	for _, r := range fake.Requests() {
-		if r.Method == "PUT" && r.Path == path {
+		if r.Method == "POST" && r.Path == "/repos/"+testAccount+"/"+repoName+"/git/commits" {
 			var body struct {
 				Message string `json:"message"`
 			}
 			if err := json.Unmarshal([]byte(r.Body), &body); err != nil {
-				t.Fatalf("decode contents PUT body: %v", err)
+				t.Fatalf("decode git-commit POST body: %v", err)
 			}
-			return body.Message
+			out = append(out, body.Message)
 		}
 	}
-	t.Fatalf("no contents PUT recorded for %s", path)
-	return ""
+	return out
 }
 
-// seedSyncedScaffold seats the ENTIRE sync-scoped file set (both workflows + the
-// .claude tree + the seat manifest) into the fake repo at the CURRENT rendering, so a
-// subsequent sync finds everything byte-identical and the manifest version current.
+// countGitCommits counts the git-data commit POSTs for repo — under the atomic
+// transport this IS the number of commits the converge wrote.
+func countGitCommits(fake *gh.FakeGitHub, repoName string) int {
+	return countRequests(fake, "POST", "/repos/"+testAccount+"/"+repoName+"/git/commits")
+}
+
+// treePostPaths flattens the entry paths of every git-data tree POSTed for repo (in
+// wire order) — the exact file set the atomic commit(s) carried.
+func treePostPaths(t *testing.T, fake *gh.FakeGitHub, repoName string) []string {
+	t.Helper()
+	var out []string
+	for _, r := range fake.Requests() {
+		if r.Method == "POST" && r.Path == "/repos/"+testAccount+"/"+repoName+"/git/trees" {
+			var body struct {
+				Tree []struct {
+					Path string `json:"path"`
+				} `json:"tree"`
+			}
+			if err := json.Unmarshal([]byte(r.Body), &body); err != nil {
+				t.Fatalf("decode git-tree POST body: %v", err)
+			}
+			for _, e := range body.Tree {
+				out = append(out, e.Path)
+			}
+		}
+	}
+	return out
+}
+
+// seedSyncedScaffold seats the ENTIRE sync-scoped file set (both workflows —
+// the whole sync scope since the 2026-07-17 runtime-materialization ratification)
+// into the fake repo at the CURRENT rendering, so a subsequent sync finds
+// everything byte-identical.
 func seedSyncedScaffold(t *testing.T, fake *gh.FakeGitHub, repoName, appSlug string) []ManagedFile {
 	t.Helper()
 	files, err := managedSyncFiles(RepoRefFromString(testAccount+"|"+testAccount+"/"+repoName), appSlug)
@@ -1063,23 +1107,13 @@ func seedSyncedScaffold(t *testing.T, fake *gh.FakeGitHub, repoName, appSlug str
 	return files
 }
 
-// countClaudePuts counts contents PUTs under the repo's .claude/ tree.
-func countClaudePuts(fake *gh.FakeGitHub, repoName string) int {
-	n := 0
-	for _, r := range fake.Requests() {
-		if r.Method == "PUT" && strings.HasPrefix(r.Path, "/repos/"+testAccount+"/"+repoName+"/contents/.claude/") {
-			n++
-		}
-	}
-	return n
-}
-
-// U43: DRIFT (no manifest) → FULL CONVERGE + COMMIT. A pre-B4 repo (stale seated
-// design workflow, no seat manifest) takes the full-seat path: the whole prompt
-// surface converges — the design workflow is refreshed to the CURRENT rendering
-// under the SYNC message, the .claude tree (incl. the manifest) is seated — and
-// changed=true is reported. The sync NEVER touches the birth-only scaffold roots
-// (go.mod / method test / internal/.gitkeep — user-territory after birth).
+// U43: DRIFT → FULL CONVERGE + ONE ATOMIC COMMIT. A repo with a stale seated
+// design workflow takes the full-seat path: the whole sync set (both workflows)
+// converges in a SINGLE git-data commit under the SYNC message — the design
+// workflow refreshed to the CURRENT rendering — and changed=true is reported.
+// The sync NEVER touches the birth-only scaffold roots (go.mod / method test /
+// internal/.gitkeep — user-territory after birth) and NEVER commits any .claude
+// path (runtime-materialized per job since 2026-07-17, not repo-committed).
 func TestU43_SyncManagedScaffoldDriftCommitsRefresh(t *testing.T) {
 	fake, a, repo, cred := adoptedFixture(t, "alpha")
 	defer fake.Close()
@@ -1092,8 +1126,8 @@ func TestU43_SyncManagedScaffoldDriftCommitsRefresh(t *testing.T) {
 	if !changed {
 		t.Fatal("a drifted seated scaffold must report changed=true")
 	}
-	if got := countRequests(fake, "PUT", "/repos/acme/alpha/contents/"+DesignWorkflowPath); got != 1 {
-		t.Fatalf("a drifted workflow must issue exactly one contents PUT, got %d", got)
+	if got := countGitCommits(fake, "alpha"); got != 1 {
+		t.Fatalf("the full converge must write exactly ONE atomic commit, got %d", got)
 	}
 	want, err := DesignWorkflowFile(stpAppSlug)
 	if err != nil {
@@ -1103,33 +1137,36 @@ func TestU43_SyncManagedScaffoldDriftCommitsRefresh(t *testing.T) {
 	if !ok || string(stored) != string(want.Content) {
 		t.Fatal("the refreshed seated workflow must equal the CURRENT template rendering")
 	}
-	msg := putMessage(t, fake, "/repos/acme/alpha/contents/"+DesignWorkflowPath)
-	if msg != syncManagedScaffoldMessage() {
-		t.Fatalf("sync commit message = %q, want %q", msg, syncManagedScaffoldMessage())
+	msgs := gitCommitMessages(t, fake, "alpha")
+	if len(msgs) != 1 || msgs[0] != syncManagedScaffoldMessage() {
+		t.Fatalf("sync commit message = %q, want %q", msgs, syncManagedScaffoldMessage())
 	}
-	// The full converge seats the prompt surface: the manifest (and tree) land.
-	if _, ok := fake.RepoFile(testAccount, "alpha", scaffoldManifestPath); !ok {
-		t.Fatal("the full-seat sync must seat the .claude seat manifest")
+	// The sync scope is the two workflows ONLY: no .claude path (runtime-
+	// materialized per job, never committed) and no birth-only scaffold root may
+	// ride a sync commit.
+	for _, p := range treePostPaths(t, fake, "alpha") {
+		if strings.HasPrefix(p, claudePathPrefix) {
+			t.Fatalf("the sync must never commit a .claude path (runtime-materialized), committed %s", p)
+		}
+		if p == "go.mod" || p == "aiarch_method_test.go" || p == "internal/.gitkeep" {
+			t.Fatalf("the sync must never touch the birth-only scaffold roots, committed %s", p)
+		}
 	}
-	if countClaudePuts(fake, "alpha") == 0 {
-		t.Fatal("the full-seat sync must seat the .claude tree")
-	}
-	// The sync scope is the PROMPT SURFACE only — go.mod, the method test, and the
-	// gitkeep are birth-only and must never be re-seated by the sync.
-	if countRequests(fake, "PUT", "/repos/acme/alpha/contents/go.mod") != 0 ||
-		countRequests(fake, "PUT", "/repos/acme/alpha/contents/aiarch_method_test.go") != 0 ||
-		countRequests(fake, "PUT", "/repos/acme/alpha/contents/internal/.gitkeep") != 0 {
-		t.Fatal("the sync must never touch the birth-only scaffold roots")
+	// The compare is the SINGLE tree read — no per-file Contents GETs.
+	for _, r := range fake.Requests() {
+		if r.Method == "GET" && strings.Contains(r.Path, "/contents/") {
+			t.Fatalf("the tree-diff compare must issue no per-file contents GET, got %s", r.Path)
+		}
 	}
 }
 
-// U44: EVERYTHING CURRENT → NO COMMIT; FAST PATH ONLY ONCE VERIFIED (F-QA2-36).
-// With the whole prompt surface seated at the current rendering, the FIRST sync of
-// a process may NOT trust the manifest alone (a torn tree can hide under a current
-// manifest): it walks the full sync set fetch-compare-put — reads, but zero contents
-// PUTs (no empty commit), changed=false. Only the SECOND sync — full set verified
-// this process AND manifest version current — takes the fast path: the sole .claude
-// round-trip is the ONE manifest GET.
+// U44: EVERYTHING CURRENT → NO COMMIT (F-QA2-36; workflows-only set since the
+// 2026-07-17 runtime-materialization ratification). With the whole sync set (both
+// workflows) seated at the current rendering, every sync verifies it via ONE
+// recursive tree read diffed against locally computed blob SHAs, writing nothing,
+// changed=false. The vestigial .claude fast path never arms here (no seated
+// manifest exists to fingerprint — the seat no longer commits one), and the sync
+// must never read .claude content beyond, at most, the manifest probe.
 func TestU44_SyncManagedScaffoldByteIdenticalNoCommit(t *testing.T) {
 	fake, a, repo, cred := adoptedFixture(t, "alpha")
 	defer fake.Close()
@@ -1143,22 +1180,28 @@ func TestU44_SyncManagedScaffoldByteIdenticalNoCommit(t *testing.T) {
 	if changed {
 		t.Fatal("a byte-identical seated scaffold must report changed=false")
 	}
-	sawClaudeRead := false
+	treeReads := 0
 	for _, r := range fake.Requests()[preCount:] {
-		if r.Method == "PUT" {
-			t.Fatalf("a current seated scaffold must issue NO contents PUT, got PUT %s", r.Path)
+		if r.Method == "PUT" || (r.Method == "POST" && strings.Contains(r.Path, "/git/")) {
+			t.Fatalf("a current seated scaffold must issue NO write, got %s %s", r.Method, r.Path)
 		}
-		if strings.Contains(r.Path, "/contents/.claude/") && !strings.HasSuffix(r.Path, scaffoldManifestPath) {
-			sawClaudeRead = true
+		if r.Method == "GET" && strings.Contains(r.Path, "/git/trees/") {
+			treeReads++
+		}
+		if r.Method == "GET" && strings.Contains(r.Path, "/contents/") {
+			t.Fatalf("the tree-diff verification must issue no per-file contents GET, got %s", r.Path)
 		}
 	}
-	// VERIFICATION PROOF: the first sync of a process must NOT skip the tree on the
-	// manifest's say-so — it reads the .claude files to prove them byte-exact.
-	if !sawClaudeRead {
-		t.Fatal("the first sync of a process must verify the .claude tree, not trust the manifest alone")
+	// VERIFICATION PROOF (F-QA2-36, now ~1 request): the first sync of a process must
+	// NOT skip the tree on the manifest's say-so — it proves the seated tree byte-exact
+	// via EXACTLY ONE recursive tree read.
+	if treeReads != 1 {
+		t.Fatalf("the first sync of a process must verify the tree via exactly one tree read, got %d", treeReads)
 	}
 
-	// Second sync: verified this process + manifest current → fast path.
+	// Second sync: memo hit, but with no seated manifest (the seat no longer
+	// commits one) the vestigial fast path misses — still no writes, and no
+	// .claude content read beyond the manifest probe.
 	preCount = len(fake.Requests())
 	changed, err = SyncManagedScaffold(context.Background(), a, repo, cred)
 	if err != nil {
@@ -1168,83 +1211,61 @@ func TestU44_SyncManagedScaffoldByteIdenticalNoCommit(t *testing.T) {
 		t.Fatal("a byte-identical seated scaffold must report changed=false on the fast path")
 	}
 	for _, r := range fake.Requests()[preCount:] {
-		if r.Method == "PUT" {
-			t.Fatalf("the fast path must issue NO contents PUT, got PUT %s", r.Path)
+		if r.Method == "PUT" || (r.Method == "POST" && strings.Contains(r.Path, "/git/")) {
+			t.Fatalf("the fast path must issue NO write, got %s %s", r.Method, r.Path)
 		}
-		// FAST-PATH PROOF: the only .claude read is the ONE manifest GET — the tree
-		// is fingerprinted by version once this process has verified it.
+		// FAST-PATH PROOF: the only .claude CONTENT read is the ONE manifest GET — the
+		// tree is fingerprinted by version once this process has verified it.
 		if strings.Contains(r.Path, "/contents/.claude/") && !strings.HasSuffix(r.Path, scaffoldManifestPath) {
 			t.Fatalf("the fast path must not touch .claude files beyond the manifest, got %s %s", r.Method, r.Path)
 		}
 	}
 }
 
-// U44b: TORN REPO WITH A LYING MANIFEST IS HEALED (F-QA2-36). The gtdapp incident:
-// a pre-fix interrupted sync left a manifest at the CURRENT version (with a garbage
-// files list, at that) over a tree with a STALE .claude file. The manifest version
-// matches — but a fresh process (no memo) must NOT trust it: the first sync runs the
-// full converge, rewrites the stale asset AND the off-rendering manifest
-// (changed=true). Only after that byte-exact verification does the fast path arm:
-// the second sync skips the tree (one manifest GET, no writes).
-func TestU44b_SyncManagedScaffoldHealsTornTreeUnderCurrentManifest(t *testing.T) {
+// U44b: A LEGACY COMMITTED .claude TREE IS LEFT ENTIRELY ALONE (runtime
+// materialization, 2026-07-17 — supersedes the F-QA2-36 heal-the-torn-tree
+// semantics). A pre-ratification repo still carries a committed .claude tree +
+// seat manifest — stale, torn, lying manifest, whatever: the sync neither heals
+// nor deletes any of it (proactive cleanup of legacy .claude trees is a
+// deliberate follow-up; the workflows' post-checkout seat-assets step overwrites
+// them in the runner working tree, so staleness cannot shadow the rendered
+// generation). With the workflows already current, the sync writes NOTHING and
+// reports changed=false.
+func TestU44b_SyncManagedScaffoldLeavesLegacyClaudeTreeAlone(t *testing.T) {
 	fake, a, repo, cred := adoptedFixture(t, "alpha")
 	defer fake.Close()
-	files := seedSyncedScaffold(t, fake, "alpha", stpAppSlug)
-	// The lying manifest: matching version, nonsense files list (the list is never
-	// compared — the HEAL comes from the full byte converge, not list reconciliation).
+	seedSyncedScaffold(t, fake, "alpha", stpAppSlug)
+	// The legacy residue: a current-version manifest over a stale committed asset —
+	// the exact shape the old converge would have healed.
 	manifest, err := json.Marshal(map[string]any{
 		"version": methodassets.Version(),
-		"files":   []string{".claude/retained-orphan.md", ".claude/not-a-real-file.md"},
+		"files":   []string{".claude/commands/mission-draft.md"},
 	})
 	if err != nil {
 		t.Fatalf("marshal manifest: %v", err)
 	}
 	fake.SeedRepoFile(testAccount, "alpha", scaffoldManifestPath, manifest)
-	// The tear: one .claude asset stale under the current-version manifest.
-	fake.SeedRepoFile(testAccount, "alpha", ".claude/commands/mission-draft.md", []byte("stale prompt body"))
+	stale := []byte("stale prompt body")
+	fake.SeedRepoFile(testAccount, "alpha", ".claude/commands/mission-draft.md", stale)
 
 	changed, err := SyncManagedScaffold(context.Background(), a, repo, cred)
 	if err != nil {
 		t.Fatalf("SyncManagedScaffold: %v", err)
 	}
-	if !changed {
-		t.Fatal("healing a torn tree must report changed=true")
-	}
-	var wantCmd, wantManifest []byte
-	for _, f := range files {
-		switch f.Path {
-		case ".claude/commands/mission-draft.md":
-			wantCmd = f.Content
-		case scaffoldManifestPath:
-			wantManifest = f.Content
-		}
-	}
-	stored, ok := fake.RepoFile(testAccount, "alpha", ".claude/commands/mission-draft.md")
-	if !ok || !bytes.Equal(stored, wantCmd) {
-		t.Fatal("the sync must heal the stale .claude asset despite the current-version manifest")
-	}
-	storedMan, ok := fake.RepoFile(testAccount, "alpha", scaffoldManifestPath)
-	if !ok || !bytes.Equal(storedMan, wantManifest) {
-		t.Fatal("the sync must rewrite the lying manifest to the exact rendering")
-	}
-
-	// Healed and verified → the second sync takes the fast path: no .claude reads
-	// beyond the manifest, no writes.
-	preCount := len(fake.Requests())
-	changed, err = SyncManagedScaffold(context.Background(), a, repo, cred)
-	if err != nil {
-		t.Fatalf("SyncManagedScaffold (2nd): %v", err)
-	}
 	if changed {
-		t.Fatal("a healed scaffold must report changed=false on the fast path")
+		t.Fatal("current workflows over a legacy .claude tree must report changed=false — the sync no longer converges .claude")
 	}
-	for _, r := range fake.Requests()[preCount:] {
-		if r.Method == "PUT" {
-			t.Fatalf("the fast path must issue NO contents PUT, got PUT %s", r.Path)
-		}
-		if strings.Contains(r.Path, "/contents/.claude/") && !strings.HasSuffix(r.Path, scaffoldManifestPath) {
-			t.Fatalf("the fast path must not touch .claude files beyond the manifest, got %s %s", r.Method, r.Path)
-		}
+	if got := countGitCommits(fake, "alpha"); got != 0 {
+		t.Fatalf("the sync must write nothing, got %d commits", got)
+	}
+	// The legacy committed content is byte-untouched: not healed, not deleted.
+	got, ok := fake.RepoFile(testAccount, "alpha", ".claude/commands/mission-draft.md")
+	if !ok || !bytes.Equal(got, stale) {
+		t.Fatal("the sync must leave the legacy committed .claude asset byte-untouched")
+	}
+	gotMan, ok := fake.RepoFile(testAccount, "alpha", scaffoldManifestPath)
+	if !ok || !bytes.Equal(gotMan, manifest) {
+		t.Fatal("the sync must leave the legacy seat manifest byte-untouched")
 	}
 }
 
@@ -1279,55 +1300,23 @@ func TestU44c_SyncManagedScaffoldFastPathConvergesWorkflows(t *testing.T) {
 	if !ok || string(stored) != string(want.Content) {
 		t.Fatal("the fast path must still converge the seated workflow onto the current rendering")
 	}
-	for _, r := range fake.Requests()[preCount:] {
-		if r.Method == "PUT" && strings.Contains(r.Path, "/contents/.claude/") {
-			t.Fatalf("the fast path must not write any .claude file, got PUT %s", r.Path)
+	// The atomic refresh commit carries ONLY the drifted workflow — no .claude file
+	// rides it (the prime sync wrote no commit, so every recorded tree POST is this one).
+	for _, p := range treePostPaths(t, fake, "alpha") {
+		if strings.HasPrefix(p, claudePathPrefix) {
+			t.Fatalf("the fast path must not write any .claude file, committed %s", p)
 		}
+	}
+	for _, r := range fake.Requests()[preCount:] {
 		if r.Method == "GET" && strings.Contains(r.Path, "/contents/.claude/") && !strings.HasSuffix(r.Path, scaffoldManifestPath) {
 			t.Fatalf("the fast path must not read .claude files beyond the manifest, got GET %s", r.Path)
 		}
 	}
 }
 
-// U44d: VERSION MISMATCH → FULL CONVERGE. A seated manifest carrying a DIFFERENT
-// methodassets version misses the fast path: the whole prompt surface converges,
-// refreshing the stale .claude asset and the manifest itself (changed=true).
-func TestU44d_SyncManagedScaffoldVersionMismatchFullSeat(t *testing.T) {
-	fake, a, repo, cred := adoptedFixture(t, "alpha")
-	defer fake.Close()
-	files := seedSyncedScaffold(t, fake, "alpha", stpAppSlug)
-	manifest, err := json.Marshal(map[string]any{"version": "v0.0.0-not-current", "files": []string{}})
-	if err != nil {
-		t.Fatalf("marshal manifest: %v", err)
-	}
-	fake.SeedRepoFile(testAccount, "alpha", scaffoldManifestPath, manifest)
-	fake.SeedRepoFile(testAccount, "alpha", ".claude/commands/mission-draft.md", []byte("stale prompt body"))
-
-	changed, err := SyncManagedScaffold(context.Background(), a, repo, cred)
-	if err != nil {
-		t.Fatalf("SyncManagedScaffold: %v", err)
-	}
-	if !changed {
-		t.Fatal("a version-mismatched scaffold must report changed=true")
-	}
-	var wantCmd []byte
-	for _, f := range files {
-		if f.Path == ".claude/commands/mission-draft.md" {
-			wantCmd = f.Content
-		}
-	}
-	stored, ok := fake.RepoFile(testAccount, "alpha", ".claude/commands/mission-draft.md")
-	if !ok || !bytes.Equal(stored, wantCmd) {
-		t.Fatal("the full converge must refresh the stale .claude asset to the current rendering")
-	}
-	storedMan, ok := fake.RepoFile(testAccount, "alpha", scaffoldManifestPath)
-	var m struct {
-		Version string `json:"version"`
-	}
-	if !ok || json.Unmarshal(storedMan, &m) != nil || m.Version != methodassets.Version() {
-		t.Fatal("the full converge must refresh the seat manifest to the current version")
-	}
-}
+// (U44d — version-mismatched seat manifest → full .claude converge — was DELETED
+// with the 2026-07-17 runtime-materialization ratification; see the section
+// header above.)
 
 // U45: FALLBACK. A rail that lacks the auxiliary sync + read surfaces (here: the real
 // access hidden behind an interface-embedding wrapper, so the type assertions miss)
@@ -1357,26 +1346,11 @@ func TestU45_SyncManagedScaffoldFallsBackToFrozenVerb(t *testing.T) {
 	}
 }
 
-// contentsPuts returns the repo's recorded contents-PUT paths (repo-relative), in
-// wire order.
-func contentsPuts(fake *gh.FakeGitHub, repoName string) []string {
-	prefix := "/repos/" + testAccount + "/" + repoName + "/contents/"
-	var out []string
-	for _, r := range fake.Requests() {
-		if r.Method == "PUT" && strings.HasPrefix(r.Path, prefix) {
-			out = append(out, strings.TrimPrefix(r.Path, prefix))
-		}
-	}
-	return out
-}
-
-// U46: THE MANIFEST COMMITS LAST (F-QA2-36). A full seat writes every content file
-// BEFORE the seat manifest — under a plain path sort the manifest (".claude/.method-…")
-// landed FIRST, so a sync that died mid-loop left a current-version manifest over a
-// half-written tree and the fast path skipped the tear forever. The write order is the
-// resumability guarantee: the manifest may only ever assert a version whose content
-// files all landed before it.
-func TestU46_SyncManagedScaffoldCommitsManifestLast(t *testing.T) {
+// U46: THE WHOLE SYNC SET RIDES ONE ATOMIC COMMIT. A full seat lands the ENTIRE
+// sync set — both workflows, nothing else — in exactly ONE git-data commit. No
+// .claude path (including the seat manifest) may ride it: the prompt surface is
+// runtime-materialized per job since 2026-07-17, never repo-committed.
+func TestU46_SyncManagedScaffoldCommitsWorkflowSetAtomically(t *testing.T) {
 	fake, a, repo, cred := adoptedFixture(t, "alpha")
 	defer fake.Close()
 
@@ -1387,98 +1361,77 @@ func TestU46_SyncManagedScaffoldCommitsManifestLast(t *testing.T) {
 	if !changed {
 		t.Fatal("a full seat into an empty repo must report changed=true")
 	}
-	puts := contentsPuts(fake, "alpha")
-	if len(puts) == 0 {
-		t.Fatal("a full seat must issue contents PUTs")
+	if got := countGitCommits(fake, "alpha"); got != 1 {
+		t.Fatalf("the full seat must be exactly ONE atomic commit, got %d", got)
 	}
-	if got := puts[len(puts)-1]; got != scaffoldManifestPath {
-		t.Fatalf("the seat manifest must be the LAST contents PUT, got %s (manifest position matters: it is the sync fast-path's currency fingerprint)", got)
-	}
-	n := 0
-	for _, p := range puts {
-		if p == scaffoldManifestPath {
-			n++
-		}
-	}
-	if n != 1 {
-		t.Fatalf("the seat manifest must be written exactly once, got %d PUTs", n)
-	}
-}
-
-// U47: AN INTERRUPTED SYNC IS RESUMED BY THE NEXT ONE (F-QA2-36). Simulate the live
-// gtdapp failure — the per-file loop dies partway through the .claude tree — and
-// prove the fix's invariant: because the manifest commits last, the interrupted sync
-// leaves NO current manifest behind, so the next dispatch's sync misses the fast
-// path, re-converges the full set, and completes the seat (manifest landing last).
-func TestU47_SyncManagedScaffoldInterruptedSyncResumes(t *testing.T) {
-	fake, a, repo, cred := adoptedFixture(t, "alpha")
-	defer fake.Close()
-
-	// Pick a victim mid-way through the commit order (path-sorted .claude tree).
+	// The one commit's tree carries the whole sync set (both workflows) and
+	// NOTHING under .claude/ — the manifest included.
+	committed := treePostPaths(t, fake, "alpha")
 	files, err := managedSyncFiles(repo, stpAppSlug)
 	if err != nil {
 		t.Fatalf("managedSyncFiles: %v", err)
 	}
-	var claude []string
-	for _, f := range files {
-		if strings.HasPrefix(f.Path, claudePathPrefix) && f.Path != scaffoldManifestPath {
-			claude = append(claude, f.Path)
+	inCommit := map[string]bool{}
+	for _, p := range committed {
+		inCommit[p] = true
+		if strings.HasPrefix(p, claudePathPrefix) {
+			t.Fatalf("no .claude path may ride the seat commit (runtime-materialized), committed %s", p)
 		}
 	}
-	if len(claude) < 3 {
-		t.Fatalf("need a multi-file .claude tree to interrupt, got %d files", len(claude))
+	for _, f := range files {
+		if !inCommit[f.Path] {
+			t.Fatalf("the atomic seat commit must include %s", f.Path)
+		}
 	}
-	victim := claude[len(claude)/2]
-	victimRoute := "/repos/" + testAccount + "/alpha/contents/" + victim
-	fake.On("PUT", victimRoute, gh.Response{Status: 500, Body: `{"message":"mid-loop death"}`})
+	// No legacy per-file Contents PUT remains.
+	for _, r := range fake.Requests() {
+		if r.Method == "PUT" && strings.Contains(r.Path, "/contents/") {
+			t.Fatalf("the trees-API transport must issue no Contents PUT, got PUT %s", r.Path)
+		}
+	}
+}
 
-	// First sync dies mid-loop at the victim.
+// U47: A FAILED ATOMIC COMMIT LEAVES THE OLD STATE FULLY INTACT (F-QA2-36 under the
+// trees-API transport — supersedes the resumable-loop semantics). The chain dies at
+// the final ref update: NOTHING became reachable — no half-written tree, no torn
+// state that could masquerade as current — so the next dispatch's sync retries the
+// WHOLE converge in one atomic commit.
+func TestU47_SyncManagedScaffoldFailedCommitLeavesStateIntactThenRetriesWhole(t *testing.T) {
+	fake, a, repo, cred := adoptedFixture(t, "alpha")
+	defer fake.Close()
+
+	refRoute := "/repos/" + testAccount + "/alpha/git/refs/heads/main"
+	fake.On("PATCH", refRoute, gh.Response{Status: 500, Body: `{"message":"ref update died"}`})
+
+	// First sync dies at the atomic chain's final step.
 	if _, err := SyncManagedScaffold(context.Background(), a, repo, cred); err == nil {
-		t.Fatal("the interrupted sync must surface the mid-loop error")
+		t.Fatal("the interrupted sync must surface the ref-update error")
 	}
-	// Files ahead of the victim landed; the MANIFEST did not (it commits last), so
-	// the torn state cannot masquerade as current.
-	if _, ok := fake.RepoFile(testAccount, "alpha", claude[0]); !ok {
-		t.Fatalf("files committed before the interruption must have landed (%s)", claude[0])
+	// TRUE ATOMICITY: nothing landed — not one file of the sync set.
+	files, err := managedSyncFiles(repo, stpAppSlug)
+	if err != nil {
+		t.Fatalf("managedSyncFiles: %v", err)
 	}
-	if _, ok := fake.RepoFile(testAccount, "alpha", scaffoldManifestPath); ok {
-		t.Fatal("an interrupted sync must NOT have written the seat manifest (manifest-last is the resumability guarantee)")
-	}
-	if countRequests(fake, "PUT", "/repos/"+testAccount+"/alpha/contents/"+scaffoldManifestPath) != 0 {
-		t.Fatal("no manifest PUT may precede the content files")
+	for _, f := range files {
+		if _, ok := fake.RepoFile(testAccount, "alpha", f.Path); ok {
+			t.Fatalf("a failed atomic commit must leave the tree untouched, but %s landed", f.Path)
+		}
 	}
 
-	// The failure clears (re-script the victim route to succeed) and the next
-	// dispatch's sync completes the converge.
-	fake.On("PUT", victimRoute, gh.JSON(201, map[string]any{
-		"content": map[string]any{},
-		"commit":  map[string]any{"sha": "resume123"},
-	}))
-	preCount := len(fake.Requests())
+	// The failure clears and the next dispatch's sync retries the WHOLE converge.
+	fake.ClearRoute("PATCH", refRoute)
 	changed, err := SyncManagedScaffold(context.Background(), a, repo, cred)
 	if err != nil {
-		t.Fatalf("SyncManagedScaffold (resume): %v", err)
+		t.Fatalf("SyncManagedScaffold (retry): %v", err)
 	}
 	if !changed {
-		t.Fatal("the resuming sync must report changed=true (it completes the seat)")
+		t.Fatal("the retrying sync must report changed=true (it completes the seat)")
 	}
-	storedMan, ok := fake.RepoFile(testAccount, "alpha", scaffoldManifestPath)
-	var m struct {
-		Version string `json:"version"`
-	}
-	if !ok || json.Unmarshal(storedMan, &m) != nil || m.Version != methodassets.Version() {
-		t.Fatal("the resuming sync must complete the seat: manifest present at the current version")
-	}
-	// And the manifest is still the LAST write of the resuming pass.
-	var resumePuts []string
-	prefix := "/repos/" + testAccount + "/alpha/contents/"
-	for _, r := range fake.Requests()[preCount:] {
-		if r.Method == "PUT" && strings.HasPrefix(r.Path, prefix) {
-			resumePuts = append(resumePuts, strings.TrimPrefix(r.Path, prefix))
+	for _, f := range files {
+		got, ok := fake.RepoFile(testAccount, "alpha", f.Path)
+		if !ok || !bytes.Equal(got, f.Content) {
+			t.Fatalf("the retrying sync must land the whole set; %s missing/mismatched", f.Path)
 		}
-	}
-	if len(resumePuts) == 0 || resumePuts[len(resumePuts)-1] != scaffoldManifestPath {
-		t.Fatalf("the resuming pass must write the manifest last, got PUTs %v", resumePuts)
 	}
 }
 
@@ -1928,29 +1881,15 @@ func TestManagedScaffoldFiles(t *testing.T) {
 		t.Errorf("internal/.gitkeep content = %q, want %q", gk.Content, internalGitkeepContent)
 	}
 
-	// (5) the .claude prompt surface rides the seat: a known command asset + the seat
-	// manifest, whose version fingerprint IS this server's methodassets version.
-	if _, ok := byPath[".claude/commands/mission-draft.md"]; !ok {
-		t.Fatal("missing .claude/commands/mission-draft.md in the scaffold bundle")
-	}
-	man, ok := byPath[scaffoldManifestPath]
-	if !ok {
-		t.Fatalf("missing %s in the scaffold bundle", scaffoldManifestPath)
-	}
-	var m struct {
-		Version string   `json:"version"`
-		Files   []string `json:"files"`
-	}
-	if err := json.Unmarshal(man.Content, &m); err != nil {
-		t.Fatalf("seat manifest is not valid JSON: %v", err)
-	}
-	// The manifest version must equal what the sync fast-path will compare against —
-	// never a specific literal (build-info derived; "devel" outside a versioned build).
-	if m.Version != methodassets.Version() {
-		t.Errorf("seat manifest version = %q, want methodassets.Version() = %q", m.Version, methodassets.Version())
-	}
-	if len(m.Files) == 0 {
-		t.Error("seat manifest must list the .claude files it owns")
+	// (5) the .claude prompt surface does NOT ride the seat (runtime
+	// materialization, founder-ratified 2026-07-17): operated repos never commit
+	// the prompt surface — the seated workflows render it into the runner checkout
+	// per job (`aiarch-state-mcp seat-assets`), so neither a .claude asset nor the
+	// seat manifest may appear in the committed bundle.
+	for p := range byPath {
+		if strings.HasPrefix(p, claudePathPrefix) {
+			t.Errorf("scaffold must not seat runtime-materialized path %q (.claude is rendered per job, never committed)", p)
+		}
 	}
 
 	// (6) the server-owned state path is NEVER double-written by the scaffold.

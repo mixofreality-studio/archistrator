@@ -61,6 +61,7 @@ import { DesignExperienceSkeleton, SkeletonContentCard } from '../components/des
 import { GeneratingScene } from '../components/design/GeneratingScene';
 import { DraftFailedPanel } from '../components/design/DraftFailedPanel';
 import { GatePanel } from '../components/design/GatePanel';
+import { ApproveFaultBanner } from '../components/design/SystemDesignView';
 import { ChatRail } from '../components/design/ChatRail';
 import { CommittedArtifactPanel } from '../components/design/CommittedArtifactPanel';
 import { StaleBasisHeaderChip } from '../components/design/StaleBasisChip';
@@ -722,18 +723,12 @@ function ProjectStepBody({
           planningAssumptionsEnvelope={planningAssumptionsEnvelope}
         />
       </Box>
-      {/* QA F35 / F-GTD-12b: a contained approve/merge-window fault returns the session
-          to awaitingReview carrying failureReason — without this the reviewer just sees
-          AWAITING YOU again and the approve looks like a silent no-op. */}
+      {/* QA F35 / F-GTD-12b / F-QA2-41: a contained approve/merge-window fault returns the
+          session to awaitingReview carrying failureReason — without this the reviewer just
+          sees AWAITING YOU again and the approve looks like a silent no-op. Keyed by the
+          reason so a NEW fault re-surfaces after a dismissal. */}
       {gateOpen && failureReason !== undefined ? (
-        <Alert
-          data-testid={UI_IDENTIFIERS.DesignExperience.APPROVE_FAULT}
-          severity="warning"
-          sx={{ mb: 2 }}
-        >
-          {failureReason} If approving again fails the same way, a send-back refreshes the draft
-          from main.
-        </Alert>
+        <ApproveFaultBanner key={failureReason} reason={failureReason} />
       ) : null}
       {gateOpen ? (
         <GatePanel

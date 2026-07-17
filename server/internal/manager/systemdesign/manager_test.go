@@ -6049,8 +6049,13 @@ func Test_CoAuthor_RailEnabled_ApproveStatusFault_ReturnsToAwaitingReview_Reappr
 		if view.Stage != StageAwaitingReview {
 			t.Fatalf("an approve fault must return to AwaitingReview, got stage %v", view.Stage)
 		}
-		if view.FailureReason == nil || !strings.Contains(*view.FailureReason, "approve") {
-			t.Fatalf("the returned session must carry a re-approve notice, got %v", view.FailureReason)
+		// F-QA2-41: the notice carries the founder-ratified framing — what failed, the
+		// draft is unchanged, re-approve shortly.
+		if view.FailureReason == nil || !strings.HasPrefix(*view.FailureReason, "The approve could not complete") {
+			t.Fatalf("the returned session must carry the ratified re-approve notice, got %v", view.FailureReason)
+		}
+		if !strings.Contains(*view.FailureReason, "The draft is unchanged") {
+			t.Fatalf("the notice must state the draft is unchanged, got %q", *view.FailureReason)
 		}
 	}, 70*time.Second)
 	// Re-approve → now the status reads green → merge + commit.
@@ -6075,6 +6080,99 @@ func Test_CoAuthor_RailEnabled_ApproveStatusFault_ReturnsToAwaitingReview_Reappr
 	}
 	if len(base.committed) != 1 || base.committed[0] != projectstate.KindSystem {
 		t.Fatalf("want one commit after re-approve, got %v", base.committed)
+	}
+	// F-QA2-41: the successful re-approve DECISION cleared the stale fault notice — the
+	// committed view must not carry it forward.
+	enc, err := env.QueryWorkflow(querySessionState)
+	if err != nil {
+		t.Fatalf("QueryWorkflow after completion: %v", err)
+	}
+	var final SessionStateView
+	if derr := enc.Get(&final); derr != nil {
+		t.Fatalf("decode final SessionStateView: %v", derr)
+	}
+	if final.Stage != StageCommitted {
+		t.Fatalf("want StageCommitted after the re-approve, got %v", final.Stage)
+	}
+	if final.FailureReason != nil {
+		t.Fatalf("the re-approve decision must clear the stale approve-fault notice (F-QA2-41), got %q", *final.FailureReason)
+	}
+}
+
+// F-QA2-41 (clearing twin of the F35 stamping proof above): a SEND-BACK decision after a
+// contained approve fault supersedes the stale notice IMMEDIATELY — the Redrafting view
+// (queried mid-redraft, before the fresh stage's own clear at the next AwaitingReview)
+// must not still say "the approve could not complete" while the agent redrafts.
+func Test_CoAuthor_RailEnabled_ApproveFaultNotice_ClearedOnSendBack(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base := &fakeProjectState{project: systemReadBack(t, id)}
+	ps := &branchAwareFakeProjectState{fakeProjectState: base}
+	// Dispatch 1 (the initial draft) succeeds immediately; dispatch 2 (the redraft) is
+	// scripted RUNNING on its first observation and flipped to SUCCEEDED after it, so the
+	// test holds a live Redrafting window (the 15s poll timer) to query inside — the
+	// runURL-test pattern.
+	pipe := newFakePipeline(pipelineSucceeded, pipelineRunning)
+	pipe.onObserve = func() {
+		pipe.mu.Lock()
+		defer pipe.mu.Unlock()
+		for k := range pipe.handlePhase {
+			pipe.handlePhase[k] = pipelineSucceeded
+		}
+	}
+	// The first approve's GetPullRequestStatus 403s on all 3 bounded attempts → contained.
+	rail := &fakeRail{checkGreen: true, statusAuthFailsRemaining: 3}
+	wf := newRailWorkflows(rail)
+	registerRailCoAuthor(env, wf, ps, pipe)
+
+	// First approve → status 403s → contained → back to AwaitingReview with the notice.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
+	}, 30*time.Second)
+	// Send back instead of re-approving (the founder chooses a redraft).
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewReject,
+			Feedback: &ReviewFeedback{Notes: "tighten the manager seams"}})
+	}, 90*time.Second)
+	// Mid-redraft (the observe poll timer is still pending): the stale approve-fault
+	// notice must already be gone.
+	env.RegisterDelayedCallback(func() {
+		enc, err := env.QueryWorkflow(querySessionState)
+		if err != nil {
+			t.Fatalf("QueryWorkflow mid-redraft: %v", err)
+		}
+		var view SessionStateView
+		if derr := enc.Get(&view); derr != nil {
+			t.Fatalf("decode SessionStateView: %v", derr)
+		}
+		// The redraft round-trip is live (the spine re-enters the draft loop as
+		// Drafting/Redrafting depending on the sub-step) — either way it must no longer
+		// be at the gate, and the stale notice must be gone.
+		if view.Stage != StageRedrafting && view.Stage != StageDrafting {
+			t.Fatalf("want a live redraft stage mid-redraft, got %v", view.Stage)
+		}
+		if view.FailureReason != nil {
+			t.Fatalf("the send-back decision must clear the stale approve-fault notice (F-QA2-41), got %q", *view.FailureReason)
+		}
+	}, 95*time.Second)
+	// The redraft reaches the next gate; withdraw to end the session.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 200*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("the send-back after an approve fault must not crash the workflow: %v", err)
+	}
+	var outcome coAuthorOutcome
+	if err := env.GetWorkflowResult(&outcome); err != nil {
+		t.Fatalf("decode outcome: %v", err)
+	}
+	if outcome != coAuthorWithdrawn {
+		t.Fatalf("want the withdrawn outcome ending the redrafted session, got %d", outcome)
 	}
 }
 

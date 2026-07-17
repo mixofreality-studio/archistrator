@@ -4,22 +4,27 @@
  * axis, not a bivariate coordinate, so plotting fabricated x/y points collapsed
  * them onto an unreadable diagonal. The overview draws the book's iconic axes
  * (Y = same customer over time, X = all customers at one moment, arrows from a
- * shared origin) with each volatility as a labeled dot ALONG ITS OWN AXIS LINE,
- * evenly spaced by per-axis order — an honest rendering of the categorical
- * model. Both views stay visible (no toggle): the overview is the at-a-glance
+ * shared origin) with each volatility as a dot ALONG ITS OWN AXIS LINE, evenly
+ * spaced by per-axis order — an honest rendering of the categorical model. The
+ * dot's name appears on hover (Tooltip); a click selects it. Both views stay visible (no toggle): the overview is the at-a-glance
  * shape of the analysis, the lanes are the browsable/accessible lists.
  *
  * A11y decision for the overview SVG: it is aria-hidden and out of the tab
  * order. Its dots are pointer-clickable shortcuts to the SAME selection the
  * lane chips drive; keyboard and screen-reader users have the full equivalent
  * interaction in the lanes, so exposing a second N-stop dot sequence would only
- * duplicate the surface. Geometry (spacing, arrow tips, label truncation) is
- * pure and unit-tested in volatilityMapLogic.axesLayout.
+ * duplicate the surface. Dots carry no inline name labels (founder 2026-07-17):
+ * the name surfaces in a pointer-hover Tooltip — a duplicate of what the lanes
+ * already expose accessibly, so the aria-hidden stance is unchanged. Geometry
+ * (pitch scaling, height cap, arrow tips) is pure and unit-tested in
+ * volatilityMapLogic.axesLayout.
  *
  * Each lane is a single-select WAI-ARIA listbox (role=option + aria-selected,
  * roving tabindex — the CommentableList precedent): ↑/↓/Home/End move focus
  * within a lane, click/Enter/Space select (focus alone never selects), Escape
- * anywhere in the map clears. Selecting opens the side-rail inspect card (a
+ * anywhere in the map clears. Selecting opens the rail inspect card — the rail
+ * sits BESIDE the axes overview (it flexes into what was dead space right of
+ * the fit-content sketch), while the lanes row below spans full width — (a
  * visually-hidden polite live region announces the swap) and arms a comment
  * anchor (`$.items[n]`) for the chat rail. Pure keyboard/announcement logic
  * lives in volatilityMapLogic.ts. Recolored from tokens.
@@ -50,18 +55,13 @@ import {
 } from '../contracts/adapters';
 import type { ArtifactModelEnvelope, Axis, RejectedVolatility } from '../contracts/types';
 import { useProject } from '../hooks/useProject';
-import {
-  useComments,
-  volatilityAnchor,
-  rejectedVolatilityAnchor,
-} from './comments/CommentContext';
+import { useComments, volatilityAnchor, rejectedVolatilityAnchor } from './comments/CommentContext';
 import {
   axesLayout,
   axisLabel,
   laneKeyAction,
   rejectionClassLabel,
   selectionAnnouncement,
-  truncateLabel,
 } from './volatilityMapLogic';
 import { useTokens } from '../utilities/theme/ThemeContext';
 import type { Tokens } from '../utilities/theme/themes';
@@ -141,39 +141,16 @@ export function VolatilityMap({
         }
       }}
     >
-      {points.length > 0 ? (
-        <AxesOverview axis1={axis1} axis2={axis2} sel={sel} t={t} onSelect={setSel} />
-      ) : null}
-
+      {/* Top row: the compact axes sketch (fit-content, no dead-space frame)
+          with the summary/selection rail flexing into the space beside it. */}
       <Box sx={{ display: 'flex', gap: 2, flexDirection: { xs: 'column', md: 'row' } }}>
-        <Box
-          sx={{ flexGrow: 1, display: 'flex', gap: 2, flexDirection: { xs: 'column', sm: 'row' } }}
-        >
-          <Lane
-            axis="sameCustomerOverTime"
-            color={t.accent2}
-            items={axis1}
-            sel={sel}
-            subtitle="Varies for one customer over time."
-            t={t}
-            title={AXIS1_LABEL}
-            onSelect={setSel}
-          />
-          <Lane
-            axis="allCustomersAtOneTime"
-            color={t.committedDot}
-            items={axis2}
-            sel={sel}
-            subtitle="Differs across customers at one moment."
-            t={t}
-            title={AXIS2_LABEL}
-            onSelect={setSel}
-          />
-        </Box>
+        {points.length > 0 ? (
+          <AxesOverview axis1={axis1} axis2={axis2} sel={sel} t={t} onSelect={setSel} />
+        ) : null}
 
-        {/* side rail: selection inspect + comment */}
-        <Box sx={{ width: { xs: '100%', md: 280 }, flexShrink: 0 }}>
-          <Paper sx={{ p: 2 }}>
+        {/* rail: selection inspect + comment, beside the axes overview */}
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Paper sx={{ p: 2, height: '100%' }}>
             <Typography sx={{ color: t.muted, mb: 1 }} variant="subtitle2">
               {points.length} VOLATILITIES
             </Typography>
@@ -203,13 +180,36 @@ export function VolatilityMap({
                 data-testid={UI_IDENTIFIERS.VolatilityMap.SUMMARY}
                 sx={{ color: t.muted, fontSize: 13.5, lineHeight: 1.6 }}
               >
-                Two axes of change: the left lane evolves for one customer over time; the right
-                lane differs across customers at one moment. Select a volatility to inspect
+                Two axes of change: the left lane evolves for one customer over time; the right lane
+                differs across customers at one moment. Select a volatility to inspect
                 {enabled ? ' or comment' : ''}.
               </Typography>
             )}
           </Paper>
         </Box>
+      </Box>
+
+      <Box sx={{ display: 'flex', gap: 2, flexDirection: { xs: 'column', sm: 'row' } }}>
+        <Lane
+          axis="sameCustomerOverTime"
+          color={t.accent2}
+          items={axis1}
+          sel={sel}
+          subtitle="Varies for one customer over time."
+          t={t}
+          title={AXIS1_LABEL}
+          onSelect={setSel}
+        />
+        <Lane
+          axis="allCustomersAtOneTime"
+          color={t.committedDot}
+          items={axis2}
+          sel={sel}
+          subtitle="Differs across customers at one moment."
+          t={t}
+          title={AXIS2_LABEL}
+          onSelect={setSel}
+        />
       </Box>
 
       {rejected.length > 0 ? (
@@ -259,10 +259,12 @@ export function VolatilityMap({
 
 /**
  * The compact two-axis overview: the book's iconic axes as arrows from a shared
- * origin, each volatility a labeled dot evenly spaced ALONG ITS OWN AXIS LINE
- * (positions come from axesLayout — per-axis order only, no fabricated 2D
- * coordinates). Dots are pointer-clickable shortcuts driving the SAME selection
- * as the lane chips; the SVG is aria-hidden and unfocusable because the lanes
+ * origin, each volatility a dot evenly spaced ALONG ITS OWN AXIS LINE (positions
+ * come from axesLayout — per-axis order only, no fabricated 2D coordinates, the
+ * vertical pitch compacting under the height cap). Dots carry no inline labels:
+ * the name shows in a hover Tooltip (MUI clones its listeners onto the child
+ * <g>, which works for SVG content), and a click drives the SAME selection as
+ * the lane chips. The SVG is aria-hidden and unfocusable because the lanes
  * below are the complete accessible surface for the identical items/actions
  * (see the component doc comment).
  */
@@ -285,24 +287,50 @@ function AxesOverview({
   const { origin, yArrowTip, xArrowTip } = layout;
 
   const dot = (p: IndexedPoint, cx: number, cy: number, color: string): ReactNode => (
-    <circle
-      cx={cx}
-      cy={cy}
-      cursor="pointer"
-      data-testid={UI_IDENTIFIERS.VolatilityMap.dot(p.i)}
-      fill={color}
+    // MUI Tooltip clones its ref + hover listeners onto the child, and a plain
+    // SVG <g> accepts both — the popper itself portals to document.body, so it
+    // renders fine from inside the <svg>. The transparent hit circle widens the
+    // hover/click target beyond the 10px visible dot. Popper collision is pinned
+    // to the WINDOW (not the overflowX scroll box the dot sits in) so tooltips
+    // near the viewport edge flip/shift instead of clipping.
+    <Tooltip
       key={`${p.v.name}-${String(p.i)}`}
-      r={sel === p.i ? 7 : 5}
-      stroke={sel === p.i ? t.accent : t.paper}
-      strokeWidth={sel === p.i ? 2.5 : 1.5}
-      onClick={() => {
-        onSelect(p.i);
+      placement="top"
+      slotProps={{
+        popper: {
+          modifiers: [
+            { name: 'flip', options: { fallbackPlacements: ['right', 'bottom', 'left'] } },
+            { name: 'preventOverflow', options: { boundary: 'window', padding: 8 } },
+          ],
+        },
       }}
-    />
+      title={p.v.name}
+    >
+      <g
+        cursor="pointer"
+        onClick={() => {
+          onSelect(p.i);
+        }}
+      >
+        <circle cx={cx} cy={cy} fill="transparent" r={11} />
+        <circle
+          cx={cx}
+          cy={cy}
+          data-testid={UI_IDENTIFIERS.VolatilityMap.dot(p.i)}
+          fill={color}
+          r={sel === p.i ? 7 : 5}
+          stroke={sel === p.i ? t.accent : t.paper}
+          strokeWidth={sel === p.i ? 2.5 : 1.5}
+        />
+      </g>
+    </Tooltip>
   );
 
   return (
-    <Paper sx={{ p: 1.5 }}>
+    // fit-content kills the dead-space frame right of the sketch (the rail sits
+    // there now); maxWidth + minWidth let the flex row shrink it so the internal
+    // overflowX scroll still engages for large counts on narrow viewports.
+    <Paper sx={{ p: 1.5, width: 'fit-content', maxWidth: '100%', minWidth: 0, flexShrink: 1 }}>
       <Box sx={{ overflowX: 'auto' }}>
         <svg
           aria-hidden="true"
@@ -349,61 +377,27 @@ function AxesOverview({
           >
             {AXIS1_LABEL}
           </text>
+          {/* Axis-2 caption UNDER the axis, left-aligned at the origin — end-anchoring
+              it at the arrow tip would clip left when the dot count is small. */}
           <text
             fill={t.committedDot}
             fontFamily={t.mono}
             fontSize={10.5}
             fontWeight={700}
-            textAnchor="end"
-            x={xArrowTip.x}
-            y={xArrowTip.y - 12}
+            x={origin.x}
+            y={origin.y + 18}
           >
             {AXIS2_LABEL}
           </text>
 
-          {/* Axis-1 dots up the vertical axis, labels rightward into the empty
-              quadrant (no 2D positions exist, so nothing is there to collide). */}
+          {/* Dots only — names surface in the hover Tooltip, click selects. */}
           {axis1.map((p, k) => {
             const d = layout.yDots[k];
-            if (d === undefined) return null;
-            return (
-              <g key={`${p.v.name}-${String(p.i)}`}>
-                {dot(p, d.x, d.y, t.accent2)}
-                <text
-                  fill={t.ink}
-                  fontFamily={t.mono}
-                  fontSize={10.5}
-                  fontWeight={sel === p.i ? 700 : 400}
-                  x={d.x + 12}
-                  y={d.y + 3.5}
-                >
-                  {truncateLabel(p.v.name)}
-                </text>
-              </g>
-            );
+            return d === undefined ? null : dot(p, d.x, d.y, t.accent2);
           })}
-
-          {/* Axis-2 dots along the horizontal axis, tick-style rotated labels below. */}
           {axis2.map((p, k) => {
             const d = layout.xDots[k];
-            if (d === undefined) return null;
-            return (
-              <g key={`${p.v.name}-${String(p.i)}`}>
-                {dot(p, d.x, d.y, t.committedDot)}
-                <text
-                  fill={t.ink}
-                  fontFamily={t.mono}
-                  fontSize={10.5}
-                  fontWeight={sel === p.i ? 700 : 400}
-                  textAnchor="end"
-                  transform={`rotate(-35 ${String(d.x)} ${String(d.y + 16)})`}
-                  x={d.x}
-                  y={d.y + 16}
-                >
-                  {truncateLabel(p.v.name, 16)}
-                </text>
-              </g>
-            );
+            return d === undefined ? null : dot(p, d.x, d.y, t.committedDot);
           })}
         </svg>
       </Box>

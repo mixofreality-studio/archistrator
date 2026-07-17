@@ -283,10 +283,12 @@ func TestIRADelta_ResumeFromExistingAiarchState(t *testing.T) {
 	}
 }
 
-// TestIRADelta_WorkflowFileIdempotent proves commitAgenticWorkflowFile is idempotent:
-// running CreateProject twice against the same fresh repo seats the workflow file the
-// first time and is a byte-identical no-op the second (no second Contents PUT), and the
-// project resumes on the second create rather than erroring.
+// TestIRADelta_WorkflowFileIdempotent proves the birth seat is idempotent under the
+// trees-API transport: running CreateProject twice against the same fresh repo seats
+// the scaffold in ONE atomic git-data commit the first time and is a byte-identical
+// no-op the second (the compare — one tree read + local blob-SHA diff — finds zero
+// drift, so no second commit), and the project resumes on the second create rather
+// than erroring.
 func TestIRADelta_WorkflowFileIdempotent(t *testing.T) {
 	h := newIRADeltaHarness(t)
 	h.fakeGH.EnableRepoCatalog()
@@ -296,19 +298,19 @@ func TestIRADelta_WorkflowFileIdempotent(t *testing.T) {
 	if _, err := h.mgr.CreateProject(iraRC(h.ctx), systemdesign.OwnerScope("alice"), "idem-svc"); err != nil {
 		t.Fatalf("CreateProject (first): %v", err)
 	}
-	putsAfterFirst := countIRARequests(h.fakeGH, "PUT", "/repos/acme/idem-svc/contents/"+sourcecontrol.DesignWorkflowPath)
-	if putsAfterFirst != 1 {
-		t.Fatalf("first create should PUT the workflow file exactly once, got %d", putsAfterFirst)
+	commitsAfterFirst := countIRARequests(h.fakeGH, "POST", "/repos/acme/idem-svc/git/commits")
+	if commitsAfterFirst != 1 {
+		t.Fatalf("first create should seat the scaffold in exactly one atomic commit, got %d", commitsAfterFirst)
 	}
 
 	// Second create against the SAME repo: the on-disk state already exists → RESUME;
-	// the workflow file is byte-identical → no second Contents PUT.
+	// the scaffold is byte-identical → no second commit.
 	if _, err := h.mgr.CreateProject(iraRC(h.ctx), systemdesign.OwnerScope("alice"), "idem-svc"); err != nil {
 		t.Fatalf("CreateProject (second, resume) must not error, got: %v", err)
 	}
-	putsAfterSecond := countIRARequests(h.fakeGH, "PUT", "/repos/acme/idem-svc/contents/"+sourcecontrol.DesignWorkflowPath)
-	if putsAfterSecond != 1 {
-		t.Fatalf("re-seating a byte-identical workflow file must be a no-op (no second PUT); got %d total PUTs", putsAfterSecond)
+	commitsAfterSecond := countIRARequests(h.fakeGH, "POST", "/repos/acme/idem-svc/git/commits")
+	if commitsAfterSecond != 1 {
+		t.Fatalf("re-seating a byte-identical scaffold must be a no-op (no second commit); got %d total commits", commitsAfterSecond)
 	}
 }
 
