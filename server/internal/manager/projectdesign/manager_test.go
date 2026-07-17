@@ -2674,7 +2674,8 @@ func Test_CoAuthorPhase2_Rail_ApproveStatusFault_ReturnsToAwaitingReview_Reappro
 	ps := &seqProjectState{fakeProjectState: base, log: &seqLog{}}
 	pipe := newFakePipeline()
 	rail := newScriptedRail(true, &seqLog{})
-	rail.statusAuthFailsRemaining = 3 // the first approve exhausts the bounded budget
+	// The first approve exhausts the bounded long-backoff budget (F-QA2-49: 60s → 120s → 240s).
+	rail.statusAuthFailsRemaining = railAuthRetryLongMaxAttempts
 
 	wf := newRailWorkflows(rail)
 	registerRailCoAuthor(env, wf, ps, pipe)
@@ -2697,10 +2698,10 @@ func Test_CoAuthorPhase2_Rail_ApproveStatusFault_ReturnsToAwaitingReview_Reappro
 		if view.FailureReason == nil || !strings.Contains(*view.FailureReason, "approve") {
 			t.Fatalf("the returned session must carry a re-approve notice, got %v", view.FailureReason)
 		}
-	}, 70*time.Second)
+	}, 500*time.Second) // after the ~420s long-backoff budget (60+120+240) exhausts (F-QA2-49)
 	env.RegisterDelayedCallback(func() {
 		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
-	}, 90*time.Second)
+	}, 520*time.Second)
 
 	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindPlanningAssumptions})
 
@@ -2722,8 +2723,12 @@ func Test_CoAuthorPhase2_Rail_ApproveStatusFault_ReturnsToAwaitingReview_Reappro
 	}
 }
 
-// BOUNDED RESILIENCE (QA F35, Phase-2 twin). Two transient 403s then success: the bounded
-// retry absorbs them and the merge completes on the FIRST approve.
+// BOUNDED RESILIENCE (QA F35, Phase-2 twin) + THE F-QA2-49 LONG-BACKOFF SURVIVAL PROOF.
+// A secondary-rate-limit 403 burst faults every attempt but the LAST: the fault clears
+// before the FINAL long-backoff attempt (60s + 120s + 240s of durable timers — past the
+// >=60s cool-down GitHub demands), the bounded retry absorbs the whole burst, and the
+// merge completes on the FIRST approve. Under the OLD ~30s/3-attempt budget this exact
+// burst would have exhausted (there WAS no 4th attempt).
 func Test_CoAuthorPhase2_Rail_ApproveStatusTransient_RetriesThenMerges(t *testing.T) {
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
@@ -2733,7 +2738,7 @@ func Test_CoAuthorPhase2_Rail_ApproveStatusTransient_RetriesThenMerges(t *testin
 	ps := &seqProjectState{fakeProjectState: base, log: &seqLog{}}
 	pipe := newFakePipeline()
 	rail := newScriptedRail(true, &seqLog{})
-	rail.statusAuthFailsRemaining = 2 // fail twice, 3rd attempt succeeds
+	rail.statusAuthFailsRemaining = railAuthRetryLongMaxAttempts - 1 // fault clears before the FINAL long-backoff attempt
 
 	wf := newRailWorkflows(rail)
 	registerRailCoAuthor(env, wf, ps, pipe)
@@ -2754,8 +2759,8 @@ func Test_CoAuthorPhase2_Rail_ApproveStatusTransient_RetriesThenMerges(t *testin
 	if outcome != coAuthorApproved {
 		t.Fatalf("the first approve must commit after the retries, got %d", outcome)
 	}
-	if n := rail.calls["GetPullRequestStatus"]; n != 3 {
-		t.Fatalf("want 3 bounded GetPullRequestStatus attempts (2 fault + 1 success), got %d", n)
+	if n := rail.calls["GetPullRequestStatus"]; n != railAuthRetryLongMaxAttempts {
+		t.Fatalf("want %d bounded GetPullRequestStatus attempts (%d faults + 1 final success), got %d", railAuthRetryLongMaxAttempts, railAuthRetryLongMaxAttempts-1, n)
 	}
 	if len(rail.mergedPRs) != 1 {
 		t.Fatalf("the merge must complete on the first approve, got %v", rail.mergedPRs)

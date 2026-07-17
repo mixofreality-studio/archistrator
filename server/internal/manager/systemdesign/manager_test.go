@@ -4971,8 +4971,9 @@ type fakeRail struct {
 	statusAuthFailsRemaining int
 	// openPRAuthFailsRemaining, when >0, makes OpenPullRequest return an fwra.Auth error
 	// (the same rate-limit-403-as-Auth) and decrement — the QA F35 TWIN in the draft
-	// round-trip. Set to railAuthRetryMaxAttempts (3) to exhaust the bounded retry so the
-	// FIRST openPR faults and lands at the failed gate; the resume openPR then succeeds.
+	// round-trip. Set to railAuthRetryLongMaxAttempts (4, the F-QA2-49 long-backoff
+	// budget) to exhaust the bounded retry so the FIRST openPR faults and lands at the
+	// failed gate; the resume openPR then succeeds.
 	openPRAuthFailsRemaining int
 	// syncErr, when non-nil, makes SyncManagedScaffold fail terminally — exercises the
 	// managed-scaffold-sync containment (dispatch BLOCKED, session lands at the failed
@@ -6091,9 +6092,10 @@ func Test_CoAuthor_RailEnabled_ApproveStatusFault_ReturnsToAwaitingReview_Reappr
 	base := &fakeProjectState{project: systemReadBack(t, id)}
 	ps := &branchAwareFakeProjectState{fakeProjectState: base}
 	pipe := newFakePipeline()
-	// The first approve's GetPullRequestStatus 403s on all 3 bounded attempts → contained;
-	// after that the counter is 0 so the re-approve reads green and merges.
-	rail := &fakeRail{checkGreen: true, statusAuthFailsRemaining: 3}
+	// The first approve's GetPullRequestStatus 403s on all bounded long-backoff attempts
+	// (F-QA2-49: 60s → 120s → 240s) → contained; after that the counter is 0 so the
+	// re-approve reads green and merges.
+	rail := &fakeRail{checkGreen: true, statusAuthFailsRemaining: railAuthRetryLongMaxAttempts}
 	wf := newRailWorkflows(rail)
 	registerRailCoAuthor(env, wf, ps, pipe)
 
@@ -6122,11 +6124,11 @@ func Test_CoAuthor_RailEnabled_ApproveStatusFault_ReturnsToAwaitingReview_Reappr
 		if !strings.Contains(*view.FailureReason, "The draft is unchanged") {
 			t.Fatalf("the notice must state the draft is unchanged, got %q", *view.FailureReason)
 		}
-	}, 70*time.Second)
+	}, 500*time.Second) // after the ~420s long-backoff budget (60+120+240) exhausts (F-QA2-49)
 	// Re-approve → now the status reads green → merge + commit.
 	env.RegisterDelayedCallback(func() {
 		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
-	}, 90*time.Second)
+	}, 520*time.Second)
 
 	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
 
@@ -6187,8 +6189,9 @@ func Test_CoAuthor_RailEnabled_ApproveFaultNotice_ClearedOnSendBack(t *testing.T
 			pipe.handlePhase[k] = pipelineSucceeded
 		}
 	}
-	// The first approve's GetPullRequestStatus 403s on all 3 bounded attempts → contained.
-	rail := &fakeRail{checkGreen: true, statusAuthFailsRemaining: 3}
+	// The first approve's GetPullRequestStatus 403s on all bounded long-backoff attempts
+	// (F-QA2-49) → contained.
+	rail := &fakeRail{checkGreen: true, statusAuthFailsRemaining: railAuthRetryLongMaxAttempts}
 	wf := newRailWorkflows(rail)
 	registerRailCoAuthor(env, wf, ps, pipe)
 
@@ -6196,11 +6199,12 @@ func Test_CoAuthor_RailEnabled_ApproveFaultNotice_ClearedOnSendBack(t *testing.T
 	env.RegisterDelayedCallback(func() {
 		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
 	}, 30*time.Second)
-	// Send back instead of re-approving (the founder chooses a redraft).
+	// Send back instead of re-approving (the founder chooses a redraft) — after the
+	// ~420s long-backoff budget (60+120+240) exhausts (F-QA2-49).
 	env.RegisterDelayedCallback(func() {
 		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewReject,
 			Feedback: &ReviewFeedback{Notes: "tighten the manager seams"}})
-	}, 90*time.Second)
+	}, 500*time.Second)
 	// Mid-redraft (the observe poll timer is still pending): the stale approve-fault
 	// notice must already be gone.
 	env.RegisterDelayedCallback(func() {
@@ -6221,11 +6225,11 @@ func Test_CoAuthor_RailEnabled_ApproveFaultNotice_ClearedOnSendBack(t *testing.T
 		if view.FailureReason != nil {
 			t.Fatalf("the send-back decision must clear the stale approve-fault notice (F-QA2-41), got %q", *view.FailureReason)
 		}
-	}, 95*time.Second)
+	}, 505*time.Second)
 	// The redraft reaches the next gate; withdraw to end the session.
 	env.RegisterDelayedCallback(func() {
 		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
-	}, 200*time.Second)
+	}, 700*time.Second)
 
 	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
 
@@ -6749,9 +6753,10 @@ func Test_CoAuthor_Rail_OpenPRAuthFault_ContainsAtGate_RetryResumesNoRedispatch_
 	base := &fakeProjectState{project: systemReadBack(t, id)}
 	ps := &branchAwareFakeProjectState{fakeProjectState: base}
 	pipe := newFakePipeline() // the draft job succeeds (a green 20+ min draft)
-	// OpenPullRequest Auth-faults for all railAuthRetryMaxAttempts of the FIRST openPR, so the
-	// bounded retry exhausts and the round-trip lands at the failed gate; the resume openPR succeeds.
-	rail := &fakeRail{checkGreen: true, openPRAuthFailsRemaining: railAuthRetryMaxAttempts}
+	// OpenPullRequest Auth-faults for all railAuthRetryLongMaxAttempts of the FIRST openPR
+	// (F-QA2-49: the ~420s long-backoff budget), so the bounded retry exhausts and the
+	// round-trip lands at the failed gate; the resume openPR succeeds.
+	rail := &fakeRail{checkGreen: true, openPRAuthFailsRemaining: railAuthRetryLongMaxAttempts}
 	wf := newRailWorkflows(rail)
 	registerRailCoAuthor(env, wf, ps, pipe)
 
@@ -6780,12 +6785,12 @@ func Test_CoAuthor_Rail_OpenPRAuthFault_ContainsAtGate_RetryResumesNoRedispatch_
 			t.Fatalf("before retry there must be exactly ONE dispatch, got %d", len(pipe.submits))
 		}
 		env.SignalWorkflow(lSignalRedraft, redraftSignal{})
-	}, 40*time.Second)
+	}, 500*time.Second) // after the ~420s long-backoff budget (60+120+240) exhausts (F-QA2-49)
 
 	// After the resume re-stages, Approve → merge.
 	env.RegisterDelayedCallback(func() {
 		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
-	}, 90*time.Second)
+	}, 560*time.Second)
 
 	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
 
@@ -6804,14 +6809,89 @@ func Test_CoAuthor_Rail_OpenPRAuthFault_ContainsAtGate_RetryResumesNoRedispatch_
 	if len(pipe.submits) != 1 {
 		t.Fatalf("the retry must NOT re-dispatch (resume from read-back); got %d dispatches", len(pipe.submits))
 	}
-	// OpenPullRequest was attempted railAuthRetryMaxAttempts times (all faulting) in the first
-	// round + once more on the resume (success) = maxAttempts+1.
-	if got, want := rail.verbCount("OpenPullRequest"), railAuthRetryMaxAttempts+1; got != want {
-		t.Fatalf("OpenPullRequest attempts: got %d, want %d (%d bounded-retry faults + 1 resume success)", got, want, railAuthRetryMaxAttempts)
+	// OpenPullRequest was attempted railAuthRetryLongMaxAttempts times (all faulting) in the
+	// first round + once more on the resume (success) = maxAttempts+1.
+	if got, want := rail.verbCount("OpenPullRequest"), railAuthRetryLongMaxAttempts+1; got != want {
+		t.Fatalf("OpenPullRequest attempts: got %d, want %d (%d bounded-retry faults + 1 resume success)", got, want, railAuthRetryLongMaxAttempts)
 	}
 	// Exactly one PR was actually opened (the resume success), then merged, then committed once.
 	if rail.openedPRs != 1 {
 		t.Fatalf("exactly one PR must actually open (on the resume), got %d", rail.openedPRs)
+	}
+	if rail.verbCount("MergePullRequest") != 1 {
+		t.Fatalf("approve must merge once, got %d", rail.verbCount("MergePullRequest"))
+	}
+	if len(base.committed) != 1 {
+		t.Fatalf("approve must commit once, got %v", base.committed)
+	}
+}
+
+// F-QA2-49 — THE LONG-BACKOFF SURVIVAL PROOF. A GitHub secondary-rate-limit 403 burst
+// (which needs a >=60s cool-down before ANY retry can succeed) faults OpenPullRequest on
+// the first railAuthRetryLongMaxAttempts-1 attempts; the fault CLEARS before the FINAL
+// long-backoff attempt (60s + 120s + 240s of durable workflow.Sleep timers have elapsed —
+// past the cool-down window). The draft round-trip must SURVIVE IN PLACE: no
+// StageDraftFailed, exactly ONE dispatch, the PR opens on the last bounded attempt, and
+// Approve merges. Under the OLD ~30s budget (5s → 10s → 15s) this exact burst exhausted
+// entirely inside the cool-down and parked the session at the failed gate (observed live
+// at gtdapp: 3 attempts across 15s → StageDraftFailed; a manual retry 15 min later
+// succeeded first try).
+func Test_CoAuthor_Rail_OpenPR403Burst_FaultClearsBeforeFinalLongBackoffAttempt_Survives(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base := &fakeProjectState{project: systemReadBack(t, id)}
+	ps := &branchAwareFakeProjectState{fakeProjectState: base}
+	pipe := newFakePipeline() // the draft job succeeds (a green 20+ min draft)
+	// The 403 burst outlasts every attempt but the LAST: attempts 1..3 fault, the 4th
+	// (after the 240s sleep, ~420s in) succeeds.
+	rail := &fakeRail{checkGreen: true, openPRAuthFailsRemaining: railAuthRetryLongMaxAttempts - 1}
+	wf := newRailWorkflows(rail)
+	registerRailCoAuthor(env, wf, ps, pipe)
+
+	// Past the ~420s of long-backoff sleeps the session must sit at the REVIEW gate —
+	// never the failed gate — with no stale failure notice; then Approve → merge.
+	env.RegisterDelayedCallback(func() {
+		enc, err := env.QueryWorkflow(querySessionState)
+		if err != nil {
+			t.Fatalf("QueryWorkflow: %v", err)
+		}
+		var view SessionStateView
+		if derr := enc.Get(&view); derr != nil {
+			t.Fatalf("decode SessionStateView: %v", derr)
+		}
+		if view.Stage != StageAwaitingReview {
+			t.Fatalf("a 403 burst clearing within the long-backoff budget must land at AwaitingReview (survive in place), got stage %d", view.Stage)
+		}
+		if view.FailureReason != nil {
+			t.Fatalf("a survived 403 burst must carry NO failure notice, got %q", *view.FailureReason)
+		}
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
+	}, 500*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a 403 burst within the long-backoff budget must NOT kill the workflow: %v", err)
+	}
+	var outcome coAuthorOutcome
+	if err := env.GetWorkflowResult(&outcome); err != nil {
+		t.Fatalf("decode outcome: %v", err)
+	}
+	if outcome != coAuthorApproved {
+		t.Fatalf("the session must be Approved after the survived burst, got %d", outcome)
+	}
+	// The burst was absorbed IN PLACE: one dispatch only (the 20+ min draft was never
+	// re-burned), every bounded attempt was used, and exactly one PR actually opened.
+	if len(pipe.submits) != 1 {
+		t.Fatalf("the absorbed burst must NOT re-dispatch, got %d dispatches", len(pipe.submits))
+	}
+	if got, want := rail.verbCount("OpenPullRequest"), railAuthRetryLongMaxAttempts; got != want {
+		t.Fatalf("OpenPullRequest attempts: got %d, want %d (%d faults + 1 final success)", got, want, want-1)
+	}
+	if rail.openedPRs != 1 {
+		t.Fatalf("exactly one PR must open (the final bounded attempt), got %d", rail.openedPRs)
 	}
 	if rail.verbCount("MergePullRequest") != 1 {
 		t.Fatalf("approve must merge once, got %d", rail.verbCount("MergePullRequest"))

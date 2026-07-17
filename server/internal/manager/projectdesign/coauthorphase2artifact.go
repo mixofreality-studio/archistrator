@@ -1708,6 +1708,18 @@ const (
 	railAuthRetryMaxAttempts = 3
 	railAuthRetryBaseBackoff = 5 * time.Second
 	railAuthRetryMaxBackoff  = 15 * time.Second
+
+	// F-QA2-49: GitHub SECONDARY rate limits demand a >=60s cool-down before any retry can
+	// succeed, so the original ~30s budget (5s → 10s → 15s) expired ENTIRELY INSIDE the
+	// cool-down window after an API-heavy draft job (observed live on the systemdesign
+	// twin: 3 openPR attempts across 15s → all 403 → StageDraftFailed; a manual retry
+	// 15 min later succeeded first try). v1 ("rail-403-long-backoff") lengthens the
+	// 403/auth class to 60s → 120s → 240s (~7 min budget, 4 attempts) — long enough to
+	// outlast a secondary-rate-limit window, still bounded so a GENUINE permission
+	// denial reaches the honest containment gates.
+	railAuthRetryLongMaxAttempts = 4
+	railAuthRetryLongBaseBackoff = 60 * time.Second
+	railAuthRetryLongMaxBackoff  = 240 * time.Second
 )
 
 // railWithAuthRetry runs ANY rail call (a closure over a generated invoker or the custom
@@ -1715,7 +1727,9 @@ const (
 // fault (QA F35 + its draft-round-trip twin). The platform github ClassifyStatus conflates
 // GitHub secondary rate-limit 403s with real permission denials — both become a NON-RETRYABLE
 // Auth ApplicationError the Activity RetryPolicy cannot retry — so the workflow retries here:
-// up to railAuthRetryMaxAttempts over ~30s (5s → 10s → cap 15s), with workflow.Sleep for
+// under the "rail-403-long-backoff" version gate, up to railAuthRetryLongMaxAttempts over
+// ~7 min (60s → 120s → 240s, F-QA2-49 — secondary rate limits need a >=60s cool-down);
+// pre-gate executions keep the OLD ~30s budget (5s → 10s → cap 15s). workflow.Sleep gives
 // deterministic backoff. A GENUINE permission denial exhausts the budget and the error
 // propagates to the CALLER, which CONTAINS it (openPR/OpenBranch → the StageDraftFailed gate;
 // the approve window → back to AwaitingReview for re-approve) — never a crash. Transport blips
@@ -1723,19 +1737,36 @@ const (
 // propagates immediately. This is the ONE shared helper — the approve window and the draft
 // round-trip do NOT duplicate the retry loop.
 func (wf *workflows) railWithAuthRetry(ctx workflow.Context, call func() error) error {
-	backoff := railAuthRetryBaseBackoff
+	maxAttempts, backoff, maxBackoff := railAuthRetryMaxAttempts, railAuthRetryBaseBackoff, railAuthRetryMaxBackoff
+	gated := false
 	for attempt := 1; ; attempt++ {
 		err := call()
 		if err == nil {
 			return nil
 		}
-		if temporal.IsCanceledError(err) || !isRailAuthFault(err) || attempt >= railAuthRetryMaxAttempts {
+		if temporal.IsCanceledError(err) || !isRailAuthFault(err) {
+			return err
+		}
+		// F-QA2-49 replay safety: the long-backoff schedule changes the durable timer
+		// sequence, so it is GetVersion-gated (the failed-gate-ledger-seed-p2 pattern).
+		// The gate is resolved LAZILY — only when a 403 fault actually occurs — so
+		// fault-free histories carry no version marker. GetVersion caches per changeID,
+		// so an in-flight execution whose replayed history already resolved
+		// DefaultVersion (an old 5s/10s timer burst) stays pinned to the OLD schedule;
+		// a first-time fault in executing mode resolves v1 → the long schedule.
+		if !gated {
+			gated = true
+			if workflow.GetVersion(ctx, "rail-403-long-backoff", workflow.DefaultVersion, 1) >= 1 {
+				maxAttempts, backoff, maxBackoff = railAuthRetryLongMaxAttempts, railAuthRetryLongBaseBackoff, railAuthRetryLongMaxBackoff
+			}
+		}
+		if attempt >= maxAttempts {
 			return err
 		}
 		workflow.GetLogger(ctx).Warn("rail 403 (auth/rate-limit); bounded workflow-side retry", "attempt", attempt)
 		_ = workflow.Sleep(ctx, backoff)
-		if backoff *= 2; backoff > railAuthRetryMaxBackoff {
-			backoff = railAuthRetryMaxBackoff
+		if backoff *= 2; backoff > maxBackoff {
+			backoff = maxBackoff
 		}
 	}
 }
