@@ -1392,6 +1392,10 @@ func awaitingSlot(model projectstate.ArtifactModel, verdict, critiqueNotes strin
 
 // systemReadBack builds a project whose System slot carries a committed-by-Action
 // System model (the read-back source for a System draft) plus the committed priors.
+// The slot's critique carrier is an APPROVE: System is architect-critiqued (the
+// system-critique self-review round, architect self-critique amendment 2026-07-17),
+// so the shared happy-path fixture ratifies the draft and the session proceeds to
+// the human gate exactly as before — with one extra critique dispatch round-trip.
 func systemReadBack(t *testing.T, id ProjectID) projectstate.Project {
 	t.Helper()
 	return projectstate.Project{
@@ -1402,7 +1406,7 @@ func systemReadBack(t *testing.T, id ProjectID) projectstate.Project {
 		ScrubbedRequirements: committedSlot(&projectstate.ScrubbedRequirements{}),
 		Volatilities:         committedSlot(&projectstate.Volatilities{}),
 		CoreUseCases:         committedSlot(&projectstate.CoreUseCases{}),
-		SystemDesign:         awaitingSlot(&projectstate.System{}, "", ""),
+		SystemDesign:         awaitingSlot(&projectstate.System{}, projectstate.CritiqueVerdictApprove, ""),
 	}
 }
 
@@ -1455,9 +1459,13 @@ func Test_CoAuthor_DraftRoundTrip_DispatchObserveReadBack_AwaitsReview(t *testin
 	if _, ok := ps.staged[0].(*projectstate.System); !ok {
 		t.Fatalf("staged model is not *projectstate.System: %T", ps.staged[0])
 	}
-	// System is architect-owned: exactly ONE dispatch (no PM critique).
-	if len(pipe.submits) != 1 {
-		t.Fatalf("System draft must be a single dispatch, got %d submits", len(pipe.submits))
+	// System is architect-critiqued (architect self-critique amendment): the draft
+	// dispatch PLUS the system-critique dispatch — exactly TWO round-trips.
+	if len(pipe.submits) != 2 {
+		t.Fatalf("System must dispatch draft + architect self-critique (2 round-trips), got %d submits", len(pipe.submits))
+	}
+	if got := pipe.submits[1].dispatchInputs[dispatchInputCommand]; got != "system-critique" {
+		t.Fatalf("the second dispatch must be the architect self-critique, got command=%q", got)
 	}
 	sub := pipe.submits[0]
 	if sub.projectID != id {
@@ -2087,6 +2095,225 @@ func Test_CoAuthor_PMCritiqueRevise_SecondRoundTrip_StagesForHumanGate(t *testin
 	// Exactly one stage (the best-effort draft at the gate after the loop).
 	if len(ps.staged) != 1 {
 		t.Fatalf("want exactly one best-effort stage at the gate, got %d", len(ps.staged))
+	}
+}
+
+// ARCHITECT SELF-CRITIQUE (amendment 2026-07-17; QA: gtdapp's architecture reached the
+// human gate with THREE blockers and zero internal critique). KindSystem dispatches the
+// system-critique job AFTER the draft read-back — the SECOND round-trip carries
+// job_mode=critique — and an APPROVE verdict routes to the human gate surfacing the
+// conclusion with the honest ARCHITECT role (never "productManager": the PM must not
+// critique architecture).
+func Test_CoAuthor_System_ArchitectSelfCritique_DispatchesCritique_RoleHonest(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	// systemReadBack's System slot critique carrier is an APPROVE.
+	ps := &fakeProjectState{project: systemReadBack(t, id)}
+	pipe := newFakePipeline() // draft Succeeded, critique Succeeded
+	wf := newWorkflows()
+	registerCoAuthor(env, wf, ps, pipe)
+
+	env.RegisterDelayedCallback(func() {
+		enc, err := env.QueryWorkflow(querySessionState)
+		if err != nil {
+			t.Fatalf("QueryWorkflow: %v", err)
+		}
+		var view SessionStateView
+		if err := enc.Get(&view); err != nil {
+			t.Fatalf("decode SessionStateView: %v", err)
+		}
+		if view.Stage != StageAwaitingReview {
+			t.Fatalf("want StageAwaitingReview after the ratified self-critique, got %d", view.Stage)
+		}
+		if view.Critique == nil {
+			t.Fatal("an architect-critiqued artifact at the human gate must surface the critique conclusion, got nil")
+		}
+		if view.Critique.Role != critiqueRoleArchitect {
+			t.Errorf("critique role must be the honest architect (never productManager), got %q", view.Critique.Role)
+		}
+		if view.Critique.Verdict != projectstate.CritiqueVerdictApprove {
+			t.Errorf("critique verdict: want approve, got %q", view.Critique.Verdict)
+		}
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 30*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	// TWO round-trips: the draft, then the system-critique with job_mode=critique.
+	if len(pipe.submits) != 2 {
+		t.Fatalf("System must dispatch draft + architect self-critique, got %d submits", len(pipe.submits))
+	}
+	crit := pipe.submits[1]
+	if got := crit.dispatchInputs[dispatchInputCommand]; got != "system-critique" {
+		t.Fatalf("the critique dispatch must carry command=system-critique, got %q", got)
+	}
+	if got := crit.dispatchInputs[dispatchInputJobMode]; got != jobModeCritique {
+		t.Fatalf("the critique dispatch must carry job_mode=%s, got %q", jobModeCritique, got)
+	}
+	if got := crit.dispatchInputs[dispatchInputArtifactKind]; got != projectstate.KindSystem.String() {
+		t.Fatalf("the critique dispatch must target the System kind, got %q", got)
+	}
+}
+
+// ARCHITECT SELF-CRITIQUE — REVISE ROUTING + NON-CONVERGENCE. A revise verdict
+// re-dispatches the architect draft BEFORE the human gate (the same second-round-trip
+// loop as the PM critics); a never-converging self-critique stages best-effort at the
+// gate with the unresolved critique surfaced under the honest ARCHITECT rule id.
+func Test_CoAuthor_System_ArchitectSelfCritiqueRevise_RedispatchesDraft_StagesForHumanGate(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	proj := systemReadBack(t, id)
+	// Persistently "revise" with notes — the self-critique never converges.
+	proj.SystemDesign = awaitingSlot(&projectstate.System{}, projectstate.CritiqueVerdictRevise, "encapsulate the storage volatility")
+	ps := &fakeProjectState{project: proj}
+	pipe := newFakePipeline() // every draft + critique dispatch Succeeds
+	wf := newWorkflows()
+	registerCoAuthor(env, wf, ps, pipe)
+
+	env.RegisterDelayedCallback(func() {
+		enc, err := env.QueryWorkflow(querySessionState)
+		if err != nil {
+			t.Fatalf("QueryWorkflow: %v", err)
+		}
+		var view SessionStateView
+		if err := enc.Get(&view); err != nil {
+			t.Fatalf("decode SessionStateView: %v", err)
+		}
+		if view.Stage != StageAwaitingReview {
+			t.Fatalf("non-converging self-critique must stage for the human gate, got stage %d", view.Stage)
+		}
+		var sawWarning bool
+		for _, f := range view.Findings {
+			if string(f.RuleID) == "ARCHITECT-CRITIQUE-UNRESOLVED" {
+				sawWarning = true
+			}
+			if string(f.RuleID) == "PM-CRITIQUE-UNRESOLVED" {
+				t.Errorf("an architect-critiqued kind must never surface a PM-CRITIQUE finding, got %+v", f)
+			}
+		}
+		if !sawWarning {
+			t.Fatalf("expected an ARCHITECT-CRITIQUE-UNRESOLVED warning at the gate, got %+v", view.Findings)
+		}
+		if view.Critique == nil || view.Critique.Verdict != projectstate.CritiqueVerdictRevise {
+			t.Fatalf("the staged-best-effort gate must surface the revise conclusion, got %+v", view.Critique)
+		}
+		if view.Critique.Role != critiqueRoleArchitect {
+			t.Errorf("critique role: want architect, got %q", view.Critique.Role)
+		}
+		if view.Critique.Summary != "encapsulate the storage volatility" {
+			t.Errorf("critique summary: want the critic's rationale, got %q", view.Critique.Summary)
+		}
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 90*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+
+	if !env.IsWorkflowCompleted() {
+		t.Fatal("workflow did not complete (self-critique non-convergence must stage, not hang/crash)")
+	}
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("self-critique non-convergence must NOT crash the workflow: %v", err)
+	}
+	// At least draft + critique per round, looped to maxRedraftAttempts: >2 dispatches,
+	// proving revise re-dispatches the draft (a real second round-trip).
+	if len(pipe.submits) <= 2 {
+		t.Fatalf("self-critique revise must re-dispatch (draft+critique per round); got only %d dispatches", len(pipe.submits))
+	}
+}
+
+// THE OTHER ARCHITECT-OWNED KINDS STILL SKIP. Volatilities (and standard-check /
+// operational-concepts, same switch arm) take NO critique round — a single draft
+// dispatch straight to the human gate (EARMARK: extend only on live QA evidence).
+func Test_CoAuthor_Volatilities_ArchitectOwned_SkipsCritique_SingleDispatch(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	ps := &fakeProjectState{project: projectstate.Project{
+		ID:                   projectstate.ProjectID(id),
+		Version:              2,
+		Mission:              committedSlot(mustMission(t)),
+		Glossary:             committedSlot(mustGlossary(t)),
+		ScrubbedRequirements: committedSlot(&projectstate.ScrubbedRequirements{}),
+		Volatilities:         awaitingSlot(&projectstate.Volatilities{}, "", ""),
+	}}
+	pipe := newFakePipeline()
+	wf := newWorkflows()
+	registerCoAuthor(env, wf, ps, pipe)
+
+	env.RegisterDelayedCallback(func() {
+		enc, err := env.QueryWorkflow(querySessionState)
+		if err != nil {
+			t.Fatalf("QueryWorkflow: %v", err)
+		}
+		var view SessionStateView
+		if err := enc.Get(&view); err != nil {
+			t.Fatalf("decode SessionStateView: %v", err)
+		}
+		if view.Stage != StageAwaitingReview {
+			t.Fatalf("want StageAwaitingReview, got %d", view.Stage)
+		}
+		if view.Critique != nil {
+			t.Errorf("an uncritiqued kind must surface no critique conclusion, got %+v", view.Critique)
+		}
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 30*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindVolatilities})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	if len(pipe.submits) != 1 {
+		t.Fatalf("Volatilities must be a single draft dispatch (no critique), got %d submits", len(pipe.submits))
+	}
+	if got := pipe.submits[0].dispatchInputs[dispatchInputCommand]; got != "volatilities-draft" {
+		t.Fatalf("dispatch must carry command=volatilities-draft, got %q", got)
+	}
+}
+
+// THE VERSION GATE (system-architect-critique). A KindSystem session in flight at
+// deploy time (the running gtdapp:5 redraft) resolved DefaultVersion at its workflow
+// start, so it must complete on the OLD no-critique command sequence: a single draft
+// dispatch, no system-critique job, straight to the gate.
+func Test_CoAuthor_System_ArchitectCritique_VersionGate_PreFeatureExecutionSkipsCritique(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	ps := &fakeProjectState{project: systemReadBack(t, id)}
+	pipe := newFakePipeline()
+	wf := newWorkflows()
+	registerCoAuthor(env, wf, ps, pipe)
+
+	// Simulate a PRE-FEATURE in-flight execution: GetVersion resolves DefaultVersion
+	// (no version marker at the session start of the replayed history).
+	env.OnGetVersion("system-architect-critique", workflow.DefaultVersion, 1).Return(workflow.DefaultVersion)
+
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
+	}, 30*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a pre-feature execution must run the OLD command sequence cleanly: %v", err)
+	}
+	if len(pipe.submits) != 1 {
+		t.Fatalf("a pre-feature KindSystem session must dispatch the draft ONLY (no critique), got %d", len(pipe.submits))
+	}
+	if got := pipe.submits[0].dispatchInputs[dispatchInputCommand]; got != "system-draft" {
+		t.Fatalf("dispatch must carry command=system-draft, got %q", got)
+	}
+	if len(ps.committed) != 1 {
+		t.Fatalf("the approved pre-feature spine must commit once, got %v", ps.committed)
 	}
 }
 
@@ -4606,8 +4833,9 @@ func Test_CoAuthor_Rail_BranchReconciliation_MergeBeforeCommit_PostMergeReadOnMa
 	}
 
 	// The exact session branch the dispatch addressed (from DispatchInputs).
-	if len(pipe.submits) != 1 {
-		t.Fatalf("System draft must be a single dispatch, got %d", len(pipe.submits))
+	// (System is architect-critiqued: draft + system-critique = 2 dispatches.)
+	if len(pipe.submits) != 2 {
+		t.Fatalf("System must dispatch draft + architect self-critique, got %d", len(pipe.submits))
 	}
 	dispatchBranch := pipe.submits[0].dispatchInputs[dispatchInputTargetBranch]
 	if dispatchBranch == "" {
@@ -5226,8 +5454,10 @@ func (f *branchAwareFakeProjectState) ReadProjectOnBranch(ctx context.Context, p
 	f.mu.Unlock()
 	if adv != nil {
 		// The amendment's Action changed the artifact on the branch — serve a branch model
-		// distinct from main so the no-change guard sees advancement and proceeds.
-		proj.SystemDesign = awaitingSlot(adv, "", "")
+		// distinct from main so the no-change guard sees advancement and proceeds. The
+		// critique carrier is an APPROVE (System is architect-critiqued; the critique job
+		// commits its verdict to the same branch) so the round ratifies and proceeds.
+		proj.SystemDesign = awaitingSlot(adv, projectstate.CritiqueVerdictApprove, "")
 	}
 	return proj, nil
 }
@@ -5537,11 +5767,18 @@ func Test_CoAuthor_RailEnabled_Reject_RecordsOnSessionBranch_RedraftCarriesFeedb
 	// rides a dispatch input — it reaches the drafting agent via the durable review LEDGER
 	// (the reject-record asserted above is what seeds it, notes + anchored comments). The
 	// redraft still dispatches the architect draft command for the kind.
-	if len(pipe.submits) < 2 {
-		t.Fatalf("a reject must re-dispatch a fresh draft, got %d submits", len(pipe.submits))
+	// (System is architect-critiqued, so each round is draft + system-critique.)
+	drafts := 0
+	for _, s := range pipe.submits {
+		if s.dispatchInputs[dispatchInputCommand] == "system-draft" {
+			drafts++
+		}
 	}
-	if got := pipe.submits[len(pipe.submits)-1].dispatchInputs[dispatchInputCommand]; got != "system-draft" {
-		t.Fatalf("redraft must dispatch command=system-draft, got %q", got)
+	if drafts < 2 {
+		t.Fatalf("a reject must re-dispatch a fresh system-draft, got %d draft dispatches (submits %d)", drafts, len(pipe.submits))
+	}
+	if got := pipe.submits[len(pipe.submits)-1].dispatchInputs[dispatchInputCommand]; got != "system-critique" {
+		t.Fatalf("the redraft must be followed by the architect self-critique, got %q", got)
 	}
 }
 
@@ -5614,11 +5851,18 @@ func Test_CoAuthor_RailEnabled_RejectWriteFaults_RecoversAtFailedGate_RetainsFee
 	// Test_CoAuthor_RailEnabled_FailedGateRetry_SeedsRetainedFeedbackToLedger_BeforeRedraft. What
 	// this test proves is crash-containment (asserted above: no crash, lands at StageDraftFailed
 	// with a reason) plus the retry re-dispatching the architect draft command.
+	// (System is architect-critiqued: each round is draft + system-critique.)
 	if len(pipe.submits) < 2 {
 		t.Fatalf("the retry must issue a SECOND dispatch, got %d submits", len(pipe.submits))
 	}
-	if got := pipe.submits[len(pipe.submits)-1].dispatchInputs[dispatchInputCommand]; got != "system-draft" {
-		t.Fatalf("retry must dispatch command=system-draft, got %q", got)
+	retryDrafts := 0
+	for _, s := range pipe.submits {
+		if s.dispatchInputs[dispatchInputCommand] == "system-draft" {
+			retryDrafts++
+		}
+	}
+	if retryDrafts < 2 {
+		t.Fatalf("retry must re-dispatch command=system-draft, got %d draft dispatches (submits %d)", retryDrafts, len(pipe.submits))
 	}
 }
 
@@ -6072,11 +6316,18 @@ func Test_CoAuthor_RailEnabled_RetryAtFailedGate_SameBranch_RetainsFeedback(t *t
 		t.Fatalf("the retry branch must be the stable session branch (no amendment suffix), got %q", b1)
 	}
 	// The retry re-dispatches the architect draft command on the SAME session branch
-	// (asserted above). NOTE: this retry-via-reject carries NOTES ONLY (no anchored comments),
-	// so the failed-gate ledger seed is a no-op here; the anchored-comment seeding is proven by
+	// (asserted above); the following submit is its architect self-critique. NOTE: this
+	// retry-via-reject carries NOTES ONLY (no anchored comments), so the failed-gate ledger
+	// seed is a no-op here; the anchored-comment seeding is proven by
 	// Test_CoAuthor_RailEnabled_FailedGateRetry_SeedsRetainedFeedbackToLedger_BeforeRedraft.
-	if got := pipe.submits[len(pipe.submits)-1].dispatchInputs[dispatchInputCommand]; got != "system-draft" {
-		t.Fatalf("retry must dispatch command=system-draft, got %q", got)
+	sameBranchDrafts := 0
+	for _, s := range pipe.submits {
+		if s.dispatchInputs[dispatchInputCommand] == "system-draft" {
+			sameBranchDrafts++
+		}
+	}
+	if sameBranchDrafts < 2 {
+		t.Fatalf("retry must re-dispatch command=system-draft, got %d draft dispatches (submits %d)", sameBranchDrafts, len(pipe.submits))
 	}
 }
 
@@ -6805,9 +7056,17 @@ func Test_CoAuthor_Rail_OpenPRAuthFault_ContainsAtGate_RetryResumesNoRedispatch_
 		t.Fatalf("after resume + approve the session must be Approved, got %d", outcome)
 	}
 
-	// THE LOAD-BEARING ASSERTION: the Retry RESUMED from read-back — NO second dispatch.
-	if len(pipe.submits) != 1 {
-		t.Fatalf("the retry must NOT re-dispatch (resume from read-back); got %d dispatches", len(pipe.submits))
+	// THE LOAD-BEARING ASSERTION: the Retry RESUMED from read-back — NO second DRAFT
+	// dispatch (the 20+ min draft is never re-burned). The second submit is the
+	// architect self-critique that runs after the resumed rail step succeeds.
+	if len(pipe.submits) != 2 {
+		t.Fatalf("want draft + critique dispatches only (no draft re-dispatch on retry); got %d", len(pipe.submits))
+	}
+	if got := pipe.submits[0].dispatchInputs[dispatchInputCommand]; got != "system-draft" {
+		t.Fatalf("first dispatch must be the draft, got %q", got)
+	}
+	if got := pipe.submits[1].dispatchInputs[dispatchInputCommand]; got != "system-critique" {
+		t.Fatalf("the retry must NOT re-dispatch the draft (resume from read-back); got a second %q dispatch", got)
 	}
 	// OpenPullRequest was attempted railAuthRetryLongMaxAttempts times (all faulting) in the
 	// first round + once more on the resume (success) = maxAttempts+1.
@@ -6882,10 +7141,14 @@ func Test_CoAuthor_Rail_OpenPR403Burst_FaultClearsBeforeFinalLongBackoffAttempt_
 	if outcome != coAuthorApproved {
 		t.Fatalf("the session must be Approved after the survived burst, got %d", outcome)
 	}
-	// The burst was absorbed IN PLACE: one dispatch only (the 20+ min draft was never
-	// re-burned), every bounded attempt was used, and exactly one PR actually opened.
-	if len(pipe.submits) != 1 {
-		t.Fatalf("the absorbed burst must NOT re-dispatch, got %d dispatches", len(pipe.submits))
+	// The burst was absorbed IN PLACE: one DRAFT dispatch only (the 20+ min draft was
+	// never re-burned; the second submit is the architect self-critique after the rail
+	// step recovered), every bounded attempt was used, and exactly one PR actually opened.
+	if len(pipe.submits) != 2 {
+		t.Fatalf("want draft + critique dispatches only (no draft re-dispatch), got %d", len(pipe.submits))
+	}
+	if got := pipe.submits[1].dispatchInputs[dispatchInputCommand]; got != "system-critique" {
+		t.Fatalf("the absorbed burst must NOT re-dispatch the draft; got a second %q dispatch", got)
 	}
 	if got, want := rail.verbCount("OpenPullRequest"), railAuthRetryLongMaxAttempts; got != want {
 		t.Fatalf("OpenPullRequest attempts: got %d, want %d (%d faults + 1 final success)", got, want, want-1)
@@ -7025,8 +7288,10 @@ func Test_CoAuthor_Rail_ScaffoldSync_RunsBeforeDispatch(t *testing.T) {
 	if iSync < 0 || iBranch < 0 || iSync > iBranch {
 		t.Fatalf("the managed-scaffold sync must run BEFORE OpenBranch (pre-dispatch), got sync=%d openBranch=%d (calls: %+v)", iSync, iBranch, rail.calls)
 	}
-	if len(pipe.submits) != 1 {
-		t.Fatalf("the design job must still dispatch exactly once after a successful sync, got %d", len(pipe.submits))
+	// System is architect-critiqued: draft + system-critique = 2 dispatches, but still
+	// exactly ONE scaffold sync (per dispatch-time session begin, asserted above).
+	if len(pipe.submits) != 2 {
+		t.Fatalf("the design job must dispatch draft + critique after a successful sync, got %d", len(pipe.submits))
 	}
 	if len(base.committed) != 1 {
 		t.Fatalf("the approved spine must commit once, got %v", base.committed)
@@ -7135,8 +7400,10 @@ func Test_CoAuthor_Rail_ScaffoldSync_VersionGate_PreFeatureExecutionSkipsSync(t 
 	if got := rail.verbCount("SyncManagedScaffold"); got != 0 {
 		t.Fatalf("a pre-feature (DefaultVersion) execution must NEVER call SyncManagedScaffold, got %d", got)
 	}
-	if len(pipe.submits) != 1 || len(base.committed) != 1 {
-		t.Fatalf("the pre-feature spine must dispatch and commit exactly once, got submits=%d committed=%v", len(pipe.submits), base.committed)
+	// submits=2: the System draft + its architect self-critique (that gate resolves its
+	// OWN changeID, system-architect-critique, unmocked here → new path).
+	if len(pipe.submits) != 2 || len(base.committed) != 1 {
+		t.Fatalf("the pre-feature spine must dispatch draft+critique and commit exactly once, got submits=%d committed=%v", len(pipe.submits), base.committed)
 	}
 }
 

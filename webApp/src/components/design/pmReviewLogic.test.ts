@@ -71,3 +71,38 @@ void test('an unknown critic role passes through verbatim (no fabricated label)'
   });
   assert.equal(p.caption, 'qaEngineer');
 });
+
+// Architect self-critique (system-critique amendment 2026-07-17): the judging role
+// surfaces honestly — heading, caption and clean-approve fallback name the ARCHITECT,
+// never the product manager.
+void test('architect critic: ARCHITECT SELF-REVIEW heading + architect caption', () => {
+  const p = pmReviewPresentation({
+    role: 'architect',
+    verdict: 'revise',
+    summary: 'OrderManager mirrors the use case; re-run the decomposition',
+    round: 1,
+  });
+  assert.equal(p.heading, 'ARCHITECT SELF-REVIEW');
+  assert.equal(p.badge, 'PUSHED BACK');
+  assert.equal(p.caption, 'Architect (self-review) · judged draft round 1');
+  assert.equal(p.summary, 'OrderManager mirrors the use case; re-run the decomposition');
+});
+
+void test('architect clean approve: self-review fallback sentence, PM heading untouched for PM', () => {
+  const arch = pmReviewPresentation({
+    role: 'architect',
+    verdict: 'approve',
+    summary: '',
+    round: 0,
+  });
+  assert.equal(arch.heading, 'ARCHITECT SELF-REVIEW');
+  assert.equal(arch.summary, 'The architect self-reviewed this draft and approved it.');
+  const pm = pmReviewPresentation({
+    role: 'productManager',
+    verdict: 'approve',
+    summary: '',
+    round: 0,
+  });
+  assert.equal(pm.heading, 'PM REVIEW');
+  assert.equal(pm.summary, 'The product manager reviewed this draft and approved it.');
+});

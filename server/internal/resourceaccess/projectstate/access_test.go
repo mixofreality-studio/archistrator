@@ -6434,8 +6434,10 @@ func TestEveryProfilePhaseHasCommandFile(t *testing.T) {
 
 // TestDesignCommandFor is the failing-first table test for Plan-2 Task B1: every
 // draft slug (16 dispatchable kinds — SdpReview is excluded, assembled
-// server-side), every critique slug (the 4 kindHasPMCritique kinds), the two
-// answer slugs (by addressee), and the "" cases for undispatchable combinations.
+// server-side), every critique slug (the 5 designKindHasCritique kinds — the 4
+// PM-critiqued business-alignment kinds plus the architect-self-critiqued System,
+// amendment 2026-07-17), the two answer slugs (by addressee), and the "" cases
+// for undispatchable combinations.
 func TestDesignCommandFor(t *testing.T) {
 	cases := []struct {
 		name      string
@@ -6462,11 +6464,12 @@ func TestDesignCommandFor(t *testing.T) {
 		{"draft decompressedSolution", KindDecompressedSolution, DesignJobModeDraft, "", "decompressed-solution-draft"},
 		{"draft riskModel", KindRiskModel, DesignJobModeDraft, "", "risk-model-draft"},
 
-		// ---- critique: exactly the kindHasPMCritique 4 ----
+		// ---- critique: exactly the designKindHasCritique 5 (4 PM + architect-self-critiqued System) ----
 		{"critique mission", KindMission, DesignJobModeCritique, "", "mission-critique"},
 		{"critique glossary", KindGlossary, DesignJobModeCritique, "", "glossary-critique"},
 		{"critique scrubbedRequirements", KindScrubbedRequirements, DesignJobModeCritique, "", "scrubbed-requirements-critique"},
 		{"critique coreUseCases", KindCoreUseCases, DesignJobModeCritique, "", "core-use-cases-critique"},
+		{"critique system (architect self-critique)", KindSystem, DesignJobModeCritique, "", "system-critique"},
 
 		// ---- answer: addressee-selected, kind-independent ----
 		{"answer architect", KindMission, DesignJobModeAnswer, "architect", "design-answer"},

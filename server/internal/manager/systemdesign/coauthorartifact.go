@@ -150,9 +150,23 @@ func (wf *workflows) applyRecovering(
 // safe default — dispatch.go). The caller routes it to the StageDraftFailed gate.
 const critiqueReadBackEmptyType = "CritiqueReadBackEmpty"
 
-// critiqueMissingVerdictDiagnostic is the neutral human-facing reason surfaced as the
-// StageDraftFailed FailureReason when a critique job committed no verdict.
-const critiqueMissingVerdictDiagnostic = "the PM-critique job committed no verdict"
+// critiqueMissingVerdictDiagnosticFor renders the neutral human-facing reason surfaced
+// as the StageDraftFailed FailureReason when a critique job committed no verdict,
+// naming the actual critic (PM, or the architect self-critique) honestly.
+func critiqueMissingVerdictDiagnosticFor(critic ActiveRole) string {
+	return "the " + criticLabel(critic) + " job committed no verdict"
+}
+
+// criticLabel renders the human noun phrase for a critique round's critic: the
+// PM-critique for the business-alignment kinds, the architect self-critique for the
+// architecture (critiqueCriticFor). Used in gate copy and logs so an
+// architect-critiqued kind is never presented as PM-reviewed.
+func criticLabel(critic ActiveRole) string {
+	if critic == ActiveRoleArchitect {
+		return "architect self-critique"
+	}
+	return "PM-critique"
+}
 
 // isCritiqueReadBackEmpty reports whether err is the missing-verdict read-back fault.
 func isCritiqueReadBackEmpty(err error) bool {
@@ -247,6 +261,18 @@ func (wf *workflows) CoAuthorArtifactWorkflow(ctx workflow.Context, in coAuthorI
 		return coAuthorUnknown, err
 	}
 
+	// REPLAY SAFETY (system-architect-critique): resolve the architect self-critique
+	// version gate ONCE, at session start, for the architect-critiqued kind. Placing the
+	// GetVersion HERE (not at the critique point) is what keeps an execution in flight at
+	// deploy time — e.g. the running gtdapp:5 System redraft — on the OLD no-critique
+	// command sequence for its whole run: its history has no marker at this point, so
+	// replay resolves DefaultVersion, while every post-deploy session records v1 and runs
+	// the critique round. Conditioned on the deterministic input kind so other kinds'
+	// histories stay marker-free.
+	if critic, ok := critiqueCriticFor(toPSKind(in.ArtifactKind)); ok && critic == ActiveRoleArchitect {
+		state.architectCritiqueEnabled = workflow.GetVersion(ctx, "system-architect-critique", workflow.DefaultVersion, 1) >= 1
+	}
+
 	// Carry expectedVersion forward in workflow state (read-your-writes; D-PA §6).
 	var headVersion projectstate.Version
 
@@ -307,8 +333,8 @@ func (wf *workflows) CoAuthorArtifactWorkflow(ctx workflow.Context, in coAuthorI
 	amendmentSeeded := false
 
 	// The UC1a spine (systemDesignManager.md §0b §3): each iteration produces a
-	// reviewable draft (dispatch → observe → read-back, plus the PM-critique round for
-	// PM-reviewed kinds), stages it, suspends on the human gate, and acts on the
+	// reviewable draft (dispatch → observe → read-back, plus the critique round for
+	// critiqued kinds — see critiqueCriticFor), stages it, suspends on the human gate, and acts on the
 	// architect's decision. The per-step control flow (proceed / redraft / return) is
 	// carried out of the phase helpers as a coAuthorStep so the loop body stays flat.
 	for {
@@ -488,10 +514,11 @@ func stepErr(err error) coAuthorStep {
 	return coAuthorStep{action: actionReturn, outcome: coAuthorUnknown, err: err}
 }
 
-// produceReviewableDraft runs one draft round-trip and (for PM-reviewed kinds) the
-// PM-critique round, returning the read-back draft, the per-iteration git session, and
-// the loop-control step. It short-circuits after the draft round unless that round
-// asked the spine to proceed.
+// produceReviewableDraft runs one draft round-trip and (for critiqued kinds) the
+// critique round — PM-critique for the business-alignment kinds, architect
+// self-critique for the architecture — returning the read-back draft, the
+// per-iteration git session, and the loop-control step. It short-circuits after the
+// draft round unless that round asked the spine to proceed.
 func (wf *workflows) produceReviewableDraft(
 	ctx workflow.Context,
 	in coAuthorInput,
@@ -506,11 +533,11 @@ func (wf *workflows) produceReviewableDraft(
 	if step.action != actionProceed {
 		return gf, draft, readBackVersion, step
 	}
-	// F40: the PM-critique commits its verdict to the SAME persistent session branch
+	// F40: the critique commits its verdict to the SAME persistent session branch
 	// (sequentially after the draft; the asset template opens no critique PR), so the draft
 	// read-back version stays the correct expected version for the AwaitingReview stage —
 	// the critique's own commit advances the branch, and the stage re-reads it (QA F29).
-	return gf, draft, readBackVersion, wf.runPMCritique(ctx, in, draft, gf, headVersion, feedback, redraftCount, state)
+	return gf, draft, readBackVersion, wf.runCritiqueRound(ctx, in, draft, gf, headVersion, feedback, redraftCount, state)
 }
 
 // runDraftRoundTrip is the DRAFT round-trip (agentic pivot): compose the architect-role
@@ -735,18 +762,20 @@ func (wf *workflows) dispatchDraftAndReadBack(
 		return nil, 0, stepErr(rbErr)
 	}
 	// SUB-STEP (Plan-3 C1): the draft dispatch is observed complete — clear the in-flight
-	// architect stamp. A PM-critiqued kind re-stamps it as PM-critiquing next (runPMCritique);
-	// an architect-owned kind proceeds to staging, where the AwaitingReview clear is a no-op.
+	// architect stamp. A critiqued kind re-stamps it as <critic>-critiquing next
+	// (runCritiqueRound); an uncritiqued kind proceeds to staging, where the
+	// AwaitingReview clear is a no-op.
 	state.clearActive()
 	return model, readBackVersion, stepProceed()
 }
 
-// runPMCritique is the PM-CRITIQUE round-trip — only for the kinds the Method assigns a
-// PM reviewer (mission / glossary+scrubbed / core-use-cases). A SECOND dispatch → observe
-// → read-back producing a typed Critique. On CritiqueRevise the loop re-dispatches the
+// runCritiqueRound is the CRITIQUE round-trip — only for the kinds the Method assigns a
+// critic (PM for mission / glossary+scrubbed / core-use-cases; the ARCHITECT itself for
+// the architecture, see critiqueCriticFor). A SECOND dispatch → observe → read-back
+// producing a typed Critique. On CritiqueRevise the loop re-dispatches the
 // architect-role draft with the critique Notes woven in, BEFORE the human gate.
-// Architect-owned steps proceed straight through.
-func (wf *workflows) runPMCritique(
+// Uncritiqued kinds proceed straight through.
+func (wf *workflows) runCritiqueRound(
 	ctx workflow.Context,
 	in coAuthorInput,
 	draft projectstate.ArtifactModel,
@@ -756,7 +785,14 @@ func (wf *workflows) runPMCritique(
 	redraftCount *int,
 	state *coAuthorState,
 ) coAuthorStep {
-	if !kindHasPMCritique(toPSKind(in.ArtifactKind)) {
+	critic, hasCritique := critiqueCriticFor(toPSKind(in.ArtifactKind))
+	if !hasCritique {
+		return stepProceed()
+	}
+	if critic == ActiveRoleArchitect && !state.architectCritiqueEnabled {
+		// REPLAY SAFETY (system-architect-critique): a KindSystem session in flight at
+		// deploy time (e.g. the running gtdapp:5 redraft) resolved DefaultVersion at
+		// its workflow start, so it completes on the OLD no-critique command sequence.
 		return stepProceed()
 	}
 	logger := workflow.GetLogger(ctx)
@@ -766,9 +802,10 @@ func (wf *workflows) runPMCritique(
 	// critique branch, no PR/merge for critique (the asset template opens no critique PR).
 	// Inert when the rail is dormant.
 	sessionBranch := designBranch(in.ProjectID, in.ArtifactKind, in.Amendment)
-	// SUB-STEP (Plan-3 C1): the PM is now critiquing the draft. Round is not a critique
-	// concept (it counts architect redraft rounds), so it stays at its cleared 0.
-	state.markActive(ActiveRoleProductManager, ActiveStepCritiquing, 0)
+	// SUB-STEP (Plan-3 C1): the assigned critic (PM, or the architect self-critiquing
+	// the architecture) is now critiquing the draft. Round is not a critique concept
+	// (it counts architect redraft rounds), so it stays at its cleared 0.
+	state.markActive(critic, ActiveStepCritiquing, 0)
 	critObs, cerr := wf.dispatchAndObserve(ctx, dispatchDesignJobArgs{
 		ProjectID:     in.ProjectID,
 		ArtifactKind:  in.ArtifactKind,
@@ -786,7 +823,7 @@ func (wf *workflows) runPMCritique(
 		// resume before landing at the gate: a Retry re-runs the CRITIQUE, not a
 		// feedbackless redraft. A cancellation is a teardown, not a retryable fault
 		// (recoverDispatchFailed propagates it), so it is never armed.
-		logger.Warn("PM-critique dispatch failed terminally; entering StageDraftFailed", "error", cerr.Error())
+		logger.Warn("critique dispatch failed terminally; entering StageDraftFailed", "critic", criticLabel(critic), "error", cerr.Error())
 		if !temporal.IsCanceledError(cerr) {
 			wf.armCritiqueRetry(ctx, state)
 		}
@@ -802,10 +839,10 @@ func (wf *workflows) runPMCritique(
 		// consecutive occurrences). The gate copy names the critique ONLY when the retry
 		// semantics actually re-run it (armCritiqueRetry's version pin keeps mid-history
 		// executions on the old redraft-on-retry copy AND behavior together).
-		logger.Warn("PM-critique job reached a terminal failure phase; entering StageDraftFailed", "diagnostic", critObs.Diagnostic)
+		logger.Warn("critique job reached a terminal failure phase; entering StageDraftFailed", "critic", criticLabel(critic), "diagnostic", critObs.Diagnostic)
 		reason := draftFailedReason(critObs.Diagnostic)
 		if wf.armCritiqueRetry(ctx, state) {
-			reason = critiqueFailedReason(critObs.Diagnostic)
+			reason = critiqueFailedReason(critic, critObs.Diagnostic)
 		}
 		return wf.recoverAtFailedGate(ctx, in, headVersion, reason, critObs.RunURL, state, feedback, redraftCount)
 	}
@@ -821,15 +858,15 @@ func (wf *workflows) runPMCritique(
 			// the CRITIQUE is what committed nothing — so the gate's Retry re-runs the
 			// critique against the kept draft (armCritiqueRetry), never a feedbackless
 			// redraft. The reason already names the critique on both pinned versions.
-			logger.Warn("PM-critique read-back found no verdict (missing-verdict safe default); entering StageDraftFailed")
+			logger.Warn("critique read-back found no verdict (missing-verdict safe default); entering StageDraftFailed", "critic", criticLabel(critic))
 			wf.armCritiqueRetry(ctx, state)
-			return wf.recoverDraftFailed(ctx, in, headVersion, critiqueMissingVerdictDiagnostic, "", state, feedback, redraftCount)
+			return wf.recoverDraftFailed(ctx, in, headVersion, critiqueMissingVerdictDiagnosticFor(critic), "", state, feedback, redraftCount)
 		}
 		if decodeMsg, terminal := isTerminalReadBack(crbErr); terminal {
 			// The critique read-back decoded MALFORMED committed state (QA F36) — the same
 			// terminal fault as the draft read-back. Land at the human StageDraftFailed gate
 			// with the decode diagnostic instead of looping the read-back Activity forever.
-			logger.Warn("PM-critique read-back decoded MALFORMED committed state; entering StageDraftFailed", "error", decodeMsg)
+			logger.Warn("critique read-back decoded MALFORMED committed state; entering StageDraftFailed", "critic", criticLabel(critic), "error", decodeMsg)
 			return wf.recoverAtFailedGate(ctx, in, headVersion, readBackDecodeFailedReason(decodeMsg), "", state, feedback, redraftCount)
 		}
 		return stepErr(crbErr)
@@ -838,15 +875,15 @@ func (wf *workflows) runPMCritique(
 	// judged) on the live session view the moment the workflow observes it, so the
 	// human gate shows what the PM concluded — not just the machine validation.
 	// Derived from the recorded read-back Activity result; no history command.
-	state.critique = critiqueViewFor(critique, *redraftCount)
+	state.critique = critiqueViewFor(critique, critic, *redraftCount)
 	if critique.Verdict == critiqueRevise {
 		*redraftCount++
 		if *redraftCount >= maxRedraftAttempts {
 			// Do NOT crash the workflow (that wedges the SPA). The committed draft is
 			// valid (it passed the CI check); stage it for the human gate with the
-			// unresolved PM critique surfaced as a note so the architect makes the final
+			// unresolved critique surfaced as a note so the human makes the final
 			// call instead of an oscillating critic killing the loop.
-			logger.Warn("PM-critique did not converge within max attempts; staging for human review")
+			logger.Warn("critique did not converge within max attempts; staging for human review", "critic", criticLabel(critic))
 			state.unresolvedCritique = critique.Notes
 			// SUB-STEP (Plan-3 C1): the critique loop is giving up and staging for human
 			// review — clear the PM stamp so the query doesn't keep claiming PM-critiquing
@@ -854,7 +891,7 @@ func (wf *workflows) runPMCritique(
 			state.clearActive()
 			return stepProceed() // fall through to stage for review.
 		}
-		// Re-dispatch the architect draft with the PM notes woven in. Memory-only feedback
+		// Re-dispatch the architect draft with the critic's notes woven in. Memory-only feedback
 		// (Notes carry no anchored comments, so the pre-dispatch seed is a no-op here, but the
 		// flag stays honest for the general case).
 		*feedback = ReviewFeedback{Notes: critique.Notes}
@@ -1305,6 +1342,14 @@ type coAuthorState struct {
 	// history command (the same honesty invariant as runURL/activeRole), so no
 	// GetVersion gate is needed and mid-history executions replay unchanged.
 	critique *CritiqueView
+	// architectCritiqueEnabled reports whether THIS session runs the architect
+	// self-critique round for an architect-critiqued kind (KindSystem). Resolved ONCE at
+	// workflow start from the "system-architect-critique" GetVersion gate: a session in
+	// flight at deploy time replays DefaultVersion (no marker at its start) and completes
+	// on the old no-critique command sequence for its WHOLE run; every session started
+	// after the deploy resolves v1 and dispatches the system-critique job. Only consulted
+	// for critics == ActiveRoleArchitect (PM-critiqued kinds are untouched).
+	architectCritiqueEnabled bool
 	// reviewThread is the durable review ledger for this artifact (review-ledger feature),
 	// refreshed from the session branch after every (re)stage and after every waive/reopen
 	// so the sessionState Query surfaces the live thread and the approve gate can block
@@ -1323,7 +1368,7 @@ type coAuthorState struct {
 	// RESUMES from the read-back — SKIPPING the draft re-dispatch — so it does not
 	// redispatch Claude onto a branch that already carries the model (which the no-commit
 	// guard would red); for a PM-critiqued kind the spine then falls through to
-	// runPMCritique, re-running the critique against the kept draft. Workflow-local,
+	// runCritiqueRound, re-running the critique against the kept draft. Workflow-local,
 	// deterministic on replay (set from recorded Activity results, never wall-clock).
 	resumeFromReadBack bool
 	// staged / stagedBranch record whether THIS session ever staged its draft into the
@@ -1422,10 +1467,17 @@ func (s *coAuthorState) view() (SessionStateView, error) {
 		}
 	}
 	if s.unresolvedCritique != "" {
+		// Name the actual critic (the stamped critique view's Role is set on every path
+		// that also sets unresolvedCritique) — an architect-critiqued kind must never be
+		// presented as PM-reviewed (role-honesty, architect self-critique amendment).
+		ruleID, label := RuleID("PM-CRITIQUE-UNRESOLVED"), "PM critique"
+		if s.critique != nil && s.critique.Role == critiqueRoleArchitect {
+			ruleID, label = RuleID("ARCHITECT-CRITIQUE-UNRESOLVED"), "Architect self-critique"
+		}
 		findings = append(append([]Finding{}, findings...), Finding{
-			RuleID:   "PM-CRITIQUE-UNRESOLVED",
+			RuleID:   ruleID,
 			Severity: SeverityWarning,
-			Message:  "PM critique did not converge after max attempts; latest note: " + s.unresolvedCritique,
+			Message:  label + " did not converge after max attempts; latest note: " + s.unresolvedCritique,
 		})
 	}
 	draft, err := draftModelFor(s.artifactKind, s.draft)
@@ -1910,17 +1962,18 @@ func draftFailedReason(diagnostic string) string {
 }
 
 // critiqueFailedReason renders the human "why" for the StageDraftFailed screen when the
-// PM-CRITIQUE job (not the draft) reached a terminal failure phase (F-QA2-24). The draft
+// CRITIQUE job (not the draft) reached a terminal failure phase (F-QA2-24), naming the
+// actual critic (PM-critique, or the architect self-critique for KindSystem). The draft
 // is intact on the session branch, so the copy names the critique and frames Retry as
 // re-running it — never the generic "the design job failed in CI", which reads as a draft
 // failure and misleads the operator about what a Retry does. Used ONLY when
 // armCritiqueRetry armed the critique-retry resume (v1 semantics) so copy and behavior
 // stay honest together on every pinned version.
-func critiqueFailedReason(diagnostic string) string {
+func critiqueFailedReason(critic ActiveRole, diagnostic string) string {
 	if diagnostic == "" {
-		return "the PM-critique job failed in CI — your draft is kept; retry re-runs the critique, or withdraw"
+		return "the " + criticLabel(critic) + " job failed in CI — your draft is kept; retry re-runs the critique, or withdraw"
 	}
-	return "the PM-critique job failed in CI: " + diagnostic + " — your draft is kept; retry re-runs the critique, or withdraw"
+	return "the " + criticLabel(critic) + " job failed in CI: " + diagnostic + " — your draft is kept; retry re-runs the critique, or withdraw"
 }
 
 // armCritiqueRetry checkpoints the F-QA2-24 critique-retry resume: the DRAFT is already
@@ -1932,7 +1985,7 @@ func critiqueFailedReason(diagnostic string) string {
 // silent-failure guard reds the run — a retry loop that can never converge (observed live
 // on gtdapp: 2 consecutive occurrences). Setting resumeFromReadBack reuses the F35-twin
 // resume path: the retry probes the read-back, SKIPS the draft dispatch, and
-// produceReviewableDraft falls through to runPMCritique — the full dispatch → observe →
+// produceReviewableDraft falls through to runCritiqueRound — the full dispatch → observe →
 // read-back → verdict routing, including the F-QA2-7 critique-view stamp.
 //
 // Temporal versioning guard (replay safety; mirrors the failed-gate-redraft-drain gate):
@@ -3020,32 +3073,42 @@ func (wf *workflows) applyCommentStatus(ctx workflow.Context, in coAuthorInput, 
 	}
 }
 
-// kindHasPMCritique reports whether the Method assigns a PM reviewer to this kind
-// (mission / glossary+scrubbed / core-use-cases — rework §2.1, §6.6). The
-// architect-owned steps (volatilities, architecture, standard-check) skip PM
-// critique entirely.
+// critiqueCriticFor returns the Method critic assigned to kind's critique round
+// (and ok=false when the kind takes no critique round at all). The PM critiques
+// the business-alignment kinds (mission / glossary+scrubbed / core-use-cases —
+// rework §2.1, §6.6). The ARCHITECT self-critiques the architecture (KindSystem —
+// QA amendment 2026-07-17: gtdapp's architecture draft reached the human gate
+// with THREE blockers and zero internal critique; the ratified "architect-owned
+// steps skip PM critique" doctrine stands — the PM must NOT critique
+// architecture — so the critic for KindSystem is the architect itself, running
+// the architect-role system-critique command). The remaining architect-owned
+// Phase-1 kinds (volatilities, operational concepts, standard-check) and every
+// Phase-2 kind still skip critique entirely (EARMARK: no live QA evidence yet;
+// extend only on evidence).
 //
 // LOCKSTEP PIN: projectstate.DesignCommandFor's critique-slug gate
-// (designKindHasPMCritique, resourceaccess/projectstate/projectstateaccess.go)
+// (designKindHasCritique, resourceaccess/projectstate/projectstateaccess.go)
 // is a deliberate, non-imported duplicate of this switch's case list — RA sits
 // below this Manager layer and cannot import it. Edit both switches together.
-func kindHasPMCritique(kind projectstate.ArtifactKind) bool {
+func critiqueCriticFor(kind projectstate.ArtifactKind) (ActiveRole, bool) {
 	switch kind {
 	case projectstate.KindMission,
 		projectstate.KindGlossary,
 		projectstate.KindScrubbedRequirements,
 		projectstate.KindCoreUseCases:
-		return true
-	case projectstate.KindVolatilities, projectstate.KindSystem, projectstate.KindOperationalConcepts,
+		return ActiveRoleProductManager, true
+	case projectstate.KindSystem:
+		return ActiveRoleArchitect, true
+	case projectstate.KindVolatilities, projectstate.KindOperationalConcepts,
 		projectstate.KindStandardCheck, projectstate.KindPlanningAssumptions, projectstate.KindActivityList,
 		projectstate.KindNetwork, projectstate.KindNormalSolution, projectstate.KindSubcriticalSolution,
 		projectstate.KindCompressedSolution, projectstate.KindDecompressedSolution, projectstate.KindRiskModel,
 		projectstate.KindSdpReview:
-		// Architect-owned Phase-1 steps (no PM critique) and all Phase-2 kinds
-		// (Phase 2 has no PM-critique step at all) — same as the default below.
-		return false
+		// Uncritiqued architect-owned Phase-1 steps and all Phase-2 kinds
+		// (Phase 2 has no critique step at all) — same as the default below.
+		return ActiveRoleNone, false
 	default:
-		return false
+		return ActiveRoleNone, false
 	}
 }
 
@@ -3083,23 +3146,36 @@ type critique struct {
 	Notes   string          `json:"notes"`
 }
 
-// critiqueRoleProductManager is the CritiqueView.Role wire label for the PM critic —
-// the only critique-issuing role today. Matches the SPA's ActiveRole wire naming
-// ("productManager") so both surfaces name the role identically.
-const critiqueRoleProductManager = "productManager"
+// critiqueRoleProductManager / critiqueRoleArchitect are the CritiqueView.Role wire
+// labels for the two critique-issuing roles (critiqueCriticFor). They match the SPA's
+// ActiveRole wire naming ("productManager" / "architect") so both surfaces name the
+// role identically.
+const (
+	critiqueRoleProductManager = "productManager"
+	critiqueRoleArchitect      = "architect"
+)
 
-// critiqueViewFor renders the observed PM-critique conclusion as the SessionStateView
-// carrier (F-QA2-7): the wire verdict reuses the projectstate carrier's closed string
-// set ("approve" | "revise"), Summary is the PM's rationale verbatim, and round is the
-// redraft-round counter of the draft the critique judged. Pure mapping over the
+// critiqueRoleWire maps the critic ActiveRole to its CritiqueView.Role wire label.
+func critiqueRoleWire(critic ActiveRole) string {
+	if critic == ActiveRoleArchitect {
+		return critiqueRoleArchitect
+	}
+	return critiqueRoleProductManager
+}
+
+// critiqueViewFor renders the observed critique conclusion as the SessionStateView
+// carrier (F-QA2-7): Role names the actual critic (PM, or the architect self-critique
+// for KindSystem), the wire verdict reuses the projectstate carrier's closed string
+// set ("approve" | "revise"), Summary is the critic's rationale verbatim, and round is
+// the redraft-round counter of the draft the critique judged. Pure mapping over the
 // recorded read-back result — deterministic on replay, no history command.
-func critiqueViewFor(c critique, round int) *CritiqueView {
+func critiqueViewFor(c critique, critic ActiveRole, round int) *CritiqueView {
 	verdict := projectstate.CritiqueVerdictApprove
 	if c.Verdict == critiqueRevise {
 		verdict = projectstate.CritiqueVerdictRevise
 	}
 	return &CritiqueView{
-		Role:    critiqueRoleProductManager,
+		Role:    critiqueRoleWire(critic),
 		Verdict: verdict,
 		Summary: c.Notes,
 		Round:   int64(round),

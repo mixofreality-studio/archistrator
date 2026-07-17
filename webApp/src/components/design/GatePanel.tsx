@@ -217,7 +217,7 @@ export function GatePanel({
             <Typography
               sx={{ fontFamily: t.mono, fontWeight: 700, letterSpacing: '0.1em', fontSize: 12 }}
             >
-              PM REVIEW
+              {pmReview.heading}
             </Typography>
             <Typography
               data-testid={UI_IDENTIFIERS.GatePanel.PM_REVIEW_BADGE}

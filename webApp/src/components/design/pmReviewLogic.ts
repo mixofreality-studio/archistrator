@@ -16,25 +16,35 @@
 import type { PmCritiqueView } from '../../contracts/types';
 
 export interface PmReviewPresentation {
+  /**
+   * Section heading naming the judging role honestly: "PM REVIEW" for the
+   * productManager critic, "ARCHITECT SELF-REVIEW" for the architect
+   * self-critiqued architecture (system-critique amendment 2026-07-17).
+   */
+  heading: string;
   /** Verdict badge text. */
   badge: 'APPROVED' | 'PUSHED BACK';
   /** true → approved (positive tone); false → pushed back (attention tone). */
   approved: boolean;
   /** Header caption naming the critic and, past round 0, the judged round. */
   caption: string;
-  /** Rationale body (the PM's notes verbatim, or the clean-approve fallback). */
+  /** Rationale body (the critic's notes verbatim, or the clean-approve fallback). */
   summary: string;
 }
 
 /** Human label for a wire critic role; unknown roles pass through verbatim. */
 function roleLabel(role: string): string {
-  return role === 'productManager' ? 'Product manager' : role;
+  if (role === 'productManager') return 'Product manager';
+  if (role === 'architect') return 'Architect (self-review)';
+  return role;
 }
 
 export function pmReviewPresentation(c: PmCritiqueView): PmReviewPresentation {
   const approved = c.verdict === 'approve';
+  const architect = c.role === 'architect';
   const label = roleLabel(c.role);
   return {
+    heading: architect ? 'ARCHITECT SELF-REVIEW' : 'PM REVIEW',
     badge: approved ? 'APPROVED' : 'PUSHED BACK',
     approved,
     caption: c.round > 0 ? `${label} · judged draft round ${String(c.round)}` : label,
@@ -42,7 +52,9 @@ export function pmReviewPresentation(c: PmCritiqueView): PmReviewPresentation {
       c.summary.length > 0
         ? c.summary
         : approved
-          ? 'The product manager reviewed this draft and approved it.'
+          ? architect
+            ? 'The architect self-reviewed this draft and approved it.'
+            : 'The product manager reviewed this draft and approved it.'
           : '',
   };
 }

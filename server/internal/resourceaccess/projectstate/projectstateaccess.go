@@ -7101,17 +7101,26 @@ func designKindSlug(k ArtifactKind) string {
 	}
 }
 
-// designKindHasPMCritique reports whether kind takes a PM-critique design job.
+// designKindHasCritique reports whether kind takes a critique design job at all:
+// the PM critiques the four business-alignment kinds, and the ARCHITECT
+// self-critiques the architecture (KindSystem — the system-critique command is
+// architect-role; QA amendment 2026-07-17: the architecture reached the human
+// gate with three blockers and zero internal critique, and the ratified "PM must
+// not critique architecture" doctrine stands, so the critic is the architect).
+// The remaining architect-owned Phase-1 kinds (volatilities, operational
+// concepts, standard-check) and every Phase-2 kind still skip critique entirely
+// (EARMARK: extend only on live QA evidence).
 // LOCKSTEP PIN: this switch's case list is a DELIBERATE, non-imported duplicate
-// of kindHasPMCritique (manager/systemdesign/coauthorartifact.go) — projectstate
+// of critiqueCriticFor (manager/systemdesign/coauthorartifact.go) — projectstate
 // is a ResourceAccess and sits BELOW manager/systemdesign in the layer graph, so
 // it cannot import that package's func; the two switches must be edited together.
-// kindHasPMCritique carries the matching lockstep pointer back to this func.
-func designKindHasPMCritique(k ArtifactKind) bool {
+// critiqueCriticFor carries the matching lockstep pointer back to this func.
+func designKindHasCritique(k ArtifactKind) bool {
 	switch k {
-	case KindMission, KindGlossary, KindScrubbedRequirements, KindCoreUseCases:
+	case KindMission, KindGlossary, KindScrubbedRequirements, KindCoreUseCases,
+		KindSystem:
 		return true
-	case KindVolatilities, KindSystem, KindOperationalConcepts, KindStandardCheck,
+	case KindVolatilities, KindOperationalConcepts, KindStandardCheck,
 		KindPlanningAssumptions, KindActivityList, KindNetwork, KindNormalSolution,
 		KindSubcriticalSolution, KindCompressedSolution, KindDecompressedSolution,
 		KindRiskModel, KindSdpReview:
@@ -7127,7 +7136,7 @@ func designKindHasPMCritique(k ArtifactKind) bool {
 // DesignJobModeAnswer ("pm" | "architect" select design-answer-pm vs
 // design-answer); it is ignored for draft/critique. Returns "" for
 // undispatchable combinations — SdpReview in any mode (assembled server-side,
-// never dispatched), critique for a kind designKindHasPMCritique excludes, or
+// never dispatched), critique for a kind designKindHasCritique excludes, or
 // an unrecognized addressee in answer mode. Callers treat "" as a
 // contract-misuse error: the caller asked for a job shape the Method doesn't
 // produce.
@@ -7142,7 +7151,7 @@ func DesignCommandFor(k ArtifactKind, mode DesignJobMode, addressee string) stri
 		}
 		return ""
 	case DesignJobModeCritique:
-		if !designKindHasPMCritique(k) {
+		if !designKindHasCritique(k) {
 			return ""
 		}
 		if slug := designKindSlug(k); slug != "" {

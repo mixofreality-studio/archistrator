@@ -40,14 +40,19 @@ export function roleLineFor(
   phrase: string
 ): RoleLine | undefined {
   if (role === 'none' || step === 'none') return undefined;
-  // Only three (role, step) pairs are legal: architect+drafting, productManager+critiquing,
-  // architect+revising. Any other combo (e.g. an old/future server misreporting the pair) is
-  // dishonest to render as an avatar/caption — fall back to the plain pill instead.
+  // Only four (role, step) pairs are legal: architect+drafting, productManager+critiquing,
+  // architect+critiquing (the architect self-critique of the architecture, amendment
+  // 2026-07-17), architect+revising. Any other combo (e.g. an old/future server
+  // misreporting the pair) is dishonest to render as an avatar/caption — fall back to
+  // the plain pill instead.
   if (role === 'architect' && step === 'drafting') {
     return { seed: SEED_FOR.architect, text: `Architect is crafting the ${phrase}` };
   }
   if (role === 'productManager' && step === 'critiquing') {
     return { seed: SEED_FOR.productManager, text: `Product manager is reviewing the ${phrase}` };
+  }
+  if (role === 'architect' && step === 'critiquing') {
+    return { seed: SEED_FOR.architect, text: `Architect is self-reviewing the ${phrase}` };
   }
   if (role === 'architect' && step === 'revising') {
     return {

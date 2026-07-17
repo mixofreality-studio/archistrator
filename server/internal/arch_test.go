@@ -322,7 +322,7 @@ var encapsulationAllowlistData = map[string][]string{
 		// need to dispatch draft/critique/answer jobs. Same category as CommandFor above —
 		// a total, side-effect-free function of already-public projectstate enum values plus
 		// the new DesignJobMode wire concept; its supporting designKindSlug/
-		// designKindHasPMCritique stay unexported (see designcommand.go / commandfor.go
+		// designKindHasCritique stay unexported (see designcommand.go / commandfor.go
 		// precedent).
 		"DesignCommandFor",
 		"DesignJobMode",
