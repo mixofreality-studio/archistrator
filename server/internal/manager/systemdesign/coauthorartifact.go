@@ -3477,13 +3477,15 @@ func raOrphanFindings(kind ArtifactKind, draft projectstate.ArtifactModel) []Fin
 	return out
 }
 
-// encapsulatesFindings — SYS-ENCAPSULATES. Every component should name the volatility it
-// encapsulates. ERROR for the volatility-owning kinds (client/manager/engine/
-// resourceAccess); WARNING for resource/utility (which legitimately own no volatility but
-// benefit from a one-line "what this is"). The manager/engine/resourceAccess non-empty
-// rule is ALSO enforced hard on the write path by projectstate.RequireModelFields, so in
-// practice only empty-encapsulates CLIENTS (error) and resources/utilities (warning) reach
-// this read-back surface — which is exactly the gtdapp case that must render, not crash.
+// encapsulatesFindings — SYS-ENCAPSULATES. Scoped to the volatility-OWNING kinds only
+// (manager/engine/resourceAccess), per the-method-architecture doctrine (QA rider R5,
+// 2026-07-17): Clients encapsulate the client volatility as a LAYER (a transport entry
+// point owns no per-component volatility), and Resources/Utilities are required to be
+// empty (a physical store or cappuccino-machine utility owns nothing). Firing on those
+// kinds produced only false positives (gtdapp's approved architecture: 2 client ERR +
+// 4 resource WARN, all bogus). The same M/E/RA non-empty rule is ALSO enforced hard on
+// the write path by projectstate.RequireModelFields; this read-back twin keeps a
+// pre-existing violating committed state rendering with the finding visible.
 func encapsulatesFindings(kind ArtifactKind, draft projectstate.ArtifactModel) []Finding {
 	if kind != KindSystem {
 		return nil
@@ -3494,21 +3496,20 @@ func encapsulatesFindings(kind ArtifactKind, draft projectstate.ArtifactModel) [
 	}
 	var out []Finding
 	for i, c := range sys.Components {
+		switch c.Kind {
+		case projectstate.CompManager, projectstate.CompEngine, projectstate.CompResourceAccess:
+			// volatility-owning kinds — the rule applies
+		default:
+			continue // client/resource/utility legitimately carry an empty encapsulates
+		}
 		if strings.TrimSpace(c.Encapsulates) != "" {
 			continue
-		}
-		var sev Severity
-		switch c.Kind {
-		case projectstate.CompClient, projectstate.CompManager, projectstate.CompEngine, projectstate.CompResourceAccess:
-			sev = SeverityError
-		case projectstate.CompResource, projectstate.CompUtility:
-			sev = SeverityWarning
 		}
 		label := componentDisplayLabel(c, i)
 		out = append(out, Finding{
 			RuleID:   "SYS-ENCAPSULATES",
-			Severity: sev,
-			Message:  fmt.Sprintf("component %q has an empty encapsulates; state the volatility (or, for a resource/utility, the responsibility) it owns.", label),
+			Severity: SeverityError,
+			Message:  fmt.Sprintf("component %q has an empty encapsulates; a manager, engine, or resource-access must name the volatility it owns.", label),
 			Location: &Location{Ordinal: int64(i), Section: "component " + label},
 		})
 	}

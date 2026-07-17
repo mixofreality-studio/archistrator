@@ -8298,23 +8298,24 @@ func Test_raOrphan_ExternalTargetSatisfies(t *testing.T) {
 
 // ---- SYS-ENCAPSULATES ----
 
-func Test_encapsulates_EmptyClientError_EmptyResourceWarning(t *testing.T) {
+// R5 (2026-07-17): SYS-ENCAPSULATES is scoped to the volatility-OWNING kinds
+// (manager/engine/resourceAccess). Empty encapsulates on a Client (owns client
+// volatility as a layer) or a Resource (a physical store owns nothing) is
+// Method-correct and must NOT fire.
+func Test_encapsulates_EmptyManagerError_ClientAndResourceExempt(t *testing.T) {
 	sys := &projectstate.System{Components: []projectstate.Component{
 		compE("c", "WebClient", projectstate.CompClient, projectstate.LayerClient, ""),
 		compE("r", "GitRepo", projectstate.CompResource, projectstate.LayerResource, ""),
-		compE("m", "OrderManager", projectstate.CompManager, projectstate.LayerManager, "the order workflow"),
+		compE("m", "OrderManager", projectstate.CompManager, projectstate.LayerManager, ""),
 	}}
 	f := encapsulatesFindings(KindSystem, sys)
 	if !hasRule(f, "SYS-ENCAPSULATES", SeverityError) {
-		t.Fatal("an empty-encapsulates client must be an ERROR finding")
+		t.Fatal("an empty-encapsulates manager must be an ERROR finding")
 	}
-	if !hasRule(f, "SYS-ENCAPSULATES", SeverityWarning) {
-		t.Fatal("an empty-encapsulates resource must be a WARNING finding")
-	}
-	// The non-empty manager raises nothing.
+	// The empty client and empty resource legitimately carry no volatility.
 	for _, fi := range f {
-		if strings.Contains(fi.Message, "OrderManager") {
-			t.Fatalf("a non-empty manager must not be flagged, got: %+v", fi)
+		if strings.Contains(fi.Message, "WebClient") || strings.Contains(fi.Message, "GitRepo") {
+			t.Fatalf("a client/resource must not be flagged for empty encapsulates, got: %+v", fi)
 		}
 	}
 }
@@ -8718,11 +8719,13 @@ func Test_staleCommittedPhase1Kinds_NamesCause(t *testing.T) {
 // ---- read-safety: a pre-existing VIOLATING committed state decodes, then yields findings ----
 
 func Test_ViolatingCommittedState_DecodesThenFindings(t *testing.T) {
-	// A System with an ORPHAN ResourceAccess (no edge to a resource) and an
-	// empty-encapsulates CLIENT — both finding-class violations, NOT codec failures.
+	// A System with an ORPHAN ResourceAccess (no edge to a resource) — a
+	// finding-class violation, NOT a codec failure. (Empty encapsulates on an
+	// M/E/RA is rejected by the encoder outright, so it cannot seed a committed
+	// state; the empty client here is R5-exempt and correctly raises nothing.)
 	sys := &projectstate.System{
 		Components: []projectstate.Component{
-			compE("web", "WebClient", projectstate.CompClient, projectstate.LayerClient, ""), // empty client
+			compE("web", "WebClient", projectstate.CompClient, projectstate.LayerClient, ""),
 			compE("mgr", "OrderManager", projectstate.CompManager, projectstate.LayerManager, "the order workflow"),
 			compE("ra", "OrderAccess", projectstate.CompResourceAccess, projectstate.LayerResourceAccess, "the order store"),
 			compE("store", "OrderStore", projectstate.CompResource, projectstate.LayerResource, ""),
@@ -8749,7 +8752,8 @@ func Test_ViolatingCommittedState_DecodesThenFindings(t *testing.T) {
 	if !hasRule(raOrphanFindings(KindSystem, model), "SYS-RA-ORPHAN", SeverityError) {
 		t.Fatal("orphan RA must surface as a finding on the decoded committed state")
 	}
-	if !hasRule(encapsulatesFindings(KindSystem, model), "SYS-ENCAPSULATES", SeverityError) {
-		t.Fatal("empty-encapsulates client must surface as a finding on the decoded committed state")
+	// The empty client is R5-exempt: a legitimate empty encapsulates, no finding.
+	if hasRule(encapsulatesFindings(KindSystem, model), "SYS-ENCAPSULATES", SeverityError) {
+		t.Fatal("empty-encapsulates client must NOT fire SYS-ENCAPSULATES (R5 scoping)")
 	}
 }
