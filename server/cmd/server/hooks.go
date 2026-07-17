@@ -54,6 +54,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -231,6 +232,18 @@ func (h *appHooks) WrapManagers(managers WebManagers) WebManagers {
 // these two settings): read directly here, mirroring config_adapter.go's pattern
 // of hand env reads for composition-root-only values (envSecret, devPrincipal).
 func (h *appHooks) ExtraMounts(root *http.ServeMux, cfg *Config, dev web.DevConfig, validator security.Validator, managers WebManagers) {
+	// F-QA2-46: the generated handlers' writeManagerError writes every 5xx with zero
+	// server-side logging, and the manager logging wrap above only sees
+	// Infrastructure-kind *manager.Error values — so a client-visible 503 (e.g. a
+	// lost Temporal signal response) could leave no server trace. Log EVERY /api/v1
+	// 5xx at the transport instead: capture the generated API surface the generated
+	// composition root mounted at "/" (before this hook runs) and shadow the more
+	// specific "/api/v1/" pattern with the SAME handler behind the 5xx-logging
+	// middleware (http5xxlog.go). Generated files stay untouched; /healthz, /readyz
+	// and the composition-root mounts below stay outside the wrap.
+	if apiSurface, pat := root.Handler(&http.Request{Method: http.MethodGet, URL: &url.URL{Path: "/api/v1/"}}); pat != "" {
+		root.Handle("/api/v1/", log5xxResponses(h.logger, apiSurface))
+	}
 	root.Handle("GET /api/userinfo", web.AuthMiddleware(dev, validator)(http.HandlerFunc(security.UserInfoHandler)))
 	webAppOrigin := getenvString("ARCHISTRATOR_WEBAPP_ORIGIN", "http://localhost:5173")
 	assetVersion := getenvString("ARCHISTRATOR_WEBAPP_ASSET_VERSION", "dev")

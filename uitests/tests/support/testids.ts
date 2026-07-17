@@ -129,6 +129,8 @@ export const TESTID = {
   gateSendback: UI_IDENTIFIERS.GatePanel.SENDBACK,
   gateWithdraw: UI_IDENTIFIERS.GatePanel.WITHDRAW,
   gateFindings: UI_IDENTIFIERS.GatePanel.FINDINGS,
+  // Inline error banner near the gate actions (failed decision — F79/F-QA2-47).
+  gateError: UI_IDENTIFIERS.GatePanel.GATE_ERROR,
 
   // Chat rail (anchored comments)
   chatRail: UI_IDENTIFIERS.Chat.RAIL,

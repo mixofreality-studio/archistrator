@@ -18,6 +18,7 @@ import assert from 'node:assert/strict';
 import { ApiError } from '../contracts/errors.ts';
 import {
   DEGRADED_POLL_INTERVAL_MS,
+  GATE_POLL_INTERVAL_MS,
   NO_SESSION_POLL_INTERVAL_MS,
   POLL_INTERVAL_MS,
   isNoSessionError,
@@ -25,9 +26,16 @@ import {
 } from './sessionPolling.ts';
 
 void test('live stages keep the 2s poll', () => {
-  for (const stage of ['drafting', 'redrafting', 'awaitingReview'] as const) {
+  for (const stage of ['drafting', 'redrafting'] as const) {
     assert.equal(sessionPollIntervalMs(stage, null), POLL_INTERVAL_MS, stage);
   }
+});
+
+void test('F-QA2-48: the review gate is NOT terminal — it watches at the slow gate cadence', () => {
+  // Verified live: with the gate treated as a stop state, a server-side stage
+  // change (another tab's decision, or a Send back whose 503 response lost a
+  // DELIVERED signal) never rendered until a hard reload.
+  assert.equal(sessionPollIntervalMs('awaitingReview', null), GATE_POLL_INTERVAL_MS);
 });
 
 void test('terminal stages stop polling', () => {

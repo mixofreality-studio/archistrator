@@ -35,6 +35,8 @@ const KIND_ORDINAL: Record<string, number> = {
 
 /** ArtifactStage ordinal for a committed slot. */
 const STAGE_COMMITTED = 2;
+/** SessionStage ordinal for a session parked at the human review gate. */
+const STAGE_AWAITING_REVIEW = 2;
 /** SessionStage ordinal for the async design-job terminal failure. */
 const STAGE_DRAFT_FAILED = 7;
 
@@ -120,6 +122,43 @@ export async function stubCommittedCoreUseCases(page: Page): Promise<string> {
       status: 404,
       contentType: 'application/json',
       body: JSON.stringify({ error: 'no session', code: 'not_found' }),
+    }),
+  );
+  return projectId;
+}
+
+/**
+ * stubAwaitingReviewGlossary stubs a project sitting on the Glossary step with a
+ * live co-author session parked at the human review GATE (stage awaitingReview),
+ * carrying the given typed items as the draft under review. Mission upstream is
+ * committed so the spine's first-open step IS glossary. The spec then drives the
+ * REAL GatePanel / ChatRail (stage a note, send back) against whatever
+ * submit-review-decision route it installs — the F-QA2-47 fault-path tactic.
+ * Returns the project id.
+ *
+ * Items are typed structurally (wire ModelGlossaryItem literals) so this stub
+ * stands alone.
+ */
+export async function stubAwaitingReviewGlossary(
+  page: Page,
+  items: { term: string; definition: string; category: string }[],
+): Promise<string> {
+  const projectId = 'glossary-gate-fixture';
+  const slots = [committedSlot('mission', {})];
+
+  await stubSessionGate(page);
+  await stubGetProject(page, projectId, projectState(projectId, 'Glossary Gate Fixture', slots));
+  await page.route('**/api/v1/system-design/get-session-state/**', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        projectId,
+        artifactKind: KIND_ORDINAL.glossary,
+        stage: STAGE_AWAITING_REVIEW,
+        draft: { kind: 'glossary', model: { items } },
+        findings: [],
+      }),
     }),
   );
   return projectId;

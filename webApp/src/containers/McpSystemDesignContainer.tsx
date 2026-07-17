@@ -41,6 +41,7 @@ import { useAcknowledgeStaleBasis, useRequestArtifactDraft, useSubmitReviewDecis
 
 import { SystemDesignView, type SpineStep } from '../components/design/SystemDesignView';
 import { DesignExperienceSkeleton } from '../components/design/DesignSkeleton';
+import { gateDecisionErrorMessage } from '../components/design/gateFaultLogic';
 import type { Anchor } from '../components/comments/CommentContext';
 
 import { useTokens } from '../utilities/theme/ThemeContext';
@@ -272,7 +273,11 @@ export function McpSystemDesignContainer({
           }
         },
         onError: (err) => {
-          setGateError(err.message);
+          // Precise message for a definite refusal, cause-neutral copy for an
+          // indeterminate transport fault (F-QA2-47) — MCP has no background poll,
+          // so refetch is the only way the lost-response case renders truth.
+          setGateError(gateDecisionErrorMessage(err));
+          void session.refetch();
         },
       }
     );
@@ -293,7 +298,10 @@ export function McpSystemDesignContainer({
         {
           onSuccess: closeComposer,
           onError: (err) => {
-            setGateError(err.message);
+            // The composer's send-back text is retained (composer stays open) —
+            // F-QA2-47: cause-neutral copy for an indeterminate fault + refetch.
+            setGateError(gateDecisionErrorMessage(err));
+            void session.refetch();
           },
         }
       );

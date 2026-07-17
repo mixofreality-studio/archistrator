@@ -1,6 +1,7 @@
 /**
  * Polls one Phase-1 co-authoring session's state. Polling runs every 2s while the
- * session is live (drafting / redrafting / awaitingReview) and stops once it
+ * session is live (drafting / redrafting), watches the review gate at the slow 8s
+ * gate cadence (awaitingReview is NOT terminal — F-QA2-48), and stops once it
  * reaches a terminal stage (committed / withdrawn / refused / draftFailed).
  *
  * draftFailed is the async-design-job failure stage: terminal-at-the-Manager,
@@ -68,11 +69,14 @@ export function useSessionState(
     // MCP context never background-polls (spec §3.4) — an MCP host drives its own
     // refresh cadence around tool calls, so a client-side poll would just be
     // redundant traffic. The SPA (REST transport) polls per sessionPolling.ts:
-    // 2s while a session is LIVE, 4s while there is NO session yet (an approve
-    // auto-starts the next step's session server-side — the QA-incident fix), 5s
-    // DEGRADED on any other error (F-QA2-28: a transient fault must never stop the
-    // poll — with staleTime Infinity and focus-refetch off, a single `false` here
-    // is PERMANENT until a mutation invalidates), and not at all once terminal.
+    // 2s while a session is LIVE, 8s while parked at the review GATE (F-QA2-48:
+    // awaitingReview is not terminal — another tab or a lost-response decision
+    // submit moves the stage server-side), 4s while there is NO session yet (an
+    // approve auto-starts the next step's session server-side — the QA-incident
+    // fix), 5s DEGRADED on any other error (F-QA2-28: a transient fault must never
+    // stop the poll — with staleTime Infinity and focus-refetch off, a single
+    // `false` here is PERMANENT until a mutation invalidates), and not at all once
+    // terminal.
     // On a failed refetch react-query keeps state.data (the last good view) and
     // sets state.error — this callback reads both, so a stale-but-live stage keeps
     // polling and self-heals. A 404 refetch keeps the query in error state (data

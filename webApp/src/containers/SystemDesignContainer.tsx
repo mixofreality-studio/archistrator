@@ -33,6 +33,7 @@ import { useSetResearchInput, useStartSystemDesign } from '../hooks/useStartDesi
 import { ChatRail } from '../components/design/ChatRail';
 import { DesignExperienceSkeleton } from '../components/design/DesignSkeleton';
 import { SystemDesignView, type SpineStep } from '../components/design/SystemDesignView';
+import { gateDecisionErrorMessage } from '../components/design/gateFaultLogic';
 import { useComments } from '../components/comments/CommentContext';
 
 const PHASE1_KINDS = PHASE1_ORDER as readonly ArtifactKind[];
@@ -223,8 +224,12 @@ export function SystemDesignContainer({ projectId }: { projectId: string }): Rea
           onError: (err) => {
             // A failed send-back must not be invisible (F79): keep the accumulated
             // notes (no reset), stay on the gate, and name the error inline. The
-            // mutation settles, so the buttons re-enable for a retry.
-            setGateError(err.message);
+            // mutation settles, so the buttons re-enable for a retry. An
+            // indeterminate transport fault (F-QA2-47: a 503 whose signal WAS
+            // delivered) gets the cause-neutral copy, and the refetch renders
+            // whatever the server actually did with the decision.
+            setGateError(gateDecisionErrorMessage(err));
+            void session.refetch();
           },
         }
       );
@@ -242,11 +247,11 @@ export function SystemDesignContainer({ projectId }: { projectId: string }): Rea
           }
         },
         onError: (err) => {
-          // A FailedPrecondition (open thread entries) or any other approve/withdraw
-          // fault: surface the message and refetch the thread so the gate reflects
-          // truth.
-          setGateError(err.message);
-          if (decision === 'approve') void session.refetch();
+          // A FailedPrecondition (open thread entries) keeps its precise message; an
+          // indeterminate transport fault gets the cause-neutral copy (F-QA2-47).
+          // Either way refetch the session so the gate reflects server truth.
+          setGateError(gateDecisionErrorMessage(err));
+          void session.refetch();
         },
       }
     );

@@ -1,23 +1,30 @@
 /**
  * Pure poll-cadence logic for the Phase-1 session-state query (useSessionState).
  * Extracted so the QA-incident cadence rules (2026-07-15 gtdapp:1, 2026-07-16
- * F-QA2-28) are unit-testable without a react-query harness.
+ * F-QA2-28, F-QA2-48) are unit-testable without a react-query harness.
  *
  * DECISION TABLE (stage = last-known data's stage, error = last fetch error):
  *
- *   stage        | error            | interval | why
- *   -------------|------------------|----------|---------------------------------
- *   TERMINAL     | (any)            | stop     | only a user action changes it,
- *                |                  |          | and that action invalidates the query
- *   live         | none             | 2s       | the normal live-session poll
- *   live         | 404 (no session) | 4s       | server says the session is GONE —
- *                |                  |          | re-probe at the no-session cadence
- *   live         | other            | 5s       | TRANSIENT fault (5xx / ECONNREFUSED
- *                |                  |          | mid-poll): degraded poll, self-heals
- *   (no data)    | none             | stop     | pristine mount — first fetch in flight
- *   (no data)    | 404 (no session) | 4s       | the gentle no-session probe (below)
- *   (no data)    | other            | 5s       | bootstrap fetch hit a transient fault —
- *                |                  |          | keep probing so the view ever loads
+ *   stage          | error            | interval | why
+ *   ---------------|------------------|----------|---------------------------------
+ *   TERMINAL       | (any)            | stop     | only a user action changes it,
+ *                  |                  |          | and that action invalidates the query
+ *   awaitingReview | none             | 8s       | the GATE is NOT terminal (F-QA2-48):
+ *                  |                  |          | the server-side stage can move without
+ *                  |                  |          | this tab (another tab's decision, or a
+ *                  |                  |          | submit whose response was lost after
+ *                  |                  |          | the signal was delivered) — keep
+ *                  |                  |          | watching, slowly: the human is the
+ *                  |                  |          | actor here, so 2s would be noise
+ *   live           | none             | 2s       | the normal live-session poll
+ *   live/gate      | 404 (no session) | 4s       | server says the session is GONE —
+ *                  |                  |          | re-probe at the no-session cadence
+ *   live/gate      | other            | 5s       | TRANSIENT fault (5xx / ECONNREFUSED
+ *                  |                  |          | mid-poll): degraded poll, self-heals
+ *   (no data)      | none             | stop     | pristine mount — first fetch in flight
+ *   (no data)      | 404 (no session) | 4s       | the gentle no-session probe (below)
+ *   (no data)      | other            | 5s       | bootstrap fetch hit a transient fault —
+ *                  |                  |          | keep probing so the view ever loads
  *
  * Why the no-session 404 polls (QA incident 2026-07-15, gtdapp:1): a gate approve
  * auto-advances the phase workflow, which AUTO-STARTS the next step's co-author
@@ -41,13 +48,23 @@
 // Runtime imports carry explicit .ts extensions (allowImportingTsExtensions) so this
 // module also loads under node:test's type-stripping (sessionPolling.test.ts).
 import { ApiError } from '../contracts/errors.ts';
-import { TERMINAL_STAGES } from '../contracts/types.ts';
+import { REVIEWABLE_STAGE, TERMINAL_STAGES } from '../contracts/types.ts';
 import type { SessionStage } from '../contracts/types.ts';
 
 export const POLL_INTERVAL_MS = 2000;
 
 /** The no-session (404) re-probe cadence — gentler than the live-session poll. */
 export const NO_SESSION_POLL_INTERVAL_MS = 4000;
+
+/**
+ * The review-gate cadence (F-QA2-48): awaitingReview is NOT a stop state. A gate
+ * parked in this tab still moves server-side — another tab decides, or a decision
+ * submit loses its RESPONSE after the Temporal signal was delivered (the QA2
+ * incident: a Send back 503'd, the redraft was actually running, and the stopped
+ * poll meant the SPA never rendered it until a hard reload). Slow, because at the
+ * gate the human is the expected actor — the poll is a safety net, not a driver.
+ */
+export const GATE_POLL_INTERVAL_MS = 8000;
 
 /**
  * The transient-fault cadence (any non-404 error): degraded but NEVER stopped, so
@@ -73,9 +90,12 @@ export function sessionPollIntervalMs(
   // terminal session, and every such mutation invalidates the query.
   if (stage !== undefined && TERMINAL_STAGES.includes(stage)) return false;
   if (error === null || error === undefined) {
-    // Healthy: a live stage polls at 2s; a pristine mount (no data, no error — the
-    // first fetch is in flight) adds no interval, its settle re-evaluates this.
-    return stage === undefined ? false : POLL_INTERVAL_MS;
+    // Healthy: the review gate watches slowly (F-QA2-48 — not terminal, but the
+    // human is the actor), any other live stage polls at 2s; a pristine mount (no
+    // data, no error — the first fetch is in flight) adds no interval, its settle
+    // re-evaluates this.
+    if (stage === undefined) return false;
+    return stage === REVIEWABLE_STAGE ? GATE_POLL_INTERVAL_MS : POLL_INTERVAL_MS;
   }
   // The deterministic "no session" 404 — the gentle probe (also when the last-known
   // stage was live: the server says that session is GONE, so probe for its successor).

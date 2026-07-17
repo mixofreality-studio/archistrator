@@ -56,6 +56,7 @@ import {
 } from '../hooks/useProjectDesignMutations';
 
 import { ExperienceChrome } from '../components/design/ExperienceChrome';
+import { gateDecisionErrorMessage } from '../components/design/gateFaultLogic';
 import { SlimSpine, type SpineStep } from '../components/design/SlimSpine';
 import { DesignExperienceSkeleton, SkeletonContentCard } from '../components/design/DesignSkeleton';
 import { GeneratingScene } from '../components/design/GeneratingScene';
@@ -279,7 +280,9 @@ function ProjectDesignBody({ projectId }: { projectId: string }): ReactNode {
           setActiveIndex(Math.min(safeIndex + 1, PHASE2_KINDS.length - 1));
         },
         onError: (err) => {
-          setGateError(err.message);
+          // Precise message for a definite refusal, cause-neutral copy for an
+          // indeterminate transport fault (F-QA2-47).
+          setGateError(gateDecisionErrorMessage(err));
           void session.refetch();
         },
       }
@@ -299,8 +302,12 @@ function ProjectDesignBody({ projectId }: { projectId: string }): ReactNode {
         },
         onError: (err) => {
           // A failed send-back must not be invisible (F79): keep the accumulated
-          // notes (no reset), stay on the gate, and name the error inline.
-          setGateError(err.message);
+          // notes (no reset), stay on the gate, and name the error inline — with
+          // the cause-neutral copy for an indeterminate transport fault
+          // (F-QA2-47). Refetch so a decision whose response was lost after the
+          // signal was delivered still renders the server's actual stage.
+          setGateError(gateDecisionErrorMessage(err));
+          void session.refetch();
         },
       }
     );
@@ -323,8 +330,10 @@ function ProjectDesignBody({ projectId }: { projectId: string }): ReactNode {
           reset();
         },
         onError: (err) => {
-          // A failed withdraw stays on the gate with the error named inline (F79).
-          setGateError(err.message);
+          // A failed withdraw stays on the gate with the error named inline (F79);
+          // cause-neutral for an indeterminate fault (F-QA2-47) + truth refetch.
+          setGateError(gateDecisionErrorMessage(err));
+          void session.refetch();
         },
       }
     );
