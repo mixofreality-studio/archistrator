@@ -92,6 +92,39 @@ export const TESTID = {
   retryDraft: UI_IDENTIFIERS.DesignExperience.RETRY_DRAFT,
   withdrawDraft: UI_IDENTIFIERS.DesignExperience.WITHDRAW_DRAFT,
 
+  // Glossary artifact — the searchable, filterable reference widget (search +
+  // Four-Questions category chips + grouped term list). Chips key by the BASE
+  // label (Who/What/How/Where/Uncategorized — refined "How · Activity"-style
+  // sub-labels roll up under one How chip); sections keep the refined label.
+  glossaryRoot: UI_IDENTIFIERS.Glossary.ROOT,
+  glossarySearch: UI_IDENTIFIERS.Glossary.SEARCH,
+  glossaryChipAll: UI_IDENTIFIERS.Glossary.CHIP_ALL,
+  glossaryChip: UI_IDENTIFIERS.Glossary.chip,
+  glossarySection: UI_IDENTIFIERS.Glossary.section,
+  glossaryEmpty: UI_IDENTIFIERS.Glossary.EMPTY,
+
+  // CommentableList (the shared item-granular commenting primitive): a row and
+  // its per-item "Comment on this item" button, keyed by the caller's item key
+  // (the glossary keys rows `${term}-${originalIndex}`).
+  commentListItem: UI_IDENTIFIERS.Comments.listItem,
+  commentListItemButton: UI_IDENTIFIERS.Comments.listItemComment,
+
+  // Volatility map (volatilities artifact) — compact axes overview + two
+  // single-select lane listboxes + side-rail summary/detail + the collapsed
+  // rejected-candidates disclosure. chip()/dot() key by the point's index in
+  // the flat model items array; rejectedItem() by the `rejected` array index.
+  volatilityMap: UI_IDENTIFIERS.VolatilityMap.ROOT,
+  volatilityLane: UI_IDENTIFIERS.VolatilityMap.lane,
+  volatilityChip: UI_IDENTIFIERS.VolatilityMap.chip,
+  volatilityDetail: UI_IDENTIFIERS.VolatilityMap.DETAIL,
+  volatilityDetailClose: UI_IDENTIFIERS.VolatilityMap.DETAIL_CLOSE,
+  volatilitySummary: UI_IDENTIFIERS.VolatilityMap.SUMMARY,
+  volatilityAxes: UI_IDENTIFIERS.VolatilityMap.AXES,
+  volatilityDot: UI_IDENTIFIERS.VolatilityMap.dot,
+  volatilityRejectedToggle: UI_IDENTIFIERS.VolatilityMap.REJECTED_TOGGLE,
+  volatilityRejectedList: UI_IDENTIFIERS.VolatilityMap.REJECTED_LIST,
+  volatilityRejectedItem: UI_IDENTIFIERS.VolatilityMap.rejectedItem,
+
   // Architecture (System artifact) view switcher — static / dynamic / perspective.
   // The switch VALUES are the bare strings 'static' | 'dynamic' | 'perspective'.
   archViewSwitch: UI_IDENTIFIERS.Architecture.VIEW_SWITCH,

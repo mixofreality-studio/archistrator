@@ -94,6 +94,17 @@ async function stubGetProject(page: Page, projectId: string, state: unknown): Pr
   );
 }
 
+/** Every session probe 404s: committed slots only, no live co-author session (R6). */
+async function stubNoSession(page: Page): Promise<void> {
+  await page.route('**/api/v1/system-design/get-session-state/**', (route) =>
+    route.fulfill({
+      status: 404,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: 'no session', code: 'not_found' }),
+    }),
+  );
+}
+
 /**
  * stubCommittedCoreUseCases stubs a project whose ONLY committed Phase-1 slot is
  * `coreUseCases`, carrying the REAL committed model extracted from this repo's
@@ -116,14 +127,78 @@ export async function stubCommittedCoreUseCases(page: Page): Promise<string> {
 
   await stubSessionGate(page);
   await stubGetProject(page, projectId, fixture);
-  // Every session probe 404s: committed slot, no live co-author session (R6).
-  await page.route('**/api/v1/system-design/get-session-state/**', (route) =>
-    route.fulfill({
-      status: 404,
-      contentType: 'application/json',
-      body: JSON.stringify({ error: 'no session', code: 'not_found' }),
-    }),
-  );
+  await stubNoSession(page);
+  return projectId;
+}
+
+/**
+ * A wire ModelGlossaryItem literal (schema.ts): the Four-Questions `category`
+ * may be a refined "How-activity"-style tag or '' (→ Uncategorized).
+ */
+export interface StubGlossaryItem {
+  term: string;
+  definition: string;
+  category: string;
+}
+
+/**
+ * stubCommittedGlossary stubs a project whose `glossary` slot is COMMITTED with
+ * the given typed items (plus a committed empty `mission` upstream so the spine
+ * shows glossary as a done step). Its session probes 404 (no live co-author
+ * session), so selecting the glossary spine step renders the committed artifact
+ * through CommittedArtifactPanel → GlossaryView. Returns the project id.
+ */
+export async function stubCommittedGlossary(
+  page: Page,
+  items: StubGlossaryItem[],
+): Promise<string> {
+  const projectId = 'glossary-fixture';
+  const slots = [committedSlot('mission', {}), committedSlot('glossary', { items })];
+
+  await stubSessionGate(page);
+  await stubGetProject(page, projectId, projectState(projectId, 'Glossary Fixture', slots));
+  await stubNoSession(page);
+  return projectId;
+}
+
+/** A wire ModelVolatility literal (schema.ts) — one categorical Löwy axis, no 2D. */
+export interface StubVolatility {
+  name: string;
+  rationale: string;
+  axis: 'sameCustomerOverTime' | 'allCustomersAtOneTime';
+  /** Scrubbed-requirement ids (SR-…) this volatility traces to. */
+  traces?: string[];
+}
+
+/** A wire ModelRejectedVolatility literal (schema.ts) — classified rejection. */
+export interface StubRejectedVolatility {
+  name: string;
+  reason: string;
+  class: 'variableNotVolatile' | 'natureOfTheBusiness' | 'speculative' | 'foldedInto';
+}
+
+/**
+ * stubCommittedVolatilities stubs a project whose `volatilities` slot is
+ * COMMITTED with the given accepted items + rejected candidates (the model's
+ * newer `rejected`/`traces` fields), upstream mission/glossary/
+ * scrubbedRequirements committed empty. Session probes 404, so selecting the
+ * volatilities spine step renders the committed VolatilityMap. Returns the
+ * project id.
+ */
+export async function stubCommittedVolatilities(
+  page: Page,
+  items: StubVolatility[],
+  rejected: StubRejectedVolatility[],
+): Promise<string> {
+  const projectId = 'volatilities-fixture';
+  const slots = [
+    ...['mission', 'glossary', 'scrubbedRequirements'].map((k) => committedSlot(k, {})),
+    committedSlot('volatilities', { items, rejected }),
+  ];
+
+  await stubSessionGate(page);
+  await stubGetProject(page, projectId, projectState(projectId, 'Volatilities Fixture', slots));
+  await stubNoSession(page);
   return projectId;
 }
 
