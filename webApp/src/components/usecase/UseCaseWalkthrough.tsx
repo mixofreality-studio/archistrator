@@ -20,6 +20,7 @@ import RestartAltIcon from '@mui/icons-material/RestartAlt';
 import FlagIcon from '@mui/icons-material/Flag';
 import type { UseCaseView } from '../../contracts/adapters';
 import { ActivityFlow, type ActivityHighlight } from './ActivityFlow';
+import { activityNodeAnchor } from '../comments/CommentContext';
 import { laneColors } from './laneColors';
 import { useTokens } from '../../utilities/theme/ThemeContext';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
@@ -84,6 +85,11 @@ export function UseCaseWalkthrough({
   // text. Measure our *own* width and, when the row can't give the map a usable
   // share, stack the map full-width beneath the controls instead.
   const rootRef = useRef<HTMLDivElement>(null);
+  // Focus target after every step change: the controls that were clicked (Next /
+  // a branch / Back / Restart) can unmount or disable on advance, which would
+  // silently drop keyboard focus to <body>. The step title is the stable landing
+  // spot, and its role="status" live region announces the new step to AT.
+  const stepTitleRef = useRef<HTMLElement>(null);
   const [wide, setWide] = useState(true);
   useEffect(() => {
     const el = rootRef.current;
@@ -127,6 +133,7 @@ export function UseCaseWalkthrough({
 
   const advance = (toId: string): void => {
     setPath((p) => [...p, toId]);
+    stepTitleRef.current?.focus();
   };
 
   return (
@@ -141,7 +148,14 @@ export function UseCaseWalkthrough({
           gap: 1.5,
         }}
       >
-        <Paper sx={{ p: 2.5, display: 'flex', flexDirection: 'column', gap: 1.5, minHeight: 210 }}>
+        {/* data-commentable + data-comment-anchor: highlighting text in this card
+            arms the SAME anchor as clicking the current node on the diagram. */}
+        <Paper
+          data-artifact-kind="coreUseCases"
+          data-comment-anchor={activityNodeAnchor(useCaseIndex, currentId)}
+          data-commentable={`${uc.name} · activity diagram`}
+          sx={{ p: 2.5, display: 'flex', flexDirection: 'column', gap: 1.5, minHeight: 210 }}
+        >
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <Typography
               sx={{
@@ -172,6 +186,9 @@ export function UseCaseWalkthrough({
           </Box>
 
           <Typography
+            aria-live="polite"
+            ref={stepTitleRef}
+            role="status"
             sx={{
               fontFamily: t.body,
               fontWeight: 700,
@@ -179,6 +196,7 @@ export function UseCaseWalkthrough({
               lineHeight: 1.25,
               color: t.ink,
             }}
+            tabIndex={-1}
           >
             {node !== undefined ? nodeText(node) : '—'}
           </Typography>
@@ -200,6 +218,9 @@ export function UseCaseWalkthrough({
                 const tgt = nodesById.get(e.to);
                 return (
                   <Button
+                    data-testid={UI_IDENTIFIERS.UseCaseCarousel.walkthroughBranch(
+                      `${e.from}-${e.to}`
+                    )}
                     key={`${e.from}-${e.to}`}
                     sx={{
                       justifyContent: 'flex-start',
@@ -245,23 +266,27 @@ export function UseCaseWalkthrough({
         {/* nav: back / restart */}
         <Box sx={{ display: 'flex', gap: 1 }}>
           <Button
+            data-testid={UI_IDENTIFIERS.UseCaseCarousel.WALKTHROUGH_BACK}
             disabled={path.length <= 1}
             size="small"
             startIcon={<UndoIcon sx={{ fontSize: 15 }} />}
             sx={{ color: t.ink, textTransform: 'none' }}
             onClick={() => {
               setPath((p) => (p.length > 1 ? p.slice(0, -1) : p));
+              stepTitleRef.current?.focus();
             }}
           >
             Back
           </Button>
           <Button
+            data-testid={UI_IDENTIFIERS.UseCaseCarousel.WALKTHROUGH_RESTART}
             disabled={path.length <= 1}
             size="small"
             startIcon={<RestartAltIcon sx={{ fontSize: 15 }} />}
             sx={{ color: t.ink, textTransform: 'none' }}
             onClick={() => {
               setPath(startId.length > 0 ? [startId] : []);
+              stepTitleRef.current?.focus();
             }}
           >
             Restart
@@ -293,6 +318,7 @@ export function UseCaseWalkthrough({
                 >
                   {idx > 0 && <Typography sx={{ color: t.muted, fontSize: 11 }}>→</Typography>}
                   <Typography
+                    data-testid={UI_IDENTIFIERS.UseCaseCarousel.walkthroughPathStep(idx)}
                     role="button"
                     sx={{
                       fontFamily: t.mono,

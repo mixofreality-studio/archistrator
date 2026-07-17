@@ -32,6 +32,7 @@ import { SwimlaneBackground } from './SwimlaneBackground';
 import { activityNodeAnchor } from '../comments/CommentContext';
 import { laneColors, laneBand } from './laneColors';
 import { useTokens } from '../../utilities/theme/ThemeContext';
+import { prefersReducedMotion } from '../../utilities/reducedMotion';
 import type { Tokens } from '../../utilities/theme/themes';
 import {
   layoutActivity,
@@ -204,7 +205,7 @@ function AutoFit({ fitToken, focusId }: { fitToken: string; focusId: string | un
     if (fittedToken.current === fitToken) return undefined;
     fittedToken.current = fitToken;
     const raf = requestAnimationFrame(() => {
-      void fitView({ padding: FIT_PADDING, duration: 220 });
+      void fitView({ padding: FIT_PADDING, duration: prefersReducedMotion() ? 0 : 220 });
     });
     return (): void => {
       cancelAnimationFrame(raf);
@@ -242,7 +243,7 @@ function AutoFit({ fitToken, focusId }: { fitToken: string; focusId: string | un
       const h = node.measured?.height ?? node.height ?? dim.h;
       void setCenter(node.position.x + w / 2, node.position.y + h / 2, {
         zoom: FOCUS_ZOOM,
-        duration: FOCUS_DURATION,
+        duration: prefersReducedMotion() ? 0 : FOCUS_DURATION,
       });
     };
     raf = requestAnimationFrame(focus);

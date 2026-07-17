@@ -6,7 +6,11 @@
  *
  * The commentable host carries `data-commentable` (a human source label) and may
  * carry `data-artifact-kind` (the typed model kind) so the anchor roots into the
- * correct model. Falls back to a generic prose anchor when absent.
+ * correct model. Falls back to a generic prose anchor when absent. A host that
+ * already knows its exact structured anchor (e.g. the walkthrough's focused-step
+ * card → the current activity node) carries `data-comment-anchor` (a JSONPath),
+ * which overrides the prose fallback so the selection lands on the same anchor
+ * as clicking that element directly.
  *
  * ── Input-modality independence ─────────────────────────────────────────────
  * The popover appears on ANY non-collapsed selection inside a commentable region,
@@ -41,6 +45,8 @@ interface Pending {
   text: string;
   source: string;
   kind: string;
+  /** Host-supplied structured anchor (data-comment-anchor) — overrides proseAnchor. */
+  anchorPath: string | null;
 }
 
 /**
@@ -130,6 +136,7 @@ export function SelectionPopover({
       text,
       source: host.getAttribute('data-commentable') ?? 'document',
       kind: host.getAttribute('data-artifact-kind') ?? 'prose',
+      anchorPath: host.getAttribute('data-comment-anchor'),
     });
   }, [clear]);
 
@@ -173,7 +180,7 @@ export function SelectionPopover({
       kind: 'text',
       label,
       source: pending.source,
-      jsonPath: proseAnchor(pending.kind, pending.source),
+      jsonPath: pending.anchorPath ?? proseAnchor(pending.kind, pending.source),
       // The chip label is truncated for display; send the FULL quote as anchorText.
       anchorText: pending.text,
     });

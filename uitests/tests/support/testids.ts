@@ -108,6 +108,10 @@ export const TESTID = {
   useCaseViewWalkthrough: UI_IDENTIFIERS.UseCaseCarousel.VIEW_WALKTHROUGH,
   useCaseViewDiagram: UI_IDENTIFIERS.UseCaseCarousel.VIEW_DIAGRAM,
   walkthroughNext: UI_IDENTIFIERS.UseCaseCarousel.WALKTHROUGH_NEXT,
+  walkthroughBack: UI_IDENTIFIERS.UseCaseCarousel.WALKTHROUGH_BACK,
+  walkthroughRestart: UI_IDENTIFIERS.UseCaseCarousel.WALKTHROUGH_RESTART,
+  walkthroughBranch: UI_IDENTIFIERS.UseCaseCarousel.walkthroughBranch,
+  walkthroughPathStep: UI_IDENTIFIERS.UseCaseCarousel.walkthroughPathStep,
   walkthroughCurrentNode: UI_IDENTIFIERS.UseCaseCarousel.WALKTHROUGH_CURRENT_NODE,
 
   // Deployment (operationalConcepts artifact) profile switcher — the switch

@@ -67,6 +67,14 @@ export const UI_IDENTIFIERS = {
     // The walkthrough's "Next" advance control (single-successor step). Black-box
     // hook for asserting the per-step camera move on the you-are-here map.
     WALKTHROUGH_NEXT: 'walkthrough-next',
+    // Walkthrough nav: rewind one step / restart from the start node.
+    WALKTHROUGH_BACK: 'walkthrough-back',
+    WALKTHROUGH_RESTART: 'walkthrough-restart',
+    // A branch-choice button at a decision/fork, keyed by its outgoing edge
+    // (`${from}-${to}` — the same edge key the activity diagram uses).
+    walkthroughBranch: (edgeId: string) => `walkthrough-branch-${edgeId}`,
+    // A breadcrumb Path chip, keyed by its position in the walked path.
+    walkthroughPathStep: (index: number) => `walkthrough-path-${String(index)}`,
     // The you-are-here map's CURRENT step node (the ringed node). Exactly one is
     // present in walkthrough mode; its identity changes as the reader advances.
     WALKTHROUGH_CURRENT_NODE: 'walkthrough-current-node',
