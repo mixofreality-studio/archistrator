@@ -1185,10 +1185,6 @@ func (m *projectDesignManager) AcknowledgeStaleBasis(rc fwmanager.Context, proje
 	if err := m.refuseAckDuringLiveSession(rc, projectID, kind); err != nil {
 		return err
 	}
-	sa, ok := m.projectState.(projectstate.StaleAckProjectStateAccess)
-	if !ok {
-		return newError(fwmanager.FailedPrecondition, "stale-basis acknowledge not supported by this substrate")
-	}
 	key := acknowledgeStaleIdempotencyKey(projectID, kind, note)
 	psID := projectstate.ProjectID(projectID)
 	psKind := toPSKind(kind)
@@ -1199,7 +1195,7 @@ func (m *projectDesignManager) AcknowledgeStaleBasis(rc fwmanager.Context, proje
 		if err != nil {
 			return mapReadProjectError(err)
 		}
-		_, err = sa.AcknowledgeStaleBasis(ctx, psID, proj.Version, psKind, note, key)
+		_, err = m.projectState.AcknowledgeStaleBasis(fwra.Context{Context: ctx}, psID, proj.Version, psKind, note, key)
 		if err == nil {
 			return nil
 		}
@@ -1329,11 +1325,6 @@ func (m *projectDesignManager) AskQuestions(rc fwmanager.Context, projectID Proj
 		return newError(fwmanager.ContractMisuse, "no questions to ask (every question needs text)")
 	}
 
-	led, ok := m.projectState.(projectstate.LedgerProjectStateAccess)
-	if !ok {
-		return newError(fwmanager.FailedPrecondition, "review ledger not supported by this substrate")
-	}
-
 	branch := m.resolveQuestionBranch(rc, projectID, kind)
 	psID := projectstate.ProjectID(projectID)
 	psKind := toPSKind(kind)
@@ -1353,7 +1344,7 @@ func (m *projectDesignManager) AskQuestions(rc fwmanager.Context, projectID Proj
 			// ledger entries, and the re-fired answer job answers the right comments.
 			round = r
 		}
-		_, err = led.SeedReviewCommentsOnBranch(ctx, psID, proj.Version, branch, psKind, round, qs, key)
+		_, err = m.projectState.SeedReviewCommentsOnBranch(fwra.Context{Context: ctx}, psID, proj.Version, branch, psKind, round, qs, key)
 		if err == nil {
 			minted := make([]projectstate.ReviewComment, len(qs))
 			for i := range qs {
@@ -1390,13 +1381,11 @@ func (m *projectDesignManager) resolveQuestionBranch(rc fwmanager.Context, proje
 	return designBranch(projectID, kind, amendmentIndexFor(slotFor(proj, toPSKind(kind))))
 }
 
+// readProjectMaybeBranch reads the head-state aggregate from the given branch: the
+// generated ProjectStateAccess contract is uniformly branch-aware post-C2-fold
+// (branch=="" reads main exactly as ReadProject), so this is a direct forward.
 func (m *projectDesignManager) readProjectMaybeBranch(ctx context.Context, psID projectstate.ProjectID, branch string) (projectstate.Project, error) {
-	if branch != "" {
-		if ba, ok := m.projectState.(projectstate.BranchAwareProjectStateAccess); ok {
-			return ba.ReadProjectOnBranch(ctx, psID, branch)
-		}
-	}
-	return m.projectState.ReadProject(fwra.Context{Context: ctx}, psID)
+	return m.projectState.ReadProjectOnBranch(fwra.Context{Context: ctx}, psID, branch)
 }
 
 // isLiveSessionStage reports whether a co-author session is live (its ledger lives on the

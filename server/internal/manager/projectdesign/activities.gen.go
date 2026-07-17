@@ -35,6 +35,13 @@ func genActivityIdempotencyKey(ctx context.Context) fwra.IdempotencyKey {
 		info.WorkflowExecution.ID, info.WorkflowExecution.RunID, info.ActivityID))
 }
 
+// ProjectStateAcknowledgeStaleBasis wraps projectStateAccess.acknowledgeStaleBasis.
+// Registered as "projectStateAccess.acknowledgeStaleBasis".
+func (a *genActivities) ProjectStateAcknowledgeStaleBasis(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, kind projectstate.ArtifactKind, note string) (projectstate.Version, error) {
+	v, err := a.ProjectState.AcknowledgeStaleBasis(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, kind, note, genActivityIdempotencyKey(ctx))
+	return v, fwmanager.MapError(err)
+}
+
 // ProjectStateAdvancePhase wraps projectStateAccess.advancePhase.
 // Registered as "projectStateAccess.advancePhase".
 func (a *genActivities) ProjectStateAdvancePhase(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version) (projectstate.Version, error) {
@@ -70,6 +77,13 @@ func (a *genActivities) ProjectStateReadProject(ctx context.Context, projectID p
 	return v, fwmanager.MapError(err)
 }
 
+// ProjectStateReadProjectOnBranch wraps projectStateAccess.readProjectOnBranch.
+// Registered as "projectStateAccess.readProjectOnBranch".
+func (a *genActivities) ProjectStateReadProjectOnBranch(ctx context.Context, projectID projectstate.ProjectID, branch string) (projectstate.Project, error) {
+	v, err := a.ProjectState.ReadProjectOnBranch(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, branch)
+	return v, fwmanager.MapError(err)
+}
+
 // ProjectStateReadProjectVersion wraps projectStateAccess.readProjectVersion.
 // Registered as "projectStateAccess.readProjectVersion".
 func (a *genActivities) ProjectStateReadProjectVersion(ctx context.Context, projectID projectstate.ProjectID) (projectstate.Version, error) {
@@ -77,10 +91,38 @@ func (a *genActivities) ProjectStateReadProjectVersion(ctx context.Context, proj
 	return v, fwmanager.MapError(err)
 }
 
+// ProjectStateReconcileBranchFromMain wraps projectStateAccess.reconcileBranchFromMain.
+// Registered as "projectStateAccess.reconcileBranchFromMain".
+func (a *genActivities) ProjectStateReconcileBranchFromMain(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind) (projectstate.Version, error) {
+	v, err := a.ProjectState.ReconcileBranchFromMain(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, branch, kind, genActivityIdempotencyKey(ctx))
+	return v, fwmanager.MapError(err)
+}
+
 // ProjectStateRejectArtifact wraps projectStateAccess.rejectArtifact.
 // Registered as "projectStateAccess.rejectArtifact".
 func (a *genActivities) ProjectStateRejectArtifact(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, kind projectstate.ArtifactKind, notes string) (projectstate.Version, error) {
 	v, err := a.ProjectState.RejectArtifact(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, kind, notes)
+	return v, fwmanager.MapError(err)
+}
+
+// ProjectStateRejectArtifactOnBranch wraps projectStateAccess.rejectArtifactOnBranch.
+// Registered as "projectStateAccess.rejectArtifactOnBranch".
+func (a *genActivities) ProjectStateRejectArtifactOnBranch(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string) (projectstate.Version, error) {
+	v, err := a.ProjectState.RejectArtifactOnBranch(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, branch, kind, notes, genActivityIdempotencyKey(ctx))
+	return v, fwmanager.MapError(err)
+}
+
+// ProjectStateRejectArtifactOnBranchWithComments wraps projectStateAccess.rejectArtifactOnBranchWithComments.
+// Registered as "projectStateAccess.rejectArtifactOnBranchWithComments".
+func (a *genActivities) ProjectStateRejectArtifactOnBranchWithComments(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, round int64, comments []projectstate.ReviewComment) (projectstate.Version, error) {
+	v, err := a.ProjectState.RejectArtifactOnBranchWithComments(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, branch, kind, notes, round, comments, genActivityIdempotencyKey(ctx))
+	return v, fwmanager.MapError(err)
+}
+
+// ProjectStateSeedReviewCommentsOnBranch wraps projectStateAccess.seedReviewCommentsOnBranch.
+// Registered as "projectStateAccess.seedReviewCommentsOnBranch".
+func (a *genActivities) ProjectStateSeedReviewCommentsOnBranch(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, round int64, comments []projectstate.ReviewComment) (projectstate.Version, error) {
+	v, err := a.ProjectState.SeedReviewCommentsOnBranch(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, branch, kind, round, comments, genActivityIdempotencyKey(ctx))
 	return v, fwmanager.MapError(err)
 }
 
@@ -98,6 +140,13 @@ func (a *genActivities) ProjectStateSetResearchInput(ctx context.Context, projec
 	return v, fwmanager.MapError(err)
 }
 
+// ProjectStateSetReviewCommentStatusOnBranch wraps projectStateAccess.setReviewCommentStatusOnBranch.
+// Registered as "projectStateAccess.setReviewCommentStatusOnBranch".
+func (a *genActivities) ProjectStateSetReviewCommentStatusOnBranch(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, commentID string, status string) (projectstate.Version, error) {
+	v, err := a.ProjectState.SetReviewCommentStatusOnBranch(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, branch, kind, commentID, status, genActivityIdempotencyKey(ctx))
+	return v, fwmanager.MapError(err)
+}
+
 // ProjectStateStageArtifactForReview wraps projectStateAccess.stageArtifactForReview.
 // Registered as "projectStateAccess.stageArtifactForReview".
 func (a *genActivities) ProjectStateStageArtifactForReview(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, model projectstate.ArtifactModel) (projectstate.Version, error) {
@@ -105,10 +154,24 @@ func (a *genActivities) ProjectStateStageArtifactForReview(ctx context.Context, 
 	return v, fwmanager.MapError(err)
 }
 
+// ProjectStateStageArtifactForReviewOnBranch wraps projectStateAccess.stageArtifactForReviewOnBranch.
+// Registered as "projectStateAccess.stageArtifactForReviewOnBranch".
+func (a *genActivities) ProjectStateStageArtifactForReviewOnBranch(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, model projectstate.ArtifactModel) (projectstate.Version, error) {
+	v, err := a.ProjectState.StageArtifactForReviewOnBranch(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, branch, model, genActivityIdempotencyKey(ctx))
+	return v, fwmanager.MapError(err)
+}
+
 // ProjectStateWithdrawArtifact wraps projectStateAccess.withdrawArtifact.
 // Registered as "projectStateAccess.withdrawArtifact".
 func (a *genActivities) ProjectStateWithdrawArtifact(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, kind projectstate.ArtifactKind, notes string) (projectstate.Version, error) {
 	v, err := a.ProjectState.WithdrawArtifact(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, kind, notes)
+	return v, fwmanager.MapError(err)
+}
+
+// ProjectStateWithdrawArtifactOnBranch wraps projectStateAccess.withdrawArtifactOnBranch.
+// Registered as "projectStateAccess.withdrawArtifactOnBranch".
+func (a *genActivities) ProjectStateWithdrawArtifactOnBranch(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string) (projectstate.Version, error) {
+	v, err := a.ProjectState.WithdrawArtifactOnBranch(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, branch, kind, notes, genActivityIdempotencyKey(ctx))
 	return v, fwmanager.MapError(err)
 }
 

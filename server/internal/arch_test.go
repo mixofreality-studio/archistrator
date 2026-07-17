@@ -284,7 +284,6 @@ var encapsulationAllowlistData = map[string][]string{
 		"Axis.UnmarshalJSON",
 		"AxisAllCustomersAtOneTime",
 		"AxisSameCustomerOverTime",
-		"BranchAwareProjectStateAccess",
 		"BranchRepoLocator",
 		"CallEventPubSub",
 		"CallMode",
@@ -389,8 +388,6 @@ var encapsulationAllowlistData = map[string][]string{
 		"EncodeProjectJSON",
 		"Error",
 		"GitActivityStatusAccess",
-		"GitConstructionTransitionAccess",
-		"GitProjectStateAccess",
 		"GitStore",
 		"GitStore.ReadProjectOnBranch",
 		"GitStore.RecordActivityArchApproved",
@@ -427,27 +424,12 @@ var encapsulationAllowlistData = map[string][]string{
 		"LayerResource",
 		"LayerResourceAccess",
 		"LayerUtility",
-		// REVIEW-LEDGER extension port — the optional durable-comment-ledger interface the
-		// design Managers type-assert during the AwaitingReview window (the BranchAware
-		// precedent above). Its methods are served by GitStore + the composition-root adapter.
-		"LedgerProjectStateAccess",
-		// STALE-ACK EXTENSION (F45): the OPTIONAL per-slot staleness-acknowledge interface a
-		// design Manager type-asserts to clear a committed slot's StaleBasis with an audit
-		// entry (same pattern as the Ledger + BranchAware extensions above). Served by
-		// GitStore + the composition-root adapter.
-		"StaleAckProjectStateAccess",
-		// RECONCILE EXTENSION (F80): the OPTIONAL branch-reconcile capability port + its two
-		// deterministic single-writer-per-slot resolver free-funcs (a diverged session branch
-		// vs main). Same category as the Ledger/StaleAck extensions above; consumed by the
+		// RECONCILE (F80): the two deterministic single-writer-per-slot resolver free-funcs (a
+		// diverged session branch vs main) behind ReconcileBranchFromMain (now a required
+		// ProjectStateAccess op, C2 fold code-health-phase-a). Consumed by the
 		// cmd/aiarch-state-mcp `reconcile` subcommand and the server git adapter.
-		"ReconcilingProjectStateAccess",
 		"ReconcileSlotOntoBase",
 		"OverlaySlotFromBranchOntoMain",
-		// PROVENANCE-COMMIT EXTENSION (PM-P2-4): the OPTIONAL commit-provenance interface a
-		// design Manager type-asserts to record committedAt/approvedBy/draftedBy atomically
-		// with the commit (same pattern as the Ledger/StaleAck/Reconcile extensions above).
-		// Served by GitStore + the composition-root adapter.
-		"ProvenanceCommitProjectStateAccess",
 		// F81 GATE 0: the raw-JSON required-field presence pass demanding every closed-enum /
 		// identity field on a drafted model (component id/name/kind/layer, relationship
 		// from/to/mode, dynamic-view useCaseId, …). Consumed by cmd/aiarch-state-mcp

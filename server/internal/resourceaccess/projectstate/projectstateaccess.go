@@ -50,27 +50,6 @@ const projectFile = "project.json"
 // (REWORK.3). Filenames are a filesystem-safe encoding of the idempotency key.
 const appliedMutationsDir = "applied_mutations"
 
-// GitProjectStateAccess is the §REWORK.4 port: every provider-touching verb gains
-// a Manager-threaded `cred RepoCredential`. It is the git-substrate surface of the
-// frozen verb vocabulary (stage/commit/reject/withdraw/advance/setResearch + the
-// catalog create/list + readProject). Distinct from the Postgres-era
-// ProjectStateAccess port (no cred) the downstream Managers still compile against
-// until their own cred-threading re-cuts land (Manager wiring is downstream of
-// C-PA-R).
-type GitProjectStateAccess interface {
-	CreateProject(ctx context.Context, projectID ProjectID, owner OwnerScope, name string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	ListProjects(ctx context.Context, owner OwnerScope, cred RepoCredential) ([]ProjectSummary, error)
-	StageArtifactForReview(ctx context.Context, projectID ProjectID, expectedVersion Version, model ArtifactModel, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	CommitArtifact(ctx context.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	CommitArtifactWithProvenance(ctx context.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, approvedBy, draftedBy string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	RejectArtifact(ctx context.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, notes string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	WithdrawArtifact(ctx context.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, notes string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	AdvancePhase(ctx context.Context, projectID ProjectID, expectedVersion Version, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	SetResearchInput(ctx context.Context, projectID ProjectID, expectedVersion Version, research ResearchInput, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	SetOperatingModel(ctx context.Context, projectID ProjectID, expectedVersion Version, model OperatingModel, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	ReadProject(rc fwra.Context, projectID ProjectID, cred RepoCredential) (Project, error)
-}
-
 // RepoLocator resolves a project to its per-project git repo URL + CAS target
 // branch. The deterministic per-project repo NAME is implicit to the store (REWORK.5
 // / review Q2: "a well-known deterministic repo name"); the LOCATOR is the seam where
@@ -140,11 +119,11 @@ type ProjectCatalog interface {
 	ListProjectRepos(ctx context.Context, owner OwnerScope, cred RepoCredential) ([]ProjectCatalogRef, error)
 }
 
-// GitStore is the concrete git-JSON + ref-CAS implementation of
-// GitProjectStateAccess. It holds only the repo locator + a flag for whether the
-// substrate is local on-disk git (LOCAL profile). Every call clones fresh through
-// the satellite (stateless → safe under concurrency + Temporal replay). NO IO at
-// construction.
+// GitStore is the concrete git-JSON + ref-CAS store the projectStateGitAdapter wraps
+// to serve the generated ProjectStateAccess contract. It holds only the repo locator +
+// a flag for whether the substrate is local on-disk git (LOCAL profile). Every call
+// clones fresh through the satellite (stateless → safe under concurrency + Temporal
+// replay). NO IO at construction.
 type GitStore struct {
 	locator RepoLocator
 	// catalog is the discover-by-enumeration seam ListProjects uses (replaces the
@@ -168,9 +147,6 @@ func (s *GitStore) now() time.Time {
 	}
 	return time.Now().UTC()
 }
-
-// Compile-time proof the concrete GitStore satisfies the §REWORK.4 port.
-var _ GitProjectStateAccess = (*GitStore)(nil)
 
 // NewGitStore builds the git-JSON store over a repo locator. `local` selects the
 // LOCAL on-disk-git profile (no HTTP credential). The catalog (discover-by-
@@ -305,8 +281,7 @@ func (s *GitStore) CommitArtifact(ctx context.Context, projectID ProjectID, expe
 // CommitArtifactWithProvenance is the provenance-recording Commit (PM-P2-4): the SAME atomic
 // commit-on-main as CommitArtifact, plus it stamps a Provenance record onto the committed
 // slot — committedAt server-resolved from the store clock (RA code, time.Now() is fine),
-// approvedBy/draftedBy threaded from the manager's approve→commit path. Satisfies
-// ProvenanceCommitProjectStateAccess (the dormant commit extension).
+// approvedBy/draftedBy threaded from the manager's approve→commit path.
 func (s *GitStore) CommitArtifactWithProvenance(ctx context.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, approvedBy, draftedBy string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	prov := &Provenance{
 		CommittedAt: s.now().UTC().Format(time.RFC3339),
@@ -1229,9 +1204,9 @@ func commitMessage(op string, key fwra.IdempotencyKey) string {
 // that used to live in cmd/server (buildDesignProjectState + projectstate_git_adapter.go)
 // folded into the owning package (step-8 fold).
 //
-// THE CONTRACT-SHAPE GAP (I-GIT-DESIGN). The git substrate, *GitStore, satisfies the
-// cred-threaded GitProjectStateAccess: every provider-touching verb carries an extra
-// `cred RepoCredential`. The design Managers consume the NO-cred ProjectStateAccess
+// THE CONTRACT-SHAPE GAP (I-GIT-DESIGN). The git substrate, *GitStore, is cred-threaded:
+// every provider-touching verb carries an extra `cred RepoCredential`. The design
+// Managers consume the NO-cred ProjectStateAccess
 // (CreateProject / ListProjects / Stage / Commit / Reject / Withdraw / AdvancePhase /
 // SetResearchInput / ReadProject WITHOUT a cred). The two surfaces cannot be mechanically
 // substituted.
@@ -1465,9 +1440,10 @@ func (a *projectStateGitAdapter) CommitArtifact(rc fwra.Context, projectID Proje
 	return a.store.CommitArtifact(ctx, projectID, expectedVersion, kind, cred, rc.IdempotencyKey)
 }
 
-// Compile-time proof the git adapter also serves the commit-provenance extension (PM-P2-4):
-// the design Managers record committedAt/approvedBy/draftedBy atomically with the commit.
-var _ ProvenanceCommitProjectStateAccess = (*projectStateGitAdapter)(nil)
+// Compile-time proof the git adapter also serves the commit-provenance capability
+// (PM-P2-4): the design Managers record committedAt/approvedBy/draftedBy atomically with
+// the commit.
+var _ provenanceCommitter = (*projectStateGitAdapter)(nil)
 
 // CommitArtifactWithProvenance is the provenance-recording Commit (PM-P2-4): the cred is
 // minted just-in-time, exactly like the no-cred CommitArtifact, and the acting/rail identity
@@ -1547,14 +1523,11 @@ func (a *projectStateGitAdapter) ReadProjectVersion(rc fwra.Context, projectID P
 	return p.Version, nil
 }
 
-// Compile-time proof the git adapter also serves the branch-aware extension the design
-// Managers consume during the AwaitingReview window (I-DESIGN-DISPATCH §2a).
-var _ BranchAwareProjectStateAccess = (*projectStateGitAdapter)(nil)
-
 // ReadProjectOnBranch is the branch-aware read-back (I-DESIGN-DISPATCH §2a). An empty
 // branch reads the default/main exactly as ReadProject; a non-empty branch reads the
 // not-yet-merged draft on the session branch. The cred is minted just-in-time.
-func (a *projectStateGitAdapter) ReadProjectOnBranch(ctx context.Context, projectID ProjectID, branch string) (Project, error) {
+func (a *projectStateGitAdapter) ReadProjectOnBranch(rc fwra.Context, projectID ProjectID, branch string) (Project, error) {
+	ctx := rc.Context
 	cred, err := a.minter.CredentialFor(ctx, projectID)
 	if err != nil {
 		return Project{}, err
@@ -1566,7 +1539,8 @@ func (a *projectStateGitAdapter) ReadProjectOnBranch(ctx context.Context, projec
 // (I-DESIGN-DISPATCH §2a): an empty branch behaves exactly as StageArtifactForReview
 // (main); a non-empty branch lands the staged-slot status flip on the session branch the
 // draft lives on.
-func (a *projectStateGitAdapter) StageArtifactForReviewOnBranch(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, model ArtifactModel, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (a *projectStateGitAdapter) StageArtifactForReviewOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, model ArtifactModel, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	ctx := rc.Context
 	cred, err := a.minter.CredentialFor(ctx, projectID)
 	if err != nil {
 		return 0, err
@@ -1578,7 +1552,8 @@ func (a *projectStateGitAdapter) StageArtifactForReviewOnBranch(ctx context.Cont
 // branch behaves exactly as RejectArtifact (main); a non-empty branch lands the Rejected
 // status flip + notes on the session branch the draft was staged on. The cred is minted
 // just-in-time.
-func (a *projectStateGitAdapter) RejectArtifactOnBranch(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (a *projectStateGitAdapter) RejectArtifactOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	ctx := rc.Context
 	cred, err := a.minter.CredentialFor(ctx, projectID)
 	if err != nil {
 		return 0, err
@@ -1590,7 +1565,8 @@ func (a *projectStateGitAdapter) RejectArtifactOnBranch(ctx context.Context, pro
 // branch behaves exactly as WithdrawArtifact (main); a non-empty branch lands the Withdrawn
 // status flip + notes on the session branch the draft was staged on. The cred is minted
 // just-in-time.
-func (a *projectStateGitAdapter) WithdrawArtifactOnBranch(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (a *projectStateGitAdapter) WithdrawArtifactOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	ctx := rc.Context
 	cred, err := a.minter.CredentialFor(ctx, projectID)
 	if err != nil {
 		return 0, err
@@ -1598,15 +1574,12 @@ func (a *projectStateGitAdapter) WithdrawArtifactOnBranch(ctx context.Context, p
 	return a.store.WithdrawArtifactOnBranch(ctx, projectID, expectedVersion, branch, kind, notes, cred, idempotencyKey)
 }
 
-// Compile-time proof the git adapter also serves the durable review-ledger extension the
-// design Managers consume during the AwaitingReview window (review-ledger feature).
-var _ LedgerProjectStateAccess = (*projectStateGitAdapter)(nil)
-
 // RejectArtifactOnBranchWithComments is the review-ledger Reject: it lands the Rejected
 // status flip + notes AND appends the reviewer's comments to the slot's durable ReviewThread
 // in one atomic commit on the session branch (empty branch ⇒ main). The cred is minted
 // just-in-time.
-func (a *projectStateGitAdapter) RejectArtifactOnBranchWithComments(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, round int64, comments []ReviewComment, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (a *projectStateGitAdapter) RejectArtifactOnBranchWithComments(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, round int64, comments []ReviewComment, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	ctx := rc.Context
 	cred, err := a.minter.CredentialFor(ctx, projectID)
 	if err != nil {
 		return 0, err
@@ -1616,7 +1589,8 @@ func (a *projectStateGitAdapter) RejectArtifactOnBranchWithComments(ctx context.
 
 // SeedReviewCommentsOnBranch is the F38 amendment ledger-seed (append open comments, no
 // status change). The cred is minted just-in-time, exactly like the other ledger verbs.
-func (a *projectStateGitAdapter) SeedReviewCommentsOnBranch(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, round int64, comments []ReviewComment, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (a *projectStateGitAdapter) SeedReviewCommentsOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, round int64, comments []ReviewComment, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	ctx := rc.Context
 	cred, err := a.minter.CredentialFor(ctx, projectID)
 	if err != nil {
 		return 0, err
@@ -1626,7 +1600,8 @@ func (a *projectStateGitAdapter) SeedReviewCommentsOnBranch(ctx context.Context,
 
 // SetReviewCommentStatusOnBranch applies a human status transition to one ledger entry on
 // the session branch (empty branch ⇒ main). The cred is minted just-in-time.
-func (a *projectStateGitAdapter) SetReviewCommentStatusOnBranch(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, commentID string, status string, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (a *projectStateGitAdapter) SetReviewCommentStatusOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, commentID string, status string, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	ctx := rc.Context
 	cred, err := a.minter.CredentialFor(ctx, projectID)
 	if err != nil {
 		return 0, err
@@ -1634,12 +1609,10 @@ func (a *projectStateGitAdapter) SetReviewCommentStatusOnBranch(ctx context.Cont
 	return a.store.SetReviewCommentStatusOnBranch(ctx, projectID, expectedVersion, branch, kind, commentID, status, cred, idempotencyKey)
 }
 
-var _ StaleAckProjectStateAccess = (*projectStateGitAdapter)(nil)
-var _ ReconcilingProjectStateAccess = (*projectStateGitAdapter)(nil)
-
 // AcknowledgeStaleBasis clears a committed slot's StaleBasis + records the reviewer's
 // "reviewed — unaffected" audit entry on main (F45). The cred is minted just-in-time.
-func (a *projectStateGitAdapter) AcknowledgeStaleBasis(ctx context.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, note string, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (a *projectStateGitAdapter) AcknowledgeStaleBasis(rc fwra.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, note string, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	ctx := rc.Context
 	cred, err := a.minter.CredentialFor(ctx, projectID)
 	if err != nil {
 		return 0, err
@@ -1650,7 +1623,8 @@ func (a *projectStateGitAdapter) AcknowledgeStaleBasis(ctx context.Context, proj
 // ReconcileBranchFromMain is the branch-reconcile verb (F80c): it overlays main's slots
 // (bar the session's own) onto the session-branch tip so a diverged PR becomes mergeable.
 // The cred is minted just-in-time.
-func (a *projectStateGitAdapter) ReconcileBranchFromMain(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (a *projectStateGitAdapter) ReconcileBranchFromMain(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	ctx := rc.Context
 	cred, err := a.minter.CredentialFor(ctx, projectID)
 	if err != nil {
 		return 0, err
@@ -1755,23 +1729,6 @@ func (c localProjectCatalog) ListProjectRepos(ctx context.Context, _ OwnerScope,
 // Phase-1/2 verbs are. v1 records the transition through the shared ref-CAS +
 // in-repo-dedup applyMutation path so it is durable and replay-idempotent; the
 // richer per-activity head-state status aggregate is populated from Task 4.
-
-// GitConstructionTransitionAccess is the cred-threaded construction-transition
-// facet of the git store (the §REWORK.4 re-cut of ConstructionTransitionAccess).
-// 8 ops total (≤12 per contract cap; RecordActivityFailed is the additive terminal-
-// failure sibling of RecordActivityExited).
-type GitConstructionTransitionAccess interface {
-	RecordChangeReviewed(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	RecordActivityExited(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, outcome ActivityOutcome, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	RecordActivityFailed(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, reason FailureReason, detail string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	RecordOperatorPaused(rc fwra.Context, projectID ProjectID, expectedVersion Version, reason string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	RecordPhaseStarted(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, phase ActivityMethodPhase, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	RecordPhaseCompleted(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, phase ActivityMethodPhase, artifactRef string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	RecordServiceContractProduced(rc fwra.Context, projectID ProjectID, expectedVersion Version, component string, contract ServiceContract, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	RecordPhaseArtifactProduced(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, mapKey string, payload PhaseArtifactPayload, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-}
-
-var _ GitConstructionTransitionAccess = (*GitStore)(nil)
 
 // PhaseArtifactPayload is a tagged union of all phase artifact types.
 // Exactly one field should be set. RecordPhaseArtifactProduced inspects which
@@ -2295,17 +2252,6 @@ type Provenance struct {
 	DraftedBy string `json:"draftedBy,omitempty"`
 }
 
-// ProvenanceCommitProjectStateAccess is the OPTIONAL, dormant-when-unwired extension a
-// substrate implements to record commit provenance ATOMICALLY with the commit (the same
-// pattern as BranchAwareProjectStateAccess / LedgerProjectStateAccess). The design-manager
-// commit Activity type-asserts it; a substrate WITHOUT it falls back to the plain
-// CommitArtifact and simply records no provenance (absent provenance is allowed). Keeping it
-// a separate extension leaves the generated ProjectStateAccess port + every existing fake
-// untouched.
-type ProvenanceCommitProjectStateAccess interface {
-	CommitArtifactWithProvenance(rc fwra.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, approvedBy, draftedBy string) (Version, error)
-}
-
 // ---- from registry.go ----
 
 // AllArtifactKinds returns every defined ArtifactKind in the stable slot order
@@ -2822,28 +2768,44 @@ func LocalRepoCredential() RepoCredential { return RepoCredential{Bytes: []byte(
 // fwmanager.MapError over the plain fwra.Error this IMPL returns).
 //
 // designSessionAccess WRAPS a base ProjectStateAccess rather than being implemented
-// directly on *projectStateGitAdapter (the sole production ProjectStateAccess today,
-// which already satisfies every optional capability interface unconditionally): the
+// directly on *projectStateGitAdapter (the sole production ProjectStateAccess): the
 // eight DesignSessionAccess verb NAMES collide with methods *projectStateGitAdapter
-// already exports for the OLD calling convention (ctx context.Context, no
-// idempotencyKey duplication) — e.g. ReadProjectOnBranch(ctx, projectID, branch)
-// (Project, error) vs the new ReadProjectOnBranch(rc, projectID, branch)
-// (ProjectEnvelope, error). Go does not allow two same-named methods with different
-// signatures on one receiver, so this facade is a distinct type. Wrapping (rather than
-// a trivial pass-through) also keeps the fallback semantics MEANINGFUL for any future
-// ProjectStateAccess implementation that does not support every extension — exactly
-// the scenario the capability-interface pattern exists for.
+// already exports for a DIFFERENT wire shape — e.g. ReadProjectOnBranch(rc, projectID,
+// branch) (Project, error) on ProjectStateAccess vs ReadProjectOnBranch(rc, projectID,
+// branch) (ProjectEnvelope, error) here. Go does not allow two same-named methods with
+// different signatures on one receiver, so this facade is a distinct type.
+//
+// C2 FOLD (code-health-phase-a): the branch/ledger/reconcile/stale-ack verbs used to be
+// FIVE hand-written extension interfaces (BranchAwareProjectStateAccess /
+// LedgerProjectStateAccess / ReconcilingProjectStateAccess / StaleAckProjectStateAccess
+// / ProvenanceCommitProjectStateAccess) the Managers' custom activities and this wrapper
+// type-asserted against at runtime, falling back to the plain main-path verb when a
+// substrate didn't support one. Every production ProjectStateAccess implementation
+// satisfied every extension unconditionally, so the fallback was permanently dormant.
+// Eight of the nine folded verbs are now REQUIRED members of the generated
+// ProjectStateAccess contract (project.json), so every method below is a direct
+// forward — no assert, no fallback. CommitArtifactWithProvenance is the one exception:
+// it was never folded (it is not a session/branch verb; commit-time provenance stamping
+// is a git-substrate concern), so it keeps a narrow capability check against the
+// unexported provenanceCommitter interface below.
 type designSessionAccess struct {
 	base ProjectStateAccess
 }
 
 var _ DesignSessionAccess = (*designSessionAccess)(nil)
 
-// NewDesignSessionAccess wraps base, running the SAME optional-capability fallback
-// chains the design Managers' custom activities used to run inline against their
-// ProjectStateAccess dependency directly (BranchAwareProjectStateAccess /
-// LedgerProjectStateAccess / ProvenanceCommitProjectStateAccess /
-// ReconcilingProjectStateAccess, each detected via a runtime type-assert on base).
+// provenanceCommitter is the ONE remaining optional capability designSessionAccess
+// checks for: CommitArtifactWithProvenance was never folded into the generated
+// ProjectStateAccess contract (see the C2 fold note on designSessionAccess above), so a
+// base that doesn't stamp provenance is a legitimate (if currently unexercised in
+// production) case, and the plain CommitArtifact fallback stays meaningful.
+type provenanceCommitter interface {
+	CommitArtifactWithProvenance(rc fwra.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, approvedBy, draftedBy string) (Version, error)
+}
+
+// NewDesignSessionAccess wraps base. Every folded verb forwards straight to base (the
+// generated ProjectStateAccess contract now requires all of them); CommitArtifactWithProvenance
+// alone still checks base's optional provenanceCommitter capability.
 func NewDesignSessionAccess(base ProjectStateAccess) DesignSessionAccess {
 	return &designSessionAccess{base: base}
 }
@@ -2868,20 +2830,12 @@ func NewGitHubDesignSessionAccess(webHost, account string, catalog ProjectCatalo
 }
 
 // ReadProjectOnBranch subsumes the old ReadProjectActivity (branch=="") and
-// ReadProjectOnBranchActivity: routes to the branch-aware extension when base
-// supports it AND a branch is supplied, else reads the default/main. Returns the
-// envelope directly so the Temporal payload (once a Manager consumes this) stays a
-// concrete projection.
+// ReadProjectOnBranchActivity: forwards straight to base (branch=="" reads the
+// default/main — a guarantee the generated ProjectStateAccess contract now makes
+// uniformly). Returns the envelope directly so the Temporal payload (once a Manager
+// consumes this) stays a concrete projection.
 func (s *designSessionAccess) ReadProjectOnBranch(rc fwra.Context, projectID ProjectID, branch string) (ProjectEnvelope, error) {
-	var (
-		proj Project
-		err  error
-	)
-	if ba, ok := s.base.(BranchAwareProjectStateAccess); ok && branch != "" {
-		proj, err = ba.ReadProjectOnBranch(rc.Context, projectID, branch)
-	} else {
-		proj, err = s.base.ReadProject(rc, projectID)
-	}
+	proj, err := s.base.ReadProjectOnBranch(rc, projectID, branch)
 	if err != nil {
 		return ProjectEnvelope{}, err
 	}
@@ -2889,8 +2843,7 @@ func (s *designSessionAccess) ReadProjectOnBranch(rc fwra.Context, projectID Pro
 }
 
 // StageArtifactForReviewOnBranch decodes the wire envelope into the concrete typed
-// model, then routes to the branch-aware extension when base supports it AND a branch
-// is supplied, else stages on the default/main.
+// model, then forwards straight to base.
 //
 // The parameter is the codable ModelEnvelope (envelope.go), NOT the sealed
 // ArtifactModel interface (B9 follow-up ruling): the op crosses a Temporal Activity
@@ -2906,84 +2859,55 @@ func (s *designSessionAccess) StageArtifactForReviewOnBranch(rc fwra.Context, pr
 	if err != nil {
 		return 0, err
 	}
-	if ba, ok := s.base.(BranchAwareProjectStateAccess); ok && branch != "" {
-		return ba.StageArtifactForReviewOnBranch(rc.Context, projectID, expectedVersion, branch, decoded, idempotencyKey)
-	}
-	return s.base.StageArtifactForReview(rc, projectID, expectedVersion, decoded)
+	return s.base.StageArtifactForReviewOnBranch(rc, projectID, expectedVersion, branch, decoded, idempotencyKey)
 }
 
 // CommitArtifactWithProvenance records commit provenance (committedAt/approvedBy/
-// draftedBy) atomically with the commit when base supports the extension; otherwise
-// falls back to the plain commit (absent provenance is allowed).
+// draftedBy) atomically with the commit when base implements the optional
+// provenanceCommitter capability; otherwise falls back to the plain commit (absent
+// provenance is allowed). This is the ONE folded verb that stayed a genuine capability
+// check post-C2 (see the designSessionAccess doc comment above) — CommitArtifactWithProvenance
+// was never added to the generated ProjectStateAccess contract.
 func (s *designSessionAccess) CommitArtifactWithProvenance(rc fwra.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, approvedBy, draftedBy string) (Version, error) {
-	if pc, ok := s.base.(ProvenanceCommitProjectStateAccess); ok {
+	if pc, ok := s.base.(provenanceCommitter); ok {
 		return pc.CommitArtifactWithProvenance(rc, projectID, expectedVersion, kind, approvedBy, draftedBy)
 	}
 	return s.base.CommitArtifact(rc, projectID, expectedVersion, kind)
 }
 
-// RejectArtifactOnBranchWithComments prefers the durable-ledger extension (records
-// the Rejected status flip AND appends the reviewer's comments in one atomic commit);
-// falls back to the branch-aware reject (comments dropped) when base supports branches
-// but not the ledger; falls back further to the plain main-path reject.
+// RejectArtifactOnBranchWithComments forwards straight to base: it lands the Rejected
+// status flip + notes AND appends the reviewer's comments to the slot's durable
+// ReviewThread in one atomic commit.
 func (s *designSessionAccess) RejectArtifactOnBranchWithComments(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, round int64, comments []ReviewComment, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	if led, ok := s.base.(LedgerProjectStateAccess); ok {
-		return led.RejectArtifactOnBranchWithComments(rc.Context, projectID, expectedVersion, branch, kind, notes, round, comments, idempotencyKey)
-	}
-	if ba, ok := s.base.(BranchAwareProjectStateAccess); ok && branch != "" {
-		return ba.RejectArtifactOnBranch(rc.Context, projectID, expectedVersion, branch, kind, notes, idempotencyKey)
-	}
-	return s.base.RejectArtifact(rc, projectID, expectedVersion, kind, notes)
+	return s.base.RejectArtifactOnBranchWithComments(rc, projectID, expectedVersion, branch, kind, notes, round, comments, idempotencyKey)
 }
 
-// WithdrawArtifactOnBranch routes to the branch-aware extension when base supports it
-// AND a branch is supplied, else withdraws on the default/main.
+// WithdrawArtifactOnBranch forwards straight to base (branch=="" withdraws on the
+// default/main).
 func (s *designSessionAccess) WithdrawArtifactOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	if ba, ok := s.base.(BranchAwareProjectStateAccess); ok && branch != "" {
-		return ba.WithdrawArtifactOnBranch(rc.Context, projectID, expectedVersion, branch, kind, notes, idempotencyKey)
-	}
-	return s.base.WithdrawArtifact(rc, projectID, expectedVersion, kind, notes)
+	return s.base.WithdrawArtifactOnBranch(rc, projectID, expectedVersion, branch, kind, notes, idempotencyKey)
 }
 
 // ReconcileBranchFromMain overlays main's every slot except kind's own onto the
-// session-branch tip (F80c). Requires BOTH the optional Reconciling extension AND a
-// non-empty branch; a substrate/call that lacks either is an HONEST "cannot
-// reconcile" — surfaced as fwra.NotFound (non-retryable per Kind.DefaultRetryable,
-// same as the sibling ledger-unsupported fallbacks below) rather than the bespoke
-// Temporal "ReconcileUnsupported" Type() the old custom activity minted directly:
-// nothing downstream asserts on that literal string (grepped — only the activity that
-// produced it and its own doc comment referenced it), so converging onto the
-// standard fwra.Error->fwmanager.MapError path is behavior-preserving for the
-// workflow (which only ever checks err != nil here) while keeping this RA Temporal-
-// free, per the layer rule.
+// session-branch tip (F80c). Forwards straight to base; the "a non-empty branch is
+// required" invariant is now the CONCRETE substrate's business rule (GitStore rejects
+// branch=="" as fwra.ContractMisuse), not a capability the wrapper synthesizes — the
+// old NotFound-when-unsupported-or-empty fallback here was permanently dormant (every
+// production ProjectStateAccess supported reconcile unconditionally).
 func (s *designSessionAccess) ReconcileBranchFromMain(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	rec, ok := s.base.(ReconcilingProjectStateAccess)
-	if !ok || branch == "" {
-		return 0, fwra.New(fwra.NotFound, "branch reconcile unsupported by the substrate (or no session branch)")
-	}
-	return rec.ReconcileBranchFromMain(rc.Context, projectID, expectedVersion, branch, kind, idempotencyKey)
+	return s.base.ReconcileBranchFromMain(rc, projectID, expectedVersion, branch, kind, idempotencyKey)
 }
 
 // SetReviewCommentStatusOnBranch applies a human review-ledger transition (waive/
-// reopen) on the session branch. A substrate without the ledger extension has no
-// thread to mutate — fwra.NotFound, which the Manager surfaces as FailedPrecondition
-// (mirrors the deleted SetReviewCommentStatusActivity exactly).
+// reopen) on the session branch. Forwards straight to base.
 func (s *designSessionAccess) SetReviewCommentStatusOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, commentID string, status string, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	if led, ok := s.base.(LedgerProjectStateAccess); ok {
-		return led.SetReviewCommentStatusOnBranch(rc.Context, projectID, expectedVersion, branch, kind, commentID, status, idempotencyKey)
-	}
-	return 0, fwra.New(fwra.NotFound, "review ledger not supported by this substrate")
+	return s.base.SetReviewCommentStatusOnBranch(rc, projectID, expectedVersion, branch, kind, commentID, status, idempotencyKey)
 }
 
 // SeedReviewCommentsOnBranch appends the F38 amendment reopening feedback as OPEN
-// ledger entries (no status change). A substrate without the ledger extension has no
-// thread to seed — fwra.NotFound (mirrors the deleted SeedReviewCommentsActivity
-// exactly; the amendment still proceeds with the feedback woven into the prompt).
+// ledger entries (no status change). Forwards straight to base.
 func (s *designSessionAccess) SeedReviewCommentsOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, round int64, comments []ReviewComment, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	if led, ok := s.base.(LedgerProjectStateAccess); ok {
-		return led.SeedReviewCommentsOnBranch(rc.Context, projectID, expectedVersion, branch, kind, round, comments, idempotencyKey)
-	}
-	return 0, fwra.New(fwra.NotFound, "review ledger not supported by this substrate")
+	return s.base.SeedReviewCommentsOnBranch(rc, projectID, expectedVersion, branch, kind, round, comments, idempotencyKey)
 }
 
 // ---- from envelope.go ----
@@ -3240,7 +3164,8 @@ func (e ProjectEnvelope) Decode() (Project, error) {
 // gitactivityconstruction.go (the §GIT-HEAD-STATE branch/CI/+1/merge verbs plus the
 // started/completed construction-status verbs), merged onto ONE 6-op contract. Kept off
 // the core ProjectStateAccess (Phase-1/2) interface, which is unchanged; the concrete
-// GitStore satisfies this plus GitConstructionTransitionAccess.
+// GitStore satisfies this plus the cred-threaded construction-transition verbs
+// (RecordChangeReviewed / RecordActivityExited / RecordActivityFailed / etc., below).
 
 // Compile-time proof the concrete GitStore satisfies the generated git-status facet.
 var _ GitActivityStatusAccess = (*GitStore)(nil)
@@ -3345,7 +3270,7 @@ func (s *GitStore) RecordActivityMerged(rc fwra.Context, projectID ProjectID, ex
 // generated GitActivityStatusAccess contract as the gitactivity.go verbs (one 6-op
 // promoted component, contract.gitActivityStatusAccess.schema.json) — see gitactivity.go
 // for the interface + its compile-time assertion. The concrete GitStore satisfies
-// GitActivityStatusAccess in addition to GitConstructionTransitionAccess.
+// GitActivityStatusAccess in addition to the cred-threaded construction-transition verbs.
 
 // upsertActivityConstruction fetches (or initialises) the per-activity construction row,
 // applies the supplied in-place mutation, and writes the SINGLE map key back. The map is
@@ -7479,105 +7404,6 @@ func ReviewPolicyFromGateIDs(byType map[string][]string) ReviewPolicy {
 // version). The verbs record facts; they do NOT re-decide whether a transition is
 // allowed (the Manager's gate) nor whether the typed model is semantically valid
 // (artifactValidationEngine).
-
-// BranchAwareProjectStateAccess is the OPTIONAL branch-aware extension of the no-cred
-// projectStateAccess port the design Managers consume during the AwaitingReview window
-// (I-DESIGN-DISPATCH §2a). The agentic design rail commits the draft on a per-session
-// branch (the Action's commit), so the Manager READS BACK and STAGES on that branch
-// while the human reviews, then reads/writes the default (main) after the PR merges.
-//
-// It is a SEPARATE interface, not added to ProjectStateAccess, so every existing
-// caller, adapter, and test compiles unchanged: a design Manager type-asserts its
-// ProjectStateAccess field to this extension and uses the *OnBranch verbs ONLY when
-// (a) the substrate supports it AND (b) a non-empty branch is in play. An EMPTY branch
-// is defined to behave EXACTLY as the corresponding non-branch verb (the default/main),
-// so threading "" is always safe and identical to today.
-type BranchAwareProjectStateAccess interface {
-	// ReadProjectOnBranch reads the head-state aggregate from branch (a provider-neutral
-	// session-branch name). branch=="" reads the default/main exactly as ReadProject.
-	ReadProjectOnBranch(ctx context.Context, projectID ProjectID, branch string) (Project, error)
-	// StageArtifactForReviewOnBranch lands the AwaitingReview thin-write on branch (the
-	// session branch the draft lives on). branch=="" behaves exactly as
-	// StageArtifactForReview (the default/main).
-	StageArtifactForReviewOnBranch(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, model ArtifactModel, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	// RejectArtifactOnBranch records the architect's Reject on branch (the session
-	// branch the draft was staged on during the AwaitingReview window). It is the
-	// symmetric counterpart of StageArtifactForReviewOnBranch: in the PR rail the draft
-	// + its AwaitingReview status live ONLY on the session branch (main is untouched
-	// until an approved draft merges), so the Rejected status flip + notes must land on
-	// that SAME branch — where the staged model exists and where the session-branch
-	// version matches. Rejecting on main would (a) mismatch the version (main trails the
-	// session branch) and (b) find the slot unpopulated (no model was ever staged on
-	// main). branch=="" behaves exactly as RejectArtifact (the default/main), so a
-	// dormant-rail / non-git caller is unperturbed.
-	RejectArtifactOnBranch(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	// WithdrawArtifactOnBranch records the architect's Withdraw on branch (the session
-	// branch the draft was staged on during the AwaitingReview window). It is the
-	// symmetric counterpart of RejectArtifactOnBranch: in the PR rail the draft + its
-	// AwaitingReview status live ONLY on the session branch (main is untouched until an
-	// approved draft merges), so the Withdrawn status flip + notes must land on that SAME
-	// branch — where the staged model exists and where the session-branch version matches.
-	// Withdrawing on main would (a) mismatch the version (main trails the session branch)
-	// and (b) find the slot unpopulated (no model was ever staged on main). branch==""
-	// behaves exactly as WithdrawArtifact (the default/main), so a dormant-rail / non-git
-	// caller is unperturbed.
-	WithdrawArtifactOnBranch(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, idempotencyKey fwra.IdempotencyKey) (Version, error)
-}
-
-// LedgerProjectStateAccess is the OPTIONAL durable review-ledger extension of the no-cred
-// projectStateAccess port the design Managers consume during the AwaitingReview window
-// (review-ledger feature, founder-ratified 2026-07-05). Like BranchAwareProjectStateAccess
-// it is a SEPARATE interface — added rather than folded into ProjectStateAccess (or into
-// BranchAwareProjectStateAccess) so every existing caller, adapter, and test fake compiles
-// unchanged: a design Manager type-asserts its ProjectStateAccess field to this extension and
-// uses the ledger verbs ONLY when the substrate supports it, falling back to the plain
-// (comment-dropping) reject when it does not. An EMPTY branch behaves EXACTLY as the
-// corresponding main-path write, so threading "" is always safe (the dormant-rail fallback).
-type LedgerProjectStateAccess interface {
-	// RejectArtifactOnBranchWithComments records the architect's Reject AND appends the
-	// reviewer's comments to the slot's durable ReviewThread in one atomic commit. Each
-	// comment carries Anchor / AnchorText / Text / AuthorRole; the id / round / open status
-	// are server-minted (deterministic per (round, index) so a Temporal retry never
-	// duplicates). branch=="" behaves exactly as the main-path reject, still appending.
-	RejectArtifactOnBranchWithComments(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, round int64, comments []ReviewComment, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	// SetReviewCommentStatusOnBranch applies a human status transition to one ledger entry
-	// (open->waived to dismiss, addressed->open to reopen). An unknown id is NotFound; an
-	// illegal transition is ContractMisuse. branch=="" behaves exactly as the main path.
-	SetReviewCommentStatusOnBranch(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, commentID string, status string, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	// SeedReviewCommentsOnBranch appends OPEN ledger comments to a slot's ReviewThread with
-	// NO status change (F38 amendments): the reopening feedback becomes the fresh session's
-	// initial open entries. Server-minted id/round/open, deterministic + idempotent.
-	SeedReviewCommentsOnBranch(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, round int64, comments []ReviewComment, idempotencyKey fwra.IdempotencyKey) (Version, error)
-}
-
-// ReconcilingProjectStateAccess is the OPTIONAL branch-reconcile extension of the no-cred
-// projectStateAccess port (F80c, 2026-07-05). Like the extensions above it is a SEPARATE
-// interface so every existing caller/adapter/test fake compiles unchanged: the design
-// Manager type-asserts its ProjectStateAccess field to it and reconciles a diverged session
-// branch server-side ONLY when the substrate supports it, falling back to the honest
-// re-await when it does not.
-type ReconcilingProjectStateAccess interface {
-	// ReconcileBranchFromMain overlays main's every slot EXCEPT the session's own (kind)
-	// onto the session-branch tip and commits it, so the branch's project.json differs from
-	// main only in the in-flight slot and the PR becomes mergeable again (a main-side advance
-	// — a staleness ack, a question seed — that diverged the branch is picked up
-	// deterministically). It is the server-side twin of the workflow refresh-step reconcile.
-	// A non-empty branch is required.
-	ReconcileBranchFromMain(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, idempotencyKey fwra.IdempotencyKey) (Version, error)
-}
-
-// StaleAckProjectStateAccess is the OPTIONAL per-slot staleness-acknowledge extension of the
-// no-cred projectStateAccess port (F45, founder-ratified 2026-07-05). Like the ledger
-// extension above it is a SEPARATE interface so every existing caller/adapter/test fake
-// compiles unchanged: a design Manager type-asserts its ProjectStateAccess field to it and
-// uses AcknowledgeStaleBasis only when the substrate supports it.
-type StaleAckProjectStateAccess interface {
-	// AcknowledgeStaleBasis clears a committed slot's StaleBasis flag and records the
-	// reviewer's "reviewed — unaffected" decision as a durable staleAck audit entry, in one
-	// atomic commit on main. Idempotent (an already-un-stale slot is a no-op success).
-	// Unknown kind / uncommitted slot → ContractMisuse.
-	AcknowledgeStaleBasis(ctx context.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, note string, idempotencyKey fwra.IdempotencyKey) (Version, error)
-}
 
 // Error is the shared ResourceAccess error model (framework-go), re-exported as
 // an alias so this component's contract reads in its own terms while every RA

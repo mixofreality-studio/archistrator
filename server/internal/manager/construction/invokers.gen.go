@@ -48,6 +48,13 @@ func (i genInvokers) options(ctx workflow.Context, name string) workflow.Context
 	return workflow.WithActivityOptions(ctx, opts)
 }
 
+// ProjectStateAcknowledgeStaleBasis invokes activity "projectStateAccess.acknowledgeStaleBasis".
+func (i genInvokers) ProjectStateAcknowledgeStaleBasis(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, kind projectstate.ArtifactKind, note string) (projectstate.Version, error) {
+	var out projectstate.Version
+	err := workflow.ExecuteActivity(i.options(ctx, "projectStateAccess.acknowledgeStaleBasis"), "projectStateAccess.acknowledgeStaleBasis", projectID, expectedVersion, kind, note).Get(ctx, &out)
+	return out, err
+}
+
 // ProjectStateAdvancePhase invokes activity "projectStateAccess.advancePhase".
 func (i genInvokers) ProjectStateAdvancePhase(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version) (projectstate.Version, error) {
 	var out projectstate.Version
@@ -83,6 +90,13 @@ func (i genInvokers) ProjectStateReadProject(ctx workflow.Context, projectID pro
 	return out, err
 }
 
+// ProjectStateReadProjectOnBranch invokes activity "projectStateAccess.readProjectOnBranch".
+func (i genInvokers) ProjectStateReadProjectOnBranch(ctx workflow.Context, projectID projectstate.ProjectID, branch string) (projectstate.Project, error) {
+	var out projectstate.Project
+	err := workflow.ExecuteActivity(i.options(ctx, "projectStateAccess.readProjectOnBranch"), "projectStateAccess.readProjectOnBranch", projectID, branch).Get(ctx, &out)
+	return out, err
+}
+
 // ProjectStateReadProjectVersion invokes activity "projectStateAccess.readProjectVersion".
 func (i genInvokers) ProjectStateReadProjectVersion(ctx workflow.Context, projectID projectstate.ProjectID) (projectstate.Version, error) {
 	var out projectstate.Version
@@ -90,10 +104,38 @@ func (i genInvokers) ProjectStateReadProjectVersion(ctx workflow.Context, projec
 	return out, err
 }
 
+// ProjectStateReconcileBranchFromMain invokes activity "projectStateAccess.reconcileBranchFromMain".
+func (i genInvokers) ProjectStateReconcileBranchFromMain(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind) (projectstate.Version, error) {
+	var out projectstate.Version
+	err := workflow.ExecuteActivity(i.options(ctx, "projectStateAccess.reconcileBranchFromMain"), "projectStateAccess.reconcileBranchFromMain", projectID, expectedVersion, branch, kind).Get(ctx, &out)
+	return out, err
+}
+
 // ProjectStateRejectArtifact invokes activity "projectStateAccess.rejectArtifact".
 func (i genInvokers) ProjectStateRejectArtifact(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, kind projectstate.ArtifactKind, notes string) (projectstate.Version, error) {
 	var out projectstate.Version
 	err := workflow.ExecuteActivity(i.options(ctx, "projectStateAccess.rejectArtifact"), "projectStateAccess.rejectArtifact", projectID, expectedVersion, kind, notes).Get(ctx, &out)
+	return out, err
+}
+
+// ProjectStateRejectArtifactOnBranch invokes activity "projectStateAccess.rejectArtifactOnBranch".
+func (i genInvokers) ProjectStateRejectArtifactOnBranch(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string) (projectstate.Version, error) {
+	var out projectstate.Version
+	err := workflow.ExecuteActivity(i.options(ctx, "projectStateAccess.rejectArtifactOnBranch"), "projectStateAccess.rejectArtifactOnBranch", projectID, expectedVersion, branch, kind, notes).Get(ctx, &out)
+	return out, err
+}
+
+// ProjectStateRejectArtifactOnBranchWithComments invokes activity "projectStateAccess.rejectArtifactOnBranchWithComments".
+func (i genInvokers) ProjectStateRejectArtifactOnBranchWithComments(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, round int64, comments []projectstate.ReviewComment) (projectstate.Version, error) {
+	var out projectstate.Version
+	err := workflow.ExecuteActivity(i.options(ctx, "projectStateAccess.rejectArtifactOnBranchWithComments"), "projectStateAccess.rejectArtifactOnBranchWithComments", projectID, expectedVersion, branch, kind, notes, round, comments).Get(ctx, &out)
+	return out, err
+}
+
+// ProjectStateSeedReviewCommentsOnBranch invokes activity "projectStateAccess.seedReviewCommentsOnBranch".
+func (i genInvokers) ProjectStateSeedReviewCommentsOnBranch(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, round int64, comments []projectstate.ReviewComment) (projectstate.Version, error) {
+	var out projectstate.Version
+	err := workflow.ExecuteActivity(i.options(ctx, "projectStateAccess.seedReviewCommentsOnBranch"), "projectStateAccess.seedReviewCommentsOnBranch", projectID, expectedVersion, branch, kind, round, comments).Get(ctx, &out)
 	return out, err
 }
 
@@ -111,6 +153,13 @@ func (i genInvokers) ProjectStateSetResearchInput(ctx workflow.Context, projectI
 	return out, err
 }
 
+// ProjectStateSetReviewCommentStatusOnBranch invokes activity "projectStateAccess.setReviewCommentStatusOnBranch".
+func (i genInvokers) ProjectStateSetReviewCommentStatusOnBranch(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, commentID string, status string) (projectstate.Version, error) {
+	var out projectstate.Version
+	err := workflow.ExecuteActivity(i.options(ctx, "projectStateAccess.setReviewCommentStatusOnBranch"), "projectStateAccess.setReviewCommentStatusOnBranch", projectID, expectedVersion, branch, kind, commentID, status).Get(ctx, &out)
+	return out, err
+}
+
 // ProjectStateStageArtifactForReview invokes activity "projectStateAccess.stageArtifactForReview".
 func (i genInvokers) ProjectStateStageArtifactForReview(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, model projectstate.ArtifactModel) (projectstate.Version, error) {
 	var out projectstate.Version
@@ -118,10 +167,24 @@ func (i genInvokers) ProjectStateStageArtifactForReview(ctx workflow.Context, pr
 	return out, err
 }
 
+// ProjectStateStageArtifactForReviewOnBranch invokes activity "projectStateAccess.stageArtifactForReviewOnBranch".
+func (i genInvokers) ProjectStateStageArtifactForReviewOnBranch(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, model projectstate.ArtifactModel) (projectstate.Version, error) {
+	var out projectstate.Version
+	err := workflow.ExecuteActivity(i.options(ctx, "projectStateAccess.stageArtifactForReviewOnBranch"), "projectStateAccess.stageArtifactForReviewOnBranch", projectID, expectedVersion, branch, model).Get(ctx, &out)
+	return out, err
+}
+
 // ProjectStateWithdrawArtifact invokes activity "projectStateAccess.withdrawArtifact".
 func (i genInvokers) ProjectStateWithdrawArtifact(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, kind projectstate.ArtifactKind, notes string) (projectstate.Version, error) {
 	var out projectstate.Version
 	err := workflow.ExecuteActivity(i.options(ctx, "projectStateAccess.withdrawArtifact"), "projectStateAccess.withdrawArtifact", projectID, expectedVersion, kind, notes).Get(ctx, &out)
+	return out, err
+}
+
+// ProjectStateWithdrawArtifactOnBranch invokes activity "projectStateAccess.withdrawArtifactOnBranch".
+func (i genInvokers) ProjectStateWithdrawArtifactOnBranch(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string) (projectstate.Version, error) {
+	var out projectstate.Version
+	err := workflow.ExecuteActivity(i.options(ctx, "projectStateAccess.withdrawArtifactOnBranch"), "projectStateAccess.withdrawArtifactOnBranch", projectID, expectedVersion, branch, kind, notes).Get(ctx, &out)
 	return out, err
 }
 

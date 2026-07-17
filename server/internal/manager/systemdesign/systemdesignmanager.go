@@ -1509,10 +1509,6 @@ func (m *systemDesignManager) AcknowledgeStaleBasis(rc fwmanager.Context, projec
 	if err := m.refuseAckDuringLiveSession(rc, projectID, kind); err != nil {
 		return err
 	}
-	sa, ok := m.projectState.(projectstate.StaleAckProjectStateAccess)
-	if !ok {
-		return newError(fwmanager.FailedPrecondition, "stale-basis acknowledge not supported by this substrate")
-	}
 	key := acknowledgeStaleIdempotencyKey(projectID, kind, note)
 	psID := projectstate.ProjectID(projectID)
 	psKind := toPSKind(kind)
@@ -1523,7 +1519,7 @@ func (m *systemDesignManager) AcknowledgeStaleBasis(rc fwmanager.Context, projec
 		if err != nil {
 			return mapReadProjectError(err)
 		}
-		_, err = sa.AcknowledgeStaleBasis(ctx, psID, proj.Version, psKind, note, key)
+		_, err = m.projectState.AcknowledgeStaleBasis(fwra.Context{Context: ctx}, psID, proj.Version, psKind, note, key)
 		if err == nil {
 			return nil
 		}
@@ -1626,11 +1622,6 @@ func (m *systemDesignManager) AskQuestions(rc fwmanager.Context, projectID Proje
 		return newError(fwmanager.ContractMisuse, "no questions to ask (every question needs text)")
 	}
 
-	led, ok := m.projectState.(projectstate.LedgerProjectStateAccess)
-	if !ok {
-		return newError(fwmanager.FailedPrecondition, "review ledger not supported by this substrate")
-	}
-
 	// Resolve the branch the ledger lives on: a live drafting/review session keeps the
 	// thread on its session branch; a committed (or absent) session keeps it on main ("").
 	branch := m.resolveQuestionBranch(rc, projectID, kind)
@@ -1655,7 +1646,7 @@ func (m *systemDesignManager) AskQuestions(rc fwmanager.Context, projectID Proje
 			// ledger entries, and the re-fired answer job answers the right comments.
 			round = r
 		}
-		_, err = led.SeedReviewCommentsOnBranch(ctx, psID, proj.Version, branch, psKind, round, qs, key)
+		_, err = m.projectState.SeedReviewCommentsOnBranch(fwra.Context{Context: ctx}, psID, proj.Version, branch, psKind, round, qs, key)
 		if err == nil {
 			// Best-effort dispatch of the answer job. A dispatch failure is logged by the
 			// pipeline access; the questions are already durably recorded, so we do not fail
@@ -1705,17 +1696,11 @@ func (m *systemDesignManager) resolveQuestionBranch(rc fwmanager.Context, projec
 	return designBranch(projectID, kind, amendmentIndexFor(slotFor(proj, kind)))
 }
 
-// readProjectMaybeBranch reads the head-state aggregate from the given branch. On a
-// branch-aware substrate it uses ReadProjectOnBranch (branch=="" reads main); otherwise it
-// falls back to the main ReadProject (correct for the committed/main case and the only
-// option a non-branch-aware dev substrate offers).
+// readProjectMaybeBranch reads the head-state aggregate from the given branch: the
+// generated ProjectStateAccess contract is uniformly branch-aware post-C2-fold
+// (branch=="" reads main exactly as ReadProject), so this is a direct forward.
 func (m *systemDesignManager) readProjectMaybeBranch(ctx context.Context, psID projectstate.ProjectID, branch string) (projectstate.Project, error) {
-	if branch != "" {
-		if ba, ok := m.projectState.(projectstate.BranchAwareProjectStateAccess); ok {
-			return ba.ReadProjectOnBranch(ctx, psID, branch)
-		}
-	}
-	return m.projectState.ReadProject(fwra.Context{Context: ctx}, psID)
+	return m.projectState.ReadProjectOnBranch(fwra.Context{Context: ctx}, psID, branch)
 }
 
 // isLiveSessionStage reports whether a co-author session is live (its ledger lives on the

@@ -905,6 +905,50 @@ func (f *renderFakeProjectState) ListProjects(fwra.Context, projectstate.OwnerSc
 	panic("renderFakeProjectState.ListProjects must not be called by these façade-precondition tests")
 }
 
+// ReadProjectOnBranch mirrors ReadProject (branch=="" behaves exactly as ReadProject
+// per the generated ProjectStateAccess contract; these tests never thread a branch).
+func (f *renderFakeProjectState) ReadProjectOnBranch(rc fwra.Context, projectID projectstate.ProjectID, _ string) (projectstate.Project, error) {
+	return f.ReadProject(rc, projectID)
+}
+
+func (f *renderFakeProjectState) StageArtifactForReviewOnBranch(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.ArtifactModel, fwra.IdempotencyKey) (projectstate.Version, error) {
+	panic("renderFakeProjectState.StageArtifactForReviewOnBranch must not be called by these façade-precondition tests")
+}
+
+func (f *renderFakeProjectState) RejectArtifactOnBranch(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.ArtifactKind, string, fwra.IdempotencyKey) (projectstate.Version, error) {
+	panic("renderFakeProjectState.RejectArtifactOnBranch must not be called by these façade-precondition tests")
+}
+
+func (f *renderFakeProjectState) WithdrawArtifactOnBranch(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.ArtifactKind, string, fwra.IdempotencyKey) (projectstate.Version, error) {
+	panic("renderFakeProjectState.WithdrawArtifactOnBranch must not be called by these façade-precondition tests")
+}
+
+func (f *renderFakeProjectState) RejectArtifactOnBranchWithComments(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.ArtifactKind, string, int64, []projectstate.ReviewComment, fwra.IdempotencyKey) (projectstate.Version, error) {
+	panic("renderFakeProjectState.RejectArtifactOnBranchWithComments must not be called by these façade-precondition tests")
+}
+
+func (f *renderFakeProjectState) SetReviewCommentStatusOnBranch(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.ArtifactKind, string, string, fwra.IdempotencyKey) (projectstate.Version, error) {
+	panic("renderFakeProjectState.SetReviewCommentStatusOnBranch must not be called by these façade-precondition tests")
+}
+
+func (f *renderFakeProjectState) SeedReviewCommentsOnBranch(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.ArtifactKind, int64, []projectstate.ReviewComment, fwra.IdempotencyKey) (projectstate.Version, error) {
+	panic("renderFakeProjectState.SeedReviewCommentsOnBranch must not be called by these façade-precondition tests")
+}
+
+func (f *renderFakeProjectState) ReconcileBranchFromMain(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.ArtifactKind, fwra.IdempotencyKey) (projectstate.Version, error) {
+	panic("renderFakeProjectState.ReconcileBranchFromMain must not be called by these façade-precondition tests")
+}
+
+// AcknowledgeStaleBasis is a real (if trivial) success implementation: the C2 fold
+// (code-health-phase-a) removed the "substrate doesn't support stale-ack" runtime
+// capability check from systemDesignManager.AcknowledgeStaleBasis — the generated
+// ProjectStateAccess contract now requires this verb unconditionally — so the
+// Test_AcknowledgeStaleBasis_* liveness-gate tests below now reach this call for real
+// once the gate passes.
+func (f *renderFakeProjectState) AcknowledgeStaleBasis(_ fwra.Context, _ projectstate.ProjectID, expectedVersion projectstate.Version, _ projectstate.ArtifactKind, _ string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return expectedVersion + 1, nil
+}
+
 // compile-time conformance.
 var _ projectstate.ProjectStateAccess = (*renderFakeProjectState)(nil)
 
@@ -1143,6 +1187,62 @@ func (f *fakeProjectState) ListProjects(_ fwra.Context, _ projectstate.OwnerScop
 	return nil, nil
 }
 
+// ---- C2 fold (code-health-phase-a): the 9 session/branch verbs folded into the
+// generated ProjectStateAccess contract. fakeProjectState's DEFAULT behavior mirrors
+// the OLD dormant-rail fallback (branch=="" / no-ledger behaves exactly as the
+// corresponding main-path verb) — the specialized fakes below (seqProjectState,
+// branchAwareFakeProjectState, f29BranchFake, ledgerFakeProjectState) embed
+// *fakeProjectState and override only the verbs they need branch/ledger-aware
+// behavior for.
+
+func (f *fakeProjectState) ReadProjectOnBranch(rc fwra.Context, projectID projectstate.ProjectID, _ string) (projectstate.Project, error) {
+	return f.ReadProject(rc, projectID)
+}
+
+func (f *fakeProjectState) StageArtifactForReviewOnBranch(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, _ string, model projectstate.ArtifactModel, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return f.StageArtifactForReview(rc, projectID, expectedVersion, model)
+}
+
+func (f *fakeProjectState) RejectArtifactOnBranch(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, _ string, kind projectstate.ArtifactKind, notes string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return f.RejectArtifact(rc, projectID, expectedVersion, kind, notes)
+}
+
+func (f *fakeProjectState) WithdrawArtifactOnBranch(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, _ string, kind projectstate.ArtifactKind, notes string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return f.WithdrawArtifact(rc, projectID, expectedVersion, kind, notes)
+}
+
+func (f *fakeProjectState) RejectArtifactOnBranchWithComments(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, _ string, kind projectstate.ArtifactKind, notes string, _ int64, _ []projectstate.ReviewComment, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	// The base fake carries no durable ledger — mirrors the old comment-dropping
+	// fallback (comments are accepted but not recorded).
+	return f.RejectArtifact(rc, projectID, expectedVersion, kind, notes)
+}
+
+func (f *fakeProjectState) SetReviewCommentStatusOnBranch(_ fwra.Context, _ projectstate.ProjectID, expectedVersion projectstate.Version, _ string, _ projectstate.ArtifactKind, _ string, _ string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.bump(), nil
+}
+
+func (f *fakeProjectState) SeedReviewCommentsOnBranch(_ fwra.Context, _ projectstate.ProjectID, expectedVersion projectstate.Version, _ string, _ projectstate.ArtifactKind, _ int64, _ []projectstate.ReviewComment, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.bump(), nil
+}
+
+func (f *fakeProjectState) ReconcileBranchFromMain(_ fwra.Context, _ projectstate.ProjectID, expectedVersion projectstate.Version, _ string, _ projectstate.ArtifactKind, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.bump(), nil
+}
+
+func (f *fakeProjectState) AcknowledgeStaleBasis(_ fwra.Context, _ projectstate.ProjectID, expectedVersion projectstate.Version, _ projectstate.ArtifactKind, _ string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.bump(), nil
+}
+
+var _ projectstate.ProjectStateAccess = (*fakeProjectState)(nil)
+
 // ---- fakePipeline: the EXTERNAL agentic-job seam (constructionPipelineAccess) ---
 
 // fakePipeline stands in for the claude-code-action DESIGN job at the WIRE seam. It
@@ -1304,13 +1404,13 @@ func newWorkflows() *workflows {
 //
 // The designSessionAccess ops are backed by projectstate.NewDesignSessionAccess(ps) — the
 // REAL production wrapper (projectstate/designsession.go), not a hand-rolled test double —
-// so every workflow test exercises the actual branch-aware/ledger/provenance/reconcile
-// capability fallback chain the RA runs, not a re-implementation of it. ps must be
-// non-nil; when a test's fake additionally implements BranchAwareProjectStateAccess /
-// LedgerProjectStateAccess / ProvenanceCommitProjectStateAccess / ReconcilingProjectStateAccess
-// (e.g. gitrail_test.go's branchAwareFakeProjectState, gitrail_proof_test.go's
-// seqProjectState), the wrapper's runtime type-assertions route to those extensions
-// automatically — no separate registration needed.
+// so every workflow test exercises the actual forward-to-base + provenance capability
+// check the RA runs, not a re-implementation of it. ps must be non-nil; the generated
+// ProjectStateAccess contract requires every branch/ledger/reconcile verb unconditionally
+// (C2 fold, code-health-phase-a), so a test's fake (e.g. gitrail_test.go's
+// branchAwareFakeProjectState, gitrail_proof_test.go's seqProjectState) simply OVERRIDES
+// the verbs it wants branch/ledger-aware behavior for — no separate registration or
+// capability opt-in needed.
 func registerGenActivities(env *testsuite.TestWorkflowEnvironment, ps projectstate.ProjectStateAccess, pipe *fakePipeline, rail sourcecontrol.SourceControlAccess) {
 	var pipeAcc constructionpipeline.ConstructionPipelineAccess
 	if pipe != nil {
@@ -3102,7 +3202,10 @@ func Test_AcknowledgeStaleBasis_LiveAmendmentSession_FailedPrecondition(t *testi
 
 // No session has ever run for the slot (Describe reports the execution missing →
 // GetSessionState NotFound): the liveness gate passes and the ack proceeds to the
-// substrate-support check — proving the refusal above came from the gate, not this path.
+// substrate — proving the refusal above came from the gate, not this path. The
+// generated ProjectStateAccess contract requires AcknowledgeStaleBasis unconditionally
+// post-C2-fold (code-health-phase-a), so a substrate that "doesn't support" it is no
+// longer a reachable case — the ack now SUCCEEDS once the gate passes.
 func Test_AcknowledgeStaleBasis_NoSession_PassesLivenessGate(t *testing.T) {
 	id := ProjectID(uuid.NewString())
 	wfID := coAuthorWorkflowID(id, KindMission)
@@ -3110,22 +3213,16 @@ func Test_AcknowledgeStaleBasis_NoSession_PassesLivenessGate(t *testing.T) {
 	mc := &temporalmocks.Client{}
 	mc.On("DescribeWorkflowExecution", mock.Anything, wfID, "").Return(nil, errors.New("workflow not found"))
 
-	// renderFakeProjectState does NOT implement StaleAckProjectStateAccess, so passing
-	// the gate lands on the substrate FailedPrecondition with its distinct message.
 	m := &systemDesignManager{client: mc, projectState: &renderFakeProjectState{}}
 	err := m.AcknowledgeStaleBasis(bgRC(), id, KindMission, "unaffected")
-	sde := asSystemDesignError(t, err)
-	if sde.Kind != fwmanager.FailedPrecondition {
-		t.Fatalf("want the substrate FailedPrecondition, got %d (%v)", sde.Kind, err)
-	}
-	if !strings.Contains(err.Error(), "not supported by this substrate") {
-		t.Fatalf("expected to pass the liveness gate and hit the substrate check, got %q", err.Error())
+	if err != nil {
+		t.Fatalf("expected the liveness gate to pass and the ack to succeed, got %v", err)
 	}
 	mc.AssertExpectations(t)
 }
 
 // A session that closed COMPLETED after committing is TERMINAL (the durable slot renders
-// StageCommitted): the gate passes and the ack proceeds.
+// StageCommitted): the gate passes and the ack proceeds (and, post-C2-fold, succeeds).
 func Test_AcknowledgeStaleBasis_CompletedSession_PassesLivenessGate(t *testing.T) {
 	id := ProjectID(uuid.NewString())
 	wfID := coAuthorWorkflowID(id, KindMission)
@@ -3143,9 +3240,8 @@ func Test_AcknowledgeStaleBasis_CompletedSession_PassesLivenessGate(t *testing.T
 	proj.Mission.Model = &projectstate.MissionStatement{Vision: "V", Mission: "M"}
 	m := &systemDesignManager{client: mc, projectState: &renderFakeProjectState{project: proj}}
 	err := m.AcknowledgeStaleBasis(bgRC(), id, KindMission, "unaffected")
-	sde := asSystemDesignError(t, err)
-	if !strings.Contains(err.Error(), "not supported by this substrate") {
-		t.Fatalf("a committed (terminal) session must pass the liveness gate, got %d %q", sde.Kind, err.Error())
+	if err != nil {
+		t.Fatalf("a committed (terminal) session must pass the liveness gate and succeed, got %v", err)
 	}
 	mc.AssertExpectations(t)
 }
@@ -3622,6 +3718,37 @@ func (f *fakeProjectStateAccess) StageArtifactForReview(_ fwra.Context, _ projec
 	return 0, nil
 }
 func (f *fakeProjectStateAccess) WithdrawArtifact(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ projectstate.ArtifactKind, _ string) (projectstate.Version, error) {
+	return 0, nil
+}
+
+// C2 fold (code-health-phase-a): inert stubs for the 9 session/branch verbs now
+// required by the generated ProjectStateAccess contract — unexercised here, same as
+// the pre-existing inert stubs above.
+func (f *fakeProjectStateAccess) ReadProjectOnBranch(_ fwra.Context, _ projectstate.ProjectID, _ string) (projectstate.Project, error) {
+	return projectstate.Project{}, nil
+}
+func (f *fakeProjectStateAccess) StageArtifactForReviewOnBranch(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ArtifactModel, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+func (f *fakeProjectStateAccess) RejectArtifactOnBranch(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ArtifactKind, _ string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+func (f *fakeProjectStateAccess) WithdrawArtifactOnBranch(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ArtifactKind, _ string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+func (f *fakeProjectStateAccess) RejectArtifactOnBranchWithComments(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ArtifactKind, _ string, _ int64, _ []projectstate.ReviewComment, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+func (f *fakeProjectStateAccess) SetReviewCommentStatusOnBranch(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ArtifactKind, _ string, _ string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+func (f *fakeProjectStateAccess) SeedReviewCommentsOnBranch(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ArtifactKind, _ int64, _ []projectstate.ReviewComment, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+func (f *fakeProjectStateAccess) ReconcileBranchFromMain(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ArtifactKind, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+func (f *fakeProjectStateAccess) AcknowledgeStaleBasis(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ projectstate.ArtifactKind, _ string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	return 0, nil
 }
 
@@ -4742,47 +4869,55 @@ type seqProjectState struct {
 	stageBranches []string
 }
 
-var _ projectstate.BranchAwareProjectStateAccess = (*seqProjectState)(nil)
+var _ projectstate.ProjectStateAccess = (*seqProjectState)(nil)
 
-func (f *seqProjectState) ReadProject(ctx fwra.Context, projectID projectstate.ProjectID) (projectstate.Project, error) {
+func (f *seqProjectState) ReadProject(rc fwra.Context, projectID projectstate.ProjectID) (projectstate.Project, error) {
 	// main-path read (branch override "" ⇒ ReadProject): this is the priors read AND
 	// the post-merge re-read the approve path does before commit-on-main.
 	f.log.add("readMain", "")
 	f.mu.Lock()
 	f.readBranches = append(f.readBranches, "")
 	f.mu.Unlock()
-	return f.fakeProjectState.ReadProject(ctx, projectID)
+	return f.fakeProjectState.ReadProject(rc, projectID)
 }
 
-func (f *seqProjectState) ReadProjectOnBranch(ctx context.Context, projectID projectstate.ProjectID, branch string) (projectstate.Project, error) {
+func (f *seqProjectState) ReadProjectOnBranch(rc fwra.Context, projectID projectstate.ProjectID, branch string) (projectstate.Project, error) {
+	if branch == "" {
+		// The generated ProjectStateAccess contract requires ReadProjectOnBranch("") to
+		// behave EXACTLY as ReadProject (C2 fold, code-health-phase-a) — this is now the
+		// CONCRETE substrate's obligation, not a wrapper-level capability gate, so this
+		// fake must honor it too (the "readMain" vs "readBranch" log distinction the
+		// merge-before-commit assertions below rely on).
+		return f.ReadProject(rc, projectID)
+	}
 	f.log.add("readBranch", branch)
 	f.mu.Lock()
 	f.readBranches = append(f.readBranches, branch)
 	f.mu.Unlock()
-	return f.fakeProjectState.ReadProject(fwra.Context{Context: ctx}, projectID)
+	return f.fakeProjectState.ReadProject(rc, projectID)
 }
 
-func (f *seqProjectState) StageArtifactForReviewOnBranch(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, model projectstate.ArtifactModel, key fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *seqProjectState) StageArtifactForReviewOnBranch(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, model projectstate.ArtifactModel, key fwra.IdempotencyKey) (projectstate.Version, error) {
 	f.log.add("stageBranch", branch)
 	f.mu.Lock()
 	f.stageBranches = append(f.stageBranches, branch)
 	f.mu.Unlock()
-	return f.StageArtifactForReview(fwra.Context{Context: ctx, IdempotencyKey: key}, projectID, expectedVersion, model)
+	return f.StageArtifactForReview(fwra.Context{Context: rc.Context, IdempotencyKey: key}, projectID, expectedVersion, model)
 }
 
-func (f *seqProjectState) CommitArtifact(ctx fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, kind projectstate.ArtifactKind) (projectstate.Version, error) {
+func (f *seqProjectState) CommitArtifact(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, kind projectstate.ArtifactKind) (projectstate.Version, error) {
 	f.log.add("commit", "")
-	return f.fakeProjectState.CommitArtifact(ctx, projectID, expectedVersion, kind)
+	return f.fakeProjectState.CommitArtifact(rc, projectID, expectedVersion, kind)
 }
 
-func (f *seqProjectState) RejectArtifactOnBranch(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, key fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *seqProjectState) RejectArtifactOnBranch(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, key fwra.IdempotencyKey) (projectstate.Version, error) {
 	f.log.add("rejectBranch", branch)
-	return f.RejectArtifact(fwra.Context{Context: ctx, IdempotencyKey: key}, projectID, expectedVersion, kind, notes)
+	return f.RejectArtifact(fwra.Context{Context: rc.Context, IdempotencyKey: key}, projectID, expectedVersion, kind, notes)
 }
 
-func (f *seqProjectState) WithdrawArtifactOnBranch(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, key fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *seqProjectState) WithdrawArtifactOnBranch(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, key fwra.IdempotencyKey) (projectstate.Version, error) {
 	f.log.add("withdrawBranch", branch)
-	return f.WithdrawArtifact(fwra.Context{Context: ctx, IdempotencyKey: key}, projectID, expectedVersion, kind, notes)
+	return f.WithdrawArtifact(fwra.Context{Context: rc.Context, IdempotencyKey: key}, projectID, expectedVersion, kind, notes)
 }
 
 func newSeqRailWorkflows(rail sourcecontrol.SourceControlAccess) *workflows {
@@ -5431,9 +5566,16 @@ type branchAwareFakeProjectState struct {
 	branchAdvancedModel projectstate.ArtifactModel
 }
 
-var _ projectstate.BranchAwareProjectStateAccess = (*branchAwareFakeProjectState)(nil)
+var _ projectstate.ProjectStateAccess = (*branchAwareFakeProjectState)(nil)
 
-func (f *branchAwareFakeProjectState) ReadProjectOnBranch(ctx context.Context, projectID projectstate.ProjectID, branch string) (projectstate.Project, error) {
+func (f *branchAwareFakeProjectState) ReadProjectOnBranch(rc fwra.Context, projectID projectstate.ProjectID, branch string) (projectstate.Project, error) {
+	if branch == "" {
+		// The generated ProjectStateAccess contract requires ReadProjectOnBranch("") to
+		// behave EXACTLY as ReadProject (C2 fold, code-health-phase-a): no branch-read
+		// bookkeeping, no branch-only fault injection — mirrors the pre-fold wrapper,
+		// which never routed an empty branch through this method at all.
+		return f.ReadProject(rc, projectID)
+	}
 	f.mu.Lock()
 	f.readBranches = append(f.readBranches, branch)
 	fail := f.failReadBackDecode
@@ -5445,7 +5587,7 @@ func (f *branchAwareFakeProjectState) ReadProjectOnBranch(ctx context.Context, p
 		return projectstate.Project{}, fwra.New(fwra.ContractMisuse,
 			`projectstate: decode slots: decode slot CoreUseCases model: "A commitment of any size appears, however it arrives, and is still held only in the person's memory." is not a recognized Trigger wire name`)
 	}
-	proj, err := f.ReadProject(fwra.Context{Context: ctx}, projectID)
+	proj, err := f.ReadProject(rc, projectID)
 	if err != nil {
 		return projectstate.Project{}, err
 	}
@@ -5462,18 +5604,18 @@ func (f *branchAwareFakeProjectState) ReadProjectOnBranch(ctx context.Context, p
 	return proj, nil
 }
 
-func (f *branchAwareFakeProjectState) StageArtifactForReviewOnBranch(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, model projectstate.ArtifactModel, key fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *branchAwareFakeProjectState) StageArtifactForReviewOnBranch(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, model projectstate.ArtifactModel, key fwra.IdempotencyKey) (projectstate.Version, error) {
 	f.mu.Lock()
 	f.stageBranches = append(f.stageBranches, branch)
 	f.mu.Unlock()
-	return f.StageArtifactForReview(fwra.Context{Context: ctx, IdempotencyKey: key}, projectID, expectedVersion, model)
+	return f.StageArtifactForReview(fwra.Context{Context: rc.Context, IdempotencyKey: key}, projectID, expectedVersion, model)
 }
 
 // RejectArtifactOnBranch records the Reject on the SESSION BRANCH — the correct PR-rail
 // substrate, where the draft was staged and the branch version matches. It delegates to
 // the embedded fake's bookkeeping (rejected + Notes), then records the branch so the test
 // asserts the reject rode the session branch (non-empty), not main.
-func (f *branchAwareFakeProjectState) RejectArtifactOnBranch(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, key fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *branchAwareFakeProjectState) RejectArtifactOnBranch(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, key fwra.IdempotencyKey) (projectstate.Version, error) {
 	f.mu.Lock()
 	f.rejectBranches = append(f.rejectBranches, branch)
 	fail := f.failRejectOnBranch
@@ -5483,7 +5625,19 @@ func (f *branchAwareFakeProjectState) RejectArtifactOnBranch(ctx context.Context
 		// scenario QA F28 must contain instead of failing the whole workflow.
 		return 0, fwra.New(fwra.ContractMisuse, "projectstate.RejectArtifact: simulated terminal write fault")
 	}
-	return f.fakeProjectState.RejectArtifact(fwra.Context{Context: ctx, IdempotencyKey: key}, projectID, expectedVersion, kind, notes)
+	return f.fakeProjectState.RejectArtifact(fwra.Context{Context: rc.Context, IdempotencyKey: key}, projectID, expectedVersion, kind, notes)
+}
+
+// RejectArtifactOnBranchWithComments routes to THIS type's own RejectArtifactOnBranch
+// (comments dropped) — branchAwareFakeProjectState models a branch-aware-but-NOT-ledger
+// substrate (the old middle rung of the 3-way Ledger→BranchAware→base fallback). It must
+// be defined directly here (not left to Go's embedding promotion of
+// *fakeProjectState.RejectArtifactOnBranchWithComments) because a promoted method's
+// internal f.RejectArtifact call resolves against the EMBEDDED type, not this outer one —
+// it would silently skip the branch-routing override below and record no rejectBranches
+// entry (Go has no virtual dispatch through embedding).
+func (f *branchAwareFakeProjectState) RejectArtifactOnBranchWithComments(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, _ int64, _ []projectstate.ReviewComment, key fwra.IdempotencyKey) (projectstate.Version, error) {
+	return f.RejectArtifactOnBranch(rc, projectID, expectedVersion, branch, kind, notes, key)
 }
 
 // RejectArtifact (MAIN path) models the PRODUCTION PR-rail reality that caused QA F28: in
@@ -5504,7 +5658,7 @@ func (f *branchAwareFakeProjectState) RejectArtifact(_ fwra.Context, _ projectst
 // legitimately rides main (branch==""), so a blanket-failing shadow would break the
 // not-green recovery test. The F30 regression guard is the withdrawBranches assertion (a
 // regression to main leaves it empty).
-func (f *branchAwareFakeProjectState) WithdrawArtifactOnBranch(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, key fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *branchAwareFakeProjectState) WithdrawArtifactOnBranch(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, key fwra.IdempotencyKey) (projectstate.Version, error) {
 	f.mu.Lock()
 	f.withdrawBranches = append(f.withdrawBranches, branch)
 	fail := f.failWithdrawOnBranchRemaining > 0
@@ -5517,7 +5671,7 @@ func (f *branchAwareFakeProjectState) WithdrawArtifactOnBranch(ctx context.Conte
 		// 2026-07-16 anti-wedge scenario the recovery path must contain.
 		return 0, fwra.New(fwra.ContractMisuse, "projectstate.WithdrawArtifact: simulated terminal write fault")
 	}
-	return f.fakeProjectState.WithdrawArtifact(fwra.Context{Context: ctx, IdempotencyKey: key}, projectID, expectedVersion, kind, notes)
+	return f.fakeProjectState.WithdrawArtifact(fwra.Context{Context: rc.Context, IdempotencyKey: key}, projectID, expectedVersion, kind, notes)
 }
 
 // WithdrawArtifact (MAIN path) is the base behavior UNLESS failWithdrawOnMain is armed, in
@@ -5885,7 +6039,7 @@ type f29BranchFake struct {
 	stageFailsRemaining int
 }
 
-var _ projectstate.BranchAwareProjectStateAccess = (*f29BranchFake)(nil)
+var _ projectstate.ProjectStateAccess = (*f29BranchFake)(nil)
 
 func (f *f29BranchFake) ReadProject(_ fwra.Context, _ projectstate.ProjectID) (projectstate.Project, error) {
 	f.mu.Lock()
@@ -5901,7 +6055,7 @@ func (f *f29BranchFake) ReadProjectVersion(_ fwra.Context, _ projectstate.Projec
 	return f.mainVer, nil
 }
 
-func (f *f29BranchFake) ReadProjectOnBranch(_ context.Context, _ projectstate.ProjectID, _ string) (projectstate.Project, error) {
+func (f *f29BranchFake) ReadProjectOnBranch(_ fwra.Context, _ projectstate.ProjectID, _ string) (projectstate.Project, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	p := f.project
@@ -5909,7 +6063,7 @@ func (f *f29BranchFake) ReadProjectOnBranch(_ context.Context, _ projectstate.Pr
 	return p, nil
 }
 
-func (f *f29BranchFake) StageArtifactForReviewOnBranch(_ context.Context, _ projectstate.ProjectID, expected projectstate.Version, _ string, model projectstate.ArtifactModel, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *f29BranchFake) StageArtifactForReviewOnBranch(_ fwra.Context, _ projectstate.ProjectID, expected projectstate.Version, _ string, model projectstate.ArtifactModel, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.stageExpecteds = append(f.stageExpecteds, expected)
@@ -5926,14 +6080,14 @@ func (f *f29BranchFake) StageArtifactForReviewOnBranch(_ context.Context, _ proj
 	return f.branchVer, nil
 }
 
-func (f *f29BranchFake) RejectArtifactOnBranch(_ context.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ArtifactKind, _ string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *f29BranchFake) RejectArtifactOnBranch(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ArtifactKind, _ string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.branchVer++
 	return f.branchVer, nil
 }
 
-func (f *f29BranchFake) WithdrawArtifactOnBranch(_ context.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ArtifactKind, _ string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *f29BranchFake) WithdrawArtifactOnBranch(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ArtifactKind, _ string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	// Terminal in the F29 tests; leave branchVer untouched so the stage-convergence
@@ -6782,9 +6936,9 @@ type ledgerFakeProjectState struct {
 	seededAtSubmits []int
 }
 
-var _ projectstate.LedgerProjectStateAccess = (*ledgerFakeProjectState)(nil)
+var _ projectstate.ProjectStateAccess = (*ledgerFakeProjectState)(nil)
 
-func (f *ledgerFakeProjectState) SeedReviewCommentsOnBranch(_ context.Context, _ projectstate.ProjectID, expectedVersion projectstate.Version, _ string, _ projectstate.ArtifactKind, round int64, comments []projectstate.ReviewComment, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *ledgerFakeProjectState) SeedReviewCommentsOnBranch(_ fwra.Context, _ projectstate.ProjectID, expectedVersion projectstate.Version, _ string, _ projectstate.ArtifactKind, round int64, comments []projectstate.ReviewComment, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	f.seededRounds = append(f.seededRounds, round)
 	f.seededComments = append(f.seededComments, comments)
 	if f.pipe != nil {
@@ -6793,11 +6947,11 @@ func (f *ledgerFakeProjectState) SeedReviewCommentsOnBranch(_ context.Context, _
 	return expectedVersion, nil
 }
 
-func (f *ledgerFakeProjectState) RejectArtifactOnBranchWithComments(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, _ int64, _ []projectstate.ReviewComment, key fwra.IdempotencyKey) (projectstate.Version, error) {
-	return f.RejectArtifactOnBranch(ctx, projectID, expectedVersion, branch, kind, notes, key)
+func (f *ledgerFakeProjectState) RejectArtifactOnBranchWithComments(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, _ int64, _ []projectstate.ReviewComment, key fwra.IdempotencyKey) (projectstate.Version, error) {
+	return f.RejectArtifactOnBranch(rc, projectID, expectedVersion, branch, kind, notes, key)
 }
 
-func (f *ledgerFakeProjectState) SetReviewCommentStatusOnBranch(_ context.Context, _ projectstate.ProjectID, expectedVersion projectstate.Version, _ string, _ projectstate.ArtifactKind, _ string, _ string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *ledgerFakeProjectState) SetReviewCommentStatusOnBranch(_ fwra.Context, _ projectstate.ProjectID, expectedVersion projectstate.Version, _ string, _ projectstate.ArtifactKind, _ string, _ string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	return expectedVersion, nil
 }
 
@@ -7964,6 +8118,45 @@ func (f *setResearchFakeState) CreateProject(fwra.Context, projectstate.ProjectI
 
 func (f *setResearchFakeState) ListProjects(fwra.Context, projectstate.OwnerScope) ([]projectstate.ProjectSummary, error) {
 	panic("setResearchFakeState.ListProjects must not be called by SetResearchInput")
+}
+
+// C2 fold (code-health-phase-a): panic-stubs for the 9 session/branch verbs now
+// required by the generated ProjectStateAccess contract — SetResearchInput never
+// touches them, same as the pre-existing panic-stubs above.
+func (f *setResearchFakeState) ReadProjectOnBranch(fwra.Context, projectstate.ProjectID, string) (projectstate.Project, error) {
+	panic("setResearchFakeState.ReadProjectOnBranch must not be called by SetResearchInput")
+}
+
+func (f *setResearchFakeState) StageArtifactForReviewOnBranch(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.ArtifactModel, fwra.IdempotencyKey) (projectstate.Version, error) {
+	panic("setResearchFakeState.StageArtifactForReviewOnBranch must not be called by SetResearchInput")
+}
+
+func (f *setResearchFakeState) RejectArtifactOnBranch(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.ArtifactKind, string, fwra.IdempotencyKey) (projectstate.Version, error) {
+	panic("setResearchFakeState.RejectArtifactOnBranch must not be called by SetResearchInput")
+}
+
+func (f *setResearchFakeState) WithdrawArtifactOnBranch(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.ArtifactKind, string, fwra.IdempotencyKey) (projectstate.Version, error) {
+	panic("setResearchFakeState.WithdrawArtifactOnBranch must not be called by SetResearchInput")
+}
+
+func (f *setResearchFakeState) RejectArtifactOnBranchWithComments(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.ArtifactKind, string, int64, []projectstate.ReviewComment, fwra.IdempotencyKey) (projectstate.Version, error) {
+	panic("setResearchFakeState.RejectArtifactOnBranchWithComments must not be called by SetResearchInput")
+}
+
+func (f *setResearchFakeState) SetReviewCommentStatusOnBranch(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.ArtifactKind, string, string, fwra.IdempotencyKey) (projectstate.Version, error) {
+	panic("setResearchFakeState.SetReviewCommentStatusOnBranch must not be called by SetResearchInput")
+}
+
+func (f *setResearchFakeState) SeedReviewCommentsOnBranch(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.ArtifactKind, int64, []projectstate.ReviewComment, fwra.IdempotencyKey) (projectstate.Version, error) {
+	panic("setResearchFakeState.SeedReviewCommentsOnBranch must not be called by SetResearchInput")
+}
+
+func (f *setResearchFakeState) ReconcileBranchFromMain(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.ArtifactKind, fwra.IdempotencyKey) (projectstate.Version, error) {
+	panic("setResearchFakeState.ReconcileBranchFromMain must not be called by SetResearchInput")
+}
+
+func (f *setResearchFakeState) AcknowledgeStaleBasis(fwra.Context, projectstate.ProjectID, projectstate.Version, projectstate.ArtifactKind, string, fwra.IdempotencyKey) (projectstate.Version, error) {
+	panic("setResearchFakeState.AcknowledgeStaleBasis must not be called by SetResearchInput")
 }
 
 var _ projectstate.ProjectStateAccess = (*setResearchFakeState)(nil)

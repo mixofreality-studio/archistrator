@@ -217,9 +217,10 @@ func (wf *workflows) commitReview(ctx workflow.Context, projectID ProjectID, hea
 // rejectReview records a rejected SdpReview outcome. Round=0/Comments=nil (the SDP review
 // has no review-ledger thread) is BYTE-IDENTICAL to the pre-B9 behavior: the old
 // RejectArtifactActivity already routed every call — including this zero-round,
-// comment-less one — through the SAME LedgerProjectStateAccess.RejectArtifactOnBranchWithComments
-// verb the generated invoker now reaches directly (the production ProjectStateAccess
-// satisfies the ledger extension unconditionally), so this is not a new code path.
+// comment-less one — through the SAME RejectArtifactOnBranchWithComments verb the
+// generated invoker now reaches directly (the generated ProjectStateAccess contract
+// requires it unconditionally, C2 fold code-health-phase-a), so this is not a new code
+// path.
 func (wf *workflows) rejectReview(ctx workflow.Context, projectID ProjectID, notes string, headVersion *projectstate.Version) error {
 	v, err := wf.applyRecovering(ctx, projectID, "", *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
 		return wf.Acts.DesignSessionRejectArtifactOnBranchWithComments(ctx, projectstate.ProjectID(projectID), expected, "", projectstate.KindSdpReview, notes, 0, nil)

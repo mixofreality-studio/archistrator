@@ -1685,13 +1685,50 @@ var _ projectstate.ConstructionTransitionAccess = fakeConstructionTransition{}
 // activity (B8: migrated off the custom ReadProjectVersionActivity) and (b) serve as the
 // BASE of the real projectstate.NewDesignSessionAccess wrapper backing the GENERATED
 // designSessionAccess.readProjectOnBranch activity (B8 follow-up: the pump's
-// whole-aggregate read; branch "" exercises the real empty-branch→base.ReadProject
-// fallback chain in production code, designsession.go). ReadProject/ReadProjectVersion
-// are inherited verbatim (byte-identical signatures); the remaining nine ops are never
-// exercised by these workflow tests — each is an inert stub, matching the stubRail
-// precedent (gitforward_test.go) for satisfying an unused portion of a wide contract.
+// whole-aggregate read; branch "" reads main via ReadProject — the generated
+// ProjectStateAccess contract requires ReadProjectOnBranch("") to behave exactly as
+// ReadProject, C2 fold code-health-phase-a). ReadProject/ReadProjectVersion are inherited
+// verbatim (byte-identical signatures); the remaining eight ops are never exercised by
+// these workflow tests — each is an inert stub, matching the stubRail precedent
+// (gitforward_test.go) for satisfying an unused portion of a wide contract.
 type fakeFullProjectState struct {
 	*fakeProjectState
+}
+
+func (f fakeFullProjectState) ReadProjectOnBranch(rc fwra.Context, projectID projectstate.ProjectID, _ string) (projectstate.Project, error) {
+	return f.ReadProject(rc, projectID)
+}
+
+func (fakeFullProjectState) StageArtifactForReviewOnBranch(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.ArtifactModel, fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+
+func (fakeFullProjectState) RejectArtifactOnBranch(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.ArtifactKind, string, fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+
+func (fakeFullProjectState) WithdrawArtifactOnBranch(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.ArtifactKind, string, fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+
+func (fakeFullProjectState) RejectArtifactOnBranchWithComments(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.ArtifactKind, string, int64, []projectstate.ReviewComment, fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+
+func (fakeFullProjectState) SetReviewCommentStatusOnBranch(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.ArtifactKind, string, string, fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+
+func (fakeFullProjectState) SeedReviewCommentsOnBranch(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.ArtifactKind, int64, []projectstate.ReviewComment, fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+
+func (fakeFullProjectState) ReconcileBranchFromMain(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.ArtifactKind, fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+
+func (fakeFullProjectState) AcknowledgeStaleBasis(fwra.Context, projectstate.ProjectID, projectstate.Version, projectstate.ArtifactKind, string, fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
 }
 
 func (fakeFullProjectState) AdvancePhase(fwra.Context, projectstate.ProjectID, projectstate.Version) (projectstate.Version, error) {
