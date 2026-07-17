@@ -34,6 +34,7 @@ export function ArtifactRenderer({
   title,
   height,
   serviceContracts,
+  useCasesEnvelope,
 }: {
   envelope: ArtifactModelEnvelope | undefined;
   /** Human label used as the prose comment source / fallback. */
@@ -42,13 +43,16 @@ export function ArtifactRenderer({
   height?: number;
   /** When present, the Architecture view drills into established component contracts. */
   serviceContracts?: ServiceContracts | undefined;
+  /** The committed coreUseCases envelope, when available: lets the Architecture
+   *  view label blank-titled dynamic views by their linked use case (F-QA2-51). */
+  useCasesEnvelope?: ArtifactModelEnvelope | undefined;
 }): ReactNode {
   return (
     <Box
       data-artifact-kind={envelope?.kind}
       data-testid={UI_IDENTIFIERS.DesignExperience.ARTIFACT_RENDER}
     >
-      {renderBody(envelope, title, height, serviceContracts)}
+      {renderBody(envelope, title, height, serviceContracts, useCasesEnvelope)}
     </Box>
   );
 }
@@ -57,7 +61,8 @@ function renderBody(
   envelope: ArtifactModelEnvelope | undefined,
   title: string | undefined,
   height: number | undefined,
-  serviceContracts: ServiceContracts | undefined
+  serviceContracts: ServiceContracts | undefined,
+  useCasesEnvelope: ArtifactModelEnvelope | undefined
 ): ReactNode {
   const kind = envelope?.kind;
   if (kind === 'mission') return <MissionView envelope={envelope} />;
@@ -71,6 +76,7 @@ function renderBody(
     return (
       <ArchitectureView
         envelope={envelope}
+        useCasesEnvelope={useCasesEnvelope}
         {...(height !== undefined ? { height } : {})}
         {...(serviceContracts !== undefined ? { serviceContracts } : {})}
       />

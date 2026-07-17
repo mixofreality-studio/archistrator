@@ -122,7 +122,17 @@ test.describe('architecture & deployment views (live backend — UITESTS_LIVE_DR
     const dynamicPicker = page.getByTestId(TESTID.archDynamicPicker);
     await expect(dynamicPicker).toBeVisible();
     await dynamicPicker.click();
-    await page.getByRole('option').first().click();
+    // F-QA2-51: every picker option must carry non-empty visible text — a dynamic
+    // view with a blank title falls back to its use case's name, then to a
+    // positional "Untitled view N" (adapters.dynamicViewLabel), never blank.
+    const dynamicOptions = page.getByRole('option');
+    await expect(dynamicOptions.first()).toBeVisible();
+    const optionTexts = await dynamicOptions.allInnerTexts();
+    expect(optionTexts.length).toBeGreaterThanOrEqual(1);
+    for (const text of optionTexts) {
+      expect(text.trim()).not.toBe('');
+    }
+    await dynamicOptions.first().click();
     // Structural assertion: xyflow participant nodes carry no data-testid/role of
     // their own; selecting by the generated `.react-flow__node` DOM class is the
     // only way to confirm the dynamic lens actually rendered participants.

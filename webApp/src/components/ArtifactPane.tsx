@@ -19,11 +19,15 @@ export function ArtifactPane({
   artifact,
   envelope,
   serviceContracts,
+  useCasesEnvelope,
 }: {
   artifact: ArtifactMeta;
   envelope: ArtifactModelEnvelope | undefined;
   /** When present, the Architecture section drills into established contracts. */
   serviceContracts?: ServiceContracts | undefined;
+  /** The committed coreUseCases envelope: lets the Architecture section label
+   *  blank-titled dynamic views by their linked use case (F-QA2-51). */
+  useCasesEnvelope?: ArtifactModelEnvelope | undefined;
 }): ReactNode {
   const t = useTokens();
 
@@ -42,6 +46,7 @@ export function ArtifactPane({
       envelope={envelope}
       serviceContracts={serviceContracts}
       title={artifact.title}
+      useCasesEnvelope={useCasesEnvelope}
     />
   );
 }

@@ -22,6 +22,7 @@ import '@xyflow/react/dist/style.css';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import type { Tokens } from '../../utilities/theme/themes';
+import { prefersReducedMotion } from '../../utilities/reducedMotion';
 import { type Layer, LAYER_LABEL } from './flowLayout';
 import { edgeTypes, nodeTypes } from './flowNodeTypes';
 
@@ -168,7 +169,9 @@ export function FocusNodes({ nodeIds, dep }: { nodeIds: string[]; dep: string })
       raf2 = requestAnimationFrame(() => {
         void fitView({
           nodes: nodeIds.map((id) => ({ id })),
-          duration: 400,
+          // a11y reduced motion (F-QA2-51): instant jump when reduction is
+          // requested — read at animation time so a live settings change applies.
+          duration: prefersReducedMotion() ? 0 : 400,
           padding: 0.4,
           maxZoom: 1.2,
         });

@@ -56,17 +56,25 @@ export function ArchitectureView({
   envelope,
   height = 600,
   serviceContracts,
+  useCasesEnvelope,
 }: {
   envelope: ArtifactModelEnvelope | undefined;
   height?: number;
   /** Established component contracts, keyed by component name. When a focused
    *  component has one, Component-focus drills into its interface + diagrams. */
   serviceContracts?: ServiceContracts;
+  /** The committed coreUseCases envelope, when the caller has it: a dynamic view
+   *  with a blank title then labels itself by its linked use case's name instead
+   *  of rendering a blank picker option (F-QA2-51; see adapters.dynamicViewLabel). */
+  useCasesEnvelope?: ArtifactModelEnvelope | undefined;
 }): ReactNode {
   const t = useTokens();
   const { setAnchor, enabled } = useComments();
   const c4 = useMemo(() => toC4View(envelope), [envelope]);
-  const dynamicViews = useMemo(() => listDynamicViews(envelope), [envelope]);
+  const dynamicViews = useMemo(
+    () => listDynamicViews(envelope, useCasesEnvelope),
+    [envelope, useCasesEnvelope]
+  );
 
   // Map each established contract to its C4 component id, so a focused component
   // can surface its contract (interfaces + diagrams) once it's been designed.

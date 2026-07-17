@@ -412,6 +412,7 @@ function HomeBaseBody({
                   artifact={selected}
                   envelope={selectedEnvelope}
                   serviceContracts={project.serviceContracts}
+                  useCasesEnvelope={project.slots.find((s) => s.kind === 'coreUseCases')?.model}
                 />
               </CommentProvider>
             </>

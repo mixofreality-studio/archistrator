@@ -201,6 +201,9 @@ export function SystemDesignView({
   const stage = session?.stage;
   const committedSlot = project.slots.find((s) => s.kind === activeKind);
   const committedEnvelope = committedSlot?.model;
+  // The committed coreUseCases envelope (precedes `system` in the ladder): lets the
+  // Architecture view label blank-titled dynamic views by their use case (F-QA2-51).
+  const useCasesEnvelope = project.slots.find((s) => s.kind === 'coreUseCases')?.model;
   const committedRevisions = committedSlot?.revisions;
   const committedProvenance = committedSlot?.provenance;
   const committedStale = committedSlot?.staleBasis === true;
@@ -339,6 +342,7 @@ export function SystemDesignView({
           stage={stage}
           t={t}
           title={meta.title}
+          useCasesEnvelope={useCasesEnvelope}
           view={view}
           withdrawPending={decisionPending}
           onAmend={onRequestDraft}
@@ -370,6 +374,7 @@ function StepBody({
   committedEnvelope,
   committedRevisions,
   committedProvenance,
+  useCasesEnvelope,
   loading,
   generating,
   needsResearch,
@@ -408,6 +413,8 @@ function StepBody({
   committedEnvelope: ArtifactModelEnvelope | undefined;
   committedRevisions: number | undefined;
   committedProvenance: ArtifactProvenance | undefined;
+  /** The committed coreUseCases envelope (F-QA2-51 dynamic-view label fallback). */
+  useCasesEnvelope: ArtifactModelEnvelope | undefined;
   loading: boolean;
   generating: boolean;
   needsResearch: boolean;
@@ -524,7 +531,12 @@ function StepBody({
               <CommentProvider enabled={false}>
                 {proseSurface(
                   committedEnvelope.kind,
-                  <ArtifactRenderer envelope={committedEnvelope} height={480} title={title} />
+                  <ArtifactRenderer
+                    envelope={committedEnvelope}
+                    height={480}
+                    title={title}
+                    useCasesEnvelope={useCasesEnvelope}
+                  />
                 )}
               </CommentProvider>
             </Box>
@@ -556,7 +568,12 @@ function StepBody({
       >
         {proseSurface(
           committedEnvelope.kind,
-          <ArtifactRenderer envelope={committedEnvelope} height={620} title={title} />
+          <ArtifactRenderer
+            envelope={committedEnvelope}
+            height={620}
+            title={title}
+            useCasesEnvelope={useCasesEnvelope}
+          />
         )}
       </CommittedArtifactPanel>
     );
@@ -594,7 +611,12 @@ function StepBody({
       <Box sx={{ mb: gateOpen ? 3 : 0 }}>
         {proseSurface(
           view?.draft.kind ?? activeKind,
-          <ArtifactRenderer envelope={view?.draft} height={620} title={title} />
+          <ArtifactRenderer
+            envelope={view?.draft}
+            height={620}
+            title={title}
+            useCasesEnvelope={useCasesEnvelope}
+          />
         )}
       </Box>
       {/* QA F35 / F-GTD-12b / F-QA2-41: a contained approve/merge-window fault returns the

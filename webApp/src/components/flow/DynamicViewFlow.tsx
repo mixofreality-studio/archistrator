@@ -14,7 +14,7 @@
  * colours each call red (target / failing) or green (passing) for the test views.
  * Reuses the shared C4 node, colours, decoration, legend and canvas chrome.
  */
-import { useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Edge, Node } from '@xyflow/react';
 import Box from '@mui/material/Box';
 import Chip from '@mui/material/Chip';
@@ -36,6 +36,7 @@ import {
   decorativeNodes,
   c4Node,
   flowEdge,
+  sortByLayoutPosition,
 } from './flowLayout';
 import { LayerLegend, FlowCanvas, FlowEmpty, FocusNodes } from './flowShared';
 
@@ -59,7 +60,9 @@ function build(
   const layerOf = new Map(dv.participants.map((c) => [c.id, c.layer]));
   const current = dv.edges[stepIndex];
 
-  const nodes: Node[] = dv.participants.map((c) => {
+  // Emit nodes in the layout's visual reading order (row top→down, then x) so
+  // DOM/tab order matches what the eye sees, not the view's declared order.
+  const nodes: Node[] = sortByLayoutPosition(dv.participants, layout).map((c) => {
     // Dynamic lens: names + layer tags only. The current call's detail lives in the
     // step caption rail, so the node bodies stay compact (no volatility prose) — this
     // keeps heights stable and stops tall cards overlapping their neighbours.
@@ -134,6 +137,12 @@ function StepBar({
     () => new Map(dv.participants.map((c) => [c.id, c.name])),
     [dv.participants]
   );
+  // Focus target after every step change (mirrors UseCaseWalkthrough's treatment):
+  // the Prev/Next button just clicked can DISABLE on reaching a boundary (step 1 /
+  // step N), which would silently drop keyboard focus to <body>. The "Step X of Y"
+  // caption is the stable landing spot, and its role="status" live region announces
+  // the new step to AT.
+  const captionRef = useRef<HTMLElement>(null);
   if (total === 0 || current === undefined) return null;
 
   const btnSx = {
@@ -152,16 +161,21 @@ function StepBar({
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
         <IconButton
           aria-label="Previous step"
+          data-testid={UI_IDENTIFIERS.Architecture.DYNAMIC_STEP_PREV}
           disabled={stepIndex <= 0}
           size="small"
           sx={btnSx}
           onClick={() => {
             setStepIndex(stepIndex - 1);
+            captionRef.current?.focus();
           }}
         >
           <ChevronLeftIcon fontSize="small" />
         </IconButton>
         <Typography
+          aria-live="polite"
+          ref={captionRef}
+          role="status"
           sx={{
             fontFamily: t.mono,
             fontSize: 12,
@@ -169,16 +183,19 @@ function StepBar({
             minWidth: 90,
             textAlign: 'center',
           }}
+          tabIndex={-1}
         >
           Step {stepIndex + 1} of {total}
         </Typography>
         <IconButton
           aria-label="Next step"
+          data-testid={UI_IDENTIFIERS.Architecture.DYNAMIC_STEP_NEXT}
           disabled={stepIndex >= total - 1}
           size="small"
           sx={btnSx}
           onClick={() => {
             setStepIndex(stepIndex + 1);
+            captionRef.current?.focus();
           }}
         >
           <ChevronRightIcon fontSize="small" />

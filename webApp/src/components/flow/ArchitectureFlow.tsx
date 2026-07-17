@@ -36,6 +36,7 @@ import {
   decorativeNodes,
   c4Node,
   flowEdge,
+  sortByLayoutPosition,
   type Layout,
 } from './flowLayout';
 import { LayerLegend, FlowCanvas, FlowEmpty, FocusNodes } from './flowShared';
@@ -119,7 +120,9 @@ function derive(
   const near = hoveredId !== null ? neighbourhood(hoveredId, relationships) : null;
   const nameOf = new Map(components.map((c) => [c.id, c.name]));
 
-  const nodes: Node[] = components.map((c) => {
+  // Emit nodes in the layout's visual reading order (row top→down, then x) so
+  // DOM/tab order matches what the eye sees, not the model's drafted order.
+  const nodes: Node[] = sortByLayoutPosition(components, layout).map((c) => {
     const pos = layout.pos.get(c.id) ?? { x: 0, y: 0 };
     // Utilities are shared infrastructure (the side bar just exists) — never dimmed.
     const dimmed = near !== null && !near.has(c.id) && c.layer !== 'utility';

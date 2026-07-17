@@ -49,6 +49,7 @@ import type {
 } from './types';
 import { METHOD_METADATA, PHASE1_ORDER, PHASE2_ORDER } from './methodMetadata';
 import { ARTIFACT_STAGE_APP_STRINGS } from './enums.gen';
+import { dynamicViewLabel, indexUseCaseNames } from './dynamicViewLabels';
 
 // ---------------------------------------------------------------------------
 // Phase spine — the three Method phases as locked/active/done cards.
@@ -323,27 +324,43 @@ export interface DynamicViewRef {
   title: string;
 }
 
-/** Lists the System's dynamic views (key + title) for a picker. Empty when absent. */
-export function listDynamicViews(envelope: ArtifactModelEnvelope | undefined): DynamicViewRef[] {
+/**
+ * Lists the System's dynamic views (key + display label) for a picker. Empty when
+ * absent. Pass the committed coreUseCases envelope so a view with a blank title can
+ * fall back to its linked use case's name (see dynamicViewLabel) — options (and the
+ * Select's selected-value rendering, which reuses them) are never blank.
+ */
+export function listDynamicViews(
+  envelope: ArtifactModelEnvelope | undefined,
+  useCasesEnvelope?: ArtifactModelEnvelope
+): DynamicViewRef[] {
   const model = narrow(envelope, 'system');
   if (model === undefined) return [];
-  return (model.dynamicViews ?? []).map((v) => ({ key: v.key, title: v.title }));
+  const nameById = indexUseCaseNames(narrow(useCasesEnvelope, 'coreUseCases'));
+  return (model.dynamicViews ?? []).map((v, i) => ({
+    key: v.key,
+    title: dynamicViewLabel(v, i, nameById),
+  }));
 }
 
 /**
  * Returns the subset of the System's dynamic views whose participant list includes
  * the given componentId (kebab-case, e.g. "web-client"). Empty when absent or when
- * no view includes the component.
+ * no view includes the component. Labels carry the same blank-title fallback chain
+ * as listDynamicViews (positional placeholders keep the view's ORIGINAL index).
  */
 export function listDynamicViewsForComponent(
   envelope: ArtifactModelEnvelope | undefined,
-  componentId: string
+  componentId: string,
+  useCasesEnvelope?: ArtifactModelEnvelope
 ): DynamicViewRef[] {
   const model = narrow(envelope, 'system');
   if (model === undefined || componentId.length === 0) return [];
+  const nameById = indexUseCaseNames(narrow(useCasesEnvelope, 'coreUseCases'));
   return (model.dynamicViews ?? [])
-    .filter((v) => (v.participants ?? []).includes(componentId))
-    .map((v) => ({ key: v.key, title: v.title }));
+    .map((v, i) => ({ v, i }))
+    .filter(({ v }) => (v.participants ?? []).includes(componentId))
+    .map(({ v, i }) => ({ key: v.key, title: dynamicViewLabel(v, i, nameById) }));
 }
 
 /**

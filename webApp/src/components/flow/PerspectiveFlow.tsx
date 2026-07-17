@@ -13,7 +13,14 @@ import type { Edge, Node } from '@xyflow/react';
 import { toPerspective, type C4Component, type C4View } from '../../contracts/adapters';
 import { useTokens } from '../../utilities/theme/ThemeContext';
 import type { Tokens } from '../../utilities/theme/themes';
-import { computeLayout, decorativeNodes, c4Node, flowEdge, layerColors } from './flowLayout';
+import {
+  computeLayout,
+  decorativeNodes,
+  c4Node,
+  flowEdge,
+  layerColors,
+  sortByLayoutPosition,
+} from './flowLayout';
 import { FlowCanvas, FlowEmpty } from './flowShared';
 import { useComments, componentAnchor } from '../comments/CommentContext';
 import type { C4NodeData } from './C4Node';
@@ -46,7 +53,9 @@ function build(view: C4View, componentId: string, t: Tokens): { nodes: Node[]; e
   const layout = computeLayout(subset, rels);
   const layerOf = new Map(subset.map((c) => [c.id, c.layer]));
 
-  const nodes: Node[] = subset.map((c) => {
+  // Emit nodes in the layout's visual reading order (row top→down, then x) so
+  // DOM/tab order matches what the eye sees, not focus-then-neighbours order.
+  const nodes: Node[] = sortByLayoutPosition(subset, layout).map((c) => {
     const isFocus = c.id === focus.id;
     // Only the focused node carries its (2-line clamped) volatility preview; the
     // neighbours render names + layer tag ONLY, so their prose can never overlap or

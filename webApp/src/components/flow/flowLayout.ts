@@ -207,6 +207,27 @@ export function decorativeNodes(layout: Layout): Node[] {
   return nodes;
 }
 
+/**
+ * Returns a COPY of `components` ordered by the computed layout's visual reading
+ * order — layer row top→down (Utilities side bar last), then left→right within a
+ * row (top→down within the bar). React-Flow renders nodes in array order, so the
+ * DOM/tab order of the focusable C4 nodes follows the visual top-down layout
+ * instead of the model's drafted order (F-QA2-51). Ids/keys are untouched — only
+ * the emission order changes, so React-Flow keys stay stable.
+ */
+export function sortByLayoutPosition<T extends LayoutComponent>(
+  components: readonly T[],
+  layout: Layout
+): T[] {
+  return [...components].sort((a, b) => {
+    const rowDelta = LAYER_ORDER.indexOf(a.layer) - LAYER_ORDER.indexOf(b.layer);
+    if (rowDelta !== 0) return rowDelta;
+    const pa = layout.pos.get(a.id) ?? { x: 0, y: 0 };
+    const pb = layout.pos.get(b.id) ?? { x: 0, y: 0 };
+    return pa.y - pb.y || pa.x - pb.x;
+  });
+}
+
 // --- node / edge factories ------------------------------------------------
 
 /** Builds a `c4`-type React-Flow node for one component at an explicit position.

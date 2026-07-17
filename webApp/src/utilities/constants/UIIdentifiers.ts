@@ -189,6 +189,9 @@ export const UI_IDENTIFIERS = {
     VIEW_PERSPECTIVE: 'perspective',
     DYNAMIC_PICKER: 'arch-dynamic-picker',
     PERSPECTIVE_PICKER: 'arch-perspective-picker',
+    // Dynamic step-through Prev/Next controls (F-QA2-51 testability).
+    DYNAMIC_STEP_PREV: 'arch-dynamic-step-prev',
+    DYNAMIC_STEP_NEXT: 'arch-dynamic-step-next',
   },
   Deployment: {
     PROFILE_SWITCH: 'deploy-profile-switch',

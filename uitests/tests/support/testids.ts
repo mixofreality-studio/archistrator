@@ -133,6 +133,8 @@ export const TESTID = {
   archViewPerspective: UI_IDENTIFIERS.Architecture.VIEW_PERSPECTIVE,
   archDynamicPicker: UI_IDENTIFIERS.Architecture.DYNAMIC_PICKER,
   archPerspectivePicker: UI_IDENTIFIERS.Architecture.PERSPECTIVE_PICKER,
+  archDynamicStepPrev: UI_IDENTIFIERS.Architecture.DYNAMIC_STEP_PREV,
+  archDynamicStepNext: UI_IDENTIFIERS.Architecture.DYNAMIC_STEP_NEXT,
 
   // Core Use Cases artifact — the grouped (Core / Variations) use-case picker.
   useCasePicker: UI_IDENTIFIERS.UseCaseCarousel.PICKER,
