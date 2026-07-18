@@ -43,88 +43,8 @@ import (
 // read. Exact integer arithmetic only; no float money.
 const computeCostCentsPerComputeUnitSecond int64 = 1
 
-// RoutingDirective is which way the signed net routes. It is a VALUE the Engine
-// returns; the Manager executes it against merchantGatewayAccess (it is never
-// performed here). For RecomputeNet the directive still reflects the corrected net's
-// sign; the Manager computes the re-charge / re-payout delta vs the prior billing.
-
-// RoutingNoAction — net == 0; nothing routes.
-
-// RoutingPayout — net > 0; Manager calls merchantGatewayAccess.payoutCustomer.
-
-// RoutingCharge — net < 0; Manager calls merchantGatewayAccess.chargeCustomer.
-
-// CycleRevenue is a value snapshot of a cycle's inbound revenue, read by the Manager
-// from the Revenue Ledger and passed in by value. For RecomputeNet, GrossInbound is
-// the REVERSAL-ADJUSTED total (the Manager has already recorded the chargeback
-// reversal and re-read the range). Canonical home: revenueLedgerAccess.
-
-// Σ inbound revenue over the cycle window (exact minor units)
-// for audit/labeling; not load-bearing in the net
-
-// CycleUsage is a value snapshot of a cycle's metered compute usage, read by the
-// Manager from the Usage Log and passed in by value. Canonical home: usageAccess.
-
-// metered compute consumed over the cycle window
-
-// BillingResult is the shared output of ComputeNet AND RecomputeNet (the
-// factor-up, billingEngine.md §2.4): the signed net plus the routing directive,
-// plus the decomposition the Manager renders into the billing statement. It is
-// NOT the executed payout/charge — the Manager executes that.
-
-// SignedNet = (inbound revenue − revenue share − compute cost). Signed:
-// positive == payout to customer; negative == shortfall charge. Exact minor units.
-
-// STATED, not performed
-// the cut taken (for the statement)
-// the pass-through applied (for the statement)
-
-// ReBillingInput is the input to RecomputeNet (the DSL label recomputeNet(affectedCycle)).
-// The affected-cycle value carries everything needed to recompute by value: the
-// reversal-adjusted revenue, the usage, the terms, and the prior settled result (so
-// the Manager can compute the re-charge / re-payout delta). The Engine never re-reads
-// any ledger.
-
-// OptionID identifies one assembled ProjectOption within an SDP review. Mirrors
-// projectstate.OptionID; the contract redefines it as its own type so the Engine
-// imports nothing (Option B full encapsulation). The caller converts at the boundary.
-
-// ProjectOption is the input to ProjectCommitTimeRevenueShareAndComputeCost: the
-// committed project option as this Engine needs it — it reads ONLY the customer's
-// billing Terms (and carries OptionID for audit/labeling). The canonical Phase-2
-// option model is owned by projectStateAccess (projectstate.ProjectOption) and
-// carries many more option-shaping fields (network, worker mix, usage assumption)
-// read by the two estimation Engines; this Engine ignores them, so — per the
-// billingEngine precedent (its own slim ProjectOption) — the contract carries only
-// the slice it reads. The projectDesignManager converts the canonical option to
-// this snapshot at the call boundary.
-
-// the customer's billing terms, carried on the option by value
-
-// Projection is the output of ProjectCommitTimeRevenueShareAndComputeCost: the
-// terms-side projection bound to the committed option for the SDP confirmation row
-// (UC2). It is a PROJECTION OF TERMS — no actuals exist at commit time — and is NOT
-// the operation-side cost forecast (that is operationEstimationEngine).
-
-// BillingEngine is the pure, deterministic billing-terms-application port
-// (billingEngine.md §2). Three ops, two callers, ZERO outbound edges.
-
-// ComputeNet — UC6 cycle-close signed net + routing for an actual closed cycle.
-// Called by billingManager. (billingEngine.md §2.1)
-
-// RecomputeNet — ncuc4 chargeback re-billing: the corrected net for a cycle
-// whose revenue was reversal-adjusted by a chargeback. Called by billingManager.
-// (billingEngine.md §2.2)
-
-// ProjectCommitTimeRevenueShareAndComputeCost — UC2 commit-time terms projection.
-// Takes only the option (which carries the customer's terms by value). Called by
-// projectDesignManager. (billingEngine.md §2.3)
-
-// The stateless implementation of BillingEngine — BillingEngineImpl — and its
-// constructor NewBillingEngine() are GENERATED into contract.gen.go. It holds no
-// fields, does no I/O, reads no clock/RNG, and starts no goroutines — safe to call
-// directly from workflow code. The behaviour below is hand-written on the generated
-// struct.
+// BillingEngineImpl and NewBillingEngine are generated (contract.gen.go); the
+// behaviour below is hand-written on that generated struct.
 
 // termsKnown reports whether both pivot regimes are registered. An unknown regime is
 // a deploy/config hazard — settling real money under an unregistered revenue-share or
@@ -136,7 +56,8 @@ func termsKnown(terms BillingTerms) bool {
 }
 
 // ProjectCommitTimeRevenueShareAndComputeCost echoes the committed option's
-// billing-terms regime kinds and percents as a projection (no actuals). Unknown
+// billing-terms regime kinds and percents as a projection (no actuals) — NOT the
+// operation-side cost forecast (that is operationEstimationEngine). Unknown
 // terms ⇒ InvalidInput "unknown terms" — never a silent default (money safety).
 func (BillingEngineImpl) ProjectCommitTimeRevenueShareAndComputeCost(_ fweng.Context, option ProjectOption) (Projection, error) {
 	terms := option.Terms
@@ -158,8 +79,10 @@ func (BillingEngineImpl) ComputeNet(_ fweng.Context, revenue CycleRevenue, usage
 }
 
 // RecomputeNet computes the corrected signed net for a reversal-adjusted cycle. The
-// computation is identical to ComputeNet over the reversal-adjusted revenue total;
-// the Manager computes the delta vs affectedCycle.PriorSettled. (billingEngine.md §2.2)
+// computation is identical to ComputeNet over the reversal-adjusted revenue total —
+// the Manager has already recorded the chargeback reversal and re-read the range
+// before calling; the Engine never re-reads any ledger. The Manager computes the
+// delta vs affectedCycle.PriorSettled. (billingEngine.md §2.2)
 func (BillingEngineImpl) RecomputeNet(_ fweng.Context, affectedCycle ReBillingInput) (BillingResult, error) {
 	return computeNet(affectedCycle.Revenue, affectedCycle.Usage, affectedCycle.Terms)
 }

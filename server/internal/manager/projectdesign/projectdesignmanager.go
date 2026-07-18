@@ -869,7 +869,6 @@ func isNotFound(err error) bool {
 
 var errNotFoundSentinel = errors.New("not found")
 
-// ---- from contract.go ----
 // ---------------------------------------------------------------------------
 // Identity / domain scalars (projectdesign's OWN named types — value-identical to
 // projectstate; the Manager converts at the projectStateAccess boundary). They are
@@ -980,7 +979,6 @@ func newError(kind fwmanager.Kind, detail string) *fwmanager.Error {
 	return fwmanager.New(kind, detail)
 }
 
-// ---- from behavior.go ----
 // behavior.go holds the FREE FUNCTIONS that carry behavior over the contract value
 // types. The generated contract surface (contract.gen.go) is PURE DATA — enums and
 // structs with no methods — so any logic over a contract value (the canonical-name
@@ -1058,7 +1056,6 @@ func strPtrOrNil(s string) *string {
 	return &s
 }
 
-// ---- from codec.go ----
 // This file used to OWN the Manager's serialization of the sealed
 // projectstate.ArtifactModel sum across the Temporal Activity boundary. That wire
 // codec (modelEnvelope/slotEnvelope/projectEnvelope + EncodeModel/EncodeProject/Decode)
@@ -1121,7 +1118,6 @@ func encodeProject(p projectstate.Project) (projectEnvelope, error) {
 	return projectstate.EncodeProject(p)
 }
 
-// ---- from findings.go ----
 // findings.go owns the SESSION-TRANSIENT validation-finding value types this Manager
 // surfaces on its getSessionState read (SessionStateView.Findings). The SPA renders
 // findings[] to explain "why it's being redrafted". They are part of this component's
@@ -1153,7 +1149,6 @@ func encodeProject(p projectstate.Project) (projectEnvelope, error) {
 // human-readable; safe to weave into a redraft prompt; no PII
 // optional; where in the model the finding sits
 
-// ---- from acknowledgestale.go ----
 // acknowledgestale.go implements the F45 per-slot staleness-acknowledge op for Project Design
 // (twin of the systemdesign impl): a reviewer marks a stale COMMITTED Phase-2 artifact
 // "reviewed — unaffected", clearing its StaleBasis WITHOUT a redraft, with a durable staleAck
@@ -1268,7 +1263,6 @@ func mapStaleAckError(err error) error {
 	return newError(fwmanager.Infrastructure, err.Error())
 }
 
-// ---- from askquestions.go ----
 // askquestions.go implements the question-comments op for Project Design (twin of the
 // systemdesign implementation; founder-ratified 2026-07-05): AskQuestions appends clarifying
 // QUESTIONS to a Phase-2 artifact's review ledger WITHOUT a redraft and dispatches a
@@ -1560,7 +1554,6 @@ func isRAConflict(err error) bool {
 	return false
 }
 
-// ---- from dispatch.go ----
 // pipelineDefaultToolchain is the placeholder toolchain stamped on the logical design
 // step (the real design recipe lives in the user's aiarch-design.yml workflow file).
 const pipelineDefaultToolchain = "go-1.23"
@@ -1642,7 +1635,6 @@ func observeActivityOptions() workflow.ActivityOptions {
 	}
 }
 
-// ---- from gitrail.go ----
 // designWorkflowFileName is the per-project DESIGN workflow file the agentic design
 // dispatch must target (per-project-design-dispatch) — the BASENAME of
 // sourcecontrol.DesignWorkflowPath (".github/workflows/aiarch-design.yml"), i.e.
@@ -1683,7 +1675,6 @@ func railActivityOptions() workflow.ActivityOptions {
 	}
 }
 
-// ---- from reviewledger.go ----
 // reviewledger.go holds the durable review-ledger seam for the projectDesign Manager
 // (review-ledger feature, founder-ratified 2026-07-05) — the structural twin of the
 // systemDesign Manager's reviewledger.go. Ledger STORAGE + transition rules live in
@@ -1727,7 +1718,6 @@ func reviewThreadToView(thread []projectstate.ReviewComment) []ReviewCommentView
 	return out
 }
 
-// ---- from workflow.go ----
 // ---------------------------------------------------------------------------
 // Shared Temporal identity constants (projectDesignManager.md §6.1/§6.2/§6.5).
 // TaskQueue is defined in the generated worker.gen.go.
@@ -2070,7 +2060,6 @@ func slotFor(proj projectstate.Project, kind projectstate.ArtifactKind) projects
 	}
 }
 
-// ---- from workermanifest.go ----
 // workermanifest.go is the hand-written bridge between the generated Temporal layer
 // (activities.gen.go / invokers.gen.go / worker.gen.go) and the projectDesignManager
 // impl. It supplies the genWorkerManifest RegisterWorker consumes: the three workflow
@@ -2089,10 +2078,9 @@ func slotFor(proj projectstate.Project, kind projectstate.ArtifactKind) projects
 // activityOptions returns the option-preset hook the generated invokers consult for the
 // contract-backed RA Activities (projectState / pipeline / rail / designSession). A name
 // with no entry falls back to the generated default (invokers.gen.go). Keyed by the
-// generated registered activity name (<componentKey>.<opName>); the concrete presets
-// reproduce the pre-migration per-call-site choices exactly (B9 disclosure: every
-// designSessionAccess.* entry below reproduces the retired custom Activity's
-// readProjectOpts/mutateOpts preset byte-for-byte).
+// generated registered activity name (<componentKey>.<opName>); every
+// designSessionAccess.* entry below uses the same readProjectOpts/mutateOpts preset
+// as the equivalent projectStateAccess entry.
 func activityOptions() func(activityName string) (workflow.ActivityOptions, bool) {
 	presets := map[string]workflow.ActivityOptions{
 		"projectStateAccess.readProjectVersion":                  readProjectActivityOptions(),

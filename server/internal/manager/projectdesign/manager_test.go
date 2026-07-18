@@ -626,7 +626,6 @@ func Test_CommittedSessionView_CarriesReviewThread(t *testing.T) {
 	}
 }
 
-// ---- from workflow_test.go ----
 // =============================================================================
 // C-MPD-Δ regression spine — the Phase-2 AGENTIC-PIVOT dispatch → observe →
 // read-back co-author gate (projectDesignManager.md §0.5), the TWIN of the C-MSD-Δ
@@ -1748,7 +1747,6 @@ func Test_Phase2AdvanceWorkflow_AllCommittedWithOption_Advances(t *testing.T) {
 	}
 }
 
-// ---- from gitrail_test.go ----
 // =============================================================================
 // I-DESIGN-DISPATCH Part 3 — the projectdesign (Phase-2) TWIN of the wiring-level
 // PROOF. Method product → NO BDD; regression-first, black-box at the WIRE seam. The
@@ -3508,7 +3506,6 @@ func Test_CoAuthorPhase2_Rail_ScaffoldSync_VersionGate_PreFeatureExecutionSkipsS
 	}
 }
 
-// ---- from acknowledgestale_test.go ----
 // acknowledgestale_test.go covers the F-GTD-12 live-session ack gate: acknowledging
 // staleness on a slot whose amendment session is LIVE is refused with FailedPrecondition
 // (the wire's 409/"failed_precondition"), because the ack's main-branch commit would turn
@@ -3620,7 +3617,6 @@ func Test_SessionStageIsLive(t *testing.T) {
 	}
 }
 
-// ---- from airates_test.go ----
 // TestDeriveClassRates_FromModelTier checks the AI $/day derivation (F11b) against the
 // hand-computed price list × the default throughput (2 MTok in / 0.5 MTok out per day):
 //
@@ -3702,7 +3698,6 @@ func TestRateForSpec_FullModelIds(t *testing.T) {
 	}
 }
 
-// ---- from askquestions_test.go ----
 // askquestions_test.go — F82 coverage for the Project-Design answer-job dispatch path
 // (the manager kind=8/PlanningAssumptions goes through THIS manager). Focus: a
 // pm-addressed dispatch actually fires, a re-ask re-fires with a fresh key, and a submit
@@ -3864,7 +3859,6 @@ func TestAnswerJobDispatchKey_Unique(t *testing.T) {
 	}
 }
 
-// ---- from qafindings_test.go ----
 // ---- F16: envelope slimming (drop the research corpus) ----------------------
 
 // The projectEnvelope crosses the Temporal Activity boundary on every projectdesign
@@ -4019,7 +4013,6 @@ func Test_GetSessionState_BeforePhase2_CleanNotFound(t *testing.T) {
 	}
 }
 
-// ---- from stagename_test.go ----
 // stagename_test.go — F72 stageName label for the Phase-2 manager. Phase-2's Stage enum
 // values DIFFER from Phase-1's (projectdesign StageAwaitingReview == 3, systemdesign == 2), so
 // the human-readable StageName label removes the cross-manager ambiguity. sessionStageLabel is

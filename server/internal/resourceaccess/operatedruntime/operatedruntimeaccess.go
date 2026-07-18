@@ -168,8 +168,6 @@ func (r realOperatedRuntime) ReadComputeAttribution(_ fwra.Context, _ uuid.UUID,
 	return ComputeAttribution{}, r.notImplemented("readComputeAttribution")
 }
 
-// ---- from variant.go ----
-
 // variant.go holds the deployment-profile VARIANT CONSTRUCTORS for
 // operatedRuntimeAccess — the step-8 A2 composegen seam. The model's
 // operatedRuntimeAccess binding selects a variant per profile (cloud -> Real,

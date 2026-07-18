@@ -179,7 +179,6 @@ func (g *GitArtifactAccess) RetrieveOutputTree(rc fwra.Context, contentAddress s
 	return OutputTree{Root: contentAddress, Entries: entries}, nil
 }
 
-// ---- from artifact.go ----
 // Package artifact is the artifactAccess component of the aiarch server's
 // ResourceAccess layer — the Temporal-free port over the content-addressable
 // store for PHASE-3 CONSTRUCTION OUTPUTS only (artifactAccess.md, re-cut
@@ -225,8 +224,6 @@ func (g *GitArtifactAccess) RetrieveOutputTree(rc fwra.Context, contentAddress s
 // directly (no package-local alias) so this package exports ONLY its generated
 // contract surface.
 
-// ---- from construction.go ----
-
 // This file documents the shared Phase-3 construction-output value types. They are
 // now GENERATED from the artifactAccess `.serviceContracts` entry in
 // .aiarch/state/project.json into contract.gen.go (schema-first; edit
@@ -249,8 +246,6 @@ func (g *GitArtifactAccess) RetrieveOutputTree(rc fwra.Context, contentAddress s
 //     always strings); the impl bridges the logical OutputPath key at the boundary.
 //   - OutputPath is a logical, slash-separated path within an OutputTree
 //     (artifactAccess.md §3). Infrastructure-opaque.
-
-// ---- from helpers.go ----
 
 // helpers.go holds the INFRASTRUCTURE-PRIVATE address/branch/meta encoding for the
 // content-addressable construction-output store. It imports NO git package — git
@@ -372,8 +367,6 @@ func parseAddress(address string) (commitToken, contentPath string, err error) {
 func commitMessage(key fwra.IdempotencyKey) string {
 	return "aiarch: " + string(key)
 }
-
-// ---- from variant.go ----
 
 // variant.go holds the deployment-profile VARIANT CONSTRUCTORS for artifactAccess —
 // the composition-root policy that used to live in cmd/server (buildArtifactAccess +

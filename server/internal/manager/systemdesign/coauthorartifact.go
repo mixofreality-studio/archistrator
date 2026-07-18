@@ -2847,9 +2847,9 @@ func (wf *workflows) mintCred(ctx workflow.Context, repoRef sourcecontrol.RepoRe
 // branch=="" or the ProjectState substrate does not support the branch-aware extension,
 // it falls back to the original main-path ReadProject — so the branch-aware read-back is
 // purely additive and the default path is unchanged. The read runs through the generated
-// designSessionAccess.readProjectOnBranch invoker (B10) for both cases; branch=="" is
+// designSessionAccess.readProjectOnBranch invoker for both cases; branch=="" is
 // short-circuited to readProject (its own DesignSessionReadProjectOnBranch call) so the
-// two collapse to the SAME activity registration, matching pre-migration behavior.
+// two collapse to the SAME activity registration.
 // Shared workflow-context helper (used by 3 workflows); lives in its first caller's file per the file-layout standard.
 func (wf *workflows) readProjectOnBranch(ctx workflow.Context, projectID ProjectID, branch string) (projectstate.Project, error) {
 	if branch == "" {

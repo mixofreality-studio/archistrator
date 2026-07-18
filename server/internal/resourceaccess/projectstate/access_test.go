@@ -37,8 +37,6 @@ import (
 // unexported identifier on behalf of a former black-box suite without a
 // deliberate, separate decision to do so.
 
-// ---- from gitadapter_test.go ----
-
 // gitadapter_test.go is the I-GIT-DESIGN PROOF: it drives the UC1/UC2
 // design-artifact write path through the SAME no-cred projectstate.ProjectStateAccess
 // surface the design Managers' Activities consume, bound over a real on-disk LOCAL git
@@ -297,8 +295,6 @@ func TestProjectStateGitAdapter_CreateReadList_IdentityVerbatim(t *testing.T) {
 		t.Fatalf("CreateProject retry returned version %d, want the prior %d (dedup)", vDup, v1)
 	}
 }
-
-// ---- from gitconstruction_test.go ----
 
 // gitconstruction_test.go — black-box regression tests for the 7 construction-
 // transition verbs (Task 4: state foundation). Mirrors the activityconstruction_test.go
@@ -925,8 +921,6 @@ func TestRecordPhaseCompleted_NoPhaseMatch_Noop(t *testing.T) {
 // uuid import used by newConstructionStore helper.
 var _ = uuid.NewString
 
-// ---- from construction_transition_port_test.go ----
-
 // TestConstructionTransitionAccess_OpCount asserts the port is within App-C §6 bounds.
 // 3–5 ops: strive. ≤12: acceptable. >12: warning. ≥20: reject (directive error).
 // Current count: 8. This test documents the adjudicated count from lifecycle-2 Plan 2.
@@ -940,8 +934,6 @@ func TestConstructionTransitionAccess_OpCount(t *testing.T) {
 	// This test just documents the decision.
 	t.Logf("ConstructionTransitionAccess: %d ops (App-C §6 adjudicated ≤12 at lifecycle-2 Task 3)", wantOps)
 }
-
-// ---- from reconcile_test.go ----
 
 // reconcile_test.go — coverage for the F80 deterministic project.json reconciler.
 
@@ -1044,8 +1036,6 @@ func TestOverlaySlotFromBranchOntoMain(t *testing.T) {
 	}
 }
 
-// ---- from provenance_test.go ----
-
 // provenance_test.go — the ADDITIVE commit-provenance record (PM-P2-4). commitTransition
 // stamps a supplied Provenance onto the committed slot; a nil prov leaves it untouched. The
 // record survives the substrate codec round-trip; the store-level verb server-resolves
@@ -1107,8 +1097,6 @@ func TestProvenance_RoundTripsThroughCodec(t *testing.T) {
 	}
 }
 
-// ---- from provenance_store_test.go ----
-
 // provenance_store_test.go — the store-level PM-P2-4 provenance verb. CommitArtifactWithProvenance
 // commits the slot exactly as CommitArtifact AND stamps the provenance record, with committedAt
 // server-resolved from the store clock.
@@ -1149,8 +1137,6 @@ func TestGitStore_CommitArtifactWithProvenance_RecordsProvenance(t *testing.T) {
 		t.Fatalf("provenance commit must still commit the slot: status=%v rev=%d", p.Mission.Status, p.Mission.Revisions)
 	}
 }
-
-// ---- from registry_test.go ----
 
 // TestNewModelForKindCoversAllKinds is the build-time guard: every kind in
 // AllArtifactKinds() must have a factory case in NewModelForKind, and the
@@ -1225,8 +1211,6 @@ func TestArtifactKindIsPhase1(t *testing.T) {
 		t.Fatal("Phase1RequiredKinds must be non-empty")
 	}
 }
-
-// ---- from designsession_test.go ----
 
 // designsession_test.go unit-tests the designSessionAccess wrapper (designsession.go).
 // C2 FOLD (code-health-phase-a): the branch/ledger/reconcile/stale-ack verbs are now
@@ -1538,8 +1522,6 @@ func TestDesignSessionAccess_SeedReviewCommentsOnBranch_DelegatesToBase(t *testi
 		t.Fatalf("Version = %d, want 32", v)
 	}
 }
-
-// ---- from envelope_test.go ----
 
 // envelope_test.go ports the codec-mechanism tests down from the two Managers that
 // used to duplicate this wire discipline (projectdesign/codec.go, systemdesign/codec.go)
@@ -1900,8 +1882,6 @@ func TestProjectEnvelope_ConstructionSections_RoundTrip(t *testing.T) {
 	}
 }
 
-// ---- from gitactivity_test.go ----
-
 // Black-box regression tests for the per-activity git-forward head-state aggregate
 // (projectStateAccess.md §GIT-HEAD-STATE, D-PA-GIT, FROZEN 2026-06-12). Like
 // gitstore_test.go, they drive the RA's PUBLIC Record* verbs against a REAL
@@ -2228,8 +2208,6 @@ func keysOfGitActivity(m map[string]ActivityGitStatus) []string {
 	return out
 }
 
-// ---- from gitreviewthread_test.go ----
-
 // Review-ledger GitStore verb tests (review-ledger feature). They exercise the durable
 // comment ledger over the real local-git substrate, mirroring the branch-aware Reject tests.
 
@@ -2481,8 +2459,6 @@ func TestGitStore_AcknowledgeStaleBasis(t *testing.T) {
 		t.Fatalf("repeat ack must NOT append a second entry; got %d", len(p.Glossary.ReviewThread))
 	}
 }
-
-// ---- from gitstore_test.go ----
 
 // Black-box regression tests for the git-JSON + ref-CAS realization of
 // projectStateAccess (projectStateAccess.md §REWORK 2026-06-10). They drive the
@@ -3411,8 +3387,6 @@ func TestGitStore_CreateProject_FreshInitWhenNoState(t *testing.T) {
 	}
 }
 
-// ---- from decode_terminal_test.go ----
-
 // decode_terminal_test.go — QA F36 regression. A committed slot model that will not decode
 // (free prose in a CLOSED-ENUM field — the live incident was a sentence written into a
 // use case's "trigger", a closed Trigger enum) must be classified TERMINAL (ContractMisuse,
@@ -3489,8 +3463,6 @@ func TestDecodeProjectJSON_MalformedClosedEnum_IsTerminal(t *testing.T) {
 		t.Errorf("decode error must carry the wire-name diagnostic; got: %v", derr)
 	}
 }
-
-// ---- from activityconstruction_test.go ----
 
 // Black-box regression tests for the per-activity construction status head-state
 // (Task 1: seed-archistrator-design-state). Mirrors the gitactivity_test.go
@@ -3701,8 +3673,6 @@ func TestActivityConstructionPhase_String(t *testing.T) {
 	}
 }
 
-// ---- from models_phase1_test.go ----
-
 // TestDeploymentTopology_JSONRoundTrip proves the typed deployment topology on
 // OperationalConcepts serializes its enum fields as STRING wire names (matching
 // the Layer/ComponentKind/CallMode convention via enumjson.go) and round-trips
@@ -3838,8 +3808,6 @@ func TestDeploymentEnums_InvalidWireName(t *testing.T) {
 	}
 }
 
-// ---- from servicecontract_test.go ----
-
 // servicecontract_test.go verifies the ServiceContract contract-document model
 // survives a full EncodeProjectJSON → DecodeProjectJSON round-trip, including a
 // byte-identical second pass. Mirrors the TestActivityConstruction_RoundTrip
@@ -3930,8 +3898,6 @@ func TestServiceContract_RoundTrip(t *testing.T) {
 		t.Fatalf("round-trip not byte-identical:\n--- first ---\n%s\n--- second ---\n%s", raw, raw2)
 	}
 }
-
-// ---- from phaseartifacts_test.go ----
 
 func TestPhaseArtifacts_RoundTrip(t *testing.T) {
 	now := time.Date(2026, 6, 21, 12, 0, 0, 0, time.UTC)
@@ -4147,8 +4113,6 @@ func TestProjectDoc_BackCompat_NoPhaseArtifacts(t *testing.T) {
 	}
 }
 
-// ---- from operatingmodel_test.go ----
-
 // operatingmodel_test.go — coverage for the project-level OperatingModel field + the
 // SetOperatingModel head-state write (founder ruling 2026-07-05). A project is born
 // self-operated (the back-compat default); SetOperatingModel flips it to
@@ -4237,8 +4201,6 @@ func TestEncodeProjectJSON_PersistsOperatingModel(t *testing.T) {
 		t.Fatalf("encoded project.json missing operatingModel; got:\n%s", string(b))
 	}
 }
-
-// ---- from modelfields_test.go ----
 
 // validSystemJSON is a minimal, well-formed System model with explicit, consistent
 // enum fields on every component/relationship/dynamic view.
@@ -4562,8 +4524,6 @@ func TestRequireModelFields_ReadBackParity(t *testing.T) {
 	}
 }
 
-// ---- from revisions_grandfather_test.go ----
-
 // A slot COMMITTED before the Revisions field existed persists with the revisions key
 // omitted (zero-value). Decoding it must GRANDFATHER Revisions to 1 — a committed artifact
 // is by definition revision 1 — so the amendment index (max(1,Revisions)) selects a real
@@ -4653,8 +4613,6 @@ func mustJSON(t *testing.T, v any) json.RawMessage {
 	return b
 }
 
-// ---- from wirecontract_test.go ----
-
 // This file pins the PUBLIC typed-wire contract the SPA consumes: camelCase field
 // names on every Phase-1 model + nested type, STRING enum names (not integer
 // ordinals) for the enums the SPA reads, and a STRING ArtifactKind discriminator.
@@ -4662,7 +4620,7 @@ func mustJSON(t *testing.T, v any) json.RawMessage {
 
 // TestArtifactKind_JSONString proves an ArtifactKind marshals to its canonical
 // camelCase wire name and round-trips, and that legacy integer ordinals still
-// decode (backward compatibility for any pre-migration payload).
+// decode (backward compatibility for any previously-persisted payload).
 func TestArtifactKind_JSONString(t *testing.T) {
 	for _, k := range AllArtifactKinds() {
 		data, err := json.Marshal(k)
@@ -4914,7 +4872,7 @@ func TestStandardCheck_CheckStatusStringEnum(t *testing.T) {
 
 // TestEnums_AcceptLegacyOrdinals proves every string enum still unmarshals a bare
 // integer ordinal (backward-compat with the prompts that emit integers and any
-// pre-migration JSONB payload).
+// previously-persisted JSONB payload).
 func TestEnums_AcceptLegacyOrdinals(t *testing.T) {
 	var a Axis
 	mustUnmarshal(t, "1", &a)
@@ -5056,8 +5014,6 @@ func mustGlossaryWC(t *testing.T) *Glossary {
 	}
 	return g
 }
-
-// ---- from enumwire_completeness_test.go ----
 
 // enumwire_completeness_test.go closes the F81-class hazard: projectstate carries
 // 14 closed ordinal enums that marshal to STRING wire names via a hand-maintained
@@ -5272,8 +5228,6 @@ func findRepoRootFromCwd(t *testing.T) string {
 	}
 }
 
-// ---- from toolcatalog_test.go ----
-
 // TestInternalCatalog_RepresentativeRAAndEngine proves the generated internal
 // tool surface (toolcatalog.gen.go, from .serviceContracts) carries a correct
 // descriptor for a representative ResourceAccess AND Engine operation: right
@@ -5392,8 +5346,6 @@ func keysOf(m map[string]json.RawMessage) []string {
 	}
 	return out
 }
-
-// ---- from activityconstructionstatus_test.go ----
 
 func TestActivityConstructionStatus_SeededFacets_RoundTrip(t *testing.T) {
 	in := ActivityConstructionStatus{
@@ -5706,8 +5658,6 @@ func TestCoarseBuildStatus_InConstruction(t *testing.T) {
 	}
 }
 
-// ---- from activityprofile_test.go ----
-
 func canonicalIDsAllowed(p ActivityMethodPhase) bool {
 	switch p {
 	case MethodPhaseRequirements, MethodPhaseDetailedDesign, MethodPhaseTestPlan,
@@ -5789,8 +5739,6 @@ func TestProfileFor_TestingPlanRelabelsCanonicalIDs(t *testing.T) {
 		}
 	}
 }
-
-// ---- from constructionprogress_test.go ----
 
 func TestActivityProgress_None(t *testing.T) {
 	status := ActivityConstructionStatus{
@@ -5935,8 +5883,6 @@ func TestProjectEarnedValue_NilEffortMap_DefaultsToEqualWeight(t *testing.T) {
 	}
 }
 
-// ---- from stalecause_test.go ----
-
 // stalecause_test.go — the ADDITIVE stale-cause recording on the F38 staleness rail.
 // commitTransition, when an upstream slot re-commits, must flag every already-committed
 // downstream slot StaleBasis AND record WHY (the upstream kind + its new revision).
@@ -6023,8 +5969,6 @@ func TestStaleCause_RoundTripsThroughCodec(t *testing.T) {
 		t.Fatalf("stale cause round-trip mismatch: %+v", *c)
 	}
 }
-
-// ---- from corpusderive_test.go ----
 
 func TestDeriveKind(t *testing.T) {
 	cases := map[string]struct {
@@ -6121,8 +6065,6 @@ func TestDeriveVariant_TestingPrefixes(t *testing.T) {
 	}
 }
 
-// ---- from commandfor_test.go ----
-
 func TestProfileSlug(t *testing.T) {
 	cases := []struct {
 		t    ActivityType
@@ -6192,8 +6134,6 @@ func allProfileCombos() []profileCombo {
 	}
 }
 
-// ---- from commandfiles_test.go ----
-
 // repoCommandsDir walks up from this test file to the repo root (the dir holding
 // .claude) and returns .claude/commands.
 func repoCommandsDir(t *testing.T) string {
@@ -6233,8 +6173,6 @@ func TestEveryProfilePhaseHasCommandFile(t *testing.T) {
 		t.Errorf("expected 30 distinct commands, got %d", len(seen))
 	}
 }
-
-// ---- from designcommand_test.go ----
 
 // TestDesignCommandFor is the failing-first table test for Plan-2 Task B1: every
 // draft slug (16 dispatchable kinds — SdpReview is excluded, assembled
@@ -6322,8 +6260,6 @@ func TestDesignCommandsExistInMethodAssets(t *testing.T) {
 		assertCommandFile(DesignCommandFor(KindMission, DesignJobModeAnswer, addressee))
 	}
 }
-
-// ---- from reviewthread_test.go ----
 
 // Pure review-ledger logic tests (internal package — they exercise the unexported
 // helpers appendReviewComments / normalizeReviewThread / applyReviewCommentStatus that
@@ -6446,8 +6382,6 @@ func kindOfErr(err error) fwra.Kind {
 	return fwra.Kind(0)
 }
 
-// ---- from reviewthread_question_test.go ----
-
 // Question-comments (2026-07-05): type/addressee defaulting + the approve-gate classifier.
 
 func TestAppendReviewComments_CarriesTypeAndAddressee(t *testing.T) {
@@ -6536,8 +6470,6 @@ func TestStaleAck_AppendAndNormalizeSticky(t *testing.T) {
 		t.Errorf("staleAck must never block approve")
 	}
 }
-
-// ---- from reviewpolicy_test.go ----
 
 func TestReviewPolicy_EmptyRequiresNoHuman(t *testing.T) {
 	var p ReviewPolicy

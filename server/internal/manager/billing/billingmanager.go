@@ -384,7 +384,6 @@ func isNotFound(err error) bool {
 
 var errNotFoundSentinel = errors.New("not found")
 
-// ---- from contract.go ----
 // ---------------------------------------------------------------------------
 // Identity & canonical types (billingManager.md §3.0 — THE MATERIAL RULING).
 //
@@ -452,7 +451,7 @@ type deployedAppID = uuid.UUID
 // Public façade return values (billingManager.md §3). These are this Manager's
 // own view types — NOT persisted head-state. The persisted shapes (BillingOutcome,
 // RevenueEntry, ...) are owned by their RA/Engine and referenced via deps.go seams,
-// never redefined here (memory: feedback_method_models_owned_by_ra.md).
+// never redefined here.
 // ---------------------------------------------------------------------------
 
 // BillingRef is the continuity token returned by onboarding / registration
@@ -506,7 +505,6 @@ func newError(kind fwmgr.Kind, detail string) *fwmgr.Error {
 	return fwmgr.New(kind, detail)
 }
 
-// ---- from deps.go ----
 // This file declares billingManager's CONSUMER-SIDE dependency interfaces (the Go
 // "accept interfaces" idiom) for the one collaborator still reached through a
 // Manager-local seam, plus the seam data types it carries:
@@ -588,7 +586,6 @@ type durableExecutionAccess interface {
 	RegisterSchedule(ctx context.Context, spec scheduleSpec) error
 }
 
-// ---- from deps.go ----
 // scheduleSpec mirrors durableexecution.ScheduleSpec for the two Schedules this Manager
 // registers. The composition root adapts the concrete RA.
 type scheduleSpec struct {
@@ -612,7 +609,6 @@ type scheduleSpec struct {
 // distinct named types from their billingstate counterparts.
 // ===========================================================================
 
-// ---- from adapters.go ----
 // adapters.go holds the FOLDED composition-root adapters that bridge the published
 // ResourceAccess interfaces (the dependencies the GENERATED constructor
 // NewBillingManager receives) to the Manager's unexported downstream seams (deps.go),
@@ -622,7 +618,6 @@ type scheduleSpec struct {
 // Manager depends on each dependency's PUBLISHED interface and adapts it internally
 // (Option-B boundary mapping), exactly as operations/construction fold their adapters.
 
-// ---- from adapters.go ----
 // revenueLedgerAccess (B7): the former Manager-local seam + noopRevenueLedger stub
 // adapter are RETIRED. The workflow now reaches this RA through the generated typed
 // invokers (invokers.gen.go), speaking billingstate.RevenueEntry/ReversalEntry/EntryRef
@@ -640,7 +635,6 @@ type scheduleSpec struct {
 // distinct named types from their billingstate counterparts.
 // ===========================================================================
 
-// ---- from adapters.go ----
 // ===========================================================================
 // durableExecutionAccess adapter — over durableexecution.DurableExecutionAccess. Only
 // the startup RegisterSchedule verb is consumed (the platform-wide shortfallSweep; the
@@ -666,7 +660,6 @@ func (a durableAdapter) RegisterSchedule(ctx context.Context, spec scheduleSpec)
 	)
 }
 
-// ---- from adapters.go ----
 // ===========================================================================
 // billingEngine / interventionEngine adapters — RETIRED. The workflow calls the
 // published billingengine.BillingEngine / intervention.InterventionEngine contracts
@@ -675,7 +668,6 @@ func (a durableAdapter) RegisterSchedule(ctx context.Context, spec scheduleSpec)
 // divergence bridges.
 // ===========================================================================
 
-// ---- from workflow.go ----
 // This file holds the Workflows struct (the Manager's downstream dependency set), the
 // four workflow bodies (the encapsulated BillingWorkflow volatility — billingManager.md
 // §6.3), the workflow-level Conflict re-read→re-apply loop (§6.5), the forward-only
@@ -687,11 +679,9 @@ func (a durableAdapter) RegisterSchedule(ctx context.Context, spec scheduleSpec)
 //     DIRECTLY in-workflow by value (no Activity wrapper — replay-safe), with
 //     fweng.Context{Context: context.Background()} supplied inline at each call site.
 //   - The ResourceAccess layer is I/O and NON-deterministic; the workflow reaches it
-//     ONLY through the generated typed invoker surface (Acts, invokers.gen.go) — the
-//     former RA consumer seams + composition-root adapters are retired. B7 completed
-//     the revenue-ledger cutover: the three revenueLedgerAccess ops are now reached the
-//     same way as every other RA — through Acts — so no hand file in this package names
-//     an activity by string (arch_activitynames_test.go proves it).
+//     ONLY through the generated typed invoker surface (Acts, invokers.gen.go),
+//     including the three revenueLedgerAccess ops — so no hand file in this package
+//     names an activity by string (arch_activitynames_test.go proves it).
 
 // wfDeps bundles every downstream dependency the billingManager orchestrates, passed to
 // newWorkflows (from WorkerManifest, workermanifest.go) and held on the Workflows struct.
@@ -739,13 +729,11 @@ const (
 	maxChargeRetries = 5
 )
 
-// ---- from workflow.go ----
 // raConflictErrType is the canonical Temporal Type() a head-state mutation Activity
 // surfaces when expectedVersion is stale; the workflow recovers with the bounded
 // re-read→re-apply loop (§6.5).
 var raConflictErrType = fwmgr.RAErrType(fwra.Conflict)
 
-// ---- from workflow.go ----
 // isConflict reports whether err is a head-state mutation's stale-version Conflict.
 func isConflict(err error) bool {
 	var appErr *temporal.ApplicationError
@@ -755,7 +743,6 @@ func isConflict(err error) bool {
 	return false
 }
 
-// ---- from workermanifest.go ----
 // workermanifest.go is the hand-written bridge between the generated Temporal layer
 // (activities.gen.go / invokers.gen.go / worker.gen.go) and the billingManager impl.
 // It supplies the genWorkerManifest (the workflow set codegen cannot know, the
@@ -763,7 +750,6 @@ func isConflict(err error) bool {
 // RegisterManagerWorker entrypoint the composition root calls, and the startup
 // Schedule registration.
 
-// ---- from workermanifest.go ----
 // ---------------------------------------------------------------------------
 // Registered workflow names (billingManager.md §6.2). Stable — the continuity
 // tokens the façade (billingmanager.go) starts workflows under.
@@ -781,7 +767,6 @@ const (
 	executionKindShortfallSweep = "billingShortfallSweep"
 )
 
-// ---- from workermanifest.go ----
 // Schedule ids + cadence (billingManager.md §6.1; operational-concepts.md §4).
 const (
 	// scheduleIDCloseCyclePrefix is the per-customer cycle-close Schedule id prefix; the
@@ -915,10 +900,9 @@ func activityOptions() func(activityName string) (workflow.ActivityOptions, bool
 // WorkerManifest assembles the genWorkerManifest RegisterWorker (worker.gen.go)
 // consumes: the four workflow bodies under their registered names, the per-activity
 // option-preset hook, and the genActivities threaded from the impl's stored published
-// deps. B7 completed the cutover: the three revenue-ledger Activities are now the
-// GENERATED revenueLedgerAccess.* activities (activities.gen.go/worker.gen.go), reached
-// workflow-side through wf.Acts (invokers.gen.go) exactly like every other RA — the
-// former custom Activities (activities_custom.go) and their manifest wiring are deleted.
+// deps. The three revenue-ledger Activities are the GENERATED revenueLedgerAccess.*
+// activities (activities.gen.go/worker.gen.go), reached workflow-side through
+// wf.Acts (invokers.gen.go) exactly like every other RA.
 //
 // Unlike operations, billing's durableExecutionAccess IS wired into genActivities: the
 // close-schedule registration (op 2.1) and the queued applyDelinquencyPolicy cross-

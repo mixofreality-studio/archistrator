@@ -58,11 +58,11 @@ const appliedMutationsDir = "applied_mutations"
 // github.com/<owner>/<repo>.git in cloud, a file:// path in LOCAL. It is a function,
 // not an RA call: no sideways edge.
 //
-// REGISTRY REMOVED (founder ruling 2026-06-14): the cross-project registry index repo
-// is gone. The project catalog is now DISCOVERED by enumerating the account's project
-// repos (cloud: the GitHub App installation's repos filtered to the aiarch-project
-// topic; local: the on-disk repos under the base dir). The enumeration capability is
-// threaded in via ProjectCatalog, NOT a RegistryRepo() handle.
+// There is no cross-project registry index repo. The project catalog is DISCOVERED
+// by enumerating the account's project repos (cloud: the GitHub App installation's
+// repos filtered to the aiarch-project topic; local: the on-disk repos under the
+// base dir). The enumeration capability is threaded in via ProjectCatalog, NOT a
+// RegistryRepo() handle.
 type RepoLocator interface {
 	// ProjectRepo returns the git store handle for the given project's per-project
 	// repo (the deterministic repo the App provisioned for projectID).
@@ -96,16 +96,10 @@ func (s *GitStore) projectRepo(projectID ProjectID, branch string) (*fwgithub.Gi
 }
 
 // ProjectCatalogRef is one discovered project repo the catalog enumeration yields.
-// It carries the logical project id (name-as-identity, C-PA-AD 2026-06-15: the repo NAME
-// IS the project id — the old "aiarch-<id>" parse is gone) and the display title (from
-// the repo description set at adopt), so ListProjects can build a ProjectSummary WITHOUT
-// a per-repo read for the title. The phase/progress still come from project.json (the
-// N+1 read below).
-
-// ProjectID is the logical project id parsed from the deterministic repo name.
-
-// Title is the human display name (the repo description set at provision). May be
-// empty if the repo carried no description; the per-repo read then supplies it.
+// It carries the logical project id (name-as-identity: the repo name IS the project
+// id) and the display title (from the repo description set at adopt), so
+// ListProjects can build a ProjectSummary WITHOUT a per-repo read for the title. The
+// phase/progress still come from project.json (the N+1 read below).
 
 // ProjectCatalog is the discover-by-enumeration seam ListProjects consumes in place
 // of the deleted registry index. The composition root supplies the concrete
@@ -1198,8 +1192,6 @@ func commitMessage(op string, key fwra.IdempotencyKey) string {
 	return "aiarch: " + op + " " + string(key)
 }
 
-// ---- from gitadapter.go ----
-
 // gitadapter.go holds the cred-BINDING adapter + the LOCAL deployment ports + the
 // deployment VARIANT CONSTRUCTORS for projectStateAccess — the composition-root policy
 // that used to live in cmd/server (buildDesignProjectState + projectstate_git_adapter.go)
@@ -1720,8 +1712,6 @@ func (c localProjectCatalog) ListProjectRepos(ctx context.Context, _ OwnerScope,
 	return []ProjectCatalogRef{{ProjectID: ProjectID(doc.ID), Title: doc.Name}}, nil
 }
 
-// ---- from gitconstruction.go ----
-
 // gitconstruction.go is the git-substrate realization of the additive Phase-3
 // construction-transition verbs (constructionManager.md §5.3; see construction.go
 // for the Postgres-era port + rationale). The git GitStore satisfies the SAME
@@ -2103,24 +2093,8 @@ func applyTestingStatePayload(p *Project, payload PhaseArtifactPayload) {
 	}
 }
 
-// ---- from construction.go ----
-
-// construction.go holds the shared Phase-3 construction-transition VALUE types. The
-// legacy Postgres-only construction-transition store (the pgTransitionAccess interface
-// + its *store Record* methods) was RETIRED with the Postgres projectstate store; the
-// live cred-threaded construction-transition surface is ConstructionTransitionAccess
-// (construction_transition_port.go), satisfied by the git store (gitconstruction.go).
-
-// ActivityOutcome is the closed terminal outcome recorded for a construction
-// activity's binary exit (constructionManager.md §2.1 / §6.3 step 8).
-
-// ActivityOutcomeUnknown is the zero value.
-
-// ActivityOutcomeCompleted is a normal, reviewed binary exit.
-
-// ActivityOutcomeSkipped is an operator-skip exit (overrideActivity Skip).
-
-// ActivityOutcomeTakenOver is an exit after an operator/automatic takeover.
+// The Phase-3 construction-transition surface is ConstructionTransitionAccess,
+// satisfied by the git store (gitconstruction.go).
 
 // String returns the canonical name for the outcome.
 func (o ActivityOutcome) String() string {
@@ -2139,8 +2113,6 @@ func (o ActivityOutcome) String() string {
 	// fallback for an out-of-range ordinal.
 	return "Unknown"
 }
-
-// ---- from reconcile.go ----
 
 // reconcile.go holds the DETERMINISTIC project.json reconciliation the design rail uses
 // when a session branch has diverged from main (F80).
@@ -2224,8 +2196,6 @@ func OverlaySlotFromBranchOntoMain(mainProj *Project, branchProj *Project, kind 
 	return nil
 }
 
-// ---- from provenance.go ----
-
 // provenance.go carries the ADDITIVE commit-provenance record for a committed artifact
 // slot (PM-P2-4). It records WHO committed and WHEN, captured at the rail's approve→commit
 // transition, so the read model can render "committed <date> · approved by X · drafted by Y"
@@ -2253,8 +2223,6 @@ type Provenance struct {
 	// Empty on a substrate that records no rail identity.
 	DraftedBy string `json:"draftedBy,omitempty"`
 }
-
-// ---- from registry.go ----
 
 // AllArtifactKinds returns every defined ArtifactKind in the stable slot order
 // (Phase 1 then Phase 2). This is the single enumeration of the closed set —
@@ -2333,23 +2301,16 @@ func NewModelForKind(kind ArtifactKind) (ArtifactModel, bool) {
 	}
 }
 
-// ---- from identity.go ----
+// ProjectID is the project aggregate identifier — NAME-AS-IDENTITY: a string
+// DEFINED type whose value IS the user-supplied adopted repo name (project name ==
+// repo name, server-resolved), threaded verbatim through adopt → seat →
+// createProject and round-tripped as the persisted `.aiarch/state/` `id`. The
+// empty string is the zero value (the "no project" sentinel). The git catalog
+// enumerates by the `aiarch-project` topic and returns repo name == this identity
+// (sourceControlAccess.md §10.1 Q7 — re-derivation degenerates to identity, so no
+// head-state repo-ref column).
 
-// ProjectID is the project aggregate identifier — NAME-AS-IDENTITY (C-PM-Δ,
-// 2026-06-15). It is a string DEFINED type whose value IS the user-supplied
-// adopted repo name (project name == repo name, server-resolved). It is NO LONGER
-// a uuid.UUID alias: the server stops minting UUIDs for project identity, the user
-// supplies the repo name on CreateProject, and that name threads verbatim through
-// adopt → seat → createProject and round-trips as the persisted `.aiarch/state/`
-// `id`. The empty string is the zero value (the "no project" sentinel). The git
-// catalog enumerates by the `aiarch-project` topic and returns repo name == this
-// identity (the prior `uuid.Parse` skip is gone). (sourceControlAccess.md §10.1 Q7
-// — re-derivation degenerates to identity, so no head-state repo-ref column.)
-
-// String returns the project identity as a plain string. Defined so the many
-// existing `projectID.String()` call sites (logging, idempotency-key derivation,
-// catalog ordering, projectDoc serialization) keep compiling unchanged after the
-// uuid.UUID→string flip.
+// String returns the project identity as a plain string.
 func (p ProjectID) String() string { return string(p) }
 
 // Version is the optimistic-concurrency token: per-aggregate mutation count.
@@ -2408,26 +2369,6 @@ func Slug(name string) string {
 // are being migrated out across tasks T4–T10 and will be deleted when done —
 // until then the two coexist intentionally and consumers are migrated
 // package-by-package.
-
-// ---- Phase 1 ----
-// Mission slot; Model is *MissionStatement
-// Glossary slot; Model is *Glossary
-// ScrubbedRequirements slot; Model is *ScrubbedRequirements (OQ-2)
-// Volatilities slot; Model is *Volatilities
-// CoreUseCases slot; Model is *CoreUseCases
-// System slot; Model is *System (Grammar A)
-// OperationalConcepts slot; Model is *OperationalConcepts
-// StandardCheck slot; Model is *StandardCheck
-// ---- Phase 2 (additive; design-only until projectDesignManager is built) ----
-// PlanningAssumptions slot; Model is *PlanningAssumptions
-// ActivityList slot; Model is *ActivityList
-// Network slot; Model is *Network
-// NormalSolution slot; Model is *Solution
-// SubcriticalSolution slot; Model is *Solution
-// CompressedSolution slot; Model is *Solution
-// DecompressedSolution slot; Model is *Solution
-// RiskModel slot; Model is *RiskModel
-// SdpReview slot; Model is *SdpReview
 
 // String returns a stable human-readable name for the ArtifactKind.
 // Used in error messages and arch-test output.
@@ -2718,16 +2659,12 @@ func SolutionKinds() []ArtifactKind {
 	}
 }
 
-// ---- from credential.go ----
-
 // RepoCredential is the provider-neutral, SHORT-LIVED bearer credential the
 // Manager threads into every provider-touching projectStateAccess verb
-// (projectStateAccess.md §REWORK.4). It is the credential the merged
-// sourceControlAccess.GetInstallationToken MINTS (founder merge 2026-06-25 folded
-// the former ISourceControlLifecycle + IPullRequestRail into one
-// SourceControlAccess port) and the Manager carries down as a caller-supplied
-// parameter — projectStateAccess NEVER calls sourceControlAccess itself
-// (RA-never-calls-RA / NoSideways).
+// (projectStateAccess.md §REWORK.4). It is the credential
+// sourceControlAccess.GetInstallationToken MINTS, and the Manager carries it down
+// as a caller-supplied parameter — projectStateAccess NEVER calls
+// sourceControlAccess itself (RA-never-calls-RA / NoSideways).
 //
 // SHAPE-MATCHED, NOT IMPORTED. The contract says RepoCredential is "the same
 // opaque value type sourceControlAccess.md §3.2 defines — referenced, not
@@ -2763,8 +2700,6 @@ func (c RepoCredential) IsZero() bool { return len(c.Bytes) == 0 }
 // the git-data layer to attach no HTTP auth (a file:// remote needs none).
 func LocalRepoCredential() RepoCredential { return RepoCredential{Bytes: []byte("local")} }
 
-// ---- from designsession.go ----
-
 // designsession.go implements the generated DesignSessionAccess contract
 // (contract.designSessionAccess.schema.json) — the ONE component the
 // branch/ledger/provenance/reconcile capability-fallback chains collapse into. Each
@@ -2782,17 +2717,10 @@ func LocalRepoCredential() RepoCredential { return RepoCredential{Bytes: []byte(
 // branch) (ProjectEnvelope, error) here. Go does not allow two same-named methods with
 // different signatures on one receiver, so this facade is a distinct type.
 //
-// C2 FOLD (code-health-phase-a): the branch/ledger/reconcile/stale-ack verbs used to be
-// FIVE hand-written extension interfaces (BranchAwareProjectStateAccess /
-// LedgerProjectStateAccess / ReconcilingProjectStateAccess / StaleAckProjectStateAccess
-// / ProvenanceCommitProjectStateAccess) the Managers' custom activities and this wrapper
-// type-asserted against at runtime, falling back to the plain main-path verb when a
-// substrate didn't support one. Every production ProjectStateAccess implementation
-// satisfied every extension unconditionally, so the fallback was permanently dormant.
-// Eight of the nine folded verbs are now REQUIRED members of the generated
+// The branch/ledger/reconcile/stale-ack verbs are REQUIRED members of the generated
 // ProjectStateAccess contract (project.json), so every method below is a direct
-// forward — no assert, no fallback. CommitArtifactWithProvenance is the one exception:
-// it was never folded (it is not a session/branch verb; commit-time provenance stamping
+// forward — no capability assert, no fallback. CommitArtifactWithProvenance is the
+// one exception: it is not a session/branch verb (commit-time provenance stamping
 // is a git-substrate concern), so it keeps a narrow capability check against the
 // unexported provenanceCommitter interface below.
 type designSessionAccess struct {
@@ -2916,8 +2844,6 @@ func (s *designSessionAccess) SetReviewCommentStatusOnBranch(rc fwra.Context, pr
 func (s *designSessionAccess) SeedReviewCommentsOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, round int64, comments []ReviewComment, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	return s.base.SeedReviewCommentsOnBranch(rc, projectID, expectedVersion, branch, kind, round, comments, idempotencyKey)
 }
-
-// ---- from envelope.go ----
 
 // envelope.go is the ONE Manager-Temporal-boundary wire codec for the sealed
 // ArtifactModel sum + the head-state Project aggregate, promoted down from the
@@ -3251,8 +3177,6 @@ func (e ProjectEnvelope) Decode() (Project, error) {
 	return p, nil
 }
 
-// ---- from gitactivity.go ----
-
 // gitactivity.go holds the ADDITIVE per-activity git-forward Record* verbs
 // (projectStateAccess.md §GIT-HEAD-STATE / GIT.2, D-PA-GIT, FROZEN 2026-06-12).
 // They JOIN the existing additive construction-transition verbs
@@ -3273,12 +3197,11 @@ func (e ProjectEnvelope) Decode() (Project, error) {
 // typed CICheckState in; this RA stores them verbatim. No provider lexeme; no edge
 // to sourceControlAccess.
 
-// GitActivityStatusAccess is now the GENERATED service-contract interface
-// (contract.gen.go, contract.gitActivityStatusAccess.schema.json) — promoted from the
-// two additive handwritten facets that used to live here and in
-// gitactivityconstruction.go (the §GIT-HEAD-STATE branch/CI/+1/merge verbs plus the
-// started/completed construction-status verbs), merged onto ONE 6-op contract. Kept off
-// the core ProjectStateAccess (Phase-1/2) interface, which is unchanged; the concrete
+// GitActivityStatusAccess is the GENERATED service-contract interface
+// (contract.gen.go, contract.gitActivityStatusAccess.schema.json) covering the
+// §GIT-HEAD-STATE branch/CI/+1/merge verbs plus the started/completed
+// construction-status verbs, as ONE 6-op contract. Kept off the core
+// ProjectStateAccess (Phase-1/2) interface, which is unchanged; the concrete
 // GitStore satisfies this plus the cred-threaded construction-transition verbs
 // (RecordChangeReviewed / RecordActivityExited / RecordActivityFailed / etc., below).
 
@@ -3371,21 +3294,16 @@ func (s *GitStore) RecordActivityMerged(rc fwra.Context, projectID ProjectID, ex
 	})
 }
 
-// ---- from gitactivityconstruction.go ----
-
-// gitactivityconstruction.go holds the per-activity construction status Record* verbs
-// (Task 1: seed-archistrator-design-state). They mirror the gitactivity.go pattern
-// exactly: modeRequireExisting, optimistic-version CAS via applyMutation, idempotency
-// dedup via the in-repo ledger, and partial map-key upsert so two records for two
-// DIFFERENT activities converge under ref-CAS (the GIT.4 convergence invariant applies
-// here too).
+// gitactivityconstruction.go holds the per-activity construction status Record* verbs.
+// They mirror the gitactivity.go pattern exactly: modeRequireExisting, optimistic-version
+// CAS via applyMutation, idempotency dedup via the in-repo ledger, and partial map-key
+// upsert so two records for two DIFFERENT activities converge under ref-CAS (the GIT.4
+// convergence invariant applies here too).
 //
-// These two verbs (RecordActivityStarted/RecordActivityCompleted) were formerly their
-// own additive GitActivityConstructionAccess facet; they are now folded onto the SAME
-// generated GitActivityStatusAccess contract as the gitactivity.go verbs (one 6-op
-// promoted component, contract.gitActivityStatusAccess.schema.json) — see gitactivity.go
-// for the interface + its compile-time assertion. The concrete GitStore satisfies
-// GitActivityStatusAccess in addition to the cred-threaded construction-transition verbs.
+// RecordActivityStarted/RecordActivityCompleted are folded onto the SAME generated
+// GitActivityStatusAccess contract as the gitactivity.go verbs (one 6-op component,
+// contract.gitActivityStatusAccess.schema.json) — see gitactivity.go for the interface
+// + its compile-time assertion.
 
 // upsertActivityConstruction fetches (or initialises) the per-activity construction row,
 // applies the supplied in-place mutation, and writes the SINGLE map key back. The map is
@@ -3450,8 +3368,6 @@ func (s *GitStore) RecordActivityCompleted(rc fwra.Context, projectID ProjectID,
 	})
 }
 
-// ---- from gitactivitystatus.go ----
-
 // gitactivitystatus.go holds the per-activity git-forward head-state types
 // (projectStateAccess.md §GIT-HEAD-STATE, D-PA-GIT, FROZEN 2026-06-12). It is the
 // durable mirror of what IPullRequestRail (sourceControlAccess) returns as the
@@ -3468,12 +3384,6 @@ func (s *GitStore) RecordActivityCompleted(rc fwra.Context, projectID ProjectID,
 // CICheckState is the provider-neutral CI rollup the SPA renders (3 states),
 // mirroring sourcecontrol.CheckState + the ux-mock CiStatus. A DUMB reflection of
 // the Actions run — it NEVER gates any Approve control. (GIT.1)
-
-// CICheckPending — at least one check still running, none failed (ux-mock 'in_progress').
-
-// CICheckSuccess — all checks concluded successfully (ux-mock 'success').
-
-// CICheckFailure — at least one check failed (ux-mock 'failed').
 
 // String returns the canonical name for the CI rollup state.
 func (c CICheckState) String() string {
@@ -3536,8 +3446,6 @@ func (c CICheckState) String() string {
 // UpdatedAt is the last Record* touch — SERVER-RESOLVED at commit, never
 // caller-minted.
 
-// ---- from construction_transition_port.go ----
-
 // ConstructionTransitionAccess (contract.gen.go) is the Port interface for the
 // Phase-3 construction transition verbs (App-C §6 adjudicated: 10 ops ≤ 12 cap,
 // per conformance gate lifecycle-2 T3 analysis). The interface itself is
@@ -3564,8 +3472,6 @@ func (c CICheckState) String() string {
 
 // Compile-time assertion: GitStore must satisfy the full 10-op port.
 var _ ConstructionTransitionAccess = (*GitStore)(nil)
-
-// ---- from models_phase1.go ----
 
 // ---- MissionStatement — ch. 5 business alignment ----
 
@@ -3783,8 +3689,6 @@ func (r *ScrubbedRequirements) Kind() ArtifactKind { return KindScrubbedRequirem
 // isArtifactModel seals the ArtifactModel sum to this package's models.
 func (r *ScrubbedRequirements) isArtifactModel() {}
 
-// ---- from models_phase2.go ----
-
 // Phase-2 typed artifact models — the head-state slot models the projectDesignManager
 // co-authors in Phase 2 (projectStateAccess.md §3.6, projectDesignManager.md §3).
 //
@@ -3975,8 +3879,6 @@ func (s *SdpReview) Kind() ArtifactKind { return KindSdpReview }
 // isArtifactModel seals the ArtifactModel sum to this package's models.
 func (s *SdpReview) isArtifactModel() {}
 
-// ---- from system.go ----
-
 // Layer is the closed, ordered layer set per ch. 3 of The Method.
 // Manager and Engine share the "Business Logic" rank: a Manager→Engine edge is
 // DOWNWARD, not sideways. (projectStateAccess.md §3.3)
@@ -4121,8 +4023,6 @@ func NewSystem(components []Component, relationships []Relationship, dynamicView
 	}, nil
 }
 
-// ---- from usecase.go ----
-
 // Trigger is the closed 3-set of use-case trigger kinds per ch. 4.
 // (projectStateAccess.md §3.4)
 
@@ -4232,8 +4132,6 @@ func NewUseCase(uc UseCase) (*UseCase, error) {
 	out := uc
 	return &out, nil
 }
-
-// ---- from servicecontract.go ----
 
 // servicecontract.go holds the typed service-contract corpus model for the
 // construction head-state. project.json (.serviceContracts) is the OWNER of each
@@ -4350,8 +4248,6 @@ type ContractParam struct {
 	Pointer bool            `json:"pointer,omitempty"`
 	Schema  json.RawMessage `json:"schema"`
 }
-
-// ---- from phaseartifacts.go ----
 
 // phasearchitects.go holds the typed named artifact and testing-state records
 // owned by the projectstate RA (feedback_method_models_owned_by_ra). All records
@@ -4519,8 +4415,6 @@ type TestingState struct {
 	Defects            []DefectRecord  `json:"defects,omitempty"`
 }
 
-// ---- from operatingmodel.go ----
-
 // OperatingModel declares WHO OPERATES the built application — a PROJECT-LEVEL
 // choice made at creation (founder ruling 2026-07-05, from live QA: the gtdapp
 // deployment artifact drafted an arbitrary AWS EKS/RDS/CloudFront topology, which
@@ -4584,8 +4478,6 @@ func (m OperatingModel) Valid() bool {
 		return false
 	}
 }
-
-// ---- from artifactmodel.go ----
 
 // ProjectSummary is the catalog row for the landing grid (Task 2.3). It is a
 // derived projection of the head-state — NOT a stored shape — returned by
@@ -4800,8 +4692,6 @@ type Project struct {
 	SdpReview            ArtifactSlot // Model is *SdpReview
 }
 
-// ---- from estimation.go ----
-
 // Phase-2 estimation INPUT value types (projectStateAccess.md §3.6; projectDesignManager.md §3).
 //
 // ProjectOption is the value snapshot the projectDesignManager ASSEMBLES from the
@@ -4876,8 +4766,6 @@ type Project struct {
 // the committed Phase-2 slots and feeds it by value to the three Engines.
 
 // one of the four KindXxxSolution
-
-// ---- from research.go ----
 
 // ResearchCorpus is the PERSISTED Phase-1 research corpus on Project (F42 files-not-JSON,
 // founder ruling 2026-07-05). Unlike the ResearchInput verb INPUT (which carries the raw
@@ -4976,8 +4864,6 @@ func researchSlug(title string) string {
 // IsZero reports whether the ResearchInput is unprovided (no Sources). The
 // setResearchInput pre-condition rejects a zero value (projectStateAccess.md §2).
 func (r ResearchInput) IsZero() bool { return len(r.Sources) == 0 }
-
-// ---- from toolpalette.go ----
 
 // toolpalette.go — the INTERNAL MCP tool surface for archistrator's own
 // ResourceAccess and Engine contracts.
@@ -5078,8 +4964,6 @@ func InternalToolByName(name string) (InternalTool, bool) {
 	}
 	return InternalTool{}, false
 }
-
-// ---- from modelfields.go ----
 
 // modelfields.go closes the ZERO-VALUE HOLE in the strict slot codec (F81).
 //
@@ -5595,8 +5479,6 @@ func enumName[T ~int](names map[T]string, v T) string {
 	return fmt.Sprintf("%d", int(v))
 }
 
-// ---- from slotcodec.go ----
-
 // slotcodec.go holds the SUBSTRATE-NEUTRAL slot codec + the shared write-path helpers
 // the git store (gitstore.go) builds on. It was carved out of the retired Postgres
 // store (postgres.go) so the git substrate keeps the one canonical slot encoding: a
@@ -5880,14 +5762,13 @@ const (
 	modeCreateOnly
 )
 
-// ---- from enumjson.go ----
-
 // This file gives every closed ordinal enum the SPA reads a STRING wire encoding:
 // MarshalJSON emits the canonical camelCase name; UnmarshalJSON accepts that name
 // AND (for backward compatibility) a bare integer ordinal — so the architect-role
-// draft prompts that still emit integer ordinals, and any pre-migration JSONB
-// payload, keep decoding. The artifactValidationEngine reads these enums IN-MEMORY
-// (Go values), so it is unaffected by the JSON encoding.
+// draft prompts that still emit integer ordinals, and any previously-persisted
+// JSONB payload written before this string encoding existed, keep decoding. The
+// artifactValidationEngine reads these enums IN-MEMORY (Go values), so it is
+// unaffected by the JSON encoding.
 //
 // The (name→ordinal, ordinal→name) tables are the single source of truth per enum;
 // the camelCase names match the OpenAPI string-enum schemas exactly.
@@ -6276,8 +6157,6 @@ func (v *TestingVariant) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// ---- from activityconstructionstatus.go ----
-
 // activityconstructionstatus.go holds the per-activity construction head-state types
 // (Task 1: seed-archistrator-design-state). It mirrors the gitactivitystatus.go
 // pattern precisely: a typed enum + a status record keyed by ActivityID, stored in
@@ -6649,8 +6528,6 @@ func (s ActivityBuildStatus) String() string {
 // ConstructionProgress holds the project-level construction tracking framing scalars
 // (ux-mock CONSTRUCTION_SUMMARY subset). Seeded; EV is derived, not stored.
 
-// ---- from activityprofile.go ----
-
 // ProfilePhase pairs a canonical ActivityMethodPhase with its per-profile weight
 // and human-facing display label. The phase id is ALWAYS one of the five canonical
 // ids (Requirements/DetailedDesign/TestPlan/Construction/Integration) so the shared
@@ -6775,8 +6652,6 @@ func profileForTestingVariant(v TestingVariant) Profile {
 	}
 }
 
-// ---- from constructionprogress.go ----
-
 // constructionprogress.go implements the App-A §2 weighted-progress formulas as
 // pure functions (no I/O, no Temporal). Called at read time by the caller
 // (projectManager.GetProject / constructionManager) — never persisted, so progress
@@ -6823,8 +6698,6 @@ func ProjectEarnedValue(statuses []ActivityConstructionStatus, effortDays map[st
 	return earnedEffort / totalEffort
 }
 
-// ---- from stalecause.go ----
-
 // stalecause.go carries the ADDITIVE stale-cause record for the F38 staleness rail.
 //
 // When an upstream artifact re-commits (an amendment), commitTransition flags every
@@ -6848,8 +6721,6 @@ type StaleCause struct {
 	// that caused this slot to go stale (e.g. 2 — "rev 2 changed after this was committed").
 	UpstreamRevision int64 `json:"upstreamRevision"`
 }
-
-// ---- from corpusderive.go ----
 
 // corpusderive.go holds the PURE corpus→typed-state derivation rules (Task 2). No
 // filesystem access — Task 3 (cmd/seed-construction) does the IO and feeds these the
@@ -7038,8 +6909,6 @@ func DeriveProduced(p CorpusPresence, componentName string, typ ActivityType) []
 	return out
 }
 
-// ---- from commandfor.go ----
-
 // profileSlug is the .claude/commands filename stem for an activity profile.
 // For testing it encodes the variant (testing-plan/harness/perf/systemtest/qa);
 // all other types map 1:1 to their wire name.
@@ -7085,8 +6954,6 @@ func kebabPhase(p ActivityMethodPhase) string {
 func CommandFor(t ActivityType, v TestingVariant, p ActivityMethodPhase) string {
 	return profileSlug(t, v) + "-" + kebabPhase(p)
 }
-
-// ---- from designcommand.go ----
 
 // DesignJobMode is the dispatch shape of a design job (Plan-2 Task B1): a fresh
 // draft, a PM-critique pass over a drafted artifact, or an answer to open review
@@ -7217,8 +7084,6 @@ func DesignCommandFor(k ArtifactKind, mode DesignJobMode, addressee string) stri
 		return ""
 	}
 }
-
-// ---- from reviewthread.go ----
 
 // reviewthread.go holds the DURABLE review-ledger logic for an ArtifactSlot — the
 // pure, substrate-neutral helpers the GitStore review-ledger verbs build on
@@ -7436,8 +7301,6 @@ func validReviewCommentStatus(s string) bool {
 	}
 }
 
-// ---- from reviewpolicy.go ----
-
 // ReviewPolicy is the per-project, committed configuration of WHICH phases require a
 // human approval gate during construction. It composes with the reviewEngine (which
 // computes WHO reviews): the engine gives the reviewer set; this policy says whether a
@@ -7484,8 +7347,6 @@ func ReviewPolicyFromGateIDs(byType map[string][]string) ReviewPolicy {
 	}
 	return out
 }
-
-// ---- from projectstate.go ----
 
 // Package projectstate is the projectStateAccess component of the aiarch
 // server's ResourceAccess layer — the Temporal-free port over the project's

@@ -287,8 +287,6 @@ func TestKindRegistry_Resolve(t *testing.T) {
 	}
 }
 
-// ---- from temporal_integration_test.go ----
-
 // INTEGRATION TESTS (STP tier I1–I8) — the four control-plane ops exercised
 // against a REAL embedded Temporal dev server (framework-go-infrastructure-temporal
 // /testinfra) with a test Worker that registers the workflow types the kind

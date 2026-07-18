@@ -38,101 +38,13 @@ import (
 	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 )
 
-// WorkerClass is the worker arrangement cast onto an activity's worker role
-// (contract §3). Engine-facing enum (the Worker-volatility set, OQ-3) — NOT a
-// persisted head-state field; the Manager maps it onto a workerAccess.Dispatch
-// spec. The member set + numeric ordering mirror the constructionManager's
-// consumer mirror (internal/manager/construction/deps.go) so the Manager's
-// adaptation is mechanical.
+// Layer (on ConstructionActivity) is the Method layer (e.g. "manager", "engine",
+// "resourceaccess", "client") the activity's component lives in — the
+// SeniorOnlyLayers policy keys on it. Normalized case-insensitively at the policy
+// boundary.
 
-// WorkerClassUnknown is the zero value — never a valid casting result.
-
-// AIWorker — default; LLM/agent via the Manager's workerAccess.Dispatch.
-
-// HumanSeniorWorker — human contractor, senior (sourced via the marketplace).
-
-// HumanJuniorWorker — human contractor, junior.
-
-// ArchitectOnly — customer-as-architect; no separate worker produced. A NORMAL
-// returned class (contract OQ-2): the Manager skips dispatch and awaits the
-// Architect User. NOT an error.
-
-// WorkerClass behaviour (the canonical name + validity) lives as free functions in
-// behavior.go (WorkerClassString / workerClassValid) — the schema-first contract
-// rule keeps the generated enum type method-free.
-
-// ActivityKind is the activity-type the policy keys on (contract §3). Mirrors the
-// constructionManager consumer mirror's ActivityKind (deps.go).
-
-// ActivityKindUnknown is the zero value — a ContractMisuse input (the Manager
-// must build the activity with a real kind before calling).
-
-// ActivityKindDetailedDesign — a component's contract-design activity.
-
-// ActivityKindConstruction — a component's construction activity.
-
-// ActivityKindIntegration — an integration activity.
-
-// ActivityKindNoncoding — a non-coding activity.
-
-// ActivityKind behaviour (the canonical name) lives as a free function in
-// behavior.go (ActivityKindString) — the schema-first contract rule keeps the
-// generated enum type method-free.
-
-// ConstructionActivity is the by-value snapshot of the activity being dispatched
-// (contract §3). The Manager reads the next eligible activity from
-// projectStateAccess (UC3 line 531) and passes it in by value; this Engine reads
-// it and owns none of it. Fields mirror the constructionManager consumer mirror
-// (deps.go) so adaptation is mechanical.
-//
-// Layer is the Method layer (e.g. "manager", "engine", "resourceaccess",
-// "client") the activity's component lives in — the SeniorOnlyLayers policy keys
-// on it. It is normalized case-insensitively at the policy boundary.
-
-// HandOffPolicy is this project's committed human-vs-AI casting policy
-// (volatilities.md 83-84), passed BY VALUE (contract §3). It is the Strategy
-// PARAMETER the package-internal casting rule reads — NOT the rule itself. Fields
-// mirror the constructionManager consumer mirror (deps.go):
-//
-//   - PreferAI         — when true, the default class is AIWorker (fully-automated
-//     leaning); when false, the default leans to a human senior (review-heavy).
-//   - SeniorOnlyLayers — layers the customer requires a human-senior worker on,
-//     regardless of PreferAI (e.g. "manager", "resourceaccess"). Matched
-//     case-insensitively against ConstructionActivity.Layer.
-//
-// The committed customer-as-architect arrangement (glossary.md line 10) is the
-// zero policy (PreferAI=false, no senior-only layers) ONLY insofar as a future
-// policy mode names it; in v1 ArchitectOnly is cast by the dedicated
-// architectOnly registration selected via a non-zero policy — see selectStrategy.
-
-// HandOffEngine is the worker-casting facet over the HandOffPolicy volatility. One
-// behavioural operation (contract §2 — 1-op count investigated & waived; matches
-// the estimationEngine / autoscalerEngine precedent). Defined here as the Engine's
-// own surface; the constructionManager holds an independent consumer mirror it
-// adapts to (internal/manager/construction/deps.go).
-
-// PickWorkerClass selects the worker class the policy casts onto this
-// activity's worker role. Pure and deterministic: identical (activity, policy)
-// -> identical WorkerClass, always (contract §2.1, §6).
-//
-// The error is *fweng.Error and signals programmer/contract misuse ONLY
-// (the Engine does no I/O, so there is no transient failure to retry):
-//   - ContractMisuse: the activity carries no ActivityID, or an unknown
-//     ActivityKind — a constructionManager bug (it failed to build a valid
-//     input before the call). nil/empty inputs are NOT a "no-class-possible"
-//     outcome (contract §2.1 pre-conditions).
-//   - InvalidInput: the policy casts a worker class the running build does not
-//     support (the structural analogue of the contract's UnknownWorkerClass —
-//     see the package log note re: the fixed shared error model). The Engine
-//     does NOT silently fall back to a default class (silent mis-casting),
-//     exactly as settlementEngine refuses an unknown settlement regime.
-//   - InternalInvariant: the selected Strategy returned a class outside the
-//     registered set — an engine bug (a guard).
-
-// The concrete, stateless HandOffEngine — HandOffEngineImpl — and its constructor
-// NewHandOffEngine() are GENERATED into contract.gen.go. No fields => no mutable
-// state => trivially deterministic and reentrant (contract §6 invariant 3). The
-// behaviour below is hand-written on the generated struct.
+// HandOffEngineImpl and NewHandOffEngine are generated (contract.gen.go); the
+// behaviour below is hand-written on that generated struct.
 
 // PickWorkerClass implements HandOffEngine. It validates the input, selects the
 // package-internal Strategy for the policy, runs it, and guards the result —
@@ -182,8 +94,6 @@ func (HandOffEngineImpl) PickWorkerClass(_ fweng.Context, activity ConstructionA
 // estimationEngine).
 func quote(s string) string { return "\"" + s + "\"" }
 
-// ---- from behavior.go ----
-
 // behavior.go holds the hand-written behaviour over the generated contract enums
 // (WorkerClass, ActivityKind). Per the schema-first contract rule, the generated
 // contract types carry NO methods — behaviour the generator cannot produce lives
@@ -226,8 +136,6 @@ func workerClassValid(c WorkerClass) bool {
 		return false
 	}
 }
-
-// ---- from strategy.go ----
 
 // handOffStrategy is the package-internal casting RULE for one HandOffPolicy mode
 // (contract §6). It is NEVER exposed on the contract surface (Variant C, rejected;

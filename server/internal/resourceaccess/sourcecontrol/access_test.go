@@ -1435,8 +1435,6 @@ func TestU47_SyncManagedScaffoldFailedCommitLeavesStateIntactThenRetriesWhole(t 
 	}
 }
 
-// ---- from agenticdesign_test.go ----
-
 // agenticdesign_test.go — structural tests over the RENDERED design workflow. The
 // asset itself lives in the platform method-assets module (B4 delegation); these
 // tests pin the WIRING CONTRACTS the app depends on — the dispatch-input names the

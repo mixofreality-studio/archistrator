@@ -1005,8 +1005,6 @@ func Test_GetSessionState_QueryFailedTaskState_CleanInfrastructure(t *testing.T)
 	mc.AssertExpectations(t)
 }
 
-// ---- from workflow_test.go ----
-
 // =============================================================================
 // C-MSD-Δ regression spine — the AGENTIC-PIVOT dispatch → observe → read-back
 // child gate (systemDesignManager.md §0d). Method product → NO BDD; regression-
@@ -3149,8 +3147,6 @@ func allPhase1Committed(t *testing.T) projectstate.Project {
 	}
 }
 
-// ---- from acknowledgestale_test.go ----
-
 // acknowledgestale_test.go covers the F-GTD-12 live-session ack gate (Phase-1 twin of the
 // projectdesign tests): acknowledging staleness on a slot whose amendment session is LIVE
 // is refused with FailedPrecondition (the wire's 409/"failed_precondition"), because the
@@ -3263,8 +3259,6 @@ func Test_SessionStageIsLive(t *testing.T) {
 	}
 }
 
-// ---- from activityfindings_test.go ----
-
 // activityfindings_test.go — coverage for the app-side activity-diagram gate the
 // sessionState read-back applies to a CoreUseCases draft (founder ruling 2026-07-05).
 // Every use case (core AND supporting) must carry a non-empty activity diagram with a
@@ -3358,8 +3352,6 @@ func Test_useCaseActivityFindings_ScopedToCoreUseCasesKind(t *testing.T) {
 	}
 }
 
-// ---- from askquestions_dispatch_test.go ----
-
 // askquestions_dispatch_test.go — F82 coverage for the System-Design answer-job dispatch
 // twin (the manager kinds 2/5 go through THIS manager). Mirrors the projectdesign tests:
 // a dispatch fires (incl. on a LIVE session branch), re-fires with a fresh key, and logs a
@@ -3448,8 +3440,6 @@ func TestSDDispatchAnswerJob_LogsSubmitFailure(t *testing.T) {
 	}
 }
 
-// ---- from askquestions_test.go ----
-
 // Question-comments (2026-07-05): the pure helpers behind AskQuestions + the approve-gate.
 
 // openReviewCommentIDs (the approve blocker set) must exclude open QUESTIONS and count only
@@ -3509,8 +3499,6 @@ func TestIsLiveSessionStage(t *testing.T) {
 	}
 }
 
-// ---- from catalog_classification_test.go ----
-
 // Classification is derived from the Phase-2 activity-list metadata (worker class
 // + coding) plus contract presence — NOT the id prefix alone (the N-* namespace
 // conflates testing, infra, deployment, and documentation).
@@ -3560,8 +3548,6 @@ func TestConstructionRowsToContract_ClassifiesFromWorkerClass(t *testing.T) {
 	}
 }
 
-// ---- from catalog_provenance_test.go ----
-
 // catalog_provenance_test.go — PM-P2-4 exposure. slotsToContract projects a committed slot's
 // stored Provenance onto the ArtifactSlotView.Provenance read model; an uncommitted / pre-
 // provenance slot exposes nil (omitempty on the wire).
@@ -3605,8 +3591,6 @@ func TestSlotsToContract_ExposesProvenance(t *testing.T) {
 		t.Fatalf("uncommitted slot must expose nil provenance, got %+v", *volatilities.Provenance)
 	}
 }
-
-// ---- from catalog_test.go ----
 
 // catalog_test.go — the unit suite for the CATALOG ops (CreateProject/GetProject/
 // ListProjects) folded onto systemDesignManager from the dissolved projectManager
@@ -4531,8 +4515,6 @@ func TestPhaseNameLabels(t *testing.T) {
 	}
 }
 
-// ---- from catalog_testingstate_test.go ----
-
 func TestTestingStateToContract(t *testing.T) {
 	if got := testingStateToContract(nil); got != nil {
 		t.Fatalf("nil input: got %v, want nil", got)
@@ -4552,8 +4534,6 @@ func TestTestingStateToContract(t *testing.T) {
 		t.Errorf("Defects mapped wrong: %+v", got.Defects)
 	}
 }
-
-// ---- from dynamicfindings_test.go ----
 
 // dynamicfindings_test.go — coverage for the app-side dynamic-view gate the
 // sessionState read-back applies to a System draft (founder extension 2026-07-05).
@@ -4642,8 +4622,6 @@ func Test_useCaseDynamicFindings_ScopedToSystemKind(t *testing.T) {
 		t.Errorf("all-covered draft must yield no findings, got %+v", got)
 	}
 }
-
-// ---- from gitrail_proof_test.go ----
 
 // =============================================================================
 // I-DESIGN-DISPATCH Part 3 — the WIRING-LEVEL PROOF (test-engineer). This file
@@ -5295,8 +5273,6 @@ func Test_CoAuthor_Rail_OpenPR_OnlyAfterReadBack_ReuseThenMerge(t *testing.T) {
 		t.Fatalf("want one commit-on-main after redraft→approve, got %v", base.committed)
 	}
 }
-
-// ---- from gitrail_test.go ----
 
 // =============================================================================
 // I-DESIGN-DISPATCH §2b/§2c WIRE-LEVEL regression — the PR-rail-enabled CoAuthor
@@ -7675,8 +7651,6 @@ func Test_CoAuthor_RailEnabled_GateRemint_VersionGate_PreFeatureAttemptSkipsRemi
 	}
 }
 
-// ---- from layerdegenerate_test.go ----
-
 // layerdegenerate_test.go — coverage for the app-side SYSTEM-LAYER-DEGENERATE gate the
 // sessionState read-back applies to a System draft (F81). A layer-degenerate system
 // (zero Managers / zero ResourceAccess, or a component whose name stereotype contradicts
@@ -7786,8 +7760,6 @@ func Test_systemLayerDegenerate_NonSystemInert(t *testing.T) {
 		t.Fatalf("rule must be inert for non-System artifacts, got: %+v", f)
 	}
 }
-
-// ---- from qafindings_test.go ----
 
 // ---- F22: read-model research slimming -------------------------------------
 
@@ -8030,8 +8002,6 @@ func Test_SubmitReviewDecision_DeadSession_TypedFailedPrecondition_NoSignal(t *t
 		})
 	}
 }
-
-// ---- from setresearchinput_test.go ----
 
 // These tests cover the SYNC, non-Temporal SetResearchInput op (op 2.6,
 // systemDesignManager.md §2.6). They run entirely on the sync read/write path
@@ -8384,8 +8354,6 @@ func (f *setResearchNotFoundOnWrite) SetResearchInput(fwra.Context, projectstate
 
 var _ projectstate.ProjectStateAccess = (*setResearchNotFoundOnWrite)(nil)
 
-// ---- from stagename_test.go ----
-
 // stagename_test.go — F72 stageName label. The bare Stage int's enum values differ across
 // managers (systemdesign StageAwaitingReview == 2), so a human-readable StageName label ships
 // alongside it. sessionStageLabel is the single authoritative map; withStageName stamps it.
@@ -8421,8 +8389,6 @@ func TestWithStageName_StampsLabel(t *testing.T) {
 		t.Fatalf("withStageName must not alter the Stage int, got %d", int(v.Stage))
 	}
 }
-
-// ---- from statevalidationfindings_test.go ----
 
 // statevalidationfindings_test.go — coverage for the app-side read-back finding
 // generators (architect ratification 2026-07-05) and the AdvancePhase pre-seal gates.

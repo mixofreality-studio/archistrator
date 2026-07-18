@@ -259,7 +259,6 @@ func TestSubmitPhaseDecision_EmptyActivityID(t *testing.T) {
 	}
 }
 
-// ---- from adapters_test.go ----
 func TestHydrateConstructionActivity_ServicePhases(t *testing.T) {
 	got := hydrateConstructionActivity("C-Orders", projectstate.ActivityItem{Coding: true, EffortDays: 5}, "comp-1")
 	want := []projectstate.ActivityMethodPhase{
@@ -320,7 +319,6 @@ func TestDispatchInputsForIncludesCommand(t *testing.T) {
 	}
 }
 
-// ---- from construct_workflow_wiring_test.go ----
 // constructWorkflowBody reads archistrator's OWN aiarch-construct.yml, located relative
 // to this test file (robust to the test's working directory). It is the static workflow
 // the construction dispatch (dispatchInputsFor) drives.
@@ -392,7 +390,6 @@ func TestConstructWorkflowKeepsLoadBearingAnchors(t *testing.T) {
 	}
 }
 
-// ---- from construction_prompts_test.go ----
 // repoRoot returns the repository root, located relative to this test file.
 func repoRoot(t *testing.T) string {
 	t.Helper()
@@ -404,11 +401,11 @@ func repoRoot(t *testing.T) string {
 	return filepath.Join(filepath.Dir(thisFile), "..", "..", "..", "..")
 }
 
-// TestConstructionPromptsUseStateTools asserts the Step-4 cutover held: the central
-// the-method-project-state skill mandates the aiarch-state write tools, and every
-// construction / detailed-design command carries the "state changes through the tools"
-// note. This is the prompt-side guard that construction agents record state THROUGH the
-// tools, not by hand-editing project.json.
+// TestConstructionPromptsUseStateTools asserts the central the-method-project-state
+// skill mandates the aiarch-state write tools, and every construction /
+// detailed-design command carries the "state changes through the tools" note. This
+// is the prompt-side guard that construction agents record state THROUGH the tools,
+// not by hand-editing project.json.
 func TestConstructionPromptsUseStateTools(t *testing.T) {
 	root := repoRoot(t)
 
@@ -421,7 +418,7 @@ func TestConstructionPromptsUseStateTools(t *testing.T) {
 		"publishDraft",
 	} {
 		if !strings.Contains(skill, want) {
-			t.Errorf("the-method-project-state skill must reference %q after the tool cutover", want)
+			t.Errorf("the-method-project-state skill must reference %q", want)
 		}
 	}
 
@@ -437,7 +434,7 @@ func TestConstructionPromptsUseStateTools(t *testing.T) {
 	for _, c := range commands {
 		body := readFileT(t, filepath.Join(cmdDir, c))
 		if !strings.Contains(body, noteMarker) {
-			t.Errorf("%s must carry the aiarch-state tool-cutover note", c)
+			t.Errorf("%s must carry the aiarch-state tool note", c)
 		}
 	}
 }
@@ -451,7 +448,6 @@ func readFileT(t *testing.T, path string) string {
 	return string(b)
 }
 
-// ---- from constructionmanager_test.go ----
 // fakeReviewPolicyTransition is a minimal fake satisfying projectstate.ConstructionTransitionAccess
 // for UpdateReviewPolicy tests. It embeds the interface (unimplemented methods panic
 // if reached — intentional) and only implements the two verbs UpdateReviewPolicy exercises:
@@ -499,7 +495,6 @@ func TestUpdateReviewPolicy(t *testing.T) {
 	}
 }
 
-// ---- from gitforward_test.go ----
 // =============================================================================
 // C-MCN-GIT wiring tests. They drive the REAL constructionManager per-activity
 // workflow (ConstructActivityWorkflow + its real Activity wrappers + the real
@@ -1029,7 +1024,6 @@ func Test_GitForward_RecordsConvergeMonotonically(t *testing.T) {
 	}
 }
 
-// ---- from next_eligible_activity_test.go ----
 // makeCommittedNetwork builds a minimal committed ArtifactSlot holding a *projectstate.Network.
 func makeCommittedNetwork(deps []projectstate.NetworkDependency) projectstate.ArtifactSlot {
 	return projectstate.ArtifactSlot{
@@ -1258,7 +1252,6 @@ func TestNextEligibleActivity_HydratedFields(t *testing.T) {
 	}
 }
 
-// ---- from pipeline_adapter_test.go ----
 // TestPipelineAdapter_DispatchInputs asserts that dispatchInputsFor maps
 // ActivityID → "activity_id" and ComponentID → "component_id".
 // pipelineAdapter.inner is the constructionpipeline.ConstructionPipelineAccess interface (not a concrete struct,
@@ -1318,7 +1311,6 @@ func TestDispatchInputsFor_EmptyPhaseOmitted(t *testing.T) {
 	}
 }
 
-// ---- from qafindings_test.go ----
 // fakeQueryClient scripts QueryWorkflow with an error, for the F20 pre-phase read test.
 // It embeds client.Client so any unimplemented method panics.
 type fakeQueryClient struct {
@@ -1352,7 +1344,6 @@ func Test_GetSessionState_BeforeConstruction_CleanNotFound(t *testing.T) {
 	}
 }
 
-// ---- from resolve_component_test.go ----
 func TestResolveComponentID(t *testing.T) {
 	contracts := map[string]projectstate.ServiceContract{
 		"operatedRuntimeAccess": {Component: "operatedRuntimeAccess"},
@@ -1427,7 +1418,6 @@ func TestResolveComponentID(t *testing.T) {
 	}
 }
 
-// ---- from workflow_test.go ----
 // =============================================================================
 // constructionManager workflow unit tests over the Temporal in-memory test
 // environment (testsuite.WorkflowTestSuite). The three Engines (handOffEngine,

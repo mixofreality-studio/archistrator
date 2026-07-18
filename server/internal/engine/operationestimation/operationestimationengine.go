@@ -40,123 +40,15 @@ import (
 	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 )
 
-// ---------------------------------------------------------------------------
-// Domain types redefined as this component's OWN defs (Option B full
-// encapsulation). They MIRROR projectstate (the canonical home owned by
-// projectStateAccess); the projectDesignManager converts at the call boundary.
-// Per the settlement/billing precedent the slim ProjectOption carries only the
-// slice this Engine reads (OptionID for audit + the settlement Terms).
-// ---------------------------------------------------------------------------
+// Output value objects (CostCurvePoint, UsageCostCurve, PayoutShortfallForecast,
+// OperationForecast, ScalePoint, WhatIfPoint, WhatIfCurve, CostProjection) are
+// owned by this Engine — computation results, not persisted head-state. Field
+// names are load-bearing: projectDesignManager and operationsManager depend on
+// them.
 
-// Money is an exact integer-minor-units amount plus an ISO-4217 currency. NEVER a
-// float. Signed: a positive net is a payout, a negative net is a shortfall charge.
-// Mirrors projectstate.Money.
-
-// OptionID identifies one assembled ProjectOption within an SDP review. Mirrors
-// projectstate.OptionID.
-
-// InfrastructureKind is the opaque discriminator this Engine pivots on. The launch
-// infrastructure is Go + Temporal + Postgres; future kinds are additive. Mirrors
-// projectstate.InfrastructureKind.
-
-// RevenueShareKind is the closed set of aiarch revenue-share regimes. Mirrors
-// projectstate.RevenueShareKind.
-
-// ComputeCostKind is the closed set of compute pass-through pricing regimes. Mirrors
-// projectstate.ComputeCostKind.
-
-// ScheduleKind is the settlement cadence. Mirrors projectstate.ScheduleKind.
-
-// SettlementTerms is the customer's settlement-terms snapshot carried BY VALUE on the
-// option. The Engine reads RevenueSharePercent (and derives currency from the terms).
-// Mirrors projectstate.SettlementTerms.
-
-// UsageAssumption is the customer's DECLARED expectation of end-user load, fed to
-// EstimateForOption for the operation-side forecast. Mirrors
-// projectstate.UsageAssumption (integer fields widen to int64 in the generated def).
-
-// ProjectOption is the input to EstimateForOption: the committed project option as
-// this Engine needs it — it reads ONLY the customer's settlement Terms (and carries
-// OptionID for audit/labeling). The canonical Phase-2 option model is owned by
-// projectStateAccess (projectstate.ProjectOption) and carries many more fields; per
-// the settlement/billing precedent the contract carries only the slice it reads. The
-// projectDesignManager converts the canonical option at the call boundary.
-
-// ---------------------------------------------------------------------------
-// Output value objects (owned by this Engine — they are computation results, not
-// persisted head-state). Field names are load-bearing: projectDesignManager and
-// operationsManager depend on them.
-// ---------------------------------------------------------------------------
-
-// CostCurvePoint is the projected monthly operating cost at one load multiple of
-// the declared usage.
-
-// UsageCostCurve is projected operating cost as a function of load level, plotted
-// at discrete multipliers. Monotonic non-decreasing in LoadMultiplier; always
-// includes the 1.0 (declared-usage) point.
-
-// PayoutShortfallForecast is the expected payout-or-shortfall per settlement cycle
-// with a ± sensitivity band around the declared assumption.
-
-// ExpectedPerCycleNet is signed: positive == payout to the customer; negative
-// == shortfall charge to the customer.
-
-// SensitivityLow is the net at the low edge of the ± usage band (cheaper, so a
-// larger payout / smaller shortfall).
-
-// SensitivityHigh is the net at the high edge of the ± usage band (costlier, so
-// a smaller payout / larger shortfall).
-
-// OperationForecast is the design-time output of EstimateForOption.
-
-// ObservedUsage is a snapshot of what an operated app is ACTUALLY using, read by
-// the Manager (operationsManager via usageAccess.readRange) and passed in by value.
-// The Engine treats it as an infrastructure-agnostic value; it reads no clock.
-
-// metered compute consumed over the window
-
-// metered storage over the window
-
-// representative capacity over the window
-
-// ScalePoint is one op-time "what-if" load level. LoadMultiplier must be > 0;
-// 1.0 == current observed load.
-
-// WhatIfPoint is the projected monthly cost at one ScalePoint.
-
-// WhatIfCurve is the projected cost at each requested ScalePoint plus the
-// current-load (1.0) point. Monotonic non-decreasing in LoadMultiplier.
-
-// CostProjection is the op-time output of ProjectForOperatedApp.
-
-// extrapolated cost-per-cycle at current observed load
-// run-rate normalized to a calendar month
-// projected cost at each requested ScalePoint (+ current-load point)
-
-// ---------------------------------------------------------------------------
-// Contract surface.
-// ---------------------------------------------------------------------------
-
-// OperationEstimationEngine is the frozen two-operation Engine surface. Both ops
-// are pure deterministic functions; both return *fweng.Error on programmer/contract
-// misuse only.
-
-// EstimateForOption is the design-time SDP-review forecast: given a project
-// option, the customer's declared usage assumptions, and the chosen
-// infrastructure kind, produce the usage→operating-cost curve and the
-// payout-vs-shortfall forecast. Called by projectDesignManager.
-
-// ProjectForOperatedApp is the op-time read-side projection: given observed
-// usage on an already-operated app and a set of scale what-if points, produce
-// the current run-rate, projected monthly cost, and the what-if curve. Called
-// by operationsManager.
-
-// The stateless implementation of OperationEstimationEngine —
-// OperationEstimationEngineImpl — and its constructor NewOperationEstimationEngine()
-// are GENERATED into contract.gen.go. It holds no fields — all behaviour is a pure
-// function of the inputs, pivoting on the package-internal cost-Strategy table. Safe
-// to share/reuse across calls and Managers. The behaviour below is hand-written on
-// the generated struct.
+// OperationEstimationEngineImpl and NewOperationEstimationEngine are generated
+// (contract.gen.go); the behaviour below is hand-written on that generated
+// struct.
 
 // ---------------------------------------------------------------------------
 // Internal cost-Strategy axis (CustomerAppInfrastructure). NOT on the contract.
@@ -255,6 +147,10 @@ const arpuCentsPerDAUPerMonth = 300.0
 // defaultCurrency is used unless the option's settlement terms imply otherwise.
 const defaultCurrency = "USD"
 
+// EstimateForOption is the design-time SDP-review forecast: given a project
+// option, the customer's declared usage assumptions, and the chosen
+// infrastructure kind, produce the usage→operating-cost curve and the
+// payout-vs-shortfall forecast. Called by projectDesignManager.
 func (OperationEstimationEngineImpl) EstimateForOption(
 	_ fweng.Context,
 	option ProjectOption,
@@ -332,6 +228,10 @@ func (OperationEstimationEngineImpl) EstimateForOption(
 // Op-time projection.
 // ---------------------------------------------------------------------------
 
+// ProjectForOperatedApp is the op-time read-side projection: given observed
+// usage on an already-operated app and a set of scale what-if points, produce
+// the current run-rate, projected monthly cost, and the what-if curve. Called
+// by operationsManager.
 func (OperationEstimationEngineImpl) ProjectForOperatedApp(
 	_ fweng.Context,
 	observedUsage ObservedUsage,

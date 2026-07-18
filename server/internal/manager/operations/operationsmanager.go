@@ -443,13 +443,11 @@ func isNotFound(err error) bool {
 
 var errNotFoundSentinel = errors.New("not found")
 
-// ---- from contract.go ----
 // ---------------------------------------------------------------------------
 // Public data contracts (operationsManager.md §3) — the Client surface.
 // Infrastructure-opaque: no Temporal id is exposed here. The operated-system
 // head-state model and the Engine directive/projection types are referenced from
-// their owning ResourceAccess / Engine packages (deps.go seams), not redefined
-// (memory: Method data models live in their owning RA).
+// their owning ResourceAccess / Engine packages (deps.go seams), not redefined.
 // ---------------------------------------------------------------------------
 
 // operatedAppID is the operated-system aggregate identifier; a plain uuid.UUID,
@@ -461,76 +459,8 @@ type operatedAppID = uuid.UUID
 // canonical in settlementStateAccess (operationsManager.md §3.0).
 type customerID = uuid.UUID
 
-// DesiredStateReason discriminates the operator-chosen desired-state mutation
-// (operationsManager.md §3.1). The reason is LOAD-BEARING: DeployAfterConstruction
-// (2.1) accepts only {ReasonDeployAfterConstruction, ReasonOperator}; ReasonAutoscale
-// is reserved for ReconcileOperatedState (2.2) Path C and ReasonDelinquency for
-// ApplyDelinquencyPolicy (2.5). The reserved reasons are rejected on 2.1 as a
-// ContractMisuse (§2.6 / OQ-5).
-
-// ReasonUnknown is the zero value (rejected as ContractMisuse on 2.1).
-
-// ReasonDeployAfterConstruction is the first take-live of a constructed bundle.
-
-// ReasonOperator is a manual scale / autoscaler-policy change by the operator.
-
-// ReasonAutoscale is INTERNAL — set by 2.2 Path C; rejected on 2.1.
-
-// ReasonDelinquency is INTERNAL — set by 2.5; rejected on 2.1.
-
-// PatchKind discriminates the shape of the operator-chosen desired-state patch
-// (operationsManager.md §2.6 / §3.1). The one "republish desired state" facet
-// carries a full bundle (deploy), a scale patch, or a policy patch — the factor-up
-// of deploy / scale / updateAutoscalerPolicy.
-
-// PatchKindUnknown is the zero value.
-
-// PatchFullBundle is the first deploy of a constructed bundle (retrieved from
-// artifactAccess).
-
-// PatchScale is a manual replica/resource scale patch.
-
-// PatchPolicy is an autoscaler-policy change patch.
-
-// DesiredStateChange is the operator-chosen desired-state mutation passed to
-// DeployAfterConstruction (2.1). A discriminated union (Reason + PatchKind) over the
-// patch shapes the one "republish desired state" facet must carry (§3.1). The
-// rendered desired-state bytes are infrastructure-opaque at this boundary — the
-// Manager renders them into the operatedRuntimeAccess.DesiredState inside the
-// workflow; the canonical shapes live in operatedSystemStateAccess / operatedRuntimeAccess.
-
-// ChangeID is the operator-supplied continuity token; it keys the deploy
-// workflow id {operatedAppId}:deploy:{changeId} (§6.1).
-
-// RenderedDesiredState is the infrastructure-neutral rendered desired-state the
-// Manager publishes (a full bundle, a scale patch, or a policy patch). Opaque at
-// the contract boundary; the bytes are committed by operatedRuntimeAccess.
-
-// WithdrawReason carries the operator's free-text withdrawal rationale
-// (operationsManager.md §3.2). Opaque to the contract.
-
-// ReconcileScope narrows which in-flight apps a reconcile tick observes
-// (operationsManager.md §3.2). Empty AppIDs ⇒ all in-flight operated apps (the
-// default schedule firing).
-
-// ScalePoint is one hypothetical scale level for the what-if cost curve
-// (operationsManager.md §3.2). Opaque to the Engine call.
-
-// ScaleWhatIfPoints carries the hypothetical scale levels for the cost what-if
-// (operationsManager.md §3.2).
-
-// DeployResult is the result of DeployAfterConstruction (operationsManager.md §3.3).
-// Published is true iff the desired state was durably published to the manifests
-// repo. Revision is the published desired-state revision (for UI correlation; opaque).
-
-// WithdrawResult is the result of WithdrawSystem (operationsManager.md §3.3).
-// Withdrawn is true iff the withdrawal was durably recorded; an already-withdrawn
-// app is an idempotent no-op success.
-
-// ReconcileResult is the result of one ReconcileOperatedState tick
-// (operationsManager.md §3.3). Observed counts the in-flight apps observed,
-// Transitions the head-state transitions recorded (Path B), and Republished the
-// autoscaler-driven republishes (Path C, non-NoChange).
+// ReconcileScope: empty AppIDs means all in-flight operated apps (the default
+// schedule firing).
 
 // costProjection is the read-only op-time cost projection returned by
 // QueryCostProjection (operationsManager.md §3.3 — CANONICAL in
@@ -538,54 +468,6 @@ type customerID = uuid.UUID
 // costProjection); re-exported here as the façade result. NO state mutation produces
 // it.
 type costProjection = CostProjectionSeam
-
-// ---------------------------------------------------------------------------
-// OperatedSystemView — op 2.7 façade type (operationsRead-ruling.md §B). The
-// composed, infrastructure-opaque operator display view returned by
-// QueryOperatedSystemView. It REUSES the existing seam enums (RuntimeStatusSeam,
-// AutoscalerMode, AutoscaleAction, Money) — no new domain types. The sub-types are
-// Manager-local VIEW projections (like CostProjectionSeam): SloRowView /
-// HealthSnapshotView mirror operatedRuntimeAccess's read outputs;
-// AutoscaleDecisionView mirrors the autoscalerEngine decision shape. No Temporal id,
-// no PromQL, no cluster lexeme appears here.
-// ---------------------------------------------------------------------------
-
-// OperatedSystemView is the composed operator display view (operationsRead-ruling.md
-// §B). It fans the existing internal reads (head-state + observed health/SLO +
-// autoscaler mode/decisions + cost run-rate) into one denormalized read view that
-// exists nowhere as a stored row. MUTATING NO STATE produces it.
-
-// the operated-system aggregate id
-// RuntimePhase rollup (head-state Status)
-// head-state InFlight
-// observed health snapshot
-// per-component SLO rows
-// health/phase transition events (bounded, newest-first)
-// decision history + mode
-// operationEstimationEngine run-rate (no what-if)
-
-// HealthSnapshotView mirrors the observed-health portion of operatedRuntimeAccess's
-// read outputs (getApplicationHealth + getSloStatus).
-
-// SloRowView mirrors one per-component SLO row (operatedRuntimeAccess SLO posture).
-
-// e.g. "api", "worker"
-// the SLO objective text ("99.9% availability")
-
-// RuntimeStatusEventView mirrors one health/phase transition event (bounded,
-// newest-first) the view surfaces from the head-state status history.
-
-// AutoscalerView mirrors the autoscaler mode + decision history.
-
-// Auto | Manual (existing seam)
-// newest-first, bounded
-
-// AutoscaleDecisionView mirrors one autoscaler decision (autoscalerEngine decision
-// shape) for the operator history.
-
-// NoChange | ScaleUp | ScaleDown | Pause | Resume (existing)
-// the telemetry signal that drove it (why)
-// did it publish a revised desired state, or no-op
 
 // ---------------------------------------------------------------------------
 // Façade error model (operationsManager.md §3.4).
@@ -599,7 +481,6 @@ func newError(kind fwmgr.Kind, detail string) *fwmgr.Error {
 	return fwmgr.New(kind, detail)
 }
 
-// ---- from deps.go ----
 // This file declares the Manager's CONSUMER-SIDE dependency interfaces (the Go
 // "accept interfaces" idiom) for the collaborators that are NOT yet built as Go
 // packages, plus the narrow consumer seams for the two that exist but whose frozen
@@ -661,7 +542,6 @@ func newError(kind fwmgr.Kind, detail string) *fwmgr.Error {
 // operationestimation.ObservedUsage the Engine consumes.
 // ===========================================================================
 
-// ---- from deps.go ----
 // ===========================================================================
 // durableExecutionAccess — EXISTS (internal/resourceaccess/durableexecution). Only
 // RegisterSchedule is a contract op this Manager calls (at startup). Consumed via a
@@ -738,7 +618,6 @@ type scheduleSpec struct {
 // alongside billing's foldRevenue/foldUsage precedent, not an identity mirror.
 // ===========================================================================
 
-// ---- from behavior.go ----
 // This file holds the FREE FUNCTIONS that carry behavior over the contract value
 // types. The generated contract surface (contract.gen.go) is PURE DATA — enums and
 // structs with no methods — so any logic over a contract enum (e.g. the canonical
@@ -790,7 +669,6 @@ func autoscaleActionName(a AutoscaleAction) string {
 	return "Unknown"
 }
 
-// ---- from adapters.go ----
 // adapters.go holds the FOLDED composition-root adapters that bridge the published
 // ResourceAccess interfaces (the dependencies the GENERATED constructor
 // NewOperationsManager receives) to the Manager's unexported downstream seams
@@ -814,7 +692,6 @@ func autoscaleActionName(a AutoscaleAction) string {
 // Worker carries no further policy config yet, and the stub RAs return
 // not-implemented at runtime regardless.
 
-// ---- from adapters.go ----
 // ===========================================================================
 // operatedSystemStateAccess contract converters. The former operatedSystemStateAdapter
 // struct is retired — the workflow reaches the RA through the generated invokers
@@ -828,7 +705,6 @@ func autoscaleActionName(a AutoscaleAction) string {
 // HealthSnapshotView field type).
 // ===========================================================================
 
-// ---- from adapters.go ----
 func desiredStateReasonToState(r DesiredStateReason) operatedsystemstate.DesiredStateReason {
 	switch r {
 	case ReasonUnknown:
@@ -847,7 +723,6 @@ func desiredStateReasonToState(r DesiredStateReason) operatedsystemstate.Desired
 	}
 }
 
-// ---- from adapters.go ----
 // autoscaleActionToState bridges the autoscaler Engine's own DecisionKind straight to
 // operatedsystemstate's persisted AutoscaleAction — two independently generated enums
 // that happen to share order/values today (an explicit switch, not a raw cast, so a
@@ -886,7 +761,6 @@ func autoscaleDecisionToState(d *autoscaler.Decision) *operatedsystemstate.Autos
 	}
 }
 
-// ---- from adapters.go ----
 // ===========================================================================
 // operatedRuntimeAccess -> operatedsystemstate contract converter (the
 // operatedRuntimeAdapter struct is retired; see the operatedSystemStateAccess note).
@@ -915,7 +789,6 @@ func runtimeStatusFromRuntime(s operatedruntime.RuntimeStatus) operatedsystemsta
 	}
 }
 
-// ---- from adapters.go ----
 // ===========================================================================
 // durableExecutionAccess adapter — over durableexecution.DurableExecutionAccess. Only
 // the startup RegisterSchedule verb is consumed (the published ScheduleSpec resolves
@@ -939,7 +812,6 @@ func (a durableAdapter) RegisterSchedule(ctx context.Context, spec scheduleSpec)
 	)
 }
 
-// ---- from adapters.go ----
 // slaTierFromString resolves the Manager's raw string SLA-tier config (no typed config
 // source is wired yet — the operations Worker carries no policy config today) onto
 // intervention.SLATier. Kept as a genuine config -> engine-input builder (not an
@@ -956,7 +828,6 @@ func slaTierFromString(s string) intervention.SLATier {
 	}
 }
 
-// ---- from adapters.go ----
 // ===========================================================================
 // operationEstimationEngine — REAL divergence bridges. The workflow calls the
 // published operationestimation.OperationEstimationEngine.ProjectForOperatedApp
@@ -982,7 +853,6 @@ func infrastructureKindForEstimation(k autoscaler.InfrastructureKind) operatione
 	}
 }
 
-// ---- from adapters.go ----
 // moneyFromEstimation bridges operationestimation's own Money onto this package's
 // generated façade Money (contract.gen.go) — same shape today, but genuinely distinct
 // generated types (their JSON tags already diverge: MinorUnits/Currency here vs.
@@ -991,7 +861,6 @@ func moneyFromEstimation(m operationestimation.Money) Money {
 	return Money{MinorUnits: m.MinorUnits, Currency: m.Currency}
 }
 
-// ---- from workflow.go ----
 // This file holds the Workflows struct (the Manager's downstream dependency set),
 // the four workflow bodies + the delinquency-enforcement branch (the encapsulated
 // OperationsWorkflow volatility — operationsManager.md §6.3), the workflow-level
@@ -1114,7 +983,6 @@ const (
 // re-read→re-apply loop (§6.5).
 var raConflictErrType = fwmgr.RAErrType(fwra.Conflict)
 
-// ---- from workflow.go ----
 // observedUsageFromEvents aggregates the workflow's read usage.UsageEvent range into
 // operationEstimationEngine's published ObservedUsage input (ComputeUnitSeconds =
 // Σ Units.Amount, RequestCount = len(events)) — the real folding operation the former
@@ -1133,7 +1001,6 @@ func observedUsageFromEvents(events []usage.UsageEvent) operationestimation.Obse
 	}
 }
 
-// ---- from workflow.go ----
 // isConflict reports whether err is a head-state mutation's stale-version Conflict.
 func isConflict(err error) bool {
 	var appErr *temporal.ApplicationError
@@ -1143,7 +1010,6 @@ func isConflict(err error) bool {
 	return false
 }
 
-// ---- from workermanifest.go ----
 // ---------------------------------------------------------------------------
 // Registered workflow names (operationsManager.md §6.2). Stable — the deploy-time
 // continuity tokens the façade (operationsmanager.go) starts workflows under.

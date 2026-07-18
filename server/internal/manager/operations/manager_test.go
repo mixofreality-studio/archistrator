@@ -269,7 +269,6 @@ func Test_AutoscaleAction_String(t *testing.T) {
 	}
 }
 
-// ---- from workflow_test.go ----
 // =============================================================================
 // operationsManager workflow unit tests over the Temporal in-memory test environment
 // (testsuite.WorkflowTestSuite). Post-temporalgen migration: the ResourceAccess layer

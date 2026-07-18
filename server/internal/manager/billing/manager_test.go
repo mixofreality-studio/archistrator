@@ -231,7 +231,6 @@ func Test_GatewayIdempotencyKey(t *testing.T) {
 	}
 }
 
-// ---- from workflow_test.go ----
 // =============================================================================
 // billingManager workflow unit tests over the Temporal in-memory test environment
 // (testsuite.WorkflowTestSuite). Post-temporalgen migration: the ResourceAccess layer is

@@ -503,7 +503,6 @@ func isNotFound(err error) bool {
 
 var errNotFoundSentinel = errors.New("not found")
 
-// ---- from contract.go ----
 var _ ConstructionManager = (*constructionManager)(nil)
 
 // overrideKindName returns the canonical name for an override kind. Kept as a FREE
@@ -529,7 +528,6 @@ func overrideKindName(k OverrideKind) string {
 	return "Unknown"
 }
 
-// ---- from contract.go ----
 // ---------------------------------------------------------------------------
 // Façade error model (constructionManager.md §3.5).
 // CALLER/PROGRAMMER errors at the façade boundary — distinct from the workflow's
@@ -542,7 +540,6 @@ func newError(kind fwm.Kind, detail string) *fwm.Error {
 	return fwm.New(kind, detail)
 }
 
-// ---- from deps.go ----
 // deps.go declares the hand-written domain VALUE types the Manager's workflow
 // vocabulary uses. Per the founder DI model (2026-06-28) the constructionManager's
 // GENERATED constructor (contract.gen.go: NewConstructionManager) takes the
@@ -576,32 +573,13 @@ func newError(kind fwm.Kind, detail string) *fwm.Error {
 //   - the ResourceAccess ports are I/O and reached EXCLUSIVELY through the generated
 //     invoker surface (Acts — invokers.gen.go/activities.gen.go).
 
-// ===========================================================================
-// handOffEngine — RETIRED (Task 6). The workflow calls the published
-// handoff.HandOffEngine DIRECTLY (workflow.go), with fweng.Context{Context:
-// context.Background()} supplied inline at the call site. ActivityKind (5 values,
-// Unknown=0/DetailedDesign=1/Construction=2/Integration=3/Noncoding=4) and
-// WorkerClass (5 values, Unknown=0/AIWorker=1/HumanSeniorWorker=2/HumanJuniorWorker=3/
-// ArchitectOnly=4) are IDENTICAL, ordinal-for-ordinal, to the former Manager-local
-// activityKind/workerClass — substituted directly, no converter. HandOffPolicy is
-// likewise IDENTICAL (PreferAI, SeniorOnlyLayers) — substituted directly. The former
-// identity maps handoffActivityKind/managerWorkerClass (adapters.go) are deleted.
-//
-// activityKind.String() (used by gitnaming.go's PR body text) has no equivalent
-// method on the published handoff.ActivityKind (methods cannot be added to a type
-// from another package) — replaced by the free function activityKindName
-// (gitnaming.go), producing the IDENTICAL strings.
-//
-// workerClass.String() had no live caller (dead code) — retired with no replacement.
-// ===========================================================================
-
 // constructionActivity is the by-value activity snapshot the Manager's own workflow
 // vocabulary uses broadly (eligibility.go, gitforward.go, dispatch) — CRLabel/IsRevert
 // are the git-forward per-activity facts threaded into the PR open + the head-state
 // mirror, and Phases is the resolved per-activity phase profile; none of these ride
 // the handOffEngine call. Kind is typed DIRECTLY as the published handoff.ActivityKind
-// (identity substitution — see the retirement note above). At the one handOffEngine
-// call site (workflow.go), handoffActivityFromConstruction (adapters.go) narrows this
+// (no converter — the ordinal sets are identical). At the one handOffEngine call site
+// (workflow.go), handoffActivityFromConstruction (constructactivity.go) narrows this
 // broader struct onto the Engine's published handoff.ConstructionActivity — a REAL
 // (if now-trivial) projection, since constructionActivity carries strictly MORE fields
 // than the Engine needs, not an identity mirror to delete.
@@ -625,72 +603,6 @@ func (a constructionActivity) activityTypeName() string {
 }
 
 // ===========================================================================
-// interventionEngine — RETIRED (Task 6). The workflow calls the published
-// intervention.InterventionEngine DIRECTLY (workflow.go / signals.go), with
-// fweng.Context{Context: context.Background()} supplied inline at each call site. The
-// consumer-seam interface AND its local data mirrors (interventionMode + consts,
-// interventionPolicy, constructionVariance, varianceKind + consts, varianceDirective +
-// consts, pauseRequestContext, pausePlan) are retired:
-//
-//   - interventionMode/interventionPolicy were the Manager-local mirror
-//     constructionInterventionPolicy (adapters.go) ALSO returned alongside the real
-//     engPolicy (intervention.InterventionPolicy) fed to the retired interventionAdapter.
-//     Neither the mirror value nor its Mode/RetryBudget/SLATier fields were EVER read
-//     anywhere downstream (dead data threaded through wfDeps.InterventionPolicy) — the
-//     field survives, retyped DIRECTLY to intervention.InterventionPolicy (the value the
-//     retired adapter actually used), now genuinely read at each DecideOnVariance /
-//     ApplyPausePolicy call site (workflow.go / signals.go) since there is no more
-//     adapter closure to hold it.
-//   - constructionVariance's Detail/OperatorSourced fields were likewise write-only —
-//     populated at the single call site (workflow.go handleVariance) but never read by
-//     the former converter (interventionVarianceKind only touched Kind). The struct is
-//     retired outright; intervention.ConstructionVariance is now built inline at that
-//     call site from the still-live inputs (ActivityID, Kind, AttemptCount, Policy),
-//     preserving the historical adapter's ProjectID-from-ActivityID quirk verbatim.
-//   - varianceKind (5 values) had only ONE live call site (variancePipelineFailed); the
-//     other four consts were declared but never constructed anywhere (dead vocabulary).
-//     The former converter interventionVarianceKind was a genuine MANY-TO-ONE fold (5
-//     local values onto the published VarianceKind's 3), but since only
-//     variancePipelineFailed was ever exercised — folding onto intervention.WorkerMiss —
-//     the live call site substitutes intervention.WorkerMiss directly; the whole local
-//     type + converter retire together with no behavior change.
-//   - varianceDirective HAD an explicit directiveUnknown=0 zero-value sentinel the
-//     published intervention.VarianceDirective does NOT carry (VarianceRetry=0 is its
-//     zero value) — traced: the only place directiveUnknown could reach the workflow's
-//     switch was the retired adapter's own error path, which the caller already
-//     short-circuits on derr!=nil BEFORE the switch runs, so the switch's
-//     `case directiveUnknown` was unreachable dead code. The workflow's switch now
-//     matches {VarianceRetry, VarianceEscalate, VarianceTakeover} with a `default:`
-//     catch-all for the same non-retryable rejection (identical to operations'
-//     healthDirectiveUnknown retirement, Task 5).
-//   - pauseRequestContext/pausePlan mirrored only the FIELDS actually read
-//     (Reason/PipelinesToCancel/RecordPaused); NotifyTargets/ResumeHint were converted
-//     by the retired adapter but never consumed downstream (dead reads). Substituted
-//     directly with intervention.PauseRequestContext/PausePlan — PipelinesToCancel's
-//     published element type ([]PipelineRef, a named string) is cast to string at the
-//     one read site (signals.go), same as InFlightPipelines/ResumeHint simply staying
-//     unread (zero value, unchanged behavior).
-//
-// The former identity maps interventionVarianceKind/managerVarianceDirective
-// (adapters.go) are deleted; constructionInterventionPolicy (adapters.go) survives,
-// retyped to return ONLY intervention.InterventionPolicy (the manager-mirror second
-// return value dies with interventionPolicy).
-// ===========================================================================
-
-// ===========================================================================
-// reviewEngine — RETIRED (Task 6). The workflow calls the published
-// review.ReviewEngine DIRECTLY (workflow.go), with fweng.Context{Context:
-// context.Background()} supplied inline at the call site. reviewChange was an EXACT
-// 1:1 mirror of review.ReviewChange (ActivityID/ComponentID/ContentAddress,
-// identical) — substituted directly, no converter. ReviewSet/Reviewer (contract.gen.go,
-// this component's OWN generated public façade — off-limits) are NOT retired: they
-// are a REAL divergence from review.ReviewSet/Reviewer (Reviewer.ReferenceArtifact is
-// *string, optional, on the façade vs plain string on the Engine's own type), so the
-// former reviewAdapter's conversion body survives as the free function
-// reviewSetFromEngine (adapters.go).
-// ===========================================================================
-
-// ===========================================================================
 // constructionPipeline value vocabulary — the Manager's infrastructure-neutral
 // dispatch spec / handle / observation. The pipeline ops are GENERATED and reached
 // through the generated invoker surface (genInvokers.Pipeline*); these neutral types
@@ -698,20 +610,14 @@ func (a constructionActivity) activityTypeName() string {
 // contract constructionpipeline.PipelineSpec / PipelineHandle / PipelineObservation.
 // ===========================================================================
 
-// ---- from deps.go ----
 // pipelineHandle is the Manager's opaque handle.
 type pipelineHandle struct {
 	Name string
 }
 
-// ---- from adapters.go ----
 // ===========================================================================
-// interventionEngine — constructionInterventionPolicy is the ONE surviving
-// config→contract-type builder: it resolves the composition-root's raw
-// interventionMode STRING config (constructionmanager.go) onto the published
-// intervention.InterventionPolicy. There is no Manager-local InterventionPolicy mirror
-// left to build alongside it (deps.go) — the former second return value (the
-// Manager-mirror interventionPolicy) is retired; nothing downstream ever read it.
+// constructionInterventionPolicy resolves the composition-root's raw
+// interventionMode STRING config into the published intervention.InterventionPolicy.
 // ===========================================================================
 
 func constructionInterventionPolicy(mode string) intervention.InterventionPolicy {
@@ -723,14 +629,12 @@ func constructionInterventionPolicy(mode string) intervention.InterventionPolicy
 	}
 }
 
-// ---- from eligibility.go ----
 // eligibility.go holds the pump's PURE eligibility selection over committed head-state
 // (constructionManager.md §6.3 step 1) — the Manager's own workflow-side selection logic,
 // deterministic and replay-safe (called directly in-workflow via the injected
 // NextEligibleActivity helper). It was folded out of adapters.go so adapters.go carries
 // only the engine boundary adapters; none of this touches Temporal or any RA seam.
 
-// ---- from eligibility.go ----
 // nextEligibleActivity resolves the next eligible construction activity for a project
 // from its head-state. An activity is eligible iff it is NotStarted and every dep is
 // Done. Iteration is ActivityList declaration order with a name tie-break.
@@ -909,7 +813,6 @@ func hydrateConstructionActivity(activityID string, item projectstate.ActivityIt
 	}
 }
 
-// ---- from gitactivities.go ----
 // gitactivities.go held the CUSTOM per-activity git head-state Record Activities
 // (branch-open / CI-observed / arch-approved / merged / started / completed). B8
 // (custom activities → generated, clean cut) migrated all six onto the GENERATED
@@ -952,7 +855,6 @@ func (c railCredEnvelope) toProjectState() projectstate.RepoCredential {
 	return projectstate.RepoCredential{Bytes: c.Bytes, ExpiresAt: c.ExpiresAt}
 }
 
-// ---- from gitnaming.go ----
 // ---------------------------------------------------------------------------
 // git Activity option presets (constructionManager.md §6.4 pattern). Concrete
 // RetryPolicy / timeout choices live here, in the Manager.
@@ -991,7 +893,6 @@ func railActivityOptions() workflow.ActivityOptions {
 	}
 }
 
-// ---- from workflow.go ----
 // wfDeps bundles every downstream dependency the constructionManager orchestrates,
 // assembled by WorkerManifest (workermanifest.go) from the Manager's stored PUBLISHED
 // deps and held on the workflows struct. The three Engines are typed as their
@@ -1082,13 +983,11 @@ func newWorkflows(d wfDeps) *workflows {
 	}
 }
 
-// ---- from workflow.go ----
 // Bounds (in-workflow guards; NOT contract surface).
 // maxMutateConflictAttempts bounds the workflow-level Conflict re-read→re-apply
 // loop (§6.5).
 const maxMutateConflictAttempts = 20
 
-// ---- from workflow.go ----
 // ---------------------------------------------------------------------------
 // Activity option presets (constructionManager.md §6.4). Concrete RetryPolicy /
 // timeout choices live here, in the Manager.
@@ -1097,10 +996,9 @@ const maxMutateConflictAttempts = 20
 // readProjectActivityOptions is the read preset VALUE (10s; NotFound+ContractMisuse
 // terminal) the manifest's Opts hook (workermanifest.go) applies to the two GENERATED
 // read invokers the workflows consume — "projectStateAccess.readProjectVersion" and
-// "designSessionAccess.readProjectOnBranch" (the whole-aggregate read, B8 follow-up) —
-// reproducing the identical pre-migration readProjectOpts preset for both. NotFound
-// stays terminal so a brand-new project's read fails fast into the pump's quiet-tick
-// handling (isReadNotFound) instead of retrying.
+// "designSessionAccess.readProjectOnBranch" (the whole-aggregate read) — identically
+// for both. NotFound stays terminal so a brand-new project's read fails fast into the
+// pump's quiet-tick handling (isReadNotFound) instead of retrying.
 func readProjectActivityOptions() workflow.ActivityOptions {
 	return workflow.ActivityOptions{
 		StartToCloseTimeout: 10 * time.Second,
@@ -1113,11 +1011,10 @@ func readProjectActivityOptions() workflow.ActivityOptions {
 	}
 }
 
-// ---- from workflow.go ----
 // submitPipelineActivityOptions / observePipelineActivityOptions are the pipeline preset
 // VALUES the manifest's Opts hook (workermanifest.go) applies to the GENERATED pipeline
-// invokers by registered name — reproducing the pre-migration per-call-site presets
-// exactly (submit 60s Auth/ContractMisuse-terminal; observe/cancel 30s NotFound/Auth-terminal).
+// invokers by registered name (submit 60s Auth/ContractMisuse-terminal;
+// observe/cancel 30s NotFound/Auth-terminal).
 func submitPipelineActivityOptions() workflow.ActivityOptions {
 	return workflow.ActivityOptions{
 		StartToCloseTimeout: 60 * time.Second,
@@ -1130,7 +1027,6 @@ func submitPipelineActivityOptions() workflow.ActivityOptions {
 	}
 }
 
-// ---- from workflow.go ----
 func observePipelineActivityOptions() workflow.ActivityOptions {
 	return workflow.ActivityOptions{
 		StartToCloseTimeout: 30 * time.Second,
@@ -1143,15 +1039,12 @@ func observePipelineActivityOptions() workflow.ActivityOptions {
 	}
 }
 
-// ---- from workflow.go ----
 // recordActivityOptions is the head-state Record-verb preset VALUE (10s; ContractMisuse
 // terminal only — Conflict must reach the workflow so the §6.5 re-read→re-apply loop can
 // recover it) the manifest's Opts hook (workermanifest.go) applies to the GENERATED
 // constructionTransitionAccess / gitActivityStatusAccess Record* invokers by registered
-// name — reproducing the pre-migration (B8) recordOpts preset exactly. Unlike
-// readProjectActivityOptions, there is no remaining direct-ExecuteActivity call site for
-// this preset (every Record* verb now goes through the generated invoker surface), so
-// only the VALUE form survives.
+// name. Every Record* verb goes through the generated invoker surface, so only the
+// VALUE form is needed (no direct-ExecuteActivity call site for this preset).
 func recordActivityOptions() workflow.ActivityOptions {
 	return workflow.ActivityOptions{
 		StartToCloseTimeout: 10 * time.Second,
@@ -1163,18 +1056,15 @@ func recordActivityOptions() workflow.ActivityOptions {
 	}
 }
 
-// ---- from workflow.go ----
 // raConflictErrType is the canonical Temporal Type() a head-state mutation Activity
 // surfaces when expectedVersion is stale; the workflow recovers with the bounded
 // re-read→re-apply loop (§6.5).
 var raConflictErrType = fwm.RAErrType(fwra.Conflict)
 
-// ---- from workflow.go ----
 // raNotFoundErrType is the canonical Temporal Type() ReadProject surfaces for a
 // brand-new project (no row yet).
 var raNotFoundErrType = fwm.RAErrType(fwra.NotFound)
 
-// ---- from workflow.go ----
 // constructState is the live technical state backing the sessionState Query.
 type constructState struct {
 	projectID     ProjectID
@@ -1216,7 +1106,6 @@ func (s *constructState) view() (ConstructionSessionView, error) {
 	}, nil
 }
 
-// ---- from workflow.go ----
 // isConflict reports whether err is a head-state mutation's stale-version Conflict.
 func isConflict(err error) bool {
 	var appErr *temporal.ApplicationError
@@ -1226,7 +1115,6 @@ func isConflict(err error) bool {
 	return false
 }
 
-// ---- from workflow.go ----
 // isReadNotFound reports whether err is ReadProject's "no row yet" NotFound.
 func isReadNotFound(err error) bool {
 	var appErr *temporal.ApplicationError
@@ -1236,7 +1124,6 @@ func isReadNotFound(err error) bool {
 	return false
 }
 
-// ---- from signals.go ----
 // operatorPauseSignal is the operatorPauseRequested payload (constructionManager.md
 // §2.3). The Reason rides on the signal and is safe to log.
 type operatorPauseSignal struct {
@@ -1244,7 +1131,6 @@ type operatorPauseSignal struct {
 	Reason    string
 }
 
-// ---- from workermanifest.go ----
 // workermanifest.go is the hand-written bridge between the generated Temporal layer
 // (activities.gen.go / invokers.gen.go / worker.gen.go) and the constructionManager
 // impl. It supplies the genWorkerManifest RegisterWorker consumes: the four workflow
@@ -1270,7 +1156,6 @@ type operatorPauseSignal struct {
 // (deterministic, by value) and are NOT Activities; the durableExecutionAccess in-workflow
 // primitives (awaitSignal / startTimer / executeChild) are the Manager's own code.
 
-// ---- from workermanifest.go ----
 // Signal and query names (constructionManager.md §6.1/§6.2).
 const (
 	// signalOperatorPauseRequested resumes a suspended construction execution at
@@ -1306,9 +1191,7 @@ const (
 // activityOptions returns the option-preset hook the generated invokers consult for the
 // contract-backed RA Activities. A name with no entry falls back to the generated
 // default (invokers.gen.go). Keyed by the generated registered activity name
-// (<componentKey>.<opName>); the concrete presets reproduce the pre-migration
-// per-call-site choices exactly, including the 14 head-state Record*/read presets B8
-// (+ follow-up) moved here from the retired workflow.ExecuteActivity call sites
+// (<componentKey>.<opName>), including the 14 head-state Record*/read presets
 // (recordOpts / readProjectOpts's VALUE forms — recordActivityOptions /
 // readProjectActivityOptions, workflow.go).
 func activityOptions() func(activityName string) (workflow.ActivityOptions, bool) {

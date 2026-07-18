@@ -1250,11 +1250,9 @@ func (wf *workflows) handleVariance(
 ) (bool, error) {
 	state.variance = &FlaggedVariance{ProjectID: in.ProjectID, ActivityID: in.ActivityID, Summary: detail}
 
-	// NOTE: ProjectID is fed from in.ActivityID, not in.ProjectID — this mirrors the
-	// retired interventionAdapter's historical behavior verbatim (zero behavior change;
-	// deps.go's interventionEngine retirement note). Detail/OperatorSourced (the retired
-	// constructionVariance struct's other fields) were write-only under the old adapter —
-	// never forwarded to the Engine — so they are simply not carried here.
+	// NOTE: ProjectID is deliberately fed from in.ActivityID, not in.ProjectID — do
+	// not "fix" this to in.ProjectID; the intervention Engine's ConstructionVariance
+	// only ever carried this value from ActivityID.
 	directive, derr := wf.Intervention.DecideOnVariance(fweng.Context{Context: context.Background()}, intervention.ConstructionVariance{
 		ProjectID:    intervention.ProjectID(in.ActivityID),
 		ActivityID:   intervention.ActivityID(in.ActivityID),
@@ -1298,8 +1296,8 @@ func (wf *workflows) handleVariance(
 	default:
 		// intervention.VarianceDirective has no Unknown sentinel (VarianceRetry is its
 		// zero value) — any value outside {VarianceRetry, VarianceTakeover,
-		// VarianceEscalate} is an unrecognized engine decision, same non-retryable
-		// rejection as before (deps.go's interventionEngine retirement note).
+		// VarianceEscalate} is an unrecognized engine decision, rejected as a
+		// non-retryable error.
 		return false, temporal.NewNonRetryableApplicationError(
 			"intervention returned an unknown directive", "UnknownDirective", nil)
 	}
