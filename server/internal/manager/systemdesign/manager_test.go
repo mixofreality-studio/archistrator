@@ -3461,7 +3461,7 @@ func TestOpenReviewCommentIDs_ExcludesQuestions(t *testing.T) {
 		{ID: "q1", Status: projectstate.ReviewCommentOpen, Type: projectstate.ReviewCommentTypeQuestion},      // does NOT block
 		{ID: "c3", Status: projectstate.ReviewCommentAddressed},                                               // addressed → does not block
 	}
-	got := openReviewCommentIDs(thread)
+	got := projectstate.OpenReviewCommentIDs(thread)
 	if len(got) != 2 || got[0] != "c1" || got[1] != "c2" {
 		t.Fatalf("approve blocker set must be exactly the open change-requests [c1 c2], got %v", got)
 	}
@@ -6903,18 +6903,18 @@ func Test_CoAuthor_Rail_Amendment_Advanced_OpensPR_Merges(t *testing.T) {
 // yet is still an amendment (index 1). Non-committed slots are the normal path (0).
 func Test_amendmentIndexFor_Rule(t *testing.T) {
 	// Pre-field committed slot (the observed gtdapp glossary case): Revisions 0 → index 1.
-	if got := amendmentIndexFor(projectstate.ArtifactSlot{Status: projectstate.ReviewCommitted, Revisions: 0}); got != 1 {
+	if got := projectstate.AmendmentIndexFor(projectstate.ArtifactSlot{Status: projectstate.ReviewCommitted, Revisions: 0}); got != 1 {
 		t.Fatalf("pre-field committed slot must yield amendment index 1, got %d", got)
 	}
 	// A committed slot with a real revision count returns it.
-	if got := amendmentIndexFor(projectstate.ArtifactSlot{Status: projectstate.ReviewCommitted, Revisions: 3}); got != 3 {
+	if got := projectstate.AmendmentIndexFor(projectstate.ArtifactSlot{Status: projectstate.ReviewCommitted, Revisions: 3}); got != 3 {
 		t.Fatalf("committed slot at revision 3 must yield amendment index 3, got %d", got)
 	}
 	// Non-committed slots are NOT amendments regardless of any stray Revisions value.
 	for _, st := range []projectstate.ArtifactReviewStatus{
 		projectstate.ReviewNone, projectstate.ReviewAwaitingReview, projectstate.ReviewRejected, projectstate.ReviewWithdrawn,
 	} {
-		if got := amendmentIndexFor(projectstate.ArtifactSlot{Status: st, Revisions: 5}); got != 0 {
+		if got := projectstate.AmendmentIndexFor(projectstate.ArtifactSlot{Status: st, Revisions: 5}); got != 0 {
 			t.Fatalf("non-committed slot (status %d) must yield amendment index 0, got %d", st, got)
 		}
 	}
@@ -6972,7 +6972,7 @@ func Test_CoAuthor_Rail_Amendment_PreFieldCommittedSlot_AmendBranch_Prompt_SeedF
 	base := &fakeProjectState{project: proj}
 
 	// The index the manager WOULD compute for this pre-field slot must be 1 (not 0).
-	if got := amendmentIndexFor(proj.SystemDesign); got != 1 {
+	if got := projectstate.AmendmentIndexFor(proj.SystemDesign); got != 1 {
 		t.Fatalf("a pre-field committed slot must compute amendment index 1, got %d", got)
 	}
 
@@ -6996,7 +6996,7 @@ func Test_CoAuthor_Rail_Amendment_PreFieldCommittedSlot_AmendBranch_Prompt_SeedF
 	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{
 		ProjectID:    id,
 		ArtifactKind: KindSystem,
-		Amendment:    amendmentIndexFor(proj.SystemDesign),
+		Amendment:    projectstate.AmendmentIndexFor(proj.SystemDesign),
 		Feedback:     &ReviewFeedback{Comments: []AnchoredComment{{JSONPath: "$.components[0].name", Text: "rename this manager"}}},
 	})
 

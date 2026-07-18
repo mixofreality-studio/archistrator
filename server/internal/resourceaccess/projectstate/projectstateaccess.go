@@ -23,6 +23,7 @@ package projectstate
 // infrastructure plumbing, not a ResourceAccess.
 
 import (
+	"bytes"
 	"context"
 	"encoding/base32"
 	"encoding/json"
@@ -3022,6 +3023,114 @@ func (e ModelEnvelope) Decode() (ArtifactModel, error) {
 		sol.SlotKind = e.Kind
 	}
 	return model, nil
+}
+
+// SameArtifactModel reports whether two typed models are byte-identical in their
+// canonical JSON form. Go marshals a given concrete struct deterministically (field
+// order is declaration order; map keys are sorted), so this is a stable, replay-safe
+// value comparison the workflow goroutine may call directly (no I/O). Used by the
+// amendment no-change guard: when an amendment session's branch read-back is identical
+// to the committed main model, the draft advanced the branch by nothing, so there is
+// no change to review or merge and the session must land at the failed gate rather than
+// 422 on an effectively-empty PR.
+//
+// PROMOTED CO-AUTHOR HELPER (code-health-phase-bd task D3): moved down from the
+// near-duplicate coauthorartifact.go/coauthorphase2artifact.go the systemdesign and
+// projectdesign Managers each carried, same category as the ModelEnvelope codec above.
+func SameArtifactModel(a, b ArtifactModel) (bool, error) {
+	ea, err := EncodeModel(a)
+	if err != nil {
+		return false, err
+	}
+	eb, err := EncodeModel(b)
+	if err != nil {
+		return false, err
+	}
+	return bytes.Equal(ea.Model, eb.Model), nil
+}
+
+// AmendmentNoChangeReason renders the human "why" for the StageDraftFailed screen when
+// an amendment session's draft committed nothing that changed the artifact — the branch
+// read-back is byte-identical to the committed main model, so there is no advancement to
+// open a PR on (opening one would 422 "no commits between base and head"). A Retry
+// re-runs the amendment; a Withdraw abandons it.
+//
+// PROMOTED CO-AUTHOR HELPER (code-health-phase-bd task D3): see SameArtifactModel above.
+func AmendmentNoChangeReason() string {
+	return "the amendment draft committed no changes to the artifact — there is nothing to review or merge — retry or withdraw"
+}
+
+// ReadBackDecodeFailedReason renders the human "why" for the StageDraftFailed screen when
+// the committed draft READS BACK MALFORMED (QA F36): the CI validate went GREEN (its Go
+// mirror types the offending enum as a free string) but the server codec rejects the value
+// on read-back (a closed-enum field carrying free prose). It frames it distinctly from a
+// CI failure and carries the decode diagnostic so a Retry redrafts with full visibility.
+//
+// PROMOTED CO-AUTHOR HELPER (code-health-phase-bd task D3): see SameArtifactModel above.
+func ReadBackDecodeFailedReason(decodeMsg string) string {
+	if strings.TrimSpace(decodeMsg) == "" {
+		return "the committed draft could not be read back — its typed shape is invalid — retry or withdraw"
+	}
+	return "the committed draft could not be read back — its typed shape is invalid: " + decodeMsg + " — retry or withdraw"
+}
+
+// OpenReviewCommentIDs returns the ids of every OPEN CHANGE-REQUEST — the comments that
+// gate approve (review-ledger §4). Open QUESTIONS never gate (question-comments §approve),
+// so they are excluded. Empty ⇒ approve is unblocked.
+//
+// PROMOTED CO-AUTHOR HELPER (code-health-phase-bd task D3): see SameArtifactModel above.
+func OpenReviewCommentIDs(thread []ReviewComment) []string {
+	var ids []string
+	for _, c := range thread {
+		if ReviewCommentBlocksApprove(c) {
+			ids = append(ids, c.ID)
+		}
+	}
+	return ids
+}
+
+// AmendmentIndexFor derives the amendment index (revision number) a fresh reopening of a
+// COMMITTED artifact slot should carry (the review-ledger SEED of the reopening
+// feedback). It keys off THE AMENDMENT CONDITION — the slot is COMMITTED — NOT off any
+// Revisions magnitude. A committed slot is an amendment even when its Revisions reads 0
+// (a slot committed BEFORE the Revisions field existed): the floor of 1 guarantees every
+// committed slot yields an index >= 1, so a workflow's Amendment>0 checks are a faithful
+// proxy for "committed at request time." A non-committed slot
+// (drafting/awaiting/rejected/withdrawn/none) returns 0 — the normal (non-amendment) path.
+//
+// PROMOTED CO-AUTHOR HELPER (code-health-phase-bd task D3): see SameArtifactModel above.
+func AmendmentIndexFor(slot ArtifactSlot) int {
+	if slot.Status != ReviewCommitted {
+		return 0
+	}
+	if slot.Revisions < 1 {
+		return 1 // pre-field committed slot: grandfathered to revision 1
+	}
+	return int(slot.Revisions)
+}
+
+// DesignBranch derives the ONE persistent design SESSION branch per artifact review
+// session (F40 founder ruling 2026-07-05: "we should be committing to the same branch,
+// and improving that, until it merges. not a pr per draft. i want the history of changes
+// in git."). ALL jobs of a session commit here sequentially — the initial draft, the
+// PM/architect critique, and every redraft — and ONE PR (opened once, idempotent on head)
+// merges it on approve. The name is deterministic from project + kind, so within a
+// session it is STABLE across every redraft/reject round (no per-attempt suffix — the F32
+// branch-per-attempt topology is unwound; the stale-base problem it solved is now handled
+// by the workflow template's refresh-from-main git step).
+//
+// amendment > 0 selects a FRESH branch for an AMENDMENT session (F38): reopening a
+// COMMITTED artifact starts session v2+ whose v1 branch/PR already merged (and may be
+// deleted), so it cannot be reused. The "-amend-N" suffix is the only place the attempt
+// counter survives, and only for amendments.
+//
+// PROMOTED CO-AUTHOR HELPER (code-health-phase-bd task D3): see SameArtifactModel above.
+func DesignBranch(projectID ProjectID, kind ArtifactKind, amendment int) string {
+	base := fmt.Sprintf("aiarch-design/%s/%d", projectID, int(kind))
+	if amendment > 0 {
+		return fmt.Sprintf("%s-amend-%d", base, amendment)
+	}
+	return base
 }
 
 // SlotEnvelope is the wire form of one Project slot across a Temporal boundary: the

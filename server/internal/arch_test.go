@@ -386,6 +386,27 @@ var encapsulationAllowlistData = map[string][]string{
 		"EncodeModel",
 		"EncodeProject",
 		"EncodeProjectJSON",
+		// PROMOTED CO-AUTHOR HELPERS (code-health-phase-bd task D3): the PURE reason/label
+		// formatters, review-ledger predicate, and rail resolvers the two design Managers
+		// (systemdesign, projectdesign) each carried as byte-identical duplicates, promoted
+		// here per the SAME PROMOTED-CODEC precedent as EncodeModel above. The
+		// git-rail/session/dispatch/recovery workflow ORCHESTRATION stays per-manager (Temporal
+		// lives only in the Manager layer; workflow.Context funcs are forbidden outside
+		// Manager) — only helpers with no Temporal SDK dependency, no RA→RA sideways
+		// dependency, and no per-manager generated-type param were promotable. designRepoTarget
+		// stays per-manager (it needs sibling RAs constructionpipeline/sourcecontrol — a
+		// forbidden RA→RA sideways import); dispatchErrSummary and its 4 dependents stay
+		// per-manager (they need go.temporal.io/sdk/temporal.ApplicationError); and
+		// designArchApprovalBody/openReviewCommentViewIDs/checkCommentTransition/
+		// reviewThreadToView stay per-manager (they traffic in each Manager's own generated
+		// ArtifactKind/ReviewCommentView contract types). Consumed downward by both Managers
+		// (a normal RA→Manager layer edge, same category as the codec above).
+		"AmendmentIndexFor",
+		"AmendmentNoChangeReason",
+		"DesignBranch",
+		"OpenReviewCommentIDs",
+		"ReadBackDecodeFailedReason",
+		"SameArtifactModel",
 		"Error",
 		"GitActivityStatusAccess",
 		"GitStore",

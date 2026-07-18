@@ -171,24 +171,12 @@ func newProjectDesignManager(
 // so a raw API/MCP caller cannot draft out of order (the CoAuthorPhase2ArtifactWorkflow
 // itself never gated ordering; it drafts immediately). The first Phase-2 kind
 // (planningAssumptions) has no Phase-2 predecessor.
-// amendmentIndexFor returns the AMENDMENT index for a draft request against slot: the count
-// of prior commits, used as the …-amend-N branch suffix and the "revision N" prompt framing,
-// and the signal that gates the amendment path (fresh -amend-N branch, amendment prompt, and
-// review-ledger SEED of the reopening feedback). It keys off THE AMENDMENT CONDITION — the
-// slot is COMMITTED — NOT off any Revisions magnitude. A committed slot is an amendment even
-// when its Revisions reads 0 (a slot committed BEFORE the Revisions field existed): the floor
-// of 1 guarantees every committed slot yields an index >= 1, so the workflow's Amendment>0
-// checks are a faithful proxy for "committed at request time." A non-committed slot
-// (drafting/awaiting/rejected/withdrawn/none) returns 0 — the normal (non-amendment) path.
-func amendmentIndexFor(slot projectstate.ArtifactSlot) int {
-	if slot.Status != projectstate.ReviewCommitted {
-		return 0
-	}
-	if slot.Revisions < 1 {
-		return 1 // pre-field committed slot: grandfathered to revision 1
-	}
-	return int(slot.Revisions)
-}
+// amendmentIndexFor PROMOTED to projectstate.AmendmentIndexFor (code-health-phase-bd task
+// D3) — byte-identical pure resolver, no longer duplicated with systemdesign's twin. It
+// returns the AMENDMENT index for a draft request against slot: the count of prior
+// commits, used as the …-amend-N branch suffix and the "revision N" prompt framing, and
+// the signal that gates the amendment path (fresh -amend-N branch, amendment prompt, and
+// review-ledger SEED of the reopening feedback).
 
 func (m *projectDesignManager) RequestArtifactDraft(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind, feedback *ReviewFeedback) (SessionRef, error) {
 	ctx := rc.Context
@@ -215,7 +203,7 @@ func (m *projectDesignManager) RequestArtifactDraft(rc fwmanager.Context, projec
 	// A non-committed slot keeps today's behavior (active session redraft / fresh draft).
 	amendment := 0
 	if proj, rerr := m.projectState.ReadProject(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID)); rerr == nil {
-		amendment = amendmentIndexFor(slotFor(proj, toPSKind(kind)))
+		amendment = projectstate.AmendmentIndexFor(slotFor(proj, toPSKind(kind)))
 	}
 
 	wfID := coAuthorWorkflowID(projectID, kind)
@@ -1383,7 +1371,7 @@ func (m *projectDesignManager) resolveQuestionBranch(rc fwmanager.Context, proje
 	if err != nil {
 		return ""
 	}
-	return designBranch(projectID, kind, amendmentIndexFor(slotFor(proj, toPSKind(kind))))
+	return projectstate.DesignBranch(projectstate.ProjectID(projectID), toPSKind(kind), projectstate.AmendmentIndexFor(slotFor(proj, toPSKind(kind))))
 }
 
 // readProjectMaybeBranch reads the head-state aggregate from the given branch: the
@@ -1582,6 +1570,12 @@ const pipelineDefaultToolchain = "go-1.23"
 // falls back to the configured construction repo); a malformed ref surfaces the RA's
 // ContractMisuse. Uses sourcecontrol's own OwnerRepo accessor so the RepoRef encoding
 // stays owned by sourceControlAccess (no encoding leak here).
+//
+// NOT promotable to projectstate (code-health-phase-bd task D3 verification): it needs
+// constructionpipeline.RepoTarget + sourcecontrol.RepoRefOwnerRepo/RepoRefFromString —
+// both sibling ResourceAccess packages, and TestMethodLayering forbids RA→RA sideways
+// imports (the RA-layer analog of "no Manager→Manager sideways"). Stays duplicated
+// per-manager alongside designBranch's twin.
 func designRepoTarget(repoRef string) (constructionpipeline.RepoTarget, error) {
 	if repoRef == "" {
 		return constructionpipeline.RepoTarget{}, nil
@@ -1592,6 +1586,9 @@ func designRepoTarget(repoRef string) (constructionpipeline.RepoTarget, error) {
 	}
 	return constructionpipeline.RepoTarget{Owner: owner, Name: name}, nil
 }
+
+// designBranch PROMOTED to projectstate.DesignBranch (code-health-phase-bd task D3) —
+// byte-identical pure resolver, no longer duplicated with systemdesign's twin.
 
 // ===========================================================================
 // Dispatch inputs (C-WF-DESIGN workflow_dispatch schema). These exact key names are
@@ -1609,22 +1606,6 @@ const (
 	dispatchInputTargetBranch  = "target_branch"
 	dispatchInputPriorStateRef = "prior_state_ref"
 )
-
-// designBranch derives the ONE persistent design SESSION branch per Phase-2 artifact
-// review session (F40 founder ruling 2026-07-05: commit to the same branch until it
-// merges; the history of changes lives in git). ALL jobs of a session commit here — the
-// initial draft and every redraft — and ONE PR (opened once, idempotent on head) merges
-// it on approve. STABLE across every redraft/reject round (no per-attempt suffix; the F32
-// branch-per-attempt topology is unwound, the stale-base problem now handled by the
-// workflow template's refresh-from-main git step). amendment > 0 selects a FRESH branch
-// for an AMENDMENT session (F38) whose v1 branch/PR already merged.
-func designBranch(projectID ProjectID, kind ArtifactKind, amendment int) string {
-	base := fmt.Sprintf("aiarch-design/%s/%d", projectID, int(kind))
-	if amendment > 0 {
-		return fmt.Sprintf("%s-amend-%d", base, amendment)
-	}
-	return base
-}
 
 // dispatchActivityOptions is the option preset for the generated
 // constructionPipelineAccess.submitConstructionPipeline Activity (consumed by the

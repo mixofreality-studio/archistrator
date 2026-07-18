@@ -1,7 +1,6 @@
 package projectdesign
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"strings"
@@ -391,7 +390,7 @@ func (wf *workflows) amendmentNoChangeGate(
 	if in.Amendment == 0 {
 		return coAuthorProceed, coAuthorUnknown, nil
 	}
-	unchanged, cmpErr := sameArtifactModel(branchModel, slotFor(proj, toPSKind(in.ArtifactKind)).Model)
+	unchanged, cmpErr := projectstate.SameArtifactModel(branchModel, slotFor(proj, toPSKind(in.ArtifactKind)).Model)
 	if cmpErr != nil {
 		return coAuthorProceed, coAuthorUnknown, fwmanager.MapError(cmpErr)
 	}
@@ -399,7 +398,7 @@ func (wf *workflows) amendmentNoChangeGate(
 		return coAuthorProceed, coAuthorUnknown, nil
 	}
 	workflow.GetLogger(ctx).Warn("amendment draft committed no change to the artifact; entering StageDraftFailed")
-	outcome, retry, recErr := wf.awaitDraftFailedRecovery(ctx, in.ProjectID, in.ArtifactKind, headVersion, amendmentNoChangeReason(), state, feedback)
+	outcome, retry, recErr := wf.awaitDraftFailedRecovery(ctx, in.ProjectID, in.ArtifactKind, headVersion, projectstate.AmendmentNoChangeReason(), state, feedback)
 	if recErr != nil {
 		return coAuthorProceed, coAuthorUnknown, recErr
 	}
@@ -525,7 +524,7 @@ func (wf *workflows) dispatchDraftAndReadBack(
 			// The committed draft DECODES MALFORMED (QA F36) — a terminal fault retry cannot fix.
 			// Land at the StageDraftFailed gate carrying the decode diagnostic.
 			logger.Warn("Phase-2 read-back decoded MALFORMED committed state; entering StageDraftFailed", "error", decodeMsg)
-			step, outcome, err := wf.containAtFailedGate(ctx, in, *headVersion, readBackDecodeFailedReason(decodeMsg), state, feedback, redraftCount)
+			step, outcome, err := wf.containAtFailedGate(ctx, in, *headVersion, projectstate.ReadBackDecodeFailedReason(decodeMsg), state, feedback, redraftCount)
 			return nil, 0, step, outcome, err
 		}
 		return nil, 0, coAuthorProceed, coAuthorUnknown, rbErr
@@ -556,7 +555,7 @@ func (wf *workflows) coAuthorDraftRound(
 	// The ONE persistent SESSION BRANCH the Action drafts + commits + opens its PR on (F40).
 	// STABLE across every redraft/reject round of this session; a fresh amendment session
 	// selects a new branch via in.Amendment. Inert (just a string) when the rail is dormant.
-	sessionBranch := designBranch(in.ProjectID, in.ArtifactKind, in.Amendment)
+	sessionBranch := projectstate.DesignBranch(projectstate.ProjectID(in.ProjectID), toPSKind(in.ArtifactKind), in.Amendment)
 
 	// RESUME CHECKPOINT (F35 twin): consume the marker. When set, a PRIOR attempt of THIS
 	// session already committed the draft on the branch and then faulted at a POST-read-back
@@ -742,7 +741,7 @@ func (wf *workflows) coAuthorApplyDecision(
 		// REVIEW LEDGER (review-ledger §4): approve is blocked while any comment is still open.
 		// The manager precondition rejects this synchronously; this is the TOCTOU-safe backstop.
 		// Re-suspend at the gate; the reviewer sees the open comments in the queryable thread.
-		if open := openReviewCommentIDs(state.reviewThread); len(open) > 0 {
+		if open := projectstate.OpenReviewCommentIDs(state.reviewThread); len(open) > 0 {
 			return coAuthorReAwait, coAuthorUnknown, nil
 		}
 		return wf.coAuthorApprove(ctx, in, gf, headVersion, redraftCount, feedback, state, sig.Approver)
@@ -1122,25 +1121,10 @@ func draftFailedReason(diagnostic string) string {
 	return "the Phase-2 design job failed in CI: " + diagnostic + " — retry or withdraw"
 }
 
-// readBackDecodeFailedReason renders the human "why" for the StageDraftFailed screen when
-// the committed draft READS BACK MALFORMED (QA F36): CI validate went green (its Go mirror
-// types the offending enum as a free string) but the server codec rejects the value on
-// read-back. It carries the decode diagnostic so a Retry redrafts with full visibility.
-func readBackDecodeFailedReason(decodeMsg string) string {
-	if strings.TrimSpace(decodeMsg) == "" {
-		return "the committed draft could not be read back — its typed shape is invalid — retry or withdraw"
-	}
-	return "the committed draft could not be read back — its typed shape is invalid: " + decodeMsg + " — retry or withdraw"
-}
-
-// amendmentNoChangeReason renders the human "why" for the StageDraftFailed screen when
-// an amendment session's draft committed nothing that changed the artifact — the branch
-// read-back is byte-identical to the committed main model, so there is no advancement to
-// open a PR on (opening one would 422 "no commits between base and head"). A Retry
-// re-runs the amendment; a Withdraw abandons it.
-func amendmentNoChangeReason() string {
-	return "the amendment draft committed no changes to the artifact — there is nothing to review or merge — retry or withdraw"
-}
+// readBackDecodeFailedReason / amendmentNoChangeReason PROMOTED to
+// projectstate.ReadBackDecodeFailedReason / projectstate.AmendmentNoChangeReason
+// (code-health-phase-bd task D3) — byte-identical pure formatters, no longer duplicated
+// with systemdesign's twin.
 
 // mergeRedraftFeedback merges the request feedback (from a RequestArtifactDraft redraft signal)
 // with any gate-retained feedback (F47). The request WINS: its Notes are APPENDED after the
@@ -1922,18 +1906,9 @@ func feedbackToLedgerComments(feedback *ReviewFeedback) []projectstate.ReviewCom
 	return out
 }
 
-// openReviewCommentIDs returns the ids of every OPEN CHANGE-REQUEST — the comments that gate
-// approve (review-ledger §4). Open QUESTIONS never gate (question-comments §approve). Empty
-// ⇒ approve is unblocked.
-func openReviewCommentIDs(thread []projectstate.ReviewComment) []string {
-	var ids []string
-	for _, c := range thread {
-		if projectstate.ReviewCommentBlocksApprove(c) {
-			ids = append(ids, c.ID)
-		}
-	}
-	return ids
-}
+// openReviewCommentIDs PROMOTED to projectstate.OpenReviewCommentIDs
+// (code-health-phase-bd task D3) — byte-identical pure predicate, no longer duplicated
+// with systemdesign's twin.
 
 // seedAmendmentLedger records the reopening feedback as round-0 OPEN ledger entries on the
 // amendment session branch after the first stage, then reloads the in-memory thread.
@@ -2031,22 +2006,6 @@ func (wf *workflows) applyCommentStatus(ctx workflow.Context, in coAuthorInput, 
 	}
 }
 
-// sameArtifactModel reports whether two typed models are byte-identical in their
-// canonical JSON form. Go marshals a given concrete struct deterministically (field
-// order is declaration order; map keys are sorted), so this is a stable, replay-safe
-// value comparison the workflow goroutine may call directly (no I/O). Used by the
-// amendment no-change guard: when an amendment session's branch read-back is identical
-// to the committed main model, the draft advanced the branch by nothing, so there is
-// no change to review or merge and the session must land at the failed gate rather than
-// 422 on an effectively-empty PR.
-func sameArtifactModel(a, b projectstate.ArtifactModel) (bool, error) {
-	ea, err := encodeModel(a)
-	if err != nil {
-		return false, err
-	}
-	eb, err := encodeModel(b)
-	if err != nil {
-		return false, err
-	}
-	return bytes.Equal(ea.Model, eb.Model), nil
-}
+// sameArtifactModel PROMOTED to projectstate.SameArtifactModel
+// (code-health-phase-bd task D3) — byte-identical pure comparator, no longer duplicated
+// with systemdesign's twin.
