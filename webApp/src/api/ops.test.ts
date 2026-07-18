@@ -196,10 +196,10 @@ void test('rest impl maps a non-2xx response to ApiError via toApiError', async 
   );
 });
 
-test('mcp impl unwraps the generated single-result envelope to match REST (F-T11-4)', async () => {
+void test('mcp impl unwraps the generated single-result envelope to match REST (F-T11-4)', async () => {
   const calls: unknown[] = [];
   const app = {
-    callServerTool: (req: unknown) => {
+    callServerTool: (req: unknown): Promise<unknown> => {
       calls.push(req);
       return Promise.resolve({ structuredContent: { result: { stage: 'drafting' } }, content: [] });
     },
@@ -209,8 +209,8 @@ test('mcp impl unwraps the generated single-result envelope to match REST (F-T11
   assert.deepEqual(out, { stage: 'drafting' });
 });
 
-test('mcp impl passes a void-op empty structuredContent through as {}', async () => {
-  const app = { callServerTool: () => Promise.resolve({ structuredContent: undefined, content: [] }) };
+void test('mcp impl passes a void-op empty structuredContent through as {}', async () => {
+  const app = { callServerTool: (): Promise<unknown> => Promise.resolve({ structuredContent: undefined, content: [] }) };
   const ops = mcpOpsClient(app as never);
   const out = await ops.call('systemDesignSetResearchInput', { path: { projectID: 'p1' }, body: {} });
   assert.deepEqual(out, {});
