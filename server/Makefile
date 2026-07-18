@@ -193,13 +193,17 @@ bootstrap: gen-models
 # Everything, including the model-gated integration tests (need a live, capable
 # Ollama-backed worker — see internal/manager/systemdesign/integration_test.go).
 # These hang without a real model, so do NOT run this in CI.
-test:
+# Depends on claude-assets: several tests read the .claude prompt surface, which
+# is materialized from the method-assets lib (not vendored), so it must be
+# present before the suite runs.
+test: claude-assets
 	GOWORK=off go test ./...
 
 # CI quality gate. `-short` makes the model-gated integration tests' TestMain
 # skip (they require a live Ollama worker); everything else — including the
-# fake-backed workflow gating tests — still runs.
-test-short:
+# fake-backed workflow gating tests — still runs. Depends on claude-assets (see
+# `test`): the prompt-surface tests need the materialized .claude tree.
+test-short: claude-assets
 	GOWORK=off go test -short ./...
 
 fmt:
