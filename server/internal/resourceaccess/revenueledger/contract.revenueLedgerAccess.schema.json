@@ -1,5 +1,5 @@
 {
-  "$id": "archistrator://contract/billingstate/revenueledger",
+  "$id": "archistrator://contract/revenueledger/revenueledger",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "revenueLedgerAccess contract",
   "interface": {

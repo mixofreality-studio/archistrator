@@ -44,6 +44,7 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedruntime"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedsystemstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/revenueledger"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usage"
 	otelhttp "go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
@@ -225,7 +226,7 @@ type Hooks interface {
 	// (presence required). Return v unchanged unless
 	// composition policy needs to swap or wrap it (e.g. a construction
 	// dry-run stub swap-in) — the identity implementation is always correct.
-	FinalizeRevenueLedgerAccess(cfg *Config, v billingstate.RevenueLedgerAccess) billingstate.RevenueLedgerAccess
+	FinalizeRevenueLedgerAccess(cfg *Config, v revenueledger.RevenueLedgerAccess) revenueledger.RevenueLedgerAccess
 
 	// FinalizeSourceControlAccess is called immediately after sourceControlAccess's construction
 	// (presence optional-dormant). Return v unchanged unless
@@ -484,7 +485,7 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 		return errors.New("projectStateAccess: no ResourceAccess variant for the active profile")
 	}
 	projectStateAccess = hooks.FinalizeProjectStateAccess(cfg, projectStateAccess)
-	revenueLedgerAccess := billingstate.NewRevenueLedgerAccess()
+	revenueLedgerAccess := revenueledger.NewRevenueLedgerAccess()
 	logger.Info("revenueLedgerAccess (stub) ready")
 	revenueLedgerAccess = hooks.FinalizeRevenueLedgerAccess(cfg, revenueLedgerAccess)
 	var sourceControlAccess sourcecontrol.SourceControlAccess

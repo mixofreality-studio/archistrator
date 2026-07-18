@@ -57,6 +57,7 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/billingstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/durableexecution"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/merchantgateway"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/revenueledger"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usage"
 )
 
@@ -107,7 +108,7 @@ type billingManager struct {
 	// genActivities (workermanifest.go) exactly like billingState/usage/merchantGateway
 	// /durableExecution: the workflow reaches it through the generated invoker surface
 	// (invokers.gen.go/activities.gen.go) — no Manager-local seam or custom Activity.
-	revenueLedger billingstate.RevenueLedgerAccess
+	revenueLedger revenueledger.RevenueLedgerAccess
 }
 
 // newBillingManager is the hand-written, unexported builder the generated
@@ -122,7 +123,7 @@ func newBillingManager(
 	durableExecution durableexecution.DurableExecutionAccess,
 	billing billingengine.BillingEngine,
 	interventionEng intervention.InterventionEngine,
-	revenueLedger billingstate.RevenueLedgerAccess,
+	revenueLedger revenueledger.RevenueLedgerAccess,
 ) *billingManager {
 	return &billingManager{
 		client:           c,
@@ -540,7 +541,7 @@ func newError(kind fwmgr.Kind, detail string) *fwmgr.Error {
 // entryRefSeam/revenueEntrySeam/reversalEntrySeam mirrors) and the three custom
 // Temporal Activities that wrapped it (activities_custom.go) are RETIRED. The
 // close/recompute workflow spine now reaches this RA through the generated typed
-// invokers (invokers.gen.go) and speaks the generated billingstate contract types
+// invokers (invokers.gen.go) and speaks the generated revenueledger contract types
 // (RevenueEntry, ReversalEntry, EntryRef, RevenueKind) directly, with no Manager-local
 // wrapper — the same discipline billingStateAccess already followed. The append-only
 // dedup semantics (idempotent on entry.GatewayEventID; NO Conflict kind) are unchanged.
@@ -620,7 +621,7 @@ type scheduleSpec struct {
 
 // revenueLedgerAccess (B7): the former Manager-local seam + noopRevenueLedger stub
 // adapter are RETIRED. The workflow now reaches this RA through the generated typed
-// invokers (invokers.gen.go), speaking billingstate.RevenueEntry/ReversalEntry/EntryRef
+// invokers (invokers.gen.go), speaking revenueledger.RevenueEntry/ReversalEntry/EntryRef
 // directly — no adapter needed (see workermanifest.go WorkerManifest, which threads
 // m.revenueLedger straight into genActivities.RevenueLedger).
 

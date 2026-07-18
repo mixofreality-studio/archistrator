@@ -63,34 +63,3 @@ func (f *FakeBillingStateAccess) SettleCycle(rc fwra.Context, customerID uuid.UU
 }
 
 var _ billingstate.BillingStateAccess = (*FakeBillingStateAccess)(nil)
-
-// FakeRevenueLedgerAccess is a generated test double for billingstate.RevenueLedgerAccess: set the Fn field(s)
-// a test needs; calling a method whose Fn is unset panics.
-type FakeRevenueLedgerAccess struct {
-	RecordInboundRevenueFn func(rc fwra.Context, entry billingstate.RevenueEntry) (billingstate.EntryRef, error)
-	RecordReversalFn       func(rc fwra.Context, reversal billingstate.ReversalEntry) (billingstate.EntryRef, error)
-	ReadRangeFn            func(rc fwra.Context, customerID uuid.UUID, cycleID string) ([]billingstate.RevenueEntry, error)
-}
-
-func (f *FakeRevenueLedgerAccess) RecordInboundRevenue(rc fwra.Context, entry billingstate.RevenueEntry) (billingstate.EntryRef, error) {
-	if f.RecordInboundRevenueFn == nil {
-		panic("FakeRevenueLedgerAccess.RecordInboundRevenueFn not set")
-	}
-	return f.RecordInboundRevenueFn(rc, entry)
-}
-
-func (f *FakeRevenueLedgerAccess) RecordReversal(rc fwra.Context, reversal billingstate.ReversalEntry) (billingstate.EntryRef, error) {
-	if f.RecordReversalFn == nil {
-		panic("FakeRevenueLedgerAccess.RecordReversalFn not set")
-	}
-	return f.RecordReversalFn(rc, reversal)
-}
-
-func (f *FakeRevenueLedgerAccess) ReadRange(rc fwra.Context, customerID uuid.UUID, cycleID string) ([]billingstate.RevenueEntry, error) {
-	if f.ReadRangeFn == nil {
-		panic("FakeRevenueLedgerAccess.ReadRangeFn not set")
-	}
-	return f.ReadRangeFn(rc, customerID, cycleID)
-}
-
-var _ billingstate.RevenueLedgerAccess = (*FakeRevenueLedgerAccess)(nil)

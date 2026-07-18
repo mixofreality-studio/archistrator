@@ -74,6 +74,7 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedruntime"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedsystemstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/revenueledger"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usage"
 )
@@ -426,9 +427,9 @@ func (h *appHooks) FinalizeDesignSessionAccess(cfg *Config, v projectstate.Desig
 }
 
 // FinalizeRevenueLedgerAccess is identity — revenueLedgerAccess is the required,
-// arm-less stub binding (billingstate.NewRevenueLedgerAccess, a permanent no-op per
+// arm-less stub binding (revenueledger.NewRevenueLedgerAccess, a permanent no-op per
 // the charge-only R-013 rationale); no composition-root policy applies.
-func (h *appHooks) FinalizeRevenueLedgerAccess(cfg *Config, v billingstate.RevenueLedgerAccess) billingstate.RevenueLedgerAccess {
+func (h *appHooks) FinalizeRevenueLedgerAccess(cfg *Config, v revenueledger.RevenueLedgerAccess) revenueledger.RevenueLedgerAccess {
 	return v
 }
 

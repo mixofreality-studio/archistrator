@@ -15,6 +15,7 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/billingstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/durableexecution"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/merchantgateway"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/revenueledger"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usage"
 )
 
@@ -164,22 +165,22 @@ func (i genInvokers) DurableExecutionStartOrSignalExecution(ctx workflow.Context
 }
 
 // RevenueLedgerReadRange invokes activity "revenueLedgerAccess.readRange".
-func (i genInvokers) RevenueLedgerReadRange(ctx workflow.Context, customerID uuid.UUID, cycleID string) ([]billingstate.RevenueEntry, error) {
-	var out []billingstate.RevenueEntry
+func (i genInvokers) RevenueLedgerReadRange(ctx workflow.Context, customerID uuid.UUID, cycleID string) ([]revenueledger.RevenueEntry, error) {
+	var out []revenueledger.RevenueEntry
 	err := workflow.ExecuteActivity(i.options(ctx, "revenueLedgerAccess.readRange"), "revenueLedgerAccess.readRange", customerID, cycleID).Get(ctx, &out)
 	return out, err
 }
 
 // RevenueLedgerRecordInboundRevenue invokes activity "revenueLedgerAccess.recordInboundRevenue".
-func (i genInvokers) RevenueLedgerRecordInboundRevenue(ctx workflow.Context, entry billingstate.RevenueEntry) (billingstate.EntryRef, error) {
-	var out billingstate.EntryRef
+func (i genInvokers) RevenueLedgerRecordInboundRevenue(ctx workflow.Context, entry revenueledger.RevenueEntry) (revenueledger.EntryRef, error) {
+	var out revenueledger.EntryRef
 	err := workflow.ExecuteActivity(i.options(ctx, "revenueLedgerAccess.recordInboundRevenue"), "revenueLedgerAccess.recordInboundRevenue", entry).Get(ctx, &out)
 	return out, err
 }
 
 // RevenueLedgerRecordReversal invokes activity "revenueLedgerAccess.recordReversal".
-func (i genInvokers) RevenueLedgerRecordReversal(ctx workflow.Context, reversal billingstate.ReversalEntry) (billingstate.EntryRef, error) {
-	var out billingstate.EntryRef
+func (i genInvokers) RevenueLedgerRecordReversal(ctx workflow.Context, reversal revenueledger.ReversalEntry) (revenueledger.EntryRef, error) {
+	var out revenueledger.EntryRef
 	err := workflow.ExecuteActivity(i.options(ctx, "revenueLedgerAccess.recordReversal"), "revenueLedgerAccess.recordReversal", reversal).Get(ctx, &out)
 	return out, err
 }

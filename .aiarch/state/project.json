@@ -21090,7 +21090,7 @@
     "revenueLedgerAccess": {
       "component": "revenueLedgerAccess",
       "layer": "ResourceAccess",
-      "goPackage": "internal/resourceaccess/billingstate",
+      "goPackage": "internal/resourceaccess/revenueledger",
       "title": "revenueLedgerAccess contract",
       "$defs": {
         "EntryRef": {

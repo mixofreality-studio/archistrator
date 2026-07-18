@@ -192,7 +192,7 @@ var encapsulationAllowlistData = map[string][]string{
 	// (charge-only removed the ledger's persistence — see revenueledger.go's package doc);
 	// NewRevenueLedgerAccess returns the sole, permanent no-op impl, same VARIANT-CONSTRUCTOR
 	// category as artifact/constructionpipeline's dry-run constructors above/below.
-	"internal/resourceaccess/billingstate": {
+	"internal/resourceaccess/revenueledger": {
 		"NewRevenueLedgerAccess",
 	},
 	// FREE-FUNCTION BEHAVIOUR over the contract's named-scalar handle/enum value types: the

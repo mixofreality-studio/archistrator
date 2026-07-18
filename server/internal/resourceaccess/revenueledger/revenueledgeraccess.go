@@ -1,4 +1,4 @@
-package billingstate
+package revenueledger
 
 import (
 	"github.com/google/uuid"

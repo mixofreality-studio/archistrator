@@ -69,6 +69,7 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/billingstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/durableexecution"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/merchantgateway"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/revenueledger"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usage"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/testsuite"
@@ -333,44 +334,44 @@ func (f *fakeBillingState) ResettleCycle(_ fwra.Context, _ uuid.UUID, _ billings
 var _ billingstate.BillingStateAccess = (*fakeBillingState)(nil)
 
 // fakeRevenueLedger records appends + serves a scripted range. Satisfies the generated
-// billingstate.RevenueLedgerAccess contract.
+// revenueledger.RevenueLedgerAccess contract.
 type fakeRevenueLedger struct {
 	mu sync.Mutex
 
-	rangeEntries []billingstate.RevenueEntry
-	inbound      []billingstate.RevenueEntry
-	reversals    []billingstate.ReversalEntry
+	rangeEntries []revenueledger.RevenueEntry
+	inbound      []revenueledger.RevenueEntry
+	reversals    []revenueledger.ReversalEntry
 }
 
-func (r *fakeRevenueLedger) RecordInboundRevenue(_ fwra.Context, entry billingstate.RevenueEntry) (billingstate.EntryRef, error) {
+func (r *fakeRevenueLedger) RecordInboundRevenue(_ fwra.Context, entry revenueledger.RevenueEntry) (revenueledger.EntryRef, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.inbound = append(r.inbound, entry)
 	r.rangeEntries = append(r.rangeEntries, entry)
-	return billingstate.EntryRef("ref"), nil
+	return revenueledger.EntryRef("ref"), nil
 }
 
-func (r *fakeRevenueLedger) RecordReversal(_ fwra.Context, reversal billingstate.ReversalEntry) (billingstate.EntryRef, error) {
+func (r *fakeRevenueLedger) RecordReversal(_ fwra.Context, reversal revenueledger.ReversalEntry) (revenueledger.EntryRef, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.reversals = append(r.reversals, reversal)
 	// A reversal is a new negative fact appended to the same log readRange replays.
-	r.rangeEntries = append(r.rangeEntries, billingstate.RevenueEntry{
+	r.rangeEntries = append(r.rangeEntries, revenueledger.RevenueEntry{
 		CustomerID: reversal.CustomerID, CycleID: reversal.CycleID,
-		Kind: billingstate.RevenueKindReversal, Amount: reversal.Amount, GatewayEventID: reversal.GatewayEventID,
+		Kind: revenueledger.RevenueKindReversal, Amount: reversal.Amount, GatewayEventID: reversal.GatewayEventID,
 	})
-	return billingstate.EntryRef("revref"), nil
+	return revenueledger.EntryRef("revref"), nil
 }
 
-func (r *fakeRevenueLedger) ReadRange(_ fwra.Context, _ uuid.UUID, _ string) ([]billingstate.RevenueEntry, error) {
+func (r *fakeRevenueLedger) ReadRange(_ fwra.Context, _ uuid.UUID, _ string) ([]revenueledger.RevenueEntry, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	out := make([]billingstate.RevenueEntry, len(r.rangeEntries))
+	out := make([]revenueledger.RevenueEntry, len(r.rangeEntries))
 	copy(out, r.rangeEntries)
 	return out, nil
 }
 
-var _ billingstate.RevenueLedgerAccess = (*fakeRevenueLedger)(nil)
+var _ revenueledger.RevenueLedgerAccess = (*fakeRevenueLedger)(nil)
 
 // fakeUsage serves a scripted usage range. Satisfies usage.UsageAccess.
 type fakeUsage struct {

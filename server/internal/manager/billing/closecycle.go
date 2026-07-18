@@ -15,6 +15,7 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/billingstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/merchantgateway"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/revenueledger"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usage"
 )
 
@@ -198,11 +199,11 @@ func (wf *workflows) drainInboundRevenue(ctx workflow.Context, customerID custom
 		if event.CycleID != cycleID {
 			continue
 		}
-		_ = wf.recordInboundRevenue(ctx, billingstate.RevenueEntry{
+		_ = wf.recordInboundRevenue(ctx, revenueledger.RevenueEntry{
 			CustomerID:     customerID,
 			CycleID:        string(cycleID),
-			Kind:           billingstate.RevenueKindInbound,
-			Amount:         billingstate.Money{MinorUnits: event.Amount.MinorUnits, Currency: event.Amount.Currency},
+			Kind:           revenueledger.RevenueKindInbound,
+			Amount:         revenueledger.Money{MinorUnits: event.Amount.MinorUnits, Currency: event.Amount.Currency},
 			GatewayEventID: event.GatewayEventID,
 			OccurredAt:     event.OccurredAt,
 		})
@@ -235,10 +236,10 @@ func (wf *workflows) awaitChargeback(ctx workflow.Context, customerID customerID
 //  5. route the DELTA charge/payout via the gateway. No rollback (forward-only).
 func (wf *workflows) recomputeCycle(ctx workflow.Context, customerID customerID, cycleID cycleID, event GatewayReversalEvent, prior billingengine.BillingResult) error {
 	// Append the reversal (idempotent on the chargeback's gateway event id).
-	if err := wf.recordReversal(ctx, billingstate.ReversalEntry{
+	if err := wf.recordReversal(ctx, revenueledger.ReversalEntry{
 		CustomerID:     customerID,
 		CycleID:        string(cycleID),
-		Amount:         billingstate.Money{MinorUnits: event.Amount.MinorUnits, Currency: event.Amount.Currency},
+		Amount:         revenueledger.Money{MinorUnits: event.Amount.MinorUnits, Currency: event.Amount.Currency},
 		GatewayEventID: event.GatewayEventID,
 		// ReversesGatewayEventID is an optional back-link; the generated façade type
 		// carries it as *string (`,omitempty`), the generated RA contract type as a
@@ -352,14 +353,14 @@ func (wf *workflows) chargeCustomer(ctx workflow.Context, customerID customerID,
 
 // recordInboundRevenue invokes revenueLedgerAccess.recordInboundRevenue (dedup on the
 // gateway event id; NO Conflict kind on this append-only ledger).
-func (wf *workflows) recordInboundRevenue(ctx workflow.Context, entry billingstate.RevenueEntry) error {
+func (wf *workflows) recordInboundRevenue(ctx workflow.Context, entry revenueledger.RevenueEntry) error {
 	_, err := wf.Acts.RevenueLedgerRecordInboundRevenue(ctx, entry)
 	return err
 }
 
 // recordReversal invokes revenueLedgerAccess.recordReversal (dedup on the chargeback's
 // gateway event id; NO Conflict kind on this append-only ledger).
-func (wf *workflows) recordReversal(ctx workflow.Context, reversal billingstate.ReversalEntry) error {
+func (wf *workflows) recordReversal(ctx workflow.Context, reversal revenueledger.ReversalEntry) error {
 	_, err := wf.Acts.RevenueLedgerRecordReversal(ctx, reversal)
 	return err
 }
@@ -437,7 +438,7 @@ const (
 
 // derefString returns the pointed-to string, or "" for nil. The generated
 // GatewayReversalEvent.ReversesGatewayEventID is optional (`,omitempty` ⇒ *string);
-// the generated billingstate.ReversalEntry carries it as a plain string (empty ⇒
+// the generated revenueledger.ReversalEntry carries it as a plain string (empty ⇒
 // absent).
 func derefString(s *string) string {
 	if s == nil {

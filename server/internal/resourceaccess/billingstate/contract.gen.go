@@ -6,7 +6,6 @@ package billingstate
 import (
 	"github.com/google/uuid"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
-	"time"
 )
 
 type Billing struct {
@@ -44,8 +43,6 @@ type DelinquencyScope struct {
 	ProjectID string `json:"ProjectID"`
 }
 
-type EntryRef string
-
 type GatewayBinding struct {
 	ConnectedAccountID string `json:"ConnectedAccountID"`
 }
@@ -53,31 +50,6 @@ type GatewayBinding struct {
 type Money struct {
 	MinorUnits int64  `json:"MinorUnits"`
 	Currency   string `json:"Currency"`
-}
-
-type RevenueEntry struct {
-	CustomerID     uuid.UUID   `json:"CustomerID"`
-	CycleID        string      `json:"CycleID"`
-	Kind           RevenueKind `json:"Kind"`
-	Amount         Money       `json:"Amount"`
-	GatewayEventID string      `json:"GatewayEventID"`
-	OccurredAt     time.Time   `json:"OccurredAt"`
-}
-
-type RevenueKind int
-
-const (
-	RevenueKindInbound  RevenueKind = 0
-	RevenueKindReversal RevenueKind = 1
-)
-
-type ReversalEntry struct {
-	CustomerID             uuid.UUID `json:"CustomerID"`
-	CycleID                string    `json:"CycleID"`
-	Amount                 Money     `json:"Amount"`
-	GatewayEventID         string    `json:"GatewayEventID"`
-	ReversesGatewayEventID string    `json:"ReversesGatewayEventID"`
-	OccurredAt             time.Time `json:"OccurredAt"`
 }
 
 type RoutingDirective int
@@ -139,11 +111,4 @@ func (*stubBillingStateAccess) ResettleCycle(_ fwra.Context, _ uuid.UUID, _ Vers
 func (*stubBillingStateAccess) SettleCycle(_ fwra.Context, _ uuid.UUID, _ Version, _ string, _ BillingOutcome, _ fwra.IdempotencyKey) (Version, error) {
 	var zero Version
 	return zero, fwra.New(fwra.Unknown, "not implemented")
-}
-
-// RevenueLedgerAccess is the generated service-contract interface for this component.
-type RevenueLedgerAccess interface {
-	RecordInboundRevenue(rc fwra.Context, entry RevenueEntry) (EntryRef, error)
-	RecordReversal(rc fwra.Context, reversal ReversalEntry) (EntryRef, error)
-	ReadRange(rc fwra.Context, customerID uuid.UUID, cycleID string) ([]RevenueEntry, error)
 }
