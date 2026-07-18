@@ -47,6 +47,11 @@ func TestNoCommentNoiseReappears(t *testing.T) {
 		if strings.HasSuffix(f, ".gen.go") {
 			continue
 		}
+		// This gate's own file necessarily contains the patterns (in the regexp
+		// literals and the explanatory doc above); exclude it from the scan.
+		if strings.HasSuffix(f, "commentscrub_test.go") {
+			continue
+		}
 
 		path := repoRoot + "/" + f
 		data, err := os.ReadFile(path)
