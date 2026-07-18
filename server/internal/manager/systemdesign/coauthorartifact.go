@@ -3499,7 +3499,7 @@ func encapsulatesFindings(kind ArtifactKind, draft projectstate.ArtifactModel) [
 		switch c.Kind {
 		case projectstate.CompManager, projectstate.CompEngine, projectstate.CompResourceAccess:
 			// volatility-owning kinds — the rule applies
-		default:
+		case projectstate.CompClient, projectstate.CompResource, projectstate.CompUtility:
 			continue // client/resource/utility legitimately carry an empty encapsulates
 		}
 		if strings.TrimSpace(c.Encapsulates) != "" {
