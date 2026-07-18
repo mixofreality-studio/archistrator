@@ -120,12 +120,13 @@ jobs:
       - name: Generated UI lifecycle-profile drift check
         run: make gen-uiprofiles-check
 
-      # Drift gate for the materialized root .claude tree (method-assets
-      # install --dest .). Root .claude/** is a materialized copy of
-      # method-assets/assets/claude, pinned to a release; this fails on any
-      # diff between the pinned release's output and the committed tree.
-      - name: claude-assets drift check
+      # Materialize the .claude method-assets from the pinned lib. The .claude
+      # method tree is NOT vendored — it is gitignored and pulled from
+      # method-assets (pinned via server/go.mod). This step just proves the
+      # pinned release installs cleanly; app-local files (settings.json,
+      # skills/grillme) are unaffected by install and remain committed.
+      - name: claude-assets materialize
         working-directory: ${{ github.workspace }}
         run: |
-          go run github.com/mixofreality-studio/archistrator-platform/method-assets/cmd/method-assets@v0.1.2 install --dest .
-          git diff --exit-code -- .claude
+          go run github.com/mixofreality-studio/archistrator-platform/method-assets/cmd/method-assets@v0.1.4 install --dest .
+          git diff --exit-code -- .claude/settings.json .claude/skills/grillme

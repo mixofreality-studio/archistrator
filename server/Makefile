@@ -1,6 +1,15 @@
 # aiarch server — developer make targets.
 
-.PHONY: test test-short fmt vet lint sumtype-check method-check encapsulation-check gen-schemas gen-models gen-models-check gen-fakes gen-fakes-check gen gen-client gen-client-check gen-internal-tools gen-temporal gen-temporal-check gen-sdk gen-sdk-check gen-config gen-config-check gen-uiprofiles gen-uiprofiles-check bootstrap
+.PHONY: test test-short fmt vet lint sumtype-check method-check encapsulation-check gen-schemas gen-models gen-models-check gen-fakes gen-fakes-check gen gen-client gen-client-check gen-internal-tools gen-temporal gen-temporal-check gen-sdk gen-sdk-check gen-config gen-config-check gen-uiprofiles gen-uiprofiles-check bootstrap claude-assets
+
+# claude-assets — materialize the .claude method prompt surface (agents/commands/
+# skills) into the repo root from the method-assets lib pinned in go.mod. The
+# method tree is NOT vendored (it is gitignored); pull it in here after checkout.
+# Uses the same aiarch-state-mcp seat-assets path the construction runner uses,
+# so the materialized version always tracks go.mod. App-local .claude files
+# (settings.json, skills/grillme) are left untouched.
+claude-assets:
+	GOWORK=off go run ./cmd/aiarch-state-mcp seat-assets --dest ..
 
 # Contract codegen pipeline, all-Go (jsonschema-go). project.json
 # (.serviceContracts) is the OWNER of every built component's contract; modelgen

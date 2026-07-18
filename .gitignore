@@ -10,3 +10,11 @@ server/.env
 # Anchored to the repo root: .aiarch/state/research/ is committed project state (F42 corpus files).
 /research/
 .mcp-pilot/
+
+# Method .claude assets are materialized from the method-assets lib (pinned in
+# server/go.mod), never vendored — run `make claude-assets`. Only app-local files
+# (.claude/settings.json, .claude/skills/grillme) stay committed.
+/.claude/agents/
+/.claude/commands/
+/.claude/skills/the-method*/
+/.claude/.method-assets-manifest.json
