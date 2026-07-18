@@ -55,7 +55,7 @@ func (wf *workflows) CloseCycleWorkflow(ctx workflow.Context, in closeInput) (Cl
 	if !billing.GatewayBound {
 		return CloseCycleResult{}, temporal.NewNonRetryableApplicationError(
 			"customer is not registered + gateway-bound; cannot close cycle",
-			fwmgr.ManagerErrType(fwmgr.FailedPrecondition), nil)
+			fwmgr.ErrType(fwmgr.FailedPrecondition), nil)
 	}
 
 	revenue, rerr := wf.foldRevenue(ctx, in.CustomerID, in.CycleID)

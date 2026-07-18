@@ -160,7 +160,7 @@ var errorType = reflect.TypeOf((*error)(nil)).Elem()
 // types themselves so re-reflecting an already-generated interface is idempotent.
 var contextCarried = map[reflect.Type]bool{
 	reflect.TypeOf((*context.Context)(nil)).Elem(): true,
-	reflect.TypeOf(security.SecurityPrincipal{}):   true,
+	reflect.TypeOf(security.Principal{}):           true,
 	reflect.TypeOf(fwra.IdempotencyKey("")):        true,
 	reflect.TypeOf(fweng.Context{}):                true,
 	reflect.TypeOf(fwra.Context{}):                 true,

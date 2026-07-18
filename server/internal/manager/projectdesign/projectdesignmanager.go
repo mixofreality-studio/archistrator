@@ -649,11 +649,11 @@ func withStageName(v SessionStateView) SessionStateView {
 	return v
 }
 
-// principalLabel renders a SecurityPrincipal as a short human-facing label for PM-P2-4
+// principalLabel renders a security.Principal as a short human-facing label for PM-P2-4
 // provenance (approvedBy): username (GitHub login / preferred_username), else email, else
 // display name, else the opaque subject (dev-mode identity). Empty when no identity was
 // resolved — the commit then records no approvedBy (absent provenance is allowed).
-func principalLabel(p security.SecurityPrincipal) string {
+func principalLabel(p security.Principal) string {
 	switch {
 	case p.Username != "":
 		return p.Username

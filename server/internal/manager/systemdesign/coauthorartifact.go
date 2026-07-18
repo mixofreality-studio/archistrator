@@ -224,7 +224,7 @@ type reviewDecisionSignal struct {
 	Decision ReviewDecision
 	Feedback *ReviewFeedback
 	// Approver is the human-facing label for the acting identity that submitted this
-	// decision (PM-P2-4), derived from the SubmitReviewDecision caller's SecurityPrincipal.
+	// decision (PM-P2-4), derived from the SubmitReviewDecision caller's security.Principal.
 	// Consulted only on Approve → recorded as the commit's approvedBy provenance. Empty when
 	// no identity reached the manager op (absent provenance allowed). Additive to the signal
 	// payload — an older buffered signal decodes it as "".

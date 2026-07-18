@@ -2214,7 +2214,7 @@ type Provenance struct {
 	// provenance-recorded commit.
 	CommittedAt string `json:"committedAt,omitempty"`
 	// ApprovedBy is a human-facing label for the acting identity that approved the commit
-	// (the reviewer's username / email / subject, derived from the caller's SecurityPrincipal
+	// (the reviewer's username / email / subject, derived from the caller's security.Principal
 	// at the manager boundary and threaded down). Empty when no identity reached the commit
 	// path (e.g. a dev-mode zero principal) — absence is allowed.
 	ApprovedBy string `json:"approvedBy,omitempty"`

@@ -46,7 +46,7 @@ func (wf *workflows) OnboardWorkflow(ctx workflow.Context, in onboardInput) (Bil
 		if isReadNotFound(err) {
 			return BillingRef{}, temporal.NewNonRetryableApplicationError(
 				"no billing aggregate for the deployed app (not registered/operated)",
-				fwmgr.ManagerErrType(fwmgr.FailedPrecondition), nil)
+				fwmgr.ErrType(fwmgr.FailedPrecondition), nil)
 		}
 		return BillingRef{}, err
 	}

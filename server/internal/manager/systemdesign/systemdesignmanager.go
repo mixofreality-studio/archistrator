@@ -448,7 +448,7 @@ func (m *systemDesignManager) SubmitReviewDecision(rc fwmanager.Context, project
 		}
 	}
 
-	// PM-P2-4: capture the acting reviewer identity here (the one place a SecurityPrincipal
+	// PM-P2-4: capture the acting reviewer identity here (the one place a security.Principal
 	// reaches the review flow) and thread it through the signal so the eventual approve→commit
 	// records it as the commit's approvedBy provenance.
 	sig := reviewDecisionSignal{Decision: decision, Feedback: feedback, Approver: principalLabel(rc.Principal)}
@@ -599,11 +599,11 @@ func checkReviewPrecondition(decision ReviewDecision, stage SessionStage) error 
 	return nil
 }
 
-// principalLabel renders a SecurityPrincipal as a short human-facing label for PM-P2-4
+// principalLabel renders a security.Principal as a short human-facing label for PM-P2-4
 // provenance (approvedBy): the username (GitHub login / preferred_username), else email,
 // else display name, else the opaque subject (dev-mode identity). Empty when no identity was
 // resolved — the commit then records no approvedBy (absent provenance is allowed).
-func principalLabel(p security.SecurityPrincipal) string {
+func principalLabel(p security.Principal) string {
 	switch {
 	case p.Username != "":
 		return p.Username

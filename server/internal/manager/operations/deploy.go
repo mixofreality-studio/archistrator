@@ -41,7 +41,7 @@ func (wf *workflows) DeployWorkflow(ctx workflow.Context, in deployInput) (Deplo
 		if op.DeployableBundleRef == "" {
 			return DeployResult{}, temporal.NewNonRetryableApplicationError(
 				"operated system has no deployableBundleRef (no constructed output to deploy)",
-				fwmgr.ManagerErrType(fwmgr.FailedPrecondition), nil)
+				fwmgr.ErrType(fwmgr.FailedPrecondition), nil)
 		}
 		// Retrieve the deployable bundle the publish renders from.
 		if _, berr := wf.retrieveBundle(ctx, op.DeployableBundleRef); berr != nil {

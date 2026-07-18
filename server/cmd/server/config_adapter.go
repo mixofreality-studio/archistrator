@@ -149,9 +149,9 @@ func validateConstructionCreds(c *Config) error {
 // devPrincipal builds the dev principal injected in dev mode. Roles are no longer
 // load-bearing for authorization; the defaults keep the identity well-formed and
 // remain overridable via env for when the Cedar PDP starts consuming roles.
-func devPrincipal() security.SecurityPrincipal {
+func devPrincipal() security.Principal {
 	subject := getenvString("ARCHISTRATOR_DEV_SUBJECT", "dev-architect")
-	return security.SecurityPrincipal{
+	return security.Principal{
 		Kind:     security.PrincipalUser,
 		Subject:  subject,
 		Username: subject,

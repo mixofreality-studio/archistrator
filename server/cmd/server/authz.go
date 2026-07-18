@@ -24,6 +24,6 @@ type authenticatedOnlyPDP struct{}
 // Decide permits unconditionally. The principal is already authenticated (the
 // middleware validated its bearer token), and a nil error means "engine
 // reachable" so the caller does not fail closed.
-func (authenticatedOnlyPDP) Decide(_ context.Context, _ security.SecurityPrincipal, _ security.Action, _ security.ResourceRef) (bool, error) {
+func (authenticatedOnlyPDP) Decide(_ context.Context, _ security.Principal, _ security.Action, _ security.ResourceRef) (bool, error) {
 	return true, nil
 }
