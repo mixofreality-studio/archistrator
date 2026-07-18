@@ -512,7 +512,7 @@ var _ ConstructionManager = (*constructionManager)(nil)
 func overrideKindName(k OverrideKind) string {
 	switch k {
 	case OverrideUnknown:
-		// zero-value sentinel, not a real override kind — same as any unmapped value.
+		// zero-value sentinel, not a real override kind.
 		return "Unknown"
 	case OverrideTakeover:
 		return "Takeover"
@@ -522,9 +522,11 @@ func overrideKindName(k OverrideKind) string {
 		return "Skip"
 	case OverrideReassign:
 		return "Reassign"
-	default:
-		return "Unknown"
 	}
+	// Unreachable for the five defined OverrideKind values above (the exhaustive
+	// linter enforces that every real variant has its own case); kept as a
+	// defensive fallback for an out-of-range ordinal.
+	return "Unknown"
 }
 
 // ---- from contract.go ----

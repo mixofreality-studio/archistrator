@@ -206,9 +206,11 @@ func workerClassString(c WorkerClass) string {
 		return "humanJunior"
 	case ArchitectOnly:
 		return "architectOnly"
-	default:
-		return "unknown"
 	}
+	// Unreachable for the five defined WorkerClass values above (the exhaustive
+	// linter enforces that every real variant has its own case); kept as a
+	// defensive fallback for an out-of-range ordinal.
+	return "unknown"
 }
 
 // workerClassValid reports whether c is a real casting result the build supports

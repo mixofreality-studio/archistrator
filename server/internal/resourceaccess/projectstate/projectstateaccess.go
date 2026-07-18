@@ -2131,11 +2131,12 @@ func (o ActivityOutcome) String() string {
 	case ActivityOutcomeTakenOver:
 		return "TakenOver"
 	case ActivityOutcomeUnknown:
-		// The zero value — same as the default below.
-		return "Unknown"
-	default:
 		return "Unknown"
 	}
+	// Unreachable for the four defined ActivityOutcome values above (the exhaustive
+	// linter enforces that every real variant has its own case); kept as a defensive
+	// fallback for an out-of-range ordinal.
+	return "Unknown"
 }
 
 // ---- from reconcile.go ----
@@ -2465,9 +2466,11 @@ func (k ArtifactKind) String() string {
 		return "RiskModel"
 	case KindSdpReview:
 		return "SdpReview"
-	default:
-		return fmt.Sprintf("ArtifactKind(%d)", int(k))
 	}
+	// Unreachable for the 17 defined ArtifactKind values above (the exhaustive
+	// linter enforces that every real variant has its own case); kept as a
+	// defensive fallback for an out-of-range ordinal.
+	return fmt.Sprintf("ArtifactKind(%d)", int(k))
 }
 
 // WireName returns the canonical camelCase wire name for the ArtifactKind — the
@@ -2514,9 +2517,12 @@ func (k ArtifactKind) WireName() string {
 		return "riskModel"
 	case KindSdpReview:
 		return "sdpReview"
-	default:
-		return ""
 	}
+	// Unreachable for the 17 defined ArtifactKind values above (the exhaustive
+	// linter enforces that every real variant has its own case); kept as a
+	// defensive fallback for an out-of-range ordinal — MarshalJSON treats "" as
+	// "no wire name" and errors.
+	return ""
 }
 
 // artifactKindByWireName is the inverse of WireName, built once from
@@ -3368,11 +3374,12 @@ func (c CICheckState) String() string {
 	case CICheckFailure:
 		return "Failure"
 	case CICheckPending:
-		// The zero value — same as the default below.
-		return "Pending"
-	default:
 		return "Pending"
 	}
+	// Unreachable for the three defined CICheckState values above (the exhaustive
+	// linter enforces that every real variant has its own case); kept as a
+	// defensive fallback for an out-of-range ordinal.
+	return "Pending"
 }
 
 // ActivityGitStatus is the per-activity git-forward head-state record (D-PA-GIT).
@@ -6198,11 +6205,12 @@ func (p ActivityConstructionPhase) String() string {
 	case ActivityConstructionFailed:
 		return "failed"
 	case ActivityConstructionNotStarted:
-		// The zero value — same as the default below.
-		return "notStarted"
-	default:
 		return "notStarted"
 	}
+	// Unreachable for the four defined ActivityConstructionPhase values above (the
+	// exhaustive linter enforces that every real variant has its own case); kept
+	// as a defensive fallback for an out-of-range ordinal.
+	return "notStarted"
 }
 
 // FailureReason is the closed enum of terminal-failure causes recorded on an
@@ -6239,11 +6247,12 @@ func (r FailureReason) String() string {
 	case EscalationTimedOut:
 		return "escalationTimedOut"
 	case FailureReasonUnknown:
-		// The zero value (no failure recorded) — same as the default below.
-		return "unknown"
-	default:
 		return "unknown"
 	}
+	// Unreachable for the six defined FailureReason values above (the exhaustive
+	// linter enforces that every real variant has its own case); kept as a
+	// defensive fallback for an out-of-range ordinal.
+	return "unknown"
 }
 
 // PhaseCompletion is one App-A internal phase record within an activity's Phases slice.
@@ -6410,12 +6419,13 @@ func (t ActivityType) String() string {
 	case ActivityTypeDocumentation:
 		return "documentation"
 	case ActivityTypeService:
-		// The zero value (== ActivityKindService, the legacy alias) — same as the
-		// default below.
-		return "service"
-	default:
+		// The zero value (== ActivityKindService, the legacy alias).
 		return "service"
 	}
+	// Unreachable for the five defined ActivityType values above (the exhaustive
+	// linter enforces that every real variant has its own case); kept as a
+	// defensive fallback for an out-of-range ordinal.
+	return "service"
 }
 
 // ActivityKind is a type alias for ActivityType kept for JSON back-compat.
@@ -6457,11 +6467,12 @@ func (v TestingVariant) String() string {
 	case TestVariantQAProcess:
 		return "qaProcess"
 	case TestVariantPlan:
-		// The zero value — same as the default below.
-		return "plan"
-	default:
 		return "plan"
 	}
+	// Unreachable for the five defined TestingVariant values above (the exhaustive
+	// linter enforces that every real variant has its own case); kept as a
+	// defensive fallback for an out-of-range ordinal.
+	return "plan"
 }
 
 // ActivityMethodPhase is one App-A internal phase within a construction activity.
@@ -6510,11 +6521,12 @@ func (s ActivityBuildStatus) String() string {
 	case BuildFailed:
 		return "failed"
 	case BuildInConstruction:
-		// The zero value — same as the default below.
-		return "in-construction"
-	default:
 		return "in-construction"
 	}
+	// Unreachable for the four defined ActivityBuildStatus values above (the
+	// exhaustive linter enforces that every real variant has its own case); kept
+	// as a defensive fallback for an out-of-range ordinal.
+	return "in-construction"
 }
 
 // ProducedArtifact is one artifact a construction activity produced (a frozen service

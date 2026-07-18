@@ -457,9 +457,11 @@ func routingDirectiveName(d RoutingDirective) string {
 		return "Payout"
 	case RoutingDirectiveCharge:
 		return "Charge"
-	default:
-		return "Unknown"
 	}
+	// Unreachable for the three defined RoutingDirective values above (the
+	// exhaustive linter enforces that every real variant has its own case); kept
+	// as a defensive fallback for an out-of-range ordinal.
+	return "Unknown"
 }
 
 // termsToEngine bridges the RA-owned terms head-state onto the engine's compute

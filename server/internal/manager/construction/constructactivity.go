@@ -502,7 +502,7 @@ func prBody(activity constructionActivity) string {
 func activityKindName(k handoff.ActivityKind) string {
 	switch k {
 	case handoff.ActivityKindUnknown:
-		// zero-value sentinel, not a real activity kind — same as any unmapped value.
+		// zero-value sentinel, not a real activity kind.
 		return "Unknown"
 	case handoff.ActivityKindDetailedDesign:
 		return "DetailedDesign"
@@ -512,9 +512,11 @@ func activityKindName(k handoff.ActivityKind) string {
 		return "Integration"
 	case handoff.ActivityKindNoncoding:
 		return "Noncoding"
-	default:
-		return "Unknown"
 	}
+	// Unreachable for the five defined handoff.ActivityKind values above (the
+	// exhaustive linter enforces that every real variant has its own case); kept
+	// as a defensive fallback for an out-of-range ordinal.
+	return "Unknown"
 }
 
 // archApprovalBody is the +1 relay's review body — the architect's in-app

@@ -752,7 +752,7 @@ type scheduleSpec struct {
 func desiredStateReasonName(r DesiredStateReason) string {
 	switch r {
 	case ReasonUnknown:
-		// zero-value sentinel — same canonical name as any unrecognized value.
+		// zero-value sentinel.
 		return "unknown"
 	case ReasonDeployAfterConstruction:
 		return "deployAfterConstruction"
@@ -762,9 +762,11 @@ func desiredStateReasonName(r DesiredStateReason) string {
 		return "autoscale"
 	case ReasonDelinquency:
 		return "delinquency"
-	default:
-		return "unknown"
 	}
+	// Unreachable for the five defined DesiredStateReason values above (the
+	// exhaustive linter enforces that every real variant has its own case); kept
+	// as a defensive fallback for an out-of-range ordinal.
+	return "unknown"
 }
 
 // autoscaleActionName returns the canonical name for an autoscale action. Kept as a
@@ -781,9 +783,11 @@ func autoscaleActionName(a AutoscaleAction) string {
 		return "Pause"
 	case AutoscaleResume:
 		return "Resume"
-	default:
-		return "Unknown"
 	}
+	// Unreachable for the five defined AutoscaleAction values above (the
+	// exhaustive linter enforces that every real variant has its own case); kept
+	// as a defensive fallback for an out-of-range ordinal.
+	return "Unknown"
 }
 
 // ---- from adapters.go ----

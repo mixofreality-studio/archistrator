@@ -541,9 +541,11 @@ func sessionStageLabel(s SessionStage) string {
 		return "refused"
 	case StageDraftFailed:
 		return "draft failed"
-	default:
-		return "unknown"
 	}
+	// Unreachable for the nine defined SessionStage values above (the exhaustive
+	// linter enforces that every real variant has its own case); kept as a
+	// defensive fallback for an out-of-range ordinal.
+	return "unknown"
 }
 
 // AdvanceToConstruction — op 2.4. Temporal Workflow (entry; StartWorkflow,
@@ -805,9 +807,12 @@ func workflowStatusLabel(s enumspb.WorkflowExecutionStatus) string {
 		enumspb.WORKFLOW_EXECUTION_STATUS_CONTINUED_AS_NEW,
 		enumspb.WORKFLOW_EXECUTION_STATUS_PAUSED:
 		return "the job stopped"
-	default:
-		return "the job stopped"
 	}
+	// Unreachable for the nine defined enumspb.WorkflowExecutionStatus values above
+	// (the exhaustive linter enforces that every real variant has its own case);
+	// kept as a defensive fallback for an out-of-range ordinal (e.g. a future
+	// Temporal SDK addition not yet triaged here).
+	return "the job stopped"
 }
 
 // --- error mapping at the façade boundary -----------------------------------
