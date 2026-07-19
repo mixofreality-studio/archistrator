@@ -1,6 +1,6 @@
 # aiarch server — developer make targets.
 
-.PHONY: test test-short fmt vet lint sumtype-check method-check encapsulation-check gen-schemas gen-models gen-models-check gen-fakes gen-fakes-check gen gen-client gen-client-check gen-internal-tools gen-temporal gen-temporal-check gen-sdk gen-sdk-check gen-config gen-config-check gen-uiprofiles gen-uiprofiles-check bootstrap claude-assets
+.PHONY: test test-short fmt vet lint sumtype-check method-check encapsulation-check gen-models gen-models-check gen-fakes gen-fakes-check gen gen-client gen-client-check gen-internal-tools gen-temporal gen-temporal-check gen-sdk gen-sdk-check gen-config gen-config-check gen-uiprofiles gen-uiprofiles-check claude-assets
 
 # claude-assets — materialize the .claude method prompt surface (agents/commands/
 # skills) into the repo root from the method-assets lib pinned in go.mod. The
@@ -23,21 +23,6 @@ claude-assets:
 #                 (<goPackage>/fake/fake.gen.go). Alias of gen-models — same
 #                 cmd/modelgen run emits both outputs.
 #   gen         — steady-state regen (idempotent); gen-models + gen-fakes + …
-#   gen-schemas — BOOTSTRAP-ONLY re-seed, fully mechanical (no hand-edit):
-#                   1. cmd/schemagen  reflects current Go into each registered
-#                      component's <dir>/contract.schema.json.
-#                   2. cmd/contractfold folds that document straight into
-#                      project.json's .serviceContracts[<key>] (a surgical byte
-#                      splice — see cmd/internal/contractfold's package doc),
-#                      for every component that already has BOTH a
-#                      .serviceContracts entry and a freshly-written
-#                      contract.schema.json.
-#                 NOT part of the source of truth (project.json is) — do not use
-#                 in steady state; gen-models already reads project.json
-#                 directly. To bootstrap a BRAND NEW component's first contract
-#                 (no .serviceContracts entry yet), run schemagen for it, then
-#                 `go run ./cmd/contractfold <dir> <key>` directly (creates the
-#                 entry) instead of the bulk `gen-schemas` target.
 gen-models:
 	GOWORK=off go run ./cmd/modelgen
 
@@ -174,21 +159,6 @@ gen-uiprofiles:
 # server working directory (server-checks.yml).
 gen-uiprofiles-check: gen-uiprofiles
 	git diff --exit-code -- ../webApp/src/components/construction/lifecycleTemplates.gen.ts
-
-gen-schemas:
-	GOWORK=off go run ./cmd/schemagen
-	GOWORK=off go run ./cmd/contractfold
-
-# bootstrap — re-bootstrap a component: generate its contract.gen.go from
-# project.json, then strip the now-duplicate hand-written surface (refuses to drop
-# behavior). Idempotent: in steady state the components are already stripped, so
-# contractstrip is a no-op. Safe to re-run.
-#   1. gen-models    project.json -> contract.gen.go
-#   2. contractstrip remove any hand-written surface owned by the contract
-#   3. build         verify the packages compile from the generated surface
-bootstrap: gen-models
-	GOWORK=off go run ./cmd/contractstrip
-	GOWORK=off go build ./...
 
 # Everything, including the model-gated integration tests (need a live, capable
 # Ollama-backed worker — see internal/manager/systemdesign/integration_test.go).

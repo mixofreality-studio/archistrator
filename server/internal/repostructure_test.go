@@ -42,15 +42,11 @@ var allowedCmd = map[string]bool{
 	"aiarch-state-mcp":     true,
 	"appgen":               true,
 	"clientgen":            true,
-	"contractfold":         true,
-	"contractstrip":        true,
 	"gen-systemtests":      true,
 	"gen-uiprofiles":       true,
 	"gen-uitests-fixtures": true,
-	"internal":             true,
 	"internaltoolsgen":     true,
 	"modelgen":             true,
-	"schemagen":            true,
 	"server":               true,
 }
 

@@ -10,8 +10,3 @@ test-artifacts/
 /server
 /gen-uiprofiles
 /gen-uitests-fixtures
-
-# cmd/schemagen's bootstrap-only re-seed output. Transient: cmd/contractfold
-# folds it straight into .aiarch/state/project.json (the source of truth), so
-# it is never itself committed. See cmd/schemagen's package doc.
-contract.schema.json
