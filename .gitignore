@@ -6,6 +6,13 @@ server/cmd/server/server
 .npmrc
 server/.env
 
+# scripts/build-local.sh output — the single-binary local-first server (local-first-init-funnel
+# Task 4). webappdist/ is the staged webApp/dist tree go:embed needs at compile time
+# (cmd/server/spa_embed.go); /archistrator is the built binary. Both build-time artifacts,
+# never committed.
+server/cmd/server/webappdist/
+/archistrator
+
 # local research material (e.g. the Righting Software book) — not committed.
 # Anchored to the repo root: .aiarch/state/research/ is committed project state (F42 corpus files).
 /research/

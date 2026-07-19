@@ -372,13 +372,19 @@ func (h *appHooks) WrapManagers(managers WebManagers) WebManagers {
 // ExtraMounts adds the composition-root-only routes behind the same auth boundary:
 // GET /api/userinfo (the SPA session probe — not a manager op) and /mcp (the MCP
 // transport over the SAME four wrapped managers the REST handlers use, plus the
-// ui://archistrator/shell.html MCP-Apps resource).
+// ui://archistrator/shell.html MCP-Apps resource). On the local profile, also
+// mounts the embedded SPA at "/" (local-first-init-funnel Task 4, spa_handler.go)
+// — the single-binary `archistrator init` boot serves design (UC1+UC2) AND
+// construction from the same process that answers /api + /mcp. Gated on BOTH the
+// `localdist` build tag (spaFS, spa_embed.go/spa_stub.go — cloud images never
+// carry the tag) AND the runtime profile, so a hypothetical localdist-tagged
+// binary run with cloud config never mounts the SPA either.
 //
 // WEBAPP_ORIGIN/WEBAPP_ASSET_VERSION are NOT configgen-owned (configgen emits
 // config.gen.go from project.json's deployment model, which does not yet declare
 // these two settings): read directly here, mirroring config_adapter.go's pattern
 // of hand env reads for composition-root-only values (envSecret, devPrincipal).
-func (h *appHooks) ExtraMounts(root *http.ServeMux, _ *Config, dev web.DevConfig, validator security.Validator, managers WebManagers) {
+func (h *appHooks) ExtraMounts(root *http.ServeMux, cfg *Config, dev web.DevConfig, validator security.Validator, managers WebManagers) {
 	// F-QA2-46: the generated handlers' writeManagerError writes every 5xx with zero
 	// server-side logging, and the manager logging wrap above only sees
 	// Infrastructure-kind *manager.Error values — so a client-visible 503 (e.g. a
@@ -397,6 +403,10 @@ func (h *appHooks) ExtraMounts(root *http.ServeMux, _ *Config, dev web.DevConfig
 	root.Handle("/mcp", newMCPHandler(dev, validator,
 		managers.SystemDesignManager, managers.ProjectDesignManager, managers.ConstructionManager, managers.OperationsManager,
 		webAppOrigin, assetVersion))
+
+	if resolveProfile(cfg) == "local" {
+		mountSPA(root, h.logger)
+	}
 }
 
 // ArtifactAccessGitHubCloudArgs supplies the CLOUD artifactAccess ctor args: the
