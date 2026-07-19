@@ -14,7 +14,7 @@ package main
 // sourcecontrol catalog surface are built once here and reused across the hooks
 // that need them.
 //
-// THREE REVIEWED RESIDUALS of the fixed generated seam (all dev-profile-only;
+// FOUR REVIEWED RESIDUALS of the fixed generated seam (all dev-profile-only;
 // cloud with DRYRUN=false is unaffected):
 //
 //  1. SHARED-ARTIFACT DRY-RUN CONTAMINATION. FinalizeArtifactAccess swaps the
@@ -50,30 +50,42 @@ package main
 //     SAME repo and GitStore holds no connection state, so this is an
 //     instance-count residual, not a correctness one.
 //
-//  4. UNCONDITIONAL POSTGRES POOL DIAL ON EVERY PROFILE INCLUDING LOCAL
-//     (local-first-init-funnel Task 2b, KNOWN GAP — not fixed by this task, no hook
-//     exists to fix it from this file). main.gen.go's Postgres pool
-//     (postgresinfra.NewPool(ctx, cfg.PostgresURL), which PINGS — a real dial, not a
-//     lazy handle) is built UNCONDITIONALLY at boot, on every profile, even though
-//     every profile-switched binding that consumes it (operatedSystemStateAccess,
-//     usageAccess) now resolves to a Postgres-free NoOp variant on "local". This is
-//     because composegen's writePostgres (framework-go-app-generator@v0.8.0,
-//     composegen/emit.go:180-188, vendored/pinned in archistrator-platform) gates
-//     pool construction on consumesPostgres() (imports.go:222-229) — "does ANY
-//     declared binding, in ANY profile, use the postgres substrate" — a
-//     GENERATION-TIME decision over the whole deployment model, not the
-//     RUNTIME-resolved `profile` value composegen already resolves earlier in the
-//     SAME function (writeProfile precedes writePostgres in writeRunGenerated). Since
-//     "cloud" legitimately needs Postgres, consumesPostgres() is permanently true, so
-//     the pool dial can NEVER be made conditional from project.json alone — it needs
-//     a composegen change (gate the pool build on the postgres infra key's declared
-//     `profiles` list at runtime, mirroring how each RA's own per-profile switch arm
-//     already works) followed by a platform release (new framework-go-app-generator
-//     tag + re-pin of server/go.mod). Confirmed via a real local boot with Temporal
-//     reachable and Postgres NOT reachable: the process still hard-fails with a
-//     Postgres dial error before the HTTP server starts. NEVER hand-edit main.gen.go
-//     to work around this — see the task report for the verified boot-log evidence
-//     and the proposed (unapplied) composegen patch.
+//  4. POSTGRES POOL DIAL — NOW PROFILE-GATED, BUT VIA AN UNRELEASED PLATFORM
+//     PATCH (local-first-init-funnel Task 2, commit a6f85e2). As of a6f85e2,
+//     main.gen.go's Postgres pool (postgresinfra.NewPool(ctx, cfg.PostgresURL),
+//     which PINGS — a real dial, not a lazy handle) is built ONLY when
+//     `profile == "cloud"`, so a local boot no longer dials it, even though every
+//     profile-switched binding that consumed it (operatedSystemStateAccess,
+//     usageAccess) already resolved to a Postgres-free NoOp variant on "local"
+//     before this fix. The gate exists because composegen's writePostgres
+//     (framework-go-app-generator@v0.8.0, composegen/emit.go:180-188,
+//     vendored/pinned in archistrator-platform) was patched to stop gating pool
+//     construction purely on consumesPostgres() (imports.go:222-229) — "does ANY
+//     declared binding, in ANY profile, use the postgres substrate", a
+//     GENERATION-TIME decision — and instead gate on the postgres infra key's
+//     declared `profiles` list evaluated against the RUNTIME-resolved `profile`
+//     value, mirroring how each RA's own per-profile switch arm already works.
+//     THAT PATCH IS UNRELEASED: it lives only as a local commit on
+//     archistrator-platform's composegen-profile-gated-pool branch (e3ce3da0) —
+//     not tagged, not pushed — and server/go.mod is still pinned to the
+//     un-patched framework-go-app-generator v0.8.0. This repo's committed
+//     main.gen.go was regenerated workspace-ACTIVE against the local platform
+//     checkout to pick up the fix, and happens to compile clean under
+//     `GOWORK=off` against the still-pinned v0.8.0 (the generation-shape change
+//     needs nothing the pinned version doesn't already provide) — but that is a
+//     property of how narrow this particular diff is, not a substitute for the
+//     real release. KNOWN GAP: regenerating (`go run ./cmd/appgen`) WITHOUT the
+//     local platform checkout in go.work scope — e.g. `GOWORK=off`, or a
+//     go.work that doesn't include archistrator-platform — silently reproduces
+//     the OLD ungated main.gen.go and reintroduces the unconditional dial on
+//     every profile. This is a hard merge blocker (see the plan doc's
+//     Sequencing note) until the platform release ships (this patch + any
+//     llm-provider additions) and server/go.mod is re-pinned to it. Confirmed
+//     via a real local boot with Temporal reachable and Postgres NOT reachable:
+//     the process now reaches "http server listening" cleanly, with zero
+//     "postgres"/"5432" mentions in the boot log. NEVER hand-edit main.gen.go to
+//     paper over a regen that reverts this — regenerate with the local platform
+//     checkout in go.work scope, or wait for the release.
 
 import (
 	"context"

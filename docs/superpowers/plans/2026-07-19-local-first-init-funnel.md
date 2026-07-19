@@ -181,3 +181,7 @@ Claude Desktop / MCP Apps surface (blocked upstream: ext-apps#671; pilot continu
 ## Sequencing note
 
 Tasks 2→5 are the design-only funnel and independently shippable (matches the original UC1+UC2 wedge). Task 6 is the founder-ratified construction extension; Task 7 rides last because its enforcement points are exercised by 5 and 6. If Task 3 Step 4 (tool-turn) stalls, ship 2–5 with typed-generate-only drafts and surface the limitation.
+
+The Task 2 composegen fix (profile-gated shared Postgres pool, archistrator-platform branch `composegen-profile-gated-pool`) was developed workspace-ACTIVE against the local platform checkout and the app repo's regenerated `main.gen.go` was verified to compile clean under `GOWORK=off` against the still-PINNED `framework-go-app-generator v0.8.0` — but the platform release (this patch + any llm-provider changes) + `server/go.mod` re-pin to the released version is a founder-gated finishing step before this branch merges.
+
+**HARD MERGE BLOCKER (founder-gated):** release framework-go-app-generator (composegen profile-gated pool, commit e3ce3da0) + any llm-provider additions, then re-pin server/go.mod — until then any regen without the local platform checkout silently reverts the Postgres gating.
