@@ -14,7 +14,7 @@ package main
 // sourcecontrol catalog surface are built once here and reused across the hooks
 // that need them.
 //
-// FIVE REVIEWED RESIDUALS of the fixed generated seam (all dev-profile-only;
+// SIX REVIEWED RESIDUALS of the fixed generated seam (all dev-profile-only;
 // cloud with DRYRUN=false is unaffected):
 //
 //  1. SHARED-ARTIFACT DRY-RUN CONTAMINATION. FinalizeArtifactAccess swaps the
@@ -111,6 +111,19 @@ package main
 //     ClaudeCLIClient's logic locally in the app to dodge the pin — the
 //     provider belongs in the platform module (see claudecli.go's own doc
 //     comment for why), not duplicated here.
+//
+//  6. CLAUDE-LOCAL PROVIDER TOOL-TURN OMISSION. The llm.ClaudeCLIClient (the
+//     claude-local Worker Provider, framework-go-infrastructure-llm/claudecli.go)
+//     implements Generate ONLY — GenerateToolTurn and GenerateWithTools are
+//     intentionally omitted. The reason: headless `claude --mcp-config` runs its
+//     own internal agentic loop and cannot yield one blocking turn to an external
+//     caller-driven loop. No live callers of those contracts exist in this repo
+//     since the 2026-06 agentic pivot (the construction executor does not call
+//     Generate{ToolTurn,WithTools} — it shells `claude` directly with
+//     --mcp-config). Full analysis in
+//     framework-go-infrastructure-llm/claudecli.go's own doc comment. This is
+//     intentional, not a gap: callers requiring those methods remain anchored to
+//     llm.AnthropicClient (cloud, or explicit key override on local).
 
 import (
 	"context"
