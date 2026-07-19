@@ -87,7 +87,7 @@ void test('DISABLED_COMMENT_CTX — required interface members exist', () => {
   for (const member of requiredMembers) {
     assert.ok(
       member in DISABLED_COMMENT_CTX,
-      `DISABLED_COMMENT_CTX missing required member: ${member}`,
+      `DISABLED_COMMENT_CTX missing required member: ${member}`
     );
   }
 });

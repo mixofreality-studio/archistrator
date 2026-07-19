@@ -30,7 +30,11 @@ void test('falls back to tool name when _meta carries no ui.view', () => {
 });
 
 void test('falls back to tool name when the _meta view id is not itself registered', () => {
-  const res = resolveViewKey({ ui: { view: 'some-unregistered-view' } }, 'systemDesignGetSessionState', hasKey);
+  const res = resolveViewKey(
+    { ui: { view: 'some-unregistered-view' } },
+    'systemDesignGetSessionState',
+    hasKey
+  );
   assert.deepEqual(res, { key: 'systemDesignGetSessionState', resolvedBy: 'toolName' });
 });
 
@@ -40,22 +44,23 @@ void test('resolves to none when neither the view id nor the tool name is regist
 });
 
 void test('tolerates a malformed _meta.ui shape (non-object, missing view, non-string view)', () => {
-  assert.deepEqual(
-    resolveViewKey({ ui: 'not-an-object' }, 'systemDesignGetSessionState', hasKey),
-    { key: 'systemDesignGetSessionState', resolvedBy: 'toolName' }
-  );
-  assert.deepEqual(
-    resolveViewKey({ ui: {} }, 'systemDesignGetSessionState', hasKey),
-    { key: 'systemDesignGetSessionState', resolvedBy: 'toolName' }
-  );
-  assert.deepEqual(
-    resolveViewKey({ ui: { view: 42 } }, 'systemDesignGetSessionState', hasKey),
-    { key: 'systemDesignGetSessionState', resolvedBy: 'toolName' }
-  );
+  assert.deepEqual(resolveViewKey({ ui: 'not-an-object' }, 'systemDesignGetSessionState', hasKey), {
+    key: 'systemDesignGetSessionState',
+    resolvedBy: 'toolName',
+  });
+  assert.deepEqual(resolveViewKey({ ui: {} }, 'systemDesignGetSessionState', hasKey), {
+    key: 'systemDesignGetSessionState',
+    resolvedBy: 'toolName',
+  });
+  assert.deepEqual(resolveViewKey({ ui: { view: 42 } }, 'systemDesignGetSessionState', hasKey), {
+    key: 'systemDesignGetSessionState',
+    resolvedBy: 'toolName',
+  });
 });
 
 void test('falls back to the single distinct view when the host omits toolInfo entirely (F-T11-3)', () => {
-  const hasKey = (k: string): boolean => k === 'system-design-session' || k === 'systemDesignGetSessionState';
+  const hasKey = (k: string): boolean =>
+    k === 'system-design-session' || k === 'systemDesignGetSessionState';
   const res = resolveViewKey(undefined, undefined, hasKey, ['system-design-session']);
   assert.equal(res.resolvedBy, 'singleViewDefault');
   assert.equal(res.key, 'system-design-session');

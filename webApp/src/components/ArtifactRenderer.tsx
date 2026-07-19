@@ -90,7 +90,10 @@ function renderBody(
       return <UseCaseCarousel envelope={envelope} />;
     case 'operationalConcepts':
       return (
-        <OperationalConceptsView envelope={envelope} {...(height !== undefined ? { height } : {})} />
+        <OperationalConceptsView
+          envelope={envelope}
+          {...(height !== undefined ? { height } : {})}
+        />
       );
     // Every Phase-2 kind (planningAssumptions / activityList / network / the 4
     // solution kinds / riskModel / sdpReview), plus an absent envelope/kind,

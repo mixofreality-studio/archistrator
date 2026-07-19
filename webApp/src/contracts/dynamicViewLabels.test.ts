@@ -44,10 +44,7 @@ void test('a present title wins over every fallback', () => {
 void test('a blank title falls back to the linked use case name (trimmed)', () => {
   assert.equal(dynamicViewLabel({ title: '', useCaseId: 'uc-2' }, 1, NAME_BY_ID), 'Track Shipment');
   // Whitespace-only titles count as blank too.
-  assert.equal(
-    dynamicViewLabel({ title: '   ', useCaseId: 'uc-1' }, 0, NAME_BY_ID),
-    'Place Order'
-  );
+  assert.equal(dynamicViewLabel({ title: '   ', useCaseId: 'uc-1' }, 0, NAME_BY_ID), 'Place Order');
 });
 
 void test('an unresolvable useCaseId falls back to a 1-based positional placeholder', () => {

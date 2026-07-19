@@ -38,7 +38,9 @@ app.addEventListener('toolinput', (params) => {
 });
 app.addEventListener('toolresult', (params) => {
   latestToolResult = params;
-  window.dispatchEvent(new CustomEvent<McpUiToolResultNotification['params']>(TOOL_RESULT_EVENT, { detail: params }));
+  window.dispatchEvent(
+    new CustomEvent<McpUiToolResultNotification['params']>(TOOL_RESULT_EVENT, { detail: params })
+  );
   resolveFirstResult?.();
 });
 

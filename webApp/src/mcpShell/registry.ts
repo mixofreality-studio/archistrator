@@ -11,7 +11,10 @@
  * registered" message (see main.tsx).
  */
 import type { ComponentType } from 'react';
-import { McpSystemDesignContainer, type McpViewProps } from '../containers/McpSystemDesignContainer';
+import {
+  McpSystemDesignContainer,
+  type McpViewProps,
+} from '../containers/McpSystemDesignContainer';
 
 export const VIEW_REGISTRY: Record<string, ComponentType<McpViewProps>> = {
   'system-design-session': McpSystemDesignContainer,

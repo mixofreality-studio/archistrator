@@ -22,7 +22,13 @@ import { VIEW_REGISTRY } from './registry';
 import { resolveViewKey } from './resolveView';
 import { McpErrorBoundary } from './McpErrorBoundary';
 import { McpThemeSync } from './McpThemeSync';
-import { app, bootHost, currentToolArgs, firstToolStructuredContent, themeKeyFromHost } from './host';
+import {
+  app,
+  bootHost,
+  currentToolArgs,
+  firstToolStructuredContent,
+  themeKeyFromHost,
+} from './host';
 
 async function main(): Promise<void> {
   await bootHost();
@@ -37,7 +43,9 @@ async function main(): Promise<void> {
     ctx?.toolInfo?.tool._meta,
     toolName,
     (key) => VIEW_REGISTRY[key] !== undefined,
-    [...new Set(Object.values(VIEW_REGISTRY))].length === 1 ? Object.keys(VIEW_REGISTRY).slice(0, 1) : []
+    [...new Set(Object.values(VIEW_REGISTRY))].length === 1
+      ? Object.keys(VIEW_REGISTRY).slice(0, 1)
+      : []
   );
   const View = resolution.key !== undefined ? VIEW_REGISTRY[resolution.key] : undefined;
   void app.sendLog({

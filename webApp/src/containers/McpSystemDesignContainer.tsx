@@ -25,7 +25,11 @@ import Paper from '@mui/material/Paper';
 import TextField from '@mui/material/TextField';
 import Button from '@mui/material/Button';
 import Typography from '@mui/material/Typography';
-import type { App, McpUiDisplayMode, McpUiToolResultNotification } from '@modelcontextprotocol/ext-apps';
+import type {
+  App,
+  McpUiDisplayMode,
+  McpUiToolResultNotification,
+} from '@modelcontextprotocol/ext-apps';
 import { useQueryClient } from '@tanstack/react-query';
 
 import { ApiError } from '../contracts/errors';
@@ -37,7 +41,11 @@ import { mapSessionState, systemArtifactKindFromOrdinal } from '../contracts/wir
 
 import { useProject } from '../hooks/useProject';
 import { useSessionState, sessionStateKey } from '../hooks/useSessionState';
-import { useAcknowledgeStaleBasis, useRequestArtifactDraft, useSubmitReviewDecision } from '../hooks/useDesignMutations';
+import {
+  useAcknowledgeStaleBasis,
+  useRequestArtifactDraft,
+  useSubmitReviewDecision,
+} from '../hooks/useDesignMutations';
 
 import { SystemDesignView, type SpineStep } from '../components/design/SystemDesignView';
 import { DesignExperienceSkeleton } from '../components/design/DesignSkeleton';
@@ -123,7 +131,9 @@ function viewContextText(
     `The architect is viewing the "${METHOD_METADATA[kind].title}" system-design artifact` +
       (projectName !== undefined ? ` of project "${projectName}"` : '') +
       '.',
-    stage !== undefined ? `Session stage: ${stage}.` : 'No live co-authoring session for this artifact.',
+    stage !== undefined
+      ? `Session stage: ${stage}.`
+      : 'No live co-authoring session for this artifact.',
   ];
   if (anchor !== null) {
     lines.push(`They have selected: "${anchor.anchorText ?? anchor.label}" (${anchor.jsonPath}).`);
@@ -203,7 +213,10 @@ export function McpSystemDesignContainer({
   const acknowledgeStale = useAcknowledgeStaleBasis(projectId);
 
   const [gateError, setGateError] = useState<string | undefined>(undefined);
-  const [composer, setComposer] = useState<{ mode: 'comment' | 'reject'; anchor: Anchor | null } | null>(null);
+  const [composer, setComposer] = useState<{
+    mode: 'comment' | 'reject';
+    anchor: Anchor | null;
+  } | null>(null);
   const [composerText, setComposerText] = useState('');
   const [sendFallbackHint, setSendFallbackHint] = useState(false);
   // Folded into the ambient view-context text (see viewContextText's doc comment)
@@ -221,7 +234,13 @@ export function McpSystemDesignContainer({
       content: [
         {
           type: 'text',
-          text: viewContextText(projectName, activeKind, stage, composer?.anchor ?? null, lastFiledComment),
+          text: viewContextText(
+            projectName,
+            activeKind,
+            stage,
+            composer?.anchor ?? null,
+            lastFiledComment
+          ),
         },
       ],
     });
@@ -233,7 +252,9 @@ export function McpSystemDesignContainer({
   const submitSelectionComment = useCallback(
     async (anchor: Anchor, text: string): Promise<void> => {
       await app.updateModelContext({
-        content: [{ type: 'text', text: commentContextText(projectName, activeKind, stage, anchor, text) }],
+        content: [
+          { type: 'text', text: commentContextText(projectName, activeKind, stage, anchor, text) },
+        ],
       });
       const res = await app.sendMessage({
         role: 'user',
@@ -252,7 +273,9 @@ export function McpSystemDesignContainer({
   };
 
   const onRequestDraft = (feedback?: string): void => {
-    requestDraft.mutate(feedback !== undefined ? { kind: activeKind, feedback } : { kind: activeKind });
+    requestDraft.mutate(
+      feedback !== undefined ? { kind: activeKind, feedback } : { kind: activeKind }
+    );
   };
 
   const onSubmitReview = (decision: ReviewDecision): void => {
@@ -388,7 +411,15 @@ export function McpSystemDesignContainer({
           }}
         >
           <Paper
-            sx={{ m: 2, p: 2, width: '100%', maxWidth: 560, display: 'flex', flexDirection: 'column', gap: 1.5 }}
+            sx={{
+              m: 2,
+              p: 2,
+              width: '100%',
+              maxWidth: 560,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 1.5,
+            }}
           >
             <Typography sx={{ fontFamily: t.mono, fontWeight: 700, color: t.ink }}>
               {composer.mode === 'reject'

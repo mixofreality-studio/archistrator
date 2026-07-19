@@ -205,13 +205,22 @@ void test('mcp impl unwraps the generated single-result envelope to match REST (
     },
   };
   const ops = mcpOpsClient(app as never);
-  const out = await ops.call('systemDesignGetSessionState', { path: { projectID: 'p1' }, query: { kind: 0 } });
+  const out = await ops.call('systemDesignGetSessionState', {
+    path: { projectID: 'p1' },
+    query: { kind: 0 },
+  });
   assert.deepEqual(out, { stage: 'drafting' });
 });
 
 void test('mcp impl passes a void-op empty structuredContent through as {}', async () => {
-  const app = { callServerTool: (): Promise<unknown> => Promise.resolve({ structuredContent: undefined, content: [] }) };
+  const app = {
+    callServerTool: (): Promise<unknown> =>
+      Promise.resolve({ structuredContent: undefined, content: [] }),
+  };
   const ops = mcpOpsClient(app as never);
-  const out = await ops.call('systemDesignSetResearchInput', { path: { projectID: 'p1' }, body: {} });
+  const out = await ops.call('systemDesignSetResearchInput', {
+    path: { projectID: 'p1' },
+    body: {},
+  });
   assert.deepEqual(out, {});
 });

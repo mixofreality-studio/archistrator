@@ -58,7 +58,11 @@ export function resolveViewKey(
   // distinct view can still render honestly: there is nothing else it could be.
   // Multi-view registries must not guess.
   const soleKey = uniqueKeys.length === 1 ? uniqueKeys[0] : undefined;
-  if (viewId === undefined && (toolName === undefined || toolName.length === 0) && soleKey !== undefined) {
+  if (
+    viewId === undefined &&
+    (toolName === undefined || toolName.length === 0) &&
+    soleKey !== undefined
+  ) {
     return { key: soleKey, resolvedBy: 'singleViewDefault' };
   }
   return { key: undefined, resolvedBy: 'none' };
