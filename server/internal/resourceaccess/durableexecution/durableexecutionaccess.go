@@ -390,7 +390,7 @@ func mapStatus(s enumspb.WorkflowExecutionStatus) ExecutionStatus {
 
 // mapStartError classifies a start/signal-with-start failure.
 func mapStartError(err error) error {
-	if k, ok := classifyCommon(err); ok {
+	if k := classifyCommon(err); k != nil {
 		return k
 	}
 	return fwra.Wrap(fwra.Transient, err, "durableexecution.StartOrSignalExecution: runtime error")
@@ -399,7 +399,7 @@ func mapStartError(err error) error {
 // mapSignalError classifies a signal-delivery failure. A missing target execution
 // is the logical ErrNotFound.
 func mapSignalError(err error) error {
-	if k, ok := classifyCommon(err); ok {
+	if k := classifyCommon(err); k != nil {
 		return k
 	}
 	return fwra.Wrap(fwra.Transient, err, "durableexecution.DeliverSignal: runtime error")
@@ -407,7 +407,7 @@ func mapSignalError(err error) error {
 
 // mapScheduleError classifies a schedule create/update failure.
 func mapScheduleError(err error) error {
-	if k, ok := classifyCommon(err); ok {
+	if k := classifyCommon(err); k != nil {
 		return k
 	}
 	return fwra.Wrap(fwra.Transient, err, "durableexecution.RegisterSchedule: runtime error")
@@ -420,29 +420,29 @@ func mapQueryError(err error) error {
 	if errors.As(err, &qErr) {
 		return fwra.Wrap(fwra.ContentPolicy, err, "durableexecution.QueryExecutionState: query rejected by handler")
 	}
-	if k, ok := classifyCommon(err); ok {
+	if k := classifyCommon(err); k != nil {
 		return k
 	}
 	return fwra.Wrap(fwra.Transient, err, "durableexecution.QueryExecutionState: runtime error")
 }
 
 // classifyCommon maps the runtime error kinds shared across every op. Returns
-// (mapped, true) when it recognises the error; (nil, false) otherwise so each
-// caller applies its own default.
-func classifyCommon(err error) (error, bool) {
+// the mapped error when it recognises the input; nil otherwise so each caller
+// applies its own default.
+func classifyCommon(err error) error {
 	var notFound *serviceerror.NotFound
 	if errors.As(err, &notFound) {
-		return fwra.Wrap(fwra.NotFound, err, "durableexecution: no execution with that id"), true
+		return fwra.Wrap(fwra.NotFound, err, "durableexecution: no execution with that id")
 	}
 	var invalid *serviceerror.InvalidArgument
 	if errors.As(err, &invalid) {
-		return fwra.Wrap(fwra.ContractMisuse, err, "durableexecution: invalid argument"), true
+		return fwra.Wrap(fwra.ContractMisuse, err, "durableexecution: invalid argument")
 	}
 	var unavailable *serviceerror.Unavailable
 	if errors.As(err, &unavailable) {
-		return fwra.Wrap(fwra.Transient, err, "durableexecution: runtime unavailable"), true
+		return fwra.Wrap(fwra.Transient, err, "durableexecution: runtime unavailable")
 	}
-	return nil, false
+	return nil
 }
 
 // behavior.go carries the FREE-FUNCTION behaviour of the named-scalar / enum value

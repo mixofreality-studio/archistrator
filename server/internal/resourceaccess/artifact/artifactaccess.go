@@ -1,3 +1,6 @@
+// Package artifact is the artifactAccess component of the ResourceAccess layer —
+// the git-backed store for produced design/construction artifact payloads,
+// addressed by content hash and scoped per project.
 package artifact
 
 import (

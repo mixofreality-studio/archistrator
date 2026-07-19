@@ -359,7 +359,7 @@ func signalWaiterWorkflow(ctx workflow.Context, start []byte) ([]byte, error) {
 }
 
 // scheduledWorkflow: a no-op schedule target that completes immediately.
-func scheduledWorkflow(ctx workflow.Context, _ []byte) error {
+func scheduledWorkflow(_ workflow.Context, _ []byte) error {
 	return nil
 }
 

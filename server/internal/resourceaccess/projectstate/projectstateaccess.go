@@ -1,3 +1,6 @@
+// Package projectstate is the projectStateAccess component of the ResourceAccess
+// layer — the git-as-DB port over the per-project repo's .aiarch/state/project.json,
+// the single owner of all committed Method artifact slots (see gitstore notes below).
 package projectstate
 
 // gitstore.go is the GIT-JSON + REF-CAS realization of projectStateAccess
@@ -196,6 +199,9 @@ func (s *GitStore) gitAuth(cred RepoCredential, op string) (fwgithub.GitAuth, er
 // dedup record in ONE commit (REWORK.3 same-commit coupling).
 // ---------------------------------------------------------------------------
 
+// StageArtifactForReview stages a drafted artifact model into its slot as
+// AwaitingReview on MAIN — the branch=="" degenerate of the session-branch
+// staging path (dormant design rail).
 func (s *GitStore) StageArtifactForReview(ctx context.Context, projectID ProjectID, expectedVersion Version, model ArtifactModel, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	return s.stageArtifactForReviewOnBranch(ctx, projectID, expectedVersion, "", model, cred, idempotencyKey)
 }
@@ -268,6 +274,8 @@ func (s *GitStore) ReconcileBranchFromMain(ctx context.Context, projectID Projec
 	})
 }
 
+// CommitArtifact flips a reviewed slot to Committed on main, without PM-P2-4
+// provenance (the provenance-carrying variant is CommitArtifactWithProvenance).
 func (s *GitStore) CommitArtifact(ctx context.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	// commitTransition (F38) flips to Committed AND bumps Revisions + clears this slot's
 	// StaleBasis + flags downstream committed slots stale — all in one atomic commit on main.
@@ -288,6 +296,8 @@ func (s *GitStore) CommitArtifactWithProvenance(ctx context.Context, projectID P
 	return s.applyMutation(ctx, "CommitArtifact", projectID, expectedVersion, cred, idempotencyKey, modeUpsert, commitTransition(kind, prov))
 }
 
+// RejectArtifact records the reviewer's Reject on MAIN — the branch==""
+// degenerate of rejectArtifactOnBranch (dormant design rail).
 func (s *GitStore) RejectArtifact(ctx context.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, notes string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	return s.rejectArtifactOnBranch(ctx, projectID, expectedVersion, "", kind, notes, cred, idempotencyKey)
 }
@@ -307,6 +317,8 @@ func (s *GitStore) rejectArtifactOnBranch(ctx context.Context, projectID Project
 	return s.applyMutationOnBranch(ctx, "RejectArtifact", projectID, expectedVersion, branch, cred, idempotencyKey, modeUpsert, statusTransition("RejectArtifact", kind, ReviewRejected, notes))
 }
 
+// WithdrawArtifact retracts a staged draft from review on MAIN — the branch==""
+// degenerate of withdrawArtifactOnBranch (dormant design rail).
 func (s *GitStore) WithdrawArtifact(ctx context.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, notes string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	return s.withdrawArtifactOnBranch(ctx, projectID, expectedVersion, "", kind, notes, cred, idempotencyKey)
 }
@@ -333,14 +345,6 @@ func (s *GitStore) withdrawArtifactOnBranch(ctx context.Context, projectID Proje
 // with the branch=="" main-path fallback every existing verb preserves.
 // ---------------------------------------------------------------------------
 
-// RejectArtifactOnBranchWithComments is the review-ledger extension of RejectArtifactOnBranch:
-// it records the architect's Reject AND appends the reviewer's comments to the slot's durable
-// ReviewThread in ONE atomic commit (review-ledger §2). Folding the status flip and the
-// ledger append into a single mutation makes the reject crash-safe (no partial state) and
-// idempotent under Temporal retry (the deterministic per-(round,index) ids dedup — see
-// appendReviewComments). Each comment supplies Anchor / AnchorText / Text / AuthorRole; the
-// id / round / open status are server-minted here. branch=="" behaves exactly as the main-path
-// reject (the dormant-rail fallback), still appending the comments.
 // SeedReviewCommentsOnBranch appends OPEN ledger comments to a slot's ReviewThread WITHOUT
 // any status change (F38 amendments). At an amendment session's start the reopening feedback
 // is seeded here as round-0 open entries — the "why" the drafting agent must address and the
@@ -391,6 +395,14 @@ func (s *GitStore) AcknowledgeStaleBasis(ctx context.Context, projectID ProjectI
 // review gate the reviewer who acknowledges staleness is the architect.
 const staleAckAuthorRole = "architect"
 
+// RejectArtifactOnBranchWithComments is the review-ledger extension of RejectArtifactOnBranch:
+// it records the architect's Reject AND appends the reviewer's comments to the slot's durable
+// ReviewThread in ONE atomic commit (review-ledger §2). Folding the status flip and the
+// ledger append into a single mutation makes the reject crash-safe (no partial state) and
+// idempotent under Temporal retry (the deterministic per-(round,index) ids dedup — see
+// appendReviewComments). Each comment supplies Anchor / AnchorText / Text / AuthorRole; the
+// id / round / open status are server-minted here. branch=="" behaves exactly as the main-path
+// reject (the dormant-rail fallback), still appending the comments.
 func (s *GitStore) RejectArtifactOnBranchWithComments(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, round int64, comments []ReviewComment, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	return s.applyMutationOnBranch(ctx, "RejectArtifact", projectID, expectedVersion, branch, cred, idempotencyKey, modeUpsert, func(p *Project) error {
 		if err := statusTransition("RejectArtifact", kind, ReviewRejected, notes)(p); err != nil {
@@ -446,6 +458,8 @@ func (s *GitStore) SetOperatingModel(ctx context.Context, projectID ProjectID, e
 	})
 }
 
+// AdvancePhase moves the project to the next Method phase (system design →
+// project design → construction) in one atomic version-guarded commit.
 func (s *GitStore) AdvancePhase(ctx context.Context, projectID ProjectID, expectedVersion Version, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	return s.applyMutation(ctx, "AdvancePhase", projectID, expectedVersion, cred, idempotencyKey, modeUpsert, func(p *Project) error {
 		p.Phase++
@@ -2196,7 +2210,7 @@ func OverlaySlotFromBranchOntoMain(mainProj *Project, branchProj *Project, kind 
 	return nil
 }
 
-// provenance.go carries the ADDITIVE commit-provenance record for a committed artifact
+// Provenance is the ADDITIVE commit-provenance record for a committed artifact
 // slot (PM-P2-4). It records WHO committed and WHEN, captured at the rail's approve→commit
 // transition, so the read model can render "committed <date> · approved by X · drafted by Y"
 // under the committed strip.
@@ -3224,6 +3238,10 @@ func (s *GitStore) upsertActivity(p *Project, activityID string, mutate func(g *
 	p.ActivityGit[activityID] = g
 }
 
+// RecordActivityBranchOpened upserts the per-activity git-status row with its
+// branch (and, when carried, PR) coordinates. First touch also seeds CICheck to
+// Pending; PR-side fields are never clobbered back to empty (see the in-body
+// PR-tolerant-upsert note).
 func (s *GitStore) RecordActivityBranchOpened(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID, branch, branchRef, prRef, crLabel string, isRevert bool, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	if activityID == "" {
 		return 0, fwra.New(fwra.ContractMisuse, "projectstate.RecordActivityBranchOpened: empty activityID")
@@ -3258,6 +3276,8 @@ func (s *GitStore) RecordActivityBranchOpened(rc fwra.Context, projectID Project
 	})
 }
 
+// RecordActivityCIObserved records the latest observed CI check state on the
+// activity's git-status row.
 func (s *GitStore) RecordActivityCIObserved(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, ci CICheckState, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	if activityID == "" {
 		return 0, fwra.New(fwra.ContractMisuse, "projectstate.RecordActivityCIObserved: empty activityID")
@@ -3270,6 +3290,8 @@ func (s *GitStore) RecordActivityCIObserved(rc fwra.Context, projectID ProjectID
 	})
 }
 
+// RecordActivityArchApproved marks the architect's PR approval on the
+// activity's git-status row.
 func (s *GitStore) RecordActivityArchApproved(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	if activityID == "" {
 		return 0, fwra.New(fwra.ContractMisuse, "projectstate.RecordActivityArchApproved: empty activityID")
@@ -3282,6 +3304,7 @@ func (s *GitStore) RecordActivityArchApproved(rc fwra.Context, projectID Project
 	})
 }
 
+// RecordActivityMerged marks the activity's PR as merged on its git-status row.
 func (s *GitStore) RecordActivityMerged(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	if activityID == "" {
 		return 0, fwra.New(fwra.ContractMisuse, "projectstate.RecordActivityMerged: empty activityID")
@@ -4969,7 +4992,7 @@ func InternalToolByName(name string) (InternalTool, bool) {
 	return InternalTool{}, false
 }
 
-// modelfields.go closes the ZERO-VALUE HOLE in the strict slot codec (F81).
+// RequireModelFields closes the ZERO-VALUE HOLE in the strict slot codec (F81).
 //
 // The closed ordinal enums (Layer, ComponentKind, CallMode, Trigger, Classification,
 // ActivityNodeKind, …) carry a custom UnmarshalJSON that rejects an unrecognized wire
@@ -6361,9 +6384,9 @@ func CoarsePhase(phases []PhaseCompletion) ActivityConstructionPhase {
 // phase (compute-at-read; kept for back-compat). Rules: Integration phase done →
 // BuildIntegrated; Construction phase done but Integration not → BuildInReview;
 // otherwise → BuildInConstruction.
-// The `current` parameter is reserved for future use (fine-grained phase display)
-// and is currently ignored; coarse status is derived solely from Phases completion.
-func CoarseBuildStatus(phases []PhaseCompletion, current ActivityMethodPhase) ActivityBuildStatus {
+// The second (phase) parameter is reserved for future use (fine-grained phase
+// display) and is ignored; coarse status is derived solely from Phases completion.
+func CoarseBuildStatus(phases []PhaseCompletion, _ ActivityMethodPhase) ActivityBuildStatus {
 	constructionDone := false
 	integrationDone := false
 	for _, p := range phases {
@@ -6702,7 +6725,7 @@ func ProjectEarnedValue(statuses []ActivityConstructionStatus, effortDays map[st
 	return earnedEffort / totalEffort
 }
 
-// stalecause.go carries the ADDITIVE stale-cause record for the F38 staleness rail.
+// StaleCause is the ADDITIVE stale-cause record for the F38 staleness rail.
 //
 // When an upstream artifact re-commits (an amendment), commitTransition flags every
 // already-committed DOWNSTREAM slot StaleBasis. StaleBasis alone answers "is this slot's
@@ -6966,6 +6989,7 @@ func CommandFor(t ActivityType, v TestingVariant, p ActivityMethodPhase) string 
 // in a design session.
 type DesignJobMode string
 
+// The three dispatch shapes a design job can take (see DesignJobMode).
 const (
 	DesignJobModeDraft    DesignJobMode = "draft"
 	DesignJobModeCritique DesignJobMode = "critique"
@@ -7189,13 +7213,13 @@ func appendStaleAck(thread []ReviewComment, authorRole, note string) []ReviewCom
 // nextThreadRound returns one past the highest round present in the thread (min 1), so a
 // fresh append mints collision-free ids regardless of prior reject/question rounds.
 func nextThreadRound(thread []ReviewComment) int64 {
-	var max int64
+	var maxRound int64
 	for _, c := range thread {
-		if c.Round > max {
-			max = c.Round
+		if c.Round > maxRound {
+			maxRound = c.Round
 		}
 	}
-	return max + 1
+	return maxRound + 1
 }
 
 // staleAckText renders the audit entry body: the reviewer's note when given, else a default.

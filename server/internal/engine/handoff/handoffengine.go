@@ -216,7 +216,7 @@ type seniorReviewsAllStrategy struct {
 	seniorOnlyLayers map[string]struct{}
 }
 
-func (s seniorReviewsAllStrategy) pickWorkerClass(activity ConstructionActivity) WorkerClass {
+func (s seniorReviewsAllStrategy) pickWorkerClass(ConstructionActivity) WorkerClass {
 	return HumanSeniorWorker
 }
 
@@ -228,6 +228,6 @@ func (s seniorReviewsAllStrategy) pickWorkerClass(activity ConstructionActivity)
 // contract surface.
 type architectOnlyStrategy struct{}
 
-func (architectOnlyStrategy) pickWorkerClass(activity ConstructionActivity) WorkerClass {
+func (architectOnlyStrategy) pickWorkerClass(ConstructionActivity) WorkerClass {
 	return ArchitectOnly
 }

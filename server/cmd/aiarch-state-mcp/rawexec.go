@@ -143,7 +143,7 @@ func executeEngineTool(ctx context.Context, tool projectstate.InternalTool, args
 	// in[0] — the ambient call Context. Constructed generically by setting the
 	// embedded context.Context field, so this rail needs no per-layer knowledge of
 	// the concrete Context struct.
-	ctxVal, err := newCallContext(mt.In(0), ctx)
+	ctxVal, err := newCallContext(ctx, mt.In(0))
 	if err != nil {
 		return nil, err
 	}
@@ -185,7 +185,7 @@ var errorType = reflect.TypeFor[error]()
 // (fweng.Context / fwra.Context) carrying the given ctx. Both layer Contexts embed
 // context.Context under the exported field name "Context", so this is done
 // generically by reflection — no per-layer import beyond the compile-time anchor.
-func newCallContext(t reflect.Type, ctx context.Context) (reflect.Value, error) {
+func newCallContext(ctx context.Context, t reflect.Type) (reflect.Value, error) {
 	v := reflect.New(t).Elem()
 	f := v.FieldByName("Context")
 	if !f.IsValid() || !f.CanSet() {

@@ -1,3 +1,7 @@
+// Package operatedsystemstate is the operatedSystemStateAccess component of the
+// ResourceAccess layer — the Postgres-backed store for OPERATED apps' runtime
+// system state (the operations rail), distinct from the git-backed design-time
+// project state in the projectstate package.
 package operatedsystemstate
 
 import (

@@ -618,7 +618,7 @@ func TestSubmitIdempotencyConvergence(t *testing.T) {
 	// G1 — replay after the run exists: same key, second submit short-circuits the
 	// probe (no second dispatch) and returns the SAME handle.
 	t.Run("replay_short_circuits_dispatch", func(t *testing.T) {
-		assertReplayShortCircuitsDispatch(t, ctx)
+		assertReplayShortCircuitsDispatch(ctx, t)
 	})
 
 	// G2 — two CONCURRENT submits with the SAME key. Even if both race past the
@@ -627,20 +627,20 @@ func TestSubmitIdempotencyConvergence(t *testing.T) {
 	t.Run("concurrent_submits_converge", func(t *testing.T) {
 		// Run many times to exercise the race interleavings.
 		for iter := range 200 {
-			assertConcurrentSubmitsConverge(t, ctx, iter)
+			assertConcurrentSubmitsConverge(ctx, t, iter)
 		}
 	})
 
 	// G3 — replay AFTER completion: the run is terminal; a re-submit still finds it
 	// and returns the same handle (no new dispatch).
 	t.Run("replay_after_completion", func(t *testing.T) {
-		assertReplayAfterCompletion(t, ctx)
+		assertReplayAfterCompletion(ctx, t)
 	})
 }
 
 // assertReplayShortCircuitsDispatch verifies G1: a second submit with the same key
 // short-circuits the probe (no second dispatch) and returns the SAME handle.
-func assertReplayShortCircuitsDispatch(t *testing.T, ctx context.Context) {
+func assertReplayShortCircuitsDispatch(ctx context.Context, t *testing.T) {
 	t.Helper()
 	f := newFakeActions()
 	a := newAccessForTest(t, f)
@@ -666,7 +666,7 @@ func assertReplayShortCircuitsDispatch(t *testing.T, ctx context.Context) {
 // assertConcurrentSubmitsConverge verifies G2 for a single race iteration: two
 // concurrent submits with the same key converge on the lowest-id canonical handle
 // and exactly ONE run survives (any sibling is cancelled).
-func assertConcurrentSubmitsConverge(t *testing.T, ctx context.Context, iter int) {
+func assertConcurrentSubmitsConverge(ctx context.Context, t *testing.T, iter int) {
 	t.Helper()
 	f := newFakeActions()
 	a := newAccessForTest(t, f)
@@ -726,7 +726,7 @@ func assertConcurrentSubmitsConverge(t *testing.T, ctx context.Context, iter int
 
 // assertReplayAfterCompletion verifies G3: a re-submit after the run is terminal
 // still finds it and returns the same handle (no new dispatch).
-func assertReplayAfterCompletion(t *testing.T, ctx context.Context) {
+func assertReplayAfterCompletion(ctx context.Context, t *testing.T) {
 	t.Helper()
 	f := newFakeActions()
 	a := newAccessForTest(t, f)

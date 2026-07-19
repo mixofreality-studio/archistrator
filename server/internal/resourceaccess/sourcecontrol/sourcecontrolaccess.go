@@ -222,7 +222,7 @@ var _ githubClient = (*fwgithub.AppClient)(nil)
 // It is UNEXPORTED (option-1 generated-DI): the package's only public surface is the
 // generated SourceControlAccess interface + models + the generated
 // NewGitHubSourceControlAccess constructor (plus the small hand-written catalog/locator
-// surface — SourceControlCatalogAccess + ProjectRepoRef — the projectstate catalog
+// surface — CatalogAccess + ProjectRepoRef — the projectstate catalog
 // consumes, and the established free-function/named-scalar/error-alias exceptions).
 type access struct {
 	client githubClient
@@ -254,8 +254,8 @@ type cachedToken struct {
 
 // compile-time proof access satisfies the merged port + the catalog/locator surface.
 var (
-	_ SourceControlAccess        = (*access)(nil)
-	_ SourceControlCatalogAccess = (*access)(nil)
+	_ SourceControlAccess = (*access)(nil)
+	_ CatalogAccess       = (*access)(nil)
 )
 
 // newGitHubSourceControlAccess is the hand-written, unexported builder behind the
@@ -440,7 +440,7 @@ func (a *access) AdoptProjectRepo(rc fwra.Context, spec RepoAdoptionSpec) (RepoR
 	return makeRepoRef(acct, fullName), nil
 }
 
-// SourceControlCatalogAccess is the small hand-written catalog/locator/token surface the
+// CatalogAccess is the small hand-written catalog/locator/token surface the
 // projectStateAccess catalog + git-credential minter consume at the COMPOSITION ROOT
 // (cmd/server). These ops are deliberately NOT on the merged SourceControlAccess contract:
 // ListProjectRepos returns the provider-neutral ProjectRepoRef catalog rows; RepoRefForProject
@@ -451,7 +451,7 @@ func (a *access) AdoptProjectRepo(rc fwra.Context, spec RepoAdoptionSpec) (RepoR
 // satisfies this alongside SourceControlAccess — it is the AUXILIARY hand-written public
 // surface the option-1 sweep keeps off the frozen 10-op contract (reported, not forced onto
 // the generated interface).
-type SourceControlCatalogAccess interface {
+type CatalogAccess interface {
 	ListProjectRepos(ctx context.Context, account AccountRef) ([]ProjectRepoRef, error)
 	RepoRefForProject(account AccountRef, projectID ProjectID) (RepoRef, error)
 	GetInstallationTokenForProject(ctx context.Context, account AccountRef, projectID ProjectID) (RepoCredential, error)
@@ -1730,7 +1730,7 @@ type Error = fwra.Error
 // constructionPipeline / artifactAccess); the variant takes it in.
 //
 // NewGitHubSourceControl returns BOTH published surfaces the composition root wires:
-//   - SourceControlCatalogAccess: the catalog/locator/token surface the projectStateAccess
+//   - CatalogAccess: the catalog/locator/token surface the projectStateAccess
 //     git cred minter + catalog (CLOUD profile) consume;
 //   - SourceControlAccess: the generated interface the design Managers' adapters + the
 //     PR-rail consume.
@@ -1740,11 +1740,11 @@ type Error = fwra.Error
 
 // NewGitHubSourceControl builds the GitHub-App-backed sourceControlAccess over the shared
 // *fwgithub.AppClient and returns both published surfaces (catalog + generated interface).
-func NewGitHubSourceControl(client *fwgithub.AppClient, account, appSlug string, repoPrivate bool) (SourceControlCatalogAccess, SourceControlAccess, error) {
+func NewGitHubSourceControl(client *fwgithub.AppClient, account, appSlug string, repoPrivate bool) (CatalogAccess, SourceControlAccess, error) {
 	scAccess, err := NewGitHubSourceControlAccess(client, account, appSlug, repoPrivate)
 	if err != nil {
 		return nil, nil, err
 	}
-	scConcrete := scAccess.(SourceControlCatalogAccess)
+	scConcrete := scAccess.(CatalogAccess)
 	return scConcrete, scAccess, nil
 }

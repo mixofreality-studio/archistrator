@@ -779,7 +779,7 @@ func registerConstructGit(env *testsuite.TestWorkflowEnvironment, wf *workflows,
 // rail + git store, a fixed repo resolver, and the happy-path engine fakes. The rail is
 // reached through the generated invoker surface (Acts); RailEnabled + the repo resolver +
 // the GitStatus mirror are what light up the PR-rail lifecycle.
-func gitWiredWorkflows(ps *fakeProjectState, rail *stubRail, git *stubGitStatus, mergeable bool) *workflows {
+func gitWiredWorkflows(_ *fakeProjectState, rail *stubRail, git *stubGitStatus, mergeable bool) *workflows {
 	rail.merged = mergeable
 	d := wfDeps{
 		HandOff:      &fakeHandOff{class: handoff.AIWorker},

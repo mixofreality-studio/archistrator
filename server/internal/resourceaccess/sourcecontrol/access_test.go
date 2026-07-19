@@ -597,7 +597,7 @@ func TestU13b_ListProjectReposDiscovery(t *testing.T) {
 	// Two genuinely-adopted repos (user-named, aiarch-project topic).
 	fake.SeedAdoptedRepo(testAccount, "alpha", "Project Alpha", true)
 	fake.SeedAdoptedRepo(testAccount, "beta-svc", "Project Beta", true)
-	a := newAccess(t, fake).(SourceControlCatalogAccess)
+	a := newAccess(t, fake).(CatalogAccess)
 
 	refs, err := a.ListProjectRepos(context.Background(), testAccount)
 	if err != nil {

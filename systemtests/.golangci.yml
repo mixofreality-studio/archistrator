@@ -18,6 +18,9 @@ linters:
     - gochecksumtype
     - gosec
     - depguard
+    # revive at its default rule set (golint successor), matching the server
+    # module's baseline.
+    - revive
   settings:
     gochecksumtype:
       default-signifies-exhaustive: false
@@ -46,6 +49,12 @@ linters:
       - path: "_test\\.go"
         linters:
           - gosec
+
+# Report everything: the default max-issues-per-linter/max-same-issues caps
+# hide findings and make CI green/red depend on fix order.
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
 
 formatters:
   enable:

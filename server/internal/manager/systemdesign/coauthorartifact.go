@@ -543,7 +543,7 @@ func (wf *workflows) produceReviewableDraft(
 	// (sequentially after the draft; the asset template opens no critique PR), so the draft
 	// read-back version stays the correct expected version for the AwaitingReview stage —
 	// the critique's own commit advances the branch, and the stage re-reads it (QA F29).
-	return gf, draft, readBackVersion, wf.runCritiqueRound(ctx, in, draft, gf, headVersion, feedback, redraftCount, state)
+	return gf, draft, readBackVersion, wf.runCritiqueRound(ctx, in, gf, headVersion, feedback, redraftCount, state)
 }
 
 // runDraftRoundTrip is the DRAFT round-trip (agentic pivot): compose the architect-role
@@ -784,7 +784,6 @@ func (wf *workflows) dispatchDraftAndReadBack(
 func (wf *workflows) runCritiqueRound(
 	ctx workflow.Context,
 	in coAuthorInput,
-	draft projectstate.ArtifactModel,
 	gf gitSession,
 	headVersion projectstate.Version,
 	feedback *ReviewFeedback,

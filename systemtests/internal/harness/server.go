@@ -1,3 +1,8 @@
+// Package harness boots the real archistrator server as a black-box process
+// and drives it purely over the wire (HTTP/MCP transports), backed by fakes
+// for the external seams (agentic GitHub, local git, worker env). It never
+// imports the system under test — see .golangci.yml's depguard rule and
+// constitution/constitution_test.go.
 package harness
 
 import (

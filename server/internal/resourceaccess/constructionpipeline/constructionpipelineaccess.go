@@ -1,3 +1,7 @@
+// Package constructionpipeline is the constructionPipelineAccess component of the
+// ResourceAccess layer — the port over the construction-pipeline runtime that
+// dispatches and observes agentic construction jobs (GitHub Actions realisation
+// below; see constructionPipelineAccess.md).
 package constructionpipeline
 
 // actions.go is the GITHUB-ACTIONS-backed realisation of the

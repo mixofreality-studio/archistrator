@@ -619,7 +619,7 @@ var encapsulationAllowlistData = map[string][]string{
 	},
 	// FREE-FUNCTION BEHAVIOUR over the repo/ref/handle scalars
 	// (String/FromString/Equal/IsZero/OwnerRepo) + the MANAGED-REPO SCAFFOLD CONTRACT
-	// (paths/versions/template files) + the FLAGGED HAND-WRITTEN SourceControlCatalogAccess port
+	// (paths/versions/template files) + the FLAGGED HAND-WRITTEN CatalogAccess port
 	// and ProjectRepoRef seam + Error alias.
 	"internal/resourceaccess/sourcecontrol": {
 		// VARIANT CONSTRUCTOR (step-8 fold): buildSourceControl folded out of cmd/server.
@@ -658,7 +658,7 @@ var encapsulationAllowlistData = map[string][]string{
 		"RepoRefIsZero",
 		"RepoRefOwnerRepo",
 		"RepoRefString",
-		"SourceControlCatalogAccess",
+		"CatalogAccess",
 		// The managed-scaffold pins for the local project-state MCP server the DESIGN
 		// workflow `go install`s (agentic-managers spec §Construction application).
 		"StateMcpModulePath",

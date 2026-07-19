@@ -1,3 +1,7 @@
+// Package operatedruntime is the operatedRuntimeAccess component of the
+// ResourceAccess layer — the port over the OPERATED apps' runtime substrate
+// (deploy/start/stop/inspect of built-app workloads), as opposed to the
+// archistrator server's own runtime.
 package operatedruntime
 
 import (

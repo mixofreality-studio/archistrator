@@ -1630,13 +1630,13 @@ func questionsToLedger(addressee string, questions []AnchoredComment) []projects
 // thread (min 1), so appendReviewComments mints fresh, non-colliding ids for a new batch of
 // questions regardless of how many reject/amendment rounds preceded them.
 func nextQuestionRound(thread []projectstate.ReviewComment) int64 {
-	var max int64
+	var maxRound int64
 	for _, c := range thread {
-		if c.Round > max {
-			max = c.Round
+		if c.Round > maxRound {
+			maxRound = c.Round
 		}
 	}
-	return max + 1
+	return maxRound + 1
 }
 
 // askQuestionsIdempotencyKey derives the stable logical key for "ask this batch of questions

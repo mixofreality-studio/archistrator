@@ -64,7 +64,7 @@ func TestNewSessionFromEnv(t *testing.T) {
 }
 
 func TestNewSessionFromEnv_MissingKind(t *testing.T) {
-	getenv := func(k string) string { return "" }
+	getenv := func(string) string { return "" }
 	if _, err := newSessionFromEnv(getenv, "/tmp/x"); err == nil {
 		t.Fatalf("expected error when artifact kind is missing")
 	}

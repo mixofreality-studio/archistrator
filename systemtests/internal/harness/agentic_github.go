@@ -435,7 +435,7 @@ func (f *AgenticGitHub) handle(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodPut && reTopics.MatchString(p):
 		writeJSONResp(w, 200, map[string]any{"names": []string{"aiarch-project"}})
 	case reContents.MatchString(p):
-		f.handleContents(w, r.Method, body)
+		f.handleContents(w, r.Method)
 	case r.Method == http.MethodPut && reProtection.MatchString(p):
 		writeJSONResp(w, 200, map[string]any{})
 
@@ -478,7 +478,7 @@ func (f *AgenticGitHub) handle(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (f *AgenticGitHub) handleContents(w http.ResponseWriter, method string, body []byte) {
+func (f *AgenticGitHub) handleContents(w http.ResponseWriter, method string) {
 	// The workflow-file seat (PUT .github/workflows/aiarch-design.yml) + the adopt
 	// emptiness probe (GET). Seating is over the Contents API onto the file:// repo's
 	// MAIN; we accept the PUT as a no-op success (the workflow file's presence is not

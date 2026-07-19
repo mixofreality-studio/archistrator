@@ -648,6 +648,7 @@ func Test_GetProject_UnknownProject_CleanNotFound(t *testing.T) {
 	id := ProjectID("gtdapp")
 	// The exact shape the infra-github ClassifyGitError + fwra.Wrap chain produces.
 	chain := fwra.Wrap(fwra.NotFound,
+		//nolint:revive // reproduces GitHub's literal error text, trailing period included
 		errors.New("github.GitStore.clone: repository not found: repository not found: Repository not found."),
 		"projectstate.ReadProject")
 	ps := &renderFakeProjectState{readErr: chain}
@@ -1215,25 +1216,25 @@ func (f *fakeProjectState) RejectArtifactOnBranchWithComments(rc fwra.Context, p
 	return f.RejectArtifact(rc, projectID, expectedVersion, kind, notes)
 }
 
-func (f *fakeProjectState) SetReviewCommentStatusOnBranch(_ fwra.Context, _ projectstate.ProjectID, expectedVersion projectstate.Version, _ string, _ projectstate.ArtifactKind, _ string, _ string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *fakeProjectState) SetReviewCommentStatusOnBranch(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ArtifactKind, _ string, _ string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.bump(), nil
 }
 
-func (f *fakeProjectState) SeedReviewCommentsOnBranch(_ fwra.Context, _ projectstate.ProjectID, expectedVersion projectstate.Version, _ string, _ projectstate.ArtifactKind, _ int64, _ []projectstate.ReviewComment, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *fakeProjectState) SeedReviewCommentsOnBranch(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ArtifactKind, _ int64, _ []projectstate.ReviewComment, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.bump(), nil
 }
 
-func (f *fakeProjectState) ReconcileBranchFromMain(_ fwra.Context, _ projectstate.ProjectID, expectedVersion projectstate.Version, _ string, _ projectstate.ArtifactKind, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *fakeProjectState) ReconcileBranchFromMain(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ArtifactKind, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.bump(), nil
 }
 
-func (f *fakeProjectState) AcknowledgeStaleBasis(_ fwra.Context, _ projectstate.ProjectID, expectedVersion projectstate.Version, _ projectstate.ArtifactKind, _ string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *fakeProjectState) AcknowledgeStaleBasis(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ projectstate.ArtifactKind, _ string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.bump(), nil

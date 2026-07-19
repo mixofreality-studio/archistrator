@@ -18,6 +18,9 @@ linters:
     - errorlint
     - exhaustive
     - nilnil
+    # revive at its default rule set (golint successor): exported-symbol docs,
+    # package comments, naming/stutter, unused parameters, builtin shadowing.
+    - revive
     # Complexity gates (default threshold 30, no exclusions — production AND test
     # files. The residual offenders were decomposed by behavior-preserving extraction
     # in the two complexity-refactor rounds; both linters report zero at defaults.)
@@ -51,6 +54,12 @@ linters:
       - path: "cmd/aiarch-state-mcp/"
         linters:
           - gosec
+
+# Report everything: the default max-issues-per-linter/max-same-issues caps
+# hide findings and make CI green/red depend on fix order.
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
 
 formatters:
   enable:

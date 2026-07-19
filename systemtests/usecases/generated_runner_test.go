@@ -173,7 +173,7 @@ func runGeneratedCase(ctx context.Context, t *testing.T, tr harness.Transport, b
 		}
 
 		ins := bd.resolve(step.Inputs)
-		result, err := op(t, ctx, tr, ins)
+		result, err := op(ctx, t, tr, ins)
 
 		if step.ExpectError {
 			// HARD: the plan's negative/boundary contract is structural (a
@@ -284,7 +284,7 @@ func (bd bindings) record(step generated.StepCase, result string) {
 // opFunc executes one generated step's operation against the Transport,
 // returning a result string suitable for bindings.record (empty when the op
 // has no bindable scalar result) and the call's error.
-type opFunc func(t *testing.T, ctx context.Context, tr harness.Transport, ins []generated.InputArg) (result string, err error)
+type opFunc func(ctx context.Context, t *testing.T, tr harness.Transport, ins []generated.InputArg) (result string, err error)
 
 // opTable maps {Component: {Operation: opFunc}}. Adding a new use case's
 // wiring is purely additive here — wire STP-UC3/UC4/UC5 by adding their
@@ -308,11 +308,11 @@ var opTable = map[string]map[string]opFunc{
 	},
 }
 
-func opCreateProject(_ *testing.T, ctx context.Context, tr harness.Transport, ins []generated.InputArg) (string, error) {
+func opCreateProject(ctx context.Context, _ *testing.T, tr harness.Transport, ins []generated.InputArg) (string, error) {
 	return tr.CreateProject(ctx, inputValue(ins, "name"))
 }
 
-func opSetResearchInput(_ *testing.T, ctx context.Context, tr harness.Transport, ins []generated.InputArg) (string, error) {
+func opSetResearchInput(ctx context.Context, _ *testing.T, tr harness.Transport, ins []generated.InputArg) (string, error) {
 	sources, err := decodeResearch(inputValue(ins, "research"))
 	if err != nil {
 		return "", err
@@ -320,38 +320,38 @@ func opSetResearchInput(_ *testing.T, ctx context.Context, tr harness.Transport,
 	return "", tr.SetResearchInput(ctx, inputValue(ins, "projectID"), sources)
 }
 
-func opStartSystemDesign(_ *testing.T, ctx context.Context, tr harness.Transport, ins []generated.InputArg) (string, error) {
+func opStartSystemDesign(ctx context.Context, _ *testing.T, tr harness.Transport, ins []generated.InputArg) (string, error) {
 	return tr.StartDesign(ctx, inputValue(ins, "projectID"))
 }
 
-func opRequestArtifactDraft(_ *testing.T, ctx context.Context, tr harness.Transport, ins []generated.InputArg) (string, error) {
+func opRequestArtifactDraft(ctx context.Context, _ *testing.T, tr harness.Transport, ins []generated.InputArg) (string, error) {
 	kind := harness.ArtifactKindName(atoiOrZero(inputValue(ins, "kind")))
 	return tr.RequestArtifactDraft(ctx, inputValue(ins, "projectID"), kind)
 }
 
-func opSubmitReviewDecision(_ *testing.T, ctx context.Context, tr harness.Transport, ins []generated.InputArg) (string, error) {
+func opSubmitReviewDecision(ctx context.Context, _ *testing.T, tr harness.Transport, ins []generated.InputArg) (string, error) {
 	kind := harness.ArtifactKindName(atoiOrZero(inputValue(ins, "kind")))
 	decision := harness.ReviewDecisionName(atoiOrZero(inputValue(ins, "decision")))
 	notes := extractNotes(inputValue(ins, "feedback"))
 	return "", tr.SubmitReview(ctx, inputValue(ins, "projectID"), kind, decision, notes)
 }
 
-func opAdvancePhase(_ *testing.T, ctx context.Context, tr harness.Transport, ins []generated.InputArg) (string, error) {
+func opAdvancePhase(ctx context.Context, _ *testing.T, tr harness.Transport, ins []generated.InputArg) (string, error) {
 	advanced, missing, err := tr.AdvancePhase(ctx, inputValue(ins, "projectID"))
 	return fmt.Sprintf("{\"advanced\":%t,\"missingArtifacts\":%v}", advanced, missing), err
 }
 
-func opRequestSDPCommit(_ *testing.T, ctx context.Context, tr harness.Transport, ins []generated.InputArg) (string, error) {
+func opRequestSDPCommit(ctx context.Context, _ *testing.T, tr harness.Transport, ins []generated.InputArg) (string, error) {
 	return tr.RequestSDPCommit(ctx, inputValue(ins, "projectID"))
 }
 
-func opSubmitSDPDecision(_ *testing.T, ctx context.Context, tr harness.Transport, ins []generated.InputArg) (string, error) {
+func opSubmitSDPDecision(ctx context.Context, _ *testing.T, tr harness.Transport, ins []generated.InputArg) (string, error) {
 	decision := harness.SDPDecisionName(atoiOrZero(inputValue(ins, "decision")))
 	notes := extractNotes(inputValue(ins, "feedback"))
 	return "", tr.SubmitSDPDecision(ctx, inputValue(ins, "projectID"), decision, inputValue(ins, "optionID"), notes)
 }
 
-func opAdvanceToConstruction(_ *testing.T, ctx context.Context, tr harness.Transport, ins []generated.InputArg) (string, error) {
+func opAdvanceToConstruction(ctx context.Context, _ *testing.T, tr harness.Transport, ins []generated.InputArg) (string, error) {
 	advanced, missing, err := tr.AdvanceToConstruction(ctx, inputValue(ins, "projectID"))
 	return fmt.Sprintf("{\"advanced\":%t,\"missingArtifacts\":%v}", advanced, missing), err
 }
@@ -363,7 +363,7 @@ const (
 	sessionPollInterval = 250 * time.Millisecond
 )
 
-func opSystemGetSessionState(t *testing.T, ctx context.Context, tr harness.Transport, ins []generated.InputArg) (string, error) {
+func opSystemGetSessionState(ctx context.Context, t *testing.T, tr harness.Transport, ins []generated.InputArg) (string, error) {
 	projectID := inputValue(ins, "projectID")
 	kind := harness.ArtifactKindName(atoiOrZero(inputValue(ins, "kind")))
 	stage, ok := pollUntilObservable(ctx, sessionPollTimeout, func() (string, bool) {
@@ -377,7 +377,7 @@ func opSystemGetSessionState(t *testing.T, ctx context.Context, tr harness.Trans
 	return fmt.Sprintf("{\"stage\":%q}", stage), nil
 }
 
-func opProjectGetSessionState(t *testing.T, ctx context.Context, tr harness.Transport, ins []generated.InputArg) (string, error) {
+func opProjectGetSessionState(ctx context.Context, t *testing.T, tr harness.Transport, ins []generated.InputArg) (string, error) {
 	projectID := inputValue(ins, "projectID")
 	kind := harness.ArtifactKindName(atoiOrZero(inputValue(ins, "kind")))
 	stage, ok := pollUntilObservable(ctx, sessionPollTimeout, func() (string, bool) {

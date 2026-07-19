@@ -64,7 +64,7 @@ func TestRig_FullDraftCycleOverStdio(t *testing.T) {
 	}
 
 	// A bad enum is rejected as an IsError tool result (self-correctable).
-	res := callTool(t, ctx, session, "putDraftModel", map[string]any{
+	res := callTool(ctx, t, session, "putDraftModel", map[string]any{
 		"model": map[string]any{"items": []any{map[string]any{"name": "P", "rationale": "r", "axis": "changes a lot"}}},
 	})
 	if !res.IsError {
@@ -72,7 +72,7 @@ func TestRig_FullDraftCycleOverStdio(t *testing.T) {
 	}
 
 	// A valid model is accepted.
-	res = callTool(t, ctx, session, "putDraftModel", map[string]any{
+	res = callTool(ctx, t, session, "putDraftModel", map[string]any{
 		"model": map[string]any{"items": []any{map[string]any{"name": "P", "rationale": "r", "axis": "sameCustomerOverTime"}}},
 	})
 	if res.IsError {
@@ -80,7 +80,7 @@ func TestRig_FullDraftCycleOverStdio(t *testing.T) {
 	}
 
 	// publishDraft commits + pushes the session branch.
-	res = callTool(t, ctx, session, "publishDraft", map[string]any{"message": "draft volatilities"})
+	res = callTool(ctx, t, session, "publishDraft", map[string]any{"message": "draft volatilities"})
 	if res.IsError {
 		t.Fatalf("publishDraft failed: %s", contentText(res))
 	}
@@ -298,7 +298,7 @@ func TestRig_RawReadToolExecutesOverStdio(t *testing.T) {
 	}
 	defer func() { _ = session.Close() }()
 
-	res := callTool(t, ctx, session, "projectStateReadProject", map[string]any{"projectID": "rigproj"})
+	res := callTool(ctx, t, session, "projectStateReadProject", map[string]any{"projectID": "rigproj"})
 	if res.IsError {
 		t.Fatalf("raw read tool returned an error result: %s", contentText(res))
 	}
@@ -345,7 +345,7 @@ func TestRig_RawUnavailableToolOverStdio(t *testing.T) {
 	}
 	defer func() { _ = session.Close() }()
 
-	res := callTool(t, ctx, session, raName, map[string]any{"appID": "x"})
+	res := callTool(ctx, t, session, raName, map[string]any{"appID": "x"})
 	if !res.IsError {
 		t.Fatalf("expected an unavailable-in-substrate error result for %s", raName)
 	}
@@ -404,13 +404,13 @@ func TestRig_ConstructModeFullCycleOverStdio(t *testing.T) {
 		t.Fatal("construct mode must not expose the design verbs")
 	}
 
-	res := callTool(t, ctx, session, "recordServiceContract", map[string]any{
+	res := callTool(ctx, t, session, "recordServiceContract", map[string]any{
 		"contract": map[string]any{"component": "billingEngine", "layer": "Engine", "title": "Billing Engine"},
 	})
 	if res.IsError {
 		t.Fatalf("recordServiceContract failed: %s", contentText(res))
 	}
-	res = callTool(t, ctx, session, "publishDraft", map[string]any{"message": "record billingEngine contract"})
+	res = callTool(ctx, t, session, "publishDraft", map[string]any{"message": "record billingEngine contract"})
 	if res.IsError {
 		t.Fatalf("publishDraft failed: %s", contentText(res))
 	}
@@ -492,7 +492,7 @@ func gitShow(t *testing.T, repo, branch, path string) []byte {
 	return out
 }
 
-func callTool(t *testing.T, ctx context.Context, session *mcp.ClientSession, name string, args map[string]any) *mcp.CallToolResult {
+func callTool(ctx context.Context, t *testing.T, session *mcp.ClientSession, name string, args map[string]any) *mcp.CallToolResult {
 	t.Helper()
 	res, err := session.CallTool(ctx, &mcp.CallToolParams{Name: name, Arguments: args})
 	if err != nil {

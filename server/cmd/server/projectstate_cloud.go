@@ -39,7 +39,7 @@ func gitWebHost(apiBaseURL string) string {
 // SHAPE-MATCHED (both {Bytes, ExpiresAt}); the fold is the one place the composition root
 // bridges them.
 type cloudCredentialMinter struct {
-	sc      sourcecontrol.SourceControlCatalogAccess
+	sc      sourcecontrol.CatalogAccess
 	account sourcecontrol.AccountRef
 }
 
@@ -70,7 +70,7 @@ func (m cloudCredentialMinter) CatalogCredential(ctx context.Context) (projectst
 // no-sideways discipline is preserved: this is a composition-root value the store calls as
 // a port, not the store reaching into a sibling RA.
 type cloudProjectCatalog struct {
-	sc      sourcecontrol.SourceControlCatalogAccess
+	sc      sourcecontrol.CatalogAccess
 	account sourcecontrol.AccountRef
 }
 

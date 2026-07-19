@@ -1407,13 +1407,13 @@ func questionsToLedger(addressee string, questions []AnchoredComment) []projects
 }
 
 func nextQuestionRound(thread []projectstate.ReviewComment) int64 {
-	var max int64
+	var maxRound int64
 	for _, c := range thread {
-		if c.Round > max {
-			max = c.Round
+		if c.Round > maxRound {
+			maxRound = c.Round
 		}
 	}
-	return max + 1
+	return maxRound + 1
 }
 
 func askQuestionsIdempotencyKey(projectID ProjectID, kind ArtifactKind, branch string, qs []projectstate.ReviewComment) fwra.IdempotencyKey {

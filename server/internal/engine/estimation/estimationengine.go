@@ -154,7 +154,7 @@ func (EstimationEngineImpl) ComputeNetwork(_ fweng.Context, activities ActivityL
 	// the DETERMINING-PREDECESSOR rule (architect + team-lead, 2026-06-19), NOT the float
 	// test — a milestone MARKS reaching a point, so its criticality is the criticality of
 	// the achievement that gates it, not the slack of a dead-end sink.
-	milestones := solveMilestonesOnCP(network.Milestones, milestoneIDs, predecessors, earlyFinish, activityOnCP, projectDuration)
+	milestones := solveMilestonesOnCP(network.Milestones, milestoneIDs, earlyFinish, activityOnCP, projectDuration)
 
 	summary := summarizeActivityNodes(nodes, projectDuration)
 
@@ -397,7 +397,6 @@ func summarizeActivityNodes(nodes map[string]NetworkNode, projectDuration float6
 func solveMilestonesOnCP(
 	authored []NetworkMilestone,
 	milestoneIDs map[string]struct{},
-	predecessors map[string][]string,
 	earlyFinish map[string]float64,
 	activityOnCP map[string]bool,
 	projectDuration float64,
@@ -626,7 +625,7 @@ func (EstimationEngineImpl) EstimateForOption(_ fweng.Context, option ProjectOpt
 	}
 
 	deps, milestones := option.Network.Dependencies, option.Network.Milestones
-	cap := option.WorkerMix.StaffingCap
+	staffCap := option.WorkerMix.StaffingCap
 
 	// --- Top-resource compression (Löwy ch.9 §2/§3; Phase-2 rework F5e). CriticalSpeedup
 	// s>1 assigns faster "top resources" to the RESOURCE-CRITICAL activities (found by an
@@ -637,14 +636,14 @@ func (EstimationEngineImpl) EstimateForOption(_ fweng.Context, option ProjectOpt
 	if speedup < 1 {
 		speedup = 1
 	}
-	onCP := criticalSet(activities, deps, milestones, cap)
+	onCP := criticalSet(activities, deps, milestones, staffCap)
 	solveActs := speedUpCritical(activities, onCP, speedup)
 
 	// --- Duration: resource-constrained (resource-leveled) schedule length in sim-days
 	// PLUS the decompression buffer, then calendar-stretched. The engine runs its OWN CPM
 	// + resource solve over the option's dependency graph honoring the staffing cap; it no
 	// longer sums authored on-critical-path efforts (Phase-2 rework F1/F3/F4). ---
-	sched := resourceLevelSchedule(solveActs, deps, milestones, cap, option.BufferDays)
+	sched := resourceLevelSchedule(solveActs, deps, milestones, staffCap, option.BufferDays)
 	stretch := calendarStretch(option.CalendarDaysPerWeek)
 	durationDays := sched.projectDuration * stretch
 
@@ -695,8 +694,8 @@ func (EstimationEngineImpl) EstimateForOption(_ fweng.Context, option ProjectOpt
 
 // criticalSet runs an unbuffered resource-leveled base solve and returns the set of
 // resource-critical activity ids — the path top resources are applied to under compression.
-func criticalSet(activities []OptionActivity, deps []NetworkDependency, milestones []NetworkMilestone, cap int64) map[string]bool {
-	base := resourceLevelSchedule(activities, deps, milestones, cap, 0)
+func criticalSet(activities []OptionActivity, deps []NetworkDependency, milestones []NetworkMilestone, staffingCap int64) map[string]bool {
+	base := resourceLevelSchedule(activities, deps, milestones, staffingCap, 0)
 	onCP := make(map[string]bool, len(base.activities))
 	for _, a := range base.activities {
 		if a.onCP {
@@ -1063,7 +1062,7 @@ type ssgsResult struct {
 // honoring staffingCap, then derives each activity's total float against the resource-
 // augmented precedence graph with the terminal late-finish pushed out by bufferDays.
 func resourceLevelSchedule(activities []OptionActivity, deps []NetworkDependency, milestones []NetworkMilestone, staffingCap int64, bufferDays float64) leveledSchedule {
-	cap := max(staffingCap, 1)
+	workers := max(staffingCap, 1)
 	if bufferDays < 0 {
 		bufferDays = 0
 	}
@@ -1095,7 +1094,7 @@ func resourceLevelSchedule(activities []OptionActivity, deps []NetworkDependency
 	// genuinely parallel chains are not accidentally serialized behind a later activity.
 	earlyStart, _, _ := forwardPass(order, predecessors, dur)
 
-	fwd := ssgsForward(idSet, predecessors, successors, earlyStart, isMilestone, dur, int(cap))
+	fwd := ssgsForward(idSet, predecessors, successors, earlyStart, isMilestone, dur, int(workers))
 	lateStart := backwardFloat(idSet, deps, milestones, fwd.resSucc, dur, fwd.projectDuration+bufferDays)
 
 	out := make([]leveledActivity, 0, len(activities))
@@ -1116,9 +1115,9 @@ func resourceLevelSchedule(activities []OptionActivity, deps []NetworkDependency
 
 // ssgsForward runs the priority-list forward solve: repeatedly schedule the ready node
 // with the smallest (earlyStart, id), assigning it to the earliest-free worker.
-func ssgsForward(idSet map[string]struct{}, predecessors, successors map[string][]string, earlyStart map[string]float64, isMilestone map[string]struct{}, dur func(string) float64, cap int) ssgsResult {
-	freeAt := make([]float64, cap)      // per-worker next-free time
-	lastOnWorker := make([]string, cap) // activity that last used each worker (resource edges)
+func ssgsForward(idSet map[string]struct{}, predecessors, successors map[string][]string, earlyStart map[string]float64, isMilestone map[string]struct{}, dur func(string) float64, workers int) ssgsResult {
+	freeAt := make([]float64, workers)      // per-worker next-free time
+	lastOnWorker := make([]string, workers) // activity that last used each worker (resource edges)
 	cs := make(map[string]float64, len(idSet))
 	cf := make(map[string]float64, len(idSet))
 	resSucc := map[string][]string{}

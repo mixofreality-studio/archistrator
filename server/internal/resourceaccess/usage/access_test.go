@@ -70,7 +70,7 @@ func assertKind(t *testing.T, err error, want fwra.Kind) {
 }
 
 // rowCount counts the rows recorded for one runtime event id.
-func rowCount(t *testing.T, pool *pgxpool.Pool, ctx context.Context, id usage.RuntimeEventID) int {
+func rowCount(ctx context.Context, t *testing.T, pool *pgxpool.Pool, id usage.RuntimeEventID) int {
 	t.Helper()
 	var n int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM usage_log WHERE runtime_event_id = $1`, string(id)).Scan(&n); err != nil {
@@ -198,7 +198,7 @@ func TestDuplicateReplay_SameRefNoSecondRow(t *testing.T) {
 		t.Fatalf("cross-verb replay must return the prior ref: %s != %s", refs3[0], refs1[0])
 	}
 
-	if n := rowCount(t, pool, ctx, "ev-dup"); n != 1 {
+	if n := rowCount(ctx, t, pool, "ev-dup"); n != 1 {
 		t.Fatalf("no-double-count violated: %d rows for ev-dup", n)
 	}
 }
@@ -229,10 +229,10 @@ func TestMixedBatch_PerEventDedup(t *testing.T) {
 	if refs2[1] == "" || refs2[1] == refs1[0] {
 		t.Fatalf("new position must carry a fresh ref, got %s", refs2[1])
 	}
-	if n := rowCount(t, pool, ctx, "ev-mixed-dup"); n != 1 {
+	if n := rowCount(ctx, t, pool, "ev-mixed-dup"); n != 1 {
 		t.Fatalf("duplicate double-counted: %d rows", n)
 	}
-	if n := rowCount(t, pool, ctx, "ev-mixed-new"); n != 1 {
+	if n := rowCount(ctx, t, pool, "ev-mixed-new"); n != 1 {
 		t.Fatalf("fresh event not recorded exactly once: %d rows", n)
 	}
 }
@@ -252,7 +252,7 @@ func TestInBatchDuplicate(t *testing.T) {
 	if refs[0] == "" || refs[0] != refs[1] {
 		t.Fatalf("both positions must carry the same ref, got %v", refs)
 	}
-	if n := rowCount(t, pool, ctx, "ev-inbatch"); n != 1 {
+	if n := rowCount(ctx, t, pool, "ev-inbatch"); n != 1 {
 		t.Fatalf("in-batch duplicate double-counted: %d rows", n)
 	}
 }
@@ -273,7 +273,7 @@ func TestAppendOnly_TriggerRejectsMutation(t *testing.T) {
 	if _, err := pool.Exec(ctx, `DELETE FROM usage_log WHERE runtime_event_id = 'ev-immutable'`); err == nil {
 		t.Fatal("DELETE must be rejected by the append-only trigger")
 	}
-	if n := rowCount(t, pool, ctx, "ev-immutable"); n != 1 {
+	if n := rowCount(ctx, t, pool, "ev-immutable"); n != 1 {
 		t.Fatalf("fact lost: %d rows", n)
 	}
 }
@@ -393,7 +393,7 @@ func TestContractMisuse(t *testing.T) {
 	good := event(customer, app, cycle, "ev-good", "compute-unit-second", 1)
 	_, err = store.RecordComputeUsage(rc(ctx), []usage.UsageEvent{good, bad[0].ev})
 	assertKind(t, err, fwra.ContractMisuse)
-	if n := rowCount(t, pool, ctx, "ev-good"); n != 0 {
+	if n := rowCount(ctx, t, pool, "ev-good"); n != 0 {
 		t.Fatalf("rejected batch must append nothing, got %d rows for ev-good", n)
 	}
 
@@ -422,7 +422,7 @@ func TestSchemaIdempotent(t *testing.T) {
 	if _, err := usage.NewPostgresUsageAccess(ctx, pool); err != nil {
 		t.Fatalf("second NewStore (redeploy) must succeed: %v", err)
 	}
-	if n := rowCount(t, pool, ctx, "ev-boot"); n != 1 {
+	if n := rowCount(ctx, t, pool, "ev-boot"); n != 1 {
 		t.Fatalf("redeploy must not disturb the ledger: %d rows", n)
 	}
 }

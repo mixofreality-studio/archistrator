@@ -93,7 +93,7 @@ type appHooks struct {
 	appClient *github.AppClient
 	// scCatalog is the sourcecontrol catalog surface backing the projectstate CLOUD
 	// ports + the design PR-rail repo resolvers; nil when repo-less.
-	scCatalog sourcecontrol.SourceControlCatalogAccess
+	scCatalog sourcecontrol.CatalogAccess
 	// scAccess + realPipeline are the github-creds-gated RAs the LOCAL profile's
 	// binding arms do NOT construct (sourceControlAccess + constructionPipelineAccess
 	// are cloud-arm-only in the deployment model, but their real presence is gated on
@@ -232,7 +232,7 @@ func (h *appHooks) WrapManagers(managers WebManagers) WebManagers {
 // config.gen.go from project.json's deployment model, which does not yet declare
 // these two settings): read directly here, mirroring config_adapter.go's pattern
 // of hand env reads for composition-root-only values (envSecret, devPrincipal).
-func (h *appHooks) ExtraMounts(root *http.ServeMux, cfg *Config, dev web.DevConfig, validator security.Validator, managers WebManagers) {
+func (h *appHooks) ExtraMounts(root *http.ServeMux, _ *Config, dev web.DevConfig, validator security.Validator, managers WebManagers) {
 	// F-QA2-46: the generated handlers' writeManagerError writes every 5xx with zero
 	// server-side logging, and the manager logging wrap above only sees
 	// Infrastructure-kind *manager.Error values — so a client-visible 503 (e.g. a
@@ -344,7 +344,7 @@ func (h *appHooks) FinalizeConstructionPipelineAccess(cfg *Config, v constructio
 // built it (cloud), else the github-creds-gated real RA (local profile WITH creds —
 // same orthogonal-presence reason as the pipeline above), else nil (rail dormant).
 // No dry-run stub — the PR rail simply goes dormant when the RA is nil.
-func (h *appHooks) FinalizeSourceControlAccess(cfg *Config, v sourcecontrol.SourceControlAccess) sourcecontrol.SourceControlAccess {
+func (h *appHooks) FinalizeSourceControlAccess(_ *Config, v sourcecontrol.SourceControlAccess) sourcecontrol.SourceControlAccess {
 	if v != nil {
 		return v
 	}
@@ -379,13 +379,13 @@ func (h *appHooks) FinalizeOperatedRuntimeAccess(cfg *Config, v operatedruntime.
 
 // FinalizeBillingStateAccess is identity — billingStateAccess is the required,
 // arm-less stub binding; no composition-root policy applies.
-func (h *appHooks) FinalizeBillingStateAccess(cfg *Config, v billingstate.BillingStateAccess) billingstate.BillingStateAccess {
+func (h *appHooks) FinalizeBillingStateAccess(_ *Config, v billingstate.BillingStateAccess) billingstate.BillingStateAccess {
 	return v
 }
 
 // FinalizeMerchantGatewayAccess is identity — merchantGatewayAccess is the
 // required, arm-less stub binding; no composition-root policy applies.
-func (h *appHooks) FinalizeMerchantGatewayAccess(cfg *Config, v merchantgateway.MerchantGatewayAccess) merchantgateway.MerchantGatewayAccess {
+func (h *appHooks) FinalizeMerchantGatewayAccess(_ *Config, v merchantgateway.MerchantGatewayAccess) merchantgateway.MerchantGatewayAccess {
 	return v
 }
 
@@ -393,20 +393,20 @@ func (h *appHooks) FinalizeMerchantGatewayAccess(cfg *Config, v merchantgateway.
 // profile-switched (cloud: pgx; local: same pgx-backed store, per the corrected
 // UC4 finding that it is real in both profiles) with no orthogonal toggle; no
 // composition-root policy applies.
-func (h *appHooks) FinalizeOperatedSystemStateAccess(cfg *Config, v operatedsystemstate.OperatedSystemStateAccess) operatedsystemstate.OperatedSystemStateAccess {
+func (h *appHooks) FinalizeOperatedSystemStateAccess(_ *Config, v operatedsystemstate.OperatedSystemStateAccess) operatedsystemstate.OperatedSystemStateAccess {
 	return v
 }
 
 // FinalizeProjectStateAccess is identity — projectStateAccess's dev/cloud split is
 // already the deployment-profile switch (local git vs. GitHub-backed); no
 // additional orthogonal toggle applies.
-func (h *appHooks) FinalizeProjectStateAccess(cfg *Config, v projectstate.ProjectStateAccess) projectstate.ProjectStateAccess {
+func (h *appHooks) FinalizeProjectStateAccess(_ *Config, v projectstate.ProjectStateAccess) projectstate.ProjectStateAccess {
 	return v
 }
 
 // FinalizeUsageAccess is identity — usageAccess is profile-switched with no
 // orthogonal toggle; no composition-root policy applies.
-func (h *appHooks) FinalizeUsageAccess(cfg *Config, v usage.UsageAccess) usage.UsageAccess {
+func (h *appHooks) FinalizeUsageAccess(_ *Config, v usage.UsageAccess) usage.UsageAccess {
 	return v
 }
 
@@ -414,22 +414,22 @@ func (h *appHooks) FinalizeUsageAccess(cfg *Config, v usage.UsageAccess) usage.U
 // FinalizeDesignSessionAccess (B6) are identity — the three secondary git-substrate
 // contracts are profile-switched exactly like projectStateAccess, with no
 // orthogonal toggle of their own.
-func (h *appHooks) FinalizeConstructionTransitionAccess(cfg *Config, v projectstate.ConstructionTransitionAccess) projectstate.ConstructionTransitionAccess {
+func (h *appHooks) FinalizeConstructionTransitionAccess(_ *Config, v projectstate.ConstructionTransitionAccess) projectstate.ConstructionTransitionAccess {
 	return v
 }
 
-func (h *appHooks) FinalizeGitActivityStatusAccess(cfg *Config, v projectstate.GitActivityStatusAccess) projectstate.GitActivityStatusAccess {
+func (h *appHooks) FinalizeGitActivityStatusAccess(_ *Config, v projectstate.GitActivityStatusAccess) projectstate.GitActivityStatusAccess {
 	return v
 }
 
-func (h *appHooks) FinalizeDesignSessionAccess(cfg *Config, v projectstate.DesignSessionAccess) projectstate.DesignSessionAccess {
+func (h *appHooks) FinalizeDesignSessionAccess(_ *Config, v projectstate.DesignSessionAccess) projectstate.DesignSessionAccess {
 	return v
 }
 
 // FinalizeRevenueLedgerAccess is identity — revenueLedgerAccess is the required,
 // arm-less stub binding (revenueledger.NewRevenueLedgerAccess, a permanent no-op per
 // the charge-only R-013 rationale); no composition-root policy applies.
-func (h *appHooks) FinalizeRevenueLedgerAccess(cfg *Config, v revenueledger.RevenueLedgerAccess) revenueledger.RevenueLedgerAccess {
+func (h *appHooks) FinalizeRevenueLedgerAccess(_ *Config, v revenueledger.RevenueLedgerAccess) revenueledger.RevenueLedgerAccess {
 	return v
 }
 
@@ -452,9 +452,9 @@ func (h *appHooks) RegisterConstructionManagerWorker(cfg *Config) bool {
 // The design + operations managers register unconditionally: their optional-dormant
 // deps (the PR rail / artifact store) simply go dormant when absent — the CoAuthor
 // spine + the operations workflows run unchanged (hand run() always registered them).
-func (h *appHooks) RegisterOperationsManagerWorker(cfg *Config) bool    { return true }
-func (h *appHooks) RegisterProjectDesignManagerWorker(cfg *Config) bool { return true }
-func (h *appHooks) RegisterSystemDesignManagerWorker(cfg *Config) bool  { return true }
+func (h *appHooks) RegisterOperationsManagerWorker(_ *Config) bool    { return true }
+func (h *appHooks) RegisterProjectDesignManagerWorker(_ *Config) bool { return true }
+func (h *appHooks) RegisterSystemDesignManagerWorker(_ *Config) bool  { return true }
 
 func (h *appHooks) ConstructionManagerEscalationWaitTimeout() time.Duration {
 	return h.config.ConstructionEscalationTimeout

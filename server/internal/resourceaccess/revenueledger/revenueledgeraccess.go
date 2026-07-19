@@ -1,3 +1,6 @@
+// Package revenueledger is the revenueLedgerAccess component of the ResourceAccess
+// layer — the append-only ledger of usage-derived revenue events feeding the
+// charge-only billing rail (Settlement→Billing ratification, 2026-07-03).
 package revenueledger
 
 import (

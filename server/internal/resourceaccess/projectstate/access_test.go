@@ -1232,98 +1232,98 @@ type stubProjectState struct {
 	stagedModel ArtifactModel
 }
 
-func (s *stubProjectState) AdvancePhase(rc fwra.Context, projectID ProjectID, expectedVersion Version) (Version, error) {
+func (s *stubProjectState) AdvancePhase(_ fwra.Context, _ ProjectID, _ Version) (Version, error) {
 	return 0, nil
 }
 
-func (s *stubProjectState) CommitArtifact(rc fwra.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind) (Version, error) {
+func (s *stubProjectState) CommitArtifact(_ fwra.Context, _ ProjectID, _ Version, _ ArtifactKind) (Version, error) {
 	s.calls = append(s.calls, "CommitArtifact")
 	return 10, nil
 }
 
-func (s *stubProjectState) CreateProject(rc fwra.Context, projectID ProjectID, owner OwnerScope, name string) (Version, error) {
+func (s *stubProjectState) CreateProject(_ fwra.Context, _ ProjectID, _ OwnerScope, _ string) (Version, error) {
 	return 0, nil
 }
 
-func (s *stubProjectState) ListProjects(rc fwra.Context, owner OwnerScope) ([]ProjectSummary, error) {
+func (s *stubProjectState) ListProjects(_ fwra.Context, _ OwnerScope) ([]ProjectSummary, error) {
 	return nil, nil
 }
 
-func (s *stubProjectState) ReadProject(rc fwra.Context, projectID ProjectID) (Project, error) {
+func (s *stubProjectState) ReadProject(_ fwra.Context, projectID ProjectID) (Project, error) {
 	s.calls = append(s.calls, "ReadProject")
 	return Project{ID: projectID, Version: 1}, nil
 }
 
-func (s *stubProjectState) ReadProjectVersion(rc fwra.Context, projectID ProjectID) (Version, error) {
+func (s *stubProjectState) ReadProjectVersion(_ fwra.Context, _ ProjectID) (Version, error) {
 	return 0, nil
 }
 
-func (s *stubProjectState) RejectArtifact(rc fwra.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, notes string) (Version, error) {
+func (s *stubProjectState) RejectArtifact(_ fwra.Context, _ ProjectID, _ Version, _ ArtifactKind, _ string) (Version, error) {
 	s.calls = append(s.calls, "RejectArtifact")
 	return 11, nil
 }
 
-func (s *stubProjectState) SetOperatingModel(rc fwra.Context, projectID ProjectID, expectedVersion Version, model OperatingModel) (Version, error) {
+func (s *stubProjectState) SetOperatingModel(_ fwra.Context, _ ProjectID, _ Version, _ OperatingModel) (Version, error) {
 	return 0, nil
 }
 
-func (s *stubProjectState) SetResearchInput(rc fwra.Context, projectID ProjectID, expectedVersion Version, research ResearchInput) (Version, error) {
+func (s *stubProjectState) SetResearchInput(_ fwra.Context, _ ProjectID, _ Version, _ ResearchInput) (Version, error) {
 	return 0, nil
 }
 
-func (s *stubProjectState) StageArtifactForReview(rc fwra.Context, projectID ProjectID, expectedVersion Version, model ArtifactModel) (Version, error) {
+func (s *stubProjectState) StageArtifactForReview(_ fwra.Context, _ ProjectID, _ Version, model ArtifactModel) (Version, error) {
 	s.calls = append(s.calls, "StageArtifactForReview")
 	s.stagedModel = model
 	return 12, nil
 }
 
-func (s *stubProjectState) WithdrawArtifact(rc fwra.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, notes string) (Version, error) {
+func (s *stubProjectState) WithdrawArtifact(_ fwra.Context, _ ProjectID, _ Version, _ ArtifactKind, _ string) (Version, error) {
 	s.calls = append(s.calls, "WithdrawArtifact")
 	return 13, nil
 }
 
-func (s *stubProjectState) ReadProjectOnBranch(rc fwra.Context, projectID ProjectID, branch string) (Project, error) {
+func (s *stubProjectState) ReadProjectOnBranch(_ fwra.Context, projectID ProjectID, _ string) (Project, error) {
 	s.calls = append(s.calls, "ReadProjectOnBranch")
 	return Project{ID: projectID, Version: 2}, nil
 }
 
-func (s *stubProjectState) StageArtifactForReviewOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, model ArtifactModel, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (s *stubProjectState) StageArtifactForReviewOnBranch(_ fwra.Context, _ ProjectID, _ Version, _ string, model ArtifactModel, _ fwra.IdempotencyKey) (Version, error) {
 	s.calls = append(s.calls, "StageArtifactForReviewOnBranch")
 	s.stagedModel = model
 	return 20, nil
 }
 
-func (s *stubProjectState) RejectArtifactOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (s *stubProjectState) RejectArtifactOnBranch(_ fwra.Context, _ ProjectID, _ Version, _ string, _ ArtifactKind, _ string, _ fwra.IdempotencyKey) (Version, error) {
 	s.calls = append(s.calls, "RejectArtifactOnBranch")
 	return 21, nil
 }
 
-func (s *stubProjectState) WithdrawArtifactOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (s *stubProjectState) WithdrawArtifactOnBranch(_ fwra.Context, _ ProjectID, _ Version, _ string, _ ArtifactKind, _ string, _ fwra.IdempotencyKey) (Version, error) {
 	s.calls = append(s.calls, "WithdrawArtifactOnBranch")
 	return 22, nil
 }
 
-func (s *stubProjectState) RejectArtifactOnBranchWithComments(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, round int64, comments []ReviewComment, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (s *stubProjectState) RejectArtifactOnBranchWithComments(_ fwra.Context, _ ProjectID, _ Version, _ string, _ ArtifactKind, _ string, _ int64, _ []ReviewComment, _ fwra.IdempotencyKey) (Version, error) {
 	s.calls = append(s.calls, "RejectArtifactOnBranchWithComments")
 	return 30, nil
 }
 
-func (s *stubProjectState) SetReviewCommentStatusOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, commentID string, status string, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (s *stubProjectState) SetReviewCommentStatusOnBranch(_ fwra.Context, _ ProjectID, _ Version, _ string, _ ArtifactKind, _ string, _ string, _ fwra.IdempotencyKey) (Version, error) {
 	s.calls = append(s.calls, "SetReviewCommentStatusOnBranch")
 	return 31, nil
 }
 
-func (s *stubProjectState) SeedReviewCommentsOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, round int64, comments []ReviewComment, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (s *stubProjectState) SeedReviewCommentsOnBranch(_ fwra.Context, _ ProjectID, _ Version, _ string, _ ArtifactKind, _ int64, _ []ReviewComment, _ fwra.IdempotencyKey) (Version, error) {
 	s.calls = append(s.calls, "SeedReviewCommentsOnBranch")
 	return 32, nil
 }
 
-func (s *stubProjectState) ReconcileBranchFromMain(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (s *stubProjectState) ReconcileBranchFromMain(_ fwra.Context, _ ProjectID, _ Version, _ string, _ ArtifactKind, _ fwra.IdempotencyKey) (Version, error) {
 	s.calls = append(s.calls, "ReconcileBranchFromMain")
 	return 50, nil
 }
 
-func (s *stubProjectState) AcknowledgeStaleBasis(rc fwra.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, note string, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (s *stubProjectState) AcknowledgeStaleBasis(_ fwra.Context, _ ProjectID, _ Version, _ ArtifactKind, _ string, _ fwra.IdempotencyKey) (Version, error) {
 	s.calls = append(s.calls, "AcknowledgeStaleBasis")
 	return 60, nil
 }
@@ -1337,7 +1337,7 @@ type provenanceStub struct {
 	stubProjectState
 }
 
-func (s *provenanceStub) CommitArtifactWithProvenance(rc fwra.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, approvedBy, draftedBy string) (Version, error) {
+func (s *provenanceStub) CommitArtifactWithProvenance(_ fwra.Context, _ ProjectID, _ Version, _ ArtifactKind, _, _ string) (Version, error) {
 	s.calls = append(s.calls, "CommitArtifactWithProvenance")
 	return 40, nil
 }
@@ -1915,7 +1915,7 @@ func newActivityStore(t *testing.T, clk time.Time) (*GitStore, ProjectID, Versio
 	return store, id, v, cred, ctx
 }
 
-func readActivity(t *testing.T, store *GitStore, ctx context.Context, id ProjectID, cred RepoCredential, activityID string) ActivityGitStatus {
+func readActivity(ctx context.Context, t *testing.T, store *GitStore, id ProjectID, cred RepoCredential, activityID string) ActivityGitStatus {
 	t.Helper()
 	proj, err := store.ReadProject(fwra.Context{Context: ctx}, id, cred)
 	if err != nil {
@@ -1942,7 +1942,7 @@ func TestRecordActivityBranchOpened_BirthsRow(t *testing.T) {
 	if v2 != v+1 {
 		t.Fatalf("version = %d, want %d", v2, v+1)
 	}
-	g := readActivity(t, store, ctx, id, cred, "C-MST")
+	g := readActivity(ctx, t, store, id, cred, "C-MST")
 	if g.ActivityID != "C-MST" || g.BranchName != "activity/C-MST" || g.BranchRef != "ref-cmst" {
 		t.Fatalf("branch fields wrong: %+v", g)
 	}
@@ -1972,7 +1972,7 @@ func TestRecordActivityBranchOpened_PRTolerantUpsert(t *testing.T) {
 	if err != nil {
 		t.Fatalf("branch-only touch: %v", err)
 	}
-	g := readActivity(t, store, ctx, id, cred, "C-MST")
+	g := readActivity(ctx, t, store, id, cred, "C-MST")
 	if g.BranchRef != "ref-cmst" || g.PullRequestRef != "" {
 		t.Fatalf("after branch-only: %+v, want branch set, prRef empty", g)
 	}
@@ -1988,7 +1988,7 @@ func TestRecordActivityBranchOpened_PRTolerantUpsert(t *testing.T) {
 	if v3 != v2+1 {
 		t.Fatalf("version = %d, want %d", v3, v2+1)
 	}
-	g = readActivity(t, store, ctx, id, cred, "C-MST")
+	g = readActivity(ctx, t, store, id, cred, "C-MST")
 	if g.BranchRef != "ref-cmst" || g.BranchName != "activity/C-MST" {
 		t.Fatalf("branch clobbered on PR touch: %+v", g)
 	}
@@ -2011,14 +2011,14 @@ func TestRecordActivityCIObserved_Transitions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ci failure: %v", err)
 	}
-	if g := readActivity(t, store, ctx, id, cred, "C-MST"); g.CICheck != CICheckFailure {
+	if g := readActivity(ctx, t, store, id, cred, "C-MST"); g.CICheck != CICheckFailure {
 		t.Fatalf("CICheck = %v, want Failure", g.CICheck)
 	}
 	_, err = store.RecordActivityCIObserved(fwra.Context{Context: ctx}, id, v, "C-MST", CICheckSuccess, cred, "wf:ci-2")
 	if err != nil {
 		t.Fatalf("ci success: %v", err)
 	}
-	g := readActivity(t, store, ctx, id, cred, "C-MST")
+	g := readActivity(ctx, t, store, id, cred, "C-MST")
 	if g.CICheck != CICheckSuccess {
 		t.Fatalf("CICheck = %v, want Success", g.CICheck)
 	}
@@ -2042,14 +2042,14 @@ func TestRecordActivityArchApprovedAndMerged(t *testing.T) {
 	if err != nil {
 		t.Fatalf("arch approve: %v", err)
 	}
-	if g := readActivity(t, store, ctx, id, cred, "C-MST"); !g.ArchApproved || g.Merged {
+	if g := readActivity(ctx, t, store, id, cred, "C-MST"); !g.ArchApproved || g.Merged {
 		t.Fatalf("after approve: %+v, want ArchApproved=true Merged=false", g)
 	}
 	_, err = store.RecordActivityMerged(fwra.Context{Context: ctx}, id, v, "C-MST", cred, "wf:merge")
 	if err != nil {
 		t.Fatalf("merge: %v", err)
 	}
-	g := readActivity(t, store, ctx, id, cred, "C-MST")
+	g := readActivity(ctx, t, store, id, cred, "C-MST")
 	if !g.Merged || !g.ArchApproved {
 		t.Fatalf("after merge: %+v, want both flags true", g)
 	}
