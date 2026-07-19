@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github"
 	otelinfra "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-otel"
 	postgresinfra "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-postgres"
@@ -351,11 +352,17 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 	logger.Info("temporal client dialed", "hostPort", cfg.TemporalHostport, "namespace", cfg.TemporalNamespace)
 
 	// Postgres pool — the shared satellite the postgres-backed RAs are built on.
-	pool, err := postgresinfra.NewPool(ctx, cfg.PostgresURL)
-	if err != nil {
-		return err
+	// Gated on the resolved profile: infra["postgres"].profiles does not
+	// cover every profile, so profiles outside it never dial it.
+	var pool *pgxpool.Pool
+	if profile == "cloud" {
+		var err error
+		pool, err = postgresinfra.NewPool(ctx, cfg.PostgresURL)
+		if err != nil {
+			return err
+		}
+		defer pool.Close()
 	}
-	defer pool.Close()
 
 	// ResourceAccess — one binding per component, variant-selected by profile.
 	var artifactAccess artifact.ArtifactAccess
