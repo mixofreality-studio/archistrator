@@ -142,5 +142,5 @@ jobs:
       - name: claude-assets materialize
         working-directory: ${{ github.workspace }}
         run: |
-          go run github.com/mixofreality-studio/archistrator-platform/method-assets/cmd/method-assets@v0.1.4 install --dest .
+          go run github.com/mixofreality-studio/archistrator-platform/method-assets/cmd/method-assets@v0.1.7 install --dest .
           git diff --exit-code -- .claude/settings.json .claude/skills/grillme
