@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -228,5 +230,74 @@ func TestNewAppHooks_LocalNoCreds_DryRunFalse_MissingBinaryFailsBoot(t *testing.
 
 	if _, err := newAppHooks(cfg, logger); err == nil {
 		t.Fatal("expected newAppHooks to fail fast: DRYRUN=false + local profile genuinely needs the state-mcp binary")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// warnPartialGithubAppCreds — Fix-subagent Task 6, item 5: a partially-set
+// GitHub App identity (some but not all of AppID/PrivateKeyPEM/Account) must
+// WARN naming exactly what's missing and state that construction routes to
+// the local executor, distinct from the milder "fully repo-less" warning
+// that fires when NONE of the three are set.
+// ---------------------------------------------------------------------------
+
+func TestNewAppHooks_PartialGithubAppCreds_WarnsNamingMissingSettings(t *testing.T) {
+	pathWithFakeClaudeOnly(t) // resolveWorkerProvider's claude preflight must pass
+
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, nil))
+
+	cfg := &Config{
+		ProjectStateGitLocal:   true,
+		ProjectStateGitRepoURL: "file://" + t.TempDir(),
+		ConstructionDryRun:     true, // avoid the unrelated state-mcp-binary boot failure
+		GithubAppAppID:         "12345",
+		// deliberately NO GithubAppPrivateKeyPEM / GithubAppAccount — partial creds.
+	}
+
+	if _, err := newAppHooks(cfg, logger); err != nil {
+		t.Fatalf("newAppHooks: %v", err)
+	}
+
+	got := buf.String()
+	for _, want := range []string{
+		"PARTIALLY configured",
+		"ARCHISTRATOR_GITHUB_APP_PRIVATE_KEY_PEM",
+		"ARCHISTRATOR_GITHUB_ACCOUNT",
+		"local executor",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("log output missing %q; got: %s", want, got)
+		}
+	}
+	// The var that WAS set (AppID) must not be reported as missing.
+	if strings.Contains(got, "missing=\"ARCHISTRATOR_GITHUB_APP_ID,") {
+		t.Fatalf("expected the SET var (ARCHISTRATOR_GITHUB_APP_ID) to NOT be listed as missing; got: %s", got)
+	}
+}
+
+func TestNewAppHooks_NoGithubAppCreds_DoesNotFirePartialWarning(t *testing.T) {
+	pathWithFakeClaudeOnly(t)
+
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, nil))
+
+	cfg := &Config{
+		ProjectStateGitLocal:   true,
+		ProjectStateGitRepoURL: "file://" + t.TempDir(),
+		ConstructionDryRun:     true,
+		// no GitHub App settings at all — the intentional repo-less case.
+	}
+
+	if _, err := newAppHooks(cfg, logger); err != nil {
+		t.Fatalf("newAppHooks: %v", err)
+	}
+
+	got := buf.String()
+	if strings.Contains(got, "PARTIALLY configured") {
+		t.Fatalf("expected the fully-repo-less boot to NOT fire the partial-creds warning; got: %s", got)
+	}
+	if !strings.Contains(got, "NOT configured") {
+		t.Fatalf("expected the repo-less \"NOT configured\" warning; got: %s", got)
 	}
 }

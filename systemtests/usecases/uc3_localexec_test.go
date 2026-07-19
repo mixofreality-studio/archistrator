@@ -98,9 +98,12 @@ func usecasesModuleRoot() (string, error) {
 //
 //   - `claude --version`      → the boot-time llm.PreflightClaudeCLI probe
 //     (cmd/server/hooks.go's resolveWorkerProvider) — a plain success line.
-//   - the construction dispatch shape (--dangerously-skip-permissions
-//     --mcp-config <path> --output-format json -p <prompt>) → captures argv +
-//     the --mcp-config file's content into captureDir, makes one commit, exits 0.
+//   - the construction dispatch shape (--dangerously-skip-permissions --settings
+//     <path> --mcp-config <path> --strict-mcp-config --output-format json -p
+//     <prompt> — the Fix-subagent Task 6 sandboxed-by-default shape, THE
+//     INVARIANT in constructionpipelineaccess.go's claudeArgv) → captures argv +
+//     the --mcp-config file's content + the --settings (Tier-2 sandbox) file's
+//     content into captureDir, makes one commit, exits 0.
 //
 // captureDir must be a path OUTSIDE the git working tree the shim itself commits
 // into (it is — a sibling temp dir this test controls).
@@ -121,6 +124,7 @@ func installLocalExecClaudeShim(t *testing.T, captureDir string) string {
 		"prev=\"\"\n" +
 		"for a in \"$@\"; do\n" +
 		"  if [ \"$prev\" = '--mcp-config' ]; then cp \"$a\" \"$CAPTURE/call-$n.mcpconfig.json\"; fi\n" +
+		"  if [ \"$prev\" = '--settings' ]; then cp \"$a\" \"$CAPTURE/call-$n.settings.json\"; fi\n" +
 		"  prev=\"$a\"\n" +
 		"done\n" +
 		"git config user.email shim@aiarch.local\n" +
@@ -225,10 +229,37 @@ func assertLocalExecClaudeInvocation(t *testing.T, captureDir, wantStateMCPBin, 
 		t.Fatalf("read captured claude invocation args (was claude ever invoked?): %v", err)
 	}
 	args := strings.TrimRight(string(argsRaw), "\n")
-	for _, want := range []string{"--dangerously-skip-permissions", "--mcp-config", "--output-format\njson", "-p\n/"} {
+	// --settings and --strict-mcp-config are the Fix-subagent Task 6 hardening
+	// additions (sandboxed-by-default): --settings is UNCONDITIONALLY paired
+	// with --dangerously-skip-permissions per THE INVARIANT
+	// (constructionpipelineaccess.go's claudeArgv doc comment); --strict-mcp-
+	// config ensures only the ONE attached aiarch-state server loads, never
+	// ambient user/project MCP config.
+	for _, want := range []string{"--dangerously-skip-permissions", "--settings", "--mcp-config", "--strict-mcp-config", "--output-format\njson", "-p\n/"} {
 		if !strings.Contains(args, want) {
 			t.Fatalf("captured claude args %q missing %q", args, want)
 		}
+	}
+
+	// Tier-2 sandbox --settings envelope: proves the REAL local executor (not
+	// just the RA's own unit tests) always dispatches with an ACTIVE OS
+	// sandbox — enabled + fail-closed + no per-command unsandboxed escape.
+	settingsRaw, err := os.ReadFile(filepath.Join(captureDir, "call-0.settings.json"))
+	if err != nil {
+		t.Fatalf("read captured --settings file: %v", err)
+	}
+	var sandboxCfg struct {
+		Sandbox struct {
+			Enabled                  bool `json:"enabled"`
+			FailIfUnavailable        bool `json:"failIfUnavailable"`
+			AllowUnsandboxedCommands bool `json:"allowUnsandboxedCommands"`
+		} `json:"sandbox"`
+	}
+	if err := json.Unmarshal(settingsRaw, &sandboxCfg); err != nil {
+		t.Fatalf("decode captured --settings: %v\n%s", err, settingsRaw)
+	}
+	if !sandboxCfg.Sandbox.Enabled || !sandboxCfg.Sandbox.FailIfUnavailable || sandboxCfg.Sandbox.AllowUnsandboxedCommands {
+		t.Fatalf("unexpected sandbox posture in captured --settings: %+v", sandboxCfg.Sandbox)
 	}
 
 	mcpRaw, err := os.ReadFile(filepath.Join(captureDir, "call-0.mcpconfig.json"))

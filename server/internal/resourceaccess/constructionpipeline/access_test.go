@@ -955,13 +955,16 @@ func commitShim(t *testing.T, captureDir string) string {
 		"while [ -f \"$CAPTURE/call-$n.args\" ]; do n=$((n+1)); done\n" +
 		"printf '%s\\n' \"$@\" > \"$CAPTURE/call-$n.args\"\n" +
 		"pwd > \"$CAPTURE/call-$n.pwd\"\n" +
-		// the --mcp-config value is the arg immediately after the literal
-		// "--mcp-config" flag; find and copy it.
+		// the --mcp-config / --settings values are the args immediately after
+		// their literal flag; find and copy each (the settings capture proves
+		// the Tier-2 sandbox --settings file THE INVARIANT requires).
 		"prev=\"\"\n" +
 		"for a in \"$@\"; do\n" +
 		"  if [ \"$prev\" = \"--mcp-config\" ]; then cp \"$a\" \"$CAPTURE/call-$n.mcpconfig.json\"; fi\n" +
+		"  if [ \"$prev\" = \"--settings\" ]; then cp \"$a\" \"$CAPTURE/call-$n.settings.json\"; fi\n" +
 		"  prev=\"$a\"\n" +
 		"done\n" +
+		"env > \"$CAPTURE/call-$n.env\"\n" +
 		"git config user.email shim@aiarch.local\n" +
 		"git config user.name shim\n" +
 		"echo \"phase $n\" >> SHIM_PROGRESS.txt\n" +
@@ -1129,6 +1132,13 @@ func TestLocalExecSubmit_HappyPath_SpawnsClaudeWithCorrectShapeAndPushesCommit(t
 	bareDir, url := newBareRepo(t)
 	capture := filepath.Join(t.TempDir(), "capture")
 	commitShim(t, capture)
+	// Deterministic env-allowlist proof: TERM is guaranteed present (so the
+	// exact-count assertion below is stable everywhere, including CI where
+	// TERM may be unset), and a sentinel parent-only var proves it does NOT
+	// leak into the child (the env allowlist is a CONSTRUCTED list, not a
+	// filtered passthrough).
+	t.Setenv("TERM", "xterm-test")
+	t.Setenv("ARCHISTRATOR_TEST_PARENT_ONLY_SECRET", "must-not-leak-into-child")
 	a := newLocalExecForTest(t, url, 10*time.Second)
 
 	spec := localSpec("C-BILLENG", "billingGatewayAccess", "service-construction")
@@ -1173,6 +1183,49 @@ func TestLocalExecSubmit_HappyPath_SpawnsClaudeWithCorrectShapeAndPushesCommit(t
 		"AIARCH_ACTIVITY_ID":   "C-BILLENG",
 		"AIARCH_TARGET_BRANCH": branch,
 	})
+
+	// Tier-2 sandbox --settings envelope: THE INVARIANT (Fix-subagent Task 6).
+	assertSandboxSettingsEnvelope(t, capture, 0)
+
+	// Env allowlist (Fix-subagent Task 6): EXACTLY PATH/HOME/TERM + the six
+	// AIARCH_* rig vars cross into the child — no other parent var leaks.
+	// shellInjectedVars are NOT part of cmd.Env at all — /bin/sh itself sets
+	// PWD/SHLVL/_ on every invocation regardless of the incoming env (a shim-
+	// script artifact of capturing via `env` inside a spawned sh), so they are
+	// excluded from the exact-membership check below rather than asserted on.
+	env := readCapturedEnv(t, capture, 0)
+	shellInjectedVars := map[string]bool{"PWD": true, "SHLVL": true, "_": true}
+	wantKeys := []string{
+		"PATH", "HOME", "TERM",
+		"AIARCH_PROJECT_ID", "AIARCH_JOB_MODE", "AIARCH_COMPONENT_ID",
+		"AIARCH_ACTIVITY_ID", "AIARCH_TARGET_BRANCH", "AIARCH_STATE_ROOT",
+	}
+	for _, k := range wantKeys {
+		if _, ok := env[k]; !ok {
+			t.Errorf("child env missing allowlisted var %s", k)
+		}
+	}
+	if _, leaked := env["ARCHISTRATOR_TEST_PARENT_ONLY_SECRET"]; leaked {
+		t.Fatal("child env leaked a parent-only var (ARCHISTRATOR_TEST_PARENT_ONLY_SECRET) — env allowlist regressed to full passthrough")
+	}
+	got := 0
+	for k := range env {
+		if !shellInjectedVars[k] {
+			got++
+		}
+	}
+	if got != len(wantKeys) {
+		t.Fatalf("child env (excluding shell-injected PWD/SHLVL/_) has %d vars, want exactly the %d-entry allowlist %v; got keys %v", got, len(wantKeys), wantKeys, envKeys(env))
+	}
+}
+
+// envKeys returns m's keys, for a readable test-failure message.
+func envKeys(m map[string]string) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
 }
 
 // readCapturedArgs reads the commitShim's captured argv for invocation n.
@@ -1199,9 +1252,22 @@ func readCapturedPWD(t *testing.T, captureDir string, n int) string {
 // -p prompt substring are all present. The shim prints one arg per line
 // (`printf '%s\n' "$@"`), so a multi-token flag+value pair appears as two
 // adjacent lines — callers pass promptLine already newline-joined.
+//
+// --settings and --strict-mcp-config are the Fix-subagent Task 6 hardening
+// additions (sandboxed-by-default): --settings pairs UNCONDITIONALLY with
+// --dangerously-skip-permissions per THE INVARIANT (claudeArgv's doc
+// comment); --strict-mcp-config ensures only mcpConfigPath's ONE server
+// attaches, never ambient user/project MCP config.
 func assertClaudeArgsShape(t *testing.T, args, promptLine string) {
 	t.Helper()
-	for _, want := range []string{"--dangerously-skip-permissions", "--mcp-config", "--output-format\njson", promptLine} {
+	for _, want := range []string{
+		"--dangerously-skip-permissions",
+		"--settings",
+		"--mcp-config",
+		"--strict-mcp-config",
+		"--output-format\njson",
+		promptLine,
+	} {
 		if !strings.Contains(args, want) {
 			t.Fatalf("captured claude args %q missing %q", args, want)
 		}
@@ -1243,6 +1309,64 @@ func assertMCPConfigEnvelope(t *testing.T, captureDir string, n int, claudePWD s
 	if got, want := filepath.Base(srv.Env["AIARCH_STATE_ROOT"]), filepath.Base(claudePWD); got != want {
 		t.Fatalf("AIARCH_STATE_ROOT basename = %q, want %q (claude's actual cwd)", got, want)
 	}
+}
+
+// readCapturedSandboxSettings reads + decodes invocation n's captured
+// --settings file (Fix-subagent Task 6: THE INVARIANT proof).
+func readCapturedSandboxSettings(t *testing.T, captureDir string, n int) sandboxSettingsJSON {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(captureDir, fmt.Sprintf("call-%d.settings.json", n)))
+	if err != nil {
+		t.Fatalf("read captured sandbox settings: %v", err)
+	}
+	var cfg sandboxSettingsJSON
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		t.Fatalf("decode captured sandbox settings: %v\n%s", err, raw)
+	}
+	return cfg
+}
+
+// assertSandboxSettingsEnvelope asserts invocation n's captured --settings
+// file carries the FIXED Tier-2 sandbox posture THE INVARIANT requires:
+// enabled + failIfUnavailable, and allowUnsandboxedCommands=false (so
+// claude's OWN dangerouslyDisableSandbox retry escape hatch is disabled —
+// belt-and-braces with the outer --dangerously-skip-permissions bypass).
+func assertSandboxSettingsEnvelope(t *testing.T, captureDir string, n int) sandboxConfigJSON {
+	t.Helper()
+	cfg := readCapturedSandboxSettings(t, captureDir, n)
+	s := cfg.Sandbox
+	if !s.Enabled {
+		t.Fatal("sandbox settings: enabled = false, want true (THE INVARIANT requires an ACTIVE sandbox)")
+	}
+	if !s.FailIfUnavailable {
+		t.Fatal("sandbox settings: failIfUnavailable = false, want true (must fail closed, never silently degrade)")
+	}
+	if s.AllowUnsandboxedCommands {
+		t.Fatal("sandbox settings: allowUnsandboxedCommands = true, want false (disables claude's own unsandboxed-retry escape hatch)")
+	}
+	return s
+}
+
+// readCapturedEnv reads invocation n's captured `env` dump (commitShim) into
+// a key→value map.
+func readCapturedEnv(t *testing.T, captureDir string, n int) map[string]string {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(captureDir, fmt.Sprintf("call-%d.env", n)))
+	if err != nil {
+		t.Fatalf("read captured env: %v", err)
+	}
+	out := map[string]string{}
+	for _, line := range strings.Split(strings.TrimRight(string(raw), "\n"), "\n") {
+		if line == "" {
+			continue
+		}
+		k, v, ok := strings.Cut(line, "=")
+		if !ok {
+			continue // a multi-line value continuation from a preceding var; irrelevant to this allowlist proof
+		}
+		out[k] = v
+	}
+	return out
 }
 
 func TestLocalExecSubmit_SecondPhase_ReattachesToExistingActivityBranch(t *testing.T) {
@@ -1453,5 +1577,196 @@ func TestStderrTail_Bounds(t *testing.T) {
 	}
 	if stderrTail("short", 10) != "short" {
 		t.Fatalf("stderrTail should pass short text through unchanged")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// SEC1-SEC4 — Fix-subagent Task 6: sandboxed-by-default hardening.
+//
+//	SEC1 claudeArgv: --dangerously-skip-permissions is ALWAYS paired with
+//	     --settings <sandboxSettingsPath> by default (THE INVARIANT).
+//	SEC2 claudeArgv: the ARCHISTRATOR_LOCAL_EXEC_ALLOW_UNSANDBOXED=true escape
+//	     hatch — and ONLY that env var — omits --settings, while
+//	     --dangerously-skip-permissions is STILL present (headless has no
+//	     human to approve tool calls either way).
+//	SEC3 sandboxAllowedDomains: always carries the fixed Anthropic API
+//	     domain; adds the git remote's host ONLY for a non-file:// repoURL;
+//	     a malformed repoURL degrades to just the fixed domain (never fails).
+//	SEC4 writeSandboxSettings: the written file round-trips the fixed
+//	     enabled/failIfUnavailable/allowUnsandboxedCommands posture plus the
+//	     given network allowlist.
+// ---------------------------------------------------------------------------
+
+func TestClaudeArgv_DefaultPairsSkipPermissionsWithActiveSandbox(t *testing.T) {
+	args := claudeArgv("/service-construction c a", "/tmp/mcp.json", "/tmp/sandbox.json")
+	mustContainArg(t, args, "--dangerously-skip-permissions")
+	mustContainAdjacentPair(t, args, "--settings", "/tmp/sandbox.json")
+	mustContainAdjacentPair(t, args, "--mcp-config", "/tmp/mcp.json")
+	mustContainArg(t, args, "--strict-mcp-config")
+}
+
+func TestClaudeArgv_EscapeHatch_OmitsSandboxSettingsButKeepsSkipPermissions(t *testing.T) {
+	t.Setenv(localExecAllowUnsandboxedEnv, "true")
+	args := claudeArgv("/service-construction c a", "/tmp/mcp.json", "/tmp/sandbox.json")
+	mustContainArg(t, args, "--dangerously-skip-permissions") // still required: headless, no human to prompt
+	if containsArg(args, "--settings") || containsArg(args, "/tmp/sandbox.json") {
+		t.Fatalf("escape hatch active but sandbox settings still present in argv: %v", args)
+	}
+	mustContainAdjacentPair(t, args, "--mcp-config", "/tmp/mcp.json")
+}
+
+func TestClaudeArgv_EscapeHatch_CaseInsensitiveAndTrimmed(t *testing.T) {
+	for _, v := range []string{"true", "TRUE", " True "} {
+		t.Setenv(localExecAllowUnsandboxedEnv, v)
+		if !allowUnsandboxedFromEnv() {
+			t.Fatalf("allowUnsandboxedFromEnv() = false for %q, want true", v)
+		}
+	}
+	for _, v := range []string{"", "false", "1", "yes"} {
+		t.Setenv(localExecAllowUnsandboxedEnv, v)
+		if allowUnsandboxedFromEnv() {
+			t.Fatalf("allowUnsandboxedFromEnv() = true for %q, want false (fail-closed default)", v)
+		}
+	}
+}
+
+func mustContainArg(t *testing.T, args []string, want string) {
+	t.Helper()
+	if !containsArg(args, want) {
+		t.Fatalf("argv %v missing %q", args, want)
+	}
+}
+
+func containsArg(args []string, want string) bool {
+	for _, a := range args {
+		if a == want {
+			return true
+		}
+	}
+	return false
+}
+
+// mustContainAdjacentPair asserts flag immediately precedes value somewhere
+// in args (a "--flag value" pair, as exec.Cmd.Args expects — no shell
+// splitting involved).
+func mustContainAdjacentPair(t *testing.T, args []string, flag, value string) {
+	t.Helper()
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == flag && args[i+1] == value {
+			return
+		}
+	}
+	t.Fatalf("argv %v missing adjacent pair %q %q", args, flag, value)
+}
+
+func TestSandboxAllowedDomains(t *testing.T) {
+	cases := []struct {
+		name    string
+		repoURL string
+		want    []string
+	}{
+		{"file url — no remote host", "file:///tmp/x.git", []string{"api.anthropic.com"}},
+		{"http(s) remote — host appended", "https://github.com/acme/repo.git", []string{"api.anthropic.com", "github.com"}},
+		{"malformed — degrades to just the fixed domain", "not a\x00url", []string{"api.anthropic.com"}},
+		{"empty — degrades to just the fixed domain", "", []string{"api.anthropic.com"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := sandboxAllowedDomains(c.repoURL)
+			if len(got) != len(c.want) {
+				t.Fatalf("sandboxAllowedDomains(%q) = %v, want %v", c.repoURL, got, c.want)
+			}
+			for i := range got {
+				if got[i] != c.want[i] {
+					t.Fatalf("sandboxAllowedDomains(%q) = %v, want %v", c.repoURL, got, c.want)
+				}
+			}
+		})
+	}
+}
+
+func TestWriteSandboxSettings_Envelope(t *testing.T) {
+	dir := t.TempDir()
+	path, err := writeSandboxSettings(dir, []string{"api.anthropic.com", "example.com"})
+	if err != nil {
+		t.Fatalf("writeSandboxSettings: %v", err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read written settings file: %v", err)
+	}
+	var cfg sandboxSettingsJSON
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		t.Fatalf("decode written settings file: %v\n%s", err, raw)
+	}
+	if !cfg.Sandbox.Enabled || !cfg.Sandbox.FailIfUnavailable || cfg.Sandbox.AllowUnsandboxedCommands {
+		t.Fatalf("unexpected sandbox posture: %+v", cfg.Sandbox)
+	}
+	if cfg.Sandbox.Network == nil {
+		t.Fatal("expected a non-nil network allowlist")
+	}
+	want := []string{"api.anthropic.com", "example.com"}
+	if len(cfg.Sandbox.Network.AllowedDomains) != len(want) {
+		t.Fatalf("AllowedDomains = %v, want %v", cfg.Sandbox.Network.AllowedDomains, want)
+	}
+	for i, d := range want {
+		if cfg.Sandbox.Network.AllowedDomains[i] != d {
+			t.Fatalf("AllowedDomains = %v, want %v", cfg.Sandbox.Network.AllowedDomains, want)
+		}
+	}
+}
+
+func TestWriteSandboxSettings_EmptyDomainsOmitsNetworkBlock(t *testing.T) {
+	dir := t.TempDir()
+	path, err := writeSandboxSettings(dir, nil)
+	if err != nil {
+		t.Fatalf("writeSandboxSettings: %v", err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read written settings file: %v", err)
+	}
+	var cfg sandboxSettingsJSON
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		t.Fatalf("decode written settings file: %v\n%s", err, raw)
+	}
+	if cfg.Sandbox.Network != nil {
+		t.Fatalf("expected a nil network block for an empty allowlist, got %+v", cfg.Sandbox.Network)
+	}
+}
+
+// TestLocalExecSubmit_AllowUnsandboxedEscapeHatch_EndToEnd is the SEC2
+// integration proof (unit proof is TestClaudeArgv_EscapeHatch_* above): a
+// real dispatch with the escape hatch set spawns claude WITHOUT --settings
+// and still succeeds (--dangerously-skip-permissions remains).
+func TestLocalExecSubmit_AllowUnsandboxedEscapeHatch_EndToEnd(t *testing.T) {
+	_, url := newBareRepo(t)
+	capture := filepath.Join(t.TempDir(), "capture")
+	commitShim(t, capture)
+	t.Setenv(localExecAllowUnsandboxedEnv, "true")
+	a := newLocalExecForTest(t, url, 10*time.Second)
+
+	spec := localSpec("C-ESCAPEHATCH", "billingGatewayAccess", "service-construction")
+	handle, err := a.SubmitConstructionPipeline(subRC(context.Background(), "escape-key-1"), spec)
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	obs := waitForTerminal(t, a, handle, 10*time.Second)
+	if obs.Phase != PhaseSucceeded {
+		t.Fatalf("Phase = %v, want PhaseSucceeded (diagnostic: %q)", obs.Phase, obs.Diagnostic)
+	}
+
+	args := readCapturedArgs(t, capture, 0)
+	if strings.Contains(args, "--settings") {
+		t.Fatalf("escape hatch active but --settings still present in captured argv: %q", args)
+	}
+	if !strings.Contains(args, "--dangerously-skip-permissions") {
+		t.Fatal("escape hatch must still pass --dangerously-skip-permissions (headless has no human to approve tool calls)")
+	}
+	if !strings.Contains(args, "--strict-mcp-config") {
+		t.Fatal("escape hatch must NOT also disable --strict-mcp-config (orthogonal Tier-1 protection)")
+	}
+	if _, err := os.Stat(filepath.Join(capture, "call-0.settings.json")); err == nil {
+		t.Fatal("escape hatch active but a --settings file was still captured")
 	}
 }

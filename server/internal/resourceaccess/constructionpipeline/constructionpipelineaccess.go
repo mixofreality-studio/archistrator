@@ -62,6 +62,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net/url"
 	"os"
 	"os/exec"
 	"strconv"
@@ -1259,6 +1260,13 @@ func (a *localExecAccess) dispatch(run *localRun, activityID, command, component
 		return fwra.Wrap(fwra.Infrastructure, cloneErr, "localexec: clone/checkout activity branch")
 	}
 
+	// mcpConfigDir is the SAME out-of-clone ephemeral dir that holds BOTH the
+	// --mcp-config file (writeStateMCPConfig) AND the Tier-2 --settings sandbox
+	// file (writeSandboxSettings) — neither needs to be reachable from INSIDE
+	// the sandboxed Bash tool's filesystem view, and keeping both outside the
+	// clone means an agent running `git add -A` in workDir can never pick
+	// either up (the same reasoning writeStateMCPConfig's own doc comment
+	// already gives for the mcp-config file).
 	mcpConfigDir, err := os.MkdirTemp("", "aiarch-mcp-cfg-*")
 	if err != nil {
 		return fwra.Wrap(fwra.Infrastructure, err, "localexec: create mcp config dir")
@@ -1269,7 +1277,24 @@ func (a *localExecAccess) dispatch(run *localRun, activityID, command, component
 			_ = os.RemoveAll(mcpConfigDir)
 		}
 	}()
-	mcpConfigPath, err := writeStateMCPConfig(mcpConfigDir, a.stateMCPBin, a.projectID, componentID, activityID, branch, workDir)
+
+	// rig is the SAME fixed AIARCH_* ambient-context envelope stamped on BOTH
+	// the attached aiarch-state MCP server's env (writeStateMCPConfig) and this
+	// process's OWN env allowlist (claudeSubprocessEnv) — see the SECURITY
+	// POSTURE doc block above claudeArgv for why both matter.
+	rig := map[string]string{
+		"AIARCH_PROJECT_ID":    a.projectID,
+		"AIARCH_JOB_MODE":      "construct",
+		"AIARCH_COMPONENT_ID":  componentID,
+		"AIARCH_ACTIVITY_ID":   activityID,
+		"AIARCH_TARGET_BRANCH": branch,
+		"AIARCH_STATE_ROOT":    workDir,
+	}
+	mcpConfigPath, err := writeStateMCPConfig(mcpConfigDir, a.stateMCPBin, rig)
+	if err != nil {
+		return err
+	}
+	sandboxSettingsPath, err := writeSandboxSettings(mcpConfigDir, sandboxAllowedDomains(a.repoURL))
 	if err != nil {
 		return err
 	}
@@ -1277,14 +1302,9 @@ func (a *localExecAccess) dispatch(run *localRun, activityID, command, component
 	prompt := "/" + command + " " + componentID + " " + activityID
 
 	runCtx, runCancel := context.WithTimeout(context.Background(), a.runTimeout)
-	cmd := exec.CommandContext(runCtx, "claude", //nolint:gosec // fixed trusted binary name + internal-only args, mirrors claudecli.go
-		"--dangerously-skip-permissions",
-		"--mcp-config", mcpConfigPath,
-		"--output-format", "json",
-		"-p", prompt,
-	)
+	cmd := exec.CommandContext(runCtx, "claude", claudeArgv(prompt, mcpConfigPath, sandboxSettingsPath)...) //nolint:gosec // fixed trusted binary name + internal-only args, mirrors claudecli.go
 	cmd.Dir = workDir
-	cmd.Env = claudeSubprocessEnv()
+	cmd.Env = claudeSubprocessEnv(rig)
 	// SIGTERM-then-bounded-pipe-close, the SAME shutdown mechanism serverchild.go's
 	// startServerChild / claudecli.go's Generate already use for a supervised
 	// subprocess — reused here per the task's explicit precedent guidance.
@@ -1475,19 +1495,286 @@ func stderrTail(s string, n int) string {
 	return "…" + s[len(s)-n:]
 }
 
-// claudeSubprocessEnv mirrors framework-go-infrastructure-llm/claudecli.go's
-// claudeCLIEnv: the parent's environment verbatim EXCEPT any ANTHROPIC_API_KEY
-// entry, stripped so a stray exported key on the archistrator-server process can
-// never override the user's own ambient subscription OAuth for a local
-// construction run.
-func claudeSubprocessEnv() []string {
-	parent := os.Environ()
-	out := make([]string, 0, len(parent))
-	for _, kv := range parent {
-		if strings.HasPrefix(kv, "ANTHROPIC_API_KEY=") {
-			continue
-		}
-		out = append(out, kv)
+// ---------------------------------------------------------------------------
+// SECURITY POSTURE (founder ruling — sandboxed-by-default local execution).
+// This is the load-bearing doc block for the executor spawn site (dispatch,
+// above): what confines an autonomous, --dangerously-skip-permissions
+// headless `claude` run on the developer's OWN machine, what does not, and
+// why. The founder's explicit ruling for this fix: Tier 1 (process/env/git
+// isolation) PLUS Tier 2 (claude's native OS sandbox) are the FIXED, non-
+// negotiable default for every local dispatch; a heavier Tier 3
+// (devcontainer/VM around the WHOLE claude process, not just its Bash tool)
+// is EXPLICITLY DEFERRED as a future opt-in — not required, not built here.
+//
+// WHAT CONFINES a dispatch, and how:
+//
+//   - cwd (Tier 1): every dispatch clones the repo FRESH into a throwaway
+//     temp dir (dispatch's workDir) and runs claude there; the clone is
+//     discarded afterward (awaitCompletion's os.RemoveAll) — no persistent
+//     working tree accumulates state across dispatches.
+//   - env (Tier 1): claudeSubprocessEnv below is a CONSTRUCTED ALLOWLIST —
+//     PATH, HOME, TERM, and the AIARCH_* rig vars, nothing else — replacing
+//     the former full-parent-env passthrough. A stray secret exported into
+//     the archistrator-server process's OWN environment can no longer reach
+//     an autonomous, permission-bypassed agent process.
+//   - --strict-mcp-config (Tier 1): only the ONE ephemeral aiarch-state MCP
+//     server this dispatch writes (writeStateMCPConfig) is attached; ambient
+//     user-level (~/.claude.json) or project-level (.mcp.json in whatever
+//     repo happens to be checked out on this machine) MCP configuration is
+//     ignored, so a construction run can never inherit extra tool surface
+//     the operator configured for their OWN interactive sessions.
+//   - Tier 2 OS sandbox (claudeArgv + writeSandboxSettings below): claude's
+//     BUILT-IN native sandbox — macOS Seatbelt (nothing to install) or Linux/
+//     WSL2 bubblewrap — is turned on via an ephemeral --settings file
+//     (sandbox.enabled=true). It confines the Bash TOOL's subprocess tree at
+//     the OS level: filesystem writes restricted to the working directory +
+//     session temp dir (the sandbox's own default — this package adds no
+//     extra sandbox.filesystem.allowWrite entries; see the known gap below),
+//     and network DENIED BY DEFAULT except the allowlisted domains
+//     (sandboxAllowedDomains: Anthropic's own API domain + the git remote's
+//     host when repoURL is not file://, which local mode always passes).
+//     sandbox.failIfUnavailable=true + allowUnsandboxedCommands=false close
+//     the loop: if the OS sandbox cannot initialize, claude refuses to run
+//     at all rather than silently degrading unsandboxed — see claudeArgv's
+//     own THE INVARIANT doc comment for the full fail-closed argument.
+//
+// WHAT DOES NOT CONFINE (documented honestly, not swept under the rug):
+//
+//   - Claude's BUILT-IN file tools (Read/Edit/Write) are NOT covered by the
+//     OS sandbox at all — per Anthropic's own sandboxing docs, OS-level
+//     enforcement applies ONLY to the Bash tool and its subprocess tree;
+//     Edit/Write go through Claude's permission system directly, which
+//     --dangerously-skip-permissions bypasses entirely. cwd confinement
+//     (Tier 1, above) is therefore the ONLY thing bounding where those
+//     tools write in practice — there is no OS-level backstop for them the
+//     way there is for Bash. This is Anthropic's documented sandbox SCOPE,
+//     not a gap this package introduces.
+//   - Toolchain build/module caches (Go's GOCACHE/GOPATH, npm's cache, ...)
+//     sit OUTSIDE the sandbox's default filesystem-write allowlist (workDir
+//     + session temp only); a construction task whose Bash tool calls
+//     invoke a toolchain that insists on writing elsewhere may fail under
+//     the sandbox. Widening sandbox.filesystem.allowWrite for specific
+//     known-safe cache paths is a plausible v1.1 follow-up once real
+//     construction runs show which paths are actually needed —
+//     deliberately NOT guessed at here.
+//   - claude's OWN model/API network traffic runs in the (unsandboxed)
+//     PARENT process, never inside the Bash-tool sandbox boundary — the
+//     network allowlist above governs ONLY what Bash-tool subprocesses can
+//     reach, not claude's own calls to Anthropic's API.
+//   - sandbox.credentials (masking/denying specific credential files or env
+//     vars from the Bash tool) is NOT configured — the env allowlist above
+//     already keeps this process from handing claude's Bash tool anything
+//     beyond PATH/HOME/TERM/AIARCH_*, so there is no ambient credential in
+//     the child's OWN env left to mask; a future caller that widens the env
+//     allowlist should reconsider this.
+//   - Tier 3 (devcontainer/VM) is NOT implemented — see the founder-ruling
+//     paragraph above; tracked as a future opt-in, not a v1 requirement.
+// ---------------------------------------------------------------------------
+
+// localExecAllowUnsandboxedEnv is the ONLY escape hatch from THE INVARIANT
+// (claudeArgv below): default unset/false — sandboxed-by-default is
+// FAIL-CLOSED. Set ARCHISTRATOR_LOCAL_EXEC_ALLOW_UNSANDBOXED=true ONLY for a
+// deployment/platform where the native OS sandbox genuinely cannot run at
+// all (see the SECURITY POSTURE block above). This is an OPERATOR opt-out
+// read fresh per dispatch, never a code-path default.
+const localExecAllowUnsandboxedEnv = "ARCHISTRATOR_LOCAL_EXEC_ALLOW_UNSANDBOXED"
+
+// allowUnsandboxedFromEnv reports whether the operator has explicitly set the
+// escape hatch. Mirrors the plain os.Getenv-driven policy reads already
+// established in this package (e.g. claudeSubprocessEnv's ANTHROPIC_API_KEY
+// stripping precedent) rather than threading a new constructor parameter
+// through NewLocalExecConstructionPipelineAccess for a rarely-used override.
+func allowUnsandboxedFromEnv() bool {
+	return strings.EqualFold(strings.TrimSpace(os.Getenv(localExecAllowUnsandboxedEnv)), "true")
+}
+
+// claudeArgv builds the exact argv for the headless claude invocation. This is
+// the ONLY function in the package that constructs the flag list — there is
+// no second, unguarded call site.
+//
+// THE INVARIANT (founder security-posture ruling, sandboxed-by-default —
+// see the SECURITY POSTURE doc block above): --dangerously-skip-permissions
+// is passed ONLY together with an ACTIVE Tier-2 sandbox
+// (--settings sandboxSettingsPath, whose sandbox.enabled=true +
+// failIfUnavailable=true + allowUnsandboxedCommands=false — see
+// writeSandboxSettings). If claude's own sandbox init then fails (missing
+// bubblewrap, unsupported platform, a corrupted settings file, ...),
+// failIfUnavailable makes CLAUDE ITSELF refuse to run unsandboxed — the
+// process exits non-zero and the failure flows through the SAME
+// classifyLocalExecFailure path every other claude failure already takes,
+// surfacing as PhaseFailed with an actionable diagnostic (the stderr tail).
+// THERE IS NO SILENT UNSANDBOXED FALLBACK. The ONLY way to run without the
+// sandbox is the operator-set ARCHISTRATOR_LOCAL_EXEC_ALLOW_UNSANDBOXED=true
+// escape hatch (localExecAllowUnsandboxedEnv) — for a platform where the
+// mechanism cannot run at all. Even with the escape hatch active,
+// --dangerously-skip-permissions is STILL required (headless construction
+// has no human present to approve tool calls), so the escape hatch trades
+// OS-level containment for NONE, not for a lesser tier — use it only when
+// genuinely necessary, and never add a code path that appends
+// --dangerously-skip-permissions outside this function.
+func claudeArgv(prompt, mcpConfigPath, sandboxSettingsPath string) []string {
+	args := []string{"--dangerously-skip-permissions"}
+	if allowUnsandboxedFromEnv() {
+		// Escape hatch active: THE INVARIANT's pairing is deliberately broken
+		// here, and ONLY here, by explicit operator opt-out — see
+		// localExecAllowUnsandboxedEnv's doc comment.
+	} else {
+		args = append(args, "--settings", sandboxSettingsPath)
+	}
+	return append(args,
+		"--mcp-config", mcpConfigPath,
+		"--strict-mcp-config", // Tier 1: ignore ambient user/project MCP config; attach ONLY mcpConfigPath.
+		"--output-format", "json",
+		"-p", prompt,
+	)
+}
+
+// sandboxSettingsJSON / sandboxConfigJSON / sandboxNetworkJSON mirror the
+// minimal shape `claude --settings <file>` expects for Tier-2 native OS
+// sandboxing. Discovered from the installed claude CLI (`claude --help`
+// documents --settings <file-or-json>; the settings.json `sandbox` key
+// shape was confirmed against Anthropic's current sandboxing docs and
+// empirically verified with a live `claude --settings ... --dangerously-
+// skip-permissions --strict-mcp-config -p ...` invocation against this
+// exact JSON shape):
+//
+//   - sandbox.enabled            turns the OS sandbox on for this run.
+//   - sandbox.failIfUnavailable  makes claude refuse to START rather than
+//     silently degrading to unsandboxed when the mechanism cannot init
+//     (missing bubblewrap, unsupported platform, ...) — THIS is what makes
+//     THE INVARIANT (claudeArgv above) hold even on a platform that lacks
+//     the sandbox: claude itself fails fast, so this package never has to
+//     independently detect "sandbox unavailable" by parsing stderr text.
+//   - sandbox.allowUnsandboxedCommands=false disables claude's OWN internal
+//     dangerouslyDisableSandbox per-command retry escape hatch (its model
+//     would otherwise be allowed to retry a sandbox-denied Bash command
+//     WITHOUT the sandbox) — belt-and-braces against the outer
+//     --dangerously-skip-permissions bypass, which would otherwise
+//     auto-approve that retry with no prompt at all.
+//   - sandbox.network.allowedDomains is the ONLY network the sandboxed Bash
+//     tool's subprocesses can reach; see sandboxAllowedDomains below.
+type sandboxSettingsJSON struct {
+	Sandbox sandboxConfigJSON `json:"sandbox"`
+}
+
+type sandboxConfigJSON struct {
+	Enabled                  bool                `json:"enabled"`
+	FailIfUnavailable        bool                `json:"failIfUnavailable"`
+	AllowUnsandboxedCommands bool                `json:"allowUnsandboxedCommands"`
+	Network                  *sandboxNetworkJSON `json:"network,omitempty"`
+}
+
+type sandboxNetworkJSON struct {
+	AllowedDomains []string `json:"allowedDomains,omitempty"`
+}
+
+// writeSandboxSettings writes the ephemeral --settings file (OUTSIDE the
+// cloned working tree — dir is the SAME out-of-clone temp dir dispatch also
+// writes the --mcp-config file into, and the sandbox itself denies writes to
+// settings.json paths as a matter of course, so this file could not be
+// tampered with from inside the sandbox even if it DID live in the clone)
+// that turns on Tier-2 sandboxing for this run — always enabled=true,
+// failIfUnavailable=true, allowUnsandboxedCommands=false (see the type's own
+// doc comment for why each matters). allowedDomains is the Bash tool's
+// network allowlist (sandboxAllowedDomains); an empty list means Bash
+// subprocess commands get NO outbound network at all, which is exactly
+// correct for the common local-mode case (repoURL is file://, so there is no
+// remote to reach and no allowlist entry beyond the fixed API domain).
+func writeSandboxSettings(dir string, allowedDomains []string) (string, error) {
+	cfg := sandboxSettingsJSON{Sandbox: sandboxConfigJSON{
+		Enabled:                  true,
+		FailIfUnavailable:        true,
+		AllowUnsandboxedCommands: false,
+	}}
+	if len(allowedDomains) > 0 {
+		cfg.Sandbox.Network = &sandboxNetworkJSON{AllowedDomains: allowedDomains}
+	}
+	body, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return "", fwra.Wrap(fwra.Infrastructure, err, "localexec: marshal sandbox settings")
+	}
+	f, err := os.CreateTemp(dir, "aiarch-sandbox-*.json")
+	if err != nil {
+		return "", fwra.Wrap(fwra.Infrastructure, err, "localexec: create sandbox settings file")
+	}
+	defer func() { _ = f.Close() }()
+	if _, err := f.Write(body); err != nil {
+		return "", fwra.Wrap(fwra.Infrastructure, err, "localexec: write sandbox settings file")
+	}
+	return f.Name(), nil
+}
+
+// anthropicAPIDomains is the Tier-2 sandbox's fixed network-allowlist entry
+// for Anthropic's own API surface — included per the founder's "network
+// limited to the API + git remote" ruling, defense-in-depth against a future
+// claude version routing more of its own traffic through the (currently
+// Bash-tool-only) sandbox boundary. As documented today (claude 2.1.x),
+// claude's own model/API calls run in the unsandboxed parent process, so
+// this entry is a no-op for the CLI's CURRENT actual behavior — it costs
+// nothing to declare and is exactly correct if that scope ever widens.
+var anthropicAPIDomains = []string{"api.anthropic.com"}
+
+// sandboxAllowedDomains derives the Tier-2 sandbox's network allowlist:
+// anthropicAPIDomains, PLUS the git remote's host, ONLY when repoURL is a
+// real network URL (not file://, which local mode always passes — see the
+// package doc comment's "WHY EVERY DISPATCH CLONES FRESH" note). A
+// malformed/unparsable repoURL yields just the fixed API domain rather than
+// failing the dispatch — the sandbox's own deny-by-default network policy
+// stays SAFE either way; an unparsable host just means git-over-network
+// inside the Bash tool cannot reach anything, no worse than the local-mode
+// file:// norm.
+func sandboxAllowedDomains(repoURL string) []string {
+	domains := append([]string{}, anthropicAPIDomains...)
+	u, err := url.Parse(repoURL)
+	if err != nil || u.Scheme == "" || u.Scheme == "file" || u.Hostname() == "" {
+		return domains
+	}
+	return append(domains, u.Hostname())
+}
+
+// claudeSubprocessEnv builds the CHILD claude process's environment as a
+// CONSTRUCTED ALLOWLIST (Tier 1, see the SECURITY POSTURE doc block above) —
+// replacing the former full-parent-env passthrough (which forwarded every
+// secret/token exported into the archistrator-server process's OWN
+// environment straight into an autonomous, permission-bypassed agent).
+// EXACTLY these entries cross from the parent, each individually justified:
+//
+//   - PATH — required to resolve git/go/npm/... binaries this dispatch's own
+//     `git` calls need, and that the sandboxed Bash tool's commands invoke
+//     by name.
+//   - HOME — required by git (global config lookup, credential helpers) and
+//     most toolchains' cache/config directory resolution; without it even
+//     basic subprocess tooling misbehaves.
+//   - TERM — some CLI tooling (color detection, progress bars) misbehaves
+//     under an unset TERM; carried through unchanged so subprocess output
+//     stays sane for diagnostics.
+//   - the AIARCH_* rig vars (rig, passed in from dispatch) — the SAME fixed
+//     ambient-context envelope also carried on the attached aiarch-state MCP
+//     server's OWN env (writeStateMCPConfig), so anything that inspects this
+//     TOP-LEVEL process's env (rather than only the MCP server subprocess's)
+//     sees identical values.
+//
+// Nothing else crosses from the parent: no ANTHROPIC_API_KEY (this local
+// executor rides the operator's own `claude` OAuth session, never a
+// forwarded key — same rationale as
+// framework-go-infrastructure-llm/claudecli.go's claudeCLIEnv), no
+// GITHUB_TOKEN, no cloud credentials, no arbitrary operator-exported
+// secret. A stray secret exported into archistrator-server's own
+// environment can no longer leak into an autonomous,
+// --dangerously-skip-permissions agent process.
+func claudeSubprocessEnv(rig map[string]string) []string {
+	out := make([]string, 0, 3+len(rig))
+	if v := os.Getenv("PATH"); v != "" {
+		out = append(out, "PATH="+v)
+	}
+	if v := os.Getenv("HOME"); v != "" {
+		out = append(out, "HOME="+v)
+	}
+	if v := os.Getenv("TERM"); v != "" {
+		out = append(out, "TERM="+v)
+	}
+	for k, v := range rig {
+		out = append(out, k+"="+v)
 	}
 	return out
 }
@@ -1561,24 +1848,19 @@ type mcpConfigFileJSON struct {
 
 // writeStateMCPConfig writes the ephemeral --mcp-config file OUTSIDE the cloned
 // working tree (in dir, a SEPARATE temp dir from workDir) so an agent running
-// `git add -A` inside the repo clone can never accidentally pick it up. Mirrors
-// the workflow's construct-mode env exactly: AIARCH_JOB_MODE=construct,
-// AIARCH_COMPONENT_ID/AIARCH_ACTIVITY_ID from the dispatch, AIARCH_TARGET_BRANCH
-// set to the SAME branch this realisation just checked out, AIARCH_STATE_ROOT
-// pointed at the clone (workDir) so cmd/aiarch-state-mcp reads/writes the SAME
+// `git add -A` inside the repo clone can never accidentally pick it up. rig is
+// the SAME fixed AIARCH_* envelope dispatch also stamps on claude's own
+// process env (claudeSubprocessEnv) — mirrors the workflow's construct-mode
+// env exactly: AIARCH_JOB_MODE=construct, AIARCH_COMPONENT_ID/
+// AIARCH_ACTIVITY_ID from the dispatch, AIARCH_TARGET_BRANCH set to the SAME
+// branch this realisation just checked out, AIARCH_STATE_ROOT pointed at the
+// clone (workDir) so cmd/aiarch-state-mcp reads/writes the SAME
 // .aiarch/state/project.json claude's own git commits land next to.
-func writeStateMCPConfig(dir, stateMCPBin, projectID, componentID, activityID, branch, stateRoot string) (string, error) {
+func writeStateMCPConfig(dir, stateMCPBin string, rig map[string]string) (string, error) {
 	cfg := mcpConfigFileJSON{MCPServers: map[string]mcpServerConfigJSON{
 		"aiarch-state": {
 			Command: stateMCPBin,
-			Env: map[string]string{
-				"AIARCH_PROJECT_ID":    projectID,
-				"AIARCH_JOB_MODE":      "construct",
-				"AIARCH_COMPONENT_ID":  componentID,
-				"AIARCH_ACTIVITY_ID":   activityID,
-				"AIARCH_TARGET_BRANCH": branch,
-				"AIARCH_STATE_ROOT":    stateRoot,
-			},
+			Env:     rig,
 		},
 	}}
 	body, err := json.MarshalIndent(cfg, "", "  ")

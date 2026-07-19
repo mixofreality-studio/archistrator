@@ -301,6 +301,8 @@ func newAppHooks(cfg *Config, logger *slog.Logger) (*appHooks, error) {
 			}
 			h.realPipeline = pipeline
 		}
+	} else if cfg.GithubAppAppID != "" || cfg.GithubAppPrivateKeyPEM != "" || cfg.GithubAppAccount != "" {
+		warnPartialGithubAppCreds(logger, cfg)
 	} else {
 		logger.Warn("sourceControlAccess NOT configured — projects are created repo-less (set ARCHISTRATOR_GITHUB_APP_ID + ARCHISTRATOR_GITHUB_APP_PRIVATE_KEY_PEM + ARCHISTRATOR_GITHUB_ACCOUNT for live GitHub repo provisioning)")
 	}
@@ -325,6 +327,38 @@ func newAppHooks(cfg *Config, logger *slog.Logger) (*appHooks, error) {
 	}
 
 	return h, nil
+}
+
+// warnPartialGithubAppCreds fires when an operator has set SOME but not ALL
+// three GitHub App identity settings (ARCHISTRATOR_GITHUB_APP_ID /
+// ARCHISTRATOR_GITHUB_APP_PRIVATE_KEY_PEM / ARCHISTRATOR_GITHUB_ACCOUNT) —
+// almost always a misconfiguration (an env-var typo, a partially-completed
+// rollout) rather than the intentional repo-less boot (which sets NONE of
+// them, and gets the milder "not configured" warning above instead). Names
+// exactly which settings are still missing so the operator does not have to
+// cross-reference config.gen.go, and states the CONCRETE local-first-init-
+// funnel Task 6 consequence: with the App identity incomplete, h.appClient /
+// h.scAccess / h.realPipeline all stay nil (the same as the fully-repo-less
+// case, exactly as the code path above computes), so on the LOCAL profile
+// construction silently falls through to the local executor
+// (FinalizeConstructionPipelineAccess's h.localPipeline arm) instead of the
+// GitHub-Actions pipeline the operator likely intended — the kind of silent
+// behavior change this warning exists to surface loudly instead of leaving
+// the operator to discover it from a construction run's behavior.
+func warnPartialGithubAppCreds(logger *slog.Logger, cfg *Config) {
+	var missing []string
+	if cfg.GithubAppAppID == "" {
+		missing = append(missing, "ARCHISTRATOR_GITHUB_APP_ID")
+	}
+	if cfg.GithubAppPrivateKeyPEM == "" {
+		missing = append(missing, "ARCHISTRATOR_GITHUB_APP_PRIVATE_KEY_PEM")
+	}
+	if cfg.GithubAppAccount == "" {
+		missing = append(missing, "ARCHISTRATOR_GITHUB_ACCOUNT")
+	}
+	logger.Warn("sourceControlAccess PARTIALLY configured — GitHub App identity is incomplete; "+
+		"treated as repo-less (same as none set), so construction routes to the local executor instead of GitHub Actions",
+		"missing", strings.Join(missing, ", "))
 }
 
 // stateMCPBinEnvOverride lets an operator pin exactly which cmd/aiarch-state-mcp

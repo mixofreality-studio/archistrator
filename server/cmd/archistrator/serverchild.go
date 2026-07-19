@@ -83,11 +83,20 @@ func (c serverChildConfig) env() []string {
 		// Constraints) permits dev-mode auth ONLY on loopback, which
 		// ListenAddr above is.
 		"ARCHISTRATOR_AUTH_DEV_MODE": "true",
-		// The local construction executor (Task 6, a SEPARATE deliverable) does
-		// not exist yet — dry-run keeps constructionManager's embedded Worker
-		// registered and inert (registerConstruction in hooks.go) instead of
-		// failing the boot on absent GitHub construction creds this profile
-		// deliberately has none of.
+		// The local construction executor (Task 6,
+		// server/internal/resourceaccess/constructionpipeline/
+		// constructionpipelineaccess.go's localexec.go section — headless
+		// `claude`, sandboxed-by-default) is now BUILT, but this spawned child
+		// still boots with DRYRUN=true here: flipping it to "false" has a
+		// SEPARATE prerequisite this package does not yet satisfy — a compiled
+		// aiarch-state-mcp binary staged alongside archistrator-server for
+		// cmd/server/hooks.go's locateStateMCPBinary to find (mirrors this
+		// package's own locateServerBinary discovery precedent above). Until
+		// scripts/build-local.sh (or an equivalent packaging step) stages that
+		// binary next to the spawned archistrator-server, dry-run keeps
+		// constructionManager's embedded Worker registered and inert
+		// (registerConstruction in hooks.go) instead of failing the boot on a
+		// missing aiarch-state-mcp binary.
 		"ARCHISTRATOR_CONSTRUCTION_DRYRUN": "true",
 	}
 	out := make([]string, 0, len(os.Environ())+len(extra))
