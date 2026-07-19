@@ -131,6 +131,9 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -180,6 +183,16 @@ type appHooks struct {
 	// PR rail, exactly as the hand run() did. nil when repo-less (rail dormant).
 	scAccess     sourcecontrol.SourceControlAccess
 	realPipeline constructionpipeline.ConstructionPipelineAccess
+
+	// localPipeline is the local-first-init-funnel Task 6 construction executor —
+	// headless `claude` shelled directly against the on-disk repo, with NO GitHub
+	// creds involved. Built whenever the profile is LOCAL (regardless of DRYRUN, so
+	// a later toggle to DRYRUN=false takes effect without a restart-time rebuild);
+	// FinalizeConstructionPipelineAccess below selects it for a local boot WITHOUT
+	// GitHub creds (realPipeline, built above when creds ARE configured, keeps
+	// priority — "creds present keeps the existing behavior"). nil on the cloud
+	// profile, mirroring scAccess/realPipeline's repo-less-dormant pattern.
+	localPipeline constructionpipeline.ConstructionPipelineAccess
 
 	// workerProvider is the selected LLM Worker Provider (local-first-init-funnel
 	// Task 3): local profile with no ANTHROPIC_API_KEY → llm.ClaudeCLIClient
@@ -292,7 +305,96 @@ func newAppHooks(cfg *Config, logger *slog.Logger) (*appHooks, error) {
 		logger.Warn("sourceControlAccess NOT configured — projects are created repo-less (set ARCHISTRATOR_GITHUB_APP_ID + ARCHISTRATOR_GITHUB_APP_PRIVATE_KEY_PEM + ARCHISTRATOR_GITHUB_ACCOUNT for live GitHub repo provisioning)")
 	}
 
+	// LOCAL profile: build the local construction executor (Task 6) whenever the
+	// profile is local, independent of DRYRUN — FinalizeConstructionPipelineAccess
+	// decides whether it is actually SELECTED. A missing aiarch-state-mcp binary /
+	// repo config only fails the BOOT when DRYRUN=false genuinely needs this arm
+	// (mirrors realPipeline/scAccess's repo-less-dormant pattern above): a
+	// DRYRUN=true dev/demo boot must not be blocked by packaging this has not been
+	// staged for yet.
+	if resolveProfile(cfg) == "local" {
+		pipeline, err := newLocalPipeline(cfg, logger)
+		switch {
+		case err == nil:
+			h.localPipeline = pipeline
+		case !cfg.ConstructionDryRun:
+			return nil, err
+		default:
+			logger.Warn("localPipeline (local construction executor) NOT ready — non-fatal because ARCHISTRATOR_CONSTRUCTION_DRYRUN=true", "cause", err)
+		}
+	}
+
 	return h, nil
+}
+
+// stateMCPBinEnvOverride lets an operator pin exactly which cmd/aiarch-state-mcp
+// binary the local construction executor attaches via --mcp-config, bypassing
+// discovery — the composition-root analog of cmd/archistrator/serverchild.go's
+// ARCHISTRATOR_SERVER_BIN override.
+const stateMCPBinEnvOverride = "ARCHISTRATOR_STATE_MCP_BIN"
+
+// locateStateMCPBinary resolves the cmd/aiarch-state-mcp binary the local
+// construction executor (Task 6) attaches to headless claude via --mcp-config —
+// the SAME construct-verb rig the cloud aiarch-construct.yml workflow builds fresh
+// from source on every dispatch. This process (archistrator-server) has no `go`
+// toolchain guarantee at runtime, so discovery mirrors cmd/archistrator/
+// serverchild.go's locateServerBinary precedent exactly: an explicit override, a
+// binary named aiarch-state-mcp sitting next to this executable (the shape a
+// packaging step is expected to produce, staged alongside archistrator-server),
+// then PATH.
+func locateStateMCPBinary() (string, error) {
+	if override := getenvString(stateMCPBinEnvOverride, ""); override != "" {
+		if _, err := os.Stat(override); err != nil {
+			return "", fmt.Errorf("%s=%s: %w", stateMCPBinEnvOverride, override, err)
+		}
+		return override, nil
+	}
+	if exe, err := os.Executable(); err == nil {
+		candidate := filepath.Join(filepath.Dir(exe), "aiarch-state-mcp")
+		if info, statErr := os.Stat(candidate); statErr == nil && !info.IsDir() {
+			return candidate, nil
+		}
+	}
+	if p, err := exec.LookPath("aiarch-state-mcp"); err == nil {
+		return p, nil
+	}
+	return "", fmt.Errorf(
+		"could not find the aiarch-state-mcp binary (looked for %s, a sibling of this executable, and PATH) — "+
+			"build it with `go build ./cmd/aiarch-state-mcp` or set %s",
+		"aiarch-state-mcp", stateMCPBinEnvOverride)
+}
+
+// localProjectID derives the AIARCH_PROJECT_ID value the local executor stamps on
+// the state-mcp process from the local repo path (name-as-identity, mirroring the
+// cloud workflow's github.event.repository.name): the basename of the repo
+// directory, ".git" suffix stripped if present (a bare repo's conventional name).
+func localProjectID(repoURL string) string {
+	path := strings.TrimSuffix(strings.TrimPrefix(repoURL, "file://"), "/")
+	base := filepath.Base(path)
+	base = strings.TrimSuffix(base, ".git")
+	if base == "" || base == "." || base == "/" {
+		return "local"
+	}
+	return base
+}
+
+// newLocalPipeline builds the local construction executor (Task 6) over the
+// SAME on-disk repo the local projectstate substrate is configured with.
+func newLocalPipeline(cfg *Config, logger *slog.Logger) (constructionpipeline.ConstructionPipelineAccess, error) {
+	if cfg.ProjectStateGitRepoURL == "" {
+		return nil, fmt.Errorf("localPipeline: ARCHISTRATOR_PROJECT_STATE_GIT_REPO_URL is required")
+	}
+	bin, err := locateStateMCPBinary()
+	if err != nil {
+		return nil, fmt.Errorf("localPipeline: %w", err)
+	}
+	pipeline, err := constructionpipeline.NewLocalExecConstructionPipelineAccess(
+		cfg.ProjectStateGitRepoURL, localProjectID(cfg.ProjectStateGitRepoURL), bin, 0)
+	if err != nil {
+		return nil, err
+	}
+	logger.Info("localPipeline (local construction executor) ready", "repoURL", cfg.ProjectStateGitRepoURL, "stateMCPBin", bin)
+	return pipeline, nil
 }
 
 // projectStateCloudPorts builds the CLOUD projectStateAccess port tuple (the same
@@ -478,14 +580,18 @@ func (h *appHooks) FinalizeArtifactAccess(cfg *Config, v artifact.ArtifactAccess
 	return v
 }
 
-// FinalizeConstructionPipelineAccess resolves the construction pipeline:
+// FinalizeConstructionPipelineAccess resolves the construction pipeline — THREE
+// dispatch arms, in order:
 //   - CONSTRUCTION_DRYRUN=true → the in-memory dry-run stub (the stubbed pump runs
-//     end-to-end with no real GitHub Actions run);
+//     end-to-end with no real dispatch of any kind);
 //   - otherwise v when the profile arm built it (cloud);
-//   - otherwise the github-creds-gated real pipeline (local profile WITH creds —
-//     the constructionPipelineAccess binding is cloud-arm-only, but its real
-//     presence is gated on the App creds, orthogonal to the projectstate profile),
-//     or nil (local, no creds — the pump stays dormant).
+//   - otherwise the github-creds-gated real GitHub-Actions pipeline (local profile
+//     WITH creds — the constructionPipelineAccess binding is cloud-arm-only, but
+//     its real presence is gated on the App creds, orthogonal to the projectstate
+//     profile) — creds present keeps this exact pre-existing behavior;
+//   - otherwise the LOCAL construction executor (Task 6: local profile WITHOUT
+//     GitHub creds → headless claude, no GitHub Actions involved), or nil on the
+//     cloud profile with no creds (the pump stays dormant, same as before Task 6).
 func (h *appHooks) FinalizeConstructionPipelineAccess(cfg *Config, v constructionpipeline.ConstructionPipelineAccess) constructionpipeline.ConstructionPipelineAccess {
 	if cfg.ConstructionDryRun {
 		return constructionpipeline.NewDryRunConstructionPipelineAccess()
@@ -493,7 +599,10 @@ func (h *appHooks) FinalizeConstructionPipelineAccess(cfg *Config, v constructio
 	if v != nil {
 		return v
 	}
-	return h.realPipeline
+	if h.realPipeline != nil {
+		return h.realPipeline
+	}
+	return h.localPipeline
 }
 
 // FinalizeSourceControlAccess resolves sourceControlAccess: v when the profile arm
@@ -590,15 +699,22 @@ func (h *appHooks) FinalizeRevenueLedgerAccess(_ *Config, v revenueledger.Revenu
 }
 
 // registerConstruction is the construction Worker gate (run()'s selectConstructionDeps):
-// register when dry-run, or when BOTH external-effect deps are configured (the
-// pipeline repo + the artifact store).
+// register when dry-run, or when the artifact store is configured AND an executor
+// is available for it to dispatch through — the cloud GitHub-Actions repo config
+// (cloud profile) OR the local profile itself (Task 6: the local construction
+// executor needs no GitHub construction-repo config at all — headless claude runs
+// against the on-disk repo directly).
 func registerConstruction(cfg *Config) bool {
 	if cfg.ConstructionDryRun {
 		return true
 	}
-	pipelinePresent := cfg.ConstructionRepoOwner != "" && cfg.ConstructionRepoName != ""
-	artifactPresent := cfg.ArtifactRepoURL != ""
-	return pipelinePresent && artifactPresent
+	if cfg.ArtifactRepoURL == "" {
+		return false
+	}
+	if resolveProfile(cfg) == "local" {
+		return true
+	}
+	return cfg.ConstructionRepoOwner != "" && cfg.ConstructionRepoName != ""
 }
 
 func (h *appHooks) RegisterConstructionManagerWorker(cfg *Config) bool {

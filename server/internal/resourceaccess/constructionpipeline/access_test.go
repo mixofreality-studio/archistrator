@@ -46,15 +46,71 @@ package constructionpipeline
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"maps"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 )
+
+// SERVICE TEST PLAN (STP) — the LOCAL-EXECUTOR realisation (the localexec
+// section of constructionpipelineaccess.go). Per [[the-method-testing]], black-box
+// at the RA's public verbs. The only external boundary faked is the `claude`
+// binary itself (a PATH shim script, the SAME pattern
+// framework-go-infrastructure-llm/claudecli_test.go uses for the SAME reason: no
+// real subscription touched in CI); every git operation runs against a REAL
+// throwaway local repo via the actual `git` binary — no fake for that seam.
+//
+//   PRE-CONDITION / CONTRACT-MISUSE:
+//     L1  New rejects empty repoURL / empty stateMCPBin / a stateMCPBin that
+//         does not exist on disk
+//     L2  Submit rejects an empty idempotencyKey
+//     L3  Submit rejects a spec with no steps (validateSpec, shared with the
+//         GitHub-Actions realisation above)
+//     L4  Submit rejects an empty ActivityID
+//     L5  Submit rejects a spec with no DispatchInputs["command"]
+//     L6  Observe / Cancel reject a zero / malformed PipelineHandle
+//     L7  Observe an unknown handle → fwra.NotFound
+//
+//   HAPPY-PATH / DISPATCH SHAPE:
+//     LH1 Submit spawns claude with --dangerously-skip-permissions, --mcp-config,
+//         --output-format json, -p "/<command> <component> <activity>", cwd on a
+//         FRESH CLONE of the repo checked out onto activity/<id>; the --mcp-config
+//         file carries the exact AIARCH_* envelope (project/component/activity/
+//         branch/state-root) pointing at cmd/aiarch-state-mcp
+//     LH2 On a clean claude exit, the shim's commit is pushed to activity/<id> on
+//         the ORIGIN repo and Observe reports PhaseSucceeded
+//     LH3 A SECOND phase dispatch for the SAME activity (different idempotencyKey)
+//         re-attaches to the EXISTING activity/<id> branch — both commits present,
+//         nothing lost
+//
+//   EXIT-CODE MAPPING (Step 3):
+//     LF1 Non-zero claude exit → PhaseFailed, diagnostic names the exit code
+//     LF2 claude exceeds the run timeout → PhaseFailed, "timed out" diagnostic,
+//         and the subprocess is actually gone (no orphan)
+//
+//   CANCEL:
+//     LC1 Cancel while running → SIGTERM's the subprocess; Observe converges to
+//         PhaseCancelled (never PhaseFailed) even though Wait() itself errors
+//     LC2 Cancel of an unknown / already-terminal handle → no-op SUCCESS
+//
+//   IDEMPOTENCY CONVERGENCE:
+//     LG1 Two submits with the SAME idempotencyKey return the SAME handle and
+//         spawn claude exactly ONCE (probe short-circuit, no dispatch storm)
+//
+//   VALUE SEMANTICS / MAPPING UNITS:
+//     L8  classifyLocalExecFailure: exit-code text, stderr tail bounding
+//     L9  localTokenFromHandle round-trip + rejects a foreign "run/<id>" shape
 
 // ---------------------------------------------------------------------------
 // fakeActions — the seam stand-in. Models GitHub's NON-dedup dispatch: each
@@ -762,5 +818,640 @@ func TestDedupTokenDeterminism(t *testing.T) {
 	}
 	if dedupToken("a") == dedupToken("b") {
 		t.Fatal("dedupToken collision on distinct keys")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// test fixtures: a real throwaway bare git repo + a `claude` PATH shim.
+// ---------------------------------------------------------------------------
+
+// newBareRepo creates a real bare git repo seeded with one empty commit on
+// "main" — the local-executor's clone SOURCE, mirroring
+// systemtests/internal/harness/localgit.go's StartLocalGitRepo but reimplemented
+// here (this test lives in the server module; the harness module is a sibling
+// the RA layer must not import).
+func newBareRepo(t *testing.T) (bareDir, url string) {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH; skipping local-executor proof")
+	}
+	root := t.TempDir()
+	bare := filepath.Join(root, "remote.git")
+	testGit(t, "", "init", "--bare", "--initial-branch=main", bare)
+
+	seed := filepath.Join(root, "seed")
+	testGit(t, "", "clone", bare, seed)
+	testGit(t, seed, "config", "user.email", "seed@aiarch.local")
+	testGit(t, seed, "config", "user.name", "seed")
+	testGit(t, seed, "commit", "--allow-empty", "-m", "seed")
+	testGit(t, seed, "push", "origin", "main")
+
+	return bare, "file://" + bare
+}
+
+// remoteBranchExists reports whether branch exists on the bare repo.
+func remoteBranchExists(t *testing.T, bareDir, branch string) bool {
+	t.Helper()
+	cmd := exec.Command("git", "-C", bareDir, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch)
+	return cmd.Run() == nil
+}
+
+// remoteCommitCount returns the commit count on branch in the bare repo.
+func remoteCommitCount(t *testing.T, bareDir, branch string) int {
+	t.Helper()
+	out := testGitOut(t, bareDir, "rev-list", "--count", branch)
+	var n int
+	if _, err := fscanInt(strings.TrimSpace(out), &n); err != nil {
+		t.Fatalf("parse commit count %q: %v", out, err)
+	}
+	return n
+}
+
+func fscanInt(s string, n *int) (int, error) {
+	v := 0
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return 0, errors.New("not a number: " + s)
+		}
+		v = v*10 + int(r-'0')
+	}
+	*n = v
+	return 1, nil
+}
+
+func testGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v (dir=%s): %v\n%s", args, dir, err, out)
+	}
+}
+
+func testGitOut(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	full := append([]string{"-C", dir}, args...)
+	cmd := exec.Command("git", full...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+	return string(out)
+}
+
+// fakeStateMCPBin returns a path to SOME existing, executable file to stand in
+// for cmd/aiarch-state-mcp — the local-executor only checks it EXISTS (New's
+// eager os.Stat) and threads its path verbatim into the --mcp-config JSON; it
+// never executes it itself (claude would, in a real run). Using the test
+// binary's own `git`-shim-adjacent trick (a tiny script) keeps this hermetic.
+func fakeStateMCPBin(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "aiarch-state-mcp")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil { //nolint:gosec // test fixture, deliberately executable
+		t.Fatalf("write fake state-mcp bin: %v", err)
+	}
+	return path
+}
+
+// installClaudeShim writes an executable `claude` script into a fresh temp dir
+// and prepends it to PATH for the test's duration — the local analog of
+// claudecli_test.go's installClaudeShim (same rationale: exec.CommandContext
+// resolves to the shim, never a real installation).
+func installClaudeShim(t *testing.T, script string) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("shim is a POSIX shell script; localexec is not exercised on windows in CI")
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "claude")
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil { //nolint:gosec // test shim, deliberately executable
+		t.Fatalf("write claude shim: %v", err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+// commitShim is a claude shim that, when run, makes ONE commit in its cwd (a
+// marker file named by callIndex so repeated invocations are distinguishable),
+// captures its argv + the --mcp-config file's content + PWD into captureDir, then
+// exits 0. capturePath must be OUTSIDE any git working tree the shim itself
+// operates in.
+func commitShim(t *testing.T, captureDir string) string {
+	t.Helper()
+	if err := os.MkdirAll(captureDir, 0o755); err != nil {
+		t.Fatalf("mkdir capture dir: %v", err)
+	}
+	// $CAPTURE is baked in at shim-generation time (not read from the parent env)
+	// so the capture location is independent of whatever env the code under test
+	// passes to the subprocess (claudeSubprocessEnv strips ANTHROPIC_API_KEY but
+	// otherwise passes the parent env through — this keeps the test robust to
+	// that regardless).
+	script := "#!/bin/sh\n" +
+		"set -e\n" +
+		"CAPTURE='" + captureDir + "'\n" +
+		"n=0\n" +
+		"while [ -f \"$CAPTURE/call-$n.args\" ]; do n=$((n+1)); done\n" +
+		"printf '%s\\n' \"$@\" > \"$CAPTURE/call-$n.args\"\n" +
+		"pwd > \"$CAPTURE/call-$n.pwd\"\n" +
+		// the --mcp-config value is the arg immediately after the literal
+		// "--mcp-config" flag; find and copy it.
+		"prev=\"\"\n" +
+		"for a in \"$@\"; do\n" +
+		"  if [ \"$prev\" = \"--mcp-config\" ]; then cp \"$a\" \"$CAPTURE/call-$n.mcpconfig.json\"; fi\n" +
+		"  prev=\"$a\"\n" +
+		"done\n" +
+		"git config user.email shim@aiarch.local\n" +
+		"git config user.name shim\n" +
+		"echo \"phase $n\" >> SHIM_PROGRESS.txt\n" +
+		"git add -A\n" +
+		"git commit -m \"shim commit $n\" >/dev/null\n" +
+		"echo '{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\":\"ok\"}'\n" +
+		"exit 0\n"
+	dir := t.TempDir()
+	path := filepath.Join(dir, "claude")
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil { //nolint:gosec // test shim
+		t.Fatalf("write commit shim: %v", err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return path
+}
+
+// ---------------------------------------------------------------------------
+// U1 — constructor
+// ---------------------------------------------------------------------------
+
+func TestNewLocalExec_RejectsEmptyRepoURL(t *testing.T) {
+	_, err := NewLocalExecConstructionPipelineAccess("", "p", fakeStateMCPBin(t), 0)
+	if kind(err) != fwra.ContractMisuse {
+		t.Fatalf("kind = %v, want ContractMisuse", kind(err))
+	}
+}
+
+func TestNewLocalExec_RejectsEmptyStateMCPBin(t *testing.T) {
+	_, err := NewLocalExecConstructionPipelineAccess("file:///tmp/x", "p", "", 0)
+	if kind(err) != fwra.ContractMisuse {
+		t.Fatalf("kind = %v, want ContractMisuse", kind(err))
+	}
+}
+
+func TestNewLocalExec_RejectsMissingStateMCPBin(t *testing.T) {
+	_, err := NewLocalExecConstructionPipelineAccess("file:///tmp/x", "p", "/no/such/binary-xyz", 0)
+	if kind(err) != fwra.ContractMisuse {
+		t.Fatalf("kind = %v, want ContractMisuse", kind(err))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// U2-U7 — contract misuse / not-found
+// ---------------------------------------------------------------------------
+
+func newLocalExecForTest(t *testing.T, repoURL string, runTimeout time.Duration) *localExecAccess {
+	t.Helper()
+	v, err := NewLocalExecConstructionPipelineAccess(repoURL, "test-project", fakeStateMCPBin(t), runTimeout)
+	if err != nil {
+		t.Fatalf("NewLocalExecConstructionPipelineAccess: %v", err)
+	}
+	a, ok := v.(*localExecAccess)
+	if !ok {
+		t.Fatalf("expected *localExecAccess, got %T", v)
+	}
+	return a
+}
+
+func TestLocalExecSubmit_ContractMisuse(t *testing.T) {
+	_, url := newBareRepo(t)
+	a := newLocalExecForTest(t, url, 0)
+	ctx := context.Background()
+
+	t.Run("empty idempotencyKey", func(t *testing.T) {
+		_, err := a.SubmitConstructionPipeline(fwra.Context{Context: ctx}, goodSpec())
+		if kind(err) != fwra.ContractMisuse {
+			t.Fatalf("kind = %v, want ContractMisuse", kind(err))
+		}
+	})
+	t.Run("no steps", func(t *testing.T) {
+		spec := goodSpec()
+		spec.Steps = nil
+		_, err := a.SubmitConstructionPipeline(subRC(ctx, "k1"), spec)
+		if kind(err) != fwra.ContractMisuse {
+			t.Fatalf("kind = %v, want ContractMisuse", kind(err))
+		}
+	})
+	t.Run("empty ActivityID", func(t *testing.T) {
+		spec := goodSpec()
+		spec.ActivityID = ""
+		spec.DispatchInputs = map[string]string{"command": "service-construction", "component_id": "C-X"}
+		_, err := a.SubmitConstructionPipeline(subRC(ctx, "k2"), spec)
+		if kind(err) != fwra.ContractMisuse {
+			t.Fatalf("kind = %v, want ContractMisuse", kind(err))
+		}
+	})
+	t.Run("missing command dispatch input", func(t *testing.T) {
+		spec := goodSpec()
+		spec.DispatchInputs = map[string]string{"component_id": "C-X"}
+		_, err := a.SubmitConstructionPipeline(subRC(ctx, "k3"), spec)
+		if kind(err) != fwra.ContractMisuse {
+			t.Fatalf("kind = %v, want ContractMisuse", kind(err))
+		}
+	})
+}
+
+func TestLocalExecObserveCancel_HandleMisuse(t *testing.T) {
+	_, url := newBareRepo(t)
+	a := newLocalExecForTest(t, url, 0)
+	ctx := obsRC(context.Background())
+
+	for _, h := range []PipelineHandle{"", "run/42", "local:"} {
+		if _, err := a.ObserveConstructionPipeline(ctx, h); kind(err) != fwra.ContractMisuse {
+			t.Fatalf("Observe(%q) kind = %v, want ContractMisuse", h, kind(err))
+		}
+		if err := a.CancelConstructionPipeline(ctx, h); kind(err) != fwra.ContractMisuse {
+			t.Fatalf("Cancel(%q) kind = %v, want ContractMisuse", h, kind(err))
+		}
+	}
+}
+
+func TestLocalExecObserve_UnknownHandle_NotFound(t *testing.T) {
+	_, url := newBareRepo(t)
+	a := newLocalExecForTest(t, url, 0)
+	_, err := a.ObserveConstructionPipeline(obsRC(context.Background()), "local:deadbeef")
+	if kind(err) != fwra.NotFound {
+		t.Fatalf("kind = %v, want NotFound", kind(err))
+	}
+}
+
+func TestLocalExecCancel_UnknownHandle_NoopSuccess(t *testing.T) {
+	_, url := newBareRepo(t)
+	a := newLocalExecForTest(t, url, 0)
+	if err := a.CancelConstructionPipeline(obsRC(context.Background()), "local:deadbeef"); err != nil {
+		t.Fatalf("Cancel(unknown): unexpected error: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// H1-H3 — happy path dispatch shape + branch continuity
+// ---------------------------------------------------------------------------
+
+func localSpec(activityID, componentID, command string) PipelineSpec {
+	return PipelineSpec{
+		ActivityID: ConstructionActivityID(activityID),
+		Steps:      []PipelineStep{{Name: "build", Toolchain: "go-1.23", Command: []string{"sh", "-c", "true"}}},
+		DispatchInputs: map[string]string{
+			"activity_id":  activityID,
+			"component_id": componentID,
+			"command":      command,
+			"phase":        "construction",
+		},
+	}
+}
+
+func waitForTerminal(t *testing.T, a *localExecAccess, handle PipelineHandle, timeout time.Duration) PipelineObservation {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for {
+		obs, err := a.ObserveConstructionPipeline(obsRC(context.Background()), handle)
+		if err != nil {
+			t.Fatalf("Observe: %v", err)
+		}
+		if PipelinePhaseIsTerminal(obs.Phase) {
+			return obs
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("pipeline did not reach a terminal phase within %s (last phase=%v)", timeout, obs.Phase)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+func TestLocalExecSubmit_HappyPath_SpawnsClaudeWithCorrectShapeAndPushesCommit(t *testing.T) {
+	bareDir, url := newBareRepo(t)
+	capture := filepath.Join(t.TempDir(), "capture")
+	commitShim(t, capture)
+	a := newLocalExecForTest(t, url, 10*time.Second)
+
+	spec := localSpec("C-BILLENG", "billingGatewayAccess", "service-construction")
+	handle, err := a.SubmitConstructionPipeline(subRC(context.Background(), "activity-key-1"), spec)
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	if handle == "" {
+		t.Fatal("Submit returned a zero handle")
+	}
+
+	obs := waitForTerminal(t, a, handle, 10*time.Second)
+	if obs.Phase != PhaseSucceeded {
+		t.Fatalf("Phase = %v, want PhaseSucceeded (diagnostic: %q)", obs.Phase, obs.Diagnostic)
+	}
+
+	// The branch exists on the ORIGIN repo with the shim's commit pushed (seed +
+	// shim commit = 2).
+	branch := "activity/C-BILLENG"
+	if !remoteBranchExists(t, bareDir, branch) {
+		t.Fatalf("branch %s was not pushed to origin", branch)
+	}
+	if got := remoteCommitCount(t, bareDir, branch); got != 2 {
+		t.Fatalf("commit count on %s = %d, want 2 (seed + shim commit)", branch, got)
+	}
+
+	// Dispatch shape: exactly one invocation captured.
+	args := readCapturedArgs(t, capture, 0)
+	assertClaudeArgsShape(t, args, "-p\n/service-construction billingGatewayAccess C-BILLENG")
+
+	// cwd was the fresh clone (a temp dir, distinct from the bare repo path).
+	pwd := readCapturedPWD(t, capture, 0)
+	if pwd == "" || pwd == bareDir {
+		t.Fatalf("claude cwd = %q, want a fresh clone directory distinct from the bare repo", pwd)
+	}
+
+	// --mcp-config envelope: exact AIARCH_* shape.
+	assertMCPConfigEnvelope(t, capture, 0, pwd, map[string]string{
+		"AIARCH_PROJECT_ID":    "test-project",
+		"AIARCH_JOB_MODE":      "construct",
+		"AIARCH_COMPONENT_ID":  "billingGatewayAccess",
+		"AIARCH_ACTIVITY_ID":   "C-BILLENG",
+		"AIARCH_TARGET_BRANCH": branch,
+	})
+}
+
+// readCapturedArgs reads the commitShim's captured argv for invocation n.
+func readCapturedArgs(t *testing.T, captureDir string, n int) string {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(captureDir, fmt.Sprintf("call-%d.args", n)))
+	if err != nil {
+		t.Fatalf("read captured args: %v", err)
+	}
+	return strings.TrimRight(string(raw), "\n")
+}
+
+// readCapturedPWD reads the commitShim's captured cwd for invocation n.
+func readCapturedPWD(t *testing.T, captureDir string, n int) string {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(captureDir, fmt.Sprintf("call-%d.pwd", n)))
+	if err != nil {
+		t.Fatalf("read captured pwd: %v", err)
+	}
+	return strings.TrimSpace(string(raw))
+}
+
+// assertClaudeArgsShape asserts the fixed claude invocation flags plus the given
+// -p prompt substring are all present. The shim prints one arg per line
+// (`printf '%s\n' "$@"`), so a multi-token flag+value pair appears as two
+// adjacent lines — callers pass promptLine already newline-joined.
+func assertClaudeArgsShape(t *testing.T, args, promptLine string) {
+	t.Helper()
+	for _, want := range []string{"--dangerously-skip-permissions", "--mcp-config", "--output-format\njson", promptLine} {
+		if !strings.Contains(args, want) {
+			t.Fatalf("captured claude args %q missing %q", args, want)
+		}
+	}
+}
+
+// assertMCPConfigEnvelope reads invocation n's captured --mcp-config file and
+// asserts the aiarch-state server carries wantEnv exactly, plus
+// AIARCH_STATE_ROOT matching claudePWD (compared by basename — see the caller's
+// note on why not a direct string/symlink comparison).
+func assertMCPConfigEnvelope(t *testing.T, captureDir string, n int, claudePWD string, wantEnv map[string]string) {
+	t.Helper()
+	mcpRaw, err := os.ReadFile(filepath.Join(captureDir, fmt.Sprintf("call-%d.mcpconfig.json", n)))
+	if err != nil {
+		t.Fatalf("read captured mcp config: %v", err)
+	}
+	var cfg mcpConfigFileJSON
+	if err := json.Unmarshal(mcpRaw, &cfg); err != nil {
+		t.Fatalf("decode captured mcp config: %v\n%s", err, mcpRaw)
+	}
+	srv, ok := cfg.MCPServers["aiarch-state"]
+	if !ok {
+		t.Fatalf("mcp config missing aiarch-state server: %s", mcpRaw)
+	}
+	if srv.Command == "" {
+		t.Fatal("mcp config aiarch-state command is empty")
+	}
+	for k, want := range wantEnv {
+		if got := srv.Env[k]; got != want {
+			t.Fatalf("mcp config env[%s] = %q, want %q", k, got, want)
+		}
+	}
+	// The clone dir is removed by awaitCompletion once claude exits, so by the
+	// time this assertion runs it may no longer exist on disk — compare basenames
+	// (os.MkdirTemp's random suffix makes this collision-safe) rather than
+	// filepath.EvalSymlinks, which also sidesteps macOS's /var vs /private/var
+	// symlink spelling difference between the shim's `pwd` (a real getcwd(2) call)
+	// and the Go-side path string.
+	if got, want := filepath.Base(srv.Env["AIARCH_STATE_ROOT"]), filepath.Base(claudePWD); got != want {
+		t.Fatalf("AIARCH_STATE_ROOT basename = %q, want %q (claude's actual cwd)", got, want)
+	}
+}
+
+func TestLocalExecSubmit_SecondPhase_ReattachesToExistingActivityBranch(t *testing.T) {
+	bareDir, url := newBareRepo(t)
+	capture := filepath.Join(t.TempDir(), "capture")
+	commitShim(t, capture)
+	a := newLocalExecForTest(t, url, 10*time.Second)
+
+	spec1 := localSpec("C-BILLENG", "billingGatewayAccess", "service-requirements")
+	h1, err := a.SubmitConstructionPipeline(subRC(context.Background(), "phase-key-1"), spec1)
+	if err != nil {
+		t.Fatalf("Submit (phase 1): %v", err)
+	}
+	if obs := waitForTerminal(t, a, h1, 10*time.Second); obs.Phase != PhaseSucceeded {
+		t.Fatalf("phase 1 Phase = %v, diagnostic %q", obs.Phase, obs.Diagnostic)
+	}
+
+	spec2 := localSpec("C-BILLENG", "billingGatewayAccess", "service-construction")
+	h2, err := a.SubmitConstructionPipeline(subRC(context.Background(), "phase-key-2"), spec2)
+	if err != nil {
+		t.Fatalf("Submit (phase 2): %v", err)
+	}
+	if obs := waitForTerminal(t, a, h2, 10*time.Second); obs.Phase != PhaseSucceeded {
+		t.Fatalf("phase 2 Phase = %v, diagnostic %q", obs.Phase, obs.Diagnostic)
+	}
+
+	// BOTH phases' commits landed on the SAME branch (seed + phase1 + phase2 = 3):
+	// nothing was reset/lost between the two dispatches.
+	branch := "activity/C-BILLENG"
+	if got := remoteCommitCount(t, bareDir, branch); got != 3 {
+		t.Fatalf("commit count on %s = %d, want 3 (seed + 2 phase commits)", branch, got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// G1 — idempotency convergence
+// ---------------------------------------------------------------------------
+
+func TestLocalExecSubmit_DuplicateKey_ConvergesWithoutRedispatch(t *testing.T) {
+	bareDir, url := newBareRepo(t)
+	capture := filepath.Join(t.TempDir(), "capture")
+	commitShim(t, capture)
+	a := newLocalExecForTest(t, url, 10*time.Second)
+
+	spec := localSpec("C-BILLENG", "billingGatewayAccess", "service-construction")
+	h1, err := a.SubmitConstructionPipeline(subRC(context.Background(), "same-key"), spec)
+	if err != nil {
+		t.Fatalf("Submit (1): %v", err)
+	}
+	h2, err := a.SubmitConstructionPipeline(subRC(context.Background(), "same-key"), spec)
+	if err != nil {
+		t.Fatalf("Submit (2): %v", err)
+	}
+	if h1 != h2 {
+		t.Fatalf("handles diverged for the same idempotencyKey: %q != %q", h1, h2)
+	}
+	waitForTerminal(t, a, h1, 10*time.Second)
+
+	// Exactly ONE claude invocation was captured — the duplicate submit did not
+	// spawn a second subprocess.
+	if _, err := os.Stat(filepath.Join(capture, "call-1.args")); !os.IsNotExist(err) {
+		t.Fatalf("expected exactly one claude invocation, found a second (call-1.args exists, stat err=%v)", err)
+	}
+	branch := "activity/C-BILLENG"
+	if got := remoteCommitCount(t, bareDir, branch); got != 2 {
+		t.Fatalf("commit count on %s = %d, want 2 (seed + ONE shim commit)", branch, got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// F1-F2 — exit-code / timeout mapping
+// ---------------------------------------------------------------------------
+
+func TestLocalExecObserve_NonZeroExit_Failed(t *testing.T) {
+	_, url := newBareRepo(t)
+	installClaudeShim(t, "#!/bin/sh\necho 'boom: contract violation' >&2\nexit 3\n")
+	a := newLocalExecForTest(t, url, 10*time.Second)
+
+	spec := localSpec("C-FAIL", "someComponent", "service-construction")
+	handle, err := a.SubmitConstructionPipeline(subRC(context.Background(), "fail-key"), spec)
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	obs := waitForTerminal(t, a, handle, 10*time.Second)
+	if obs.Phase != PhaseFailed {
+		t.Fatalf("Phase = %v, want PhaseFailed", obs.Phase)
+	}
+	if !strings.Contains(obs.Diagnostic, "exited 3") {
+		t.Fatalf("Diagnostic = %q, want it to name the exit code (3)", obs.Diagnostic)
+	}
+	if !strings.Contains(obs.Diagnostic, "boom: contract violation") {
+		t.Fatalf("Diagnostic = %q, want it to include the stderr tail", obs.Diagnostic)
+	}
+}
+
+func TestLocalExecObserve_Timeout_FailedWithTimeoutDiagnostic(t *testing.T) {
+	_, url := newBareRepo(t)
+	// A well-behaved subprocess that honors SIGTERM promptly (mirrors the Cancel
+	// test's shim) — this proves the ctx-deadline → Cancel(SIGTERM) → "timed out"
+	// classification path, not the separate WaitDelay-forced-kill edge case a
+	// TERM-ignoring process would exercise.
+	installClaudeShim(t, "#!/bin/sh\nexec sleep 30\n")
+	a := newLocalExecForTest(t, url, 200*time.Millisecond)
+
+	spec := localSpec("C-SLOW", "someComponent", "service-construction")
+	start := time.Now()
+	handle, err := a.SubmitConstructionPipeline(subRC(context.Background(), "slow-key"), spec)
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	obs := waitForTerminal(t, a, handle, 6*time.Second)
+	if obs.Phase != PhaseFailed {
+		t.Fatalf("Phase = %v, want PhaseFailed", obs.Phase)
+	}
+	if !strings.Contains(obs.Diagnostic, "timed out") {
+		t.Fatalf("Diagnostic = %q, want a timeout message", obs.Diagnostic)
+	}
+	if elapsed := time.Since(start); elapsed > 3*time.Second {
+		t.Fatalf("did not bound to the run timeout promptly: took %s", elapsed)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// C1-C2 — cancel
+// ---------------------------------------------------------------------------
+
+func TestLocalExecCancel_Running_ConvergesToCancelledNeverFailed(t *testing.T) {
+	_, url := newBareRepo(t)
+	installClaudeShim(t, "#!/bin/sh\nexec sleep 30\n")
+	a := newLocalExecForTest(t, url, 20*time.Second)
+
+	spec := localSpec("C-CANCEL", "someComponent", "service-construction")
+	handle, err := a.SubmitConstructionPipeline(subRC(context.Background(), "cancel-key"), spec)
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+
+	// Give the subprocess a moment to actually start before cancelling.
+	time.Sleep(200 * time.Millisecond)
+	if err := a.CancelConstructionPipeline(obsRC(context.Background()), handle); err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+
+	obs := waitForTerminal(t, a, handle, 5*time.Second)
+	if obs.Phase != PhaseCancelled {
+		t.Fatalf("Phase = %v, want PhaseCancelled (diagnostic: %q)", obs.Phase, obs.Diagnostic)
+	}
+}
+
+func TestLocalExecCancel_AlreadyTerminal_NoopSuccess(t *testing.T) {
+	_, url := newBareRepo(t)
+	installClaudeShim(t, "#!/bin/sh\nexit 0\n")
+	a := newLocalExecForTest(t, url, 10*time.Second)
+
+	spec := localSpec("C-DONE", "someComponent", "service-construction")
+	handle, err := a.SubmitConstructionPipeline(subRC(context.Background(), "done-key"), spec)
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	waitForTerminal(t, a, handle, 10*time.Second)
+
+	if err := a.CancelConstructionPipeline(obsRC(context.Background()), handle); err != nil {
+		t.Fatalf("Cancel(already-terminal): unexpected error: %v", err)
+	}
+	// still succeeded, not overwritten by the no-op cancel.
+	obs, err := a.ObserveConstructionPipeline(obsRC(context.Background()), handle)
+	if err != nil {
+		t.Fatalf("Observe: %v", err)
+	}
+	if obs.Phase != PhaseSucceeded {
+		t.Fatalf("Phase after no-op cancel = %v, want it to remain PhaseSucceeded", obs.Phase)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// U8-U9 — value semantics
+// ---------------------------------------------------------------------------
+
+func TestLocalTokenFromHandle(t *testing.T) {
+	tok, ok := localTokenFromHandle("local:abc123")
+	if !ok || tok != "abc123" {
+		t.Fatalf("localTokenFromHandle(local:abc123) = (%q,%t), want (abc123,true)", tok, ok)
+	}
+	for _, h := range []PipelineHandle{"", "run/42", "local:"} {
+		if _, ok := localTokenFromHandle(h); ok {
+			t.Fatalf("localTokenFromHandle(%q) = ok, want rejected", h)
+		}
+	}
+}
+
+func TestClassifyLocalExecFailure_ExitCodeAndStderrTail(t *testing.T) {
+	cmd := exec.Command("sh", "-c", "exit 7")
+	runErr := cmd.Run()
+	got := classifyLocalExecFailure(runErr, "some failure detail")
+	if !strings.Contains(got, "exited 7") {
+		t.Fatalf("classifyLocalExecFailure = %q, want it to name exit code 7", got)
+	}
+	if !strings.Contains(got, "some failure detail") {
+		t.Fatalf("classifyLocalExecFailure = %q, want it to include the stderr detail", got)
+	}
+}
+
+func TestStderrTail_Bounds(t *testing.T) {
+	long := strings.Repeat("x", 1000)
+	got := stderrTail(long, 10)
+	if gotRunes := len([]rune(got)); gotRunes > 11 { // 10 + the "…" marker
+		t.Fatalf("stderrTail did not bound length: got %d runes (%q)", gotRunes, got)
+	}
+	if stderrTail("short", 10) != "short" {
+		t.Fatalf("stderrTail should pass short text through unchanged")
 	}
 }

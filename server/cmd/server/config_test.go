@@ -198,3 +198,72 @@ func TestConstructionWorkflowFileDefault(t *testing.T) {
 		t.Errorf("default ConstructionWorkflowFile = %q, want aiarch-construct.yml", cfg.ConstructionWorkflowFile)
 	}
 }
+
+// TestLoadConfig_LocalRealConstruction_NoGitHubCreds_OK — local-first-init-funnel
+// Task 6: a LOCAL profile with DRYRUN=false and NO GitHub App creds at all must
+// boot cleanly (the local construction executor needs none of the GitHub-Actions-
+// specific creds validateConstructionCreds still requires on the cloud profile).
+func TestLoadConfig_LocalRealConstruction_NoGitHubCreds_OK(t *testing.T) {
+	setEnv(t, map[string]string{
+		"ARCHISTRATOR_POSTGRES_URL":               "",
+		"ARCHISTRATOR_PROJECT_STATE_GIT_LOCAL":    "true",
+		"ARCHISTRATOR_PROJECT_STATE_GIT_REPO_URL": "file:///tmp/proj.git",
+		"ARCHISTRATOR_CONSTRUCTION_DRYRUN":        "false",
+		// deliberately NO GitHub App creds, NO construction repo owner/name,
+		// NO ARCHISTRATOR_ARTIFACT_REPO_URL (must default — see next assertion).
+		"ARCHISTRATOR_GITHUB_APP_ID":              "",
+		"ARCHISTRATOR_GITHUB_APP_PRIVATE_KEY_PEM": "",
+		"ARCHISTRATOR_CONSTRUCTION_REPO_OWNER":    "",
+		"ARCHISTRATOR_CONSTRUCTION_REPO_NAME":     "",
+		"ARCHISTRATOR_ARTIFACT_REPO_URL":          "",
+	})
+	cfg, err := loadResolvedConfig()
+	if err != nil {
+		t.Fatalf("expected a local, no-creds, DRYRUN=false server to boot, got: %v", err)
+	}
+	if cfg.ArtifactRepoURL != cfg.ProjectStateGitRepoURL {
+		t.Fatalf("ArtifactRepoURL = %q, want it defaulted to ProjectStateGitRepoURL %q", cfg.ArtifactRepoURL, cfg.ProjectStateGitRepoURL)
+	}
+}
+
+// TestLoadConfig_LocalRealConstruction_ExplicitArtifactRepoURL_NotOverridden — an
+// operator-supplied ARCHISTRATOR_ARTIFACT_REPO_URL on the local profile is NOT
+// clobbered by the Task 6 default.
+func TestLoadConfig_LocalRealConstruction_ExplicitArtifactRepoURL_NotOverridden(t *testing.T) {
+	setEnv(t, map[string]string{
+		"ARCHISTRATOR_POSTGRES_URL":               "",
+		"ARCHISTRATOR_PROJECT_STATE_GIT_LOCAL":    "true",
+		"ARCHISTRATOR_PROJECT_STATE_GIT_REPO_URL": "file:///tmp/proj.git",
+		"ARCHISTRATOR_CONSTRUCTION_DRYRUN":        "false",
+		"ARCHISTRATOR_ARTIFACT_REPO_URL":          "file:///tmp/other-artifacts.git",
+	})
+	cfg, err := loadResolvedConfig()
+	if err != nil {
+		t.Fatalf("expected boot to succeed, got: %v", err)
+	}
+	if cfg.ArtifactRepoURL != "file:///tmp/other-artifacts.git" {
+		t.Fatalf("ArtifactRepoURL = %q, want the explicitly-set value preserved", cfg.ArtifactRepoURL)
+	}
+}
+
+// TestLoadConfig_CloudRealConstruction_StillRequiresGitHubCreds — the cloud arm's
+// creds requirement is UNCHANGED by Task 6 (only the local profile is relaxed).
+func TestLoadConfig_CloudRealConstruction_StillRequiresGitHubCreds(t *testing.T) {
+	setEnv(t, map[string]string{
+		"ARCHISTRATOR_POSTGRES_URL":               "postgres://x",
+		"ARCHISTRATOR_PROJECT_STATE_GIT_LOCAL":    "false",
+		"ARCHISTRATOR_CONSTRUCTION_DRYRUN":        "false",
+		"ARCHISTRATOR_ARTIFACT_REPO_URL":          "https://example/artifacts.git",
+		"ARCHISTRATOR_GITHUB_APP_ID":              "",
+		"ARCHISTRATOR_GITHUB_APP_PRIVATE_KEY_PEM": "",
+		"ARCHISTRATOR_CONSTRUCTION_REPO_OWNER":    "",
+		"ARCHISTRATOR_CONSTRUCTION_REPO_NAME":     "",
+	})
+	_, err := loadResolvedConfig()
+	if err == nil {
+		t.Fatal("expected the cloud profile to still fail fast without GitHub App creds when DRYRUN=false")
+	}
+	if !strings.Contains(err.Error(), "ARCHISTRATOR_GITHUB_APP_ID") {
+		t.Fatalf("expected error to name ARCHISTRATOR_GITHUB_APP_ID, got: %v", err)
+	}
+}

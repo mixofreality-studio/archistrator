@@ -54,15 +54,20 @@ package constructionpipeline
 // double-run. The hard exit gate TestSubmitIdempotencyConvergence proves it.
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
+	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	fwgithub "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github"
@@ -1013,4 +1018,580 @@ func (dryRunPipeline) ObserveConstructionPipeline(_ fwra.Context, handle Pipelin
 
 func (dryRunPipeline) CancelConstructionPipeline(_ fwra.Context, _ PipelineHandle) error {
 	return nil
+}
+
+// localexec.go is the LOCAL-EXECUTOR realisation of the ConstructionPipelineAccess
+// port (local-first-init-funnel Task 6, docs/superpowers/plans/2026-07-19-local-
+// first-init-funnel.md) — the THIRD construction-dispatch arm alongside the
+// GitHub-Actions-backed realisation (defined earlier in this file) and the
+// in-memory dry-run stub
+// (NewDryRunConstructionPipelineAccess). Selected by cmd/server/hooks.go's
+// FinalizeConstructionPipelineAccess for a LOCAL-profile boot with NO GitHub App
+// creds configured (orthogonal to the projectstate substrate profile, exactly as
+// hooks.go documents for the existing local-WITH-creds arm): "dispatch" means spawn
+// a headless `claude` subprocess directly on the developer's own machine, riding
+// their own Claude Code subscription auth (ambient — no ANTHROPIC_API_KEY, mirrors
+// framework-go-infrastructure-llm/claudecli.go's ClaudeCLIClient), instead of
+// triggering a GitHub Actions workflow_dispatch.
+//
+// SAME THREE-VERB PORT, SAME PROMPT CONTRACT: this realisation satisfies the exact
+// ConstructionPipelineAccess surface the GitHub-Actions realisation does (Submit/
+// Observe/Cancel) — the
+// Manager (constructactivity.go) neither knows nor cares which arm it is talking
+// to. The prompt handed to `claude` — "/<command> <component_id> <activity_id>" —
+// is byte-for-byte the SAME thin slash-command contract aiarch-construct.yml's
+// `prompt:` step passes claude-code-action, and it attaches the SAME construct-verb
+// rig (cmd/aiarch-state-mcp) via --mcp-config, with the SAME AIARCH_* ambient-context
+// env the workflow's "Write the aiarch-state MCP config" step stamps
+// (cmd/aiarch-state-mcp/session.go's envProjectID/envJobMode/envComponentID/
+// envActivityID/envTargetBranch/envStateRoot).
+//
+// WHY EVERY DISPATCH CLONES FRESH (no persistent working tree): the LOCAL
+// projectstate substrate (projectstate's GitStore) is itself stateless —
+// it "clones fresh through the satellite" on every operation rather than keeping a
+// live working tree, precisely so concurrent/replayed Manager calls stay safe. This
+// realisation follows the SAME discipline: SubmitConstructionPipeline `git clone`s
+// the configured repoURL (a file:// bare-or-working repo either way — git clones
+// both fine) into a throwaway temp dir, checks out (creating if absent) the
+// deterministic "activity/<activityID>" branch — the SAME naming convention
+// constructactivity.go's (unexported) activityBranchName derives, duplicated here
+// because the two packages cannot share an unexported symbol; keep the format in
+// sync if it ever changes — runs claude there, pushes whatever commits resulted
+// back to the branch (on SUCCESS OR FAILURE — partial construction progress is
+// never silently discarded), then discards the clone. This also sidesteps the git-
+// forward PR rail being DORMANT in this exact configuration: RailEnabled needs
+// sourceControlAccess, which requires the same GitHub creds this arm is selected
+// for the ABSENCE of (constructactivity.go's gitEnabled) — nobody else creates the
+// activity branch in this profile, so this realisation must.
+//
+// GIT-FORWARD MERGE IS OUT OF SCOPE HERE (known local-mode v1 gap, tracked against
+// Task 7 "review-policy floor for local mode"): with the PR rail dormant, nothing
+// merges the activity branch into main automatically in this configuration — the
+// commits land on activity/<id> and stay there for the developer to review/merge.
+// This mirrors the EXISTING local-WITH-creds arm's split too (branch/PR/merge is
+// git-forward's job, entirely orthogonal to which executor dispatches the
+// pipeline) — this Task adds the THIRD executor arm only; it does not change who
+// owns the merge decision.
+//
+// NO FAKE SUCCESS STATES: every PipelinePhase this realisation reports is derived
+// from an ACTUAL subprocess outcome (exit code, timeout, explicit cancel) or an
+// actual git push result — there is no code path that reports Succeeded without a
+// clean claude exit AND a successful push of its commits.
+
+// defaultLocalRunTimeout bounds one claude invocation — the SAME 25-minute budget
+// aiarch-construct.yml's job enforces, for the same documented reason (that
+// workflow's timeout-minutes comment: "12 min was observed cutting off substantive
+// components... mid-implement before commit+PR; 25 gives runway").
+const defaultLocalRunTimeout = 25 * time.Minute
+
+// localExecWaitDelay bounds how long the awaitCompletion goroutine waits for
+// claude's stdout/stderr pipes to close AFTER Cancel (SIGTERM) fired — the SAME
+// os/exec grandchild-pipe gotcha framework-go-infrastructure-llm/claudecli.go's
+// claudeCLIWaitDelay documents (claude may itself spawn tool-call subprocesses that
+// inherit the pipe). Larger than that provider's 2s because a construction run's
+// own tool subprocesses (go build, go test, git) may need a moment to unwind.
+const localExecWaitDelay = 5 * time.Second
+
+// localHandlePrefix distinguishes a local-executor handle from actions.go's
+// "run/<id>" GitHub-Actions handle shape — the two realisations are never mixed
+// (a given ConstructionPipelineAccess instance is exactly one arm), but keeping the
+// shapes visually distinct aids debugging shared logs/audit trails.
+const localHandlePrefix = "local:"
+
+// localRunStatus is the in-memory run-status vocabulary the poll loop's Observe
+// calls map subprocess/git outcomes into.
+type localRunStatus int
+
+const (
+	localRunRunning localRunStatus = iota
+	localRunSucceeded
+	localRunFailed
+	localRunCancelled
+)
+
+// localRun is one tracked construction dispatch: an in-memory process record (per
+// the brief — "'runs' tracked as local process records (in-memory + state
+// commits)"; the state commits are the construct-verb MCP tool calls claude itself
+// makes through cmd/aiarch-state-mcp, not this struct). mu guards every field below
+// status after construction.
+type localRun struct {
+	handle PipelineHandle
+
+	mu         sync.Mutex
+	status     localRunStatus
+	diagnostic string
+	cancel     context.CancelFunc // cancels the claude subprocess's bounded run context
+}
+
+// localExecAccess is the concrete local-executor ConstructionPipelineAccess. It
+// imports NO Temporal (layer rule, same as access — the idempotencyKey arrives as
+// an ordinary rc.IdempotencyKey parameter).
+type localExecAccess struct {
+	repoURL     string // any `git clone`-able URL; local mode always passes a file:// path
+	projectID   string // AIARCH_PROJECT_ID stamped on the state-mcp process (name-as-identity)
+	stateMCPBin string // resolved absolute path to the compiled cmd/aiarch-state-mcp binary
+	runTimeout  time.Duration
+
+	// gitMu serializes THIS instance's own clone/checkout/push git subprocesses
+	// against the shared repoURL — not a correctness requirement of git itself
+	// (each dispatch clones into its OWN temp dir), just bounding how many git
+	// subprocesses race against one small local repo at once. V1 assumes one local
+	// developer driving one construction pump at a time (known limitation, not a
+	// deadlock/corruption risk within that scope).
+	gitMu sync.Mutex
+
+	mu   sync.Mutex
+	runs map[string]*localRun // keyed by dedupToken(idempotencyKey)
+}
+
+var _ ConstructionPipelineAccess = (*localExecAccess)(nil)
+
+// NewLocalExecConstructionPipelineAccess builds the local-executor realisation.
+// repoURL is any git URL `git clone` accepts (local mode always passes the same
+// value the projectstate GitStore was configured with — cfg.ProjectStateGitRepoURL);
+// projectID is the AIARCH_PROJECT_ID value stamped on the state-mcp process (mirrors
+// the workflow's github.event.repository.name; hooks.go derives it from the repo
+// path's basename, name-as-identity); stateMCPBin is the resolved absolute path to
+// the compiled cmd/aiarch-state-mcp binary (existence checked eagerly — a missing
+// binary is a configuration error, not a per-dispatch surprise). runTimeout bounds
+// one claude invocation (<=0 defaults to defaultLocalRunTimeout).
+func NewLocalExecConstructionPipelineAccess(repoURL, projectID, stateMCPBin string, runTimeout time.Duration) (ConstructionPipelineAccess, error) {
+	repoURL = strings.TrimSpace(repoURL)
+	if repoURL == "" {
+		return nil, fwra.New(fwra.ContractMisuse, "constructionpipeline.NewLocalExecConstructionPipelineAccess: empty repoURL")
+	}
+	stateMCPBin = strings.TrimSpace(stateMCPBin)
+	if stateMCPBin == "" {
+		return nil, fwra.New(fwra.ContractMisuse, "constructionpipeline.NewLocalExecConstructionPipelineAccess: empty stateMCPBin")
+	}
+	if _, err := os.Stat(stateMCPBin); err != nil {
+		return nil, fwra.Wrap(fwra.ContractMisuse, err, "constructionpipeline.NewLocalExecConstructionPipelineAccess: aiarch-state-mcp binary not found")
+	}
+	if runTimeout <= 0 {
+		runTimeout = defaultLocalRunTimeout
+	}
+	projectID = strings.TrimSpace(projectID)
+	if projectID == "" {
+		projectID = "local"
+	}
+	return &localExecAccess{
+		repoURL:     repoURL,
+		projectID:   projectID,
+		stateMCPBin: stateMCPBin,
+		runTimeout:  runTimeout,
+		runs:        map[string]*localRun{},
+	}, nil
+}
+
+// localBranchName derives the SAME deterministic per-activity branch name
+// constructactivity.go's activityBranchName computes ("activity/<id>") — see the
+// file-header note on why this is duplicated rather than shared.
+func localBranchName(activityID string) string { return "activity/" + activityID }
+
+// SubmitConstructionPipeline converges the caller-supplied idempotencyKey on a
+// single in-memory run record and returns its handle, spawning the claude
+// subprocess ONLY on the first submit for a given key (idempotent convergence,
+// mirroring actions.go's SubmitConstructionPipeline — same contract, different
+// executor). A pre-spawn failure (git clone/checkout, missing dispatch inputs)
+// returns an error and leaves NO run record, so a retry with the SAME key tries
+// again cleanly; once the subprocess has started, Submit returns success and the
+// eventual outcome is observable only via ObserveConstructionPipeline.
+func (a *localExecAccess) SubmitConstructionPipeline(rc fwra.Context, spec PipelineSpec) (PipelineHandle, error) {
+	if rc.IdempotencyKey.IsZero() {
+		return "", fwra.New(fwra.ContractMisuse, "SubmitConstructionPipeline: empty idempotencyKey")
+	}
+	if err := validateSpec(spec); err != nil {
+		return "", err
+	}
+	activityID := strings.TrimSpace(string(spec.ActivityID))
+	if activityID == "" {
+		return "", fwra.New(fwra.ContractMisuse, "SubmitConstructionPipeline: empty ActivityID")
+	}
+	command := strings.TrimSpace(spec.DispatchInputs["command"])
+	if command == "" {
+		return "", fwra.New(fwra.ContractMisuse, `SubmitConstructionPipeline: missing DispatchInputs["command"]`)
+	}
+	componentID := spec.DispatchInputs["component_id"]
+
+	token := dedupToken(rc.IdempotencyKey)
+	handle := PipelineHandle(localHandlePrefix + token)
+
+	a.mu.Lock()
+	if existing, ok := a.runs[token]; ok {
+		a.mu.Unlock()
+		return existing.handle, nil
+	}
+	run := &localRun{handle: handle, status: localRunRunning}
+	a.runs[token] = run
+	a.mu.Unlock()
+
+	if err := a.dispatch(run, activityID, command, componentID); err != nil {
+		a.mu.Lock()
+		delete(a.runs, token)
+		a.mu.Unlock()
+		return "", err
+	}
+	return handle, nil
+}
+
+// dispatch performs the synchronous prep (clone, checkout/create the activity
+// branch, write the ephemeral --mcp-config, start claude) and, once the
+// subprocess is genuinely running, hands the rest off to awaitCompletion in a
+// goroutine. Any failure here is a genuine, pre-spawn submit failure.
+func (a *localExecAccess) dispatch(run *localRun, activityID, command, componentID string) error {
+	branch := localBranchName(activityID)
+
+	workDir, err := os.MkdirTemp("", "aiarch-construct-*")
+	if err != nil {
+		return fwra.Wrap(fwra.Infrastructure, err, "localexec: create work dir")
+	}
+	ownWorkDir := true
+	defer func() {
+		if ownWorkDir {
+			_ = os.RemoveAll(workDir)
+		}
+	}()
+
+	a.gitMu.Lock()
+	cloneErr := cloneAndCheckoutActivityBranch(a.repoURL, branch, workDir)
+	a.gitMu.Unlock()
+	if cloneErr != nil {
+		return fwra.Wrap(fwra.Infrastructure, cloneErr, "localexec: clone/checkout activity branch")
+	}
+
+	mcpConfigDir, err := os.MkdirTemp("", "aiarch-mcp-cfg-*")
+	if err != nil {
+		return fwra.Wrap(fwra.Infrastructure, err, "localexec: create mcp config dir")
+	}
+	ownMCPDir := true
+	defer func() {
+		if ownMCPDir {
+			_ = os.RemoveAll(mcpConfigDir)
+		}
+	}()
+	mcpConfigPath, err := writeStateMCPConfig(mcpConfigDir, a.stateMCPBin, a.projectID, componentID, activityID, branch, workDir)
+	if err != nil {
+		return err
+	}
+
+	prompt := "/" + command + " " + componentID + " " + activityID
+
+	runCtx, runCancel := context.WithTimeout(context.Background(), a.runTimeout)
+	cmd := exec.CommandContext(runCtx, "claude", //nolint:gosec // fixed trusted binary name + internal-only args, mirrors claudecli.go
+		"--dangerously-skip-permissions",
+		"--mcp-config", mcpConfigPath,
+		"--output-format", "json",
+		"-p", prompt,
+	)
+	cmd.Dir = workDir
+	cmd.Env = claudeSubprocessEnv()
+	// SIGTERM-then-bounded-pipe-close, the SAME shutdown mechanism serverchild.go's
+	// startServerChild / claudecli.go's Generate already use for a supervised
+	// subprocess — reused here per the task's explicit precedent guidance.
+	cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
+	cmd.WaitDelay = localExecWaitDelay
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Start(); err != nil {
+		runCancel()
+		return fwra.Wrap(fwra.Infrastructure, err, "localexec: failed to start claude subprocess")
+	}
+
+	run.mu.Lock()
+	run.cancel = runCancel
+	run.mu.Unlock()
+
+	// Ownership of workDir/mcpConfigDir passes to awaitCompletion.
+	ownWorkDir = false
+	ownMCPDir = false
+	go a.awaitCompletion(runCtx, run, cmd, runCancel, branch, workDir, mcpConfigDir, &stdout, &stderr)
+	return nil
+}
+
+// awaitCompletion blocks on the claude subprocess, pushes whatever commits it
+// produced (success or failure — partial progress is never silently discarded),
+// cleans up the temp clone + mcp config, then records the terminal outcome. If
+// CancelConstructionPipeline already recorded localRunCancelled before this
+// observes completion, that outcome wins (Wait()'s own error, expected after a
+// SIGTERM, is not allowed to overwrite an explicit cancel with "Failed").
+func (a *localExecAccess) awaitCompletion(
+	runCtx context.Context,
+	run *localRun,
+	cmd *exec.Cmd,
+	runCancel context.CancelFunc,
+	branch, workDir, mcpConfigDir string,
+	stdout, stderr *bytes.Buffer,
+) {
+	waitErr := cmd.Wait()
+	runCancel()
+
+	a.gitMu.Lock()
+	pushErr := runGitPush(workDir, branch)
+	a.gitMu.Unlock()
+
+	_ = os.RemoveAll(workDir)
+	_ = os.RemoveAll(mcpConfigDir)
+
+	run.mu.Lock()
+	defer run.mu.Unlock()
+	if run.status == localRunCancelled {
+		return
+	}
+	switch {
+	case waitErr != nil && errors.Is(runCtx.Err(), context.DeadlineExceeded):
+		run.status = localRunFailed
+		run.diagnostic = "construction pipeline timed out"
+	case waitErr != nil:
+		run.status = localRunFailed
+		run.diagnostic = classifyLocalExecFailure(waitErr, stderr.String())
+	case pushErr != nil:
+		// claude exited 0 but the commits could not be saved — NOT a success (no
+		// fake success states): the durable post-condition (work landed on the
+		// activity branch) does not hold.
+		run.status = localRunFailed
+		run.diagnostic = "construction completed but failed to save commits: " + pushErr.Error()
+	default:
+		run.status = localRunSucceeded
+	}
+	_ = stdout // reserved for future diagnostic surfacing; not needed on the current PipelineObservation shape
+}
+
+// ObserveConstructionPipeline reads the in-memory run record and maps its status
+// to the infrastructure-neutral PipelinePhase. An unknown/GC'd handle surfaces as
+// fwra.NotFound (same contract as actions.go's ObserveConstructionPipeline).
+func (a *localExecAccess) ObserveConstructionPipeline(_ fwra.Context, handle PipelineHandle) (PipelineObservation, error) {
+	token, ok := localTokenFromHandle(handle)
+	if !ok {
+		return PipelineObservation{}, fwra.New(fwra.ContractMisuse, "constructionpipeline(localexec): malformed PipelineHandle")
+	}
+	a.mu.Lock()
+	run, ok := a.runs[token]
+	a.mu.Unlock()
+	if !ok {
+		return PipelineObservation{}, fwra.New(fwra.NotFound, "constructionpipeline(localexec): unknown pipeline handle")
+	}
+
+	run.mu.Lock()
+	defer run.mu.Unlock()
+	obs := PipelineObservation{Handle: run.handle, Phase: localPhase(run.status)}
+	if run.status == localRunFailed {
+		obs.Diagnostic = run.diagnostic
+	}
+	return obs, nil
+}
+
+// CancelConstructionPipeline requests cancellation of a running local dispatch.
+// Cancelling an unknown/already-terminal run is a no-op SUCCESS (idempotent-on-
+// intent, same contract as actions.go's CancelConstructionPipeline).
+func (a *localExecAccess) CancelConstructionPipeline(_ fwra.Context, handle PipelineHandle) error {
+	token, ok := localTokenFromHandle(handle)
+	if !ok {
+		return fwra.New(fwra.ContractMisuse, "constructionpipeline(localexec): malformed PipelineHandle")
+	}
+	a.mu.Lock()
+	run, ok := a.runs[token]
+	a.mu.Unlock()
+	if !ok {
+		return nil
+	}
+
+	run.mu.Lock()
+	if run.status != localRunRunning {
+		run.mu.Unlock()
+		return nil
+	}
+	run.status = localRunCancelled
+	cancel := run.cancel
+	run.mu.Unlock()
+
+	if cancel != nil {
+		cancel() // triggers cmd.Cancel (SIGTERM), bounded by cmd.WaitDelay
+	}
+	return nil
+}
+
+// localPhase maps the in-memory run status onto the port's PipelinePhase.
+func localPhase(s localRunStatus) PipelinePhase {
+	switch s {
+	case localRunRunning:
+		return PhaseRunning
+	case localRunSucceeded:
+		return PhaseSucceeded
+	case localRunFailed:
+		return PhaseFailed
+	case localRunCancelled:
+		return PhaseCancelled
+	default:
+		return PhasePending
+	}
+}
+
+// localTokenFromHandle unpacks the dedup token from a "local:<token>" handle. A
+// zero/malformed/foreign-shaped handle (e.g. an actions.go "run/<id>" handle
+// crossing into the wrong realisation) returns ok=false.
+func localTokenFromHandle(h PipelineHandle) (string, bool) {
+	s := string(h)
+	if !strings.HasPrefix(s, localHandlePrefix) {
+		return "", false
+	}
+	token := strings.TrimPrefix(s, localHandlePrefix)
+	if token == "" {
+		return "", false
+	}
+	return token, true
+}
+
+// classifyLocalExecFailure builds a diagnostic for a non-zero/never-started claude
+// exit — Step 3's "map subprocess exit codes into the run-status vocabulary the
+// poll loop expects". Unlike claudecli.go's classifyClaudeCLIFailureText this does
+// NOT attempt fault-KIND classification (Auth/QuotaExhausted/Transient) — Observe's
+// contract carries only a PipelinePhase + a free-text Diagnostic (the Manager's
+// intervention path treats every PhaseFailed uniformly, exactly as actions.go's
+// neutralDiagnostic does for a failed GitHub Actions run), so a plain, honest
+// description (including a bounded stderr tail for debuggability) is what the
+// contract needs.
+func classifyLocalExecFailure(runErr error, stderrText string) string {
+	tail := stderrTail(stderrText, 500)
+	var exitErr *exec.ExitError
+	if errors.As(runErr, &exitErr) {
+		if tail != "" {
+			return fmt.Sprintf("construction pipeline failed: claude exited %d: %s", exitErr.ExitCode(), tail)
+		}
+		return fmt.Sprintf("construction pipeline failed: claude exited %d", exitErr.ExitCode())
+	}
+	return "construction pipeline failed to start: " + runErr.Error()
+}
+
+// stderrTail bounds a diagnostic's stderr excerpt to the last n bytes (Non-goal:
+// this is a summary, never a log firehose — the same discipline actions.go's
+// neutralDiagnostic doc comment cites from constructionPipelineAccess.md).
+func stderrTail(s string, n int) string {
+	s = strings.TrimSpace(s)
+	if len(s) <= n {
+		return s
+	}
+	return "…" + s[len(s)-n:]
+}
+
+// claudeSubprocessEnv mirrors framework-go-infrastructure-llm/claudecli.go's
+// claudeCLIEnv: the parent's environment verbatim EXCEPT any ANTHROPIC_API_KEY
+// entry, stripped so a stray exported key on the archistrator-server process can
+// never override the user's own ambient subscription OAuth for a local
+// construction run.
+func claudeSubprocessEnv() []string {
+	parent := os.Environ()
+	out := make([]string, 0, len(parent))
+	for _, kv := range parent {
+		if strings.HasPrefix(kv, "ANTHROPIC_API_KEY=") {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return out
+}
+
+// ---------------------------------------------------------------------------
+// git plumbing (raw `git` subprocess calls — no new library dependency; mirrors
+// systemtests/internal/harness/localgit.go's style, production-hardened: errors
+// are returned, never t.Fatalf'd).
+// ---------------------------------------------------------------------------
+
+// localMainBranch is the flat git-forward base every activity branch forks from —
+// the SAME "main" convention constructactivity.go's mainBranch constant fixes.
+const localMainBranch = "main"
+
+// cloneAndCheckoutActivityBranch clones repoURL into workDir, then checks out the
+// named branch: if the remote already carries it (a prior phase's push, or a
+// branch the git-forward rail opened in a DIFFERENT profile — belt-and-braces),
+// checkout re-attaches to it; otherwise it is created fresh off origin/main.
+func cloneAndCheckoutActivityBranch(repoURL, branch, workDir string) error {
+	if _, err := runGit("", "clone", repoURL, workDir); err != nil {
+		return err
+	}
+	if _, err := runGit(workDir, "rev-parse", "--verify", "--quiet", "refs/remotes/origin/"+branch); err == nil {
+		_, err := runGit(workDir, "checkout", "-B", branch, "origin/"+branch)
+		return err
+	}
+	_, err := runGit(workDir, "checkout", "-B", branch, "origin/"+localMainBranch)
+	return err
+}
+
+// runGitPush pushes workDir's checked-out HEAD to branch on origin, creating or
+// fast-forwarding it. Called unconditionally after claude exits (success or
+// failure) so partial construction progress is never silently discarded.
+func runGitPush(workDir, branch string) error {
+	_, err := runGit(workDir, "push", "origin", "HEAD:refs/heads/"+branch)
+	return err
+}
+
+// runGit runs `git <args...>` with the given working directory (ignored when
+// empty — used for the initial clone, which has no working dir of its own yet)
+// and returns its combined output wrapped into the error on failure, for a
+// debuggable diagnostic.
+func runGit(dir string, args ...string) (string, error) {
+	cmd := exec.Command("git", args...) //nolint:gosec // fixed trusted binary, internally-derived args (repo URL/branch names), mirrors systemtests/internal/harness/localgit.go
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return string(out), fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+	}
+	return string(out), nil
+}
+
+// ---------------------------------------------------------------------------
+// --mcp-config authoring — the SAME envelope shape aiarch-construct.yml's "Write
+// the aiarch-state MCP config" step emits, over the SAME AIARCH_* env vocabulary
+// cmd/aiarch-state-mcp/session.go reads.
+// ---------------------------------------------------------------------------
+
+// mcpServerConfigJSON / mcpConfigFileJSON mirror the minimal shape `claude
+// --mcp-config` expects: {"mcpServers": {"<name>": {"command": ..., "env": {...}}}}.
+type mcpServerConfigJSON struct {
+	Command string            `json:"command"`
+	Env     map[string]string `json:"env,omitempty"`
+}
+
+type mcpConfigFileJSON struct {
+	MCPServers map[string]mcpServerConfigJSON `json:"mcpServers"`
+}
+
+// writeStateMCPConfig writes the ephemeral --mcp-config file OUTSIDE the cloned
+// working tree (in dir, a SEPARATE temp dir from workDir) so an agent running
+// `git add -A` inside the repo clone can never accidentally pick it up. Mirrors
+// the workflow's construct-mode env exactly: AIARCH_JOB_MODE=construct,
+// AIARCH_COMPONENT_ID/AIARCH_ACTIVITY_ID from the dispatch, AIARCH_TARGET_BRANCH
+// set to the SAME branch this realisation just checked out, AIARCH_STATE_ROOT
+// pointed at the clone (workDir) so cmd/aiarch-state-mcp reads/writes the SAME
+// .aiarch/state/project.json claude's own git commits land next to.
+func writeStateMCPConfig(dir, stateMCPBin, projectID, componentID, activityID, branch, stateRoot string) (string, error) {
+	cfg := mcpConfigFileJSON{MCPServers: map[string]mcpServerConfigJSON{
+		"aiarch-state": {
+			Command: stateMCPBin,
+			Env: map[string]string{
+				"AIARCH_PROJECT_ID":    projectID,
+				"AIARCH_JOB_MODE":      "construct",
+				"AIARCH_COMPONENT_ID":  componentID,
+				"AIARCH_ACTIVITY_ID":   activityID,
+				"AIARCH_TARGET_BRANCH": branch,
+				"AIARCH_STATE_ROOT":    stateRoot,
+			},
+		},
+	}}
+	body, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return "", fwra.Wrap(fwra.Infrastructure, err, "localexec: marshal mcp config")
+	}
+	f, err := os.CreateTemp(dir, "aiarch-mcp-*.json")
+	if err != nil {
+		return "", fwra.Wrap(fwra.Infrastructure, err, "localexec: create mcp config file")
+	}
+	defer func() { _ = f.Close() }()
+	if _, err := f.Write(body); err != nil {
+		return "", fwra.Wrap(fwra.Infrastructure, err, "localexec: write mcp config file")
+	}
+	return f.Name(), nil
 }

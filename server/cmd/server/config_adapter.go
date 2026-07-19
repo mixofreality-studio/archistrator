@@ -43,7 +43,14 @@ import (
 //     makes it try.
 //  4. ProjectStateGitRepoURL is required when ProjectStateGitLocal=true (the boot-time
 //     git-local guard — reproduces the pre-appgen hand buildDesignProjectState check).
-//  5. Construction creds are required only when !ConstructionDryRun.
+//     4b. LOCAL profile: ArtifactRepoURL defaults to ProjectStateGitRepoURL when unset
+//     (local-first-init-funnel Task 6) — local mode's "zero external deps beyond
+//     git+claude" thesis would otherwise be broken by requiring a SEPARATE
+//     artifact repo just to register the construction Worker; the SAME on-disk
+//     repo project state already lives in is a reasonable, zero-config default.
+//  5. Construction creds are required only when !ConstructionDryRun, and (Task 6)
+//     only the GitHub-Actions-specific ones on a NON-local profile — the local
+//     construction executor needs no GitHub App / construction-repo config at all.
 //  6. GithubAppAppSlug is required on a CLOUD-profile server whose GitHub App rail is
 //     configured (the allowed_bots guard — see validateGithubAppSlug).
 //
@@ -78,6 +85,12 @@ func loadResolvedConfig() (*Config, error) {
 	// buildDesignProjectState guard verbatim).
 	if cfg.ProjectStateGitLocal && cfg.ProjectStateGitRepoURL == "" {
 		return nil, fmt.Errorf("ARCHISTRATOR_PROJECT_STATE_GIT_REPO_URL is required when ARCHISTRATOR_PROJECT_STATE_GIT_LOCAL=true")
+	}
+
+	// (4b) LOCAL profile: default the artifact store to the SAME on-disk repo as
+	// project state (see the doc comment above).
+	if cfg.ProjectStateGitLocal && cfg.ArtifactRepoURL == "" {
+		cfg.ArtifactRepoURL = cfg.ProjectStateGitRepoURL
 	}
 
 	// (5) DRYRUN=false: require all construction creds so the server fails fast at
@@ -120,32 +133,41 @@ func validateGithubAppSlug(c *Config) error {
 }
 
 // validateConstructionCreds returns an error naming every missing construction
-// credential when ARCHISTRATOR_CONSTRUCTION_DRYRUN=false. The workflow file + ref
-// carry configgen defaults (aiarch-construct.yml / main), so they never appear in
-// the missing set for a bare DRYRUN=false server.
+// credential when ARCHISTRATOR_CONSTRUCTION_DRYRUN=false. The GitHub-Actions-
+// specific fields (App id/key, construction repo, workflow file, ref) are only
+// required on a NON-local profile (local-first-init-funnel Task 6: the local
+// construction executor dispatches via headless claude directly against the
+// on-disk repo — it has no GitHub Actions involvement at all, so requiring these
+// unconditionally would make DRYRUN=false unreachable for local-without-creds).
+// The workflow file + ref carry configgen defaults (aiarch-construct.yml / main),
+// so they never appear in the missing set for a bare DRYRUN=false CLOUD server.
 func validateConstructionCreds(c *Config) error {
 	missing := []string{}
-	if c.GithubAppAppID == "" {
-		missing = append(missing, "ARCHISTRATOR_GITHUB_APP_ID")
+	if resolveProfile(c) != "local" {
+		if c.GithubAppAppID == "" {
+			missing = append(missing, "ARCHISTRATOR_GITHUB_APP_ID")
+		}
+		if c.GithubAppPrivateKeyPEM == "" {
+			missing = append(missing, "ARCHISTRATOR_GITHUB_APP_PRIVATE_KEY_PEM")
+		}
+		if c.ConstructionRepoOwner == "" {
+			missing = append(missing, "ARCHISTRATOR_CONSTRUCTION_REPO_OWNER")
+		}
+		if c.ConstructionRepoName == "" {
+			missing = append(missing, "ARCHISTRATOR_CONSTRUCTION_REPO_NAME")
+		}
+		if c.ConstructionWorkflowFile == "" {
+			missing = append(missing, "ARCHISTRATOR_CONSTRUCTION_WORKFLOW_FILE")
+		}
+		if c.ConstructionRef == "" {
+			missing = append(missing, "ARCHISTRATOR_CONSTRUCTION_REF")
+		}
 	}
-	if c.GithubAppPrivateKeyPEM == "" {
-		missing = append(missing, "ARCHISTRATOR_GITHUB_APP_PRIVATE_KEY_PEM")
-	}
-	if c.ConstructionRepoOwner == "" {
-		missing = append(missing, "ARCHISTRATOR_CONSTRUCTION_REPO_OWNER")
-	}
-	if c.ConstructionRepoName == "" {
-		missing = append(missing, "ARCHISTRATOR_CONSTRUCTION_REPO_NAME")
-	}
-	if c.ConstructionWorkflowFile == "" {
-		missing = append(missing, "ARCHISTRATOR_CONSTRUCTION_WORKFLOW_FILE")
-	}
-	if c.ConstructionRef == "" {
-		missing = append(missing, "ARCHISTRATOR_CONSTRUCTION_REF")
-	}
-	// The real-path selection needs the git-forward artifact store too
-	// (RegisterConstructionManagerWorker gates on it). artifactAccess is constructed
-	// only when ArtifactRepoURL is set, so it is required when not dry-run.
+	// The real-path selection needs the artifact store too
+	// (RegisterConstructionManagerWorker gates on it) on EVERY non-dry-run
+	// profile, cloud AND local alike — ArtifactRepoURL is constructed only when
+	// set (step 4b above defaults it for local, so this only fires for local when
+	// ProjectStateGitRepoURL was itself somehow empty, already caught at step 4).
 	if c.ArtifactRepoURL == "" {
 		missing = append(missing, "ARCHISTRATOR_ARTIFACT_REPO_URL")
 	}

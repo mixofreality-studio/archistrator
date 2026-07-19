@@ -204,6 +204,12 @@ var encapsulationAllowlistData = map[string][]string{
 		// folded out of cmd/server (construction_dryrun.go). The REAL GitHub-Actions
 		// variant is the generated NewGitHubActionsConstructionPipelineAccess.
 		"NewDryRunConstructionPipelineAccess",
+		// LOCAL-EXECUTOR VARIANT CONSTRUCTOR (local-first-init-funnel Task 6, same
+		// category as the dry-run stub above): headless-claude dispatch for a
+		// local-profile boot with no GitHub creds. Selected by cmd/server/hooks.go's
+		// FinalizeConstructionPipelineAccess alongside the generated GitHub-Actions
+		// constructor and the dry-run stub.
+		"NewLocalExecConstructionPipelineAccess",
 		"Error",
 		"ParsePipelineHandle",
 		"PipelineHandleEqual",
