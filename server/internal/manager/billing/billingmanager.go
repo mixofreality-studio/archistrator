@@ -798,76 +798,50 @@ const (
 // readHeadActivityOptions — billing head-state pure reads (10s; terminal
 // NotFound/ContractMisuse).
 func readHeadActivityOptions() workflow.ActivityOptions {
-	return workflow.ActivityOptions{
-		StartToCloseTimeout: 10 * time.Second,
-		RetryPolicy: &temporal.RetryPolicy{
-			NonRetryableErrorTypes: []string{
-				fwmgr.RAErrType(fwra.NotFound),
-				fwmgr.RAErrType(fwra.ContractMisuse),
-			},
-		},
-	}
+	return fwmgr.ActivityPreset{
+		Timeout:    10 * time.Second,
+		TerminalRA: []fwra.Kind{fwra.NotFound, fwra.ContractMisuse},
+	}.Options()
 }
 
 // recordHeadActivityOptions — billing head-state write transitions (10s; terminal
 // NotFound/ContractMisuse; Conflict is surfaced for the workflow-level re-read loop, so
 // it is NOT non-retryable here — the workflow body recovers it).
 func recordHeadActivityOptions() workflow.ActivityOptions {
-	return workflow.ActivityOptions{
-		StartToCloseTimeout: 10 * time.Second,
-		RetryPolicy: &temporal.RetryPolicy{
-			NonRetryableErrorTypes: []string{
-				fwmgr.RAErrType(fwra.NotFound),
-				fwmgr.RAErrType(fwra.ContractMisuse),
-				fwmgr.RAErrType(fwra.Conflict),
-			},
-		},
-	}
+	return fwmgr.ActivityPreset{
+		Timeout:    10 * time.Second,
+		TerminalRA: []fwra.Kind{fwra.NotFound, fwra.ContractMisuse, fwra.Conflict},
+	}.Options()
 }
 
 // ledgerActivityOptions — revenueLedgerAccess / usageAccess appends + reads (30s;
 // terminal ContractMisuse). Append-only ledgers: NO Conflict (gateway/runtime-event-id
 // idempotent).
 func ledgerActivityOptions() workflow.ActivityOptions {
-	return workflow.ActivityOptions{
-		StartToCloseTimeout: 30 * time.Second,
-		RetryPolicy: &temporal.RetryPolicy{
-			NonRetryableErrorTypes: []string{
-				fwmgr.RAErrType(fwra.ContractMisuse),
-			},
-		},
-	}
+	return fwmgr.ActivityPreset{
+		Timeout:    30 * time.Second,
+		TerminalRA: []fwra.Kind{fwra.ContractMisuse},
+	}.Options()
 }
 
 // gatewayActivityOptions — merchantGatewayAccess money movements (externalGateway; small
 // budget; terminal Auth/NotFound/ContractMisuse → decideOnBillingFailure). Stripe-native
 // dedup on the Manager-supplied Idempotency-Key.
 func gatewayActivityOptions() workflow.ActivityOptions {
-	return workflow.ActivityOptions{
-		StartToCloseTimeout: 30 * time.Second,
-		RetryPolicy: &temporal.RetryPolicy{
-			MaximumAttempts: 3,
-			NonRetryableErrorTypes: []string{
-				fwmgr.RAErrType(fwra.Auth),
-				fwmgr.RAErrType(fwra.NotFound),
-				fwmgr.RAErrType(fwra.ContractMisuse),
-			},
-		},
-	}
+	return fwmgr.ActivityPreset{
+		Timeout:     30 * time.Second,
+		MaxAttempts: 3,
+		TerminalRA:  []fwra.Kind{fwra.Auth, fwra.NotFound, fwra.ContractMisuse},
+	}.Options()
 }
 
 // durableActivityOptions — durableExecutionAccess deliverSignal / registerSchedule (30s;
 // terminal NotFound/ContractMisuse).
 func durableActivityOptions() workflow.ActivityOptions {
-	return workflow.ActivityOptions{
-		StartToCloseTimeout: 30 * time.Second,
-		RetryPolicy: &temporal.RetryPolicy{
-			NonRetryableErrorTypes: []string{
-				fwmgr.RAErrType(fwra.NotFound),
-				fwmgr.RAErrType(fwra.ContractMisuse),
-			},
-		},
-	}
+	return fwmgr.ActivityPreset{
+		Timeout:    30 * time.Second,
+		TerminalRA: []fwra.Kind{fwra.NotFound, fwra.ContractMisuse},
+	}.Options()
 }
 
 // activityOptions returns the option-preset hook the generated invokers consult. A

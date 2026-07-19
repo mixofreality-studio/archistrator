@@ -1053,70 +1053,39 @@ const (
 // name with no entry falls back to the generated default (invokers.gen.go).
 func activityOptions() func(activityName string) (workflow.ActivityOptions, bool) {
 	// readHeadOpts — pure head-state reads (15s; terminal NotFound/ContractMisuse).
-	readHeadOpts := workflow.ActivityOptions{
-		StartToCloseTimeout: 15 * time.Second,
-		RetryPolicy: &temporal.RetryPolicy{
-			NonRetryableErrorTypes: []string{
-				fwmgr.RAErrType(fwra.NotFound),
-				fwmgr.RAErrType(fwra.ContractMisuse),
-			},
-		},
-	}
+	readHeadOpts := fwmgr.ActivityPreset{
+		Timeout:    15 * time.Second,
+		TerminalRA: []fwra.Kind{fwra.NotFound, fwra.ContractMisuse},
+	}.Options()
 	// recordHeadOpts — head-state write transitions (10s; terminal NotFound/
 	// ContractMisuse; Conflict is surfaced for the workflow-level re-read loop, so it
 	// is NOT non-retryable here — the workflow body recovers it).
-	recordHeadOpts := workflow.ActivityOptions{
-		StartToCloseTimeout: 10 * time.Second,
-		RetryPolicy: &temporal.RetryPolicy{
-			NonRetryableErrorTypes: []string{
-				fwmgr.RAErrType(fwra.NotFound),
-				fwmgr.RAErrType(fwra.ContractMisuse),
-				fwmgr.RAErrType(fwra.Conflict),
-			},
-		},
-	}
+	recordHeadOpts := fwmgr.ActivityPreset{
+		Timeout:    10 * time.Second,
+		TerminalRA: []fwra.Kind{fwra.NotFound, fwra.ContractMisuse, fwra.Conflict},
+	}.Options()
 	// publishOpts — operatedRuntimeAccess writes (60s; git commit + push; terminal
 	// Auth/ContractMisuse). Git-content-idempotent — no version guard.
-	publishOpts := workflow.ActivityOptions{
-		StartToCloseTimeout: 60 * time.Second,
-		RetryPolicy: &temporal.RetryPolicy{
-			NonRetryableErrorTypes: []string{
-				fwmgr.RAErrType(fwra.Auth),
-				fwmgr.RAErrType(fwra.ContractMisuse),
-			},
-		},
-	}
+	publishOpts := fwmgr.ActivityPreset{
+		Timeout:    60 * time.Second,
+		TerminalRA: []fwra.Kind{fwra.Auth, fwra.ContractMisuse},
+	}.Options()
 	// runtimeReadOpts — operatedRuntimeAccess pure reads (30s; terminal Auth/NotFound).
-	runtimeReadOpts := workflow.ActivityOptions{
-		StartToCloseTimeout: 30 * time.Second,
-		RetryPolicy: &temporal.RetryPolicy{
-			NonRetryableErrorTypes: []string{
-				fwmgr.RAErrType(fwra.Auth),
-				fwmgr.RAErrType(fwra.NotFound),
-			},
-		},
-	}
+	runtimeReadOpts := fwmgr.ActivityPreset{
+		Timeout:    30 * time.Second,
+		TerminalRA: []fwra.Kind{fwra.Auth, fwra.NotFound},
+	}.Options()
 	// artifactReadOpts — artifactAccess read (30s; terminal NotFound/Auth).
-	artifactReadOpts := workflow.ActivityOptions{
-		StartToCloseTimeout: 30 * time.Second,
-		RetryPolicy: &temporal.RetryPolicy{
-			NonRetryableErrorTypes: []string{
-				fwmgr.RAErrType(fwra.NotFound),
-				fwmgr.RAErrType(fwra.Auth),
-			},
-		},
-	}
+	artifactReadOpts := fwmgr.ActivityPreset{
+		Timeout:    30 * time.Second,
+		TerminalRA: []fwra.Kind{fwra.NotFound, fwra.Auth},
+	}.Options()
 	// usageOpts — usageAccess appends + reads (20s; terminal ContractMisuse/NotFound).
 	// Append-only ledger: NO Conflict (dedup-id idempotent).
-	usageOpts := workflow.ActivityOptions{
-		StartToCloseTimeout: 20 * time.Second,
-		RetryPolicy: &temporal.RetryPolicy{
-			NonRetryableErrorTypes: []string{
-				fwmgr.RAErrType(fwra.ContractMisuse),
-				fwmgr.RAErrType(fwra.NotFound),
-			},
-		},
-	}
+	usageOpts := fwmgr.ActivityPreset{
+		Timeout:    20 * time.Second,
+		TerminalRA: []fwra.Kind{fwra.ContractMisuse, fwra.NotFound},
+	}.Options()
 
 	presets := map[string]workflow.ActivityOptions{
 		"operatedSystemStateAccess.readOperatedSystem":        readHeadOpts,

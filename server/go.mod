@@ -13,7 +13,6 @@ require (
 	go.temporal.io/api v1.62.12
 	go.temporal.io/sdk v1.44.0
 	go.temporal.io/sdk/contrib/opentelemetry v0.7.0
-	golang.org/x/tools v0.43.0
 )
 
 require (
@@ -100,6 +99,7 @@ require (
 	golang.org/x/crypto v0.50.0 // indirect
 	golang.org/x/mod v0.34.0 // indirect
 	golang.org/x/oauth2 v0.35.0 // indirect
+	golang.org/x/tools v0.43.0 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 )
 
@@ -111,7 +111,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.3.2 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.28.0 // indirect
-	github.com/mixofreality-studio/archistrator-platform/framework-go v0.7.0
+	github.com/mixofreality-studio/archistrator-platform/framework-go v0.8.0
 	github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github v0.1.5
 	github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-keycloak v0.2.0
 	github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-otel v0.1.0

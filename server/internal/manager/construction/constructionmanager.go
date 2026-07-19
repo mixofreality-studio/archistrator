@@ -864,15 +864,10 @@ func (c railCredEnvelope) toProjectState() projectstate.RepoCredential {
 // (workermanifest.go) applies to the GENERATED getInstallationToken invoker. A
 // rejected/expired App identity is terminal (fwra.Auth); transport blips retry.
 func mintCredActivityOptions() workflow.ActivityOptions {
-	return workflow.ActivityOptions{
-		StartToCloseTimeout: 15 * time.Second,
-		RetryPolicy: &temporal.RetryPolicy{
-			NonRetryableErrorTypes: []string{
-				fwm.RAErrType(fwra.Auth),
-				fwm.RAErrType(fwra.ContractMisuse),
-			},
-		},
-	}
+	return fwm.ActivityPreset{
+		Timeout:    15 * time.Second,
+		TerminalRA: []fwra.Kind{fwra.Auth, fwra.ContractMisuse},
+	}.Options()
 }
 
 // railActivityOptions — the PR-rail verbs preset VALUE (OpenBranch / OpenPullRequest /
@@ -880,17 +875,10 @@ func mintCredActivityOptions() workflow.ActivityOptions {
 // invokers via the manifest's Opts hook. Auth + a merge Conflict (not-mergeable) + bad
 // input are terminal; transport/rate-limit retry.
 func railActivityOptions() workflow.ActivityOptions {
-	return workflow.ActivityOptions{
-		StartToCloseTimeout: 30 * time.Second,
-		RetryPolicy: &temporal.RetryPolicy{
-			NonRetryableErrorTypes: []string{
-				fwm.RAErrType(fwra.Auth),
-				fwm.RAErrType(fwra.NotFound),
-				fwm.RAErrType(fwra.Conflict),
-				fwm.RAErrType(fwra.ContractMisuse),
-			},
-		},
-	}
+	return fwm.ActivityPreset{
+		Timeout:    30 * time.Second,
+		TerminalRA: []fwra.Kind{fwra.Auth, fwra.NotFound, fwra.Conflict, fwra.ContractMisuse},
+	}.Options()
 }
 
 // wfDeps bundles every downstream dependency the constructionManager orchestrates,
@@ -1000,15 +988,10 @@ const maxMutateConflictAttempts = 20
 // for both. NotFound stays terminal so a brand-new project's read fails fast into the
 // pump's quiet-tick handling (isReadNotFound) instead of retrying.
 func readProjectActivityOptions() workflow.ActivityOptions {
-	return workflow.ActivityOptions{
-		StartToCloseTimeout: 10 * time.Second,
-		RetryPolicy: &temporal.RetryPolicy{
-			NonRetryableErrorTypes: []string{
-				fwm.RAErrType(fwra.NotFound),
-				fwm.RAErrType(fwra.ContractMisuse),
-			},
-		},
-	}
+	return fwm.ActivityPreset{
+		Timeout:    10 * time.Second,
+		TerminalRA: []fwra.Kind{fwra.NotFound, fwra.ContractMisuse},
+	}.Options()
 }
 
 // submitPipelineActivityOptions / observePipelineActivityOptions are the pipeline preset
@@ -1016,27 +999,17 @@ func readProjectActivityOptions() workflow.ActivityOptions {
 // invokers by registered name (submit 60s Auth/ContractMisuse-terminal;
 // observe/cancel 30s NotFound/Auth-terminal).
 func submitPipelineActivityOptions() workflow.ActivityOptions {
-	return workflow.ActivityOptions{
-		StartToCloseTimeout: 60 * time.Second,
-		RetryPolicy: &temporal.RetryPolicy{
-			NonRetryableErrorTypes: []string{
-				fwm.RAErrType(fwra.Auth),
-				fwm.RAErrType(fwra.ContractMisuse),
-			},
-		},
-	}
+	return fwm.ActivityPreset{
+		Timeout:    60 * time.Second,
+		TerminalRA: []fwra.Kind{fwra.Auth, fwra.ContractMisuse},
+	}.Options()
 }
 
 func observePipelineActivityOptions() workflow.ActivityOptions {
-	return workflow.ActivityOptions{
-		StartToCloseTimeout: 30 * time.Second,
-		RetryPolicy: &temporal.RetryPolicy{
-			NonRetryableErrorTypes: []string{
-				fwm.RAErrType(fwra.NotFound),
-				fwm.RAErrType(fwra.Auth),
-			},
-		},
-	}
+	return fwm.ActivityPreset{
+		Timeout:    30 * time.Second,
+		TerminalRA: []fwra.Kind{fwra.NotFound, fwra.Auth},
+	}.Options()
 }
 
 // recordActivityOptions is the head-state Record-verb preset VALUE (10s; ContractMisuse
@@ -1046,14 +1019,10 @@ func observePipelineActivityOptions() workflow.ActivityOptions {
 // name. Every Record* verb goes through the generated invoker surface, so only the
 // VALUE form is needed (no direct-ExecuteActivity call site for this preset).
 func recordActivityOptions() workflow.ActivityOptions {
-	return workflow.ActivityOptions{
-		StartToCloseTimeout: 10 * time.Second,
-		RetryPolicy: &temporal.RetryPolicy{
-			NonRetryableErrorTypes: []string{
-				fwm.RAErrType(fwra.ContractMisuse),
-			},
-		},
-	}
+	return fwm.ActivityPreset{
+		Timeout:    10 * time.Second,
+		TerminalRA: []fwra.Kind{fwra.ContractMisuse},
+	}.Options()
 }
 
 // raConflictErrType is the canonical Temporal Type() a head-state mutation Activity

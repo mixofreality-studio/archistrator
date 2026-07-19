@@ -3055,32 +3055,21 @@ const (
 // QuotaExhausted) is non-retryable and surfaces to the workflow body. A PhaseFailed is NOT
 // a dispatch error — it is a successful observation of a failed job (§0d.4).
 func dispatchActivityOptions() workflow.ActivityOptions {
-	return workflow.ActivityOptions{
-		StartToCloseTimeout: 30 * time.Second,
-		RetryPolicy: &temporal.RetryPolicy{
-			MaximumAttempts: 5,
-			NonRetryableErrorTypes: []string{
-				fwmanager.RAErrType(fwra.ContractMisuse),
-				fwmanager.RAErrType(fwra.Auth),
-				fwmanager.RAErrType(fwra.QuotaExhausted),
-			},
-		},
-	}
+	return fwmanager.ActivityPreset{
+		Timeout:     30 * time.Second,
+		MaxAttempts: 5,
+		TerminalRA:  []fwra.Kind{fwra.ContractMisuse, fwra.Auth, fwra.QuotaExhausted},
+	}.Options()
 }
 
 // observeActivityOptions is the option preset for the generated
 // constructionPipelineAccess.observeConstructionPipeline Activity. Transient reads retry;
 // a NotFound (GC'd handle) is non-retryable and surfaces.
 func observeActivityOptions() workflow.ActivityOptions {
-	return workflow.ActivityOptions{
-		StartToCloseTimeout: 15 * time.Second,
-		RetryPolicy: &temporal.RetryPolicy{
-			NonRetryableErrorTypes: []string{
-				fwmanager.RAErrType(fwra.NotFound),
-				fwmanager.RAErrType(fwra.ContractMisuse),
-			},
-		},
-	}
+	return fwmanager.ActivityPreset{
+		Timeout:    15 * time.Second,
+		TerminalRA: []fwra.Kind{fwra.NotFound, fwra.ContractMisuse},
+	}.Options()
 }
 
 // designWorkflowFileName is the per-project DESIGN workflow file the agentic design
@@ -3096,15 +3085,10 @@ var designWorkflowFileName = path.Base(sourcecontrol.DesignWorkflowPath)
 // getInstallationToken). A rejected/expired App identity is terminal. Feeds the manager's
 // option hook (workermanifest.go).
 func mintCredActivityOptions() workflow.ActivityOptions {
-	return workflow.ActivityOptions{
-		StartToCloseTimeout: 15 * time.Second,
-		RetryPolicy: &temporal.RetryPolicy{
-			NonRetryableErrorTypes: []string{
-				fwmanager.RAErrType(fwra.Auth),
-				fwmanager.RAErrType(fwra.ContractMisuse),
-			},
-		},
-	}
+	return fwmanager.ActivityPreset{
+		Timeout:    15 * time.Second,
+		TerminalRA: []fwra.Kind{fwra.Auth, fwra.ContractMisuse},
+	}.Options()
 }
 
 // railActivityOptions — the generated sourceControlAccess PR-rail ops, including
@@ -3123,17 +3107,10 @@ func scaffoldSyncActivityOptions() workflow.ActivityOptions {
 }
 
 func railActivityOptions() workflow.ActivityOptions {
-	return workflow.ActivityOptions{
-		StartToCloseTimeout: 30 * time.Second,
-		RetryPolicy: &temporal.RetryPolicy{
-			NonRetryableErrorTypes: []string{
-				fwmanager.RAErrType(fwra.Auth),
-				fwmanager.RAErrType(fwra.NotFound),
-				fwmanager.RAErrType(fwra.Conflict),
-				fwmanager.RAErrType(fwra.ContractMisuse),
-			},
-		},
-	}
+	return fwmanager.ActivityPreset{
+		Timeout:    30 * time.Second,
+		TerminalRA: []fwra.Kind{fwra.Auth, fwra.NotFound, fwra.Conflict, fwra.ContractMisuse},
+	}.Options()
 }
 
 // reviewledger.go holds the durable review-ledger seam for the systemDesign Manager
@@ -3308,22 +3285,17 @@ const maxMutateConflictAttempts = 20
 // readProjectActivityOptions is the preset for the generated
 // designSessionAccess.readProjectOnBranch and projectStateAccess.readProjectVersion ops.
 func readProjectActivityOptions() workflow.ActivityOptions {
-	return workflow.ActivityOptions{
-		StartToCloseTimeout: 10 * time.Second,
-		RetryPolicy: &temporal.RetryPolicy{
-			// BOUND the read retries. A read that faults RETRYABLY (Transient / Infrastructure /
-			// RateLimited) must NOT loop forever — pre-fix a decode failure of committed state
-			// was mis-classified Infrastructure and retried every ~100s indefinitely with no
-			// failure surface (QA F36). Decode failures are now TERMINAL (ContractMisuse, listed
-			// below), but a GENUINE persistent infra outage must still surface rather than wedge
-			// invisibly, so cap the attempts.
-			MaximumAttempts: 8,
-			NonRetryableErrorTypes: []string{
-				fwmanager.RAErrType(fwra.NotFound),
-				fwmanager.RAErrType(fwra.ContractMisuse),
-			},
-		},
-	}
+	// BOUND the read retries. A read that faults RETRYABLY (Transient / Infrastructure /
+	// RateLimited) must NOT loop forever — pre-fix a decode failure of committed state
+	// was mis-classified Infrastructure and retried every ~100s indefinitely with no
+	// failure surface (QA F36). Decode failures are now TERMINAL (ContractMisuse, listed
+	// below), but a GENUINE persistent infra outage must still surface rather than wedge
+	// invisibly, so cap the attempts.
+	return fwmanager.ActivityPreset{
+		Timeout:     10 * time.Second,
+		MaxAttempts: 8,
+		TerminalRA:  []fwra.Kind{fwra.NotFound, fwra.ContractMisuse},
+	}.Options()
 }
 
 // mutateActivityOptions is the preset for the head-state mutation ops (the generated
@@ -3332,14 +3304,10 @@ func readProjectActivityOptions() workflow.ActivityOptions {
 // Activity RetryPolicy; Conflict is handled by the workflow-level re-read→re-apply loop
 // (D-PA §6/§7). Terminal on ContractMisuse.
 func mutateActivityOptions() workflow.ActivityOptions {
-	return workflow.ActivityOptions{
-		StartToCloseTimeout: 15 * time.Second,
-		RetryPolicy: &temporal.RetryPolicy{
-			NonRetryableErrorTypes: []string{
-				fwmanager.RAErrType(fwra.ContractMisuse),
-			},
-		},
-	}
+	return fwmanager.ActivityPreset{
+		Timeout:    15 * time.Second,
+		TerminalRA: []fwra.Kind{fwra.ContractMisuse},
+	}.Options()
 }
 
 // raConflictErrType is the canonical Temporal Type() a head-state mutation
