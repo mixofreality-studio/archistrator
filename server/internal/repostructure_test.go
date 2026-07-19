@@ -41,6 +41,7 @@ var allowedTopLevel = map[string]bool{
 var allowedCmd = map[string]bool{
 	"aiarch-state-mcp":     true,
 	"appgen":               true,
+	"archistrator":         true,
 	"clientgen":            true,
 	"gen-systemtests":      true,
 	"gen-uiprofiles":       true,

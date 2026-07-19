@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- **Zero external dependencies in local profile**: boots with nothing installed but `git` and `claude`. No `ARCHISTRATOR_POSTGRES_URL`, no Keycloak, no GitHub creds, no `ANTHROPIC_API_KEY`.
+- **Zero external dependencies in local profile**: boots with nothing installed but `git` and `claude`. No `ARCHISTRATOR_POSTGRES_URL`, no Keycloak, no GitHub creds, no `ANTHROPIC_API_KEY` (v1 caveat: `temporal` CLI on PATH is currently required — spawned as managed dev-server; founder decision pending on embedding go.temporal.io/server vs vendoring).
 - **`.aiarch/` layout identical to cloud** (same `statePathPrefix = ".aiarch/state"`, same codecs, passes `cmd/validate`). No local-only state dialects.
 - **Design artifacts lead**: the dogfood project.json operational-concepts update (Task 1) lands before any code task. The Method applies to archistrator itself.
 - **One certified engine**: `claude` CLI. The llm provider seam stays generic; do NOT add codex/copilot arms.

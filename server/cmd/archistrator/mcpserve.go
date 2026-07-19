@@ -122,6 +122,16 @@ func RunMCP(ctx context.Context, opts mcpOptions, logger *slog.Logger) error {
 		return degrade(ctx, err, logger)
 	}
 
+	// Version-skew guard (Task-5 review finding 3): a read-only comparison of
+	// both binaries' VCS revisions, cheap enough to do before spawning
+	// anything. A mismatch is a WARNING folded into the Instructions text
+	// below, never a refusal to start — see versioncheck.go's package doc.
+	instructions := preflight.Instructions()
+	if warning := versionSkewWarning(ownBuildIdentity(), childBuildIdentity(serverBin), serverBin); warning != "" {
+		logger.Warn("version skew detected between archistrator and archistrator-server", "warning", warning)
+		instructions += "\n" + warning
+	}
+
 	temporalHostport := defaultTemporalHostport()
 	stopTemporal, err := ensureTemporal(ctx, temporalHostport, opts.Stderr)
 	if err != nil {
@@ -148,9 +158,10 @@ func RunMCP(ctx context.Context, opts mcpOptions, logger *slog.Logger) error {
 	defer func() { _ = upstream.Close() }()
 
 	local := mcp.NewServer(&mcp.Implementation{Name: "archistrator", Version: mcpVersion},
-		&mcp.ServerOptions{Instructions: preflight.Instructions()})
+		&mcp.ServerOptions{Instructions: instructions})
 
-	n, err := mountProxiedTools(ctx, local, upstream)
+	spaURL := "http://" + addr + "/"
+	n, err := mountProxiedTools(ctx, local, upstream, spaURL)
 	if err != nil {
 		return degrade(ctx, err, logger)
 	}
