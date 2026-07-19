@@ -124,6 +124,19 @@ func (wf *workflows) reconcileOne(ctx workflow.Context, app operatedsystemstate.
 	}
 
 	// --- Path C (autoscale) ---
+	republished, err = wf.autoscaleOne(ctx, app, version)
+	if err != nil {
+		return transitioned, false, err
+	}
+	return transitioned, republished, nil
+}
+
+// autoscaleOne runs Path C (autoscale) for one in-flight app: propose a desired state
+// and, on a non-NoChange decision, publish + record the republish. version is the
+// head-state version as advanced by Path B's status transition (if any). Extracted from
+// reconcileOne to satisfy the gocyclo gate — the workflow-command order is identical to
+// the pre-extraction inline body.
+func (wf *workflows) autoscaleOne(ctx workflow.Context, app operatedsystemstate.OperatedSystemSummary, version operatedsystemstate.Version) (republished bool, err error) {
 	// autoscalerPolicyToEngine bridges the Manager's own façade AutoscalerPolicy onto
 	// the Engine's published AutoscalerPolicy (adapters.go) — the one call site that
 	// needs the Engine's own Mode shape.
@@ -135,22 +148,22 @@ func (wf *workflows) reconcileOne(ctx workflow.Context, app operatedsystemstate.
 		wf.InfrastructureKind,
 	)
 	if aerr2 != nil {
-		return transitioned, false, fwmgr.MapError(aerr2)
+		return false, fwmgr.MapError(aerr2)
 	}
 	if decision.Kind == autoscaler.DecisionNoChange {
-		return transitioned, false, nil
+		return false, nil
 	}
 
 	// Non-NoChange ⇒ render revised manifests → publish → record (reason=autoscale).
 	// Idle-pause (AutoscalePause) renders replicas=0 inside the opaque bytes.
 	if perr := wf.publishDesiredState(ctx, app.ID, operatedruntime.RuntimeDesiredState{ContentType: "application/desired-state"}); perr != nil {
-		return transitioned, false, perr
+		return false, perr
 	}
 	dec := decision
 	if _, rerr := wf.recordPublishDesiredState(ctx, app.ID, version, ReasonAutoscale, &dec); rerr != nil {
-		return transitioned, false, rerr
+		return false, rerr
 	}
-	return transitioned, true, nil
+	return true, nil
 }
 
 // readInFlightOperatedApps invokes operatedSystemStateAccess.readInFlightOperatedApps.

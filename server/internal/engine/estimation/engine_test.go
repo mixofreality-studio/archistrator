@@ -448,6 +448,16 @@ func diamond() (ActivityList, Network) {
 	return al, net
 }
 
+// fbPassNodeCheck asserts one diamond node's forward/backward-pass figures — earliest
+// start/finish, total float, and the on-critical-path flag — with the same single
+// "NAME: %+v" fatal the inlined checks produced.
+func fbPassNodeCheck(t *testing.T, name string, n NetworkNode, wantES, wantEF, wantFloat float64, wantOnCP bool) {
+	t.Helper()
+	if n.EarliestStart != wantES || n.EarliestFinish != wantEF || n.TotalFloat != wantFloat || n.OnCriticalPath != wantOnCP {
+		t.Fatalf("%s: %+v", name, n)
+	}
+}
+
 func TestComputeNetwork_ForwardBackwardPass(t *testing.T) {
 	al, net := diamond()
 	sol, err := NewEstimationEngine().ComputeNetwork(fweng.Context{}, al, net)
@@ -462,19 +472,10 @@ func TestComputeNetwork_ForwardBackwardPass(t *testing.T) {
 		t.Fatalf("CP days = %v, want 25", sol.Summary.CriticalPathDays)
 	}
 
-	a := sol.Nodes["A"]
-	if a.EarliestStart != 0 || a.EarliestFinish != 5 || a.TotalFloat != 0 || !a.OnCriticalPath {
-		t.Fatalf("A: %+v", a)
-	}
-	c := sol.Nodes["C"]
-	if c.EarliestStart != 5 || c.EarliestFinish != 20 || c.TotalFloat != 0 || !c.OnCriticalPath {
-		t.Fatalf("C: %+v", c)
-	}
-	b := sol.Nodes["B"]
+	fbPassNodeCheck(t, "A", sol.Nodes["A"], 0, 5, 0, true)
+	fbPassNodeCheck(t, "C", sol.Nodes["C"], 5, 20, 0, true)
 	// B: ES 5, EF 10, latest start = 20 (so D can start at 20), float = 10. Off-CP.
-	if b.EarliestStart != 5 || b.EarliestFinish != 10 || b.TotalFloat != 10 || b.OnCriticalPath {
-		t.Fatalf("B: %+v", b)
-	}
+	fbPassNodeCheck(t, "B", sol.Nodes["B"], 5, 10, 10, false)
 	d := sol.Nodes["D"]
 	if d.EarliestStart != 20 || d.EarliestFinish != 25 || !d.OnCriticalPath {
 		t.Fatalf("D: %+v", d)

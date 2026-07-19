@@ -206,49 +206,39 @@ func (s *Session) writeProjectBytes(b []byte) error {
 	return os.WriteFile(s.projectFilePath(), b, 0o600)
 }
 
-// slotFor returns the ArtifactSlot pointer for kind on the decoded aggregate. It is the
-// binary's local mirror of the projectstate slotTable (which is unexported) over the
-// EXPORTED Project slot fields — so the ambient kind alone selects the slot, never a
-// positional guess by the agent (the F68 fix, made structural).
+// slotAccessors is the binary's local mirror of the projectstate slotTable (which is
+// unexported) over the EXPORTED Project slot fields — so the ambient kind alone selects
+// the slot, never a positional guess by the agent (the F68 fix, made structural). A
+// table (not a switch) so the exhaustive gate proves every ArtifactKind has an entry.
+var slotAccessors = map[projectstate.ArtifactKind]func(*projectstate.Project) *projectstate.ArtifactSlot{
+	projectstate.KindMission:              func(p *projectstate.Project) *projectstate.ArtifactSlot { return &p.Mission },
+	projectstate.KindGlossary:             func(p *projectstate.Project) *projectstate.ArtifactSlot { return &p.Glossary },
+	projectstate.KindScrubbedRequirements: func(p *projectstate.Project) *projectstate.ArtifactSlot { return &p.ScrubbedRequirements },
+	projectstate.KindVolatilities:         func(p *projectstate.Project) *projectstate.ArtifactSlot { return &p.Volatilities },
+	projectstate.KindCoreUseCases:         func(p *projectstate.Project) *projectstate.ArtifactSlot { return &p.CoreUseCases },
+	projectstate.KindSystem:               func(p *projectstate.Project) *projectstate.ArtifactSlot { return &p.SystemDesign },
+	projectstate.KindOperationalConcepts:  func(p *projectstate.Project) *projectstate.ArtifactSlot { return &p.OperationalConcepts },
+	projectstate.KindStandardCheck:        func(p *projectstate.Project) *projectstate.ArtifactSlot { return &p.StandardCheck },
+	projectstate.KindPlanningAssumptions:  func(p *projectstate.Project) *projectstate.ArtifactSlot { return &p.PlanningAssumptions },
+	projectstate.KindActivityList:         func(p *projectstate.Project) *projectstate.ArtifactSlot { return &p.ActivityList },
+	projectstate.KindNetwork:              func(p *projectstate.Project) *projectstate.ArtifactSlot { return &p.Network },
+	projectstate.KindNormalSolution:       func(p *projectstate.Project) *projectstate.ArtifactSlot { return &p.NormalSolution },
+	projectstate.KindSubcriticalSolution:  func(p *projectstate.Project) *projectstate.ArtifactSlot { return &p.SubcriticalSolution },
+	projectstate.KindCompressedSolution:   func(p *projectstate.Project) *projectstate.ArtifactSlot { return &p.CompressedSolution },
+	projectstate.KindDecompressedSolution: func(p *projectstate.Project) *projectstate.ArtifactSlot { return &p.DecompressedSolution },
+	projectstate.KindRiskModel:            func(p *projectstate.Project) *projectstate.ArtifactSlot { return &p.RiskModel },
+	projectstate.KindSdpReview:            func(p *projectstate.Project) *projectstate.ArtifactSlot { return &p.SdpReview },
+}
+
+// slotFor returns the ArtifactSlot pointer for kind on the decoded aggregate; an
+// unrecognized kind (out-of-range ordinal) reports false, exactly as the former
+// switch default did.
 func slotFor(p *projectstate.Project, kind projectstate.ArtifactKind) (*projectstate.ArtifactSlot, bool) {
-	switch kind {
-	case projectstate.KindMission:
-		return &p.Mission, true
-	case projectstate.KindGlossary:
-		return &p.Glossary, true
-	case projectstate.KindScrubbedRequirements:
-		return &p.ScrubbedRequirements, true
-	case projectstate.KindVolatilities:
-		return &p.Volatilities, true
-	case projectstate.KindCoreUseCases:
-		return &p.CoreUseCases, true
-	case projectstate.KindSystem:
-		return &p.SystemDesign, true
-	case projectstate.KindOperationalConcepts:
-		return &p.OperationalConcepts, true
-	case projectstate.KindStandardCheck:
-		return &p.StandardCheck, true
-	case projectstate.KindPlanningAssumptions:
-		return &p.PlanningAssumptions, true
-	case projectstate.KindActivityList:
-		return &p.ActivityList, true
-	case projectstate.KindNetwork:
-		return &p.Network, true
-	case projectstate.KindNormalSolution:
-		return &p.NormalSolution, true
-	case projectstate.KindSubcriticalSolution:
-		return &p.SubcriticalSolution, true
-	case projectstate.KindCompressedSolution:
-		return &p.CompressedSolution, true
-	case projectstate.KindDecompressedSolution:
-		return &p.DecompressedSolution, true
-	case projectstate.KindRiskModel:
-		return &p.RiskModel, true
-	case projectstate.KindSdpReview:
-		return &p.SdpReview, true
-	default:
+	acc, ok := slotAccessors[kind]
+	if !ok {
 		return nil, false
 	}
+	return acc(p), true
 }
 
 // marshalModel renders a typed ArtifactModel to indented JSON for a read tool's output.

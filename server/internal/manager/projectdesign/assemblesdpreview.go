@@ -511,41 +511,51 @@ func recommendOption(rows []projectstate.SdpOptionRow) (projectstate.OptionID, s
 			normalDur = r.DurationDays
 		}
 	}
-	included := func(r projectstate.SdpOptionRow) bool {
-		if r.CompositeRisk > riskTooRisky || r.CompositeRisk < riskOverSafe {
-			return false
-		}
-		if normalDur > 0 && r.DurationDays < normalDur {
-			if (normalDur-r.DurationDays)/normalDur > maxCompression {
-				return false
-			}
-		}
-		return true
-	}
-	pickBest := func(pred func(projectstate.SdpOptionRow) bool) (projectstate.SdpOptionRow, bool) {
-		var best projectstate.SdpOptionRow
-		found := false
-		for _, r := range rows {
-			if !pred(r) {
-				continue
-			}
-			if !found || r.CompositeRisk < best.CompositeRisk ||
-				(r.CompositeRisk == best.CompositeRisk && r.DurationDays < best.DurationDays) {
-				best = r
-				found = true
-			}
-		}
-		return best, found
-	}
-	if best, ok := pickBest(included); ok {
+	included := func(r projectstate.SdpOptionRow) bool { return sdpOptionInBand(r, normalDur) }
+	if best, ok := pickBestSdpOption(rows, included); ok {
 		return best.OptionID, fmt.Sprintf(
 			"recommend %s: lowest in-band composite risk (%.3f) at %.1f days (App C risk-crossover exclusions applied)",
 			best.OptionID, best.CompositeRisk, best.DurationDays)
 	}
-	best, _ := pickBest(func(projectstate.SdpOptionRow) bool { return true })
+	best, _ := pickBestSdpOption(rows, func(projectstate.SdpOptionRow) bool { return true })
 	return best.OptionID, fmt.Sprintf(
 		"recommend %s: ALL options fell outside the App C risk band [%.2f,%.2f]; picked lowest composite risk (%.3f) — review before committing",
 		best.OptionID, riskOverSafe, riskTooRisky, best.CompositeRisk)
+}
+
+// sdpOptionInBand applies the App C exclusion zones to one row: composite risk outside
+// [overSafe, tooRisky] is OUT, and a row compressed more than maxCompression below the
+// normal option's duration is OUT (death-zone proximity / >30% rule, F8). normalDur==0
+// (no normal row assembled) skips the compression bound — only the risk band applies.
+func sdpOptionInBand(r projectstate.SdpOptionRow, normalDur float64) bool {
+	if r.CompositeRisk > riskTooRisky || r.CompositeRisk < riskOverSafe {
+		return false
+	}
+	if normalDur > 0 && r.DurationDays < normalDur {
+		if (normalDur-r.DurationDays)/normalDur > maxCompression {
+			return false
+		}
+	}
+	return true
+}
+
+// pickBestSdpOption returns the pred-matching row with the lowest CompositeRisk,
+// tie-broken by lowest DurationDays — the cost-risk sweet spot ordering recommendOption
+// ranks by. found=false when no row matches pred.
+func pickBestSdpOption(rows []projectstate.SdpOptionRow, pred func(projectstate.SdpOptionRow) bool) (projectstate.SdpOptionRow, bool) {
+	var best projectstate.SdpOptionRow
+	found := false
+	for _, r := range rows {
+		if !pred(r) {
+			continue
+		}
+		if !found || r.CompositeRisk < best.CompositeRisk ||
+			(r.CompositeRisk == best.CompositeRisk && r.DurationDays < best.DurationDays) {
+			best = r
+			found = true
+		}
+	}
+	return best, found
 }
 
 // optionInReview reports whether id names one of the assembled option rows.

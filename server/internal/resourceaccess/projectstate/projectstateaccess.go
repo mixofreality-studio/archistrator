@@ -875,30 +875,10 @@ func (s *GitStore) applyMutationOnBranchFiles(
 		return rec.ResultVersion, nil
 	}
 
-	// STEP 2 — decode the aggregate (or open a fresh one) and run the mode gate.
-	p, exists, err := decodeProjectFromSnapshot(snap, projectID)
+	// STEPS 2–3 — decode + mode gate + version guard.
+	p, err := loadAggregateForMutation(snap, op, projectID, expectedVersion, mode)
 	if err != nil {
 		return 0, err
-	}
-	if exists && mode == modeCreateOnly {
-		return 0, fwra.New(fwra.Conflict, fmt.Sprintf("projectstate.%s: project %s already exists", op, projectID))
-	}
-	if !exists {
-		if mode == modeRequireExisting {
-			return 0, fwra.New(fwra.NotFound, fmt.Sprintf("projectstate.%s: no aggregate for project %s (create it first)", op, projectID))
-		}
-		if expectedVersion != 0 {
-			return 0, fwra.New(fwra.Conflict, fmt.Sprintf("projectstate.%s: no aggregate for project %s but expectedVersion %d != 0", op, projectID, expectedVersion))
-		}
-		p = Project{ID: projectID, Version: 0}
-	}
-
-	// STEP 3 — version guard (the same optimistic-concurrency check as Postgres; the
-	// Version lives in the committed project.json — invariant iv: derivable from repo
-	// state alone). The git ref-CAS at push time is the cross-process gate; this
-	// guard catches a stale caller even before the push.
-	if p.Version != expectedVersion {
-		return 0, fwra.New(fwra.Conflict, fmt.Sprintf("projectstate.%s: stale version for project %s: have %d, expected %d", op, projectID, p.Version, expectedVersion))
 	}
 
 	// STEP 4 — pure in-memory transition + version bump.
@@ -921,6 +901,38 @@ func (s *GitStore) applyMutationOnBranchFiles(
 	}
 	_ = res // Base token is the satellite's; Version is the caller-visible token.
 	return p.Version, nil
+}
+
+// loadAggregateForMutation is applyMutationOnBranchFiles' STEP 2 + STEP 3,
+// extracted verbatim.
+//
+// STEP 2 — decode the aggregate (or open a fresh one) and run the mode gate.
+//
+// STEP 3 — version guard (the same optimistic-concurrency check as Postgres; the
+// Version lives in the committed project.json — invariant iv: derivable from repo
+// state alone). The git ref-CAS at push time is the cross-process gate; this
+// guard catches a stale caller even before the push.
+func loadAggregateForMutation(snap fwgithub.GitSnapshot, op string, projectID ProjectID, expectedVersion Version, mode mutationMode) (Project, error) {
+	p, exists, err := decodeProjectFromSnapshot(snap, projectID)
+	if err != nil {
+		return Project{}, err
+	}
+	if exists && mode == modeCreateOnly {
+		return Project{}, fwra.New(fwra.Conflict, fmt.Sprintf("projectstate.%s: project %s already exists", op, projectID))
+	}
+	if !exists {
+		if mode == modeRequireExisting {
+			return Project{}, fwra.New(fwra.NotFound, fmt.Sprintf("projectstate.%s: no aggregate for project %s (create it first)", op, projectID))
+		}
+		if expectedVersion != 0 {
+			return Project{}, fwra.New(fwra.Conflict, fmt.Sprintf("projectstate.%s: no aggregate for project %s but expectedVersion %d != 0", op, projectID, expectedVersion))
+		}
+		p = Project{ID: projectID, Version: 0}
+	}
+	if p.Version != expectedVersion {
+		return Project{}, fwra.New(fwra.Conflict, fmt.Sprintf("projectstate.%s: stale version for project %s: have %d, expected %d", op, projectID, p.Version, expectedVersion))
+	}
+	return p, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -2384,47 +2396,37 @@ func Slug(name string) string {
 // until then the two coexist intentionally and consumers are migrated
 // package-by-package.
 
+// artifactKindStrings backs String — a table lookup rather than a switch (the
+// gocyclo-friendly form of flat enum→value dispatch; the exhaustive linter's
+// map check enforces a key per variant exactly as it would enforce a case).
+var artifactKindStrings = map[ArtifactKind]string{
+	KindMission:              "Mission",
+	KindGlossary:             "Glossary",
+	KindScrubbedRequirements: "ScrubbedRequirements",
+	KindVolatilities:         "Volatilities",
+	KindCoreUseCases:         "CoreUseCases",
+	KindSystem:               "System",
+	KindOperationalConcepts:  "OperationalConcepts",
+	KindStandardCheck:        "StandardCheck",
+	KindPlanningAssumptions:  "PlanningAssumptions",
+	KindActivityList:         "ActivityList",
+	KindNetwork:              "Network",
+	KindNormalSolution:       "NormalSolution",
+	KindSubcriticalSolution:  "SubcriticalSolution",
+	KindCompressedSolution:   "CompressedSolution",
+	KindDecompressedSolution: "DecompressedSolution",
+	KindRiskModel:            "RiskModel",
+	KindSdpReview:            "SdpReview",
+}
+
 // String returns a stable human-readable name for the ArtifactKind.
 // Used in error messages and arch-test output.
 func (k ArtifactKind) String() string {
-	switch k {
-	case KindMission:
-		return "Mission"
-	case KindGlossary:
-		return "Glossary"
-	case KindScrubbedRequirements:
-		return "ScrubbedRequirements"
-	case KindVolatilities:
-		return "Volatilities"
-	case KindCoreUseCases:
-		return "CoreUseCases"
-	case KindSystem:
-		return "System"
-	case KindOperationalConcepts:
-		return "OperationalConcepts"
-	case KindStandardCheck:
-		return "StandardCheck"
-	case KindPlanningAssumptions:
-		return "PlanningAssumptions"
-	case KindActivityList:
-		return "ActivityList"
-	case KindNetwork:
-		return "Network"
-	case KindNormalSolution:
-		return "NormalSolution"
-	case KindSubcriticalSolution:
-		return "SubcriticalSolution"
-	case KindCompressedSolution:
-		return "CompressedSolution"
-	case KindDecompressedSolution:
-		return "DecompressedSolution"
-	case KindRiskModel:
-		return "RiskModel"
-	case KindSdpReview:
-		return "SdpReview"
+	if s, ok := artifactKindStrings[k]; ok {
+		return s
 	}
 	// Unreachable for the 17 defined ArtifactKind values above (the exhaustive
-	// linter enforces that every real variant has its own case); kept as a
+	// linter enforces that every real variant has its own key); kept as a
 	// defensive fallback for an out-of-range ordinal.
 	return fmt.Sprintf("ArtifactKind(%d)", int(k))
 }
@@ -2436,49 +2438,35 @@ func (k ArtifactKind) String() string {
 // `ArtifactModelEnvelope.kind` enum all derive from it. Distinct from String(),
 // which yields the PascalCase Go-identifier name used in error/diagnostic text.
 func (k ArtifactKind) WireName() string {
-	switch k {
-	// ---- Phase 1 ----
-	case KindMission:
-		return "mission"
-	case KindGlossary:
-		return "glossary"
-	case KindScrubbedRequirements:
-		return "scrubbedRequirements"
-	case KindVolatilities:
-		return "volatilities"
-	case KindCoreUseCases:
-		return "coreUseCases"
-	case KindSystem:
-		return "system"
-	case KindOperationalConcepts:
-		return "operationalConcepts"
-	case KindStandardCheck:
-		return "standardCheck"
-	// ---- Phase 2 ----
-	case KindPlanningAssumptions:
-		return "planningAssumptions"
-	case KindActivityList:
-		return "activityList"
-	case KindNetwork:
-		return "network"
-	case KindNormalSolution:
-		return "normalSolution"
-	case KindSubcriticalSolution:
-		return "subcriticalSolution"
-	case KindCompressedSolution:
-		return "compressedSolution"
-	case KindDecompressedSolution:
-		return "decompressedSolution"
-	case KindRiskModel:
-		return "riskModel"
-	case KindSdpReview:
-		return "sdpReview"
-	}
-	// Unreachable for the 17 defined ArtifactKind values above (the exhaustive
-	// linter enforces that every real variant has its own case); kept as a
-	// defensive fallback for an out-of-range ordinal — MarshalJSON treats "" as
+	// Unknown (out-of-range) ordinals yield "" — MarshalJSON treats "" as
 	// "no wire name" and errors.
-	return ""
+	return artifactKindWireNames[k]
+}
+
+// artifactKindWireNames backs WireName — a table lookup rather than a switch
+// (the gocyclo-friendly form of flat enum→value dispatch; the exhaustive
+// linter's map check enforces a key per variant exactly as it would enforce a
+// case).
+var artifactKindWireNames = map[ArtifactKind]string{
+	// ---- Phase 1 ----
+	KindMission:              "mission",
+	KindGlossary:             "glossary",
+	KindScrubbedRequirements: "scrubbedRequirements",
+	KindVolatilities:         "volatilities",
+	KindCoreUseCases:         "coreUseCases",
+	KindSystem:               "system",
+	KindOperationalConcepts:  "operationalConcepts",
+	KindStandardCheck:        "standardCheck",
+	// ---- Phase 2 ----
+	KindPlanningAssumptions:  "planningAssumptions",
+	KindActivityList:         "activityList",
+	KindNetwork:              "network",
+	KindNormalSolution:       "normalSolution",
+	KindSubcriticalSolution:  "subcriticalSolution",
+	KindCompressedSolution:   "compressedSolution",
+	KindDecompressedSolution: "decompressedSolution",
+	KindRiskModel:            "riskModel",
+	KindSdpReview:            "sdpReview",
 }
 
 // artifactKindByWireName is the inverse of WireName, built once from
@@ -6996,50 +6984,35 @@ const (
 	DesignJobModeAnswer   DesignJobMode = "answer"
 )
 
+// designKindSlugs backs designKindSlug — a table lookup (the gocyclo-friendly
+// form of flat enum→value dispatch; the exhaustive linter's map check enforces
+// a key per variant exactly as it would enforce a case).
+var designKindSlugs = map[ArtifactKind]string{
+	KindMission:              "mission",
+	KindGlossary:             "glossary",
+	KindScrubbedRequirements: "scrubbed-requirements",
+	KindVolatilities:         "volatilities",
+	KindCoreUseCases:         "core-use-cases",
+	KindSystem:               "system",
+	KindOperationalConcepts:  "operational-concepts",
+	KindStandardCheck:        "standard-check",
+	KindPlanningAssumptions:  "planning-assumptions",
+	KindActivityList:         "activity-list",
+	KindNetwork:              "network",
+	KindNormalSolution:       "normal-solution",
+	KindSubcriticalSolution:  "subcritical-solution",
+	KindCompressedSolution:   "compressed-solution",
+	KindDecompressedSolution: "decompressed-solution",
+	KindRiskModel:            "risk-model",
+	KindSdpReview:            "sdp-review",
+}
+
 // designKindSlug is the ArtifactKind -> kebab .claude command-slug stem for
-// design jobs, mirroring profileSlug's explicit-switch style above. Distinct
-// from WireName (camelCase, JSON discriminator) and String (PascalCase,
-// diagnostics) — this is the THIRD, kebab-case rendering, and DesignCommandFor
-// is its only caller.
+// design jobs. Distinct from WireName (camelCase, JSON discriminator) and
+// String (PascalCase, diagnostics) — this is the THIRD, kebab-case rendering,
+// and DesignCommandFor is its only caller. Unknown kinds yield "".
 func designKindSlug(k ArtifactKind) string {
-	switch k {
-	case KindMission:
-		return "mission"
-	case KindGlossary:
-		return "glossary"
-	case KindScrubbedRequirements:
-		return "scrubbed-requirements"
-	case KindVolatilities:
-		return "volatilities"
-	case KindCoreUseCases:
-		return "core-use-cases"
-	case KindSystem:
-		return "system"
-	case KindOperationalConcepts:
-		return "operational-concepts"
-	case KindStandardCheck:
-		return "standard-check"
-	case KindPlanningAssumptions:
-		return "planning-assumptions"
-	case KindActivityList:
-		return "activity-list"
-	case KindNetwork:
-		return "network"
-	case KindNormalSolution:
-		return "normal-solution"
-	case KindSubcriticalSolution:
-		return "subcritical-solution"
-	case KindCompressedSolution:
-		return "compressed-solution"
-	case KindDecompressedSolution:
-		return "decompressed-solution"
-	case KindRiskModel:
-		return "risk-model"
-	case KindSdpReview:
-		return "sdp-review"
-	default:
-		return ""
-	}
+	return designKindSlugs[k]
 }
 
 // designKindHasCritique reports whether kind takes a critique design job at all:

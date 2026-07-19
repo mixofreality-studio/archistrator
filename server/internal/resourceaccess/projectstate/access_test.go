@@ -256,24 +256,7 @@ func TestProjectStateGitAdapter_CreateReadList_IdentityVerbatim(t *testing.T) {
 	// The persisted `id` in .aiarch/state/project.json is the identity VERBATIM — no
 	// "aiarch-" prefix is ever applied by the createProject path. Read the raw committed
 	// JSON through a fresh clone to assert the on-disk shape.
-	gs, err := fwgithub.NewGitStore(projRepo.URL, "main")
-	if err != nil {
-		t.Fatalf("NewGitStore(raw): %v", err)
-	}
-	snap, err := gs.ReadSubtree(ctx, ".aiarch/state", fwgithub.GitAuth{Local: true})
-	if err != nil {
-		t.Fatalf("ReadSubtree: %v", err)
-	}
-	raw, ok := snap.Files["project.json"]
-	if !ok {
-		t.Fatal("project.json not committed to the repo")
-	}
-	if !strings.Contains(string(raw), "\"id\": \""+identity+"\"") {
-		t.Fatalf("project.json `id` is not the identity verbatim: %s", string(raw))
-	}
-	if strings.Contains(string(raw), "aiarch-"+identity) {
-		t.Fatalf("project.json `id` carries the dropped aiarch- prefix: %s", string(raw))
-	}
+	assertIdentityPersistedVerbatimOnDisk(ctx, t, projRepo.URL, identity)
 
 	// ListProjects (discover-by-enumeration) surfaces the project keyed by the SAME
 	// identity — the repo IS the catalog row, name-as-identity end to end.
@@ -293,6 +276,30 @@ func TestProjectStateGitAdapter_CreateReadList_IdentityVerbatim(t *testing.T) {
 	}
 	if vDup != v1 {
 		t.Fatalf("CreateProject retry returned version %d, want the prior %d (dedup)", vDup, v1)
+	}
+}
+
+// assertIdentityPersistedVerbatimOnDisk reads the raw committed project.json through a
+// fresh clone and asserts the on-disk `id` is the identity verbatim (no "aiarch-" prefix).
+func assertIdentityPersistedVerbatimOnDisk(ctx context.Context, t *testing.T, repoURL, identity string) {
+	t.Helper()
+	gs, err := fwgithub.NewGitStore(repoURL, "main")
+	if err != nil {
+		t.Fatalf("NewGitStore(raw): %v", err)
+	}
+	snap, err := gs.ReadSubtree(ctx, ".aiarch/state", fwgithub.GitAuth{Local: true})
+	if err != nil {
+		t.Fatalf("ReadSubtree: %v", err)
+	}
+	raw, ok := snap.Files["project.json"]
+	if !ok {
+		t.Fatal("project.json not committed to the repo")
+	}
+	if !strings.Contains(string(raw), "\"id\": \""+identity+"\"") {
+		t.Fatalf("project.json `id` is not the identity verbatim: %s", string(raw))
+	}
+	if strings.Contains(string(raw), "aiarch-"+identity) {
+		t.Fatalf("project.json `id` carries the dropped aiarch- prefix: %s", string(raw))
 	}
 }
 
@@ -1638,6 +1645,19 @@ func TestProjectEnvelope_RoundTrip_PreservesSlotFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EncodeProject: %v", err)
 	}
+	assertMissionSlotFieldsEncoded(t, env)
+
+	back, err := env.Decode()
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	assertMissionSlotFieldsDecoded(t, back)
+}
+
+// assertMissionSlotFieldsEncoded asserts the encoded envelope's Mission slot carries
+// the review-state fields verbatim.
+func assertMissionSlotFieldsEncoded(t *testing.T, env ProjectEnvelope) {
+	t.Helper()
 	se, ok := env.Slots[KindMission]
 	if !ok {
 		t.Fatal("Mission slot must be present in the encoded envelope")
@@ -1651,11 +1671,12 @@ func TestProjectEnvelope_RoundTrip_PreservesSlotFields(t *testing.T) {
 	if len(se.ReviewThread) != 1 || se.ReviewThread[0].ID != "r0c1" {
 		t.Fatalf("ReviewThread must survive encoding, got %+v", se.ReviewThread)
 	}
+}
 
-	back, err := env.Decode()
-	if err != nil {
-		t.Fatalf("Decode: %v", err)
-	}
+// assertMissionSlotFieldsDecoded asserts the decoded Project's Mission slot carries the
+// review-state fields and the concretely typed model after the round trip.
+func assertMissionSlotFieldsDecoded(t *testing.T, back Project) {
+	t.Helper()
 	if back.Mission.Status != ReviewAwaitingReview || back.Mission.Notes != "reviewer notes" {
 		t.Fatalf("Status/Notes must survive the round trip, got %+v", back.Mission)
 	}
@@ -1840,6 +1861,15 @@ func TestProjectEnvelope_ConstructionSections_RoundTrip(t *testing.T) {
 		t.Fatalf("Decode: %v", err)
 	}
 
+	assertConstructionActivityStatusSurvived(t, back)
+	assertConstructionContractsAndPolicySurvived(t, back)
+	assertCommittedNetworkAndActivityListSlots(t, back)
+}
+
+// assertConstructionActivityStatusSurvived asserts the ActivityConstruction section
+// round-tripped field-for-field.
+func assertConstructionActivityStatusSurvived(t *testing.T, back Project) {
+	t.Helper()
 	// ActivityConstruction — field-for-field.
 	acs, ok := back.ActivityConstruction["C-A"]
 	if !ok {
@@ -1851,7 +1881,12 @@ func TestProjectEnvelope_ConstructionSections_RoundTrip(t *testing.T) {
 	if len(acs.Phases) != 2 || !acs.Phases[0].Completed || acs.Phases[1].Completed {
 		t.Fatalf("per-phase completion facts must survive verbatim, got %+v", acs.Phases)
 	}
+}
 
+// assertConstructionContractsAndPolicySurvived asserts the ServiceContracts and
+// ReviewPolicy sections round-tripped.
+func assertConstructionContractsAndPolicySurvived(t *testing.T, back Project) {
+	t.Helper()
 	// ServiceContracts — the pump's hydrate/resolve input.
 	sc, ok := back.ServiceContracts["ordersManager"]
 	if !ok || sc.Component != "ordersManager" || sc.Layer != "Manager" {
@@ -1862,7 +1897,12 @@ func TestProjectEnvelope_ConstructionSections_RoundTrip(t *testing.T) {
 	if !back.ReviewPolicy.RequiresHuman("service", MethodPhaseDetailedDesign) {
 		t.Fatalf("ReviewPolicy gating must survive the round trip, got %+v", back.ReviewPolicy)
 	}
+}
 
+// assertCommittedNetworkAndActivityListSlots asserts the committed Network/ActivityList
+// slots round-tripped status-faithful with concretely typed models.
+func assertCommittedNetworkAndActivityListSlots(t *testing.T, back Project) {
+	t.Helper()
 	// Committed Network/ActivityList slots — the former construction codec restored
 	// these as ReviewCommitted with concrete models; the Slots round-trip must do the
 	// same so nextEligibleActivity's committed-slot guards and type assertions pass.
@@ -2113,39 +2153,17 @@ func TestRecordActivity_RequireExistingProject(t *testing.T) {
 	}
 }
 
-// TestRecordActivity_ConcurrentDifferentActivitiesConverge — THE partial-map-key
-// invariant (GIT.4). Two writers record on DIFFERENT activityIds from the SAME base
-// version. One wins fast-forward; the loser is rejected non-fast-forward
-// (fwra.Conflict / ErrRefCASLost), reloads HEAD, and re-applies. BOTH activity rows
-// survive — neither clobbers the other (the closure mutates one map key, leaving the
-// rest byte-identical).
-func TestRecordActivity_ConcurrentDifferentActivitiesConverge(t *testing.T) {
-	now := time.Date(2026, 6, 12, 10, 0, 0, 0, time.UTC)
-	store, id, base, cred, ctx := newActivityStore(t, now)
+// casRaceOutcome is one writer's result in a two-writer ref-CAS race test.
+type casRaceOutcome struct {
+	who string
+	v   Version
+	err error
+}
 
-	type outcome struct {
-		who string
-		v   Version
-		err error
-	}
-	results := make(chan outcome, 2)
-	var wg sync.WaitGroup
-	wg.Add(2)
-
-	go func() {
-		defer wg.Done()
-		v, e := store.RecordActivityBranchOpened(fwra.Context{Context: ctx}, id, base, "C-MST", "b-mst", "ref-mst", "pr-1", "", false, cred, "wf:A")
-		results <- outcome{"A-CMST", v, e}
-	}()
-	go func() {
-		defer wg.Done()
-		v, e := store.RecordActivityBranchOpened(fwra.Context{Context: ctx}, id, base, "C-UC1", "b-uc1", "ref-uc1", "pr-2", "", false, cred, "wf:B")
-		results <- outcome{"B-CUC1", v, e}
-	}()
-	wg.Wait()
-	close(results)
-
-	var winner, loser outcome
+// splitCASRaceOutcomes drains the two-writer results channel and returns the CAS
+// winner and loser, failing unless exactly one writer won and one lost.
+func splitCASRaceOutcomes(t *testing.T, results chan casRaceOutcome) (winner, loser casRaceOutcome) {
+	t.Helper()
 	gotWinner := false
 	for r := range results {
 		if r.err == nil {
@@ -2159,8 +2177,42 @@ func TestRecordActivity_ConcurrentDifferentActivitiesConverge(t *testing.T) {
 		t.Fatal("expected exactly one CAS winner, both lost")
 	}
 	if loser.who == "" {
+		// Both succeeded would mean a lost update (the file transport serialized
+		// without contention). Force the contention deterministically below if that
+		// ever happens; for a true race we require a loser.
 		t.Fatal("expected one CAS loser (non-fast-forward), both won — LOST UPDATE")
 	}
+	return winner, loser
+}
+
+// TestRecordActivity_ConcurrentDifferentActivitiesConverge — THE partial-map-key
+// invariant (GIT.4). Two writers record on DIFFERENT activityIds from the SAME base
+// version. One wins fast-forward; the loser is rejected non-fast-forward
+// (fwra.Conflict / ErrRefCASLost), reloads HEAD, and re-applies. BOTH activity rows
+// survive — neither clobbers the other (the closure mutates one map key, leaving the
+// rest byte-identical).
+func TestRecordActivity_ConcurrentDifferentActivitiesConverge(t *testing.T) {
+	now := time.Date(2026, 6, 12, 10, 0, 0, 0, time.UTC)
+	store, id, base, cred, ctx := newActivityStore(t, now)
+
+	results := make(chan casRaceOutcome, 2)
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		v, e := store.RecordActivityBranchOpened(fwra.Context{Context: ctx}, id, base, "C-MST", "b-mst", "ref-mst", "pr-1", "", false, cred, "wf:A")
+		results <- casRaceOutcome{"A-CMST", v, e}
+	}()
+	go func() {
+		defer wg.Done()
+		v, e := store.RecordActivityBranchOpened(fwra.Context{Context: ctx}, id, base, "C-UC1", "b-uc1", "ref-uc1", "pr-2", "", false, cred, "wf:B")
+		results <- casRaceOutcome{"B-CUC1", v, e}
+	}()
+	wg.Wait()
+	close(results)
+
+	winner, loser := splitCASRaceOutcomes(t, results)
 	if winner.v != base+1 {
 		t.Fatalf("winner landed at version %d, want base+1 (%d)", winner.v, base+1)
 	}
@@ -2731,6 +2783,26 @@ func TestGitStore_SetResearchInput_WritesFilesAndPointer(t *testing.T) {
 	}
 
 	// The corpus CONTENT lives as a file at .aiarch/state/research/<slug>.txt.
+	assertResearchCorpusFileOnDisk(ctx, t, raw, body)
+
+	// CARRY-FORWARD: an unrelated mutation (stage a mission) must NOT wipe the corpus file.
+	stageUnrelatedMutationAssertCorpusSurvives(ctx, t, store, raw, id, cred, v2, body, wantPath)
+
+	// IDEMPOTENT RETRY: re-running with the SAME key dedups to the original result version
+	// (the ledger probe wins, ignoring the now-stale expectedVersion) — no double-write.
+	vAgain, err := store.SetResearchInput(ctx, id, 999, research, cred, "wf:research")
+	if err != nil {
+		t.Fatalf("idempotent retry SetResearchInput: %v", err)
+	}
+	if vAgain != v2 {
+		t.Fatalf("idempotent retry must dedup to the original result version %d, got %d", v2, vAgain)
+	}
+}
+
+// assertResearchCorpusFileOnDisk asserts the corpus CONTENT lives as a file under
+// .aiarch/state/research/ and does NOT appear inside project.json (F42).
+func assertResearchCorpusFileOnDisk(ctx context.Context, t *testing.T, raw *fwgithub.GitStore, body string) {
+	t.Helper()
 	snap, err := raw.ReadSubtree(ctx, ".aiarch/state", fwgithub.GitAuth{Local: true})
 	if err != nil {
 		t.Fatalf("raw ReadSubtree: %v", err)
@@ -2746,9 +2818,13 @@ func TestGitStore_SetResearchInput_WritesFilesAndPointer(t *testing.T) {
 	if pj, ok := snap.Files["project.json"]; ok && bytes.Contains(pj, []byte(body)) {
 		t.Fatal("corpus content leaked into project.json — F42 requires it live only in the file")
 	}
+}
 
-	// CARRY-FORWARD: an unrelated mutation (stage a mission) must NOT wipe the corpus file.
-	if _, err := store.StageArtifactForReview(ctx, id, v2, &MissionStatement{Vision: "v", Mission: "m"}, cred, "wf:stage"); err != nil {
+// stageUnrelatedMutationAssertCorpusSurvives stages a mission (an unrelated mutation)
+// and asserts the corpus file and the research pointer both survive (carry-forward).
+func stageUnrelatedMutationAssertCorpusSurvives(ctx context.Context, t *testing.T, store *GitStore, raw *fwgithub.GitStore, id ProjectID, cred RepoCredential, v Version, body, wantPath string) {
+	t.Helper()
+	if _, err := store.StageArtifactForReview(ctx, id, v, &MissionStatement{Vision: "v", Mission: "m"}, cred, "wf:stage"); err != nil {
 		t.Fatalf("StageArtifactForReview: %v", err)
 	}
 	snap2, err := raw.ReadSubtree(ctx, ".aiarch/state", fwgithub.GitAuth{Local: true})
@@ -2761,16 +2837,6 @@ func TestGitStore_SetResearchInput_WritesFilesAndPointer(t *testing.T) {
 	after, _ := store.ReadProject(fwra.Context{Context: ctx}, id, cred)
 	if len(after.Research.Sources) != 1 || after.Research.Sources[0].Path != wantPath {
 		t.Fatalf("the research pointer must survive an unrelated mutation, got %+v", after.Research)
-	}
-
-	// IDEMPOTENT RETRY: re-running with the SAME key dedups to the original result version
-	// (the ledger probe wins, ignoring the now-stale expectedVersion) — no double-write.
-	vAgain, err := store.SetResearchInput(ctx, id, 999, research, cred, "wf:research")
-	if err != nil {
-		t.Fatalf("idempotent retry SetResearchInput: %v", err)
-	}
-	if vAgain != v2 {
-		t.Fatalf("idempotent retry must dedup to the original result version %d, got %d", v2, vAgain)
 	}
 }
 
@@ -3059,12 +3125,7 @@ func TestRefCasVsConcurrentWriter(t *testing.T) {
 	// Both writers observe the SAME base version (v2).
 	base := v2
 
-	type outcome struct {
-		who string
-		v   Version
-		err error
-	}
-	results := make(chan outcome, 2)
+	results := make(chan casRaceOutcome, 2)
 	var wg sync.WaitGroup
 	wg.Add(2)
 
@@ -3072,38 +3133,19 @@ func TestRefCasVsConcurrentWriter(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		v, e := store.CommitArtifact(ctx, id, base, KindMission, cred, "wf:reconcile-commit")
-		results <- outcome{"A-commit", v, e}
+		results <- casRaceOutcome{"A-commit", v, e}
 	}()
 	// Writer B — operator pause: RecordOperatorPaused at the SAME base.
 	go func() {
 		defer wg.Done()
 		v, e := store.RecordOperatorPaused(fwra.Context{Context: ctx}, id, base, "operator pause", cred, "wf:operator-pause")
-		results <- outcome{"B-pause", v, e}
+		results <- casRaceOutcome{"B-pause", v, e}
 	}()
 	wg.Wait()
 	close(results)
 
-	var winner, loser outcome
-	gotWinner := false
-	for r := range results {
-		if r.err == nil {
-			winner = r
-			gotWinner = true
-		} else {
-			loser = r
-		}
-	}
-
 	// Exactly one writer wins; the other loses the CAS with fwra.Conflict.
-	if !gotWinner {
-		t.Fatal("expected exactly one CAS winner, both lost")
-	}
-	if loser.who == "" {
-		// Both succeeded would mean a lost update (the file transport serialized
-		// without contention). Force the contention deterministically below if that
-		// ever happens; for a true race we require a loser.
-		t.Fatal("expected one CAS loser (non-fast-forward), both won — LOST UPDATE")
-	}
+	winner, loser := splitCASRaceOutcomes(t, results)
 	if k := kindOf(t, loser.err); k != fwra.Conflict {
 		t.Fatalf("loser %s kind = %v, want Conflict", loser.who, k)
 	}
@@ -3149,6 +3191,14 @@ func TestRefCasVsConcurrentWriter(t *testing.T) {
 	// idempotency key with a now-stale expectedVersion: the dedup probe must
 	// short-circuit and return the winner's original resultVersion with no new
 	// commit (no Conflict despite the stale version).
+	assertWinnerKeyDedupsNoDoubleApply(ctx, t, store, id, cred, winner)
+}
+
+// assertWinnerKeyDedupsNoDoubleApply re-passes the CAS winner's idempotency key with a
+// deliberately stale expectedVersion and asserts the applied_mutations dedup probe
+// short-circuits to the winner's original result version with NO second state commit.
+func assertWinnerKeyDedupsNoDoubleApply(ctx context.Context, t *testing.T, store *GitStore, id ProjectID, cred RepoCredential, winner casRaceOutcome) {
+	t.Helper()
 	winnerKey := fwra.IdempotencyKey("wf:reconcile-commit")
 	if winner.who == "B-pause" {
 		winnerKey = "wf:operator-pause"
@@ -3214,52 +3264,18 @@ func TestGitStore_ExternalActionDraftIsReadBack(t *testing.T) {
 			CritiqueNotes:   "tighten the mission scope",
 		},
 	}
-	raw1, err := EncodeProjectJSON(actionState)
-	if err != nil {
-		t.Fatalf("EncodeProjectJSON (simulate Action): %v", err)
-	}
-
 	// Commit it DIRECTLY to `.aiarch/state/project.json` via the raw satellite — the
 	// Action's seam, bypassing every projectStateAccess write verb. Read the current
 	// branch tip first so the CAS base matches (the repo is born with a `main` branch).
-	snap, err := raw.ReadSubtree(ctx, ".aiarch/state", fwgithub.GitAuth{Local: true})
-	if err != nil {
-		t.Fatalf("raw ReadSubtree (observe base): %v", err)
-	}
-	if _, err := raw.CommitSubtree(
-		ctx,
-		".aiarch/state",
-		map[string][]byte{"project.json": raw1},
-		snap.Base, // CAS against the observed tip (the Action's working-tree commit)
-		"action: commit design draft",
-		fwgithub.GitAuth{Local: true},
-	); err != nil {
-		t.Fatalf("raw CommitSubtree (simulate Action draft commit): %v", err)
-	}
+	commitStateBypassingRA(ctx, t, raw, actionState, "simulate Action",
+		"action: commit design draft", "simulate Action draft commit")
 
 	// READ-BACK through the RA's PUBLIC verb — the server's only draft-path touch.
 	proj, err := store.ReadProject(fwra.Context{Context: ctx}, id, cred)
 	if err != nil {
 		t.Fatalf("ReadProject (read-back of external draft): %v", err)
 	}
-
-	if proj.Version != 7 || proj.Phase != PhaseSystemDesign || proj.Owner != "alice" || proj.Name != "ExternallyDrafted" {
-		t.Fatalf("read-back identity = v%d/%v/%s/%s, want v7/SystemDesign/alice/ExternallyDrafted",
-			proj.Version, proj.Phase, proj.Owner, proj.Name)
-	}
-	if proj.Mission.Status != ReviewCommitted {
-		t.Fatalf("read-back mission status = %v, want Committed (the Action committed it)", proj.Mission.Status)
-	}
-	gotMission, ok := proj.Mission.Model.(*MissionStatement)
-	if !ok || gotMission.Vision != "action-vision" || gotMission.Mission != "action-mission" {
-		t.Fatalf("read-back mission model = %+v, want the Action's typed model", proj.Mission.Model)
-	}
-	// The critique carrier the Action committed must round-trip on the read-back —
-	// the C-MSD-Δ-critique-fix first-class carrier, read (not written) server-side.
-	if proj.Mission.CritiqueVerdict != CritiqueVerdictRevise || proj.Mission.CritiqueNotes != "tighten the mission scope" {
-		t.Fatalf("read-back critique carrier = (%q, %q), want (revise, tighten the mission scope)",
-			proj.Mission.CritiqueVerdict, proj.Mission.CritiqueNotes)
-	}
+	gotMission := assertExternalDraftReadBack(t, proj)
 
 	// And the HUMAN-GATE write path still works server-side over the read-back draft:
 	// stage the read-back model for review (the AwaitingReview thin-write), then commit
@@ -3285,6 +3301,58 @@ func TestGitStore_ExternalActionDraftIsReadBack(t *testing.T) {
 		t.Fatalf("human-gate stage must clear the critique carrier; got (%q, %q)",
 			after.Mission.CritiqueVerdict, after.Mission.CritiqueNotes)
 	}
+}
+
+// commitStateBypassingRA encodes state via the canonical EncodeProjectJSON seam and
+// commits it straight to `.aiarch/state/project.json` through the RAW
+// fwgithub.GitStore.CommitSubtree — NOT through any projectStateAccess write verb.
+// The labels parameterize the failure messages so each caller's diagnostics read
+// exactly as before.
+func commitStateBypassingRA(ctx context.Context, t *testing.T, raw *fwgithub.GitStore, state Project, encodeLabel, commitMessage, commitLabel string) {
+	t.Helper()
+	raw1, err := EncodeProjectJSON(state)
+	if err != nil {
+		t.Fatalf("EncodeProjectJSON (%s): %v", encodeLabel, err)
+	}
+	snap, err := raw.ReadSubtree(ctx, ".aiarch/state", fwgithub.GitAuth{Local: true})
+	if err != nil {
+		t.Fatalf("raw ReadSubtree (observe base): %v", err)
+	}
+	if _, err := raw.CommitSubtree(
+		ctx,
+		".aiarch/state",
+		map[string][]byte{"project.json": raw1},
+		snap.Base, // CAS against the observed tip (the Action's working-tree commit)
+		commitMessage,
+		fwgithub.GitAuth{Local: true},
+	); err != nil {
+		t.Fatalf("raw CommitSubtree (%s): %v", commitLabel, err)
+	}
+}
+
+// assertExternalDraftReadBack asserts ReadProject surfaced the externally committed
+// draft whole — identity, status, typed model, and the critique carrier — returning
+// the typed mission for the human-gate follow-on.
+func assertExternalDraftReadBack(t *testing.T, proj Project) *MissionStatement {
+	t.Helper()
+	if proj.Version != 7 || proj.Phase != PhaseSystemDesign || proj.Owner != "alice" || proj.Name != "ExternallyDrafted" {
+		t.Fatalf("read-back identity = v%d/%v/%s/%s, want v7/SystemDesign/alice/ExternallyDrafted",
+			proj.Version, proj.Phase, proj.Owner, proj.Name)
+	}
+	if proj.Mission.Status != ReviewCommitted {
+		t.Fatalf("read-back mission status = %v, want Committed (the Action committed it)", proj.Mission.Status)
+	}
+	gotMission, ok := proj.Mission.Model.(*MissionStatement)
+	if !ok || gotMission.Vision != "action-vision" || gotMission.Mission != "action-mission" {
+		t.Fatalf("read-back mission model = %+v, want the Action's typed model", proj.Mission.Model)
+	}
+	// The critique carrier the Action committed must round-trip on the read-back —
+	// the C-MSD-Δ-critique-fix first-class carrier, read (not written) server-side.
+	if proj.Mission.CritiqueVerdict != CritiqueVerdictRevise || proj.Mission.CritiqueNotes != "tighten the mission scope" {
+		t.Fatalf("read-back critique carrier = (%q, %q), want (revise, tighten the mission scope)",
+			proj.Mission.CritiqueVerdict, proj.Mission.CritiqueNotes)
+	}
+	return gotMission
 }
 
 // TestGitStore_CreateProject_ResumesExistingState proves the PERMISSIVE-RESUME
@@ -3313,24 +3381,10 @@ func TestGitStore_CreateProject_ResumesExistingState(t *testing.T) {
 			Model:  &MissionStatement{Vision: "prior-vision", Mission: "prior-mission"},
 		},
 	}
-	raw1, err := EncodeProjectJSON(priorState)
-	if err != nil {
-		t.Fatalf("EncodeProjectJSON (prior state): %v", err)
-	}
-
 	// Commit it DIRECTLY to `.aiarch/state/project.json` (the prior run's seam), then
 	// run CreateProject against the SAME repo — the resume case.
-	snap, err := raw.ReadSubtree(ctx, ".aiarch/state", fwgithub.GitAuth{Local: true})
-	if err != nil {
-		t.Fatalf("raw ReadSubtree (observe base): %v", err)
-	}
-	if _, err := raw.CommitSubtree(
-		ctx, ".aiarch/state",
-		map[string][]byte{"project.json": raw1},
-		snap.Base, "prior run: commit progress", fwgithub.GitAuth{Local: true},
-	); err != nil {
-		t.Fatalf("raw CommitSubtree (simulate prior progress): %v", err)
-	}
+	commitStateBypassingRA(ctx, t, raw, priorState, "prior state",
+		"prior run: commit progress", "simulate prior progress")
 
 	// CreateProject against the repo that already has committed state → RESUME.
 	// It returns the EXISTING version (5), not 1 (a fresh init) and not an error.
@@ -3344,6 +3398,14 @@ func TestGitStore_CreateProject_ResumesExistingState(t *testing.T) {
 
 	// The existing state SURVIVES (no clobber/reset): read it back and assert the prior
 	// progress — phase, version, committed Mission model — is intact.
+	assertResumedPriorProgressIntact(ctx, t, store, id, cred)
+}
+
+// assertResumedPriorProgressIntact reads the project back after a permissive-resume
+// CreateProject and asserts the prior progress — phase, version, committed Mission
+// model, research pointer — survived unclobbered.
+func assertResumedPriorProgressIntact(ctx context.Context, t *testing.T, store *GitStore, id ProjectID, cred RepoCredential) {
+	t.Helper()
 	got, err := store.ReadProject(fwra.Context{Context: ctx}, id, cred)
 	if err != nil {
 		t.Fatalf("ReadProject after resume: %v", err)
@@ -3858,6 +3920,24 @@ func TestServiceContract_RoundTrip(t *testing.T) {
 		t.Fatal("DecodeProjectJSON: ok=false, want true")
 	}
 
+	assertServiceContractDocSurvived(t, got)
+
+	// BYTE-IDENTICAL second pass: re-encoding the decoded aggregate yields the
+	// identical bytes (the persistence invariant).
+	raw2, err := EncodeProjectJSON(got)
+	if err != nil {
+		t.Fatalf("EncodeProjectJSON (2nd pass): %v", err)
+	}
+	if !bytes.Equal(raw, raw2) {
+		t.Fatalf("round-trip not byte-identical:\n--- first ---\n%s\n--- second ---\n%s", raw, raw2)
+	}
+}
+
+// assertServiceContractDocSurvived asserts the ServiceContracts["artifactAccess"]
+// contract document round-tripped intact — component identity, $defs, and the
+// interface's operations with their params and result.
+func assertServiceContractDocSurvived(t *testing.T, got Project) {
+	t.Helper()
 	sc, found := got.ServiceContracts["artifactAccess"]
 	if !found {
 		t.Fatal("ServiceContracts[artifactAccess] absent after round-trip")
@@ -3886,16 +3966,6 @@ func TestServiceContract_RoundTrip(t *testing.T) {
 	}
 	if len(read.Result) == 0 {
 		t.Fatal("Operations[1].Result absent after round-trip")
-	}
-
-	// BYTE-IDENTICAL second pass: re-encoding the decoded aggregate yields the
-	// identical bytes (the persistence invariant).
-	raw2, err := EncodeProjectJSON(got)
-	if err != nil {
-		t.Fatalf("EncodeProjectJSON (2nd pass): %v", err)
-	}
-	if !bytes.Equal(raw, raw2) {
-		t.Fatalf("round-trip not byte-identical:\n--- first ---\n%s\n--- second ---\n%s", raw, raw2)
 	}
 }
 
@@ -4040,6 +4110,14 @@ func TestProjectDoc_PhaseArtifacts_RoundTrip(t *testing.T) {
 		t.Fatal("decodeProjectDoc: project not found")
 	}
 
+	assertProjectDocPhaseArtifacts(t, got)
+	assertProjectDocTestingState(t, got)
+}
+
+// assertProjectDocPhaseArtifacts asserts the PhaseArtifacts round-trip through the
+// projectDoc codec.
+func assertProjectDocPhaseArtifacts(t *testing.T, got Project) {
+	t.Helper()
 	// PhaseArtifacts round-trip
 	if got.PhaseArtifacts == nil {
 		t.Fatal("PhaseArtifacts is nil after round-trip")
@@ -4056,7 +4134,12 @@ func TestProjectDoc_PhaseArtifacts_RoundTrip(t *testing.T) {
 	if got.PhaseArtifacts.DocOutline["api-guide"].Content != "outline" {
 		t.Errorf("PhaseArtifacts.DocOutline content mismatch")
 	}
+}
 
+// assertProjectDocTestingState asserts the TestingState round-trip through the
+// projectDoc codec.
+func assertProjectDocTestingState(t *testing.T, got Project) {
+	t.Helper()
 	// TestingState round-trip
 	if got.TestingState == nil {
 		t.Fatal("TestingState is nil after round-trip")
@@ -4960,24 +5043,7 @@ func TestCritiqueCarrier_RoundTrip_And_Isolation(t *testing.T) {
 		CritiqueNotes:   "tighten the vision sentence",
 	}
 
-	raw, err := EncodeProjectJSON(p)
-	if err != nil {
-		t.Fatalf("EncodeProjectJSON: %v", err)
-	}
-	// The carrier keys are present on disk under their camelCase JSON names.
-	if !strings.Contains(string(raw), "critiqueVerdict") || !strings.Contains(string(raw), "critiqueNotes") {
-		t.Fatalf("expected critiqueVerdict/critiqueNotes keys in project.json, got:\n%s", raw)
-	}
-	back, ok, err := DecodeProjectJSON(raw, ProjectID("p1"))
-	if err != nil || !ok {
-		t.Fatalf("DecodeProjectJSON: ok=%v err=%v", ok, err)
-	}
-	if back.Mission.CritiqueVerdict != CritiqueVerdictRevise || back.Mission.CritiqueNotes != "tighten the vision sentence" {
-		t.Fatalf("critique carrier did not round-trip: %+v", back.Mission)
-	}
-	if back.Mission.Notes != "" {
-		t.Fatalf("the architect Notes field must stay empty (the critique rode its own carrier), got %q", back.Mission.Notes)
-	}
+	assertCritiqueCarrierRoundTrips(t, p)
 
 	// DECODE-COMPAT: a slot with no critique carrier must NOT emit the keys (omitempty),
 	// so legacy rows + the aiarch-validate decode are byte-identical.
@@ -5003,6 +5069,31 @@ func TestCritiqueCarrier_RoundTrip_And_Isolation(t *testing.T) {
 	}
 	if p.Mission.CritiqueVerdict != "" || p.Mission.CritiqueNotes != "" {
 		t.Fatalf("a status transition must CLEAR the critique carrier, got verdict=%q notes=%q", p.Mission.CritiqueVerdict, p.Mission.CritiqueNotes)
+	}
+}
+
+// assertCritiqueCarrierRoundTrips encodes p through the canonical project.json codec
+// and asserts the critique carrier keys land on disk under their camelCase JSON names
+// and round-trip back typed, with the architect Notes field untouched.
+func assertCritiqueCarrierRoundTrips(t *testing.T, p Project) {
+	t.Helper()
+	raw, err := EncodeProjectJSON(p)
+	if err != nil {
+		t.Fatalf("EncodeProjectJSON: %v", err)
+	}
+	// The carrier keys are present on disk under their camelCase JSON names.
+	if !strings.Contains(string(raw), "critiqueVerdict") || !strings.Contains(string(raw), "critiqueNotes") {
+		t.Fatalf("expected critiqueVerdict/critiqueNotes keys in project.json, got:\n%s", raw)
+	}
+	back, ok, err := DecodeProjectJSON(raw, ProjectID("p1"))
+	if err != nil || !ok {
+		t.Fatalf("DecodeProjectJSON: ok=%v err=%v", ok, err)
+	}
+	if back.Mission.CritiqueVerdict != CritiqueVerdictRevise || back.Mission.CritiqueNotes != "tighten the vision sentence" {
+		t.Fatalf("critique carrier did not round-trip: %+v", back.Mission)
+	}
+	if back.Mission.Notes != "" {
+		t.Fatalf("the architect Notes field must stay empty (the critique rode its own carrier), got %q", back.Mission.Notes)
 	}
 }
 

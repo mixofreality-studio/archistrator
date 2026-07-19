@@ -91,7 +91,7 @@ func (AutoscalerEngineImpl) ProposeDesiredState(
 	}
 
 	strat, ok := strategies[infrastructureKind]
-	if !ok {
+	if !ok || strat == nil {
 		// No strategy compiled in for this infrastructure — never fall back to a
 		// "default" strategy (that would silently scale with the wrong rules).
 		return Decision{}, fweng.New(fweng.InvalidInput,
@@ -167,7 +167,11 @@ type infrastructureStrategy interface {
 // strategies is the compile-time strategy table. It is NOT mutated at runtime
 // (no RegisterStrategy); entries are added by editing this map (autoscalerEngine.md
 // §6 "Strategy axis" — strategy registration is compile-time wiring).
+// InfrastructureKindUnknown is present with an explicit nil so the exhaustive
+// gate proves every enum member has a deliberate entry; nil means "no strategy
+// registered" and takes the same InvalidInput path as an unlisted kind.
 var strategies = map[InfrastructureKind]infrastructureStrategy{
+	InfrastructureKindUnknown:            nil,
 	InfrastructureKindGoTemporalPostgres: goTemporalPostgresStrategy{},
 }
 
@@ -204,7 +208,7 @@ func (goTemporalPostgresStrategy) propose(t Telemetry, cur DesiredState, p Autos
 	}
 
 	// (2) Idle-pause: only when MinReplicas allows scaling to zero.
-	if idlePauseEnabled(p) && t.TimeSinceLastRequest >= p.IdleThreshold && t.RequestsPerSecond == 0 {
+	if idlePauseWarranted(t, p) {
 		return Decision{
 			Kind:   DecisionPause,
 			Reason: DecisionReason{Code: ReasonIdle, Detail: "no traffic for the idle threshold; pausing to zero"},
@@ -212,7 +216,7 @@ func (goTemporalPostgresStrategy) propose(t Telemetry, cur DesiredState, p Autos
 	}
 
 	// (3) SLO protection — burning/out-of-budget warrants headroom.
-	if t.SLOStatus == SLOBurningBudget || t.SLOStatus == SLOOutOfBudget {
+	if sloBudgetAtRisk(t) {
 		if cur.Replicas < p.MaxReplicas {
 			return scaleUp(cur, p, ReasonSLOBurnDown, "error budget burning; scaling up for headroom")
 		}
@@ -220,7 +224,7 @@ func (goTemporalPostgresStrategy) propose(t Telemetry, cur DesiredState, p Autos
 	}
 
 	// (4) CPU-high.
-	if p.ScaleUpCPU > 0 && t.CPUUtilization >= p.ScaleUpCPU {
+	if cpuHigh(t, p) {
 		if cur.Replicas < p.MaxReplicas {
 			return scaleUp(cur, p, ReasonCPUHigh, "CPU at/above the scale-up threshold")
 		}
@@ -230,7 +234,7 @@ func (goTemporalPostgresStrategy) propose(t Telemetry, cur DesiredState, p Autos
 	// (5) CPU-sustained-low (anti-flap via the grace window the Manager has already
 	// satisfied: TimeSinceLastRequest is traffic-idle time; for CPU-low we require
 	// the low CPU to have persisted at least ScaleDownGrace since the last decision).
-	if p.ScaleDownCPU > 0 && t.CPUUtilization < p.ScaleDownCPU && lowCPUSustained(t, cur, p) {
+	if cpuSustainedLow(t, cur, p) {
 		if cur.Replicas > p.MinReplicas {
 			return scaleDown(cur, p, ReasonCPUSustainedLow, "CPU sustained below the scale-down threshold")
 		}
@@ -251,6 +255,32 @@ func trafficResumed(t Telemetry) bool {
 // (IdleThreshold == 0 disables idle-pause per the policy contract).
 func idlePauseEnabled(p AutoscalerPolicy) bool {
 	return p.MinReplicas == 0 && p.IdleThreshold > 0
+}
+
+// idlePauseWarranted reports whether the idle-pause rule fires: the policy
+// permits idle-pause AND the app has been traffic-idle for at least the
+// threshold with no requests flowing right now.
+func idlePauseWarranted(t Telemetry, p AutoscalerPolicy) bool {
+	return idlePauseEnabled(p) && t.TimeSinceLastRequest >= p.IdleThreshold && t.RequestsPerSecond == 0
+}
+
+// sloBudgetAtRisk reports whether the SLO status warrants protective headroom
+// (error budget burning or already exhausted).
+func sloBudgetAtRisk(t Telemetry) bool {
+	return t.SLOStatus == SLOBurningBudget || t.SLOStatus == SLOOutOfBudget
+}
+
+// cpuHigh reports whether CPU is at/above the scale-up threshold (a zero
+// ScaleUpCPU disables the rule per the policy contract).
+func cpuHigh(t Telemetry, p AutoscalerPolicy) bool {
+	return p.ScaleUpCPU > 0 && t.CPUUtilization >= p.ScaleUpCPU
+}
+
+// cpuSustainedLow reports whether CPU is below the scale-down threshold AND has
+// stayed there through the anti-flap grace window (a zero ScaleDownCPU disables
+// the rule per the policy contract).
+func cpuSustainedLow(t Telemetry, cur DesiredState, p AutoscalerPolicy) bool {
+	return p.ScaleDownCPU > 0 && t.CPUUtilization < p.ScaleDownCPU && lowCPUSustained(t, cur, p)
 }
 
 // lowCPUSustained reports whether low CPU has persisted long enough to justify a

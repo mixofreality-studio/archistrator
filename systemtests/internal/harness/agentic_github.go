@@ -415,7 +415,21 @@ func (f *AgenticGitHub) handle(w http.ResponseWriter, r *http.Request) {
 	f.requests = append(f.requests, r.Method+" "+r.URL.Path)
 	f.mu.Unlock()
 
+	// Per-resource route helpers, tried in the same order the original single
+	// switch evaluated its cases; each returns true when it handled the request.
 	p := r.URL.Path
+	handled := f.routeAppAuth(w, r, p) ||
+		f.routeRepoBirth(w, r, p) ||
+		f.routeBranchRefs(w, r, p) ||
+		f.routeActions(w, r, p, body) ||
+		f.routePullRail(w, r, p, body)
+	if !handled {
+		writeJSONResp(w, 404, map[string]any{"message": "agentic-fake: no route for " + r.Method + " " + p})
+	}
+}
+
+// routeAppAuth serves the GitHub App installation + installation-token endpoints.
+func (f *AgenticGitHub) routeAppAuth(w http.ResponseWriter, r *http.Request, p string) bool {
 	switch {
 	case r.Method == http.MethodGet && reInstallations.MatchString(p):
 		writeJSONResp(w, 200, []map[string]any{{"id": 999, "account": map[string]any{"login": f.account}}})
@@ -424,8 +438,16 @@ func (f *AgenticGitHub) handle(w http.ResponseWriter, r *http.Request) {
 			"token":      "ghs-fake-installation-token",
 			"expires_at": time.Now().Add(time.Hour).UTC().Format(time.RFC3339),
 		})
+	default:
+		return false
+	}
+	return true
+}
 
-	// --- adopt + workflow-file seat (project birth) ---
+// routeRepoBirth serves the adopt + workflow-file seat (project birth) endpoints:
+// repo metadata, topics, contents, branch protection.
+func (f *AgenticGitHub) routeRepoBirth(w http.ResponseWriter, r *http.Request, p string) bool {
+	switch {
 	case r.Method == http.MethodGet && reRepoMeta.MatchString(p):
 		m := reRepoMeta.FindStringSubmatch(p)
 		writeJSONResp(w, 200, map[string]any{
@@ -438,8 +460,15 @@ func (f *AgenticGitHub) handle(w http.ResponseWriter, r *http.Request) {
 		f.handleContents(w, r.Method)
 	case r.Method == http.MethodPut && reProtection.MatchString(p):
 		writeJSONResp(w, 200, map[string]any{})
+	default:
+		return false
+	}
+	return true
+}
 
-	// --- PR rail: branch refs ---
+// routeBranchRefs serves the PR rail's branch-ref endpoints.
+func (f *AgenticGitHub) routeBranchRefs(w http.ResponseWriter, r *http.Request, p string) bool {
+	switch {
 	case r.Method == http.MethodPost && reGitRefs.MatchString(p):
 		// CreateBranch. The agentic-job commit (on dispatch) creates the real branch;
 		// here just report idempotent success.
@@ -447,8 +476,15 @@ func (f *AgenticGitHub) handle(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && reGitRef.MatchString(p):
 		m := reGitRef.FindStringSubmatch(p)
 		writeJSONResp(w, 200, map[string]any{"ref": "refs/" + m[3], "object": map[string]any{"sha": "mainsha"}})
+	default:
+		return false
+	}
+	return true
+}
 
-	// --- Actions: dispatch + observe ---
+// routeActions serves the Actions dispatch + observe endpoints.
+func (f *AgenticGitHub) routeActions(w http.ResponseWriter, r *http.Request, p string, body []byte) bool {
+	switch {
 	case r.Method == http.MethodPost && reAgDispatch.MatchString(p):
 		m := reAgDispatch.FindStringSubmatch(p)
 		f.handleDispatch(w, body, DispatchTarget{Owner: m[1], Repo: m[2], WorkflowFile: m[3]})
@@ -456,8 +492,15 @@ func (f *AgenticGitHub) handle(w http.ResponseWriter, r *http.Request) {
 		f.handleListRuns(w)
 	case r.Method == http.MethodGet && reAgGetRun.MatchString(p):
 		f.handleGetRun(w, reAgGetRun.FindStringSubmatch(p)[3])
+	default:
+		return false
+	}
+	return true
+}
 
-	// --- PR rail: pulls / status / reviews / merge ---
+// routePullRail serves the PR rail: pulls / status / reviews / merge.
+func (f *AgenticGitHub) routePullRail(w http.ResponseWriter, r *http.Request, p string, body []byte) bool {
+	switch {
 	case r.Method == http.MethodPost && rePulls.MatchString(p):
 		f.handleOpenPR(w, body)
 	case r.Method == http.MethodGet && rePulls.MatchString(p):
@@ -472,10 +515,10 @@ func (f *AgenticGitHub) handle(w http.ResponseWriter, r *http.Request) {
 		f.handlePostReview(w, rePullReviews.FindStringSubmatch(p)[3])
 	case r.Method == http.MethodPut && rePullMerge.MatchString(p):
 		f.handleMerge(w, rePullMerge.FindStringSubmatch(p)[3])
-
 	default:
-		writeJSONResp(w, 404, map[string]any{"message": "agentic-fake: no route for " + r.Method + " " + p})
+		return false
 	}
+	return true
 }
 
 func (f *AgenticGitHub) handleContents(w http.ResponseWriter, method string) {

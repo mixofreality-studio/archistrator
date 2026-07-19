@@ -139,6 +139,14 @@ func TestRecordThenReadRange_AppendOrder(t *testing.T) {
 	if len(got) != 3 {
 		t.Fatalf("expected 3 facts, got %d", len(got))
 	}
+	assertUnifiedLogReplayFacts(t, got, refs1, refs2, app)
+}
+
+// assertUnifiedLogReplayFacts asserts the re-read facts replay in append order with
+// seam-set Ref/RecordedAt, correlate with the write refs, and round-trip the token
+// fact's absent operated app.
+func assertUnifiedLogReplayFacts(t *testing.T, got []usage.UsageEvent, refs1, refs2 []usage.EntryRef, app uuid.UUID) {
+	t.Helper()
 	wantOrder := []usage.RuntimeEventID{"ev-token-1", "ev-compute-1", "ev-final-1"}
 	for i, want := range wantOrder {
 		if got[i].RuntimeEventID != want {

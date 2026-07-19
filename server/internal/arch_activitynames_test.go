@@ -289,7 +289,7 @@ func x() {
 // Register*WithOptions, so it passes this checker without needing an
 // exemption.
 func TestNoHandTemporalStringActivityNames(t *testing.T) {
-	root := filepath.Join("manager")
+	root := "manager"
 	files := map[string]string{}
 
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {

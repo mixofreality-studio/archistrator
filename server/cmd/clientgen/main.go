@@ -82,14 +82,7 @@ func main() {
 	if err != nil {
 		fatal("read %s: %v", path, err)
 	}
-	var top map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &top); err != nil {
-		fatal("parse %s: %v", path, err)
-	}
-	var contracts map[string]json.RawMessage
-	if err := json.Unmarshal(top["serviceContracts"], &contracts); err != nil {
-		fatal("parse .serviceContracts in %s: %v", path, err)
-	}
+	contracts := parseContracts(path, raw)
 
 	// Deterministic order.
 	keys := append([]string(nil), exposedManagers...)
@@ -97,67 +90,8 @@ func main() {
 
 	// Accumulate the per-contract OpenAPI docs for the final merge.
 	oasDocs := make([]contractOAS, 0, len(keys))
-
 	for _, key := range keys {
-		entry, ok := contracts[key]
-		if !ok {
-			fatal("contract %q not found in .serviceContracts", key)
-		}
-		var meta contractEntry
-		if err := json.Unmarshal(entry, &meta); err != nil {
-			fatal("contract %q: parse metadata: %v", key, err)
-		}
-		if meta.GoPackage == "" {
-			fatal("contract %q has no goPackage", key)
-		}
-		pkg := lastSegment(meta.GoPackage)
-		managerImport := serverModule + "/" + meta.GoPackage
-
-		// --- REST handlers + OpenAPI (http generator) ---
-		hdoc, err := projectmodel.Parse(entry)
-		if err != nil {
-			fatal("contract %q: http parse: %v", key, err)
-		}
-		hres, err := httpgen.Generate(hdoc, httpgen.Options{
-			Package:       pkg,
-			ManagerImport: managerImport,
-		})
-		if err != nil {
-			fatal("contract %q: httpgen: %v", key, err)
-		}
-		base := projectmodel.Kebab(hdoc.ManagerBase())
-		webDir := filepath.Join(webRoot, pkg)
-		mustMkdir(webDir)
-		mustWrite(filepath.Join(webDir, base+"_handlers.gen.go"), hres.HandlersGo)
-
-		var oasDoc map[string]any
-		if err := yaml.Unmarshal(hres.OpenAPIYAML, &oasDoc); err != nil {
-			fatal("contract %q: decode generated OpenAPI: %v", key, err)
-		}
-		oasDocs = append(oasDocs, contractOAS{prefix: hdoc.ManagerBase(), doc: oasDoc})
-
-		// --- MCP tools (in-repo mcpemit generator) ---
-		var ifaceMeta struct {
-			Interface struct {
-				Name string `json:"name"`
-			} `json:"interface"`
-		}
-		if err := json.Unmarshal(entry, &ifaceMeta); err != nil {
-			fatal("contract %q: parse interface name: %v", key, err)
-		}
-		mres, err := mcpemit.Generate(entry, mcpemit.Options{
-			Package:       pkg,
-			ManagerImport: managerImport,
-			OpDoc:         opDocFor(ifaceMeta.Interface.Name),
-		})
-		if err != nil {
-			fatal("contract %q: mcpemit: %v", key, err)
-		}
-		mcpDir := filepath.Join(mcpRoot, pkg)
-		mustMkdir(mcpDir)
-		mustWrite(filepath.Join(mcpDir, base+"_tools.gen.go"), mres.ToolsGo)
-
-		fmt.Printf("generated client layer for %s (pkg %s)\n", key, pkg)
+		oasDocs = append(oasDocs, generateContract(contracts, key))
 	}
 
 	// --- component-agnostic wiring (auth middleware + NewServer), once ---
@@ -181,6 +115,85 @@ func main() {
 	mustMkdir(filepath.Dir(oasPath))
 	mustWrite(oasPath, out)
 	fmt.Printf("merged OpenAPI -> %s\n", oasPath)
+}
+
+// parseContracts decodes the head-state document bytes and returns its
+// .serviceContracts entries (any failure is fatal — this is a developer-run
+// codegen driver; path is only for error messages).
+func parseContracts(path string, raw []byte) map[string]json.RawMessage {
+	var top map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &top); err != nil {
+		fatal("parse %s: %v", path, err)
+	}
+	var contracts map[string]json.RawMessage
+	if err := json.Unmarshal(top["serviceContracts"], &contracts); err != nil {
+		fatal("parse .serviceContracts in %s: %v", path, err)
+	}
+	return contracts
+}
+
+// generateContract emits one manager's REST handlers and MCP tools and returns
+// its OpenAPI document for the final merge (any failure is fatal).
+func generateContract(contracts map[string]json.RawMessage, key string) contractOAS {
+	entry, ok := contracts[key]
+	if !ok {
+		fatal("contract %q not found in .serviceContracts", key)
+	}
+	var meta contractEntry
+	if err := json.Unmarshal(entry, &meta); err != nil {
+		fatal("contract %q: parse metadata: %v", key, err)
+	}
+	if meta.GoPackage == "" {
+		fatal("contract %q has no goPackage", key)
+	}
+	pkg := lastSegment(meta.GoPackage)
+	managerImport := serverModule + "/" + meta.GoPackage
+
+	// --- REST handlers + OpenAPI (http generator) ---
+	hdoc, err := projectmodel.Parse(entry)
+	if err != nil {
+		fatal("contract %q: http parse: %v", key, err)
+	}
+	hres, err := httpgen.Generate(hdoc, httpgen.Options{
+		Package:       pkg,
+		ManagerImport: managerImport,
+	})
+	if err != nil {
+		fatal("contract %q: httpgen: %v", key, err)
+	}
+	base := projectmodel.Kebab(hdoc.ManagerBase())
+	webDir := filepath.Join(webRoot, pkg)
+	mustMkdir(webDir)
+	mustWrite(filepath.Join(webDir, base+"_handlers.gen.go"), hres.HandlersGo)
+
+	var oasDoc map[string]any
+	if err := yaml.Unmarshal(hres.OpenAPIYAML, &oasDoc); err != nil {
+		fatal("contract %q: decode generated OpenAPI: %v", key, err)
+	}
+
+	// --- MCP tools (in-repo mcpemit generator) ---
+	var ifaceMeta struct {
+		Interface struct {
+			Name string `json:"name"`
+		} `json:"interface"`
+	}
+	if err := json.Unmarshal(entry, &ifaceMeta); err != nil {
+		fatal("contract %q: parse interface name: %v", key, err)
+	}
+	mres, err := mcpemit.Generate(entry, mcpemit.Options{
+		Package:       pkg,
+		ManagerImport: managerImport,
+		OpDoc:         opDocFor(ifaceMeta.Interface.Name),
+	})
+	if err != nil {
+		fatal("contract %q: mcpemit: %v", key, err)
+	}
+	mcpDir := filepath.Join(mcpRoot, pkg)
+	mustMkdir(mcpDir)
+	mustWrite(filepath.Join(mcpDir, base+"_tools.gen.go"), mres.ToolsGo)
+
+	fmt.Printf("generated client layer for %s (pkg %s)\n", key, pkg)
+	return contractOAS{prefix: hdoc.ManagerBase(), doc: oasDoc}
 }
 
 // contractOAS pairs a per-contract OpenAPI document with its manager-base prefix

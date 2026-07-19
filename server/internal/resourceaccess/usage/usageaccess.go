@@ -142,10 +142,30 @@ func (s *postgresUsageAccess) appendBatch(ctx context.Context, op string, events
 	}
 	defer func() { _ = tx.Rollback(ctx) }() // no-op after a successful Commit; error intentionally ignored
 
-	// PASS 1 — batched appends. A row that came back carries the new entry_id;
-	// a conflict (duplicate runtime event id) yields no row and is resolved in
-	// pass 2. An in-batch duplicate behaves identically: the first occurrence
-	// inserts, the second conflicts against it inside the same transaction.
+	duplicates, err := appendPass1(ctx, tx, op, events, refs)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(duplicates) > 0 {
+		if err := resolveDuplicatesPass2(ctx, tx, op, events, duplicates, refs); err != nil {
+			return nil, err
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fwpg.MapError(err, op+": commit")
+	}
+	return refs, nil
+}
+
+// appendPass1 is appendBatch's PASS 1 — batched appends. A row that came back
+// carries the new entry_id (written into refs at that row's position); a
+// conflict (duplicate runtime event id) yields no row and its index is returned
+// for pass 2 to resolve. An in-batch duplicate behaves identically: the first
+// occurrence inserts, the second conflicts against it inside the same
+// transaction.
+func appendPass1(ctx context.Context, tx pgx.Tx, op string, events []UsageEvent, refs []EntryRef) ([]int, error) {
 	ins := &pgx.Batch{}
 	for i := range events {
 		ev := &events[i]
@@ -160,59 +180,45 @@ func (s *postgresUsageAccess) appendBatch(ctx context.Context, op string, events
 			ev.WindowStart, ev.WindowEnd, ev.OccurredAt,
 		)
 	}
-	duplicates, err := func() ([]int, error) {
-		br := tx.SendBatch(ctx, ins)
-		defer func() { _ = br.Close() }()
-		var dups []int
-		for i := range events {
-			var id int64
-			scanErr := br.QueryRow().Scan(&id)
-			switch {
-			case scanErr == nil:
-				refs[i] = entryRef(id)
-			case errors.Is(scanErr, pgx.ErrNoRows):
-				dups = append(dups, i)
-			default:
-				return nil, fwpg.MapError(scanErr, fmt.Sprintf("%s: append event %d", op, i))
-			}
+	br := tx.SendBatch(ctx, ins)
+	defer func() { _ = br.Close() }()
+	var dups []int
+	for i := range events {
+		var id int64
+		scanErr := br.QueryRow().Scan(&id)
+		switch {
+		case scanErr == nil:
+			refs[i] = entryRef(id)
+		case errors.Is(scanErr, pgx.ErrNoRows):
+			dups = append(dups, i)
+		default:
+			return nil, fwpg.MapError(scanErr, fmt.Sprintf("%s: append event %d", op, i))
 		}
-		return dups, nil
-	}()
-	if err != nil {
-		return nil, err
 	}
+	return dups, nil
+}
 
-	// PASS 2 — resolve each duplicate to the already-recorded entry's ref.
-	if len(duplicates) > 0 {
-		sel := &pgx.Batch{}
-		for _, i := range duplicates {
-			sel.Queue(selectExistingSQL, string(events[i].RuntimeEventID))
-		}
-		err = func() error {
-			br := tx.SendBatch(ctx, sel)
-			defer func() { _ = br.Close() }()
-			for _, i := range duplicates {
-				var id int64
-				if scanErr := br.QueryRow().Scan(&id); scanErr != nil {
-					// The UNIQUE conflict proved the row exists and committed
-					// (DO NOTHING waits out an in-flight writer), so absence here
-					// is a store fault, not a caller condition.
-					return fwpg.MapError(scanErr, fmt.Sprintf(
-						"%s: resolve prior entry for duplicate runtime event id %q", op, events[i].RuntimeEventID))
-				}
-				refs[i] = entryRef(id)
-			}
-			return nil
-		}()
-		if err != nil {
-			return nil, err
-		}
+// resolveDuplicatesPass2 is appendBatch's PASS 2 — resolve each duplicate to
+// the already-recorded entry's ref (written into refs at that row's position).
+func resolveDuplicatesPass2(ctx context.Context, tx pgx.Tx, op string, events []UsageEvent, duplicates []int, refs []EntryRef) error {
+	sel := &pgx.Batch{}
+	for _, i := range duplicates {
+		sel.Queue(selectExistingSQL, string(events[i].RuntimeEventID))
 	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return nil, fwpg.MapError(err, op+": commit")
+	br := tx.SendBatch(ctx, sel)
+	defer func() { _ = br.Close() }()
+	for _, i := range duplicates {
+		var id int64
+		if scanErr := br.QueryRow().Scan(&id); scanErr != nil {
+			// The UNIQUE conflict proved the row exists and committed
+			// (DO NOTHING waits out an in-flight writer), so absence here
+			// is a store fault, not a caller condition.
+			return fwpg.MapError(scanErr, fmt.Sprintf(
+				"%s: resolve prior entry for duplicate runtime event id %q", op, events[i].RuntimeEventID))
+		}
+		refs[i] = entryRef(id)
 	}
-	return refs, nil
+	return nil
 }
 
 // ReadRange replays the immutable usage facts in scope, in append order

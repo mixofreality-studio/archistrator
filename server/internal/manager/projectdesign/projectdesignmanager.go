@@ -1984,48 +1984,38 @@ func signalNotes(f *ReviewFeedback) string {
 	return ""
 }
 
+// slotAccessors is the flat kind→slot dispatch behind slotFor, in table form so the
+// exhaustive gate (check: map) still fails on a missing ArtifactKind exactly like the
+// former switch did.
+var slotAccessors = map[projectstate.ArtifactKind]func(projectstate.Project) projectstate.ArtifactSlot{
+	projectstate.KindMission:              func(p projectstate.Project) projectstate.ArtifactSlot { return p.Mission },
+	projectstate.KindGlossary:             func(p projectstate.Project) projectstate.ArtifactSlot { return p.Glossary },
+	projectstate.KindScrubbedRequirements: func(p projectstate.Project) projectstate.ArtifactSlot { return p.ScrubbedRequirements },
+	projectstate.KindVolatilities:         func(p projectstate.Project) projectstate.ArtifactSlot { return p.Volatilities },
+	projectstate.KindCoreUseCases:         func(p projectstate.Project) projectstate.ArtifactSlot { return p.CoreUseCases },
+	projectstate.KindSystem:               func(p projectstate.Project) projectstate.ArtifactSlot { return p.SystemDesign },
+	projectstate.KindOperationalConcepts:  func(p projectstate.Project) projectstate.ArtifactSlot { return p.OperationalConcepts },
+	projectstate.KindStandardCheck:        func(p projectstate.Project) projectstate.ArtifactSlot { return p.StandardCheck },
+	projectstate.KindPlanningAssumptions:  func(p projectstate.Project) projectstate.ArtifactSlot { return p.PlanningAssumptions },
+	projectstate.KindActivityList:         func(p projectstate.Project) projectstate.ArtifactSlot { return p.ActivityList },
+	projectstate.KindNetwork:              func(p projectstate.Project) projectstate.ArtifactSlot { return p.Network },
+	projectstate.KindNormalSolution:       func(p projectstate.Project) projectstate.ArtifactSlot { return p.NormalSolution },
+	projectstate.KindSubcriticalSolution:  func(p projectstate.Project) projectstate.ArtifactSlot { return p.SubcriticalSolution },
+	projectstate.KindCompressedSolution:   func(p projectstate.Project) projectstate.ArtifactSlot { return p.CompressedSolution },
+	projectstate.KindDecompressedSolution: func(p projectstate.Project) projectstate.ArtifactSlot { return p.DecompressedSolution },
+	projectstate.KindRiskModel:            func(p projectstate.Project) projectstate.ArtifactSlot { return p.RiskModel },
+	projectstate.KindSdpReview:            func(p projectstate.Project) projectstate.ArtifactSlot { return p.SdpReview },
+}
+
 // slotFor returns the named Project slot for a kind (Phase 1 + Phase 2). Internal
 // (operates on the canonical projectstate.ArtifactKind); own-kind callers convert via
-// toPSKind at the boundary.
+// toPSKind at the boundary. An unknown kind yields the zero slot, as before.
 func slotFor(proj projectstate.Project, kind projectstate.ArtifactKind) projectstate.ArtifactSlot {
-	switch kind {
-	case projectstate.KindMission:
-		return proj.Mission
-	case projectstate.KindGlossary:
-		return proj.Glossary
-	case projectstate.KindScrubbedRequirements:
-		return proj.ScrubbedRequirements
-	case projectstate.KindVolatilities:
-		return proj.Volatilities
-	case projectstate.KindCoreUseCases:
-		return proj.CoreUseCases
-	case projectstate.KindSystem:
-		return proj.SystemDesign
-	case projectstate.KindOperationalConcepts:
-		return proj.OperationalConcepts
-	case projectstate.KindStandardCheck:
-		return proj.StandardCheck
-	case projectstate.KindPlanningAssumptions:
-		return proj.PlanningAssumptions
-	case projectstate.KindActivityList:
-		return proj.ActivityList
-	case projectstate.KindNetwork:
-		return proj.Network
-	case projectstate.KindNormalSolution:
-		return proj.NormalSolution
-	case projectstate.KindSubcriticalSolution:
-		return proj.SubcriticalSolution
-	case projectstate.KindCompressedSolution:
-		return proj.CompressedSolution
-	case projectstate.KindDecompressedSolution:
-		return proj.DecompressedSolution
-	case projectstate.KindRiskModel:
-		return proj.RiskModel
-	case projectstate.KindSdpReview:
-		return proj.SdpReview
-	default:
+	accessor, ok := slotAccessors[kind]
+	if !ok {
 		return projectstate.ArtifactSlot{}
 	}
+	return accessor(proj)
 }
 
 // workermanifest.go is the hand-written bridge between the generated Temporal layer

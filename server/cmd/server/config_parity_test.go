@@ -112,14 +112,28 @@ func testLoadConfigParityDevLocalRig(t *testing.T) {
 	if !cfg.AuthDevMode {
 		t.Error("AuthDevMode = false, want true")
 	}
-	// The dev principal is built in the DevConfig hook from devPrincipal(); assert
-	// it directly (it is no longer a *Config field).
+	assertDevLocalRigDevPrincipal(t)
+	assertDevLocalRigConstructionDefaults(t, cfg)
+	_ = wantStr
+}
+
+// assertDevLocalRigDevPrincipal asserts the dev-local-rig dev principal defaults.
+// The dev principal is built in the DevConfig hook from devPrincipal(); assert
+// it directly (it is no longer a *Config field).
+func assertDevLocalRigDevPrincipal(t *testing.T) {
+	t.Helper()
 	if p := devPrincipal(); p.Subject != "dev-architect" {
 		t.Errorf("dev subject = %q, want dev-architect (default)", p.Subject)
 	}
 	if got := devPrincipal().Roles; len(got) != 2 || got[0] != "drive-phase" || got[1] != "approve-artifact" {
 		t.Errorf("dev roles = %v, want [drive-phase approve-artifact]", got)
 	}
+}
+
+// assertDevLocalRigConstructionDefaults asserts the construction defaults the
+// dev-local-rig env leaves untouched.
+func assertDevLocalRigConstructionDefaults(t *testing.T, cfg *Config) {
+	t.Helper()
 	if cfg.ConstructionWorkflowFile != "aiarch-construct.yml" {
 		t.Errorf("ConstructionWorkflowFile default = %q", cfg.ConstructionWorkflowFile)
 	}
@@ -129,7 +143,6 @@ func testLoadConfigParityDevLocalRig(t *testing.T) {
 	if cfg.ConstructionInterventionMode != "tiered" {
 		t.Errorf("ConstructionInterventionMode default = %q, want tiered", cfg.ConstructionInterventionMode)
 	}
-	_ = wantStr
 }
 
 // testLoadConfigParityCloudish exercises the real construction path: all creds

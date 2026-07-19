@@ -639,18 +639,8 @@ func constructionInterventionPolicy(mode string) intervention.InterventionPolicy
 // from its head-state. An activity is eligible iff it is NotStarted and every dep is
 // Done. Iteration is ActivityList declaration order with a name tie-break.
 func nextEligibleActivity(proj projectstate.Project) (constructionActivity, bool) {
-	if proj.Network.Status != projectstate.ReviewCommitted {
-		return constructionActivity{}, false
-	}
-	network, ok := proj.Network.Model.(*projectstate.Network)
-	if !ok || network == nil {
-		return constructionActivity{}, false
-	}
-	if proj.ActivityList.Status != projectstate.ReviewCommitted {
-		return constructionActivity{}, false
-	}
-	activityList, ok := proj.ActivityList.Model.(*projectstate.ActivityList)
-	if !ok || activityList == nil {
+	network, activityList, ok := committedPlanInputs(proj)
+	if !ok {
 		return constructionActivity{}, false
 	}
 
@@ -702,6 +692,27 @@ func nextEligibleActivity(proj projectstate.Project) (constructionActivity, bool
 		return constructionActivity{}, false
 	}
 	return hydrateConstructionActivity(chosen, item, component), true
+}
+
+// committedPlanInputs returns the committed typed Network + ActivityList head-state
+// models the eligibility selection reads, or ok=false when either slot is not committed
+// or not populated — the pump then has nothing to select.
+func committedPlanInputs(proj projectstate.Project) (*projectstate.Network, *projectstate.ActivityList, bool) {
+	if proj.Network.Status != projectstate.ReviewCommitted {
+		return nil, nil, false
+	}
+	network, ok := proj.Network.Model.(*projectstate.Network)
+	if !ok || network == nil {
+		return nil, nil, false
+	}
+	if proj.ActivityList.Status != projectstate.ReviewCommitted {
+		return nil, nil, false
+	}
+	activityList, ok := proj.ActivityList.Model.(*projectstate.ActivityList)
+	if !ok || activityList == nil {
+		return nil, nil, false
+	}
+	return network, activityList, true
 }
 
 // resolveComponentID maps an activity to its service-contract component KEY.

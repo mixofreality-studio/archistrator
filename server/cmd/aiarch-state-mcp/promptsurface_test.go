@@ -102,36 +102,7 @@ var extractionSentinels = []string{
 // in promptSurfaceIgnore.
 func TestPromptSurfaceToolReferencesExistInRegistry(t *testing.T) {
 	registry := registryToolNames()
-	files := promptSurfaceFiles(t)
-
-	refs := map[string][]string{}    // tool name -> referencing files
-	ignoredSeen := map[string]bool{} // ignore-list entries actually encountered
-	addRef := func(name, file string) {
-		if len(refs[name]) == 0 || refs[name][len(refs[name])-1] != file {
-			refs[name] = append(refs[name], file)
-		}
-	}
-	for _, file := range files {
-		body, err := os.ReadFile(file)
-		if err != nil {
-			t.Fatalf("read prompt file %s: %v", file, err)
-		}
-		text := string(body)
-		for _, m := range explicitToolRef.FindAllStringSubmatch(text, -1) {
-			addRef(m[1], file)
-		}
-		for _, m := range backtickToken.FindAllStringSubmatch(text, -1) {
-			token := m[1]
-			if !toolNameShape.MatchString(token) {
-				continue
-			}
-			if _, ok := promptSurfaceIgnore[token]; ok {
-				ignoredSeen[token] = true
-				continue
-			}
-			addRef(token, file)
-		}
-	}
+	refs, ignoredSeen := scanPromptSurface(t, promptSurfaceFiles(t))
 
 	// The gate: prompt-referenced tools must exist in the registry.
 	var missing []string
@@ -165,6 +136,43 @@ func TestPromptSurfaceToolReferencesExistInRegistry(t *testing.T) {
 			t.Errorf("promptSurfaceIgnore entry %q no longer occurs in the prompt surface — remove the stale entry", token)
 		}
 	}
+}
+
+// scanPromptSurface extracts every aiarch-state tool reference from the given prompt
+// files. It returns refs (tool name -> referencing files, de-duplicated per file) and
+// ignoredSeen (the promptSurfaceIgnore entries actually encountered — used to keep the
+// ignore list curated).
+func scanPromptSurface(t *testing.T, files []string) (map[string][]string, map[string]bool) {
+	t.Helper()
+	refs := map[string][]string{}    // tool name -> referencing files
+	ignoredSeen := map[string]bool{} // ignore-list entries actually encountered
+	addRef := func(name, file string) {
+		if len(refs[name]) == 0 || refs[name][len(refs[name])-1] != file {
+			refs[name] = append(refs[name], file)
+		}
+	}
+	for _, file := range files {
+		body, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatalf("read prompt file %s: %v", file, err)
+		}
+		text := string(body)
+		for _, m := range explicitToolRef.FindAllStringSubmatch(text, -1) {
+			addRef(m[1], file)
+		}
+		for _, m := range backtickToken.FindAllStringSubmatch(text, -1) {
+			token := m[1]
+			if !toolNameShape.MatchString(token) {
+				continue
+			}
+			if _, ok := promptSurfaceIgnore[token]; ok {
+				ignoredSeen[token] = true
+				continue
+			}
+			addRef(token, file)
+		}
+	}
+	return refs, ignoredSeen
 }
 
 // promptSurfaceFiles returns every materialized prompt file: .claude/commands/*.md,

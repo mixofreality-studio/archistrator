@@ -1144,6 +1144,51 @@ func Test_assembleSdpReview_MissingPrerequisite_Errors(t *testing.T) {
 
 // ---- CoAuthorPhase2ArtifactWorkflow: dispatch → observe → read-back ----------
 
+// pdSessionView queries the CoAuthor session state and decodes the SessionStateView,
+// fataling exactly as the inlined query/decode pattern it replaces.
+func pdSessionView(t *testing.T, env *testsuite.TestWorkflowEnvironment) SessionStateView {
+	t.Helper()
+	enc, err := env.QueryWorkflow(querySessionState)
+	if err != nil {
+		t.Fatalf("QueryWorkflow: %v", err)
+	}
+	var view SessionStateView
+	if err := enc.Get(&view); err != nil {
+		t.Fatalf("decode SessionStateView: %v", err)
+	}
+	return view
+}
+
+// pdAssertPlanDraftDispatchShape asserts the single Phase-2 draft dispatch's shape:
+// ProjectID, artifact_kind, target_branch, thin command + job_mode in DispatchInputs,
+// and the RA-controlled idempotency discipline.
+func pdAssertPlanDraftDispatchShape(t *testing.T, sub submitRecord, id ProjectID) {
+	t.Helper()
+	if sub.projectID != id {
+		t.Fatalf("dispatch carried wrong ProjectID: %q", sub.projectID)
+	}
+	if sub.dispatchInputs[dispatchInputArtifactKind] != projectstate.KindPlanningAssumptions.String() {
+		t.Fatalf("dispatch artifact_kind = %q, want %s", sub.dispatchInputs[dispatchInputArtifactKind], projectstate.KindPlanningAssumptions)
+	}
+	if sub.dispatchInputs[dispatchInputTargetBranch] == "" {
+		t.Fatal("dispatch must carry a non-empty target_branch")
+	}
+	// Thin dispatch: the Manager ships the .claude command NAME, not a composed prompt.
+	if got := sub.dispatchInputs[dispatchInputCommand]; got != "planning-assumptions-draft" {
+		t.Fatalf("dispatch command = %q, want planning-assumptions-draft", got)
+	}
+	if sub.dispatchInputs[dispatchInputJobMode] != jobModeDraft {
+		t.Fatalf("draft dispatch job_mode = %q, want draft", sub.dispatchInputs[dispatchInputJobMode])
+	}
+	// The Manager MUST NOT set idempotency_token in DispatchInputs (RA-controlled).
+	if _, present := sub.dispatchInputs["idempotency_token"]; present {
+		t.Fatal("the Manager must NOT set idempotency_token in DispatchInputs (RA-controlled)")
+	}
+	if sub.idempotencyKey.IsZero() {
+		t.Fatal("the dispatch Activity must supply a non-empty idempotency key")
+	}
+}
+
 // Happy plan-DRAFT round: the gate DISPATCHES (with the right ProjectID +
 // artifact_kind + branch in DispatchInputs and a Manager-supplied idempotency key),
 // OBSERVES to pipelineSucceeded, READS BACK the committed typed Phase-2 model, and
@@ -1160,14 +1205,7 @@ func Test_CoAuthor_PlanDraftRoundTrip_DispatchObserveReadBack_AwaitsReview(t *te
 	registerCoAuthor(env, wf, ps, pipe)
 
 	env.RegisterDelayedCallback(func() {
-		enc, err := env.QueryWorkflow(querySessionState)
-		if err != nil {
-			t.Fatalf("QueryWorkflow: %v", err)
-		}
-		var view SessionStateView
-		if err := enc.Get(&view); err != nil {
-			t.Fatalf("decode SessionStateView: %v", err)
-		}
+		view := pdSessionView(t, env)
 		if view.Stage != StageAwaitingReview {
 			t.Fatalf("want StageAwaitingReview, got %d", view.Stage)
 		}
@@ -1195,30 +1233,7 @@ func Test_CoAuthor_PlanDraftRoundTrip_DispatchObserveReadBack_AwaitsReview(t *te
 	if len(pipe.submits) != 1 {
 		t.Fatalf("Phase-2 draft must be a single dispatch, got %d submits", len(pipe.submits))
 	}
-	sub := pipe.submits[0]
-	if sub.projectID != id {
-		t.Fatalf("dispatch carried wrong ProjectID: %q", sub.projectID)
-	}
-	if sub.dispatchInputs[dispatchInputArtifactKind] != projectstate.KindPlanningAssumptions.String() {
-		t.Fatalf("dispatch artifact_kind = %q, want %s", sub.dispatchInputs[dispatchInputArtifactKind], projectstate.KindPlanningAssumptions)
-	}
-	if sub.dispatchInputs[dispatchInputTargetBranch] == "" {
-		t.Fatal("dispatch must carry a non-empty target_branch")
-	}
-	// Thin dispatch: the Manager ships the .claude command NAME, not a composed prompt.
-	if got := sub.dispatchInputs[dispatchInputCommand]; got != "planning-assumptions-draft" {
-		t.Fatalf("dispatch command = %q, want planning-assumptions-draft", got)
-	}
-	if sub.dispatchInputs[dispatchInputJobMode] != jobModeDraft {
-		t.Fatalf("draft dispatch job_mode = %q, want draft", sub.dispatchInputs[dispatchInputJobMode])
-	}
-	// The Manager MUST NOT set idempotency_token in DispatchInputs (RA-controlled).
-	if _, present := sub.dispatchInputs["idempotency_token"]; present {
-		t.Fatal("the Manager must NOT set idempotency_token in DispatchInputs (RA-controlled)")
-	}
-	if sub.idempotencyKey.IsZero() {
-		t.Fatal("the dispatch Activity must supply a non-empty idempotency key")
-	}
+	pdAssertPlanDraftDispatchShape(t, pipe.submits[0], id)
 }
 
 // THE ANTI-WEDGE TEST. A dispatched Phase-2 job that reaches a TERMINAL FAILURE phase
@@ -1388,6 +1403,32 @@ func Test_CoAuthor_Reject_LoopsToFreshDispatch(t *testing.T) {
 	}
 }
 
+// pdAssertSubStepFailedGateClear queries the session at the StageDraftFailed gate and
+// asserts the in-flight (ActiveRole, ActiveStep, Round) stamp reads none/none/0.
+func pdAssertSubStepFailedGateClear(t *testing.T, env *testsuite.TestWorkflowEnvironment) {
+	t.Helper()
+	v := pdSessionView(t, env)
+	if v.Stage != StageDraftFailed {
+		t.Fatalf("want StageDraftFailed after the terminal job failure, got %d", v.Stage)
+	}
+	if v.ActiveRole != ActiveRoleNone || v.ActiveStep != ActiveStepNone || v.Round != 0 {
+		t.Fatalf("StageDraftFailed must show no active role, got role=%d step=%d round=%d", v.ActiveRole, v.ActiveStep, v.Round)
+	}
+}
+
+// pdAssertSubStepReviewGateClear queries the session at the human AwaitingReview gate
+// and asserts the in-flight (ActiveRole, ActiveStep, Round) stamp reads none/none/0.
+func pdAssertSubStepReviewGateClear(t *testing.T, env *testsuite.TestWorkflowEnvironment) {
+	t.Helper()
+	v := pdSessionView(t, env)
+	if v.Stage != StageAwaitingReview {
+		t.Fatalf("want StageAwaitingReview after the retry, got %d", v.Stage)
+	}
+	if v.ActiveRole != ActiveRoleNone || v.ActiveStep != ActiveStepNone || v.Round != 0 {
+		t.Fatalf("the human gate must show no active role, got role=%d step=%d round=%d", v.ActiveRole, v.ActiveStep, v.Round)
+	}
+}
+
 // Plan-3 C2: the honest role-driven sub-step indicator (projectdesign twin of the
 // systemdesign C1 test). Phase 2 has NO PM critique — every kind is Architect-only
 // (drafting/revising) — so a draft → retry-via-reject (after a terminal job failure) →
@@ -1438,40 +1479,14 @@ func Test_CoAuthor_ActiveSubStep_SequenceThroughDraftReviseApprove(t *testing.T)
 	// The first dispatch fails terminally, landing at StageDraftFailed. Retry-via-Reject
 	// (with feedback) re-dispatches — this is the lever that bumps redraftCount to 1.
 	env.RegisterDelayedCallback(func() {
-		enc, err := env.QueryWorkflow(querySessionState)
-		if err != nil {
-			t.Fatalf("QueryWorkflow: %v", err)
-		}
-		var v SessionStateView
-		if err := enc.Get(&v); err != nil {
-			t.Fatalf("decode SessionStateView: %v", err)
-		}
-		if v.Stage != StageDraftFailed {
-			t.Fatalf("want StageDraftFailed after the terminal job failure, got %d", v.Stage)
-		}
-		if v.ActiveRole != ActiveRoleNone || v.ActiveStep != ActiveStepNone || v.Round != 0 {
-			t.Fatalf("StageDraftFailed must show no active role, got role=%d step=%d round=%d", v.ActiveRole, v.ActiveStep, v.Round)
-		}
+		pdAssertSubStepFailedGateClear(t, env)
 		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewReject, Feedback: &ReviewFeedback{Notes: "rework it"}})
 	}, 30*time.Second)
 
 	// After the successful retry reaches AwaitingReview, the sub-step must read
 	// none/none/0; approve to end.
 	env.RegisterDelayedCallback(func() {
-		enc, err := env.QueryWorkflow(querySessionState)
-		if err != nil {
-			t.Fatalf("QueryWorkflow: %v", err)
-		}
-		var v SessionStateView
-		if err := enc.Get(&v); err != nil {
-			t.Fatalf("decode SessionStateView: %v", err)
-		}
-		if v.Stage != StageAwaitingReview {
-			t.Fatalf("want StageAwaitingReview after the retry, got %d", v.Stage)
-		}
-		if v.ActiveRole != ActiveRoleNone || v.ActiveStep != ActiveStepNone || v.Round != 0 {
-			t.Fatalf("the human gate must show no active role, got role=%d step=%d round=%d", v.ActiveRole, v.ActiveStep, v.Round)
-		}
+		pdAssertSubStepReviewGateClear(t, env)
 		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
 	}, 70*time.Second)
 
@@ -2130,20 +2145,37 @@ func Test_CoAuthorPhase2_Rail_BranchReconciliation_MergeBeforeCommit_PostMergeRe
 		t.Fatal("dispatch must carry a non-empty target_branch")
 	}
 
-	// THE PER-PROJECT-DESIGN-DISPATCH ASSERTION (UC2 twin of the live-activation gap
-	// fix): with the rail WIRED, the Phase-2 design dispatch must target the PER-PROJECT
-	// repo (the rail's repoRef) + aiarch-design.yml — NOT the central construction repo +
-	// aiarch-construct.yml.
-	// The workflow-side dispatchDesignJob decodes the opaque RepoRef ("acct|owner/repo") to
-	// the RA's RepoTarget{Owner:"owner", Name:"repo"} BEFORE the generated submit invoker, so
-	// the fake records the decoded "owner/repo".
-	if pipe.submits[0].targetRepo != "owner/repo" {
-		t.Fatalf("design dispatch must target the per-project repo %q, got %q", "owner/repo", pipe.submits[0].targetRepo)
-	}
-	if pipe.submits[0].workflowFile != "aiarch-design.yml" {
-		t.Fatalf("design dispatch must target aiarch-design.yml (NOT aiarch-construct.yml), got %q", pipe.submits[0].workflowFile)
-	}
+	pdRailAssertPerProjectDispatchTarget(t, pipe.submits[0])
+	pdRailAssertSessionBranchRode(t, rail, ps, dispatchBranch)
+	pdRailAssertMergeBeforeCommitOnMain(t, log, rail, dispatchBranch)
 
+	if len(base.committed) != 1 || base.committed[0] != projectstate.KindPlanningAssumptions {
+		t.Fatalf("want one CommitArtifact(KindPlanningAssumptions) on main, got %v", base.committed)
+	}
+}
+
+// pdRailAssertPerProjectDispatchTarget — THE PER-PROJECT-DESIGN-DISPATCH ASSERTION
+// (UC2 twin of the live-activation gap fix): with the rail WIRED, the Phase-2 design
+// dispatch must target the PER-PROJECT repo (the rail's repoRef) + aiarch-design.yml —
+// NOT the central construction repo + aiarch-construct.yml.
+// The workflow-side dispatchDesignJob decodes the opaque RepoRef ("acct|owner/repo") to
+// the RA's RepoTarget{Owner:"owner", Name:"repo"} BEFORE the generated submit invoker, so
+// the fake records the decoded "owner/repo".
+func pdRailAssertPerProjectDispatchTarget(t *testing.T, sub submitRecord) {
+	t.Helper()
+	if sub.targetRepo != "owner/repo" {
+		t.Fatalf("design dispatch must target the per-project repo %q, got %q", "owner/repo", sub.targetRepo)
+	}
+	if sub.workflowFile != "aiarch-design.yml" {
+		t.Fatalf("design dispatch must target aiarch-design.yml (NOT aiarch-construct.yml), got %q", sub.workflowFile)
+	}
+}
+
+// pdRailAssertSessionBranchRode asserts the rail opened exactly the dispatch session
+// branch + its PR, and that the read-back and the AwaitingReview stage both rode over
+// that SAME session branch (THE LOAD-BEARING RECONCILIATION).
+func pdRailAssertSessionBranchRode(t *testing.T, rail *scriptedRail, ps *seqProjectState, dispatchBranch string) {
+	t.Helper()
 	if len(rail.openedBranches) != 1 || rail.openedBranches[0] != dispatchBranch {
 		t.Fatalf("OpenBranch must address the dispatch session branch %q, got %v", dispatchBranch, rail.openedBranches)
 	}
@@ -2164,7 +2196,12 @@ func Test_CoAuthorPhase2_Rail_BranchReconciliation_MergeBeforeCommit_PostMergeRe
 	if len(ps.stageBranches) != 1 || ps.stageBranches[0] != dispatchBranch {
 		t.Fatalf("stage must ride over the dispatch session branch %q, got %v", dispatchBranch, ps.stageBranches)
 	}
+}
 
+// pdRailAssertMergeBeforeCommitOnMain asserts the approve ordering: the session-branch
+// PR merged BEFORE the commit, with a main-path read (the post-merge re-seed) between.
+func pdRailAssertMergeBeforeCommitOnMain(t *testing.T, log *seqLog, rail *scriptedRail, dispatchBranch string) {
+	t.Helper()
 	mergeIdx := log.firstIndexOf("merge")
 	commitIdx := log.firstIndexOf("commit")
 	if mergeIdx < 0 || commitIdx < 0 {
@@ -2185,10 +2222,6 @@ func Test_CoAuthorPhase2_Rail_BranchReconciliation_MergeBeforeCommit_PostMergeRe
 	}
 	if !postMergeReadOnMain {
 		t.Fatalf("after merge the approve path must re-read on MAIN before commit; ops=%v", log.ops())
-	}
-
-	if len(base.committed) != 1 || base.committed[0] != projectstate.KindPlanningAssumptions {
-		t.Fatalf("want one CommitArtifact(KindPlanningAssumptions) on main, got %v", base.committed)
 	}
 }
 

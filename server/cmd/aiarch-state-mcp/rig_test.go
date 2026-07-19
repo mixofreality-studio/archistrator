@@ -46,14 +46,7 @@ func TestRig_FullDraftCycleOverStdio(t *testing.T) {
 	defer func() { _ = session.Close() }()
 
 	// tools/list — the draft-mode set must include putDraftModel and NOT setCritiqueVerdict.
-	tools, err := session.ListTools(ctx, nil)
-	if err != nil {
-		t.Fatalf("ListTools: %v", err)
-	}
-	names := map[string]bool{}
-	for _, tl := range tools.Tools {
-		names[tl.Name] = true
-	}
+	names := mustListToolNames(ctx, t, session)
 	for _, want := range []string{"listResearchSources", "getCommittedSlot", "getDraftSlot", "getReviewThread", "getCritique", "putDraftModel", "respondToReviewComment", "publishDraft"} {
 		if !names[want] {
 			t.Fatalf("draft-mode tool %q missing from tools/list: %v", want, names)
@@ -228,14 +221,7 @@ func TestRig_RawReadToolsInEveryModeOverStdio(t *testing.T) {
 	}
 	defer func() { _ = session.Close() }()
 
-	tools, err := session.ListTools(ctx, nil)
-	if err != nil {
-		t.Fatalf("ListTools: %v", err)
-	}
-	got := map[string]*mcp.Tool{}
-	for _, tl := range tools.Tools {
-		got[tl.Name] = tl
-	}
+	got := mustListToolsByName(ctx, t, session)
 
 	// The draft-mode composed verbs are present.
 	for _, w := range []string{"putDraftModel", "getCommittedSlot", "publishDraft"} {
@@ -434,6 +420,34 @@ func keysOfTools(m map[string]*mcp.Tool) []string {
 }
 
 // ---- rig helpers ----
+
+// mustListToolNames lists the session's tools and returns the set of tool names.
+func mustListToolNames(ctx context.Context, t *testing.T, session *mcp.ClientSession) map[string]bool {
+	t.Helper()
+	tools, err := session.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+	names := map[string]bool{}
+	for _, tl := range tools.Tools {
+		names[tl.Name] = true
+	}
+	return names
+}
+
+// mustListToolsByName lists the session's tools and returns them keyed by name.
+func mustListToolsByName(ctx context.Context, t *testing.T, session *mcp.ClientSession) map[string]*mcp.Tool {
+	t.Helper()
+	tools, err := session.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+	got := map[string]*mcp.Tool{}
+	for _, tl := range tools.Tools {
+		got[tl.Name] = tl
+	}
+	return got
+}
 
 func buildBinary(t *testing.T) string {
 	t.Helper()

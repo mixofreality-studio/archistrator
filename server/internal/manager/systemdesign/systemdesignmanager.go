@@ -2925,25 +2925,48 @@ func orderedProperties(props json.RawMessage) []GoField {
 	return fields
 }
 
-// slotForKind reads the named slot for kind off the Project aggregate.
+// slotForKind reads the named slot for kind off the Project aggregate. The kind→slot
+// mapping is split by lifecycle phase (system-design vs project-design kinds) purely to
+// keep each switch under the gocyclo gate; the union covers every ArtifactKind.
 func slotForKind(p projectstate.Project, kind projectstate.ArtifactKind) projectstate.ArtifactSlot {
+	if slot, ok := designSlotForKind(p, kind); ok {
+		return slot
+	}
+	return planSlotForKind(p, kind)
+}
+
+// designSlotForKind maps the Phase-1 (system-design) kinds to their Project slots.
+func designSlotForKind(p projectstate.Project, kind projectstate.ArtifactKind) (projectstate.ArtifactSlot, bool) {
 	switch kind {
 	case projectstate.KindMission:
-		return p.Mission
+		return p.Mission, true
 	case projectstate.KindGlossary:
-		return p.Glossary
+		return p.Glossary, true
 	case projectstate.KindScrubbedRequirements:
-		return p.ScrubbedRequirements
+		return p.ScrubbedRequirements, true
 	case projectstate.KindVolatilities:
-		return p.Volatilities
+		return p.Volatilities, true
 	case projectstate.KindCoreUseCases:
-		return p.CoreUseCases
+		return p.CoreUseCases, true
 	case projectstate.KindSystem:
-		return p.SystemDesign
+		return p.SystemDesign, true
 	case projectstate.KindOperationalConcepts:
-		return p.OperationalConcepts
+		return p.OperationalConcepts, true
 	case projectstate.KindStandardCheck:
-		return p.StandardCheck
+		return p.StandardCheck, true
+	case projectstate.KindPlanningAssumptions, projectstate.KindActivityList, projectstate.KindNetwork,
+		projectstate.KindNormalSolution, projectstate.KindSubcriticalSolution, projectstate.KindCompressedSolution,
+		projectstate.KindDecompressedSolution, projectstate.KindRiskModel, projectstate.KindSdpReview:
+		// project-design kinds — resolved by planSlotForKind.
+		return projectstate.ArtifactSlot{}, false
+	default:
+		return projectstate.ArtifactSlot{}, false
+	}
+}
+
+// planSlotForKind maps the Phase-2 (project-design) kinds to their Project slots.
+func planSlotForKind(p projectstate.Project, kind projectstate.ArtifactKind) projectstate.ArtifactSlot {
+	switch kind {
 	case projectstate.KindPlanningAssumptions:
 		return p.PlanningAssumptions
 	case projectstate.KindActivityList:
@@ -2962,6 +2985,11 @@ func slotForKind(p projectstate.Project, kind projectstate.ArtifactKind) project
 		return p.RiskModel
 	case projectstate.KindSdpReview:
 		return p.SdpReview
+	case projectstate.KindMission, projectstate.KindGlossary, projectstate.KindScrubbedRequirements,
+		projectstate.KindVolatilities, projectstate.KindCoreUseCases, projectstate.KindSystem,
+		projectstate.KindOperationalConcepts, projectstate.KindStandardCheck:
+		// system-design kinds — designSlotForKind resolved them before this helper runs.
+		return projectstate.ArtifactSlot{}
 	default:
 		return projectstate.ArtifactSlot{}
 	}

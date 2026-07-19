@@ -1511,6 +1511,53 @@ func systemReadBack(t *testing.T, id ProjectID) projectstate.Project {
 
 // ---- Tests: child gate dispatch → observe → read-back -----------------------
 
+// sdSessionView queries the CoAuthor session state and decodes the SessionStateView,
+// fataling exactly as the inlined query/decode pattern it replaces.
+func sdSessionView(t *testing.T, env *testsuite.TestWorkflowEnvironment) SessionStateView {
+	t.Helper()
+	enc, err := env.QueryWorkflow(querySessionState)
+	if err != nil {
+		t.Fatalf("QueryWorkflow: %v", err)
+	}
+	var view SessionStateView
+	if err := enc.Get(&view); err != nil {
+		t.Fatalf("decode SessionStateView: %v", err)
+	}
+	return view
+}
+
+// sdAssertSystemDraftDispatchShape asserts the FIRST (draft) dispatch's shape:
+// ProjectID, artifact_kind, target_branch and command in DispatchInputs, the
+// RA-controlled idempotency discipline, and the dormant-rail empty per-project target.
+func sdAssertSystemDraftDispatchShape(t *testing.T, sub submitRecord, id ProjectID) {
+	t.Helper()
+	if sub.projectID != id {
+		t.Fatalf("dispatch carried wrong ProjectID: %q", sub.projectID)
+	}
+	if sub.dispatchInputs[dispatchInputArtifactKind] != projectstate.KindSystem.String() {
+		t.Fatalf("dispatch artifact_kind = %q, want %s", sub.dispatchInputs[dispatchInputArtifactKind], projectstate.KindSystem)
+	}
+	if sub.dispatchInputs[dispatchInputTargetBranch] == "" {
+		t.Fatal("dispatch must carry a non-empty target_branch")
+	}
+	if got := sub.dispatchInputs[dispatchInputCommand]; got != "system-draft" {
+		t.Fatalf("dispatch must carry command=system-draft, got %q", got)
+	}
+	// The Manager MUST NOT set idempotency_token in DispatchInputs (RA-controlled).
+	if _, present := sub.dispatchInputs["idempotency_token"]; present {
+		t.Fatal("the Manager must NOT set idempotency_token in DispatchInputs (RA-controlled)")
+	}
+	if sub.idempotencyKey.IsZero() {
+		t.Fatal("the dispatch Activity must supply a non-empty idempotency key")
+	}
+	// DORMANT-RAIL (non-git) preservation: with NO rail wired (newWorkflows), the
+	// per-project-design-dispatch override is EMPTY, so the RA falls back to the
+	// configured construction repo — the non-git / Postgres path is byte-unchanged.
+	if sub.targetRepo != "" || sub.workflowFile != "" {
+		t.Fatalf("dormant-rail dispatch must leave the per-project target empty, got repo=%q file=%q", sub.targetRepo, sub.workflowFile)
+	}
+}
+
 // Happy DRAFT round: the gate DISPATCHES (with the right ProjectID + artifact_kind +
 // branch in DispatchInputs and an RA-controlled — Manager-supplied — idempotency
 // key), OBSERVES to PipelineSucceeded, READS BACK the committed typed model, and
@@ -1527,14 +1574,7 @@ func Test_CoAuthor_DraftRoundTrip_DispatchObserveReadBack_AwaitsReview(t *testin
 	registerCoAuthor(env, wf, ps, pipe)
 
 	env.RegisterDelayedCallback(func() {
-		enc, err := env.QueryWorkflow(querySessionState)
-		if err != nil {
-			t.Fatalf("QueryWorkflow: %v", err)
-		}
-		var view SessionStateView
-		if err := enc.Get(&view); err != nil {
-			t.Fatalf("decode SessionStateView: %v", err)
-		}
+		view := sdSessionView(t, env)
 		if view.Stage != StageAwaitingReview {
 			t.Fatalf("want StageAwaitingReview, got %d", view.Stage)
 		}
@@ -1566,32 +1606,7 @@ func Test_CoAuthor_DraftRoundTrip_DispatchObserveReadBack_AwaitsReview(t *testin
 	if got := pipe.submits[1].dispatchInputs[dispatchInputCommand]; got != "system-critique" {
 		t.Fatalf("the second dispatch must be the architect self-critique, got command=%q", got)
 	}
-	sub := pipe.submits[0]
-	if sub.projectID != id {
-		t.Fatalf("dispatch carried wrong ProjectID: %q", sub.projectID)
-	}
-	if sub.dispatchInputs[dispatchInputArtifactKind] != projectstate.KindSystem.String() {
-		t.Fatalf("dispatch artifact_kind = %q, want %s", sub.dispatchInputs[dispatchInputArtifactKind], projectstate.KindSystem)
-	}
-	if sub.dispatchInputs[dispatchInputTargetBranch] == "" {
-		t.Fatal("dispatch must carry a non-empty target_branch")
-	}
-	if got := sub.dispatchInputs[dispatchInputCommand]; got != "system-draft" {
-		t.Fatalf("dispatch must carry command=system-draft, got %q", got)
-	}
-	// The Manager MUST NOT set idempotency_token in DispatchInputs (RA-controlled).
-	if _, present := sub.dispatchInputs["idempotency_token"]; present {
-		t.Fatal("the Manager must NOT set idempotency_token in DispatchInputs (RA-controlled)")
-	}
-	if sub.idempotencyKey.IsZero() {
-		t.Fatal("the dispatch Activity must supply a non-empty idempotency key")
-	}
-	// DORMANT-RAIL (non-git) preservation: with NO rail wired (newWorkflows), the
-	// per-project-design-dispatch override is EMPTY, so the RA falls back to the
-	// configured construction repo — the non-git / Postgres path is byte-unchanged.
-	if sub.targetRepo != "" || sub.workflowFile != "" {
-		t.Fatalf("dormant-rail dispatch must leave the per-project target empty, got repo=%q file=%q", sub.targetRepo, sub.workflowFile)
-	}
+	sdAssertSystemDraftDispatchShape(t, pipe.submits[0], id)
 }
 
 // An Approve signal commits the read-back artifact via CommitArtifact(kind); the
@@ -2117,6 +2132,42 @@ func Test_CoAuthor_DraftFailedThenRetry_DistinctIdempotencyKey(t *testing.T) {
 	}
 }
 
+// sdAssertNonConvergedPMGateView queries the session at the human gate after a
+// never-converging PM critique and asserts the staged-best-effort gate shape:
+// AwaitingReview, no active sub-step, the PM-CRITIQUE-UNRESOLVED warning, and the
+// surfaced PM revise conclusion.
+func sdAssertNonConvergedPMGateView(t *testing.T, env *testsuite.TestWorkflowEnvironment) {
+	t.Helper()
+	view := sdSessionView(t, env)
+	if view.Stage != StageAwaitingReview {
+		t.Fatalf("non-converging PM critique must stage for the human gate, got stage %d", view.Stage)
+	}
+	// The max-redraft non-converge branch must clear the PM sub-step before staging
+	// for review — otherwise the query keeps claiming (ProductManager, Critiquing)
+	// after PM work has stopped (mirrors the revise/proceed clearActive() sibling paths).
+	if view.ActiveRole != ActiveRoleNone || view.ActiveStep != ActiveStepNone || view.Round != 0 {
+		t.Fatalf("the human gate must show no active role after non-convergence, got role=%d step=%d round=%d", view.ActiveRole, view.ActiveStep, view.Round)
+	}
+	var sawWarning bool
+	for _, f := range view.Findings {
+		if string(f.RuleID) == "PM-CRITIQUE-UNRESOLVED" {
+			sawWarning = true
+		}
+	}
+	if !sawWarning {
+		t.Fatalf("expected a PM-CRITIQUE-UNRESOLVED warning at the gate, got %+v", view.Findings)
+	}
+	// F-QA2-7: the non-converged push-back is ALSO surfaced as the structured PM
+	// conclusion (not only the warning finding) — the founder sees the PM pushed
+	// back on the staged draft, and why, before approving it.
+	if view.Critique == nil || view.Critique.Verdict != projectstate.CritiqueVerdictRevise {
+		t.Fatalf("the staged-best-effort gate must surface the PM revise conclusion, got %+v", view.Critique)
+	}
+	if view.Critique.Summary != "tighten the vision sentence" {
+		t.Errorf("critique summary: want the PM's rationale, got %q", view.Critique.Summary)
+	}
+}
+
 // PM-CRITIQUE second round-trip with CritiqueRevise (read-back Notes non-empty):
 // each round re-dispatches the architect draft BEFORE the human gate. When the PM
 // critic never converges, the loop must NOT crash the workflow (the wedge) — after
@@ -2140,41 +2191,7 @@ func Test_CoAuthor_PMCritiqueRevise_SecondRoundTrip_StagesForHumanGate(t *testin
 	registerCoAuthor(env, wf, ps, pipe)
 
 	env.RegisterDelayedCallback(func() {
-		enc, err := env.QueryWorkflow(querySessionState)
-		if err != nil {
-			t.Fatalf("QueryWorkflow: %v", err)
-		}
-		var view SessionStateView
-		if err := enc.Get(&view); err != nil {
-			t.Fatalf("decode SessionStateView: %v", err)
-		}
-		if view.Stage != StageAwaitingReview {
-			t.Fatalf("non-converging PM critique must stage for the human gate, got stage %d", view.Stage)
-		}
-		// The max-redraft non-converge branch must clear the PM sub-step before staging
-		// for review — otherwise the query keeps claiming (ProductManager, Critiquing)
-		// after PM work has stopped (mirrors the revise/proceed clearActive() sibling paths).
-		if view.ActiveRole != ActiveRoleNone || view.ActiveStep != ActiveStepNone || view.Round != 0 {
-			t.Fatalf("the human gate must show no active role after non-convergence, got role=%d step=%d round=%d", view.ActiveRole, view.ActiveStep, view.Round)
-		}
-		var sawWarning bool
-		for _, f := range view.Findings {
-			if string(f.RuleID) == "PM-CRITIQUE-UNRESOLVED" {
-				sawWarning = true
-			}
-		}
-		if !sawWarning {
-			t.Fatalf("expected a PM-CRITIQUE-UNRESOLVED warning at the gate, got %+v", view.Findings)
-		}
-		// F-QA2-7: the non-converged push-back is ALSO surfaced as the structured PM
-		// conclusion (not only the warning finding) — the founder sees the PM pushed
-		// back on the staged draft, and why, before approving it.
-		if view.Critique == nil || view.Critique.Verdict != projectstate.CritiqueVerdictRevise {
-			t.Fatalf("the staged-best-effort gate must surface the PM revise conclusion, got %+v", view.Critique)
-		}
-		if view.Critique.Summary != "tighten the vision sentence" {
-			t.Errorf("critique summary: want the PM's rationale, got %q", view.Critique.Summary)
-		}
+		sdAssertNonConvergedPMGateView(t, env)
 		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
 	}, 90*time.Second)
 
@@ -2511,6 +2528,19 @@ func Test_CoAuthor_RejectNotes_DoNotLeakIntoCritiqueReadBack(t *testing.T) {
 	}
 }
 
+// sdAssertHumanGateNoActiveRole queries the session at the human AwaitingReview gate
+// and asserts the (ActiveRole, ActiveStep, Round) sub-step stamp reads none/none/0.
+func sdAssertHumanGateNoActiveRole(t *testing.T, env *testsuite.TestWorkflowEnvironment) {
+	t.Helper()
+	v := sdSessionView(t, env)
+	if v.Stage != StageAwaitingReview {
+		t.Fatalf("want StageAwaitingReview at the human gate, got %d", v.Stage)
+	}
+	if v.ActiveRole != ActiveRoleNone || v.ActiveStep != ActiveStepNone || v.Round != 0 {
+		t.Fatalf("the human gate must show no active role, got role=%d step=%d round=%d", v.ActiveRole, v.ActiveStep, v.Round)
+	}
+}
+
 // Plan-3 C1: the honest role-driven sub-step indicator. A PM-critiqued kind (Mission)
 // driven through draft → critique(revise) → revise → critique(approve) → approve must
 // surface the live (ActiveRole, ActiveStep, Round) at each dispatch boundary, and
@@ -2570,20 +2600,7 @@ func Test_CoAuthor_ActiveSubStep_SequenceThroughDraftCritiqueReviseApprove(t *te
 
 	// At the human gate the sub-step must read none/none/0 (no role is working); approve to end.
 	env.RegisterDelayedCallback(func() {
-		enc, err := env.QueryWorkflow(querySessionState)
-		if err != nil {
-			t.Fatalf("QueryWorkflow: %v", err)
-		}
-		var v SessionStateView
-		if err := enc.Get(&v); err != nil {
-			t.Fatalf("decode SessionStateView: %v", err)
-		}
-		if v.Stage != StageAwaitingReview {
-			t.Fatalf("want StageAwaitingReview at the human gate, got %d", v.Stage)
-		}
-		if v.ActiveRole != ActiveRoleNone || v.ActiveStep != ActiveStepNone || v.Round != 0 {
-			t.Fatalf("the human gate must show no active role, got role=%d step=%d round=%d", v.ActiveRole, v.ActiveStep, v.Round)
-		}
+		sdAssertHumanGateNoActiveRole(t, env)
 		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
 	}, 120*time.Second)
 
@@ -2746,14 +2763,7 @@ func Test_CoAuthor_CritiqueFailed_RetryRerunsCritique_NotRedraft(t *testing.T) {
 	// t=30s — at the failed gate: the reason must name the CRITIQUE. Then Retry (the
 	// SPA's "Retry draft" lever — the redraft signal).
 	env.RegisterDelayedCallback(func() {
-		enc, err := env.QueryWorkflow(querySessionState)
-		if err != nil {
-			t.Fatalf("QueryWorkflow: %v", err)
-		}
-		var view SessionStateView
-		if err := enc.Get(&view); err != nil {
-			t.Fatalf("decode SessionStateView: %v", err)
-		}
+		view := sdSessionView(t, env)
 		if view.Stage != StageDraftFailed {
 			t.Fatalf("a terminal critique failure must land in StageDraftFailed, got %d", view.Stage)
 		}
@@ -2766,14 +2776,7 @@ func Test_CoAuthor_CritiqueFailed_RetryRerunsCritique_NotRedraft(t *testing.T) {
 	// t=60s — the retried CRITIQUE succeeded and ratified: the session must be at the
 	// human AwaitingReview gate with the PM conclusion stamped. Withdraw to end.
 	env.RegisterDelayedCallback(func() {
-		enc, err := env.QueryWorkflow(querySessionState)
-		if err != nil {
-			t.Fatalf("QueryWorkflow: %v", err)
-		}
-		var view SessionStateView
-		if err := enc.Get(&view); err != nil {
-			t.Fatalf("decode SessionStateView: %v", err)
-		}
+		view := sdSessionView(t, env)
 		if view.Stage != StageAwaitingReview {
 			t.Fatalf("a successful critique retry must route to AwaitingReview, got %d", view.Stage)
 		}
@@ -4108,6 +4111,14 @@ func TestGetProject_MapsAggregateToTypedSlots(t *testing.T) {
 		t.Fatalf("GetProject: research not mapped: %+v", st.Research)
 	}
 
+	catalogAssertSampleSlotMapping(t, st)
+}
+
+// catalogAssertSampleSlotMapping asserts the typed-slot mapping of sampleProject's
+// slots: a full slot set, committed mission, awaiting glossary (+notes), rejected
+// volatilities, and an empty scrubbedRequirements slot.
+func catalogAssertSampleSlotMapping(t *testing.T, st ProjectState) {
+	t.Helper()
 	if len(st.Slots) != len(projectstate.AllArtifactKinds()) {
 		t.Fatalf("GetProject: got %d slots, want %d", len(st.Slots), len(projectstate.AllArtifactKinds()))
 	}
@@ -4216,6 +4227,14 @@ func TestGetProject_ComputeNetworkAtRead(t *testing.T) {
 	if bNode := netModel.Computed["B"]; bNode.OnCriticalPath || bNode.TotalFloat != 10 {
 		t.Fatalf("B should be off-CP with float 10: %+v", bNode)
 	}
+	catalogAssertComputedPathAndMilestone(t, netModel)
+}
+
+// catalogAssertComputedPathAndMilestone asserts the compute-at-read pass left the
+// authored dependencies untouched, computed the float-0 critical path, and enriched
+// the milestone with its event time + on-CP flag.
+func catalogAssertComputedPathAndMilestone(t *testing.T, netModel *projectstate.Network) {
+	t.Helper()
 	if len(netModel.Dependencies) != 3 {
 		t.Fatalf("authored dependencies perturbed: %v", netModel.Dependencies)
 	}
@@ -4956,20 +4975,39 @@ func Test_CoAuthor_Rail_BranchReconciliation_MergeBeforeCommit_PostMergeReadOnMa
 		t.Fatal("dispatch must carry a non-empty target_branch")
 	}
 
-	// THE PER-PROJECT-DESIGN-DISPATCH ASSERTION (the live-activation gap fix): with the
-	// rail WIRED, the dispatch must target the PER-PROJECT repo (the rail's repoRef) +
-	// aiarch-design.yml — NOT the central construction repo + aiarch-construct.yml. This
-	// is exactly what the systemtests fake could not catch (it intercepted all GitHub
-	// REST regardless of repo). The workflow-side dispatchDesignJob decodes the opaque
-	// RepoRef ("acct|owner/repo") to the RA's RepoTarget{Owner:"owner", Name:"repo"} BEFORE
-	// the generated submit invoker, so the fake records the decoded "owner/repo".
-	if pipe.submits[0].targetRepo != "owner/repo" {
-		t.Fatalf("design dispatch must target the per-project repo %q, got %q", "owner/repo", pipe.submits[0].targetRepo)
-	}
-	if pipe.submits[0].workflowFile != "aiarch-design.yml" {
-		t.Fatalf("design dispatch must target aiarch-design.yml (NOT aiarch-construct.yml), got %q", pipe.submits[0].workflowFile)
-	}
+	sdRailAssertPerProjectDispatchTarget(t, pipe.submits[0])
+	sdRailAssertSessionBranchRode(t, rail, ps, dispatchBranch)
+	sdRailAssertMergeBeforeCommitOnMain(t, log, rail, dispatchBranch)
 
+	// Commit landed on main exactly once.
+	if len(base.committed) != 1 || base.committed[0] != projectstate.KindSystem {
+		t.Fatalf("want one CommitArtifact(KindSystem) on main, got %v", base.committed)
+	}
+}
+
+// sdRailAssertPerProjectDispatchTarget — THE PER-PROJECT-DESIGN-DISPATCH ASSERTION
+// (the live-activation gap fix): with the rail WIRED, the dispatch must target the
+// PER-PROJECT repo (the rail's repoRef) + aiarch-design.yml — NOT the central
+// construction repo + aiarch-construct.yml. This is exactly what the systemtests fake
+// could not catch (it intercepted all GitHub REST regardless of repo). The
+// workflow-side dispatchDesignJob decodes the opaque RepoRef ("acct|owner/repo") to
+// the RA's RepoTarget{Owner:"owner", Name:"repo"} BEFORE the generated submit invoker,
+// so the fake records the decoded "owner/repo".
+func sdRailAssertPerProjectDispatchTarget(t *testing.T, sub submitRecord) {
+	t.Helper()
+	if sub.targetRepo != "owner/repo" {
+		t.Fatalf("design dispatch must target the per-project repo %q, got %q", "owner/repo", sub.targetRepo)
+	}
+	if sub.workflowFile != "aiarch-design.yml" {
+		t.Fatalf("design dispatch must target aiarch-design.yml (NOT aiarch-construct.yml), got %q", sub.workflowFile)
+	}
+}
+
+// sdRailAssertSessionBranchRode asserts the rail opened EXACTLY the dispatch session
+// branch + a PR with that head, and that the read-back and the AwaitingReview stage
+// both rode over that SAME session branch (THE LOAD-BEARING RECONCILIATION).
+func sdRailAssertSessionBranchRode(t *testing.T, rail *scriptedRail, ps *seqProjectState, dispatchBranch string) {
+	t.Helper()
 	// The rail opened EXACTLY that branch + a PR with that head.
 	if len(rail.openedBranches) != 1 || rail.openedBranches[0] != dispatchBranch {
 		t.Fatalf("OpenBranch must address the dispatch session branch %q, got %v", dispatchBranch, rail.openedBranches)
@@ -4995,7 +5033,13 @@ func Test_CoAuthor_Rail_BranchReconciliation_MergeBeforeCommit_PostMergeReadOnMa
 	if len(ps.stageBranches) != 1 || ps.stageBranches[0] != dispatchBranch {
 		t.Fatalf("stage must ride over the dispatch session branch %q, got %v", dispatchBranch, ps.stageBranches)
 	}
+}
 
+// sdRailAssertMergeBeforeCommitOnMain asserts the approve ordering the §2a table
+// prescribes: the session-branch PR merged BEFORE the commit, with a main-path read
+// (the post-merge re-seed) between merge and commit.
+func sdRailAssertMergeBeforeCommitOnMain(t *testing.T, log *seqLog, rail *scriptedRail, dispatchBranch string) {
+	t.Helper()
 	// Merge landed BEFORE commit (the §2a table: merge first, then commit-on-main).
 	mergeIdx := log.firstIndexOf("merge")
 	commitIdx := log.firstIndexOf("commit")
@@ -5023,11 +5067,6 @@ func Test_CoAuthor_Rail_BranchReconciliation_MergeBeforeCommit_PostMergeReadOnMa
 	}
 	if !postMergeReadOnMain {
 		t.Fatalf("after merge the approve path must re-read on MAIN before commit; ops=%v", log.ops())
-	}
-
-	// Commit landed on main exactly once.
-	if len(base.committed) != 1 || base.committed[0] != projectstate.KindSystem {
-		t.Fatalf("want one CommitArtifact(KindSystem) on main, got %v", base.committed)
 	}
 }
 
@@ -6462,6 +6501,32 @@ func Test_CoAuthor_RailEnabled_RetryAtFailedGate_SameBranch_RetainsFeedback(t *t
 	}
 }
 
+// sdAssertApproveFaultReturnedToGate queries the session after a contained
+// approve-window fault and asserts it returned to AwaitingReview carrying the
+// ratified re-approve notice.
+func sdAssertApproveFaultReturnedToGate(t *testing.T, env *testsuite.TestWorkflowEnvironment) {
+	t.Helper()
+	enc, err := env.QueryWorkflow(querySessionState)
+	if err != nil {
+		t.Fatalf("QueryWorkflow after approve fault: %v", err)
+	}
+	var view SessionStateView
+	if derr := enc.Get(&view); derr != nil {
+		t.Fatalf("decode SessionStateView: %v", derr)
+	}
+	if view.Stage != StageAwaitingReview {
+		t.Fatalf("an approve fault must return to AwaitingReview, got stage %v", view.Stage)
+	}
+	// F-QA2-41: the notice carries the founder-ratified framing — what failed, the
+	// draft is unchanged, re-approve shortly.
+	if view.FailureReason == nil || !strings.HasPrefix(*view.FailureReason, "The approve could not complete") {
+		t.Fatalf("the returned session must carry the ratified re-approve notice, got %v", view.FailureReason)
+	}
+	if !strings.Contains(*view.FailureReason, "The draft is unchanged") {
+		t.Fatalf("the notice must state the draft is unchanged, got %q", *view.FailureReason)
+	}
+}
+
 // THE QA F35 REGRESSION — an approve-window fault (GetPullRequestStatus 403 → Auth kind)
 // must NOT kill the workflow. After the bounded retry budget is exhausted, the session
 // RETURNS to AwaitingReview carrying a queryable notice (FailureReason), and a re-approve
@@ -6487,25 +6552,7 @@ func Test_CoAuthor_RailEnabled_ApproveStatusFault_ReturnsToAwaitingReview_Reappr
 	}, 30*time.Second)
 	// Assert the session returned to AwaitingReview with a queryable re-approve notice.
 	env.RegisterDelayedCallback(func() {
-		enc, err := env.QueryWorkflow(querySessionState)
-		if err != nil {
-			t.Fatalf("QueryWorkflow after approve fault: %v", err)
-		}
-		var view SessionStateView
-		if derr := enc.Get(&view); derr != nil {
-			t.Fatalf("decode SessionStateView: %v", derr)
-		}
-		if view.Stage != StageAwaitingReview {
-			t.Fatalf("an approve fault must return to AwaitingReview, got stage %v", view.Stage)
-		}
-		// F-QA2-41: the notice carries the founder-ratified framing — what failed, the
-		// draft is unchanged, re-approve shortly.
-		if view.FailureReason == nil || !strings.HasPrefix(*view.FailureReason, "The approve could not complete") {
-			t.Fatalf("the returned session must carry the ratified re-approve notice, got %v", view.FailureReason)
-		}
-		if !strings.Contains(*view.FailureReason, "The draft is unchanged") {
-			t.Fatalf("the notice must state the draft is unchanged, got %q", *view.FailureReason)
-		}
+		sdAssertApproveFaultReturnedToGate(t, env)
 	}, 500*time.Second) // after the ~420s long-backoff budget (60+120+240) exhausts (F-QA2-49)
 	// Re-approve → now the status reads green → merge + commit.
 	env.RegisterDelayedCallback(func() {
@@ -7121,6 +7168,28 @@ func Test_CoAuthor_RailEnabled_ReviewGateReject_NotDoubleSeeded(t *testing.T) {
 	}
 }
 
+// sdAssertOpenPRFaultContainedAtGate queries the failed gate after a persistent openPR
+// Auth fault exhausted the bounded retry and asserts the honest containment shape:
+// StageDraftFailed naming the pull-request step, with only the ONE draft dispatch so far.
+func sdAssertOpenPRFaultContainedAtGate(t *testing.T, env *testsuite.TestWorkflowEnvironment, pipe *fakePipeline) {
+	t.Helper()
+	view := sdSessionView(t, env)
+	if view.Stage != StageDraftFailed {
+		t.Fatalf("a persistent openPR Auth fault must CONTAIN at StageDraftFailed, got stage %d", view.Stage)
+	}
+	reason := ""
+	if view.FailureReason != nil {
+		reason = *view.FailureReason
+	}
+	if !strings.Contains(reason, "pull request") {
+		t.Fatalf("the failed gate must name the openPR step honestly, got %q", reason)
+	}
+	// Only ONE dispatch so far — the draft is preserved on the branch.
+	if len(pipe.submits) != 1 {
+		t.Fatalf("before retry there must be exactly ONE dispatch, got %d", len(pipe.submits))
+	}
+}
+
 // F35 TWIN (the draft-round-trip openPR fault) — a GREEN draft + successful read-back, then
 // OpenPullRequest persistently Auth-faults (secondary-rate-limit-403-as-Auth) past the shared
 // bounded retry. The whole CoAuthor workflow must NOT die (as it did live on gtdapp kind 5):
@@ -7144,28 +7213,7 @@ func Test_CoAuthor_Rail_OpenPRAuthFault_ContainsAtGate_RetryResumesNoRedispatch_
 
 	// At the failed gate: assert StageDraftFailed with the honest openPR reason, then RETRY.
 	env.RegisterDelayedCallback(func() {
-		enc, err := env.QueryWorkflow(querySessionState)
-		if err != nil {
-			t.Fatalf("QueryWorkflow: %v", err)
-		}
-		var view SessionStateView
-		if err := enc.Get(&view); err != nil {
-			t.Fatalf("decode SessionStateView: %v", err)
-		}
-		if view.Stage != StageDraftFailed {
-			t.Fatalf("a persistent openPR Auth fault must CONTAIN at StageDraftFailed, got stage %d", view.Stage)
-		}
-		reason := ""
-		if view.FailureReason != nil {
-			reason = *view.FailureReason
-		}
-		if !strings.Contains(reason, "pull request") {
-			t.Fatalf("the failed gate must name the openPR step honestly, got %q", reason)
-		}
-		// Only ONE dispatch so far — the draft is preserved on the branch.
-		if len(pipe.submits) != 1 {
-			t.Fatalf("before retry there must be exactly ONE dispatch, got %d", len(pipe.submits))
-		}
+		sdAssertOpenPRFaultContainedAtGate(t, env, pipe)
 		env.SignalWorkflow(lSignalRedraft, redraftSignal{})
 	}, 500*time.Second) // after the ~420s long-backoff budget (60+120+240) exhausts (F-QA2-49)
 

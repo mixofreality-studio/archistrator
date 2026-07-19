@@ -227,52 +227,12 @@ type redraftSignal struct {
 }
 
 func (wf *workflows) CoAuthorPhase2ArtifactWorkflow(ctx workflow.Context, in coAuthorInput) (coAuthorOutcome, error) {
-	// The SDP review is NOT co-authored here — it is assembled by
-	// AssembleSDPReviewWorkflow (contract §2.1 rejects KindSdpReview at the façade,
-	// belt-and-suspenders here).
-	if in.ArtifactKind == KindSdpReview {
-		return coAuthorUnknown, temporal.NewNonRetryableApplicationError(
-			"the SDP review is assembled, not co-authored; use RequestSDPCommit",
-			"WrongArtifactKind", nil)
-	}
-
-	// Live technical state backing the sessionState Query.
-	state := &coAuthorState{
-		projectID:    in.ProjectID,
-		artifactKind: in.ArtifactKind,
-		stage:        StageDrafting,
-	}
-	if err := workflow.SetQueryHandler(ctx, querySessionState, state.view); err != nil {
+	// coAuthorSessionSetup runs the pre-loop setup (SDP-review backstop, sessionState
+	// query handler, the one-time Step-1 head-state read, feedback/seed bookkeeping);
+	// headVersion carries expectedVersion forward in workflow state (read-your-writes).
+	state, proj, headVersion, feedback, err := wf.coAuthorSessionSetup(ctx, in)
+	if err != nil {
 		return coAuthorUnknown, err
-	}
-
-	// Carry expectedVersion forward in workflow state (read-your-writes).
-	var headVersion projectstate.Version
-
-	// Step 1: read the project head-state once (prior typed models + version).
-	var proj projectstate.Project
-	if p, err := wf.readProject(ctx, in.ProjectID); err != nil {
-		if !isReadNotFound(err) {
-			return coAuthorUnknown, err
-		}
-		proj = projectstate.Project{ID: projectstate.ProjectID(in.ProjectID)}
-	} else {
-		proj = p
-		headVersion = p.Version
-	}
-
-	feedback := ReviewFeedback{}
-	if in.Feedback != nil {
-		feedback = *in.Feedback
-	}
-	// An AMENDMENT session's reopening feedback is OWNED by the amendment seed path
-	// (maybeSeedAmendment, below) — it lands in the ledger at round 0 right after the first
-	// stage. Mark it seeded up front so the pre-dispatch failed-gate seed does not race that
-	// path and double-seed the same comments on the first draft. A non-amendment session's
-	// initial feedback is NOT ledger-backed, so it stays false and is seeded before its first
-	// dispatch like any other memory-only feedback.
-	if in.Amendment > 0 {
-		state.feedbackSeeded = true
 	}
 
 	// redraftCount bounds the attempt label progression and drives the StageRedrafting
@@ -360,6 +320,61 @@ func (wf *workflows) CoAuthorPhase2ArtifactWorkflow(ctx workflow.Context, in coA
 	}
 }
 
+// coAuthorSessionSetup performs CoAuthorPhase2ArtifactWorkflow's pre-loop setup and
+// returns the live query state, the Step-1 project read, the starting head version, and
+// the initial feedback. Behavior-preserving extraction (gocyclo gate) — the command
+// sequence is identical to the pre-extraction inline body.
+func (wf *workflows) coAuthorSessionSetup(ctx workflow.Context, in coAuthorInput) (*coAuthorState, projectstate.Project, projectstate.Version, ReviewFeedback, error) {
+	// The SDP review is NOT co-authored here — it is assembled by
+	// AssembleSDPReviewWorkflow (contract §2.1 rejects KindSdpReview at the façade,
+	// belt-and-suspenders here).
+	if in.ArtifactKind == KindSdpReview {
+		return nil, projectstate.Project{}, 0, ReviewFeedback{}, temporal.NewNonRetryableApplicationError(
+			"the SDP review is assembled, not co-authored; use RequestSDPCommit",
+			"WrongArtifactKind", nil)
+	}
+
+	// Live technical state backing the sessionState Query.
+	state := &coAuthorState{
+		projectID:    in.ProjectID,
+		artifactKind: in.ArtifactKind,
+		stage:        StageDrafting,
+	}
+	if err := workflow.SetQueryHandler(ctx, querySessionState, state.view); err != nil {
+		return nil, projectstate.Project{}, 0, ReviewFeedback{}, err
+	}
+
+	// Carry expectedVersion forward in workflow state (read-your-writes).
+	var headVersion projectstate.Version
+
+	// Step 1: read the project head-state once (prior typed models + version).
+	var proj projectstate.Project
+	if p, err := wf.readProject(ctx, in.ProjectID); err != nil {
+		if !isReadNotFound(err) {
+			return nil, projectstate.Project{}, 0, ReviewFeedback{}, err
+		}
+		proj = projectstate.Project{ID: projectstate.ProjectID(in.ProjectID)}
+	} else {
+		proj = p
+		headVersion = p.Version
+	}
+
+	feedback := ReviewFeedback{}
+	if in.Feedback != nil {
+		feedback = *in.Feedback
+	}
+	// An AMENDMENT session's reopening feedback is OWNED by the amendment seed path
+	// (maybeSeedAmendment, in the driver loop) — it lands in the ledger at round 0 right
+	// after the first stage. Mark it seeded up front so the pre-dispatch failed-gate seed
+	// does not race that path and double-seed the same comments on the first draft. A
+	// non-amendment session's initial feedback is NOT ledger-backed, so it stays false and
+	// is seeded before its first dispatch like any other memory-only feedback.
+	if in.Amendment > 0 {
+		state.feedbackSeeded = true
+	}
+	return state, proj, headVersion, feedback, nil
+}
+
 // coAuthorDraftRound runs one DRAFT round-trip of the co-author loop: it composes the
 // architect prompt in-memory, dispatches + observes the design job, opens the PR, reads
 // the committed model back off the session branch, and stages it for review. On a
@@ -413,9 +428,10 @@ func (wf *workflows) amendmentNoChangeGate(
 // containAtFailedGate suspends the session at the human-visible StageDraftFailed gate with
 // the given reason and maps the human decision back into the draft-round control triple:
 // Withdraw/other outcome → coAuthorReturn; a Retry → coAuthorContinue (redraft on the SAME
-// persistent session branch, counter bumped). Shared by every draft-round failure that must
-// be CONTAINED rather than crash the workflow (job-failed, malformed read-back, and the F35-
-// twin OpenBranch/openPR rail faults). A recovery-await fault propagates as-is.
+// persistent session branch, counter bumped). Shared by every failure that must be
+// CONTAINED at that gate rather than crash the workflow (job-failed, malformed read-back,
+// the F35-twin OpenBranch/openPR rail faults, a stage-for-review fault, and the not-green
+// approve merge guard). A recovery-await fault propagates as-is.
 func (wf *workflows) containAtFailedGate(
 	ctx workflow.Context,
 	in coAuthorInput,
@@ -608,6 +624,28 @@ func (wf *workflows) coAuthorDraftRound(
 	}
 	draft = model
 	state.findings = nil
+	return wf.finishDraftRound(ctx, in, proj, draft, readBackVersion, feedback, headVersion, redraftCount, state, gf)
+}
+
+// finishDraftRound completes a draft round once a read-back model is in hand (fresh
+// dispatch or F35-twin resume): the F40 amendment no-change guard, the post-read-back
+// openPR, the QA F29 head-version adoption, the stage-for-review write with its crash
+// containment, and the AwaitingReview transition. Behavior-preserving extraction from
+// coAuthorDraftRound (gocyclo gate) — the workflow-command order is identical to the
+// pre-extraction inline body.
+func (wf *workflows) finishDraftRound(
+	ctx workflow.Context,
+	in coAuthorInput,
+	proj projectstate.Project,
+	draft projectstate.ArtifactModel,
+	readBackVersion projectstate.Version,
+	feedback *ReviewFeedback,
+	headVersion *projectstate.Version,
+	redraftCount *int,
+	state *coAuthorState,
+	gf *gitSession,
+) (coAuthorStep, coAuthorOutcome, error) {
+	logger := workflow.GetLogger(ctx)
 
 	// AMENDMENT NO-CHANGE GUARD (defense-in-depth for the F40 zero-new-commit 422): an
 	// amendment branch is cut from main, which ALREADY carries the committed model, so — unlike
@@ -620,7 +658,7 @@ func (wf *workflows) coAuthorDraftRound(
 	// instead of 422-crashing the rail. The run-scoped idempotency key is the primary fix (a
 	// fresh run now genuinely dispatches + seeds, so this rarely trips); this guard closes the
 	// residual "job ran but changed nothing" case the template's no-commit guard may miss.
-	if step, outcome, err := wf.amendmentNoChangeGate(ctx, in, proj, model, *headVersion, feedback, redraftCount, state); step != coAuthorProceed || err != nil {
+	if step, outcome, err := wf.amendmentNoChangeGate(ctx, in, proj, draft, *headVersion, feedback, redraftCount, state); step != coAuthorProceed || err != nil {
 		return step, outcome, err
 	}
 
@@ -670,21 +708,13 @@ func (wf *workflows) coAuthorDraftRound(
 		// CRASH CONTAINMENT (QA F29). A stage-for-review activity fault must NOT kill the
 		// workflow — it had no recoverable gate (only dispatch/reject faults were contained
 		// after F15/F28). Land at the human-visible StageDraftFailed gate keeping the
-		// feedback, so a Retry redrafts. A workflow-cancellation still propagates.
+		// feedback, so a Retry redrafts on the SAME persistent session branch (F40 — no
+		// branch bump; the retained feedback rides the redraft unchanged). A
+		// workflow-cancellation still propagates.
 		if temporal.IsCanceledError(err) {
 			return coAuthorProceed, coAuthorUnknown, err
 		}
-		outcome, retry, recErr := wf.awaitDraftFailedRecovery(ctx, in.ProjectID, in.ArtifactKind, *headVersion, stageFailedReason(err), state, feedback)
-		if recErr != nil {
-			return coAuthorProceed, coAuthorUnknown, recErr
-		}
-		if !retry {
-			return coAuthorReturn, outcome, nil
-		}
-		// F40: a Retry after a stage fault redrafts on the SAME persistent session branch
-		// (no branch bump); the retained feedback rides the redraft unchanged.
-		*redraftCount++
-		return coAuthorContinue, coAuthorUnknown, nil
+		return wf.containAtFailedGate(ctx, in, *headVersion, stageFailedReason(err), state, feedback, redraftCount)
 	}
 	*headVersion = newVersion
 	state.stage = StageAwaitingReview
@@ -919,19 +949,11 @@ func (wf *workflows) coAuthorApprove(
 	if !merged {
 		// The merge guard was NOT green (the required CI check is red on the PR): do
 		// NOT merge/commit. Route to the SAME StageDraftFailed recovery gate as a draft
-		// failure (the anti-wedge rule) awaiting Retry-via-Reject / Withdraw.
-		logger.Warn("Phase-2 design PR not mergeable at approve (CI not green); entering StageDraftFailed")
-		outcome, retry, recErr := wf.awaitDraftFailedRecovery(ctx, in.ProjectID, in.ArtifactKind, *headVersion, draftFailedReason("the design PR is not green — its required CI check has not passed"), state, feedback)
-		if recErr != nil {
-			return coAuthorProceed, coAuthorUnknown, recErr
-		}
-		if !retry {
-			return coAuthorReturn, outcome, nil
-		}
-		// F40: Retry-via-Reject from the not-green gate redrafts on the SAME session branch +
+		// failure (the anti-wedge rule) awaiting Retry-via-Reject / Withdraw. F40:
+		// Retry-via-Reject from the not-green gate redrafts on the SAME session branch +
 		// PR (no branch bump — the template's refresh-from-main handles a stale base).
-		*redraftCount++
-		return coAuthorContinue, coAuthorUnknown, nil
+		logger.Warn("Phase-2 design PR not mergeable at approve (CI not green); entering StageDraftFailed")
+		return wf.containAtFailedGate(ctx, in, *headVersion, draftFailedReason("the design PR is not green — its required CI check has not passed"), state, feedback, redraftCount)
 	}
 	// After merge the draft lives on main; commitArtifact lands on main. Re-seed
 	// headVersion from main so the commit's CAS starts at main's tip. A dormant rail

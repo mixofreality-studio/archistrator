@@ -44,17 +44,8 @@ func (s *Session) publishDraft(message string) (string, error) {
 	}
 
 	// No-empty-publish guard: nothing drafted this process AND a clean state subtree.
-	if !s.wroteState {
-		dirty, derr := s.stateSubtreeDirty()
-		if derr != nil {
-			return "", derr
-		}
-		if !dirty {
-			if s.Mode == jobModeCritique {
-				return "", fmt.Errorf("refusing to publish: no critique verdict was recorded this session (call setCritiqueVerdict first) and the working tree has no pending state change")
-			}
-			return "", fmt.Errorf("refusing to publish: no draft was recorded this session (call putDraftModel first) and the working tree has no pending state change")
-		}
+	if err := s.ensureDraftToPublish(); err != nil {
+		return "", err
 	}
 
 	msg := strings.TrimSpace(message)
@@ -108,6 +99,27 @@ func (s *Session) publishDraft(message string) (string, error) {
 		return fmt.Sprintf("Re-affirmed the %s %s onto %s (no net change; empty commit published so the pipeline records the convergence).", s.Kind.WireName(), s.Mode, branch), nil
 	}
 	return fmt.Sprintf("Published the %s %s onto %s.", s.Kind.WireName(), s.Mode, branch), nil
+}
+
+// ensureDraftToPublish is the no-empty-publish guard: it errors when NO state-mutating
+// verb ran in this process AND the working tree has no pending change under
+// .aiarch/state — turning "the agent drafted nothing" into a hard error the agent sees,
+// not a silent green job (F17c).
+func (s *Session) ensureDraftToPublish() error {
+	if s.wroteState {
+		return nil
+	}
+	dirty, derr := s.stateSubtreeDirty()
+	if derr != nil {
+		return derr
+	}
+	if !dirty {
+		if s.Mode == jobModeCritique {
+			return fmt.Errorf("refusing to publish: no critique verdict was recorded this session (call setCritiqueVerdict first) and the working tree has no pending state change")
+		}
+		return fmt.Errorf("refusing to publish: no draft was recorded this session (call putDraftModel first) and the working tree has no pending state change")
+	}
+	return nil
 }
 
 // stateSubtreeDirty reports whether the working tree has any pending change under

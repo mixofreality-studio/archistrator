@@ -807,6 +807,53 @@ func gitSampleActivity() constructionActivity {
 
 // ---- Tests ------------------------------------------------------------------
 
+// gitLifecycleAssertRailDriven asserts the full-lifecycle rail choreography for the
+// C-MST activity: branch + PR opened (with the cr label riding in Hints), one +1
+// (Approve) relayed, one merge performed.
+func gitLifecycleAssertRailDriven(t *testing.T, rail *stubRail) {
+	t.Helper()
+	if len(rail.opened) == 0 || rail.opened[0] != "activity/C-MST" {
+		t.Fatalf("want OpenBranch(activity/C-MST), got %v", rail.opened)
+	}
+	if len(rail.prOpened) != 1 || rail.prOpened[0].Base != mainBranch {
+		t.Fatalf("want one OpenPullRequest with base=main, got %+v", rail.prOpened)
+	}
+	if string(rail.prOpened[0].Hints) != "cr-021" {
+		t.Fatalf("cr label must ride in PR Hints, got %q", rail.prOpened[0].Hints)
+	}
+	if len(rail.reviews) != 1 || rail.reviews[0].Verdict != sourcecontrol.ReviewApprove {
+		t.Fatalf("want one +1 (Approve) relayed, got %+v", rail.reviews)
+	}
+	if rail.merges != 1 {
+		t.Fatalf("want one MergePullRequest, got %d", rail.merges)
+	}
+}
+
+// gitLifecycleAssertHeadStateRow asserts the recorded ActivityGit[C-MST] row mirrors
+// the full lifecycle (branch/PR handles, CR label, CI success, arch +1, merged).
+func gitLifecycleAssertHeadStateRow(t *testing.T, git *stubGitStatus) {
+	t.Helper()
+	g, ok := git.row("C-MST")
+	if !ok {
+		t.Fatal("ActivityGit[C-MST] was never recorded")
+	}
+	if g.BranchName != "activity/C-MST" || g.PullRequestRef != "pr-7" {
+		t.Fatalf("branch/PR handles wrong: %+v", g)
+	}
+	if g.CRLabel != "cr-021" {
+		t.Fatalf("CR label not recorded: %+v", g)
+	}
+	if g.CICheck != projectstate.CICheckSuccess {
+		t.Fatalf("CICheck = %v, want Success", g.CICheck)
+	}
+	if !g.ArchApproved {
+		t.Fatalf("ArchApproved not recorded: %+v", g)
+	}
+	if !g.Merged {
+		t.Fatalf("Merged not recorded: %+v", g)
+	}
+}
+
 // The full git-forward lifecycle records branch-open → CI(success) → arch-approved →
 // merged onto the per-activity head-state, in order, through the real Manager workflow.
 func Test_GitForward_FullLifecycle_RecordsHeadState(t *testing.T) {
@@ -832,42 +879,10 @@ func Test_GitForward_FullLifecycle_RecordsHeadState(t *testing.T) {
 	}
 
 	// Rail was driven: branch + PR opened, CI read, +1 relayed, merge performed.
-	if len(rail.opened) == 0 || rail.opened[0] != "activity/C-MST" {
-		t.Fatalf("want OpenBranch(activity/C-MST), got %v", rail.opened)
-	}
-	if len(rail.prOpened) != 1 || rail.prOpened[0].Base != mainBranch {
-		t.Fatalf("want one OpenPullRequest with base=main, got %+v", rail.prOpened)
-	}
-	if string(rail.prOpened[0].Hints) != "cr-021" {
-		t.Fatalf("cr label must ride in PR Hints, got %q", rail.prOpened[0].Hints)
-	}
-	if len(rail.reviews) != 1 || rail.reviews[0].Verdict != sourcecontrol.ReviewApprove {
-		t.Fatalf("want one +1 (Approve) relayed, got %+v", rail.reviews)
-	}
-	if rail.merges != 1 {
-		t.Fatalf("want one MergePullRequest, got %d", rail.merges)
-	}
+	gitLifecycleAssertRailDriven(t, rail)
 
 	// Head-state mirror reflects the full lifecycle.
-	g, ok := git.row("C-MST")
-	if !ok {
-		t.Fatal("ActivityGit[C-MST] was never recorded")
-	}
-	if g.BranchName != "activity/C-MST" || g.PullRequestRef != "pr-7" {
-		t.Fatalf("branch/PR handles wrong: %+v", g)
-	}
-	if g.CRLabel != "cr-021" {
-		t.Fatalf("CR label not recorded: %+v", g)
-	}
-	if g.CICheck != projectstate.CICheckSuccess {
-		t.Fatalf("CICheck = %v, want Success", g.CICheck)
-	}
-	if !g.ArchApproved {
-		t.Fatalf("ArchApproved not recorded: %+v", g)
-	}
-	if !g.Merged {
-		t.Fatalf("Merged not recorded: %+v", g)
-	}
+	gitLifecycleAssertHeadStateRow(t, git)
 
 	// Task 3: the per-activity construction lifecycle recorded Running (started) then
 	// Done (completed) through the same git-wired spine.

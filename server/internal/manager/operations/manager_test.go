@@ -991,6 +991,16 @@ func Test_View_ComposesReads_NoMutation(t *testing.T) {
 	}
 
 	// Composed read content.
+	viewAssertComposedContent(t, view, appID)
+
+	// NO MUTATION assertion: the view path performs no write Activity and no version bump.
+	viewAssertNoMutation(t, os, rt, us)
+}
+
+// viewAssertComposedContent asserts the H1 composed read content: identity, phase +
+// in-flight, health snapshot, SLO row, autoscaler mode, and the Engine run-rate.
+func viewAssertComposedContent(t *testing.T, view OperatedSystemView, appID uuid.UUID) {
+	t.Helper()
 	if view.OperatedAppID != appID {
 		t.Fatalf("operatedAppID = %v, want %v", view.OperatedAppID, appID)
 	}
@@ -1009,8 +1019,12 @@ func Test_View_ComposesReads_NoMutation(t *testing.T) {
 	if view.CurrentRunRate.MinorUnits != 4120 || view.CurrentRunRate.Currency != "USD" {
 		t.Fatalf("currentRunRate = %+v", view.CurrentRunRate)
 	}
+}
 
-	// NO MUTATION assertion: the view path performs no write Activity and no version bump.
+// viewAssertNoMutation asserts the H1 view path performed no write Activity anywhere
+// (head-state at version 7, no usage appends, no runtime writes).
+func viewAssertNoMutation(t *testing.T, os *fakeOperatedState, rt *fakeRuntime, us *fakeUsage) {
+	t.Helper()
 	if os.version != 7 {
 		t.Fatalf("view must NOT bump head-state version; want 7, got %d", os.version)
 	}

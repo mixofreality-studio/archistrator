@@ -21,9 +21,15 @@ linters:
     # revive at its default rule set (golint successor), matching the server
     # module's baseline.
     - revive
+    # gocritic + the cyclomatic-complexity gate, matching the server module's
+    # baseline.
+    - gocritic
+    - gocyclo
   settings:
     gochecksumtype:
       default-signifies-exhaustive: false
+    gocyclo:
+      min-complexity: 15
     depguard:
       rules:
         harness:

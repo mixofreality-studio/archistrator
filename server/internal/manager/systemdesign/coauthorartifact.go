@@ -260,64 +260,9 @@ func (wf *workflows) CoAuthorArtifactWorkflow(ctx workflow.Context, in coAuthorI
 		return coAuthorUnknown, err
 	}
 
-	// REPLAY SAFETY (system-architect-critique): resolve the architect self-critique
-	// version gate ONCE, at session start, for the architect-critiqued kind. Placing the
-	// GetVersion HERE (not at the critique point) is what keeps an execution in flight at
-	// deploy time — e.g. the running gtdapp:5 System redraft — on the OLD no-critique
-	// command sequence for its whole run: its history has no marker at this point, so
-	// replay resolves DefaultVersion, while every post-deploy session records v1 and runs
-	// the critique round. Conditioned on the deterministic input kind so other kinds'
-	// histories stay marker-free.
-	if critic, ok := critiqueCriticFor(toPSKind(in.ArtifactKind)); ok && critic == ActiveRoleArchitect {
-		state.architectCritiqueEnabled = workflow.GetVersion(ctx, "system-architect-critique", workflow.DefaultVersion, 1) >= 1
-	}
-
-	// Carry expectedVersion forward in workflow state (read-your-writes; D-PA §6).
-	var headVersion projectstate.Version
-
-	// Step 1: read the project head-state once (prior typed models + ResearchInput + version).
-	var proj projectstate.Project
-	if p, err := wf.readProject(ctx, in.ProjectID); err != nil {
-		if !isReadNotFound(err) {
-			return coAuthorUnknown, err
-		}
-		proj = projectstate.Project{ID: projectstate.ProjectID(in.ProjectID)}
-	} else {
-		proj = p
-		headVersion = p.Version
-	}
-
-	// Capture the committed CoreUseCases once (founder extension, 2026-07-05): the
-	// KindSystem read-back check needs it to flag a System draft that leaves any
-	// committed use case without a dynamic view (USECASE-DYNAMIC-MISSING). Read
-	// deterministically from the head-state proj, so it is replay-safe.
-	if cuc, ok := proj.CoreUseCases.Model.(*projectstate.CoreUseCases); ok {
-		state.committedCoreUseCases = cuc
-	}
-	// Capture the committed Volatilities the same way (F10 gate lint, QA amendment
-	// 2026-07-17): the KindSystem read-back check needs it to flag committed
-	// volatilities the System draft neither claims nor dispositions
-	// (SYS-VOLATILITY-COVERAGE). Deterministic head-state read — replay-safe.
-	if vol, ok := proj.Volatilities.Model.(*projectstate.Volatilities); ok {
-		state.committedVolatilities = vol
-	}
-
-	// feedback carried into the next draft dispatch: seeded from the explicit
-	// re-request feedback (OQ6), then replaced by PM-revise / reject-loop / validation
-	// feedback. Carries Notes + the architect's JSONPath-anchored Comments (the
-	// latter only ever set on the reject loop).
-	feedback := ReviewFeedback{}
-	if in.Feedback != nil {
-		feedback = *in.Feedback
-	}
-	// An AMENDMENT session's reopening feedback is OWNED by the amendment seed path
-	// (maybeSeedAmendment, below) — it lands in the ledger at round 0 right after the first
-	// stage. Mark it seeded up front so the pre-dispatch failed-gate seed does not race that
-	// path and double-seed the same comments on the first draft. A non-amendment session's
-	// initial feedback (the OQ6 re-request) is NOT ledger-backed, so it stays false and is
-	// seeded before its first dispatch like any other memory-only feedback.
-	if in.Amendment > 0 {
-		state.feedbackSeeded = true
+	proj, headVersion, feedback, initErr := wf.beginCoAuthorSession(ctx, in, state)
+	if initErr != nil {
+		return coAuthorUnknown, initErr
 	}
 
 	// redraftCount bounds the PM-critique-revise / draft-failure retry loop before the
@@ -426,6 +371,74 @@ func (wf *workflows) CoAuthorArtifactWorkflow(ctx workflow.Context, in coAuthorI
 			continue
 		}
 	}
+}
+
+// beginCoAuthorSession runs the deterministic session preamble for the spine: the
+// architect-critique version gate, the Step-1 head-state read, the committed-model
+// captures, and the initial feedback seed. Extracted verbatim from the workflow body —
+// the ordering of the GetVersion marker relative to the readProject Activity is
+// replay-load-bearing and must not change.
+func (wf *workflows) beginCoAuthorSession(ctx workflow.Context, in coAuthorInput, state *coAuthorState) (projectstate.Project, projectstate.Version, ReviewFeedback, error) {
+	// REPLAY SAFETY (system-architect-critique): resolve the architect self-critique
+	// version gate ONCE, at session start, for the architect-critiqued kind. Placing the
+	// GetVersion HERE (not at the critique point) is what keeps an execution in flight at
+	// deploy time — e.g. the running gtdapp:5 System redraft — on the OLD no-critique
+	// command sequence for its whole run: its history has no marker at this point, so
+	// replay resolves DefaultVersion, while every post-deploy session records v1 and runs
+	// the critique round. Conditioned on the deterministic input kind so other kinds'
+	// histories stay marker-free.
+	if critic, ok := critiqueCriticFor(toPSKind(in.ArtifactKind)); ok && critic == ActiveRoleArchitect {
+		state.architectCritiqueEnabled = workflow.GetVersion(ctx, "system-architect-critique", workflow.DefaultVersion, 1) >= 1
+	}
+
+	// Carry expectedVersion forward in workflow state (read-your-writes; D-PA §6).
+	var headVersion projectstate.Version
+
+	// Step 1: read the project head-state once (prior typed models + ResearchInput + version).
+	var proj projectstate.Project
+	if p, err := wf.readProject(ctx, in.ProjectID); err != nil {
+		if !isReadNotFound(err) {
+			return projectstate.Project{}, headVersion, ReviewFeedback{}, err
+		}
+		proj = projectstate.Project{ID: projectstate.ProjectID(in.ProjectID)}
+	} else {
+		proj = p
+		headVersion = p.Version
+	}
+
+	// Capture the committed CoreUseCases once (founder extension, 2026-07-05): the
+	// KindSystem read-back check needs it to flag a System draft that leaves any
+	// committed use case without a dynamic view (USECASE-DYNAMIC-MISSING). Read
+	// deterministically from the head-state proj, so it is replay-safe.
+	if cuc, ok := proj.CoreUseCases.Model.(*projectstate.CoreUseCases); ok {
+		state.committedCoreUseCases = cuc
+	}
+	// Capture the committed Volatilities the same way (F10 gate lint, QA amendment
+	// 2026-07-17): the KindSystem read-back check needs it to flag committed
+	// volatilities the System draft neither claims nor dispositions
+	// (SYS-VOLATILITY-COVERAGE). Deterministic head-state read — replay-safe.
+	if vol, ok := proj.Volatilities.Model.(*projectstate.Volatilities); ok {
+		state.committedVolatilities = vol
+	}
+
+	// feedback carried into the next draft dispatch: seeded from the explicit
+	// re-request feedback (OQ6), then replaced by PM-revise / reject-loop / validation
+	// feedback. Carries Notes + the architect's JSONPath-anchored Comments (the
+	// latter only ever set on the reject loop).
+	feedback := ReviewFeedback{}
+	if in.Feedback != nil {
+		feedback = *in.Feedback
+	}
+	// An AMENDMENT session's reopening feedback is OWNED by the amendment seed path
+	// (maybeSeedAmendment, below) — it lands in the ledger at round 0 right after the first
+	// stage. Mark it seeded up front so the pre-dispatch failed-gate seed does not race that
+	// path and double-seed the same comments on the first draft. A non-amendment session's
+	// initial feedback (the OQ6 re-request) is NOT ledger-backed, so it stays false and is
+	// seeded before its first dispatch like any other memory-only feedback.
+	if in.Amendment > 0 {
+		state.feedbackSeeded = true
+	}
+	return proj, headVersion, feedback, nil
 }
 
 // awaitReviewGate suspends at the AwaitingReview gate, multiplexing the review DECISION
@@ -1162,45 +1175,8 @@ func (wf *workflows) commitOnApprove(
 	approver string,
 ) coAuthorStep {
 	logger := workflow.GetLogger(ctx)
-	// F-QA2-44: RE-MINT the installation token at gate-decision time. The session's cached
-	// credential (gf.cred) was minted at DISPATCH time (beginSession), and GitHub App
-	// installation tokens expire after ~1 hour — while this approve arrives whenever the
-	// human returns to the review (observed live: gtdapp kind=3 approved 8+ hours after the
-	// last dispatch, and every merge-window verb 403'd forever on the expired token; the
-	// platform classifier reports that 403 as a NON-RETRYABLE Auth fault, so neither the
-	// Activity RetryPolicy nor the bounded railWithAuthRetry could heal it). Mint a FRESH
-	// token for THIS decision's merge window (status guard / +1 relay / merge, plus the
-	// post-merge idempotent re-runs on a contained fault); the dispatch-time mint is
-	// unchanged — it still covers the dispatch scope (sync / openBranch / openPR).
-	//
-	// Temporal versioning guard (replay safety; F-QA2-44): the mint is a NEW Activity
-	// command in the decision path, so an in-flight session whose history already recorded
-	// merge-window verbs WITHOUT a preceding mint (the live gtdapp:3 carries three such
-	// failed approve attempts) would replay non-deterministically against unguarded new
-	// code. The change id is PER DECISION ATTEMPT (gate-decision-token-remint-<seq>) —
-	// deliberately NOT a static id like the other gates — because GetVersion caches its
-	// resolution PER CHANGE ID for the lifetime of the execution: a static id resolved to
-	// DefaultVersion while replaying the old recorded attempts would pin every FUTURE
-	// approve on that execution to the old no-mint behavior too, and the stuck live session
-	// could never heal. With a per-attempt id, each OLD recorded attempt resolves
-	// DefaultVersion (no mint — replay matches its history) while the NEXT decision on the
-	// SAME execution is a first-time GetVersion in executing mode → v1 → re-mints. Decisions
-	// are human-gated (a handful per session), so marker/search-attribute growth is bounded.
-	if gf.enabled {
-		if workflow.GetVersion(ctx, fmt.Sprintf("gate-decision-token-remint-%d", state.decisionSeq), workflow.DefaultVersion, 1) >= 1 {
-			cred, cerr := wf.mintCred(ctx, gf.repoRef)
-			if cerr != nil {
-				// Contain exactly like a merge-window fault (QA F35): the staged draft is
-				// intact on the session branch and main is untouched — return to
-				// AwaitingReview so the human simply re-approves. Cancellation propagates.
-				if temporal.IsCanceledError(cerr) {
-					return stepErr(cerr)
-				}
-				logger.Warn("approve-time credential re-mint fault; returning to AwaitingReview for re-approve", "error", cerr.Error())
-				return wf.reAwaitAfterApproveFault(state, approveFailedReason(cerr))
-			}
-			gf.cred = cred
-		}
+	if step, ok := wf.remintApproveCred(ctx, gf, state); !ok {
+		return step
 	}
 	merged, mErr := wf.mergeOnApprove(ctx, in.ProjectID, gf, in.ArtifactKind)
 	if mErr != nil {
@@ -1266,6 +1242,57 @@ func (wf *workflows) commitOnApprove(
 	state.stage = StageCommitted
 	state.clearActive() // SUB-STEP (Plan-3 C1): terminal — no role is working.
 	return stepReturn(coAuthorApproved)
+}
+
+// remintApproveCred is the approve-time credential re-mint half of commitOnApprove.
+// It returns ok=true when the merge window may proceed (rail dormant, version gate off,
+// or a fresh token minted onto gf.cred), and ok=false with the containment step to
+// return when the mint faulted.
+//
+// F-QA2-44: RE-MINT the installation token at gate-decision time. The session's cached
+// credential (gf.cred) was minted at DISPATCH time (beginSession), and GitHub App
+// installation tokens expire after ~1 hour — while this approve arrives whenever the
+// human returns to the review (observed live: gtdapp kind=3 approved 8+ hours after the
+// last dispatch, and every merge-window verb 403'd forever on the expired token; the
+// platform classifier reports that 403 as a NON-RETRYABLE Auth fault, so neither the
+// Activity RetryPolicy nor the bounded railWithAuthRetry could heal it). Mint a FRESH
+// token for THIS decision's merge window (status guard / +1 relay / merge, plus the
+// post-merge idempotent re-runs on a contained fault); the dispatch-time mint is
+// unchanged — it still covers the dispatch scope (sync / openBranch / openPR).
+//
+// Temporal versioning guard (replay safety; F-QA2-44): the mint is a NEW Activity
+// command in the decision path, so an in-flight session whose history already recorded
+// merge-window verbs WITHOUT a preceding mint (the live gtdapp:3 carries three such
+// failed approve attempts) would replay non-deterministically against unguarded new
+// code. The change id is PER DECISION ATTEMPT (gate-decision-token-remint-<seq>) —
+// deliberately NOT a static id like the other gates — because GetVersion caches its
+// resolution PER CHANGE ID for the lifetime of the execution: a static id resolved to
+// DefaultVersion while replaying the old recorded attempts would pin every FUTURE
+// approve on that execution to the old no-mint behavior too, and the stuck live session
+// could never heal. With a per-attempt id, each OLD recorded attempt resolves
+// DefaultVersion (no mint — replay matches its history) while the NEXT decision on the
+// SAME execution is a first-time GetVersion in executing mode → v1 → re-mints. Decisions
+// are human-gated (a handful per session), so marker/search-attribute growth is bounded.
+func (wf *workflows) remintApproveCred(ctx workflow.Context, gf *gitSession, state *coAuthorState) (coAuthorStep, bool) {
+	if !gf.enabled {
+		return coAuthorStep{}, true
+	}
+	if workflow.GetVersion(ctx, fmt.Sprintf("gate-decision-token-remint-%d", state.decisionSeq), workflow.DefaultVersion, 1) < 1 {
+		return coAuthorStep{}, true
+	}
+	cred, cerr := wf.mintCred(ctx, gf.repoRef)
+	if cerr != nil {
+		// Contain exactly like a merge-window fault (QA F35): the staged draft is
+		// intact on the session branch and main is untouched — return to
+		// AwaitingReview so the human simply re-approves. Cancellation propagates.
+		if temporal.IsCanceledError(cerr) {
+			return stepErr(cerr), false
+		}
+		workflow.GetLogger(ctx).Warn("approve-time credential re-mint fault; returning to AwaitingReview for re-approve", "error", cerr.Error())
+		return wf.reAwaitAfterApproveFault(state, approveFailedReason(cerr)), false
+	}
+	gf.cred = cred
+	return coAuthorStep{}, true
 }
 
 // reAwaitAfterApproveFault contains a transient approve/merge-window fault (QA F35): it
@@ -3340,6 +3367,26 @@ func servicesExplosionFindings(kind ArtifactKind, draft projectstate.ArtifactMod
 	if managers == 0 || managers != len(coreNames) {
 		return nil
 	}
+	mirrored, mirroredNames := mirroredManagerNames(managerStems, managerNames, coreNames)
+	// >= 60% name-mirroring (integer arithmetic; no float drift in workflow code).
+	if mirrored*100 < 60*managers {
+		return nil
+	}
+	return []Finding{{
+		RuleID:   "SYS-SERVICES-EXPLOSION",
+		Severity: SeverityWarning,
+		Message: fmt.Sprintf(
+			"the System declares exactly one Manager per committed core use case (%d each) and %d of %d Manager names mirror a core use case (%s); this is the services-explosion fingerprint — a Manager encapsulates a VOLATILITY for a family of use cases, not a single use case. Re-examine the decomposition axis.",
+			managers, mirrored, managers, strings.Join(mirroredNames, ", ")),
+		Location: &Location{Section: "system managers"},
+	}}
+}
+
+// mirroredManagerNames counts the Manager stems that mirror a committed core use-case
+// name (substring containment either way, on normalized tokens) and returns the display
+// names of the mirroring Managers for the finding message. Pure — deterministic over
+// its inputs.
+func mirroredManagerNames(managerStems, managerNames, coreNames []string) (int, []string) {
 	mirrored := 0
 	var mirroredNames []string
 	for i, stem := range managerStems {
@@ -3357,18 +3404,7 @@ func servicesExplosionFindings(kind ArtifactKind, draft projectstate.ArtifactMod
 			}
 		}
 	}
-	// >= 60% name-mirroring (integer arithmetic; no float drift in workflow code).
-	if mirrored*100 < 60*managers {
-		return nil
-	}
-	return []Finding{{
-		RuleID:   "SYS-SERVICES-EXPLOSION",
-		Severity: SeverityWarning,
-		Message: fmt.Sprintf(
-			"the System declares exactly one Manager per committed core use case (%d each) and %d of %d Manager names mirror a core use case (%s); this is the services-explosion fingerprint — a Manager encapsulates a VOLATILITY for a family of use cases, not a single use case. Re-examine the decomposition axis.",
-			managers, mirrored, managers, strings.Join(mirroredNames, ", ")),
-		Location: &Location{Section: "system managers"},
-	}}
+	return mirrored, mirroredNames
 }
 
 // normalizeNameToken lowercases and strips every non-alphanumeric rune so Manager
@@ -3576,25 +3612,8 @@ func dvChainFindings(kind ArtifactKind, draft projectstate.ArtifactModel) []Find
 			})
 			continue
 		}
-		seen := map[string]bool{}
-		stack := append([]string{}, roots...)
-		for len(stack) > 0 {
-			n := stack[len(stack)-1]
-			stack = stack[:len(stack)-1]
-			if seen[n] {
-				continue
-			}
-			seen[n] = true
-			stack = append(stack, adj[n]...)
-		}
-		var unreached []string
-		for _, pid := range dv.Participants {
-			if !seen[pid] {
-				unreached = append(unreached, pid)
-			}
-		}
+		unreached := dvUnreachedParticipants(dv.Participants, adj, roots)
 		if len(unreached) > 0 {
-			sort.Strings(unreached)
 			out = append(out, Finding{
 				RuleID:   "DV-CHAIN-CONNECTED",
 				Severity: SeverityWarning,
@@ -3604,6 +3623,31 @@ func dvChainFindings(kind ArtifactKind, draft projectstate.ArtifactModel) []Find
 		}
 	}
 	return out
+}
+
+// dvUnreachedParticipants walks the directed edges (adj) depth-first from the Client
+// roots and returns the participants no root reaches, sorted for a deterministic
+// finding message. Pure — deterministic over its inputs.
+func dvUnreachedParticipants(participants []string, adj map[string][]string, roots []string) []string {
+	seen := map[string]bool{}
+	stack := append([]string{}, roots...)
+	for len(stack) > 0 {
+		n := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if seen[n] {
+			continue
+		}
+		seen[n] = true
+		stack = append(stack, adj[n]...)
+	}
+	var unreached []string
+	for _, pid := range participants {
+		if !seen[pid] {
+			unreached = append(unreached, pid)
+		}
+	}
+	sort.Strings(unreached)
+	return unreached
 }
 
 // variationRefFindings — UC-VARIATION-REF (error). variationOf, when set, must resolve to
@@ -3728,21 +3772,22 @@ func scrubbedIDFindings(kind ArtifactKind, draft projectstate.ArtifactModel) []F
 	for i, it := range sr.Items {
 		id := strings.TrimSpace(it.ID)
 		loc := &Location{Ordinal: int64(i), Section: fmt.Sprintf("requirement %d", i+1)}
-		if id == "" {
+		switch {
+		case id == "":
 			out = append(out, Finding{
 				RuleID:   "SR-ID-UNIQUE",
 				Severity: SeverityError,
 				Message:  fmt.Sprintf("scrubbed requirement %d has an empty id; every requirement needs a stable non-empty id.", i+1),
 				Location: loc,
 			})
-		} else if seen[id] {
+		case seen[id]:
 			out = append(out, Finding{
 				RuleID:   "SR-ID-UNIQUE",
 				Severity: SeverityError,
 				Message:  fmt.Sprintf("scrubbed requirement id %q is duplicated; requirement ids must be unique.", id),
 				Location: loc,
 			})
-		} else {
+		default:
 			seen[id] = true
 		}
 		if strings.TrimSpace(it.Statement) == "" {

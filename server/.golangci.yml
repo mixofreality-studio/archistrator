@@ -21,19 +21,24 @@ linters:
     # revive at its default rule set (golint successor): exported-symbol docs,
     # package comments, naming/stutter, unused parameters, builtin shadowing.
     - revive
-    # Complexity gates (default threshold 30, no exclusions — production AND test
-    # files. The residual offenders were decomposed by behavior-preserving extraction
-    # in the two complexity-refactor rounds; both linters report zero at defaults.)
-    - gocognit
+    # gocritic at its default checker set (diagnostic + style + performance).
+    - gocritic
+    # Complexity gate (min-complexity 15, no exclusions — production AND test
+    # files). gocognit was dropped in favor of the single cyclomatic measure.
     - gocyclo
   settings:
     gochecksumtype:
       # Treat a missing case as an error (the whole point of a sealed sum).
       default-signifies-exhaustive: false
-    gocognit:
-      min-complexity: 30
+    exhaustive:
+      # Maps too: flat enum→value dispatch lives in table lookups (the
+      # gocyclo-friendly form of an exhaustive switch), so a missing key must
+      # fail the gate exactly like a missing case.
+      check:
+        - switch
+        - map
     gocyclo:
-      min-complexity: 30
+      min-complexity: 15
   exclusions:
     rules:
       # gosec is a production-security linter. Test files legitimately use fake

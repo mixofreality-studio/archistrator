@@ -406,20 +406,7 @@ func TestSubmitPerProjectTargetRetargetsDispatchAndHandle(t *testing.T) {
 		if PipelineHandleString(h) != "run/1@acme/my-system/aiarch-design.yml" {
 			t.Fatalf("handle = %q, want run/1@acme/my-system/aiarch-design.yml", PipelineHandleString(h))
 		}
-		// Observe re-addresses the per-project repo (not the construction default).
-		if _, err := a.ObserveConstructionPipeline(obsRC(context.Background()), h); err != nil {
-			t.Fatalf("observe: %v", err)
-		}
-		if f.lastGetTarget != want {
-			t.Fatalf("observe target = %+v, want %+v", f.lastGetTarget, want)
-		}
-		// Cancel re-addresses the per-project repo too.
-		if err := a.CancelConstructionPipeline(obsRC(context.Background()), h); err != nil {
-			t.Fatalf("cancel: %v", err)
-		}
-		if f.lastCancelTarget != want {
-			t.Fatalf("cancel target = %+v, want %+v", f.lastCancelTarget, want)
-		}
+		assertObserveCancelReaddressTarget(t, a, f, h, want)
 	})
 
 	// UC3 CONSTRUCTION dispatch (zero TargetRepo): the handle stays the legacy
@@ -467,6 +454,26 @@ func TestSubmitPerProjectTargetRetargetsDispatchAndHandle(t *testing.T) {
 			t.Fatalf("round-trip observe target = %+v, want %+v", f.lastGetTarget, want)
 		}
 	})
+}
+
+// assertObserveCancelReaddressTarget asserts a later Observe AND Cancel on the handle
+// re-address the encoded per-project target (not the construction-repo default).
+func assertObserveCancelReaddressTarget(t *testing.T, a *access, f *fakeActions, h PipelineHandle, want ghTarget) {
+	t.Helper()
+	// Observe re-addresses the per-project repo (not the construction default).
+	if _, err := a.ObserveConstructionPipeline(obsRC(context.Background()), h); err != nil {
+		t.Fatalf("observe: %v", err)
+	}
+	if f.lastGetTarget != want {
+		t.Fatalf("observe target = %+v, want %+v", f.lastGetTarget, want)
+	}
+	// Cancel re-addresses the per-project repo too.
+	if err := a.CancelConstructionPipeline(obsRC(context.Background()), h); err != nil {
+		t.Fatalf("cancel: %v", err)
+	}
+	if f.lastCancelTarget != want {
+		t.Fatalf("cancel target = %+v, want %+v", f.lastCancelTarget, want)
+	}
 }
 
 func TestObserveStatusMapping(t *testing.T) {

@@ -265,23 +265,7 @@ func TestRetrieveOutputTree(t *testing.T) {
 			t.Fatalf("RetrieveConstructionOutput entry %q (%q): %v", path, entryAddr, err)
 		}
 	}
-	var foundA bool
-	for path, entryAddr := range tree.Entries {
-		if !strings.HasPrefix(string(path), "output") {
-			continue
-		}
-		got, err := store.RetrieveConstructionOutput(rcWith(ctx, ""), entryAddr)
-		if err != nil {
-			t.Fatalf("RetrieveConstructionOutput output entry %q: %v", path, err)
-		}
-		if string(got.Bytes) != string(a.Bytes) {
-			t.Fatalf("output entry %q bytes mismatch: got %q want %q", path, got.Bytes, a.Bytes)
-		}
-		foundA = true
-	}
-	if !foundA {
-		t.Fatalf("expected an 'output' entry in the tree, got %v", tree.Entries)
-	}
+	assertTreeOutputEntryBytes(ctx, t, store, tree, a.Bytes, "output entry", "the tree")
 
 	addrB, err := store.StoreConstructionOutput(rcWith(ctx, "wf:b"), b)
 	if err != nil {
@@ -297,22 +281,30 @@ func TestRetrieveOutputTree(t *testing.T) {
 	if treeB.Root != addrB {
 		t.Fatalf("treeB Root = %q, want %q", treeB.Root, addrB)
 	}
-	var foundB bool
-	for path, entryAddr := range treeB.Entries {
+	assertTreeOutputEntryBytes(ctx, t, store, treeB, b.Bytes, "treeB output entry", "treeB")
+}
+
+// assertTreeOutputEntryBytes scans a tree's Entries for the 'output' entry and asserts
+// its retrieved bytes match want. The labels parameterize the failure messages so each
+// call site's diagnostics read exactly as before.
+func assertTreeOutputEntryBytes(ctx context.Context, t *testing.T, store ArtifactAccess, tree OutputTree, want []byte, entryLabel, treeLabel string) {
+	t.Helper()
+	var found bool
+	for path, entryAddr := range tree.Entries {
 		if !strings.HasPrefix(string(path), "output") {
 			continue
 		}
 		got, err := store.RetrieveConstructionOutput(rcWith(ctx, ""), entryAddr)
 		if err != nil {
-			t.Fatalf("RetrieveConstructionOutput treeB output entry %q: %v", path, err)
+			t.Fatalf("RetrieveConstructionOutput %s %q: %v", entryLabel, path, err)
 		}
-		if string(got.Bytes) != string(b.Bytes) {
-			t.Fatalf("treeB output entry %q bytes mismatch: got %q want %q", path, got.Bytes, b.Bytes)
+		if string(got.Bytes) != string(want) {
+			t.Fatalf("%s %q bytes mismatch: got %q want %q", entryLabel, path, got.Bytes, want)
 		}
-		foundB = true
+		found = true
 	}
-	if !foundB {
-		t.Fatalf("expected an 'output' entry in treeB, got %v", treeB.Entries)
+	if !found {
+		t.Fatalf("expected an 'output' entry in %s, got %v", treeLabel, tree.Entries)
 	}
 }
 

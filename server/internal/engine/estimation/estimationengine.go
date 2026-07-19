@@ -594,34 +594,15 @@ func (EstimationEngineImpl) EstimateForOption(_ fweng.Context, option ProjectOpt
 			"EstimateForOption: option network has zero activities")
 	}
 	rates := option.WorkerMix.ClassRates
-	for i, a := range activities {
-		if a.EffortDays < 0 {
-			return ConstructionEstimate{}, fweng.New(fweng.ContractMisuse,
-				"EstimateForOption: activity "+activityRef(a, i)+" has negative EffortDays")
-		}
-		if _, ok := rates[a.WorkerClass]; !ok {
-			return ConstructionEstimate{}, fweng.New(fweng.ContractMisuse,
-				"EstimateForOption: activity "+activityRef(a, i)+
-					" references WorkerClass "+quote(a.WorkerClass)+" with no rate in WorkerMix.ClassRates")
-		}
+	if err := validateOptionActivities(activities, rates); err != nil {
+		return ConstructionEstimate{}, err
 	}
 
 	// --- Cost currency: the single shared currency of the participating rates; a mixed
 	// or empty currency is a ContractMisuse (the Manager mis-assembled the mix). ---
-	currency := ""
-	for i, a := range activities {
-		rate := rates[a.WorkerClass]
-		if rate.Currency == "" {
-			return ConstructionEstimate{}, fweng.New(fweng.ContractMisuse,
-				"EstimateForOption: rate for WorkerClass "+quote(a.WorkerClass)+" has empty currency")
-		}
-		if currency == "" {
-			currency = rate.Currency
-		} else if rate.Currency != currency {
-			return ConstructionEstimate{}, fweng.New(fweng.ContractMisuse,
-				"EstimateForOption: mixed rate currencies ("+quote(currency)+" vs "+
-					quote(rate.Currency)+") at activity "+activityRef(a, i))
-		}
+	currency, err := sharedRateCurrency(activities, rates)
+	if err != nil {
+		return ConstructionEstimate{}, err
 	}
 
 	deps, milestones := option.Network.Dependencies, option.Network.Milestones
@@ -654,18 +635,9 @@ func (EstimationEngineImpl) EstimateForOption(_ fweng.Context, option ProjectOpt
 	activityRisk := activityRiskOf(sched.activities)
 	composite := clamp01(0.5*criticalityRisk + 0.5*activityRisk)
 
-	// --- Indirect cost: duration (calendar days) × indirect daily rate (Phase-2 rework
-	// F6). This is what makes a longer option (subcritical) COSTLIER even when its direct
-	// cost is similar, and gives the time-cost curve its minimum. Zero-value rate ⇒ no
-	// indirect term (back-compat). A mismatched non-empty currency is a ContractMisuse. ---
-	indirectCost := Money{Currency: directCost.Currency}
-	if r := option.IndirectDailyRate; r.MinorUnits != 0 || r.Currency != "" {
-		if r.Currency != "" && directCost.Currency != "" && r.Currency != directCost.Currency {
-			return ConstructionEstimate{}, fweng.New(fweng.ContractMisuse,
-				"EstimateForOption: IndirectDailyRate currency "+quote(r.Currency)+
-					" != direct cost currency "+quote(directCost.Currency))
-		}
-		indirectCost = Money{MinorUnits: int64(durationDays * float64(r.MinorUnits)), Currency: directCost.Currency}
+	indirectCost, err := indirectCostOf(option.IndirectDailyRate, durationDays, directCost)
+	if err != nil {
+		return ConstructionEstimate{}, err
 	}
 	buildCost := Money{MinorUnits: directCost.MinorUnits + indirectCost.MinorUnits, Currency: directCost.Currency}
 
@@ -690,6 +662,64 @@ func (EstimationEngineImpl) EstimateForOption(_ fweng.Context, option ProjectOpt
 			ActivityRisk:    activityRisk,
 		},
 	}, nil
+}
+
+// validateOptionActivities enforces the per-activity ContractMisuse pre-conditions
+// (a projectDesignManager bug, not a domain result): non-negative effort and a
+// rate present for every referenced worker class.
+func validateOptionActivities(activities []OptionActivity, rates map[string]Money) error {
+	for i, a := range activities {
+		if a.EffortDays < 0 {
+			return fweng.New(fweng.ContractMisuse,
+				"EstimateForOption: activity "+activityRef(a, i)+" has negative EffortDays")
+		}
+		if _, ok := rates[a.WorkerClass]; !ok {
+			return fweng.New(fweng.ContractMisuse,
+				"EstimateForOption: activity "+activityRef(a, i)+
+					" references WorkerClass "+quote(a.WorkerClass)+" with no rate in WorkerMix.ClassRates")
+		}
+	}
+	return nil
+}
+
+// sharedRateCurrency returns the single currency shared by every participating
+// rate; a mixed or empty currency is a ContractMisuse (the Manager mis-assembled
+// the mix).
+func sharedRateCurrency(activities []OptionActivity, rates map[string]Money) (string, error) {
+	currency := ""
+	for i, a := range activities {
+		rate := rates[a.WorkerClass]
+		if rate.Currency == "" {
+			return "", fweng.New(fweng.ContractMisuse,
+				"EstimateForOption: rate for WorkerClass "+quote(a.WorkerClass)+" has empty currency")
+		}
+		if currency == "" {
+			currency = rate.Currency
+		} else if rate.Currency != currency {
+			return "", fweng.New(fweng.ContractMisuse,
+				"EstimateForOption: mixed rate currencies ("+quote(currency)+" vs "+
+					quote(rate.Currency)+") at activity "+activityRef(a, i))
+		}
+	}
+	return currency, nil
+}
+
+// indirectCostOf computes the indirect cost: duration (calendar days) × indirect
+// daily rate (Phase-2 rework F6). This is what makes a longer option (subcritical)
+// COSTLIER even when its direct cost is similar, and gives the time-cost curve its
+// minimum. Zero-value rate ⇒ no indirect term (back-compat). A mismatched
+// non-empty currency is a ContractMisuse.
+func indirectCostOf(r Money, durationDays float64, directCost Money) (Money, error) {
+	indirectCost := Money{Currency: directCost.Currency}
+	if r.MinorUnits != 0 || r.Currency != "" {
+		if r.Currency != "" && directCost.Currency != "" && r.Currency != directCost.Currency {
+			return Money{}, fweng.New(fweng.ContractMisuse,
+				"EstimateForOption: IndirectDailyRate currency "+quote(r.Currency)+
+					" != direct cost currency "+quote(directCost.Currency))
+		}
+		indirectCost = Money{MinorUnits: int64(durationDays * float64(r.MinorUnits)), Currency: directCost.Currency}
+	}
+	return indirectCost, nil
 }
 
 // criticalSet runs an unbuffered resource-leveled base solve and returns the set of

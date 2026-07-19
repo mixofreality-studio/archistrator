@@ -1141,10 +1141,17 @@ func TestU43_SyncManagedScaffoldDriftCommitsRefresh(t *testing.T) {
 	if len(msgs) != 1 || msgs[0] != syncManagedScaffoldMessage() {
 		t.Fatalf("sync commit message = %q, want %q", msgs, syncManagedScaffoldMessage())
 	}
+	assertSyncCommitScopeWorkflowsOnly(t, fake, "alpha")
+}
+
+// assertSyncCommitScopeWorkflowsOnly audits the sync's wire traffic: the committed
+// tree carries workflows only, and the compare issued no per-file contents GET.
+func assertSyncCommitScopeWorkflowsOnly(t *testing.T, fake *gh.FakeGitHub, repoName string) {
+	t.Helper()
 	// The sync scope is the two workflows ONLY: no .claude path (runtime-
 	// materialized per job, never committed) and no birth-only scaffold root may
 	// ride a sync commit.
-	for _, p := range treePostPaths(t, fake, "alpha") {
+	for _, p := range treePostPaths(t, fake, repoName) {
 		if strings.HasPrefix(p, claudePathPrefix) {
 			t.Fatalf("the sync must never commit a .claude path (runtime-materialized), committed %s", p)
 		}
@@ -1180,18 +1187,7 @@ func TestU44_SyncManagedScaffoldByteIdenticalNoCommit(t *testing.T) {
 	if changed {
 		t.Fatal("a byte-identical seated scaffold must report changed=false")
 	}
-	treeReads := 0
-	for _, r := range fake.Requests()[preCount:] {
-		if r.Method == "PUT" || (r.Method == "POST" && strings.Contains(r.Path, "/git/")) {
-			t.Fatalf("a current seated scaffold must issue NO write, got %s %s", r.Method, r.Path)
-		}
-		if r.Method == "GET" && strings.Contains(r.Path, "/git/trees/") {
-			treeReads++
-		}
-		if r.Method == "GET" && strings.Contains(r.Path, "/contents/") {
-			t.Fatalf("the tree-diff verification must issue no per-file contents GET, got %s", r.Path)
-		}
-	}
+	treeReads := assertVerifySyncWroteNothing(t, fake, preCount)
 	// VERIFICATION PROOF (F-QA2-36, now ~1 request): the first sync of a process must
 	// NOT skip the tree on the manifest's say-so — it proves the seated tree byte-exact
 	// via EXACTLY ONE recursive tree read.
@@ -1210,6 +1206,33 @@ func TestU44_SyncManagedScaffoldByteIdenticalNoCommit(t *testing.T) {
 	if changed {
 		t.Fatal("a byte-identical seated scaffold must report changed=false on the fast path")
 	}
+	assertFastPathSyncRequests(t, fake, preCount)
+}
+
+// assertVerifySyncWroteNothing audits the verification sync's wire traffic since
+// preCount: no write, no per-file contents GET — returning the recursive tree-read
+// count for the caller's exactly-one proof.
+func assertVerifySyncWroteNothing(t *testing.T, fake *gh.FakeGitHub, preCount int) int {
+	t.Helper()
+	treeReads := 0
+	for _, r := range fake.Requests()[preCount:] {
+		if r.Method == "PUT" || (r.Method == "POST" && strings.Contains(r.Path, "/git/")) {
+			t.Fatalf("a current seated scaffold must issue NO write, got %s %s", r.Method, r.Path)
+		}
+		if r.Method == "GET" && strings.Contains(r.Path, "/git/trees/") {
+			treeReads++
+		}
+		if r.Method == "GET" && strings.Contains(r.Path, "/contents/") {
+			t.Fatalf("the tree-diff verification must issue no per-file contents GET, got %s", r.Path)
+		}
+	}
+	return treeReads
+}
+
+// assertFastPathSyncRequests audits the fast-path sync's wire traffic since preCount:
+// no write, and no .claude content read beyond the one manifest GET.
+func assertFastPathSyncRequests(t *testing.T, fake *gh.FakeGitHub, preCount int) {
+	t.Helper()
 	for _, r := range fake.Requests()[preCount:] {
 		if r.Method == "PUT" || (r.Method == "POST" && strings.Contains(r.Path, "/git/")) {
 			t.Fatalf("the fast path must issue NO write, got %s %s", r.Method, r.Path)
@@ -1817,6 +1840,29 @@ func TestManagedScaffoldFiles(t *testing.T) {
 		}
 	}
 
+	assertScaffoldWorkflowsSeated(t, byPath)
+	assertScaffoldGoTestGateSeated(t, byPath)
+
+	// (4) internal/.gitkeep keeps the internal/ directory present so the method gate's
+	// arch.MethodSpec ./internal/... load pattern resolves instead of hard-erroring on
+	// a fresh repo. The module emits it EMPTY; the seat overrides it with the
+	// explanatory one-liner because CommitManagedFiles rejects empty content.
+	gk, ok := byPath[internalGitkeepPath]
+	if !ok {
+		t.Fatalf("missing %s in the scaffold bundle", internalGitkeepPath)
+	}
+	if string(gk.Content) != internalGitkeepContent {
+		t.Errorf("internal/.gitkeep content = %q, want %q", gk.Content, internalGitkeepContent)
+	}
+
+	assertScaffoldExcludesUnmanagedTrees(t, byPath)
+}
+
+// assertScaffoldWorkflowsSeated covers section (1) of the scaffold bundle: both
+// agentic workflows present, the design workflow at the shared rendering with
+// allowed_bots, the construct workflow carrying the slug unguarded.
+func assertScaffoldWorkflowsSeated(t *testing.T, byPath map[string]ManagedFile) {
+	t.Helper()
 	// (1) BOTH workflows are present; the design workflow equals the single-file
 	// rendering (seat and sync share one rendering) and carries allowed_bots.
 	wf, ok := byPath[DesignWorkflowPath]
@@ -1838,7 +1884,13 @@ func TestManagedScaffoldFiles(t *testing.T) {
 	if !strings.Contains(string(cwf.Content), testAppSlug) {
 		t.Error("seated construct workflow must carry the configured App slug")
 	}
+}
 
+// assertScaffoldGoTestGateSeated covers sections (2) and (3): go.mod templated with
+// the derived module path + framework-go pin, and the method test wired to
+// methodcheck.Check over that module path.
+func assertScaffoldGoTestGateSeated(t *testing.T, byPath map[string]ManagedFile) {
+	t.Helper()
 	// (2) go.mod templated with the derived module path + the framework-go require pin
 	// (the pin is module-owned now: methodassets.FrameworkGoVersion).
 	goMod, ok := byPath[GoModPath]
@@ -1866,19 +1918,12 @@ func TestManagedScaffoldFiles(t *testing.T) {
 	if !strings.Contains(mts, "github.com/acme/widgets") {
 		t.Errorf("method test must template the module path into arch.MethodSpec; got:\n%s", mts)
 	}
+}
 
-	// (4) internal/.gitkeep keeps the internal/ directory present so the method gate's
-	// arch.MethodSpec ./internal/... load pattern resolves instead of hard-erroring on
-	// a fresh repo. The module emits it EMPTY; the seat overrides it with the
-	// explanatory one-liner because CommitManagedFiles rejects empty content.
-	gk, ok := byPath[internalGitkeepPath]
-	if !ok {
-		t.Fatalf("missing %s in the scaffold bundle", internalGitkeepPath)
-	}
-	if string(gk.Content) != internalGitkeepContent {
-		t.Errorf("internal/.gitkeep content = %q, want %q", gk.Content, internalGitkeepContent)
-	}
-
+// assertScaffoldExcludesUnmanagedTrees covers sections (5) and (6): no
+// runtime-materialized .claude path and no server-owned .aiarch path in the bundle.
+func assertScaffoldExcludesUnmanagedTrees(t *testing.T, byPath map[string]ManagedFile) {
+	t.Helper()
 	// (5) the .claude prompt surface does NOT ride the seat (runtime
 	// materialization, founder-ratified 2026-07-17): operated repos never commit
 	// the prompt surface — the seated workflows render it into the runner checkout

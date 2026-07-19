@@ -103,10 +103,15 @@ const claudePathPrefix = ".claude/"
 // internal/.gitkeep is listed as a LITERAL path (not an internal/ prefix) to keep the
 // allowlist tight: only the single seeded placeholder is permitted, never arbitrary
 // files under internal/.
+//
+// .golangci.yml is the shared lint baseline the seated go-checks workflow runs
+// against (method-assets scaffold, 2026-07-19); it seats at birth and is server-owned
+// policy, so it also rides the sync (see managedSyncFiles).
 var scaffoldRootPaths = map[string]bool{
 	"go.mod":                true,
 	"aiarch_method_test.go": true,
 	"internal/.gitkeep":     true,
+	".golangci.yml":         true,
 }
 
 // isManagedFilePath reports whether p is on the managed-file allowlist: under
@@ -670,19 +675,8 @@ func (a *access) putManagedFiles(ctx context.Context, repo RepoRef, files []Mana
 		return "", false, fwra.New(fwra.ContractMisuse, "CommitManagedFiles: empty fileset")
 	}
 
-	// Validate the whole set BEFORE any wire call, so an off-allowlist or
-	// empty-content file rejects the bundle atomically at the pre-condition.
-	for _, f := range files {
-		if strings.TrimSpace(f.Path) == "" {
-			return "", false, fwra.New(fwra.ContractMisuse, "CommitManagedFiles: empty path")
-		}
-		if !isManagedFilePath(f.Path) {
-			return "", false, fwra.New(fwra.ContractMisuse,
-				"CommitManagedFiles: path "+f.Path+" is not an aiarch-managed file (must be under "+workflowPathPrefix+", a clean path under "+claudePathPrefix+", or a scaffold root: go.mod / aiarch_method_test.go / internal/.gitkeep)")
-		}
-		if len(f.Content) == 0 {
-			return "", false, fwra.New(fwra.ContractMisuse, "CommitManagedFiles: empty content for "+f.Path)
-		}
+	if err := validateManagedFileSet(files); err != nil {
+		return "", false, err
 	}
 
 	// COMPARE — one tree read; blob-SHA diff computed locally.
@@ -729,6 +723,25 @@ func (a *access) putManagedFiles(ctx context.Context, repo RepoRef, files []Mana
 		return "", false, cerr
 	}
 	return CommitRef(commitSHA), true, nil
+}
+
+// validateManagedFileSet checks putManagedFiles' whole fileset BEFORE any wire
+// call, so an off-allowlist or empty-content file rejects the bundle atomically
+// at the pre-condition.
+func validateManagedFileSet(files []ManagedFile) error {
+	for _, f := range files {
+		if strings.TrimSpace(f.Path) == "" {
+			return fwra.New(fwra.ContractMisuse, "CommitManagedFiles: empty path")
+		}
+		if !isManagedFilePath(f.Path) {
+			return fwra.New(fwra.ContractMisuse,
+				"CommitManagedFiles: path "+f.Path+" is not an aiarch-managed file (must be under "+workflowPathPrefix+", a clean path under "+claudePathPrefix+", or a scaffold root: go.mod / aiarch_method_test.go / internal/.gitkeep)")
+		}
+		if len(f.Content) == 0 {
+			return fwra.New(fwra.ContractMisuse, "CommitManagedFiles: empty content for "+f.Path)
+		}
+	}
+	return nil
 }
 
 // SyncManagedScaffold is the CONTRACT op (B5) promoting the former free-function
@@ -1333,10 +1346,13 @@ func ManagedScaffoldFiles(repo RepoRef, appSlug string) ([]ManagedFile, error) {
 }
 
 // managedSyncFiles returns the SYNC-SCOPED subset of the managed scaffold — the
-// two seated workflows ONLY. go.mod / aiarch_method_test.go / internal/.gitkeep
-// are BIRTH-ONLY: go.mod is user-evolved after birth (their requires) and
-// re-seating it would destroy user content, so the sync never touches the
-// scaffold roots. The .claude prompt surface left this set with the 2026-07-17
+// seated workflows plus the .golangci.yml lint baseline. go.mod /
+// aiarch_method_test.go / internal/.gitkeep are BIRTH-ONLY: go.mod is
+// user-evolved after birth (their requires) and re-seating it would destroy
+// user content, so the sync never touches those roots. .golangci.yml is the
+// opposite case — server-owned lint policy the seated go-checks workflow runs
+// against, with no legitimate app-local edits — so it converges like the
+// workflows do. The .claude prompt surface left this set with the 2026-07-17
 // runtime-materialization ratification (it left the whole committed scaffold —
 // see renderManagedScaffold): the workflows themselves materialize it into the
 // runner checkout per job, so there is no committed prompt copy to converge.
@@ -1347,7 +1363,7 @@ func managedSyncFiles(repo RepoRef, appSlug string) ([]ManagedFile, error) {
 	}
 	out := make([]ManagedFile, 0, len(all))
 	for _, f := range all {
-		if strings.HasPrefix(f.Path, workflowPathPrefix) {
+		if strings.HasPrefix(f.Path, workflowPathPrefix) || f.Path == ".golangci.yml" {
 			out = append(out, f)
 		}
 	}
