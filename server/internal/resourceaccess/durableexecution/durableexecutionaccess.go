@@ -74,6 +74,7 @@ package durableexecution
 
 import (
 	"errors"
+	"maps"
 	"time"
 
 	enumspb "go.temporal.io/api/enums/v1"
@@ -227,7 +228,7 @@ func (r *temporalDurableExecutionAccess) RegisterSchedule(rc fwra.Context, sched
 	action := &client.ScheduleWorkflowAction{
 		ID:        spec.TargetIDTemplate,
 		Workflow:  binding.workflowType,
-		Args:      []interface{}{spec.StartPayload.Bytes},
+		Args:      []any{spec.StartPayload.Bytes},
 		TaskQueue: binding.taskQueue,
 	}
 	sc := r.cl.ScheduleClient()
@@ -560,9 +561,7 @@ type kindRegistry struct {
 // the Worker registration so the names are guaranteed consistent.
 func newKindRegistry(table map[ExecutionKind]kindBinding) *kindRegistry {
 	bindings := make(map[ExecutionKind]kindBinding, len(table))
-	for k, b := range table {
-		bindings[k] = b
-	}
+	maps.Copy(bindings, table)
 	return &kindRegistry{bindings: bindings}
 }
 

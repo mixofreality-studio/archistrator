@@ -735,9 +735,9 @@ func (f *AgenticGitHub) handleOpenPR(w http.ResponseWriter, body []byte) {
 func (f *AgenticGitHub) handleFindPR(w http.ResponseWriter, rawQuery string) {
 	// findOpenPR: head filter is head=owner:branch. Return the existing PR if known.
 	head := ""
-	for _, kv := range strings.Split(rawQuery, "&") {
-		if strings.HasPrefix(kv, "head=") {
-			head = strings.TrimPrefix(kv, "head=")
+	for kv := range strings.SplitSeq(rawQuery, "&") {
+		if after, ok := strings.CutPrefix(kv, "head="); ok {
+			head = after
 		}
 	}
 	if i := strings.Index(head, ":"); i >= 0 {
@@ -783,7 +783,7 @@ func (f *AgenticGitHub) handleListReviews(w http.ResponseWriter, numStr string) 
 	count := f.approvals[n]
 	f.mu.Unlock()
 	out := make([]map[string]any, 0, count)
-	for i := 0; i < count; i++ {
+	for range count {
 		out = append(out, map[string]any{"state": "APPROVED"})
 	}
 	writeJSONResp(w, 200, out)

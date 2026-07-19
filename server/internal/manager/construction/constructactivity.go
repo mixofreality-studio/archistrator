@@ -1025,7 +1025,7 @@ func (wf *workflows) runPipeline(ctx workflow.Context, in constructActivityInput
 		return pipelineObservation{}, err
 	}
 
-	for poll := 0; poll < maxPipelinePolls; poll++ {
+	for range maxPipelinePolls {
 		obs, err := wf.observePipeline(ctx, handle)
 		if err != nil {
 			return pipelineObservation{}, err

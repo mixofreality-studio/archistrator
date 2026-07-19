@@ -179,7 +179,7 @@ func executeEngineTool(ctx context.Context, tool projectstate.InternalTool, args
 
 // errorType is the reflect.Type of the error interface, used to detect an
 // operation's trailing error return.
-var errorType = reflect.TypeOf((*error)(nil)).Elem()
+var errorType = reflect.TypeFor[error]()
 
 // newCallContext constructs a value of the method's leading Context parameter type
 // (fweng.Context / fwra.Context) carrying the given ctx. Both layer Contexts embed

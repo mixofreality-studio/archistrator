@@ -183,7 +183,7 @@ func (r LocalGitRepo) ListFiles(ctx context.Context) []string {
 	r.t.Helper()
 	out := gitOut(ctx, r.t, r.bare, "ls-tree", "-r", "--name-only", r.branch)
 	var files []string
-	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
 		if line != "" {
 			files = append(files, line)
 		}

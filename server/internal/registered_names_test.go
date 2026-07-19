@@ -53,11 +53,11 @@ type fakeRegistry struct {
 	activities []string
 }
 
-func (f *fakeRegistry) RegisterWorkflowWithOptions(_ interface{}, options workflow.RegisterOptions) {
+func (f *fakeRegistry) RegisterWorkflowWithOptions(_ any, options workflow.RegisterOptions) {
 	f.workflows = append(f.workflows, options.Name)
 }
 
-func (f *fakeRegistry) RegisterActivityWithOptions(_ interface{}, options activity.RegisterOptions) {
+func (f *fakeRegistry) RegisterActivityWithOptions(_ any, options activity.RegisterOptions) {
 	f.activities = append(f.activities, options.Name)
 }
 

@@ -67,7 +67,6 @@ func Test_GeneratedSystemTestTables(t *testing.T) {
 	sort.Strings(scenarioIDs)
 
 	for _, scenarioID := range scenarioIDs {
-		scenarioID := scenarioID
 		t.Run(scenarioID, func(t *testing.T) {
 			if !scenarioHasMappedOp(scenarioID) {
 				t.Skipf("[%s] no Transport op mapping for any step's component yet — generated but not wired", scenarioID)
@@ -105,7 +104,6 @@ func Test_GeneratedSystemTestTables(t *testing.T) {
 			ensureScenarioProject(ctx, t, tr, bd, scenarioID)
 
 			for _, caseID := range generated.ScenarioOrder[scenarioID] {
-				caseID := caseID
 				t.Run(caseID, func(t *testing.T) {
 					runGeneratedCase(ctx, t, tr, bd, generated.Registry[caseID])
 				})

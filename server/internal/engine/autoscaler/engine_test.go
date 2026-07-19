@@ -430,7 +430,7 @@ func TestDeterminism(t *testing.T) {
 		t.Run(sc.name, func(t *testing.T) {
 			first, err := eng.ProposeDesiredState(fweng.Context{}, sc.tel, sc.cur, sc.pol, launchKind)
 			mustNoErr(t, err)
-			for i := 0; i < 200; i++ {
+			for i := range 200 {
 				got, err := eng.ProposeDesiredState(fweng.Context{}, sc.tel, sc.cur, sc.pol, launchKind)
 				mustNoErr(t, err)
 				if got != first {

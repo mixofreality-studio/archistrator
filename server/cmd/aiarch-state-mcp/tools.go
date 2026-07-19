@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -314,12 +315,7 @@ func parseSchema(raw json.RawMessage) *jsonschema.Schema {
 }
 
 func containsStr(xs []string, x string) bool {
-	for _, v := range xs {
-		if v == x {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(xs, x)
 }
 
 // textHandler adapts a plain (input)->(text, error) function into the SDK's typed tool

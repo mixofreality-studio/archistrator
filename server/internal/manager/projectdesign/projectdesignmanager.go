@@ -1178,7 +1178,7 @@ func (m *projectDesignManager) AcknowledgeStaleBasis(rc fwmanager.Context, proje
 	psKind := toPSKind(kind)
 
 	var lastErr error
-	for attempt := 0; attempt < acknowledgeStaleMaxAttempts; attempt++ {
+	for range acknowledgeStaleMaxAttempts {
 		proj, err := m.projectState.ReadProject(fwra.Context{Context: ctx}, psID)
 		if err != nil {
 			return mapReadProjectError(err)
@@ -1318,7 +1318,7 @@ func (m *projectDesignManager) AskQuestions(rc fwmanager.Context, projectID Proj
 	key := askQuestionsIdempotencyKey(projectID, kind, branch, qs)
 
 	var lastErr error
-	for attempt := 0; attempt < askQuestionsMaxAttempts; attempt++ {
+	for range askQuestionsMaxAttempts {
 		proj, err := m.readProjectMaybeBranch(ctx, psID, branch)
 		if err != nil {
 			return mapReadProjectError(err)

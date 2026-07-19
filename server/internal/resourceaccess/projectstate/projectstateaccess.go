@@ -29,7 +29,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -963,13 +965,13 @@ type projectDoc struct {
 	// ReviewPolicy is the per-project committed configuration of which phases require
 	// human approval. Omitted when empty so existing project.json documents decode as
 	// the zero value (inert — no phases gated).
-	ReviewPolicy ReviewPolicy `json:"reviewPolicy,omitempty"`
+	ReviewPolicy ReviewPolicy `json:"reviewPolicy"`
 	// UpdatedAt is the server-resolved timestamp of the last committed state
 	// mutation (set by buildStateFiles on every write). omitempty so existing
 	// project.json documents that pre-date this field decode cleanly as the zero
 	// time — the catalog falls back to the ActivityGit tiebreak or projectID sort
 	// for those. Populated once a mutation is applied after this field was added.
-	UpdatedAt time.Time `json:"updatedAt,omitempty"`
+	UpdatedAt time.Time `json:"updatedAt"`
 }
 
 // appliedRecord is the committed dedup record (REWORK.3). ResultVersion is the
@@ -1107,9 +1109,7 @@ func buildStateFiles(snap fwgithub.GitSnapshot, p *Project, key fwra.Idempotency
 	// Merge the mutation's own extra files (F42: SetResearchInput's fresh corpus). These
 	// OVERWRITE any carried-forward file at the same key (a re-provisioned corpus supersedes
 	// the old), keeping the corpus files + project.json pointer coherent in ONE commit.
-	for path, b := range extraFiles {
-		files[path] = b
-	}
+	maps.Copy(files, extraFiles)
 	// Encode the rewritten aggregate, stamping the mutation time into the doc.
 	pj, err := encodeProjectDoc(p, now)
 	if err != nil {
@@ -4672,7 +4672,7 @@ type Project struct {
 	// ReviewPolicy is the per-project committed configuration of which (activity-type,
 	// phase) pairs require human approval during construction. The zero value gates
 	// nothing — the construction loop behaves as before this feature was introduced.
-	ReviewPolicy ReviewPolicy `json:"reviewPolicy,omitempty"`
+	ReviewPolicy ReviewPolicy `json:"reviewPolicy"`
 
 	// ---- Phase 1 slots ----
 	Mission              ArtifactSlot // Model is *MissionStatement when populated
@@ -7316,12 +7316,7 @@ func validReviewCommentStatus(s string) bool {
 
 // RequiresHuman reports whether a phase of the given activity type requires human approval.
 func (p ReviewPolicy) RequiresHuman(activityType string, phase ActivityMethodPhase) bool {
-	for _, gated := range p.GatedPhasesByType[activityType] {
-		if gated == phase {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(p.GatedPhasesByType[activityType], phase)
 }
 
 // gateIDToPhase maps the webApp PolicyPanel's ad-hoc gate ids to canonical phases, so the

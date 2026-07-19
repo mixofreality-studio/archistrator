@@ -47,6 +47,7 @@ package constructionpipeline
 import (
 	"context"
 	"errors"
+	"maps"
 	"strconv"
 	"strings"
 	"sync"
@@ -134,9 +135,7 @@ func (f *fakeActions) dispatch(_ context.Context, tgt ghTarget, token, runName s
 	// wins any collision. This mirrors actions_http_client.go's merge so the
 	// pass-through + token-wins discipline can be asserted at the seam boundary.
 	merged := make(map[string]string, len(dispatchInputs)+1)
-	for k, v := range dispatchInputs {
-		merged[k] = v
-	}
+	maps.Copy(merged, dispatchInputs)
 	merged["idempotency_token"] = token
 	f.lastDispatchInputs = merged
 	id := f.nextID
@@ -627,7 +626,7 @@ func TestSubmitIdempotencyConvergence(t *testing.T) {
 	// canonical handle and exactly ONE run survives (the sibling is cancelled).
 	t.Run("concurrent_submits_converge", func(t *testing.T) {
 		// Run many times to exercise the race interleavings.
-		for iter := 0; iter < 200; iter++ {
+		for iter := range 200 {
 			assertConcurrentSubmitsConverge(t, ctx, iter)
 		}
 	})
@@ -675,7 +674,7 @@ func assertConcurrentSubmitsConverge(t *testing.T, ctx context.Context, iter int
 	var wg sync.WaitGroup
 	handles := make([]PipelineHandle, 2)
 	errs := make([]error, 2)
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()

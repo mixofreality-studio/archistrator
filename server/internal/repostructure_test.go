@@ -81,8 +81,8 @@ func TestRepoStructureTopLevelIsClosed(t *testing.T) {
 	seen := map[string]bool{}
 	for _, f := range files {
 		seg := f
-		if idx := strings.IndexByte(f, '/'); idx >= 0 {
-			seg = f[:idx]
+		if before, _, ok := strings.Cut(f, "/"); ok {
+			seg = before
 		}
 		seen[seg] = true
 	}
@@ -114,13 +114,13 @@ func TestRepoStructureCmdIsClosed(t *testing.T) {
 			continue
 		}
 		rest := f[len(prefix):]
-		idx := strings.IndexByte(rest, '/')
-		if idx < 0 {
+		before, _, ok := strings.Cut(rest, "/")
+		if !ok {
 			// A tracked file directly under server/cmd/ (not inside a subdir) — not
 			// expected, but not what this gate checks; skip rather than false-positive.
 			continue
 		}
-		name := rest[:idx]
+		name := before
 		seen[name] = true
 	}
 

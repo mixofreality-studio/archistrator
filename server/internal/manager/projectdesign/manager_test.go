@@ -517,7 +517,7 @@ func Test_GetSessionState_EmptyProjectID(t *testing.T) {
 type recordingStartClient struct {
 	client.Client
 	signalName string
-	signalArg  interface{}
+	signalArg  any
 	execCalled bool
 }
 
@@ -528,13 +528,13 @@ type fakeWorkflowRun struct {
 
 func (r fakeWorkflowRun) GetID() string { return r.id }
 
-func (c *recordingStartClient) SignalWithStartWorkflow(_ context.Context, workflowID, signalName string, signalArg interface{}, _ client.StartWorkflowOptions, _ interface{}, _ ...interface{}) (client.WorkflowRun, error) {
+func (c *recordingStartClient) SignalWithStartWorkflow(_ context.Context, workflowID, signalName string, signalArg any, _ client.StartWorkflowOptions, _ any, _ ...any) (client.WorkflowRun, error) {
 	c.signalName = signalName
 	c.signalArg = signalArg
 	return fakeWorkflowRun{id: workflowID}, nil
 }
 
-func (c *recordingStartClient) ExecuteWorkflow(_ context.Context, _ client.StartWorkflowOptions, _ interface{}, _ ...interface{}) (client.WorkflowRun, error) {
+func (c *recordingStartClient) ExecuteWorkflow(_ context.Context, _ client.StartWorkflowOptions, _ any, _ ...any) (client.WorkflowRun, error) {
 	// The F47 regression: a bare ExecuteWorkflow against a RUNNING session (USE_EXISTING)
 	// returns the existing handle WITHOUT delivering the new feedback. RequestArtifactDraft
 	// must NOT use this path — record it so the test fails loudly if it regresses.
@@ -3516,7 +3516,7 @@ func Test_CoAuthorPhase2_Rail_ScaffoldSync_VersionGate_PreFeatureExecutionSkipsS
 type fakeEncodedSessionView struct{ view SessionStateView }
 
 func (f fakeEncodedSessionView) HasValue() bool { return true }
-func (f fakeEncodedSessionView) Get(valuePtr interface{}) error {
+func (f fakeEncodedSessionView) Get(valuePtr any) error {
 	p, ok := valuePtr.(*SessionStateView)
 	if !ok {
 		return errors.New("unexpected query result type")
@@ -3906,7 +3906,7 @@ type stubEncodedStage struct{ stage SessionStage }
 
 func (s stubEncodedStage) HasValue() bool { return true }
 
-func (s stubEncodedStage) Get(ptr interface{}) error {
+func (s stubEncodedStage) Get(ptr any) error {
 	v, ok := ptr.(*SessionStateView)
 	if !ok {
 		return fmt.Errorf("stubEncodedStage: unexpected target %T", ptr)
@@ -3924,14 +3924,14 @@ type fakeQueryClient struct {
 	signalCalled bool
 }
 
-func (f *fakeQueryClient) QueryWorkflow(_ context.Context, _ string, _ string, _ string, _ ...interface{}) (converter.EncodedValue, error) {
+func (f *fakeQueryClient) QueryWorkflow(_ context.Context, _ string, _ string, _ string, _ ...any) (converter.EncodedValue, error) {
 	if f.queryErr != nil {
 		return nil, f.queryErr
 	}
 	return stubEncodedStage{stage: f.stage}, nil
 }
 
-func (f *fakeQueryClient) SignalWorkflow(_ context.Context, _ string, _ string, _ string, _ interface{}) error {
+func (f *fakeQueryClient) SignalWorkflow(_ context.Context, _ string, _ string, _ string, _ any) error {
 	f.signalCalled = true
 	return nil
 }

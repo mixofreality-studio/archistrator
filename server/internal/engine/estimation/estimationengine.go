@@ -1063,10 +1063,7 @@ type ssgsResult struct {
 // honoring staffingCap, then derives each activity's total float against the resource-
 // augmented precedence graph with the terminal late-finish pushed out by bufferDays.
 func resourceLevelSchedule(activities []OptionActivity, deps []NetworkDependency, milestones []NetworkMilestone, staffingCap int64, bufferDays float64) leveledSchedule {
-	cap := staffingCap
-	if cap < 1 {
-		cap = 1
-	}
+	cap := max(staffingCap, 1)
 	if bufferDays < 0 {
 		bufferDays = 0
 	}

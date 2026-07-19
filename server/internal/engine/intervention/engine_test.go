@@ -2,6 +2,7 @@ package intervention
 
 import (
 	"errors"
+	"slices"
 	"testing"
 
 	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
@@ -364,7 +365,7 @@ func TestDeterminism(t *testing.T) {
 		t.Fatalf("pause seed: %v", err)
 	}
 
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		v, err := e.DecideOnVariance(fweng.Context{}, variance)
 		if err != nil || v != v0 {
 			t.Fatalf("variance non-deterministic at %d: %v err=%v", i, v, err)
@@ -404,12 +405,7 @@ func assertEngineErr(t *testing.T, err error, wantKind fweng.Kind) {
 }
 
 func containsTarget(targets []NotifyTarget, want NotifyTarget) bool {
-	for _, t := range targets {
-		if t == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(targets, want)
 }
 
 func pausePlanEqual(a, b PausePlan) bool {

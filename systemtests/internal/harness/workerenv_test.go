@@ -1,6 +1,7 @@
 package harness
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
@@ -8,10 +9,8 @@ import (
 // envContains asserts a "KEY=VALUE" pair is present in the slice.
 func envContains(t *testing.T, env []string, want string) {
 	t.Helper()
-	for _, e := range env {
-		if e == want {
-			return
-		}
+	if slices.Contains(env, want) {
+		return
 	}
 	t.Fatalf("expected env to contain %q, got:\n%s", want, strings.Join(env, "\n"))
 }

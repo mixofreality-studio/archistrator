@@ -384,7 +384,7 @@ func generateEnvNames(m *projectmodel.Model) error {
 			}
 			val = v
 		}
-		b = append(b, []byte(fmt.Sprintf("\t%s = %q\n", n.Const, val))...)
+		b = append(b, fmt.Appendf(nil, "\t%s = %q\n", n.Const, val)...)
 	}
 	b = append(b, []byte(")\n")...)
 

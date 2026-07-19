@@ -3,6 +3,7 @@ package operatedsystemstate_test
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/google/uuid"
@@ -281,10 +282,8 @@ func containsAll(apps []operatedsystemstate.OperatedSystemSummary, want ...uuid.
 
 func containsAny(apps []operatedsystemstate.OperatedSystemSummary, want ...uuid.UUID) bool {
 	for _, a := range apps {
-		for _, w := range want {
-			if a.ID == w {
-				return true
-			}
+		if slices.Contains(want, a.ID) {
+			return true
 		}
 	}
 	return false

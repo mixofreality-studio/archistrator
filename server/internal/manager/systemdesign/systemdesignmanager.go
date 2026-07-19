@@ -988,7 +988,7 @@ func (m *systemDesignManager) SetResearchInput(rc fwmanager.Context, projectID P
 	// just read; on a Conflict (a concurrent mutation bumped the row) re-read and
 	// re-apply. Bounded so a pathological write-storm cannot spin forever.
 	var lastErr error
-	for attempt := 0; attempt < setResearchInputMaxAttempts; attempt++ {
+	for range setResearchInputMaxAttempts {
 		proj, err := m.projectState.ReadProject(fwra.Context{Context: ctx}, psID)
 		if err != nil {
 			return 0, mapReadProjectError(err)
@@ -1402,7 +1402,7 @@ func (m *systemDesignManager) AcknowledgeStaleBasis(rc fwmanager.Context, projec
 	psKind := toPSKind(kind)
 
 	var lastErr error
-	for attempt := 0; attempt < acknowledgeStaleMaxAttempts; attempt++ {
+	for range acknowledgeStaleMaxAttempts {
 		proj, err := m.projectState.ReadProject(fwra.Context{Context: ctx}, psID)
 		if err != nil {
 			return mapReadProjectError(err)
@@ -1520,7 +1520,7 @@ func (m *systemDesignManager) AskQuestions(rc fwmanager.Context, projectID Proje
 	// version on the resolved branch, compute a fresh question round from the live thread
 	// so the minted ids never collide with prior entries, and append. Re-read on Conflict.
 	var lastErr error
-	for attempt := 0; attempt < askQuestionsMaxAttempts; attempt++ {
+	for range askQuestionsMaxAttempts {
 		proj, err := m.readProjectMaybeBranch(ctx, psID, branch)
 		if err != nil {
 			return mapReadProjectError(err)
@@ -1867,7 +1867,7 @@ func (m *systemDesignManager) SetOperatingModel(rc fwmanager.Context, projectID 
 	psID := projectstate.ProjectID(projectID)
 
 	var lastErr error
-	for attempt := 0; attempt < setOperatingModelMaxAttempts; attempt++ {
+	for range setOperatingModelMaxAttempts {
 		proj, err := m.projectState.ReadProject(fwra.Context{Context: ctx}, psID)
 		if err != nil {
 			return 0, mapRAError(err, "projectStateAccess.ReadProject")

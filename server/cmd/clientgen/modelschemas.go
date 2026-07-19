@@ -29,6 +29,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"reflect"
 	"sort"
 	"strings"
@@ -80,11 +81,11 @@ func variantRootTypes() ([]reflect.Type, error) {
 // closure leaves (never descended into, never emitted as a Model<Name> schema).
 func modelWellKnown() map[reflect.Type]*jsonschema.Schema {
 	return map[reflect.Type]*jsonschema.Schema{
-		reflect.TypeOf(time.Time{}):          {Type: "string", Format: "date-time"},
-		reflect.TypeOf(time.Duration(0)):     {Type: "integer"},
-		reflect.TypeOf(uuid.UUID{}):          {Type: "string", Format: "uuid"},
-		reflect.TypeOf([]byte(nil)):          {Type: "string", ContentEncoding: "base64"},
-		reflect.TypeOf(json.RawMessage(nil)): {},
+		reflect.TypeFor[time.Time]():       {Type: "string", Format: "date-time"},
+		reflect.TypeFor[time.Duration]():   {Type: "integer"},
+		reflect.TypeFor[uuid.UUID]():       {Type: "string", Format: "uuid"},
+		reflect.TypeFor[[]byte]():          {Type: "string", ContentEncoding: "base64"},
+		reflect.TypeFor[json.RawMessage](): {},
 	}
 }
 
@@ -101,21 +102,21 @@ func modelWellKnown() map[reflect.Type]*jsonschema.Schema {
 // ActivityType covers both.)
 func stringEnumTypes() []reflect.Type {
 	return []reflect.Type{
-		reflect.TypeOf(projectstate.Axis(0)),
-		reflect.TypeOf(projectstate.RejectionClass(0)),
-		reflect.TypeOf(projectstate.CheckStatus(0)),
-		reflect.TypeOf(projectstate.ComponentKind(0)),
-		reflect.TypeOf(projectstate.Layer(0)),
-		reflect.TypeOf(projectstate.CallMode(0)),
-		reflect.TypeOf(projectstate.Trigger(0)),
-		reflect.TypeOf(projectstate.Classification(0)),
-		reflect.TypeOf(projectstate.ActivityNodeKind(0)),
-		reflect.TypeOf(projectstate.DeliveryStyle(0)),
-		reflect.TypeOf(projectstate.DeploymentProfile(0)),
-		reflect.TypeOf(projectstate.EdgeKind(0)),
-		reflect.TypeOf(projectstate.ActivityType(0)),
-		reflect.TypeOf(projectstate.TestingVariant(0)),
-		reflect.TypeOf(projectstate.ArtifactKind(0)),
+		reflect.TypeFor[projectstate.Axis](),
+		reflect.TypeFor[projectstate.RejectionClass](),
+		reflect.TypeFor[projectstate.CheckStatus](),
+		reflect.TypeFor[projectstate.ComponentKind](),
+		reflect.TypeFor[projectstate.Layer](),
+		reflect.TypeFor[projectstate.CallMode](),
+		reflect.TypeFor[projectstate.Trigger](),
+		reflect.TypeFor[projectstate.Classification](),
+		reflect.TypeFor[projectstate.ActivityNodeKind](),
+		reflect.TypeFor[projectstate.DeliveryStyle](),
+		reflect.TypeFor[projectstate.DeploymentProfile](),
+		reflect.TypeFor[projectstate.EdgeKind](),
+		reflect.TypeFor[projectstate.ActivityType](),
+		reflect.TypeFor[projectstate.TestingVariant](),
+		reflect.TypeFor[projectstate.ArtifactKind](),
 	}
 }
 
@@ -129,7 +130,7 @@ func stringEnumTypes() []reflect.Type {
 func stringEnumWireValues(t reflect.Type) ([]string, error) {
 	const safetyBound = 1024
 	var out []string
-	for i := 0; i < safetyBound; i++ {
+	for i := range safetyBound {
 		v := reflect.New(t).Elem()
 		v.SetInt(int64(i))
 		raw, err := json.Marshal(v.Interface())
@@ -293,9 +294,7 @@ func modelComponentSchemas() (map[string]any, error) {
 	// named struct field short-circuits to its stub (no recursion into the body,
 	// so no cycle error) and any well-known field reflects to its portable shape.
 	typeSchemas := map[reflect.Type]*jsonschema.Schema{}
-	for rt, ws := range wk {
-		typeSchemas[rt] = ws
-	}
+	maps.Copy(typeSchemas, wk)
 	for _, t := range closure {
 		typeSchemas[t] = &jsonschema.Schema{Ref: modelRef(t.Name())}
 	}
@@ -333,7 +332,7 @@ func fieldJSONInfo(f reflect.StructField) fieldJSON {
 		if name != "" {
 			info.name = name
 		}
-		for _, s := range strings.Split(rest, ",") {
+		for s := range strings.SplitSeq(rest, ",") {
 			if s == "omitempty" || s == "omitzero" {
 				info.omitempty = true
 			}

@@ -241,7 +241,7 @@ func TestDeterminism(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first call: %v", err)
 	}
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		got, err := e.ComputeNet(fweng.Context{}, revenue, usage, terms)
 		if err != nil {
 			t.Fatalf("call %d: %v", i, err)

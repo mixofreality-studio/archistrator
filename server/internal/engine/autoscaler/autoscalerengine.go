@@ -275,10 +275,7 @@ func lowCPUSustained(t Telemetry, cur DesiredState, p AutoscalerPolicy) bool {
 // step above Free, clamped into [MinReplicas, MaxReplicas]. ToBaseline is always
 // ≥ 1 (resuming from zero must bring the app back up).
 func resumeBaseline(p AutoscalerPolicy) int64 {
-	base := p.BaselineReplicas + slaTierBump(p.SLATier)
-	if base < 1 {
-		base = 1
-	}
+	base := max(p.BaselineReplicas+slaTierBump(p.SLATier), 1)
 	return clampReplicas(base, p)
 }
 

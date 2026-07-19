@@ -2105,7 +2105,7 @@ func Test_CoAuthor_DraftFailedThenRetry_DistinctIdempotencyKey(t *testing.T) {
 	// F-QA2-24 pin: when the DRAFT is the job that failed, the gate's Retry REDRAFTS —
 	// both dispatches are DRAFT jobs (the critique-retry resume applies only when the
 	// critique was the failed job).
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		if got := pipe.submits[i].dispatchInputs[dispatchInputJobMode]; got != jobModeDraft {
 			t.Fatalf("dispatch %d job_mode = %q, want %q (a draft failure's Retry must redraft)", i, got, jobModeDraft)
 		}
@@ -3158,7 +3158,7 @@ func allPhase1Committed(t *testing.T) projectstate.Project {
 type fakeEncodedSessionView struct{ view SessionStateView }
 
 func (f fakeEncodedSessionView) HasValue() bool { return true }
-func (f fakeEncodedSessionView) Get(valuePtr interface{}) error {
+func (f fakeEncodedSessionView) Get(valuePtr any) error {
 	p, ok := valuePtr.(*SessionStateView)
 	if !ok {
 		return errors.New("unexpected query result type")
@@ -7855,7 +7855,7 @@ type stubEncodedStage struct{ stage SessionStage }
 
 func (s stubEncodedStage) HasValue() bool { return true }
 
-func (s stubEncodedStage) Get(ptr interface{}) error {
+func (s stubEncodedStage) Get(ptr any) error {
 	v, ok := ptr.(*SessionStateView)
 	if !ok {
 		return fmt.Errorf("stubEncodedStage: unexpected target %T", ptr)

@@ -2391,7 +2391,7 @@ func (wf *workflows) dispatchAndObserve(ctx workflow.Context, args dispatchDesig
 			"dispatch returned an empty pipeline handle", "EmptyPipelineHandle", nil)
 	}
 
-	for poll := 0; poll < maxObservePolls; poll++ {
+	for range maxObservePolls {
 		obs, err := wf.observeDesignJob(ctx, handle)
 		if err != nil {
 			return pipelineObservation{}, err

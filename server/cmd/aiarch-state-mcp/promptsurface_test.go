@@ -209,7 +209,7 @@ func repoRoot(t *testing.T) string {
 	if err != nil {
 		t.Fatalf("getwd: %v", err)
 	}
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		if st, err := os.Stat(filepath.Join(dir, ".claude", "commands")); err == nil && st.IsDir() {
 			return dir
 		}

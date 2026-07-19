@@ -55,6 +55,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"maps"
 	"strconv"
 	"strings"
 	"sync"
@@ -772,9 +773,7 @@ func (c *ghActionsRESTClient) dispatch(ctx context.Context, tgt ghTarget, idempo
 	// idempotency token LAST so it wins any key collision (the load-bearing dedup /
 	// run-name anchor stays RA-controlled — constructionPipelineAccess.md §0d.6).
 	inputs := make(map[string]string, len(dispatchInputs)+1)
-	for k, v := range dispatchInputs {
-		inputs[k] = v
-	}
+	maps.Copy(inputs, dispatchInputs)
 	inputs[fwgithub.DispatchInputKeyIdempotency] = idempotencyToken
 	owner, repo, workflowFile := c.resolveTarget(tgt)
 	return c.app.DispatchWorkflow(ctx, owner, repo, workflowFile, c.ref, inputs, tok)

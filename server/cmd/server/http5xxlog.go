@@ -66,10 +66,7 @@ func (w *statusCapturingWriter) Write(b []byte) (int, error) {
 		w.status = http.StatusOK
 	}
 	if w.status >= http.StatusInternalServerError && len(w.snippet) < fault5xxBodyCap {
-		room := fault5xxBodyCap - len(w.snippet)
-		if room > len(b) {
-			room = len(b)
-		}
+		room := min(fault5xxBodyCap-len(w.snippet), len(b))
 		w.snippet = append(w.snippet, b[:room]...)
 	}
 	return w.ResponseWriter.Write(b)

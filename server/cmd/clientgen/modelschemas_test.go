@@ -23,21 +23,21 @@ import (
 // live-marshalled from the projectstate type in the test body, so this table only
 // pins the field->type wiring, and the ground truth stays the marshaller.
 var knownEnumFieldTypes = map[string]reflect.Type{
-	"ModelComponent.kind":                   reflect.TypeOf(projectstate.ComponentKind(0)),
-	"ModelComponent.layer":                  reflect.TypeOf(projectstate.Layer(0)),
-	"ModelRelationship.mode":                reflect.TypeOf(projectstate.CallMode(0)),
-	"ModelVolatility.axis":                  reflect.TypeOf(projectstate.Axis(0)),
-	"ModelCheckItem.status":                 reflect.TypeOf(projectstate.CheckStatus(0)),
-	"ModelActivityNode.kind":                reflect.TypeOf(projectstate.ActivityNodeKind(0)),
-	"ModelActivityEdge.kind":                reflect.TypeOf(projectstate.EdgeKind(0)),
-	"ModelUseCase.trigger":                  reflect.TypeOf(projectstate.Trigger(0)),
-	"ModelUseCase.classification":           reflect.TypeOf(projectstate.Classification(0)),
-	"ModelDeploymentEnvironment.profile":    reflect.TypeOf(projectstate.DeploymentProfile(0)),
-	"ModelDeploymentTopology.deliveryStyle": reflect.TypeOf(projectstate.DeliveryStyle(0)),
-	"ModelSolution.slotKind":                reflect.TypeOf(projectstate.ArtifactKind(0)),
-	"ModelRiskRow.solutionKind":             reflect.TypeOf(projectstate.ArtifactKind(0)),
-	"ModelSdpOptionRow.solutionKind":        reflect.TypeOf(projectstate.ArtifactKind(0)),
-	"ModelRiskModel.recommendation":         reflect.TypeOf(projectstate.ArtifactKind(0)),
+	"ModelComponent.kind":                   reflect.TypeFor[projectstate.ComponentKind](),
+	"ModelComponent.layer":                  reflect.TypeFor[projectstate.Layer](),
+	"ModelRelationship.mode":                reflect.TypeFor[projectstate.CallMode](),
+	"ModelVolatility.axis":                  reflect.TypeFor[projectstate.Axis](),
+	"ModelCheckItem.status":                 reflect.TypeFor[projectstate.CheckStatus](),
+	"ModelActivityNode.kind":                reflect.TypeFor[projectstate.ActivityNodeKind](),
+	"ModelActivityEdge.kind":                reflect.TypeFor[projectstate.EdgeKind](),
+	"ModelUseCase.trigger":                  reflect.TypeFor[projectstate.Trigger](),
+	"ModelUseCase.classification":           reflect.TypeFor[projectstate.Classification](),
+	"ModelDeploymentEnvironment.profile":    reflect.TypeFor[projectstate.DeploymentProfile](),
+	"ModelDeploymentTopology.deliveryStyle": reflect.TypeFor[projectstate.DeliveryStyle](),
+	"ModelSolution.slotKind":                reflect.TypeFor[projectstate.ArtifactKind](),
+	"ModelRiskRow.solutionKind":             reflect.TypeFor[projectstate.ArtifactKind](),
+	"ModelSdpOptionRow.solutionKind":        reflect.TypeFor[projectstate.ArtifactKind](),
+	"ModelRiskModel.recommendation":         reflect.TypeFor[projectstate.ArtifactKind](),
 }
 
 // liveMarshalEnum independently re-derives an ordinal enum's wire strings by calling
@@ -47,7 +47,7 @@ var knownEnumFieldTypes = map[string]reflect.Type{
 func liveMarshalEnum(t *testing.T, typ reflect.Type) []string {
 	t.Helper()
 	var out []string
-	for i := 0; i < 1024; i++ {
+	for i := range 1024 {
 		v := reflect.New(typ).Elem()
 		v.SetInt(int64(i))
 		raw, err := json.Marshal(v.Interface())
@@ -126,7 +126,7 @@ func TestModelComponentLayerStringEnum(t *testing.T) {
 		got[i], _ = v.(string)
 	}
 
-	live := liveMarshalEnum(t, reflect.TypeOf(projectstate.Layer(0)))
+	live := liveMarshalEnum(t, reflect.TypeFor[projectstate.Layer]())
 	if !reflect.DeepEqual(got, live) {
 		t.Errorf("ModelComponent.layer enum != live marshal:\n got=%v\nlive=%v", got, live)
 	}

@@ -1778,7 +1778,7 @@ func TestProjectEnvelope_NoConstructionState_OmitsConstructionKeys(t *testing.T)
 // its wire data. If this test fails, update BOTH the emptiness gate in EncodeProject AND
 // this assertion's field count together.
 func TestReviewPolicyEmptinessGateCoversAllFields(t *testing.T) {
-	got := reflect.TypeOf(ReviewPolicy{}).NumField()
+	got := reflect.TypeFor[ReviewPolicy]().NumField()
 	if got != 1 {
 		t.Fatalf("ReviewPolicy has %d fields, want 1 — EncodeProject's emptiness gate only "+
 			"checks GatedPhasesByType; extend that gate for the new field(s) and update this "+
@@ -5075,7 +5075,6 @@ func TestEnumWireMap_BidirectionalCompletenessVsContract(t *testing.T) {
 	}
 
 	for _, c := range checks {
-		c := c
 		t.Run(c.name, func(t *testing.T) {
 			ords, ok := declared[c.name]
 			if !ok || len(ords) == 0 {
@@ -6142,7 +6141,7 @@ func repoCommandsDir(t *testing.T) string {
 		t.Fatal("runtime.Caller failed")
 	}
 	dir := filepath.Dir(file)
-	for i := 0; i < 8; i++ {
+	for range 8 {
 		cand := filepath.Join(dir, ".claude", "commands")
 		if fi, err := os.Stat(cand); err == nil && fi.IsDir() {
 			return cand
@@ -6654,8 +6653,8 @@ func Test_ResearchCorpus_LegacyCapitalizedKeysStillDecode(t *testing.T) {
 // (the test message says to fix the tag, not to extend the list).
 func Test_PersistedStateJSONTags_AreLowerCamel(t *testing.T) {
 	roots := []reflect.Type{
-		reflect.TypeOf(projectDoc{}),
-		reflect.TypeOf(appliedRecord{}),
+		reflect.TypeFor[projectDoc](),
+		reflect.TypeFor[appliedRecord](),
 	}
 	for _, k := range AllArtifactKinds() {
 		m, ok := NewModelForKind(k)
@@ -6737,7 +6736,7 @@ func collectUpperJSONTags(t reflect.Type, seen map[reflect.Type]bool, out map[st
 		return
 	}
 	seen[t] = true
-	if t == reflect.TypeOf(time.Time{}) {
+	if t == reflect.TypeFor[time.Time]() {
 		return // marshals as an RFC3339 string, no keys
 	}
 	for i := 0; i < t.NumField(); i++ {

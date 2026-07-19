@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
@@ -90,10 +91,8 @@ func (e *fakeError) Error() string { return e.s }
 // (a commit call carries -c config flags before the "commit" verb).
 func (f *fakeGit) didCall(verb string) bool {
 	for _, c := range f.calls {
-		for _, a := range c {
-			if a == verb {
-				return true
-			}
+		if slices.Contains(c, verb) {
+			return true
 		}
 	}
 	return false

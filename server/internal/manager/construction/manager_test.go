@@ -42,10 +42,10 @@ type fakeTemporalClient struct {
 	client.Client
 	lastWorkflowID string
 	lastSignalName string
-	lastSignalArg  interface{}
+	lastSignalArg  any
 }
 
-func (f *fakeTemporalClient) SignalWorkflow(_ context.Context, workflowID string, _ string, signalName string, arg interface{}) error {
+func (f *fakeTemporalClient) SignalWorkflow(_ context.Context, workflowID string, _ string, signalName string, arg any) error {
 	f.lastWorkflowID = workflowID
 	f.lastSignalName = signalName
 	f.lastSignalArg = arg
@@ -1318,7 +1318,7 @@ type fakeQueryClient struct {
 	queryErr error
 }
 
-func (f *fakeQueryClient) QueryWorkflow(_ context.Context, _ string, _ string, _ string, _ ...interface{}) (converter.EncodedValue, error) {
+func (f *fakeQueryClient) QueryWorkflow(_ context.Context, _ string, _ string, _ string, _ ...any) (converter.EncodedValue, error) {
 	return nil, f.queryErr
 }
 
