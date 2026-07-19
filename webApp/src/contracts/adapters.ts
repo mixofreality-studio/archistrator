@@ -50,6 +50,7 @@ import type {
 import { METHOD_METADATA, PHASE1_ORDER, PHASE2_ORDER } from './methodMetadata';
 import { ARTIFACT_STAGE_APP_STRINGS } from './enums.gen';
 import { dynamicViewLabel, indexUseCaseNames } from './dynamicViewLabels';
+import { assertNever } from './exhaustive';
 
 // ---------------------------------------------------------------------------
 // Phase spine — the three Method phases as locked/active/done cards.
@@ -647,33 +648,43 @@ function toUseCaseView(decision: UseCaseDecision): UseCaseView {
 export function toMarkdown(envelope: ArtifactModelEnvelope | undefined): string {
   if (envelope?.model === undefined) return '';
   const { kind, model } = envelope;
-  // Non-prose kinds (volatilities / coreUseCases / system) have dedicated diagram
-  // adapters; everything else with no markdown projection renders nothing.
-  if (kind === 'mission') return missionToMarkdown(model as MissionStatement);
-  if (kind === 'glossary') return glossaryToMarkdown(model as Glossary);
-  if (kind === 'scrubbedRequirements') {
-    return scrubbedRequirementsToMarkdown(model as ScrubbedRequirements);
+  switch (kind) {
+    case 'mission':
+      return missionToMarkdown(model as MissionStatement);
+    case 'glossary':
+      return glossaryToMarkdown(model as Glossary);
+    case 'scrubbedRequirements':
+      return scrubbedRequirementsToMarkdown(model as ScrubbedRequirements);
+    case 'operationalConcepts':
+      return operationalConceptsToMarkdown(model as OperationalConcepts);
+    case 'standardCheck':
+      return standardCheckToMarkdown(model as StandardCheck);
+    // Phase-2 kinds — the home base passes these through ArtifactModelEnvelope
+    // (ArtifactKindFull includes both phases); the model is the hand-mirrored type.
+    case 'planningAssumptions':
+      return planningAssumptionsToMarkdown(model as unknown as PlanningAssumptionsModel);
+    case 'activityList':
+      return activityListToMarkdown(model as unknown as ActivityListModel);
+    case 'network':
+      return networkToMarkdown(model as unknown as NetworkModel);
+    case 'normalSolution':
+    case 'decompressedSolution':
+    case 'subcriticalSolution':
+    case 'compressedSolution':
+      return solutionToMarkdown(model as unknown as SolutionModel);
+    case 'riskModel':
+      return riskModelToMarkdown(model as unknown as RiskModelModel);
+    case 'sdpReview':
+      return sdpReviewToMarkdown(model as unknown as SdpReviewModel);
+    // Non-prose kinds (volatilities / coreUseCases / system) have dedicated diagram
+    // adapters; they carry no markdown projection.
+    case 'volatilities':
+    case 'coreUseCases':
+    case 'system':
+      return '';
+    default:
+      return assertNever(kind);
   }
-  if (kind === 'operationalConcepts') {
-    return operationalConceptsToMarkdown(model as OperationalConcepts);
-  }
-  if (kind === 'standardCheck') return standardCheckToMarkdown(model as StandardCheck);
-  // Phase-2 kinds — the home base passes these through ArtifactModelEnvelope
-  // (ArtifactKindFull includes both phases); the model is the hand-mirrored type.
-  if (kind === 'planningAssumptions')
-    return planningAssumptionsToMarkdown(model as unknown as PlanningAssumptionsModel);
-  if (kind === 'activityList') return activityListToMarkdown(model as unknown as ActivityListModel);
-  if (kind === 'network') return networkToMarkdown(model as unknown as NetworkModel);
-  if (
-    kind === 'normalSolution' ||
-    kind === 'decompressedSolution' ||
-    kind === 'subcriticalSolution' ||
-    kind === 'compressedSolution'
-  )
-    return solutionToMarkdown(model as unknown as SolutionModel);
-  if (kind === 'riskModel') return riskModelToMarkdown(model as unknown as RiskModelModel);
-  if (kind === 'sdpReview') return sdpReviewToMarkdown(model as unknown as SdpReviewModel);
-  return '';
 }
 
 function missionToMarkdown(m: MissionStatement): string {

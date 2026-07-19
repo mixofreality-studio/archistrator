@@ -17,7 +17,7 @@
 import type { ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import type { ProjectArtifactKind, ProjectArtifactModelEnvelope } from '../../contracts/types';
-import { isSolutionKind } from '../../contracts/projectAdapters';
+import { assertNever } from '../../contracts/exhaustive';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 import { PlanningAssumptionsView } from './PlanningAssumptionsView';
 import { ActivityListView } from './ActivityListView';
@@ -100,36 +100,43 @@ function renderBody({
   onSdpCommit: ((optionId: string) => void) | undefined;
   onSdpRejectAll: ((feedback: string) => void) | undefined;
 }): ReactNode {
-  if (kind === 'planningAssumptions') return <PlanningAssumptionsView envelope={envelope} />;
-  if (kind === 'activityList') return <ActivityListView envelope={envelope} />;
-  if (kind === 'network') {
-    return (
-      <NetworkView
-        activityEnvelope={activityEnvelope}
-        networkEnvelope={envelope}
-        {...(networkHeight !== undefined ? { height: networkHeight } : {})}
-      />
-    );
+  switch (kind) {
+    case 'planningAssumptions':
+      return <PlanningAssumptionsView envelope={envelope} />;
+    case 'activityList':
+      return <ActivityListView envelope={envelope} />;
+    case 'network':
+      return (
+        <NetworkView
+          activityEnvelope={activityEnvelope}
+          networkEnvelope={envelope}
+          {...(networkHeight !== undefined ? { height: networkHeight } : {})}
+        />
+      );
+    case 'normalSolution':
+    case 'decompressedSolution':
+    case 'subcriticalSolution':
+    case 'compressedSolution':
+      return (
+        <SolutionView
+          envelope={envelope}
+          kind={kind}
+          planningAssumptionsEnvelope={planningAssumptionsEnvelope}
+        />
+      );
+    case 'riskModel':
+      return <RiskModelView envelope={envelope} />;
+    case 'sdpReview':
+      return (
+        <SdpReviewView
+          envelope={envelope}
+          pending={sdpPending ?? false}
+          readOnly={readOnly ?? false}
+          onCommit={onSdpCommit ?? noop}
+          onRejectAll={onSdpRejectAll ?? noop}
+        />
+      );
+    default:
+      return assertNever(kind);
   }
-  if (isSolutionKind(kind))
-    return (
-      <SolutionView
-        envelope={envelope}
-        kind={kind}
-        planningAssumptionsEnvelope={planningAssumptionsEnvelope}
-      />
-    );
-  if (kind === 'riskModel') return <RiskModelView envelope={envelope} />;
-  if (kind === 'sdpReview') {
-    return (
-      <SdpReviewView
-        envelope={envelope}
-        pending={sdpPending ?? false}
-        readOnly={readOnly ?? false}
-        onCommit={onSdpCommit ?? noop}
-        onRejectAll={onSdpRejectAll ?? noop}
-      />
-    );
-  }
-  return null;
 }

@@ -17,6 +17,7 @@
 import type { ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import { toMarkdown } from '../contracts/adapters';
+import { assertNever } from '../contracts/exhaustive';
 import type { ArtifactModelEnvelope, ServiceContracts } from '../contracts/types';
 import { Prose } from './Prose';
 import { GlossaryView } from './GlossaryView';
@@ -65,38 +66,55 @@ function renderBody(
   useCasesEnvelope: ArtifactModelEnvelope | undefined
 ): ReactNode {
   const kind = envelope?.kind;
-  if (kind === 'mission') return <MissionView envelope={envelope} />;
-  if (kind === 'glossary') {
-    return <GlossaryView envelope={envelope} {...(height !== undefined ? { height } : {})} />;
+  switch (kind) {
+    case 'mission':
+      return <MissionView envelope={envelope} />;
+    case 'glossary':
+      return <GlossaryView envelope={envelope} {...(height !== undefined ? { height } : {})} />;
+    case 'scrubbedRequirements':
+      return <ScrubbedRequirementsView envelope={envelope} />;
+    case 'standardCheck':
+      return <StandardCheckView envelope={envelope} />;
+    case 'volatilities':
+      return <VolatilityMap envelope={envelope} />;
+    case 'system':
+      return (
+        <ArchitectureView
+          envelope={envelope}
+          useCasesEnvelope={useCasesEnvelope}
+          {...(height !== undefined ? { height } : {})}
+          {...(serviceContracts !== undefined ? { serviceContracts } : {})}
+        />
+      );
+    case 'coreUseCases':
+      return <UseCaseCarousel envelope={envelope} />;
+    case 'operationalConcepts':
+      return (
+        <OperationalConceptsView envelope={envelope} {...(height !== undefined ? { height } : {})} />
+      );
+    // Every Phase-2 kind (planningAssumptions / activityList / network / the 4
+    // solution kinds / riskModel / sdpReview), plus an absent envelope/kind,
+    // project to markdown via toMarkdown — same as the prior fall-through default.
+    case 'planningAssumptions':
+    case 'activityList':
+    case 'network':
+    case 'normalSolution':
+    case 'decompressedSolution':
+    case 'subcriticalSolution':
+    case 'compressedSolution':
+    case 'riskModel':
+    case 'sdpReview':
+    case undefined: {
+      const markdown = toMarkdown(envelope);
+      return (
+        <Prose
+          markdown={markdown.length > 0 ? markdown : '_No content yet._'}
+          source={title ?? kind}
+          {...(kind !== undefined ? { artifactKind: kind } : {})}
+        />
+      );
+    }
+    default:
+      return assertNever(kind);
   }
-  if (kind === 'scrubbedRequirements') return <ScrubbedRequirementsView envelope={envelope} />;
-  if (kind === 'standardCheck') return <StandardCheckView envelope={envelope} />;
-  if (kind === 'volatilities') return <VolatilityMap envelope={envelope} />;
-  if (kind === 'system') {
-    return (
-      <ArchitectureView
-        envelope={envelope}
-        useCasesEnvelope={useCasesEnvelope}
-        {...(height !== undefined ? { height } : {})}
-        {...(serviceContracts !== undefined ? { serviceContracts } : {})}
-      />
-    );
-  }
-  if (kind === 'coreUseCases') return <UseCaseCarousel envelope={envelope} />;
-  if (kind === 'operationalConcepts') {
-    return (
-      <OperationalConceptsView envelope={envelope} {...(height !== undefined ? { height } : {})} />
-    );
-  }
-
-  // Prose kinds (mission / scrubbedRequirements / operationalConcepts /
-  // standardCheck) and any Phase-2 kind project to markdown via toMarkdown.
-  const markdown = toMarkdown(envelope);
-  return (
-    <Prose
-      markdown={markdown.length > 0 ? markdown : '_No content yet._'}
-      source={title ?? kind}
-      {...(kind !== undefined ? { artifactKind: kind } : {})}
-    />
-  );
 }
