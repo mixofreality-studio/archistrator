@@ -114,7 +114,15 @@ func spaHandler(fsys fs.FS) http.Handler {
 		// convention — let FileServerFS serve it directly (its request path
 		// is "/", which does NOT literally end in "/index.html", so its
 		// index.html→"/" redirect special-case does not fire here).
+		//
+		// index.html is deliberately never cached: it is the entry point
+		// that names the CURRENT hashed asset bundle, so a stale cached copy
+		// would keep pointing a returning client at assets a redeploy has
+		// already removed. Hashed assets (below) keep FileServerFS's default
+		// caching behavior — their filename changes on every build, so
+		// caching them is safe and desirable.
 		if name == "index.html" {
+			w.Header().Set("Cache-Control", "no-cache")
 			fileServer.ServeHTTP(w, r)
 			return
 		}
@@ -144,7 +152,9 @@ func requestedFile(urlPath string) string {
 }
 
 // serveIndexFallback writes fsys's index.html as the response body for r
-// without touching r.URL.Path — the SPA client-side-routing contract.
+// without touching r.URL.Path — the SPA client-side-routing contract. Same
+// no-cache contract as the direct-root path in spaHandler above: this IS
+// index.html's content, just served for a different request path.
 func serveIndexFallback(w http.ResponseWriter, r *http.Request, fsys fs.FS) {
 	f, err := fsys.Open("index.html")
 	if err != nil {
@@ -165,5 +175,6 @@ func serveIndexFallback(w http.ResponseWriter, r *http.Request, fsys fs.FS) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache")
 	http.ServeContent(w, r, "index.html", stat.ModTime(), rs)
 }

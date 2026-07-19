@@ -14,6 +14,8 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+
+	"github.com/mixofreality-studio/archistrator/server/internal/client/web"
 )
 
 func spaTestFS() fstest.MapFS {
@@ -83,6 +85,36 @@ func TestSPAHandlerFallbackDoesNotRewriteRequestPath(t *testing.T) {
 	}
 }
 
+func TestSPAHandlerSetsNoCacheOnIndexAtRoot(t *testing.T) {
+	h := spaHandler(spaTestFS())
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+
+	if cc := rec.Header().Get("Cache-Control"); cc != "no-cache" {
+		t.Fatalf("Cache-Control = %q, want %q (index.html must always be revalidated so a client picks up a redeployed SPA immediately)", cc, "no-cache")
+	}
+}
+
+func TestSPAHandlerSetsNoCacheOnFallback(t *testing.T) {
+	h := spaHandler(spaTestFS())
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/project/x/home", nil))
+
+	if cc := rec.Header().Get("Cache-Control"); cc != "no-cache" {
+		t.Fatalf("Cache-Control = %q, want %q (SPA fallback serves index.html content and must carry the same no-cache contract as the direct-root path)", cc, "no-cache")
+	}
+}
+
+func TestSPAHandlerHashedAssetKeepsDefaultCacheBehavior(t *testing.T) {
+	h := spaHandler(spaTestFS())
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/assets/app.js", nil))
+
+	if cc := rec.Header().Get("Cache-Control"); cc != "" {
+		t.Fatalf("Cache-Control = %q, want unset — only index.html forces no-cache; hashed assets keep FileServerFS's default behavior", cc)
+	}
+}
+
 func TestSPAHandlerServesFaviconFromRoot(t *testing.T) {
 	h := spaHandler(spaTestFS())
 	rec := httptest.NewRecorder()
@@ -120,39 +152,33 @@ func mountSPAWithFS(root *http.ServeMux, fsys fs.FS) {
 }
 
 // Pins the mux-registration strategy documented in spa_handler.go: the
-// generated composition root already binds the outer ServeMux's "/" catch-all
-// to the generated REST server (simulated by genLike below) BEFORE the SPA
-// mount runs, and the other composition-root-only routes (/api/v1/, /mcp,
-// GET /api/userinfo) are registered alongside it — this must not panic on
-// pattern conflict, and every path must resolve to the EXPECTED handler.
+// generated composition root already binds the outer ServeMux's "/"
+// catch-all to the generated REST server BEFORE the SPA mount runs, and the
+// other composition-root-only routes (/api/v1/, /mcp, GET /api/userinfo) are
+// registered alongside it — this must not panic on pattern conflict, and
+// every path must resolve to the EXPECTED handler.
 func TestMountSPACoexistsWithGeneratedAndExtraMounts(t *testing.T) {
 	root := http.NewServeMux()
 
-	// genLike faithfully reproduces server.gen.go's NewServer shape: an INNER
-	// mux (not a flat handler) owning "GET /healthz"/"GET /readyz"/"/api/v1/",
-	// bound to the OUTER root at "/" — exactly like main.gen.go's
-	// `root.Handle("/", genServer)`. This distinction matters: the outer mux
-	// only compares patterns registered directly on ITSELF for precedence, so
-	// it cannot see that genLike's INNER "GET /healthz" exists — a flat
-	// handler stand-in would hide that and let this test pass even if
-	// mountSPA regressed to stealing /healthz (see the real bug this caught,
-	// documented in spa_handler.go's healthLikePaths comment).
-	genLike := http.NewServeMux()
-	genLike.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"status":"ok"}`))
-	})
-	genLike.HandleFunc("GET /readyz", func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"status":"ok"}`))
-	})
-	genLike.Handle("/api/v1/", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("api"))
-	}))
-	root.Handle("/", genLike) // main.gen.go's mount, before ExtraMounts/mountSPA run
+	// genServer is the REAL generated composition root
+	// (internal/client/web/server.gen.go's NewServer), constructed with ZERO
+	// registrars — reproducing the property this test cares about (the
+	// literal top-level route set: GET /healthz, GET /readyz, /api/v1/ on an
+	// INNER mux bound to root at "/") needs no manager wiring. Using the real
+	// NewServer here (not a hand-rolled double) means a future httpgen regen
+	// that changes that literal route set breaks THIS test instead of
+	// silently shadowing it in production — the real bug shadowHealthLikeRoutes
+	// exists to fix (see spa_handler.go's healthLikePaths comment). A nil
+	// validator makes /api/v1/... deny-all (401 "unauthorized: ..."), which is
+	// exactly what this test needs: a response that is unmistakably NOT the
+	// SPA shell, proving the prefix wasn't shadowed.
+	genServer := web.NewServer(web.DevConfig{}, nil)
+	root.Handle("/", genServer) // main.gen.go's mount, before ExtraMounts/mountSPA run
 
 	// hooks.go's ExtraMounts already shadows "/api/v1/" on the outer root
-	// (the 5xx-logging wrap, http5xxlog.go) — reproduced here so this test's
-	// mux matches the real one mountSPA runs against.
+	// (the 5xx-logging wrap, http5xxlog.go) — reproduced here (minus the
+	// logging wrap itself, irrelevant to mux-registration precedence) so this
+	// test's mux matches the real one mountSPA runs against.
 	if apiSurface, pat := root.Handler(httptest.NewRequest(http.MethodGet, "/api/v1/", nil)); pat != "" {
 		root.Handle("/api/v1/", apiSurface)
 	} else {
@@ -169,21 +195,29 @@ func TestMountSPACoexistsWithGeneratedAndExtraMounts(t *testing.T) {
 	mountSPAWithFS(root, spaTestFS()) // must not panic
 
 	cases := []struct {
-		path string
-		want string
+		path       string
+		wantStatus int
+		want       string
 	}{
-		{"/", "spa-shell"},
-		{"/project/x/home", "spa-shell"},
-		{"/assets/app.js", "console.log('spa-bundle')"},
-		{"/api/v1/systems", "api"},
-		{"/mcp", "mcp"},
-		{"/api/userinfo", "userinfo"},
-		{"/healthz", "status"},
-		{"/readyz", "status"},
+		{"/", http.StatusOK, "spa-shell"},
+		{"/project/x/home", http.StatusOK, "spa-shell"},
+		{"/assets/app.js", http.StatusOK, "console.log('spa-bundle')"},
+		// Reaches genServer's REAL auth boundary (security.Middleware, nil
+		// validator denies) rather than the SPA fallback — proves /api/v1/ is
+		// unshadowed, using the generated server's actual deny response.
+		{"/api/v1/systems", http.StatusUnauthorized, "unauthorized"},
+		{"/mcp", http.StatusOK, "mcp"},
+		{"/api/userinfo", http.StatusOK, "userinfo"},
+		// genServer's REAL handleHealth body (server.gen.go) — not a double.
+		{"/healthz", http.StatusOK, `"status":"ok"`},
+		{"/readyz", http.StatusOK, `"status":"ok"`},
 	}
 	for _, tc := range cases {
 		rec := httptest.NewRecorder()
 		root.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, tc.path, nil))
+		if rec.Code != tc.wantStatus {
+			t.Errorf("path %q: status = %d, want %d", tc.path, rec.Code, tc.wantStatus)
+		}
 		if !strings.Contains(rec.Body.String(), tc.want) {
 			t.Errorf("path %q: body = %q, want to contain %q", tc.path, rec.Body.String(), tc.want)
 		}
