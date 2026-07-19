@@ -14,7 +14,7 @@ package main
 // sourcecontrol catalog surface are built once here and reused across the hooks
 // that need them.
 //
-// FOUR REVIEWED RESIDUALS of the fixed generated seam (all dev-profile-only;
+// FIVE REVIEWED RESIDUALS of the fixed generated seam (all dev-profile-only;
 // cloud with DRYRUN=false is unaffected):
 //
 //  1. SHARED-ARTIFACT DRY-RUN CONTAMINATION. FinalizeArtifactAccess swaps the
@@ -86,9 +86,35 @@ package main
 //     "postgres"/"5432" mentions in the boot log. NEVER hand-edit main.gen.go to
 //     paper over a regen that reverts this — regenerate with the local platform
 //     checkout in go.work scope, or wait for the release.
+//
+//  5. WORKER PROVIDER SELECTION (resolveWorkerProvider below) DEPENDS ON THE
+//     SAME UNRELEASED PLATFORM COMMIT AS #4 — local-first-init-funnel Task 3,
+//     archistrator-platform commit 2a389d31 on the composegen-profile-gated-pool
+//     branch, adding framework-go-infrastructure-llm/claudecli.go
+//     (llm.ClaudeCLIClient / llm.NewClaudeCLIClient / llm.PreflightClaudeCLI —
+//     the claude-local Worker Provider). server/go.mod is pinned to
+//     framework-go-infrastructure-llm v0.1.0 (the PUBLISHED version, predating
+//     claudecli.go — `go mod tidy` resolved it, since this is the module's
+//     FIRST use by server; llm.AnthropicClient/llm.Client already existed in
+//     v0.1.0). Building THIS FILE workspace-ACTIVE (the local platform checkout
+//     in go.work scope, the repo's default dev/CI mode) picks up claudecli.go
+//     and compiles clean. Building `GOWORK=off` (against the pinned v0.1.0
+//     alone) FAILS: `undefined: llm.PreflightClaudeCLI` / `undefined:
+//     llm.NewClaudeCLIClient` at cmd/server/hooks.go's resolveWorkerProvider —
+//     confirmed via a real `GOWORK=off go build ./...` run; every OTHER package
+//     in this module (including `internal`, which owns the arch-conformance
+//     gates) is unaffected, the failure is isolated to cmd/server. This is the
+//     SAME hard merge blocker #4 already names ("this patch + any llm-provider
+//     additions"): resolved by the founder-gated framework-go-infrastructure-llm
+//     release (this commit, or later) + a server/go.mod re-pin. NEVER hand-edit
+//     go.mod to fake a version that does not exist, and NEVER stub
+//     ClaudeCLIClient's logic locally in the app to dodge the pin — the
+//     provider belongs in the platform module (see claudecli.go's own doc
+//     comment for why), not duplicated here.
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -97,6 +123,7 @@ import (
 
 	github "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github"
 	keycloak "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-keycloak"
+	llm "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-llm"
 	"github.com/mixofreality-studio/archistrator-platform/framework-go/utilities/security"
 	tlog "go.temporal.io/sdk/log"
 
@@ -140,6 +167,66 @@ type appHooks struct {
 	// PR rail, exactly as the hand run() did. nil when repo-less (rail dormant).
 	scAccess     sourcecontrol.SourceControlAccess
 	realPipeline constructionpipeline.ConstructionPipelineAccess
+
+	// workerProvider is the selected LLM Worker Provider (local-first-init-funnel
+	// Task 3): local profile with no ANTHROPIC_API_KEY → llm.ClaudeCLIClient
+	// (headless `claude -p` on the user's own subscription, platform module
+	// framework-go-infrastructure-llm/claudecli.go); any profile WITH the key set
+	// → llm.AnthropicClient (the cloud transport, anthropic.go). nil when neither
+	// applies (cloud profile, no key — LLM-consuming seams stay dormant, mirroring
+	// scAccess/realPipeline's repo-less-dormant pattern above). NOT YET consumed by
+	// any Manager/Engine: the cloud coauthor draft path dispatches an agentic
+	// GitHub-Actions job instead of a synchronous provider call, and the local
+	// construction executor (Task 6) is a SEPARATE mechanism that shells `claude`
+	// directly with --mcp-config, not through this field. Selection + the boot-time
+	// `claude --version` preflight land with this task per its brief; the eventual
+	// consumer plugs in without touching this file's selection policy.
+	workerProvider workerGenerateProvider
+}
+
+// workerGenerateProvider is the common surface both llm Worker Provider clients
+// expose — llm.AnthropicClient.Generate (anthropic.go) and
+// llm.ClaudeCLIClient.Generate (claudecli.go) — so this composition root can
+// select between them without a caller needing to know which one it got. Local
+// to this file: composegen has no declared "workerAccess"-shaped binding in
+// project.json (it was removed entirely in the 2026-06 agentic pivot — see
+// project.json's "workerAccess removed entirely" decision), so there is no
+// generated Hooks interface method for this seam; it is a hand policy decision
+// exactly like resolveProfile below.
+type workerGenerateProvider interface {
+	Generate(ctx context.Context, req llm.AnthropicGenerateRequest) (llm.AnthropicGenerateResponse, error)
+}
+
+// resolveWorkerProvider selects and builds the LLM Worker Provider per the
+// local-first deployment thesis (docs/superpowers/plans/2026-07-19-local-first-init-funnel.md,
+// Task 3): an ANTHROPIC_API_KEY in the environment always wins (cloud transport
+// — the only option for the cloud profile, and an explicit opt-in override for a
+// local dev box that wants it); otherwise the local profile falls back to
+// claude-local and preflights it — `claude --version` must run cleanly before
+// the server accepts traffic, with a friendly, actionable error naming the
+// install command when it does not. The cloud profile with no key returns
+// (nil, nil): LLM-consuming seams stay dormant, exactly as sourceControlAccess
+// does when repo-less.
+//
+// ANTHROPIC_API_KEY is read directly (not through *Config): configgen only
+// generates a Config field for a component's declared deployment-model env var,
+// and no "workerAccess"-shaped binding exists in project.json to generate one
+// from (see workerGenerateProvider's doc comment) — this hand env read mirrors
+// the WEBAPP_ORIGIN/WEBAPP_ASSET_VERSION precedent in ExtraMounts below.
+func resolveWorkerProvider(cfg *Config, logger *slog.Logger) (workerGenerateProvider, error) {
+	if apiKey := getenvString("ANTHROPIC_API_KEY", ""); apiKey != "" {
+		logger.Info("workerProvider (anthropic) ready")
+		return llm.NewAnthropicClient(apiKey, "", 0), nil
+	}
+	if resolveProfile(cfg) != "local" {
+		logger.Warn("workerProvider NOT configured — no ANTHROPIC_API_KEY on the cloud profile; LLM-consuming seams stay dormant until one is set")
+		return nil, nil //nolint:nilnil // optional dependency absent (cloud, no key) → (nil, nil) is intentional, mirrors scAccess/realPipeline above
+	}
+	if err := llm.PreflightClaudeCLI(); err != nil {
+		return nil, fmt.Errorf("workerProvider: %w", err)
+	}
+	logger.Info("workerProvider (claude-local) ready — headless claude on the user's own subscription")
+	return llm.NewClaudeCLIClient(0), nil
 }
 
 // newAppHooks builds the composition-root hook state from the resolved *Config: the
@@ -149,6 +236,15 @@ type appHooks struct {
 // here so main() exits before the boot walk.
 func newAppHooks(cfg *Config, logger *slog.Logger) (*appHooks, error) {
 	h := &appHooks{logger: logger, config: cfg}
+
+	// LLM Worker Provider selection + boot-time preflight — fails fast (before
+	// the boot walk) on the local profile with no `claude` on PATH, exactly like
+	// the GitHub-App key validation below.
+	workerProvider, err := resolveWorkerProvider(cfg, logger)
+	if err != nil {
+		return nil, err
+	}
+	h.workerProvider = workerProvider
 
 	// Shared GitHub-App satellite + catalog surface — built once when the App
 	// identity + account are configured (the CLOUD profile). Nil otherwise: a dev
