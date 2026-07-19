@@ -4183,6 +4183,10 @@ type ServiceContract struct {
 	// component compiles before it is built; as it is constructed later the generated
 	// bodies are replaced and this flag is cleared. Built entries omit it.
 	Stub bool `json:"stub,omitempty"`
+	// RailAuthority marks a ResourceAccess as the merge-authority for its writes: its
+	// non-read-only ops stay AgentHidden in the internal MCP tool surface (internaltoolsgen),
+	// replaced for agents by composed Manager verbs.
+	RailAuthority bool `json:"railAuthority,omitempty"`
 	// Title is the contract document title (e.g. "artifact contract").
 	Title string `json:"title"`
 	// Defs is the document's `$defs` — each value is a JSON Schema, stored raw so

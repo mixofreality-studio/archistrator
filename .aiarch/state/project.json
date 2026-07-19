@@ -17876,6 +17876,7 @@
       "component": "projectStateAccess",
       "layer": "ResourceAccess",
       "goPackage": "internal/resourceaccess/projectstate",
+      "railAuthority": true,
       "title": "projectstate contract",
       "$defs": {
         "ActivityBuildStatus": {

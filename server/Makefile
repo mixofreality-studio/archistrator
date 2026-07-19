@@ -1,6 +1,6 @@
 # aiarch server — developer make targets.
 
-.PHONY: test test-short fmt vet lint sumtype-check method-check encapsulation-check gen-models gen-models-check gen-fakes gen-fakes-check gen gen-client gen-client-check gen-internal-tools gen-temporal gen-temporal-check gen-sdk gen-sdk-check gen-config gen-config-check gen-uiprofiles gen-uiprofiles-check claude-assets
+.PHONY: test test-short fmt vet lint sumtype-check method-check encapsulation-check gen-models gen-models-check gen-fakes gen-fakes-check gen gen-client gen-client-check gen-internal-tools gen-internal-tools-check gen-temporal gen-temporal-check gen-sdk gen-sdk-check gen-config gen-config-check gen-uiprofiles gen-uiprofiles-check claude-assets
 
 # claude-assets — materialize the .claude method prompt surface (agents/commands/
 # skills) into the repo root from the method-assets lib pinned in go.mod. The
@@ -70,6 +70,13 @@ gen-client-check: gen-client
 # registers, scoped per task by the agentic sub-workflow's tool palette.
 gen-internal-tools:
 	GOWORK=off go run ./cmd/internaltoolsgen
+
+# gen-internal-tools-check — drift gate for the generated internal MCP tool
+# catalog (cmd/internaltoolsgen), same regenerate-then-diff shape as the other
+# gen-*-check gates. GOWORK=off-safe (see gen-internal-tools above), so it runs
+# in CI (server-checks.yml).
+gen-internal-tools-check: gen-internal-tools
+	git diff --exit-code -- internal/resourceaccess/projectstate/toolcatalog.gen.go
 
 gen: gen-models gen-fakes gen-client gen-internal-tools gen-temporal gen-sdk gen-config gen-uiprofiles
 

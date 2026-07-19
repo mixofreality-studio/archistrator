@@ -96,7 +96,7 @@ func main() {
 				Operation:    op.Name,
 				Params:       paramNames(op),
 				ReadOnly:     ro,
-				AgentHidden:  agentHidden(sc.Component, ro),
+				AgentHidden:  agentHidden(sc.RailAuthority, ro),
 				Description:  describe(sc.Component, sc.Layer, op.Name, ro),
 				InputSchema:  inputSchema(op, sc.Defs),
 				OutputSchema: outputSchema(op, sc.Defs),
@@ -165,8 +165,8 @@ func readOnly(layer, op string) bool {
 // setCritiqueVerdict/respondToReviewComment). Its READS remain exposable (and are
 // themselves shadowed by getCommittedSlot/getDraftSlot). Every other RA/Engine op
 // is exposable — that is the whole point of the internal surface.
-func agentHidden(component string, ro bool) bool {
-	return component == "projectStateAccess" && !ro
+func agentHidden(railAuthority, ro bool) bool {
+	return railAuthority && !ro
 }
 
 // describe renders the default tool description for a raw RA/Engine op.
