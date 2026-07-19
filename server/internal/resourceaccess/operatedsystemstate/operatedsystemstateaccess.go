@@ -313,6 +313,114 @@ func (s *postgresOperatedSystemStateAccess) mutate(
 	return newV, nil
 }
 
+// noopOperatedSystemStateAccess is the permanent LOCAL-PROFILE no-op
+// OperatedSystemStateAccess (operational-concepts.md's local environment:
+// "operatedSystemState=no-op" — local-first-init-funnel Task 2b; the init-funnel
+// target has no Postgres, and operations/deploy is a cloud-only, paid-tier concern
+// per the canonical deployment-scenario decision: "Local-first is the free
+// acquisition funnel (design + construction on the user's own subscription); hosted
+// deploy/operate is the paid tier"). It mirrors usage.noopUsageAccess's documented
+// stance: NO persistence. Every read behaves as though no operated app has ever
+// existed (ReadOperatedSystem -> NotFound, matching the real store's own "missing row
+// is NotFound" contract; ReadInFlightOperatedApps -> empty). Every write trivially
+// "succeeds" (a fixed placeholder Version(1), echoing the real store's fresh-create
+// shape) without persisting anything — a write here is not a promise of durability,
+// exactly like usageAccess's dropped RecordComputeUsage batch. Caller-misuse
+// preconditions (zero operatedAppID, empty idempotencyKey) are still enforced
+// identically to the Postgres impl, so callers observe the SAME contract-level errors
+// in both profiles. Do not add any behind this type; a future real local head-state
+// store is a new, separate implementation, not this one grown up (mirrors
+// usage.noopUsageAccess's and revenueledger.noopRevenueLedgerAccess's documented
+// stance).
+type noopOperatedSystemStateAccess struct{}
+
+// NewNoOpOperatedSystemStateAccess returns the permanent no-op OperatedSystemStateAccess
+// for the local profile. It takes no arguments — there is no infrastructure binding
+// (the local deployment binding declares infra: [] for this variant).
+func NewNoOpOperatedSystemStateAccess() OperatedSystemStateAccess {
+	return noopOperatedSystemStateAccess{}
+}
+
+var _ OperatedSystemStateAccess = noopOperatedSystemStateAccess{}
+
+// noopPlaceholderVersion is the fixed Version every no-op write "succeeds" with. It is
+// NOT a real, incrementing head-state version — nothing is persisted to increment — and
+// is chosen to echo the real store's fresh-create shape (a first PublishDesiredState
+// creates version 1) rather than the zero value, which this component's real impl
+// reserves as a caller-misuse marker ("zero expectedVersion for an update").
+const noopPlaceholderVersion Version = 1
+
+// ReadOperatedSystem always reports NotFound — nothing is ever persisted locally, so
+// every operated app "doesn't exist" (mirrors the real store's own missing-row
+// contract, just unconditionally).
+func (noopOperatedSystemStateAccess) ReadOperatedSystem(_ fwra.Context, operatedAppID uuid.UUID) (OperatedSystem, error) {
+	const op = "operatedsystemstate.ReadOperatedSystem"
+	if operatedAppID == uuid.Nil {
+		return OperatedSystem{}, fwra.New(fwra.ContractMisuse, op+": zero operatedAppID")
+	}
+	return OperatedSystem{}, fwra.New(fwra.NotFound, op+": no operated system (local profile: operatedSystemStateAccess is no-op)")
+}
+
+// ReadInFlightOperatedApps always reports no in-flight apps — an empty (non-nil)
+// slice, never NotFound, matching the real store's own empty-result contract.
+func (noopOperatedSystemStateAccess) ReadInFlightOperatedApps(_ fwra.Context, scope InFlightScope) ([]OperatedSystemSummary, error) {
+	const op = "operatedsystemstate.ReadInFlightOperatedApps"
+	if scope.CustomerID != nil && *scope.CustomerID == uuid.Nil {
+		return nil, fwra.New(fwra.ContractMisuse, op+": CustomerID set but zero (use nil for all in-flight apps)")
+	}
+	return []OperatedSystemSummary{}, nil
+}
+
+// PublishDesiredState trivially "succeeds" (local no-op): nothing is persisted, so a
+// subsequent ReadOperatedSystem for the same app still reports NotFound.
+func (noopOperatedSystemStateAccess) PublishDesiredState(_ fwra.Context, operatedAppID uuid.UUID, _ Version, _ DesiredStateReason, _ *AutoscaleDecision, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	if err := checkMutateMisuse("operatedsystemstate.PublishDesiredState", operatedAppID, idempotencyKey); err != nil {
+		return 0, err
+	}
+	return noopPlaceholderVersion, nil
+}
+
+// RecordRuntimeStatusChange trivially "succeeds" (local no-op); nothing is persisted.
+func (noopOperatedSystemStateAccess) RecordRuntimeStatusChange(_ fwra.Context, operatedAppID uuid.UUID, _ Version, _ RuntimeStatus, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	if err := checkMutateMisuse("operatedsystemstate.RecordRuntimeStatusChange", operatedAppID, idempotencyKey); err != nil {
+		return 0, err
+	}
+	return noopPlaceholderVersion, nil
+}
+
+// WithdrawSystem trivially "succeeds" (local no-op); nothing is persisted.
+func (noopOperatedSystemStateAccess) WithdrawSystem(_ fwra.Context, operatedAppID uuid.UUID, _ Version, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	if err := checkMutateMisuse("operatedsystemstate.WithdrawSystem", operatedAppID, idempotencyKey); err != nil {
+		return 0, err
+	}
+	return noopPlaceholderVersion, nil
+}
+
+// RecordDelinquencyAction trivially "succeeds" (local no-op); nothing is persisted.
+// Unlike the Postgres impl, an unknown DelinquencyAction is NOT distinguished — there
+// is no write to route, so every action (including DelinquencyActionUnknown) shares
+// the same trivial-success reply; the real store's action-routing switch has nothing
+// to bridge to here.
+func (noopOperatedSystemStateAccess) RecordDelinquencyAction(_ fwra.Context, operatedAppID uuid.UUID, _ Version, _ DelinquencyAction, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	if err := checkMutateMisuse("operatedsystemstate.RecordDelinquencyAction", operatedAppID, idempotencyKey); err != nil {
+		return 0, err
+	}
+	return noopPlaceholderVersion, nil
+}
+
+// checkMutateMisuse enforces the SAME caller-misuse preconditions the Postgres impl's
+// mutate() applies (zero operatedAppID, empty idempotencyKey) so callers observe
+// identical contract-level errors in both profiles.
+func checkMutateMisuse(op string, operatedAppID uuid.UUID, key fwra.IdempotencyKey) error {
+	if operatedAppID == uuid.Nil {
+		return fwra.New(fwra.ContractMisuse, op+": zero operatedAppID")
+	}
+	if key == "" {
+		return fwra.New(fwra.ContractMisuse, op+": empty idempotencyKey")
+	}
+	return nil
+}
+
 // versionedUpdate runs an UPDATE … WHERE operated_app_id = $1 AND version = $2 …
 // RETURNING version. A matched row returns its bumped version. No matched row is
 // disambiguated with an existence probe: the row exists ⇒ the expectation was stale

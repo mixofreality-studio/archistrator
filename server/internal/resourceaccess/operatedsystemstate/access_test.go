@@ -271,6 +271,121 @@ func TestContractMisuse(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// NewNoOpOperatedSystemStateAccess — the LOCAL-PROFILE variant selected when the
+// deployment binding has no Postgres backing (local-first-init-funnel Task 2b:
+// "operatedSystemState=no-op", mirroring usage.NewNoOpUsageAccess). Unlike the suite
+// above, these are pure in-process unit tests — no testcontainer, no network.
+//
+// Semantics under test (mirroring usageAccess's documented no-op stance): NOTHING is
+// ever persisted. Every read behaves as if no operated app has ever existed
+// (ReadOperatedSystem -> NotFound; ReadInFlightOperatedApps -> empty). Every write
+// trivially "succeeds" (matching the real store's fresh-create shape, Version(1)) but
+// is never reflected in a subsequent read — a write is not a promise of durability
+// here, exactly like usageAccess's dropped RecordComputeUsage batch. Caller-misuse
+// preconditions (zero id, empty idempotency key) are still enforced identically to the
+// Postgres impl, so callers see the SAME contract-level errors in both profiles.
+// ---------------------------------------------------------------------------
+
+func TestNoOp_ReadOperatedSystem_AlwaysNotFound(t *testing.T) {
+	store := operatedsystemstate.NewNoOpOperatedSystemStateAccess()
+	_, err := store.ReadOperatedSystem(rc(context.Background()), uuid.New())
+	assertKind(t, err, fwra.NotFound)
+}
+
+func TestNoOp_ReadOperatedSystem_ZeroID_ContractMisuse(t *testing.T) {
+	store := operatedsystemstate.NewNoOpOperatedSystemStateAccess()
+	_, err := store.ReadOperatedSystem(rc(context.Background()), uuid.Nil)
+	assertKind(t, err, fwra.ContractMisuse)
+}
+
+func TestNoOp_ReadInFlightOperatedApps_AlwaysEmpty(t *testing.T) {
+	store := operatedsystemstate.NewNoOpOperatedSystemStateAccess()
+	out, err := store.ReadInFlightOperatedApps(rc(context.Background()), operatedsystemstate.InFlightScope{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if out == nil {
+		t.Fatalf("expected a non-nil empty slice, got nil")
+	}
+	if len(out) != 0 {
+		t.Fatalf("expected zero in-flight apps, got %d", len(out))
+	}
+}
+
+func TestNoOp_PublishDesiredState_TriviallySucceeds_NotPersisted(t *testing.T) {
+	store := operatedsystemstate.NewNoOpOperatedSystemStateAccess()
+	appID := uuid.New()
+
+	v, err := store.PublishDesiredState(rc(context.Background()), appID, 0,
+		operatedsystemstate.ReasonOperator, nil, fwra.IdempotencyKey("k1"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if v != 1 {
+		t.Fatalf("expected placeholder Version 1, got %d", v)
+	}
+
+	// The write is a no-op: a subsequent read of the SAME app still reports NotFound —
+	// nothing was actually persisted (mirrors usageAccess's ReadRange returning no
+	// facts after a RecordComputeUsage "success").
+	_, err = store.ReadOperatedSystem(rc(context.Background()), appID)
+	assertKind(t, err, fwra.NotFound)
+}
+
+func TestNoOp_PublishDesiredState_ZeroID_ContractMisuse(t *testing.T) {
+	store := operatedsystemstate.NewNoOpOperatedSystemStateAccess()
+	_, err := store.PublishDesiredState(rc(context.Background()), uuid.Nil, 0,
+		operatedsystemstate.ReasonOperator, nil, fwra.IdempotencyKey("k1"))
+	assertKind(t, err, fwra.ContractMisuse)
+}
+
+func TestNoOp_PublishDesiredState_EmptyIdempotencyKey_ContractMisuse(t *testing.T) {
+	store := operatedsystemstate.NewNoOpOperatedSystemStateAccess()
+	_, err := store.PublishDesiredState(rc(context.Background()), uuid.New(), 0,
+		operatedsystemstate.ReasonOperator, nil, fwra.IdempotencyKey(""))
+	assertKind(t, err, fwra.ContractMisuse)
+}
+
+func TestNoOp_RecordRuntimeStatusChange_TriviallySucceeds(t *testing.T) {
+	store := operatedsystemstate.NewNoOpOperatedSystemStateAccess()
+	v, err := store.RecordRuntimeStatusChange(rc(context.Background()), uuid.New(), 1,
+		operatedsystemstate.RuntimeStatusHealthy, fwra.IdempotencyKey("k1"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if v != 1 {
+		t.Fatalf("expected placeholder Version 1, got %d", v)
+	}
+}
+
+func TestNoOp_WithdrawSystem_TriviallySucceeds(t *testing.T) {
+	store := operatedsystemstate.NewNoOpOperatedSystemStateAccess()
+	v, err := store.WithdrawSystem(rc(context.Background()), uuid.New(), 1, fwra.IdempotencyKey("k1"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if v != 1 {
+		t.Fatalf("expected placeholder Version 1, got %d", v)
+	}
+}
+
+func TestNoOp_RecordDelinquencyAction_TriviallySucceeds(t *testing.T) {
+	store := operatedsystemstate.NewNoOpOperatedSystemStateAccess()
+	v, err := store.RecordDelinquencyAction(rc(context.Background()), uuid.New(), 1,
+		operatedsystemstate.DelinquencyActionPaused, fwra.IdempotencyKey("k1"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if v != 1 {
+		t.Fatalf("expected placeholder Version 1, got %d", v)
+	}
+}
+
+func TestNoOp_ImplementsInterface(t *testing.T) {
+	var _ operatedsystemstate.OperatedSystemStateAccess = operatedsystemstate.NewNoOpOperatedSystemStateAccess()
+}
+
 func containsAll(apps []operatedsystemstate.OperatedSystemSummary, want ...uuid.UUID) bool {
 	for _, w := range want {
 		if !containsAny(apps, w) {

@@ -32,10 +32,15 @@ import (
 //     generated requiredEnvByProfile table to cloud-only, but the composition root
 //     resolves the active profile from other config fields, which configgen cannot
 //     see — so this profile-conditional check stays hand). The local profile has
-//     zero Postgres-backed bindings: project state is git, and usageAccess's local
-//     arm is the permanent no-op (usage.NewNoOpUsageAccess — Task 2,
-//     local-first-init-funnel: "Postgres exists only for usage metering, which
-//     local mode does not do").
+//     zero Postgres-backed BINDINGS: project state is git, usageAccess's local arm
+//     is the permanent no-op (usage.NewNoOpUsageAccess — Task 2, local-first-init-
+//     funnel), and operatedSystemStateAccess's local arm is likewise the permanent
+//     no-op (operatedsystemstate.NewNoOpOperatedSystemStateAccess — Task 2b:
+//     "Postgres exists only for usage metering + operate/deploy head-state, neither
+//     of which local mode does"). This validation is about the REQUIRED-env
+//     contract only — it does NOT mean local never attempts a Postgres network
+//     dial; see hooks.go's residual #4 for the known generator-level gap that still
+//     makes it try.
 //  4. ProjectStateGitRepoURL is required when ProjectStateGitLocal=true (the boot-time
 //     git-local guard — reproduces the pre-appgen hand buildDesignProjectState check).
 //  5. Construction creds are required only when !ConstructionDryRun.

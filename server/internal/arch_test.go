@@ -681,4 +681,13 @@ var encapsulationAllowlistData = map[string][]string{
 		"NewNoOpUsageAccess",
 		"OperatedAppID",
 	},
+	// NewNoOpOperatedSystemStateAccess is the LOCAL-PROFILE VARIANT CONSTRUCTOR
+	// (local-first-init-funnel Task 2b): the local deployment binding declares
+	// infra: [] for operatedSystemStateAccess (no Postgres in local mode — deploy/
+	// operate is a cloud-only, paid-tier concern), so there is no generated
+	// New<Infra><Component> for it; same VARIANT-CONSTRUCTOR category as
+	// usage.NewNoOpUsageAccess above.
+	"internal/resourceaccess/operatedsystemstate": {
+		"NewNoOpOperatedSystemStateAccess",
+	},
 }

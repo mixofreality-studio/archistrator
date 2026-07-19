@@ -7811,7 +7811,7 @@
                   "containerInstances": [
                     {
                       "containerKey": "archistrator-server",
-                      "note": "usageAccess=no-op; billing absent; construction executor=local headless claude",
+                      "note": "usageAccess=no-op; operatedSystemState=no-op; billing absent; construction executor=local headless claude",
                       "tags": []
                     }
                   ],
@@ -8034,10 +8034,8 @@
                   ]
                 },
                 "local": {
-                  "variant": "Postgres",
-                  "infra": [
-                    "postgres"
-                  ]
+                  "variant": "NoOp",
+                  "infra": []
                 }
               }
             },

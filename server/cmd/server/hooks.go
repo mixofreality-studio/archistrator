@@ -49,6 +49,31 @@ package main
 //     shared psa's GitConstructionPorts served both ports). All four address the
 //     SAME repo and GitStore holds no connection state, so this is an
 //     instance-count residual, not a correctness one.
+//
+//  4. UNCONDITIONAL POSTGRES POOL DIAL ON EVERY PROFILE INCLUDING LOCAL
+//     (local-first-init-funnel Task 2b, KNOWN GAP — not fixed by this task, no hook
+//     exists to fix it from this file). main.gen.go's Postgres pool
+//     (postgresinfra.NewPool(ctx, cfg.PostgresURL), which PINGS — a real dial, not a
+//     lazy handle) is built UNCONDITIONALLY at boot, on every profile, even though
+//     every profile-switched binding that consumes it (operatedSystemStateAccess,
+//     usageAccess) now resolves to a Postgres-free NoOp variant on "local". This is
+//     because composegen's writePostgres (framework-go-app-generator@v0.8.0,
+//     composegen/emit.go:180-188, vendored/pinned in archistrator-platform) gates
+//     pool construction on consumesPostgres() (imports.go:222-229) — "does ANY
+//     declared binding, in ANY profile, use the postgres substrate" — a
+//     GENERATION-TIME decision over the whole deployment model, not the
+//     RUNTIME-resolved `profile` value composegen already resolves earlier in the
+//     SAME function (writeProfile precedes writePostgres in writeRunGenerated). Since
+//     "cloud" legitimately needs Postgres, consumesPostgres() is permanently true, so
+//     the pool dial can NEVER be made conditional from project.json alone — it needs
+//     a composegen change (gate the pool build on the postgres infra key's declared
+//     `profiles` list at runtime, mirroring how each RA's own per-profile switch arm
+//     already works) followed by a platform release (new framework-go-app-generator
+//     tag + re-pin of server/go.mod). Confirmed via a real local boot with Temporal
+//     reachable and Postgres NOT reachable: the process still hard-fails with a
+//     Postgres dial error before the HTTP server starts. NEVER hand-edit main.gen.go
+//     to work around this — see the task report for the verified boot-log evidence
+//     and the proposed (unapplied) composegen patch.
 
 import (
 	"context"

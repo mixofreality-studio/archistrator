@@ -459,12 +459,8 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 		operatedSystemStateAccess = v
 		logger.Info("operatedSystemStateAccess (Postgres) ready")
 	case "local":
-		v, err := operatedsystemstate.NewPostgresOperatedSystemStateAccess(ctx, pool)
-		if err != nil {
-			return err
-		}
-		operatedSystemStateAccess = v
-		logger.Info("operatedSystemStateAccess (Postgres) ready")
+		operatedSystemStateAccess = operatedsystemstate.NewNoOpOperatedSystemStateAccess()
+		logger.Info("operatedSystemStateAccess (NoOp) ready")
 	default:
 		return errors.New("operatedSystemStateAccess: no ResourceAccess variant for the active profile")
 	}
