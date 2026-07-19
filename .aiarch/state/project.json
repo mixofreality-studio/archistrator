@@ -7458,7 +7458,7 @@
           },
           {
             "topic": "deployment scenarios are configuration, not architecture",
-            "decision": "Two production scenarios (DEPLOYED — NOT OPERATED; DEPLOYED — OPERATED) differ only by an operation on/off flag — OperationsManager and OperatedRuntime and hosting billing are not instantiated in the not-operated scenario. A test profile swaps the durable-execution runtime to the embedded executor, the git target to an ephemeral throwaway repo, and the agentic-coding CI to a local exec runner or stub. The component graph, call chains, and component count are identical across all scenarios.",
+            "decision": "Two production scenarios (DEPLOYED — NOT OPERATED; DEPLOYED — OPERATED) differ only by an operation on/off flag — OperationsManager and OperatedRuntime and hosting billing are not instantiated in the not-operated scenario. A test profile swaps the durable-execution runtime to the embedded executor, the git target to an ephemeral throwaway repo, and the agentic-coding CI to a local exec runner or stub. The component graph, call chains, and component count are identical across all scenarios. Local-first is the free acquisition funnel (design + construction on the user's own subscription); hosted deploy/operate is the paid tier; the .aiarch repo is the migration artifact between them.",
             "justifyingObjective": 8
           },
           {
@@ -7798,39 +7798,20 @@
             },
             {
               "profile": "local",
-              "title": "Local (on-disk git \u00b7 dry-run construction/operations)",
+              "title": "Local (developer laptop, archistrator init)",
               "nodes": [
                 {
-                  "name": "local process",
-                  "technology": "in-process",
-                  "description": "Local dev boot: file:// on-disk git projectStateAccess/artifactAccess, Postgres head-state + usage ledger, dry-run construction + operations, dev auth (no Keycloak).",
+                  "name": "Developer laptop",
+                  "technology": "single Go binary",
+                  "description": "archistrator init: server + embedded Temporal dev-server + embedded SPA on 127.0.0.1. Project state = on-disk git (.aiarch). All LLM work = headless claude CLI subprocesses on the user's own Claude subscription (driver=Claude Code interactive via /mcp; worker=claude -p). No Postgres, no Keycloak, no GitHub App, no Anthropic key held by archistrator.",
                   "instances": 1,
                   "tags": [],
                   "children": [],
-                  "infrastructureNodes": [
-                    {
-                      "name": "ProjectGitRepo",
-                      "technology": "on-disk git",
-                      "description": "file:// per-project repo (ARCHISTRATOR_PROJECT_STATE_GIT_REPO_URL); git-as-DB local proof",
-                      "tags": []
-                    },
-                    {
-                      "name": "OperatedSystemState",
-                      "technology": "Postgres",
-                      "description": "local Postgres head-state + usage ledger (ARCHISTRATOR_POSTGRES_URL)",
-                      "tags": []
-                    },
-                    {
-                      "name": "DurableExecutionRuntime",
-                      "technology": "Temporal (dev server)",
-                      "description": "local Temporal dev server",
-                      "tags": []
-                    }
-                  ],
+                  "infrastructureNodes": [],
                   "containerInstances": [
                     {
                       "containerKey": "archistrator-server",
-                      "note": "local boot: embedded worker + HTTP API",
+                      "note": "usageAccess=no-op; billing absent; construction executor=local headless claude",
                       "tags": []
                     }
                   ],
