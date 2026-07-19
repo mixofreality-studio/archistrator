@@ -28,8 +28,14 @@ import (
 //
 //  1. GithubAppPrivateKeyPEM: `_FILE` resolution + inline-vs-path detection (envSecret).
 //  2. GithubAppAccount: chained default env(ACCOUNT) → env(CONSTRUCTION_REPO_OWNER).
-//  3. PostgresURL is required UNCONDITIONALLY (all profiles incl. test) — configgen
-//     scopes it to cloud+local, so the check stays hand.
+//  3. PostgresURL is required on every profile EXCEPT local (configgen scopes the
+//     generated requiredEnvByProfile table to cloud-only, but the composition root
+//     resolves the active profile from other config fields, which configgen cannot
+//     see — so this profile-conditional check stays hand). The local profile has
+//     zero Postgres-backed bindings: project state is git, and usageAccess's local
+//     arm is the permanent no-op (usage.NewNoOpUsageAccess — Task 2,
+//     local-first-init-funnel: "Postgres exists only for usage metering, which
+//     local mode does not do").
 //  4. ProjectStateGitRepoURL is required when ProjectStateGitLocal=true (the boot-time
 //     git-local guard — reproduces the pre-appgen hand buildDesignProjectState check).
 //  5. Construction creds are required only when !ConstructionDryRun.
@@ -51,8 +57,9 @@ func loadResolvedConfig() (*Config, error) {
 	// GitHub App identity is configured once.
 	cfg.GithubAppAccount = firstNonEmpty(cfg.GithubAppAccount, cfg.ConstructionRepoOwner)
 
-	// (3) Postgres is a hard dependency in every profile.
-	if cfg.PostgresURL == "" {
+	// (3) Postgres is a hard dependency everywhere except the local profile — the
+	// local profile has zero Postgres-backed bindings (see the doc comment above).
+	if resolveProfile(cfg) != "local" && cfg.PostgresURL == "" {
 		return nil, fmt.Errorf("ARCHISTRATOR_POSTGRES_URL is required")
 	}
 

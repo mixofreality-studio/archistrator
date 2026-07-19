@@ -104,7 +104,7 @@ func LoadConfig() (*Config, error) {
 // infrastructure provisioned for that profile.
 var requiredEnvByProfile = map[string][]string{
 	"cloud": {"ARCHISTRATOR_POSTGRES_URL"},
-	"local": {"ARCHISTRATOR_POSTGRES_URL"},
+	"local": {},
 	"test":  {},
 }
 

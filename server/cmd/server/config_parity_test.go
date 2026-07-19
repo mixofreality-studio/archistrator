@@ -210,8 +210,8 @@ func testLoadConfigParityAccountExplicitBadInstallationID(t *testing.T) {
 	}
 }
 
-// testLoadConfigParityEmptyEnvRequiresPostgres: empty env ⇒ the unconditional
-// PostgresURL requirement fires first.
+// testLoadConfigParityEmptyEnvRequiresPostgres: empty env ⇒ ProjectStateGitLocal
+// defaults false (cloud profile), so the PostgresURL requirement fires first.
 func testLoadConfigParityEmptyEnvRequiresPostgres(t *testing.T) {
 	clearConfigEnv(t)
 	_, err := loadResolvedConfig()

@@ -509,12 +509,8 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 		usageAccess = v
 		logger.Info("usageAccess (Postgres) ready")
 	case "local":
-		v, err := usage.NewPostgresUsageAccess(ctx, pool)
-		if err != nil {
-			return err
-		}
-		usageAccess = v
-		logger.Info("usageAccess (Postgres) ready")
+		usageAccess = usage.NewNoOpUsageAccess()
+		logger.Info("usageAccess (NoOp) ready")
 	default:
 		return errors.New("usageAccess: no ResourceAccess variant for the active profile")
 	}

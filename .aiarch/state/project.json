@@ -7825,8 +7825,7 @@
               "key": "postgres",
               "substrate": "postgres",
               "profiles": [
-                "cloud",
-                "local"
+                "cloud"
               ],
               "presence": "required",
               "env": {
@@ -8055,10 +8054,8 @@
                   ]
                 },
                 "local": {
-                  "variant": "Postgres",
-                  "infra": [
-                    "postgres"
-                  ]
+                  "variant": "NoOp",
+                  "infra": []
                 }
               }
             },

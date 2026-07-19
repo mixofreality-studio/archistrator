@@ -331,6 +331,44 @@ func entryRef(id int64) EntryRef {
 	return EntryRef(strconv.FormatInt(id, 10))
 }
 
+// noopUsageAccess is the permanent no-op UsageAccess selected on the LOCAL
+// profile (operational-concepts.md's local environment: "usageAccess=no-op" —
+// the init-funnel target has no Postgres, and usage/hosting metering is a
+// cloud-only concern per the canonical billing model — construction and
+// hosting are never metered on the user's own subscription/laptop). It
+// performs NO persistence: every write trivially "succeeds" (a fresh,
+// zero-value EntryRef per event, never persisted or read back) and every read
+// returns an empty range. Do not add any behind this type; a future real
+// local metering store is a new, separate implementation, not this one grown
+// up (mirrors revenueledger.noopRevenueLedgerAccess's documented stance).
+type noopUsageAccess struct{}
+
+// NewNoOpUsageAccess returns the permanent no-op UsageAccess for the local
+// profile. It takes no arguments — there is no infrastructure binding (the
+// local deployment binding declares infra: [] for this variant).
+func NewNoOpUsageAccess() UsageAccess { return noopUsageAccess{} }
+
+var _ UsageAccess = noopUsageAccess{}
+
+// RecordComputeUsage drops the batch (local no-op); returns one zero-value
+// EntryRef per input event so callers folding the returned slice length
+// against the input see no mismatch.
+func (noopUsageAccess) RecordComputeUsage(_ fwra.Context, events []UsageEvent) ([]EntryRef, error) {
+	return make([]EntryRef, len(events)), nil
+}
+
+// RecordFinalUsage drops the batch (local no-op); same shape as
+// RecordComputeUsage — the "final" distinction is a business moment this
+// no-op does not observe.
+func (noopUsageAccess) RecordFinalUsage(_ fwra.Context, events []UsageEvent) ([]EntryRef, error) {
+	return make([]EntryRef, len(events)), nil
+}
+
+// ReadRange returns no facts — nothing is ever persisted to read back.
+func (noopUsageAccess) ReadRange(_ fwra.Context, _ UsageRangeQuery) ([]UsageEvent, error) {
+	return []UsageEvent{}, nil
+}
+
 // CustomerID is the billing counterparty the usage facts are scoped to
 // (canonical billing aggregate key, shared with the billing stores).
 // PROVISIONAL per the frozen contract §9 Q3 (escalated to D-MST); an id-type

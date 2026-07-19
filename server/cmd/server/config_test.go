@@ -137,6 +137,51 @@ func TestLoadConfig_RealConstruction_RequiresArtifactRepoURL(t *testing.T) {
 	}
 }
 
+// TestMissingFor_Local_NoPostgres — the local (git-local) profile declares
+// ZERO required env vars: project state is git, and Postgres exists only for
+// usage metering, which the local profile's usageAccess arm no-ops (Task 2,
+// local-first-init-funnel). Regression guard on the generated
+// requiredEnvByProfile table (config.gen.go, emitted by configgen from
+// project.json's deployment.infrastructure "postgres" decl's profiles list).
+func TestMissingFor_Local_NoPostgres(t *testing.T) {
+	if got := MissingFor("local"); len(got) != 0 {
+		t.Fatalf(`MissingFor("local") = %v, want empty (no infra is required-class in every... local's declared profiles)`, got)
+	}
+}
+
+// TestLoadConfig_Local_NoPostgres_OK — a bare git-local boot with NO
+// ARCHISTRATOR_POSTGRES_URL set must resolve: local mode has zero external
+// dependencies (no database, period — project state is git; usageAccess is a
+// local no-op arm; there is no other Postgres-required check left in the
+// local path). Was: FAIL ("ARCHISTRATOR_POSTGRES_URL is required") before
+// Task 2 — config_adapter.go's Postgres guard was unconditional across every
+// profile.
+func TestLoadConfig_Local_NoPostgres_OK(t *testing.T) {
+	setEnv(t, map[string]string{
+		"ARCHISTRATOR_POSTGRES_URL":               "",
+		"ARCHISTRATOR_PROJECT_STATE_GIT_LOCAL":    "true",
+		"ARCHISTRATOR_PROJECT_STATE_GIT_REPO_URL": "file:///tmp/proj.git",
+		"ARCHISTRATOR_CONSTRUCTION_DRYRUN":        "true",
+	})
+	if _, err := loadResolvedConfig(); err != nil {
+		t.Fatalf("git-local profile must boot without Postgres, got: %v", err)
+	}
+}
+
+// TestLoadConfig_Cloud_NoPostgres_FailFast — the cloud profile is UNCHANGED:
+// Postgres stays a hard dependency there (operatedSystemStateAccess +
+// usageAccess are both still Postgres-backed on cloud).
+func TestLoadConfig_Cloud_NoPostgres_FailFast(t *testing.T) {
+	setEnv(t, map[string]string{
+		"ARCHISTRATOR_POSTGRES_URL":            "",
+		"ARCHISTRATOR_PROJECT_STATE_GIT_LOCAL": "false",
+		"ARCHISTRATOR_CONSTRUCTION_DRYRUN":     "true",
+	})
+	if _, err := loadResolvedConfig(); err == nil {
+		t.Fatal("expected error: cloud profile still requires ARCHISTRATOR_POSTGRES_URL")
+	}
+}
+
 // TestConstructionWorkflowFileDefault verifies the default construction workflow
 // file is aiarch-construct.yml when the env var is unset.
 func TestConstructionWorkflowFileDefault(t *testing.T) {

@@ -669,10 +669,16 @@ var encapsulationAllowlistData = map[string][]string{
 		"SyncManagedScaffold",
 	},
 	// Cross-package identity value types (CustomerID, OperatedAppID) consumed by downstream
-	// Managers, + Error alias.
+	// Managers, + Error alias. NewNoOpUsageAccess is the LOCAL-PROFILE VARIANT CONSTRUCTOR
+	// (Task 2, local-first-init-funnel): the local deployment binding declares infra: []
+	// for usageAccess (no Postgres in local mode — metering is a cloud-only concern), so
+	// there is no generated New<Infra><Component> for it; same VARIANT-CONSTRUCTOR category
+	// as artifact/constructionpipeline's dry-run constructors and revenueledger's permanent
+	// no-op above.
 	"internal/resourceaccess/usage": {
 		"CustomerID",
 		"Error",
+		"NewNoOpUsageAccess",
 		"OperatedAppID",
 	},
 }
