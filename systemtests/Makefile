@@ -19,7 +19,7 @@ GEN_DIR       := internal/generated
 # on the same box) never race on the same scratch dir.
 GEN_CHECK_DIR := /tmp/aiarch-gen-systemtests-check.$(shell echo $$$$)
 
-.PHONY: test-short test test-integration record up down temporal temporal-stop temporal-ui fmt vet gen gen-check
+.PHONY: test-short test test-integration record up down temporal temporal-stop temporal-ui fmt vet fix fix-check gen gen-check
 
 # Always-green structural gate: R6 constitution tests run, wire tests skip. No infra.
 test-short:
@@ -105,3 +105,15 @@ fmt:
 
 vet:
 	go vet ./...
+
+# go fix (Go 1.26+ analyzer-based fixers, e.g. the x/tools modernizers): apply
+# every suggested rewrite in place. Generated files are skipped by the tool, so
+# this never fights `gen-check`.
+fix:
+	GOWORK=off go fix ./...
+
+# CI gate for `fix`: print pending rewrites as a unified diff and exit non-zero
+# when any exist (systemtests.yml "Go fix check" step). Run `make fix` locally
+# to apply them.
+fix-check:
+	GOWORK=off go fix -diff ./...

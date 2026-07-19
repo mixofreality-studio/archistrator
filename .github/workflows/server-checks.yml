@@ -34,7 +34,8 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.25'
+          # 1.26+ required by the "Go fix check" step (analyzer-based `go fix`).
+          go-version: '1.26'
           cache-dependency-path: server/go.sum
 
       - name: Check formatting
@@ -42,6 +43,11 @@ jobs:
 
       - name: Go vet
         run: GOWORK=off go vet ./...
+
+      # Analyzer-based `go fix` (Go 1.26): fails with a unified diff when any
+      # modernizer rewrite is pending. Run `make fix` locally to apply.
+      - name: Go fix check
+        run: make fix-check
 
       - name: Build
         run: GOWORK=off go build ./...

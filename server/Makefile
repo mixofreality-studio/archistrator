@@ -1,6 +1,6 @@
 # aiarch server — developer make targets.
 
-.PHONY: test test-short fmt vet lint sumtype-check method-check encapsulation-check gen-models gen-models-check gen-fakes gen-fakes-check gen gen-client gen-client-check gen-internal-tools gen-internal-tools-check gen-temporal gen-temporal-check gen-sdk gen-sdk-check gen-config gen-config-check gen-uiprofiles gen-uiprofiles-check claude-assets
+.PHONY: test test-short fmt vet fix fix-check lint sumtype-check method-check encapsulation-check gen-models gen-models-check gen-fakes gen-fakes-check gen gen-client gen-client-check gen-internal-tools gen-internal-tools-check gen-temporal gen-temporal-check gen-sdk gen-sdk-check gen-config gen-config-check gen-uiprofiles gen-uiprofiles-check claude-assets
 
 # claude-assets — materialize the .claude method prompt surface (agents/commands/
 # skills) into the repo root from the method-assets lib pinned in go.mod. The
@@ -188,6 +188,18 @@ fmt:
 
 vet:
 	GOWORK=off go vet ./...
+
+# go fix (Go 1.26+ analyzer-based fixers, e.g. the x/tools modernizers): apply
+# every suggested rewrite in place. Generated *.gen.go files are skipped by the
+# tool, so this never fights the gen-*-check drift gates.
+fix:
+	GOWORK=off go fix ./...
+
+# CI gate for `fix`: print pending rewrites as a unified diff and exit non-zero
+# when any exist (server-checks.yml "Go fix check" step). Run `make fix` locally
+# to apply them.
+fix-check:
+	GOWORK=off go fix -diff ./...
 
 lint:
 	golangci-lint run ./...

@@ -68,6 +68,7 @@ import (
 	"fmt"
 	"log/slog"
 	"path"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -134,12 +135,7 @@ func isManagedClaudePath(p string) bool {
 	if p != path.Clean(p) || path.IsAbs(p) {
 		return false
 	}
-	for _, seg := range strings.Split(p, "/") {
-		if seg == ".." {
-			return false
-		}
-	}
-	return true
+	return !slices.Contains(strings.Split(p, "/"), "..")
 }
 
 // tokenSafetyMargin keeps a cached token from being served when it is within this
@@ -525,12 +521,7 @@ func (a *access) ListProjectRepos(ctx context.Context, account AccountRef) ([]Pr
 // signal (the "aiarch-" name-prefix fallback is dropped — adopted repos are
 // user-named, so a name prefix is meaningless).
 func isProjectRepo(r fwgithub.RepoInfo) bool {
-	for _, tp := range r.Topics {
-		if tp == projectRepoTopic {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(r.Topics, projectRepoTopic)
 }
 
 // kindOfErr extracts the fwra.Kind from an error (Unknown if not an fwra.Error).

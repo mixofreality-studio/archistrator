@@ -170,13 +170,20 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.25'
+          # 1.26+ required by the "Go fix check" step (analyzer-based `go fix`).
+          go-version: '1.26'
           # Use the server go.sum for caching (systemtests is stdlib-only, no sum)
           cache-dependency-path: server/go.sum
 
       - name: Check formatting (systemtests)
         working-directory: systemtests
         run: test -z "$(gofmt -l .)" || { gofmt -l .; echo "Run 'gofmt -w .'"; exit 1; }
+
+      # Analyzer-based `go fix` (Go 1.26): fails with a unified diff when any
+      # modernizer rewrite is pending. Run `make fix` locally to apply.
+      - name: Go fix check (systemtests)
+        working-directory: systemtests
+        run: make fix-check
 
       # Fast, container-free check — runs before the Temporal/Postgres services
       # are provisioned so a lint failure fails fast. systemtests is its own Go
