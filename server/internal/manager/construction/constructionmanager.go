@@ -1072,6 +1072,13 @@ type constructState struct {
 	// the start-snapshot project (B5) and fed to reviewEngine.ProposeReviews so the
 	// gate's reviewer set is display-populated without re-reading mid-loop.
 	reviewContracts []string
+
+	// floorTouched is the Task 7 non-overridable-floor snapshot: whether the
+	// activity's committed contract (start-snapshot, B5-style — never re-read
+	// mid-loop) touches deploy/spend/schema (projectstate.ContractTouchesReviewFloor).
+	// Consulted by runPhaseGate via ReviewPolicy.EffectiveGate to force a human gate
+	// at MethodPhaseConstruction regardless of preset, including "vibes".
+	floorTouched bool
 }
 
 func (s *constructState) view() (ConstructionSessionView, error) {

@@ -1792,18 +1792,19 @@ func TestProjectEnvelope_NoConstructionState_OmitsConstructionKeys(t *testing.T)
 }
 
 // TestReviewPolicyEmptinessGateCoversAllFields pins EncodeProject's "is ReviewPolicy
-// empty" check (projectstateaccess.go, `len(p.ReviewPolicy.GatedPhasesByType) != 0`) to
-// ReviewPolicy having exactly one field. That check inspects GatedPhasesByType alone; if
-// ReviewPolicy ever grows a second field, the check must be extended to look at it too —
-// or a project that only sets the new field would silently encode as "empty" and drop
-// its wire data. If this test fails, update BOTH the emptiness gate in EncodeProject AND
-// this assertion's field count together.
+// empty" check (projectstateaccess.go, `len(p.ReviewPolicy.GatedPhasesByType) != 0 ||
+// p.ReviewPolicy.Preset != nil`) to ReviewPolicy having exactly two fields (Task 7 added
+// Preset). That check inspects GatedPhasesByType and Preset only; if ReviewPolicy ever
+// grows a third field, the check must be extended to look at it too — or a project that
+// only sets the new field would silently encode as "empty" and drop its wire data. If
+// this test fails, update BOTH the emptiness gate in EncodeProject AND this assertion's
+// field count together.
 func TestReviewPolicyEmptinessGateCoversAllFields(t *testing.T) {
 	got := reflect.TypeFor[ReviewPolicy]().NumField()
-	if got != 1 {
-		t.Fatalf("ReviewPolicy has %d fields, want 1 — EncodeProject's emptiness gate only "+
-			"checks GatedPhasesByType; extend that gate for the new field(s) and update this "+
-			"assertion together", got)
+	if got != 2 {
+		t.Fatalf("ReviewPolicy has %d fields, want 2 — EncodeProject's emptiness gate only "+
+			"checks GatedPhasesByType and Preset; extend that gate for the new field(s) and "+
+			"update this assertion together", got)
 	}
 }
 
@@ -6587,6 +6588,147 @@ func TestReviewPolicyFromGateIDs_MapsMockIDs(t *testing.T) {
 	p := ReviewPolicyFromGateIDs(map[string][]string{"service": {"svc-contract"}})
 	if !p.RequiresHuman("service", MethodPhaseDetailedDesign) {
 		t.Error("svc-contract must map to detailed_design")
+	}
+}
+
+// ---- Tests: preset resolution + non-overridable floor (Task 7) --------------
+
+// presetPtr is a small test helper — ReviewPolicy.Preset is *string (modelgen's
+// optional-scalar convention) so literal construction needs an addressable value.
+func presetPtr(s string) *string { return &s }
+
+// TestReviewPolicy_EffectiveGate_VibesAutoApprovesDraft is the brief's Step-1 scenario:
+// under the "vibes" preset, a non-floor phase (the detailed-design/contract "draft
+// commit") is auto-approved — no gate.
+func TestReviewPolicy_EffectiveGate_VibesAutoApprovesDraft(t *testing.T) {
+	p := ReviewPolicy{Preset: presetPtr(ReviewPresetVibes)}
+	if p.EffectiveGate("service", MethodPhaseDetailedDesign, false) {
+		t.Error("vibes must auto-approve a draft commit (detailed_design, no floor)")
+	}
+	if p.EffectiveGate("service", MethodPhaseConstruction, false) {
+		t.Error("vibes must auto-approve construction dispatch when the floor is not touched")
+	}
+}
+
+// TestReviewPolicy_EffectiveGate_FloorBlocksFlaggedDispatch is the brief's Step-1
+// scenario: the non-overridable floor still blocks a flagged (deploy/spend/schema-
+// touching) construction dispatch even under "vibes".
+func TestReviewPolicy_EffectiveGate_FloorBlocksFlaggedDispatch(t *testing.T) {
+	p := ReviewPolicy{Preset: presetPtr(ReviewPresetVibes)}
+	if !p.EffectiveGate("service", MethodPhaseConstruction, true) {
+		t.Error("the floor must block a flagged construction dispatch even under vibes")
+	}
+}
+
+// TestReviewPolicy_EffectiveGate_FloorOnlyGuardsConstructionPhase pins the floor's
+// scope: floorTouched only forces a gate at MethodPhaseConstruction (the dispatch),
+// never at other phases — the floor is about construction dispatch, not the whole
+// activity.
+func TestReviewPolicy_EffectiveGate_FloorOnlyGuardsConstructionPhase(t *testing.T) {
+	p := ReviewPolicy{Preset: presetPtr(ReviewPresetVibes)}
+	if p.EffectiveGate("service", MethodPhaseDetailedDesign, true) {
+		t.Error("the floor must not gate phases other than construction dispatch")
+	}
+}
+
+// TestReviewPolicy_EffectiveGate_Checkpoints pins the "checkpoints" preset to gating
+// exactly the per-activity contract/architecture commit (detailed_design) and the
+// construction dispatch (construction) — not requirements/test_plan/integration.
+func TestReviewPolicy_EffectiveGate_Checkpoints(t *testing.T) {
+	p := ReviewPolicy{Preset: presetPtr(ReviewPresetCheckpoints)}
+	gated := map[ActivityMethodPhase]bool{
+		MethodPhaseRequirements:   false,
+		MethodPhaseDetailedDesign: true,
+		MethodPhaseTestPlan:       false,
+		MethodPhaseConstruction:   true,
+		MethodPhaseIntegration:    false,
+	}
+	for phase, want := range gated {
+		if got := p.EffectiveGate("service", phase, false); got != want {
+			t.Errorf("checkpoints EffectiveGate(%s) = %v, want %v", phase, got, want)
+		}
+	}
+}
+
+// TestReviewPolicy_EffectiveGate_Full pins the "full" preset to gating every phase —
+// today's approve-everything behavior.
+func TestReviewPolicy_EffectiveGate_Full(t *testing.T) {
+	p := ReviewPolicy{Preset: presetPtr(ReviewPresetFull)}
+	for _, phase := range []ActivityMethodPhase{
+		MethodPhaseRequirements, MethodPhaseDetailedDesign, MethodPhaseTestPlan,
+		MethodPhaseConstruction, MethodPhaseIntegration,
+	} {
+		if !p.EffectiveGate("service", phase, false) {
+			t.Errorf("full preset must gate every phase, %s did not gate", phase)
+		}
+	}
+}
+
+// TestReviewPolicy_EffectiveGate_LegacyFallsBackToExplicitMap pins the "" / unset
+// preset to legacy/explicit mode: EffectiveGate falls back to RequiresHuman's
+// committed GatedPhasesByType map, unchanged from pre-Task-7 behavior (e.g. the
+// webApp PolicyPanel's ReviewPolicyFromGateIDs output).
+func TestReviewPolicy_EffectiveGate_LegacyFallsBackToExplicitMap(t *testing.T) {
+	p := ReviewPolicy{GatedPhasesByType: map[string][]ActivityMethodPhase{
+		"frontend": {MethodPhaseDetailedDesign},
+	}}
+	if !p.EffectiveGate("frontend", MethodPhaseDetailedDesign, false) {
+		t.Error("legacy mode must honor the explicit GatedPhasesByType map")
+	}
+	if p.EffectiveGate("service", MethodPhaseDetailedDesign, false) {
+		t.Error("legacy mode must not gate an un-configured activity type")
+	}
+}
+
+// TestCreateProject_DefaultsReviewPolicyToVibesPreset pins the Task 7 default: a
+// FRESH project (the "project.json is first materialized" path — CreateProject's
+// modeCreateOnly branch, the one path init-vs-first-materialization judgment call
+// picked, see docs/superpowers/sdd/task-7-report.md) is born with ReviewPolicy.Preset
+// explicitly "vibes". This is behavior-PRESERVING for every existing caller: an empty
+// GatedPhasesByType map already gated nothing (RequiresHuman's zero-value "pure
+// vibes"), so making the default explicit changes no dispatch decision — it only gives
+// the local-first funnel (and any future preset UI) a real value to read/upgrade.
+func TestCreateProject_DefaultsReviewPolicyToVibesPreset(t *testing.T) {
+	store, cred, ctx := newLocalGitStore(t)
+	id := ProjectID("fresh-project")
+	if _, err := store.CreateProject(ctx, id, "alice", "Demo", cred, "wf:create"); err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	p, err := store.ReadProject(fwra.Context{Context: ctx}, id, cred)
+	if err != nil {
+		t.Fatalf("ReadProject: %v", err)
+	}
+	if p.ReviewPolicy.Preset == nil || *p.ReviewPolicy.Preset != ReviewPresetVibes {
+		t.Fatalf("fresh project ReviewPolicy.Preset = %v, want %q", p.ReviewPolicy.Preset, ReviewPresetVibes)
+	}
+}
+
+// TestContractTouchesReviewFloor_KeywordMatch pins the floor's data list
+// (deploy/spend/schema, case-insensitive substring match on operation names).
+func TestContractTouchesReviewFloor_KeywordMatch(t *testing.T) {
+	tests := []struct {
+		name string
+		ops  []string
+		want bool
+	}{
+		{"deploy op", []string{"DeployService"}, true},
+		{"spend op", []string{"AuthorizeSpend"}, true},
+		{"schema op", []string{"MigrateSchema"}, true},
+		{"case-insensitive", []string{"deployservice"}, true},
+		{"no match", []string{"GenerateArtifact", "ReadStatus"}, false},
+		{"no ops", nil, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var ops []ContractOperation
+			for _, name := range tt.ops {
+				ops = append(ops, ContractOperation{Name: name})
+			}
+			contract := ServiceContract{Interface: ContractInterface{Operations: ops}}
+			if got := ContractTouchesReviewFloor(contract); got != tt.want {
+				t.Errorf("ContractTouchesReviewFloor(%v) = %v, want %v", tt.ops, got, tt.want)
+			}
+		})
 	}
 }
 

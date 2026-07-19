@@ -2985,3 +2985,128 @@ func Test_Construct_EmptyPolicy_NonGit_NoPhaseRecords(t *testing.T) {
 		t.Fatalf("empty-policy non-git submitted %d pipelines, want %d", len(pipe.submitted), len(act.Phases))
 	}
 }
+
+// ---- Tests: preset resolution + non-overridable floor (Task 7) --------------
+
+// vibesPreset builds a ReviewPolicy with the "vibes" preset (auto-approve everything
+// short of the non-overridable floor). ReviewPolicy.Preset is *string (modelgen's
+// optional-scalar convention).
+func vibesPreset() projectstate.ReviewPolicy {
+	p := projectstate.ReviewPresetVibes
+	return projectstate.ReviewPolicy{Preset: &p}
+}
+
+// deployTouchingContract builds a ServiceContract whose Interface carries a
+// deploy-shaped operation — trips ContractTouchesReviewFloor.
+func deployTouchingContract() projectstate.ServiceContract {
+	return projectstate.ServiceContract{
+		Component: "comp-1",
+		Interface: projectstate.ContractInterface{
+			Operations: []projectstate.ContractOperation{{Name: "DeployService"}},
+		},
+	}
+}
+
+// Test_Construct_VibesPreset_NoSuspend_WalksAllPhases proves the brief's Step-1
+// "vibes auto-approves a draft commit" scenario end-to-end through the real
+// construction workflow: under the "vibes" preset, with no floor-touching contract
+// committed, every phase dispatches with NO suspend and NO signal — the workflow
+// completes on its own, exactly like the empty-policy "pure vibes" case.
+func Test_Construct_VibesPreset_NoSuspend_WalksAllPhases(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	ps := newFakeProjectStateWithPolicy(vibesPreset()) // no ServiceContracts committed
+	pipe := newFakePipeline()
+	wf := newWorkflows(gateDeps(ps))
+	registerConstruct(env, wf, ps, pipe)
+	env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{ProjectID: "p", ActivityID: "C-Orders", Activity: sampleActivity()})
+	if !env.IsWorkflowCompleted() {
+		t.Fatal("vibes preset must not suspend — workflow should complete without any signal")
+	}
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	if len(pipe.submitted) != len(sampleActivity().Phases) {
+		t.Fatalf("vibes preset submitted %d pipelines, want %d", len(pipe.submitted), len(sampleActivity().Phases))
+	}
+}
+
+// Test_Construct_VibesPreset_FloorSuspendsWithoutApproval proves the brief's Step-1
+// "floor gate still blocks a flagged dispatch" scenario: even under "vibes", a
+// construction-phase dispatch of an activity whose committed contract touches
+// deploy/spend/schema genuinely SUSPENDS — with NO approval signal registered, the
+// workflow must record requirements/detailed_design/test_plan completed but NEVER
+// construction (the test environment's own runaway-test guard eventually forces the
+// still-blocked execution to a ScheduleToClose deadline error, so IsWorkflowCompleted
+// alone can't distinguish suspended-forever from truly-inert; the phase-completion
+// record is the real red/green signal — an inert, not-actually-gated phase would have
+// recorded "construction" too).
+func Test_Construct_VibesPreset_FloorSuspendsWithoutApproval(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	ps := newFakeProjectStateWithPolicy(vibesPreset())
+	ps.project.ServiceContracts = map[string]projectstate.ServiceContract{"comp-1": deployTouchingContract()}
+	pipe := newFakePipeline()
+	wf := newWorkflows(gateDeps(ps))
+	registerConstruct(env, wf, ps, pipe)
+	// Deliberately NO signal registered — the workflow must never reach the
+	// construction phase's completion record on its own.
+	env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{ProjectID: "p", ActivityID: "C-Orders", Activity: sampleActivity()})
+	for _, phase := range []string{"requirements", "detailed_design", "test_plan"} {
+		if !ps.phaseCompleted("C-Orders", phase) {
+			t.Fatalf("expected %s to complete before the floor-gated phase", phase)
+		}
+	}
+	if ps.phaseCompleted("C-Orders", "construction") {
+		t.Fatal("floor gate must suspend construction dispatch — it must NOT complete when no approval ever arrives, even under vibes")
+	}
+}
+
+// Test_Construct_VibesPreset_FloorBlocksFlaggedDispatch proves the release path: an
+// explicit approval on the construction phase releases the floor's suspend and
+// records the phase completion.
+func Test_Construct_VibesPreset_FloorBlocksFlaggedDispatch(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	ps := newFakeProjectStateWithPolicy(vibesPreset())
+	ps.project.ServiceContracts = map[string]projectstate.ServiceContract{"comp-1": deployTouchingContract()}
+	pipe := newFakePipeline()
+	wf := newWorkflows(gateDeps(ps))
+	registerConstruct(env, wf, ps, pipe)
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalPhaseDecision, phaseDecisionSignal{Phase: "construction", Decision: PhaseApprove})
+	}, 30*time.Second)
+	env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{ProjectID: "p", ActivityID: "C-Orders", Activity: sampleActivity()})
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	if !ps.phaseCompleted("C-Orders", "construction") {
+		t.Error("floor gate must suspend construction dispatch until an explicit approval, even under vibes")
+	}
+}
+
+// Test_Construct_VibesPreset_NoFloor_NoDeadlock is the negative control for the floor
+// test above: WITHOUT registering any approval signal, a vibes-preset activity whose
+// contract does NOT touch the floor must complete on its own (proves the floor test's
+// suspend is caused by the contract, not by vibes gating construction generally).
+func Test_Construct_VibesPreset_NoFloor_NoDeadlock(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	ps := newFakeProjectStateWithPolicy(vibesPreset())
+	ps.project.ServiceContracts = map[string]projectstate.ServiceContract{"comp-1": {
+		Component: "comp-1",
+		Interface: projectstate.ContractInterface{
+			Operations: []projectstate.ContractOperation{{Name: "GenerateArtifact"}},
+		},
+	}}
+	pipe := newFakePipeline()
+	wf := newWorkflows(gateDeps(ps))
+	registerConstruct(env, wf, ps, pipe)
+	env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{ProjectID: "p", ActivityID: "C-Orders", Activity: sampleActivity()})
+	if !env.IsWorkflowCompleted() {
+		t.Fatal("a non-floor-touching contract must not suspend construction dispatch under vibes")
+	}
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+}

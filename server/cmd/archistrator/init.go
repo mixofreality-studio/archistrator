@@ -19,7 +19,11 @@ package main
 //     to validate — a clean pass, never a red gate": the emptiest possible
 //     shape that is guaranteed to pass the gate is no file at all, so this
 //     scaffold writes none. The first design session (UC1) is what creates
-//     project.json.
+//     project.json — via projectstateaccess.go's CreateProject, which is
+//     therefore also where the review-policy sophistication dial's default
+//     preset ("vibes") is seeded (Task 7); init deliberately does NOT invent
+//     a reviewPolicy value here, for the same "write no file at all" reason.
+//     See docs/superpowers/sdd/task-7-report.md.
 //   - a .mcp.json registering `archistrator mcp` as a stdio server, so
 //     starting Claude Code in this directory auto-spawns the whole local
 //     stack (mcpserve.go) — the Serena pattern.

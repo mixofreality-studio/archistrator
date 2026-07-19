@@ -615,6 +615,7 @@ type ReviewComment struct {
 
 type ReviewPolicy struct {
 	GatedPhasesByType map[string][]ActivityMethodPhase `json:"gatedPhasesByType,omitempty"`
+	Preset            *string                          `json:"preset,omitempty"`
 }
 
 type RiskModel struct {

@@ -571,6 +571,18 @@ var encapsulationAllowlistData = map[string][]string{
 		// Project aggregate's ReviewPolicy field; only the constructor free-func needs
 		// allowlisting.
 		"ReviewPolicyFromGateIDs",
+		// REVIEW-PRESET vocabulary + non-overridable-floor helpers (Task 7, local-first
+		// sophistication dial). ReviewPresetVibes/Checkpoints/Full are the closed
+		// ReviewPolicy.Preset wire values (same category as the ReviewComment status
+		// vocabulary above — plain-string consts owned here; ReviewPolicy.Preset itself
+		// is generated contract surface). ContractTouchesReviewFloor is the pure
+		// classification helper the construction Manager's snapshot (constructactivity.go's
+		// loadReviewSnapshot) calls to seed the floor — exported because it is invoked
+		// from internal/manager/construction, a different package.
+		"ReviewPresetVibes",
+		"ReviewPresetCheckpoints",
+		"ReviewPresetFull",
+		"ContractTouchesReviewFloor",
 		"RiskModel",
 		"RiskModel.Kind",
 		"RiskRow",

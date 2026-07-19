@@ -552,6 +552,16 @@ func (s *GitStore) CreateProject(ctx context.Context, projectID ProjectID, owner
 		// via SetOperatingModel. Only pre-field legacy project.json documents are ever
 		// empty; those read as self-operated via OperatingModel.OrDefault.
 		p.OperatingModel = OperatingModelSelfOperated
+		// A fresh project defaults its review-policy sophistication dial to "vibes"
+		// (Task 7): behavior-preserving — an empty GatedPhasesByType already gated
+		// nothing (RequiresHuman's zero-value "pure vibes"), so this only makes the
+		// default explicit. project.json is FIRST MATERIALIZED here (not by
+		// `archistrator init`'s deliberately-empty .aiarch/state/ scaffold — see
+		// cmd/archistrator/init.go and docs/superpowers/sdd/task-7-report.md), so this
+		// is the one place the local-first funnel's default preset can be seeded
+		// unconditionally for every project, local or hosted.
+		preset := ReviewPresetVibes
+		p.ReviewPolicy.Preset = &preset
 		return nil
 	})
 }
@@ -3120,7 +3130,7 @@ func EncodeProject(p Project) (ProjectEnvelope, error) {
 	// (omitempty), so non-construction payloads are byte-identical to before.
 	out.ActivityConstruction = p.ActivityConstruction
 	out.ServiceContracts = p.ServiceContracts
-	if len(p.ReviewPolicy.GatedPhasesByType) != 0 {
+	if len(p.ReviewPolicy.GatedPhasesByType) != 0 || p.ReviewPolicy.Preset != nil {
 		rp := p.ReviewPolicy
 		out.ReviewPolicy = &rp
 	}
@@ -7314,6 +7324,80 @@ func validReviewCommentStatus(s string) bool {
 // RequiresHuman reports whether a phase of the given activity type requires human approval.
 func (p ReviewPolicy) RequiresHuman(activityType string, phase ActivityMethodPhase) bool {
 	return slices.Contains(p.GatedPhasesByType[activityType], phase)
+}
+
+// Review preset values for ReviewPolicy.Preset (Task 7, local-first sophistication
+// dial). "" (nil/unset) is the legacy/explicit mode — RequiresHuman's committed
+// GatedPhasesByType map, unchanged pre-preset behavior (e.g. the webApp PolicyPanel's
+// ReviewPolicyFromGateIDs output).
+const (
+	// ReviewPresetVibes auto-approves every draft/step — nothing gated beyond the
+	// non-overridable floor (see ContractTouchesReviewFloor).
+	ReviewPresetVibes = "vibes"
+	// ReviewPresetCheckpoints gates only the per-activity contract/architecture commit
+	// (MethodPhaseDetailedDesign) and the construction dispatch (MethodPhaseConstruction).
+	ReviewPresetCheckpoints = "checkpoints"
+	// ReviewPresetFull gates every phase — today's approve-everything behavior.
+	ReviewPresetFull = "full"
+)
+
+// reviewFloorKeywords is the NON-OVERRIDABLE construction-dispatch gate list (data,
+// not policy, per task-7-brief.md): a construction-phase dispatch of ANY activity
+// whose contract touches one of these keywords always requires human approval —
+// deploy/spend/schema-shaped operations stay gated under every preset, including
+// "vibes". Case-insensitive substring match against each contract operation's Name.
+// No preset value can widen or narrow this list.
+var reviewFloorKeywords = []string{"deploy", "spend", "schema"}
+
+// ContractTouchesReviewFloor reports whether contract carries an operation whose name
+// matches a reviewFloorKeywords entry. It is the floor's sole input — computed ONCE
+// per construction execution (constructactivity.go's loadReviewSnapshot start-
+// snapshot) and never re-evaluated mid-loop, mirroring the policy snapshot itself.
+func ContractTouchesReviewFloor(contract ServiceContract) bool {
+	for _, op := range contract.Interface.Operations {
+		name := strings.ToLower(op.Name)
+		for _, kw := range reviewFloorKeywords {
+			if strings.Contains(name, kw) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// EffectiveGate resolves the Preset switch for (activityType, phase) and THEN applies
+// the non-overridable floor: a MethodPhaseConstruction dispatch with floorTouched=true
+// (the activity's committed contract touches deploy/spend/schema, per
+// ContractTouchesReviewFloor) always requires human approval — no preset, including
+// "vibes", can bypass it. This is the construction phase gate's ONLY preset-aware
+// entry point (constructactivity.go's runPhaseGate); RequiresHuman stays the pure
+// explicit-map lookup for backward compatibility (webApp PolicyPanel gate ids, and the
+// legacy/explicit "" preset fallback below).
+//
+// checkpoints gates the per-activity contract/architecture commit
+// (MethodPhaseDetailedDesign) and the construction dispatch (MethodPhaseConstruction)
+// — the two funnel checkpoints this per-activity, per-phase mechanism can express.
+// The funnel's third checkpoint ("SDP commit") is a projectDesignManager artifact
+// commit with no ActivityMethodPhase analog; that workflow gates it unconditionally
+// today, independent of ReviewPolicy — see docs/superpowers/sdd/task-7-report.md.
+func (p ReviewPolicy) EffectiveGate(activityType string, phase ActivityMethodPhase, floorTouched bool) bool {
+	if phase == MethodPhaseConstruction && floorTouched {
+		return true
+	}
+	preset := ""
+	if p.Preset != nil {
+		preset = *p.Preset
+	}
+	switch preset {
+	case ReviewPresetVibes:
+		return false
+	case ReviewPresetFull:
+		return true
+	case ReviewPresetCheckpoints:
+		return phase == MethodPhaseDetailedDesign || phase == MethodPhaseConstruction
+	default:
+		return p.RequiresHuman(activityType, phase)
+	}
 }
 
 // gateIDToPhase maps the webApp PolicyPanel's ad-hoc gate ids to canonical phases, so the

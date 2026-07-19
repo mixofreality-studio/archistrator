@@ -853,6 +853,11 @@ func (wf *workflows) loadReviewSnapshot(
 		}
 	}
 	state.reviewContracts = snapshotContractKeys(snap)
+	// Task 7 non-overridable floor: snapshot ONCE whether the activity's committed
+	// contract touches deploy/spend/schema — never re-evaluated mid-loop, mirroring
+	// reviewPolicy itself. A missing contract (nil map lookup) reads as the zero
+	// ServiceContract, which never touches the floor.
+	state.floorTouched = projectstate.ContractTouchesReviewFloor(snap.ServiceContracts[in.Activity.ComponentID])
 	return reviewPolicy, nil
 }
 
@@ -1081,8 +1086,13 @@ func (wf *workflows) runPhaseGate(
 	}
 
 	// Inert policy (or a phase this policy does not gate) → complete immediately (no
-	// suspend). completePhase marks the in-memory set UNCONDITIONALLY.
-	if !policy.RequiresHuman(in.Activity.activityTypeName(), phase) {
+	// suspend). completePhase marks the in-memory set UNCONDITIONALLY. EffectiveGate
+	// (Task 7) resolves the ReviewPolicy.Preset switch (vibes/checkpoints/full,
+	// falling back to RequiresHuman's explicit map when Preset is unset) and THEN
+	// applies the non-overridable floor via state.floorTouched — a
+	// deploy/spend/schema-touching contract's construction dispatch stays gated
+	// under every preset, including "vibes".
+	if !policy.EffectiveGate(in.Activity.activityTypeName(), phase, state.floorTouched) {
 		return false, wf.completePhase(ctx, in, phase, state, headVersion, gitOn, cred)
 	}
 
