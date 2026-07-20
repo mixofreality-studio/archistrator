@@ -21,6 +21,7 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 	"github.com/stretchr/testify/mock"
 	enumspb "go.temporal.io/api/enums/v1"
+	"go.temporal.io/api/serviceerror"
 	workflowpb "go.temporal.io/api/workflow/v1"
 	"go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/sdk/activity"
@@ -285,7 +286,7 @@ func Test_RequestArtifactDraft_NoSession_StartsFirstDraft(t *testing.T) {
 	wfID := coAuthorWorkflowID(pid, KindMission)
 	mc := &temporalmocks.Client{}
 	mc.On("DescribeWorkflowExecution", mock.Anything, wfID, "").
-		Return((*workflowservice.DescribeWorkflowExecutionResponse)(nil), errors.New("workflow not found for ID: "+wfID))
+		Return((*workflowservice.DescribeWorkflowExecutionResponse)(nil), serviceerror.NewNotFound("workflow not found for ID: "+wfID))
 	mc.On("SignalWithStartWorkflow", mock.Anything, wfID, lSignalRedraft,
 		mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(fakeSignalWorkflowRun{id: wfID}, nil)
@@ -596,7 +597,7 @@ func Test_GetSessionState_NoSession_CleanNotFound(t *testing.T) {
 
 	mc := &temporalmocks.Client{}
 	mc.On("DescribeWorkflowExecution", mock.Anything, wfID, "").
-		Return((*workflowservice.DescribeWorkflowExecutionResponse)(nil), errors.New("workflow not found for ID: gtdapp:0"))
+		Return((*workflowservice.DescribeWorkflowExecutionResponse)(nil), serviceerror.NewNotFound("workflow not found for ID: gtdapp:0"))
 	// No QueryWorkflow expectation: the NotFound Describe short-circuits to the clean error.
 
 	m := &systemDesignManager{client: mc}
@@ -626,7 +627,7 @@ func Test_GetSessionState_QueryNotFound_CleanNotFound(t *testing.T) {
 	mc.On("DescribeWorkflowExecution", mock.Anything, wfID, "").
 		Return((*workflowservice.DescribeWorkflowExecutionResponse)(nil), errors.New("transient describe blip"))
 	mc.On("QueryWorkflow", mock.Anything, wfID, "", querySessionState).
-		Return(nil, errors.New("workflow not found for ID: gtdapp:0"))
+		Return(nil, serviceerror.NewNotFound("workflow not found for ID: gtdapp:0"))
 
 	m := &systemDesignManager{client: mc}
 	_, err := m.GetSessionState(bgRC(), id, KindMission)
@@ -636,6 +637,39 @@ func Test_GetSessionState_QueryNotFound_CleanNotFound(t *testing.T) {
 	}
 	if strings.Contains(sde.Detail, "workflow not found") || strings.Contains(sde.Detail, "gtdapp:0") {
 		t.Fatalf("Detail must not leak Temporal internals, got %q", sde.Detail)
+	}
+	mc.AssertExpectations(t)
+}
+
+// QA 2026-07-19 (poll-404 wizard reset). When the server's Temporal client ends up pointed
+// at a FOREIGN dev server (the shared fixed port was taken over by another tool's
+// `temporal server start-dev` — observed live: the systemtests server on 7233), lookups
+// fail with serviceerror.NamespaceNotFound ("Namespace X is not found"). That is an
+// INFRASTRUCTURE fault — the session store is the wrong/unavailable backend — NOT "no
+// active design session". The old substring matcher ("not found") classified it NotFound,
+// so the SPA received an authoritative 404 and reset the founder's wizard mid-use-case.
+// It must map to Infrastructure so the polling client keeps its state and self-heals.
+func Test_GetSessionState_NamespaceNotFound_IsInfrastructureNot404(t *testing.T) {
+	id := ProjectID("gtdapp")
+	wfID := coAuthorWorkflowID(id, KindCoreUseCases)
+
+	mc := &temporalmocks.Client{}
+	nsErr := serviceerror.NewNamespaceNotFound("default")
+	// Describe fails non-execution-NotFound → best-effort fall-through to the query,
+	// which fails the same way against the foreign backend.
+	mc.On("DescribeWorkflowExecution", mock.Anything, wfID, "").
+		Return((*workflowservice.DescribeWorkflowExecutionResponse)(nil), nsErr)
+	mc.On("QueryWorkflow", mock.Anything, wfID, "", querySessionState).
+		Return(nil, nsErr)
+
+	m := &systemDesignManager{client: mc}
+	_, err := m.GetSessionState(bgRC(), id, KindCoreUseCases)
+	sde := asSystemDesignError(t, err)
+	if sde.Kind == fwmanager.NotFound {
+		t.Fatalf("a namespace-not-found (wrong/foreign Temporal backend) must NOT map to the authoritative no-session NotFound; got NotFound with detail %q", sde.Detail)
+	}
+	if sde.Kind != fwmanager.Infrastructure {
+		t.Fatalf("want Infrastructure, got %d (detail %q)", sde.Kind, sde.Detail)
 	}
 	mc.AssertExpectations(t)
 }
@@ -3211,7 +3245,7 @@ func Test_AcknowledgeStaleBasis_NoSession_PassesLivenessGate(t *testing.T) {
 	wfID := coAuthorWorkflowID(id, KindMission)
 
 	mc := &temporalmocks.Client{}
-	mc.On("DescribeWorkflowExecution", mock.Anything, wfID, "").Return(nil, errors.New("workflow not found"))
+	mc.On("DescribeWorkflowExecution", mock.Anything, wfID, "").Return(nil, serviceerror.NewNotFound("workflow not found"))
 
 	m := &systemDesignManager{client: mc, projectState: &renderFakeProjectState{}}
 	err := m.AcknowledgeStaleBasis(bgRC(), id, KindMission, "unaffected")
@@ -7955,7 +7989,7 @@ func Test_SubmitReviewDecision_Approve_NeverDrafted_FailsWithoutSignal(t *testin
 
 	mc := &temporalmocks.Client{}
 	mc.On("DescribeWorkflowExecution", mock.Anything, wfID, "").
-		Return((*workflowservice.DescribeWorkflowExecutionResponse)(nil), fmt.Errorf("workflow not found for ID: %s", wfID))
+		Return((*workflowservice.DescribeWorkflowExecutionResponse)(nil), serviceerror.NewNotFound("workflow not found for ID: "+wfID))
 	// No QueryWorkflow / SignalWorkflow expectations: reaching either fails the mock.
 
 	m := &systemDesignManager{client: mc}

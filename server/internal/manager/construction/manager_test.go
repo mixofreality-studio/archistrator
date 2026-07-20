@@ -3,7 +3,6 @@ package construction
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -13,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"go.temporal.io/api/serviceerror"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/converter"
@@ -1343,7 +1343,7 @@ func (f *fakeQueryClient) QueryWorkflow(_ context.Context, _ string, _ string, _
 // "workflow not found for ID: gtdapp:construction" must NOT reach the client. Map it to
 // a clean, user-altitude NotFound.
 func Test_GetSessionState_BeforeConstruction_CleanNotFound(t *testing.T) {
-	fc := &fakeQueryClient{queryErr: fmt.Errorf("workflow not found for ID: gtdapp:construction")}
+	fc := &fakeQueryClient{queryErr: serviceerror.NewNotFound("workflow not found for ID: gtdapp:construction")}
 	m := newTestConstructionManager(fc)
 
 	_, err := m.GetSessionState(testCtx(), ProjectID("gtdapp"), nil)
@@ -1356,6 +1356,24 @@ func Test_GetSessionState_BeforeConstruction_CleanNotFound(t *testing.T) {
 	}
 	if !strings.Contains(e.Detail, "construction has not started") {
 		t.Fatalf("want a user-altitude message, got %q", e.Detail)
+	}
+}
+
+// QA 2026-07-19 (poll-404 wizard reset twin): a namespace-not-found from a wrong/foreign
+// Temporal backend must NOT map to the authoritative "construction has not started"
+// NotFound — the polled console trusts that 404 and drops its session view. It stays an
+// Infrastructure fault the client tolerates.
+func Test_GetSessionState_NamespaceNotFound_IsInfrastructureNot404(t *testing.T) {
+	fc := &fakeQueryClient{queryErr: serviceerror.NewNamespaceNotFound("default")}
+	m := newTestConstructionManager(fc)
+
+	_, err := m.GetSessionState(testCtx(), ProjectID("gtdapp"), nil)
+	e := asConstructionError(t, err)
+	if e.Kind == fwmanager.NotFound {
+		t.Fatalf("namespace-not-found (wrong Temporal backend) must not claim construction absence, got NotFound %q", e.Detail)
+	}
+	if e.Kind != fwmanager.Infrastructure {
+		t.Fatalf("want Infrastructure, got %d (detail %q)", e.Kind, e.Detail)
 	}
 }
 

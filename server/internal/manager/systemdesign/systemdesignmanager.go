@@ -62,6 +62,7 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 	enumspb "go.temporal.io/api/enums/v1"
+	"go.temporal.io/api/serviceerror"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/worker"
@@ -1141,19 +1142,22 @@ func mapQueryError(err error) error {
 }
 
 // isNotFound reports whether the Temporal error indicates the addressed
-// execution does not exist.
+// execution does not exist — typed as *serviceerror.NotFound, the canonical
+// "no such workflow" error the SDK returns.
+//
+// QA 2026-07-19 (poll-404 wizard reset): this used to substring-match "not
+// found"/"NotFound" over ANY error, which classified *serviceerror.
+// NamespaceNotFound ("Namespace default is not found" — the server talking to
+// a wrong/foreign Temporal backend, observed live when the systemtests dev
+// server took over the shared port) as the authoritative "no active design
+// session" NotFound. The SPA trusts that 404 and resets the wizard, so a
+// backend-identity fault destroyed client state. Only the typed
+// execution-NotFound may claim session absence; everything else stays an
+// Infrastructure fault the client tolerates.
 func isNotFound(err error) bool {
-	if err == nil {
-		return false
-	}
-	// serviceerror.NotFound is the canonical "no such workflow" error; matched by
-	// string to avoid a hard import of the api serviceerror package surface here.
-	return errors.Is(err, errNotFoundSentinel) ||
-		strings.Contains(err.Error(), "not found") ||
-		strings.Contains(err.Error(), "NotFound")
+	var notFound *serviceerror.NotFound
+	return errors.As(err, &notFound)
 }
-
-var errNotFoundSentinel = errors.New("not found")
 
 // AnchoredComment's JSONPath is OPAQUE guidance text the architect anchors a
 // "send back" comment to in the typed artifact model — the server does not

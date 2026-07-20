@@ -40,11 +40,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	enumspb "go.temporal.io/api/enums/v1"
+	"go.temporal.io/api/serviceerror"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/worker"
@@ -373,17 +373,18 @@ func mapSignalError(err error) error {
 }
 
 // isNotFound reports whether the Temporal error indicates the addressed execution does
-// not exist (mirrors the operations/construction matcher).
+// not exist — typed as *serviceerror.NotFound, the canonical "no such workflow" error
+// the SDK returns (mirrors the systemdesign matcher).
+//
+// QA 2026-07-19 (poll-404 wizard reset): the old substring match ("not found")
+// classified *serviceerror.NamespaceNotFound — the server talking to a
+// wrong/foreign Temporal backend — as the authoritative execution NotFound,
+// which clients trust and act on destructively. Only the typed
+// execution-NotFound may claim absence; everything else stays Infrastructure.
 func isNotFound(err error) bool {
-	if err == nil {
-		return false
-	}
-	return errors.Is(err, errNotFoundSentinel) ||
-		strings.Contains(err.Error(), "not found") ||
-		strings.Contains(err.Error(), "NotFound")
+	var notFound *serviceerror.NotFound
+	return errors.As(err, &notFound)
 }
-
-var errNotFoundSentinel = errors.New("not found")
 
 // ---------------------------------------------------------------------------
 // Identity & canonical types (billingManager.md §3.0 — THE MATERIAL RULING).

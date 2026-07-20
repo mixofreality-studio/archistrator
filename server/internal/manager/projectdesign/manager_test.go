@@ -23,6 +23,7 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 	"github.com/stretchr/testify/mock"
 	enumspb "go.temporal.io/api/enums/v1"
+	"go.temporal.io/api/serviceerror"
 	workflowpb "go.temporal.io/api/workflow/v1"
 	"go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/sdk/activity"
@@ -3598,7 +3599,7 @@ func Test_AcknowledgeStaleBasis_NoSession_PassesLivenessGate(t *testing.T) {
 	wfID := coAuthorWorkflowID(id, KindPlanningAssumptions)
 
 	mc := &temporalmocks.Client{}
-	mc.On("DescribeWorkflowExecution", mock.Anything, wfID, "").Return(nil, errors.New("workflow not found"))
+	mc.On("DescribeWorkflowExecution", mock.Anything, wfID, "").Return(nil, serviceerror.NewNotFound("workflow not found"))
 
 	m := &projectDesignManager{client: mc, projectState: &fakeProjectState{}}
 	err := m.AcknowledgeStaleBasis(fwmanager.Context{Context: context.Background()}, id, KindPlanningAssumptions, "unaffected")
@@ -3974,7 +3975,7 @@ func (f *fakeQueryClient) SignalWorkflow(_ context.Context, _ string, _ string, 
 // clean "project design has not started" NotFound (F20), and the SubmitReviewDecision tests
 // (which drive reviewGateView, not GetSessionState) never reach this method.
 func (f *fakeQueryClient) DescribeWorkflowExecution(_ context.Context, _ string, _ string) (*workflowservice.DescribeWorkflowExecutionResponse, error) {
-	return nil, fmt.Errorf("workflow not found")
+	return nil, serviceerror.NewNotFound("workflow not found")
 }
 
 func Test_checkReviewPrecondition_Matrix(t *testing.T) {
@@ -4031,7 +4032,7 @@ func Test_SubmitReviewDecision_Approve_AtAwaitingReview_Signals(t *testing.T) {
 // ---- F20: clean not-found altitude on the pre-phase session read -----------
 
 func Test_GetSessionState_BeforePhase2_CleanNotFound(t *testing.T) {
-	fc := &fakeQueryClient{queryErr: fmt.Errorf("workflow not found for ID: gtdapp:8")}
+	fc := &fakeQueryClient{queryErr: serviceerror.NewNotFound("workflow not found for ID: gtdapp:8")}
 	m := newProjectDesignManager(fc, nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.GetSessionState(fwmanager.Context{Context: context.Background()}, ProjectID("gtdapp"), KindPlanningAssumptions)
 	e := asProjectDesignError(t, err)
@@ -4044,6 +4045,33 @@ func Test_GetSessionState_BeforePhase2_CleanNotFound(t *testing.T) {
 	if !strings.Contains(e.Detail, "project design has not started") {
 		t.Fatalf("want a user-altitude message, got %q", e.Detail)
 	}
+}
+
+// QA 2026-07-19 (poll-404 wizard reset twin): a namespace-not-found from a wrong/foreign
+// Temporal backend must NOT map to the authoritative "project design has not started"
+// NotFound — the polled SPA trusts that 404 and drops its session view. It stays an
+// Infrastructure fault the client tolerates.
+func Test_GetSessionState_NamespaceNotFound_IsInfrastructureNot404(t *testing.T) {
+	id := ProjectID("gtdapp")
+	wfID := coAuthorWorkflowID(id, KindPlanningAssumptions)
+
+	mc := &temporalmocks.Client{}
+	nsErr := serviceerror.NewNamespaceNotFound("default")
+	mc.On("DescribeWorkflowExecution", mock.Anything, wfID, "").
+		Return((*workflowservice.DescribeWorkflowExecutionResponse)(nil), nsErr)
+	mc.On("QueryWorkflow", mock.Anything, wfID, "", querySessionState).
+		Return(nil, nsErr)
+
+	m := &projectDesignManager{client: mc}
+	_, err := m.GetSessionState(fwmanager.Context{Context: context.Background()}, id, KindPlanningAssumptions)
+	e := asProjectDesignError(t, err)
+	if e.Kind == fwmanager.NotFound {
+		t.Fatalf("namespace-not-found (wrong Temporal backend) must not claim session absence, got NotFound %q", e.Detail)
+	}
+	if e.Kind != fwmanager.Infrastructure {
+		t.Fatalf("want Infrastructure, got %d (detail %q)", e.Kind, e.Detail)
+	}
+	mc.AssertExpectations(t)
 }
 
 // stagename_test.go — F72 stageName label for the Phase-2 manager. Phase-2's Stage enum
