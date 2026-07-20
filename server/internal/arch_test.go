@@ -210,6 +210,13 @@ var encapsulationAllowlistData = map[string][]string{
 		// FinalizeConstructionPipelineAccess alongside the generated GitHub-Actions
 		// constructor and the dry-run stub.
 		"NewLocalExecConstructionPipelineAccess",
+		// DISPATCH-INPUT VOCABULARY (local-merge-and-policy Commit 1): the job key +
+		// merge-job value the constructionManager stamps into the frozen Submit
+		// surface's open DispatchInputs map to route the local-executor merge job
+		// (merge activity/<id> into main + delete branch). Shared constants so the
+		// Manager and this RA cannot drift on the wire strings.
+		"DispatchInputJobKey",
+		"DispatchJobMerge",
 		"Error",
 		"ParsePipelineHandle",
 		"PipelineHandleEqual",

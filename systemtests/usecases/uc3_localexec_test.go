@@ -207,15 +207,29 @@ func Test_UC3_LocalExec_DispatchesRealHeadlessClaude_AttachesStateMCP_ActivityCo
 	// step wires it. ---
 	assertLocalExecClaudeInvocation(t, capture, stateMCPBin, activityID)
 
-	// --- Branch-continuity proof: the shim's commit(s) actually landed on the
-	// activity branch in the project's SHARED repo — the worktree commits
-	// advanced the refs directly (no push step exists anymore), no fake
-	// success. ---
+	// --- Vibes auto-merge proof (local-merge-and-policy Commit 1): the seed
+	// carries reviewPolicy preset "vibes", so on completion the Manager's local
+	// merge step must have landed the shim's commits on MAIN via a real --no-ff
+	// merge commit and DELETED the activity branch — the branch no longer
+	// exists, and the shim's SHIM_PROGRESS.txt is reachable from main. ---
 	branch := "activity/" + activityID
 	repoPath := strings.TrimPrefix(repo.URL(), "file://")
-	out, gitErr := exec.CommandContext(ctx, "git", "-C", repoPath, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch).CombinedOutput()
-	if gitErr != nil {
-		t.Fatalf("activity branch %s does not exist in the project repo: %v\n%s", branch, gitErr, out)
+	if out, gitErr := exec.CommandContext(ctx, "git", "-C", repoPath, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch).CombinedOutput(); gitErr == nil {
+		t.Fatalf("activity branch %s must be DELETED after the vibes auto-merge, but it still exists\n%s", branch, out)
+	}
+	progress, catErr := exec.CommandContext(ctx, "git", "-C", repoPath, "cat-file", "-p", "main:SHIM_PROGRESS.txt").CombinedOutput()
+	if catErr != nil {
+		t.Fatalf("main:SHIM_PROGRESS.txt not reachable after the auto-merge (was the branch merged?): %v\n%s", catErr, progress)
+	}
+	if !strings.Contains(string(progress), "phase") {
+		t.Fatalf("main:SHIM_PROGRESS.txt = %q, want the shim's phase markers", progress)
+	}
+	mergeSubject, logErr := exec.CommandContext(ctx, "git", "-C", repoPath, "log", "--merges", "-1", "--format=%s", "main").CombinedOutput()
+	if logErr != nil {
+		t.Fatalf("git log --merges on main: %v\n%s", logErr, mergeSubject)
+	}
+	if !strings.Contains(string(mergeSubject), "aiarch: merge "+branch) {
+		t.Fatalf("main's latest merge commit subject = %q, want %q", strings.TrimSpace(string(mergeSubject)), "aiarch: merge "+branch)
 	}
 
 	// --- Worktree-hygiene proof: every phase's throwaway worktree was removed;

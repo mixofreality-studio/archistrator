@@ -1081,6 +1081,13 @@ type constructState struct {
 	// Consulted by runPhaseGate via ReviewPolicy.EffectiveGate to force a human gate
 	// at MethodPhaseConstruction regardless of preset, including "vibes".
 	floorTouched bool
+
+	// mergeCompleted is the LIVE in-memory skip-guard for the local merge step
+	// (local-merge-and-policy Commit 1, same discipline as completedPhases):
+	// marked once the merge job landed, so a variance retry of a LATER finalize
+	// fault does not re-dispatch a merge whose activity branch is already
+	// merged and deleted (which would honestly — and wrongly — fail).
+	mergeCompleted bool
 }
 
 func (s *constructState) view() (ConstructionSessionView, error) {
