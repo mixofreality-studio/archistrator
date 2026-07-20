@@ -83,21 +83,22 @@ func (c serverChildConfig) env() []string {
 		// Constraints) permits dev-mode auth ONLY on loopback, which
 		// ListenAddr above is.
 		"ARCHISTRATOR_AUTH_DEV_MODE": "true",
-		// The local construction executor (Task 6,
-		// server/internal/resourceaccess/constructionpipeline/
-		// constructionpipelineaccess.go's localexec.go section — headless
-		// `claude`, sandboxed-by-default) is now BUILT, but this spawned child
-		// still boots with DRYRUN=true here: flipping it to "false" has a
-		// SEPARATE prerequisite this package does not yet satisfy — a compiled
-		// aiarch-state-mcp binary staged alongside archistrator-server for
-		// cmd/server/hooks.go's locateStateMCPBinary to find (mirrors this
-		// package's own locateServerBinary discovery precedent above). Until
-		// scripts/build-local.sh (or an equivalent packaging step) stages that
-		// binary next to the spawned archistrator-server, dry-run keeps
-		// constructionManager's embedded Worker registered and inert
-		// (registerConstruction in hooks.go) instead of failing the boot on a
-		// missing aiarch-state-mcp binary.
-		"ARCHISTRATOR_CONSTRUCTION_DRYRUN": "true",
+		// ARCHISTRATOR_CONSTRUCTION_DRYRUN is deliberately ABSENT from this
+		// forced set (I2, local-first-init-funnel final review). The local
+		// construction executor (Task 6, server/internal/resourceaccess/
+		// constructionpipeline/constructionpipelineaccess.go's localexec.go
+		// section — headless `claude`, sandboxed-by-default fail-closed) is
+		// BUILT, and scripts/build-local.sh now stages a compiled
+		// aiarch-state-mcp binary alongside archistrator-server (the
+		// prerequisite cmd/server/hooks.go's locateStateMCPBinary needs — see
+		// its discovery order, mirrored by this package's own
+		// locateServerBinary above). So this key is left for the loop below to
+		// pass through unmodified from the PARENT (archistrator mcp) process's
+		// own environment: an operator's explicit override still reaches the
+		// child untouched, and when the parent leaves it unset too, cmd/server's
+		// own config.gen.go default (getenvBool("ARCHISTRATOR_CONSTRUCTION_DRYRUN",
+		// "false")) governs — real local construction by default now, not a
+		// forced dry run.
 	}
 	out := make([]string, 0, len(os.Environ())+len(extra))
 	seen := make(map[string]bool, len(extra))

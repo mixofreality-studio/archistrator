@@ -103,14 +103,19 @@ package main
 //     llm.NewClaudeCLIClient` at cmd/server/hooks.go's resolveWorkerProvider —
 //     confirmed via a real `GOWORK=off go build ./...` run; every OTHER package
 //     in this module (including `internal`, which owns the arch-conformance
-//     gates) is unaffected, the failure is isolated to cmd/server. This is the
-//     SAME hard merge blocker #4 already names ("this patch + any llm-provider
-//     additions"): resolved by the founder-gated framework-go-infrastructure-llm
-//     release (this commit, or later) + a server/go.mod re-pin. NEVER hand-edit
-//     go.mod to fake a version that does not exist, and NEVER stub
-//     ClaudeCLIClient's logic locally in the app to dodge the pin — the
-//     provider belongs in the platform module (see claudecli.go's own doc
-//     comment for why), not duplicated here.
+//     gates) is unaffected — the failure is confined to TWO packages, not
+//     one: cmd/server (this file's resolveWorkerProvider) AND cmd/archistrator
+//     (preflight.go:95's own `llm.PreflightClaudeCLI()` call, the
+//     `archistrator mcp` boot-time claude-CLI check) — both hit the exact same
+//     undefined symbol under `GOWORK=off`, for the identical reason: it is the
+//     SAME unreleased platform commit's symbol, consumed by two callers. This
+//     is the SAME hard merge blocker #4 already names ("this patch + any
+//     llm-provider additions"): resolved by the founder-gated
+//     framework-go-infrastructure-llm release (this commit, or later) + a
+//     server/go.mod re-pin. NEVER hand-edit go.mod to fake a version that
+//     does not exist, and NEVER stub ClaudeCLIClient's logic locally in the
+//     app to dodge the pin — the provider belongs in the platform module
+//     (see claudecli.go's own doc comment for why), not duplicated here.
 //
 //  6. CLAUDE-LOCAL PROVIDER TOOL-TURN OMISSION. The llm.ClaudeCLIClient (the
 //     claude-local Worker Provider, framework-go-infrastructure-llm/claudecli.go)

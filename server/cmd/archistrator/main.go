@@ -14,7 +14,7 @@
 //     (mcpserve.go). This file only dispatches; it owns no composition logic
 //     of its own — see mcpserve.go's package doc for why a child process
 //     (not an in-process import) is how this reuses cmd/server: Go forbids
-//     importing a package that declares `package main` cmd/server is one),
+//     importing a package that declares `package main` (cmd/server is one),
 //     so the ONLY way to reuse its ACTUAL compiled composition without
 //     forking it into a second copy is to run the same built binary and
 //     bridge into it — not to reimplement its boot walk here.

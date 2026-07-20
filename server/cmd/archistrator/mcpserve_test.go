@@ -106,7 +106,17 @@ func TestMCP_Initialize_And_HTTP_SameManagedProcess(t *testing.T) {
 	// development. The `go test -timeout` flag remains the outer safety net.
 	cmd := exec.Command(archistratorBin, "mcp", "--port", fmt.Sprintf("%d", port), "--skip-auth-check")
 	cmd.Dir = projectDir
-	cmd.Env = os.Environ()
+	// This test's scope is the stdio<->HTTP MCP bridge (Task-5 Step 1(b)), not
+	// the local construction executor (Task 6) — buildBinaries above stages
+	// only archistrator + archistrator-server, no aiarch-state-mcp sibling.
+	// Since I2 (final review) stopped forcing ARCHISTRATOR_CONSTRUCTION_DRYRUN
+	// in serverchild.go, the spawned archistrator-server would otherwise
+	// default to real local construction and fail its boot on the missing
+	// aiarch-state-mcp binary (newLocalPipeline in cmd/server/hooks.go).
+	// Setting it explicitly here exercises the OTHER half of I2's contract —
+	// serverChildConfig.env() passes an explicit parent override through
+	// unchanged — and keeps this test scoped to what it actually verifies.
+	cmd.Env = append(os.Environ(), "ARCHISTRATOR_CONSTRUCTION_DRYRUN=true")
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
