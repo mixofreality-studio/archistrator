@@ -51,6 +51,11 @@ export const UI_IDENTIFIERS = {
     GHOST_PANEL: 'home-base-ghost-panel',
     GHOST_FINISH_SETUP: 'home-base-ghost-finish-setup',
     GHOST_BACK: 'home-base-ghost-back',
+    // Review-policy preset control (vibes / checkpoints / full) + its permanent
+    // deploy/spend/schema risk-floor note.
+    REVIEW_POLICY: 'review-policy-control',
+    reviewPolicyOption: (preset: string) => `review-policy-option-${preset}`,
+    REVIEW_POLICY_FLOOR_NOTE: 'review-policy-floor-note',
   },
   DesignWizard: {
     SCREEN: 'design-wizard-screen',

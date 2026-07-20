@@ -2887,6 +2887,8 @@ components:
                             type: string
                         type: array
                     type: object
+                preset:
+                    type: string
             required:
                 - gatedPhasesByType
             type: object

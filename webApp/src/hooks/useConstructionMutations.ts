@@ -11,7 +11,7 @@ import { useMutation, useQueryClient, type UseMutationResult } from '@tanstack/r
 import { apiClient } from '../api/client';
 import { toApiError } from '../contracts/errors';
 import { overrideKindToOrdinal, phaseDecisionToOrdinal } from '../contracts/wire';
-import type { OverrideKind, PhaseDecision } from '../contracts/types';
+import type { OverrideKind, PhaseDecision, ReviewPreset } from '../contracts/types';
 import type { components } from '../contracts/schema';
 import { constructionSessionKey } from './useConstructionSession';
 import { projectKey } from './useProject';
@@ -118,6 +118,31 @@ export function useSubmitPhaseDecision(
       client.invalidateQueries({
         queryKey: constructionSessionKey(projectId, vars.activityId),
       }),
+  });
+}
+
+/**
+ * Set the project's review-policy PRESET (the sophistication dial: vibes /
+ * checkpoints / full) via the construction SetReviewPolicy op. Distinct from
+ * useUpdateReviewPolicy below, which replaces the explicit per-type gate map —
+ * the two ops own disjoint halves of the same server-side ReviewPolicy.
+ * Invalidates the project read so the home page's control reflects the
+ * committed value (reviewPolicy.preset), never a local echo.
+ */
+export function useSetReviewPolicy(
+  projectId: string
+): UseMutationResult<undefined, Error, ReviewPreset> {
+  const client = useQueryClient();
+  return useMutation<undefined, Error, ReviewPreset>({
+    mutationFn: async (preset) => {
+      const { error, response } = await apiClient.POST(
+        '/api/v1/construction/set-review-policy/{projectID}',
+        { params: { path: { projectID: projectId } }, body: { preset } }
+      );
+      if (error !== undefined) throw toApiError(response.status, error);
+      return undefined;
+    },
+    onSuccess: () => client.invalidateQueries({ queryKey: projectKey(projectId) }),
   });
 }
 

@@ -21,6 +21,7 @@ import BuildOutlinedIcon from '@mui/icons-material/BuildOutlined';
 import { getRouteApi, useNavigate } from '@tanstack/react-router';
 import { AppShell } from '../components/AppShell';
 import { EconomicsStrip, PhaseCard } from '../components/HomeBaseParts';
+import { ReviewPolicyControl } from '../components/ReviewPolicyControl';
 import { ArtifactPane } from '../components/ArtifactPane';
 import { StageChip } from '../components/StageChip';
 import { ErrorAlert } from '../components/shared/ErrorAlert';
@@ -29,6 +30,7 @@ import { StaleBasisMarker } from '../components/design/StaleBasisChip';
 import { ApiError } from '../contracts/errors';
 import { useProject } from '../hooks/useProject';
 import { useCreateProject } from '../hooks/useCreateProject';
+import { useSetReviewPolicy } from '../hooks/useConstructionMutations';
 import {
   toArtifactTableOfContents,
   toPhaseCards,
@@ -218,6 +220,7 @@ function HomeBaseBody({
 }): ReactNode {
   const t = useTokens();
   const navigate = useNavigate();
+  const setReviewPolicy = useSetReviewPolicy(projectId);
 
   // SYSTEM-DESIGN ONLY — the eight Phase-1 artifacts, in Method order. No
   // project-design (network/solutions/SDP) or construction artifacts here.
@@ -295,6 +298,18 @@ function HomeBaseBody({
           </Box>
         ))}
       </Box>
+
+      {/* Review-policy preset dial (vibes / checkpoints / full) + the permanent
+          deploy/spend/schema risk-floor note. Small setting; the committed value
+          reads back from the project view (the mutation invalidates it). */}
+      <ReviewPolicyControl
+        error={setReviewPolicy.error}
+        pending={setReviewPolicy.isPending}
+        preset={project.reviewPolicy?.preset}
+        onChoose={(preset) => {
+          setReviewPolicy.mutate(preset);
+        }}
+      />
 
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1.5, mt: 3 }}>
         <Typography sx={{ color: t.ink }} variant="h5">

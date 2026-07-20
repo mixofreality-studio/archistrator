@@ -356,6 +356,7 @@ type ReviewFeedback struct {
 
 type ReviewPolicyView struct {
 	GatedPhasesByType map[string][]string `json:"gatedPhasesByType"`
+	Preset            *string             `json:"preset,omitempty"`
 }
 
 type RuleID string

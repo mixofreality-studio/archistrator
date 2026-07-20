@@ -1528,6 +1528,7 @@ export interface components {
       gatedPhasesByType: {
         [key: string]: string[];
       };
+      preset?: string;
     };
     SystemDesignRuleID: string;
     SystemDesignServiceContract: {
