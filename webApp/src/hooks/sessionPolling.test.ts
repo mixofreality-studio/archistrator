@@ -28,6 +28,7 @@ import {
   NO_SESSION_POLL_INTERVAL_MS,
   POLL_INTERVAL_MS,
   isNoSessionError,
+  isSessionAbsent,
   sessionPollIntervalMs,
 } from './sessionPolling.ts';
 
@@ -163,4 +164,26 @@ void test('isNoSessionError recognizes only the 404 ApiError', () => {
   assert.equal(isNoSessionError(new ApiError(409, 'failed_precondition', 'x')), false);
   assert.equal(isNoSessionError(new Error('404')), false);
   assert.equal(isNoSessionError(null), false);
+});
+
+void test('QA 2026-07-19: a 404 with NO cached session is authoritative absence', () => {
+  // The probe never found a session — rendering "No draft yet / Request draft"
+  // discards nothing.
+  const gone = new ApiError(404, 'not_found', 'no active design session');
+  assert.equal(isSessionAbsent(false, gone), true);
+});
+
+void test('QA 2026-07-19: a 404 arriving while a session view is cached must NOT read as absence', () => {
+  // Verified live (gtdapp kind=4): the local stack's Temporal was replaced by a
+  // foreign dev server on the same port; every poll 404'd and the SPA reset the
+  // founder's use-case wizard to the beginning. With data cached, a 404 refetch
+  // keeps the working view and the 4s no-session probe keeps watching.
+  const gone = new ApiError(404, 'not_found', 'no active design session');
+  assert.equal(isSessionAbsent(true, gone), false);
+});
+
+void test('isSessionAbsent: non-404 errors and healthy fetches never read as absence', () => {
+  assert.equal(isSessionAbsent(false, new ApiError(500, 'internal', 'boom')), false);
+  assert.equal(isSessionAbsent(false, null), false);
+  assert.equal(isSessionAbsent(true, null), false);
 });

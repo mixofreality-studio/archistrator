@@ -115,6 +115,28 @@ export function isNoSessionError(error: unknown): boolean {
 }
 
 /**
+ * Whether the SPA may treat "no session" as ESTABLISHED and render the
+ * destructive no-session surface ("No draft yet / Request draft"), discarding
+ * the working view (QA incident 2026-07-19, gtdapp kind=4).
+ *
+ * A 404 is authoritative only while the query holds NO session data — the
+ * probe never found a session, so there is nothing to lose. A 404 that
+ * arrives on a REFETCH while a session view is cached means the server's
+ * session store vanished under it (observed live: the local stack's Temporal
+ * died and a foreign dev server took over its port, so every poll 404'd and
+ * the founder's wizard reset to the beginning mid-use-case). react-query
+ * keeps the last-good data on a failed refetch, so keep RENDERING that view:
+ * the no-session probe cadence (sessionPollIntervalMs → 4s) keeps watching,
+ * a recovered store restores the live poll, and any successor session
+ * replaces the view. Server-side the same incident is now a typed 5xx (a
+ * foreign backend can no longer masquerade as "no session"), so this rule is
+ * defense-in-depth for whatever genuinely wipes a session store.
+ */
+export function isSessionAbsent(hasSessionData: boolean, error: unknown): boolean {
+  return !hasSessionData && isNoSessionError(error);
+}
+
+/**
  * The refetchInterval decision for one observed query state (last data's stage +
  * last error). Returns the poll interval in ms, or false to stop polling.
  * Implements the decision table in the header comment.

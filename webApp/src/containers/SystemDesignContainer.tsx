@@ -21,6 +21,7 @@ import { PHASE1_ORDER, METHOD_METADATA } from '../contracts/methodMetadata';
 
 import { useProject } from '../hooks/useProject';
 import { useSessionState } from '../hooks/useSessionState';
+import { isSessionAbsent } from '../hooks/sessionPolling';
 import {
   useAcknowledgeStaleBasis,
   useAskQuestions,
@@ -150,7 +151,10 @@ export function SystemDesignContainer({ projectId }: { projectId: string }): Rea
   // Any failed gate decision (approve / send back / withdraw) names its error here.
   const [gateError, setGateError] = useState<string | undefined>(undefined);
 
-  const sessionMissing = session.error instanceof ApiError && session.error.status === 404;
+  // QA 2026-07-19: absence is only authoritative when NO session view is cached —
+  // a 404 refetch while a live view is held (session store lost under the server)
+  // must not reset the wizard to "No draft yet" (see isSessionAbsent).
+  const sessionMissing = isSessionAbsent(session.data !== undefined, session.error);
   const reviewThread = session.data?.view.reviewThread ?? [];
   const isFirstStep = safeIndex === 0;
   const needsResearch = isFirstStep && isPreconditionError(startDesign.error);

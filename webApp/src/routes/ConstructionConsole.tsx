@@ -30,7 +30,6 @@ import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined';
 import PlayArrowRoundedIcon from '@mui/icons-material/PlayArrowRounded';
 import { getRouteApi, useNavigate } from '@tanstack/react-router';
 
-import { ApiError } from '../contracts/errors';
 import type {
   ConstructionRow,
   GitRow,
@@ -49,6 +48,7 @@ import {
 } from '../contracts/constructionAdapters';
 import { toNetworkView, narrowProject } from '../contracts/projectAdapters';
 import { useProject } from '../hooks/useProject';
+import { isSessionAbsent } from '../hooks/sessionPolling';
 import { useConstructionSession } from '../hooks/useConstructionSession';
 import {
   usePauseConstruction,
@@ -177,8 +177,9 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
 
   const sessionQuery = useConstructionSession(projectId);
   const session = sessionQuery.data;
-  const sessionMissing =
-    sessionQuery.error instanceof ApiError && sessionQuery.error.status === 404;
+  // QA 2026-07-19: absence is only authoritative when NO session view is cached
+  // (see isSessionAbsent) — a 404 refetch while a view is held must not drop the console.
+  const sessionMissing = isSessionAbsent(session !== undefined, sessionQuery.error);
 
   const pause = usePauseConstruction(projectId);
   const override = useOverrideActivity(projectId);
@@ -188,12 +189,13 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   // Phase-gate detection: find the currently in-construction activity and poll its
   // session. When the workflow suspends at a phase gate (StageAwaitingApproval = 7),
   // the PhaseGatePanel is shown so the human can Approve or Send back.
+  const constructionRows = project?.constructionRows;
   const activeInConstructionId = useMemo(() => {
-    if (project?.constructionRows === undefined) return undefined;
-    return Object.values(project.constructionRows).find(
+    if (constructionRows === undefined) return undefined;
+    return Object.values(constructionRows).find(
       (r): boolean => r.status === 'in-construction'
     )?.activityId;
-  }, [project?.constructionRows]);
+  }, [constructionRows]);
 
   const phaseGateSessionQuery = useConstructionSession(projectId, activeInConstructionId);
   const phaseGateSession = phaseGateSessionQuery.data;

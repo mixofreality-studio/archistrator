@@ -44,6 +44,7 @@ import type {
 } from '../contracts/types';
 
 import { useProject } from '../hooks/useProject';
+import { isSessionAbsent } from '../hooks/sessionPolling';
 import { useProjectSessionState } from '../hooks/useProjectSessionState';
 import {
   useRequestProjectArtifactDraft,
@@ -190,7 +191,9 @@ function ProjectDesignBody({ projectId }: { projectId: string }): ReactNode {
   // Any failed gate decision (approve / send back / withdraw) names its error here.
   const [gateError, setGateError] = useState<string | undefined>(undefined);
 
-  const sessionMissing = session.error instanceof ApiError && session.error.status === 404;
+  // QA 2026-07-19: absence is only authoritative when NO session view is cached
+  // (see isSessionAbsent) — a 404 refetch while a view is held must not reset the wizard.
+  const sessionMissing = isSessionAbsent(session.data !== undefined, session.error);
   const view = session.data?.view;
   const stage = session.data?.stage;
   const hasDraft = view?.draft.model !== undefined;

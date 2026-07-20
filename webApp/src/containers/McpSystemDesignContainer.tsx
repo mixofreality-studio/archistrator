@@ -32,7 +32,6 @@ import type {
 } from '@modelcontextprotocol/ext-apps';
 import { useQueryClient } from '@tanstack/react-query';
 
-import { ApiError } from '../contracts/errors';
 import type { ArtifactKind, ProjectState, ReviewDecision, SessionStage } from '../contracts/types';
 import type { components } from '../contracts/schema';
 import { slotStageFromOrdinal } from '../contracts/adapters';
@@ -40,6 +39,7 @@ import { PHASE1_ORDER, METHOD_METADATA } from '../contracts/methodMetadata';
 import { mapSessionState, systemArtifactKindFromOrdinal } from '../contracts/wire';
 
 import { useProject } from '../hooks/useProject';
+import { isSessionAbsent } from '../hooks/sessionPolling';
 import { useSessionState, sessionStateKey } from '../hooks/useSessionState';
 import {
   useAcknowledgeStaleBasis,
@@ -223,7 +223,9 @@ export function McpSystemDesignContainer({
   // so the composer-close ambient re-post doesn't clobber a just-filed comment.
   const [lastFiledComment, setLastFiledComment] = useState<string | null>(null);
 
-  const sessionMissing = session.error instanceof ApiError && session.error.status === 404;
+  // QA 2026-07-19: absence is only authoritative when NO session view is cached
+  // (see isSessionAbsent) — a 404 refetch while a view is held must not reset the wizard.
+  const sessionMissing = isSessionAbsent(session.data !== undefined, session.error);
   const stage = session.data?.stage;
   const projectName = project?.name;
 
