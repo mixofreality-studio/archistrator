@@ -40,8 +40,8 @@ type preflightReport struct {
 // backs the local worker provider cmd/server's own boot-time preflight,
 // resolveWorkerProvider/hooks.go, ALSO requires). An auth-probe failure is
 // deliberately NOT fatal — the user may still be able to fix it (`claude
-// login`) from within the very Claude Code session asking, so mcpserve.go
-// degrades to instructions-only rather than refusing to start at all.
+// login`) from within the very Claude Code session asking, so RunServe (serve.go)
+// logs and prints it to stderr rather than refusing to start at all.
 func (r preflightReport) Fatal() bool {
 	return r.gitErr != nil || r.claudeErr != nil
 }

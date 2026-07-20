@@ -132,7 +132,7 @@ func temporalStartDevArgs(host, port, dbFile string) []string {
 // localTemporalDBFile resolves (and ensures the parent directory of) the
 // machine-wide persistent dev-server database: ~/.archistrator/temporal.db.
 // Machine-wide is coherent with the one-stack-per-machine singleton guard
-// (mcpserve.go); the durable design state itself lives in git — this DB only
+// (serve.go); the durable design state itself lives in git — this DB only
 // carries the in-flight session workflows.
 func localTemporalDBFile() (string, error) {
 	home, err := os.UserHomeDir()

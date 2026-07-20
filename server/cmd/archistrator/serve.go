@@ -136,7 +136,7 @@ func RunServe(ctx context.Context, opts serveOptions, logger *slog.Logger) error
 	logger.Info("preflight", "instructions", preflight.Instructions())
 	if preflight.Fatal() {
 		if shuttingDown(ctx) {
-			return gracefulStartupAbort(logger)
+			return gracefulStartupAbort(logger, nil)
 		}
 		return fmt.Errorf("%s", preflight.Instructions())
 	}
@@ -165,7 +165,7 @@ func RunServe(ctx context.Context, opts serveOptions, logger *slog.Logger) error
 	stopTemporal, err := ensureTemporal(ctx, temporalHostport, opts.Stderr)
 	if err != nil {
 		if shuttingDown(ctx) {
-			return gracefulStartupAbort(logger)
+			return gracefulStartupAbort(logger, err)
 		}
 		return err
 	}
@@ -181,7 +181,7 @@ func RunServe(ctx context.Context, opts serveOptions, logger *slog.Logger) error
 	child, err := startServerChild(ctx, childCfg, opts.Stderr, serverReadyWait)
 	if err != nil {
 		if shuttingDown(ctx) {
-			return gracefulStartupAbort(logger)
+			return gracefulStartupAbort(logger, err)
 		}
 		return err
 	}
@@ -215,8 +215,13 @@ func shuttingDown(ctx context.Context) bool { return ctx.Err() != nil }
 // gracefulStartupAbort logs and returns the nil RunServe uses when
 // shuttingDown(ctx) explains an otherwise-error-shaped Step 3-4 return —
 // SIGINT/SIGTERM during startup is a normal, successful "never mind" outcome
-// (Ctrl-C is not a failure), never printed to the user as one.
-func gracefulStartupAbort(logger *slog.Logger) error {
-	logger.Info("shutdown signal received during startup — stopping")
+// (Ctrl-C is not a failure), never printed to the user as one. The underlying
+// error is logged for diagnostic purposes but does not affect the return code.
+func gracefulStartupAbort(logger *slog.Logger, err error) error {
+	if err != nil {
+		logger.Info("startup aborted by shutdown signal; underlying error", "err", err)
+	} else {
+		logger.Info("shutdown signal received during startup — stopping")
+	}
 	return nil
 }

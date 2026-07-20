@@ -34,8 +34,8 @@ const serverBinEnvOverride = "ARCHISTRATOR_SERVER_BIN"
 // next to the currently running archistrator executable (the shape
 // scripts/build-local.sh's packaging step is expected to produce — both
 // binaries staged side by side), then PATH. A discovery miss is NOT fatal to
-// the caller by itself — mcpserve.go degrades to an instructions-only
-// session when this fails, exactly like a Fatal() preflight finding.
+// the caller by itself — RunServe (serve.go) returns it as a hard error,
+// printed to stderr by main.go, exactly like a Fatal() preflight finding.
 func locateServerBinary(override string) (string, error) {
 	if override != "" {
 		if _, err := os.Stat(override); err != nil {
@@ -184,7 +184,7 @@ func waitHealthy(ctx context.Context, addr string, timeout time.Duration) error 
 }
 
 // portInUse reports whether something is already accepting TCP connections
-// at addr — the singleton guard mcpserve.go uses BEFORE spawning anything.
+// at addr — the singleton guard serve.go uses BEFORE spawning anything.
 func portInUse(addr string) bool {
 	conn, err := net.DialTimeout("tcp", addr, 300*time.Millisecond)
 	if err != nil {
