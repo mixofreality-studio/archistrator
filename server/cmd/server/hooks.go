@@ -50,72 +50,38 @@ package main
 //     SAME repo and GitStore holds no connection state, so this is an
 //     instance-count residual, not a correctness one.
 //
-//  4. POSTGRES POOL DIAL — NOW PROFILE-GATED, BUT VIA AN UNRELEASED PLATFORM
-//     PATCH (local-first-init-funnel Task 2, commit a6f85e2). As of a6f85e2,
+//  4. POSTGRES POOL DIAL — PROFILE-GATED (local-first-init-funnel Task 2).
 //     main.gen.go's Postgres pool (postgresinfra.NewPool(ctx, cfg.PostgresURL),
 //     which PINGS — a real dial, not a lazy handle) is built ONLY when
-//     `profile == "cloud"`, so a local boot no longer dials it, even though every
-//     profile-switched binding that consumed it (operatedSystemStateAccess,
-//     usageAccess) already resolved to a Postgres-free NoOp variant on "local"
-//     before this fix. The gate exists because composegen's writePostgres
-//     (framework-go-app-generator@v0.8.0, composegen/emit.go:180-188,
-//     vendored/pinned in archistrator-platform) was patched to stop gating pool
-//     construction purely on consumesPostgres() (imports.go:222-229) — "does ANY
-//     declared binding, in ANY profile, use the postgres substrate", a
-//     GENERATION-TIME decision — and instead gate on the postgres infra key's
-//     declared `profiles` list evaluated against the RUNTIME-resolved `profile`
-//     value, mirroring how each RA's own per-profile switch arm already works.
-//     THAT PATCH IS UNRELEASED: it lives only as a local commit on
-//     archistrator-platform's composegen-profile-gated-pool branch (e3ce3da0) —
-//     not tagged, not pushed — and server/go.mod is still pinned to the
-//     un-patched framework-go-app-generator v0.8.0. This repo's committed
-//     main.gen.go was regenerated workspace-ACTIVE against the local platform
-//     checkout to pick up the fix, and happens to compile clean under
-//     `GOWORK=off` against the still-pinned v0.8.0 (the generation-shape change
-//     needs nothing the pinned version doesn't already provide) — but that is a
-//     property of how narrow this particular diff is, not a substitute for the
-//     real release. KNOWN GAP: regenerating (`go run ./cmd/appgen`) WITHOUT the
-//     local platform checkout in go.work scope — e.g. `GOWORK=off`, or a
-//     go.work that doesn't include archistrator-platform — silently reproduces
-//     the OLD ungated main.gen.go and reintroduces the unconditional dial on
-//     every profile. This is a hard merge blocker (see the plan doc's
-//     Sequencing note) until the platform release ships (this patch + any
-//     llm-provider additions) and server/go.mod is re-pinned to it. Confirmed
-//     via a real local boot with Temporal reachable and Postgres NOT reachable:
-//     the process now reaches "http server listening" cleanly, with zero
-//     "postgres"/"5432" mentions in the boot log. NEVER hand-edit main.gen.go to
-//     paper over a regen that reverts this — regenerate with the local platform
-//     checkout in go.work scope, or wait for the release.
+//     `profile == "cloud"`, so a local boot no longer dials it. The gate comes
+//     from composegen's writePostgres (framework-go-app-generator, RELEASED as
+//     v0.8.1 — platform commit e3ce3da0, tagged and pinned in server/go.mod):
+//     pool construction is no longer decided purely by consumesPostgres() ("does
+//     ANY declared binding, in ANY profile, use the postgres substrate", a
+//     GENERATION-TIME decision) but by the postgres infra key's declared
+//     `profiles` list evaluated against the RUNTIME-resolved `profile` value,
+//     mirroring how each RA's own per-profile switch arm already works. With the
+//     release pinned, a plain `GOWORK=off go run ./cmd/appgen` regen reproduces
+//     the gated main.gen.go byte-for-byte — the old regen-reverts-gating hazard
+//     (regenerating against the un-patched v0.8.0 silently reintroduced the
+//     unconditional dial) is closed. Confirmed via a real local boot with
+//     Temporal reachable and Postgres NOT reachable: the process reaches
+//     "http server listening" cleanly, with zero "postgres"/"5432" mentions in
+//     the boot log. NEVER hand-edit main.gen.go — regenerate via cmd/appgen.
 //
-//  5. WORKER PROVIDER SELECTION (resolveWorkerProvider below) DEPENDS ON THE
-//     SAME UNRELEASED PLATFORM COMMIT AS #4 — local-first-init-funnel Task 3,
-//     archistrator-platform commit 2a389d31 on the composegen-profile-gated-pool
-//     branch, adding framework-go-infrastructure-llm/claudecli.go
-//     (llm.ClaudeCLIClient / llm.NewClaudeCLIClient / llm.PreflightClaudeCLI —
-//     the claude-local Worker Provider). server/go.mod is pinned to
-//     framework-go-infrastructure-llm v0.1.0 (the PUBLISHED version, predating
-//     claudecli.go — `go mod tidy` resolved it, since this is the module's
-//     FIRST use by server; llm.AnthropicClient/llm.Client already existed in
-//     v0.1.0). Building THIS FILE workspace-ACTIVE (the local platform checkout
-//     in go.work scope, the repo's default dev/CI mode) picks up claudecli.go
-//     and compiles clean. Building `GOWORK=off` (against the pinned v0.1.0
-//     alone) FAILS: `undefined: llm.PreflightClaudeCLI` / `undefined:
-//     llm.NewClaudeCLIClient` at cmd/server/hooks.go's resolveWorkerProvider —
-//     confirmed via a real `GOWORK=off go build ./...` run; every OTHER package
-//     in this module (including `internal`, which owns the arch-conformance
-//     gates) is unaffected — the failure is confined to TWO packages, not
-//     one: cmd/server (this file's resolveWorkerProvider) AND cmd/archistrator
-//     (preflight.go:95's own `llm.PreflightClaudeCLI()` call, the
-//     `archistrator serve` boot-time claude-CLI check) — both hit the exact same
-//     undefined symbol under `GOWORK=off`, for the identical reason: it is the
-//     SAME unreleased platform commit's symbol, consumed by two callers. This
-//     is the SAME hard merge blocker #4 already names ("this patch + any
-//     llm-provider additions"): resolved by the founder-gated
-//     framework-go-infrastructure-llm release (this commit, or later) + a
-//     server/go.mod re-pin. NEVER hand-edit go.mod to fake a version that
-//     does not exist, and NEVER stub ClaudeCLIClient's logic locally in the
-//     app to dodge the pin — the provider belongs in the platform module
-//     (see claudecli.go's own doc comment for why), not duplicated here.
+//  5. WORKER PROVIDER SELECTION (resolveWorkerProvider below) — claude-local
+//     provider (local-first-init-funnel Task 3): framework-go-infrastructure-llm
+//     claudecli.go (llm.ClaudeCLIClient / llm.NewClaudeCLIClient /
+//     llm.PreflightClaudeCLI — the claude-local Worker Provider), RELEASED as
+//     v0.2.0 (platform commit 2a389d31, tagged) and pinned in server/go.mod, so
+//     both consumers — cmd/server (this file's resolveWorkerProvider) and
+//     cmd/archistrator (preflight.go's `llm.PreflightClaudeCLI()` call, the
+//     `archistrator serve` boot-time claude-CLI check) — compile clean under
+//     `GOWORK=off` against the published module alone; the former workspace-only
+//     dependency (undefined llm.* symbols against the pre-claudecli v0.1.0 pin)
+//     is gone. NEVER stub ClaudeCLIClient's logic locally in the app — the
+//     provider belongs in the platform module (see claudecli.go's own doc
+//     comment for why), not duplicated here.
 //
 //  6. CLAUDE-LOCAL PROVIDER TOOL-TURN OMISSION. The llm.ClaudeCLIClient (the
 //     claude-local Worker Provider, framework-go-infrastructure-llm/claudecli.go)
