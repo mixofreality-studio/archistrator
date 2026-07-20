@@ -85,10 +85,6 @@ func (c serverChildConfig) env() []string {
 		"ARCHISTRATOR_LISTEN_ADDR":                c.ListenAddr,
 		"ARCHISTRATOR_TEMPORAL_HOSTPORT":          c.TemporalHostport,
 		"ARCHISTRATOR_TEMPORAL_NAMESPACE":         c.TemporalNamespace,
-		// Loopback-only local stack — the auth floor doc (plan's Global
-		// Constraints) permits dev-mode auth ONLY on loopback, which
-		// ListenAddr above is.
-		"ARCHISTRATOR_AUTH_DEV_MODE": "true",
 		// ARCHISTRATOR_CONSTRUCTION_DRYRUN is deliberately ABSENT from this
 		// forced set (I2, local-first-init-funnel final review). The local
 		// construction executor (Task 6, server/internal/resourceaccess/
@@ -106,20 +102,40 @@ func (c serverChildConfig) env() []string {
 		// "false")) governs — real local construction by default now, not a
 		// forced dry run.
 	}
-	out := make([]string, 0, len(os.Environ())+len(extra))
-	seen := make(map[string]bool, len(extra))
+	// defaults are DEFAULTED, not forced: the parent's explicit value wins,
+	// the default applies only when the parent leaves the key unset entirely.
+	//
+	// ARCHISTRATOR_AUTH_DEV_MODE=true is the local-profile composition
+	// decision that makes GET /api/userinfo answer 200 with the dev principal
+	// on a fresh `archistrator serve` (QA 2026-07-19, "Failed to load user
+	// info: 500"): ListenAddr above is loopback-only, which is exactly where
+	// the auth-floor doc (plan's Global Constraints) permits dev-mode auth —
+	// so it is safe as the DEFAULT, while an operator who explicitly exports
+	// ARCHISTRATOR_AUTH_DEV_MODE=false still gets the stricter deny-all
+	// boundary (a hardening override, never a widening one, on loopback).
+	defaults := map[string]string{
+		"ARCHISTRATOR_AUTH_DEV_MODE": "true",
+	}
+	out := make([]string, 0, len(os.Environ())+len(extra)+len(defaults))
+	seen := make(map[string]bool, len(extra)+len(defaults))
 	for _, kv := range os.Environ() {
 		key, _, ok := splitEnv(kv)
-		if ok && !seen[key] {
+		if ok {
+			seen[key] = true
 			if v, override := extra[key]; override {
 				out = append(out, key+"="+v)
-				seen[key] = true
 				continue
 			}
 		}
 		out = append(out, kv)
 	}
 	for k, v := range extra {
+		if !seen[k] {
+			out = append(out, k+"="+v)
+			seen[k] = true
+		}
+	}
+	for k, v := range defaults {
 		if !seen[k] {
 			out = append(out, k+"="+v)
 		}

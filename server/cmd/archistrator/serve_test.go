@@ -9,7 +9,9 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -201,6 +203,38 @@ func TestServe_BootsStack_AnswersMCPOverHTTP_And_SIGTERMLeavesNoOrphans(t *testi
 		t.Fatal("MCP session has no InitializeResult after Connect — initialize did not complete")
 	}
 	_ = cs.Close()
+
+	// GET /api/userinfo answers 200 with the dev principal — the SPA's FIRST
+	// call on load, and the one that surfaced as "Failed to load user info:
+	// 500" (QA 2026-07-19) when a stack came up without a working auth
+	// composition. This pins the local-profile contract end-to-end: the serve
+	// child-spawn env defaults ARCHISTRATOR_AUTH_DEV_MODE=true (loopback-only,
+	// serverchild.go), cmd/server's auth middleware injects the dev principal,
+	// and the probe answers identity JSON — never a 401/500 on a fresh boot.
+	uiResp, err := http.Get("http://" + addr + "/api/userinfo")
+	if err != nil {
+		t.Fatalf("GET /api/userinfo: %v", err)
+	}
+	uiBody, readErr := io.ReadAll(uiResp.Body)
+	_ = uiResp.Body.Close()
+	if readErr != nil {
+		t.Fatalf("read /api/userinfo body: %v", readErr)
+	}
+	if uiResp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/userinfo = %d, want 200 (dev principal); body: %s\nstderr so far:\n%s", uiResp.StatusCode, uiBody, stderr.String())
+	}
+	var userInfo struct {
+		Kind string `json:"kind"`
+		Sub  string `json:"sub"`
+	}
+	if err := json.Unmarshal(uiBody, &userInfo); err != nil {
+		t.Fatalf("decode /api/userinfo body %q: %v", uiBody, err)
+	}
+	// "dev-architect" is cmd/server's devPrincipal() default subject
+	// (ARCHISTRATOR_DEV_SUBJECT unset — this test sets no such env).
+	if userInfo.Kind != "user" || userInfo.Sub != "dev-architect" {
+		t.Fatalf("/api/userinfo principal = kind %q sub %q, want the dev principal (kind %q, sub %q); body: %s", userInfo.Kind, userInfo.Sub, "user", "dev-architect", uiBody)
+	}
 
 	// The HTTP surface answers at all (proves the listener this test cares
 	// about — the standalone daemon's HTTP mount — is genuinely up). This

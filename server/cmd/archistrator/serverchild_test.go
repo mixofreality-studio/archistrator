@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"os"
+	"testing"
+)
 
 // lookupEnv returns the value for key in an env slice ("KEY=value" entries)
 // produced by serverChildConfig.env(), and whether key was present at all —
@@ -63,13 +66,13 @@ func TestServerChildConfigEnv_RespectsExplicitParentDryRunOverride(t *testing.T)
 }
 
 // TestServerChildConfigEnv_StillForcesLocalProfileSettings guards against
-// over-correcting I2: the OTHER local-profile settings this package is
-// responsible for (git-local substrate, listen addr, temporal hostport,
-// loopback-only dev auth) must still be forced regardless of any conflicting
-// parent env — only ARCHISTRATOR_CONSTRUCTION_DRYRUN's forcing was removed.
+// over-correcting I2: the local-profile settings this package is responsible
+// for (git-local substrate, listen addr, temporal hostport) must still be
+// forced regardless of any conflicting parent env — only
+// ARCHISTRATOR_CONSTRUCTION_DRYRUN's forcing was removed, and dev auth became
+// a DEFAULT (see the dev-auth tests below) rather than a force.
 func TestServerChildConfigEnv_StillForcesLocalProfileSettings(t *testing.T) {
 	t.Setenv("ARCHISTRATOR_LISTEN_ADDR", "should-be-overridden:0")
-	t.Setenv("ARCHISTRATOR_AUTH_DEV_MODE", "false")
 
 	cfg := serverChildConfig{
 		Bin:              "archistrator-server",
@@ -83,11 +86,65 @@ func TestServerChildConfigEnv_StillForcesLocalProfileSettings(t *testing.T) {
 	if v, _ := lookupEnv(env, "ARCHISTRATOR_LISTEN_ADDR"); v != "127.0.0.1:8877" {
 		t.Fatalf("ARCHISTRATOR_LISTEN_ADDR = %q, want forced %q", v, "127.0.0.1:8877")
 	}
-	if v, _ := lookupEnv(env, "ARCHISTRATOR_AUTH_DEV_MODE"); v != "true" {
-		t.Fatalf("ARCHISTRATOR_AUTH_DEV_MODE = %q, want forced %q", v, "true")
-	}
 	if v, present := lookupEnv(env, "ARCHISTRATOR_PROJECT_STATE_GIT_LOCAL"); !present || v != "true" {
 		t.Fatalf("ARCHISTRATOR_PROJECT_STATE_GIT_LOCAL = %q (present=%v), want forced %q", v, present, "true")
+	}
+}
+
+// TestServerChildConfigEnv_DefaultsDevAuthOn is the local-profile auth
+// composition decision (QA 2026-07-19, "Failed to load user info: 500"): when
+// the parent (archistrator serve) process does not set
+// ARCHISTRATOR_AUTH_DEV_MODE at all, the child MUST get it defaulted to
+// "true" — the child binds loopback-only (the auth floor's dev-mode
+// precondition), and without it cmd/server's own config default (false) plus
+// no Keycloak in the local profile leaves the SPA's GET /api/userinfo probe
+// denied instead of answering the dev principal.
+func TestServerChildConfigEnv_DefaultsDevAuthOn(t *testing.T) {
+	// t.Setenv registers the cleanup that restores the original value; the
+	// unset AFTER it establishes the "parent never set it" precondition.
+	t.Setenv("ARCHISTRATOR_AUTH_DEV_MODE", "")
+	if err := os.Unsetenv("ARCHISTRATOR_AUTH_DEV_MODE"); err != nil {
+		t.Fatalf("unset ARCHISTRATOR_AUTH_DEV_MODE: %v", err)
+	}
+
+	cfg := serverChildConfig{
+		Bin:              "archistrator-server",
+		RepoDir:          "/tmp/repo",
+		ListenAddr:       "127.0.0.1:8877",
+		TemporalHostport: "127.0.0.1:7943",
+	}
+
+	env := cfg.env()
+
+	v, present := lookupEnv(env, "ARCHISTRATOR_AUTH_DEV_MODE")
+	if !present || v != "true" {
+		t.Fatalf("ARCHISTRATOR_AUTH_DEV_MODE = %q (present=%v), want defaulted %q", v, present, "true")
+	}
+}
+
+// TestServerChildConfigEnv_RespectsExplicitParentDevAuthOverride: an operator
+// who explicitly exports ARCHISTRATOR_AUTH_DEV_MODE=false before running
+// `archistrator serve` gets the stricter deny-all auth boundary — the default
+// above must never trample an explicit parent value (hardening override
+// honored; on loopback "false" only ever narrows access, never widens it).
+func TestServerChildConfigEnv_RespectsExplicitParentDevAuthOverride(t *testing.T) {
+	t.Setenv("ARCHISTRATOR_AUTH_DEV_MODE", "false")
+
+	cfg := serverChildConfig{
+		Bin:              "archistrator-server",
+		RepoDir:          "/tmp/repo",
+		ListenAddr:       "127.0.0.1:8877",
+		TemporalHostport: "127.0.0.1:7943",
+	}
+
+	env := cfg.env()
+
+	v, present := lookupEnv(env, "ARCHISTRATOR_AUTH_DEV_MODE")
+	if !present {
+		t.Fatal("ARCHISTRATOR_AUTH_DEV_MODE missing from child env; want explicit parent override passed through")
+	}
+	if v != "false" {
+		t.Fatalf("ARCHISTRATOR_AUTH_DEV_MODE = %q, want %q (parent's explicit override)", v, "false")
 	}
 }
 
