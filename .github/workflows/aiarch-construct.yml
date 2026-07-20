@@ -1,7 +1,12 @@
-# aiarch CONSTRUCTION workflow
-# ============================
-# Dispatched by archistrator-server constructionPipelineAccess (UC3) via
-# workflow_dispatch when ARCHISTRATOR_CONSTRUCTION_DRYRUN=false.
+# aiarch CONSTRUCTION workflow (TEMPLATE — seated into each app repo)
+# ==================================================================
+# This is a Go text/template. Its action delimiters are the double-square-bracket
+# pair (not the default brace pair) — chosen so GitHub Actions' own ${{ ... }}
+# expressions pass through untouched. The method-assets scaffold seats it at the
+# APP REPO ROOT (the app module root — there is no server/ subdirectory). It is the
+# venue-portable counterpart of the design workflow (aiarch-design.yml.tmpl) and is
+# dispatched by archistrator-server constructionPipelineAccess (UC3) via
+# workflow_dispatch when construction is live.
 #
 # LOAD-BEARING CONTRACT — DO NOT CHANGE THESE ANCHORS:
 #   1. workflow_dispatch input named EXACTLY `idempotency_token` (string,
@@ -12,10 +17,6 @@
 #      RunNamePrefix="aiarch-cp-"; ListRunsByName matches on this prefix.
 #      Wrong run-name = RA can never see its own dispatched run.
 #   3. workflow_dispatch-triggerable on the dispatch ref (main).
-#
-# server-checks (run in working-directory: server):
-#   gofmt -w . / GOWORK=off go vet ./... / GOWORK=off go build ./... /
-#   GOWORK=off make test-short
 name: aiarch-construct
 
 # (2) Run-name is the idempotency anchor. EXACT prefix required.
@@ -34,9 +35,9 @@ on:
         description: "construction activity id (e.g. C-PE)"
         required: true
         type: string
-      # Component id matching a contract JSON under server/cmd/seed-contracts/data/.
+      # Component id matching a component contract in the project's committed state.
       component_id:
-        description: "component id — must match a file in server/cmd/seed-contracts/data/<component_id>.json"
+        description: "component id — the contract/component this activity constructs"
         required: true
         type: string
       # Thin routing: the Manager computes which slash command this phase runs.
@@ -71,13 +72,10 @@ jobs:
     runs-on: ubuntu-latest
     # Bound the run — claude must implement + open the PR within this window or the
     # job is killed (no silent multi-hour grinds). 12 min was observed cutting off
-    # substantive components (e.g. billingGatewayAccess, ~900 LOC + Stripe + tests)
+    # substantive components (a ~900 LOC component with an external integration + tests)
     # mid-implement before commit+PR; 25 gives runway to land the PR while still
     # bounding any runaway. Keep this >= the prompt's stated budget below.
     timeout-minutes: 25
-    defaults:
-      run:
-        working-directory: server
 
     steps:
       - name: Checkout
@@ -85,10 +83,14 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up Go
+      - name: Set up Go (for the aiarch-state MCP server)
         uses: actions/setup-go@v5
         with:
-          go-version-file: server/go.mod
+          # Pin the toolchain INDEPENDENTLY of the seated app go.mod: `go install` of
+          # the archistrator state-MCP module needs a Go at least as new as that
+          # module's own `go` directive. Same rationale as the design workflow's
+          # setup-go step.
+          go-version: "1.25.x"
 
       # -----------------------------------------------------------------------
       # aiarch-state MCP server (agentic-managers spec §Construction application) — the
@@ -99,25 +101,40 @@ jobs:
       # per-mode set exposes — so a construction agent records its phase artifact through
       # validated tools instead of hand-editing project.json.
       #
-      # DELIVERY differs from the design TEMPLATE on purpose: the design template targets
-      # USER repos that lack the server source, so it `go install <module>@<pin>` from
-      # GOPROXY. This is archistrator's OWN construct workflow running INSIDE the server
-      # checkout, so it BUILDS the MCP binary from the checked-out source (GOWORK=off) —
-      # deterministic and always matching the code under construction, never a stale @main.
-      #
-      # ADDITIVE: this wires the tools but the construction prompt is UNCHANGED (Step 4
-      # rescopes it), so nothing breaks — the tools are available; the existing command
-      # flow still drives the PR.
+      # DELIVERY: this workflow is SEATED into an APP repo, which has NO archistrator
+      # server source to build from, so it `go install <module>@<pin>` the published
+      # binary via GOPROXY — the SAME way the design workflow and the seated go.mod
+      # scaffold obtain their platform modules. The managed-scaffold sync re-renders this
+      # file (and its pin) whenever the server release moves it, so a run can never
+      # install a binary the dispatching server's validators reject.
       # -----------------------------------------------------------------------
-      - name: Build the aiarch-state MCP server
+      - name: Obtain the aiarch-state MCP server
         id: statemcp
         env:
           GOBIN: ${{ runner.temp }}/aiarch-bin
-          GOWORK: "off"
+          # VERSION HANDSHAKE (managed-scaffold sync): the control plane stamps the
+          # state-MCP pin it rendered this seated file with; the job echoes it so any
+          # run's log states which binary generation this scaffold carries.
+          AIARCH_STATE_MCP_PIN: "14c0db589abc84a034dd6772892a8d0a2b47ff6e"
         run: |
+          echo "aiarch-state-mcp pin: github.com/mixofreality-studio/archistrator/server/cmd/aiarch-state-mcp@${AIARCH_STATE_MCP_PIN}"
           mkdir -p "${GOBIN}"
-          go build -o "${GOBIN}/aiarch-state-mcp" ./cmd/aiarch-state-mcp
+          go install github.com/mixofreality-studio/archistrator/server/cmd/aiarch-state-mcp@"${AIARCH_STATE_MCP_PIN}"
           echo "bin=${GOBIN}/aiarch-state-mcp" >> "$GITHUB_OUTPUT"
+
+      # RUNTIME PROMPT MATERIALIZATION (founder-ratified 2026-07-17). The .claude
+      # prompt surface the thin slash-command dispatch below routes into
+      # (commands/skills/agents + seat manifest) is NOT repo-committed in operated
+      # repos: this step renders it into the RUNNER CHECKOUT from the SAME pinned
+      # module generation as the aiarch-state binary installed above — the pin IS the
+      # provenance, so the prompts this job runs can never drift from the validators
+      # that gate it. It runs AFTER the checkout so the rendered files land in the
+      # working tree, and the render force-overwrites owned paths, so a stale
+      # committed .claude copy in a legacy repo cannot shadow the current generation.
+      # Working-tree only: no git state is touched and nothing here is committed.
+      - name: Materialize the .claude prompt surface (runtime-rendered, not repo-committed)
+        run: |
+          "${{ steps.statemcp.outputs.bin }}" seat-assets --dest .
 
       # The MCP config claude-code-action passes to the Claude CLI (--mcp-config). The
       # ambient CONSTRUCTION context (project id, job mode, component id, activity id,
@@ -151,9 +168,10 @@ jobs:
           # Org secret — provisioned ONCE by the founder on mixofreality-studio.
           # aiarch never mints or sees this token.
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          # Construction is ALWAYS dispatched by the archistrator-bot App (a Bot
-          # actor); claude-code-action refuses bot-initiated runs unless allow-listed.
-          allowed_bots: archistrator-bot
+          # Construction is ALWAYS dispatched by the aiarch GitHub App (a Bot actor);
+          # claude-code-action refuses bot-initiated runs unless the bot is allow-listed.
+          # The App slug varies per deployment, so the scaffold templates it here.
+          allowed_bots: 
           # Emit the full agent transcript into the job log (default truncates), so a
           # run that stalls or fails is diagnosable without a rerun.
           show_full_output: true

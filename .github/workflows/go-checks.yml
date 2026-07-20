@@ -1,0 +1,67 @@
+# aiarch GO CHECKS workflow (TEMPLATE — seated into each app repo)
+# ================================================================
+# This is a Go text/template whose action delimiters are the double-square-
+# bracket pair (so GitHub Actions' own ${{ ... }} expressions pass through
+# untouched, same as the sibling aiarch workflows). The method-assets scaffold
+# seats it at .github/workflows/go-checks.yml, and the managed-scaffold sync
+# converges it (it lives under .github/workflows/, the sync-scoped prefix).
+#
+# It is the built-app counterpart of the archistrator server-checks gate:
+# gofmt + go vet + build + the analyzer-based `go fix -diff` (Go 1.26+) +
+# golangci-lint (config seated at .golangci.yml by the same scaffold) + tests.
+# Construction PRs must keep this green — it is part of the merge gate the
+# construction rail observes as CI.
+name: Go Checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.0'
+          # A freshly-born app repo has no go.sum yet (the tidy step below
+          # materializes it in the workspace), so module caching keys off go.mod.
+          cache-dependency-path: go.mod
+
+      # Materialize go.sum for a freshly-born repo (and be tolerant of an
+      # untidy module mid-construction). This mutates only the CI workspace —
+      # it is not a drift gate on the committed go.mod/go.sum.
+      - name: Tidy module graph
+        run: go mod tidy
+
+      - name: Check formatting
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; echo "Run 'gofmt -w .'"; exit 1; }
+
+      - name: Go vet
+        run: go vet ./...
+
+      - name: Build
+        run: go build ./...
+
+      # Analyzer-based `go fix` (Go 1.26): fails with a unified diff when any
+      # modernizer rewrite is pending. Run `go fix ./...` locally to apply.
+      - name: Go fix check
+        run: go fix -diff ./...
+
+      - name: Lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.12
+
+      - name: Test
+        run: go test ./...

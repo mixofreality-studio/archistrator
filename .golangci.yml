@@ -1,0 +1,45 @@
+# golangci-lint v2 config seated by the method-assets scaffold — the shared
+# archistrator baseline gate every built app starts from (the same baseline the
+# archistrator server + systemtests modules run). Server-owned policy: this file
+# is converged by the managed-scaffold sync, so local edits will be overwritten.
+version: "2"
+
+linters:
+  # The v2 "standard" default set = errcheck, govet, ineffassign, staticcheck,
+  # unused. Generated code (// Code generated ... DO NOT EDIT.) is auto-excluded.
+  default: standard
+  enable:
+    # Exhaustiveness of switches over generated sealed sum types (the
+    # //sumtype:decl interfaces modelgen emits).
+    - gochecksumtype
+    - gosec
+    # golint successor: exported-symbol docs, package comments, naming/stutter,
+    # unused parameters, builtin shadowing.
+    - revive
+    # gocritic at its default checker set (diagnostic + style + performance).
+    - gocritic
+    # Complexity gate (min-complexity 15, production AND test files).
+    - gocyclo
+  settings:
+    gochecksumtype:
+      # Treat a missing case as an error (the whole point of a sealed sum).
+      default-signifies-exhaustive: false
+    gocyclo:
+      min-complexity: 15
+  exclusions:
+    rules:
+      # gosec is a production-security linter. Test files legitimately use fake
+      # credentials, loose file permissions, and testdata path reads.
+      - path: "_test\\.go"
+        linters:
+          - gosec
+
+# Report everything: the default max-issues-per-linter/max-same-issues caps
+# hide findings and make CI green/red depend on fix order.
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+formatters:
+  enable:
+    - gofmt
