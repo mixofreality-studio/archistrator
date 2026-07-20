@@ -140,10 +140,11 @@ func RunMCP(ctx context.Context, opts mcpOptions, logger *slog.Logger) error {
 	defer stopTemporal()
 
 	childCfg := serverChildConfig{
-		Bin:              serverBin,
-		RepoDir:          opts.Dir,
-		ListenAddr:       addr,
-		TemporalHostport: temporalHostport,
+		Bin:               serverBin,
+		RepoDir:           opts.Dir,
+		ListenAddr:        addr,
+		TemporalHostport:  temporalHostport,
+		TemporalNamespace: localTemporalNamespace,
 	}
 	child, err := startServerChild(ctx, childCfg, opts.Stderr, serverReadyWait)
 	if err != nil {

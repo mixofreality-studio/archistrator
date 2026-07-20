@@ -66,6 +66,11 @@ type serverChildConfig struct {
 	RepoDir          string // absolute path to the project repo (git-forward projectstate substrate)
 	ListenAddr       string // "127.0.0.1:<port>"
 	TemporalHostport string
+	// TemporalNamespace is the stack's dedicated namespace (temporal.go's
+	// localTemporalNamespace) — the identity seam that turns a wrong/foreign
+	// Temporal backend into a typed NamespaceNotFound instead of a
+	// destructive "no active design session" 404 (QA 2026-07-19).
+	TemporalNamespace string
 }
 
 // env composes the child's environment: the parent's environment (so PATH,
@@ -79,6 +84,7 @@ func (c serverChildConfig) env() []string {
 		"ARCHISTRATOR_PROJECT_STATE_GIT_REPO_URL": "file://" + c.RepoDir,
 		"ARCHISTRATOR_LISTEN_ADDR":                c.ListenAddr,
 		"ARCHISTRATOR_TEMPORAL_HOSTPORT":          c.TemporalHostport,
+		"ARCHISTRATOR_TEMPORAL_NAMESPACE":         c.TemporalNamespace,
 		// Loopback-only local stack — the auth floor doc (plan's Global
 		// Constraints) permits dev-mode auth ONLY on loopback, which
 		// ListenAddr above is.

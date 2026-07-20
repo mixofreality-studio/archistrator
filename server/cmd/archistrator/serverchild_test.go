@@ -90,3 +90,28 @@ func TestServerChildConfigEnv_StillForcesLocalProfileSettings(t *testing.T) {
 		t.Fatalf("ARCHISTRATOR_PROJECT_STATE_GIT_LOCAL = %q (present=%v), want forced %q", v, present, "true")
 	}
 }
+
+// QA 2026-07-19 (poll-404 wizard reset): the child must run in the stack's
+// DEDICATED Temporal namespace, not "default" — the namespace is the identity
+// seam that turns a wrong/foreign Temporal backend into a typed
+// NamespaceNotFound (an Infrastructure fault the SPA tolerates) instead of a
+// destructive, authoritative "no active design session" 404. Forced over any
+// conflicting parent env, like the other local-profile settings.
+func TestServerChildConfigEnv_ForcesDedicatedTemporalNamespace(t *testing.T) {
+	t.Setenv("ARCHISTRATOR_TEMPORAL_NAMESPACE", "default")
+
+	cfg := serverChildConfig{
+		Bin:               "archistrator-server",
+		RepoDir:           "/tmp/repo",
+		ListenAddr:        "127.0.0.1:8877",
+		TemporalHostport:  "127.0.0.1:7943",
+		TemporalNamespace: localTemporalNamespace,
+	}
+
+	env := cfg.env()
+
+	v, present := lookupEnv(env, "ARCHISTRATOR_TEMPORAL_NAMESPACE")
+	if !present || v != localTemporalNamespace {
+		t.Fatalf("ARCHISTRATOR_TEMPORAL_NAMESPACE = %q (present=%v), want forced %q", v, present, localTemporalNamespace)
+	}
+}
