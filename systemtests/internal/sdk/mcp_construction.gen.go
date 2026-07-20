@@ -62,6 +62,17 @@ func (c *MCPClient) ConstructionRunReplanSweep(ctx context.Context, projectID Pr
 	return mcpCallResult[ReplanSweepResult](c, ctx, "constructionRunReplanSweep", ConstructionRunReplanSweepInput{ProjectID: projectID, TickID: tickID})
 }
 
+// ConstructionSetReviewPolicyInput is the MCP tool-call argument object for constructionSetReviewPolicy.
+type ConstructionSetReviewPolicyInput struct {
+	ProjectID ProjectID `json:"projectID"`
+	Preset    string    `json:"preset"`
+}
+
+// ConstructionSetReviewPolicy calls the constructionSetReviewPolicy tool on the Construction manager over MCP.
+func (c *MCPClient) ConstructionSetReviewPolicy(ctx context.Context, projectID ProjectID, preset string) error {
+	return c.callTool(ctx, "constructionSetReviewPolicy", ConstructionSetReviewPolicyInput{ProjectID: projectID, Preset: preset}, nil)
+}
+
 // ConstructionSubmitPhaseDecisionInput is the MCP tool-call argument object for constructionSubmitPhaseDecision.
 type ConstructionSubmitPhaseDecisionInput struct {
 	ProjectID  ProjectID                   `json:"projectID"`

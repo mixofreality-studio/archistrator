@@ -12226,6 +12226,24 @@
             "error": true
           },
           {
+            "name": "SetReviewPolicy",
+            "params": [
+              {
+                "name": "projectID",
+                "schema": {
+                  "$ref": "#/$defs/ProjectID"
+                }
+              },
+              {
+                "name": "preset",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            ],
+            "error": true
+          },
+          {
             "name": "SubmitPhaseDecision",
             "params": [
               {
@@ -23031,6 +23049,9 @@
                   "type": "string"
                 }
               }
+            },
+            "preset": {
+              "type": "string"
             }
           },
           "required": [

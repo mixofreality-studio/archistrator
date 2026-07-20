@@ -8999,3 +8999,22 @@ func Test_ViolatingCommittedState_DecodesThenFindings(t *testing.T) {
 		t.Fatal("empty-encapsulates client must NOT fire SYS-ENCAPSULATES (R5 scoping)")
 	}
 }
+
+// ---- reviewPolicyToContract (local-merge-and-policy Commit 3 read-back) -----
+
+// The project read must carry the committed review-policy PRESET (the webApp's
+// preset control reads it back), and a policy that ONLY sets a preset (the
+// CreateProject "vibes" default) must not be dropped by the emptiness gate.
+func Test_ReviewPolicyToContract_CarriesPreset(t *testing.T) {
+	preset := projectstate.ReviewPresetVibes
+	v := reviewPolicyToContract(projectstate.ReviewPolicy{Preset: &preset})
+	if v == nil {
+		t.Fatal("preset-only policy must not map to nil (emptiness gate must cover Preset)")
+	}
+	if v.Preset == nil || *v.Preset != projectstate.ReviewPresetVibes {
+		t.Fatalf("Preset = %v, want vibes", v.Preset)
+	}
+	if reviewPolicyToContract(projectstate.ReviewPolicy{}) != nil {
+		t.Fatal("a genuinely empty policy still maps to nil")
+	}
+}

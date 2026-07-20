@@ -47,6 +47,11 @@ export const OP_BINDINGS = {
     path: '/api/v1/construction/run-replan-sweep/{projectID}',
     tool: 'constructionRunReplanSweep',
   },
+  constructionSetReviewPolicy: {
+    method: 'POST',
+    path: '/api/v1/construction/set-review-policy/{projectID}',
+    tool: 'constructionSetReviewPolicy',
+  },
   constructionSubmitPhaseDecision: {
     method: 'POST',
     path: '/api/v1/construction/submit-phase-decision/{projectID}/{activityID}',

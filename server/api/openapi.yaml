@@ -2887,6 +2887,8 @@ components:
                             type: string
                         type: array
                     type: object
+                preset:
+                    type: string
             required:
                 - gatedPhasesByType
             type: object
@@ -3531,6 +3533,73 @@ paths:
                             schema:
                                 $ref: '#/components/schemas/ConstructionReplanSweepResult'
                     description: success
+                "400":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: contract misuse
+                "401":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: unauthenticated
+                "403":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: forbidden
+                "404":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: not found
+                "409":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: failed precondition
+                "500":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: internal error
+                "503":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: infrastructure unavailable
+            security:
+                - bearerAuth: []
+    /api/v1/construction/set-review-policy/{projectID}:
+        post:
+            operationId: SetReviewPolicy
+            parameters:
+                - in: path
+                  name: projectID
+                  required: true
+                  schema:
+                    $ref: '#/components/schemas/ConstructionProjectID'
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            properties:
+                                preset:
+                                    type: string
+                            required:
+                                - preset
+                            type: object
+                required: true
+            responses:
+                "204":
+                    description: no content
                 "400":
                     content:
                         application/json:

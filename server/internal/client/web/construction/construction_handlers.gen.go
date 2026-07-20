@@ -26,6 +26,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/construction/override-activity/{projectID}/{activityID}", h.handleOverrideActivity)
 	mux.HandleFunc("POST /api/v1/construction/pause-project/{projectID}", h.handlePauseProject)
 	mux.HandleFunc("POST /api/v1/construction/run-replan-sweep/{projectID}", h.handleRunReplanSweep)
+	mux.HandleFunc("POST /api/v1/construction/set-review-policy/{projectID}", h.handleSetReviewPolicy)
 	mux.HandleFunc("POST /api/v1/construction/submit-phase-decision/{projectID}/{activityID}", h.handleSubmitPhaseDecision)
 	mux.HandleFunc("POST /api/v1/construction/update-review-policy/{projectID}", h.handleUpdateReviewPolicy)
 }
@@ -44,6 +45,10 @@ type pauseProjectRequest struct {
 
 type runReplanSweepRequest struct {
 	TickID string `json:"tickID"`
+}
+
+type setReviewPolicyRequest struct {
+	Preset string `json:"preset"`
 }
 
 type submitPhaseDecisionRequest struct {
@@ -192,6 +197,33 @@ func (h *Handler) handleRunReplanSweep(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
+}
+
+// handleSetReviewPolicy binds POST /api/v1/construction/set-review-policy/{projectID} -> mgr.SetReviewPolicy.
+func (h *Handler) handleSetReviewPolicy(w http.ResponseWriter, r *http.Request) {
+	projectID := mgr.ProjectID(r.PathValue("projectID"))
+	var req setReviewPolicyRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	principal, ok := security.PrincipalFrom(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthenticated", "authentication required")
+		return
+	}
+	decision, err := h.Security.Authorize(r.Context(), principal,
+		security.Action{Verb: "set-review-policy"},
+		security.ResourceRef{Kind: "project", ID: string(projectID)})
+	if err != nil || !decision.Permit {
+		writeError(w, http.StatusForbidden, "forbidden", "not permitted")
+		return
+	}
+	rc := fwmanager.Context{Context: r.Context(), Principal: principal}
+	if err := h.Manager.SetReviewPolicy(rc, projectID, req.Preset); err != nil {
+		writeManagerError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleSubmitPhaseDecision binds POST /api/v1/construction/submit-phase-decision/{projectID}/{activityID} -> mgr.SubmitPhaseDecision.

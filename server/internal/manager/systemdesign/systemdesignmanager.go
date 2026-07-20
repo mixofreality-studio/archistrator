@@ -2199,9 +2199,12 @@ func systemTestPlanToContract(p *projectstate.SystemTestPlan) *SystemTestPlanVie
 }
 
 // reviewPolicyToContract converts the head-state ReviewPolicy to the contract
-// ReviewPolicyView. Returns nil when the policy is empty (no gates configured).
+// ReviewPolicyView. Returns nil when the policy is empty (no gates configured
+// AND no preset chosen) — matching EncodeProject's own emptiness gate, so the
+// webApp's preset control (local-merge-and-policy Commit 3) reads the committed
+// preset back rather than always showing an unset dial.
 func reviewPolicyToContract(p projectstate.ReviewPolicy) *ReviewPolicyView {
-	if len(p.GatedPhasesByType) == 0 {
+	if len(p.GatedPhasesByType) == 0 && p.Preset == nil {
 		return nil
 	}
 	byType := make(map[string][]string, len(p.GatedPhasesByType))
@@ -2212,7 +2215,7 @@ func reviewPolicyToContract(p projectstate.ReviewPolicy) *ReviewPolicyView {
 		}
 		byType[typ] = strs
 	}
-	return &ReviewPolicyView{GatedPhasesByType: byType}
+	return &ReviewPolicyView{GatedPhasesByType: byType, Preset: p.Preset}
 }
 
 // researchToContract maps the Phase-1 research corpus onto the read view. F22

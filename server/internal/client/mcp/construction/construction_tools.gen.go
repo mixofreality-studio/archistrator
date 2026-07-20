@@ -30,6 +30,7 @@ func (h *Handler) Register(srv *mcp.Server) {
 	mcp.AddTool(srv, &mcp.Tool{Name: "constructionOverrideActivity", Description: "Manually override one activity's state (e.g. force-complete, reopen, or reassign) — an operator escape hatch outside the normal construction pump.", InputSchema: overrideActivityInputSchema(), OutputSchema: overrideActivityOutputSchema()}, h.handleOverrideActivity)
 	mcp.AddTool(srv, &mcp.Tool{Name: "constructionPauseProject", Description: "Pause the construction pump for a project so no further activities dispatch until it is resumed. reason is recorded for the audit trail.", InputSchema: pauseProjectInputSchema(), OutputSchema: pauseProjectOutputSchema()}, h.handlePauseProject)
 	mcp.AddTool(srv, &mcp.Tool{Name: "constructionRunReplanSweep", Description: "Run the re-plan sweep that detects scope or variance drift and re-derives the project network. With no projectID it sweeps every active project; tickID idempotently identifies the sweep.", InputSchema: runReplanSweepInputSchema(), OutputSchema: runReplanSweepOutputSchema()}, h.handleRunReplanSweep)
+	mcp.AddTool(srv, &mcp.Tool{Name: "constructionSetReviewPolicy", Description: "Set the project's construction review-policy preset: vibes (auto-approve everything short of the deploy/spend/schema risk floor), checkpoints (approval at the contract commit + construction dispatch + merge), or full (approval at every step). Any other preset value is rejected.", InputSchema: setReviewPolicyInputSchema(), OutputSchema: setReviewPolicyOutputSchema()}, h.handleSetReviewPolicy)
 	mcp.AddTool(srv, &mcp.Tool{Name: "constructionSubmitPhaseDecision", Description: "Record a review verdict (approve or send-back) for one construction phase of an activity. Send-back should carry feedback; approve advances the activity's lifecycle.", InputSchema: submitPhaseDecisionInputSchema(), OutputSchema: submitPhaseDecisionOutputSchema()}, h.handleSubmitPhaseDecision)
 	mcp.AddTool(srv, &mcp.Tool{Name: "constructionUpdateReviewPolicy", Description: "Replace the construction review-routing policy (which reviewers gate which produced artifacts) for a project.", InputSchema: updateReviewPolicyInputSchema(), OutputSchema: updateReviewPolicyOutputSchema()}, h.handleUpdateReviewPolicy)
 }
@@ -75,6 +76,13 @@ type runReplanSweepInput struct {
 type runReplanSweepOutput struct {
 	Result mgr.ReplanSweepResult `json:"result"`
 }
+
+type setReviewPolicyInput struct {
+	ProjectID mgr.ProjectID `json:"projectID"`
+	Preset    string        `json:"preset"`
+}
+
+type setReviewPolicyOutput struct{}
 
 type submitPhaseDecisionInput struct {
 	ProjectID  mgr.ProjectID       `json:"projectID"`
@@ -143,6 +151,16 @@ func runReplanSweepInputSchema() *jsonschema.Schema {
 	return s
 }
 
+// setReviewPolicyInputSchema is the explicit MCP input schema for the SetReviewPolicy operation.
+func setReviewPolicyInputSchema() *jsonschema.Schema {
+	s := objectSchema[setReviewPolicyInput]()
+	fixUUIDStrings(s)
+	relaxRawJSON(s)
+	allowNullMaps(s)
+	s.Required = []string{"projectID", "preset"}
+	return s
+}
+
 // submitPhaseDecisionInputSchema is the explicit MCP input schema for the SubmitPhaseDecision operation.
 func submitPhaseDecisionInputSchema() *jsonschema.Schema {
 	s := objectSchema[submitPhaseDecisionInput]()
@@ -203,6 +221,15 @@ func pauseProjectOutputSchema() *jsonschema.Schema {
 // runReplanSweepOutputSchema is the explicit MCP output schema for the RunReplanSweep operation.
 func runReplanSweepOutputSchema() *jsonschema.Schema {
 	s := objectSchema[runReplanSweepOutput]()
+	fixUUIDStrings(s)
+	relaxRawJSON(s)
+	allowNullMaps(s)
+	return s
+}
+
+// setReviewPolicyOutputSchema is the explicit MCP output schema for the SetReviewPolicy operation.
+func setReviewPolicyOutputSchema() *jsonschema.Schema {
+	s := objectSchema[setReviewPolicyOutput]()
 	fixUUIDStrings(s)
 	relaxRawJSON(s)
 	allowNullMaps(s)
@@ -294,6 +321,17 @@ func (h *Handler) handleRunReplanSweep(ctx context.Context, _ *mcp.CallToolReque
 		return nil, out, mapManagerError(err)
 	}
 	out.Result = result
+	return nil, out, nil
+}
+
+// handleSetReviewPolicy is the MCP tool handler for the SetReviewPolicy operation.
+func (h *Handler) handleSetReviewPolicy(ctx context.Context, _ *mcp.CallToolRequest, in setReviewPolicyInput) (*mcp.CallToolResult, setReviewPolicyOutput, error) {
+	var out setReviewPolicyOutput
+	principal, _ := security.PrincipalFrom(ctx)
+	rc := fwmanager.Context{Context: ctx, Principal: principal}
+	if err := h.Manager.SetReviewPolicy(rc, in.ProjectID, in.Preset); err != nil {
+		return nil, out, mapManagerError(err)
+	}
 	return nil, out, nil
 }
 

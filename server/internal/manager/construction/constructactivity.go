@@ -809,6 +809,25 @@ func (wf *workflows) runAttempt(
 		return attemptRetry, nil
 	}
 
+	// --- Step 5b (local-merge-and-policy Commit 1): the policy-gated LOCAL merge.
+	// In the rail-dormant local profile nothing else lands activity/<id> on main —
+	// consult the SAME EffectiveGate the construction dispatch uses (vibes → auto,
+	// checkpoints/full → hold for approval, risk floor → always hold) and dispatch
+	// the merge job through the pipeline seam. A merge failure (conflict) routes
+	// through the SAME intervention path a failed phase pipeline takes. -----------
+	mergeFailed, mergeDone, mErr := wf.runLocalMergeStep(ctx, in, attempt, reviewPolicy, state, headVersion, overrideCh, gitOn, startedCred)
+	if mErr != nil {
+		return attemptDone, mErr
+	}
+	if mergeDone {
+		return attemptDone, nil
+	}
+	if mergeFailed {
+		// retry the activity; completedPhases skips the phases, so the retry
+		// re-attempts only the merge.
+		return attemptRetry, nil
+	}
+
 	// --- Steps 5a-8a: finalize (arch +1 relay, change reviewed, gated merge, binary
 	// exit, per-activity COMPLETED). ---------------------------------------------
 	if err := wf.finalizeActivity(ctx, in, gf, headVersion, state, gitOn, startedCred); err != nil {
@@ -1124,7 +1143,7 @@ func (wf *workflows) awaitPhaseDecision(
 	redraft := 0
 	for {
 		state.stage = StageAwaitingApproval
-		sig := receivePhaseDecision(ctx, ch, phase)
+		sig := receivePhaseDecision(ctx, ch, phase.String())
 		switch sig.Decision {
 		case PhaseDecisionUnknown:
 			// zero-value sentinel, not a real decision — ignore and keep awaiting, same as default.
@@ -1152,12 +1171,15 @@ func (wf *workflows) awaitPhaseDecision(
 }
 
 // receivePhaseDecision blocks on the decision channel, draining and DISCARDING
-// decisions for other phases (stale/multiplexed), until one for THIS phase arrives.
-func receivePhaseDecision(ctx workflow.Context, ch workflow.ReceiveChannel, phase projectstate.ActivityMethodPhase) phaseDecisionSignal {
+// decisions for other gate keys (stale/multiplexed), until one for THIS key
+// arrives. key is a phase's wire name (phase.String()) or the merge gate's
+// mergeGateKey — the signal payload's Phase field is a plain string pass-through
+// (SubmitPhaseDecision), so the merge gate rides the same machinery.
+func receivePhaseDecision(ctx workflow.Context, ch workflow.ReceiveChannel, key string) phaseDecisionSignal {
 	var sig phaseDecisionSignal
 	for {
 		ch.Receive(ctx, &sig)
-		if sig.Phase == phase.String() {
+		if sig.Phase == key {
 			return sig
 		}
 	}
@@ -1191,6 +1213,141 @@ func (wf *workflows) completePhase(
 	}
 	*headVersion = v
 	return nil
+}
+
+// ---------------------------------------------------------------------------
+// Policy-gated LOCAL merge step (local-merge-and-policy Commit 1). In the
+// rail-dormant local profile (the local construction executor — gitOn without a
+// PR rail) the commits land on activity/<id> and NOTHING else merges them: this
+// step is what finishes the git-forward story there. The DECISION reuses the
+// Task-7 machinery verbatim — ReviewPolicy.EffectiveGate at
+// MethodPhaseConstruction with the non-overridable risk floor — so:
+//   - vibes (and the legacy empty policy)   → auto-merge, no hold;
+//   - checkpoints / full                    → hold at an approval gate (the
+//     SAME suspend/approve machinery as the phase gates, keyed mergeGateKey)
+//     and merge on Approve;
+//   - a risk-floor-flagged activity (deploy/spend/schema contract) → ALWAYS
+//     hold, regardless of preset, including vibes.
+// The merge itself is EXECUTED by the local pipeline arm via the frozen Submit
+// surface (DispatchInputs["job"]="merge" — constructionpipeline.DispatchJobMerge):
+// a --no-ff merge of activity/<id> into main + branch delete, atomic-on-intent
+// (a conflict aborts in a throwaway clone; nothing partial ever lands). A merge
+// failure flows through the SAME intervention path as a failed phase pipeline.
+// ---------------------------------------------------------------------------
+
+// mergeGateKey is the phaseDecision key the merge hold suspends on. It is NOT an
+// ActivityMethodPhase — SubmitPhaseDecision passes the key through as a plain
+// string, so the operator releases the merge with
+// SubmitPhaseDecision(projectID, activityID, "merge", Approve).
+const mergeGateKey = "merge"
+
+// runLocalMergeStep runs the policy-gated local merge (see the section comment
+// above). Returns (mergeFailed, done, err) with walkPhases' loop-control
+// semantics: done=true means the failure path terminally recorded the activity;
+// mergeFailed=true means the supervision loop should retry (completedPhases +
+// mergeCompleted make the retry re-attempt ONLY the merge). A no-op (returns
+// all-false) outside the rail-dormant git profile, on a pre-feature in-flight
+// execution (GetVersion replay guard), or when the merge already landed.
+func (wf *workflows) runLocalMergeStep(
+	ctx workflow.Context,
+	in constructActivityInput,
+	attempt int,
+	policy projectstate.ReviewPolicy,
+	state *constructState,
+	headVersion *projectstate.Version,
+	overrideCh workflow.ReceiveChannel,
+	gitOn bool,
+	startedCred railCredEnvelope,
+) (bool, bool, error) {
+	// Replay guard (same discipline as construction-review-policy-snapshot):
+	// workflows in flight before this feature deployed have no history for the
+	// merge commands — they skip the step entirely.
+	if workflow.GetVersion(ctx, "local-merge-step", workflow.DefaultVersion, 1) < 1 {
+		return false, false, nil
+	}
+	// The local merge fires ONLY in the rail-dormant git profile: gitOn without a
+	// PR rail (startedCred's LOCAL/dry-run arm). When the rail is wired the cloud
+	// git-forward lifecycle (mergeAndRecord) owns the merge; when git is unwired
+	// there is no branch to merge.
+	if !gitOn || wf.RailEnabled || state.mergeCompleted {
+		return false, false, nil
+	}
+
+	// The Task-7 gate, consulted at MethodPhaseConstruction: this is what makes
+	// vibes auto-merge, checkpoints/full hold, and the risk floor hold ALWAYS.
+	if policy.EffectiveGate(in.Activity.activityTypeName(), projectstate.MethodPhaseConstruction, state.floorTouched) {
+		state.stage = StageAwaitingApproval
+		ch := workflow.GetSignalChannel(ctx, signalPhaseDecision)
+		for {
+			sig := receivePhaseDecision(ctx, ch, mergeGateKey)
+			if sig.Decision == PhaseApprove {
+				break
+			}
+			// SendBack has no redraft meaning for a merge — keep awaiting Approve
+			// (the operator steers the activity itself via operatorOverride).
+			workflow.GetLogger(ctx).Info("merge gate: ignoring non-approve decision; awaiting Approve",
+				"activityId", in.ActivityID, "decision", sig.Decision)
+		}
+	}
+
+	state.stage = StagePipelineRunning
+	obs, err := wf.runMergePipeline(ctx, in, state)
+	if err != nil {
+		return false, false, err
+	}
+	if obs.Phase == PipelineSucceeded {
+		state.mergeCompleted = true
+		return false, false, nil
+	}
+
+	// Merge failed (conflict, missing branch, push fault) — the SAME
+	// intervention/failure path a failed phase pipeline takes.
+	failReason := deriveFailureReason(obs.Phase, obs.Diagnostic)
+	done, vErr := wf.handleVariance(ctx, in, intervention.WorkerMiss, obs.Diagnostic, failReason, attempt, headVersion, state, overrideCh, gitOn, startedCred)
+	if vErr != nil {
+		return false, false, vErr
+	}
+	if done {
+		return false, true, nil
+	}
+	return true, false, nil
+}
+
+// runMergePipeline dispatches the merge job through the pipeline seam and polls
+// to a terminal observation (the local arm performs the merge synchronously, so
+// the first observe is normally already terminal; the bounded poll mirrors
+// runPipeline's discipline). The spec deliberately carries NO "command"/"phase"
+// inputs — the job key routes it inside the local arm; it never spawns claude.
+func (wf *workflows) runMergePipeline(ctx workflow.Context, in constructActivityInput, state *constructState) (pipelineObservation, error) {
+	handle, err := wf.Acts.PipelineSubmitConstructionPipeline(ctx, constructionpipeline.PipelineSpec{
+		ActivityID: constructionpipeline.ConstructionActivityID(string(in.ActivityID)),
+		Steps: []constructionpipeline.PipelineStep{{
+			Name:      "build",
+			Toolchain: constructionpipeline.ToolchainRef(pipelineDefaultToolchain),
+			Command:   []string{"sh", "-c", "true"},
+		}},
+		DispatchInputs: map[string]string{
+			constructionpipeline.DispatchInputJobKey: constructionpipeline.DispatchJobMerge,
+			"activity_id":                            string(in.ActivityID),
+		},
+	})
+	if err != nil {
+		return pipelineObservation{}, err
+	}
+	h := pipelineHandle{Name: constructionpipeline.PipelineHandleString(handle)}
+	for range maxPipelinePolls {
+		obs, oerr := wf.observePipeline(ctx, h)
+		if oerr != nil {
+			return pipelineObservation{}, oerr
+		}
+		ph := obs.Phase
+		state.pipelinePhase = &ph
+		if obs.Phase == PipelineSucceeded || obs.Phase == PipelineFailed || obs.Phase == PipelineCancelled {
+			return obs, nil
+		}
+		_ = workflow.Sleep(ctx, pipelinePollInterval)
+	}
+	return pipelineObservation{Phase: PipelineFailed, Diagnostic: "merge pipeline did not reach a terminal phase within the poll budget"}, nil
 }
 
 // recordPhaseStarted records the phase-started head-state transition (Task-5

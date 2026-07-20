@@ -27,6 +27,7 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/review"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/constructionpipeline"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
+	projectstatefake "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate/fake"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 )
 
@@ -3044,8 +3045,15 @@ func Test_Construct_VibesPreset_NoSuspend_WalksAllPhases(t *testing.T) {
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("workflow error: %v", err)
 	}
-	if len(pipe.submitted) != len(sampleActivity().Phases) {
-		t.Fatalf("vibes preset submitted %d pipelines, want %d", len(pipe.submitted), len(sampleActivity().Phases))
+	// Phases + the auto-dispatched LOCAL MERGE job (local-merge-and-policy Commit 1):
+	// under vibes in the rail-dormant git profile the activity finishes with a
+	// policy-auto-approved merge of activity/<id> into main.
+	if len(pipe.submitted) != len(sampleActivity().Phases)+1 {
+		t.Fatalf("vibes preset submitted %d pipelines, want %d (phases + auto-merge)", len(pipe.submitted), len(sampleActivity().Phases)+1)
+	}
+	last := pipe.submitted[len(pipe.submitted)-1]
+	if last.DispatchInputs[constructionpipeline.DispatchInputJobKey] != constructionpipeline.DispatchJobMerge {
+		t.Fatalf("last submit must be the merge job, got inputs %v", last.DispatchInputs)
 	}
 }
 
@@ -3094,6 +3102,11 @@ func Test_Construct_VibesPreset_FloorBlocksFlaggedDispatch(t *testing.T) {
 	env.RegisterDelayedCallback(func() {
 		env.SignalWorkflow(signalPhaseDecision, phaseDecisionSignal{Phase: "construction", Decision: PhaseApprove})
 	}, 30*time.Second)
+	// The risk floor ALSO holds the local merge (local-merge-and-policy Commit 1):
+	// a second approval on the "merge" gate key releases it.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalPhaseDecision, phaseDecisionSignal{Phase: mergeGateKey, Decision: PhaseApprove})
+	}, 60*time.Second)
 	env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{ProjectID: "p", ActivityID: "C-Orders", Activity: sampleActivity()})
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("workflow error: %v", err)
@@ -3126,5 +3139,243 @@ func Test_Construct_VibesPreset_NoFloor_NoDeadlock(t *testing.T) {
 	}
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("workflow error: %v", err)
+	}
+}
+
+// ---- Tests: policy-gated LOCAL merge step (local-merge-and-policy Commit 1) --
+
+// checkpointsPreset builds a ReviewPolicy with the "checkpoints" preset.
+func checkpointsPreset() projectstate.ReviewPolicy {
+	p := projectstate.ReviewPresetCheckpoints
+	return projectstate.ReviewPolicy{Preset: &p}
+}
+
+// mergeSubmits returns the merge-job submissions the fake pipeline captured.
+func mergeSubmits(specs []constructionpipeline.PipelineSpec) []constructionpipeline.PipelineSpec {
+	var out []constructionpipeline.PipelineSpec
+	for _, s := range specs {
+		if s.DispatchInputs[constructionpipeline.DispatchInputJobKey] == constructionpipeline.DispatchJobMerge {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// Test_Construct_LocalMerge_CheckpointsHoldsUntilMergeApproval proves the
+// checkpoints/full hold: after the gated phases are approved, the activity
+// holds AGAIN at the merge gate (keyed "merge") and dispatches the merge job
+// only on Approve.
+func Test_Construct_LocalMerge_CheckpointsHoldsUntilMergeApproval(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	ps := newFakeProjectStateWithPolicy(checkpointsPreset())
+	pipe := newFakePipeline()
+	wf := newWorkflows(gateDeps(ps))
+	registerConstruct(env, wf, ps, pipe)
+	// checkpoints gates detailed_design + construction; the merge gate holds last.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalPhaseDecision, phaseDecisionSignal{Phase: "detailed_design", Decision: PhaseApprove})
+	}, 20*time.Second)
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalPhaseDecision, phaseDecisionSignal{Phase: "construction", Decision: PhaseApprove})
+	}, 40*time.Second)
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalPhaseDecision, phaseDecisionSignal{Phase: mergeGateKey, Decision: PhaseApprove})
+	}, 60*time.Second)
+	env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{ProjectID: "p", ActivityID: "C-Orders", Activity: sampleActivity()})
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	merges := mergeSubmits(pipe.submitted)
+	if len(merges) != 1 {
+		t.Fatalf("expected exactly 1 merge-job submit after merge approval, got %d", len(merges))
+	}
+	if got := merges[0].DispatchInputs["activity_id"]; got != "C-Orders" {
+		t.Fatalf("merge job activity_id = %q, want C-Orders", got)
+	}
+	if len(ps.exited) != 1 {
+		t.Fatalf("expected the activity to exit after the approved merge, exits = %d", len(ps.exited))
+	}
+}
+
+// Test_Construct_LocalMerge_CheckpointsHoldsWithoutMergeApproval is the negative
+// control: with the phase approvals delivered but NO merge approval, the merge
+// job is never dispatched and the activity never exits (the Temporal test env's
+// runaway watchdog eventually forces the suspended run down, exactly as the
+// Task-7 floor-suspend test documents — the real red/green signal is the
+// absence of the merge submit + the exit record).
+func Test_Construct_LocalMerge_CheckpointsHoldsWithoutMergeApproval(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	ps := newFakeProjectStateWithPolicy(checkpointsPreset())
+	pipe := newFakePipeline()
+	wf := newWorkflows(gateDeps(ps))
+	registerConstruct(env, wf, ps, pipe)
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalPhaseDecision, phaseDecisionSignal{Phase: "detailed_design", Decision: PhaseApprove})
+	}, 20*time.Second)
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalPhaseDecision, phaseDecisionSignal{Phase: "construction", Decision: PhaseApprove})
+	}, 40*time.Second)
+	// Deliberately NO "merge" approval.
+	env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{ProjectID: "p", ActivityID: "C-Orders", Activity: sampleActivity()})
+	if got := mergeSubmits(pipe.submitted); len(got) != 0 {
+		t.Fatalf("merge job must NOT dispatch without merge approval, got %d submits", len(got))
+	}
+	if len(ps.exited) != 0 {
+		t.Fatalf("activity must NOT exit while the merge gate holds, exits = %d", len(ps.exited))
+	}
+}
+
+// Test_Construct_LocalMerge_NonGitProfile_NoMergeSubmit: with GitStatus unwired
+// (gitOn=false — no git slice at all), the merge step is a no-op: phases only.
+func Test_Construct_LocalMerge_NonGitProfile_NoMergeSubmit(t *testing.T) {
+	pipe := runPumpWith(t, sampleActivity()) // wires NO GitStatus
+	if got := mergeSubmits(pipe.submitted); len(got) != 0 {
+		t.Fatalf("non-git profile must not dispatch a merge job, got %d", len(got))
+	}
+}
+
+// mergeConflictPipeline serves Succeeded for phase dispatches and a FAILED
+// "merge conflict" observation for merge-job dispatches — the deterministic-
+// conflict double for the intervention-path test.
+type mergeConflictPipeline struct {
+	mu        sync.Mutex
+	submitted []constructionpipeline.PipelineSpec
+}
+
+func (p *mergeConflictPipeline) SubmitConstructionPipeline(_ fwra.Context, spec constructionpipeline.PipelineSpec) (constructionpipeline.PipelineHandle, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.submitted = append(p.submitted, spec)
+	if spec.DispatchInputs[constructionpipeline.DispatchInputJobKey] == constructionpipeline.DispatchJobMerge {
+		return constructionpipeline.PipelineHandle("merge-" + string(spec.ActivityID)), nil
+	}
+	return constructionpipeline.PipelineHandle("wf-" + string(spec.ActivityID)), nil
+}
+
+func (p *mergeConflictPipeline) ObserveConstructionPipeline(_ fwra.Context, handle constructionpipeline.PipelineHandle) (constructionpipeline.PipelineObservation, error) {
+	if strings.HasPrefix(string(handle), "merge-") {
+		return constructionpipeline.PipelineObservation{
+			Phase:      constructionpipeline.PhaseFailed,
+			Diagnostic: "local merge: merge conflict merging activity/C-Orders into main",
+		}, nil
+	}
+	return constructionpipeline.PipelineObservation{Phase: constructionpipeline.PhaseSucceeded}, nil
+}
+
+func (p *mergeConflictPipeline) CancelConstructionPipeline(_ fwra.Context, _ constructionpipeline.PipelineHandle) error {
+	return nil
+}
+
+var _ constructionpipeline.ConstructionPipelineAccess = (*mergeConflictPipeline)(nil)
+
+// Test_Construct_LocalMerge_ConflictRoutesToIntervention proves a merge conflict
+// flows through the SAME variance machinery as a failed phase pipeline: under a
+// Retry directive the deterministic conflict exhausts the variance budget and
+// the activity records a terminal FAILURE (VarianceExhausted) — never a fake
+// completed exit, and no partial merge is ever recorded.
+func Test_Construct_LocalMerge_ConflictRoutesToIntervention(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	ps := newFakeProjectStateWithPolicy(vibesPreset())
+	pipe := &mergeConflictPipeline{}
+	wf := newWorkflows(gateDeps(ps))
+	registerConstruct(env, wf, ps, pipe)
+	env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{ProjectID: "p", ActivityID: "C-Orders", Activity: sampleActivity()})
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	if len(ps.failed) != 1 || ps.failed[0].reason != projectstate.VarianceExhausted {
+		t.Fatalf("expected a terminal VarianceExhausted failure record, got %+v", ps.failed)
+	}
+	if len(ps.exited) != 0 {
+		t.Fatalf("a conflicted merge must not record a completed exit, exits = %+v", ps.exited)
+	}
+}
+
+// ---- SetReviewPolicy (op 2.8, local-merge-and-policy Commit 2) --------------
+
+// setReviewPolicyManager wires a constructionManager over the generated
+// FakeConstructionTransitionAccess for the preset write-path tests.
+func setReviewPolicyManager(ct projectstate.ConstructionTransitionAccess) *constructionManager {
+	return newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, ct, nil, nil, 0, "", nil)
+}
+
+func Test_SetReviewPolicy_EmptyProjectID(t *testing.T) {
+	m := setReviewPolicyManager(nil)
+	err := m.SetReviewPolicy(fwmanager.Context{Context: context.Background()}, ProjectID(""), projectstate.ReviewPresetVibes)
+	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
+		t.Fatalf("want ContractMisuse, got %s", got)
+	}
+}
+
+// The write path is a CLOSED vocabulary: an unknown preset is rejected before
+// any RA call (the fake would panic if touched — nil Fns). This is the fix for
+// the documented fail-open corner: EffectiveGate's read path treats an
+// unrecognized preset as the legacy explicit-map fallback (empty map → gates
+// NOTHING), so a typo must never be persistable.
+func Test_SetReviewPolicy_RejectsUnknownPreset(t *testing.T) {
+	m := setReviewPolicyManager(&projectstatefake.FakeConstructionTransitionAccess{})
+	for _, preset := range []string{"", "vibess", "YOLO", "Full", "VIBES"} {
+		err := m.SetReviewPolicy(fwmanager.Context{Context: context.Background()}, ProjectID("p1"), preset)
+		if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
+			t.Fatalf("preset %q: want ContractMisuse, got %s", preset, got)
+		}
+	}
+}
+
+// A valid preset writes through the projectstate CAS: read the current version,
+// record the policy at that expectedVersion with the preset set and the
+// committed GatedPhasesByType map PRESERVED (SetReviewPolicy and
+// UpdateReviewPolicy own disjoint halves of ReviewPolicy).
+func Test_SetReviewPolicy_WritesPresetPreservingGateMap(t *testing.T) {
+	existing := map[string][]projectstate.ActivityMethodPhase{
+		"service": {projectstate.MethodPhaseDetailedDesign},
+	}
+	var recorded *projectstate.ReviewPolicy
+	var recordedVersion projectstate.Version
+	ct := &projectstatefake.FakeConstructionTransitionAccess{
+		ReadProjectFn: func(_ fwra.Context, projectID projectstate.ProjectID, _ projectstate.RepoCredential) (projectstate.Project, error) {
+			return projectstate.Project{
+				ID:           projectID,
+				Version:      7,
+				ReviewPolicy: projectstate.ReviewPolicy{GatedPhasesByType: existing},
+			}, nil
+		},
+		RecordReviewPolicyFn: func(_ fwra.Context, _ projectstate.ProjectID, expectedVersion projectstate.Version, policy projectstate.ReviewPolicy, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+			recorded = &policy
+			recordedVersion = expectedVersion
+			return expectedVersion + 1, nil
+		},
+	}
+	m := setReviewPolicyManager(ct)
+	for _, preset := range []string{projectstate.ReviewPresetVibes, projectstate.ReviewPresetCheckpoints, projectstate.ReviewPresetFull} {
+		recorded = nil
+		if err := m.SetReviewPolicy(fwmanager.Context{Context: context.Background()}, ProjectID("p1"), preset); err != nil {
+			t.Fatalf("SetReviewPolicy(%q): %v", preset, err)
+		}
+		if recorded == nil || recorded.Preset == nil || *recorded.Preset != preset {
+			t.Fatalf("preset %q not recorded: %+v", preset, recorded)
+		}
+		if len(recorded.GatedPhasesByType["service"]) != 1 {
+			t.Fatalf("GatedPhasesByType must be preserved, got %+v", recorded.GatedPhasesByType)
+		}
+		if recordedVersion != 7 {
+			t.Fatalf("CAS expectedVersion = %d, want the read version 7", recordedVersion)
+		}
+	}
+}
+
+func Test_SetReviewPolicy_UnknownProject_NotFound(t *testing.T) {
+	ct := &projectstatefake.FakeConstructionTransitionAccess{
+		ReadProjectFn: func(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.RepoCredential) (projectstate.Project, error) {
+			return projectstate.Project{}, fwra.New(fwra.NotFound, "no such project")
+		},
+	}
+	m := setReviewPolicyManager(ct)
+	err := m.SetReviewPolicy(fwmanager.Context{Context: context.Background()}, ProjectID("ghost"), projectstate.ReviewPresetVibes)
+	if got := asConstructionError(t, err).Kind; got != fwmanager.NotFound {
+		t.Fatalf("want NotFound, got %s", got)
 	}
 }

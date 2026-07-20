@@ -47,6 +47,7 @@ var mcpOpDocs = map[string]map[string]string{
 		"OverrideActivity":    "Manually override one activity's state (e.g. force-complete, reopen, or reassign) — an operator escape hatch outside the normal construction pump.",
 		"PauseProject":        "Pause the construction pump for a project so no further activities dispatch until it is resumed. reason is recorded for the audit trail.",
 		"RunReplanSweep":      "Run the re-plan sweep that detects scope or variance drift and re-derives the project network. With no projectID it sweeps every active project; tickID idempotently identifies the sweep.",
+		"SetReviewPolicy":     "Set the project's construction review-policy preset: vibes (auto-approve everything short of the deploy/spend/schema risk floor), checkpoints (approval at the contract commit + construction dispatch + merge), or full (approval at every step). Any other preset value is rejected.",
 		"SubmitPhaseDecision": "Record a review verdict (approve or send-back) for one construction phase of an activity. Send-back should carry feedback; approve advances the activity's lifecycle.",
 		"UpdateReviewPolicy":  "Replace the construction review-routing policy (which reviewers gate which produced artifacts) for a project.",
 	},

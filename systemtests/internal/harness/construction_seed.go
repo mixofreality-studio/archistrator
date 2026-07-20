@@ -86,6 +86,12 @@ func ConstructionProjectJSON(projectID string, activities []SeedActivity) []byte
 			},
 		},
 		"serviceContracts": contracts,
+		// The "vibes" review-policy preset, stated explicitly (it is also the
+		// default GitStore.CreateProject seeds for a fresh project): under the
+		// local construction executor, vibes auto-approves every phase AND
+		// auto-merges activity/<id> into main on completion (local-merge-and-
+		// policy Commit 1) — the shape the UC3 local-executor systemtest proves.
+		"reviewPolicy": map[string]any{"preset": "vibes"},
 	}
 	out, err := json.MarshalIndent(doc, "", "  ")
 	if err != nil {

@@ -658,8 +658,17 @@ export type ServiceContracts = Record<string, ServiceContract>;
  * of canonical ActivityMethodPhase strings ("detailed_design", "integration",
  * "test_plan", etc.). Absent from the read when no policy has been configured.
  */
+/** The three server-validated review-policy presets (SetReviewPolicy rejects anything else). */
+export type ReviewPreset = 'vibes' | 'checkpoints' | 'full';
+
 export interface ReviewPolicyView {
   gatedPhasesByType: Record<string, string[]>;
+  /**
+   * The committed review-policy preset ("vibes" | "checkpoints" | "full") —
+   * the sophistication dial the home page's ReviewPolicyControl sets via the
+   * construction SetReviewPolicy op. Absent on projects that predate presets.
+   */
+  preset?: string;
 }
 
 export interface TestRunView {

@@ -1074,14 +1074,15 @@ func (dryRunPipeline) CancelConstructionPipeline(_ fwra.Context, _ PipelineHandl
 // this arm is selected for the ABSENCE of (constructactivity.go's gitEnabled) —
 // nobody else creates the activity branch in this profile, so this realisation must.
 //
-// GIT-FORWARD MERGE IS OUT OF SCOPE HERE (known local-mode v1 gap, tracked against
-// Task 7 "review-policy floor for local mode"): with the PR rail dormant, nothing
-// merges the activity branch into main automatically in this configuration — the
-// commits land on activity/<id> and stay there for the developer to review/merge.
-// This mirrors the EXISTING local-WITH-creds arm's split too (branch/PR/merge is
-// git-forward's job, entirely orthogonal to which executor dispatches the
-// pipeline) — this Task adds the THIRD executor arm only; it does not change who
-// owns the merge decision.
+// GIT-FORWARD MERGE (local-merge-and-policy Commit 1 — closes the former
+// local-mode v1 gap): with the PR rail dormant, the Manager now finishes an
+// activity by dispatching the MERGE JOB through this same frozen Submit surface
+// (DispatchInputs["job"]=DispatchJobMerge — submitMergeJob below): a --no-ff
+// merge of activity/<id> into the default branch + branch delete, performed in a
+// throwaway clone and pushed (the projectstate GitStore's own write mechanism).
+// The merge DECISION stays the Manager's (ReviewPolicy.EffectiveGate + the
+// Task-7 risk floor gate the merge behind human approval); this realisation only
+// executes it — the same decide/perform split the cloud PR rail has.
 //
 // NO FAKE SUCCESS STATES: every PipelinePhase this realisation reports is derived
 // from an ACTUAL subprocess outcome (exit code, timeout, explicit cancel) or an
@@ -1249,6 +1250,19 @@ func (a *localExecAccess) SubmitConstructionPipeline(rc fwra.Context, spec Pipel
 	activityID := strings.TrimSpace(string(spec.ActivityID))
 	if activityID == "" {
 		return "", fwra.New(fwra.ContractMisuse, "SubmitConstructionPipeline: empty ActivityID")
+	}
+	// Policy-gated local merge job (local-merge-and-policy Commit 1): a dispatch
+	// carrying DispatchInputs["job"]="merge" is NOT a claude run — it merges the
+	// activity branch into the repo's default branch (and deletes the branch),
+	// synchronously, recording a terminal run the Manager's existing observe poll
+	// reads. The Manager sends this ONLY in the local (rail-dormant) profile,
+	// AFTER the ReviewPolicy.EffectiveGate hold (if any) has cleared — the RA
+	// stays policy-free (it executes; the Manager decides). A merge conflict is a
+	// FAILED run with a diagnostic (the Manager's intervention path), never a
+	// partial merge — the merge happens in a throwaway clone and nothing is
+	// pushed unless it completed cleanly.
+	if spec.DispatchInputs[DispatchInputJobKey] == DispatchJobMerge {
+		return a.submitMergeJob(rc, activityID)
 	}
 	command := strings.TrimSpace(spec.DispatchInputs["command"])
 	if command == "" {
@@ -1941,6 +1955,130 @@ func revParseBranch(repoPath, branch string) (string, error) {
 func removeWorktree(repoPath, workDir string) error {
 	_, err := runGit(repoPath, "worktree", "remove", "--force", workDir)
 	return err
+}
+
+// ---------------------------------------------------------------------------
+// Policy-gated local merge job (local-merge-and-policy Commit 1). The Manager —
+// the ONLY policy authority (ReviewPolicy.EffectiveGate + the Task-7 risk
+// floor) — dispatches this job through the frozen Submit surface via
+// DispatchInputs["job"]="merge" once its gate has cleared; this RA only
+// EXECUTES the merge, mirroring the division of labor the PR rail has in the
+// cloud profile (interventionEngine/policy DECIDES, the executor PERFORMS).
+// ---------------------------------------------------------------------------
+
+// DispatchInputJobKey is the DispatchInputs key that selects a non-default job
+// for a local-executor dispatch. Absent/empty means the normal construction
+// dispatch (a headless claude run).
+const DispatchInputJobKey = "job"
+
+// DispatchJobMerge is the DispatchInputJobKey value selecting the local merge
+// job: merge activity/<id> into the repo's default branch (--no-ff) and delete
+// the activity branch. Local-executor realisation only; the Manager never sends
+// it to the GitHub-Actions arm (the PR rail owns merges there).
+const DispatchJobMerge = "merge"
+
+// submitMergeJob converges the caller-supplied idempotencyKey on a single merge
+// run (same in-memory convergence as the claude dispatch path) and performs the
+// merge SYNCHRONOUSLY — a local git merge is fast and bounded, so by the time
+// Submit returns the run is terminal and the Manager's first observe reads the
+// outcome. A merge failure (conflict included) is a FAILED run with a
+// diagnostic, not a Submit error: retrying the Submit would re-run a
+// deterministic conflict pointlessly, while the recorded failure flows into the
+// Manager's existing intervention path.
+func (a *localExecAccess) submitMergeJob(rc fwra.Context, activityID string) (PipelineHandle, error) {
+	token := dedupToken(rc.IdempotencyKey)
+	handle := PipelineHandle(localHandlePrefix + token)
+
+	a.mu.Lock()
+	if existing, ok := a.runs[token]; ok {
+		a.mu.Unlock()
+		return existing.handle, nil
+	}
+	run := &localRun{handle: handle, status: localRunRunning}
+	a.runs[token] = run
+	a.mu.Unlock()
+
+	diag, ok := a.mergeActivityBranch(localBranchName(activityID))
+
+	run.mu.Lock()
+	defer run.mu.Unlock()
+	if run.status == localRunCancelled {
+		return handle, nil
+	}
+	if ok {
+		run.status = localRunSucceeded
+	} else {
+		run.status = localRunFailed
+		run.diagnostic = diag
+	}
+	return handle, nil
+}
+
+// mergeActivityBranch merges the activity branch into the repo's default branch
+// with a real --no-ff merge commit and deletes the branch, via a THROWAWAY
+// CLONE + push — the SAME write mechanism the projectstate GitStore uses for
+// every server-side git write, so a non-bare shared repo (with
+// receive.denyCurrentBranch=updateInstead) has its checked-out working tree
+// updated by git's own receive machinery rather than left stale by a raw
+// update-ref. Nothing is pushed unless the merge completed cleanly: a conflict
+// aborts in the clone and the shared repo is untouched (no partial merge, ever).
+// Idempotent under retry: an activity branch already an ancestor of the default
+// branch (a prior attempt merged but crashed before deleting) skips straight to
+// the branch delete. Returns ok=false with an operator-readable diagnostic on
+// any failure.
+func (a *localExecAccess) mergeActivityBranch(branch string) (diagnostic string, ok bool) {
+	a.gitMu.Lock()
+	defer a.gitMu.Unlock()
+
+	parentDir, err := os.MkdirTemp("", "aiarch-merge-*")
+	if err != nil {
+		return "local merge: create work dir: " + err.Error(), false
+	}
+	defer func() { _ = os.RemoveAll(parentDir) }()
+	cloneDir := filepath.Join(parentDir, "clone")
+
+	if out, err := runGit("", "clone", "--branch", localMainBranch, a.repoURL, cloneDir); err != nil {
+		return "local merge: clone failed: " + stderrTail(out, 500), false
+	}
+	remoteBranch := "origin/" + branch
+	if _, err := runGit(cloneDir, "rev-parse", "--verify", "--quiet", "refs/remotes/"+remoteBranch); err != nil {
+		return "local merge: activity branch " + branch + " not found in the shared repo", false
+	}
+
+	// Already merged (a prior attempt landed the merge but failed before the
+	// branch delete)? Skip straight to the delete — no second merge commit.
+	if _, err := runGit(cloneDir, "merge-base", "--is-ancestor", remoteBranch, "HEAD"); err == nil {
+		if out, derr := runGit(cloneDir, "push", "origin", "--delete", branch); derr != nil {
+			return "local merge: branch " + branch + " already merged but could not be deleted: " + stderrTail(out, 500), false
+		}
+		return "", true
+	}
+
+	// The merge commit needs an author identity independent of whatever global
+	// config the host machine carries — pin one explicitly (-c), same spirit as
+	// the workflow agent's own bot identity.
+	mergeOut, err := runGit(cloneDir,
+		"-c", "user.name=aiarch", "-c", "user.email=aiarch@local",
+		"merge", "--no-ff", "-m", "aiarch: merge "+branch, remoteBranch)
+	if err != nil {
+		// Abort cleanly (best-effort — a conflict leaves MERGE_HEAD in the clone;
+		// the clone is throwaway either way) and surface the conflict through the
+		// failure diagnostic. NOTHING was pushed: the shared repo is untouched.
+		_, _ = runGit(cloneDir, "merge", "--abort")
+		if strings.Contains(mergeOut, "CONFLICT") {
+			return "local merge: merge conflict merging " + branch + " into " + localMainBranch + ": " + stderrTail(mergeOut, 500), false
+		}
+		return "local merge: merge of " + branch + " failed: " + stderrTail(mergeOut, 500), false
+	}
+	if out, err := runGit(cloneDir, "push", "origin", localMainBranch); err != nil {
+		return "local merge: push of merged " + localMainBranch + " failed: " + stderrTail(out, 500), false
+	}
+	if out, err := runGit(cloneDir, "push", "origin", "--delete", branch); err != nil {
+		// The merge IS landed; a retry takes the already-merged path above and
+		// re-attempts only the delete.
+		return "local merge: merged but branch " + branch + " could not be deleted: " + stderrTail(out, 500), false
+	}
+	return "", true
 }
 
 // runGit runs `git <args...>` with the given working directory (ignored when

@@ -126,6 +126,21 @@ import (
 //   VALUE SEMANTICS / MAPPING UNITS:
 //     L8  classifyLocalExecFailure: exit-code text, stderr tail bounding
 //     L9  localTokenFromHandle round-trip + rejects a foreign "run/<id>" shape
+//
+//   LOCAL MERGE JOB (local-merge-and-policy Commit 1; DispatchInputs["job"]="merge"):
+//     LM1 A merge-job submit merges activity/<id> into main with a REAL --no-ff
+//         merge commit (two parents), deletes the activity branch, and Observe
+//         reports PhaseSucceeded
+//     LM2 A merge CONFLICT reports PhaseFailed with a "merge conflict"
+//         diagnostic and leaves the shared repo UNTOUCHED (main unmoved, the
+//         activity branch still present — no partial merge)
+//     LM3 An already-merged activity branch (prior attempt crashed before the
+//         delete) is idempotent: no second merge commit, the branch delete
+//         completes, PhaseSucceeded
+//     LM4 A merge-job submit for a branch that does not exist reports
+//         PhaseFailed with a diagnostic naming the branch
+//     LM5 Two merge-job submits with the SAME idempotencyKey converge on the
+//         SAME handle/run (no double merge)
 
 // ---------------------------------------------------------------------------
 // fakeActions — the seam stand-in. Models GitHub's NON-dedup dispatch: each
@@ -1934,5 +1949,201 @@ func TestLocalExecSubmit_AllowUnsandboxedEscapeHatch_EndToEnd(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(capture, "call-0.settings.json")); err == nil {
 		t.Fatal("escape hatch active but a --settings file was still captured")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// LM1-LM5 — local merge job (DispatchInputs["job"]="merge")
+// ---------------------------------------------------------------------------
+
+// mergeJobSpec builds a merge-job PipelineSpec for the given activity — the
+// shape the Manager's local merge step dispatches (no "command": the merge job
+// never spawns claude).
+func mergeJobSpec(activityID string) PipelineSpec {
+	return PipelineSpec{
+		ActivityID: ConstructionActivityID(activityID),
+		Steps:      []PipelineStep{{Name: "build", Toolchain: "go-1.23", Command: []string{"sh", "-c", "true"}}},
+		DispatchInputs: map[string]string{
+			DispatchInputJobKey: DispatchJobMerge,
+			"activity_id":       activityID,
+		},
+	}
+}
+
+// seedActivityBranch creates activity/<id> off main in the shared repo with one
+// commit writing path=content — the state a completed construction run leaves
+// behind for the merge job to land.
+func seedActivityBranch(t *testing.T, bareDir, activityID, path, content string) {
+	t.Helper()
+	work := filepath.Join(t.TempDir(), "seed-branch")
+	testGit(t, "", "clone", bareDir, work)
+	testGit(t, work, "config", "user.email", "seed@aiarch.local")
+	testGit(t, work, "config", "user.name", "seed")
+	testGit(t, work, "checkout", "-b", "activity/"+activityID, "main")
+	if err := os.WriteFile(filepath.Join(work, path), []byte(content), 0o644); err != nil {
+		t.Fatalf("write %s: %v", path, err)
+	}
+	testGit(t, work, "add", "-A")
+	testGit(t, work, "commit", "-m", "branch work")
+	testGit(t, work, "push", "origin", "activity/"+activityID)
+}
+
+// commitFileOnMain lands one commit on main in the shared repo writing
+// path=content — used to force divergence (and conflicts) against a branch.
+func commitFileOnMain(t *testing.T, bareDir, path, content string) {
+	t.Helper()
+	work := filepath.Join(t.TempDir(), "main-edit")
+	testGit(t, "", "clone", "--branch", "main", bareDir, work)
+	testGit(t, work, "config", "user.email", "seed@aiarch.local")
+	testGit(t, work, "config", "user.name", "seed")
+	if err := os.WriteFile(filepath.Join(work, path), []byte(content), 0o644); err != nil {
+		t.Fatalf("write %s: %v", path, err)
+	}
+	testGit(t, work, "add", "-A")
+	testGit(t, work, "commit", "-m", "main edit")
+	testGit(t, work, "push", "origin", "main")
+}
+
+// LM1 — happy path: a real --no-ff merge commit lands on main, the branch is
+// deleted, Observe reports Succeeded.
+func TestLocalExecMergeJob_MergesNoFFAndDeletesBranch(t *testing.T) {
+	bare, url := newBareRepo(t)
+	seedActivityBranch(t, bare, "C-M1", "work.txt", "branch content\n")
+	a := newLocalExecForTest(t, url, 0)
+
+	handle, err := a.SubmitConstructionPipeline(subRC(context.Background(), "merge-key-1"), mergeJobSpec("C-M1"))
+	if err != nil {
+		t.Fatalf("Submit(merge): %v", err)
+	}
+	obs, err := a.ObserveConstructionPipeline(obsRC(context.Background()), handle)
+	if err != nil {
+		t.Fatalf("Observe: %v", err)
+	}
+	if obs.Phase != PhaseSucceeded {
+		t.Fatalf("Phase = %v, want PhaseSucceeded (diagnostic: %q)", obs.Phase, obs.Diagnostic)
+	}
+	// The tip of main is a REAL --no-ff merge commit (two parents).
+	parents := strings.Fields(strings.TrimSpace(testGitOut(t, bare, "log", "-1", "--format=%P", "main")))
+	if len(parents) != 2 {
+		t.Fatalf("main tip has %d parents, want 2 (a --no-ff merge commit)", len(parents))
+	}
+	// The branch's work is reachable from main.
+	if got := testGitOut(t, bare, "cat-file", "-p", "main:work.txt"); !strings.Contains(got, "branch content") {
+		t.Fatalf("main:work.txt = %q, want the branch's content", got)
+	}
+	if remoteBranchExists(t, bare, "activity/C-M1") {
+		t.Fatal("activity branch must be deleted after the merge")
+	}
+}
+
+// LM2 — a merge conflict is a FAILED run with a "merge conflict" diagnostic and
+// leaves the shared repo untouched: main unmoved, the branch still present.
+func TestLocalExecMergeJob_ConflictFailsCleanly(t *testing.T) {
+	bare, url := newBareRepo(t)
+	seedActivityBranch(t, bare, "C-M2", "conflict.txt", "branch side\n")
+	commitFileOnMain(t, bare, "conflict.txt", "main side\n")
+	mainBefore := strings.TrimSpace(testGitOut(t, bare, "rev-parse", "main"))
+	a := newLocalExecForTest(t, url, 0)
+
+	handle, err := a.SubmitConstructionPipeline(subRC(context.Background(), "merge-key-2"), mergeJobSpec("C-M2"))
+	if err != nil {
+		t.Fatalf("Submit(merge): %v", err)
+	}
+	obs, err := a.ObserveConstructionPipeline(obsRC(context.Background()), handle)
+	if err != nil {
+		t.Fatalf("Observe: %v", err)
+	}
+	if obs.Phase != PhaseFailed {
+		t.Fatalf("Phase = %v, want PhaseFailed", obs.Phase)
+	}
+	if !containsFold(obs.Diagnostic, "merge conflict") {
+		t.Fatalf("diagnostic %q must name the merge conflict", obs.Diagnostic)
+	}
+	if got := strings.TrimSpace(testGitOut(t, bare, "rev-parse", "main")); got != mainBefore {
+		t.Fatalf("main moved on a conflicted merge: %s -> %s (partial merge left behind)", mainBefore, got)
+	}
+	if !remoteBranchExists(t, bare, "activity/C-M2") {
+		t.Fatal("activity branch must survive a conflicted merge")
+	}
+}
+
+// LM3 — idempotency under a crashed prior attempt: the branch is already an
+// ancestor of main (merged, not yet deleted) → no second merge commit, the
+// delete completes, Succeeded.
+func TestLocalExecMergeJob_AlreadyMergedDeletesBranchOnly(t *testing.T) {
+	bare, url := newBareRepo(t)
+	seedActivityBranch(t, bare, "C-M3", "work.txt", "branch content\n")
+	// Simulate the prior attempt's landed merge (without the branch delete).
+	work := filepath.Join(t.TempDir(), "prior-merge")
+	testGit(t, "", "clone", "--branch", "main", bare, work)
+	testGit(t, work, "config", "user.email", "seed@aiarch.local")
+	testGit(t, work, "config", "user.name", "seed")
+	testGit(t, work, "merge", "--no-ff", "-m", "prior merge", "origin/activity/C-M3")
+	testGit(t, work, "push", "origin", "main")
+	mainBefore := strings.TrimSpace(testGitOut(t, bare, "rev-parse", "main"))
+	a := newLocalExecForTest(t, url, 0)
+
+	handle, err := a.SubmitConstructionPipeline(subRC(context.Background(), "merge-key-3"), mergeJobSpec("C-M3"))
+	if err != nil {
+		t.Fatalf("Submit(merge): %v", err)
+	}
+	obs, err := a.ObserveConstructionPipeline(obsRC(context.Background()), handle)
+	if err != nil {
+		t.Fatalf("Observe: %v", err)
+	}
+	if obs.Phase != PhaseSucceeded {
+		t.Fatalf("Phase = %v, want PhaseSucceeded (diagnostic: %q)", obs.Phase, obs.Diagnostic)
+	}
+	if got := strings.TrimSpace(testGitOut(t, bare, "rev-parse", "main")); got != mainBefore {
+		t.Fatalf("already-merged path must not add a second merge commit: %s -> %s", mainBefore, got)
+	}
+	if remoteBranchExists(t, bare, "activity/C-M3") {
+		t.Fatal("activity branch must be deleted on the already-merged path")
+	}
+}
+
+// LM4 — a merge job for a branch that does not exist is an honest failure
+// naming the branch.
+func TestLocalExecMergeJob_MissingBranchFails(t *testing.T) {
+	_, url := newBareRepo(t)
+	a := newLocalExecForTest(t, url, 0)
+
+	handle, err := a.SubmitConstructionPipeline(subRC(context.Background(), "merge-key-4"), mergeJobSpec("C-NOPE"))
+	if err != nil {
+		t.Fatalf("Submit(merge): %v", err)
+	}
+	obs, err := a.ObserveConstructionPipeline(obsRC(context.Background()), handle)
+	if err != nil {
+		t.Fatalf("Observe: %v", err)
+	}
+	if obs.Phase != PhaseFailed {
+		t.Fatalf("Phase = %v, want PhaseFailed", obs.Phase)
+	}
+	if !strings.Contains(obs.Diagnostic, "activity/C-NOPE") {
+		t.Fatalf("diagnostic %q must name the missing branch", obs.Diagnostic)
+	}
+}
+
+// LM5 — same idempotencyKey converges on the same handle/run: exactly one merge
+// commit on main.
+func TestLocalExecMergeJob_IdempotencyConvergence(t *testing.T) {
+	bare, url := newBareRepo(t)
+	seedActivityBranch(t, bare, "C-M5", "work.txt", "branch content\n")
+	a := newLocalExecForTest(t, url, 0)
+
+	h1, err := a.SubmitConstructionPipeline(subRC(context.Background(), "merge-key-5"), mergeJobSpec("C-M5"))
+	if err != nil {
+		t.Fatalf("Submit(merge) #1: %v", err)
+	}
+	h2, err := a.SubmitConstructionPipeline(subRC(context.Background(), "merge-key-5"), mergeJobSpec("C-M5"))
+	if err != nil {
+		t.Fatalf("Submit(merge) #2: %v", err)
+	}
+	if !PipelineHandleEqual(h1, h2) {
+		t.Fatalf("same key returned different handles: %q vs %q", h1, h2)
+	}
+	// Exactly one merge commit: seed + branch commit + one merge = 3 on main.
+	if n := remoteCommitCount(t, bare, "main"); n != 3 {
+		t.Fatalf("main has %d commits, want 3 (seed + branch work + ONE merge)", n)
 	}
 }

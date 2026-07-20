@@ -16,6 +16,7 @@ type FakeConstructionManager struct {
 	OverrideActivityFn    func(rc fwm.Context, projectID construction.ProjectID, activityID construction.ActivityID, override construction.ActivityOverride) error
 	PauseProjectFn        func(rc fwm.Context, projectID construction.ProjectID, reason string) error
 	RunReplanSweepFn      func(rc fwm.Context, projectID *construction.ProjectID, tickID string) (construction.ReplanSweepResult, error)
+	SetReviewPolicyFn     func(rc fwm.Context, projectID construction.ProjectID, preset string) error
 	SubmitPhaseDecisionFn func(rc fwm.Context, projectID construction.ProjectID, activityID construction.ActivityID, phase string, decision construction.PhaseDecision, feedback *construction.ReviewFeedback) error
 	UpdateReviewPolicyFn  func(rc fwm.Context, projectID construction.ProjectID, policy construction.ReviewPolicyInput) error
 }
@@ -53,6 +54,13 @@ func (f *FakeConstructionManager) RunReplanSweep(rc fwm.Context, projectID *cons
 		panic("FakeConstructionManager.RunReplanSweepFn not set")
 	}
 	return f.RunReplanSweepFn(rc, projectID, tickID)
+}
+
+func (f *FakeConstructionManager) SetReviewPolicy(rc fwm.Context, projectID construction.ProjectID, preset string) error {
+	if f.SetReviewPolicyFn == nil {
+		panic("FakeConstructionManager.SetReviewPolicyFn not set")
+	}
+	return f.SetReviewPolicyFn(rc, projectID, preset)
 }
 
 func (f *FakeConstructionManager) SubmitPhaseDecision(rc fwm.Context, projectID construction.ProjectID, activityID construction.ActivityID, phase string, decision construction.PhaseDecision, feedback *construction.ReviewFeedback) error {
