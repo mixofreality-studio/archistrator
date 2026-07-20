@@ -191,9 +191,10 @@ function ProjectDesignBody({ projectId }: { projectId: string }): ReactNode {
   // Any failed gate decision (approve / send back / withdraw) names its error here.
   const [gateError, setGateError] = useState<string | undefined>(undefined);
 
-  // QA 2026-07-19: absence is only authoritative when NO session view is cached
-  // (see isSessionAbsent) — a 404 refetch while a view is held must not reset the wizard.
-  const sessionMissing = isSessionAbsent(session.data !== undefined, session.error);
+  // QA 2026-07-19 (REOPENED fix): absence is the probe VALUE null — never inferred
+  // from an error or an in-flight refetch, so a poll tick can never flip this and
+  // remount the artifact view (see isSessionAbsent / sessionProbeQueryFn).
+  const sessionMissing = isSessionAbsent(session.data);
   const view = session.data?.view;
   const stage = session.data?.stage;
   const hasDraft = view?.draft.model !== undefined;

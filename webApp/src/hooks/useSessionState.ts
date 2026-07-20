@@ -21,13 +21,12 @@
  * fetch failure used to freeze a stale DRAFTING… view forever. The cadence rules
  * live in sessionPolling.ts (pure, unit-tested — see its decision table).
  */
-import { useQuery, type UseQueryResult } from '@tanstack/react-query';
+import { useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 import { useOpsClient } from '../api/opsContext';
-import { ApiError } from '../contracts/errors';
 import { artifactKindToOrdinal, mapSessionState } from '../contracts/wire';
 import type { ArtifactKind, SessionStateResponse } from '../contracts/types';
 import type { components } from '../contracts/schema';
-import { sessionPollIntervalMs } from './sessionPolling';
+import { sessionPollIntervalMs, sessionProbeQueryFn } from './sessionPolling';
 
 export function sessionStateKey(projectId: string, kind: ArtifactKind): readonly unknown[] {
   return ['sessionState', projectId, kind];
@@ -44,27 +43,38 @@ export function sessionStateProjectKey(projectId: string): readonly unknown[] {
   return ['sessionState', projectId];
 }
 
+/**
+ * The probe value: a live session view, or `null` for ESTABLISHED absence (the
+ * server's deterministic no-session 404, resolved to a value by
+ * sessionProbeQueryFn — see its doc for why absence must be data, not error).
+ */
 export function useSessionState(
   projectId: string,
   kind: ArtifactKind,
   enabled: boolean
-): UseQueryResult<SessionStateResponse> {
+): UseQueryResult<SessionStateResponse | null> {
   const { ops, transport } = useOpsClient();
-  return useQuery<SessionStateResponse>({
-    queryKey: sessionStateKey(projectId, kind),
-    queryFn: async () => {
-      const data = await ops.call<components['schemas']['SystemDesignSessionStateView']>(
-        'systemDesignGetSessionState',
-        {
-          path: { projectID: projectId },
-          query: { kind: artifactKindToOrdinal(kind) },
-        }
-      );
-      return mapSessionState(data);
-    },
+  const queryClient = useQueryClient();
+  const key = sessionStateKey(projectId, kind);
+  return useQuery<SessionStateResponse | null>({
+    queryKey: key,
+    queryFn: sessionProbeQueryFn<SessionStateResponse>({
+      fetch: async () => {
+        const data = await ops.call<components['schemas']['SystemDesignSessionStateView']>(
+          'systemDesignGetSessionState',
+          {
+            path: { projectID: projectId },
+            query: { kind: artifactKindToOrdinal(kind) },
+          }
+        );
+        return mapSessionState(data);
+      },
+      getCached: () => queryClient.getQueryData<SessionStateResponse | null>(key),
+    }),
     enabled: enabled && projectId.length > 0,
-    // A 404 means "no session started yet" — surface it without retry storms.
-    retry: (count, error) => !(error instanceof ApiError && error.status === 404) && count < 1,
+    // The no-session 404 resolves to null inside the probe (never throws), so
+    // retry only ever sees real faults: one retry, no storms.
+    retry: (count) => count < 1,
     // No re-probe on window-focus / remount — the poll cadence below is the single
     // refresh authority (refetchInterval overrides staleTime), so the 404 probe never
     // bursts on tab switches and a live session keeps its steady 2s poll.
@@ -84,12 +94,13 @@ export function useSessionState(
     // (committed / withdrawn).
     // On a failed refetch react-query keeps state.data (the last good view) and
     // sets state.error — this callback reads both, so a stale-but-live stage keeps
-    // polling and self-heals. A 404 refetch keeps the query in error state (data
-    // stays undefined, status 'error'), so the view renders steadily — no loading
-    // flash, no artifact-view remount.
+    // polling and self-heals. Established absence is the DATA value null (QA
+    // 2026-07-19 REOPENED: a 404-as-error probe never held data, so every poll
+    // reset the query to pending and remounted the artifact view — see
+    // sessionProbeQueryFn), which polls at the gentle no-session cadence.
     refetchInterval: (query) => {
       if (transport === 'mcp') return false;
-      return sessionPollIntervalMs(query.state.data?.stage, query.state.error);
+      return sessionPollIntervalMs(query.state.data, query.state.error);
     },
   });
 }

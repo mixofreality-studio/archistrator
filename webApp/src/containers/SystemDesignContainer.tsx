@@ -151,10 +151,10 @@ export function SystemDesignContainer({ projectId }: { projectId: string }): Rea
   // Any failed gate decision (approve / send back / withdraw) names its error here.
   const [gateError, setGateError] = useState<string | undefined>(undefined);
 
-  // QA 2026-07-19: absence is only authoritative when NO session view is cached —
-  // a 404 refetch while a live view is held (session store lost under the server)
-  // must not reset the wizard to "No draft yet" (see isSessionAbsent).
-  const sessionMissing = isSessionAbsent(session.data !== undefined, session.error);
+  // QA 2026-07-19 (REOPENED fix): absence is the probe VALUE null — never inferred
+  // from an error or an in-flight refetch, so a poll tick can never flip this and
+  // remount the artifact view (see isSessionAbsent / sessionProbeQueryFn).
+  const sessionMissing = isSessionAbsent(session.data);
   const reviewThread = session.data?.view.reviewThread ?? [];
   const isFirstStep = safeIndex === 0;
   const needsResearch = isFirstStep && isPreconditionError(startDesign.error);
@@ -344,7 +344,7 @@ export function SystemDesignContainer({ projectId }: { projectId: string }): Rea
       project={project}
       researchPending={setResearch.isPending || startDesign.isPending}
       retryPending={requestDraft.isPending}
-      session={session.data}
+      session={session.data ?? undefined}
       sessionLoading={session.isLoading}
       sessionMissing={sessionMissing}
       spine={spine}

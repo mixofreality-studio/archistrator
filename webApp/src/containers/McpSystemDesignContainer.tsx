@@ -223,9 +223,10 @@ export function McpSystemDesignContainer({
   // so the composer-close ambient re-post doesn't clobber a just-filed comment.
   const [lastFiledComment, setLastFiledComment] = useState<string | null>(null);
 
-  // QA 2026-07-19: absence is only authoritative when NO session view is cached
-  // (see isSessionAbsent) — a 404 refetch while a view is held must not reset the wizard.
-  const sessionMissing = isSessionAbsent(session.data !== undefined, session.error);
+  // QA 2026-07-19 (REOPENED fix): absence is the probe VALUE null — never inferred
+  // from an error or an in-flight refetch, so a poll tick can never flip this and
+  // remount the artifact view (see isSessionAbsent / sessionProbeQueryFn).
+  const sessionMissing = isSessionAbsent(session.data);
   const stage = session.data?.stage;
   const projectName = project?.name;
 
@@ -383,7 +384,7 @@ export function McpSystemDesignContainer({
         project={project}
         researchPending={false}
         retryPending={requestDraft.isPending}
-        session={session.data}
+        session={session.data ?? undefined}
         sessionLoading={session.isLoading}
         sessionMissing={sessionMissing}
         spine={spine}

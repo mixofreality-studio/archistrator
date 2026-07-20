@@ -3,10 +3,16 @@
  * Extracted so the QA-incident cadence rules (2026-07-15 gtdapp:1, 2026-07-16
  * F-QA2-28, F-QA2-48, F-QA2-50) are unit-testable without a react-query harness.
  *
- * DECISION TABLE (stage = last-known data's stage, error = last fetch error):
+ * DECISION TABLE (data = last-known probe value — a session view, `null` for
+ * established absence (see sessionProbeQueryFn), or undefined before the first
+ * settle; error = last fetch error):
  *
  *   stage          | error            | interval | why
  *   ---------------|------------------|----------|---------------------------------
+ *   ABSENT (data   | none             | 4s       | the gentle no-session probe: an
+ *   === null)      |                  |          | approve auto-starts the next
+ *                  |                  |          | step's session server-side
+ *                  |                  |          | (incident 2026-07-15)
  *   REST (committed| (any)            | stop     | only a user action changes it,
  *   / withdrawn)   |                  |          | and that action invalidates the query
  *   FAILURE GATE   | none             | 8s       | refused / draftFailed are human
@@ -41,9 +47,11 @@
  * session server-side. The SPA used to cache that 404 forever ("No draft yet /
  * Request draft"), so the founder clicked Request draft into an already-RUNNING
  * session and the signal queued as a stale gate-consumer. Gentle re-probing
- * discovers the auto-started session within seconds. A 404 refetch keeps the query
- * in error state (never back to pending), so the view stays stable — no skeleton
- * flash, no artifact-view remount.
+ * discovers the auto-started session within seconds. Absence is held as DATA
+ * (`null`, via sessionProbeQueryFn) — NOT as a 404 error — because react-query
+ * resets a data-less query to pending on every refetch, and that pending flash
+ * remounted the artifact view each poll tick (QA 2026-07-19 REOPENED: the
+ * founder's use-case walkthrough reset to step 1 on every 4s probe).
  *
  * Why non-404 errors must KEEP polling (F-QA2-28, 2026-07-16): this query is its
  * own single refresh authority (staleTime Infinity, refetchOnWindowFocus false), so
@@ -116,24 +124,59 @@ export function isNoSessionError(error: unknown): boolean {
 
 /**
  * Whether the SPA may treat "no session" as ESTABLISHED and render the
- * destructive no-session surface ("No draft yet / Request draft"), discarding
- * the working view (QA incident 2026-07-19, gtdapp kind=4).
+ * no-session surface ("No draft yet / Request draft", or the committed
+ * read-only panel when the slot is committed).
  *
- * A 404 is authoritative only while the query holds NO session data — the
- * probe never found a session, so there is nothing to lose. A 404 that
- * arrives on a REFETCH while a session view is cached means the server's
- * session store vanished under it (observed live: the local stack's Temporal
- * died and a foreign dev server took over its port, so every poll 404'd and
- * the founder's wizard reset to the beginning mid-use-case). react-query
- * keeps the last-good data on a failed refetch, so keep RENDERING that view:
- * the no-session probe cadence (sessionPollIntervalMs → 4s) keeps watching,
- * a recovered store restores the live poll, and any successor session
- * replaces the view. Server-side the same incident is now a typed 5xx (a
- * foreign backend can no longer masquerade as "no session"), so this rule is
- * defense-in-depth for whatever genuinely wipes a session store.
+ * Absence is a VALUE: the probe (sessionProbeQueryFn) resolves the
+ * deterministic no-session 404 to `null`, so `data === null` is the one
+ * authoritative absence signal. `undefined` (first fetch still in flight) is
+ * NOT absence — rendering the destructive no-session surface off an unsettled
+ * probe is exactly the flash that reset the founder's wizard (QA 2026-07-19,
+ * gtdapp kind=4). A 404 arriving while a session view is cached never reaches
+ * the consumers at all — the probe returns the cached last-good view
+ * (fd14c80's keep-last-good rule) and the poll keeps watching for a successor.
  */
-export function isSessionAbsent(hasSessionData: boolean, error: unknown): boolean {
-  return !hasSessionData && isNoSessionError(error);
+export function isSessionAbsent(data: unknown): boolean {
+  return data === null;
+}
+
+/**
+ * Wraps a session-state fetch as a react-query queryFn that models session
+ * ABSENCE AS A VALUE (`null`), not an error (QA 2026-07-19 REOPENED).
+ *
+ * WHY: react-query v5 resets a query to `{ status: 'pending', error: null }`
+ * whenever a refetch starts while `data === undefined` (query-core fetchState).
+ * A probe that throws the no-session 404 therefore NEVER holds data, so every
+ * poll tick flipped the query through pending — the containers momentarily saw
+ * sessionMissing=false / loading=true, swapped the committed-artifact panel for
+ * a skeleton, and remounted it milliseconds later, wiping all of its local
+ * state (the founder's use-case walkthrough snapped back to step 1 on every 4s
+ * probe — recorded live on gtdapp kind=4, committed). With `null` held as data,
+ * a settled probe never re-enters pending and the poll can never unmount the
+ * view; refetches that resolve to the same value don't even re-render
+ * (structural sharing).
+ *
+ * The fd14c80 keep-last-good rule lives here now: a 404 arriving while a
+ * session view is cached (a session store genuinely wiped under the server —
+ * the 2026-07-19 foreign-Temporal incident) returns the CACHED view, so the
+ * SPA keeps rendering the last-good state while the poll keeps watching and
+ * any successor session replaces it.
+ *
+ * Only the deterministic no-session 404 is converted; every other fault still
+ * throws, preserving the F-QA2-28 degraded-poll and error surfaces.
+ */
+export function sessionProbeQueryFn<T>(deps: {
+  fetch: () => Promise<T>;
+  getCached: () => T | null | undefined;
+}): () => Promise<T | null> {
+  return async () => {
+    try {
+      return await deps.fetch();
+    } catch (error) {
+      if (isNoSessionError(error)) return deps.getCached() ?? null;
+      throw error;
+    }
+  };
 }
 
 /**
@@ -142,9 +185,14 @@ export function isSessionAbsent(hasSessionData: boolean, error: unknown): boolea
  * Implements the decision table in the header comment.
  */
 export function sessionPollIntervalMs(
-  stage: SessionStage | undefined,
+  data: { stage: SessionStage } | null | undefined,
   error: unknown
 ): number | false {
+  // Established absence (the probe holds null): the gentle no-session re-probe.
+  // An approve auto-starts the next step's session server-side (incident
+  // 2026-07-15), so absence must keep watching for the successor.
+  if (data === null) return NO_SESSION_POLL_INTERVAL_MS;
+  const stage = data?.stage;
   // REST stage (committed / withdrawn): stop. No in-place transition exists — a new
   // draft or amendment starts a NEW session, and that mutation invalidates the query.
   // NOT the failure gates (F-QA2-50): Retry moves those in place, so one stopped

@@ -34,7 +34,7 @@ import {
 
 void test('live stages keep the 2s poll', () => {
   for (const stage of ['drafting', 'redrafting'] as const) {
-    assert.equal(sessionPollIntervalMs(stage, null), POLL_INTERVAL_MS, stage);
+    assert.equal(sessionPollIntervalMs({ stage }, null), POLL_INTERVAL_MS, stage);
   }
 });
 
@@ -42,12 +42,12 @@ void test('F-QA2-48: the review gate is NOT terminal — it watches at the slow 
   // Verified live: with the gate treated as a stop state, a server-side stage
   // change (another tab's decision, or a Send back whose 503 response lost a
   // DELIVERED signal) never rendered until a hard reload.
-  assert.equal(sessionPollIntervalMs('awaitingReview', null), GATE_POLL_INTERVAL_MS);
+  assert.equal(sessionPollIntervalMs({ stage: 'awaitingReview' }, null), GATE_POLL_INTERVAL_MS);
 });
 
 void test('REST stages (committed / withdrawn) stop polling', () => {
   for (const stage of ['committed', 'withdrawn'] as const) {
-    assert.equal(sessionPollIntervalMs(stage, null), false, stage);
+    assert.equal(sessionPollIntervalMs({ stage }, null), false, stage);
   }
 });
 
@@ -56,7 +56,7 @@ void test('F-QA2-50: the failure gates (refused / draftFailed) watch at the slow
   // single invalidation refetch raced the server's in-place resume and the SPA
   // froze on a stale generating view until a hard reload.
   for (const stage of ['refused', 'draftFailed'] as const) {
-    assert.equal(sessionPollIntervalMs(stage, null), GATE_POLL_INTERVAL_MS, stage);
+    assert.equal(sessionPollIntervalMs({ stage }, null), GATE_POLL_INTERVAL_MS, stage);
   }
 });
 
@@ -69,19 +69,28 @@ void test('F-QA2-50: failed → retry → server-says-awaitingReview renders the
   // stale REDRAFTING… view survived 4+ minutes of server-side awaitingReview.
   const walk = ['draftFailed', 'redrafting', 'awaitingReview'] as const;
   for (const stage of walk) {
-    const interval = sessionPollIntervalMs(stage, null);
+    const interval = sessionPollIntervalMs({ stage }, null);
     assert.notEqual(interval, false, `${stage} must keep a live interval`);
     assert.equal(typeof interval, 'number', stage);
   }
   // Even when the invalidation refetch itself faults transiently mid-transition,
   // the failed stage keeps probing (degraded), so the flip still renders.
   assert.equal(
-    sessionPollIntervalMs('draftFailed', new ApiError(500, 'internal', 'blip')),
+    sessionPollIntervalMs({ stage: 'draftFailed' }, new ApiError(500, 'internal', 'blip')),
     DEGRADED_POLL_INTERVAL_MS
   );
 });
 
-void test('INCIDENT 2026-07-15: a no-session 404 polls gently instead of stopping', () => {
+void test('INCIDENT 2026-07-15: established absence (data null) polls gently instead of stopping', () => {
+  // Absence is a VALUE now (sessionProbeQueryFn resolves the no-session 404 to
+  // null), so the gentle re-probe keys off null data — the probe keeps watching
+  // for the auto-started successor session.
+  assert.equal(sessionPollIntervalMs(null, null), NO_SESSION_POLL_INTERVAL_MS);
+});
+
+void test('a raw no-session 404 error (defense-in-depth) still polls gently', () => {
+  // The probe converts the 404 before react-query sees it, but keep the error
+  // row of the decision table honest for any unconverted path.
   const noSession = new ApiError(404, 'not_found', 'no active design session');
   assert.equal(sessionPollIntervalMs(undefined, noSession), NO_SESSION_POLL_INTERVAL_MS);
 });
@@ -92,12 +101,12 @@ void test('F-QA2-28: a transient error with a live last-known stage polls DEGRAD
   // defined while state.error names the fault.
   for (const stage of ['drafting', 'redrafting', 'awaitingReview'] as const) {
     assert.equal(
-      sessionPollIntervalMs(stage, new ApiError(500, 'internal', 'blip')),
+      sessionPollIntervalMs({ stage }, new ApiError(500, 'internal', 'blip')),
       DEGRADED_POLL_INTERVAL_MS,
       stage
     );
     assert.equal(
-      sessionPollIntervalMs(stage, new TypeError('Failed to fetch')),
+      sessionPollIntervalMs({ stage }, new TypeError('Failed to fetch')),
       DEGRADED_POLL_INTERVAL_MS,
       `${stage} + network fault`
     );
@@ -120,9 +129,9 @@ void test('F-QA2-28: a transient error with NO data polls DEGRADED (bootstrap re
 
 void test('an error with a REST last-known stage still stops polling', () => {
   for (const stage of ['committed', 'withdrawn'] as const) {
-    assert.equal(sessionPollIntervalMs(stage, new ApiError(500, 'internal', 'boom')), false, stage);
+    assert.equal(sessionPollIntervalMs({ stage }, new ApiError(500, 'internal', 'boom')), false, stage);
     assert.equal(
-      sessionPollIntervalMs(stage, new ApiError(404, 'not_found', 'gone')),
+      sessionPollIntervalMs({ stage }, new ApiError(404, 'not_found', 'gone')),
       false,
       `${stage} + 404`
     );
@@ -135,12 +144,12 @@ void test('F-QA2-50: an error at a failure gate degrades / re-probes, never stop
   // dead. The failure gates now fall through to the error cadences.
   for (const stage of ['refused', 'draftFailed'] as const) {
     assert.equal(
-      sessionPollIntervalMs(stage, new ApiError(500, 'internal', 'boom')),
+      sessionPollIntervalMs({ stage }, new ApiError(500, 'internal', 'boom')),
       DEGRADED_POLL_INTERVAL_MS,
       stage
     );
     assert.equal(
-      sessionPollIntervalMs(stage, new ApiError(404, 'not_found', 'gone')),
+      sessionPollIntervalMs({ stage }, new ApiError(404, 'not_found', 'gone')),
       NO_SESSION_POLL_INTERVAL_MS,
       `${stage} + 404`
     );
@@ -151,7 +160,7 @@ void test('a 404 with a live last-known stage re-probes at the no-session cadenc
   // The server says that session is GONE (restart lost it / it was withdrawn out of
   // band): the stale live stage is a lie — probe for its successor at the gentle 4s.
   const gone = new ApiError(404, 'not_found', 'no active design session');
-  assert.equal(sessionPollIntervalMs('drafting', gone), NO_SESSION_POLL_INTERVAL_MS);
+  assert.equal(sessionPollIntervalMs({ stage: 'drafting' }, gone), NO_SESSION_POLL_INTERVAL_MS);
 });
 
 void test('no data + no error (initial mount) does not add an interval', () => {
@@ -166,24 +175,23 @@ void test('isNoSessionError recognizes only the 404 ApiError', () => {
   assert.equal(isNoSessionError(null), false);
 });
 
-void test('QA 2026-07-19: a 404 with NO cached session is authoritative absence', () => {
-  // The probe never found a session — rendering "No draft yet / Request draft"
-  // discards nothing.
-  const gone = new ApiError(404, 'not_found', 'no active design session');
-  assert.equal(isSessionAbsent(false, gone), true);
+void test('QA 2026-07-19: established absence is the probe value null', () => {
+  // The probe (sessionProbeQueryFn) resolved the no-session 404 to null — only
+  // then may the SPA render the no-session surface: nothing is discarded.
+  assert.equal(isSessionAbsent(null), true);
 });
 
-void test('QA 2026-07-19: a 404 arriving while a session view is cached must NOT read as absence', () => {
-  // Verified live (gtdapp kind=4): the local stack's Temporal was replaced by a
-  // foreign dev server on the same port; every poll 404'd and the SPA reset the
-  // founder's use-case wizard to the beginning. With data cached, a 404 refetch
-  // keeps the working view and the 4s no-session probe keeps watching.
-  const gone = new ApiError(404, 'not_found', 'no active design session');
-  assert.equal(isSessionAbsent(true, gone), false);
+void test('QA 2026-07-19 REOPENED: an unsettled probe (undefined) must NOT read as absence', () => {
+  // Founder recording (gtdapp kind=4, committed): every poll tick that flipped
+  // the query back through its unsettled state momentarily cleared
+  // sessionMissing and remounted the committed-artifact panel — resetting the
+  // use-case walkthrough to step 1. Absence must never be inferred mid-flight.
+  assert.equal(isSessionAbsent(undefined), false);
 });
 
-void test('isSessionAbsent: non-404 errors and healthy fetches never read as absence', () => {
-  assert.equal(isSessionAbsent(false, new ApiError(500, 'internal', 'boom')), false);
-  assert.equal(isSessionAbsent(false, null), false);
-  assert.equal(isSessionAbsent(true, null), false);
+void test('isSessionAbsent: a held session view never reads as absence', () => {
+  // A 404-while-cached never even reaches the consumers — the probe returns the
+  // cached last-good view (fd14c80's keep-last-good rule, enforced in
+  // sessionProbeQueryFn and pinned in sessionProbe.test.ts).
+  assert.equal(isSessionAbsent({ stage: 'drafting' }), false);
 });

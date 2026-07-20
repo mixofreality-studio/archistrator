@@ -176,10 +176,11 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   }, [cascading]);
 
   const sessionQuery = useConstructionSession(projectId);
-  const session = sessionQuery.data;
-  // QA 2026-07-19: absence is only authoritative when NO session view is cached
-  // (see isSessionAbsent) — a 404 refetch while a view is held must not drop the console.
-  const sessionMissing = isSessionAbsent(session !== undefined, sessionQuery.error);
+  // QA 2026-07-19 (REOPENED fix): absence is the probe VALUE null — never inferred
+  // from an error or an in-flight refetch, so a poll tick can never flip this and
+  // remount the console (see isSessionAbsent / sessionProbeQueryFn).
+  const sessionMissing = isSessionAbsent(sessionQuery.data);
+  const session = sessionQuery.data ?? undefined;
 
   const pause = usePauseConstruction(projectId);
   const override = useOverrideActivity(projectId);
