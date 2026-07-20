@@ -124,6 +124,7 @@ type ConstructionManager interface {
 	OverrideActivity(rc fwm.Context, projectID ProjectID, activityID ActivityID, override ActivityOverride) error
 	PauseProject(rc fwm.Context, projectID ProjectID, reason string) error
 	RunReplanSweep(rc fwm.Context, projectID *ProjectID, tickID string) (ReplanSweepResult, error)
+	SetReviewPolicy(rc fwm.Context, projectID ProjectID, preset string) error
 	SubmitPhaseDecision(rc fwm.Context, projectID ProjectID, activityID ActivityID, phase string, decision PhaseDecision, feedback *ReviewFeedback) error
 	UpdateReviewPolicy(rc fwm.Context, projectID ProjectID, policy ReviewPolicyInput) error
 }

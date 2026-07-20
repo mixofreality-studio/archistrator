@@ -27,6 +27,7 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/review"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/constructionpipeline"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
+	projectstatefake "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate/fake"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 )
 
@@ -3290,5 +3291,91 @@ func Test_Construct_LocalMerge_ConflictRoutesToIntervention(t *testing.T) {
 	}
 	if len(ps.exited) != 0 {
 		t.Fatalf("a conflicted merge must not record a completed exit, exits = %+v", ps.exited)
+	}
+}
+
+// ---- SetReviewPolicy (op 2.8, local-merge-and-policy Commit 2) --------------
+
+// setReviewPolicyManager wires a constructionManager over the generated
+// FakeConstructionTransitionAccess for the preset write-path tests.
+func setReviewPolicyManager(ct projectstate.ConstructionTransitionAccess) *constructionManager {
+	return newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, ct, nil, nil, 0, "", nil)
+}
+
+func Test_SetReviewPolicy_EmptyProjectID(t *testing.T) {
+	m := setReviewPolicyManager(nil)
+	err := m.SetReviewPolicy(fwmanager.Context{Context: context.Background()}, ProjectID(""), projectstate.ReviewPresetVibes)
+	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
+		t.Fatalf("want ContractMisuse, got %s", got)
+	}
+}
+
+// The write path is a CLOSED vocabulary: an unknown preset is rejected before
+// any RA call (the fake would panic if touched — nil Fns). This is the fix for
+// the documented fail-open corner: EffectiveGate's read path treats an
+// unrecognized preset as the legacy explicit-map fallback (empty map → gates
+// NOTHING), so a typo must never be persistable.
+func Test_SetReviewPolicy_RejectsUnknownPreset(t *testing.T) {
+	m := setReviewPolicyManager(&projectstatefake.FakeConstructionTransitionAccess{})
+	for _, preset := range []string{"", "vibess", "YOLO", "Full", "VIBES"} {
+		err := m.SetReviewPolicy(fwmanager.Context{Context: context.Background()}, ProjectID("p1"), preset)
+		if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
+			t.Fatalf("preset %q: want ContractMisuse, got %s", preset, got)
+		}
+	}
+}
+
+// A valid preset writes through the projectstate CAS: read the current version,
+// record the policy at that expectedVersion with the preset set and the
+// committed GatedPhasesByType map PRESERVED (SetReviewPolicy and
+// UpdateReviewPolicy own disjoint halves of ReviewPolicy).
+func Test_SetReviewPolicy_WritesPresetPreservingGateMap(t *testing.T) {
+	existing := map[string][]projectstate.ActivityMethodPhase{
+		"service": {projectstate.MethodPhaseDetailedDesign},
+	}
+	var recorded *projectstate.ReviewPolicy
+	var recordedVersion projectstate.Version
+	ct := &projectstatefake.FakeConstructionTransitionAccess{
+		ReadProjectFn: func(_ fwra.Context, projectID projectstate.ProjectID, _ projectstate.RepoCredential) (projectstate.Project, error) {
+			return projectstate.Project{
+				ID:           projectID,
+				Version:      7,
+				ReviewPolicy: projectstate.ReviewPolicy{GatedPhasesByType: existing},
+			}, nil
+		},
+		RecordReviewPolicyFn: func(_ fwra.Context, _ projectstate.ProjectID, expectedVersion projectstate.Version, policy projectstate.ReviewPolicy, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+			recorded = &policy
+			recordedVersion = expectedVersion
+			return expectedVersion + 1, nil
+		},
+	}
+	m := setReviewPolicyManager(ct)
+	for _, preset := range []string{projectstate.ReviewPresetVibes, projectstate.ReviewPresetCheckpoints, projectstate.ReviewPresetFull} {
+		recorded = nil
+		if err := m.SetReviewPolicy(fwmanager.Context{Context: context.Background()}, ProjectID("p1"), preset); err != nil {
+			t.Fatalf("SetReviewPolicy(%q): %v", preset, err)
+		}
+		if recorded == nil || recorded.Preset == nil || *recorded.Preset != preset {
+			t.Fatalf("preset %q not recorded: %+v", preset, recorded)
+		}
+		if len(recorded.GatedPhasesByType["service"]) != 1 {
+			t.Fatalf("GatedPhasesByType must be preserved, got %+v", recorded.GatedPhasesByType)
+		}
+		if recordedVersion != 7 {
+			t.Fatalf("CAS expectedVersion = %d, want the read version 7", recordedVersion)
+		}
+	}
+}
+
+func Test_SetReviewPolicy_UnknownProject_NotFound(t *testing.T) {
+	ct := &projectstatefake.FakeConstructionTransitionAccess{
+		ReadProjectFn: func(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.RepoCredential) (projectstate.Project, error) {
+			return projectstate.Project{}, fwra.New(fwra.NotFound, "no such project")
+		},
+	}
+	m := setReviewPolicyManager(ct)
+	err := m.SetReviewPolicy(fwmanager.Context{Context: context.Background()}, ProjectID("ghost"), projectstate.ReviewPresetVibes)
+	if got := asConstructionError(t, err).Kind; got != fwmanager.NotFound {
+		t.Fatalf("want NotFound, got %s", got)
 	}
 }

@@ -412,6 +412,54 @@ func (m *constructionManager) SubmitPhaseDecision(rc fwm.Context, projectID Proj
 	return nil
 }
 
+// SetReviewPolicy — op 2.8 (local-merge-and-policy Commit 2). Sets the project's
+// review-policy PRESET (the Task-7 sophistication dial: vibes / checkpoints /
+// full) while PRESERVING the committed GatedPhasesByType map (UpdateReviewPolicy's
+// surface — the two ops write disjoint halves of the same ReviewPolicy).
+//
+// The preset is validated HERE, at the write path: EffectiveGate's read path
+// deliberately treats an unrecognized preset as the legacy explicit-map fallback,
+// and with an empty map that gates NOTHING — the documented fail-open corner. A
+// closed write vocabulary (rejecting unknowns as ContractMisuse) is what keeps a
+// typo'd preset from silently degrading a project to "gate nothing".
+func (m *constructionManager) SetReviewPolicy(rc fwm.Context, projectID ProjectID, preset string) error {
+	ctx := rc.Context
+	if projectID == "" {
+		return newError(fwm.ContractMisuse, "empty projectId")
+	}
+	switch preset {
+	case projectstate.ReviewPresetVibes, projectstate.ReviewPresetCheckpoints, projectstate.ReviewPresetFull:
+		// closed vocabulary — fall through to the write.
+	default:
+		return newError(fwm.ContractMisuse, fmt.Sprintf("unknown review-policy preset %q (want %q, %q, or %q)",
+			preset, projectstate.ReviewPresetVibes, projectstate.ReviewPresetCheckpoints, projectstate.ReviewPresetFull))
+	}
+	proj, err := m.constructionTransition.ReadProject(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID), projectstate.RepoCredential{})
+	if err != nil {
+		if isRANotFound(err) {
+			return newError(fwm.NotFound, err.Error())
+		}
+		return newError(fwm.Infrastructure, err.Error())
+	}
+	policy := proj.ReviewPolicy
+	policy.Preset = &preset
+	if _, err := m.constructionTransition.RecordReviewPolicy(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID), proj.Version, policy, projectstate.RepoCredential{}, fwra.IdempotencyKey(uuid.NewString())); err != nil {
+		return newError(fwm.Infrastructure, err.Error())
+	}
+	return nil
+}
+
+// isRANotFound reports whether err is (or wraps) a ResourceAccess NotFound —
+// the read path's "no such project" signal, mapped to the façade's own NotFound
+// so the transport answers 404 rather than 500.
+func isRANotFound(err error) bool {
+	var fe *fwra.Error
+	if errors.As(err, &fe) {
+		return fe.Kind == fwra.NotFound
+	}
+	return false
+}
+
 // UpdateReviewPolicy — op 2.7. Persists the per-project ReviewPolicy.
 // Converts the input's GatedPhasesByType (map[string][]string of ad-hoc or canonical
 // gate ids) via projectstate.ReviewPolicyFromGateIDs to a typed ReviewPolicy, reads the

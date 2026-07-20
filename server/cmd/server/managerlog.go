@@ -195,6 +195,10 @@ func (m loggingConstructionManager) RunReplanSweep(rc fwmanager.Context, project
 	return v, logInfraError(m.log, "Construction.RunReplanSweep", scope, err)
 }
 
+func (m loggingConstructionManager) SetReviewPolicy(rc fwmanager.Context, projectID construction.ProjectID, preset string) error {
+	return logInfraError(m.log, "Construction.SetReviewPolicy", string(projectID), m.inner.SetReviewPolicy(rc, projectID, preset))
+}
+
 func (m loggingConstructionManager) SubmitPhaseDecision(rc fwmanager.Context, projectID construction.ProjectID, activityID construction.ActivityID, phase string, decision construction.PhaseDecision, feedback *construction.ReviewFeedback) error {
 	return logInfraError(m.log, "Construction.SubmitPhaseDecision", string(projectID), m.inner.SubmitPhaseDecision(rc, projectID, activityID, phase, decision, feedback))
 }

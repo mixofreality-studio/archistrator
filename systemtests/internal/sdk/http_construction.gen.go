@@ -64,6 +64,17 @@ func (c *HTTPClient) ConstructionRunReplanSweep(ctx context.Context, projectID P
 	return out, err
 }
 
+// ConstructionSetReviewPolicyRequest is the JSON request body for ConstructionSetReviewPolicy.
+type ConstructionSetReviewPolicyRequest struct {
+	Preset string `json:"preset"`
+}
+
+// ConstructionSetReviewPolicy calls the SetReviewPolicy operation on the Construction manager over HTTP.
+func (c *HTTPClient) ConstructionSetReviewPolicy(ctx context.Context, projectID ProjectID, preset string) error {
+	path := fmt.Sprintf("/api/v1/construction/set-review-policy/%s", projectID)
+	return c.doRequest(ctx, http.MethodPost, path, ConstructionSetReviewPolicyRequest{Preset: preset}, nil, http.StatusNoContent)
+}
+
 // ConstructionSubmitPhaseDecisionRequest is the JSON request body for ConstructionSubmitPhaseDecision.
 type ConstructionSubmitPhaseDecisionRequest struct {
 	Phase    string                      `json:"phase"`
