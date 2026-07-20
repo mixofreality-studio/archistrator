@@ -106,7 +106,7 @@ package main
 //     gates) is unaffected — the failure is confined to TWO packages, not
 //     one: cmd/server (this file's resolveWorkerProvider) AND cmd/archistrator
 //     (preflight.go:95's own `llm.PreflightClaudeCLI()` call, the
-//     `archistrator mcp` boot-time claude-CLI check) — both hit the exact same
+//     `archistrator serve` boot-time claude-CLI check) — both hit the exact same
 //     undefined symbol under `GOWORK=off`, for the identical reason: it is the
 //     SAME unreleased platform commit's symbol, consumed by two callers. This
 //     is the SAME hard merge blocker #4 already names ("this patch + any

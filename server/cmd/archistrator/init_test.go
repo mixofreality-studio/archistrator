@@ -50,15 +50,17 @@ func TestRunInit_EmptyDir_ProducesArtifacts(t *testing.T) {
 		t.Fatalf("expected no project.json in a fresh scaffold, stat err = %v", err)
 	}
 
-	// .mcp.json registers archistrator exactly as specified.
+	// .mcp.json registers archistrator as an HTTP MCP server pointed at the
+	// standalone `archistrator serve` daemon's own /mcp mount (amendment
+	// 2026-07-19 — no more stdio auto-start).
 	raw, err := os.ReadFile(filepath.Join(dir, ".mcp.json"))
 	if err != nil {
 		t.Fatalf("read .mcp.json: %v", err)
 	}
 	var doc struct {
 		MCPServers map[string]struct {
-			Command string   `json:"command"`
-			Args    []string `json:"args"`
+			Type string `json:"type"`
+			URL  string `json:"url"`
 		} `json:"mcpServers"`
 	}
 	if err := json.Unmarshal(raw, &doc); err != nil {
@@ -68,11 +70,11 @@ func TestRunInit_EmptyDir_ProducesArtifacts(t *testing.T) {
 	if !ok {
 		t.Fatalf(".mcp.json has no archistrator entry: %s", raw)
 	}
-	if entry.Command != "archistrator" || len(entry.Args) != 1 || entry.Args[0] != "mcp" {
-		t.Fatalf("archistrator entry = %+v, want command=archistrator args=[mcp]", entry)
+	if entry.Type != "http" || entry.URL != "http://127.0.0.1:8877/mcp" {
+		t.Fatalf("archistrator entry = %+v, want type=http url=http://127.0.0.1:8877/mcp", entry)
 	}
 
-	if !strings.Contains(out.String(), "Start Claude Code in this directory and say: design my app.") {
+	if !strings.Contains(out.String(), "Run `archistrator serve` in this directory, then open Claude Code here.") {
 		t.Fatalf("output missing the handoff line, got:\n%s", out.String())
 	}
 }

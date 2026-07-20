@@ -1,10 +1,11 @@
 package main
 
-// init.go implements `archistrator init` — scaffold-only, per the Serena
-// pattern (docs/superpowers/plans/2026-07-19-local-first-init-funnel.md, Task
-// 5): it produces the artifacts a subsequent `archistrator mcp` (Claude-Code
-// auto-started, mcpserve.go) needs, and starts NOTHING long-running itself —
-// no exec, no daemon, no server.
+// init.go implements `archistrator init` — scaffold-only
+// (docs/superpowers/plans/2026-07-19-local-first-init-funnel.md, Task 5,
+// amended 2026-07-19 "standalone serve, drop Serena pattern"): it produces
+// the artifacts a subsequently, MANUALLY started `archistrator serve`
+// (serve.go) needs, and starts NOTHING long-running itself — no exec, no
+// daemon, no server.
 //
 // Produces, in the target directory:
 //   - a git repo (created if absent, adopted if already present) configured
@@ -24,9 +25,11 @@ package main
 //     preset ("vibes") is seeded (Task 7); init deliberately does NOT invent
 //     a reviewPolicy value here, for the same "write no file at all" reason.
 //     See docs/superpowers/sdd/task-7-report.md.
-//   - a .mcp.json registering `archistrator mcp` as a stdio server, so
-//     starting Claude Code in this directory auto-spawns the whole local
-//     stack (mcpserve.go) — the Serena pattern.
+//   - a .mcp.json registering archistrator as an HTTP MCP server pointed at
+//     the standalone daemon's own /mcp mount
+//     ({"type":"http","url":"http://127.0.0.1:8877/mcp"}) — unlike the
+//     earlier stdio registration, this does NOT auto-start anything: the
+//     user runs `archistrator serve` once, THEN opens Claude Code here.
 //
 // Idempotent: re-running never clobbers an existing git repo, an existing
 // .aiarch/state/ tree (in particular an existing project.json), or entries
@@ -45,18 +48,29 @@ const (
 	stateDirRel   = ".aiarch/state"
 	mcpConfigFile = ".mcp.json"
 	// finishedMessage is printed on success — the literal handoff line the
-	// brief specifies, so Claude Code's driver (or a human reading the
-	// terminal) knows exactly what to do next.
-	finishedMessage = "Start Claude Code in this directory and say: design my app."
+	// amended (2026-07-19) brief specifies: serve is now a manual, standalone
+	// step, no longer auto-started by Claude Code.
+	finishedMessage = "Run `archistrator serve` in this directory, then open Claude Code here."
 )
 
-// mcpServerEntry mirrors the one shape `.mcp.json` needs for a stdio MCP
+// mcpServerEntry mirrors the one shape `.mcp.json` needs for an HTTP MCP
 // server registration (Claude Code's own config schema carries more optional
-// fields; only these two are needed here).
+// fields; only these two are needed here). Amendment 2026-07-19: this used
+// to be a stdio {"command","args"} registration that auto-spawned
+// `archistrator mcp`; it is now a plain HTTP client pointed at the
+// standalone `archistrator serve` daemon's own /mcp mount — init writes no
+// process-spawn instruction at all anymore.
 type mcpServerEntry struct {
-	Command string   `json:"command"`
-	Args    []string `json:"args"`
+	Type string `json:"type"`
+	URL  string `json:"url"`
 }
+
+// defaultServeMCPURL is the /mcp endpoint `archistrator serve` exposes on its
+// default port (defaultServePort, serve.go) — the value init.go writes into
+// a fresh .mcp.json. An operator running serve on a non-default --port must
+// hand-edit this entry; documenting that is out of scope for v1 (matches the
+// existing singleton-guard "no proxy cleverness" scope note).
+var defaultServeMCPURL = fmt.Sprintf("http://127.0.0.1:%d/mcp", defaultServePort)
 
 // mcpConfigDoc is the (possibly pre-existing, possibly multi-server) shape of
 // `.mcp.json`. mcpServers is decoded/re-encoded via a map of raw JSON so
@@ -108,7 +122,7 @@ func RunInit(dir string, out io.Writer) error {
 		return fmt.Errorf(".mcp.json: %w", err)
 	}
 	if mcpChanged {
-		fmt.Fprintln(out, "registered archistrator in .mcp.json (stdio: archistrator mcp)")
+		fmt.Fprintln(out, "registered archistrator in .mcp.json (http: "+defaultServeMCPURL+")")
 	} else {
 		fmt.Fprintln(out, ".mcp.json already registers archistrator — left untouched")
 	}
@@ -178,8 +192,9 @@ func ensureStateDir(dir string) (created bool, err error) {
 	return true, nil
 }
 
-// ensureMCPConfig writes (or merges into) dir/.mcp.json so it registers the
-// archistrator stdio server. Returns changed=false when an "archistrator"
+// ensureMCPConfig writes (or merges into) dir/.mcp.json so it registers
+// archistrator as an HTTP MCP server pointed at the standalone `archistrator
+// serve` daemon's /mcp mount. Returns changed=false when an "archistrator"
 // entry is already present (any pre-existing value is left exactly as the
 // user configured it — init never overwrites a customization), so re-running
 // init is a true no-op on this file once it is correctly registered.
@@ -208,7 +223,7 @@ func ensureMCPConfig(dir string) (changed bool, err error) {
 		return false, nil
 	}
 
-	entry, err := json.Marshal(mcpServerEntry{Command: "archistrator", Args: []string{"mcp"}})
+	entry, err := json.Marshal(mcpServerEntry{Type: "http", URL: defaultServeMCPURL})
 	if err != nil {
 		return false, err
 	}

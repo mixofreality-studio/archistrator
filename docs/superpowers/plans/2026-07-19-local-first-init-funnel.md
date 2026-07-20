@@ -185,3 +185,10 @@ Tasks 2→5 are the design-only funnel and independently shippable (matches the 
 The Task 2 composegen fix (profile-gated shared Postgres pool, archistrator-platform branch `composegen-profile-gated-pool`) was developed workspace-ACTIVE against the local platform checkout and the app repo's regenerated `main.gen.go` was verified to compile clean under `GOWORK=off` against the still-PINNED `framework-go-app-generator v0.8.0` — but the platform release (this patch + any llm-provider changes) + `server/go.mod` re-pin to the released version is a founder-gated finishing step before this branch merges.
 
 **HARD MERGE BLOCKER (founder-gated):** release framework-go-app-generator (composegen profile-gated pool, commit e3ce3da0) + any llm-provider additions, then re-pin server/go.mod — until then any regen without the local platform checkout silently reverts the Postgres gating.
+
+## Amendment 2026-07-19 (founder scope change): standalone serve, drop Serena pattern
+
+Founder reversal of the stdio auto-start decision: the stack should be a simple long-lived daemon, not a child of a Claude Code MCP session (session-coupled lifetime loses in-memory design sessions on restart — implicated in the state-reset bug class). Changes:
+- `archistrator serve` = the `mcp` command's managed stack (server child, Temporal, HTTP :8877 SPA+/api+/mcp) minus the stdio transport, plus SIGINT/SIGTERM handling; prints the SPA URL; runs until stopped.
+- `archistrator init` writes `.mcp.json` as `{"mcpServers":{"archistrator":{"type":"http","url":"http://127.0.0.1:8877/mcp"}}}` and prints: run `archistrator serve`, then open Claude Code.
+- `archistrator mcp` (stdio) is REMOVED; the version-skew guard, singleton guard, preflights, and SPA-URL tool-result footer carry over to serve/the HTTP mount unchanged.

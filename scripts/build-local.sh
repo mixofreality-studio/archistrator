@@ -6,9 +6,12 @@
 # Produces THREE artifacts side by side at the repo root — the exact layout
 # discovery expects:
 #
-#   ./archistrator         (cmd/archistrator) — the Serena-pattern CLI Claude
-#                           Code auto-spawns via .mcp.json (`archistrator
-#                           init` / `archistrator mcp`). `locateServerBinary`
+#   ./archistrator         (cmd/archistrator) — the standalone-daemon CLI
+#                           (`archistrator init` scaffolds a .mcp.json HTTP
+#                           entry pointing at it; `archistrator serve` then
+#                           runs it as a manually-started, long-lived
+#                           process — no more Claude-Code auto-spawn).
+#                           `locateServerBinary`
 #                           (cmd/archistrator/serverchild.go) looks for
 #                           archistrator-server as a SIBLING of whichever
 #                           binary is currently running, so this file's name
@@ -16,7 +19,7 @@
 #   ./archistrator-server   (cmd/server, -tags localdist) — the SAME
 #                           composition root the cloud image runs, built with
 #                           the embedded SPA (staged below) so `archistrator
-#                           mcp` can spawn it as a loopback-bound child.
+#                           serve` can spawn it as a loopback-bound child.
 #   ./aiarch-state-mcp      (cmd/aiarch-state-mcp) — the construct-verb rig
 #                           the local construction executor (Task 6) attaches
 #                           to headless `claude` via --mcp-config.

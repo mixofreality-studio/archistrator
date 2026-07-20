@@ -1,12 +1,13 @@
 package main
 
-// preflight.go implements Task-5 Step 4: the `archistrator mcp` boot-time
+// preflight.go implements Task-5 Step 4: the `archistrator serve` boot-time
 // checks (git present, claude present, claude authenticated) with actionable,
-// install-command-naming messages. The report is never fatal-and-silent: its
-// Instructions() text is threaded into the local mcp.Server's
-// ServerOptions.Instructions (mcpserve.go) so it rides the very first MCP
-// `initialize` response the driver (Claude Code) sees, even when the finding
-// is severe enough that the local stack cannot actually start (Fatal()).
+// install-command-naming messages. Amendment 2026-07-19 ("standalone serve,
+// drop Serena pattern"): there is no MCP session left at this layer to carry
+// Instructions() text through (serve.go, no local mcp.Server) — a Fatal()
+// finding is now a hard error RunServe returns directly, printed to stderr
+// by main.go; a non-fatal finding (e.g. the auth probe failing, or the auth
+// check being skipped) is logged and printed to stderr instead.
 import (
 	"bytes"
 	"context"

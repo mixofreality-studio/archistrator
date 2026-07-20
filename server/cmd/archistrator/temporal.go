@@ -4,7 +4,7 @@ package main
 // cmd/server's boot walk (main.gen.go) DIALS Temporal synchronously —
 // verified empirically (a local boot with nothing listening on
 // ARCHISTRATOR_TEMPORAL_HOSTPORT fails fast with a gRPC dial error before
-// "http server listening") — so `archistrator mcp` cannot hand it an
+// "http server listening") — so `archistrator serve` cannot hand it an
 // unreachable hostport and hope for the best.
 //
 // SCOPE NOTE (documented, not silently punted): a TRULY embedded

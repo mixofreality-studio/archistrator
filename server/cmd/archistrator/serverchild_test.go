@@ -38,7 +38,7 @@ func TestServerChildConfigEnv_DoesNotForceConstructionDryRun(t *testing.T) {
 
 // TestServerChildConfigEnv_RespectsExplicitParentDryRunOverride is the other
 // half of I2: an operator who explicitly sets ARCHISTRATOR_CONSTRUCTION_DRYRUN
-// in the parent (archistrator mcp) process's own environment before Claude
+// in the parent (archistrator serve) process's own environment before Claude
 // Code auto-spawns it must have that value passed through to the child
 // unchanged — neither forced to true (the old behavior) nor silently dropped.
 func TestServerChildConfigEnv_RespectsExplicitParentDryRunOverride(t *testing.T) {

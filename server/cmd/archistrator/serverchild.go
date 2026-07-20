@@ -3,7 +3,7 @@ package main
 // serverchild.go locates and supervises the REAL archistrator-server
 // composition root (server/cmd/server, the SAME container the cloud image
 // runs) as a child process bound to loopback, configured for the local
-// profile. This — not an in-process Go import — is how `archistrator mcp`
+// profile. This — not an in-process Go import — is how `archistrator serve`
 // reuses cmd/server's composition without forking it: cmd/server is
 // `package main`, and Go refuses to import a package that declares
 // `package main` from anywhere else (verified empirically: "import ... is a
@@ -99,7 +99,7 @@ func (c serverChildConfig) env() []string {
 		// prerequisite cmd/server/hooks.go's locateStateMCPBinary needs — see
 		// its discovery order, mirrored by this package's own
 		// locateServerBinary above). So this key is left for the loop below to
-		// pass through unmodified from the PARENT (archistrator mcp) process's
+		// pass through unmodified from the PARENT (archistrator serve) process's
 		// own environment: an operator's explicit override still reaches the
 		// child untouched, and when the parent leaves it unset too, cmd/server's
 		// own config.gen.go default (getenvBool("ARCHISTRATOR_CONSTRUCTION_DRYRUN",
