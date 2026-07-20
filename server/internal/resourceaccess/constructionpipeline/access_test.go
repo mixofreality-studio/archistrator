@@ -64,16 +64,18 @@ import (
 )
 
 // SERVICE TEST PLAN (STP) — the LOCAL-EXECUTOR realisation (the localexec
-// section of constructionpipelineaccess.go). Per [[the-method-testing]], black-box
-// at the RA's public verbs. The only external boundary faked is the `claude`
-// binary itself (a PATH shim script, the SAME pattern
-// framework-go-infrastructure-llm/claudecli_test.go uses for the SAME reason: no
-// real subscription touched in CI); every git operation runs against a REAL
-// throwaway local repo via the actual `git` binary — no fake for that seam.
+// section of constructionpipelineaccess.go, WORKTREE-PER-ACTIVITY rework). Per
+// [[the-method-testing]], black-box at the RA's public verbs. The only external
+// boundary faked is the `claude` binary itself (a PATH shim script, the SAME
+// pattern framework-go-infrastructure-llm/claudecli_test.go uses for the SAME
+// reason: no real subscription touched in CI); every git operation runs against
+// a REAL throwaway local repo via the actual `git` binary — no fake for that
+// seam.
 //
 //   PRE-CONDITION / CONTRACT-MISUSE:
 //     L1  New rejects empty repoURL / empty stateMCPBin / a stateMCPBin that
-//         does not exist on disk
+//         does not exist on disk / a NON-LOCAL repoURL (worktrees need a local
+//         filesystem path — this realisation no longer clones over the wire)
 //     L2  Submit rejects an empty idempotencyKey
 //     L3  Submit rejects a spec with no steps (validateSpec, shared with the
 //         GitHub-Actions realisation above)
@@ -85,11 +87,16 @@ import (
 //   HAPPY-PATH / DISPATCH SHAPE:
 //     LH1 Submit spawns claude with --dangerously-skip-permissions, --mcp-config,
 //         --output-format json, -p "/<command> <component> <activity>", cwd on a
-//         FRESH CLONE of the repo checked out onto activity/<id>; the --mcp-config
-//         file carries the exact AIARCH_* envelope (project/component/activity/
-//         branch/state-root) pointing at cmd/aiarch-state-mcp
-//     LH2 On a clean claude exit, the shim's commit is pushed to activity/<id> on
-//         the ORIGIN repo and Observe reports PhaseSucceeded
+//         git WORKTREE of the shared repo checked out onto activity/<id> (no
+//         clone, no push — commits advance the shared repo's refs directly); the
+//         --mcp-config file carries the exact AIARCH_* envelope (project/
+//         component/activity/branch/state-root) pointing at cmd/aiarch-state-mcp;
+//         the Tier-2 sandbox --settings file's filesystem allowWrite covers the
+//         worktree dir AND the shared repo's git dir (worktree commits write
+//         .git/worktrees metadata + shared objects/refs)
+//     LH2 On a clean claude exit, the shim's commit has advanced activity/<id>
+//         in the SHARED repo, Observe reports PhaseSucceeded, and the worktree
+//         is removed (no lingering `git worktree list` entry)
 //     LH3 A SECOND phase dispatch for the SAME activity (different idempotencyKey)
 //         re-attaches to the EXISTING activity/<id> branch — both commits present,
 //         nothing lost
@@ -98,6 +105,14 @@ import (
 //     LF1 Non-zero claude exit → PhaseFailed, diagnostic names the exit code
 //     LF2 claude exceeds the run timeout → PhaseFailed, "timed out" diagnostic,
 //         and the subprocess is actually gone (no orphan)
+//     LF3 CLEAN claude exit that did NOT advance the activity branch ref (no
+//         commit made) → PhaseFailed, never a fake success — the durable
+//         post-condition (work landed on the activity branch) does not hold
+//
+//   WORKTREE LIFECYCLE:
+//     LW1 The worktree is removed on the cancel path too (SIGTERM'd run)
+//     LW2 New prunes STALE worktree metadata left by a crashed prior process
+//         (`git worktree prune` on executor startup)
 //
 //   CANCEL:
 //     LC1 Cancel while running → SIGTERM's the subprocess; Observe converges to
@@ -1006,6 +1021,59 @@ func TestNewLocalExec_RejectsMissingStateMCPBin(t *testing.T) {
 	}
 }
 
+func TestNewLocalExec_RejectsNonLocalRepoURL(t *testing.T) {
+	// The worktree-per-activity executor operates git worktrees directly on the
+	// shared repo's filesystem path — a network URL cannot host a worktree.
+	_, err := NewLocalExecConstructionPipelineAccess("https://github.com/acme/repo.git", "p", fakeStateMCPBin(t), 0)
+	if kind(err) != fwra.ContractMisuse {
+		t.Fatalf("kind = %v, want ContractMisuse", kind(err))
+	}
+}
+
+// LW2 — startup prune: stale worktree metadata left by a crashed prior process
+// (registered in .git/worktrees but whose directory is gone) is pruned when the
+// executor is constructed, so a later dispatch for the same activity branch is
+// not blocked by a phantom "already checked out" registration.
+func TestNewLocalExec_PrunesStaleWorktreesOnStartup(t *testing.T) {
+	bareDir, url := newBareRepo(t)
+	stale := filepath.Join(t.TempDir(), "stale-wt")
+	testGit(t, bareDir, "worktree", "add", "-b", "activity/C-STALE", stale, "main")
+	if err := os.RemoveAll(stale); err != nil {
+		t.Fatalf("remove stale worktree dir: %v", err)
+	}
+	newLocalExecForTest(t, url, 0)
+	assertNoLingeringWorktrees(t, bareDir)
+}
+
+// assertNoLingeringWorktrees asserts the shared repo carries NO linked-worktree
+// registrations — only the primary entry (`git worktree list --porcelain` always
+// lists the repo itself first; a bare repo lists as one "worktree" entry too).
+func assertNoLingeringWorktrees(t *testing.T, repoDir string) {
+	t.Helper()
+	out := testGitOut(t, repoDir, "worktree", "list", "--porcelain")
+	if n := strings.Count(out, "worktree "); n != 1 {
+		t.Fatalf("expected only the primary worktree entry, got %d:\n%s", n, out)
+	}
+}
+
+// waitForNoLingeringWorktrees polls assertNoLingeringWorktrees's condition until
+// it holds or the deadline passes — for paths (cancel) where the terminal status
+// is recorded before awaitCompletion's asynchronous worktree removal finishes.
+func waitForNoLingeringWorktrees(t *testing.T, repoDir string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for {
+		out := testGitOut(t, repoDir, "worktree", "list", "--porcelain")
+		if strings.Count(out, "worktree ") == 1 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("worktree was not removed within %s:\n%s", timeout, out)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // U2-U7 — contract misuse / not-found
 // ---------------------------------------------------------------------------
@@ -1155,24 +1223,27 @@ func TestLocalExecSubmit_HappyPath_SpawnsClaudeWithCorrectShapeAndPushesCommit(t
 		t.Fatalf("Phase = %v, want PhaseSucceeded (diagnostic: %q)", obs.Phase, obs.Diagnostic)
 	}
 
-	// The branch exists on the ORIGIN repo with the shim's commit pushed (seed +
-	// shim commit = 2).
+	// The branch exists in the SHARED repo with the shim's commit — the worktree
+	// commit advanced the ref directly, no push involved (seed + shim commit = 2).
 	branch := "activity/C-BILLENG"
 	if !remoteBranchExists(t, bareDir, branch) {
-		t.Fatalf("branch %s was not pushed to origin", branch)
+		t.Fatalf("branch %s does not exist in the shared repo", branch)
 	}
 	if got := remoteCommitCount(t, bareDir, branch); got != 2 {
 		t.Fatalf("commit count on %s = %d, want 2 (seed + shim commit)", branch, got)
 	}
 
+	// LH2 — the worktree was removed after completion: no lingering registration.
+	assertNoLingeringWorktrees(t, bareDir)
+
 	// Dispatch shape: exactly one invocation captured.
 	args := readCapturedArgs(t, capture, 0)
 	assertClaudeArgsShape(t, args, "-p\n/service-construction billingGatewayAccess C-BILLENG")
 
-	// cwd was the fresh clone (a temp dir, distinct from the bare repo path).
+	// cwd was a throwaway worktree (a temp dir, distinct from the bare repo path).
 	pwd := readCapturedPWD(t, capture, 0)
 	if pwd == "" || pwd == bareDir {
-		t.Fatalf("claude cwd = %q, want a fresh clone directory distinct from the bare repo", pwd)
+		t.Fatalf("claude cwd = %q, want a throwaway worktree directory distinct from the bare repo", pwd)
 	}
 
 	// --mcp-config envelope: exact AIARCH_* shape.
@@ -1184,8 +1255,12 @@ func TestLocalExecSubmit_HappyPath_SpawnsClaudeWithCorrectShapeAndPushesCommit(t
 		"AIARCH_TARGET_BRANCH": branch,
 	})
 
-	// Tier-2 sandbox --settings envelope: THE INVARIANT (Fix-subagent Task 6).
-	assertSandboxSettingsEnvelope(t, capture, 0)
+	// Tier-2 sandbox --settings envelope: THE INVARIANT (Fix-subagent Task 6),
+	// plus the worktree-mode filesystem scope: allowWrite covers the worktree
+	// dir AND the shared repo's git dir (worktree commits write .git/worktrees
+	// metadata + shared objects/refs — the founder-accepted isolation tradeoff).
+	sandboxCfg := assertSandboxSettingsEnvelope(t, capture, 0)
+	assertSandboxFilesystemAllowWrite(t, sandboxCfg, pwd, bareDir)
 
 	// Env allowlist (Fix-subagent Task 6): EXACTLY PATH/HOME/TERM + the six
 	// AIARCH_* rig vars cross into the child — no other parent var leaks.
@@ -1347,6 +1422,33 @@ func assertSandboxSettingsEnvelope(t *testing.T, captureDir string, n int) sandb
 	return s
 }
 
+// assertSandboxFilesystemAllowWrite asserts the captured sandbox settings carry
+// a filesystem.allowWrite covering (a) the worktree dir claude ran in and (b)
+// the shared repo's git dir. Paths are compared by basename/suffix rather than
+// verbatim to sidestep macOS's /var vs /private/var symlink spelling difference
+// between the shim's `pwd` (a real getcwd(2)) and the Go-side path strings.
+func assertSandboxFilesystemAllowWrite(t *testing.T, s sandboxConfigJSON, worktreePWD, repoGitDir string) {
+	t.Helper()
+	if s.Filesystem == nil || len(s.Filesystem.AllowWrite) == 0 {
+		t.Fatalf("sandbox settings: missing filesystem.allowWrite (worktree mode needs the worktree dir + the shared repo's git dir writable): %+v", s)
+	}
+	var haveWorktree, haveGitDir bool
+	for _, p := range s.Filesystem.AllowWrite {
+		if filepath.Base(p) == filepath.Base(worktreePWD) {
+			haveWorktree = true
+		}
+		if strings.HasSuffix(p, filepath.Base(repoGitDir)) {
+			haveGitDir = true
+		}
+	}
+	if !haveWorktree {
+		t.Fatalf("sandbox filesystem.allowWrite %v missing the worktree dir (basename %q)", s.Filesystem.AllowWrite, filepath.Base(worktreePWD))
+	}
+	if !haveGitDir {
+		t.Fatalf("sandbox filesystem.allowWrite %v missing the shared repo's git dir (suffix %q)", s.Filesystem.AllowWrite, filepath.Base(repoGitDir))
+	}
+}
+
 // readCapturedEnv reads invocation n's captured `env` dump (commitShim) into
 // a key→value map.
 func readCapturedEnv(t *testing.T, captureDir string, n int) map[string]string {
@@ -1489,12 +1591,35 @@ func TestLocalExecObserve_Timeout_FailedWithTimeoutDiagnostic(t *testing.T) {
 	}
 }
 
+// LF3 — a CLEAN claude exit that made no commit did NOT advance the activity
+// branch ref: never a fake success (the durable post-condition — work landed on
+// the activity branch — does not hold), and the worktree is still cleaned up.
+func TestLocalExecObserve_CleanExitNoCommit_Failed(t *testing.T) {
+	bareDir, url := newBareRepo(t)
+	installClaudeShim(t, "#!/bin/sh\nexit 0\n")
+	a := newLocalExecForTest(t, url, 10*time.Second)
+
+	spec := localSpec("C-NOCOMMIT", "someComponent", "service-construction")
+	handle, err := a.SubmitConstructionPipeline(subRC(context.Background(), "nocommit-key"), spec)
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	obs := waitForTerminal(t, a, handle, 10*time.Second)
+	if obs.Phase != PhaseFailed {
+		t.Fatalf("Phase = %v, want PhaseFailed (clean exit but no ref advance is NOT a success)", obs.Phase)
+	}
+	if !strings.Contains(obs.Diagnostic, "no commits") {
+		t.Fatalf("Diagnostic = %q, want it to say the run produced no commits", obs.Diagnostic)
+	}
+	assertNoLingeringWorktrees(t, bareDir)
+}
+
 // ---------------------------------------------------------------------------
 // C1-C2 — cancel
 // ---------------------------------------------------------------------------
 
 func TestLocalExecCancel_Running_ConvergesToCancelledNeverFailed(t *testing.T) {
-	_, url := newBareRepo(t)
+	bareDir, url := newBareRepo(t)
 	installClaudeShim(t, "#!/bin/sh\nexec sleep 30\n")
 	a := newLocalExecForTest(t, url, 20*time.Second)
 
@@ -1514,11 +1639,18 @@ func TestLocalExecCancel_Running_ConvergesToCancelledNeverFailed(t *testing.T) {
 	if obs.Phase != PhaseCancelled {
 		t.Fatalf("Phase = %v, want PhaseCancelled (diagnostic: %q)", obs.Phase, obs.Diagnostic)
 	}
+	// LW1 — the worktree is removed on the cancel path too. Cancel records the
+	// terminal status IMMEDIATELY while awaitCompletion (which does the removal
+	// after cmd.Wait returns) is still unwinding the SIGTERM'd subprocess, so
+	// poll briefly rather than asserting instantaneously.
+	waitForNoLingeringWorktrees(t, bareDir, 10*time.Second)
 }
 
 func TestLocalExecCancel_AlreadyTerminal_NoopSuccess(t *testing.T) {
 	_, url := newBareRepo(t)
-	installClaudeShim(t, "#!/bin/sh\nexit 0\n")
+	// commitShim (not a bare exit-0 shim): a clean exit must ADVANCE the activity
+	// branch ref to count as PhaseSucceeded under the worktree rework (LF3).
+	commitShim(t, filepath.Join(t.TempDir(), "capture"))
 	a := newLocalExecForTest(t, url, 10*time.Second)
 
 	spec := localSpec("C-DONE", "someComponent", "service-construction")
@@ -1687,7 +1819,7 @@ func TestSandboxAllowedDomains(t *testing.T) {
 
 func TestWriteSandboxSettings_Envelope(t *testing.T) {
 	dir := t.TempDir()
-	path, err := writeSandboxSettings(dir, []string{"api.anthropic.com", "example.com"})
+	path, err := writeSandboxSettings(dir, []string{"api.anthropic.com", "example.com"}, nil)
 	if err != nil {
 		t.Fatalf("writeSandboxSettings: %v", err)
 	}
@@ -1718,7 +1850,7 @@ func TestWriteSandboxSettings_Envelope(t *testing.T) {
 
 func TestWriteSandboxSettings_EmptyDomainsOmitsNetworkBlock(t *testing.T) {
 	dir := t.TempDir()
-	path, err := writeSandboxSettings(dir, nil)
+	path, err := writeSandboxSettings(dir, nil, nil)
 	if err != nil {
 		t.Fatalf("writeSandboxSettings: %v", err)
 	}
@@ -1732,6 +1864,40 @@ func TestWriteSandboxSettings_EmptyDomainsOmitsNetworkBlock(t *testing.T) {
 	}
 	if cfg.Sandbox.Network != nil {
 		t.Fatalf("expected a nil network block for an empty allowlist, got %+v", cfg.Sandbox.Network)
+	}
+	if cfg.Sandbox.Filesystem != nil {
+		t.Fatalf("expected a nil filesystem block for an empty allowWrite list, got %+v", cfg.Sandbox.Filesystem)
+	}
+}
+
+// TestWriteSandboxSettings_FilesystemAllowWrite proves the worktree-mode
+// filesystem scope round-trips: the given allowWrite paths land verbatim under
+// sandbox.filesystem.allowWrite (the documented Claude Code settings key).
+func TestWriteSandboxSettings_FilesystemAllowWrite(t *testing.T) {
+	dir := t.TempDir()
+	want := []string{"/tmp/aiarch-construct-x/wt", "/home/dev/project/.git"}
+	path, err := writeSandboxSettings(dir, nil, want)
+	if err != nil {
+		t.Fatalf("writeSandboxSettings: %v", err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read written settings file: %v", err)
+	}
+	var cfg sandboxSettingsJSON
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		t.Fatalf("decode written settings file: %v\n%s", err, raw)
+	}
+	if cfg.Sandbox.Filesystem == nil {
+		t.Fatal("expected a non-nil filesystem block")
+	}
+	if len(cfg.Sandbox.Filesystem.AllowWrite) != len(want) {
+		t.Fatalf("AllowWrite = %v, want %v", cfg.Sandbox.Filesystem.AllowWrite, want)
+	}
+	for i, p := range want {
+		if cfg.Sandbox.Filesystem.AllowWrite[i] != p {
+			t.Fatalf("AllowWrite = %v, want %v", cfg.Sandbox.Filesystem.AllowWrite, want)
+		}
 	}
 }
 

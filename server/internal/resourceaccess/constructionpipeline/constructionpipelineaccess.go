@@ -65,6 +65,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -1047,23 +1048,31 @@ func (dryRunPipeline) CancelConstructionPipeline(_ fwra.Context, _ PipelineHandl
 // (cmd/aiarch-state-mcp/session.go's envProjectID/envJobMode/envComponentID/
 // envActivityID/envTargetBranch/envStateRoot).
 //
-// WHY EVERY DISPATCH CLONES FRESH (no persistent working tree): the LOCAL
-// projectstate substrate (projectstate's GitStore) is itself stateless —
-// it "clones fresh through the satellite" on every operation rather than keeping a
-// live working tree, precisely so concurrent/replayed Manager calls stay safe. This
-// realisation follows the SAME discipline: SubmitConstructionPipeline `git clone`s
-// the configured repoURL (a file:// bare-or-working repo either way — git clones
-// both fine) into a throwaway temp dir, checks out (creating if absent) the
-// deterministic "activity/<activityID>" branch — the SAME naming convention
-// constructactivity.go's (unexported) activityBranchName derives, duplicated here
-// because the two packages cannot share an unexported symbol; keep the format in
-// sync if it ever changes — runs claude there, pushes whatever commits resulted
-// back to the branch (on SUCCESS OR FAILURE — partial construction progress is
-// never silently discarded), then discards the clone. This also sidesteps the git-
-// forward PR rail being DORMANT in this exact configuration: RailEnabled needs
-// sourceControlAccess, which requires the same GitHub creds this arm is selected
-// for the ABSENCE of (constructactivity.go's gitEnabled) — nobody else creates the
-// activity branch in this profile, so this realisation must.
+// WHY EVERY DISPATCH GETS A GIT WORKTREE (the worktree-per-activity rework,
+// superseding the original fresh-clone-per-dispatch): SubmitConstructionPipeline
+// runs `git worktree add` against the configured repo's LOCAL filesystem path (the
+// constructor now REQUIRES a local file:// / plain-path repoURL — a worktree cannot
+// span the network), creating (off main) or re-attaching to the deterministic
+// "activity/<activityID>" branch — the SAME naming convention constructactivity.go's
+// (unexported) activityBranchName derives, duplicated here because the two packages
+// cannot share an unexported symbol; keep the format in sync if it ever changes —
+// then runs claude with the worktree as cwd. The worktree lives in a throwaway temp
+// dir (NEVER inside the user's checkout; the OS temp reaper is the cleanup backstop
+// for anything a crash leaves behind), and commits made there advance the SHARED
+// repo's refs DIRECTLY — there is NO push step anymore. Partial progress on a failed
+// run is therefore durable by construction (every commit already lives in the shared
+// repo). PhaseSucceeded requires a clean claude exit AND the activity branch ref
+// having ADVANCED (rev-parse before/after) AND the worktree removed — a clean exit
+// that committed nothing is a FAILURE, not a fake success. The worktree is removed
+// (`git worktree remove --force`) on completion and cancel paths alike, and the
+// constructor runs `git worktree prune` once at startup to clear stale metadata a
+// crashed prior process left. This is a FOUNDER-ACCEPTED isolation tradeoff — speed
+// (no full clone per dispatch) over clone isolation: the agent's git subprocesses
+// now write into the shared repo's own .git (worktree metadata, objects, refs); see
+// the SECURITY POSTURE doc block below. The dormant git-forward PR rail note still
+// holds: RailEnabled needs sourceControlAccess, which requires the same GitHub creds
+// this arm is selected for the ABSENCE of (constructactivity.go's gitEnabled) —
+// nobody else creates the activity branch in this profile, so this realisation must.
 //
 // GIT-FORWARD MERGE IS OUT OF SCOPE HERE (known local-mode v1 gap, tracked against
 // Task 7 "review-policy floor for local mode"): with the PR rail dormant, nothing
@@ -1076,8 +1085,9 @@ func (dryRunPipeline) CancelConstructionPipeline(_ fwra.Context, _ PipelineHandl
 //
 // NO FAKE SUCCESS STATES: every PipelinePhase this realisation reports is derived
 // from an ACTUAL subprocess outcome (exit code, timeout, explicit cancel) or an
-// actual git push result — there is no code path that reports Succeeded without a
-// clean claude exit AND a successful push of its commits.
+// actual observed git ref movement — there is no code path that reports Succeeded
+// without a clean claude exit AND the activity branch ref having genuinely advanced
+// in the shared repo (verified via rev-parse before/after) AND the worktree removed.
 
 // defaultLocalRunTimeout bounds one claude invocation — the SAME 25-minute budget
 // aiarch-construct.yml's job enforces, for the same documented reason (that
@@ -1128,15 +1138,16 @@ type localRun struct {
 // imports NO Temporal (layer rule, same as access — the idempotencyKey arrives as
 // an ordinary rc.IdempotencyKey parameter).
 type localExecAccess struct {
-	repoURL     string // any `git clone`-able URL; local mode always passes a file:// path
+	repoURL     string // the configured repo URL (file:// or plain local path — see localRepoPath)
+	repoPath    string // the shared repo's LOCAL filesystem path, derived from repoURL — the worktree host
 	projectID   string // AIARCH_PROJECT_ID stamped on the state-mcp process (name-as-identity)
 	stateMCPBin string // resolved absolute path to the compiled cmd/aiarch-state-mcp binary
 	runTimeout  time.Duration
 
-	// gitMu serializes THIS instance's own clone/checkout/push git subprocesses
-	// against the shared repoURL — not a correctness requirement of git itself
-	// (each dispatch clones into its OWN temp dir), just bounding how many git
-	// subprocesses race against one small local repo at once. V1 assumes one local
+	// gitMu serializes THIS instance's own worktree-add/rev-parse/worktree-remove
+	// git subprocesses against the shared repo — worktree add/remove mutate the
+	// shared .git/worktrees metadata, so keeping this instance's own git calls
+	// sequential avoids racing our own metadata writes. V1 assumes one local
 	// developer driving one construction pump at a time (known limitation, not a
 	// deadlock/corruption risk within that scope).
 	gitMu sync.Mutex
@@ -1148,18 +1159,33 @@ type localExecAccess struct {
 var _ ConstructionPipelineAccess = (*localExecAccess)(nil)
 
 // NewLocalExecConstructionPipelineAccess builds the local-executor realisation.
-// repoURL is any git URL `git clone` accepts (local mode always passes the same
-// value the projectstate GitStore was configured with — cfg.ProjectStateGitRepoURL);
-// projectID is the AIARCH_PROJECT_ID value stamped on the state-mcp process (mirrors
-// the workflow's github.event.repository.name; hooks.go derives it from the repo
+// repoURL must address a LOCAL repo — a file:// URL or a plain filesystem path
+// (local mode always passes the same value the projectstate GitStore was
+// configured with — cfg.ProjectStateGitRepoURL, a file:// path): the
+// worktree-per-activity executor operates `git worktree` directly on that path,
+// so a network URL is a configuration error (ContractMisuse). projectID is the
+// AIARCH_PROJECT_ID value stamped on the state-mcp process (mirrors the
+// workflow's github.event.repository.name; hooks.go derives it from the repo
 // path's basename, name-as-identity); stateMCPBin is the resolved absolute path to
 // the compiled cmd/aiarch-state-mcp binary (existence checked eagerly — a missing
 // binary is a configuration error, not a per-dispatch surprise). runTimeout bounds
 // one claude invocation (<=0 defaults to defaultLocalRunTimeout).
+//
+// Startup hygiene: runs `git worktree prune` once against the shared repo to
+// clear STALE worktree registrations a crashed prior process left behind (the
+// worktree dirs live under the OS temp dir, so the dirs themselves may already
+// be gone while .git/worktrees metadata lingers and would block re-attaching
+// the activity branch). Best-effort: a prune failure (e.g. the repo does not
+// exist yet) is NOT a constructor error — the same fault surfaces per-dispatch
+// with a proper diagnostic.
 func NewLocalExecConstructionPipelineAccess(repoURL, projectID, stateMCPBin string, runTimeout time.Duration) (ConstructionPipelineAccess, error) {
 	repoURL = strings.TrimSpace(repoURL)
 	if repoURL == "" {
 		return nil, fwra.New(fwra.ContractMisuse, "constructionpipeline.NewLocalExecConstructionPipelineAccess: empty repoURL")
+	}
+	repoPath, err := localRepoPath(repoURL)
+	if err != nil {
+		return nil, err
 	}
 	stateMCPBin = strings.TrimSpace(stateMCPBin)
 	if stateMCPBin == "" {
@@ -1175,13 +1201,29 @@ func NewLocalExecConstructionPipelineAccess(repoURL, projectID, stateMCPBin stri
 	if projectID == "" {
 		projectID = "local"
 	}
+	_, _ = runGit(repoPath, "worktree", "prune") // best-effort startup hygiene, see doc comment
 	return &localExecAccess{
 		repoURL:     repoURL,
+		repoPath:    repoPath,
 		projectID:   projectID,
 		stateMCPBin: stateMCPBin,
 		runTimeout:  runTimeout,
 		runs:        map[string]*localRun{},
 	}, nil
+}
+
+// localRepoPath derives the shared repo's local filesystem path from the
+// configured repoURL: a file:// URL is stripped to its path; a plain path is
+// used as-is; anything with a non-file scheme (or scp-like host syntax) is a
+// configuration error — a git worktree cannot span the network.
+func localRepoPath(repoURL string) (string, error) {
+	if p, ok := strings.CutPrefix(repoURL, "file://"); ok && p != "" {
+		return p, nil
+	}
+	if strings.Contains(repoURL, "://") {
+		return "", fwra.New(fwra.ContractMisuse, "constructionpipeline.NewLocalExecConstructionPipelineAccess: worktree executor requires a local file:// or plain-path repoURL, got "+repoURL)
+	}
+	return repoURL, nil
 }
 
 // localBranchName derives the SAME deterministic per-activity branch name
@@ -1235,29 +1277,39 @@ func (a *localExecAccess) SubmitConstructionPipeline(rc fwra.Context, spec Pipel
 	return handle, nil
 }
 
-// dispatch performs the synchronous prep (clone, checkout/create the activity
-// branch, write the ephemeral --mcp-config, start claude) and, once the
-// subprocess is genuinely running, hands the rest off to awaitCompletion in a
+// dispatch performs the synchronous prep (git-worktree-add the activity branch,
+// write the ephemeral --mcp-config + sandbox --settings, start claude) and, once
+// the subprocess is genuinely running, hands the rest off to awaitCompletion in a
 // goroutine. Any failure here is a genuine, pre-spawn submit failure.
 func (a *localExecAccess) dispatch(run *localRun, activityID, command, componentID string) error {
 	branch := localBranchName(activityID)
 
-	workDir, err := os.MkdirTemp("", "aiarch-construct-*")
+	// The worktree lives under a throwaway parent temp dir (NEVER inside the
+	// user's checkout): the OS temp reaper is the backstop for crash leftovers,
+	// and `git worktree prune` (constructor) clears the matching metadata. The
+	// worktree itself is a SUBDIR of the parent ("wt") because `git worktree add`
+	// wants a path it can own; git disambiguates the .git/worktrees entry name
+	// itself if two dispatches' "wt" basenames collide.
+	parentDir, err := os.MkdirTemp("", "aiarch-construct-*")
 	if err != nil {
 		return fwra.Wrap(fwra.Infrastructure, err, "localexec: create work dir")
 	}
+	workDir := filepath.Join(parentDir, "wt")
 	ownWorkDir := true
 	defer func() {
 		if ownWorkDir {
-			_ = os.RemoveAll(workDir)
+			a.gitMu.Lock()
+			removeWorktree(a.repoPath, workDir)
+			a.gitMu.Unlock()
+			_ = os.RemoveAll(parentDir)
 		}
 	}()
 
 	a.gitMu.Lock()
-	cloneErr := cloneAndCheckoutActivityBranch(a.repoURL, branch, workDir)
+	beforeSHA, gitDir, addErr := addActivityWorktree(a.repoPath, branch, workDir)
 	a.gitMu.Unlock()
-	if cloneErr != nil {
-		return fwra.Wrap(fwra.Infrastructure, cloneErr, "localexec: clone/checkout activity branch")
+	if addErr != nil {
+		return fwra.Wrap(fwra.Infrastructure, addErr, "localexec: add activity-branch worktree")
 	}
 
 	// mcpConfigDir is the SAME out-of-clone ephemeral dir that holds BOTH the
@@ -1294,7 +1346,13 @@ func (a *localExecAccess) dispatch(run *localRun, activityID, command, component
 	if err != nil {
 		return err
 	}
-	sandboxSettingsPath, err := writeSandboxSettings(mcpConfigDir, sandboxAllowedDomains(a.repoURL))
+	// Worktree-mode filesystem scope (see the SECURITY POSTURE doc block): the
+	// sandboxed Bash tool must be able to write (a) the worktree itself (cwd —
+	// also the sandbox's own default, declared explicitly so the posture does not
+	// depend on cwd inference) and (b) the SHARED repo's git dir — a worktree's
+	// `git commit` writes .git/worktrees/<id> metadata, shared objects, and the
+	// activity branch ref, all of which live OUTSIDE the worktree cwd.
+	sandboxSettingsPath, err := writeSandboxSettings(mcpConfigDir, sandboxAllowedDomains(a.repoURL), []string{workDir, gitDir})
 	if err != nil {
 		return err
 	}
@@ -1323,35 +1381,40 @@ func (a *localExecAccess) dispatch(run *localRun, activityID, command, component
 	run.cancel = runCancel
 	run.mu.Unlock()
 
-	// Ownership of workDir/mcpConfigDir passes to awaitCompletion.
+	// Ownership of parentDir (the worktree) / mcpConfigDir passes to awaitCompletion.
 	ownWorkDir = false
 	ownMCPDir = false
-	go a.awaitCompletion(runCtx, run, cmd, runCancel, branch, workDir, mcpConfigDir, &stdout, &stderr)
+	go a.awaitCompletion(runCtx, run, cmd, runCancel, branch, beforeSHA, parentDir, workDir, mcpConfigDir, &stdout, &stderr)
 	return nil
 }
 
-// awaitCompletion blocks on the claude subprocess, pushes whatever commits it
-// produced (success or failure — partial progress is never silently discarded),
-// cleans up the temp clone + mcp config, then records the terminal outcome. If
-// CancelConstructionPipeline already recorded localRunCancelled before this
-// observes completion, that outcome wins (Wait()'s own error, expected after a
-// SIGTERM, is not allowed to overwrite an explicit cancel with "Failed").
+// awaitCompletion blocks on the claude subprocess, verifies its commits advanced
+// the activity branch ref in the SHARED repo (worktree commits land there
+// directly — no push; partial progress on a failed run is already durable),
+// removes the worktree (completion AND cancel paths alike — the SIGTERM'd cancel
+// path flows through here too, since cmd.Wait returns either way), cleans up the
+// temp dirs, then records the terminal outcome. If CancelConstructionPipeline
+// already recorded localRunCancelled before this observes completion, that
+// outcome wins (Wait()'s own error, expected after a SIGTERM, is not allowed to
+// overwrite an explicit cancel with "Failed").
 func (a *localExecAccess) awaitCompletion(
 	runCtx context.Context,
 	run *localRun,
 	cmd *exec.Cmd,
 	runCancel context.CancelFunc,
-	branch, workDir, mcpConfigDir string,
+	branch, beforeSHA string,
+	parentDir, workDir, mcpConfigDir string,
 	stdout, stderr *bytes.Buffer,
 ) {
 	waitErr := cmd.Wait()
 	runCancel()
 
 	a.gitMu.Lock()
-	pushErr := runGitPush(workDir, branch)
+	afterSHA, revErr := revParseBranch(a.repoPath, branch)
+	removeErr := removeWorktree(a.repoPath, workDir)
 	a.gitMu.Unlock()
 
-	_ = os.RemoveAll(workDir)
+	_ = os.RemoveAll(parentDir)
 	_ = os.RemoveAll(mcpConfigDir)
 
 	run.mu.Lock()
@@ -1366,12 +1429,25 @@ func (a *localExecAccess) awaitCompletion(
 	case waitErr != nil:
 		run.status = localRunFailed
 		run.diagnostic = classifyLocalExecFailure(waitErr, stderr.String())
-	case pushErr != nil:
-		// claude exited 0 but the commits could not be saved — NOT a success (no
-		// fake success states): the durable post-condition (work landed on the
-		// activity branch) does not hold.
+	case revErr != nil:
+		// claude exited 0 but the durable post-condition cannot even be VERIFIED —
+		// NOT a success (no fake success states).
 		run.status = localRunFailed
-		run.diagnostic = "construction completed but failed to save commits: " + pushErr.Error()
+		run.diagnostic = "construction completed but the activity branch could not be verified: " + revErr.Error()
+	case afterSHA == beforeSHA:
+		// claude exited 0 but committed NOTHING — the activity branch ref did not
+		// advance, so the durable post-condition (work landed on the activity
+		// branch) does not hold. The worktree-rework analog of the former
+		// push-failure failure.
+		run.status = localRunFailed
+		run.diagnostic = "construction completed but produced no commits on the activity branch"
+	case removeErr != nil:
+		// The commits ARE durable (refs advanced in the shared repo), but a
+		// worktree that cannot be removed still holds the activity branch checked
+		// out and would block the NEXT phase's worktree add — surface it rather
+		// than declaring clean success over a wedged workspace.
+		run.status = localRunFailed
+		run.diagnostic = "construction committed but the worktree could not be removed: " + removeErr.Error()
 	default:
 		run.status = localRunSucceeded
 	}
@@ -1508,10 +1584,16 @@ func stderrTail(s string, n int) string {
 //
 // WHAT CONFINES a dispatch, and how:
 //
-//   - cwd (Tier 1): every dispatch clones the repo FRESH into a throwaway
-//     temp dir (dispatch's workDir) and runs claude there; the clone is
-//     discarded afterward (awaitCompletion's os.RemoveAll) — no persistent
-//     working tree accumulates state across dispatches.
+//   - cwd (Tier 1, WEAKENED by the worktree rework — founder-accepted): every
+//     dispatch adds a throwaway git WORKTREE of the shared repo in a temp dir
+//     (dispatch's workDir) and runs claude there; the worktree is removed
+//     afterward (awaitCompletion) — no persistent working tree accumulates
+//     state across dispatches. Unlike the original fresh-clone design, the
+//     worktree is NOT an isolated copy: its .git file points INTO the shared
+//     repo's own .git, so the run's git operations act on the user's real
+//     repository object store and refs directly. This is a deliberate,
+//     FOUNDER-ACCEPTED isolation tradeoff — speed (no full clone per
+//     dispatch) over clone isolation.
 //   - env (Tier 1): claudeSubprocessEnv below is a CONSTRUCTED ALLOWLIST —
 //     PATH, HOME, TERM, and the AIARCH_* rig vars, nothing else — replacing
 //     the former full-parent-env passthrough. A stray secret exported into
@@ -1528,11 +1610,21 @@ func stderrTail(s string, n int) string {
 //     WSL2 bubblewrap — is turned on via an ephemeral --settings file
 //     (sandbox.enabled=true). It confines the Bash TOOL's subprocess tree at
 //     the OS level: filesystem writes restricted to the working directory +
-//     session temp dir (the sandbox's own default — this package adds no
-//     extra sandbox.filesystem.allowWrite entries; see the known gap below),
-//     and network DENIED BY DEFAULT except the allowlisted domains
+//     session temp dir (the sandbox's own default) PLUS, since the worktree
+//     rework, two explicit sandbox.filesystem.allowWrite entries: the
+//     worktree dir and the SHARED repo's .git dir — a worktree's git
+//     operations write .git/worktrees metadata, shared objects, and the
+//     activity branch ref there, all outside cwd. Widening the sandbox to
+//     the user's real .git means a sandboxed Bash command can in principle
+//     touch OTHER refs/objects of that repository too (git refuses hooks/
+//     config writes for a worktree's shared .git under its native carve-out,
+//     but our explicit allowWrite covers the whole dir) — this is the SAME
+//     founder-accepted speed-over-clone-isolation tradeoff called out in the
+//     cwd bullet above, stated here honestly rather than hidden. Network
+//     remains DENIED BY DEFAULT except the allowlisted domains
 //     (sandboxAllowedDomains: Anthropic's own API domain + the git remote's
-//     host when repoURL is not file://, which local mode always passes).
+//     host when repoURL is not file://; the worktree executor only ever
+//     addresses a local repo, so in practice the list is the API domain).
 //     sandbox.failIfUnavailable=true + allowUnsandboxedCommands=false close
 //     the loop: if the OS sandbox cannot initialize, claude refuses to run
 //     at all rather than silently degrading unsandboxed — see claudeArgv's
@@ -1658,14 +1750,25 @@ type sandboxSettingsJSON struct {
 }
 
 type sandboxConfigJSON struct {
-	Enabled                  bool                `json:"enabled"`
-	FailIfUnavailable        bool                `json:"failIfUnavailable"`
-	AllowUnsandboxedCommands bool                `json:"allowUnsandboxedCommands"`
-	Network                  *sandboxNetworkJSON `json:"network,omitempty"`
+	Enabled                  bool                   `json:"enabled"`
+	FailIfUnavailable        bool                   `json:"failIfUnavailable"`
+	AllowUnsandboxedCommands bool                   `json:"allowUnsandboxedCommands"`
+	Network                  *sandboxNetworkJSON    `json:"network,omitempty"`
+	Filesystem               *sandboxFilesystemJSON `json:"filesystem,omitempty"`
 }
 
 type sandboxNetworkJSON struct {
 	AllowedDomains []string `json:"allowedDomains,omitempty"`
+}
+
+// sandboxFilesystemJSON mirrors the documented sandbox.filesystem settings key
+// (Claude Code sandboxing docs, "Configure sandboxing"): allowWrite entries are
+// path prefixes (absolute here) the sandboxed Bash tool may write beneath, ON
+// TOP of the sandbox's own defaults (cwd + session temp). Worktree mode uses it
+// for the worktree dir + the shared repo's git dir — see writeSandboxSettings's
+// caller (dispatch) and the SECURITY POSTURE doc block for the tradeoff.
+type sandboxFilesystemJSON struct {
+	AllowWrite []string `json:"allowWrite,omitempty"`
 }
 
 // writeSandboxSettings writes the ephemeral --settings file (OUTSIDE the
@@ -1680,7 +1783,10 @@ type sandboxNetworkJSON struct {
 // subprocess commands get NO outbound network at all, which is exactly
 // correct for the common local-mode case (repoURL is file://, so there is no
 // remote to reach and no allowlist entry beyond the fixed API domain).
-func writeSandboxSettings(dir string, allowedDomains []string) (string, error) {
+// allowWritePaths is the worktree-mode filesystem widening (the worktree dir +
+// the shared repo's git dir — see dispatch); empty omits the filesystem block
+// entirely, keeping the sandbox's own default write scope.
+func writeSandboxSettings(dir string, allowedDomains, allowWritePaths []string) (string, error) {
 	cfg := sandboxSettingsJSON{Sandbox: sandboxConfigJSON{
 		Enabled:                  true,
 		FailIfUnavailable:        true,
@@ -1688,6 +1794,9 @@ func writeSandboxSettings(dir string, allowedDomains []string) (string, error) {
 	}}
 	if len(allowedDomains) > 0 {
 		cfg.Sandbox.Network = &sandboxNetworkJSON{AllowedDomains: allowedDomains}
+	}
+	if len(allowWritePaths) > 0 {
+		cfg.Sandbox.Filesystem = &sandboxFilesystemJSON{AllowWrite: allowWritePaths}
 	}
 	body, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
@@ -1789,27 +1898,48 @@ func claudeSubprocessEnv(rig map[string]string) []string {
 // the SAME "main" convention constructactivity.go's mainBranch constant fixes.
 const localMainBranch = "main"
 
-// cloneAndCheckoutActivityBranch clones repoURL into workDir, then checks out the
-// named branch: if the remote already carries it (a prior phase's push, or a
-// branch the git-forward rail opened in a DIFFERENT profile — belt-and-braces),
-// checkout re-attaches to it; otherwise it is created fresh off origin/main.
-func cloneAndCheckoutActivityBranch(repoURL, branch, workDir string) error {
-	if _, err := runGit("", "clone", repoURL, workDir); err != nil {
-		return err
+// addActivityWorktree adds a git worktree for the named activity branch at
+// workDir, operating directly on the shared repo at repoPath: if the branch
+// already exists (a prior phase's dispatch, or a branch the git-forward rail
+// opened in a DIFFERENT profile — belt-and-braces), the worktree re-attaches to
+// it; otherwise the branch is created fresh off main. Returns the branch's tip
+// SHA at attach time (the rev-parse "before" anchor PhaseSucceeded's
+// ref-advanced check compares against) and the shared repo's absolute git dir
+// (the sandbox filesystem-scope entry — worktree commits write there).
+func addActivityWorktree(repoPath, branch, workDir string) (beforeSHA, gitDir string, err error) {
+	if _, err := runGit(repoPath, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch); err == nil {
+		if _, err := runGit(repoPath, "worktree", "add", workDir, branch); err != nil {
+			return "", "", err
+		}
+	} else if _, err := runGit(repoPath, "worktree", "add", "-b", branch, workDir, localMainBranch); err != nil {
+		return "", "", err
 	}
-	if _, err := runGit(workDir, "rev-parse", "--verify", "--quiet", "refs/remotes/origin/"+branch); err == nil {
-		_, err := runGit(workDir, "checkout", "-B", branch, "origin/"+branch)
-		return err
+	beforeSHA, err = revParseBranch(repoPath, branch)
+	if err != nil {
+		return "", "", err
 	}
-	_, err := runGit(workDir, "checkout", "-B", branch, "origin/"+localMainBranch)
-	return err
+	out, err := runGit(repoPath, "rev-parse", "--absolute-git-dir")
+	if err != nil {
+		return "", "", err
+	}
+	return beforeSHA, strings.TrimSpace(out), nil
 }
 
-// runGitPush pushes workDir's checked-out HEAD to branch on origin, creating or
-// fast-forwarding it. Called unconditionally after claude exits (success or
-// failure) so partial construction progress is never silently discarded.
-func runGitPush(workDir, branch string) error {
-	_, err := runGit(workDir, "push", "origin", "HEAD:refs/heads/"+branch)
+// revParseBranch resolves the branch's current tip SHA in the shared repo.
+func revParseBranch(repoPath, branch string) (string, error) {
+	out, err := runGit(repoPath, "rev-parse", "--verify", "refs/heads/"+branch)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
+}
+
+// removeWorktree force-removes the worktree registration + directory from the
+// shared repo. --force because the worktree may carry uncommitted debris a
+// failed/cancelled run left behind — the commits that matter already live in
+// the shared repo's refs.
+func removeWorktree(repoPath, workDir string) error {
+	_, err := runGit(repoPath, "worktree", "remove", "--force", workDir)
 	return err
 }
 

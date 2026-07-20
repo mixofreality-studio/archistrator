@@ -190,7 +190,8 @@ func Test_UC3_LocalExec_DispatchesRealHeadlessClaude_AttachesStateMCP_ActivityCo
 
 	// The activity runs its FULL 5-phase service profile (Requirements/Detailed
 	// Design/Test Plan/Construction/Integration) via the local executor — real
-	// subprocess dispatch + git clone/checkout/push per phase, unlike the
+	// subprocess dispatch + a git WORKTREE of the shared repo per phase (commits
+	// advance the repo's refs directly; no clone, no push), unlike the
 	// dry-run UC3 tests' instant stub. Per phase, if the FIRST observe poll lands
 	// before the subprocess/git work finishes, the spine pays one extra
 	// pipelinePollInterval=15s wait (constructactivity.go) before the next poll
@@ -207,13 +208,24 @@ func Test_UC3_LocalExec_DispatchesRealHeadlessClaude_AttachesStateMCP_ActivityCo
 	assertLocalExecClaudeInvocation(t, capture, stateMCPBin, activityID)
 
 	// --- Branch-continuity proof: the shim's commit(s) actually landed on the
-	// activity branch in the project's ORIGIN repo — the local executor pushed
-	// them back, no fake success. ---
+	// activity branch in the project's SHARED repo — the worktree commits
+	// advanced the refs directly (no push step exists anymore), no fake
+	// success. ---
 	branch := "activity/" + activityID
 	repoPath := strings.TrimPrefix(repo.URL(), "file://")
 	out, gitErr := exec.CommandContext(ctx, "git", "-C", repoPath, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch).CombinedOutput()
 	if gitErr != nil {
-		t.Fatalf("activity branch %s was not pushed to the project repo: %v\n%s", branch, gitErr, out)
+		t.Fatalf("activity branch %s does not exist in the project repo: %v\n%s", branch, gitErr, out)
+	}
+
+	// --- Worktree-hygiene proof: every phase's throwaway worktree was removed;
+	// only the repo's own primary entry remains registered. ---
+	wtOut, wtErr := exec.CommandContext(ctx, "git", "-C", repoPath, "worktree", "list", "--porcelain").CombinedOutput()
+	if wtErr != nil {
+		t.Fatalf("git worktree list: %v\n%s", wtErr, wtOut)
+	}
+	if n := strings.Count(string(wtOut), "worktree "); n != 1 {
+		t.Fatalf("expected only the primary worktree entry after construction, got %d:\n%s", n, wtOut)
 	}
 }
 
