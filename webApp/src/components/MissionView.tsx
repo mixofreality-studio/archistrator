@@ -50,14 +50,33 @@ function ProseSection({
   section: 'vision' | 'mission';
 }): ReactNode {
   const t = useTokens();
-  const { setAnchor, enabled } = useComments();
+  const { setAnchor, enabled, anchor: armedAnchor, comments } = useComments();
+  // Reveal the section's comment button exactly like CommentableList reveals a row's:
+  // hidden at rest, shown on hover / keyboard focus-within of the WHOLE section (the
+  // title row OR the prose paragraph), and kept persistently visible when this section is
+  // the armed anchor or already carries a comment. Opacity-only (never display/visibility)
+  // so the button stays in the tab order + a11y tree.
+  const thisPath = missionProseAnchor(section);
+  const isArmed = armedAnchor?.jsonPath === thisPath;
+  const hasComments = comments.some((c) => c.anchor?.jsonPath === thisPath);
+  const revealed = isArmed || hasComments;
   return (
-    <Box sx={{ mb: 3.5 }}>
+    <Box
+      sx={{
+        mb: 3.5,
+        '& .commentable-section-action': { opacity: revealed ? 1 : 0, transition: 'opacity 120ms' },
+        '&:hover .commentable-section-action, &:focus-within .commentable-section-action': {
+          opacity: 1,
+        },
+        '@media (hover: none)': { '& .commentable-section-action': { opacity: 1 } },
+      }}
+    >
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
         <SectionHeading>{heading}</SectionHeading>
         {enabled ? (
           <Tooltip title={`Comment on ${heading}`}>
             <IconButton
+              className="commentable-section-action"
               aria-label={`Comment on ${heading}`}
               size="small"
               sx={{
