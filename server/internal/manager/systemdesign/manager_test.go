@@ -7351,6 +7351,84 @@ func Test_CoAuthor_Rail_Amendment_PreFieldCommittedSlot_AmendBranch_Prompt_SeedF
 	}
 }
 
+// NOTES-ONLY AMENDMENT SEED (the webApp Amend data-loss bug). The webApp Amend composer folds the
+// user's rationale AND every queued rail comment into Feedback.Notes and sends NO structured
+// Comments — so feedbackToLedgerComments returns empty and, PRE-FIX, seedAmendmentLedger bailed
+// with NOTHING seeded: the reopen ledger was empty and the redraft agent reconciled on a stale
+// basis with the user's direction silently dropped. The fix synthesizes an UNANCHORED round-0
+// ledger comment carrying the Notes. This proves a Notes-only amendment seeds that rationale.
+func Test_CoAuthor_Rail_Amendment_NotesOnlyFeedback_SeedsRationaleAsRound0Comment(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	proj := systemReadBack(t, id)
+	proj.SystemDesign = committedSlot(&projectstate.System{})
+	base := &fakeProjectState{project: proj}
+
+	// The branch advances the artifact (so the no-change guard passes) and the ledger records seeds.
+	ps := &ledgerFakeProjectState{
+		branchAwareFakeProjectState: &branchAwareFakeProjectState{
+			fakeProjectState:    base,
+			branchAdvancedModel: &projectstate.System{Components: []projectstate.Component{{}}},
+		},
+	}
+	pipe := newFakePipeline()
+	rail := &fakeRail{checkGreen: true}
+	wf := newRailWorkflows(rail)
+	registerRailCoAuthor(env, wf, ps, pipe)
+
+	// Approve once the amendment reaches AwaitingReview, to end the session cleanly.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
+	}, 30*time.Second)
+
+	const rationale = "tighten the manager boundaries and split the god interface"
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{
+		ProjectID:    id,
+		ArtifactKind: KindSystem,
+		Amendment:    projectstate.AmendmentIndexFor(proj.SystemDesign),
+		// EXACTLY what the webApp Amend composer sends: free-text rationale, no structured Comments.
+		Feedback: &ReviewFeedback{Notes: rationale},
+	})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a Notes-only amendment must not crash: %v", err)
+	}
+	if len(pipe.submits) == 0 {
+		t.Fatal("the amendment must dispatch a draft")
+	}
+	// THE FIX: the reopening RATIONALE (Notes) was seeded into the review ledger as a round-0 OPEN
+	// entry — pre-fix, a Notes-only amendment seeded NOTHING (the reopen ledger was empty).
+	if len(ps.seededRounds) == 0 {
+		t.Fatal("a Notes-only amendment must SEED its rationale into the reopen ledger (pre-fix it seeded nothing)")
+	}
+	if ps.seededRounds[0] != 0 {
+		t.Fatalf("the reopening rationale must seed as round 0, got round %d", ps.seededRounds[0])
+	}
+	found := false
+	var seededComment projectstate.ReviewComment
+	for _, batch := range ps.seededComments {
+		for _, c := range batch {
+			if c.Text == rationale {
+				found = true
+				seededComment = c
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("the seeded ledger must carry the amendment rationale %q, got %+v", rationale, ps.seededComments)
+	}
+	// The synthesized rationale comment is UNANCHORED (free-text Notes carry no JSONPath) and
+	// stamped with the reviewer role, exactly like a filed reject comment.
+	if seededComment.Anchor != "" {
+		t.Fatalf("the synthesized rationale comment must be unanchored, got anchor %q", seededComment.Anchor)
+	}
+	if seededComment.AuthorRole != reviewAuthorRole {
+		t.Fatalf("the synthesized rationale comment must carry the reviewer role %q, got %q", reviewAuthorRole, seededComment.AuthorRole)
+	}
+}
+
 // FAILED-GATE FEEDBACK SEED (thin dispatch). A Retry-via-Reject AT a failed gate retains the
 // architect's anchored feedback in workflow MEMORY only — unlike a review-gate reject, a
 // failed-gate reject never touches the ledger. Under thin dispatch the drafting agent reads
@@ -7400,16 +7478,21 @@ func Test_CoAuthor_RailEnabled_FailedGateRetry_SeedsRetainedFeedbackToLedger_Bef
 	if len(pipe.submits) < 2 {
 		t.Fatalf("the retry must issue a SECOND draft dispatch, got %d submits", len(pipe.submits))
 	}
-	// THE FIX: the retained feedback was SEEDED into the review ledger exactly once, carrying
-	// the architect's anchored comment as a durable OPEN ledger entry.
+	// THE FIX: the retained feedback was SEEDED into the review ledger exactly once (one round).
 	if len(ps.seededRounds) != 1 {
 		t.Fatalf("the retained failed-gate feedback must seed exactly once, got %d seeds (%v)", len(ps.seededRounds), ps.seededRounds)
 	}
-	if len(ps.seededComments) != 1 || len(ps.seededComments[0]) != 1 {
-		t.Fatalf("the seed must carry exactly the one retained anchored comment, got %v", ps.seededComments)
+	// The seed carries the architect's anchored comment AS WELL AS the free-text Notes rationale
+	// synthesized into an unanchored comment — the amend-seed-notes fix: a failed-gate reject's
+	// Notes were previously DROPPED by feedbackToLedgerComments, evaporating under thin dispatch.
+	if len(ps.seededComments) != 1 || len(ps.seededComments[0]) != 2 {
+		t.Fatalf("the seed must carry the retained anchored comment PLUS the synthesized Notes comment, got %v", ps.seededComments)
 	}
 	if c := ps.seededComments[0][0]; c.Anchor != retainedPath || c.Text != retainedText {
-		t.Fatalf("the seeded comment must be the retained feedback, got %+v", c)
+		t.Fatalf("the first seeded comment must be the retained anchored feedback, got %+v", c)
+	}
+	if c := ps.seededComments[0][1]; c.Anchor != "" || c.Text != "redo the decomposition" {
+		t.Fatalf("the second seeded comment must be the synthesized (unanchored) Notes rationale, got %+v", c)
 	}
 	// ORDERING: the seed landed BEFORE the redraft dispatch — only the first (failed) dispatch
 	// had been submitted when the seed fired (count == 1), so the seed precedes the SECOND

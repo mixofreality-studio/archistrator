@@ -3207,6 +3207,85 @@ func Test_CoAuthorPhase2_Rail_Amendment_NoChange_LandsFailedGate_NoPR(t *testing
 	}
 }
 
+// NOTES-ONLY AMENDMENT SEED (Phase-2 twin of the webApp Amend data-loss bug). The webApp Amend
+// composer folds the user's rationale AND every queued rail comment into Feedback.Notes and sends
+// NO structured Comments — so feedbackToLedgerComments returns empty and, PRE-FIX, seedAmendmentLedger
+// bailed with NOTHING seeded: the reopen ledger was empty and the redraft agent reconciled on a
+// stale basis with the user's direction silently dropped. The fix synthesizes an UNANCHORED round-0
+// ledger comment carrying the Notes. This drives an amendment (branch advanced past the no-change
+// guard) to AwaitingReview and proves the Notes rationale seeded as a round-0 comment.
+func Test_CoAuthorPhase2_Rail_Amendment_NotesOnlyFeedback_SeedsRationaleAsRound0Comment(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base := &fakeProjectState{project: planningAssumptionsReadBack(projectstate.ProjectID(id))}
+	// branchAdvancedModel differs from main (CalendarDaysPerWeek 6 vs 5) so the amendment clears
+	// the F40 no-change guard and reaches AwaitingReview, where the amendment seed fires.
+	ps := &ledgerThreadFake{
+		seqProjectState: &seqProjectState{fakeProjectState: base, log: &seqLog{}},
+		branchAdvancedModel: &projectstate.PlanningAssumptions{
+			Resources:           []string{"alice"},
+			CalendarDaysPerWeek: 6,
+			InfrastructureKind:  projectstate.InfrastructureKindGoTemporalPostgres,
+		},
+	}
+	pipe := newFakePipeline() // the design job "succeeds"
+	rail := newScriptedRail(true, &seqLog{})
+	wf := newRailWorkflows(rail)
+	registerRailCoAuthor(env, wf, ps, pipe)
+
+	// Once the amendment reaches AwaitingReview (the seed has already fired), withdraw to end.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 30*time.Second)
+
+	const rationale = "tighten the staffing assumptions and shorten the calendar week"
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{
+		ProjectID:    id,
+		ArtifactKind: KindPlanningAssumptions,
+		Amendment:    1,
+		// EXACTLY what the webApp Amend composer sends: free-text rationale, no structured Comments.
+		Feedback: &ReviewFeedback{Notes: rationale},
+	})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a Notes-only amendment must not crash: %v", err)
+	}
+	if len(pipe.submits) == 0 {
+		t.Fatal("the amendment must dispatch a draft")
+	}
+	// THE FIX: the reopening RATIONALE (Notes) was seeded into the review ledger as a round-0 OPEN
+	// entry — pre-fix, a Notes-only amendment seeded NOTHING (the reopen ledger was empty).
+	if len(ps.seededRounds) == 0 {
+		t.Fatal("a Notes-only amendment must SEED its rationale into the reopen ledger (pre-fix it seeded nothing)")
+	}
+	if ps.seededRounds[0] != 0 {
+		t.Fatalf("the reopening rationale must seed as round 0, got round %d", ps.seededRounds[0])
+	}
+	found := false
+	var seededComment projectstate.ReviewComment
+	for _, batch := range ps.seededComments {
+		for _, c := range batch {
+			if c.Text == rationale {
+				found = true
+				seededComment = c
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("the seeded ledger must carry the amendment rationale %q, got %+v", rationale, ps.seededComments)
+	}
+	// The synthesized rationale comment is UNANCHORED (free-text Notes carry no JSONPath) and
+	// stamped with the reviewer role, exactly like a filed reject comment.
+	if seededComment.Anchor != "" {
+		t.Fatalf("the synthesized rationale comment must be unanchored, got anchor %q", seededComment.Anchor)
+	}
+	if seededComment.AuthorRole != reviewAuthorRole {
+		t.Fatalf("the synthesized rationale comment must carry the reviewer role %q, got %q", reviewAuthorRole, seededComment.AuthorRole)
+	}
+}
+
 // amendmentIndexFor — the pre-field fix rule (Phase-2 twin). A COMMITTED slot yields
 // max(1, Revisions): a slot committed BEFORE the Revisions field existed reads Revisions=0
 // yet is still an amendment (index 1). Non-committed slots are the normal path (0).
@@ -3325,6 +3404,10 @@ type ledgerThreadFake struct {
 	// (seededAtSubmits[i] = dispatches already submitted when the i-th seed fired).
 	pipe            *fakePipeline
 	seededAtSubmits []int
+	// branchAdvancedModel, when non-nil, is served as the branch read-back model (branch != "")
+	// so an AMENDMENT clears the F40 no-change guard and reaches AwaitingReview — the amendment
+	// twin of systemdesign's branchAdvancedModel (nil ⇒ branch == main, the no-change path).
+	branchAdvancedModel projectstate.ArtifactModel
 }
 
 var _ projectstate.ProjectStateAccess = (*ledgerThreadFake)(nil)
@@ -3342,6 +3425,10 @@ func (f *ledgerThreadFake) ReadProjectOnBranch(rc fwra.Context, projectID projec
 	}
 	slot := proj.PlanningAssumptions
 	slot.ReviewThread = f.snapshot()
+	if branch != "" && f.branchAdvancedModel != nil {
+		// Serve a branch model DISTINCT from main so an amendment clears the F40 no-change guard.
+		slot.Model = f.branchAdvancedModel
+	}
 	proj.PlanningAssumptions = slot
 	return proj, nil
 }

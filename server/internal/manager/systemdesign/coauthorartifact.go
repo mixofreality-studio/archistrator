@@ -3039,9 +3039,11 @@ func feedbackToLedgerComments(feedback ReviewFeedback) []projectstate.ReviewComm
 
 // seedAmendmentLedger records the reopening feedback (coAuthorInput.Feedback) as round-0 OPEN
 // ledger entries on the amendment session branch, right after the first stage, then reloads
-// the in-memory thread so the query + prompt surface them. Best-effort: a seed miss (e.g. a
-// non-ledger substrate) leaves the feedback in the prompt only. No-op when there are no
-// anchored comments to seed.
+// the in-memory thread so the query + prompt surface them. Both the anchored Comments AND the
+// free-text Notes rationale seed (the Notes as one unanchored comment — the amend-seed-notes
+// fix; the webApp Amend composer sends its whole payload as Notes). Best-effort: a seed miss
+// (e.g. a non-ledger substrate) leaves the feedback in the prompt only. No-op only when the
+// feedback carries neither Notes nor anchored comments.
 // maybeSeedAmendment seeds the amendment ledger exactly once, the first time an amendment
 // session reaches AwaitingReview, returning the (possibly-updated) seeded flag. Keeps the
 // spine flat (the F38 guard lives here, not inline in the workflow body).
@@ -3058,6 +3060,25 @@ func (wf *workflows) seedAmendmentLedger(ctx workflow.Context, in coAuthorInput,
 		return
 	}
 	comments := feedbackToLedgerComments(*in.Feedback)
+	// Free-text rationale (Feedback.Notes) is NOT an anchored comment, so
+	// feedbackToLedgerComments drops it — yet the webApp Amend composer folds the user's
+	// rationale AND every queued rail comment into Notes (it sends no structured
+	// Comments). Left unseeded, a Notes-only amendment reopens the ledger EMPTY and the
+	// redraft agent reconciles on a stale basis with the user's direction silently lost
+	// (the reported data-loss bug). Synthesize an unanchored round-0 comment carrying the
+	// Notes so it reaches the agent via the ledger, alongside any anchored comments.
+	//
+	// REPLAY SAFETY (mirrors the failed-gate-ledger-seed gate): this seed was ADDED after
+	// the workflow first shipped, so an amendment session in flight at deploy time has no
+	// history event for it. GetVersion pins such pre-feature executions to DefaultVersion
+	// (they skip the Notes synthesis for their whole run — the version resolved at first
+	// replay is cached per execution), while executions started after this deploy resolve
+	// v1 and seed the Notes.
+	if workflow.GetVersion(ctx, "amend-seed-notes", workflow.DefaultVersion, 1) >= 1 {
+		if notes := strings.TrimSpace(in.Feedback.Notes); notes != "" {
+			comments = append(comments, projectstate.ReviewComment{Text: notes, AuthorRole: reviewAuthorRole})
+		}
+	}
 	if len(comments) == 0 {
 		return
 	}
@@ -3083,15 +3104,26 @@ func (wf *workflows) seedAmendmentLedger(ctx workflow.Context, in coAuthorInput,
 // gate reject and the amendment seed, those paths never wrote it to the durable review ledger —
 // so under thin dispatch (the drafting agent reads context ONLY via getReviewThread) it would
 // evaporate. This folds the SAME anchored comments the reject path uses (feedbackToLedgerComments)
-// into the ledger on the SAME session branch, consuming a review round (reviewRound, like a
-// reject) so the seeded ids do not collide with a later reject's on the one accumulating thread.
-// Best-effort, mirroring seedAmendmentLedger: a Notes-only feedback (no anchored comments), an
-// unpopulated slot (no prior staged draft to anchor to on a first-round dispatch), a non-ledger
+// into the ledger on the SAME session branch — PLUS the free-text Notes rationale as one
+// unanchored comment (the amend-seed-notes fix; a memory-only feedback is often Notes-only) —
+// consuming a review round (reviewRound, like a reject) so the seeded ids do not collide with a
+// later reject's on the one accumulating thread. Best-effort, mirroring seedAmendmentLedger: an
+// empty feedback (neither Notes nor anchored comments), an unpopulated slot, a non-ledger
 // substrate, or a transient fault leaves the feedback un-seeded and RETRIES on the next redraft
 // dispatch. Returns whether the seed durably landed, so the caller marks feedbackSeeded and
 // stops re-seeding. headVersion is a hint only — applyRecovering re-reads on a version conflict.
 func (wf *workflows) seedFailedGateFeedback(ctx workflow.Context, in coAuthorInput, gf gitSession, headVersion projectstate.Version, feedback *ReviewFeedback, reviewRound *int, state *coAuthorState) bool {
 	comments := feedbackToLedgerComments(*feedback)
+	// Fold the free-text rationale (Notes) into an unanchored comment too — a memory-only
+	// failed-gate feedback (a PM-critique revise, a redraft signal) is Notes-only, so
+	// without this the durable seed is empty and the redraft agent loses the direction
+	// under thin dispatch. GetVersion-gated on the SAME change id as the amendment seed
+	// (see seedAmendmentLedger) so in-flight executions replay deterministically.
+	if workflow.GetVersion(ctx, "amend-seed-notes", workflow.DefaultVersion, 1) >= 1 {
+		if notes := strings.TrimSpace(feedback.Notes); notes != "" {
+			comments = append(comments, projectstate.ReviewComment{Text: notes, AuthorRole: reviewAuthorRole})
+		}
+	}
 	if len(comments) == 0 {
 		return false
 	}
