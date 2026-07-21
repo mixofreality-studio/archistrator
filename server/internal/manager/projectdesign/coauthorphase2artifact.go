@@ -279,6 +279,33 @@ func (wf *workflows) CoAuthorPhase2ArtifactWorkflow(ctx workflow.Context, in coA
 		// re-suspend at THIS gate (carrying a queryable notice) and await the next decision —
 		// the human re-approves — WITHOUT redrafting. Reject/withdraw exit this inner loop
 		// (reject → break to the outer loop which redrafts; withdraw → return).
+		//
+		// VIBES AUTOGATE (F-R3 vibes-everywhere, founder-ratified): under a vibes ReviewPolicy a
+		// CLEAN draft (no open change-requests) is auto-approved at gate entry WITHOUT waiting for
+		// a human — honoring ReviewPolicy exactly like construction (a design merge is still the
+		// Method's commit authority; vibes simply removes the human hold). Attempted ONCE, before
+		// the human selector, and only under the "design-vibes-autogate" GetVersion (an in-flight
+		// session stays on the human gate). Open change-requests (amendment seeds, critique
+		// feedback) ⇒ the human gate as today. If the synthesized approve returns coAuthorReAwait
+		// (a merge-window fault was contained — QA F35), FALL THROUGH to the human selector below:
+		// never hot-loop auto-approves against a persistent fault (the queryable failureReason is
+		// the honest surface; a human re-approves).
+		if state.vibesAutogateEnabled && state.policyAutoApprove &&
+			len(projectstate.OpenReviewCommentIDs(state.reviewThread)) == 0 {
+			autoSig := reviewDecisionSignal{Decision: ReviewApprove, Approver: autoApproverVibes}
+			autoStep, autoOutcome, autoErr := wf.coAuthorApplyDecision(ctx, in, autoSig, &gf, &headVersion, &redraftCount, &reviewRound, &feedback, state)
+			if autoErr != nil {
+				return coAuthorUnknown, autoErr
+			}
+			switch autoStep {
+			case coAuthorReturn:
+				return autoOutcome, nil
+			case coAuthorContinue, coAuthorProceed:
+				continue // defensive: an approve never rejects; this is the redraft path.
+			case coAuthorReAwait:
+				// merge-window fault contained — fall through to the human gate (no hot-loop).
+			}
+		}
 	gate:
 		for {
 			// REVIEW LEDGER: multiplex the review decision with the SetReviewCommentStatus
@@ -358,6 +385,20 @@ func (wf *workflows) coAuthorSessionSetup(ctx workflow.Context, in coAuthorInput
 		proj = p
 		headVersion = p.Version
 	}
+
+	// REPLAY SAFETY (design-vibes-autogate): resolve the vibes-autogate version gate ONCE, at
+	// session start (mirrors systemdesign). A session in flight at deploy time has no marker
+	// here → replay resolves DefaultVersion → the autogate stays OFF for its whole run (the
+	// human gate), while every post-deploy session records v1 and may auto-approve.
+	state.vibesAutogateEnabled = workflow.GetVersion(ctx, "design-vibes-autogate", workflow.DefaultVersion, 1) >= 1
+
+	// VIBES AUTOGATE (F-R3 vibes-everywhere, founder-ratified): snapshot the review policy at
+	// session start — a vibes preset auto-approves this session's drafts at the review gate,
+	// honoring ReviewPolicy exactly like construction. Keyed on the Preset DIRECTLY (vibes ⇒
+	// auto; checkpoints/full/legacy-"" ⇒ human), NOT EffectiveGate (construction's
+	// (activityType,phase) vocabulary). Snapshot-at-start: a policy change applies to the NEXT
+	// session, not one already in flight.
+	state.policyAutoApprove = proj.ReviewPolicy.Preset != nil && *proj.ReviewPolicy.Preset == projectstate.ReviewPresetVibes
 
 	feedback := ReviewFeedback{}
 	if in.Feedback != nil {

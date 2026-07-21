@@ -59,6 +59,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 )
@@ -82,7 +83,9 @@ import (
 //     L4  Submit rejects an empty ActivityID
 //     L5  Submit rejects a spec with no DispatchInputs["command"]
 //     L6  Observe / Cancel reject a zero / malformed PipelineHandle
-//     L7  Observe an unknown handle → fwra.NotFound
+//     L7  Observe a well-formed handle with NO in-memory record (a RESTART-LOST run)
+//         → TERMINAL PhaseFailed observation + recovery diagnostic (F-R1: terminate,
+//         never loop); a KNOWN still-running handle still reports Running
 //
 //   HAPPY-PATH / DISPATCH SHAPE:
 //     LH1 Submit spawns claude with --dangerously-skip-permissions, --mcp-config,
@@ -141,6 +144,34 @@ import (
 //         PhaseFailed with a diagnostic naming the branch
 //     LM5 Two merge-job submits with the SAME idempotencyKey converge on the
 //         SAME handle/run (no double merge)
+//
+//   DESIGN-JOB ARM (local-first-init-funnel Task 8; a NON-EMPTY job_mode discriminates,
+//   NO ActivityID — the local counterpart of the seated aiarch-design.yml draft job):
+//     LD1 A FIRST-of-session design submit (job_mode ∈ {draft,critique,answer}) whose
+//         session branch does not yet exist CREATES it off main (the local stand-in for
+//         the cloud's server-side beginSession/OpenBranch — the branch-staging rail is
+//         dormant locally), worktrees on it (so the tree sees main's committed state),
+//         spawns claude with the BARE "-p /<command>" prompt (no component/activity args),
+//         and the --mcp-config envelope is the EXACT aiarch-design.yml set —
+//         PROJECT_ID/ARTIFACT_KIND/JOB_MODE/TARGET_BRANCH/STATE_ROOT, with NO
+//         AIARCH_COMPONENT_ID/ACTIVITY_ID; the drafted commit advances the session
+//         branch, Observe reports PhaseSucceeded, the worktree is removed
+//     LD2 A design-job submit missing DispatchInputs["command"]      → ContractMisuse
+//     LD3 A design-job submit missing DispatchInputs["target_branch"] → ContractMisuse
+//     LD4 A MID-session design submit whose session branch already exists re-attaches to
+//         its TIP (never recreated/reset): the prior session commits are preserved and
+//         the drafted commit lands on top
+//     LD5 Two design-job submits with the SAME idempotencyKey converge on the
+//         SAME handle and spawn claude exactly ONCE (no re-dispatch)
+//
+//   SEAT-ASSETS (both arms; the .claude prompt-surface materialization the local arm
+//   was missing — the "Unknown command: /<command>" no-commit root cause):
+//     LS1 The executor runs `aiarch-state-mcp seat-assets --dest <workDir>` BEFORE it
+//         spawns claude (the local mirror of both seated workflows' materialize step),
+//         so the slash command resolves — proven behaviorally: a recording state-mcp
+//         stub writes a marker into --dest and the claude shim requires that marker
+//         before committing, so PhaseSucceeded ⟺ seat ran first in claude's worktree,
+//         and the recorded argv proves the `seat-assets --dest <workDir>` shape
 
 // ---------------------------------------------------------------------------
 // fakeActions — the seam stand-in. Models GitHub's NON-dedup dispatch: each
@@ -1159,13 +1190,60 @@ func TestLocalExecObserveCancel_HandleMisuse(t *testing.T) {
 	}
 }
 
-func TestLocalExecObserve_UnknownHandle_NotFound(t *testing.T) {
+// L7 / FR1a — a well-formed handle with NO in-memory run record is a RESTART-LOST run
+// (the local executor keeps records only in memory; a server restart drops the map while
+// the workflow still polls). It must terminate the observe loop, so Observe returns a
+// TERMINAL PhaseFailed observation with the recovery diagnostic — NOT fwra.NotFound and
+// NOT a still-running phase — routing the Manager to the StageDraftFailed human gate
+// instead of looping to the maxObservePolls ceiling.
+func TestLocalExecObserve_RestartLostHandle_TerminalFailed(t *testing.T) {
 	_, url := newBareRepo(t)
 	a := newLocalExecForTest(t, url, 0)
-	_, err := a.ObserveConstructionPipeline(obsRC(context.Background()), "local:deadbeef")
-	if kind(err) != fwra.NotFound {
-		t.Fatalf("kind = %v, want NotFound", kind(err))
+	obs, err := a.ObserveConstructionPipeline(obsRC(context.Background()), "local:deadbeef")
+	if err != nil {
+		t.Fatalf("Observe(lost handle) returned an error %v, want a terminal-failed observation with nil error", err)
 	}
+	if obs.Phase != PhaseFailed {
+		t.Fatalf("Phase = %v, want PhaseFailed (a restart-lost run must terminate, not loop)", obs.Phase)
+	}
+	if !PipelinePhaseIsTerminal(obs.Phase) {
+		t.Fatalf("Phase %v is not terminal — the observe loop would never break", obs.Phase)
+	}
+	if obs.Diagnostic == "" {
+		t.Fatal("terminal-failed observation for a lost run must carry a recovery diagnostic")
+	}
+	if !strings.Contains(obs.Diagnostic, "restarted") {
+		t.Fatalf("diagnostic %q should explain the run was lost to a restart", obs.Diagnostic)
+	}
+}
+
+// FR1b — a KNOWN, still-running handle must STILL report running (the terminal-lost path
+// must not swallow a legitimately in-flight run). A never-terminating shim keeps the run
+// in localRunRunning while we observe it.
+func TestLocalExecObserve_KnownRunning_StillRunning(t *testing.T) {
+	_, url := newBareRepo(t)
+	installClaudeShim(t, "#!/bin/sh\nexec sleep 30\n")
+	a := newLocalExecForTest(t, url, 20*time.Second)
+
+	spec := localSpec("C-RUNNING", "someComponent", "service-construction")
+	handle, err := a.SubmitConstructionPipeline(subRC(context.Background(), "running-key"), spec)
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	// The subprocess is running (the shim sleeps); Observe must report Running, never the
+	// restart-lost terminal-failed path (the record IS in a.runs).
+	obs, err := a.ObserveConstructionPipeline(obsRC(context.Background()), handle)
+	if err != nil {
+		t.Fatalf("Observe(running): %v", err)
+	}
+	if obs.Phase != PhaseRunning {
+		t.Fatalf("Phase = %v, want PhaseRunning for a known in-flight run", obs.Phase)
+	}
+	// Clean up: cancel the sleeping subprocess so the test does not leak it.
+	if err := a.CancelConstructionPipeline(obsRC(context.Background()), handle); err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+	waitForTerminal(t, a, handle, 5*time.Second)
 }
 
 func TestLocalExecCancel_UnknownHandle_NoopSuccess(t *testing.T) {
@@ -1215,13 +1293,17 @@ func TestLocalExecSubmit_HappyPath_SpawnsClaudeWithCorrectShapeAndPushesCommit(t
 	bareDir, url := newBareRepo(t)
 	capture := filepath.Join(t.TempDir(), "capture")
 	commitShim(t, capture)
-	// Deterministic env-allowlist proof: TERM is guaranteed present (so the
-	// exact-count assertion below is stable everywhere, including CI where
-	// TERM may be unset), and a sentinel parent-only var proves it does NOT
-	// leak into the child (the env allowlist is a CONSTRUCTED list, not a
-	// filtered passthrough).
+	// Deterministic env-allowlist proof: TERM/USER/LOGNAME are forced present (so the
+	// exact-count assertion below is stable everywhere, including CI where they may be
+	// unset). USER/LOGNAME are the OS-username pair claude's headless subscription-auth
+	// keychain lookup needs (forwarded, low-sensitivity, not secrets). A sentinel
+	// parent-only var AND a sentinel ANTHROPIC_API_KEY both prove the allowlist is a
+	// CONSTRUCTED list, not a filtered passthrough — neither leaks into the child.
 	t.Setenv("TERM", "xterm-test")
+	t.Setenv("USER", "aiarch-tester")
+	t.Setenv("LOGNAME", "aiarch-tester")
 	t.Setenv("ARCHISTRATOR_TEST_PARENT_ONLY_SECRET", "must-not-leak-into-child")
+	t.Setenv("ANTHROPIC_API_KEY", "sk-must-not-leak-into-child")
 	a := newLocalExecForTest(t, url, 10*time.Second)
 
 	spec := localSpec("C-BILLENG", "billingGatewayAccess", "service-construction")
@@ -1277,16 +1359,16 @@ func TestLocalExecSubmit_HappyPath_SpawnsClaudeWithCorrectShapeAndPushesCommit(t
 	sandboxCfg := assertSandboxSettingsEnvelope(t, capture, 0)
 	assertSandboxFilesystemAllowWrite(t, sandboxCfg, pwd, bareDir)
 
-	// Env allowlist (Fix-subagent Task 6): EXACTLY PATH/HOME/TERM + the six
-	// AIARCH_* rig vars cross into the child — no other parent var leaks.
-	// shellInjectedVars are NOT part of cmd.Env at all — /bin/sh itself sets
-	// PWD/SHLVL/_ on every invocation regardless of the incoming env (a shim-
-	// script artifact of capturing via `env` inside a spawned sh), so they are
-	// excluded from the exact-membership check below rather than asserted on.
+	// Env allowlist (Fix-subagent Task 6 + USER/LOGNAME for claude subscription auth):
+	// EXACTLY PATH/HOME/TERM/USER/LOGNAME + the six AIARCH_* rig vars cross into the
+	// child — no other parent var leaks. shellInjectedVars are NOT part of cmd.Env at
+	// all — /bin/sh itself sets PWD/SHLVL/_ on every invocation regardless of the
+	// incoming env (a shim-script artifact of capturing via `env` inside a spawned sh),
+	// so they are excluded from the exact-membership check below rather than asserted on.
 	env := readCapturedEnv(t, capture, 0)
 	shellInjectedVars := map[string]bool{"PWD": true, "SHLVL": true, "_": true}
 	wantKeys := []string{
-		"PATH", "HOME", "TERM",
+		"PATH", "HOME", "TERM", "USER", "LOGNAME",
 		"AIARCH_PROJECT_ID", "AIARCH_JOB_MODE", "AIARCH_COMPONENT_ID",
 		"AIARCH_ACTIVITY_ID", "AIARCH_TARGET_BRANCH", "AIARCH_STATE_ROOT",
 	}
@@ -1295,8 +1377,18 @@ func TestLocalExecSubmit_HappyPath_SpawnsClaudeWithCorrectShapeAndPushesCommit(t
 			t.Errorf("child env missing allowlisted var %s", k)
 		}
 	}
+	// USER is the ONE var that makes claude's headless subscription auth work (the
+	// keychain credential lookup is USER-scoped) — assert its value crossed intact.
+	if env["USER"] != "aiarch-tester" {
+		t.Errorf("child env USER = %q, want %q (the OS username claude's subscription-auth keychain lookup needs)", env["USER"], "aiarch-tester")
+	}
 	if _, leaked := env["ARCHISTRATOR_TEST_PARENT_ONLY_SECRET"]; leaked {
 		t.Fatal("child env leaked a parent-only var (ARCHISTRATOR_TEST_PARENT_ONLY_SECRET) — env allowlist regressed to full passthrough")
+	}
+	// Posture unchanged: ANTHROPIC_API_KEY is NEVER forwarded (the local executor rides
+	// the operator's own claude login, never a key). Forwarding USER did not open the door.
+	if _, leaked := env["ANTHROPIC_API_KEY"]; leaked {
+		t.Fatal("child env leaked ANTHROPIC_API_KEY — the local executor must ride the operator's claude login, never a forwarded key")
 	}
 	got := 0
 	for k := range env {
@@ -1716,14 +1808,257 @@ func TestClassifyLocalExecFailure_ExitCodeAndStderrTail(t *testing.T) {
 	}
 }
 
-func TestStderrTail_Bounds(t *testing.T) {
+func TestOutputTail_Bounds(t *testing.T) {
 	long := strings.Repeat("x", 1000)
-	got := stderrTail(long, 10)
+	got := outputTail(long, 10)
 	if gotRunes := len([]rune(got)); gotRunes > 11 { // 10 + the "…" marker
-		t.Fatalf("stderrTail did not bound length: got %d runes (%q)", gotRunes, got)
+		t.Fatalf("outputTail did not bound length: got %d runes (%q)", gotRunes, got)
 	}
-	if stderrTail("short", 10) != "short" {
-		t.Fatalf("stderrTail should pass short text through unchanged")
+	if outputTail("short", 10) != "short" {
+		t.Fatalf("outputTail should pass short text through unchanged")
+	}
+	// Rune safety: cutting mid-character must not emit a replacement glyph into
+	// a string that reaches the UI panel.
+	if got := outputTail(strings.Repeat("é", 100), 11); !utf8.ValidString(got) {
+		t.Fatalf("outputTail split a multi-byte rune: %q", got)
+	}
+}
+
+func TestOutputHead_Bounds(t *testing.T) {
+	got := outputHead(strings.Repeat("x", 1000), 10)
+	if gotRunes := len([]rune(got)); gotRunes > 11 { // 10 + the "…" marker
+		t.Fatalf("outputHead did not bound length: got %d runes (%q)", gotRunes, got)
+	}
+	if !strings.HasPrefix(got, "xxxxxxxxxx") {
+		t.Fatalf("outputHead = %q, want it to keep the LEADING text", got)
+	}
+	if outputHead("short", 10) != "short" {
+		t.Fatalf("outputHead should pass short text through unchanged")
+	}
+	if got := outputHead(strings.Repeat("é", 100), 11); !utf8.ValidString(got) {
+		t.Fatalf("outputHead split a multi-byte rune: %q", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// LX-OBS — local-run observability: what claude actually said.
+//
+// The regression these pin: awaitCompletion used to DISCARD stdout, so every
+// non-advancing local run surfaced as one bare sentence with no way to tell an
+// MCP attach failure from an agent that decided there was nothing to do.
+// ---------------------------------------------------------------------------
+
+func TestClaudeOutputDetail_JSONErrorEnvelope(t *testing.T) {
+	stdout := `{"type":"result","subtype":"error_during_execution","is_error":true,` +
+		`"result":"MCP server aiarch-state failed to start","session_id":"s1"}`
+	got := claudeOutputDetail(stdout, "")
+	if !strings.Contains(got, "error_during_execution") {
+		t.Fatalf("detail = %q, want the envelope subtype", got)
+	}
+	if !strings.Contains(got, "MCP server aiarch-state failed to start") {
+		t.Fatalf("detail = %q, want the envelope result text", got)
+	}
+}
+
+// A CLEAN envelope still carries the signal that matters on a no-commit run:
+// claude believed it SUCCEEDED, which points at the prompt/agent rather than at
+// infrastructure.
+func TestClaudeOutputDetail_JSONSuccessEnvelopeSurfacesAgentMessage(t *testing.T) {
+	stdout := `{"type":"result","subtype":"success","is_error":false,"result":"Nothing to do; the contract already exists."}`
+	got := claudeOutputDetail(stdout, "")
+	if !strings.Contains(got, "Nothing to do") {
+		t.Fatalf("detail = %q, want the agent's own closing message", got)
+	}
+}
+
+// A structured (object-valued) error field must still be readable, not dropped.
+func TestClaudeOutputDetail_StructuredErrorField(t *testing.T) {
+	stdout := `{"type":"result","is_error":true,"error":{"code":"auth","message":"invalid api key"}}`
+	got := claudeOutputDetail(stdout, "")
+	if !strings.Contains(got, "invalid api key") {
+		t.Fatalf("detail = %q, want the structured error rendered", got)
+	}
+}
+
+// claude may print warnings/progress BEFORE the final envelope: the last JSON
+// object line still wins over a raw-text fallback.
+func TestClaudeOutputDetail_JSONAfterLeadingNoise(t *testing.T) {
+	stdout := "warning: something ambient\n" +
+		`{"type":"result","subtype":"error_max_turns","is_error":true,"result":"ran out of turns"}` + "\n"
+	got := claudeOutputDetail(stdout, "")
+	if !strings.Contains(got, "error_max_turns") || !strings.Contains(got, "ran out of turns") {
+		t.Fatalf("detail = %q, want the trailing envelope to win", got)
+	}
+}
+
+// claude can die BEFORE emitting any JSON (crash, startup failure, usage error):
+// the raw stdout tail is then the only artifact, and it must survive.
+func TestClaudeOutputDetail_NonJSONStdoutFallsBackToRawTail(t *testing.T) {
+	got := claudeOutputDetail("Invalid API key · Please run /login", "")
+	if !strings.Contains(got, "Invalid API key") {
+		t.Fatalf("detail = %q, want the raw stdout text", got)
+	}
+}
+
+func TestClaudeOutputDetail_FallsBackToStderrOnlyWhenStdoutEmpty(t *testing.T) {
+	if got := claudeOutputDetail("   ", "sandbox init failed"); !strings.Contains(got, "sandbox init failed") {
+		t.Fatalf("detail = %q, want the stderr fallback", got)
+	}
+	// Caller passes stderrText="" when its leading sentence already carries the
+	// stderr tail — the detail must NOT re-derive it from anywhere.
+	if got := claudeOutputDetail("", ""); got != "" {
+		t.Fatalf("detail = %q, want empty when there is no output at all", got)
+	}
+}
+
+// The diagnostic reaches the web UI's failure panel: unbounded agent prose and
+// multi-line output would wreck it.
+func TestClaudeOutputDetail_BoundedAndSingleLine(t *testing.T) {
+	for name, stdout := range map[string]string{
+		"structured": `{"subtype":"success","result":"` + strings.Repeat("verbose ", 500) + `"}`,
+		"raw":        strings.Repeat("noise\nmore noise\n", 500),
+	} {
+		got := claudeOutputDetail(stdout, "")
+		if len(got) > localExecDetailMaxBytes+8 { // +8 tolerance for the label/ellipsis framing
+			t.Fatalf("%s: detail is %d bytes, want it bounded near %d", name, len(got), localExecDetailMaxBytes)
+		}
+		if strings.ContainsAny(got, "\n\r\t") {
+			t.Fatalf("%s: detail is not single-line: %q", name, got)
+		}
+	}
+}
+
+// LX-OBS1 (the live repro) — a clean exit that committed nothing now explains
+// ITSELF: the leading sentence is preserved verbatim (downstream consumers match
+// on its vocabulary) and claude's own envelope is appended after the separator.
+func TestLocalExecObserve_NoCommit_EnrichesDiagnosticFromJSONEnvelope(t *testing.T) {
+	_, url := newBareRepo(t)
+	installClaudeShim(t, "#!/bin/sh\n"+
+		`echo '{"type":"result","subtype":"error_during_execution","is_error":true,"result":"MCP server aiarch-state failed to start"}'`+"\n"+
+		"exit 0\n")
+	a := newLocalExecForTest(t, url, 10*time.Second)
+
+	handle, err := a.SubmitConstructionPipeline(subRC(context.Background(), "obs-json-key"),
+		localSpec("C-OBSJSON", "someComponent", "service-construction"))
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	obs := waitForTerminal(t, a, handle, 10*time.Second)
+	if obs.Phase != PhaseFailed {
+		t.Fatalf("Phase = %v, want PhaseFailed", obs.Phase)
+	}
+	if !strings.HasPrefix(obs.Diagnostic, "run completed but produced no commits on the target branch") {
+		t.Fatalf("Diagnostic = %q, want the leading sentence preserved verbatim", obs.Diagnostic)
+	}
+	if !strings.Contains(obs.Diagnostic, localExecDetailSeparator) {
+		t.Fatalf("Diagnostic = %q, want the detail separator", obs.Diagnostic)
+	}
+	if !strings.Contains(obs.Diagnostic, "MCP server aiarch-state failed to start") {
+		t.Fatalf("Diagnostic = %q, want claude's own explanation appended", obs.Diagnostic)
+	}
+}
+
+// LX-OBS2 — claude died before emitting JSON: the raw tail still reaches the
+// operator rather than being swallowed.
+func TestLocalExecObserve_NoCommit_NonJSONStdoutFallsBackToRawTail(t *testing.T) {
+	_, url := newBareRepo(t)
+	installClaudeShim(t, "#!/bin/sh\necho 'Invalid API key · Please run /login'\nexit 0\n")
+	a := newLocalExecForTest(t, url, 10*time.Second)
+
+	handle, err := a.SubmitConstructionPipeline(subRC(context.Background(), "obs-raw-key"),
+		localSpec("C-OBSRAW", "someComponent", "service-construction"))
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	obs := waitForTerminal(t, a, handle, 10*time.Second)
+	if !strings.Contains(obs.Diagnostic, "Invalid API key") {
+		t.Fatalf("Diagnostic = %q, want the raw stdout tail appended", obs.Diagnostic)
+	}
+}
+
+// LX-OBS3 — the bounded clause is lossy BY DESIGN, so the full output must land
+// somewhere durable: a log dir that survives the run's own temp-dir cleanup.
+func TestLocalExecFailedRun_WritesDurableOutputLogThatSurvivesCleanup(t *testing.T) {
+	tmp := isolatedTempDir(t)
+	bareDir, url := newBareRepo(t)
+	installClaudeShim(t, "#!/bin/sh\n"+
+		`echo '{"type":"result","subtype":"success","is_error":false,"result":"POSTMORTEM-STDOUT-MARKER"}'`+"\n"+
+		"echo 'POSTMORTEM-STDERR-MARKER' >&2\n"+
+		"exit 0\n")
+	a := newLocalExecForTest(t, url, 10*time.Second)
+
+	handle, err := a.SubmitConstructionPipeline(subRC(context.Background(), "obs-log-key"),
+		localSpec("C-OBSLOG", "someComponent", "service-construction"))
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	if obs := waitForTerminal(t, a, handle, 10*time.Second); obs.Phase != PhaseFailed {
+		t.Fatalf("Phase = %v, want PhaseFailed", obs.Phase)
+	}
+
+	dirs := localExecLogDirs(t, tmp)
+	if len(dirs) != 1 {
+		t.Fatalf("found %d durable log dirs, want exactly 1 (%v)", len(dirs), dirs)
+	}
+	assertFileContains(t, filepath.Join(dirs[0], "stdout.json"), "POSTMORTEM-STDOUT-MARKER")
+	assertFileContains(t, filepath.Join(dirs[0], "stderr.log"), "POSTMORTEM-STDERR-MARKER")
+	// The worktree cleanup still ran — the durable log is SEPARATE from the run's
+	// own temp dirs, not a suppression of their removal.
+	assertNoLingeringWorktrees(t, bareDir)
+}
+
+// LX-OBS4 — the success path is unchanged: no diagnostic, and NO log litter
+// accumulating in the operator's temp dir during normal operation.
+func TestLocalExecSuccessfulRun_NoDiagnosticAndNoLogLitter(t *testing.T) {
+	tmp := isolatedTempDir(t)
+	_, url := newBareRepo(t)
+	commitShim(t, filepath.Join(t.TempDir(), "capture"))
+	a := newLocalExecForTest(t, url, 10*time.Second)
+
+	handle, err := a.SubmitConstructionPipeline(subRC(context.Background(), "obs-clean-key"),
+		localSpec("C-OBSCLEAN", "someComponent", "service-construction"))
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	obs := waitForTerminal(t, a, handle, 10*time.Second)
+	if obs.Phase != PhaseSucceeded {
+		t.Fatalf("Phase = %v, want PhaseSucceeded (diagnostic: %q)", obs.Phase, obs.Diagnostic)
+	}
+	if obs.Diagnostic != "" {
+		t.Fatalf("Diagnostic = %q, want empty on the success path", obs.Diagnostic)
+	}
+	if dirs := localExecLogDirs(t, tmp); len(dirs) != 0 {
+		t.Fatalf("successful run left %d durable log dirs, want 0 (%v)", len(dirs), dirs)
+	}
+}
+
+// isolatedTempDir points os.MkdirTemp("", ...) — and therefore the durable log
+// dir — at a per-test directory, so the log-litter assertions above observe ONLY
+// this test's runs and never the developer's real temp dir.
+func isolatedTempDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	t.Setenv("TMPDIR", dir)
+	return dir
+}
+
+func localExecLogDirs(t *testing.T, tempRoot string) []string {
+	t.Helper()
+	dirs, err := filepath.Glob(filepath.Join(tempRoot, localExecLogDirPattern))
+	if err != nil {
+		t.Fatalf("glob durable log dirs: %v", err)
+	}
+	return dirs
+}
+
+func assertFileContains(t *testing.T, path, want string) {
+	t.Helper()
+	b, err := os.ReadFile(path) //nolint:gosec // test-owned temp path
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	if !strings.Contains(string(b), want) {
+		t.Fatalf("%s = %q, want it to contain %q", path, string(b), want)
 	}
 }
 
@@ -2145,5 +2480,369 @@ func TestLocalExecMergeJob_IdempotencyConvergence(t *testing.T) {
 	// Exactly one merge commit: seed + branch commit + one merge = 3 on main.
 	if n := remoteCommitCount(t, bare, "main"); n != 3 {
 		t.Fatalf("main has %d commits, want 3 (seed + branch work + ONE merge)", n)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// LD1-LD5 — DESIGN-JOB ARM (job_mode-discriminated, NO ActivityID). The local
+// counterpart of aiarch-design.yml's draft job: worktree on the design SESSION
+// branch, "-p /<command>" (no args), and the aiarch-design.yml MCP envelope. On the
+// local profile the branch-staging rail is dormant, so the executor CREATES the
+// session branch off main on first use and re-attaches to its tip on a redraft.
+// ---------------------------------------------------------------------------
+
+// designSpec builds a DESIGN-job PipelineSpec: NO ActivityID (its parameters ride
+// DispatchInputs), a placeholder step to satisfy validateSpec, and the design
+// DispatchInputs the design Managers set (job_mode discriminates the arm).
+func designSpec(command, targetBranch, artifactKind, jobMode string) PipelineSpec {
+	return PipelineSpec{
+		Steps: []PipelineStep{{Name: "design", Toolchain: "go-1.23", Command: []string{"sh", "-c", "true"}}},
+		DispatchInputs: map[string]string{
+			"job_mode":        jobMode,
+			"command":         command,
+			"target_branch":   targetBranch,
+			"artifact_kind":   artifactKind,
+			"prior_state_ref": "",
+		},
+	}
+}
+
+// seedDesignBranch stages a MID-session design SESSION branch off main in the shared
+// repo with one extra commit — the state a prior draft/critique/answer job leaves for a
+// redraft to re-attach to (the local branch-staging rail is dormant, so this stands in
+// for a branch a PRIOR executor run created; a FIRST-of-session job has no such branch
+// and the executor creates it off main).
+func seedDesignBranch(t *testing.T, bareDir, branch string) {
+	t.Helper()
+	work := filepath.Join(t.TempDir(), "seed-design-branch")
+	testGit(t, "", "clone", bareDir, work)
+	testGit(t, work, "config", "user.email", "seed@aiarch.local")
+	testGit(t, work, "config", "user.name", "seed")
+	testGit(t, work, "checkout", "-b", branch, "main")
+	testGit(t, work, "commit", "--allow-empty", "-m", "session branch base")
+	testGit(t, work, "push", "origin", branch)
+}
+
+// assertBranchForkedOffMain asserts main's tip is an ancestor of branch — i.e. the
+// branch was created off main (the local stand-in for the cloud's OpenBranch), so the
+// worktree checked out a tree carrying main's committed state.
+func assertBranchForkedOffMain(t *testing.T, bareDir, branch string) {
+	t.Helper()
+	cmd := exec.Command("git", "-C", bareDir, "merge-base", "--is-ancestor", localMainBranch, branch)
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("branch %s is not a descendant of %s — expected it created off main: %v", branch, localMainBranch, err)
+	}
+}
+
+// LD1 — FIRST-of-session happy path across ALL THREE job modes (draft/critique/answer all
+// discriminate the design arm off a non-empty job_mode). The session branch does NOT exist
+// yet, so the executor creates it off main (the branch-staging rail is dormant locally) and
+// the worktree sees main's committed state. Full envelope + prompt + worktree +
+// branch-created-off-main + branch-advance assertions each time; the mechanism is
+// mode-agnostic at this layer (the .claude command decides model vs verdict vs responses —
+// the RA only spawns).
+func TestLocalExecSubmit_DesignJob_FirstOfSession_CreatesBranchOffMain_AllModes(t *testing.T) {
+	for _, mode := range []string{"draft", "critique", "answer"} {
+		t.Run(mode, func(t *testing.T) {
+			bareDir, url := newBareRepo(t)
+			branch := "aiarch-design/mission/session-" + mode
+			// Deliberately NOT seeded: this is the first job of the session, so nothing has
+			// staged the branch — the executor must create it off main.
+			if remoteBranchExists(t, bareDir, branch) {
+				t.Fatalf("precondition: session branch %s must not exist before the first job", branch)
+			}
+			capture := filepath.Join(t.TempDir(), "capture")
+			commitShim(t, capture)
+			t.Setenv("TERM", "xterm-test")
+			a := newLocalExecForTest(t, url, 10*time.Second)
+
+			command := "mission-" + mode
+			spec := designSpec(command, branch, "Mission", mode)
+			handle, err := a.SubmitConstructionPipeline(subRC(context.Background(), fwra.IdempotencyKey("design-key-"+mode)), spec)
+			if err != nil {
+				t.Fatalf("Submit(design %s): %v", mode, err)
+			}
+			if handle == "" {
+				t.Fatal("Submit returned a zero handle")
+			}
+
+			obs := waitForTerminal(t, a, handle, 10*time.Second)
+			if obs.Phase != PhaseSucceeded {
+				t.Fatalf("[%s] Phase = %v, want PhaseSucceeded (diagnostic: %q)", mode, obs.Phase, obs.Diagnostic)
+			}
+
+			// The executor created the session branch off main (the local stand-in for the
+			// cloud's OpenBranch), so the worktree saw main's committed state, and the drafted
+			// commit advanced the branch directly (no push): main's seed + the drafted commit = 2.
+			if !remoteBranchExists(t, bareDir, branch) {
+				t.Fatalf("session branch %s was not created by the design arm", branch)
+			}
+			assertBranchForkedOffMain(t, bareDir, branch)
+			if got := remoteCommitCount(t, bareDir, branch); got != 2 {
+				t.Fatalf("commit count on %s = %d, want 2 (main seed + drafted commit)", branch, got)
+			}
+			assertNoLingeringWorktrees(t, bareDir)
+
+			// Prompt is EXACTLY "/<command>" — no component/activity args (design shape).
+			args := readCapturedArgs(t, capture, 0)
+			assertClaudeArgsShape(t, args, "-p\n/"+command)
+			if strings.Contains(args, "/"+command+" ") {
+				t.Fatalf("[%s] design prompt carried trailing args, want a bare \"/%s\": %q", mode, command, args)
+			}
+
+			pwd := readCapturedPWD(t, capture, 0)
+			if pwd == "" || pwd == bareDir {
+				t.Fatalf("[%s] claude cwd = %q, want a throwaway worktree distinct from the bare repo", mode, pwd)
+			}
+
+			// --mcp-config envelope: the EXACT aiarch-design.yml set (assertMCPConfigEnvelope
+			// also checks AIARCH_STATE_ROOT == the worktree cwd).
+			assertMCPConfigEnvelope(t, capture, 0, pwd, map[string]string{
+				"AIARCH_PROJECT_ID":    "test-project",
+				"AIARCH_ARTIFACT_KIND": "Mission",
+				"AIARCH_JOB_MODE":      mode,
+				"AIARCH_TARGET_BRANCH": branch,
+			})
+
+			// The design envelope carries NO construct-only ambient vars, and is EXACTLY
+			// the 5-var aiarch-design.yml set — proving the arm did not leak the construct rig.
+			env := readCapturedEnv(t, capture, 0)
+			for _, forbidden := range []string{"AIARCH_COMPONENT_ID", "AIARCH_ACTIVITY_ID"} {
+				if _, present := env[forbidden]; present {
+					t.Fatalf("[%s] design child env leaked construct-only var %s (%v)", mode, forbidden, envKeys(env))
+				}
+			}
+			wantAIARCH := []string{"AIARCH_PROJECT_ID", "AIARCH_ARTIFACT_KIND", "AIARCH_JOB_MODE", "AIARCH_TARGET_BRANCH", "AIARCH_STATE_ROOT"}
+			for _, k := range wantAIARCH {
+				if _, ok := env[k]; !ok {
+					t.Errorf("[%s] design child env missing %s", mode, k)
+				}
+			}
+			gotAIARCH := 0
+			for k := range env {
+				if strings.HasPrefix(k, "AIARCH_") {
+					gotAIARCH++
+				}
+			}
+			if gotAIARCH != len(wantAIARCH) {
+				t.Fatalf("[%s] design child env has %d AIARCH_* vars, want exactly %d %v; got %v", mode, gotAIARCH, len(wantAIARCH), wantAIARCH, envKeys(env))
+			}
+
+			// Tier-2 sandbox posture unchanged (THE INVARIANT), and the filesystem scope
+			// covers the worktree + the shared git dir — identical to the construct arm.
+			sandboxCfg := assertSandboxSettingsEnvelope(t, capture, 0)
+			assertSandboxFilesystemAllowWrite(t, sandboxCfg, pwd, bareDir)
+		})
+	}
+}
+
+// LD2 — a design-job submit missing the command dispatch input is ContractMisuse
+// (exactly as the construct arm rejects a missing command), BEFORE any worktree/spawn.
+func TestLocalExecSubmit_DesignJob_MissingCommand_ContractMisuse(t *testing.T) {
+	_, url := newBareRepo(t)
+	a := newLocalExecForTest(t, url, 0)
+	spec := designSpec("", "design/mission/s1", "Mission", "draft")
+	_, err := a.SubmitConstructionPipeline(subRC(context.Background(), "d-nocommand"), spec)
+	if kind(err) != fwra.ContractMisuse {
+		t.Fatalf("kind = %v, want ContractMisuse", kind(err))
+	}
+}
+
+// LD3 — a design-job submit missing the target_branch dispatch input is ContractMisuse.
+func TestLocalExecSubmit_DesignJob_MissingTargetBranch_ContractMisuse(t *testing.T) {
+	_, url := newBareRepo(t)
+	a := newLocalExecForTest(t, url, 0)
+	spec := designSpec("mission-draft", "", "Mission", "draft")
+	_, err := a.SubmitConstructionPipeline(subRC(context.Background(), "d-nobranch"), spec)
+	if kind(err) != fwra.ContractMisuse {
+		t.Fatalf("kind = %v, want ContractMisuse", kind(err))
+	}
+}
+
+// LD4 — a MID-session design job whose SESSION branch already exists (a prior
+// draft/critique/answer job opened it) re-attaches to its TIP: the branch is NEVER
+// recreated/reset, the prior session commits are preserved, and the drafted commit lands
+// on top. This is the counterpart of LD1's first-of-session create-off-main path.
+func TestLocalExecSubmit_DesignJob_ExistingSessionBranch_ReattachesToTip(t *testing.T) {
+	bareDir, url := newBareRepo(t)
+	branch := "aiarch-design/mission/session-redraft"
+	seedDesignBranch(t, bareDir, branch) // a prior job's session branch (main seed + a session-base commit)
+	priorTip := strings.TrimSpace(testGitOut(t, bareDir, "rev-parse", branch))
+	capture := filepath.Join(t.TempDir(), "capture")
+	commitShim(t, capture)
+	a := newLocalExecForTest(t, url, 10*time.Second)
+
+	spec := designSpec("mission-draft", branch, "Mission", "draft")
+	handle, err := a.SubmitConstructionPipeline(subRC(context.Background(), "d-redraft"), spec)
+	if err != nil {
+		t.Fatalf("Submit(design redraft): %v", err)
+	}
+	obs := waitForTerminal(t, a, handle, 10*time.Second)
+	if obs.Phase != PhaseSucceeded {
+		t.Fatalf("Phase = %v, want PhaseSucceeded (diagnostic: %q)", obs.Phase, obs.Diagnostic)
+	}
+
+	// Re-attached to the existing tip, not recreated: the drafted commit is a DESCENDANT
+	// of the prior tip (prior session commits preserved), and the count is main seed +
+	// session base + drafted = 3.
+	cmd := exec.Command("git", "-C", bareDir, "merge-base", "--is-ancestor", priorTip, branch)
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("prior session tip %s is not an ancestor of %s — the branch was reset, not re-attached: %v", priorTip, branch, err)
+	}
+	if got := remoteCommitCount(t, bareDir, branch); got != 3 {
+		t.Fatalf("commit count on %s = %d, want 3 (main seed + session base + drafted commit)", branch, got)
+	}
+}
+
+// LD5 — two design submits with the SAME idempotencyKey converge on the SAME handle and
+// spawn claude exactly ONCE (the in-memory run-record short-circuit, same as construct).
+// First-of-session (unseeded), so the arm also creates the branch off main exactly once.
+func TestLocalExecSubmit_DesignJob_DuplicateKey_ConvergesWithoutRedispatch(t *testing.T) {
+	bareDir, url := newBareRepo(t)
+	branch := "aiarch-design/glossary/session-1"
+	capture := filepath.Join(t.TempDir(), "capture")
+	commitShim(t, capture)
+	a := newLocalExecForTest(t, url, 10*time.Second)
+
+	spec := designSpec("glossary-draft", branch, "Glossary", "draft")
+	h1, err := a.SubmitConstructionPipeline(subRC(context.Background(), "design-same-key"), spec)
+	if err != nil {
+		t.Fatalf("Submit (1): %v", err)
+	}
+	h2, err := a.SubmitConstructionPipeline(subRC(context.Background(), "design-same-key"), spec)
+	if err != nil {
+		t.Fatalf("Submit (2): %v", err)
+	}
+	if h1 != h2 {
+		t.Fatalf("handles diverged for the same idempotencyKey: %q != %q", h1, h2)
+	}
+	waitForTerminal(t, a, h1, 10*time.Second)
+
+	if _, err := os.Stat(filepath.Join(capture, "call-1.args")); !os.IsNotExist(err) {
+		t.Fatalf("expected exactly one claude invocation, found a second (call-1.args exists, stat err=%v)", err)
+	}
+	if got := remoteCommitCount(t, bareDir, branch); got != 2 {
+		t.Fatalf("commit count on %s = %d, want 2 (main seed + ONE drafted commit)", branch, got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// LS1 — SEAT-ASSETS (the .claude prompt-surface materialization the local arm was
+// missing, causing "Unknown command: /<command>" no-commit runs). The executor must
+// run `aiarch-state-mcp seat-assets --dest <workDir>` BEFORE spawning claude, exactly
+// as both seated workflow templates do, so the slash command resolves.
+// ---------------------------------------------------------------------------
+
+// recordingStateMCPBin writes a fake aiarch-state-mcp that (a) RECORDS its argv (one
+// arg per line) into captureDir/seat-args and (b) mimics real `seat-assets` by rendering
+// a marker into <--dest>/.claude, then exits 0. A downstream claude shim can then PROVE
+// seat-assets ran BEFORE it, in the SAME worktree, by requiring that marker — a behavioral
+// ordering proof that needs no timestamps. (The real binary renders the whole .claude
+// surface via methodassets.Materialize; the executor only needs it to exist + exit 0, so
+// a recorder is a faithful stand-in — same pattern as the claude shim.)
+func recordingStateMCPBin(t *testing.T, captureDir string) string {
+	t.Helper()
+	if err := os.MkdirAll(captureDir, 0o755); err != nil {
+		t.Fatalf("mkdir seat capture dir: %v", err)
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "aiarch-state-mcp")
+	// $CAPTURE is baked in at generation time (not read from the child env) so the
+	// capture location is independent of the minimal env the executor passes.
+	script := "#!/bin/sh\n" +
+		"CAPTURE='" + captureDir + "'\n" +
+		"printf '%s\\n' \"$@\" >> \"$CAPTURE/seat-args\"\n" +
+		// Extract the --dest value and render the marker there (mimics seat-assets
+		// writing .claude/** into the checkout root).
+		"dest=''\n" +
+		"prev=''\n" +
+		"for a in \"$@\"; do if [ \"$prev\" = \"--dest\" ]; then dest=\"$a\"; fi; prev=\"$a\"; done\n" +
+		"if [ -n \"$dest\" ]; then mkdir -p \"$dest/.claude/commands\" && : > \"$dest/.claude/SEATED\"; fi\n" +
+		"exit 0\n"
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil { //nolint:gosec // test stub, deliberately executable
+		t.Fatalf("write recording state-mcp bin: %v", err)
+	}
+	return path
+}
+
+// readSeatArgs reads the recording state-mcp stub's captured argv (one arg per line).
+func readSeatArgs(t *testing.T, captureDir string) []string {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(captureDir, "seat-args"))
+	if err != nil {
+		t.Fatalf("read seat-assets args: %v", err)
+	}
+	var out []string
+	for _, l := range strings.Split(strings.TrimRight(string(raw), "\n"), "\n") {
+		if l != "" {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
+// LS1 — the executor materializes the .claude prompt surface before spawning claude. The
+// recording state-mcp stub records `seat-assets --dest <dir>` and writes a marker into
+// that dir; the claude shim FAILS unless the marker is present in its cwd, then commits.
+// So PhaseSucceeded ⟺ seat-assets ran BEFORE claude in claude's OWN worktree, and the
+// recorded argv proves the exact `seat-assets --dest <workDir>` invocation shape.
+func TestLocalExecSubmit_SeatsClaudePromptSurfaceBeforeSpawn(t *testing.T) {
+	bareDir, url := newBareRepo(t)
+	seatCapture := filepath.Join(t.TempDir(), "seat")
+	stateMCPBin := recordingStateMCPBin(t, seatCapture)
+
+	// A claude shim that proves ordering: it exits non-zero unless the seat marker
+	// exists in its cwd (i.e. seat-assets ran first, in this worktree), else it commits.
+	installClaudeShim(t, "#!/bin/sh\n"+
+		"set -e\n"+
+		"test -f .claude/SEATED || { echo 'seat marker missing — seat-assets did not run before claude' >&2; exit 9; }\n"+
+		"git config user.email shim@aiarch.local\n"+
+		"git config user.name shim\n"+
+		"echo drafted >> DRAFTED.txt\n"+
+		"git add -A\n"+
+		"git commit -m 'drafted after seat' >/dev/null\n"+
+		"echo '{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false}'\n"+
+		"exit 0\n")
+
+	v, err := NewLocalExecConstructionPipelineAccess(url, "test-project", stateMCPBin, 10*time.Second)
+	if err != nil {
+		t.Fatalf("NewLocalExecConstructionPipelineAccess: %v", err)
+	}
+	a, ok := v.(*localExecAccess)
+	if !ok {
+		t.Fatalf("expected *localExecAccess, got %T", v)
+	}
+
+	branch := "aiarch-design/mission/session-seat"
+	spec := designSpec("mission-draft", branch, "Mission", "draft")
+	handle, err := a.SubmitConstructionPipeline(subRC(context.Background(), "seat-key"), spec)
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	obs := waitForTerminal(t, a, handle, 10*time.Second)
+	// PhaseSucceeded is the ordering proof: the shim committed, which it only does when
+	// the seat marker is present — so seat-assets ran BEFORE claude, in claude's worktree.
+	if obs.Phase != PhaseSucceeded {
+		t.Fatalf("Phase = %v, want PhaseSucceeded (the claude shim requires the seat marker; diagnostic: %q)", obs.Phase, obs.Diagnostic)
+	}
+
+	// The recorded argv proves the exact invocation shape: `seat-assets --dest <workDir>`.
+	seatArgs := readSeatArgs(t, seatCapture)
+	if len(seatArgs) == 0 || seatArgs[0] != "seat-assets" {
+		t.Fatalf("state-mcp not invoked as `seat-assets ...`; argv=%v", seatArgs)
+	}
+	var dest string
+	for i := 0; i+1 < len(seatArgs); i++ {
+		if seatArgs[i] == "--dest" {
+			dest = seatArgs[i+1]
+		}
+	}
+	if dest == "" {
+		t.Fatalf("seat-assets argv missing a non-empty --dest: %v", seatArgs)
+	}
+	// --dest is the worktree (a throwaway dir distinct from the bare repo), and it is the
+	// SAME dir the marker landed in that the shim then read — so it equals claude's cwd.
+	if dest == bareDir {
+		t.Fatalf("seat-assets --dest = %q, want the throwaway worktree, not the shared repo", dest)
 	}
 }

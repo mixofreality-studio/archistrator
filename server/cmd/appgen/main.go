@@ -206,6 +206,13 @@ func generateMain(m *projectmodel.Model) {
 				{GoType: "string"}, // appSlug
 				{GoType: "bool"},   // repoPrivate
 			},
+			// sourceControlAccess GitLocal (the local PR rail): branch/PR/merge over the
+			// local file:// repo. A hook-args case for the same reason as the other
+			// GitLocal arms above — it REUSES cfg.ProjectStateGitRepoURL rather than
+			// declare a duplicate binding-scoped setting for the same env var.
+			"sourceControlAccess/GitLocal": {
+				{GoType: "string"}, // repoURL
+			},
 			"constructionPipelineAccess/GitHubActions": {
 				{GoType: "*github.AppClient", GoImport: githubInfraPkg},
 				{GoType: "string"}, // owner

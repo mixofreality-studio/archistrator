@@ -61,6 +61,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"maps"
 	"net/url"
 	"os"
@@ -71,6 +72,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"unicode/utf8"
 
 	fwgithub "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
@@ -1048,6 +1050,33 @@ func (dryRunPipeline) CancelConstructionPipeline(_ fwra.Context, _ PipelineHandl
 // (cmd/aiarch-state-mcp/session.go's envProjectID/envJobMode/envComponentID/
 // envActivityID/envTargetBranch/envStateRoot).
 //
+// THREE JOB SHAPES ON THE ONE SUBMIT SURFACE (the discriminator):
+// SubmitConstructionPipeline serves THREE distinct dispatch shapes, discriminated off
+// DispatchInputs (never off ActivityID, which is CONSTRUCT-ONLY):
+//
+//   - CONSTRUCT (the default) — a headless claude run on the activity/<id> branch.
+//     Carries component_id + activity_id; prompt "/<command> <component> <activity>";
+//     AIARCH_JOB_MODE=construct. Requires a non-empty ActivityID.
+//   - DESIGN (submitDesignJob) — the local-executor counterpart of the seated
+//     aiarch-design.yml draft job. Discriminated by a NON-EMPTY "job_mode" dispatch
+//     input (every design job the Phase-1/Phase-2 design Managers send stamps it —
+//     draft/critique/answer; a construct dispatch NEVER does). Carries NO ActivityID —
+//     a design job works on a typed Method ARTIFACT slot (fixed by artifact_kind), not
+//     a component+activity, so its parameters ride DispatchInputs — the SAME thing the
+//     GitHub-Actions arm already does (it dispatches design jobs with an empty
+//     ActivityID; only the step graph is validated). The prompt is exactly "/<command>"
+//     (no args) and the AIARCH_* envelope is the EXACT set aiarch-design.yml stamps on
+//     its MCP-config step — PROJECT_ID / ARTIFACT_KIND / JOB_MODE / TARGET_BRANCH /
+//     STATE_ROOT — so a design job behaves identically on both rails. The worktree is on
+//     target_branch (the design SESSION branch); on the LOCAL profile the branch-staging
+//     rail is dormant, so the executor CREATES the session branch off main on first use
+//     (the stand-in for the cloud's server-side beginSession/OpenBranch) and re-attaches
+//     to its tip on a mid-session redraft/critique/answer — see designDispatchPlan +
+//     addWorktree for the field-by-field mirror, the cloud-vs-local branch-staging
+//     asymmetry, and why prior_state_ref is NOT in the ambient env.
+//   - LOCAL MERGE (submitMergeJob) — discriminated by DispatchInputs["job"]="merge";
+//     not a claude run at all (see below).
+//
 // WHY EVERY DISPATCH GETS A GIT WORKTREE (the worktree-per-activity rework,
 // superseding the original fresh-clone-per-dispatch): SubmitConstructionPipeline
 // runs `git worktree add` against the configured repo's LOCAL filesystem path (the
@@ -1247,6 +1276,22 @@ func (a *localExecAccess) SubmitConstructionPipeline(rc fwra.Context, spec Pipel
 	if err := validateSpec(spec); err != nil {
 		return "", err
 	}
+
+	// DESIGN-JOB ARM (Phase-1 systemdesign + Phase-2 projectdesign; draft/critique/
+	// answer). A design dispatch is discriminated by a NON-EMPTY "job_mode" dispatch
+	// input: every design job the design Managers send stamps it (dispatchInputJobMode
+	// in {systemdesign,projectdesign}manager.go → "draft"/"critique"/"answer"), while a
+	// construct dispatch NEVER sets it (it carries component_id/activity_id instead) and
+	// the local merge job is discriminated separately below by DispatchInputJobKey.
+	// Design jobs carry NO ActivityID — their parameters ride DispatchInputs — so they
+	// MUST branch BEFORE the construct/merge ActivityID requirement. This is exactly what
+	// the GitHub-Actions arm already does (it dispatches design jobs with an empty
+	// ActivityID; its Submit validates only the step graph, never ActivityID), so the two
+	// rails agree on "ActivityID is construct-only".
+	if jobMode := strings.TrimSpace(spec.DispatchInputs[dispatchInputJobModeKey]); jobMode != "" {
+		return a.submitDesignJob(rc, spec, jobMode)
+	}
+
 	activityID := strings.TrimSpace(string(spec.ActivityID))
 	if activityID == "" {
 		return "", fwra.New(fwra.ContractMisuse, "SubmitConstructionPipeline: empty ActivityID")
@@ -1264,12 +1309,45 @@ func (a *localExecAccess) SubmitConstructionPipeline(rc fwra.Context, spec Pipel
 	if spec.DispatchInputs[DispatchInputJobKey] == DispatchJobMerge {
 		return a.submitMergeJob(rc, activityID)
 	}
-	command := strings.TrimSpace(spec.DispatchInputs["command"])
+	command := strings.TrimSpace(spec.DispatchInputs[dispatchInputCommandKey])
 	if command == "" {
 		return "", fwra.New(fwra.ContractMisuse, `SubmitConstructionPipeline: missing DispatchInputs["command"]`)
 	}
-	componentID := spec.DispatchInputs["component_id"]
+	componentID := spec.DispatchInputs[dispatchInputComponentIDKey]
 
+	return a.submitClaudeRun(rc, constructDispatchPlan(a.projectID, activityID, command, componentID))
+}
+
+// submitDesignJob is the DESIGN arm of SubmitConstructionPipeline — the local-executor
+// counterpart of aiarch-design.yml's draft job. It validates the design dispatch inputs
+// (command + target_branch are REQUIRED; a missing one is ContractMisuse, exactly as the
+// construct arm rejects a missing command), builds the design dispatch plan, and hands
+// off to the SAME convergence + spawn machinery the construct arm uses (submitClaudeRun).
+// It deliberately does NOT require ActivityID — see the SubmitConstructionPipeline
+// discriminator note and designDispatchPlan.
+func (a *localExecAccess) submitDesignJob(rc fwra.Context, spec PipelineSpec, jobMode string) (PipelineHandle, error) {
+	command := strings.TrimSpace(spec.DispatchInputs[dispatchInputCommandKey])
+	if command == "" {
+		return "", fwra.New(fwra.ContractMisuse, `SubmitConstructionPipeline: missing DispatchInputs["command"] for a design job`)
+	}
+	targetBranch := strings.TrimSpace(spec.DispatchInputs[dispatchInputTargetBranchKey])
+	if targetBranch == "" {
+		return "", fwra.New(fwra.ContractMisuse, `SubmitConstructionPipeline: missing DispatchInputs["target_branch"] for a design job`)
+	}
+	artifactKind := strings.TrimSpace(spec.DispatchInputs[dispatchInputArtifactKindKey])
+	return a.submitClaudeRun(rc, designDispatchPlan(a.projectID, jobMode, command, targetBranch, artifactKind))
+}
+
+// submitClaudeRun converges the caller-supplied idempotencyKey on a single in-memory
+// run record and spawns the claude subprocess via the shared dispatch core from a
+// fully-built localDispatchPlan. It is the common tail of BOTH the construct arm and
+// the design arm (submitDesignJob): the arms differ ONLY in the plan they build
+// (branch + create-off-main policy + AIARCH_* rig + prompt); the convergence + spawn +
+// pre-spawn-rollback is identical. A pre-spawn failure leaves NO run record, so a retry
+// with the SAME key tries again cleanly; once the subprocess has started, Submit returns
+// success and the eventual outcome is observable only via ObserveConstructionPipeline
+// (mirroring actions.go's probe-then-dispatch convergence, different executor).
+func (a *localExecAccess) submitClaudeRun(rc fwra.Context, plan localDispatchPlan) (PipelineHandle, error) {
 	token := dedupToken(rc.IdempotencyKey)
 	handle := PipelineHandle(localHandlePrefix + token)
 
@@ -1282,7 +1360,7 @@ func (a *localExecAccess) SubmitConstructionPipeline(rc fwra.Context, spec Pipel
 	a.runs[token] = run
 	a.mu.Unlock()
 
-	if err := a.dispatch(run, activityID, command, componentID); err != nil {
+	if err := a.dispatch(run, plan); err != nil {
 		a.mu.Lock()
 		delete(a.runs, token)
 		a.mu.Unlock()
@@ -1291,12 +1369,131 @@ func (a *localExecAccess) SubmitConstructionPipeline(rc fwra.Context, spec Pipel
 	return handle, nil
 }
 
-// dispatch performs the synchronous prep (git-worktree-add the activity branch,
-// write the ephemeral --mcp-config + sandbox --settings, start claude) and, once
-// the subprocess is genuinely running, hands the rest off to awaitCompletion in a
-// goroutine. Any failure here is a genuine, pre-spawn submit failure.
-func (a *localExecAccess) dispatch(run *localRun, activityID, command, componentID string) error {
+// localDispatchPlan carries the per-ARM variance the shared dispatch core (dispatch,
+// below) needs to spawn ONE headless claude run. The construct arm and the design arm
+// share every mechanism — worktree add, --mcp-config + Tier-2 sandbox --settings
+// authoring, subprocess spawn, awaitCompletion's ref-advanced success gate — and differ
+// ONLY in these fields. Building the plan is the arm's whole job; running it is
+// arm-agnostic.
+type localDispatchPlan struct {
+	// branch is the git branch the worktree checks out and claude commits onto: the
+	// construct arm's activity/<id>, or the design arm's session branch (target_branch).
+	// BOTH arms lean on addWorktree's re-attach-or-create-off-main behavior: on the local
+	// (rail-dormant) profile the executor is the only git-owning party, so a missing branch
+	// is created fresh off main on first use — see addWorktree for the cloud-vs-local
+	// asymmetry.
+	branch string
+	// worktreeLabel names the branch class in the worktree-add error diagnostic
+	// ("activity-branch" / "design session-branch").
+	worktreeLabel string
+	// rig is the AIARCH_* ambient-context envelope stamped on BOTH claude's own process
+	// env (claudeSubprocessEnv) AND the attached aiarch-state MCP server
+	// (writeStateMCPConfig), EXCLUDING AIARCH_STATE_ROOT — dispatch stamps that = the
+	// worktree dir it creates (not known until dispatch runs).
+	rig map[string]string
+	// prompt is the exact claude -p prompt. Construct: "/<command> <component> <activity>"
+	// (aiarch-construct.yml's prompt step). Design: "/<command>" with no args
+	// (aiarch-design.yml's draft step).
+	prompt string
+}
+
+// constructDispatchPlan builds the plan for a CONSTRUCTION dispatch: the activity branch
+// (created off main if absent — nobody else opens it in the local profile), the construct
+// AIARCH_* rig (JOB_MODE=construct + component/activity), and the "/<command> <component>
+// <activity>" prompt — the exact shape aiarch-construct.yml's prompt step + MCP-config
+// env emit.
+func constructDispatchPlan(projectID, activityID, command, componentID string) localDispatchPlan {
 	branch := localBranchName(activityID)
+	return localDispatchPlan{
+		branch:        branch,
+		worktreeLabel: "activity-branch",
+		rig: map[string]string{
+			"AIARCH_PROJECT_ID":    projectID,
+			"AIARCH_JOB_MODE":      "construct",
+			"AIARCH_COMPONENT_ID":  componentID,
+			"AIARCH_ACTIVITY_ID":   activityID,
+			"AIARCH_TARGET_BRANCH": branch,
+		},
+		prompt: "/" + command + " " + componentID + " " + activityID,
+	}
+}
+
+// designDispatchPlan builds the plan for a DESIGN dispatch, MIRRORING the seated
+// aiarch-design.yml draft job field-for-field:
+//
+//   - Worktree on target_branch (the design SESSION branch). The cloud draft job checks
+//     out prior_state_ref, then its "Refresh the session branch from main" step does
+//     `git checkout -B target_branch origin/target_branch` — so the working tree the
+//     agent actually drafts on is the session-branch tip. Worktree-on-target_branch is
+//     the faithful local equivalent. CLOUD-vs-LOCAL BRANCH-STAGING ASYMMETRY: on the
+//     cloud rail the session branch is created SERVER-SIDE before dispatch (systemdesign
+//     beginSession → sourceControlAccess.OpenBranch). On the LOCAL profile that rail is
+//     DORMANT (sourceControlAccess is nil — no branch/PR ops), so nothing stages it and
+//     the executor creates it off main on FIRST use (addWorktree). A mid-session redraft/
+//     critique/answer re-attaches to the existing branch's tip. See addWorktree.
+//   - The AIARCH_* envelope is the EXACT set aiarch-design.yml's "Write the aiarch-state
+//     MCP config" step stamps (and that cmd/aiarch-state-mcp/session.go reads):
+//     AIARCH_PROJECT_ID, AIARCH_ARTIFACT_KIND, AIARCH_JOB_MODE, AIARCH_TARGET_BRANCH,
+//     AIARCH_STATE_ROOT (the last stamped by dispatch = the worktree dir). NO
+//     AIARCH_COMPONENT_ID / AIARCH_ACTIVITY_ID (those are construct-only).
+//   - prior_state_ref is NOT in the envelope: the design template stamps no such var
+//     (session.go reads none), it is the cloud CHECKOUT ref only, and the local
+//     worktree-on-target_branch already reproduces the same working state — so this arm
+//     does not read it.
+//   - The prompt is exactly "/<command>" (no args) — the aiarch-design.yml draft step's
+//     prompt, vs the construct step's "/<command> <component> <activity>".
+func designDispatchPlan(projectID, jobMode, command, targetBranch, artifactKind string) localDispatchPlan {
+	return localDispatchPlan{
+		branch:        targetBranch,
+		worktreeLabel: "design session-branch",
+		rig: map[string]string{
+			"AIARCH_PROJECT_ID":    projectID,
+			"AIARCH_ARTIFACT_KIND": artifactKind,
+			"AIARCH_JOB_MODE":      jobMode,
+			"AIARCH_TARGET_BRANCH": targetBranch,
+		},
+		prompt: "/" + command,
+	}
+}
+
+// Design/construct DispatchInputs keys — the wire contract with the seated workflow
+// templates' workflow_dispatch.inputs (method-assets aiarch-design.yml.tmpl /
+// products/.../aiarch-construct.yml) and the Managers that SET them
+// ({systemdesign,projectdesign,construction} dispatchInput* constants). This realisation
+// reads them as bare literals — the yml template is the single source of truth (the RA
+// owns no shared Go constant with the Managers), and a named constant here documents each
+// key + its meaning. (The local-only "job"/"merge" job-routing vocabulary the RA DOES own
+// — DispatchInputJobKey / DispatchJobMerge — is exported instead, because the Manager sets
+// it and it appears in no yml template.)
+const (
+	// dispatchInputJobModeKey is the DESIGN-vs-construct discriminator: every design
+	// dispatch (draft/critique/answer) sets it; a construct dispatch never does (it
+	// carries component_id/activity_id instead). A non-empty value routes Submit to the
+	// design arm. Its value is also stamped as AIARCH_JOB_MODE in the design envelope.
+	dispatchInputJobModeKey = "job_mode"
+	// dispatchInputArtifactKindKey is the typed Method artifact kind a design job drafts/
+	// critiques (e.g. "Mission", "Volatilities"); stamped as AIARCH_ARTIFACT_KIND.
+	dispatchInputArtifactKindKey = "artifact_kind"
+	// dispatchInputTargetBranchKey is the design SESSION branch the job worktrees on and
+	// commits to; stamped as AIARCH_TARGET_BRANCH.
+	dispatchInputTargetBranchKey = "target_branch"
+	// dispatchInputCommandKey is the .claude slash-command slug both arms run; the design
+	// prompt is exactly "/<command>", the construct prompt appends the component+activity.
+	dispatchInputCommandKey = "command"
+	// dispatchInputComponentIDKey is the construct-arm component the run targets; stamped
+	// as AIARCH_COMPONENT_ID and appended to the construct prompt.
+	dispatchInputComponentIDKey = "component_id"
+)
+
+// dispatch performs the synchronous prep (git-worktree-add the plan's branch, write
+// the ephemeral --mcp-config + sandbox --settings, start claude) and, once the
+// subprocess is genuinely running, hands the rest off to awaitCompletion in a
+// goroutine. Any failure here is a genuine, pre-spawn submit failure. It is the SHARED
+// core of both the construct arm and the design arm — everything arm-specific (branch,
+// create-off-main policy, AIARCH_* rig, prompt) arrives in the plan; this function is
+// arm-agnostic.
+func (a *localExecAccess) dispatch(run *localRun, plan localDispatchPlan) error {
+	branch := plan.branch
 
 	// The worktree lives under a throwaway parent temp dir (NEVER inside the
 	// user's checkout): the OS temp reaper is the backstop for crash leftovers,
@@ -1320,10 +1517,24 @@ func (a *localExecAccess) dispatch(run *localRun, activityID, command, component
 	}()
 
 	a.gitMu.Lock()
-	beforeSHA, gitDir, addErr := addActivityWorktree(a.repoPath, branch, workDir)
+	beforeSHA, gitDir, addErr := addWorktree(a.repoPath, branch, workDir)
 	a.gitMu.Unlock()
 	if addErr != nil {
-		return fwra.Wrap(fwra.Infrastructure, addErr, "localexec: add activity-branch worktree")
+		return fwra.Wrap(fwra.Infrastructure, addErr, "localexec: add "+plan.worktreeLabel+" worktree")
+	}
+
+	// Materialize the .claude prompt surface into the worktree BEFORE spawning claude —
+	// the local mirror of the step BOTH seated workflow templates run right after checkout
+	// ("Materialize the .claude prompt surface", aiarch-{design,construct}.yml.tmpl:
+	// `aiarch-state-mcp seat-assets --dest .`). Operated repos gitignore .claude and rely
+	// on this runtime render; without it the worktree has NO .claude/commands, the thin
+	// "/<command>" slash-command dispatch does not resolve, and claude exits in ~20ms
+	// ("Unknown command: /<command>", num_turns=0) having committed nothing — the observed
+	// local-arm no-commit failure. Pre-spawn, so a failure returns cleanly (the deferred
+	// worktree cleanup runs) and a retry re-seats from scratch, exactly like the worktree-add
+	// failure above.
+	if err := a.seatPromptSurface(workDir); err != nil {
+		return err
 	}
 
 	// mcpConfigDir is the SAME out-of-clone ephemeral dir that holds BOTH the
@@ -1347,15 +1558,12 @@ func (a *localExecAccess) dispatch(run *localRun, activityID, command, component
 	// rig is the SAME fixed AIARCH_* ambient-context envelope stamped on BOTH
 	// the attached aiarch-state MCP server's env (writeStateMCPConfig) and this
 	// process's OWN env allowlist (claudeSubprocessEnv) — see the SECURITY
-	// POSTURE doc block above claudeArgv for why both matter.
-	rig := map[string]string{
-		"AIARCH_PROJECT_ID":    a.projectID,
-		"AIARCH_JOB_MODE":      "construct",
-		"AIARCH_COMPONENT_ID":  componentID,
-		"AIARCH_ACTIVITY_ID":   activityID,
-		"AIARCH_TARGET_BRANCH": branch,
-		"AIARCH_STATE_ROOT":    workDir,
-	}
+	// POSTURE doc block above claudeArgv for why both matter. The arm built every
+	// entry except AIARCH_STATE_ROOT, which is stamped here = the worktree dir this
+	// dispatch just created (not knowable until now); the plan's rig map is created
+	// fresh per submit, so mutating it is race-free.
+	rig := plan.rig
+	rig["AIARCH_STATE_ROOT"] = workDir
 	mcpConfigPath, err := writeStateMCPConfig(mcpConfigDir, a.stateMCPBin, rig)
 	if err != nil {
 		return err
@@ -1371,10 +1579,8 @@ func (a *localExecAccess) dispatch(run *localRun, activityID, command, component
 		return err
 	}
 
-	prompt := "/" + command + " " + componentID + " " + activityID
-
 	runCtx, runCancel := context.WithTimeout(context.Background(), a.runTimeout)
-	cmd := exec.CommandContext(runCtx, "claude", claudeArgv(prompt, mcpConfigPath, sandboxSettingsPath)...) //nolint:gosec // fixed trusted binary name + internal-only args, mirrors claudecli.go
+	cmd := exec.CommandContext(runCtx, "claude", claudeArgv(plan.prompt, mcpConfigPath, sandboxSettingsPath)...) //nolint:gosec // fixed trusted binary name + internal-only args, mirrors claudecli.go
 	cmd.Dir = workDir
 	cmd.Env = claudeSubprocessEnv(rig)
 	// SIGTERM-then-bounded-pipe-close, the SAME shutdown mechanism serverchild.go's
@@ -1402,6 +1608,47 @@ func (a *localExecAccess) dispatch(run *localRun, activityID, command, component
 	return nil
 }
 
+// seatPromptSurface materializes the .claude prompt surface (commands/skills/agents +
+// the seat manifest) into the worktree by running the executor's OWN aiarch-state-mcp
+// binary's `seat-assets --dest <workDir>` one-shot — the EXACT step both seated workflow
+// templates run before claude ("Materialize the .claude prompt surface",
+// method-assets aiarch-{design,construct}.yml.tmpl: `aiarch-state-mcp seat-assets --dest .`
+// with `.` = the runner checkout root = this worktree). BOTH arms need it: construct AND
+// design run the same thin "/<command>" slash-command dispatch, which only resolves once
+// .claude/commands exists in the working tree.
+//
+// This runs the executor's OWN trusted binary (a.stateMCPBin — the same one attached as
+// the aiarch-state MCP server), NOT the agent, so it is deliberately NOT sandboxed and gets
+// only a minimal env (seatAssetsEnv: PATH/HOME). seat-assets reads NO AIARCH_* ambient
+// context — it renders embedded files to --dest and exits. It writes to the working tree
+// and makes NO commit, so its output cannot advance the branch ref (the ref-advanced
+// success gate counts ONLY the agent's own aiarch-state commit); and in an operated /
+// scaffolded repo the .claude/{commands,agents,skills/the-method*} paths are gitignored,
+// so the render stays uncommitted exactly like the cloud runner.
+func (a *localExecAccess) seatPromptSurface(workDir string) error {
+	cmd := exec.Command(a.stateMCPBin, "seat-assets", "--dest", workDir) //nolint:gosec // the executor's OWN trusted binary (a.stateMCPBin) + fixed internal args, not the agent
+	cmd.Dir = workDir
+	cmd.Env = seatAssetsEnv()
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fwra.Wrap(fwra.Infrastructure, fmt.Errorf("%w: %s", err, outputTail(string(out), localExecDetailMaxBytes)), "localexec: seat .claude prompt surface")
+	}
+	return nil
+}
+
+// seatAssetsEnv is the minimal env for the seat-assets one-shot: PATH + HOME only. Unlike
+// the MCP server / claude subprocess (which carry the AIARCH_* rig), seat-assets renders
+// embedded files to --dest and reads no ambient context, so nothing else needs to cross.
+func seatAssetsEnv() []string {
+	out := make([]string, 0, 2)
+	if v := os.Getenv("PATH"); v != "" {
+		out = append(out, "PATH="+v)
+	}
+	if v := os.Getenv("HOME"); v != "" {
+		out = append(out, "HOME="+v)
+	}
+	return out
+}
+
 // awaitCompletion blocks on the claude subprocess, verifies its commits advanced
 // the activity branch ref in the SHARED repo (worktree commits land there
 // directly — no push; partial progress on a failed run is already durable),
@@ -1411,6 +1658,10 @@ func (a *localExecAccess) dispatch(run *localRun, activityID, command, component
 // already recorded localRunCancelled before this observes completion, that
 // outcome wins (Wait()'s own error, expected after a SIGTERM, is not allowed to
 // overwrite an explicit cancel with "Failed").
+//
+// On EVERY failing outcome it also surfaces what claude actually said — the
+// bounded detail onto the diagnostic, the full output onto a durable log dir —
+// see the LOCAL-RUN OBSERVABILITY block below for why that is load-bearing.
 func (a *localExecAccess) awaitCompletion(
 	runCtx context.Context,
 	run *localRun,
@@ -1431,46 +1682,112 @@ func (a *localExecAccess) awaitCompletion(
 	_ = os.RemoveAll(parentDir)
 	_ = os.RemoveAll(mcpConfigDir)
 
+	// An explicit cancel already recorded the terminal outcome: short-circuit
+	// BEFORE the diagnostic/durable-log work below, because a cancelled run's
+	// non-zero Wait() is expected operator intent, not a fault worth an enriched
+	// diagnostic or a log artifact. Re-checked under the final lock (a cancel
+	// landing DURING the window below must still win) — this peek only avoids
+	// doing the work, it is not the authority on the outcome.
+	run.mu.Lock()
+	alreadyCancelled := run.status == localRunCancelled
+	run.mu.Unlock()
+	if alreadyCancelled {
+		return
+	}
+
+	timedOut := waitErr != nil && errors.Is(runCtx.Err(), context.DeadlineExceeded)
+	status, diagnostic, stderrShown := localRunOutcome(waitErr, revErr, removeErr, timedOut, beforeSHA, afterSHA, stderr.String())
+	if status == localRunFailed {
+		// The failure-path IO (temp-dir write) deliberately runs BEFORE the record
+		// lock, matching this function's existing discipline: every other blocking
+		// step (git subprocesses, RemoveAll) also completes before the lock, so a
+		// concurrent ObserveConstructionPipeline poll never waits on filesystem IO.
+		stderrForDetail := stderr.String()
+		if stderrShown {
+			// classifyLocalExecFailure already embedded the stderr tail in the
+			// leading sentence — do not print it twice.
+			stderrForDetail = ""
+		}
+		if detail := claudeOutputDetail(stdout.String(), stderrForDetail); detail != "" {
+			diagnostic += localExecDetailSeparator + detail
+		}
+		logFailedRun(branch, diagnostic, stdout.Bytes(), stderr.Bytes())
+	}
+
 	run.mu.Lock()
 	defer run.mu.Unlock()
 	if run.status == localRunCancelled {
 		return
 	}
-	switch {
-	case waitErr != nil && errors.Is(runCtx.Err(), context.DeadlineExceeded):
-		run.status = localRunFailed
-		run.diagnostic = "construction pipeline timed out"
-	case waitErr != nil:
-		run.status = localRunFailed
-		run.diagnostic = classifyLocalExecFailure(waitErr, stderr.String())
-	case revErr != nil:
-		// claude exited 0 but the durable post-condition cannot even be VERIFIED —
-		// NOT a success (no fake success states).
-		run.status = localRunFailed
-		run.diagnostic = "construction completed but the activity branch could not be verified: " + revErr.Error()
-	case afterSHA == beforeSHA:
-		// claude exited 0 but committed NOTHING — the activity branch ref did not
-		// advance, so the durable post-condition (work landed on the activity
-		// branch) does not hold. The worktree-rework analog of the former
-		// push-failure failure.
-		run.status = localRunFailed
-		run.diagnostic = "construction completed but produced no commits on the activity branch"
-	case removeErr != nil:
-		// The commits ARE durable (refs advanced in the shared repo), but a
-		// worktree that cannot be removed still holds the activity branch checked
-		// out and would block the NEXT phase's worktree add — surface it rather
-		// than declaring clean success over a wedged workspace.
-		run.status = localRunFailed
-		run.diagnostic = "construction committed but the worktree could not be removed: " + removeErr.Error()
-	default:
-		run.status = localRunSucceeded
-	}
-	_ = stdout // reserved for future diagnostic surfacing; not needed on the current PipelineObservation shape
+	run.status = status
+	run.diagnostic = diagnostic
 }
 
-// ObserveConstructionPipeline reads the in-memory run record and maps its status
-// to the infrastructure-neutral PipelinePhase. An unknown/GC'd handle surfaces as
-// fwra.NotFound (same contract as actions.go's ObserveConstructionPipeline).
+// localRunOutcome maps one finished claude invocation onto its terminal run
+// status + the RA's OWN leading diagnostic sentence. Pure (no locks, no IO, no
+// context) so the whole outcome table is directly testable and so
+// awaitCompletion stays a thin sequence of steps.
+//
+// The third return value reports whether the diagnostic ALREADY carries a stderr
+// excerpt (only classifyLocalExecFailure adds one), which is how awaitCompletion
+// avoids printing stderr twice when it appends the claude-output detail.
+func localRunOutcome(
+	waitErr, revErr, removeErr error,
+	timedOut bool,
+	beforeSHA, afterSHA, stderrText string,
+) (localRunStatus, string, bool) {
+	switch {
+	case timedOut:
+		return localRunFailed, "construction pipeline timed out", false
+	case waitErr != nil:
+		return localRunFailed, classifyLocalExecFailure(waitErr, stderrText), true
+	case revErr != nil:
+		// claude exited 0 but the durable post-condition cannot even be VERIFIED —
+		// NOT a success (no fake success states). ("target branch" reads honestly for
+		// both arms: the construct activity/<id> branch and the design session branch.)
+		return localRunFailed, "run completed but the target branch could not be verified: " + revErr.Error(), false
+	case afterSHA == beforeSHA:
+		// claude exited 0 but committed NOTHING — the target branch ref did not
+		// advance, so the durable post-condition (work landed on the branch) does not
+		// hold. The worktree-rework analog of the former push-failure failure, and the
+		// local mirror of aiarch-design.yml's "Verify claude pushed a commit" guard.
+		// THE canonical black-box case: without the appended claude-output detail this
+		// sentence is ALL the operator ever sees.
+		return localRunFailed, "run completed but produced no commits on the target branch", false
+	case removeErr != nil:
+		// The commits ARE durable (refs advanced in the shared repo), but a
+		// worktree that cannot be removed still holds the target branch checked
+		// out and would block the NEXT worktree add — surface it rather than
+		// declaring clean success over a wedged workspace.
+		return localRunFailed, "run committed but the worktree could not be removed: " + removeErr.Error(), false
+	default:
+		return localRunSucceeded, "", false
+	}
+}
+
+// localRunLostDiagnostic is the terminal-failure diagnostic ObserveConstructionPipeline
+// reports for a well-formed handle whose in-memory run record is GONE. The local executor
+// keeps run records ONLY in memory (a.runs), so a server RESTART mid-run loses them while
+// the Manager's Temporal workflow still holds the PipelineHandle and keeps polling. Unlike
+// the cloud arm (a GitHub Actions run is durable + re-observable across restarts), a lost
+// LOCAL run is UNRECOVERABLE — reporting it terminal-failed (not a perpetual running/
+// pending) is what lets the observe loop reach StageDraftFailed and the human Retry/
+// Withdraw gate instead of spinning to the maxObservePolls (1h) ceiling (F-R1).
+const localRunLostDiagnostic = "local run record not found — the server restarted while this run was in flight; the run cannot be recovered, retry to re-dispatch"
+
+// ObserveConstructionPipeline reads the in-memory run record and maps its status to the
+// infrastructure-neutral PipelinePhase. A malformed/foreign-shaped handle is ContractMisuse.
+//
+// RESTART-LOST RUN (F-R1): a WELL-FORMED handle whose run record is MISSING from a.runs is
+// NOT a live run — the local executor registers the record synchronously in Submit before
+// returning the handle, so within one process a handle always has its record. A missing
+// record therefore means the process RESTARTED and lost the in-memory map. That run can
+// never reappear, so it is reported as a TERMINAL PhaseFailed observation (nil error,
+// localRunLostDiagnostic) — NOT fwra.NotFound and NOT a still-running phase — so the
+// Manager's observe loop hits its terminal-phase branch and routes to StageDraftFailed
+// rather than looping to the maxObservePolls ceiling. This DIVERGES DELIBERATELY from
+// actions.go's cloud arm (durable, re-observable runs → a GC'd handle is fwra.NotFound):
+// the divergence exists precisely because in-memory local runs are not restart-durable.
 func (a *localExecAccess) ObserveConstructionPipeline(_ fwra.Context, handle PipelineHandle) (PipelineObservation, error) {
 	token, ok := localTokenFromHandle(handle)
 	if !ok {
@@ -1480,7 +1797,7 @@ func (a *localExecAccess) ObserveConstructionPipeline(_ fwra.Context, handle Pip
 	run, ok := a.runs[token]
 	a.mu.Unlock()
 	if !ok {
-		return PipelineObservation{}, fwra.New(fwra.NotFound, "constructionpipeline(localexec): unknown pipeline handle")
+		return PipelineObservation{Handle: handle, Phase: PhaseFailed, Diagnostic: localRunLostDiagnostic}, nil
 	}
 
 	run.mu.Lock()
@@ -1563,7 +1880,7 @@ func localTokenFromHandle(h PipelineHandle) (string, bool) {
 // description (including a bounded stderr tail for debuggability) is what the
 // contract needs.
 func classifyLocalExecFailure(runErr error, stderrText string) string {
-	tail := stderrTail(stderrText, 500)
+	tail := outputTail(stderrText, localExecDetailMaxBytes)
 	var exitErr *exec.ExitError
 	if errors.As(runErr, &exitErr) {
 		if tail != "" {
@@ -1574,15 +1891,272 @@ func classifyLocalExecFailure(runErr error, stderrText string) string {
 	return "construction pipeline failed to start: " + runErr.Error()
 }
 
-// stderrTail bounds a diagnostic's stderr excerpt to the last n bytes (Non-goal:
-// this is a summary, never a log firehose — the same discipline actions.go's
-// neutralDiagnostic doc comment cites from constructionPipelineAccess.md).
-func stderrTail(s string, n int) string {
+// outputTail bounds a diagnostic's subprocess-output excerpt to the LAST n bytes
+// (Non-goal: this is a summary, never a log firehose — the same discipline
+// actions.go's neutralDiagnostic doc comment cites from
+// constructionPipelineAccess.md). Used for stderr AND for unstructured stdout:
+// when a process dies mid-flight, what it printed LAST is what explains it.
+// Rune-safe — the excerpt reaches a UI panel, so it never splits a multi-byte
+// character into a replacement glyph.
+func outputTail(s string, n int) string {
 	s = strings.TrimSpace(s)
 	if len(s) <= n {
 		return s
 	}
-	return "…" + s[len(s)-n:]
+	tail := s[len(s)-n:]
+	for len(tail) > 0 && !utf8.ValidString(tail) {
+		tail = tail[1:] // drop the leading fragment of a split rune
+	}
+	return "…" + tail
+}
+
+// outputHead bounds an excerpt to the FIRST n bytes — the counterpart to
+// outputTail, used for STRUCTURED messages (claude's JSON result/error text),
+// where the informative part is the opening clause and the tail is trailing
+// prose. Rune-safe for the same reason as outputTail.
+func outputHead(s string, n int) string {
+	s = strings.TrimSpace(s)
+	if len(s) <= n {
+		return s
+	}
+	head := s[:n]
+	for len(head) > 0 && !utf8.ValidString(head) {
+		head = head[:len(head)-1] // drop the trailing fragment of a split rune
+	}
+	return head + "…"
+}
+
+// ---------------------------------------------------------------------------
+// LOCAL-RUN OBSERVABILITY — surfacing what claude actually said.
+//
+// THE BLACK-BOX FAILURE MODE this exists to kill: awaitCompletion used to
+// DISCARD the subprocess's stdout outright (a bare `_ = stdout`), so a local run
+// that failed to advance the branch surfaced to the operator as exactly ONE
+// sentence — "run completed but produced no commits on the target branch" — with
+// nothing to distinguish an MCP server that failed to attach, an unresolved
+// slash command, an auth terminal, a sandbox denial, and an agent that simply
+// decided there was nothing to do. Those demand completely different operator
+// responses, and the ONE artifact that tells them apart was being thrown away.
+//
+// claudeArgv passes --output-format json, so stdout is a machine-readable result
+// envelope. The helpers below mine it along two complementary channels:
+//
+//   - the DIAGNOSTIC gets a hard-bounded, single-line clause (this string is
+//     rendered in the web UI's failure panel, so it must stay presentable);
+//   - a DURABLE LOG DIR gets the full, untruncated stdout+stderr for post-mortem,
+//     because the bounded clause is by construction lossy.
+//
+// Scope discipline: this is OBSERVABILITY ONLY. Nothing here changes claudeArgv,
+// the sandbox settings, the env allowlist, or the escape hatch (see the SECURITY
+// POSTURE block below), and nothing here logs the AIARCH_* rig or the process
+// env — only claude's OWN output is surfaced.
+//
+// KNOWN INTERACTION (accepted, not hidden): construction's deriveFailureReason
+// classifies a diagnostic by substring ("timed out"), so appended agent prose
+// containing that phrase could tip a non-timeout failure into the timed-out
+// FailureReason bucket. The leading sentence is never rewritten and the detail
+// is always appended AFTER it, which keeps the common cases right; tightening
+// that matcher is a Manager-side change, deliberately not made from this RA.
+// ---------------------------------------------------------------------------
+
+const (
+	// localExecDetailSeparator joins the RA's own failure sentence to the
+	// claude-derived detail. The leading sentence is NEVER rewritten or replaced —
+	// downstream consumers match on its vocabulary — so the panel reads as
+	// "<what went wrong> — claude output: <what claude said>".
+	localExecDetailSeparator = " — claude output: "
+	// localExecDetailMaxBytes hard-bounds BOTH the appended detail and the stderr
+	// tail classifyLocalExecFailure already embedded. The full text lives in the
+	// durable log dir instead.
+	localExecDetailMaxBytes = 500
+	// localExecSubtypeMaxBytes bounds the envelope's subtype label so a
+	// pathological value can never crowd out the message it labels.
+	localExecSubtypeMaxBytes = 64
+)
+
+// claudeResultEnvelope is the SUBSET of claude's `--output-format json` result
+// object this package reads. Decoding is deliberately tolerant: every field is
+// optional, an unknown shape yields "" rather than an error, and a field claude
+// stops emitting simply disappears from the diagnostic. This is a debugging
+// convenience on a failure path — surviving upstream shape drift matters far
+// more than decoding strictly.
+//
+// Result is the agent's own closing message (a JSON string in practice); Error
+// may be either a string or a structured object, so both are held as raw JSON
+// and rendered by jsonText.
+type claudeResultEnvelope struct {
+	Subtype string          `json:"subtype"`
+	IsError bool            `json:"is_error"`
+	Result  json.RawMessage `json:"result"`
+	Error   json.RawMessage `json:"error"`
+}
+
+// claudeOutputDetail distils a finished claude invocation's captured output into
+// ONE bounded, single-line, human-readable clause for the diagnostic, trying the
+// most informative source first:
+//
+//  1. the JSON result envelope (structured: the subtype + the agent's own
+//     result/error text — what an operator actually needs);
+//  2. raw stdout, when claude died before emitting valid JSON (a crash, a
+//     startup failure, a usage error) — the envelope is absent exactly when
+//     something went badly enough to be worth reading verbatim;
+//  3. stderr, only when stdout yielded nothing at all. Callers whose leading
+//     sentence ALREADY carries a stderr tail pass stderrText="" to avoid
+//     duplicating it.
+//
+// Returns "" when the process produced no output whatsoever — the caller then
+// leaves its leading sentence untouched rather than appending an empty clause.
+func claudeOutputDetail(stdoutText, stderrText string) string {
+	if detail := envelopeDetail(stdoutText); detail != "" {
+		return detail
+	}
+	if raw := singleLine(stdoutText); raw != "" {
+		return outputTail(raw, localExecDetailMaxBytes)
+	}
+	return outputTail(singleLine(stderrText), localExecDetailMaxBytes)
+}
+
+// envelopeDetail renders the human clause from claude's JSON result envelope, or
+// "" when stdout carries no decodable envelope (claude may die before emitting
+// one). The whole of stdout is tried first; failing that, the LAST JSON-object
+// line is tried, because claude can print warnings/progress ahead of the final
+// envelope.
+func envelopeDetail(stdoutText string) string {
+	raw := strings.TrimSpace(stdoutText)
+	if raw == "" {
+		return ""
+	}
+	env, ok := decodeClaudeEnvelope(raw)
+	if !ok {
+		lines := strings.Split(raw, "\n")
+		for i := len(lines) - 1; i >= 0 && !ok; i-- {
+			if line := strings.TrimSpace(lines[i]); strings.HasPrefix(line, "{") {
+				env, ok = decodeClaudeEnvelope(line)
+			}
+		}
+	}
+	if !ok {
+		return ""
+	}
+	return env.detail()
+}
+
+// detail renders one envelope as "<subtype>: <message>", degrading to whichever
+// half is present. The subtype alone is still worth surfacing: on a no-commit
+// run, a bare "success" tells the operator claude believed it was DONE (an agent
+// or prompt problem) rather than that it broke (an infrastructure problem).
+func (env claudeResultEnvelope) detail() string {
+	label := outputHead(env.Subtype, localExecSubtypeMaxBytes)
+	if label == "" && env.IsError {
+		label = "error"
+	}
+	text := singleLine(jsonText(env.Result))
+	if text == "" {
+		text = singleLine(jsonText(env.Error))
+	}
+	switch {
+	case label != "" && text != "":
+		return label + ": " + outputHead(text, localExecDetailMaxBytes-len(label)-2)
+	case text != "":
+		return outputHead(text, localExecDetailMaxBytes)
+	default:
+		return label
+	}
+}
+
+// decodeClaudeEnvelope parses one candidate JSON object. A JSON value that is
+// not an object (a bare string/number/array) fails to decode into the struct and
+// is reported as not-an-envelope, which is what routes the caller to the raw
+// fallback.
+func decodeClaudeEnvelope(s string) (claudeResultEnvelope, bool) {
+	var env claudeResultEnvelope
+	if err := json.Unmarshal([]byte(s), &env); err != nil {
+		return claudeResultEnvelope{}, false
+	}
+	return env, true
+}
+
+// jsonText renders an envelope field that may be EITHER a JSON string (the usual
+// `result`) or an arbitrary JSON value (a structured `error`) as plain text: a
+// string is unquoted, anything else passes through as its compact JSON so a
+// structured error is still readable rather than silently dropped.
+func jsonText(raw json.RawMessage) string {
+	if len(raw) == 0 || string(raw) == "null" {
+		return ""
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return strings.TrimSpace(s)
+	}
+	return strings.TrimSpace(string(raw))
+}
+
+// singleLine collapses every whitespace run (newlines, tabs, indentation) into a
+// single space. The diagnostic lands in a ONE-LINE failure panel, and an agent's
+// multi-paragraph result text would otherwise wreck that layout.
+func singleLine(s string) string { return strings.Join(strings.Fields(s), " ") }
+
+// localExecLogDirPattern names the durable post-mortem log dir (os.MkdirTemp
+// pattern). Grep-friendly on purpose: the operator finds every kept run with one
+// glob under the OS temp dir.
+const localExecLogDirPattern = "aiarch-localexec-logs-*"
+
+// persistFailedRunOutput writes the claude subprocess's FULL stdout+stderr to a
+// fresh temp dir that deliberately OUTLIVES the run.
+//
+// LIFECYCLE — and why this is not simply the run's own parent temp dir: that dir
+// hosts the git worktree and is removed on EVERY path (keeping it would strand a
+// removed worktree's files and defeat the executor's own hygiene), so the logs
+// go to a SEPARATE dir that nothing in this package ever deletes. Nothing is
+// written inside the user's checkout — same rule as the worktree and mcp-config
+// dirs. The OS temp reaper is the only collector, exactly as it already is for
+// crash-leftover worktrees. A SUCCESSFUL run writes NOTHING, so normal operation
+// accumulates no log litter; only genuine failures leave a trail.
+//
+// A partially-written dir is still returned (with the error) so the caller can
+// point the operator at whatever DID land.
+func persistFailedRunOutput(stdout, stderr []byte) (string, error) {
+	dir, err := os.MkdirTemp("", localExecLogDirPattern)
+	if err != nil {
+		return "", err
+	}
+	// stdout is the --output-format json result envelope; stderr is claude's own
+	// diagnostic stream. Both verbatim — this is the un-truncated counterpart to
+	// the bounded diagnostic clause.
+	if err := os.WriteFile(filepath.Join(dir, "stdout.json"), stdout, 0o600); err != nil {
+		return dir, err
+	}
+	if err := os.WriteFile(filepath.Join(dir, "stderr.log"), stderr, 0o600); err != nil {
+		return dir, err
+	}
+	return dir, nil
+}
+
+// logFailedRun emits the server-side record of a failed local dispatch: the SAME
+// enriched diagnostic the web UI shows, PLUS the durable log path. Both matter —
+// the Managers log only the phase transition and the diagnostic they were handed,
+// so without this the detail would be reconstructible from neither the log nor
+// the UI once the run record is GC'd.
+//
+// Deliberately logged at ERROR: a local run that could not land its work is an
+// operator-actionable fault, not routine noise (a CANCELLED run never reaches
+// here — awaitCompletion short-circuits it).
+//
+// NOTHING from the run's environment is logged: not the AIARCH_* rig, not the
+// process env allowlist, not the sandbox settings — only claude's own output.
+func logFailedRun(branch, diagnostic string, stdout, stderr []byte) {
+	logDir, err := persistFailedRunOutput(stdout, stderr)
+	switch {
+	case err != nil && logDir == "":
+		slog.Error("localexec: construction run failed; the durable output log could NOT be written",
+			"branch", branch, "diagnostic", diagnostic, "cause", err.Error())
+	case err != nil:
+		slog.Error("localexec: construction run failed; the durable output log is INCOMPLETE",
+			"branch", branch, "diagnostic", diagnostic, "outputLog", logDir, "cause", err.Error())
+	default:
+		slog.Error("localexec: construction run failed; full claude output kept for post-mortem",
+			"branch", branch, "diagnostic", diagnostic, "outputLog", logDir)
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -1871,6 +2445,19 @@ func sandboxAllowedDomains(repoURL string) []string {
 //   - TERM — some CLI tooling (color detection, progress bars) misbehaves
 //     under an unset TERM; carried through unchanged so subprocess output
 //     stays sane for diagnostics.
+//   - USER (and LOGNAME for parity) — the OS username. REQUIRED by claude's
+//     headless SUBSCRIPTION-auth path: with no ANTHROPIC_API_KEY and no
+//     ~/.claude/.credentials.json on the box, the operator's `claude` login
+//     lives only in the OS login keychain, and that credential lookup is
+//     USER-scoped — without USER the child claude reports "Not logged in ·
+//     Please run /login" and EVERY local draft fails pre-work (empirically
+//     bisected: stripped env → "Not logged in"; stripped+USER → authenticates).
+//     The OS username is NOT a secret (same low-sensitivity class as HOME), so
+//     forwarding it does not weaken the "no secrets to the autonomous agent"
+//     posture the allowlist exists for. LOGNAME is the same value under a second
+//     conventional name (some tools read it instead of USER); neither carries a
+//     credential. This is the ONE var that separates a working local login from
+//     a dead one.
 //   - the AIARCH_* rig vars (rig, passed in from dispatch) — the SAME fixed
 //     ambient-context envelope also carried on the attached aiarch-state MCP
 //     server's OWN env (writeStateMCPConfig), so anything that inspects this
@@ -1886,7 +2473,7 @@ func sandboxAllowedDomains(repoURL string) []string {
 // environment can no longer leak into an autonomous,
 // --dangerously-skip-permissions agent process.
 func claudeSubprocessEnv(rig map[string]string) []string {
-	out := make([]string, 0, 3+len(rig))
+	out := make([]string, 0, 5+len(rig))
 	if v := os.Getenv("PATH"); v != "" {
 		out = append(out, "PATH="+v)
 	}
@@ -1895,6 +2482,15 @@ func claudeSubprocessEnv(rig map[string]string) []string {
 	}
 	if v := os.Getenv("TERM"); v != "" {
 		out = append(out, "TERM="+v)
+	}
+	// The OS username — required by claude's headless subscription-auth keychain
+	// lookup (USER-scoped); LOGNAME forwards the same value for tools that read it
+	// instead. Neither is a secret. See the doc comment's per-var justification.
+	if v := os.Getenv("USER"); v != "" {
+		out = append(out, "USER="+v)
+	}
+	if v := os.Getenv("LOGNAME"); v != "" {
+		out = append(out, "LOGNAME="+v)
 	}
 	for k, v := range rig {
 		out = append(out, k+"="+v)
@@ -1912,21 +2508,39 @@ func claudeSubprocessEnv(rig map[string]string) []string {
 // the SAME "main" convention constructactivity.go's mainBranch constant fixes.
 const localMainBranch = "main"
 
-// addActivityWorktree adds a git worktree for the named activity branch at
-// workDir, operating directly on the shared repo at repoPath: if the branch
-// already exists (a prior phase's dispatch, or a branch the git-forward rail
-// opened in a DIFFERENT profile — belt-and-braces), the worktree re-attaches to
-// it; otherwise the branch is created fresh off main. Returns the branch's tip
-// SHA at attach time (the rev-parse "before" anchor PhaseSucceeded's
-// ref-advanced check compares against) and the shared repo's absolute git dir
-// (the sandbox filesystem-scope entry — worktree commits write there).
-func addActivityWorktree(repoPath, branch, workDir string) (beforeSHA, gitDir string, err error) {
-	if _, err := runGit(repoPath, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch); err == nil {
-		if _, err := runGit(repoPath, "worktree", "add", workDir, branch); err != nil {
-			return "", "", err
+// addWorktree adds a git worktree for `branch` at workDir, operating directly on the
+// shared repo at repoPath. If the branch already EXISTS (a prior construct phase's
+// activity branch, or a mid-session design branch a prior draft/critique/answer job
+// opened) the worktree re-attaches to its tip. If it does NOT exist, the branch is
+// created fresh off main. BOTH arms rely on this identical behavior.
+//
+// CREATE-OFF-MAIN IS THE LOCAL STAND-IN FOR THE CLOUD BRANCH-STAGING RAIL (the
+// cloud-vs-local asymmetry). On the cloud rail a design session branch is created
+// SERVER-SIDE before dispatch (systemdesign beginSession → sourceControlAccess.OpenBranch;
+// the Action's refresh-from-main step then rebases it on origin/main); the construct rail
+// likewise opens activity/<id> upstream. On the LOCAL profile BOTH those rails are DORMANT
+// (sourceControlAccess is nil — "disabled session, no branch/PR ops"), so nothing stages
+// the branch and the executor — the only git-owning party locally — creates it off main on
+// first use. A fresh branch off main == the cloud's refreshed-from-main state, so the
+// drafting/constructing agent sees the same committed base either way.
+//
+// EARMARK (NOT implemented — acceptable single-user-local gap): the cloud refresh ALSO
+// merges origin/main into an EXISTING session branch on every job (stale-base heal / the
+// F82 self-heal). The local arm does not re-merge main into an existing branch, so a
+// long-lived local session branch can drift from a main that advanced under it. Fine for
+// the single-developer-one-pump local profile; revisit if local mode grows concurrent
+// writers or long-lived branches.
+//
+// Returns the branch's tip SHA at attach time (the rev-parse "before" anchor
+// PhaseSucceeded's ref-advanced check compares against) and the shared repo's absolute
+// git dir (the sandbox filesystem-scope entry — worktree commits write there).
+func addWorktree(repoPath, branch, workDir string) (beforeSHA, gitDir string, err error) {
+	if verifyBranchExists(repoPath, branch) {
+		if _, aerr := runGit(repoPath, "worktree", "add", workDir, branch); aerr != nil {
+			return "", "", aerr
 		}
-	} else if _, err := runGit(repoPath, "worktree", "add", "-b", branch, workDir, localMainBranch); err != nil {
-		return "", "", err
+	} else if _, aerr := runGit(repoPath, "worktree", "add", "-b", branch, workDir, localMainBranch); aerr != nil {
+		return "", "", aerr
 	}
 	beforeSHA, err = revParseBranch(repoPath, branch)
 	if err != nil {
@@ -1937,6 +2551,12 @@ func addActivityWorktree(repoPath, branch, workDir string) (beforeSHA, gitDir st
 		return "", "", err
 	}
 	return beforeSHA, strings.TrimSpace(out), nil
+}
+
+// verifyBranchExists reports whether refs/heads/<branch> resolves in the shared repo.
+func verifyBranchExists(repoPath, branch string) bool {
+	_, err := runGit(repoPath, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch)
+	return err == nil
 }
 
 // revParseBranch resolves the branch's current tip SHA in the shared repo.
@@ -2038,7 +2658,7 @@ func (a *localExecAccess) mergeActivityBranch(branch string) (diagnostic string,
 	cloneDir := filepath.Join(parentDir, "clone")
 
 	if out, err := runGit("", "clone", "--branch", localMainBranch, a.repoURL, cloneDir); err != nil {
-		return "local merge: clone failed: " + stderrTail(out, 500), false
+		return "local merge: clone failed: " + outputTail(out, 500), false
 	}
 	remoteBranch := "origin/" + branch
 	if _, err := runGit(cloneDir, "rev-parse", "--verify", "--quiet", "refs/remotes/"+remoteBranch); err != nil {
@@ -2049,7 +2669,7 @@ func (a *localExecAccess) mergeActivityBranch(branch string) (diagnostic string,
 	// branch delete)? Skip straight to the delete — no second merge commit.
 	if _, err := runGit(cloneDir, "merge-base", "--is-ancestor", remoteBranch, "HEAD"); err == nil {
 		if out, derr := runGit(cloneDir, "push", "origin", "--delete", branch); derr != nil {
-			return "local merge: branch " + branch + " already merged but could not be deleted: " + stderrTail(out, 500), false
+			return "local merge: branch " + branch + " already merged but could not be deleted: " + outputTail(out, 500), false
 		}
 		return "", true
 	}
@@ -2066,17 +2686,17 @@ func (a *localExecAccess) mergeActivityBranch(branch string) (diagnostic string,
 		// failure diagnostic. NOTHING was pushed: the shared repo is untouched.
 		_, _ = runGit(cloneDir, "merge", "--abort")
 		if strings.Contains(mergeOut, "CONFLICT") {
-			return "local merge: merge conflict merging " + branch + " into " + localMainBranch + ": " + stderrTail(mergeOut, 500), false
+			return "local merge: merge conflict merging " + branch + " into " + localMainBranch + ": " + outputTail(mergeOut, 500), false
 		}
-		return "local merge: merge of " + branch + " failed: " + stderrTail(mergeOut, 500), false
+		return "local merge: merge of " + branch + " failed: " + outputTail(mergeOut, 500), false
 	}
 	if out, err := runGit(cloneDir, "push", "origin", localMainBranch); err != nil {
-		return "local merge: push of merged " + localMainBranch + " failed: " + stderrTail(out, 500), false
+		return "local merge: push of merged " + localMainBranch + " failed: " + outputTail(out, 500), false
 	}
 	if out, err := runGit(cloneDir, "push", "origin", "--delete", branch); err != nil {
 		// The merge IS landed; a retry takes the already-merged path above and
 		// re-attempts only the delete.
-		return "local merge: merged but branch " + branch + " could not be deleted: " + stderrTail(out, 500), false
+		return "local merge: merged but branch " + branch + " could not be deleted: " + outputTail(out, 500), false
 	}
 	return "", true
 }
@@ -2117,13 +2737,18 @@ type mcpConfigFileJSON struct {
 // writeStateMCPConfig writes the ephemeral --mcp-config file OUTSIDE the cloned
 // working tree (in dir, a SEPARATE temp dir from workDir) so an agent running
 // `git add -A` inside the repo clone can never accidentally pick it up. rig is
-// the SAME fixed AIARCH_* envelope dispatch also stamps on claude's own
-// process env (claudeSubprocessEnv) — mirrors the workflow's construct-mode
-// env exactly: AIARCH_JOB_MODE=construct, AIARCH_COMPONENT_ID/
-// AIARCH_ACTIVITY_ID from the dispatch, AIARCH_TARGET_BRANCH set to the SAME
-// branch this realisation just checked out, AIARCH_STATE_ROOT pointed at the
-// clone (workDir) so cmd/aiarch-state-mcp reads/writes the SAME
-// .aiarch/state/project.json claude's own git commits land next to.
+// the SAME fixed AIARCH_* envelope dispatch also stamps on claude's own process
+// env (claudeSubprocessEnv), mirroring the seated workflow's MCP-config env for
+// whichever arm built it:
+//   - CONSTRUCT (aiarch-construct.yml): AIARCH_JOB_MODE=construct + AIARCH_COMPONENT_ID/
+//     AIARCH_ACTIVITY_ID from the dispatch (constructDispatchPlan).
+//   - DESIGN (aiarch-design.yml): AIARCH_JOB_MODE=<draft|critique|answer> +
+//     AIARCH_ARTIFACT_KIND (designDispatchPlan).
+//
+// Both carry AIARCH_PROJECT_ID + AIARCH_TARGET_BRANCH (the branch this realisation just
+// checked out) and AIARCH_STATE_ROOT pointed at the worktree (workDir) so
+// cmd/aiarch-state-mcp reads/writes the SAME .aiarch/state/project.json claude's own git
+// commits land next to.
 func writeStateMCPConfig(dir, stateMCPBin string, rig map[string]string) (string, error) {
 	cfg := mcpConfigFileJSON{MCPServers: map[string]mcpServerConfigJSON{
 		"aiarch-state": {

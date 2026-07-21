@@ -92,6 +92,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -2133,4 +2136,419 @@ func TestSyncManagedScaffoldMessageNamesGenerations(t *testing.T) {
 	if msg != want {
 		t.Fatalf("syncManagedScaffoldMessage() = %q, want %q", msg, want)
 	}
+}
+
+// gitlocalsourcecontrol_test.go — black-box-at-the-verbs tests for the LOCAL-GIT
+// SourceControlAccess realisation (gitlocalsourcecontrol.go). Every git operation runs
+// against a REAL throwaway bare repo via the actual `git` binary (no fake for that seam —
+// the SAME style constructionpipeline's local-executor tests use); no GitHub, no network.
+//
+//   GL1  OpenBranch creates off main; re-open is an idempotent no-op success
+//   GL2  OpenPullRequest returns "local#<head>" and round-trips via gitLocalPRHead;
+//        empty head / head==base → ContractMisuse
+//   GL3  GetPullRequestStatus: CheckSuccess + ApprovalCount 0 always; Mergeable is REAL
+//        (clean branch → true, conflicting branch → false)
+//   GL4  MergePullRequest: real --no-ff merge commit on main, branch deleted, Merged=true
+//   GL5  already-merged (prior crash before delete) → delete-only idempotent success,
+//        no second merge commit
+//   GL6  conflict → fwra.Conflict, main untouched, branch survives (nothing pushed)
+//   GL7  birth ops: AdoptProjectRepo → deterministic local RepoRef; CommitManagedFiles →
+//        sentinel; ConfigureBranchProtection / SyncManagedScaffold no-op; InstallAuthorizeApp
+//        → ContractMisuse; GetInstallationToken → non-zero dummy cred
+//   GL8  GitLocalRepoRefForProject round-trips through RepoRefOwnerRepo
+
+// ---------------------------------------------------------------------------
+// helpers (real throwaway git repos)
+// ---------------------------------------------------------------------------
+
+func glKind(err error) fwra.Kind {
+	var fe *fwra.Error
+	if errors.As(err, &fe) {
+		return fe.Kind
+	}
+	return fwra.Unknown
+}
+
+func glGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v (dir=%s): %v\n%s", args, dir, err, out)
+	}
+}
+
+func glGitOut(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	full := append([]string{"-C", dir}, args...)
+	out, err := exec.Command("git", full...).CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+	return string(out)
+}
+
+// glNewBareRepo builds a bare repo seeded with a non-empty main and returns its dir + a
+// file:// URL (the shape NewGitLocalSourceControlAccess is configured with).
+func glNewBareRepo(t *testing.T) (bareDir, url string) {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH; skipping gitlocal sourcecontrol proof")
+	}
+	root := t.TempDir()
+	bare := filepath.Join(root, "remote.git")
+	glGit(t, "", "init", "--bare", "--initial-branch=main", bare)
+
+	seed := filepath.Join(root, "seed")
+	glGit(t, "", "clone", bare, seed)
+	glGit(t, seed, "config", "user.email", "seed@aiarch.local")
+	glGit(t, seed, "config", "user.name", "seed")
+	if err := os.WriteFile(filepath.Join(seed, "README.md"), []byte("base\n"), 0o644); err != nil {
+		t.Fatalf("write README: %v", err)
+	}
+	glGit(t, seed, "add", "-A")
+	glGit(t, seed, "commit", "-m", "seed")
+	glGit(t, seed, "push", "origin", "main")
+	return bare, "file://" + bare
+}
+
+func glNewLocal(t *testing.T) (*gitLocalAccess, string) {
+	t.Helper()
+	bareDir, url := glNewBareRepo(t)
+	v := NewGitLocalSourceControlAccess(url)
+	a, ok := v.(*gitLocalAccess)
+	if !ok {
+		t.Fatalf("expected *gitLocalAccess, got %T", v)
+	}
+	return a, bareDir
+}
+
+// glSeedBranch creates branch off main in the shared repo with one commit writing
+// path=content — the state a completed design draft leaves on its session branch.
+func glSeedBranch(t *testing.T, bareDir, branch, path, content string) {
+	t.Helper()
+	work := filepath.Join(t.TempDir(), "seed-branch")
+	glGit(t, "", "clone", bareDir, work)
+	glGit(t, work, "config", "user.email", "seed@aiarch.local")
+	glGit(t, work, "config", "user.name", "seed")
+	glGit(t, work, "checkout", "-b", branch, "main")
+	if err := os.WriteFile(filepath.Join(work, path), []byte(content), 0o644); err != nil {
+		t.Fatalf("write %s: %v", path, err)
+	}
+	glGit(t, work, "add", "-A")
+	glGit(t, work, "commit", "-m", "branch work")
+	glGit(t, work, "push", "origin", branch)
+}
+
+// glCommitOnMain lands one commit on main writing path=content — used to force divergence
+// (conflicts) against a session branch.
+func glCommitOnMain(t *testing.T, bareDir, path, content string) {
+	t.Helper()
+	work := filepath.Join(t.TempDir(), "main-edit")
+	glGit(t, "", "clone", "--branch", "main", bareDir, work)
+	glGit(t, work, "config", "user.email", "seed@aiarch.local")
+	glGit(t, work, "config", "user.name", "seed")
+	if err := os.WriteFile(filepath.Join(work, path), []byte(content), 0o644); err != nil {
+		t.Fatalf("write %s: %v", path, err)
+	}
+	glGit(t, work, "add", "-A")
+	glGit(t, work, "commit", "-m", "main edit")
+	glGit(t, work, "push", "origin", "main")
+}
+
+func glBranchExists(t *testing.T, bareDir, branch string) bool {
+	t.Helper()
+	return exec.Command("git", "-C", bareDir, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch).Run() == nil
+}
+
+func glRepo() RepoRef        { return GitLocalRepoRefForProject("proj") }
+func glCred() RepoCredential { return RepoCredential{Bytes: []byte("local")} }
+func glCtx() fwra.Context    { return rc(context.Background()) }
+
+// ---------------------------------------------------------------------------
+// GL1 — OpenBranch
+// ---------------------------------------------------------------------------
+
+func TestGitLocal_OpenBranch_CreatesOffMainThenIdempotent(t *testing.T) {
+	a, bareDir := glNewLocal(t)
+	branch := "aiarch-design/mission/session-1"
+
+	ref, err := a.OpenBranch(glCtx(), glRepo(), BranchName(branch), glCred())
+	if err != nil {
+		t.Fatalf("OpenBranch: %v", err)
+	}
+	if BranchRefString(ref) != branch {
+		t.Fatalf("BranchRef = %q, want %q", BranchRefString(ref), branch)
+	}
+	if !glBranchExists(t, bareDir, branch) {
+		t.Fatalf("branch %s was not created in the shared repo", branch)
+	}
+	// created OFF main: the new branch tip == main's tip.
+	if got, want := strings.TrimSpace(glGitOut(t, bareDir, "rev-parse", branch)), strings.TrimSpace(glGitOut(t, bareDir, "rev-parse", "main")); got != want {
+		t.Fatalf("branch tip %s != main tip %s — not created off main", got, want)
+	}
+
+	// Re-open is an idempotent no-op success (no error, still exactly one branch ref).
+	if _, err := a.OpenBranch(glCtx(), glRepo(), BranchName(branch), glCred()); err != nil {
+		t.Fatalf("OpenBranch (re-open) must be an idempotent no-op, got: %v", err)
+	}
+}
+
+func TestGitLocal_OpenBranch_Guards(t *testing.T) {
+	a, _ := glNewLocal(t)
+	if _, err := a.OpenBranch(glCtx(), "", "b", glCred()); glKind(err) != fwra.ContractMisuse {
+		t.Fatalf("zero repo: kind = %v, want ContractMisuse", glKind(err))
+	}
+	if _, err := a.OpenBranch(glCtx(), glRepo(), "   ", glCred()); glKind(err) != fwra.ContractMisuse {
+		t.Fatalf("empty branch: kind = %v, want ContractMisuse", glKind(err))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// GL2 — OpenPullRequest ref encoding
+// ---------------------------------------------------------------------------
+
+func TestGitLocal_OpenPullRequest_EncodesHeadAndRoundTrips(t *testing.T) {
+	a, _ := glNewLocal(t)
+	head := "aiarch-design/glossary/session-2"
+
+	pr, err := a.OpenPullRequest(glCtx(), glRepo(), PullRequestSpec{Head: BranchName(head), Base: "main", Title: "t", Body: "b"}, glCred())
+	if err != nil {
+		t.Fatalf("OpenPullRequest: %v", err)
+	}
+	if want := "local#" + head; PullRequestRefString(pr) != want {
+		t.Fatalf("PullRequestRef = %q, want %q", PullRequestRefString(pr), want)
+	}
+	// idempotent: same head → same ref.
+	pr2, _ := a.OpenPullRequest(glCtx(), glRepo(), PullRequestSpec{Head: BranchName(head)}, glCred())
+	if !PullRequestRefEqual(pr, pr2) {
+		t.Fatalf("OpenPullRequest not idempotent on head: %q vs %q", pr, pr2)
+	}
+	// decodes back to the head.
+	got, derr := gitLocalPRHead(pr)
+	if derr != nil || got != head {
+		t.Fatalf("gitLocalPRHead(%q) = (%q,%v), want (%q,nil)", pr, got, derr, head)
+	}
+}
+
+func TestGitLocal_OpenPullRequest_Guards(t *testing.T) {
+	a, _ := glNewLocal(t)
+	if _, err := a.OpenPullRequest(glCtx(), glRepo(), PullRequestSpec{Head: "  "}, glCred()); glKind(err) != fwra.ContractMisuse {
+		t.Fatalf("empty head: kind = %v, want ContractMisuse", glKind(err))
+	}
+	if _, err := a.OpenPullRequest(glCtx(), glRepo(), PullRequestSpec{Head: "main", Base: "main"}, glCred()); glKind(err) != fwra.ContractMisuse {
+		t.Fatalf("head==base: kind = %v, want ContractMisuse", glKind(err))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// GL3 — GetPullRequestStatus (CheckSuccess always + REAL Mergeable)
+// ---------------------------------------------------------------------------
+
+func TestGitLocal_GetPullRequestStatus_CleanMergeable(t *testing.T) {
+	a, bareDir := glNewLocal(t)
+	head := "aiarch-design/mission/clean"
+	glSeedBranch(t, bareDir, head, "mission.json", "drafted\n") // a NEW file — no conflict
+
+	st, err := a.GetPullRequestStatus(glCtx(), glRepo(), PullRequestRefFromString("local#"+head), glCred())
+	if err != nil {
+		t.Fatalf("GetPullRequestStatus: %v", err)
+	}
+	if st.CheckRollup != CheckSuccess {
+		t.Fatalf("CheckRollup = %v, want CheckSuccess (no local CI; validators ran in-process)", st.CheckRollup)
+	}
+	if st.ApprovalCount != 0 {
+		t.Fatalf("ApprovalCount = %d, want 0", st.ApprovalCount)
+	}
+	if !st.Mergeable {
+		t.Fatal("Mergeable = false, want true for a cleanly-mergeable branch")
+	}
+}
+
+func TestGitLocal_GetPullRequestStatus_ConflictNotMergeable(t *testing.T) {
+	a, bareDir := glNewLocal(t)
+	head := "aiarch-design/mission/conflict"
+	glSeedBranch(t, bareDir, head, "shared.txt", "branch side\n")
+	glCommitOnMain(t, bareDir, "shared.txt", "main side\n") // diverge the same file
+
+	st, err := a.GetPullRequestStatus(glCtx(), glRepo(), PullRequestRefFromString("local#"+head), glCred())
+	if err != nil {
+		t.Fatalf("GetPullRequestStatus: %v", err)
+	}
+	if st.CheckRollup != CheckSuccess {
+		t.Fatalf("CheckRollup = %v, want CheckSuccess", st.CheckRollup)
+	}
+	if st.Mergeable {
+		t.Fatal("Mergeable = true, want false for a conflicting branch")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// GL4 — MergePullRequest happy path
+// ---------------------------------------------------------------------------
+
+func TestGitLocal_MergePullRequest_NoFFAndDeletesBranch(t *testing.T) {
+	a, bareDir := glNewLocal(t)
+	head := "aiarch-design/mission/merge-1"
+	glSeedBranch(t, bareDir, head, "mission.json", "drafted mission\n")
+
+	res, err := a.MergePullRequest(glCtx(), glRepo(), PullRequestRefFromString("local#"+head), glCred())
+	if err != nil {
+		t.Fatalf("MergePullRequest: %v", err)
+	}
+	if !res.Merged {
+		t.Fatal("MergeResult.Merged = false, want true")
+	}
+	if res.Commit == "" {
+		t.Fatal("MergeResult.Commit empty, want the merge commit sha")
+	}
+	// main tip is a REAL --no-ff merge commit (two parents).
+	parents := strings.Fields(strings.TrimSpace(glGitOut(t, bareDir, "log", "-1", "--format=%P", "main")))
+	if len(parents) != 2 {
+		t.Fatalf("main tip has %d parents, want 2 (a --no-ff merge commit)", len(parents))
+	}
+	// the branch's work is on main, and the session branch is deleted.
+	if got := glGitOut(t, bareDir, "cat-file", "-p", "main:mission.json"); !strings.Contains(got, "drafted mission") {
+		t.Fatalf("main:mission.json = %q, want the branch's content", got)
+	}
+	if glBranchExists(t, bareDir, head) {
+		t.Fatalf("session branch %s must be deleted after the merge", head)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// GL5 — already-merged delete-only idempotent re-entry
+// ---------------------------------------------------------------------------
+
+func TestGitLocal_MergePullRequest_AlreadyMergedDeletesBranchOnly(t *testing.T) {
+	a, bareDir := glNewLocal(t)
+	head := "aiarch-design/mission/remerge"
+	glSeedBranch(t, bareDir, head, "work.txt", "branch content\n")
+	// Simulate a prior attempt that landed the merge but crashed before the branch delete.
+	work := filepath.Join(t.TempDir(), "prior-merge")
+	glGit(t, "", "clone", "--branch", "main", bareDir, work)
+	glGit(t, work, "config", "user.email", "seed@aiarch.local")
+	glGit(t, work, "config", "user.name", "seed")
+	glGit(t, work, "merge", "--no-ff", "-m", "prior merge", "origin/"+head)
+	glGit(t, work, "push", "origin", "main")
+	mainBefore := strings.TrimSpace(glGitOut(t, bareDir, "rev-parse", "main"))
+
+	res, err := a.MergePullRequest(glCtx(), glRepo(), PullRequestRefFromString("local#"+head), glCred())
+	if err != nil {
+		t.Fatalf("MergePullRequest (already-merged): %v", err)
+	}
+	if !res.Merged {
+		t.Fatal("Merged = false, want true on the already-merged path")
+	}
+	// No SECOND merge commit — main unmoved — and the branch is now deleted.
+	if got := strings.TrimSpace(glGitOut(t, bareDir, "rev-parse", "main")); got != mainBefore {
+		t.Fatalf("main moved on the already-merged path: %s -> %s (unexpected second merge)", mainBefore, got)
+	}
+	if glBranchExists(t, bareDir, head) {
+		t.Fatal("the already-merged branch must be deleted on re-entry")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// GL6 — conflict → fwra.Conflict, main untouched
+// ---------------------------------------------------------------------------
+
+func TestGitLocal_MergePullRequest_ConflictErrorsMainUntouched(t *testing.T) {
+	a, bareDir := glNewLocal(t)
+	head := "aiarch-design/mission/conflict"
+	glSeedBranch(t, bareDir, head, "shared.txt", "branch side\n")
+	glCommitOnMain(t, bareDir, "shared.txt", "main side\n")
+	mainBefore := strings.TrimSpace(glGitOut(t, bareDir, "rev-parse", "main"))
+
+	_, err := a.MergePullRequest(glCtx(), glRepo(), PullRequestRefFromString("local#"+head), glCred())
+	if glKind(err) != fwra.Conflict {
+		t.Fatalf("kind = %v, want Conflict", glKind(err))
+	}
+	if got := strings.TrimSpace(glGitOut(t, bareDir, "rev-parse", "main")); got != mainBefore {
+		t.Fatalf("main moved on a conflicted merge: %s -> %s (nothing should be pushed)", mainBefore, got)
+	}
+	if !glBranchExists(t, bareDir, head) {
+		t.Fatal("the session branch must survive a conflicted merge")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// GL7 — birth ops + credential
+// ---------------------------------------------------------------------------
+
+func TestGitLocal_BirthOpsAndCredential(t *testing.T) {
+	a, _ := glNewLocal(t)
+
+	// AdoptProjectRepo → the deterministic local RepoRef.
+	ref, err := a.AdoptProjectRepo(glCtx(), RepoAdoptionSpec{RepoName: "proj"})
+	if err != nil {
+		t.Fatalf("AdoptProjectRepo: %v", err)
+	}
+	if !RepoRefEqual(ref, GitLocalRepoRefForProject("proj")) {
+		t.Fatalf("AdoptProjectRepo ref = %q, want %q", RepoRefString(ref), RepoRefString(GitLocalRepoRefForProject("proj")))
+	}
+	if _, err := a.AdoptProjectRepo(glCtx(), RepoAdoptionSpec{RepoName: "  "}); glKind(err) != fwra.ContractMisuse {
+		t.Fatalf("empty RepoName: kind = %v, want ContractMisuse", glKind(err))
+	}
+
+	// GetInstallationToken → a non-zero dummy credential.
+	cred, err := a.GetInstallationToken(glCtx(), glRepo())
+	if err != nil {
+		t.Fatalf("GetInstallationToken: %v", err)
+	}
+	if RepoCredentialIsZero(cred) {
+		t.Fatal("GetInstallationToken returned a zero credential, want a non-zero dummy")
+	}
+
+	// CommitManagedFiles → a sentinel CommitRef, no error.
+	cr, err := a.CommitManagedFiles(glCtx(), glRepo(), []ManagedFile{{Path: "x", Content: []byte("y")}}, glCred())
+	if err != nil {
+		t.Fatalf("CommitManagedFiles: %v", err)
+	}
+	if CommitRefIsZero(cr) {
+		t.Fatal("CommitManagedFiles returned a zero CommitRef, want a sentinel")
+	}
+
+	// ConfigureBranchProtection / PostReview / SyncManagedScaffold → no-op success.
+	if err := a.ConfigureBranchProtection(glCtx(), glRepo(), glCred()); err != nil {
+		t.Fatalf("ConfigureBranchProtection: %v", err)
+	}
+	if err := a.PostReview(glCtx(), glRepo(), PullRequestRefFromString("local#b"), ReviewSubmission{Verdict: ReviewApprove}, glCred()); err != nil {
+		t.Fatalf("PostReview: %v", err)
+	}
+	drift, err := a.SyncManagedScaffold(glCtx(), glRepo(), glCred())
+	if err != nil || drift {
+		t.Fatalf("SyncManagedScaffold = (%v, %v), want (false, nil)", drift, err)
+	}
+
+	// InstallAuthorizeApp → unreachable on the local profile.
+	if _, err := a.InstallAuthorizeApp(glCtx(), "acct"); glKind(err) != fwra.ContractMisuse {
+		t.Fatalf("InstallAuthorizeApp: kind = %v, want ContractMisuse", glKind(err))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// GL8 — resolver decodes through the shared RepoRef encoding
+// ---------------------------------------------------------------------------
+
+func TestGitLocal_RepoRefForProject_DecodesOwnerRepo(t *testing.T) {
+	ref := GitLocalRepoRefForProject("gtdapp")
+	owner, repo, err := RepoRefOwnerRepo(ref)
+	if err != nil {
+		t.Fatalf("RepoRefOwnerRepo(%q): %v", RepoRefString(ref), err)
+	}
+	if owner != "local" || repo != "gtdapp" {
+		t.Fatalf("decoded (owner=%q, repo=%q), want (local, gtdapp)", owner, repo)
+	}
+}
+
+func TestGitLocal_NewRejectsEmptyRepoURL(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("NewGitLocalSourceControlAccess(\"\") must panic on empty repoURL")
+		}
+	}()
+	_ = NewGitLocalSourceControlAccess("")
 }

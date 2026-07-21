@@ -258,7 +258,7 @@ func (m *systemDesignManager) RequestArtifactDraft(rc fwmanager.Context, project
 	// Every other stage is receptive: AwaitingReview / DraftFailed have an open human gate, and
 	// the terminal/no-session stages mean the SignalWithStart STARTS a fresh run (re-begin /
 	// amendment semantics), whose gate-entry drain discards the start-path signal if unused.
-	if err := m.checkDraftRequestReceptive(rc, projectID, kind); err != nil {
+	if err := m.prepareForDraftRequest(rc, projectID, kind); err != nil {
 		return "", err
 	}
 
@@ -321,6 +321,70 @@ func (m *systemDesignManager) verifySessionRevived(ctx context.Context, wfID str
 	if status := desc.GetWorkflowExecutionInfo().GetStatus(); isAbnormalClosedStatus(status) {
 		return newError(fwmanager.Infrastructure,
 			"the design session could not be revived — the previous session ended abnormally and no fresh run started; restart the phase (Start System Design) or try again")
+	}
+	return nil
+}
+
+// wedgedSupersedeReason is the Temporal termination reason recorded when Retry supersedes a
+// WEDGED design run (F-R2). Human-readable so the run's close event explains why.
+const wedgedSupersedeReason = "superseded by Retry: workflow task stuck in failed state"
+
+// prepareForDraftRequest is the pre-SignalWithStart gate for RequestArtifactDraft. It probes
+// the live session directly (Describe + Query) so it can SUPERSEDE a WEDGED run (F-R2): a run
+// whose workflow task is perpetually failing shows RUNNING to Describe but rejects the
+// sessionState query with the wedged signature, and a SignalWithStart with USE_EXISTING would
+// only BUFFER the redraft signal on that corpse forever (the deadlock). On exactly that shape,
+// TERMINATE the wedged run (tolerating a NotFound race) so the subsequent SignalWithStart
+// starts a genuinely fresh run. Termination is gated STRICTLY on the wedged classification —
+// a transient query timeout/Unavailable falls through to the normal receptive check and
+// surfaces as today's error, never a terminate. Every non-wedged outcome keeps the established
+// checkDraftRequestReceptive behavior (Drafting/Redrafting refusal, NotFound-starts-fresh).
+// Purely a manager-side precondition — no workflow logic, replay-safe by construction.
+func (m *systemDesignManager) prepareForDraftRequest(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind) error {
+	ctx := rc.Context
+	wfID := coAuthorWorkflowID(projectID, kind)
+	desc, derr := m.client.DescribeWorkflowExecution(ctx, wfID, "")
+	if derr != nil {
+		if isNotFound(derr) {
+			return nil // no session yet — this request starts the first one
+		}
+		// A Describe blip (non-NotFound): fall back to the query-based receptive check
+		// rather than masking a transient fault as receptive.
+		return m.checkDraftRequestReceptive(rc, projectID, kind)
+	}
+	// A non-RUNNING execution (abnormal-closed / completed / paused) is receptive: the
+	// SignalWithStart either revives a fresh run or the durable slot is already terminal —
+	// none of those is a live Drafting/Redrafting the redraft signal could stale-consume.
+	if desc.GetWorkflowExecutionInfo().GetStatus() != enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING {
+		return nil
+	}
+	// A RUNNING execution: query its live stage — this ONE query ALSO detects the WEDGED shape.
+	enc, qerr := m.client.QueryWorkflow(ctx, wfID, "", querySessionState)
+	if qerr != nil {
+		if isWorkflowTaskFailedQueryErr(qerr) {
+			// Wedged RUNNING run — supersede it so the SignalWithStart starts a fresh run.
+			// Tolerate a NotFound (it closed between the query and here); any other terminate
+			// fault is surfaced so the caller never silently binds the signal to the corpse.
+			if terr := m.client.TerminateWorkflow(ctx, wfID, "", wedgedSupersedeReason); terr != nil && !isNotFound(terr) {
+				return newError(fwmanager.Infrastructure,
+					"could not supersede the stuck design session before retrying: "+terr.Error())
+			}
+			return nil // proceed to SignalWithStart (starts a fresh run)
+		}
+		if isNotFound(qerr) {
+			return nil // raced to closed between Describe and Query — the start revives it
+		}
+		return mapQueryError(qerr) // transient — surface, never terminate
+	}
+	var view SessionStateView
+	if err := enc.Get(&view); err != nil {
+		return newError(fwmanager.Infrastructure, err.Error())
+	}
+	// The generating guard: a live Drafting/Redrafting session is NOT receptive (a redraft
+	// signal would sit buffered and later stale-consume a recovery gate).
+	if view.Stage == StageDrafting || view.Stage == StageRedrafting {
+		return newError(fwmanager.FailedPrecondition,
+			"a draft is already generating for this artifact (currently "+sessionStageLabel(view.Stage)+") — wait for it to finish before requesting another")
 	}
 	return nil
 }
@@ -437,6 +501,22 @@ func (m *systemDesignManager) SubmitReviewDecision(rc fwmanager.Context, project
 	// (Ordered AFTER the precondition so a never-started session keeps its "not started"
 	// message — checkReviewPrecondition refuses every decision at SessionStageUnknown.)
 	if !live {
+		// DEAD-SESSION WITHDRAW (F-R2 scoped). A dormant-mode session stages its slot on main
+		// (branch ""), so when its run died leaving an AwaitingReview/Rejected slot there, a
+		// Withdraw can still be honored SYNCHRONOUSLY through the RA — the slot resets durably
+		// and GetSessionState then renders Withdrawn. Only for Withdraw, and only for a slot
+		// actually staged on main; a never-staged slot keeps the refusal (Retry is the lever).
+		// A branch-backed session stages on a session branch, not main, so its main slot is not
+		// AwaitingReview and it correctly falls through to the refusal (Retry supersedes it).
+		if decision == ReviewWithdraw {
+			done, werr := m.withdrawDeadSessionOnMain(ctx, projectID, kind, feedback)
+			if werr != nil {
+				return werr
+			}
+			if done {
+				return nil
+			}
+		}
 		return newError(fwmanager.FailedPrecondition,
 			"the design session for this artifact is no longer running (it ended abnormally) — review decisions cannot reach it. Use \"Retry design job\" to start a fresh session, then decide on its review gate")
 	}
@@ -459,6 +539,67 @@ func (m *systemDesignManager) SubmitReviewDecision(rc fwmanager.Context, project
 	return nil
 }
 
+// deadWithdrawMaxAttempts bounds the sync-path Conflict re-read/re-apply loop for a
+// dead-session withdraw (F-R2).
+const deadWithdrawMaxAttempts = 5
+
+// withdrawDeadSessionOnMain honors a Withdraw against a DEAD session whose staged slot is
+// still on MAIN (F-R2). It returns done=true when it recorded the withdraw (the slot was
+// AwaitingReview/Rejected on main), done=false when the slot is NOT staged on main so the
+// caller keeps the refusal. Synchronous RA write on main (branch ""), the same
+// manager-calls-RA discipline the sync ops (SetResearchInput) use, with a bounded Conflict
+// re-read/re-apply. The idempotency key is pinned to the FIRST-read staged version, so a
+// retried withdraw of the SAME staged state dedups while a later distinct staged state (a
+// fresh dead session) keys differently. The call shape mirrors the generated withdraw
+// activity exactly (fwra.Context carrying the idempotency key + the explicit key param),
+// with branch "" for main.
+func (m *systemDesignManager) withdrawDeadSessionOnMain(ctx context.Context, projectID ProjectID, kind ArtifactKind, feedback *ReviewFeedback) (bool, error) {
+	if m.projectState == nil {
+		return false, nil // no durable store to consult → cannot do the scoped withdraw; refuse
+	}
+	fwctx := fwra.Context{Context: ctx}
+	psID := projectstate.ProjectID(projectID)
+	proj, err := m.projectState.ReadProject(fwctx, psID)
+	if err != nil {
+		return false, mapReadProjectError(err)
+	}
+	stagedOnMain := func(slot projectstate.ArtifactSlot) bool {
+		return slot.Status == projectstate.ReviewAwaitingReview || slot.Status == projectstate.ReviewRejected
+	}
+	if !stagedOnMain(slotFor(proj, kind)) {
+		return false, nil // not staged on main → not the dead-withdraw case; caller refuses
+	}
+	notes := ""
+	if feedback != nil {
+		notes = feedback.Notes
+	}
+	key := fwra.IdempotencyKey(fmt.Sprintf("%s:%s:deadWithdraw:%d", projectID, artifactKindString(kind), proj.Version))
+	expected := proj.Version
+	var lastErr error
+	for range deadWithdrawMaxAttempts {
+		_, werr := m.designSession.WithdrawArtifactOnBranch(
+			fwra.Context{Context: ctx, IdempotencyKey: key}, psID, expected, "", toPSKind(kind), notes, key)
+		if werr == nil {
+			return true, nil
+		}
+		if !isRAConflict(werr) {
+			return false, fwmanager.MapError(werr)
+		}
+		lastErr = werr
+		p, rerr := m.projectState.ReadProject(fwctx, psID)
+		if rerr != nil {
+			return false, mapReadProjectError(rerr)
+		}
+		// A concurrent writer already moved the slot off the staged state → the withdraw is
+		// done or no longer applicable; treat as handled rather than re-applying blindly.
+		if !stagedOnMain(slotFor(p, kind)) {
+			return true, nil
+		}
+		expected = p.Version
+	}
+	return false, fwmanager.Wrap(fwmanager.Infrastructure, lastErr, "designSessionAccess.WithdrawArtifactOnBranch: exhausted conflict retries")
+}
+
 // reviewGateView returns the session's full gate view (stage + the durable review thread)
 // for the F19 review precondition AND the review-ledger approve/waive preconditions, plus
 // whether a LIVE workflow can still honor a signal. Same dead-workflow defense as
@@ -466,10 +607,12 @@ func (m *systemDesignManager) SubmitReviewDecision(rc fwmanager.Context, project
 // to it can never be honored — 2026-07-16 incident), a missing execution reports
 // SessionStageUnknown, a live run is read from the authoritative sessionState query.
 func (m *systemDesignManager) reviewGateView(ctx context.Context, wfID string) (SessionStateView, bool, error) {
+	describeLive := false
 	if desc, derr := m.client.DescribeWorkflowExecution(ctx, wfID, ""); derr == nil {
 		if status := desc.GetWorkflowExecutionInfo().GetStatus(); isAbnormalClosedStatus(status) {
 			return SessionStateView{Stage: StageDraftFailed}, false, nil
 		}
+		describeLive = true
 	} else if isNotFound(derr) {
 		return SessionStateView{Stage: SessionStageUnknown}, false, nil
 	}
@@ -477,6 +620,13 @@ func (m *systemDesignManager) reviewGateView(ctx context.Context, wfID string) (
 	if err != nil {
 		if isNotFound(err) {
 			return SessionStateView{Stage: SessionStageUnknown}, false, nil
+		}
+		// F-R2: a WEDGED run cannot honor a signal any more than a closed one — return
+		// live=false with the failed stage so SubmitReviewDecision's !live refusal (which
+		// points the human at Retry) fires instead of a raw 5xx. Only when Describe CONFIRMED
+		// the run live; a Describe blip + task-failed stays a retryable Infrastructure error.
+		if describeLive && isWorkflowTaskFailedQueryErr(err) {
+			return SessionStateView{Stage: StageDraftFailed}, false, nil
 		}
 		return SessionStateView{}, false, mapQueryError(err)
 	}
@@ -785,10 +935,22 @@ func (m *systemDesignManager) GetSessionState(rc fwmanager.Context, projectID Pr
 	// A RUNNING (or CONTINUED_AS_NEW / an amendment's fresh run) execution falls through to the
 	// live query, which is authoritative for those. A Describe error other than NotFound is
 	// best-effort: fall through to the query rather than masking a transient Describe blip.
+	//
+	// describeLive (F-R2) records that Describe CONFIRMED a live execution — only then is a
+	// task-failed query below trustworthy as the WEDGED signal (a Describe blip is not, and
+	// stays a clean retryable Infrastructure error).
+	describeLive := false
 	if desc, derr := m.client.DescribeWorkflowExecution(ctx, wfID, ""); derr == nil {
 		switch status := desc.GetWorkflowExecutionInfo().GetStatus(); {
 		case isAbnormalClosedStatus(status):
-			return withStageName(failedSessionView(projectID, kind, status)), nil
+			// F-R2 durable-slot-first: a run can die AFTER its artifact landed on main (a
+			// died amendment attempt, or a death just after CommitArtifact), so consult the
+			// durable slot before falling back to the failed card (see abnormalClosedSessionView).
+			view, err := m.abnormalClosedSessionView(ctx, projectID, kind, status)
+			if err != nil {
+				return SessionStateView{}, err
+			}
+			return withStageName(view), nil
 		case status == enumspb.WORKFLOW_EXECUTION_STATUS_COMPLETED:
 			view, err := m.completedSessionView(ctx, projectID, kind)
 			if err != nil {
@@ -796,6 +958,10 @@ func (m *systemDesignManager) GetSessionState(rc fwmanager.Context, projectID Pr
 			}
 			return withStageName(view), nil
 		}
+		// Describe succeeded and the run is neither abnormal-closed nor completed — a LIVE
+		// execution (RUNNING / CONTINUED_AS_NEW / PAUSED). A task-failed query below is now
+		// trustworthy as the wedged signal.
+		describeLive = true
 	} else if isNotFound(derr) {
 		return SessionStateView{}, noActiveSessionError(projectID)
 	}
@@ -808,6 +974,15 @@ func (m *systemDesignManager) GetSessionState(rc fwmanager.Context, projectID Pr
 		// user-altitude NotFound; other query faults keep their generic mapping.
 		if isNotFound(err) {
 			return SessionStateView{}, noActiveSessionError(projectID)
+		}
+		// F-R2: a WEDGED run (workflow task perpetually failing) shows RUNNING to the Describe
+		// above but rejects this query with the wedged signature. Do NOT surface a 5xx that
+		// leaves the SPA on an infinite GENERATING screen — synthesize the honest failed card
+		// so the human can Retry, which supersedes the stuck run (prepareForDraftRequest). Only
+		// when Describe CONFIRMED the run live: a Describe blip + task-failed stays a retryable
+		// Infrastructure error (we cannot prove the run is genuinely wedged).
+		if describeLive && isWorkflowTaskFailedQueryErr(err) {
+			return withStageName(wedgedSessionView(projectID, kind)), nil
 		}
 		return SessionStateView{}, mapQueryError(err)
 	}
@@ -863,6 +1038,62 @@ func failedSessionView(projectID ProjectID, kind ArtifactKind, status enumspb.Wo
 		Stage:         StageDraftFailed,
 		Draft:         DraftModel{Kind: artifactKindWireName(kind)},
 		FailureReason: &reason,
+	}
+}
+
+// wedgedSessionView synthesizes the honest failed card for a WEDGED run (F-R2): the workflow
+// task is perpetually failing, so the sessionState query cannot answer even though the run
+// still reports RUNNING to Describe. It reuses StageDraftFailed (the SPA's retry/withdraw
+// card), with copy promising that Retry supersedes the stuck session — which
+// prepareForDraftRequest actually does (terminate-then-SignalWithStart).
+func wedgedSessionView(projectID ProjectID, kind ArtifactKind) SessionStateView {
+	reason := "the design session hit an internal fault and cannot answer — Retry to start a fresh draft (the stuck session will be superseded)"
+	return SessionStateView{
+		ProjectID:     projectID,
+		ArtifactKind:  kind,
+		Stage:         StageDraftFailed,
+		Draft:         DraftModel{Kind: artifactKindWireName(kind)},
+		FailureReason: &reason,
+	}
+}
+
+// abnormalClosedSessionView derives the honest view for a session whose workflow ended
+// ABNORMALLY (FAILED/TERMINATED/TIMED_OUT/CANCELED). Durable-slot-first (F-R2): a run can die
+// AFTER its artifact landed on main (a died amendment attempt, or a death just after
+// CommitArtifact), so consult main's slot before falling back to the failed card:
+//
+//   - Committed → the committed view (StageCommitted + the model) CARRYING a FailureReason so
+//     the last session's abnormal end stays visible; the committed view's amend affordance IS
+//     the retry, so this un-deadlocks the died-amendment case with ZERO writes.
+//   - Withdrawn → the withdrawn view.
+//   - anything else (the run died before committing) → today's failed card, preserving the
+//     2026-07-16 anti-wedge fix for a first-draft death.
+//
+// If the durable slot cannot be consulted — the store is unavailable (nil) or the read
+// faults — it falls back to the failed card rather than erroring or panicking: never wedge on
+// a recovery read (the failed card still offers Retry), matching the pre-fix behavior exactly.
+func (m *systemDesignManager) abnormalClosedSessionView(ctx context.Context, projectID ProjectID, kind ArtifactKind, status enumspb.WorkflowExecutionStatus) (SessionStateView, error) {
+	if m.projectState == nil {
+		return failedSessionView(projectID, kind, status), nil
+	}
+	proj, err := m.projectState.ReadProject(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID))
+	if err != nil {
+		return failedSessionView(projectID, kind, status), nil
+	}
+	slot := slotFor(proj, kind)
+	switch slot.Status {
+	case projectstate.ReviewCommitted, projectstate.ReviewWithdrawn:
+		view, verr := committedSessionView(projectID, kind, slot)
+		if verr != nil {
+			return SessionStateView{}, verr
+		}
+		if slot.Status == projectstate.ReviewCommitted {
+			reason := "the last design session ended unexpectedly (" + workflowStatusLabel(status) + "); the committed model shown is unaffected"
+			view.FailureReason = &reason
+		}
+		return view, nil
+	default:
+		return failedSessionView(projectID, kind, status), nil
 	}
 }
 
@@ -1134,11 +1365,23 @@ func mapQueryError(err error) error {
 	// error-hygiene rule as the 065a9e7 not-found cleanup: clients get a clean,
 	// actionable Detail; the raw cause stays in the server-side log line at the
 	// call site.
-	if strings.Contains(err.Error(), "Workflow Task in failed state") {
+	if isWorkflowTaskFailedQueryErr(err) {
 		return newError(fwmanager.Infrastructure,
 			"design session state is temporarily unavailable — the session hit an internal fault and is being retried by the server; try again shortly")
 	}
 	return newError(fwmanager.Infrastructure, err.Error())
+}
+
+// isWorkflowTaskFailedQueryErr reports whether a QueryWorkflow error is the WEDGED-RUN
+// signature (F-R2): the workflow task is perpetually failing (a deploy-time non-determinism
+// fault, a panic loop), so Temporal rejects the sessionState query with "...Workflow Task in
+// failed state" EVEN THOUGH DescribeWorkflowExecution still reports the run RUNNING. This is
+// the classification that (1) lets GetSessionState / reviewGateView synthesize an honest
+// failed view instead of a 5xx, and (2) authorizes RequestArtifactDraft to TERMINATE the
+// wedged run before starting a fresh one. A transient query timeout/Unavailable does NOT
+// match — it must never trigger a terminate. Same substring precedent as mapQueryError.
+func isWorkflowTaskFailedQueryErr(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "Workflow Task in failed state")
 }
 
 // isNotFound reports whether the Temporal error indicates the addressed

@@ -67,7 +67,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"os/exec"
 	"path"
+	"path/filepath"
 	"slices"
 	"sort"
 	"strconv"
@@ -1754,4 +1757,438 @@ func NewGitHubSourceControl(client *fwgithub.AppClient, account, appSlug string,
 	}
 	scConcrete := scAccess.(CatalogAccess)
 	return scConcrete, scAccess, nil
+}
+
+// ===========================================================================
+// GITLOCAL REALISATION (F-R3 local design PR rail). Logically its own file
+// (gitlocalsourcecontrol.go) but kept in this component's single impl file per the
+// layer file-layout standard (one <component>access.go). See its header below.
+// ===========================================================================
+
+// gitlocalsourcecontrol.go is the LOCAL-GIT realisation of the SourceControlAccess port
+// (F-R3 local design PR rail) — the THIRD arm alongside the GitHub-backed realisation
+// (sourcecontrolaccess.go) and any dry-run stub. It backs the design managers' branch /
+// PR / review / merge lifecycle when the project runs on the LOCAL profile (a file:// bare
+// repo, the SAME one the projectstate GitStore + the constructionpipeline local executor
+// operate on), with NO GitHub App, NO network, and NO PR store.
+//
+// WHY IT EXISTS: on the local profile the cloud PR rail is unavailable (no GitHub App,
+// no Actions, no PR objects), yet the design spine still wants a branch-backed session
+// lifecycle — draft onto a session branch, gate on checks+mergeable, then merge to main.
+// This realisation provides that entirely over LOCAL git mechanics (throwaway clone +
+// push + merge --no-ff + branch delete), the SAME primitives constructionpipeline's
+// mergeActivityBranch + the projectstate GitStore already use. A local "PR" is not a
+// stored object — it is a pure git construct (a head branch proposed into main), so the
+// PullRequestRef deterministically ENCODES the head branch ("local#<head>") and every
+// PR verb re-derives the head from it; there is nothing to persist.
+//
+// OP-BY-OP LOCAL SEMANTICS (see each method):
+//   - GetInstallationToken → a static dummy credential (never a real token; every verb
+//     ignores cred — auth is the local filesystem).
+//   - OpenBranch → create the branch off main if missing; idempotent no-op re-open.
+//   - OpenPullRequest → return "local#<head>" (deterministic, idempotent on head).
+//   - GetPullRequestStatus → CheckSuccess unconditionally (no local CI; the design job's
+//     validators already ran in-process during drafting) + a REAL Mergeable computed by a
+//     trial merge in a throwaway clone; ApprovalCount 0 (mergeOnApprove reads
+//     CheckGreen+Mergeable only — coauthorartifact.go).
+//   - PostReview → no-op success (the +1 is audit ceremony; provenance rides
+//     CommitArtifactWithProvenance on main).
+//   - MergePullRequest → merge head→main --no-ff, push, delete the branch; already-merged
+//     is delete-only idempotent re-entry; a conflict is an honest fwra.Conflict with
+//     NOTHING pushed (the manager's F80c reconcile + re-approve path then applies).
+//   - SyncManagedScaffold → (false, nil) no-op (the local executor seats .claude itself).
+//   - Birth ops (CreateProject, rail non-nil): AdoptProjectRepo returns the deterministic
+//     local RepoRef (the shared repo already exists); CommitManagedFiles /
+//     ConfigureBranchProtection are no-ops; InstallAuthorizeApp is unreachable
+//     (ContractMisuse) — there is no GitHub App funnel locally.
+//
+// DUPLICATED GIT HELPERS: the tiny `git` subprocess plumbing below is deliberately
+// re-implemented rather than shared with constructionpipeline (an RA may not import a
+// sibling RA — NoSideways), the SAME accepted-duplication precedent that file's own
+// header cites.
+
+const (
+	// gitLocalMainBranch is the default branch every session branch forks from and merges
+	// into — the SAME "main" convention the GitStore + local executor fix.
+	gitLocalMainBranch = "main"
+	// gitLocalAccount is the synthetic account login stamped into the local RepoRef
+	// ("local|local/<projectID>"), so the ref decodes cleanly through RepoRefOwnerRepo /
+	// designRepoTarget exactly as a GitHub "owner|owner/repo" ref does.
+	gitLocalAccount = "local"
+	// gitLocalPRPrefix encodes a local "PR" as its head branch: "local#<head>". A local PR
+	// has no stored object, so this deterministic ref IS the PR — idempotent on head, and
+	// every PR verb re-derives the head from it.
+	gitLocalPRPrefix = "local#"
+	// gitLocalCredentialToken is the opaque bytes of the dummy credential
+	// GetInstallationToken returns. It is never presented to any real service — local git
+	// auth is the filesystem — but must be non-empty so RepoCredentialIsZero is false.
+	gitLocalCredentialToken = "local"
+	// gitLocalScaffoldSentinel is the sentinel CommitRef CommitManagedFiles returns: the
+	// local executor seats the managed scaffold (.claude) itself, so there is nothing to
+	// commit here, but the contract wants a non-zero CommitRef.
+	gitLocalScaffoldSentinel = "local-scaffold-noop"
+)
+
+// gitLocalFarExpiry is the ExpiresAt on the dummy credential — deliberately far in the
+// future so the spine's token-refresh check never fires (the local credential never
+// expires; there is nothing to re-mint).
+var gitLocalFarExpiry = time.Date(9999, 12, 31, 0, 0, 0, 0, time.UTC)
+
+// gitLocalAccess is the concrete local-git SourceControlAccess. It holds only the shared
+// repo URL and a mutex serialising this instance's own throwaway-clone git operations
+// against that repo (V1 assumes one local developer driving one session at a time — the
+// same scope constructionpipeline's localExecAccess documents).
+type gitLocalAccess struct {
+	repoURL string
+	gitMu   sync.Mutex
+}
+
+var _ SourceControlAccess = (*gitLocalAccess)(nil)
+
+// NewGitLocalSourceControlAccess builds the local-git SourceControlAccess over the shared
+// repo at repoURL (a file:// bare repo or plain path — the SAME value the projectstate
+// GitStore + the constructionpipeline local executor are configured with). Like the other
+// GitLocal* variant constructors (projectstate.NewGitLocalProjectStateAccess) it panics on
+// a misconfiguration the composition root cannot recover from (empty repoURL), rather than
+// threading an error through the variant-constructor signature.
+func NewGitLocalSourceControlAccess(repoURL string) SourceControlAccess {
+	repoURL = strings.TrimSpace(repoURL)
+	if repoURL == "" {
+		panic("sourcecontrol.NewGitLocalSourceControlAccess: empty repoURL")
+	}
+	return &gitLocalAccess{repoURL: repoURL}
+}
+
+// GitLocalRepoRefForProject mints the deterministic local RepoRef for a project —
+// "local|local/<projectID>" (account "local", full name "local/<projectID>"). It is a PURE
+// resolver (no IO) so the composition-root Repo resolvers can derive the ref for a project
+// without an AdoptProjectRepo round-trip, and it decodes cleanly through RepoRefOwnerRepo →
+// (owner "local", repo "<projectID>") exactly as designRepoTarget expects.
+func GitLocalRepoRefForProject(projectID ProjectID) RepoRef {
+	return makeRepoRef(gitLocalAccount, gitLocalAccount+"/"+string(projectID))
+}
+
+// ---------------------------------------------------------------------------
+// Credential + birth ops.
+// ---------------------------------------------------------------------------
+
+// GetInstallationToken returns a STATIC dummy credential. There is no installation and no
+// token minting locally — auth is the filesystem — so this hands back non-empty opaque
+// bytes with a far-future expiry, which every verb below ignores.
+func (a *gitLocalAccess) GetInstallationToken(_ fwra.Context, repo RepoRef) (RepoCredential, error) {
+	if RepoRefIsZero(repo) {
+		return RepoCredential{}, fwra.New(fwra.ContractMisuse, "gitlocal GetInstallationToken: zero RepoRef")
+	}
+	return RepoCredential{Bytes: []byte(gitLocalCredentialToken), ExpiresAt: gitLocalFarExpiry}, nil
+}
+
+// AdoptProjectRepo returns the deterministic local RepoRef for the project. The shared
+// repo already EXISTS (it is the configured local repo the GitStore/executor use), so there
+// is nothing to create or probe — only the name-as-identity RepoName (== projectID) is
+// validated and mapped to the ref GitLocalRepoRefForProject would mint.
+func (a *gitLocalAccess) AdoptProjectRepo(_ fwra.Context, spec RepoAdoptionSpec) (RepoRef, error) {
+	name := strings.TrimSpace(spec.RepoName)
+	if name == "" {
+		return "", fwra.New(fwra.ContractMisuse, "gitlocal AdoptProjectRepo: empty RepoName")
+	}
+	return GitLocalRepoRefForProject(ProjectID(name)), nil
+}
+
+// CommitManagedFiles is a no-op success returning a sentinel CommitRef. The managed
+// scaffold (.claude prompt surface) is seated by the constructionpipeline local executor at
+// dispatch time, not committed to the repo, so there is nothing to commit here.
+func (a *gitLocalAccess) CommitManagedFiles(_ fwra.Context, repo RepoRef, _ []ManagedFile, _ RepoCredential) (CommitRef, error) {
+	if RepoRefIsZero(repo) {
+		return "", fwra.New(fwra.ContractMisuse, "gitlocal CommitManagedFiles: zero RepoRef")
+	}
+	return CommitRef(gitLocalScaffoldSentinel), nil
+}
+
+// ConfigureBranchProtection is a no-op success: there is no hosted branch-protection to
+// provision on a local repo (the App-only-merger backstop is a GitHub construct).
+func (a *gitLocalAccess) ConfigureBranchProtection(_ fwra.Context, repo RepoRef, _ RepoCredential) error {
+	if RepoRefIsZero(repo) {
+		return fwra.New(fwra.ContractMisuse, "gitlocal ConfigureBranchProtection: zero RepoRef")
+	}
+	return nil
+}
+
+// InstallAuthorizeApp is unreachable on the local profile: the App-installation funnel is a
+// GitHub-only onboarding step. Reaching it is a wiring bug, surfaced as ContractMisuse.
+func (a *gitLocalAccess) InstallAuthorizeApp(_ fwra.Context, _ AccountRef) (Installation, error) {
+	return "", fwra.New(fwra.ContractMisuse, "gitlocal InstallAuthorizeApp: unreachable on the local profile (no GitHub App funnel)")
+}
+
+// SyncManagedScaffold is a no-op reporting NO drift/commit: the local executor materialises
+// the .claude prompt surface itself (seat-assets), so there is no seated workflow file to
+// converge here.
+func (a *gitLocalAccess) SyncManagedScaffold(_ fwra.Context, repo RepoRef, _ RepoCredential) (bool, error) {
+	if RepoRefIsZero(repo) {
+		return false, fwra.New(fwra.ContractMisuse, "gitlocal SyncManagedScaffold: zero RepoRef")
+	}
+	return false, nil
+}
+
+// ---------------------------------------------------------------------------
+// Branch / PR / review / merge lifecycle (over local git).
+// ---------------------------------------------------------------------------
+
+// OpenBranch creates branch off main if it does not yet exist; a re-open of an existing
+// branch is an idempotent no-op success (mirroring the GitHub CreateBranch semantics the
+// spine relies on). Performed in a throwaway clone: the branch ref is created at main's tip
+// and pushed to the shared repo.
+func (a *gitLocalAccess) OpenBranch(_ fwra.Context, repo RepoRef, branch BranchName, _ RepoCredential) (BranchRef, error) {
+	if RepoRefIsZero(repo) {
+		return "", fwra.New(fwra.ContractMisuse, "gitlocal OpenBranch: zero RepoRef")
+	}
+	b := strings.TrimSpace(string(branch))
+	if b == "" {
+		return "", fwra.New(fwra.ContractMisuse, "gitlocal OpenBranch: empty branch")
+	}
+	a.gitMu.Lock()
+	defer a.gitMu.Unlock()
+
+	cloneDir, cleanup, err := a.cloneMain()
+	if err != nil {
+		return "", err
+	}
+	defer cleanup()
+
+	// Idempotent: the branch already exists in the shared repo → no-op success.
+	if _, verr := gitLocalRun(cloneDir, "rev-parse", "--verify", "--quiet", "refs/remotes/origin/"+b); verr == nil {
+		return BranchRef(b), nil
+	}
+	// Create off main: the clone's HEAD is origin/main's tip; push it to the new ref.
+	if out, perr := gitLocalRun(cloneDir, "push", "origin", "HEAD:refs/heads/"+b); perr != nil {
+		return "", fwra.Wrap(fwra.Infrastructure, perr, "gitlocal OpenBranch: create branch "+b+" failed: "+strings.TrimSpace(out))
+	}
+	return BranchRef(b), nil
+}
+
+// OpenPullRequest returns a deterministic local PR ref encoding the head branch
+// ("local#<head>"). A local PR has no stored object — it is the head branch proposed into
+// base — so this is pure and idempotent on head; the title/body are LOGGED (audit), never
+// persisted.
+func (a *gitLocalAccess) OpenPullRequest(rc fwra.Context, repo RepoRef, spec PullRequestSpec, _ RepoCredential) (PullRequestRef, error) {
+	if RepoRefIsZero(repo) {
+		return "", fwra.New(fwra.ContractMisuse, "gitlocal OpenPullRequest: zero RepoRef")
+	}
+	head := strings.TrimSpace(string(spec.Head))
+	if head == "" {
+		return "", fwra.New(fwra.ContractMisuse, "gitlocal OpenPullRequest: empty head")
+	}
+	base := strings.TrimSpace(string(spec.Base))
+	if base == "" {
+		base = gitLocalMainBranch
+	}
+	if head == base {
+		return "", fwra.New(fwra.ContractMisuse, "gitlocal OpenPullRequest: head == base")
+	}
+	slog.InfoContext(logCtx(rc), "gitlocal OpenPullRequest (local PR = head branch; no PR object stored)",
+		"repo", RepoRefString(repo), "head", head, "base", base, "title", spec.Title)
+	return PullRequestRefFromString(gitLocalPRPrefix + head), nil
+}
+
+// GetPullRequestStatus reports the local rail's gate inputs. CheckRollup is CheckSuccess
+// UNCONDITIONALLY: there is no local CI, and the design job's validators (putDraftModel's
+// in-loop codec+methodcheck, and the aiarch-state-mcp `validate` the executor runs) already
+// gated the draft IN-PROCESS before this read — so the required-check trust boundary is
+// satisfied without a hosted check run. Mergeable is REAL, computed by a trial merge of the
+// head into main in a throwaway clone. ApprovalCount is 0 (mergeOnApprove reads
+// CheckGreen+Mergeable only; the approval +1 is ceremony relayed via PostReview).
+func (a *gitLocalAccess) GetPullRequestStatus(_ fwra.Context, repo RepoRef, pr PullRequestRef, _ RepoCredential) (PullRequestStatus, error) {
+	if RepoRefIsZero(repo) {
+		return PullRequestStatus{}, fwra.New(fwra.ContractMisuse, "gitlocal GetPullRequestStatus: zero RepoRef")
+	}
+	head, err := gitLocalPRHead(pr)
+	if err != nil {
+		return PullRequestStatus{}, err
+	}
+	a.gitMu.Lock()
+	defer a.gitMu.Unlock()
+	mergeable, err := a.trialMerge(head)
+	if err != nil {
+		return PullRequestStatus{}, err
+	}
+	return PullRequestStatus{CheckRollup: CheckSuccess, ApprovalCount: 0, Mergeable: mergeable}, nil
+}
+
+// PostReview is a no-op success. The human architecture approval already came through the
+// product gate; the PR-review +1 is pure ceremony/audit relay with no local PR object to
+// attach it to, and the durable provenance rides CommitArtifactWithProvenance on main.
+func (a *gitLocalAccess) PostReview(_ fwra.Context, repo RepoRef, _ PullRequestRef, _ ReviewSubmission, _ RepoCredential) error {
+	if RepoRefIsZero(repo) {
+		return fwra.New(fwra.ContractMisuse, "gitlocal PostReview: zero RepoRef")
+	}
+	return nil
+}
+
+// MergePullRequest merges the PR's head branch into main with a real --no-ff merge commit
+// and deletes the branch, in a throwaway clone + push. Already-merged (or already
+// merged-and-deleted) is delete-only idempotent re-entry. A conflict is an honest
+// fwra.Conflict with NOTHING pushed — the shared repo is untouched, so the manager's F80c
+// reconcileDivergedBranch + re-approve path applies unchanged.
+func (a *gitLocalAccess) MergePullRequest(_ fwra.Context, repo RepoRef, pr PullRequestRef, _ RepoCredential) (MergeResult, error) {
+	if RepoRefIsZero(repo) {
+		return MergeResult{}, fwra.New(fwra.ContractMisuse, "gitlocal MergePullRequest: zero RepoRef")
+	}
+	head, err := gitLocalPRHead(pr)
+	if err != nil {
+		return MergeResult{}, err
+	}
+	a.gitMu.Lock()
+	defer a.gitMu.Unlock()
+	commit, err := a.mergeHeadIntoMain(head)
+	if err != nil {
+		return MergeResult{}, err
+	}
+	return MergeResult{Commit: commit, Merged: true}, nil
+}
+
+// ---------------------------------------------------------------------------
+// git plumbing (throwaway-clone + push mechanics — duplicated per NoSideways;
+// mirrors constructionpipeline.mergeActivityBranch's style).
+// ---------------------------------------------------------------------------
+
+// cloneMain clones the shared repo's main into a throwaway temp dir and returns the clone
+// dir + a cleanup func removing the whole temp tree. A clone failure (repo absent / no
+// main) is an Infrastructure error.
+func (a *gitLocalAccess) cloneMain() (cloneDir string, cleanup func(), err error) {
+	parentDir, mkErr := os.MkdirTemp("", "aiarch-scm-*")
+	if mkErr != nil {
+		return "", func() {}, fwra.Wrap(fwra.Infrastructure, mkErr, "gitlocal: create work dir")
+	}
+	cleanup = func() { _ = os.RemoveAll(parentDir) }
+	cloneDir = filepath.Join(parentDir, "clone")
+	if out, cErr := gitLocalRun("", "clone", "--branch", gitLocalMainBranch, a.repoURL, cloneDir); cErr != nil {
+		cleanup()
+		return "", func() {}, fwra.Wrap(fwra.Infrastructure, cErr, "gitlocal: clone failed: "+strings.TrimSpace(out))
+	}
+	return cloneDir, cleanup, nil
+}
+
+// trialMerge reports whether head merges cleanly into main, computed by a --no-commit
+// trial merge in a throwaway clone (aborted either way — the clone is discarded). A head
+// already merged into main is trivially mergeable; a head that no longer exists (merged +
+// deleted, or never created) is reported NOT mergeable rather than erroring, since it
+// cannot be merged. Only an infrastructure fault (clone failure) returns an error.
+func (a *gitLocalAccess) trialMerge(head string) (bool, error) {
+	cloneDir, cleanup, err := a.cloneMain()
+	if err != nil {
+		return false, err
+	}
+	defer cleanup()
+
+	remoteHead := "refs/remotes/origin/" + head
+	if _, verr := gitLocalRun(cloneDir, "rev-parse", "--verify", "--quiet", remoteHead); verr != nil {
+		return false, nil // head gone → nothing to merge
+	}
+	if _, anc := gitLocalRun(cloneDir, "merge-base", "--is-ancestor", remoteHead, "HEAD"); anc == nil {
+		return true, nil // already merged → trivially mergeable
+	}
+	_, mErr := gitLocalRun(cloneDir, "-c", "user.name=aiarch", "-c", "user.email=aiarch@local",
+		"merge", "--no-commit", "--no-ff", remoteHead)
+	_, _ = gitLocalRun(cloneDir, "merge", "--abort") // best-effort; the clone is thrown away regardless
+	return mErr == nil, nil
+}
+
+// mergeHeadIntoMain performs the real merge of head into main (throwaway clone + push +
+// branch delete) and returns main's resulting tip SHA. Already-merged (ancestor, or
+// already-deleted) is delete-only idempotent re-entry. A conflict is fwra.Conflict with
+// nothing pushed; a clone/push/delete fault is Infrastructure.
+func (a *gitLocalAccess) mergeHeadIntoMain(head string) (string, error) {
+	cloneDir, cleanup, err := a.cloneMain()
+	if err != nil {
+		return "", err
+	}
+	defer cleanup()
+
+	remoteHead := "refs/remotes/origin/" + head
+	headExists := false
+	if _, verr := gitLocalRun(cloneDir, "rev-parse", "--verify", "--quiet", remoteHead); verr == nil {
+		headExists = true
+	}
+
+	// Idempotent re-entry: the head was merged AND deleted by a prior successful call —
+	// nothing to merge, main already carries the work.
+	if !headExists {
+		return gitLocalHeadSHA(cloneDir)
+	}
+
+	// Already merged but the branch survived (a prior attempt merged then crashed before
+	// the delete) → skip straight to the branch delete, no second merge commit.
+	if _, anc := gitLocalRun(cloneDir, "merge-base", "--is-ancestor", remoteHead, "HEAD"); anc == nil {
+		if out, derr := gitLocalRun(cloneDir, "push", "origin", "--delete", head); derr != nil {
+			return "", fwra.Wrap(fwra.Infrastructure, derr, "gitlocal merge: already merged but branch delete failed: "+strings.TrimSpace(out))
+		}
+		return gitLocalHeadSHA(cloneDir)
+	}
+
+	// Real --no-ff merge with a pinned author identity (independent of host git config).
+	mergeOut, mErr := gitLocalRun(cloneDir, "-c", "user.name=aiarch", "-c", "user.email=aiarch@local",
+		"merge", "--no-ff", "-m", "aiarch: merge "+head, remoteHead)
+	if mErr != nil {
+		_, _ = gitLocalRun(cloneDir, "merge", "--abort") // best-effort; clone is throwaway
+		if strings.Contains(mergeOut, "CONFLICT") {
+			return "", fwra.New(fwra.Conflict, "gitlocal merge: conflict merging "+head+" into "+gitLocalMainBranch+"; nothing pushed")
+		}
+		return "", fwra.Wrap(fwra.Infrastructure, mErr, "gitlocal merge: merge of "+head+" failed: "+strings.TrimSpace(mergeOut))
+	}
+	if out, perr := gitLocalRun(cloneDir, "push", "origin", gitLocalMainBranch); perr != nil {
+		return "", fwra.Wrap(fwra.Infrastructure, perr, "gitlocal merge: push of merged "+gitLocalMainBranch+" failed: "+strings.TrimSpace(out))
+	}
+	sha, err := gitLocalHeadSHA(cloneDir)
+	if err != nil {
+		return "", err
+	}
+	// The merge IS landed; a delete failure is recoverable — a retry takes the
+	// already-merged delete-only path above.
+	if out, derr := gitLocalRun(cloneDir, "push", "origin", "--delete", head); derr != nil {
+		return "", fwra.Wrap(fwra.Infrastructure, derr, "gitlocal merge: merged but branch "+head+" could not be deleted: "+strings.TrimSpace(out))
+	}
+	return sha, nil
+}
+
+// gitLocalHeadSHA resolves the clone's current HEAD tip SHA (the landed merge commit, or
+// main's tip on an idempotent re-entry).
+func gitLocalHeadSHA(cloneDir string) (string, error) {
+	out, err := gitLocalRun(cloneDir, "rev-parse", "HEAD")
+	if err != nil {
+		return "", fwra.Wrap(fwra.Infrastructure, err, "gitlocal: rev-parse HEAD")
+	}
+	return strings.TrimSpace(out), nil
+}
+
+// gitLocalPRHead decodes the head branch from a local PullRequestRef ("local#<head>"). A
+// ref that is not local-shaped / empty is a caller pre-condition violation.
+func gitLocalPRHead(pr PullRequestRef) (string, error) {
+	head, ok := strings.CutPrefix(PullRequestRefString(pr), gitLocalPRPrefix)
+	if !ok || strings.TrimSpace(head) == "" {
+		return "", fwra.New(fwra.ContractMisuse, "gitlocal: malformed local PullRequestRef "+PullRequestRefString(pr))
+	}
+	return head, nil
+}
+
+// gitLocalRun runs `git <args...>` with the given working dir (ignored when empty — used
+// for the initial clone) and wraps combined output into the error on failure, for a
+// debuggable diagnostic. Mirrors constructionpipeline.runGit.
+func gitLocalRun(dir string, args ...string) (string, error) {
+	cmd := exec.Command("git", args...) //nolint:gosec // fixed trusted binary, internally-derived args (repo URL / branch names)
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return string(out), fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+	}
+	return string(out), nil
+}
+
+// logCtx returns the call's context.Context for structured logging, defaulting to
+// context.Background when the RA context carries none.
+func logCtx(rc fwra.Context) context.Context {
+	if rc.Context != nil {
+		return rc.Context
+	}
+	return context.Background()
 }

@@ -253,6 +253,7 @@ type ResearchSource struct {
 
 type ReviewPolicyView struct {
 	GatedPhasesByType map[string][]string `json:"gatedPhasesByType"`
+	Preset            *string             `json:"preset,omitempty"`
 }
 
 type ServiceContract struct {

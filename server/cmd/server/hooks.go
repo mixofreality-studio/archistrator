@@ -569,6 +569,13 @@ func (h *appHooks) DesignSessionAccessGitLocalArgs(cfg *Config) string {
 	return cfg.ProjectStateGitRepoURL
 }
 
+// SourceControlAccessGitLocalArgs supplies the GitLocal PR rail's repoURL — the SAME
+// on-disk repo the projectstate GitLocal substrate and the local construction executor
+// operate on (reusing the existing binding-scoped setting, like the three hooks above).
+func (h *appHooks) SourceControlAccessGitLocalArgs(cfg *Config) string {
+	return cfg.ProjectStateGitRepoURL
+}
+
 // SourceControlAccessGitHubArgs supplies the shared AppClient + the App identity the
 // sourcecontrol RA is built over.
 func (h *appHooks) SourceControlAccessGitHubArgs(cfg *Config) (*github.AppClient, string, string, bool) {
@@ -610,15 +617,17 @@ func (h *appHooks) FinalizeConstructionPipelineAccess(cfg *Config, v constructio
 	return h.localPipeline
 }
 
-// FinalizeSourceControlAccess resolves sourceControlAccess: v when the profile arm
-// built it (cloud), else the github-creds-gated real RA (local profile WITH creds —
-// same orthogonal-presence reason as the pipeline above), else nil (rail dormant).
-// No dry-run stub — the PR rail simply goes dormant when the RA is nil.
+// FinalizeSourceControlAccess resolves sourceControlAccess CREDS-WIN: the
+// github-creds-gated real RA when present (local profile WITH creds — the agentic
+// systemtests boot — keeps the REAL GitHub rail, pairing with realPipeline exactly as
+// FinalizeConstructionPipelineAccess pairs), else the profile arm's build (cloud
+// GitHub, or the local GitLocal PR rail), else nil (rail dormant — a creds-less cloud
+// boot). No dry-run stub — the PR rail simply goes dormant when the RA is nil.
 func (h *appHooks) FinalizeSourceControlAccess(_ *Config, v sourcecontrol.SourceControlAccess) sourcecontrol.SourceControlAccess {
-	if v != nil {
-		return v
+	if h.scAccess != nil {
+		return h.scAccess
 	}
-	return h.scAccess
+	return v
 }
 
 // FinalizeOperatedRuntimeAccess restores the ARCHISTRATOR_OPERATIONS_DRYRUN toggle
@@ -746,6 +755,11 @@ func (h *appHooks) ConstructionManagerInterventionMode() string {
 // the sourcecontrol catalog (name-as-identity). nil when repo-less (rail dormant).
 func (h *appHooks) ProjectDesignManagerRepo() func(projectID projectdesign.ProjectID) (sourcecontrol.RepoRef, bool) {
 	if h.scCatalog == nil {
+		if h.gitLocalRailBound() {
+			return func(pid projectdesign.ProjectID) (sourcecontrol.RepoRef, bool) {
+				return sourcecontrol.GitLocalRepoRefForProject(sourcecontrol.ProjectID(projectstate.ProjectID(pid).String())), true
+			}
+		}
 		return nil
 	}
 	return func(pid projectdesign.ProjectID) (sourcecontrol.RepoRef, bool) {
@@ -755,11 +769,26 @@ func (h *appHooks) ProjectDesignManagerRepo() func(projectID projectdesign.Proje
 
 func (h *appHooks) SystemDesignManagerRepo() func(projectID systemdesign.ProjectID) (sourcecontrol.RepoRef, bool) {
 	if h.scCatalog == nil {
+		if h.gitLocalRailBound() {
+			return func(pid systemdesign.ProjectID) (sourcecontrol.RepoRef, bool) {
+				return sourcecontrol.GitLocalRepoRefForProject(sourcecontrol.ProjectID(projectstate.ProjectID(pid).String())), true
+			}
+		}
 		return nil
 	}
 	return func(pid systemdesign.ProjectID) (sourcecontrol.RepoRef, bool) {
 		return h.repoForProject(projectstate.ProjectID(pid))
 	}
+}
+
+// gitLocalRailBound reports whether the bound sourceControlAccess is the GitLocal PR
+// rail: the local profile's binding arm builds it, and the creds-win Finalize keeps it
+// only when no GitHub App creds exist (scCatalog/scAccess nil). The design managers'
+// repo resolvers must then resolve every project to the deterministic local RepoRef so
+// the rail lifecycle (branch → PR → merge) activates. ConstructionManagerRepo stays on
+// the catalog-only path: construction keeps its local-merge-job flow this pass.
+func (h *appHooks) gitLocalRailBound() bool {
+	return resolveProfile(h.config) == "local"
 }
 
 // ConstructionManagerRepo is the construction venue resolver (B5, gh-mode): projectID →

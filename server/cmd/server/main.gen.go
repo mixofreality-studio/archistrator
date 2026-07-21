@@ -163,6 +163,12 @@ type Hooks interface {
 	// generated variant constructor call.
 	SourceControlAccessGitHubArgs(cfg *Config) (*github.AppClient, string, string, bool)
 
+	// SourceControlAccessGitLocalArgs supplies the sourceControlAccess GitLocal variant's constructor
+	// arguments the deployment model cannot express (composition-root ports /
+	// typed values). Read from cfg; the returned tuple is spread into the
+	// generated variant constructor call.
+	SourceControlAccessGitLocalArgs(cfg *Config) string
+
 	// FinalizeArtifactAccess is called immediately after artifactAccess's construction
 	// (presence optional-dormant). Return v unchanged unless
 	// composition policy needs to swap or wrap it (e.g. a construction
@@ -500,6 +506,9 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 		}
 		sourceControlAccess = v
 		logger.Info("sourceControlAccess (GitHub) ready")
+	case "local":
+		sourceControlAccess = sourcecontrol.NewGitLocalSourceControlAccess(hooks.SourceControlAccessGitLocalArgs(cfg))
+		logger.Info("sourceControlAccess (GitLocal) ready")
 	}
 	sourceControlAccess = hooks.FinalizeSourceControlAccess(cfg, sourceControlAccess)
 	var usageAccess usage.UsageAccess

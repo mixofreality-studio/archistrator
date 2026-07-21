@@ -3379,3 +3379,28 @@ func Test_SetReviewPolicy_UnknownProject_NotFound(t *testing.T) {
 		t.Fatalf("want NotFound, got %s", got)
 	}
 }
+
+// railLifecycleEnabled derives wfDeps.RailEnabled (WorkerManifest). The repo resolver
+// is part of the derivation: the local profile binds the GitLocal sourceControlAccess
+// for the DESIGN managers while construction stays repo-less there, and that
+// rail-without-repo boot MUST read rail-dormant — RailEnabled=true would make
+// runLocalMergeStep skip and nothing would merge local activity branches.
+func Test_RailLifecycleEnabled_RequiresRailAndRepo(t *testing.T) {
+	repo := func(ProjectID) (sourcecontrol.RepoRef, bool) { return sourcecontrol.RepoRef("acct|acct/p"), true }
+	cases := []struct {
+		name string
+		rail sourcecontrol.SourceControlAccess
+		repo func(ProjectID) (sourcecontrol.RepoRef, bool)
+		want bool
+	}{
+		{"rail+repo (cloud / creds-ful local)", &stubRail{}, repo, true},
+		{"rail without repo (local GitLocal rail; construction repo-less)", &stubRail{}, nil, false},
+		{"repo without rail", nil, repo, false},
+		{"neither", nil, nil, false},
+	}
+	for _, tc := range cases {
+		if got := railLifecycleEnabled(tc.rail, tc.repo); got != tc.want {
+			t.Fatalf("%s: railLifecycleEnabled = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}

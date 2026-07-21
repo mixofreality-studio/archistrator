@@ -968,8 +968,13 @@ type wfDeps struct {
 	// Activities (pipeline / artifact / rail); its Opts hook applies the per-op presets.
 	Acts genInvokers
 
-	// RailEnabled reports whether the PR rail dep is wired (impl.rail != nil). It gates
-	// the PR-rail lifecycle (gitEnabled) alongside GitStatus + Repo.
+	// RailEnabled reports whether the PR-rail LIFECYCLE is available for construction
+	// (impl.rail != nil AND impl.repo != nil): the rail dep alone is not enough — the
+	// local profile now binds the GitLocal sourceControlAccess for the DESIGN managers
+	// while construction keeps its local-merge-job flow (ConstructionManagerRepo stays
+	// nil there), so a rail-without-repo boot must read as rail-dormant here or
+	// runLocalMergeStep would skip and nothing would merge local activity branches.
+	// It gates the PR-rail lifecycle (gitEnabled) alongside GitStatus + Repo.
 	RailEnabled bool
 
 	// Repo resolves the per-project RepoRef the rail verbs address. nil ⇒ the
@@ -1277,6 +1282,16 @@ func activityOptions() func(activityName string) (workflow.ActivityOptions, bool
 // WorkerManifest assembles the genWorkerManifest RegisterWorker (worker.gen.go) consumes:
 // the four workflow bodies under their registered names, the per-activity option-preset
 // hook, and the genActivities threaded from the impl's stored published deps.
+// railLifecycleEnabled derives wfDeps.RailEnabled: the PR-rail LIFECYCLE needs BOTH
+// the rail dep and the per-project repo resolver. The rail dep alone is not enough —
+// the local profile binds the GitLocal sourceControlAccess for the DESIGN managers
+// while construction stays repo-less there (its ConstructionManagerRepo hook returns
+// nil), and a rail-without-repo boot must read as rail-dormant or runLocalMergeStep
+// would skip and nothing would merge local activity branches.
+func railLifecycleEnabled(rail sourcecontrol.SourceControlAccess, repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool)) bool {
+	return rail != nil && repo != nil
+}
+
 func (m *constructionManager) WorkerManifest() genWorkerManifest {
 	optsHook := activityOptions()
 	wf := newWorkflows(wfDeps{
@@ -1292,8 +1307,11 @@ func (m *constructionManager) WorkerManifest() genWorkerManifest {
 		// RailEnabled gates the PR-rail lifecycle (gitEnabled) alongside GitStatus + Repo.
 		// Repo (B5) is the per-project venue resolver: non-nil retargets every construction
 		// dispatch to the project's own repo (aiarch-construct.yml) AND activates the
-		// branch→PR rail; nil keeps the central-repo fallback + dormant rail.
-		RailEnabled:           m.rail != nil,
+		// branch→PR rail; nil keeps the central-repo fallback + dormant rail. The repo
+		// resolver is part of the derivation (not just the runWithGitForward composite) so
+		// the local GitLocal rail — bound for the design managers, repo-less for
+		// construction — keeps runLocalMergeStep firing (see the wfDeps.RailEnabled doc).
+		RailEnabled:           railLifecycleEnabled(m.rail, m.repo),
 		Repo:                  m.repo,
 		NextEligibleActivity:  nextEligibleActivity,
 		HandOffPolicy:         handoff.HandOffPolicy{},

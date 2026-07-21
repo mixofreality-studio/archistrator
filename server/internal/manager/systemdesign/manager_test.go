@@ -372,6 +372,139 @@ func Test_RequestArtifactDraft_RevivalDidNotStart_HonestError(t *testing.T) {
 	mc.AssertExpectations(t)
 }
 
+// F-R2 (wedged-run recovery): a RUNNING session whose workflow TASK is perpetually failing (a
+// deploy-time non-determinism loop) shows RUNNING to Describe but rejects the sessionState query
+// with "...Workflow Task in failed state". A SignalWithStart would only BUFFER the redraft on
+// that corpse, so Retry must TERMINATE the wedged run FIRST, then start a fresh one — while a
+// TRANSIENT query blip must NEVER trigger a terminate.
+func Test_RequestArtifactDraft_WedgedRun_SupersedesThenStarts(t *testing.T) {
+	t.Run("wedged supersedes then signal-starts", func(t *testing.T) {
+		pid := ProjectID(uuid.NewString())
+		wfID := coAuthorWorkflowID(pid, KindMission)
+
+		mc := &temporalmocks.Client{}
+		// The receptive/wedged probe: a RUNNING execution whose query is wedged.
+		mc.On("DescribeWorkflowExecution", mock.Anything, wfID, "").
+			Return(&workflowservice.DescribeWorkflowExecutionResponse{
+				WorkflowExecutionInfo: &workflowpb.WorkflowExecutionInfo{Status: enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING},
+			}, nil).Once()
+		mc.On("QueryWorkflow", mock.Anything, wfID, "", querySessionState).
+			Return(nil, errors.New("Unable to query workflow due to Workflow Task in failed state")).Once()
+
+		var order []string
+		mc.On("TerminateWorkflow", mock.Anything, wfID, "", mock.Anything).
+			Run(func(mock.Arguments) { order = append(order, "terminate") }).Return(nil).Once()
+		mc.On("SignalWithStartWorkflow", mock.Anything, wfID, lSignalRedraft,
+			mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+			Run(func(mock.Arguments) { order = append(order, "signalStart") }).
+			Return(fakeSignalWorkflowRun{id: wfID}, nil)
+		// Revival verification: a fresh run is now RUNNING.
+		mc.On("DescribeWorkflowExecution", mock.Anything, wfID, "").
+			Return(&workflowservice.DescribeWorkflowExecutionResponse{
+				WorkflowExecutionInfo: &workflowpb.WorkflowExecutionInfo{Status: enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING},
+			}, nil).Once()
+
+		m := &systemDesignManager{client: mc, projectState: &renderFakeProjectState{}}
+		if _, err := m.RequestArtifactDraft(bgRC(), pid, KindMission, nil); err != nil {
+			t.Fatalf("a wedged run must be superseded and revived, got %v", err)
+		}
+		if len(order) != 2 || order[0] != "terminate" || order[1] != "signalStart" {
+			t.Fatalf("Terminate must precede SignalWithStart, got %v", order)
+		}
+		mc.AssertExpectations(t)
+	})
+
+	t.Run("transient query blip does NOT terminate", func(t *testing.T) {
+		pid := ProjectID(uuid.NewString())
+		wfID := coAuthorWorkflowID(pid, KindMission)
+
+		mc := &temporalmocks.Client{}
+		mc.On("DescribeWorkflowExecution", mock.Anything, wfID, "").
+			Return(&workflowservice.DescribeWorkflowExecutionResponse{
+				WorkflowExecutionInfo: &workflowpb.WorkflowExecutionInfo{Status: enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING},
+			}, nil)
+		// A TRANSIENT query fault (NOT the wedged signature) must surface as an error, never a
+		// terminate — we cannot prove the run is genuinely wedged.
+		mc.On("QueryWorkflow", mock.Anything, wfID, "", querySessionState).
+			Return(nil, errors.New("context deadline exceeded"))
+
+		m := &systemDesignManager{client: mc, projectState: &renderFakeProjectState{}}
+		if _, err := m.RequestArtifactDraft(bgRC(), pid, KindMission, nil); err == nil {
+			t.Fatal("a transient query fault must surface as an error, not silently proceed")
+		}
+		mc.AssertNotCalled(t, "TerminateWorkflow", mock.Anything, wfID, "", mock.Anything)
+		mc.AssertNotCalled(t, "SignalWithStartWorkflow", mock.Anything, wfID, lSignalRedraft, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	})
+}
+
+// F-R2 durable-slot-first: a session that died ABNORMALLY *after* its artifact committed on main
+// must render the COMMITTED view (not a bare failed card), carrying a FailureReason so the
+// abnormal end stays visible — the committed model's amend affordance is the recovery lever.
+func Test_GetSessionState_AbnormalClose_CommittedSlot_ShowsCommittedWithReason(t *testing.T) {
+	id := ProjectID(uuid.NewString())
+	wfID := coAuthorWorkflowID(id, KindMission)
+
+	mc := &temporalmocks.Client{}
+	mc.On("DescribeWorkflowExecution", mock.Anything, wfID, "").
+		Return(&workflowservice.DescribeWorkflowExecutionResponse{
+			WorkflowExecutionInfo: &workflowpb.WorkflowExecutionInfo{Status: enumspb.WORKFLOW_EXECUTION_STATUS_TERMINATED},
+		}, nil)
+
+	ps := &fakeProjectState{project: projectstate.Project{
+		ID:      projectstate.ProjectID(id),
+		Version: 2,
+		Mission: committedSlot(mustMission(t)),
+	}}
+	m := &systemDesignManager{client: mc, projectState: ps}
+
+	view, err := m.GetSessionState(bgRC(), id, KindMission)
+	if err != nil {
+		t.Fatalf("an abnormal-closed run over a committed slot must synthesize a view, got %v", err)
+	}
+	if view.Stage != StageCommitted {
+		t.Fatalf("a committed slot must render StageCommitted even after an abnormal close, got %d", view.Stage)
+	}
+	if view.FailureReason == nil || *view.FailureReason == "" {
+		t.Fatal("the committed view must carry a FailureReason noting the abnormal end")
+	}
+	mc.AssertExpectations(t)
+}
+
+// F-R2 dead-session Withdraw (scoped): a dormant-mode session whose run died leaving an
+// AwaitingReview slot on MAIN can still be WITHDRAWN synchronously through the RA (the slot
+// resets durably) instead of the bare refusal — only for Withdraw + a staged-on-main slot, and
+// never via a signal (a signal to the corpse can't be honored).
+func Test_SubmitReviewDecision_DeadSession_StagedOnMain_WithdrawRecordsSynchronously(t *testing.T) {
+	id := ProjectID(uuid.NewString())
+	wfID := coAuthorWorkflowID(id, KindMission)
+
+	mc := &temporalmocks.Client{}
+	// The run is dead (abnormal-closed) → reviewGateView reports live=false.
+	mc.On("DescribeWorkflowExecution", mock.Anything, wfID, "").
+		Return(&workflowservice.DescribeWorkflowExecutionResponse{
+			WorkflowExecutionInfo: &workflowpb.WorkflowExecutionInfo{Status: enumspb.WORKFLOW_EXECUTION_STATUS_FAILED},
+		}, nil)
+
+	ps := &fakeProjectState{project: projectstate.Project{
+		ID:      projectstate.ProjectID(id),
+		Version: 1,
+		Mission: awaitingSlot(mustMission(t), "", ""), // staged on main (AwaitingReview)
+	}}
+	m := &systemDesignManager{
+		client:        mc,
+		projectState:  ps,
+		designSession: projectstate.NewDesignSessionAccess(ps),
+	}
+
+	if err := m.SubmitReviewDecision(bgRC(), id, KindMission, ReviewWithdraw, nil); err != nil {
+		t.Fatalf("a Withdraw against a dead session staged on main must record synchronously, got %v", err)
+	}
+	if len(ps.withdrawn) != 1 || ps.withdrawn[0] != projectstate.KindMission {
+		t.Fatalf("the withdraw must be recorded on main, got %v", ps.withdrawn)
+	}
+	mc.AssertNotCalled(t, "SignalWorkflow", mock.Anything, wfID, "", signalReviewDecision, mock.Anything)
+}
+
 // phase1PredecessorKind returns the immediate predecessor for each Phase-1 kind, and
 // no predecessor for the first (mission).
 func Test_Phase1PredecessorKind(t *testing.T) {
@@ -1687,6 +1820,138 @@ func Test_CoAuthor_Approve_Commits(t *testing.T) {
 	}
 	if pipe.submits[1].dispatchInputs[dispatchInputArtifactKind] != projectstate.KindMission.String() {
 		t.Fatal("the second dispatch must be the PM-critique over the same kind")
+	}
+}
+
+// VIBES AUTOGATE (F-R3 vibes-everywhere): under a vibes ReviewPolicy a CLEAN draft is
+// AUTO-approved at the review gate WITHOUT a human signal — the design gate honors ReviewPolicy
+// exactly like construction. NO delayed signal is registered: the autogate must commit on its own.
+func Test_CoAuthor_VibesPolicy_AutoApproves_NoHumanSignal(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	vibes := projectstate.ReviewPresetVibes
+	ps := &fakeProjectState{project: projectstate.Project{
+		ID:           projectstate.ProjectID(id),
+		Version:      1,
+		Mission:      awaitingSlot(mustMission(t), projectstate.CritiqueVerdictApprove, ""),
+		ReviewPolicy: projectstate.ReviewPolicy{Preset: &vibes},
+	}}
+	pipe := newFakePipeline() // draft Succeeded, critique Succeeded
+	wf := newWorkflows()
+	registerCoAuthor(env, wf, ps, pipe)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindMission})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	var outcome coAuthorOutcome
+	if err := env.GetWorkflowResult(&outcome); err != nil {
+		t.Fatalf("decode outcome: %v", err)
+	}
+	if outcome != coAuthorApproved {
+		t.Fatalf("a vibes policy must auto-approve without a human, got outcome %d", outcome)
+	}
+	if len(ps.committed) != 1 || ps.committed[0] != projectstate.KindMission {
+		t.Fatalf("the auto-approve must commit the artifact, got committed=%v", ps.committed)
+	}
+}
+
+// VIBES AUTOGATE — open change-requests BLOCK the auto-approve (stays human). Even under a vibes
+// policy, an unresolved change-request (an amendment seed / critique feedback) keeps the session
+// at the HUMAN gate: the autogate skips it. A human WITHDRAW then decides it — were the autogate
+// (wrongly) auto-approving, the outcome would be coAuthorApproved and the artifact committed, so
+// coAuthorWithdrawn + no commit proves the open change-request kept it human-gated.
+func Test_CoAuthor_VibesPolicy_OpenChangeRequest_StaysHumanGated(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	vibes := projectstate.ReviewPresetVibes
+	missionSlot := awaitingSlot(mustMission(t), projectstate.CritiqueVerdictApprove, "")
+	missionSlot.ReviewThread = []projectstate.ReviewComment{{
+		ID:         "c1",
+		Status:     projectstate.ReviewCommentOpen,
+		Type:       projectstate.ReviewCommentTypeChangeRequest,
+		Text:       "tighten the vision sentence",
+		AuthorRole: "architect",
+	}}
+	ps := &fakeProjectState{project: projectstate.Project{
+		ID:           projectstate.ProjectID(id),
+		Version:      1,
+		Mission:      missionSlot,
+		ReviewPolicy: projectstate.ReviewPolicy{Preset: &vibes},
+	}}
+	pipe := newFakePipeline()
+	wf := newWorkflows()
+	registerCoAuthor(env, wf, ps, pipe)
+
+	// The session must WAIT for a human despite vibes (the open change-request blocks the
+	// autogate); a human WITHDRAW decides it. A wrongly-firing autogate would auto-APPROVE first.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 30*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindMission})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	var outcome coAuthorOutcome
+	if err := env.GetWorkflowResult(&outcome); err != nil {
+		t.Fatalf("decode outcome: %v", err)
+	}
+	if outcome != coAuthorWithdrawn {
+		t.Fatalf("an open change-request under vibes must stay human-gated (withdrawn here), got %d", outcome)
+	}
+	if len(ps.committed) != 0 {
+		t.Fatalf("an open change-request must block the auto-commit, got committed=%v", ps.committed)
+	}
+}
+
+// VIBES AUTOGATE replay safety: a session in flight at deploy time (the "design-vibes-autogate"
+// GetVersion resolves DefaultVersion) stays on the HUMAN gate even under a vibes policy — the
+// autogate is pinned OFF for its whole run. A human WITHDRAW decides it; were the autogate
+// (wrongly) ON, it would auto-APPROVE before the withdraw, so coAuthorWithdrawn proves the pin.
+func Test_CoAuthor_VibesAutogate_VersionGate_PreFeatureStaysHumanGated(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	vibes := projectstate.ReviewPresetVibes
+	ps := &fakeProjectState{project: projectstate.Project{
+		ID:           projectstate.ProjectID(id),
+		Version:      1,
+		Mission:      awaitingSlot(mustMission(t), projectstate.CritiqueVerdictApprove, ""),
+		ReviewPolicy: projectstate.ReviewPolicy{Preset: &vibes},
+	}}
+	pipe := newFakePipeline()
+	wf := newWorkflows()
+	registerCoAuthor(env, wf, ps, pipe)
+
+	// Pin the autogate OFF (a pre-feature in-flight execution replays DefaultVersion).
+	env.OnGetVersion("design-vibes-autogate", workflow.DefaultVersion, 1).Return(workflow.DefaultVersion)
+
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 30*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindMission})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a pinned pre-feature session must run cleanly: %v", err)
+	}
+	var outcome coAuthorOutcome
+	if err := env.GetWorkflowResult(&outcome); err != nil {
+		t.Fatalf("decode outcome: %v", err)
+	}
+	if outcome != coAuthorWithdrawn {
+		t.Fatalf("a pinned (pre-feature) session must stay human-gated (withdrawn here), got %d", outcome)
+	}
+	if len(ps.committed) != 0 {
+		t.Fatalf("a pinned session must NOT auto-commit, got committed=%v", ps.committed)
 	}
 }
 

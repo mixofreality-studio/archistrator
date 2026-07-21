@@ -189,7 +189,11 @@ func Test_GetSessionState_DeadWorkflow_SynthesizesFailedView(t *testing.T) {
 	}
 	mc.On("DescribeWorkflowExecution", mock.Anything, wfID, "").Return(resp, nil)
 
-	m := &projectDesignManager{client: mc}
+	// F-R2 durable-slot-first: the abnormal-closed arm now consults main's slot before falling
+	// back to the failed card. An UNCOMMITTED slot (this project has none) still renders the
+	// honest StageDraftFailed — the case under test (a first-draft death).
+	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(id)}}
+	m := &projectDesignManager{client: mc, projectState: ps}
 	view, err := m.GetSessionState(fwmanager.Context{Context: context.Background()}, id, KindPlanningAssumptions)
 	if err != nil {
 		t.Fatalf("GetSessionState on a dead workflow must synthesize a view, got err: %v", err)
@@ -541,6 +545,14 @@ func (c *recordingStartClient) ExecuteWorkflow(_ context.Context, _ client.Start
 	// must NOT use this path — record it so the test fails loudly if it regresses.
 	c.execCalled = true
 	return fakeWorkflowRun{id: "exec"}, nil
+}
+
+// DescribeWorkflowExecution answers the F-R2 receptive/revival probe RequestArtifactDraft now
+// runs before + after the SignalWithStart. This delivery test has no prior run, so report the
+// execution missing: prepareForDraftRequest treats NotFound as receptive (no query) and
+// verifySessionRevived ignores a Describe error — leaving the signal-delivery assertion intact.
+func (c *recordingStartClient) DescribeWorkflowExecution(_ context.Context, _, _ string) (*workflowservice.DescribeWorkflowExecutionResponse, error) {
+	return nil, serviceerror.NewNotFound("no session")
 }
 
 func Test_RequestArtifactDraft_DeliversFeedbackViaRedraftSignal(t *testing.T) {
@@ -1401,6 +1413,80 @@ func Test_CoAuthor_Reject_LoopsToFreshDispatch(t *testing.T) {
 	// Reject loops to a FRESH dispatch: at least 2 draft dispatches.
 	if len(pipe.submits) < 2 {
 		t.Fatalf("a reject must re-dispatch a fresh draft, got %d submits", len(pipe.submits))
+	}
+}
+
+// VIBES AUTOGATE (F-R3 vibes-everywhere, Phase-2 twin): under a vibes ReviewPolicy a CLEAN draft
+// is AUTO-approved at the review gate WITHOUT a human signal — the design gate honors ReviewPolicy
+// exactly like construction. NO delayed signal is registered: the autogate must commit on its own.
+func Test_CoAuthor_VibesPolicy_AutoApproves_NoHumanSignal(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	proj := planningAssumptionsReadBack(projectstate.ProjectID(id))
+	vibes := projectstate.ReviewPresetVibes
+	proj.ReviewPolicy.Preset = &vibes
+	ps := &fakeProjectState{project: proj}
+	pipe := newFakePipeline() // every dispatch Succeeds
+	wf := newWorkflows()
+	registerCoAuthor(env, wf, ps, pipe)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindPlanningAssumptions})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	var outcome coAuthorOutcome
+	if err := env.GetWorkflowResult(&outcome); err != nil {
+		t.Fatalf("decode outcome: %v", err)
+	}
+	if outcome != coAuthorApproved {
+		t.Fatalf("a vibes policy must auto-approve without a human, got outcome %d", outcome)
+	}
+	if len(ps.committed) != 1 || ps.committed[0] != projectstate.KindPlanningAssumptions {
+		t.Fatalf("the auto-approve must commit the artifact, got committed=%v", ps.committed)
+	}
+}
+
+// VIBES AUTOGATE replay safety (Phase-2 twin): a pre-feature in-flight session (the
+// "design-vibes-autogate" GetVersion resolves DefaultVersion) stays on the HUMAN gate even under a
+// vibes policy. A human WITHDRAW decides it; were the autogate (wrongly) ON, it would auto-APPROVE
+// first, so coAuthorWithdrawn proves the pin.
+func Test_CoAuthor_VibesAutogate_VersionGate_PreFeatureStaysHumanGated(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	proj := planningAssumptionsReadBack(projectstate.ProjectID(id))
+	vibes := projectstate.ReviewPresetVibes
+	proj.ReviewPolicy.Preset = &vibes
+	ps := &fakeProjectState{project: proj}
+	pipe := newFakePipeline()
+	wf := newWorkflows()
+	registerCoAuthor(env, wf, ps, pipe)
+
+	// Pin the autogate OFF (a pre-feature in-flight execution replays DefaultVersion).
+	env.OnGetVersion("design-vibes-autogate", workflow.DefaultVersion, 1).Return(workflow.DefaultVersion)
+
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 30*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindPlanningAssumptions})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a pinned pre-feature session must run cleanly: %v", err)
+	}
+	var outcome coAuthorOutcome
+	if err := env.GetWorkflowResult(&outcome); err != nil {
+		t.Fatalf("decode outcome: %v", err)
+	}
+	if outcome != coAuthorWithdrawn {
+		t.Fatalf("a pinned (pre-feature) session must stay human-gated (withdrawn here), got %d", outcome)
+	}
+	if len(ps.committed) != 0 {
+		t.Fatalf("a pinned session must NOT auto-commit, got committed=%v", ps.committed)
 	}
 }
 
@@ -3970,12 +4056,15 @@ func (f *fakeQueryClient) SignalWorkflow(_ context.Context, _ string, _ string, 
 	return nil
 }
 
-// DescribeWorkflowExecution reports the session workflow as ABSENT so GetSessionState's
-// Describe-first defense (F15/F28 + P0-2) falls through: a not-found execution maps to the
-// clean "project design has not started" NotFound (F20), and the SubmitReviewDecision tests
-// (which drive reviewGateView, not GetSessionState) never reach this method.
+// DescribeWorkflowExecution reports the session workflow as RUNNING so both GetSessionState
+// and (F-R2) reviewGateView — now BOTH Describe-first — fall through to the sessionState
+// query, which returns the configured stage (or queryErr). A live RUNNING run is the right
+// fixture for these SubmitReviewDecision/GetSessionState tests: the NotFound cases drive it via
+// queryErr, and the abnormal/completed synthesis paths have their own dedicated tests.
 func (f *fakeQueryClient) DescribeWorkflowExecution(_ context.Context, _ string, _ string) (*workflowservice.DescribeWorkflowExecutionResponse, error) {
-	return nil, serviceerror.NewNotFound("workflow not found")
+	return &workflowservice.DescribeWorkflowExecutionResponse{
+		WorkflowExecutionInfo: &workflowpb.WorkflowExecutionInfo{Status: enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING},
+	}, nil
 }
 
 func Test_checkReviewPrecondition_Matrix(t *testing.T) {

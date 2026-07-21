@@ -651,6 +651,12 @@ var encapsulationAllowlistData = map[string][]string{
 		// Returns both published surfaces (catalog + generated interface) over the shared
 		// *fwgithub.AppClient satellite, folding the catalog type-assertion into the package.
 		"NewGitHubSourceControl",
+		// LOCAL-GIT VARIANT (F-R3 local design PR rail): the GitLocal realisation of the
+		// SourceControlAccess contract + its pure project→RepoRef resolver the composition-root
+		// Repo resolvers use. Same GitLocal-variant category as projectstate's
+		// NewGitLocalDesignSessionAccess.
+		"NewGitLocalSourceControlAccess",
+		"GitLocalRepoRefForProject",
 		"BranchRefIsZero",
 		"BranchRefString",
 		"CheckStateString",

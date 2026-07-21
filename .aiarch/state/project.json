@@ -8013,6 +8013,10 @@
               "provides": [],
               "settings": [],
               "perProfile": {
+                "local": {
+                  "variant": "GitLocal",
+                  "infra": []
+                },
                 "cloud": {
                   "variant": "GitHub",
                   "infra": [
