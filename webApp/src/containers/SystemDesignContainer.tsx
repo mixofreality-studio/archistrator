@@ -11,13 +11,13 @@
  * `SystemDesignBody`, which mixed this orchestration directly into the render
  * tree. The route file is now just `CommentProvider → SystemDesignContainer`.
  */
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 
 import { ApiError } from '../contracts/errors';
 import type { ArtifactKind, ProjectState, ResearchInput, ReviewDecision } from '../contracts/types';
 import { slotStageFromOrdinal } from '../contracts/adapters';
-import { PHASE1_ORDER, METHOD_METADATA } from '../contracts/methodMetadata';
+import { PHASE1_ORDER, METHOD_METADATA, slugForKind } from '../contracts/methodMetadata';
 
 import { useProject } from '../hooks/useProject';
 import { useSessionState } from '../hooks/useSessionState';
@@ -69,7 +69,14 @@ function buildSpine(project: ProjectState | undefined): SpineStep[] {
   });
 }
 
-export function SystemDesignContainer({ projectId }: { projectId: string }): ReactNode {
+export function SystemDesignContainer({
+  projectId,
+  stepSlug,
+}: {
+  projectId: string;
+  /** The optional {-$stepSlug} path segment — the deep-linked active step. */
+  stepSlug?: string | undefined;
+}): ReactNode {
   const navigate = useNavigate();
   const {
     comments,
@@ -87,27 +94,36 @@ export function SystemDesignContainer({ projectId }: { projectId: string }): Rea
   const { data: project, isLoading: projectLoading } = useProject(projectId);
   const spine = useMemo(() => buildSpine(project), [project]);
 
-  // Default active step: first non-committed, else last.
+  // The active step is URL-derived: the {-$stepSlug} path segment is the source
+  // of truth, so a deep link + reload land on the same step. An absent slug (the
+  // bare /design/system URL) or an unknown one falls back to the default — first
+  // non-committed, else last — and the effect below normalizes the URL to the
+  // resolved step's canonical slug. This replaces the old useState + one-shot
+  // "snap" (F-GTD-14): the URL now carries the step, so there is no window where
+  // the initializer runs before project load and pins the wrong step.
   const firstOpen = spine.findIndex((s) => !s.committed);
-  const [activeIndex, setActiveIndex] = useState(firstOpen < 0 ? spine.length - 1 : firstOpen);
-  const safeIndex = Math.min(activeIndex, PHASE1_KINDS.length - 1);
+  const defaultIndex = firstOpen < 0 ? spine.length - 1 : firstOpen;
+  const slugIndex =
+    stepSlug !== undefined ? PHASE1_KINDS.findIndex((k) => slugForKind(k) === stepSlug) : -1;
+  const safeIndex = Math.min(
+    Math.max(slugIndex >= 0 ? slugIndex : defaultIndex, 0),
+    PHASE1_KINDS.length - 1
+  );
   const activeKind: ArtifactKind = PHASE1_KINDS[safeIndex] ?? 'mission';
+  const canonicalSlug = slugForKind(activeKind);
 
-  // F-GTD-14: the useState initializer above runs BEFORE the project query
-  // resolves (empty spine → firstOpen = 0), so the experience always opened at
-  // Mission regardless of progress — and every later pip read as locked until
-  // the data arrived, silently swallowing clicks. Snap to the real first-open
-  // step exactly once, when the project first loads, unless the founder has
-  // already navigated somewhere on their own.
-  const userNavigatedRef = useRef(false);
-  const snappedRef = useRef(false);
+  // Normalize: on the bare URL (no slug) or an unknown slug, rewrite it to carry
+  // the resolved step's canonical slug — but REPLACE, not push, so the back
+  // button isn't polluted, and only once the project has loaded (the default
+  // step depends on committed state). A slug that already matches is a no-op.
   useEffect(() => {
-    if (snappedRef.current || project === undefined) return;
-    snappedRef.current = true;
-    if (!userNavigatedRef.current) {
-      setActiveIndex(firstOpen < 0 ? spine.length - 1 : firstOpen);
-    }
-  }, [project, firstOpen, spine.length]);
+    if (project === undefined || stepSlug === canonicalSlug) return;
+    void navigate({
+      to: '/project/$projectId/design/system/{-$stepSlug}',
+      params: { projectId, stepSlug: canonicalSlug },
+      replace: true,
+    });
+  }, [project, stepSlug, canonicalSlug, projectId, navigate]);
 
   // Disarm any pending anchor when the active artifact changes, so an anchor
   // armed on one step never bleeds onto the next (it would attach a comment to a
@@ -161,10 +177,15 @@ export function SystemDesignContainer({ projectId }: { projectId: string }): Rea
 
   const selectStep = (i: number): void => {
     // Clear any held gate error so a prior step's failed decision never bleeds
-    // onto the next step's gate (F79).
+    // onto the next step's gate (F79), then PUSH the target step's slug — the URL
+    // is the source of truth, so the re-render picks up the new active step.
     setGateError(undefined);
-    userNavigatedRef.current = true;
-    setActiveIndex(i);
+    const clamped = Math.min(Math.max(i, 0), PHASE1_KINDS.length - 1);
+    const kind = PHASE1_KINDS[clamped] ?? 'mission';
+    void navigate({
+      to: '/project/$projectId/design/system/{-$stepSlug}',
+      params: { projectId, stepSlug: slugForKind(kind) },
+    });
   };
 
   // Unifies "begin the first session" and "request a[nother] draft": the pure
@@ -248,9 +269,13 @@ export function SystemDesignContainer({ projectId }: { projectId: string }): Rea
         onSuccess: () => {
           reset();
           if (decision === 'approve') {
-            // Auto-advance to the next non-committed step.
+            // Auto-advance to the next step by pushing its slug (URL is truth).
             const next = Math.min(safeIndex + 1, PHASE1_KINDS.length - 1);
-            setActiveIndex(next);
+            const nextKind = PHASE1_KINDS[next] ?? 'mission';
+            void navigate({
+              to: '/project/$projectId/design/system/{-$stepSlug}',
+              params: { projectId, stepSlug: slugForKind(nextKind) },
+            });
           }
         },
         onError: (err) => {
@@ -317,6 +342,7 @@ export function SystemDesignContainer({ projectId }: { projectId: string }): Rea
   const chat = chatOpen ? (
     <ChatRail
       askPending={askQuestionsMut.isPending}
+      committed={spine[safeIndex]?.committed === true}
       statusPending={setCommentStatus.isPending}
       thread={reviewThread}
       onAsk={askQuestions}

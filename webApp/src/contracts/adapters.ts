@@ -149,7 +149,8 @@ export type SlotStage = 'empty' | 'awaitingReview' | 'committed' | 'rejected' | 
 export interface ArtifactMeta {
   kind: ArtifactKindFull;
   title: string;
-  file: string;
+  /** git-as-DB head-state address (project.json slot) — no file is emitted. */
+  stateAddress: string;
   blurb: string;
   hasPmCritic: boolean;
   stage: SlotStage;
@@ -187,7 +188,7 @@ function toArtifactMeta(slot: ArtifactSlotView): ArtifactMeta {
   return {
     kind: slot.kind,
     title: meta.title,
-    file: meta.file,
+    stateAddress: meta.stateAddress,
     blurb: meta.blurb,
     hasPmCritic: meta.hasPmCritic,
     stage: slotStageFromOrdinal(slot.stage),

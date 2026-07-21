@@ -33,6 +33,7 @@ import Typography from '@mui/material/Typography';
 import Chip from '@mui/material/Chip';
 import Button from '@mui/material/Button';
 import Alert from '@mui/material/Alert';
+import Tooltip from '@mui/material/Tooltip';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 
@@ -274,7 +275,7 @@ export function SystemDesignView({
               ) : null}
             </Box>
             <Typography sx={{ fontFamily: t.mono, fontSize: 12, color: t.muted, mt: 0.5 }}>
-              {meta.file} · step {safeIndex + 1} of {spine.length}
+              {meta.stateAddress} · step {safeIndex + 1} of {spine.length}
             </Typography>
             {/* PM-P1-3: a compact caveat (not a full-width banner) when the Standard
                 Check renders over drifted upstream artifacts. */}
@@ -296,19 +297,23 @@ export function SystemDesignView({
             ) : null}
           </Box>
           <Box sx={{ flexGrow: 1 }} />
-          <Chip
-            label="architect"
-            size="small"
-            sx={{ bgcolor: t.chatArchitectBg, color: t.chatArchitectFg }}
-            variant="outlined"
-          />
-          {meta.hasPmCritic ? (
+          <Tooltip title="drafts: architect Worker">
             <Chip
-              label="pm"
+              label="architect"
               size="small"
-              sx={{ bgcolor: t.chatPmBg, color: t.chatPmFg }}
+              sx={{ bgcolor: t.chatArchitectBg, color: t.chatArchitectFg }}
               variant="outlined"
             />
+          </Tooltip>
+          {meta.hasPmCritic ? (
+            <Tooltip title="critiques & ratifies: PM Worker">
+              <Chip
+                label="pm"
+                size="small"
+                sx={{ bgcolor: t.chatPmBg, color: t.chatPmFg }}
+                variant="outlined"
+              />
+            </Tooltip>
           ) : null}
         </Box>
 

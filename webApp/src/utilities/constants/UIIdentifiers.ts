@@ -251,10 +251,10 @@ export const UI_IDENTIFIERS = {
     // Invisible probe reflecting the currently-armed anchor (data-anchor-* attrs).
     // Static-edge + deployment-node arming (click-only) is observed through this.
     ARMED_ANCHOR: 'comment-armed-anchor',
-    // The shared CommentableList primitive (role=listbox) that makes any itemized
+    // The shared CommentableList primitive (role=list) that makes any itemized
     // artifact keyboard-navigable and item-granular-commentable.
     LIST: 'comment-list',
-    // A CommentableList row (role=option), keyed by the caller-supplied item key.
+    // A CommentableList row (role=listitem), keyed by the caller-supplied item key.
     listItem: (key: string) => `comment-list-item-${key}`,
     // The per-row "Comment on this item" button inside a CommentableList row.
     listItemComment: (key: string) => `comment-list-item-button-${key}`,

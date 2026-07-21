@@ -7,18 +7,28 @@
  * inert `<Box>`s. It gives each item, for free:
  *
  *   • a real ARIA listbox/option structure (screen readers announce "list, N
- *     items" and each row as a selectable option),
+ *     items" and each row by its own short label — NOT a selection widget:
+ *     nothing here is selectable),
  *   • roving-tabindex keyboard navigation — ↑/↓ move focus, Home/End jump, the
- *     focused row is `aria-selected` and is the single tab-stop,
+ *     focused row is the single tab-stop and shows a border on focus — whether
+ *     that focus arrived by pointer click OR by keyboard,
  *   • a discoverable per-row "Comment on this item" button (the founder-liked
- *     UseCaseCarousel affordance), visible on row hover/focus, that arms an
+ *     UseCaseCarousel affordance), hidden at rest and revealed at full contrast on
+ *     row hover / keyboard focus-within — or kept persistently visible when the row
+ *     is the armed anchor or already carries a pending comment — that arms an
  *     item-granularity anchor in the CommentContext,
  *   • the same action from the keyboard: Enter or `c` on the focused row arms it.
  *
- * The button carries `tabIndex={-1}` so the listbox keeps a single tab-stop
- * (WAI-ARIA listbox pattern); keyboard users reach it via Enter/`c`, mouse users
+ * The button carries `tabIndex={-1}` so the list keeps a single roving tab-stop
+ * (the focused row); keyboard users reach the button via Enter/`c`, mouse users
  * click it directly. The caller supplies `getAnchor` so each artifact kind maps
- * its item to the correct typed-model JSONPath (see CommentContext builders).
+ * its item to the correct typed-model JSONPath (see CommentContext builders); that
+ * anchor's `label` doubles as the row's short accessible name.
+ *
+ * NOTE: "already carries a pending comment" means an entry accumulated THIS review
+ * cycle (CommentContext.comments) whose anchor jsonPath matches the row. Committed
+ * thread comments are not plumbed to this layer, so a previously-sent-and-persisted
+ * comment does not (yet) light the row indicator.
  */
 import { useCallback, useRef, useState, type ReactNode } from 'react';
 import Box from '@mui/material/Box';
@@ -60,7 +70,7 @@ export function CommentableList<T>({
   gap?: number;
 }): ReactNode {
   const t = useTokens();
-  const { setAnchor, enabled } = useComments();
+  const { setAnchor, enabled, anchor: armedAnchor, comments } = useComments();
   const [focused, setFocused] = useState(0);
   const rowRefs = useRef<(HTMLDivElement | null)[]>([]);
 
@@ -129,7 +139,7 @@ export function CommentableList<T>({
     <Box
       aria-label={ariaLabel}
       data-testid={UI_IDENTIFIERS.Comments.LIST}
-      role="listbox"
+      role="list"
       sx={{ display: 'flex', flexDirection: 'column', gap, outline: 'none' }}
     >
       {items.map((item, index) => {
@@ -137,6 +147,14 @@ export function CommentableList<T>({
         const isFocused = index === focused;
         const value = getLabel?.(item, index) ?? `item ${String(index + 1)}`;
         const kind = getLabelKind?.(item, index);
+        // The anchor carries this row's stable jsonPath + its short `label`. We use
+        // the label as the row's accessible name and the jsonPath to detect whether
+        // this row is the armed anchor or already carries a pending (this-cycle)
+        // comment — both of which keep the comment button visible at rest.
+        const rowAnchor = getAnchor(item, index);
+        const isArmed = armedAnchor?.jsonPath === rowAnchor.jsonPath;
+        const hasComments = comments.some((c) => c.anchor?.jsonPath === rowAnchor.jsonPath);
+        const revealed = isArmed || hasComments;
         // 'Comment on Other Party (term)' — noun trails the value so the phrase stays
         // grammatical regardless of the item kind (P3-14).
         const commentLabel =
@@ -145,13 +163,13 @@ export function CommentableList<T>({
             : `Comment on ${value}`;
         return (
           <Box
-            aria-selected={isFocused}
+            aria-label={rowAnchor.label}
             data-testid={UI_IDENTIFIERS.Comments.listItem(key)}
             key={key}
             ref={(el: HTMLDivElement | null) => {
               rowRefs.current[index] = el;
             }}
-            role="option"
+            role="listitem"
             sx={{
               display: 'flex',
               alignItems: 'flex-start',
@@ -160,22 +178,45 @@ export function CommentableList<T>({
               py: 0.75,
               borderRadius: 1,
               cursor: 'default',
-              // The comment button carries a FAINT persistent presence (so it is
-              // discoverable without hovering — no hover-only affordance), then rises
-              // to full on row hover / keyboard focus.
-              '& .commentable-row-action': { opacity: 0.4, transition: 'opacity 120ms' },
-              '&:hover .commentable-row-action, &:focus-visible .commentable-row-action': {
+              // Comment button: hidden at rest (opacity 0 — but kept in layout, in the
+              // tab order and in the a11y tree; NO display:none / visibility:hidden),
+              // revealed at FULL contrast on row hover or keyboard focus-within. Kept
+              // persistently visible (revealed) when the row is the armed anchor or
+              // already carries a pending comment.
+              '& .commentable-row-action': {
+                opacity: revealed ? 1 : 0,
+                transition: 'opacity 120ms',
+              },
+              '&:hover .commentable-row-action, &:focus-within .commentable-row-action': {
                 opacity: 1,
               },
-              '&:focus-visible': {
-                outline: `2px solid ${t.accent}`,
-                outlineOffset: 1,
-                bgcolor: t.paperAlt,
+              // Touch / no-hover pointers can't reveal-on-hover — always show it there.
+              '@media (hover: none)': {
                 '& .commentable-row-action': { opacity: 1 },
               },
               '&:hover': { bgcolor: t.paperAlt },
+              // Focused-row border driven by DOM :focus (so a POINTER click shows it
+              // immediately, not only keyboard nav) and by the armed anchor (the active
+              // row stays outlined while its comment is being composed).
+              ...(isArmed
+                ? { outline: `2px solid ${t.accent}`, outlineOffset: 1, bgcolor: t.paperAlt }
+                : {}),
+              '&:focus': {
+                outline: `2px solid ${t.accent}`,
+                outlineOffset: 1,
+                bgcolor: t.paperAlt,
+              },
             }}
             tabIndex={isFocused ? 0 : -1}
+            onClick={(e) => {
+              // Pointer clicks sync the roving-focus index AND move DOM focus to the
+              // row, so the focused-row border shows immediately and keyboard nav
+              // continues from here. Skip the focus move when the click landed on the
+              // comment button — it owns focus while it arms the anchor.
+              if (!(e.target as HTMLElement).closest('.commentable-row-action')) {
+                moveTo(index);
+              }
+            }}
             onFocus={() => {
               setFocused(index);
             }}

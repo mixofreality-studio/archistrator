@@ -59,13 +59,13 @@ const FALLBACK_PHASE: PhaseCardView = {
 
 /** The experience route per phase: design experiences for 1–2, the console for 3. */
 type PhaseRoute =
-  | '/project/$projectId/design/system'
-  | '/project/$projectId/design/project'
+  | '/project/$projectId/design/system/{-$stepSlug}'
+  | '/project/$projectId/design/project/{-$stepSlug}'
   | '/project/$projectId/construction';
 
 const PHASE_DESIGN_ROUTE: Record<PhaseId, PhaseRoute | null> = {
-  systemDesign: '/project/$projectId/design/system',
-  projectDesign: '/project/$projectId/design/project',
+  systemDesign: '/project/$projectId/design/system/{-$stepSlug}',
+  projectDesign: '/project/$projectId/design/project/{-$stepSlug}',
   construction: '/project/$projectId/construction',
 };
 
@@ -370,7 +370,7 @@ function HomeBaseBody({
                 <StageChip stage={selected.stage} />
                 <Box sx={{ flexGrow: 1 }} />
                 <Typography sx={{ fontFamily: t.mono, fontSize: 12, color: t.muted }}>
-                  {selected.file}
+                  {selected.stateAddress}
                 </Typography>
               </Box>
               {selected.stage === 'awaitingReview' && designRoute !== null && (

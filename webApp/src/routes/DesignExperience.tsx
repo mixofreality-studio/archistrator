@@ -20,15 +20,17 @@ import { SystemDesignContainer } from '../containers/SystemDesignContainer';
 
 export { ProjectDesignScreen } from './ProjectDesignExperience';
 
-const systemRouteApi = getRouteApi('/project/$projectId/design/system');
+const systemRouteApi = getRouteApi('/project/$projectId/design/system/{-$stepSlug}');
 
 // ── System Design (Phase-1) ─────────────────────────────────────────────────
 
 export function SystemDesignScreen(): ReactNode {
-  const { projectId } = systemRouteApi.useParams();
+  // stepSlug is the OPTIONAL deep-link path segment (undefined at the bare
+  // /design/system URL); the container derives its default step and normalizes.
+  const { projectId, stepSlug } = systemRouteApi.useParams();
   return (
     <CommentProvider>
-      <SystemDesignContainer projectId={projectId} />
+      <SystemDesignContainer projectId={projectId} stepSlug={stepSlug} />
     </CommentProvider>
   );
 }

@@ -25,13 +25,14 @@ import Typography from '@mui/material/Typography';
 import Chip from '@mui/material/Chip';
 import Button from '@mui/material/Button';
 import Alert from '@mui/material/Alert';
+import Tooltip from '@mui/material/Tooltip';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import RocketLaunchIcon from '@mui/icons-material/RocketLaunch';
 import { getRouteApi, useNavigate } from '@tanstack/react-router';
 
 import { ApiError } from '../contracts/errors';
 import { PHASE2_ORDER } from '../contracts/methodMetadata';
-import { METHOD_METADATA } from '../contracts/methodMetadata';
+import { METHOD_METADATA, slugForKind } from '../contracts/methodMetadata';
 import { slotStageFromOrdinal } from '../contracts/adapters';
 import type {
   ProjectArtifactKind,
@@ -75,7 +76,7 @@ import { useTokens } from '../utilities/theme/ThemeContext';
 import type { Tokens } from '../utilities/theme/themes';
 import { UI_IDENTIFIERS } from '../utilities/constants/UIIdentifiers';
 
-const projectRouteApi = getRouteApi('/project/$projectId/design/project');
+const projectRouteApi = getRouteApi('/project/$projectId/design/project/{-$stepSlug}');
 
 const PHASE2_KINDS = PHASE2_ORDER as readonly ProjectArtifactKind[];
 
@@ -124,15 +125,24 @@ function committedPlanningAssumptionsEnvelope(
 }
 
 export function ProjectDesignScreen(): ReactNode {
-  const { projectId } = projectRouteApi.useParams();
+  // stepSlug is the OPTIONAL deep-link path segment (undefined at the bare
+  // /design/project URL); the body derives its default step and normalizes.
+  const { projectId, stepSlug } = projectRouteApi.useParams();
   return (
     <CommentProvider>
-      <ProjectDesignBody projectId={projectId} />
+      <ProjectDesignBody projectId={projectId} stepSlug={stepSlug} />
     </CommentProvider>
   );
 }
 
-function ProjectDesignBody({ projectId }: { projectId: string }): ReactNode {
+function ProjectDesignBody({
+  projectId,
+  stepSlug,
+}: {
+  projectId: string;
+  /** The optional {-$stepSlug} path segment — the deep-linked active step. */
+  stepSlug?: string | undefined;
+}): ReactNode {
   const navigate = useNavigate();
   const t = useTokens();
   const { comments, reset, toWire, freeformNotes, requestId, setAnchor, setActiveKey } =
@@ -146,11 +156,33 @@ function ProjectDesignBody({ projectId }: { projectId: string }): ReactNode {
     [project]
   );
 
+  // The active step is URL-derived (the {-$stepSlug} path segment), mirroring the
+  // System Design experience: a deep link + reload land on the same step; an
+  // absent/unknown slug falls back to the default (first non-committed, else
+  // last) and the effect below normalizes the URL to the canonical slug.
   const firstOpen = spine.findIndex((s) => !s.committed);
-  const [activeIndex, setActiveIndex] = useState(firstOpen < 0 ? spine.length - 1 : firstOpen);
-  const safeIndex = Math.min(activeIndex, PHASE2_KINDS.length - 1);
+  const defaultIndex = firstOpen < 0 ? spine.length - 1 : firstOpen;
+  const slugIndex =
+    stepSlug !== undefined ? PHASE2_KINDS.findIndex((k) => slugForKind(k) === stepSlug) : -1;
+  const safeIndex = Math.min(
+    Math.max(slugIndex >= 0 ? slugIndex : defaultIndex, 0),
+    PHASE2_KINDS.length - 1
+  );
   const activeKind: ProjectArtifactKind = PHASE2_KINDS[safeIndex] ?? 'planningAssumptions';
+  const canonicalSlug = slugForKind(activeKind);
   const isSdpStep = activeKind === 'sdpReview';
+
+  // Normalize the URL to the resolved step's canonical slug (replace, not push;
+  // only once the project has loaded — the default step depends on committed
+  // state). A slug that already matches is a no-op.
+  useEffect(() => {
+    if (project === undefined || stepSlug === canonicalSlug) return;
+    void navigate({
+      to: '/project/$projectId/design/project/{-$stepSlug}',
+      params: { projectId, stepSlug: canonicalSlug },
+      replace: true,
+    });
+  }, [project, stepSlug, canonicalSlug, projectId, navigate]);
 
   // Disarm any pending anchor when the active artifact changes, so an anchor
   // armed on one step never bleeds onto the next (it would attach a comment to a
@@ -221,9 +253,15 @@ function ProjectDesignBody({ projectId }: { projectId: string }): ReactNode {
 
   const selectStep = (i: number): void => {
     // Clear any held gate error so a prior step's failed decision never bleeds
-    // onto the next step's gate (F79).
+    // onto the next step's gate (F79), then PUSH the target step's slug — the URL
+    // is the source of truth, so the re-render picks up the new active step.
     setGateError(undefined);
-    setActiveIndex(i);
+    const clamped = Math.min(Math.max(i, 0), PHASE2_KINDS.length - 1);
+    const kind = PHASE2_KINDS[clamped] ?? 'planningAssumptions';
+    void navigate({
+      to: '/project/$projectId/design/project/{-$stepSlug}',
+      params: { projectId, stepSlug: slugForKind(kind) },
+    });
   };
 
   const beginDraft = (): void => {
@@ -281,7 +319,12 @@ function ProjectDesignBody({ projectId }: { projectId: string }): ReactNode {
       {
         onSuccess: () => {
           reset();
-          setActiveIndex(Math.min(safeIndex + 1, PHASE2_KINDS.length - 1));
+          const next = Math.min(safeIndex + 1, PHASE2_KINDS.length - 1);
+          const nextKind = PHASE2_KINDS[next] ?? 'planningAssumptions';
+          void navigate({
+            to: '/project/$projectId/design/project/{-$stepSlug}',
+            params: { projectId, stepSlug: slugForKind(nextKind) },
+          });
         },
         onError: (err) => {
           // Precise message for a definite refusal, cause-neutral copy for an
@@ -381,6 +424,7 @@ function ProjectDesignBody({ projectId }: { projectId: string }): ReactNode {
       chat={
         chatOpen ? (
           <ChatRail
+            committed={committed}
             statusPending={setCommentStatus.isPending}
             thread={reviewThread}
             onCollapse={() => {
@@ -433,16 +477,18 @@ function ProjectDesignBody({ projectId }: { projectId: string }): ReactNode {
               ) : null}
             </Box>
             <Typography sx={{ fontFamily: t.mono, fontSize: 12, color: t.muted, mt: 0.5 }}>
-              {meta.file} · step {safeIndex + 1} of {PHASE2_KINDS.length}
+              {meta.stateAddress} · step {safeIndex + 1} of {PHASE2_KINDS.length}
             </Typography>
           </Box>
           <Box sx={{ flexGrow: 1 }} />
-          <Chip
-            label="architect"
-            size="small"
-            sx={{ bgcolor: t.chatArchitectBg, color: t.chatArchitectFg }}
-            variant="outlined"
-          />
+          <Tooltip title="drafts: architect Worker">
+            <Chip
+              label="architect"
+              size="small"
+              sx={{ bgcolor: t.chatArchitectBg, color: t.chatArchitectFg }}
+              variant="outlined"
+            />
+          </Tooltip>
         </Box>
 
         <ProjectStepBody

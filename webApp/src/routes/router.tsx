@@ -5,10 +5,15 @@
  * server contract:
  *
  *   /                                  → ProjectsLanding (catalog / create)
- *   /project/$projectId/home           → HomeBase (wraps itself in the AppShell)
- *   /project/$projectId/design/system  → SystemDesignScreen (phase 1, full-screen)
- *   /project/$projectId/design/project → ProjectDesignScreen (phase 2, full-screen)
- *   /project/$projectId/construction   → ConstructionConsoleScreen (phase 3, full-screen)
+ *   /project/$projectId/home                      → HomeBase (wraps itself in the AppShell)
+ *   /project/$projectId/design/system/{-$stepSlug}  → SystemDesignScreen (phase 1, full-screen)
+ *   /project/$projectId/design/project/{-$stepSlug} → ProjectDesignScreen (phase 2, full-screen)
+ *   /project/$projectId/construction              → ConstructionConsoleScreen (phase 3, full-screen)
+ *
+ * The design experiences carry an OPTIONAL step slug as the last path segment
+ * ({-$stepSlug}, kebab-case of the step title — see slugForKind) so a step is
+ * deep-linkable and survives reload; absent, the experience normalizes the URL
+ * to its derived default step.
  *
  * Each route component is a self-contained screen export (no local component
  * definitions here) so fast-refresh stays happy alongside the `router` export.
@@ -40,13 +45,13 @@ const homeRoute = createRoute({
 
 const systemDesignRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: '/project/$projectId/design/system',
+  path: '/project/$projectId/design/system/{-$stepSlug}',
   component: SystemDesignScreen,
 });
 
 const projectDesignRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: '/project/$projectId/design/project',
+  path: '/project/$projectId/design/project/{-$stepSlug}',
   component: ProjectDesignScreen,
 });
 

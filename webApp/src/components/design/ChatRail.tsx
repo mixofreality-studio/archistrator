@@ -120,6 +120,7 @@ export function ChatRail({
   thread = [],
   statusPending = false,
   askPending = false,
+  committed = false,
   onWaive,
   onReopen,
   onAsk,
@@ -127,6 +128,13 @@ export function ChatRail({
   onCollapse: () => void;
   /** The durable server review-ledger thread for the active slot. */
   thread?: readonly ReviewCommentView[];
+  /**
+   * The active slot is COMMITTED, so pending notes ride the next Amend (folded
+   * into the CommittedArtifactPanel amend dialog), not a gate "Send back". Flips
+   * the empty-state helper + composer placeholder to amend-truthful copy; the
+   * draft-stage copy is the default (false).
+   */
+  committed?: boolean;
   /** A waive/reopen mutation is in flight — disable the per-entry actions. */
   statusPending?: boolean;
   /** An AskQuestions mutation is in flight — disable the Ask action. */
@@ -198,12 +206,14 @@ export function ChatRail({
         >
           CO-AUTHOR
         </Typography>
-        <Chip
-          label="architect"
-          size="small"
-          sx={{ height: 20, bgcolor: t.chatArchitectBg, color: t.chatArchitectFg }}
-          variant="outlined"
-        />
+        <Tooltip title="drafts: architect Worker">
+          <Chip
+            label="architect"
+            size="small"
+            sx={{ height: 20, bgcolor: t.chatArchitectBg, color: t.chatArchitectFg }}
+            variant="outlined"
+          />
+        </Tooltip>
         <Box sx={{ flexGrow: 1 }} />
         <IconButton
           aria-label="collapse chat"
@@ -267,9 +277,9 @@ export function ChatRail({
                 lineHeight: 1.6,
               }}
             >
-              Type feedback to send back for a redraft — or click the comment button on any item (or
-              a diagram node) to anchor it to that spot first. Everything here rides the next “Send
-              back”.
+              {committed
+                ? 'Type feedback to fold into your next amendment — or click the comment button on any item (or a diagram node) to anchor it to that spot first. Everything here rides your next Amend.'
+                : 'Type feedback to send back for a redraft — or click the comment button on any item (or a diagram node) to anchor it to that spot first. Everything here rides the next “Send back”.'}
             </Typography>
           ) : null
         ) : (
@@ -440,7 +450,9 @@ export function ChatRail({
                 ? 'Ask a question…'
                 : anchor !== null
                   ? 'Add your comment…'
-                  : 'Type feedback for a redraft…'
+                  : committed
+                    ? 'Type feedback for an amendment…'
+                    : 'Type feedback for a redraft…'
             }
             sx={{ flexGrow: 1, fontSize: 13.5, py: 1, color: t.ink }}
             value={draft}
