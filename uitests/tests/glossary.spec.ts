@@ -55,9 +55,30 @@ const ITEMS: StubGlossaryItem[] = [
   { term: 'Fizzbin', definition: 'A stray note nobody ever bucketed.', category: '' },
 ];
 
+/**
+ * Four "Who" terms in ONE section plus one "What" term. The four Who terms let a
+ * spec focus a HIGH in-section index (row 3) and then narrow that still-mounted
+ * "Who" section below it: only "Delta Zulu" carries the token "zzq", so a "zzq"
+ * query shrinks Who 4→1 (same `key="Who"` section stays mounted) while the "What"
+ * section drops out entirely — the G-U-1 roving-tabindex clamp regression fixture.
+ * Terms are pre-alphabetized so a term's in-section position equals its original
+ * index (Alpha-0 … Delta Zulu-3), keeping the row test ids obvious.
+ */
+const ROVING_ITEMS: StubGlossaryItem[] = [
+  { term: 'Alpha Term', definition: 'first who entry', category: 'Who' },
+  { term: 'Bravo Term', definition: 'second who entry', category: 'Who' },
+  { term: 'Charlie Term', definition: 'third who entry', category: 'Who' },
+  {
+    term: 'Delta Zulu',
+    definition: 'fourth who entry, the only one carrying zzq',
+    category: 'Who',
+  },
+  { term: 'Echo Term', definition: 'a lone what entry', category: 'What' },
+];
+
 /** Stub the committed glossary, open the design experience, select its step. */
-async function openCommittedGlossary(page: Page): Promise<void> {
-  const projectId = await stubCommittedGlossary(page, ITEMS);
+async function openCommittedGlossary(page: Page, items: StubGlossaryItem[] = ITEMS): Promise<void> {
+  const projectId = await stubCommittedGlossary(page, items);
   await page.goto(`/project/${projectId}/design/system`);
   await expect(page.getByTestId(TESTID.designExperience)).toBeVisible();
 
@@ -144,5 +165,40 @@ test.describe('glossary reference widget (stubbed committed artifact — hermeti
         page.getByTestId(TESTID.commentListItemButton(`${item.term}-${String(index)}`)),
       ).toBeVisible();
     }
+  });
+
+  // G-U-1 regression: the CommentableList roving-tabindex focus index must be
+  // clamped when a live filter shrinks a STILL-MOUNTED section past the focused
+  // row. Keyboard into row 3 of the four-item "Who" section, then narrow it to a
+  // single row: the stale focus index (3) no longer matches any row, so pre-fix
+  // EVERY row fell to tabIndex=-1 and the section lost its only Tab stop. The
+  // surviving row must keep tabindex="0" — this assertion fails against old code.
+  test('roving tab-stop survives a filter that shrinks a still-mounted section past the focused row', async ({
+    page,
+  }) => {
+    await openCommittedGlossary(page, ROVING_ITEMS);
+
+    // Enter the "Who" section by keyboard and rove down to its 4th row (index 3).
+    const first = page.getByTestId(TESTID.commentListItem('Alpha Term-0'));
+    await first.focus();
+    await expect(first).toHaveAttribute('tabindex', '0');
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('ArrowDown');
+    const fourth = page.getByTestId(TESTID.commentListItem('Delta Zulu-3'));
+    await expect(fourth).toBeFocused();
+    await expect(fourth).toHaveAttribute('tabindex', '0');
+
+    // Narrow "Who" from 4 rows to 1 while it stays mounted (key="Who"): only
+    // "Delta Zulu" carries "zzq", so the focused index (3) now points past the end.
+    await page.getByTestId(TESTID.glossarySearch).fill('zzq');
+    await expect(page.getByTestId(TESTID.commentListItem('Alpha Term-0'))).toHaveCount(0);
+    await expect(page.getByTestId(TESTID.commentListItem('Echo Term-4'))).toHaveCount(0);
+
+    // The section still owns a single roving Tab stop: the surviving row is
+    // tabIndex=0 (pre-fix it would be tabIndex=-1 and the section unreachable).
+    const survivor = page.getByTestId(TESTID.commentListItem('Delta Zulu-3'));
+    await expect(survivor).toBeVisible();
+    await expect(survivor).toHaveAttribute('tabindex', '0');
   });
 });

@@ -6,7 +6,7 @@
  * solution knobs, …) renders through this instead of an ad-hoc `.map()` over
  * inert `<Box>`s. It gives each item, for free:
  *
- *   • a real ARIA listbox/option structure (screen readers announce "list, N
+ *   • a real ARIA list/listitem structure (screen readers announce "list, N
  *     items" and each row by its own short label — NOT a selection widget:
  *     nothing here is selectable),
  *   • roving-tabindex keyboard navigation — ↑/↓ move focus, Home/End jump, the
@@ -74,11 +74,16 @@ export function CommentableList<T>({
   const [focused, setFocused] = useState(0);
   const rowRefs = useRef<(HTMLDivElement | null)[]>([]);
 
-  const moveTo = useCallback((index: number): void => {
-    const clamped = Math.max(0, Math.min(index, rowRefs.current.length - 1));
-    setFocused(clamped);
-    rowRefs.current[clamped]?.focus();
-  }, []);
+  const moveTo = useCallback(
+    (index: number): void => {
+      // Clamp against the live item count, not `rowRefs.current.length`: the ref
+      // array is nulled-but-not-truncated when rows unmount, so its length is stale.
+      const clamped = Math.max(0, Math.min(index, items.length - 1));
+      setFocused(clamped);
+      rowRefs.current[clamped]?.focus();
+    },
+    [items.length]
+  );
 
   const arm = useCallback(
     (item: T, index: number): void => {
@@ -120,7 +125,7 @@ export function CommentableList<T>({
   );
 
   // Read-only surface (no active commenting context): render the item bodies as a
-  // plain, inert column — NO listbox/option roles, NO roving tabindex or tab stops,
+  // plain, inert column — NO list/listitem roles, NO roving tabindex or tab stops,
   // NO per-row comment button, NO hover chrome. Zero comment affordance, zero
   // orphaned ARIA, zero focusable ghosts.
   if (!enabled) {
@@ -135,6 +140,17 @@ export function CommentableList<T>({
     );
   }
 
+  // The effective (in-range) roving-focus index for THIS render. `focused` state can
+  // dangle past the end when `items` shrinks while the component stays mounted (e.g.
+  // a live filter narrows a still-mounted section) — an unclamped index would then
+  // match NO row, dropping every row to tabIndex=-1 and leaving the section with no
+  // keyboard tab-stop (unreachable by Tab). Clamping here guarantees exactly one row
+  // keeps the tabIndex=0 stop every frame (and none when the list is empty). The
+  // Arrow/Home/End/onFocus/onClick handlers key off each row's live `index` (and
+  // `moveTo` clamps to `items.length`), so the persisted `focused` self-corrects on
+  // the next interaction; `safeFocused` is its only render-time reader.
+  const safeFocused = items.length === 0 ? -1 : Math.min(focused, items.length - 1);
+
   return (
     <Box
       aria-label={ariaLabel}
@@ -144,7 +160,7 @@ export function CommentableList<T>({
     >
       {items.map((item, index) => {
         const key = getKey(item, index);
-        const isFocused = index === focused;
+        const isFocused = index === safeFocused;
         const value = getLabel?.(item, index) ?? `item ${String(index + 1)}`;
         const kind = getLabelKind?.(item, index);
         // The anchor carries this row's stable jsonPath + its short `label`. We use
@@ -163,6 +179,7 @@ export function CommentableList<T>({
             : `Comment on ${value}`;
         return (
           <Box
+            aria-keyshortcuts="Enter c"
             aria-label={rowAnchor.label}
             data-testid={UI_IDENTIFIERS.Comments.listItem(key)}
             key={key}
@@ -225,7 +242,7 @@ export function CommentableList<T>({
             }}
           >
             <Box sx={{ flexGrow: 1, minWidth: 0 }}>{renderItem(item, index)}</Box>
-            <Tooltip title="Comment on this item">
+            <Tooltip title="Comment on this item — press Enter or C">
               <IconButton
                 aria-label={commentLabel}
                 className="commentable-row-action"
