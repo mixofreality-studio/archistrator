@@ -66,6 +66,8 @@ export function CommittedArtifactPanel({
   provenance,
   amendPending,
   onAmend,
+  fill = false,
+  fillMinHeight,
   children,
 }: {
   /** Commit count; the revision suffix shows only when > 1. */
@@ -78,8 +80,24 @@ export function CommittedArtifactPanel({
   provenance?: ArtifactProvenance | undefined;
   /** An amend RequestArtifactDraft is in flight — disable the composer submit. */
   amendPending: boolean;
-  /** Fire the amendment with the composed feedback (rationale + pending notes). */
-  onAmend: (feedback: string) => void;
+  /**
+   * Grow the panel (and the artifact card slot inside it) to fill a flex-column
+   * parent, instead of the artifact card sitting at its fixed height with dead
+   * space below. Opt-in: the System Design experience sets this for a committed
+   * self-scrolling card (the glossary); the Phase-2 caller leaves it false and
+   * keeps the natural, content-sized panel.
+   */
+  fill?: boolean;
+  /** Floor for the fill panel so a short viewport scrolls the outer container
+   *  instead of collapsing the card. Only consulted when `fill` is true. */
+  fillMinHeight?: number | undefined;
+  /**
+   * Fire the amendment with the composed feedback (rationale + pending notes). `onAccepted`
+   * runs ONLY once the server has accepted the request (the mutation's onSuccess) — the
+   * composer consumes the folded pending comments there, so a FAILED amend keeps them (and
+   * the rationale) intact for a retry instead of silently dropping them.
+   */
+  onAmend: (feedback: string, onAccepted: () => void) => void;
   children: ReactNode;
 }): ReactNode {
   const t = useTokens();
@@ -107,19 +125,33 @@ export function CommittedArtifactPanel({
     if (!canSubmit || amendPending) return;
     const parts: string[] = [];
     if (rationale.trim().length > 0) parts.push(rationale.trim());
-    if (willIncludePending) parts.push(...comments.map((c) => c.text));
-    onAmend(parts.join('\n'));
-    // Pending comments folded into the amendment are consumed — clear them so
-    // they do not double-ride the next send-back on the fresh amend session.
-    if (willIncludePending) reset();
-    close();
+    const clearRail = willIncludePending;
+    if (clearRail) parts.push(...comments.map((c) => c.text));
+    onAmend(parts.join('\n'), () => {
+      // Only NOW — once the server has ACCEPTED the amend — consume the pending
+      // comments folded into it (so they do not double-ride the next send-back)
+      // and close the composer. A FAILED amend runs neither, keeping the rail and
+      // the rationale intact for a retry instead of silently dropping them.
+      if (clearRail) reset();
+      close();
+    });
   };
 
   const revisionN = revisions ?? 0;
   const provLine = provenanceSummary(provenance, revisions);
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+    <Box
+      sx={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 2,
+        // fill: this panel is the direct child of the experience's scroll column, so
+        // it owns the grow + the short-viewport floor; the header strip stays natural
+        // and the artifact card slot (below) takes the remaining height.
+        ...(fill ? { flexGrow: 1, minHeight: fillMinHeight ?? 0 } : {}),
+      }}
+    >
       <Paper
         sx={{
           display: 'flex',
@@ -165,7 +197,13 @@ export function CommittedArtifactPanel({
         </Typography>
       ) : null}
 
-      {children}
+      {fill ? (
+        <Box sx={{ flexGrow: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+          {children}
+        </Box>
+      ) : (
+        children
+      )}
 
       <Dialog fullWidth maxWidth="sm" open={open} onClose={close}>
         <DialogTitle sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 15 }}>

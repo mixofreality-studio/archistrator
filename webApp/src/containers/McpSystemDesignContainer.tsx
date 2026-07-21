@@ -275,9 +275,12 @@ export function McpSystemDesignContainer({
     setActiveIndex(i);
   };
 
-  const onRequestDraft = (feedback?: string): void => {
+  const onRequestDraft = (feedback?: string, onAccepted?: () => void): void => {
     requestDraft.mutate(
-      feedback !== undefined ? { kind: activeKind, feedback } : { kind: activeKind }
+      feedback !== undefined ? { kind: activeKind, feedback } : { kind: activeKind },
+      // onAccepted (the amend composer's success hook) fires only when the server
+      // accepts — so the composer clears its folded rail comments solely on success.
+      onAccepted !== undefined ? { onSuccess: onAccepted } : undefined
     );
   };
 

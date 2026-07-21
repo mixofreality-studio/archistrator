@@ -34,6 +34,7 @@ export function ArtifactRenderer({
   envelope,
   title,
   height,
+  fill = false,
   serviceContracts,
   useCasesEnvelope,
 }: {
@@ -42,6 +43,15 @@ export function ArtifactRenderer({
   title?: string;
   /** Optional diagram canvas height override (experience uses taller canvases). */
   height?: number;
+  /**
+   * Fill the available height of a flex-column parent instead of the fixed
+   * `height` (design experience only). Today only the glossary honors it — its
+   * card grows to the bottom of the scroll area instead of leaving dead space
+   * below a fixed-height card. Prose flows naturally and the diagram kinds keep
+   * their pixel canvas heights (xyflow needs concrete pixels), so `fill` is a
+   * no-op for them.
+   */
+  fill?: boolean;
   /** When present, the Architecture view drills into established component contracts. */
   serviceContracts?: ServiceContracts | undefined;
   /** The committed coreUseCases envelope, when available: lets the Architecture
@@ -52,8 +62,11 @@ export function ArtifactRenderer({
     <Box
       data-artifact-kind={envelope?.kind}
       data-testid={UI_IDENTIFIERS.DesignExperience.ARTIFACT_RENDER}
+      sx={
+        fill ? { flexGrow: 1, minHeight: 0, display: 'flex', flexDirection: 'column' } : undefined
+      }
     >
-      {renderBody(envelope, title, height, serviceContracts, useCasesEnvelope)}
+      {renderBody(envelope, title, height, fill, serviceContracts, useCasesEnvelope)}
     </Box>
   );
 }
@@ -62,6 +75,7 @@ function renderBody(
   envelope: ArtifactModelEnvelope | undefined,
   title: string | undefined,
   height: number | undefined,
+  fill: boolean,
   serviceContracts: ServiceContracts | undefined,
   useCasesEnvelope: ArtifactModelEnvelope | undefined
 ): ReactNode {
@@ -70,7 +84,13 @@ function renderBody(
     case 'mission':
       return <MissionView envelope={envelope} />;
     case 'glossary':
-      return <GlossaryView envelope={envelope} {...(height !== undefined ? { height } : {})} />;
+      return (
+        <GlossaryView
+          envelope={envelope}
+          fill={fill}
+          {...(height !== undefined ? { height } : {})}
+        />
+      );
     case 'scrubbedRequirements':
       return <ScrubbedRequirementsView envelope={envelope} />;
     case 'standardCheck':

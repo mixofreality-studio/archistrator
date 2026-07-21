@@ -284,8 +284,13 @@ function ProjectDesignBody({
   // carrying the composed rationale as feedback. The server opens an -amend-N
   // session seeded into the review ledger; invalidation drops sessionMissing and
   // the existing poll drives the generating/review loop from here.
-  const amend = (feedback: string): void => {
-    requestDraft.mutate({ kind: activeKind, feedback });
+  const amend = (feedback: string, onAccepted?: () => void): void => {
+    requestDraft.mutate(
+      { kind: activeKind, feedback },
+      // onAccepted (the amend composer's success hook) fires only when the server
+      // accepts — so the composer clears its folded rail comments solely on success.
+      onAccepted !== undefined ? { onSuccess: onAccepted } : undefined
+    );
   };
 
   // Seed rationale for a reconcile-via-amendment fired from the header stale chip.
@@ -629,7 +634,7 @@ function ProjectStepBody({
   onApprove: () => void;
   onSendBack: () => void;
   onWithdraw: () => void;
-  onAmend: (feedback: string) => void;
+  onAmend: (feedback: string, onAccepted: () => void) => void;
   onSdpCommit: (optionId: string) => void;
   onSdpRejectAll: (feedback: string) => void;
   onAdvance: () => void;

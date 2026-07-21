@@ -78,6 +78,12 @@ const PROSE_ARTIFACT_KINDS = new Set<string>(['mission', 'scrubbedRequirements',
 /** Seed rationale for a reconcile-via-amendment fired from the stale banner (F45). */
 const RECONCILE_RATIONALE = 'Reconcile with amended upstream basis.';
 
+// Floor height for a fill-mode artifact card (today only the glossary): the card
+// grows to fill the scroll area on a tall viewport, but never shrinks below this,
+// so a short viewport scrolls the outer container instead of collapsing the card
+// to its sticky search header. A minimum, not a fixed size.
+const FILL_MIN_HEIGHT = 360;
+
 // Re-exported so containers (SPA today, an MCP host later) can build a `spine`
 // prop without reaching into `./SlimSpine` directly.
 export type { SpineStep };
@@ -120,8 +126,12 @@ export interface SystemDesignViewProps {
   /** Reserved for Task 9 (MCP shell); the SPA always renders the fullscreen chrome. */
   displayMode?: 'inline' | 'fullscreen' | 'pip';
   onSubmitReview: (d: ReviewDecision) => void;
-  /** Request a fresh draft (no feedback) or an amendment (feedback = rationale). */
-  onRequestDraft: (feedback?: string) => void;
+  /**
+   * Request a fresh draft (no feedback) or an amendment (feedback = rationale). `onAccepted`,
+   * when supplied on an amend, fires only after the server accepts the request (mutation
+   * onSuccess) so the composer clears its folded rail comments solely on success.
+   */
+  onRequestDraft: (feedback?: string, onAccepted?: () => void) => void;
   onRetry: () => void;
   /** Close the experience (the ✕ affordance). */
   onClose: () => void;
@@ -248,9 +258,25 @@ export function SystemDesignView({
       onClose={onClose}
       onOpenChat={onOpenChat}
     >
-      <Box sx={{ flexGrow: 1, minWidth: 0, overflowY: 'auto', px: { xs: 2, md: 4 }, py: 3 }}>
+      <Box
+        sx={{
+          flexGrow: 1,
+          minWidth: 0,
+          // A flex column so a fill-mode artifact card (the glossary) can grow to the
+          // bottom of this scroll area instead of sitting at a fixed height with dead
+          // space below it. minHeight:0 keeps overflowY:auto working when content is
+          // taller than the viewport. Prose/diagram bodies carry no flexGrow, so they
+          // stay at their natural height at the top — unchanged.
+          minHeight: 0,
+          overflowY: 'auto',
+          display: 'flex',
+          flexDirection: 'column',
+          px: { xs: 2, md: 4 },
+          py: 3,
+        }}
+      >
         {/* artifact header */}
-        <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5, mb: 2 }}>
+        <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5, mb: 2, flexShrink: 0 }}>
           <Box sx={{ minWidth: 0 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
               <Typography component="h1" sx={{ color: t.ink }} variant="h4">
@@ -449,7 +475,7 @@ function StepBody({
   onApprove: () => void;
   onSendBack: () => void;
   onWithdraw: () => void;
-  onAmend: (feedback: string) => void;
+  onAmend: (feedback: string, onAccepted: () => void) => void;
 }): ReactNode {
   if (needsResearch) {
     return <ResearchInputPanel pending={researchPending} onSubmit={onSubmitResearch} />;
@@ -564,9 +590,15 @@ function StepBody({
   // head-state, render the committed model read-only under the committed panel
   // (revision meta + stale-basis reconcile + Amend affordance).
   if (sessionMissing && committed && committedEnvelope !== undefined) {
+    // Same fill rule as the live-session path: a self-scrolling committed card (the
+    // glossary) grows to the bottom of the scroll area (no dead region below it),
+    // while the panel's COMMITTED strip + Amend affordance stay natural above it.
+    const committedFill = committedEnvelope.kind === 'glossary';
     return (
       <CommittedArtifactPanel
         amendPending={amendPending}
+        fill={committedFill}
+        fillMinHeight={FILL_MIN_HEIGHT}
         provenance={committedProvenance}
         revisions={committedRevisions}
         onAmend={onAmend}
@@ -575,6 +607,7 @@ function StepBody({
           committedEnvelope.kind,
           <ArtifactRenderer
             envelope={committedEnvelope}
+            fill={committedFill}
             height={620}
             title={title}
             useCasesEnvelope={useCasesEnvelope}
@@ -607,17 +640,36 @@ function StepBody({
   }
 
   const gateOpen = stage === 'awaitingReview';
+  const draftKind = view?.draft.kind ?? activeKind;
+  // Self-scrolling cards (today only the glossary) FILL the available height so the
+  // committed/draft glossary grows to the bottom of the scroll area instead of a
+  // fixed-height card with a dead region below it. Prose flows and the diagram kinds
+  // keep their pixel canvas heights, so `fill` is scoped to the glossary here.
+  const fill = draftKind === 'glossary';
   return (
     <>
       {/* Draft framing stays as an inline note; the committed framing moved to the
           header (?) info popover and staleness to the header chip, so a committed
           step's first paint is content, not banners (UX-P1-4/P2-10/R7). */}
       {committed ? null : <ArtifactIntro committed={false} kind={activeKind} />}
-      <Box sx={{ mb: gateOpen ? 3 : 0 }}>
+      <Box
+        sx={{
+          mb: gateOpen ? 3 : 0,
+          ...(fill
+            ? {
+                flexGrow: 1,
+                minHeight: FILL_MIN_HEIGHT,
+                display: 'flex',
+                flexDirection: 'column',
+              }
+            : {}),
+        }}
+      >
         {proseSurface(
-          view?.draft.kind ?? activeKind,
+          draftKind,
           <ArtifactRenderer
             envelope={view?.draft}
+            fill={fill}
             height={620}
             title={title}
             useCasesEnvelope={useCasesEnvelope}

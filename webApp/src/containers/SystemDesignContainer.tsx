@@ -191,13 +191,16 @@ export function SystemDesignContainer({
   // Unifies "begin the first session" and "request a[nother] draft": the pure
   // View's onRequestDraft(feedback?) covers both a fresh "Request draft" click
   // (feedback undefined) and an amendment / reconcile (feedback = rationale).
-  const handleRequestDraft = (feedback?: string): void => {
+  const handleRequestDraft = (feedback?: string, onAccepted?: () => void): void => {
     if (feedback === undefined && isFirstStep && sessionMissing) {
       startDesign.mutate(undefined);
       return;
     }
     requestDraft.mutate(
-      feedback !== undefined ? { kind: activeKind, feedback } : { kind: activeKind }
+      feedback !== undefined ? { kind: activeKind, feedback } : { kind: activeKind },
+      // onAccepted (the amend composer's success hook) fires only when the server
+      // accepts — so the composer clears its folded rail comments solely on success.
+      onAccepted !== undefined ? { onSuccess: onAccepted } : undefined
     );
   };
 

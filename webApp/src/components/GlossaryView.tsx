@@ -39,9 +39,20 @@ import {
 export function GlossaryView({
   envelope,
   height = 620,
+  fill = false,
 }: {
   envelope: ArtifactModelEnvelope | undefined;
   height?: number;
+  /**
+   * Fill the available vertical height of a flex-column parent instead of sitting
+   * at the fixed `height`. The full-screen design experience passes this so the
+   * committed/draft glossary card grows to the bottom of the scroll area (no dead
+   * space below it) while its own grouped list keeps scrolling internally. The
+   * outer scroll container owns the short-viewport floor, so a squeezed viewport
+   * scrolls the page instead of collapsing the card. The home base (ArtifactPane)
+   * leaves this false and keeps the fixed `height`.
+   */
+  fill?: boolean;
 }): ReactNode {
   const t = useTokens();
   const items = toGlossaryView(envelope);
@@ -73,7 +84,14 @@ export function GlossaryView({
   return (
     <Paper
       data-testid={UI_IDENTIFIERS.Glossary.ROOT}
-      sx={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', height }}
+      sx={{
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
+        // fill: grow to the parent flex column's height (the parent owns the floor);
+        // otherwise sit at the fixed pixel height (home base ArtifactPane).
+        ...(fill ? { flexGrow: 1, minHeight: 0 } : { height }),
+      }}
     >
       {/* pinned header: search + category filter chips */}
       <Box sx={{ p: 2, borderBottom: `1px solid ${t.line}`, flexShrink: 0 }}>
