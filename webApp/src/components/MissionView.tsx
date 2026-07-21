@@ -52,27 +52,41 @@ function ProseSection({
   const t = useTokens();
   const { setAnchor, enabled, anchor: armedAnchor, comments } = useComments();
   // Reveal the section's comment button exactly like CommentableList reveals a row's:
-  // hidden at rest, shown on hover / keyboard focus-within of the WHOLE section (the
-  // title row OR the prose paragraph), and kept persistently visible when this section is
-  // the armed anchor or already carries a comment. Opacity-only (never display/visibility)
-  // so the button stays in the tab order + a11y tree.
+  // hidden at rest, shown on hover / keyboard focus-within of the CONTENT ROW (the prose
+  // paragraph + its button — NOT the title), and kept persistently visible when this
+  // section is the armed anchor or already carries a comment. Opacity-only (never
+  // display/visibility) so the button stays in the tab order + a11y tree.
   const thisPath = missionProseAnchor(section);
   const isArmed = armedAnchor?.jsonPath === thisPath;
   const hasComments = comments.some((c) => c.anchor?.jsonPath === thisPath);
   const revealed = isArmed || hasComments;
   return (
-    <Box
-      sx={{
-        mb: 3.5,
-        '& .commentable-section-action': { opacity: revealed ? 1 : 0, transition: 'opacity 120ms' },
-        '&:hover .commentable-section-action, &:focus-within .commentable-section-action': {
-          opacity: 1,
-        },
-        '@media (hover: none)': { '& .commentable-section-action': { opacity: 1 } },
-      }}
-    >
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
-        <SectionHeading>{heading}</SectionHeading>
+    <Box sx={{ mb: 3.5 }}>
+      <SectionHeading>{heading}</SectionHeading>
+      {/* Content row — mirrors a CommentableList row: the prose grows on the left, the
+          comment button sits at the top-right, revealed only when the CONTENT (not the
+          title) is hovered / focus-within / armed / already commented. */}
+      <Box
+        sx={{
+          display: 'flex',
+          alignItems: 'flex-start',
+          gap: 1,
+          '& .commentable-section-action': { opacity: revealed ? 1 : 0, transition: 'opacity 120ms' },
+          '&:hover .commentable-section-action, &:focus-within .commentable-section-action': {
+            opacity: 1,
+          },
+          '@media (hover: none)': { '& .commentable-section-action': { opacity: 1 } },
+        }}
+      >
+        <Typography
+          // Comment-anchoring markers only when commenting is active — on a read-only
+          // surface the prose carries no comment scaffolding at all.
+          data-artifact-kind={enabled ? 'mission' : undefined}
+          data-commentable={enabled ? section : undefined}
+          sx={{ flexGrow: 1, minWidth: 0, fontSize: '0.98rem', lineHeight: 1.65, color: t.ink, fontFamily: t.body }}
+        >
+          {text}
+        </Typography>
         {enabled ? (
           <Tooltip title={`Comment on ${heading}`}>
             <IconButton
@@ -80,6 +94,7 @@ function ProseSection({
               aria-label={`Comment on ${heading}`}
               size="small"
               sx={{
+                flexShrink: 0,
                 color: t.accentText,
                 bgcolor: t.accent,
                 border: `1.5px solid ${t.line}`,
@@ -100,15 +115,6 @@ function ProseSection({
           </Tooltip>
         ) : null}
       </Box>
-      <Typography
-        // Comment-anchoring markers only when commenting is active — on a read-only
-        // surface the prose carries no comment scaffolding at all.
-        data-artifact-kind={enabled ? 'mission' : undefined}
-        data-commentable={enabled ? section : undefined}
-        sx={{ fontSize: '0.98rem', lineHeight: 1.65, color: t.ink, fontFamily: t.body }}
-      >
-        {text}
-      </Typography>
     </Box>
   );
 }
