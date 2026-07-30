@@ -28,4 +28,5 @@ server/cmd/server/webappdist/
 /.claude/agents/
 /.claude/commands/
 /.claude/skills/the-method*/
+/.claude/method-assets/
 /.claude/.method-assets-manifest.json
