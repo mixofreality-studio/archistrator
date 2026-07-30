@@ -7,10 +7,12 @@
  * the decorative node components in ./flowDecor).
  */
 import { MarkerType, type Edge, type Node } from '@xyflow/react';
-import type { Layer } from '../../contracts/types';
+import type { Finding, Layer, Severity } from '../../contracts/types';
 import type { Tokens } from '../../utilities/theme/themes';
 import type { C4Component } from '../../contracts/adapters';
 import type { Anchor } from '../comments/CommentContext';
+import { componentLacksVolatility } from './architectureCues';
+import { maxSeverity } from './findingOverlays';
 
 export type { Layer };
 
@@ -53,6 +55,18 @@ export function layerColors(t: Tokens): Record<Layer, string> {
     resource: t.muted,
     utility: t.muted,
   };
+}
+
+/** Theme colour for a Design-Health finding severity (edge strokes + badges). */
+export function severityColor(t: Tokens, severity: Severity): string {
+  switch (severity) {
+    case 'error':
+      return t.dangerFg;
+    case 'warning':
+      return t.awaitingFg;
+    case 'info':
+      return t.muted;
+  }
 }
 
 // --- geometry -------------------------------------------------------------
@@ -239,7 +253,14 @@ export function c4Node(
   c: C4Component,
   position: { x: number; y: number },
   colors: Record<Layer, string>,
-  opts: { dimmed?: boolean; showEncapsulates?: boolean; selected?: boolean } = {}
+  opts: {
+    dimmed?: boolean;
+    showEncapsulates?: boolean;
+    selected?: boolean;
+    /** Design-Health structure findings anchored to this component (a quiet
+     *  severity badge beside the layer tag — the no-volatility cue idiom). */
+    findings?: Finding[];
+  } = {}
 ): Node {
   return {
     id: c.id,
@@ -251,11 +272,20 @@ export function c4Node(
       layer: LAYER_LABEL[c.layer],
       encapsulates: c.encapsulates,
       showEncapsulates: opts.showEncapsulates !== false,
+      // Anti-functional-decomposition cue: a volatility-bearing layer with no
+      // identified volatility gets a quiet warning badge (architectureCues).
+      // Rides the same lens gate as the volatility preview — lenses that hide
+      // volatility detail (Dynamic step-through, synthetic test participants)
+      // hide the cue too.
+      volatilityWarning: opts.showEncapsulates !== false && componentLacksVolatility(c),
       color: colors[c.layer],
       // Selection travels through `data` (not the Node.selected field): with the
       // controlled-node flow having no onNodesChange, xyflow's built-in selection is
       // inert, so a data flag is the reliable way to drive the Comment toolbar + ring.
       isSelected: opts.selected === true,
+      ...(opts.findings !== undefined && opts.findings.length > 0
+        ? { structureFindings: opts.findings }
+        : {}),
     },
     draggable: false,
     ...(opts.dimmed === true ? { style: { opacity: 0.12 } } : {}),
@@ -281,6 +311,10 @@ export interface EdgeOpts {
   /** When set, the edge is commentable: selecting it reveals a Comment affordance
    *  that arms this anchor (only the static architecture graph passes this). */
   comment?: Anchor;
+  /** Design-Health structure findings anchored to this relationship: the stroke
+   *  takes the severity colour and LayeredStepEdge renders a midpoint badge
+   *  carrying "ruleId — message" (tooltip + aria). */
+  findings?: Finding[];
 }
 
 /** A directed, arrow-headed smoothstep edge in the shared visual language. */
@@ -293,7 +327,17 @@ export function flowEdge(
   opts: EdgeOpts = {}
 ): Edge {
   const variant = opts.variant ?? 'normal';
-  const stroke = opts.stroke ?? (variant === 'focus' ? t.ink : t.muted);
+  const findings =
+    opts.findings !== undefined && opts.findings.length > 0 ? opts.findings : undefined;
+  // A finding edge keeps its severity stroke in every variant (hover-focus
+  // included) so the violation stays visible while the neighbourhood is lit.
+  const stroke =
+    opts.stroke ??
+    (findings !== undefined
+      ? severityColor(t, maxSeverity(findings))
+      : variant === 'focus'
+        ? t.ink
+        : t.muted);
   const opacity = opts.opacity ?? (variant === 'muted' ? 0.12 : 1);
   return {
     id,
@@ -304,11 +348,18 @@ export function flowEdge(
     label: opts.showLabel === true ? label : undefined,
     hidden: opts.hidden === true,
     selectable: opts.comment !== undefined,
-    ...(opts.comment !== undefined ? { data: { comment: opts.comment } } : {}),
+    ...(opts.comment !== undefined || findings !== undefined
+      ? {
+          data: {
+            ...(opts.comment !== undefined ? { comment: opts.comment } : {}),
+            ...(findings !== undefined ? { findings } : {}),
+          },
+        }
+      : {}),
     type: 'layeredStep',
     style: {
       stroke,
-      strokeWidth: variant === 'focus' ? 2 : 1.5,
+      strokeWidth: variant === 'focus' || findings !== undefined ? 2 : 1.5,
       opacity,
       ...(opts.dashed === true ? { strokeDasharray: '6 4' } : {}),
       ...(opts.comment !== undefined ? { cursor: 'pointer' } : {}),

@@ -15,7 +15,6 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/billingstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/durableexecution"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/merchantgateway"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/revenueledger"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usage"
 )
 
@@ -119,19 +118,6 @@ func (i genInvokers) MerchantGatewayChargeCustomer(ctx workflow.Context, key fwr
 	return err
 }
 
-// MerchantGatewayCreateConnectedAccount invokes activity "merchantGatewayAccess.createConnectedAccount".
-func (i genInvokers) MerchantGatewayCreateConnectedAccount(ctx workflow.Context, key fwra.IdempotencyKey, customerID uuid.UUID, idempotencyKey string) (merchantgateway.GatewayBinding, error) {
-	var out merchantgateway.GatewayBinding
-	err := workflow.ExecuteActivity(i.options(ctx, "merchantGatewayAccess.createConnectedAccount"), "merchantGatewayAccess.createConnectedAccount", key, customerID, idempotencyKey).Get(ctx, &out)
-	return out, err
-}
-
-// MerchantGatewayPayoutCustomer invokes activity "merchantGatewayAccess.payoutCustomer".
-func (i genInvokers) MerchantGatewayPayoutCustomer(ctx workflow.Context, key fwra.IdempotencyKey, customerID uuid.UUID, amount merchantgateway.Money, idempotencyKey string) error {
-	err := workflow.ExecuteActivity(i.options(ctx, "merchantGatewayAccess.payoutCustomer"), "merchantGatewayAccess.payoutCustomer", key, customerID, amount, idempotencyKey).Get(ctx, nil)
-	return err
-}
-
 // MerchantGatewayValidateStoredInstrument invokes activity "merchantGatewayAccess.validateStoredInstrument".
 func (i genInvokers) MerchantGatewayValidateStoredInstrument(ctx workflow.Context, key fwra.IdempotencyKey, customerID uuid.UUID, idempotencyKey string) error {
 	err := workflow.ExecuteActivity(i.options(ctx, "merchantGatewayAccess.validateStoredInstrument"), "merchantGatewayAccess.validateStoredInstrument", key, customerID, idempotencyKey).Get(ctx, nil)
@@ -165,22 +151,22 @@ func (i genInvokers) DurableExecutionStartOrSignalExecution(ctx workflow.Context
 }
 
 // RevenueLedgerReadRange invokes activity "revenueLedgerAccess.readRange".
-func (i genInvokers) RevenueLedgerReadRange(ctx workflow.Context, customerID uuid.UUID, cycleID string) ([]revenueledger.RevenueEntry, error) {
-	var out []revenueledger.RevenueEntry
+func (i genInvokers) RevenueLedgerReadRange(ctx workflow.Context, customerID uuid.UUID, cycleID string) ([]billingstate.RevenueEntry, error) {
+	var out []billingstate.RevenueEntry
 	err := workflow.ExecuteActivity(i.options(ctx, "revenueLedgerAccess.readRange"), "revenueLedgerAccess.readRange", customerID, cycleID).Get(ctx, &out)
 	return out, err
 }
 
 // RevenueLedgerRecordInboundRevenue invokes activity "revenueLedgerAccess.recordInboundRevenue".
-func (i genInvokers) RevenueLedgerRecordInboundRevenue(ctx workflow.Context, entry revenueledger.RevenueEntry) (revenueledger.EntryRef, error) {
-	var out revenueledger.EntryRef
+func (i genInvokers) RevenueLedgerRecordInboundRevenue(ctx workflow.Context, entry billingstate.RevenueEntry) (billingstate.EntryRef, error) {
+	var out billingstate.EntryRef
 	err := workflow.ExecuteActivity(i.options(ctx, "revenueLedgerAccess.recordInboundRevenue"), "revenueLedgerAccess.recordInboundRevenue", entry).Get(ctx, &out)
 	return out, err
 }
 
 // RevenueLedgerRecordReversal invokes activity "revenueLedgerAccess.recordReversal".
-func (i genInvokers) RevenueLedgerRecordReversal(ctx workflow.Context, reversal revenueledger.ReversalEntry) (revenueledger.EntryRef, error) {
-	var out revenueledger.EntryRef
+func (i genInvokers) RevenueLedgerRecordReversal(ctx workflow.Context, reversal billingstate.ReversalEntry) (billingstate.EntryRef, error) {
+	var out billingstate.EntryRef
 	err := workflow.ExecuteActivity(i.options(ctx, "revenueLedgerAccess.recordReversal"), "revenueLedgerAccess.recordReversal", reversal).Get(ctx, &out)
 	return out, err
 }

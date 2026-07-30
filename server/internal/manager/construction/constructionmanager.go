@@ -9,9 +9,9 @@
 // call, owns the Signal/Query handlers and the in-workflow primitives
 // (awaitSignal / startTimer / executeChild), and derives the idempotency key
 // "${workflowId}:${activityId}" passed down to each RA verb. Temporal lives ONLY
-// in this component; the downstream Engines (handOffEngine, interventionEngine,
+// in this component; the downstream Engines (interventionEngine,
 // reviewEngine — pure, in-workflow, by value) and ResourceAccess ports
-// (projectStateAccess, artifactAccess, workerAccess, constructionPipelineAccess,
+// (projectStateAccess, artifactAccess, workerAccess, agenticJobAccess,
 // durableExecutionAccess) import no Temporal.
 //
 // The FIVE frozen public ops (constructionManager.md §2):
@@ -58,11 +58,10 @@ import (
 
 	fwm "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
-	"github.com/mixofreality-studio/archistrator/server/internal/engine/handoff"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/review"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/agenticjob"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/constructionpipeline"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 )
@@ -89,10 +88,9 @@ type constructionManager struct {
 
 	projectState           projectstate.ProjectStateAccess
 	artifact               artifact.ArtifactAccess
-	handOff                handoff.HandOffEngine
 	intervention           intervention.InterventionEngine
 	review                 review.ReviewEngine
-	pipeline               constructionpipeline.ConstructionPipelineAccess
+	pipeline               agenticjob.AgenticJobAccess
 	rail                   sourcecontrol.SourceControlAccess
 	constructionTransition projectstate.ConstructionTransitionAccess
 	gitActivityStatus      projectstate.GitActivityStatusAccess
@@ -128,10 +126,9 @@ func newConstructionManager(
 	c client.Client,
 	projectState projectstate.ProjectStateAccess,
 	art artifact.ArtifactAccess,
-	handOff handoff.HandOffEngine,
 	interventionEng intervention.InterventionEngine,
 	reviewEng review.ReviewEngine,
-	pipeline constructionpipeline.ConstructionPipelineAccess,
+	pipeline agenticjob.AgenticJobAccess,
 	rail sourcecontrol.SourceControlAccess,
 	constructionTransition projectstate.ConstructionTransitionAccess,
 	gitActivityStatus projectstate.GitActivityStatusAccess,
@@ -144,7 +141,6 @@ func newConstructionManager(
 		client:                 c,
 		projectState:           projectState,
 		artifact:               art,
-		handOff:                handOff,
 		intervention:           interventionEng,
 		review:                 reviewEng,
 		pipeline:               pipeline,
@@ -434,7 +430,7 @@ func (m *constructionManager) SetReviewPolicy(rc fwm.Context, projectID ProjectI
 		return newError(fwm.ContractMisuse, fmt.Sprintf("unknown review-policy preset %q (want %q, %q, or %q)",
 			preset, projectstate.ReviewPresetVibes, projectstate.ReviewPresetCheckpoints, projectstate.ReviewPresetFull))
 	}
-	proj, err := m.constructionTransition.ReadProject(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID), projectstate.RepoCredential{})
+	proj, err := m.projectState.ReadProject(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID))
 	if err != nil {
 		if isRANotFound(err) {
 			return newError(fwm.NotFound, err.Error())
@@ -469,7 +465,7 @@ func (m *constructionManager) UpdateReviewPolicy(rc fwm.Context, projectID Proje
 	if projectID == "" {
 		return newError(fwm.ContractMisuse, "empty projectId")
 	}
-	proj, err := m.constructionTransition.ReadProject(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID), projectstate.RepoCredential{})
+	proj, err := m.projectState.ReadProject(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID))
 	if err != nil {
 		return newError(fwm.Infrastructure, err.Error())
 	}
@@ -593,8 +589,8 @@ func newError(kind fwm.Kind, detail string) *fwm.Error {
 // deps.go declares the hand-written domain VALUE types the Manager's workflow
 // vocabulary uses. Per the founder DI model (2026-06-28) the constructionManager's
 // GENERATED constructor (contract.gen.go: NewConstructionManager) takes the
-// dependencies' PUBLISHED interfaces directly. The three Engines (handOff /
-// intervention / review) are typed as their PUBLISHED contract interfaces DIRECTLY on
+// dependencies' PUBLISHED interfaces directly. The two Engines (intervention /
+// review) are typed as their PUBLISHED contract interfaces DIRECTLY on
 // wfDeps/workflows (workflow.go) — no Manager-local seam interface, no adapter (Task 6).
 //
 // B8 (custom activities → generated, clean cut) + its follow-up removed EVERY
@@ -616,26 +612,38 @@ func newError(kind fwm.Kind, detail string) *fwm.Error {
 //     Construction now has NO custom Temporal Activities at all.
 //
 // How each dependency kind is reached differs by determinism class:
-//   - the three Engines (handoff.HandOffEngine / intervention.InterventionEngine /
-//     review.ReviewEngine) are PURE, deterministic, called DIRECTLY in-workflow (no
-//     Activity wrapper — replay-safe) with fweng.Context{Context: context.Background()}
-//     supplied inline at each call site (workflow.go / signals.go);
+//   - the two Engines (intervention.InterventionEngine / review.ReviewEngine) are
+//     PURE, deterministic, called DIRECTLY in-workflow (no Activity wrapper —
+//     replay-safe) with fweng.Context{Context: context.Background()} supplied inline
+//     at each call site (workflow.go / signals.go);
 //   - the ResourceAccess ports are I/O and reached EXCLUSIVELY through the generated
 //     invoker surface (Acts — invokers.gen.go/activities.gen.go).
 
 // constructionActivity is the by-value activity snapshot the Manager's own workflow
 // vocabulary uses broadly (eligibility.go, gitforward.go, dispatch) — CRLabel/IsRevert
 // are the git-forward per-activity facts threaded into the PR open + the head-state
-// mirror, and Phases is the resolved per-activity phase profile; none of these ride
-// the handOffEngine call. Kind is typed DIRECTLY as the published handoff.ActivityKind
-// (no converter — the ordinal sets are identical). At the one handOffEngine call site
-// (workflow.go), handoffActivityFromConstruction (constructactivity.go) narrows this
-// broader struct onto the Engine's published handoff.ConstructionActivity — a REAL
-// (if now-trivial) projection, since constructionActivity carries strictly MORE fields
-// than the Engine needs, not an identity mirror to delete.
+// mirror, and Phases is the resolved per-activity phase profile. Kind is the
+// Manager-owned activityKind (Construction vs Noncoding), fed to activityKindName for
+// the PR-body text.
+
+// activityKind classifies a construction activity for display / PR-body purposes
+// (Construction vs Noncoding). It was formerly the published handoff.ActivityKind;
+// with the handOffEngine removed (agent-class selection is now review policy, not a
+// worker-class cast) the Manager owns this small enum. The ordinal set is preserved
+// (Unknown=0 … Noncoding=4) so the Temporal-payload wire form is unchanged.
+type activityKind int
+
+const (
+	activityKindUnknown activityKind = iota
+	activityKindDetailedDesign
+	activityKindConstruction
+	activityKindIntegration
+	activityKindNoncoding
+)
+
 type constructionActivity struct {
 	ActivityID   string
-	Kind         handoff.ActivityKind
+	Kind         activityKind
 	ComponentID  string
 	Layer        string
 	EstimateDays float64
@@ -657,7 +665,7 @@ func (a constructionActivity) activityTypeName() string {
 // dispatch spec / handle / observation. The pipeline ops are GENERATED and reached
 // through the generated invoker surface (genInvokers.Pipeline*); these neutral types
 // feed the workflow-side composition/mapping helpers (workflow.go) that bridge to the
-// contract constructionpipeline.PipelineSpec / PipelineHandle / PipelineObservation.
+// contract agenticjob.PipelineSpec / PipelineHandle / PipelineObservation.
 // ===========================================================================
 
 // pipelineHandle is the Manager's opaque handle.
@@ -689,6 +697,13 @@ func constructionInterventionPolicy(mode string) intervention.InterventionPolicy
 // from its head-state. An activity is eligible iff it is NotStarted and every dep is
 // Done. Iteration is ActivityList declaration order with a name tie-break.
 func nextEligibleActivity(proj projectstate.Project) (constructionActivity, bool) {
+	// Committed Network+ActivityList alone are not authorization to build: the
+	// Phase-2 seal (AdvanceToConstruction — every slot committed, SDP review binding
+	// an option) is what moves the project into PhaseConstruction. Selecting work
+	// before that would start construction on an unvalidated project design.
+	if proj.Phase != projectstate.PhaseConstruction {
+		return constructionActivity{}, false
+	}
 	network, activityList, ok := committedPlanInputs(proj)
 	if !ok {
 		return constructionActivity{}, false
@@ -859,9 +874,9 @@ func allDepsDone(deps []string, status map[string]projectstate.ActivityConstruct
 // hydrateConstructionActivity populates a constructionActivity from the activity id +
 // its ActivityList item. Coding=true → Construction; Coding=false → Noncoding.
 func hydrateConstructionActivity(activityID string, item projectstate.ActivityItem, componentID string) constructionActivity {
-	kind := handoff.ActivityKindNoncoding
+	kind := activityKindNoncoding
 	if item.Coding {
-		kind = handoff.ActivityKindConstruction
+		kind = activityKindConstruction
 	}
 	typ := projectstate.DeriveType(activityID)
 	variant := projectstate.DeriveVariant(activityID)
@@ -953,7 +968,6 @@ func railActivityOptions() workflow.ActivityOptions {
 // reads ride Acts.DesignSessionReadProjectOnBranch / Acts.ProjectStateReadProjectVersion
 // and the cred-threaded writes ride Acts.ConstructionTransition* (B8).
 type wfDeps struct {
-	HandOff      handoff.HandOffEngine
 	Intervention intervention.InterventionEngine
 	Review       review.ReviewEngine
 
@@ -985,13 +999,12 @@ type wfDeps struct {
 	// project from its head-state (the Manager's own pure selection).
 	NextEligibleActivity func(proj projectstate.Project) (constructionActivity, bool)
 
-	// HandOffPolicy / InterventionPolicy are the project's committed policy snapshots
-	// the Manager feeds the Engines by value, typed DIRECTLY as each Engine's own
-	// published input. InterventionPolicy is resolved ONCE from the composition root's
-	// raw interventionMode config via constructionInterventionPolicy (adapters.go,
-	// WorkerManifest() — workermanifest.go) — the SAME fixed value every DecideOnVariance
-	// / ApplyPausePolicy call fed under the retired per-call adapter conversion.
-	HandOffPolicy      handoff.HandOffPolicy
+	// InterventionPolicy is the project's committed policy snapshot the Manager feeds
+	// the interventionEngine by value, typed DIRECTLY as the Engine's own published
+	// input. It is resolved ONCE from the composition root's raw interventionMode config
+	// via constructionInterventionPolicy (WorkerManifest() — the SAME fixed value every
+	// DecideOnVariance / ApplyPausePolicy call fed under the retired per-call adapter
+	// conversion).
 	InterventionPolicy intervention.InterventionPolicy
 
 	// EscalationWaitTimeout bounds how long an escalated/architectOnly activity waits
@@ -1003,7 +1016,6 @@ type wfDeps struct {
 // (it no longer hosts any Activity methods; every RA op is reached through the
 // generated invoker surface, Acts).
 type workflows struct {
-	HandOff      handoff.HandOffEngine
 	Intervention intervention.InterventionEngine
 	Review       review.ReviewEngine
 
@@ -1015,7 +1027,6 @@ type workflows struct {
 	Repo        func(projectID ProjectID) (sourcecontrol.RepoRef, bool)
 
 	NextEligibleActivity  func(proj projectstate.Project) (constructionActivity, bool)
-	HandOffPolicy         handoff.HandOffPolicy
 	InterventionPolicy    intervention.InterventionPolicy
 	EscalationWaitTimeout time.Duration
 }
@@ -1023,7 +1034,6 @@ type workflows struct {
 // newWorkflows builds the workflows receiver from the injected seams.
 func newWorkflows(d wfDeps) *workflows {
 	return &workflows{
-		HandOff:               d.HandOff,
 		Intervention:          d.Intervention,
 		Review:                d.Review,
 		GitStatus:             d.GitStatus,
@@ -1031,7 +1041,6 @@ func newWorkflows(d wfDeps) *workflows {
 		RailEnabled:           d.RailEnabled,
 		Repo:                  d.Repo,
 		NextEligibleActivity:  d.NextEligibleActivity,
-		HandOffPolicy:         d.HandOffPolicy,
 		InterventionPolicy:    d.InterventionPolicy,
 		EscalationWaitTimeout: d.EscalationWaitTimeout,
 	}
@@ -1201,7 +1210,7 @@ type operatorPauseSignal struct {
 // activity type" on a real worker (the identical systemic gap billing's B7 rewire
 // found for its 3 revenue-ledger ops).
 //
-// The three Engines (handOff / intervention / review) are called DIRECTLY in-workflow
+// The two Engines (intervention / review) are called DIRECTLY in-workflow
 // (deterministic, by value) and are NOT Activities; the durableExecutionAccess in-workflow
 // primitives (awaitSignal / startTimer / executeChild) are the Manager's own code.
 
@@ -1245,15 +1254,15 @@ const (
 // readProjectActivityOptions, workflow.go).
 func activityOptions() func(activityName string) (workflow.ActivityOptions, bool) {
 	presets := map[string]workflow.ActivityOptions{
-		"constructionPipelineAccess.submitConstructionPipeline":  submitPipelineActivityOptions(),
-		"constructionPipelineAccess.observeConstructionPipeline": observePipelineActivityOptions(),
-		"constructionPipelineAccess.cancelConstructionPipeline":  observePipelineActivityOptions(),
-		"sourceControlAccess.getInstallationToken":               mintCredActivityOptions(),
-		"sourceControlAccess.openBranch":                         railActivityOptions(),
-		"sourceControlAccess.openPullRequest":                    railActivityOptions(),
-		"sourceControlAccess.getPullRequestStatus":               railActivityOptions(),
-		"sourceControlAccess.postReview":                         railActivityOptions(),
-		"sourceControlAccess.mergePullRequest":                   railActivityOptions(),
+		"agenticJobAccess.submitAgenticJob":        submitPipelineActivityOptions(),
+		"agenticJobAccess.observeAgenticJob":       observePipelineActivityOptions(),
+		"agenticJobAccess.cancelAgenticJob":        observePipelineActivityOptions(),
+		"sourceControlAccess.getInstallationToken": mintCredActivityOptions(),
+		"sourceControlAccess.openBranch":           railActivityOptions(),
+		"sourceControlAccess.openPullRequest":      railActivityOptions(),
+		"sourceControlAccess.getPullRequestStatus": railActivityOptions(),
+		"sourceControlAccess.postReview":           railActivityOptions(),
+		"sourceControlAccess.mergePullRequest":     railActivityOptions(),
 		// B8 (+ follow-up): re-keyed from the retired custom-Activity call sites onto
 		// their generated registered names, preserving the identical timeout/retry scope.
 		// designSessionAccess.readProjectOnBranch is the whole-aggregate read the pump
@@ -1295,7 +1304,6 @@ func railLifecycleEnabled(rail sourcecontrol.SourceControlAccess, repo func(proj
 func (m *constructionManager) WorkerManifest() genWorkerManifest {
 	optsHook := activityOptions()
 	wf := newWorkflows(wfDeps{
-		HandOff:      m.handOff,
 		Intervention: m.intervention,
 		Review:       m.review,
 		// GitStatus's ONLY remaining role is the "is the mirror wired" nil-check feature
@@ -1314,7 +1322,6 @@ func (m *constructionManager) WorkerManifest() genWorkerManifest {
 		RailEnabled:           railLifecycleEnabled(m.rail, m.repo),
 		Repo:                  m.repo,
 		NextEligibleActivity:  nextEligibleActivity,
-		HandOffPolicy:         handoff.HandOffPolicy{},
 		InterventionPolicy:    constructionInterventionPolicy(m.interventionMode),
 		EscalationWaitTimeout: m.escalationWaitTimeout,
 	})

@@ -62,7 +62,7 @@ const projectstatePkg = serverModule + "/internal/resourceaccess/projectstate"
 
 // githubInfraPkg is the framework-go-infrastructure-github import (package name
 // `github`) — the source of the shared *github.AppClient the sourceControlAccess
-// GitHub + constructionPipelineAccess GitHubActions variant-arg hooks build and
+// GitHub + agenticJobAccess GitHubActions variant-arg hooks build and
 // spread into their EXISTING generated DI constructors. Threading the AppClient
 // via a hook (not the raw github-app substrate strings) reuses the generated
 // ctors verbatim: a naive positional re-fold would emit a SECOND
@@ -73,7 +73,7 @@ const githubInfraPkg = "github.com/mixofreality-studio/archistrator-platform/fra
 // the workflow supplies the key explicitly (billing money-moves; see
 // gatewayIdempotencyKey in internal/manager/billing).
 var callerKeyedOps = map[string]map[string][]string{
-	"billingManager": {"merchantGateway": {"PayoutCustomer", "ChargeCustomer", "CreateConnectedAccount", "ValidateStoredInstrument"}},
+	"billingManager": {"merchantGateway": {"ChargeCustomer", "ValidateStoredInstrument"}},
 }
 
 var managers = []string{"systemDesignManager", "projectDesignManager", "constructionManager", "operationsManager", "billingManager"}
@@ -194,7 +194,7 @@ func generateMain(m *projectmodel.Model) {
 				{GoType: "string"}, // apiBaseURL
 				{GoType: "int64"},  // installationID
 			},
-			// sourceControlAccess GitHub + constructionPipelineAccess GitHubActions
+			// sourceControlAccess GitHub + agenticJobAccess GitHubActions
 			// thread the shared *github.AppClient (built in the hook from the
 			// github-app cfg strings) + the variant's own settings, reusing their
 			// EXISTING generated DI ctors verbatim. The AppClient cannot be a
@@ -213,7 +213,7 @@ func generateMain(m *projectmodel.Model) {
 			"sourceControlAccess/GitLocal": {
 				{GoType: "string"}, // repoURL
 			},
-			"constructionPipelineAccess/GitHubActions": {
+			"agenticJobAccess/GitHubActions": {
 				{GoType: "*github.AppClient", GoImport: githubInfraPkg},
 				{GoType: "string"}, // owner
 				{GoType: "string"}, // repo

@@ -92,10 +92,11 @@ export const METHOD_METADATA: Record<ArtifactKindFull, MethodArtifactMeta> = {
   },
   scrubbedRequirements: {
     kind: 'scrubbedRequirements',
-    title: 'Scrubbed Requirements',
+    title: 'Required Behaviors',
     stateAddress: 'project.json → slots.scrubbedRequirements',
-    blurb: 'Solutions-masquerading-as-requirements removed.',
-    phrase: 'scrubbed requirements',
+    blurb:
+      'The behaviors the system must exhibit — solutions-masquerading-as-requirements removed.',
+    phrase: 'required behaviors',
     hasPmCritic: true,
   },
   volatilities: {
@@ -124,18 +125,18 @@ export const METHOD_METADATA: Record<ArtifactKindFull, MethodArtifactMeta> = {
   },
   operationalConcepts: {
     kind: 'operationalConcepts',
-    title: 'Operational Concepts',
+    title: 'Deployment & Operations Model',
     stateAddress: 'project.json → slots.operationalConcepts',
-    blurb: 'Runtime interaction decisions, each tied to a business objective.',
-    phrase: 'operational concepts',
+    blurb: 'Your per-project deployment choices, trust guarantees, and the runtime picture.',
+    phrase: 'deployment & operations model',
     hasPmCritic: true,
   },
   standardCheck: {
     kind: 'standardCheck',
-    title: 'Standard Check',
+    title: 'Design Health',
     stateAddress: 'project.json → slots.standardCheck',
-    blurb: 'The Appendix C design-standard gate before Phase 2.',
-    phrase: 'standard check',
+    blurb: 'Live design-standard checks, standing waivers, and attestations before Phase 2.',
+    phrase: 'design health',
     hasPmCritic: false,
   },
   planningAssumptions: {

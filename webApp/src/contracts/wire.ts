@@ -56,10 +56,12 @@ import type {
   ArtifactKind,
   ArtifactKindFull,
   ArtifactSlotView,
+  CheckItem,
   ConstructionProgress,
   ConstructionRow,
   ConstructionSessionState,
   ConstructionStage,
+  DesignHealth,
   EvPoint,
   Finding,
   GitRow,
@@ -157,6 +159,26 @@ function mapFinding(w: Schemas['SystemDesignFinding'] | Schemas['ProjectDesignFi
     ...(w.location !== undefined
       ? { location: { ordinal: w.location.ordinal, section: w.location.section } }
       : {}),
+  };
+}
+
+/** Wire CheckItem → app CheckItem (identical shape; status is the pass|waived|fail enum). */
+function mapCheckItem(w: Schemas['SystemDesignCheckItem']): CheckItem {
+  return {
+    section: w.section,
+    guideline: w.guideline,
+    status: w.status,
+    justification: w.justification,
+  };
+}
+
+/** The GetDesignHealth read-model → app DesignHealth (empty arrays serialize as [], never null). */
+export function mapDesignHealth(w: Schemas['SystemDesignDesignHealth']): DesignHealth {
+  return {
+    findings: w.findings.map(mapFinding),
+    waivers: w.waivers.map(mapCheckItem),
+    attestations: w.attestations.map(mapCheckItem),
+    evaluatedAtRevision: w.evaluatedAtRevision,
   };
 }
 

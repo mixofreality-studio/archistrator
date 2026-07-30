@@ -86,7 +86,13 @@ func main() {
 		if sc.GoPackage == "" {
 			continue // withdrawn/legacy entry with no target package — not a real component.
 		}
-		base := toolBase(sc.Component)
+		// The tool NAME + docs are derived from the serviceContracts KEY (the contract's
+		// own identity), NOT sc.Component. For a facet contract (component != key, e.g.
+		// designSessionAccess owned by projectStateAccess) the key keeps the tool name
+		// unique and stable at its HEAD value (designSessionReadProjectOnBranch, not a
+		// projectState* collision). The Component TAG stays the owning component: the
+		// agent-hidden guard, attribution, and rawexec's execution routing key off it.
+		base := toolBase(key)
 		for _, op := range sc.Interface.Operations {
 			ro := readOnly(sc.Layer, op.Name)
 			tools = append(tools, projectstate.InternalTool{
@@ -97,7 +103,7 @@ func main() {
 				Params:       paramNames(op),
 				ReadOnly:     ro,
 				AgentHidden:  agentHidden(sc.RailAuthority, ro),
-				Description:  describe(sc.Component, sc.Layer, op.Name, ro),
+				Description:  describe(key, sc.Layer, op.Name, ro),
 				InputSchema:  inputSchema(op, sc.Defs),
 				OutputSchema: outputSchema(op, sc.Defs),
 			})
@@ -115,16 +121,16 @@ func main() {
 	fmt.Printf("wrote %s (%d internal tools)\n", outPath, len(tools))
 }
 
-// toolBase is the tool-name prefix for a component: its key with the layer
-// stereotype suffix (Access/Engine) stripped (e.g. "projectStateAccess" →
+// toolBase is the tool-name prefix for a contract: its serviceContracts key with the
+// layer stereotype suffix (Access/Engine) stripped (e.g. "projectStateAccess" →
 // "projectState", "reviewEngine" → "review"). The key is already lowerFirst.
-func toolBase(component string) string {
+func toolBase(contractKey string) string {
 	for _, suffix := range []string{"Access", "Engine"} {
-		if strings.HasSuffix(component, suffix) && len(component) > len(suffix) {
-			return strings.TrimSuffix(component, suffix)
+		if strings.HasSuffix(contractKey, suffix) && len(contractKey) > len(suffix) {
+			return strings.TrimSuffix(contractKey, suffix)
 		}
 	}
-	return component
+	return contractKey
 }
 
 // paramNames returns the operation's business parameter names in declaration
@@ -169,13 +175,15 @@ func agentHidden(railAuthority, ro bool) bool {
 	return railAuthority && !ro
 }
 
-// describe renders the default tool description for a raw RA/Engine op.
-func describe(component, layer, op string, ro bool) string {
+// describe renders the default tool description for a raw RA/Engine op. contractKey is
+// the serviceContracts key (the contract the op belongs to), NOT the owning component —
+// a facet op documents its own contract (e.g. "on the designSessionAccess … contract").
+func describe(contractKey, layer, op string, ro bool) string {
 	effect := "state-changing"
 	if ro {
 		effect = "read-only"
 	}
-	return fmt.Sprintf("%s on the %s %s contract (%s). Raw generated internal tool.", op, component, layer, effect)
+	return fmt.Sprintf("%s on the %s %s contract (%s). Raw generated internal tool.", op, contractKey, layer, effect)
 }
 
 // inputSchema builds the self-contained JSON Schema for an operation's inputs: an

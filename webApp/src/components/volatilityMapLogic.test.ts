@@ -14,7 +14,13 @@
  *     with the counts UNTIL the height cap (then the vertical pitch scales down
  *     to fit — the compact-quadrant rule), a minimum width for the axis labels,
  *     dotless axes still drawing a visible axis;
- *   • the rejected-candidate classification labels.
+ *   • the rejected-candidate classification labels;
+ *   • the volatility → component "encapsulated by" join (encapsulationOwners) —
+ *     the typed encapsulatesVolatilities field wins by EXACT name whenever any
+ *     component carries it (multiple owners preserved, component order), the
+ *     name-normalized prose-substring fallback only serves older committed
+ *     states where no component carries the field;
+ *   • the compact per-item axis indicator label (axisShortLabel).
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -23,7 +29,10 @@ import {
   AXES_MIN_WIDTH,
   axesLayout,
   axisLabel,
+  axisShortLabel,
+  encapsulationOwners,
   laneKeyAction,
+  normalizeName,
   rejectionClassLabel,
   selectionAnnouncement,
 } from './volatilityMapLogic.ts';
@@ -186,4 +195,106 @@ void test('axesLayout fits every dot and tip inside the viewport', () => {
     assert.ok(p.x >= 0 && p.x <= l.width);
     assert.ok(p.y >= 0 && p.y <= l.height);
   }
+});
+
+// ── encapsulationOwners — the volatility → component join ────────────────────
+
+/** Shorthand component fixture for the join tests. */
+function comp(
+  name: string,
+  encapsulates: string,
+  encapsulatesVolatilities: string[] = []
+): { name: string; encapsulates: string; encapsulatesVolatilities: string[] } {
+  return { name, encapsulates, encapsulatesVolatilities };
+}
+
+void test('typed join: exact volatility names resolve their owning components', () => {
+  const owners = encapsulationOwners(
+    ['Payment Methods', 'Notification Channels'],
+    [
+      comp('BillingEngine', 'How we settle charges.', ['Payment Methods']),
+      comp('NotifyAccess', 'Delivery of notifications.', ['Notification Channels']),
+    ]
+  );
+  assert.deepEqual(owners.get('Payment Methods'), ['BillingEngine']);
+  assert.deepEqual(owners.get('Notification Channels'), ['NotifyAccess']);
+});
+
+void test('typed join: multiple owners are preserved in component order', () => {
+  const owners = encapsulationOwners(
+    ['Payment Methods'],
+    [
+      comp('BillingEngine', '', ['Payment Methods']),
+      comp('SettlementAccess', '', ['Payment Methods']),
+    ]
+  );
+  assert.deepEqual(owners.get('Payment Methods'), ['BillingEngine', 'SettlementAccess']);
+});
+
+void test('typed join: exact match only — a typed name never substring-matches', () => {
+  const owners = encapsulationOwners(['Payment Methods'], [comp('BillingEngine', '', ['Payment'])]);
+  assert.equal(owners.has('Payment Methods'), false);
+});
+
+void test('any component carrying the typed field switches the whole join to typed mode', () => {
+  // NotifyAccess would win "Notification Channels" by prose substring, but the
+  // presence of ONE typed carrier means the state post-dates the field — the
+  // fragile prose join is retired wholesale, not mixed per volatility.
+  const owners = encapsulationOwners(
+    ['Payment Methods', 'Notification Channels'],
+    [
+      comp('BillingEngine', '', ['Payment Methods']),
+      comp('NotifyAccess', 'Notification Channels: which channel delivers.'),
+    ]
+  );
+  assert.deepEqual(owners.get('Payment Methods'), ['BillingEngine']);
+  assert.equal(owners.has('Notification Channels'), false);
+});
+
+void test('fallback join: prose substring match, punctuation/case tolerant', () => {
+  const owners = encapsulationOwners(
+    ['Payment Methods'],
+    [comp('BillingEngine', 'payment-methods: card vs invoice vs crypto.')]
+  );
+  assert.deepEqual(owners.get('Payment Methods'), ['BillingEngine']);
+});
+
+void test('fallback join: multiple prose owners are preserved in component order', () => {
+  const owners = encapsulationOwners(
+    ['Payment Methods'],
+    [
+      comp('BillingEngine', 'Payment Methods: settle.'),
+      comp('SettlementAccess', 'Also Payment Methods adjacent.'),
+    ]
+  );
+  assert.deepEqual(owners.get('Payment Methods'), ['BillingEngine', 'SettlementAccess']);
+});
+
+void test('unowned volatilities are absent from the join result', () => {
+  const owners = encapsulationOwners(
+    ['Orphan Volatility'],
+    [comp('BillingEngine', 'Payment Methods: settle.', ['Payment Methods'])]
+  );
+  assert.equal(owners.has('Orphan Volatility'), false);
+  assert.deepEqual(encapsulationOwners([], []), new Map());
+});
+
+void test('typed join tolerates stray whitespace around the recorded name', () => {
+  const owners = encapsulationOwners(
+    ['Payment Methods'],
+    [comp('BillingEngine', '', [' Payment Methods '])]
+  );
+  assert.deepEqual(owners.get('Payment Methods'), ['BillingEngine']);
+});
+
+void test('normalizeName strips punctuation/case to bare alphanumerics', () => {
+  assert.equal(normalizeName('Payment-Methods!'), 'paymentmethods');
+  assert.equal(normalizeName('  Notification  Channels '), 'notificationchannels');
+});
+
+// ── axisShortLabel — the compact per-item axis indicator ─────────────────────
+
+void test('axisShortLabel names the Löwy axis compactly', () => {
+  assert.equal(axisShortLabel('sameCustomerOverTime'), 'A1');
+  assert.equal(axisShortLabel('allCustomersAtOneTime'), 'A2');
 });

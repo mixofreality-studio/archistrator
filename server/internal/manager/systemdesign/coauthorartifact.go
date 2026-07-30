@@ -9,7 +9,7 @@ import (
 
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/constructionpipeline"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/agenticjob"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 	"go.temporal.io/sdk/temporal"
@@ -2051,7 +2051,7 @@ func (wf *workflows) withdrawAtFailedGate(
 
 // draftFailedReason renders the human "why" for the StageDraftFailed screen from
 // the job's neutral Diagnostic. It is infrastructure-neutral (the Diagnostic is
-// already a summary, not a log firehose — constructionPipelineAccess.md Non-goal #4).
+// already a summary, not a log firehose — agenticJobAccess.md Non-goal #4).
 func draftFailedReason(diagnostic string) string {
 	if diagnostic == "" {
 		return "the design job failed in CI — retry or withdraw"
@@ -2214,13 +2214,13 @@ func dispatchErrSummary(err error) string {
 //
 //   - DISPATCH  the Manager selects the Method-role .claude command slug
 //               (DesignCommandFor) and dispatches a claude-code-action DESIGN job via
-//               the FROZEN constructionPipelineAccess.SubmitConstructionPipeline verb,
+//               the FROZEN agenticJobAccess.SubmitAgenticJob verb,
 //               carrying {artifact_kind, command, target_branch, prior_state_ref,
 //               job_mode} on the additive PipelineSpec.DispatchInputs field
 //               (C-WF-DESIGN input schema). The doctrine lives in the command's
 //               method-assets, not a composed prompt. The RA reserves + stamps
 //               idempotency_token itself; the Manager MUST NOT set it.
-//   - OBSERVE   the Manager polls ObserveConstructionPipeline(handle) between
+//   - OBSERVE   the Manager polls ObserveAgenticJob(handle) between
 //               durableExecutionAccess timer waits until a TYPED terminal phase.
 //   - READ-BACK on PhaseSucceeded the Manager reads the committed typed Kind via
 //               projectStateAccess.ReadProject (the Action committed the JSON;
@@ -2241,24 +2241,24 @@ func dispatchErrSummary(err error) string {
 // designPipelinePhase maps the RA's phase to the manager's neutral phase, preserving
 // the Cancelled terminal distinctly (the design Manager treats any non-Succeeded
 // terminal as a StageDraftFailed gate).
-func designPipelinePhase(p constructionpipeline.PipelinePhase) pipelinePhase {
+func designPipelinePhase(p agenticjob.PipelinePhase) pipelinePhase {
 	switch p {
-	case constructionpipeline.PhasePending:
+	case agenticjob.PhasePending:
 		return pipelinePending
-	case constructionpipeline.PhaseRunning:
+	case agenticjob.PhaseRunning:
 		return pipelineRunning
-	case constructionpipeline.PhaseSucceeded:
+	case agenticjob.PhaseSucceeded:
 		return pipelineSucceeded
-	case constructionpipeline.PhaseFailed:
+	case agenticjob.PhaseFailed:
 		return pipelineFailed
-	case constructionpipeline.PhaseCancelled:
+	case agenticjob.PhaseCancelled:
 		return pipelineCancelled
 	default:
 		return lPipelinePhaseUnknown
 	}
 }
 
-// pipelinePhase mirrors constructionPipelineAccess.md §3 — the infrastructure-
+// pipelinePhase mirrors agenticJobAccess.md §3 — the infrastructure-
 // neutral lifecycle phase the Manager branches on. The terminal trio drives the
 // observe loop's exit + the failure path.
 type pipelinePhase int
@@ -2284,7 +2284,7 @@ func (p pipelinePhase) IsTerminal() bool {
 	}
 }
 
-// pipelineObservation mirrors constructionPipelineAccess.md §3 — a point-in-time,
+// pipelineObservation mirrors agenticJobAccess.md §3 — a point-in-time,
 // infrastructure-neutral view carrying the phase and (on terminal failure) a
 // neutral Diagnostic summary (NOT a log firehose).
 type pipelineObservation struct {
@@ -2370,7 +2370,7 @@ type dispatchDesignJobArgs struct {
 	TargetRepo string
 }
 
-// dispatchDesignJob composes the constructionpipeline.PipelineSpec for one design job and
+// dispatchDesignJob composes the agenticjob.PipelineSpec for one design job and
 // submits it through the generated invoker, returning the opaque handle. The four DESIGN
 // parameters (plus the job_mode discriminator) ride on DispatchInputs; a per-project
 // TargetRepo (decoded from the opaque RepoRef) + WorkflowFile target the user's per-project
@@ -2378,14 +2378,14 @@ type dispatchDesignJobArgs struct {
 // construction repo. The idempotency key is stamped INSIDE the generated submit Activity
 // (genActivityIdempotencyKey), so a redraft (fresh ExecuteActivity → new ActivityID) is a
 // distinct job while a transient auto-retry collapses to the same handle at the RA.
-func (wf *workflows) dispatchDesignJob(ctx workflow.Context, a dispatchDesignJobArgs) (constructionpipeline.PipelineHandle, error) {
+func (wf *workflows) dispatchDesignJob(ctx workflow.Context, a dispatchDesignJobArgs) (agenticjob.PipelineHandle, error) {
 	// The .claude command slug the design job runs — the doctrine that used to be
 	// composed into design_prompt now lives in that command's method-assets. An empty
 	// slug is contract misuse (an undispatchable (kind, mode) — e.g. SdpReview, which is
 	// assembled server-side, never dispatched); fail terminally before dispatch.
 	command := projectstate.DesignCommandFor(toPSKind(a.ArtifactKind), designModeFor(a.Target), "")
 	if command == "" {
-		return constructionpipeline.PipelineHandle(""), temporal.NewNonRetryableApplicationError(
+		return agenticjob.PipelineHandle(""), temporal.NewNonRetryableApplicationError(
 			"no design command slug for this (artifactKind, jobMode) — undispatchable design job", "UndispatchableDesignJob", nil)
 	}
 	inputs := map[string]string{
@@ -2400,16 +2400,16 @@ func (wf *workflows) dispatchDesignJob(ctx workflow.Context, a dispatchDesignJob
 	// construction repo). Empty TargetRepo ⇒ zero RepoTarget ⇒ the RA falls back.
 	target, terr := designRepoTarget(a.TargetRepo)
 	if terr != nil {
-		return constructionpipeline.PipelineHandle(""), terr
+		return agenticjob.PipelineHandle(""), terr
 	}
-	spec := constructionpipeline.PipelineSpec{
-		ProjectID: constructionpipeline.ProjectID(a.ProjectID),
+	spec := agenticjob.PipelineSpec{
+		ProjectID: agenticjob.ProjectID(a.ProjectID),
 		// A non-empty, well-formed step graph satisfies the RA's §2.1 pre-condition; the
 		// design recipe lives in the user's aiarch-design.yml workflow file, so the step is
 		// a logical placeholder. The DESIGN-job parameters ride on DispatchInputs.
-		Steps: []constructionpipeline.PipelineStep{{
+		Steps: []agenticjob.PipelineStep{{
 			Name:      "design",
-			Toolchain: constructionpipeline.ToolchainRef(pipelineDefaultToolchain),
+			Toolchain: agenticjob.ToolchainRef(pipelineDefaultToolchain),
 			Command:   []string{"sh", "-c", "true"},
 		}},
 		DispatchInputs: inputs,
@@ -2418,14 +2418,14 @@ func (wf *workflows) dispatchDesignJob(ctx workflow.Context, a dispatchDesignJob
 	if a.TargetRepo != "" {
 		spec.WorkflowFile = designWorkflowFileName
 	}
-	return wf.Acts.PipelineSubmitConstructionPipeline(ctx, spec)
+	return wf.Acts.PipelineSubmitAgenticJob(ctx, spec)
 }
 
 // observeDesignJob reads the dispatched job's phase once (pull-shaped, side-effect-free;
-// constructionPipelineAccess.md §2.2) through the generated invoker and maps the RA phase
+// agenticJobAccess.md §2.2) through the generated invoker and maps the RA phase
 // onto this Manager's neutral phase.
-func (wf *workflows) observeDesignJob(ctx workflow.Context, handle constructionpipeline.PipelineHandle) (pipelineObservation, error) {
-	obs, err := wf.Acts.PipelineObserveConstructionPipeline(ctx, handle)
+func (wf *workflows) observeDesignJob(ctx workflow.Context, handle agenticjob.PipelineHandle) (pipelineObservation, error) {
+	obs, err := wf.Acts.PipelineObserveAgenticJob(ctx, handle)
 	if err != nil {
 		return pipelineObservation{}, err
 	}
@@ -2460,7 +2460,7 @@ func (wf *workflows) dispatchAndObserve(ctx workflow.Context, args dispatchDesig
 	if err != nil {
 		return pipelineObservation{}, err
 	}
-	if constructionpipeline.PipelineHandleIsZero(handle) {
+	if agenticjob.PipelineHandleIsZero(handle) {
 		return pipelineObservation{}, temporal.NewNonRetryableApplicationError(
 			"dispatch returned an empty pipeline handle", "EmptyPipelineHandle", nil)
 	}
@@ -3882,52 +3882,14 @@ func scrubbedIDFindings(kind ArtifactKind, draft projectstate.ArtifactModel) []F
 	return out
 }
 
-// opcCanonicalTopics maps a canonical ch.5 operational-concept topic to the substrings
-// that evidence it appears among decisions[].topic.
-var opcCanonicalTopics = []struct {
-	name  string
-	needs []string
-}{
-	{"topology", []string{"topology"}},
-	{"sync/queued", []string{"sync", "queued"}},
-	{"layering style", []string{"layering"}},
-	{"state handling", []string{"state"}},
-}
-
-// opcTopicFindings — OPC-TOPIC-COVERAGE (info). Nudge when a canonical ch.5 topic
-// (topology, sync/queued, layering style, state handling) is absent from decisions[].topic.
+// opcTopicFindings — OPC-TOPIC-COVERAGE is OBSOLETE under the Wave-2 typed
+// DeploymentOperationsModel: the free-text decisions[].topic list it nudged over is gone,
+// replaced by required typed fields (deploymentScenario, constructionVenue, scaling/infra
+// blocks, trust summaries) that the schema itself enforces — there is nothing left to
+// nudge. Kept as an inert rule (returns no findings) so the rule registry is unchanged;
+// a typed-model successor is design-health's Wave-2 concern, not this seam.
 func opcTopicFindings(kind ArtifactKind, draft projectstate.ArtifactModel) []Finding {
-	if kind != KindOperationalConcepts {
-		return nil
-	}
-	op, ok := draft.(*projectstate.OperationalConcepts)
-	if !ok || op == nil {
-		return nil
-	}
-	var topics []string
-	for _, d := range op.Decisions {
-		topics = append(topics, strings.ToLower(d.Topic))
-	}
-	joined := strings.Join(topics, " | ")
-	var out []Finding
-	for _, t := range opcCanonicalTopics {
-		covered := false
-		for _, need := range t.needs {
-			if strings.Contains(joined, need) {
-				covered = true
-				break
-			}
-		}
-		if !covered {
-			out = append(out, Finding{
-				RuleID:   "OPC-TOPIC-COVERAGE",
-				Severity: SeverityInfo,
-				Message:  fmt.Sprintf("no operational-concept decision addresses %q; ch.5 expects topology, sync/queued, layering style, and state handling to be decided.", t.name),
-				Location: &Location{Section: "operational concepts"},
-			})
-		}
-	}
-	return out
+	return nil
 }
 
 // ---- small shared helpers ----

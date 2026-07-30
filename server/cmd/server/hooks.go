@@ -28,13 +28,13 @@ package main
 //     (DRYRUN=false) is identity, so operations keeps the real store there.
 //
 //  1b. SHARED-PIPELINE DRY-RUN CONTAMINATION (the same shape as #1).
-//     FinalizeConstructionPipelineAccess swaps constructionPipelineAccess for the
+//     FinalizeAgenticJobAccess swaps agenticJobAccess for the
 //     in-memory dry-run stub when CONSTRUCTION_DRYRUN=true. That local is ALSO
 //     shared — the generated body threads it into constructionManager AND BOTH
 //     design managers (projectDesignManager/systemDesignManager,
 //     main.gen.go:459/471), so a dry-run boot hands the design managers the
 //     dry-run pipeline stub too. Benign: the design managers only ever READ
-//     constructionPipelineAccess to report status — they never DISPATCH a
+//     agenticJobAccess to report status — they never DISPATCH a
 //     construction run (only constructionManager does), so the stub is inert
 //     there. Cloud (DRYRUN=false) is identity.
 //
@@ -118,14 +118,13 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/construction"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/projectdesign"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/systemdesign"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/agenticjob"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/billingstate"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/constructionpipeline"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/merchantgateway"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedruntime"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedsystemstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/revenueledger"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usage"
 )
@@ -139,31 +138,31 @@ type appHooks struct {
 	config *Config
 
 	// appClient is the shared GitHub-App satellite the sourcecontrol +
-	// constructionpipeline variant-arg hooks spread into their generated DI ctors;
+	// agenticjob variant-arg hooks spread into their generated DI ctors;
 	// nil when the App identity is unconfigured (repo-less dev / local profile).
 	appClient *github.AppClient
 	// scCatalog is the sourcecontrol catalog surface backing the projectstate CLOUD
 	// ports + the design PR-rail repo resolvers; nil when repo-less.
 	scCatalog sourcecontrol.CatalogAccess
 	// scAccess + realPipeline are the github-creds-gated RAs the LOCAL profile's
-	// binding arms do NOT construct (sourceControlAccess + constructionPipelineAccess
+	// binding arms do NOT construct (sourceControlAccess + agenticJobAccess
 	// are cloud-arm-only in the deployment model, but their real presence is gated on
 	// the GitHub App creds — ORTHOGONAL to the projectstate substrate profile). The
 	// Finalize hooks select them in the local profile so a local-projectstate boot
 	// WITH github creds (the agentic systemtests) still drives the design-dispatch +
 	// PR rail, exactly as the hand run() did. nil when repo-less (rail dormant).
 	scAccess     sourcecontrol.SourceControlAccess
-	realPipeline constructionpipeline.ConstructionPipelineAccess
+	realPipeline agenticjob.AgenticJobAccess
 
 	// localPipeline is the local-first-init-funnel Task 6 construction executor —
 	// headless `claude` shelled directly against the on-disk repo, with NO GitHub
 	// creds involved. Built whenever the profile is LOCAL (regardless of DRYRUN, so
 	// a later toggle to DRYRUN=false takes effect without a restart-time rebuild);
-	// FinalizeConstructionPipelineAccess below selects it for a local boot WITHOUT
+	// FinalizeAgenticJobAccess below selects it for a local boot WITHOUT
 	// GitHub creds (realPipeline, built above when creds ARE configured, keeps
 	// priority — "creds present keeps the existing behavior"). nil on the cloud
 	// profile, mirroring scAccess/realPipeline's repo-less-dormant pattern.
-	localPipeline constructionpipeline.ConstructionPipelineAccess
+	localPipeline agenticjob.AgenticJobAccess
 
 	// workerProvider is the selected LLM Worker Provider (local-first-init-funnel
 	// Task 3): local profile with no ANTHROPIC_API_KEY → llm.ClaudeCLIClient
@@ -260,12 +259,12 @@ func newAppHooks(cfg *Config, logger *slog.Logger) (*appHooks, error) {
 		h.scCatalog, h.scAccess = scCatalog, scAccess
 		logger.Info("sourceControlAccess (github) ready", "account", cfg.GithubAppAccount, "apiBaseURL", cfg.GithubAppAPIBaseURL)
 
-		// The github-creds-gated constructionPipelineAccess the LOCAL profile's binding
-		// arm does not build (FinalizeConstructionPipelineAccess selects it in local
+		// The github-creds-gated agenticJobAccess the LOCAL profile's binding
+		// arm does not build (FinalizeAgenticJobAccess selects it in local
 		// profile). Built ONCE here so a construction-error fails fast; the CLOUD arm
 		// builds its own via the hook-args, so this is unused in cloud.
 		if cfg.ConstructionRepoOwner != "" && cfg.ConstructionRepoName != "" {
-			pipeline, err := constructionpipeline.NewGitHubActionsConstructionPipelineAccess(
+			pipeline, err := agenticjob.NewGitHubActionsAgenticJobAccess(
 				app, cfg.ConstructionRepoOwner, cfg.ConstructionRepoName, cfg.ConstructionWorkflowFile, cfg.ConstructionRef, parseInt64(cfg.GithubAppInstallationID))
 			if err != nil {
 				return nil, err
@@ -279,7 +278,7 @@ func newAppHooks(cfg *Config, logger *slog.Logger) (*appHooks, error) {
 	}
 
 	// LOCAL profile: build the local construction executor (Task 6) whenever the
-	// profile is local, independent of DRYRUN — FinalizeConstructionPipelineAccess
+	// profile is local, independent of DRYRUN — FinalizeAgenticJobAccess
 	// decides whether it is actually SELECTED. A missing aiarch-state-mcp binary /
 	// repo config only fails the BOOT when DRYRUN=false genuinely needs this arm
 	// (mirrors realPipeline/scAccess's repo-less-dormant pattern above): a
@@ -312,7 +311,7 @@ func newAppHooks(cfg *Config, logger *slog.Logger) (*appHooks, error) {
 // h.scAccess / h.realPipeline all stay nil (the same as the fully-repo-less
 // case, exactly as the code path above computes), so on the LOCAL profile
 // construction silently falls through to the local executor
-// (FinalizeConstructionPipelineAccess's h.localPipeline arm) instead of the
+// (FinalizeAgenticJobAccess's h.localPipeline arm) instead of the
 // GitHub-Actions pipeline the operator likely intended — the kind of silent
 // behavior change this warning exists to surface loudly instead of leaving
 // the operator to discover it from a construction run's behavior.
@@ -385,7 +384,7 @@ func localProjectID(repoURL string) string {
 
 // newLocalPipeline builds the local construction executor (Task 6) over the
 // SAME on-disk repo the local projectstate substrate is configured with.
-func newLocalPipeline(cfg *Config, logger *slog.Logger) (constructionpipeline.ConstructionPipelineAccess, error) {
+func newLocalPipeline(cfg *Config, logger *slog.Logger) (agenticjob.AgenticJobAccess, error) {
 	if cfg.ProjectStateGitRepoURL == "" {
 		return nil, fmt.Errorf("localPipeline: ARCHISTRATOR_PROJECT_STATE_GIT_REPO_URL is required")
 	}
@@ -393,7 +392,7 @@ func newLocalPipeline(cfg *Config, logger *slog.Logger) (constructionpipeline.Co
 	if err != nil {
 		return nil, fmt.Errorf("localPipeline: %w", err)
 	}
-	pipeline, err := constructionpipeline.NewLocalExecConstructionPipelineAccess(
+	pipeline, err := agenticjob.NewLocalExecAgenticJobAccess(
 		cfg.ProjectStateGitRepoURL, localProjectID(cfg.ProjectStateGitRepoURL), bin, 0)
 	if err != nil {
 		return nil, err
@@ -522,9 +521,9 @@ func (h *appHooks) ArtifactAccessGitHubCloudArgs(cfg *Config) (string, string, s
 	return cfg.ArtifactRepoURL, cfg.ArtifactRepoOwner, cfg.GithubAppAppID, cfg.GithubAppPrivateKeyPEM, cfg.GithubAppAPIBaseURL, parseInt64(cfg.GithubAppInstallationID)
 }
 
-// ConstructionPipelineAccessGitHubActionsArgs supplies the shared AppClient + the
+// AgenticJobAccessGitHubActionsArgs supplies the shared AppClient + the
 // construction repo/workflow settings the GitHub-Actions pipeline dispatches through.
-func (h *appHooks) ConstructionPipelineAccessGitHubActionsArgs(cfg *Config) (*github.AppClient, string, string, string, string, int64) {
+func (h *appHooks) AgenticJobAccessGitHubActionsArgs(cfg *Config) (*github.AppClient, string, string, string, string, int64) {
 	return h.appClient, cfg.ConstructionRepoOwner, cfg.ConstructionRepoName, cfg.ConstructionWorkflowFile, cfg.ConstructionRef, parseInt64(cfg.GithubAppInstallationID)
 }
 
@@ -592,21 +591,21 @@ func (h *appHooks) FinalizeArtifactAccess(cfg *Config, v artifact.ArtifactAccess
 	return v
 }
 
-// FinalizeConstructionPipelineAccess resolves the construction pipeline — THREE
+// FinalizeAgenticJobAccess resolves the construction pipeline — THREE
 // dispatch arms, in order:
 //   - CONSTRUCTION_DRYRUN=true → the in-memory dry-run stub (the stubbed pump runs
 //     end-to-end with no real dispatch of any kind);
 //   - otherwise v when the profile arm built it (cloud);
 //   - otherwise the github-creds-gated real GitHub-Actions pipeline (local profile
-//     WITH creds — the constructionPipelineAccess binding is cloud-arm-only, but
+//     WITH creds — the agenticJobAccess binding is cloud-arm-only, but
 //     its real presence is gated on the App creds, orthogonal to the projectstate
 //     profile) — creds present keeps this exact pre-existing behavior;
 //   - otherwise the LOCAL construction executor (Task 6: local profile WITHOUT
 //     GitHub creds → headless claude, no GitHub Actions involved), or nil on the
 //     cloud profile with no creds (the pump stays dormant, same as before Task 6).
-func (h *appHooks) FinalizeConstructionPipelineAccess(cfg *Config, v constructionpipeline.ConstructionPipelineAccess) constructionpipeline.ConstructionPipelineAccess {
+func (h *appHooks) FinalizeAgenticJobAccess(cfg *Config, v agenticjob.AgenticJobAccess) agenticjob.AgenticJobAccess {
 	if cfg.ConstructionDryRun {
-		return constructionpipeline.NewDryRunConstructionPipelineAccess()
+		return agenticjob.NewDryRunAgenticJobAccess()
 	}
 	if v != nil {
 		return v
@@ -620,7 +619,7 @@ func (h *appHooks) FinalizeConstructionPipelineAccess(cfg *Config, v constructio
 // FinalizeSourceControlAccess resolves sourceControlAccess CREDS-WIN: the
 // github-creds-gated real RA when present (local profile WITH creds — the agentic
 // systemtests boot — keeps the REAL GitHub rail, pairing with realPipeline exactly as
-// FinalizeConstructionPipelineAccess pairs), else the profile arm's build (cloud
+// FinalizeAgenticJobAccess pairs), else the profile arm's build (cloud
 // GitHub, or the local GitLocal PR rail), else nil (rail dormant — a creds-less cloud
 // boot). No dry-run stub — the PR rail simply goes dormant when the RA is nil.
 func (h *appHooks) FinalizeSourceControlAccess(_ *Config, v sourcecontrol.SourceControlAccess) sourcecontrol.SourceControlAccess {
@@ -706,9 +705,9 @@ func (h *appHooks) FinalizeDesignSessionAccess(_ *Config, v projectstate.DesignS
 }
 
 // FinalizeRevenueLedgerAccess is identity — revenueLedgerAccess is the required,
-// arm-less stub binding (revenueledger.NewRevenueLedgerAccess, a permanent no-op per
+// arm-less stub binding (billingstate.NewRevenueLedgerAccess, a permanent no-op per
 // the charge-only R-013 rationale); no composition-root policy applies.
-func (h *appHooks) FinalizeRevenueLedgerAccess(_ *Config, v revenueledger.RevenueLedgerAccess) revenueledger.RevenueLedgerAccess {
+func (h *appHooks) FinalizeRevenueLedgerAccess(_ *Config, v billingstate.RevenueLedgerAccess) billingstate.RevenueLedgerAccess {
 	return v
 }
 

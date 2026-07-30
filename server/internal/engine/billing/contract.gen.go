@@ -79,7 +79,6 @@ type RoutingDirective int
 
 const (
 	RoutingNoAction RoutingDirective = 0
-	RoutingPayout   RoutingDirective = 1
 	RoutingCharge   RoutingDirective = 2
 )
 

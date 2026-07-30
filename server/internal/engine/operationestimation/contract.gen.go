@@ -26,6 +26,12 @@ type CostProjection struct {
 	ScaleWhatIfCurve     WhatIfCurve `json:"ScaleWhatIfCurve"`
 }
 
+type CostSensitivityForecast struct {
+	SensitivityLow         Money `json:"SensitivityLow"`
+	SensitivityHigh        Money `json:"SensitivityHigh"`
+	ExpectedPerCycleCharge Money `json:"ExpectedPerCycleCharge"`
+}
+
 type InfrastructureKind int
 
 const (
@@ -47,17 +53,11 @@ type ObservedUsage struct {
 }
 
 type OperationForecast struct {
-	UsageCostCurve            UsageCostCurve          `json:"UsageCostCurve"`
-	PayoutVsShortfallForecast PayoutShortfallForecast `json:"PayoutVsShortfallForecast"`
+	UsageCostCurve          UsageCostCurve          `json:"UsageCostCurve"`
+	CostSensitivityForecast CostSensitivityForecast `json:"CostSensitivityForecast"`
 }
 
 type OptionID string
-
-type PayoutShortfallForecast struct {
-	ExpectedPerCycleNet Money `json:"ExpectedPerCycleNet"`
-	SensitivityLow      Money `json:"SensitivityLow"`
-	SensitivityHigh     Money `json:"SensitivityHigh"`
-}
 
 type ProjectOption struct {
 	OptionID OptionID        `json:"OptionID"`

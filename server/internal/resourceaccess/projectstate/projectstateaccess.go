@@ -199,13 +199,6 @@ func (s *GitStore) gitAuth(cred RepoCredential, op string) (fwgithub.GitAuth, er
 // dedup record in ONE commit (REWORK.3 same-commit coupling).
 // ---------------------------------------------------------------------------
 
-// StageArtifactForReview stages a drafted artifact model into its slot as
-// AwaitingReview on MAIN — the branch=="" degenerate of the session-branch
-// staging path (dormant design rail).
-func (s *GitStore) StageArtifactForReview(ctx context.Context, projectID ProjectID, expectedVersion Version, model ArtifactModel, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	return s.stageArtifactForReviewOnBranch(ctx, projectID, expectedVersion, "", model, cred, idempotencyKey)
-}
-
 // StageArtifactForReviewOnBranch is the branch-aware AwaitingReview thin-write the
 // design Managers use during the AwaitingReview window (I-DESIGN-DISPATCH §2a). The
 // staged-slot status flip rides over the SESSION BRANCH the draft lives on so the
@@ -294,33 +287,6 @@ func (s *GitStore) CommitArtifactWithProvenance(ctx context.Context, projectID P
 		DraftedBy:   draftedBy,
 	}
 	return s.applyMutation(ctx, "CommitArtifact", projectID, expectedVersion, cred, idempotencyKey, modeUpsert, commitTransition(kind, prov))
-}
-
-// RejectArtifact records the reviewer's Reject on MAIN — the branch==""
-// degenerate of rejectArtifactOnBranch (dormant design rail).
-func (s *GitStore) RejectArtifact(ctx context.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, notes string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	return s.rejectArtifactOnBranch(ctx, projectID, expectedVersion, "", kind, notes, cred, idempotencyKey)
-}
-
-// RejectArtifactOnBranch is the branch-aware Reject the design Managers use during the
-// AwaitingReview window (I-DESIGN-DISPATCH §2a) — the symmetric counterpart of
-// StageArtifactForReviewOnBranch. The Rejected status flip + notes ride over the SESSION
-// BRANCH the draft was staged on, where the staged model exists and the session-branch
-// version matches (main trails and carries no staged model until an approved draft
-// merges). An EMPTY branch behaves EXACTLY as RejectArtifact (the default/main) — zero
-// perturbation to every existing caller.
-func (s *GitStore) RejectArtifactOnBranch(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	return s.rejectArtifactOnBranch(ctx, projectID, expectedVersion, branch, kind, notes, cred, idempotencyKey)
-}
-
-func (s *GitStore) rejectArtifactOnBranch(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	return s.applyMutationOnBranch(ctx, "RejectArtifact", projectID, expectedVersion, branch, cred, idempotencyKey, modeUpsert, statusTransition("RejectArtifact", kind, ReviewRejected, notes))
-}
-
-// WithdrawArtifact retracts a staged draft from review on MAIN — the branch==""
-// degenerate of withdrawArtifactOnBranch (dormant design rail).
-func (s *GitStore) WithdrawArtifact(ctx context.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, notes string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	return s.withdrawArtifactOnBranch(ctx, projectID, expectedVersion, "", kind, notes, cred, idempotencyKey)
 }
 
 // WithdrawArtifactOnBranch is the branch-aware Withdraw the design Managers use during the
@@ -1451,15 +1417,6 @@ func (a *projectStateGitAdapter) catalogCredential(ctx context.Context) (RepoCre
 	return a.minter.CatalogCredential(ctx)
 }
 
-func (a *projectStateGitAdapter) StageArtifactForReview(rc fwra.Context, projectID ProjectID, expectedVersion Version, model ArtifactModel) (Version, error) {
-	ctx := rc.Context
-	cred, err := a.minter.CredentialFor(ctx, projectID)
-	if err != nil {
-		return 0, err
-	}
-	return a.store.StageArtifactForReview(ctx, projectID, expectedVersion, model, cred, rc.IdempotencyKey)
-}
-
 func (a *projectStateGitAdapter) CommitArtifact(rc fwra.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind) (Version, error) {
 	ctx := rc.Context
 	cred, err := a.minter.CredentialFor(ctx, projectID)
@@ -1484,24 +1441,6 @@ func (a *projectStateGitAdapter) CommitArtifactWithProvenance(rc fwra.Context, p
 		return 0, err
 	}
 	return a.store.CommitArtifactWithProvenance(ctx, projectID, expectedVersion, kind, approvedBy, draftedBy, cred, rc.IdempotencyKey)
-}
-
-func (a *projectStateGitAdapter) RejectArtifact(rc fwra.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, notes string) (Version, error) {
-	ctx := rc.Context
-	cred, err := a.minter.CredentialFor(ctx, projectID)
-	if err != nil {
-		return 0, err
-	}
-	return a.store.RejectArtifact(ctx, projectID, expectedVersion, kind, notes, cred, rc.IdempotencyKey)
-}
-
-func (a *projectStateGitAdapter) WithdrawArtifact(rc fwra.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, notes string) (Version, error) {
-	ctx := rc.Context
-	cred, err := a.minter.CredentialFor(ctx, projectID)
-	if err != nil {
-		return 0, err
-	}
-	return a.store.WithdrawArtifact(ctx, projectID, expectedVersion, kind, notes, cred, rc.IdempotencyKey)
 }
 
 func (a *projectStateGitAdapter) AdvancePhase(rc fwra.Context, projectID ProjectID, expectedVersion Version) (Version, error) {
@@ -1575,19 +1514,6 @@ func (a *projectStateGitAdapter) StageArtifactForReviewOnBranch(rc fwra.Context,
 		return 0, err
 	}
 	return a.store.StageArtifactForReviewOnBranch(ctx, projectID, expectedVersion, branch, model, cred, idempotencyKey)
-}
-
-// RejectArtifactOnBranch is the branch-aware Reject (I-DESIGN-DISPATCH §2a): an empty
-// branch behaves exactly as RejectArtifact (main); a non-empty branch lands the Rejected
-// status flip + notes on the session branch the draft was staged on. The cred is minted
-// just-in-time.
-func (a *projectStateGitAdapter) RejectArtifactOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	ctx := rc.Context
-	cred, err := a.minter.CredentialFor(ctx, projectID)
-	if err != nil {
-		return 0, err
-	}
-	return a.store.RejectArtifactOnBranch(ctx, projectID, expectedVersion, branch, kind, notes, cred, idempotencyKey)
 }
 
 // WithdrawArtifactOnBranch is the branch-aware Withdraw (I-DESIGN-DISPATCH §2a): an empty
@@ -2314,7 +2240,7 @@ func NewModelForKind(kind ArtifactKind) (ArtifactModel, bool) {
 	case KindSystem:
 		return &System{}, true
 	case KindOperationalConcepts:
-		return &OperationalConcepts{}, true
+		return &DeploymentOperationsModel{}, true
 	case KindStandardCheck:
 		return &StandardCheck{}, true
 	case KindPlanningAssumptions:
@@ -2736,7 +2662,25 @@ func LocalRepoCredential() RepoCredential { return RepoCredential{Bytes: []byte(
 // is a git-substrate concern), so it keeps a narrow capability check against the
 // unexported provenanceCommitter interface below.
 type designSessionAccess struct {
-	base ProjectStateAccess
+	base designSessionBase
+}
+
+// designSessionBase is the design-session facet's view of its base: the public
+// (post-C-cleanup, pruned) ProjectStateAccess contract PLUS the on-branch design-session
+// verbs. Those verbs moved off the projectStateAccess contract surface onto the
+// designSessionAccess facet contract (state reconciliation, Wave 1), but the SAME concrete
+// GitStore adapter still implements them — this facet reaches them through the wider base
+// method set rather than the narrowed public port. This is a port/interface bookkeeping
+// split, not a behavior change.
+type designSessionBase interface {
+	ProjectStateAccess
+	ReadProjectOnBranch(rc fwra.Context, projectID ProjectID, branch string) (Project, error)
+	StageArtifactForReviewOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, model ArtifactModel, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	RejectArtifactOnBranchWithComments(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, round int64, comments []ReviewComment, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	WithdrawArtifactOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	ReconcileBranchFromMain(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	SetReviewCommentStatusOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, commentID string, status string, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	SeedReviewCommentsOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, round int64, comments []ReviewComment, idempotencyKey fwra.IdempotencyKey) (Version, error)
 }
 
 var _ DesignSessionAccess = (*designSessionAccess)(nil)
@@ -2754,7 +2698,14 @@ type provenanceCommitter interface {
 // generated ProjectStateAccess contract now requires all of them); CommitArtifactWithProvenance
 // alone still checks base's optional provenanceCommitter capability.
 func NewDesignSessionAccess(base ProjectStateAccess) DesignSessionAccess {
-	return &designSessionAccess{base: base}
+	// The design-session facet REQUIRES a base that also implements the on-branch verbs
+	// (see designSessionBase). Every production ProjectStateAccess is a *GitStore adapter
+	// that does; a base without them is a wiring error, caught here at construction.
+	full, ok := base.(designSessionBase)
+	if !ok {
+		panic("projectstate.NewDesignSessionAccess: base does not implement the on-branch design-session verbs")
+	}
+	return &designSessionAccess{base: full}
 }
 
 // NewGitLocalDesignSessionAccess builds the LOCAL git designSessionAccess port
@@ -3608,14 +3559,7 @@ func (c *CoreUseCases) Kind() ArtifactKind { return KindCoreUseCases }
 // isArtifactModel seals the ArtifactModel sum to this package's models.
 func (c *CoreUseCases) isArtifactModel() {}
 
-// ---- OperationalConcepts — ch. 5 ----
-
-// OperationalDecision is one infrastructure/topology decision, justified
-// against a numbered business objective. (projectStateAccess.md §3.5)
-
-// e.g. "communication topology", "sync vs queued", "pub/sub edges"
-
-// Objective number from MissionStatement
+// ---- DeploymentOperationsModel — operational concepts (Wave-2 typed model) ----
 
 // DeliveryStyle is the closed set of system delivery styles. The set of deployment
 // environments is DERIVED from it (test is always present): cloud→{cloud,test},
@@ -3656,18 +3600,16 @@ type DeploymentNode struct {
 // the durable-execution / client-transport / git seams); enforced by the
 // artifactValidationEngine's DEP-* predicates, not here.
 
-// OperationalConcepts is the typed artifact for the ch. 5 operational-concepts
-// section. Each decision is justified against a business objective. It also
-// carries the typed deployment topology (spec-2026-06-03 Decision 2).
-// (projectStateAccess.md §3.5)
+// DeploymentOperationsModel is the typed artifact for the operational-concepts slot
+// (Wave-2: the former OperationalConcepts/decisions[] shape is replaced by the typed
+// deployment-operations model — deployment scenario, construction venue, review-policy
+// ref, scaling/infra blocks, trust summaries, and the deployment topology).
 
-// optional; zero value is an empty topology
-
-// Kind implements ArtifactModel. (projectStateAccess.md §3.5)
-func (o *OperationalConcepts) Kind() ArtifactKind { return KindOperationalConcepts }
+// Kind implements ArtifactModel.
+func (o *DeploymentOperationsModel) Kind() ArtifactKind { return KindOperationalConcepts }
 
 // isArtifactModel seals the ArtifactModel sum to this package's models.
-func (o *OperationalConcepts) isArtifactModel() {}
+func (o *DeploymentOperationsModel) isArtifactModel() {}
 
 // ---- StandardCheck — App C design-standard walk ----
 
@@ -4702,7 +4644,7 @@ type Project struct {
 	Volatilities         ArtifactSlot // Model is *Volatilities
 	CoreUseCases         ArtifactSlot // Model is *CoreUseCases
 	SystemDesign         ArtifactSlot // Model is *System (Grammar A)
-	OperationalConcepts  ArtifactSlot // Model is *OperationalConcepts
+	OperationalConcepts  ArtifactSlot // Model is *DeploymentOperationsModel
 	StandardCheck        ArtifactSlot // Model is *StandardCheck
 
 	// ---- Phase 2 slots (additive; design-only until projectDesignManager is built) ----

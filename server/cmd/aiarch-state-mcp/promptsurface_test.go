@@ -67,6 +67,7 @@ func registryToolNames() map[string]bool {
 var promptSurfaceIgnore = map[string]string{
 	"getX":                 "property-operation placeholder in senior-developer.md contract doctrine",
 	"setX":                 "property-operation placeholder in senior-developer.md contract doctrine",
+	"getDesignHealth":      "render-on-read Design Health VIEW op on the webClient/customer surface, not an aiarch-state agent tool; named in doctrine describing where the live tier runs",
 	"submitReviewDecision": "example Client resume-call verb in the-method-architecture SKILL.md dynamic-view doctrine",
 }
 

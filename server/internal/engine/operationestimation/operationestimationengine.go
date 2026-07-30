@@ -40,7 +40,7 @@ import (
 	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 )
 
-// Output value objects (CostCurvePoint, UsageCostCurve, PayoutShortfallForecast,
+// Output value objects (CostCurvePoint, UsageCostCurve, CostSensitivityForecast,
 // OperationForecast, ScalePoint, WhatIfPoint, WhatIfCurve, CostProjection) are
 // owned by this Engine — computation results, not persisted head-state. Field
 // names are load-bearing: projectDesignManager and operationsManager depend on
@@ -215,10 +215,10 @@ func (OperationEstimationEngineImpl) EstimateForOption(
 
 	forecast := OperationForecast{
 		UsageCostCurve: curve,
-		PayoutVsShortfallForecast: PayoutShortfallForecast{
-			ExpectedPerCycleNet: minorUnits(roundToMinorUnits(expectedNetCents), currency),
-			SensitivityLow:      minorUnits(roundToMinorUnits(netLowCostCents), currency),
-			SensitivityHigh:     minorUnits(roundToMinorUnits(netHighCostCents), currency),
+		CostSensitivityForecast: CostSensitivityForecast{
+			ExpectedPerCycleCharge: minorUnits(roundToMinorUnits(expectedNetCents), currency),
+			SensitivityLow:         minorUnits(roundToMinorUnits(netLowCostCents), currency),
+			SensitivityHigh:        minorUnits(roundToMinorUnits(netHighCostCents), currency),
 		},
 	}
 	return forecast, nil

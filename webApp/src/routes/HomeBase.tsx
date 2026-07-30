@@ -26,8 +26,11 @@ import { ArtifactPane } from '../components/ArtifactPane';
 import { StageChip } from '../components/StageChip';
 import { ErrorAlert } from '../components/shared/ErrorAlert';
 import { CommentProvider } from '../components/comments/CommentContext';
+import { CommittedSlotsProvider } from '../components/CommittedSlotsContext';
+import { StructureFindingsProvider } from '../components/flow/StructureFindingsContext';
 import { StaleBasisMarker } from '../components/design/StaleBasisChip';
 import { ApiError } from '../contracts/errors';
+import { useDesignHealth } from '../hooks/useDesignHealth';
 import { useProject } from '../hooks/useProject';
 import { useCreateProject } from '../hooks/useCreateProject';
 import { useSetReviewPolicy } from '../hooks/useConstructionMutations';
@@ -221,6 +224,10 @@ function HomeBaseBody({
   const t = useTokens();
   const navigate = useNavigate();
   const setReviewPolicy = useSetReviewPolicy(projectId);
+  // Live Design-Health findings for the architecture diagram's structure-finding
+  // overlays (StructureFindingsProvider around the ArtifactPane below). Loading /
+  // error → undefined → the diagram renders overlay-free.
+  const { data: designHealth } = useDesignHealth(projectId);
 
   // SYSTEM-DESIGN ONLY — the eight Phase-1 artifacts, in Method order. No
   // project-design (network/solutions/SDP) or construction artifacts here.
@@ -423,12 +430,17 @@ function HomeBaseBody({
                   (it would need a per-slot session fetch). Skipped per the F41
                   gating: comment AFFORDANCES stay design-experience-only. */}
               <CommentProvider enabled={false}>
-                <ArtifactPane
-                  artifact={selected}
-                  envelope={selectedEnvelope}
-                  serviceContracts={project.serviceContracts}
-                  useCasesEnvelope={project.slots.find((s) => s.kind === 'coreUseCases')?.model}
-                />
+                <StructureFindingsProvider findings={designHealth?.findings}>
+                  <CommittedSlotsProvider slots={project.slots}>
+                    <ArtifactPane
+                      artifact={selected}
+                      envelope={selectedEnvelope}
+                      serviceContracts={project.serviceContracts}
+                      systemEnvelope={project.slots.find((s) => s.kind === 'system')?.model}
+                      useCasesEnvelope={project.slots.find((s) => s.kind === 'coreUseCases')?.model}
+                    />
+                  </CommittedSlotsProvider>
+                </StructureFindingsProvider>
               </CommentProvider>
             </>
           )}

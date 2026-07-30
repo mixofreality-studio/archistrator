@@ -9,6 +9,12 @@
  * this" button so a reviewer who wants to comment on the whole paragraph doesn't
  * have to select text. Business Objectives render through CommentableList with a
  * per-objective button anchoring `$.objectives[n]`. Bound to adapters.toMissionView.
+ *
+ * Ch.-5 traceability (reverse join): when the committed Deployment & Operations
+ * Model carries objectiveLinks, each objective row gains a quiet "realized by:"
+ * chip line naming the knobs that cite its number — chip-links to the Deployment
+ * & Operations step. The committed slot arrives via CommittedSlotsContext (the
+ * cross-slot delivery channel); objectives no knob cites render nothing extra.
  */
 import type { ReactNode } from 'react';
 import Box from '@mui/material/Box';
@@ -16,11 +22,15 @@ import Typography from '@mui/material/Typography';
 import IconButton from '@mui/material/IconButton';
 import Tooltip from '@mui/material/Tooltip';
 import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline';
-import { toMissionView } from '../contracts/adapters';
+import { toDeploymentOperationsView, toMissionView } from '../contracts/adapters';
+import { KNOB_LABELS, realizingKnobs, type ObjectiveLinks } from '../contracts/deploymentOpsLogic';
 import type { ArtifactModelEnvelope } from '../contracts/types';
 import { CommentableList } from './comments/CommentableList';
 import { useComments, missionObjectiveAnchor, missionProseAnchor } from './comments/CommentContext';
+import { useCommittedSlotEnvelope } from './CommittedSlotsContext';
+import { StepLink } from './shared/StepLink';
 import { useTokens } from '../utilities/theme/ThemeContext';
+import { UI_IDENTIFIERS } from '../utilities/constants/UIIdentifiers';
 
 function SectionHeading({ children }: { children: ReactNode }): ReactNode {
   const t = useTokens();
@@ -71,7 +81,10 @@ function ProseSection({
           display: 'flex',
           alignItems: 'flex-start',
           gap: 1,
-          '& .commentable-section-action': { opacity: revealed ? 1 : 0, transition: 'opacity 120ms' },
+          '& .commentable-section-action': {
+            opacity: revealed ? 1 : 0,
+            transition: 'opacity 120ms',
+          },
           '&:hover .commentable-section-action, &:focus-within .commentable-section-action': {
             opacity: 1,
           },
@@ -83,15 +96,22 @@ function ProseSection({
           // surface the prose carries no comment scaffolding at all.
           data-artifact-kind={enabled ? 'mission' : undefined}
           data-commentable={enabled ? section : undefined}
-          sx={{ flexGrow: 1, minWidth: 0, fontSize: '0.98rem', lineHeight: 1.65, color: t.ink, fontFamily: t.body }}
+          sx={{
+            flexGrow: 1,
+            minWidth: 0,
+            fontSize: '0.98rem',
+            lineHeight: 1.65,
+            color: t.ink,
+            fontFamily: t.body,
+          }}
         >
           {text}
         </Typography>
         {enabled ? (
           <Tooltip title={`Comment on ${heading}`}>
             <IconButton
-              className="commentable-section-action"
               aria-label={`Comment on ${heading}`}
+              className="commentable-section-action"
               size="small"
               sx={{
                 flexShrink: 0,
@@ -119,6 +139,54 @@ function ProseSection({
   );
 }
 
+/**
+ * The quiet "realized by" line under one objective: the Deployment & Operations
+ * knobs whose objectiveLinks cite this objective's number, as chip-links to that
+ * step. Nothing renders when no knob cites it (coverage is the server's job) or
+ * when the committed state predates objectiveLinks.
+ */
+function RealizedBy({ objNumber, links }: { objNumber: number; links: ObjectiveLinks }): ReactNode {
+  const t = useTokens();
+  const knobs = realizingKnobs(links, objNumber);
+  if (knobs.length === 0) return null;
+  return (
+    <Box
+      data-testid={UI_IDENTIFIERS.Mission.realizedBy(objNumber)}
+      sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', gap: 0.6, mt: 0.5 }}
+    >
+      <Typography
+        component="span"
+        sx={{ fontFamily: t.mono, fontSize: 10, color: t.muted, letterSpacing: '0.04em' }}
+      >
+        realized by:
+      </Typography>
+      {knobs.map((knob) => (
+        <StepLink
+          key={knob}
+          kind="operationalConcepts"
+          label={`${KNOB_LABELS[knob]} — realizes objective ${String(objNumber)}`}
+          sx={{
+            px: 0.7,
+            py: 0.15,
+            borderRadius: 1,
+            border: `1px solid ${t.line}`,
+            bgcolor: t.paperAlt,
+            fontFamily: t.mono,
+            fontSize: 10,
+            color: t.accent2,
+            letterSpacing: '0.02em',
+            '&:hover': { borderColor: t.accent, textDecoration: 'underline' },
+          }}
+          testId={UI_IDENTIFIERS.Mission.realizedLink(objNumber, knob)}
+          underline="none"
+        >
+          {KNOB_LABELS[knob]}
+        </StepLink>
+      ))}
+    </Box>
+  );
+}
+
 export function MissionView({
   envelope,
 }: {
@@ -127,6 +195,12 @@ export function MissionView({
   const t = useTokens();
   const { vision, objectives, mission } = toMissionView(envelope);
   const objs = objectives ?? [];
+
+  // The committed Deployment & Operations slot (cross-slot delivery channel) —
+  // its objectiveLinks drive the per-objective "realized by" reverse join.
+  // Undefined without a provider / before that slot commits → rows render bare.
+  const depOpsEnvelope = useCommittedSlotEnvelope('operationalConcepts');
+  const objectiveLinks = toDeploymentOperationsView(depOpsEnvelope)?.objectiveLinks;
 
   if (vision === '' && objs.length === 0 && mission === '') {
     return (
@@ -168,12 +242,15 @@ export function MissionView({
                 >
                   {o.number}.
                 </Typography>
-                <Typography
-                  component="span"
-                  sx={{ color: t.ink, fontFamily: t.body, lineHeight: 1.6 }}
-                >
-                  {o.statement}
-                </Typography>
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography
+                    component="span"
+                    sx={{ color: t.ink, fontFamily: t.body, lineHeight: 1.6 }}
+                  >
+                    {o.statement}
+                  </Typography>
+                  <RealizedBy links={objectiveLinks} objNumber={o.number} />
+                </Box>
               </Box>
             )}
           />

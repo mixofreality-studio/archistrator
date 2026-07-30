@@ -20,20 +20,21 @@ import (
 
 // allowedTopLevel is the exhaustive set of tracked top-level path segments.
 var allowedTopLevel = map[string]bool{
-	".aiarch":     true,
-	".claude":     true,
-	".github":     true,
-	".gitignore":  true,
-	"docs":        true,
-	"go.work":     true,
-	"go.work.sum": true,
-	"PUSH-APP.sh": true,
-	"README.md":   true,
-	"scripts":     true,
-	"server":      true,
-	"systemtests": true,
-	"uitests":     true,
-	"webApp":      true,
+	".aiarch":       true,
+	".claude":       true,
+	".github":       true,
+	".gitignore":    true,
+	".golangci.yml": true,
+	"docs":          true,
+	"go.work":       true,
+	"go.work.sum":   true,
+	"PUSH-APP.sh":   true,
+	"README.md":     true,
+	"scripts":       true,
+	"server":        true,
+	"systemtests":   true,
+	"uitests":       true,
+	"webApp":        true,
 }
 
 // allowedCmd is the exhaustive set of immediate subdirectory names under

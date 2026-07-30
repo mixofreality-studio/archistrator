@@ -72,6 +72,10 @@ export const BOUNDARY_RULES = [
 export const LEGACY_COMPONENTS_HOOKS_FILES = [
   'src/components/AppShell.tsx',
   'src/components/CreateProjectDialog.tsx',
+  // DesignHealthView self-fetches getDesignHealth + the project (review policy for
+  // the client-side seal), the same step-view pattern as OperationalConceptsView
+  // below; burns down WITH it when the step views are containerized (Task 8).
+  'src/components/DesignHealthView.tsx',
   'src/components/OperationalConceptsView.tsx',
   'src/components/ProjectMenu.tsx',
   'src/components/VolatilityMap.tsx',

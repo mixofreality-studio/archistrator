@@ -24,14 +24,16 @@ import TextField from '@mui/material/TextField';
 import Alert from '@mui/material/Alert';
 import AlertTitle from '@mui/material/AlertTitle';
 import { toC4View, type C4Component, type C4Relationship } from '../../contracts/adapters';
-import type { ArtifactModelEnvelope } from '../../contracts/types';
+import type { ArtifactModelEnvelope, Finding } from '../../contracts/types';
 import { useTokens } from '../../utilities/theme/ThemeContext';
 import type { Tokens } from '../../utilities/theme/themes';
+import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 import {
   type Layer,
   LAYER_ORDER,
   LAYER_LABEL,
   layerColors,
+  severityColor,
   computeLayout,
   decorativeNodes,
   c4Node,
@@ -39,6 +41,15 @@ import {
   sortByLayoutPosition,
   type Layout,
 } from './flowLayout';
+import {
+  EMPTY_STRUCTURE_OVERLAYS,
+  computeStructureOverlays,
+  edgeOverlayKey,
+  maxSeverity,
+  structureFindingsChipLabel,
+  type StructureOverlays,
+} from './findingOverlays';
+import { StepLink } from '../shared/StepLink';
 import { LayerLegend, FlowCanvas, FlowEmpty, FocusNodes } from './flowShared';
 import { relationshipAnchor, useComments, type Anchor } from '../comments/CommentContext';
 
@@ -114,7 +125,8 @@ function derive(
   model: Model,
   hoveredId: string | null,
   selectedId: string | null,
-  t: Tokens
+  t: Tokens,
+  overlays: StructureOverlays
 ): { nodes: Node[]; edges: Edge[] } {
   const { components, relationships, layout, layerOf, colors } = model;
   const near = hoveredId !== null ? neighbourhood(hoveredId, relationships) : null;
@@ -129,7 +141,12 @@ function derive(
     // Controlled selection (no onNodesChange): mark the pinned node via data so its
     // NodeToolbar Comment button shows — the explicit comment affordance now that a
     // plain click only selects/highlights and no longer silently arms an anchor.
-    return c4Node(c, pos, colors, { dimmed, selected: c.id === selectedId });
+    const findings = overlays.nodes.get(c.id);
+    return c4Node(c, pos, colors, {
+      dimmed,
+      selected: c.id === selectedId,
+      ...(findings !== undefined ? { findings } : {}),
+    });
   });
   nodes.push(...decorativeNodes(layout));
 
@@ -141,14 +158,23 @@ function derive(
       const incident = hoveredId !== null && (r.from === hoveredId || r.to === hoveredId);
       const dashed = r.mode !== 'sync'; // queued / pub-sub calls render dashed
       const comment = edgeAnchor(r, nameOf);
+      // Design-Health structure findings on this relationship: severity stroke +
+      // midpoint badge (flowEdge/LayeredStepEdge carry them through edge data).
+      const findings = overlays.edges.get(edgeOverlayKey(r.from, r.to));
+      const findingOpts = findings !== undefined ? { findings } : {};
       if (hoveredId === null)
-        return flowEdge(edgeId(r, i), r.from, r.to, r.label, t, { dashed, comment });
+        return flowEdge(edgeId(r, i), r.from, r.to, r.label, t, {
+          dashed,
+          comment,
+          ...findingOpts,
+        });
       // Hover: only the hovered node's own edges stay; the rest fade out.
       return flowEdge(edgeId(r, i), r.from, r.to, r.label, t, {
         hidden: !incident,
         variant: incident ? 'focus' : 'muted',
         dashed,
         comment,
+        ...findingOpts,
       });
     });
 
@@ -158,21 +184,33 @@ function derive(
 export function ArchitectureFlow({
   envelope,
   height = 600,
+  findings,
 }: {
   envelope: ArtifactModelEnvelope | undefined;
   height?: number;
+  /** Design-Health findings to join onto the diagram (findingOverlays): offending
+   *  edges/nodes get severity treatment + badges, the legend a count chip linking
+   *  to the Design Health step. Absent/empty → no overlays (graceful). */
+  findings?: Finding[];
 }): ReactNode {
   const t = useTokens();
   const { setAnchor } = useComments();
   const model = useMemo(() => buildModel(envelope, t), [envelope, t]);
+  const overlays = useMemo(
+    () =>
+      findings === undefined || findings.length === 0
+        ? EMPTY_STRUCTURE_OVERLAYS
+        : computeStructureOverlays(findings, model.components, model.relationships),
+    [findings, model]
+  );
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   // A component pinned via the finder / a click (keyboard + touch reach the
   // neighbourhood highlight this way, not only mouse hover). Hover wins while active.
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const activeId = hoveredId ?? selectedId;
   const { nodes, edges } = useMemo(
-    () => derive(model, activeId, selectedId, t),
-    [model, activeId, selectedId, t]
+    () => derive(model, activeId, selectedId, t, overlays),
+    [model, activeId, selectedId, t, overlays]
   );
 
   // Finder options: all components, grouped by Method layer, alpha within layer.
@@ -193,6 +231,38 @@ export function ArchitectureFlow({
     for (const c of model.components) counts[c.layer] += 1;
     return counts;
   }, [model.components]);
+
+  // The legend's structure-findings count chip: a quiet StepLink into the Design
+  // Health step (where the full finding list lives). Severity-tinted by the
+  // loudest attached finding; absent when the diagram carries no overlays.
+  const overallSeverity = useMemo(
+    () => maxSeverity([...overlays.edges.values(), ...overlays.nodes.values()].flat()),
+    [overlays]
+  );
+  const findingChip =
+    overlays.attachedCount > 0 ? (
+      <Box sx={{ mt: 0.25, pt: 0.75, borderTop: `1px solid ${t.line}` }}>
+        <StepLink
+          kind="standardCheck"
+          label={structureFindingsChipLabel(overlays.attachedCount)}
+          sx={{
+            fontFamily: t.mono,
+            fontSize: 10.5,
+            fontWeight: 700,
+            color: severityColor(t, overallSeverity),
+            border: `1.5px solid ${severityColor(t, overallSeverity)}`,
+            borderRadius: 1,
+            px: 0.75,
+            py: 0.25,
+            display: 'inline-block',
+          }}
+          testId={UI_IDENTIFIERS.Architecture.FINDING_COUNT}
+          underline="none"
+        >
+          {structureFindingsChipLabel(overlays.attachedCount)}
+        </StepLink>
+      </Box>
+    ) : undefined;
 
   // Hover focus, debounced: moving the cursor between two nodes briefly crosses
   // empty canvas (firing mouse-leave then mouse-enter). Clearing immediately would
@@ -281,6 +351,7 @@ export function ArchitectureFlow({
           counts={layerCounts}
           t={t}
           usedLayers={model.usedLayers}
+          {...(findingChip !== undefined ? { footer: findingChip } : {})}
         />
         {selectedId !== null && <FocusNodes dep={selectedId} nodeIds={[selectedId]} />}
       </FlowCanvas>

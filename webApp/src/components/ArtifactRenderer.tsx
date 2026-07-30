@@ -23,7 +23,7 @@ import { Prose } from './Prose';
 import { GlossaryView } from './GlossaryView';
 import { MissionView } from './MissionView';
 import { ScrubbedRequirementsView } from './ScrubbedRequirementsView';
-import { StandardCheckView } from './StandardCheckView';
+import { DesignHealthView } from './DesignHealthView';
 import { VolatilityMap } from './VolatilityMap';
 import { ArchitectureView } from './flow/ArchitectureView';
 import { OperationalConceptsView } from './OperationalConceptsView';
@@ -37,6 +37,7 @@ export function ArtifactRenderer({
   fill = false,
   serviceContracts,
   useCasesEnvelope,
+  systemEnvelope,
 }: {
   envelope: ArtifactModelEnvelope | undefined;
   /** Human label used as the prose comment source / fallback. */
@@ -57,6 +58,9 @@ export function ArtifactRenderer({
   /** The committed coreUseCases envelope, when available: lets the Architecture
    *  view label blank-titled dynamic views by their linked use case (F-QA2-51). */
   useCasesEnvelope?: ArtifactModelEnvelope | undefined;
+  /** The committed System envelope, when available: lets the use-case carousel
+   *  offer the "View call chain" join into the Architecture step's Dynamic lens. */
+  systemEnvelope?: ArtifactModelEnvelope | undefined;
 }): ReactNode {
   return (
     <Box
@@ -66,7 +70,15 @@ export function ArtifactRenderer({
         fill ? { flexGrow: 1, minHeight: 0, display: 'flex', flexDirection: 'column' } : undefined
       }
     >
-      {renderBody(envelope, title, height, fill, serviceContracts, useCasesEnvelope)}
+      {renderBody(
+        envelope,
+        title,
+        height,
+        fill,
+        serviceContracts,
+        useCasesEnvelope,
+        systemEnvelope
+      )}
     </Box>
   );
 }
@@ -77,7 +89,8 @@ function renderBody(
   height: number | undefined,
   fill: boolean,
   serviceContracts: ServiceContracts | undefined,
-  useCasesEnvelope: ArtifactModelEnvelope | undefined
+  useCasesEnvelope: ArtifactModelEnvelope | undefined,
+  systemEnvelope: ArtifactModelEnvelope | undefined
 ): ReactNode {
   const kind = envelope?.kind;
   switch (kind) {
@@ -94,7 +107,11 @@ function renderBody(
     case 'scrubbedRequirements':
       return <ScrubbedRequirementsView envelope={envelope} />;
     case 'standardCheck':
-      return <StandardCheckView envelope={envelope} />;
+      // Step 8 is now the render-on-read Design Health dashboard (Wave-2 reshape 3),
+      // not the committed Standard Check teardown. It self-fetches getDesignHealth off
+      // the route's projectId, so the committed `envelope` (empty in the new model) is
+      // unused here.
+      return <DesignHealthView />;
     case 'volatilities':
       return <VolatilityMap envelope={envelope} />;
     case 'system':
@@ -107,7 +124,7 @@ function renderBody(
         />
       );
     case 'coreUseCases':
-      return <UseCaseCarousel envelope={envelope} />;
+      return <UseCaseCarousel envelope={envelope} systemEnvelope={systemEnvelope} />;
     case 'operationalConcepts':
       return (
         <OperationalConceptsView

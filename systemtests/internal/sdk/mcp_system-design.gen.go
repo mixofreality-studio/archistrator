@@ -49,6 +49,16 @@ func (c *MCPClient) SystemDesignGetSessionState(ctx context.Context, projectID P
 	return mcpCallResult[SystemDesignSessionStateView](c, ctx, "systemDesignGetSessionState", SystemDesignGetSessionStateInput{ProjectID: projectID, Kind: kind})
 }
 
+// SystemDesignGetDesignHealthInput is the MCP tool-call argument object for systemDesignGetDesignHealth.
+type SystemDesignGetDesignHealthInput struct {
+	ProjectID ProjectID `json:"projectID"`
+}
+
+// SystemDesignGetDesignHealth calls the systemDesignGetDesignHealth tool on the SystemDesign manager over MCP.
+func (c *MCPClient) SystemDesignGetDesignHealth(ctx context.Context, projectID ProjectID) (DesignHealth, error) {
+	return mcpCallResult[DesignHealth](c, ctx, "systemDesignGetDesignHealth", SystemDesignGetDesignHealthInput{ProjectID: projectID})
+}
+
 // SystemDesignListProjectsInput is the MCP tool-call argument object for systemDesignListProjects.
 type SystemDesignListProjectsInput struct {
 	Owner OwnerScope `json:"owner"`

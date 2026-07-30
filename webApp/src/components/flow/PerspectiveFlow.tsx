@@ -9,8 +9,9 @@
  * preserves comment anchoring through C4Node.
  */
 import { useMemo, type ReactNode } from 'react';
-import type { Edge, Node } from '@xyflow/react';
+import type { Edge, Node, NodeMouseHandler } from '@xyflow/react';
 import { toPerspective, type C4Component, type C4View } from '../../contracts/adapters';
+import type { Finding } from '../../contracts/types';
 import { useTokens } from '../../utilities/theme/ThemeContext';
 import type { Tokens } from '../../utilities/theme/themes';
 import {
@@ -21,11 +22,21 @@ import {
   layerColors,
   sortByLayoutPosition,
 } from './flowLayout';
+import {
+  EMPTY_STRUCTURE_OVERLAYS,
+  computeStructureOverlays,
+  edgeOverlayKey,
+  type StructureOverlays,
+} from './findingOverlays';
 import { FlowCanvas, FlowEmpty } from './flowShared';
-import { useComments, componentAnchor } from '../comments/CommentContext';
 import type { C4NodeData } from './C4Node';
 
-function build(view: C4View, componentId: string, t: Tokens): { nodes: Node[]; edges: Edge[] } {
+function build(
+  view: C4View,
+  componentId: string,
+  t: Tokens,
+  overlays: StructureOverlays
+): { nodes: Node[]; edges: Edge[] } {
   const { focus, inbound, outbound } = toPerspective(view, componentId);
   if (focus === undefined) return { nodes: [], edges: [] };
 
@@ -57,12 +68,14 @@ function build(view: C4View, componentId: string, t: Tokens): { nodes: Node[]; e
   // DOM/tab order matches what the eye sees, not focus-then-neighbours order.
   const nodes: Node[] = sortByLayoutPosition(subset, layout).map((c) => {
     const isFocus = c.id === focus.id;
+    const findings = overlays.nodes.get(c.id);
     // Only the focused node carries its (2-line clamped) volatility preview; the
     // neighbours render names + layer tag ONLY, so their prose can never overlap or
     // hide the focus node's title — the focus keeps its detail in-node + on hover,
     // matching the Static/Dynamic lens treatment.
     const base = c4Node(c, layout.pos.get(c.id) ?? { x: 0, y: 0 }, colors, {
       showEncapsulates: isFocus,
+      ...(findings !== undefined ? { findings } : {}),
     });
     if (isFocus) {
       return {
@@ -86,7 +99,13 @@ function build(view: C4View, componentId: string, t: Tokens): { nodes: Node[]; e
       .replace(/\s+/g, '-')
       .replace(/[^a-z0-9-]/g, '');
     const id = slug ? `${r.from}-${r.to}-${slug}` : `${r.from}-${r.to}-${String(i)}`;
-    edges.push(flowEdge(id, r.from, r.to, r.label, t, { dashed: r.mode !== 'sync' }));
+    const findings = overlays.edges.get(edgeOverlayKey(r.from, r.to));
+    edges.push(
+      flowEdge(id, r.from, r.to, r.label, t, {
+        dashed: r.mode !== 'sync',
+        ...(findings !== undefined ? { findings } : {}),
+      })
+    );
   }
 
   return { nodes, edges };
@@ -96,19 +115,52 @@ export function PerspectiveFlow({
   view,
   componentId,
   height = 600,
+  onFocusComponent,
+  findings,
 }: {
   view: C4View;
   /** The id of the component to focus on. */
   componentId: string;
   height?: number;
+  /** Re-point the perspective onto another component. When set, clicking a neighbour
+   *  node re-focuses the view onto it. */
+  onFocusComponent?: (componentId: string) => void;
+  /** Design-Health findings to join onto the focused neighbourhood (same overlay
+   *  treatment as the Static lens). Absent/empty → no overlays (graceful). */
+  findings?: Finding[];
 }): ReactNode {
   const t = useTokens();
-  const { setAnchor } = useComments();
-  const { nodes, edges } = useMemo(() => build(view, componentId, t), [view, componentId, t]);
+  const overlays = useMemo(
+    () =>
+      findings === undefined || findings.length === 0
+        ? EMPTY_STRUCTURE_OVERLAYS
+        : computeStructureOverlays(findings, view.components, view.relationships),
+    [findings, view]
+  );
+  const { nodes, edges } = useMemo(
+    () => build(view, componentId, t, overlays),
+    [view, componentId, t, overlays]
+  );
 
   if (nodes.length === 0) {
     return <FlowEmpty label="Select a component to focus on." t={t} />;
   }
+
+  // Clicking a NEIGHBOUR re-points the perspective onto it (more useful than arming a
+  // comment). Commenting stays on the always-available node toolbar / Enter-'c' path
+  // (per ArchitectureFlow's select-not-comment rule), so a bare click never steals it.
+  // Clicking the already-focused centre node is a no-op — the view is already there.
+  // Only wired when a re-focus callback exists; conditionally SPREAD (not passed as
+  // explicit `undefined`) so it satisfies FlowCanvas's `onNodeClick?: NodeMouseHandler`
+  // under exactOptionalPropertyTypes — the same shape FlowCanvas forwards to ReactFlow.
+  const onNodeClick: NodeMouseHandler | undefined =
+    onFocusComponent !== undefined
+      ? (_e, n): void => {
+          if (n.type !== 'c4') return;
+          const d = n.data as C4NodeData;
+          if (d.componentId !== componentId) onFocusComponent(d.componentId);
+        }
+      : undefined;
 
   return (
     <FlowCanvas
@@ -116,16 +168,7 @@ export function PerspectiveFlow({
       height={height}
       nodes={nodes}
       t={t}
-      onNodeClick={(_e, n) => {
-        if (n.type !== 'c4') return;
-        const d = n.data as C4NodeData;
-        setAnchor({
-          kind: 'node',
-          label: d.name,
-          source: `Architecture · ${d.name}`,
-          jsonPath: componentAnchor(d.componentId),
-        });
-      }}
+      {...(onNodeClick !== undefined ? { onNodeClick } : {})}
     />
   );
 }

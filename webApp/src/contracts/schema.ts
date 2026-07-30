@@ -436,6 +436,22 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/v1/system-design/get-design-health/{projectID}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['GetDesignHealth'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/v1/system-design/get-project/{projectID}': {
     parameters: {
       query?: never;
@@ -705,12 +721,18 @@ export interface components {
       buildStatus?: null | string;
       contractKey?: null | string;
       encapsulates: string;
+      encapsulatesVolatilities?: null | string[];
       id: string;
       /** @enum {string} */
       kind: 'client' | 'manager' | 'engine' | 'resourceAccess' | 'resource' | 'utility';
       /** @enum {string} */
       layer: 'client' | 'manager' | 'engine' | 'resourceAccess' | 'resource' | 'utility';
       name: string;
+    };
+    ModelConstructionVenue: {
+      kind: string;
+      note?: null | string;
+      repositoryHost?: null | string;
     };
     ModelContainerInstance: {
       containerKey: string;
@@ -744,6 +766,18 @@ export interface components {
       tags: null | string[];
       technology: string;
     };
+    ModelDeploymentOperationsModel: {
+      constructionVenue: components['schemas']['ModelConstructionVenue'];
+      deployment: components['schemas']['ModelDeploymentTopology'];
+      deploymentScenario: string;
+      infraBuildingBlocks?: null | components['schemas']['ModelInfraBlock'][];
+      objectiveLinks?: {
+        [key: string]: null | number[];
+      };
+      reviewPolicyRef: string;
+      scalingPolicy?: unknown;
+      trustSummaries: components['schemas']['ModelTrustSummaries'];
+    };
     ModelDeploymentTopology: {
       containers: null | components['schemas']['ModelDeployContainer'][];
       /** @enum {string} */
@@ -764,6 +798,11 @@ export interface components {
       category: string;
       definition: string;
       term: string;
+    };
+    ModelInfraBlock: {
+      category: string;
+      name: string;
+      status: string;
     };
     ModelInfrastructureNode: {
       description: string;
@@ -824,15 +863,6 @@ export interface components {
       number: number;
       statement: string;
     };
-    ModelOperationalConcepts: {
-      decisions: null | components['schemas']['ModelOperationalDecision'][];
-      deployment: components['schemas']['ModelDeploymentTopology'];
-    };
-    ModelOperationalDecision: {
-      decision: string;
-      justifyingObjective: number;
-      topic: string;
-    };
     ModelPlanningAssumptions: {
       calendarDaysPerWeek: number;
       declaredUsage: components['schemas']['ModelUsageAssumption'];
@@ -860,7 +890,9 @@ export interface components {
     };
     ModelRequirement: {
       id: string;
+      statedAs?: null | string[];
       statement: string;
+      volatilityHint?: null | string[];
     };
     ModelRiskModel: {
       maxCompressionPct: number;
@@ -996,9 +1028,16 @@ export interface components {
       items: null | components['schemas']['ModelCheckItem'][];
     };
     ModelSystem: {
+      attestations?: null | components['schemas']['ModelCheckItem'][];
       components: null | components['schemas']['ModelComponent'][];
       dynamicViews: null | components['schemas']['ModelDynamicView'][];
       relationships: null | components['schemas']['ModelRelationship'][];
+      waivers?: null | components['schemas']['ModelCheckItem'][];
+    };
+    ModelTrustSummaries: {
+      billing: string;
+      dataOwnership: string;
+      usageMetering: string;
     };
     ModelUsageAssumption: {
       avgPayloadBytes: number;
@@ -1017,12 +1056,14 @@ export interface components {
       variationOf: null | string;
     };
     ModelUseCaseDecision: {
+      essenceRationale?: null | string;
       rejectionReason: string;
       useCase: components['schemas']['ModelUseCase'];
     };
     ModelVolatilities: {
       items: null | components['schemas']['ModelVolatility'][];
       rejected?: null | components['schemas']['ModelRejectedVolatility'][];
+      waivers?: null | components['schemas']['ModelCheckItem'][];
     };
     ModelVolatility: {
       /** @enum {string} */
@@ -1172,10 +1213,10 @@ export interface components {
       model?:
         | components['schemas']['ModelActivityList']
         | components['schemas']['ModelCoreUseCases']
+        | components['schemas']['ModelDeploymentOperationsModel']
         | components['schemas']['ModelGlossary']
         | components['schemas']['ModelMissionStatement']
         | components['schemas']['ModelNetwork']
-        | components['schemas']['ModelOperationalConcepts']
         | components['schemas']['ModelPlanningAssumptions']
         | components['schemas']['ModelRiskModel']
         | components['schemas']['ModelScrubbedRequirements']
@@ -1316,10 +1357,10 @@ export interface components {
       model?:
         | components['schemas']['ModelActivityList']
         | components['schemas']['ModelCoreUseCases']
+        | components['schemas']['ModelDeploymentOperationsModel']
         | components['schemas']['ModelGlossary']
         | components['schemas']['ModelMissionStatement']
         | components['schemas']['ModelNetwork']
-        | components['schemas']['ModelOperationalConcepts']
         | components['schemas']['ModelPlanningAssumptions']
         | components['schemas']['ModelRiskModel']
         | components['schemas']['ModelScrubbedRequirements']
@@ -1343,6 +1384,13 @@ export interface components {
     SystemDesignArtifactStage: 0 | 1 | 2 | 3 | 4;
     /** @enum {integer} */
     SystemDesignCICheckState: 0 | 1 | 2;
+    SystemDesignCheckItem: {
+      guideline: string;
+      justification: string;
+      section: string;
+      /** @enum {string} */
+      status: 'pass' | 'waived' | 'fail';
+    };
     SystemDesignConstructionProgress: {
       EV: components['schemas']['SystemDesignEVCurve'];
       HandOffModel: string;
@@ -1386,15 +1434,21 @@ export interface components {
       severity: string;
       title: string;
     };
+    SystemDesignDesignHealth: {
+      attestations: components['schemas']['SystemDesignCheckItem'][];
+      evaluatedAtRevision: number;
+      findings: components['schemas']['SystemDesignFinding'][];
+      waivers: components['schemas']['SystemDesignCheckItem'][];
+    };
     SystemDesignDraftModel: {
       kind: string;
       model?:
         | components['schemas']['ModelActivityList']
         | components['schemas']['ModelCoreUseCases']
+        | components['schemas']['ModelDeploymentOperationsModel']
         | components['schemas']['ModelGlossary']
         | components['schemas']['ModelMissionStatement']
         | components['schemas']['ModelNetwork']
-        | components['schemas']['ModelOperationalConcepts']
         | components['schemas']['ModelPlanningAssumptions']
         | components['schemas']['ModelRiskModel']
         | components['schemas']['ModelScrubbedRequirements']
@@ -3988,6 +4042,91 @@ export interface operations {
         };
         content: {
           'application/json': components['schemas']['SystemDesignProjectID'];
+        };
+      };
+      /** @description contract misuse */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SystemDesignErrorResponse'];
+        };
+      };
+      /** @description unauthenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SystemDesignErrorResponse'];
+        };
+      };
+      /** @description forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SystemDesignErrorResponse'];
+        };
+      };
+      /** @description not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SystemDesignErrorResponse'];
+        };
+      };
+      /** @description failed precondition */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SystemDesignErrorResponse'];
+        };
+      };
+      /** @description internal error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SystemDesignErrorResponse'];
+        };
+      };
+      /** @description infrastructure unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SystemDesignErrorResponse'];
+        };
+      };
+    };
+  };
+  GetDesignHealth: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        projectID: components['schemas']['SystemDesignProjectID'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SystemDesignDesignHealth'];
         };
       };
       /** @description contract misuse */

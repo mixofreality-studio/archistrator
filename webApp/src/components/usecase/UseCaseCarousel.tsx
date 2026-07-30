@@ -23,10 +23,12 @@ import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline';
-import { toCoreUseCasesView } from '../../contracts/adapters';
+import { dynamicViewKeyForUseCase, toCoreUseCasesView } from '../../contracts/adapters';
 import type { ArtifactModelEnvelope } from '../../contracts/types';
+import { StepLink } from '../shared/StepLink';
 import { ActivityFlow } from './ActivityFlow';
 import { UseCaseWalkthrough } from './UseCaseWalkthrough';
+import { coreBand } from './coreBand';
 import { laneColors } from './laneColors';
 
 // Diagram-view mode survives the design-experience remount that would otherwise
@@ -43,8 +45,13 @@ import type { Tokens } from '../../utilities/theme/themes';
 
 export function UseCaseCarousel({
   envelope,
+  systemEnvelope,
 }: {
   envelope: ArtifactModelEnvelope | undefined;
+  /** The committed System envelope, when the caller has it: resolves each use
+   *  case's dynamic call-chain view for the "View call chain" join to the
+   *  Architecture step. Absent (older states / no system yet) → no link. */
+  systemEnvelope?: ArtifactModelEnvelope | undefined;
 }): ReactNode {
   const t = useTokens();
   const { setAnchor, enabled } = useComments();
@@ -68,6 +75,9 @@ export function UseCaseCarousel({
     setI((p) => (p + d + useCases.length) % useCases.length);
   };
   const isCore = uc.classification === 'core';
+  // The use-case → architecture navigable join: the System dynamic view that
+  // renders THIS use case's call chain, when one exists (undefined → no link).
+  const callChainKey = dynamicViewKeyForUseCase(systemEnvelope, uc.id);
   // A variation shares its parent's activity diagram; resolve the parent so the
   // no-diagram surface can name it and offer a jump instead of a generic blank.
   // Committed data carries the parent NAME (not the slug id), so match id OR exact
@@ -78,6 +88,10 @@ export function UseCaseCarousel({
       : -1;
   const parent = parentIndex >= 0 ? useCases[parentIndex] : undefined;
   const hasDiagram = uc.nodes.length > 0;
+  // Full-diagram mode's whole job is showing the entire flow, so the ~300px meta
+  // sidebar is dead weight there — collapse it to a compact header strip above the
+  // canvas and give the diagram the full row width. Walkthrough keeps the sidebar.
+  const fullDiagram = hasDiagram && mode === 'diagram';
 
   // Core / variation partition for the grouped picker + the summary line. Each entry
   // keeps its ORIGINAL index (the Select value) so grouping never breaks navigation.
@@ -91,6 +105,8 @@ export function UseCaseCarousel({
     if (u.variationOf.length === 0) return undefined;
     return useCases.find((p) => p.id === u.variationOf || p.name === u.variationOf)?.name;
   };
+  // Ch. 4 band context for the summary line: core count against the 2–6 target.
+  const band = coreBand(coreItems.length);
 
   return (
     <Box>
@@ -205,6 +221,16 @@ export function UseCaseCarousel({
       <Typography sx={{ fontFamily: t.mono, fontSize: 11.5, color: t.muted, mb: 1.5 }}>
         {coreItems.length} core of {useCases.length} use case{useCases.length === 1 ? '' : 's'}
         {variationItems.length > 0 ? ` · ${String(variationItems.length)} variations` : ''}
+        {' · '}
+        {/* Ch. 4 band context — informational while in band, the warning accent
+            when the core count falls outside 2–6 (abstraction likely failed). */}
+        <Box
+          component="span"
+          data-testid={UI_IDENTIFIERS.UseCaseCarousel.CORE_BAND}
+          sx={band.inBand ? undefined : { color: t.awaitingFg, fontWeight: 700 }}
+        >
+          {band.label}
+        </Box>
       </Typography>
 
       <Paper
@@ -215,7 +241,9 @@ export function UseCaseCarousel({
           flexDirection: { xs: 'column', md: 'row' },
         }}
       >
-        {/* meta sidebar */}
+        {/* meta sidebar — hidden in full-diagram mode (its facts move to the compact
+            header strip so the canvas gets the whole row). */}
+        {!fullDiagram && (
         <Box
           sx={{
             width: { xs: '100%', md: 300 },
@@ -240,10 +268,35 @@ export function UseCaseCarousel({
               mb: 2,
             }}
           />
+          {/* WHY this is core — the essence-of-the-business argument, symmetric to
+              the nonCore rejectionReason below. Absent on older states → no chrome. */}
+          {isCore && uc.essenceRationale.length > 0 ? (
+            <Typography
+              data-testid={UI_IDENTIFIERS.UseCaseCarousel.ESSENCE_RATIONALE}
+              sx={{ color: t.muted, fontSize: 13, lineHeight: 1.6, mb: 3 }}
+            >
+              {uc.essenceRationale}
+            </Typography>
+          ) : null}
           {!isCore && uc.rejectionReason.length > 0 && (
             <Typography sx={{ color: t.muted, fontSize: 13, lineHeight: 1.6, mb: 3 }}>
               {uc.rejectionReason}
             </Typography>
+          )}
+          {/* Navigable join → this use case's call chain (the Architecture step's
+              Dynamic lens, preselected via ?view=). No dynamic view → no link. */}
+          {callChainKey !== undefined && (
+            <Box sx={{ mb: 2.5 }}>
+              <StepLink
+                kind="system"
+                label={`${uc.name} call chain`}
+                search={{ view: callChainKey }}
+                sx={{ fontFamily: t.mono, fontSize: 12 }}
+                testId={UI_IDENTIFIERS.UseCaseCarousel.CALL_CHAIN_LINK}
+              >
+                View call chain →
+              </StepLink>
+            </Box>
           )}
           <Typography sx={{ color: t.muted, mb: 1 }} variant="subtitle2">
             SWIMLANES
@@ -265,6 +318,7 @@ export function UseCaseCarousel({
             ))}
           </Box>
         </Box>
+        )}
 
         {/* hero: walkthrough (choose-your-path) or the full diagram. When this use
             case owns no diagram, both tabs would render divergent "no diagram"
@@ -272,11 +326,100 @@ export function UseCaseCarousel({
         <Box sx={{ flexGrow: 1, minWidth: 0, p: 1.5 }}>
           {hasDiagram ? (
             <>
-              <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1.5 }}>
+              <Box
+                sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 1.5,
+                  mb: 1.5,
+                  justifyContent: fullDiagram ? 'space-between' : 'flex-end',
+                }}
+              >
+                {/* Compact header strip — replaces the sidebar in full-diagram mode:
+                    name + CORE/VARIATION chip inline, with the swimlane legend as a
+                    horizontal wrap row so none of it steals canvas width. */}
+                {fullDiagram ? (
+                  <Box
+                    sx={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 1,
+                      flexWrap: 'wrap',
+                      minWidth: 0,
+                    }}
+                  >
+                    <Typography
+                      sx={{
+                        fontFamily: t.display,
+                        fontWeight: 800,
+                        fontSize: 18,
+                        lineHeight: 1.1,
+                        color: t.ink,
+                      }}
+                    >
+                      {uc.name}
+                    </Typography>
+                    <Chip
+                      label={isCore ? 'CORE' : 'NON-CORE'}
+                      size="small"
+                      sx={{
+                        height: 20,
+                        fontSize: 10,
+                        bgcolor: isCore ? t.committedBg : t.awaitingBg,
+                        color: isCore ? t.committedFg : t.awaitingFg,
+                      }}
+                    />
+                    <Box
+                      sx={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        flexWrap: 'wrap',
+                        gap: 1,
+                        pl: 0.5,
+                      }}
+                    >
+                      {uc.lanes.map((l) => (
+                        <Box
+                          key={l}
+                          sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}
+                        >
+                          <Box
+                            sx={{
+                              width: 10,
+                              height: 10,
+                              bgcolor: colors[l],
+                              border: `1.5px solid ${t.line}`,
+                              flexShrink: 0,
+                            }}
+                          />
+                          <Typography
+                            sx={{ fontFamily: t.mono, fontSize: 11, color: t.muted }}
+                          >
+                            {l}
+                          </Typography>
+                        </Box>
+                      ))}
+                    </Box>
+                    {/* The sidebar is collapsed in full-diagram mode, so its
+                        call-chain join rides the header strip instead. */}
+                    {callChainKey !== undefined && (
+                      <StepLink
+                        kind="system"
+                        label={`${uc.name} call chain`}
+                        search={{ view: callChainKey }}
+                        sx={{ fontFamily: t.mono, fontSize: 11, flexShrink: 0 }}
+                        testId={UI_IDENTIFIERS.UseCaseCarousel.CALL_CHAIN_LINK}
+                      >
+                        View call chain →
+                      </StepLink>
+                    )}
+                  </Box>
+                ) : null}
                 <ToggleButtonGroup
                   exclusive
                   aria-label="Use case view mode"
                   size="small"
+                  sx={{ flexShrink: 0 }}
                   value={mode}
                   onChange={(_e, next: UcViewMode | null) => {
                     if (next !== null) {

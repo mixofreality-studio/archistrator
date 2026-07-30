@@ -43,7 +43,6 @@ type RoutingDirective int
 
 const (
 	RoutingDirectiveNoAction RoutingDirective = 0
-	RoutingDirectivePayout   RoutingDirective = 1
 	RoutingDirectiveCharge   RoutingDirective = 2
 )
 
@@ -56,8 +55,6 @@ func RoutingDirectiveName(v RoutingDirective) string {
 	switch v {
 	case RoutingDirectiveNoAction:
 		return "RoutingDirectiveNoAction"
-	case RoutingDirectivePayout:
-		return "RoutingDirectivePayout"
 	case RoutingDirectiveCharge:
 		return "RoutingDirectiveCharge"
 	default:

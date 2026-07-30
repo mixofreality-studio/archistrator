@@ -157,6 +157,11 @@ export const OP_BINDINGS = {
     path: '/api/v1/system-design/create-project',
     tool: 'systemDesignCreateProject',
   },
+  systemDesignGetDesignHealth: {
+    method: 'GET',
+    path: '/api/v1/system-design/get-design-health/{projectID}',
+    tool: 'systemDesignGetDesignHealth',
+  },
   systemDesignGetProject: {
     method: 'GET',
     path: '/api/v1/system-design/get-project/{projectID}',

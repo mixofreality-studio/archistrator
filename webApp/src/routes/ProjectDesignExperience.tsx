@@ -251,6 +251,21 @@ function ProjectDesignBody({
   const committedRevisions = committedSlot?.revisions;
   const committedStale = committedSlot?.staleBasis === true;
 
+  // Whether ProjectStepBody's committed-panel arm (below) is what renders: the
+  // CommittedArtifactPanel already carries a full-width "COMMITTED" strip with the
+  // actionable Amend button, so when it shows, the header's COMMITTED StageChip is a
+  // redundant second signal. Mirrors ProjectStepBody's early-return sequence up to the
+  // F-GTD-11 committed-panel guard (the SDP-committed arm renders its own content, not the
+  // panel, so it keeps the header chip). The strip wins, so suppress the chip when true.
+  const showsCommittedPanel =
+    !draftFailed &&
+    !generating &&
+    !(session.isLoading && view === undefined) &&
+    !(isSdpStep && committed) &&
+    (sessionMissing || stage === 'committed') &&
+    committed &&
+    committedEnvelope !== undefined;
+
   const selectStep = (i: number): void => {
     // Clear any held gate error so a prior step's failed decision never bleeds
     // onto the next step's gate (F79), then PUSH the target step's slug — the URL
@@ -458,14 +473,22 @@ function ProjectDesignBody({
               <Typography component="h1" sx={{ color: t.ink }} variant="h4">
                 {meta.title}
               </Typography>
-              <StageChip
-                stage={
-                  // An amendment awaiting review must read AWAITING YOU, not COMMITTED —
-                  // the body below is the DRAFT revision, and badging it committed made a
-                  // reviewer approve a rev-4 data-loss draft blind (F-GTD-9/F-GTD-10).
-                  stage === 'awaitingReview' ? 'awaitingReview' : committed ? 'committed' : 'empty'
-                }
-              />
+              {/* Suppressed when the committed-panel strip below already shows COMMITTED
+                  (+ Amend), so the header chip is not a duplicate signal. */}
+              {showsCommittedPanel ? null : (
+                <StageChip
+                  stage={
+                    // An amendment awaiting review must read AWAITING YOU, not COMMITTED —
+                    // the body below is the DRAFT revision, and badging it committed made a
+                    // reviewer approve a rev-4 data-loss draft blind (F-GTD-9/F-GTD-10).
+                    stage === 'awaitingReview'
+                      ? 'awaitingReview'
+                      : committed
+                        ? 'committed'
+                        : 'empty'
+                  }
+                />
+              )}
               {/* Staleness moved off the full-width amber banner into a compact
                   header chip + popover (parity with the System Design shell). */}
               {committed && committedStale ? (

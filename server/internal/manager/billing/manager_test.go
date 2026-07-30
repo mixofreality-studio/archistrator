@@ -21,15 +21,15 @@ package billing
 //   A10 gatewayIdempotencyKey is settle:{customerId}:{cycleId}
 //
 // B. OnboardWorkflow (workflow_test.go):
-//   B1  happy path: read → createConnectedAccount → bindGatewayLive →
-//                   registerSchedule; returns the resolved customerId
-//   B2  a missing billing aggregate (read NotFound) → FailedPrecondition; no gateway move
+//   B1  happy path: read → bindGatewayLive → registerSchedule (charge-only: no
+//                   connected-account creation); returns the resolved customerId
+//   B2  a missing billing aggregate (read NotFound) → FailedPrecondition; no gateway bind
 //
 // C. RegisterCustomerWorkflow (workflow_test.go):
 //   C1  happy path: validateStoredInstrument → registerCustomer; returns the customerId
 //
 // D. CloseCycleWorkflow (workflow_test.go) — the money spine:
-//   D1  Payout: net > 0 routes payoutCustomer + records settleCycle(Payout)
+//   D1  charge-only: net > 0 moves no money (no payout) + records settleCycle(NoAction)
 //   D2  Charge: net < 0 routes chargeCustomer (positive magnitude) + records settleCycle(Charge)
 //   D3  NoAction: net == 0 routes NOTHING + records settleCycle(NoAction)
 //   D4  exact money: the charge amount is the EXACT positive magnitude of the signed net
@@ -69,7 +69,6 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/billingstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/durableexecution"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/merchantgateway"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/revenueledger"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usage"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/testsuite"
@@ -213,7 +212,6 @@ func Test_WorkflowIDDerivation(t *testing.T) {
 func Test_RoutingDirectiveName(t *testing.T) {
 	cases := map[RoutingDirective]string{
 		RoutingDirectiveNoAction: "NoAction",
-		RoutingDirectivePayout:   "Payout",
 		RoutingDirectiveCharge:   "Charge",
 	}
 	for d, want := range cases {
@@ -334,44 +332,44 @@ func (f *fakeBillingState) ResettleCycle(_ fwra.Context, _ uuid.UUID, _ billings
 var _ billingstate.BillingStateAccess = (*fakeBillingState)(nil)
 
 // fakeRevenueLedger records appends + serves a scripted range. Satisfies the generated
-// revenueledger.RevenueLedgerAccess contract.
+// billingstate.RevenueLedgerAccess contract.
 type fakeRevenueLedger struct {
 	mu sync.Mutex
 
-	rangeEntries []revenueledger.RevenueEntry
-	inbound      []revenueledger.RevenueEntry
-	reversals    []revenueledger.ReversalEntry
+	rangeEntries []billingstate.RevenueEntry
+	inbound      []billingstate.RevenueEntry
+	reversals    []billingstate.ReversalEntry
 }
 
-func (r *fakeRevenueLedger) RecordInboundRevenue(_ fwra.Context, entry revenueledger.RevenueEntry) (revenueledger.EntryRef, error) {
+func (r *fakeRevenueLedger) RecordInboundRevenue(_ fwra.Context, entry billingstate.RevenueEntry) (billingstate.EntryRef, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.inbound = append(r.inbound, entry)
 	r.rangeEntries = append(r.rangeEntries, entry)
-	return revenueledger.EntryRef("ref"), nil
+	return billingstate.EntryRef("ref"), nil
 }
 
-func (r *fakeRevenueLedger) RecordReversal(_ fwra.Context, reversal revenueledger.ReversalEntry) (revenueledger.EntryRef, error) {
+func (r *fakeRevenueLedger) RecordReversal(_ fwra.Context, reversal billingstate.ReversalEntry) (billingstate.EntryRef, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.reversals = append(r.reversals, reversal)
 	// A reversal is a new negative fact appended to the same log readRange replays.
-	r.rangeEntries = append(r.rangeEntries, revenueledger.RevenueEntry{
+	r.rangeEntries = append(r.rangeEntries, billingstate.RevenueEntry{
 		CustomerID: reversal.CustomerID, CycleID: reversal.CycleID,
-		Kind: revenueledger.RevenueKindReversal, Amount: reversal.Amount, GatewayEventID: reversal.GatewayEventID,
+		Kind: billingstate.RevenueKindReversal, Amount: reversal.Amount, GatewayEventID: reversal.GatewayEventID,
 	})
-	return revenueledger.EntryRef("revref"), nil
+	return billingstate.EntryRef("revref"), nil
 }
 
-func (r *fakeRevenueLedger) ReadRange(_ fwra.Context, _ uuid.UUID, _ string) ([]revenueledger.RevenueEntry, error) {
+func (r *fakeRevenueLedger) ReadRange(_ fwra.Context, _ uuid.UUID, _ string) ([]billingstate.RevenueEntry, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	out := make([]revenueledger.RevenueEntry, len(r.rangeEntries))
+	out := make([]billingstate.RevenueEntry, len(r.rangeEntries))
 	copy(out, r.rangeEntries)
 	return out, nil
 }
 
-var _ revenueledger.RevenueLedgerAccess = (*fakeRevenueLedger)(nil)
+var _ billingstate.RevenueLedgerAccess = (*fakeRevenueLedger)(nil)
 
 // fakeUsage serves a scripted usage range. Satisfies usage.UsageAccess.
 type fakeUsage struct {
@@ -393,23 +391,15 @@ func (u *fakeUsage) RecordFinalUsage(_ fwra.Context, _ []usage.UsageEvent) ([]us
 var _ usage.UsageAccess = (*fakeUsage)(nil)
 
 // fakeGateway records money moves; declineCharge makes ChargeCustomer fail terminally
-// (RA Auth) the first declineChargeFirst times. Satisfies merchantgateway.MerchantGatewayAccess.
+// (RA Auth) the first declineChargeFirst times. Satisfies merchantgateway.MerchantGatewayAccess
+// (charge-only: ChargeCustomer + ValidateStoredInstrument).
 type fakeGateway struct {
 	mu sync.Mutex
 
 	declineChargeFirst int
 
-	payouts   []merchantgateway.Money
 	charges   []merchantgateway.Money
-	created   int
 	validated int
-}
-
-func (g *fakeGateway) PayoutCustomer(_ fwra.Context, _ uuid.UUID, amount merchantgateway.Money, _ string) error {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	g.payouts = append(g.payouts, amount)
-	return nil
 }
 
 func (g *fakeGateway) ChargeCustomer(_ fwra.Context, _ uuid.UUID, amount merchantgateway.Money, _ string) error {
@@ -421,13 +411,6 @@ func (g *fakeGateway) ChargeCustomer(_ fwra.Context, _ uuid.UUID, amount merchan
 	}
 	g.charges = append(g.charges, amount)
 	return nil
-}
-
-func (g *fakeGateway) CreateConnectedAccount(_ fwra.Context, _ uuid.UUID, _ string) (merchantgateway.GatewayBinding, error) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	g.created++
-	return merchantgateway.GatewayBinding{ConnectedAccountID: "acct-1"}, nil
 }
 
 func (g *fakeGateway) ValidateStoredInstrument(_ fwra.Context, _ uuid.UUID, _ string) error {
@@ -575,9 +558,7 @@ func registerActs(env *testsuite.TestWorkflowEnvironment, f *fakes) {
 	reg(acts.BillingStateSettleCycle, "billingStateAccess.settleCycle")
 	reg(acts.BillingStateResettleCycle, "billingStateAccess.resettleCycle")
 	reg(acts.UsageReadRange, "usageAccess.readRange")
-	reg(acts.MerchantGatewayPayoutCustomer, "merchantGatewayAccess.payoutCustomer")
 	reg(acts.MerchantGatewayChargeCustomer, "merchantGatewayAccess.chargeCustomer")
-	reg(acts.MerchantGatewayCreateConnectedAccount, "merchantGatewayAccess.createConnectedAccount")
 	reg(acts.MerchantGatewayValidateStoredInstrument, "merchantGatewayAccess.validateStoredInstrument")
 	reg(acts.DurableExecutionDeliverSignal, "durableExecutionAccess.deliverSignal")
 	reg(acts.DurableExecutionRegisterSchedule, "durableExecutionAccess.registerSchedule")
@@ -621,8 +602,8 @@ func engineUSD(minor int64) billingengine.Money {
 
 // ============================ B. OnboardWorkflow =============================
 
-// B1: happy path resolves the customer, creates the connected account, binds the
-// gateway, and registers the per-customer cycle Schedule.
+// B1: happy path resolves the customer, binds the gateway customer reference
+// (charge-only: no connected-account creation), and registers the per-customer cycle Schedule.
 func Test_Onboard_HappyPath(t *testing.T) {
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
@@ -644,9 +625,6 @@ func Test_Onboard_HappyPath(t *testing.T) {
 	}
 	if ref.CustomerID != cid {
 		t.Fatalf("want resolved customerId %s, got %s", cid, ref.CustomerID)
-	}
-	if f.gateway.created != 1 {
-		t.Fatalf("want one connected account, got %d", f.gateway.created)
 	}
 	if len(f.state.bound) != 1 {
 		t.Fatalf("want one bindGatewayLive, got %d", len(f.state.bound))
@@ -672,8 +650,8 @@ func Test_Onboard_NoAggregate_FailedPrecondition(t *testing.T) {
 	if env.GetWorkflowError() == nil {
 		t.Fatal("want a FailedPrecondition error for a missing billing aggregate")
 	}
-	if f.gateway.created != 0 {
-		t.Fatalf("nothing must be created on a failed pre-condition, got %d", f.gateway.created)
+	if len(f.state.bound) != 0 {
+		t.Fatalf("nothing must be bound on a failed pre-condition, got %d", len(f.state.bound))
 	}
 }
 
@@ -704,15 +682,16 @@ func Test_Register_HappyPath(t *testing.T) {
 
 // ============================ D. CloseCycleWorkflow (money spine) ============
 
-// D1: a positive net routes a payout and records settleCycle(Payout).
-func Test_Close_Payout(t *testing.T) {
+// D1: charge-only — a positive net moves no money (no payout) and records
+// settleCycle(NoAction).
+func Test_Close_PositiveNet_NoAction(t *testing.T) {
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
 
 	deps, f := baseDeps()
 	cid := uuid.New()
 	f.state.billing = boundBilling(cid, 3)
-	f.engine.computeResult = billingengine.BillingResult{SignedNet: engineUSD(5000), RoutingDirective: billingengine.RoutingPayout}
+	f.engine.computeResult = billingengine.BillingResult{SignedNet: engineUSD(5000), RoutingDirective: billingengine.RoutingNoAction}
 	wf := newWorkflows(deps)
 	registerClose(env, wf, f)
 
@@ -723,17 +702,14 @@ func Test_Close_Payout(t *testing.T) {
 	}
 	var res CloseCycleResult
 	_ = env.GetWorkflowResult(&res)
-	if res.Routed != RoutingDirectivePayout {
-		t.Fatalf("want Routed=Payout, got %s", routingDirectiveName(res.Routed))
-	}
-	if len(f.gateway.payouts) != 1 || f.gateway.payouts[0].MinorUnits != 5000 {
-		t.Fatalf("want one payout of 5000, got %v", f.gateway.payouts)
+	if res.Routed != RoutingDirectiveNoAction {
+		t.Fatalf("want Routed=NoAction, got %s", routingDirectiveName(res.Routed))
 	}
 	if len(f.gateway.charges) != 0 {
-		t.Fatalf("payout must not charge, got %v", f.gateway.charges)
+		t.Fatalf("a positive net must move no money (charge-only, no payout), got charges=%v", f.gateway.charges)
 	}
-	if len(f.state.settled) != 1 || f.state.settled[0].Directive != billingstate.RoutingPayout {
-		t.Fatalf("want one settleCycle(Payout), got %v", f.state.settled)
+	if len(f.state.settled) != 1 || f.state.settled[0].Directive != billingstate.RoutingNoAction {
+		t.Fatalf("want one settleCycle(NoAction), got %v", f.state.settled)
 	}
 }
 
@@ -787,8 +763,8 @@ func Test_Close_NoAction(t *testing.T) {
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("workflow error: %v", err)
 	}
-	if len(f.gateway.payouts) != 0 || len(f.gateway.charges) != 0 {
-		t.Fatalf("NoAction must move no money; payouts=%v charges=%v", f.gateway.payouts, f.gateway.charges)
+	if len(f.gateway.charges) != 0 {
+		t.Fatalf("NoAction must move no money; charges=%v", f.gateway.charges)
 	}
 	if len(f.state.settled) != 1 || f.state.settled[0].Directive != billingstate.RoutingNoAction {
 		t.Fatalf("want one settleCycle(NoAction), got %v", f.state.settled)
@@ -812,7 +788,7 @@ func Test_Close_NotBound_FailedPrecondition(t *testing.T) {
 	if env.GetWorkflowError() == nil {
 		t.Fatal("want a FailedPrecondition for a not-gateway-bound customer")
 	}
-	if len(f.gateway.payouts) != 0 || len(f.gateway.charges) != 0 || len(f.state.settled) != 0 {
+	if len(f.gateway.charges) != 0 || len(f.state.settled) != 0 {
 		t.Fatalf("nothing must settle/move on the failed pre-condition")
 	}
 }
@@ -826,7 +802,7 @@ func Test_Close_DrainsInboundRevenueSignals(t *testing.T) {
 	deps, f := baseDeps()
 	cid := uuid.New()
 	f.state.billing = boundBilling(cid, 1)
-	f.engine.computeResult = billingengine.BillingResult{SignedNet: engineUSD(100), RoutingDirective: billingengine.RoutingPayout}
+	f.engine.computeResult = billingengine.BillingResult{SignedNet: engineUSD(100), RoutingDirective: billingengine.RoutingNoAction}
 	wf := newWorkflows(deps)
 	registerClose(env, wf, f)
 
@@ -953,7 +929,7 @@ func Test_Close_Chargeback_ForwardOnlyRecompute(t *testing.T) {
 	deps, f := baseDeps()
 	cid := uuid.New()
 	f.state.billing = boundBilling(cid, 1)
-	f.engine.computeResult = billingengine.BillingResult{SignedNet: engineUSD(5000), RoutingDirective: billingengine.RoutingPayout}
+	f.engine.computeResult = billingengine.BillingResult{SignedNet: engineUSD(5000), RoutingDirective: billingengine.RoutingNoAction}
 	// After the reversal, the corrected net is a charge of 1500 (delta to claw back).
 	f.engine.recomputeResult = billingengine.BillingResult{SignedNet: engineUSD(-1500), RoutingDirective: billingengine.RoutingCharge}
 	wf := newWorkflows(deps)

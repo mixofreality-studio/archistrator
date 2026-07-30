@@ -189,27 +189,30 @@ var encapsulationAllowlistData = map[string][]string{
 		"NewGitLocalArtifactAccess",
 	},
 	// PERMANENT NO-OP CONSTRUCTOR (B5): revenueLedgerAccess has no infrastructure binding
-	// (charge-only removed the ledger's persistence — see revenueledger.go's package doc);
-	// NewRevenueLedgerAccess returns the sole, permanent no-op impl, same VARIANT-CONSTRUCTOR
-	// category as artifact/constructionpipeline's dry-run constructors above/below.
-	"internal/resourceaccess/revenueledger": {
+	// (charge-only removed the ledger's persistence — see revenueledgeraccess.go's package
+	// doc); NewRevenueLedgerAccess returns the sole, permanent no-op impl, same
+	// VARIANT-CONSTRUCTOR category as artifact/agenticjob's dry-run constructors above/below.
+	// The revenueLedgerAccess FACET re-folded into billingstate (Wave 1 reconciliation,
+	// reversing the ea56a36 split) — one component, one Go package — so its no-op constructor
+	// now lives in the billingStateAccess package alongside the generated billing surface.
+	"internal/resourceaccess/billingstate": {
 		"NewRevenueLedgerAccess",
 	},
 	// FREE-FUNCTION BEHAVIOUR over the contract's named-scalar handle/enum value types: the
 	// schema-first rule keeps generated contract types method-free, so
 	// String/Parse/Equal/IsZero/IsTerminal behaviour lives as free funcs. Plus the package Error
 	// alias (= fwra.Error).
-	"internal/resourceaccess/constructionpipeline": {
+	"internal/resourceaccess/agenticjob": {
 		// DRY-RUN VARIANT CONSTRUCTOR (step-8 fold): the in-memory dogfood/demo stub
 		// folded out of cmd/server (construction_dryrun.go). The REAL GitHub-Actions
-		// variant is the generated NewGitHubActionsConstructionPipelineAccess.
-		"NewDryRunConstructionPipelineAccess",
+		// variant is the generated NewGitHubActionsAgenticJobAccess.
+		"NewDryRunAgenticJobAccess",
 		// LOCAL-EXECUTOR VARIANT CONSTRUCTOR (local-first-init-funnel Task 6, same
 		// category as the dry-run stub above): headless-claude dispatch for a
 		// local-profile boot with no GitHub creds. Selected by cmd/server/hooks.go's
-		// FinalizeConstructionPipelineAccess alongside the generated GitHub-Actions
+		// FinalizeAgenticJobAccess alongside the generated GitHub-Actions
 		// constructor and the dry-run stub.
-		"NewLocalExecConstructionPipelineAccess",
+		"NewLocalExecAgenticJobAccess",
 		// DISPATCH-INPUT VOCABULARY (local-merge-and-policy Commit 1): the job key +
 		// merge-job value the constructionManager stamps into the frozen Submit
 		// surface's open DispatchInputs map to route the local-executor merge job
@@ -407,7 +410,7 @@ var encapsulationAllowlistData = map[string][]string{
 		// lives only in the Manager layer; workflow.Context funcs are forbidden outside
 		// Manager) — only helpers with no Temporal SDK dependency, no RA→RA sideways
 		// dependency, and no per-manager generated-type param were promotable. designRepoTarget
-		// stays per-manager (it needs sibling RAs constructionpipeline/sourcecontrol — a
+		// stays per-manager (it needs sibling RAs agenticjob/sourcecontrol — a
 		// forbidden RA→RA sideways import); dispatchErrSummary and its 4 dependents stay
 		// per-manager (they need go.temporal.io/sdk/temporal.ApplicationError); and
 		// designArchApprovalBody/openReviewCommentViewIDs/checkCommentTransition/
@@ -518,9 +521,6 @@ var encapsulationAllowlistData = map[string][]string{
 		"NodeSwimLane",
 		"NodeSwitch",
 		"Objective",
-		"OperationalConcepts",
-		"OperationalConcepts.Kind",
-		"OperationalDecision",
 		"OptionActivity",
 		"OptionID",
 		"Phase1RequiredKinds",
@@ -704,7 +704,7 @@ var encapsulationAllowlistData = map[string][]string{
 	// (Task 2, local-first-init-funnel): the local deployment binding declares infra: []
 	// for usageAccess (no Postgres in local mode — metering is a cloud-only concern), so
 	// there is no generated New<Infra><Component> for it; same VARIANT-CONSTRUCTOR category
-	// as artifact/constructionpipeline's dry-run constructors and revenueledger's permanent
+	// as artifact/agenticjob's dry-run constructors and revenueledger's permanent
 	// no-op above.
 	"internal/resourceaccess/usage": {
 		"CustomerID",

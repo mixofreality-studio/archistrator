@@ -96,10 +96,17 @@ func TestProjectStateGitAdapter_UC1ArtifactLandsInGit(t *testing.T) {
 	}
 
 	// Stage the mission typed model (UC1 step 1 — systemDesignManager stages the draft).
+	// The main-branch StageArtifactForReview contract op was retired (Wave-1 fossil prune);
+	// staging now rides the surviving designSession branch verb with an empty branch (== main).
 	mission := &MissionStatement{Vision: "vision-text", Mission: "mission-text"}
-	v2, err := state.StageArtifactForReview(fwra.Context{Context: ctx, IdempotencyKey: "wf:stage-mission"}, id, v1, mission)
+	missionEnv, err := EncodeModel(mission)
 	if err != nil {
-		t.Fatalf("StageArtifactForReview: %v", err)
+		t.Fatalf("EncodeModel: %v", err)
+	}
+	session := NewDesignSessionAccess(state)
+	v2, err := session.StageArtifactForReviewOnBranch(fwra.Context{Context: ctx, IdempotencyKey: "wf:stage-mission"}, id, v1, "", missionEnv, "wf:stage-mission")
+	if err != nil {
+		t.Fatalf("StageArtifactForReviewOnBranch: %v", err)
 	}
 
 	// Commit the mission (architect approved at the review gate).
@@ -1117,7 +1124,7 @@ func TestGitStore_CommitArtifactWithProvenance_RecordsProvenance(t *testing.T) {
 	if _, err := store.CreateProject(ctx, id, "alice", "Demo", cred, "wf:create"); err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
-	v2, err := store.StageArtifactForReview(ctx, id, 1, &MissionStatement{Vision: "v", Mission: "m"}, cred, "wf:stage")
+	v2, err := store.StageArtifactForReviewOnBranch(ctx, id, 1, "", &MissionStatement{Vision: "v", Mission: "m"}, cred, "wf:stage")
 	if err != nil {
 		t.Fatalf("stage: %v", err)
 	}
@@ -1265,28 +1272,12 @@ func (s *stubProjectState) ReadProjectVersion(_ fwra.Context, _ ProjectID) (Vers
 	return 0, nil
 }
 
-func (s *stubProjectState) RejectArtifact(_ fwra.Context, _ ProjectID, _ Version, _ ArtifactKind, _ string) (Version, error) {
-	s.calls = append(s.calls, "RejectArtifact")
-	return 11, nil
-}
-
 func (s *stubProjectState) SetOperatingModel(_ fwra.Context, _ ProjectID, _ Version, _ OperatingModel) (Version, error) {
 	return 0, nil
 }
 
 func (s *stubProjectState) SetResearchInput(_ fwra.Context, _ ProjectID, _ Version, _ ResearchInput) (Version, error) {
 	return 0, nil
-}
-
-func (s *stubProjectState) StageArtifactForReview(_ fwra.Context, _ ProjectID, _ Version, model ArtifactModel) (Version, error) {
-	s.calls = append(s.calls, "StageArtifactForReview")
-	s.stagedModel = model
-	return 12, nil
-}
-
-func (s *stubProjectState) WithdrawArtifact(_ fwra.Context, _ ProjectID, _ Version, _ ArtifactKind, _ string) (Version, error) {
-	s.calls = append(s.calls, "WithdrawArtifact")
-	return 13, nil
 }
 
 func (s *stubProjectState) ReadProjectOnBranch(_ fwra.Context, projectID ProjectID, _ string) (Project, error) {
@@ -1298,11 +1289,6 @@ func (s *stubProjectState) StageArtifactForReviewOnBranch(_ fwra.Context, _ Proj
 	s.calls = append(s.calls, "StageArtifactForReviewOnBranch")
 	s.stagedModel = model
 	return 20, nil
-}
-
-func (s *stubProjectState) RejectArtifactOnBranch(_ fwra.Context, _ ProjectID, _ Version, _ string, _ ArtifactKind, _ string, _ fwra.IdempotencyKey) (Version, error) {
-	s.calls = append(s.calls, "RejectArtifactOnBranch")
-	return 21, nil
 }
 
 func (s *stubProjectState) WithdrawArtifactOnBranch(_ fwra.Context, _ ProjectID, _ Version, _ string, _ ArtifactKind, _ string, _ fwra.IdempotencyKey) (Version, error) {
@@ -2270,7 +2256,7 @@ func TestGitStore_RejectWithComments_AppendsOpenLedger(t *testing.T) {
 	if _, err := store.CreateProject(ctx, id, "alice", "Demo", cred, "wf:create"); err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
-	v2, err := store.StageArtifactForReview(ctx, id, 1, &MissionStatement{Vision: "v", Mission: "m"}, cred, "wf:stage")
+	v2, err := store.StageArtifactForReviewOnBranch(ctx, id, 1, "", &MissionStatement{Vision: "v", Mission: "m"}, cred, "wf:stage")
 	if err != nil {
 		t.Fatalf("StageArtifactForReview: %v", err)
 	}
@@ -2315,7 +2301,7 @@ func TestGitStore_SeedReviewComments_AppendsOpenNoStatusChange(t *testing.T) {
 	if _, err := store.CreateProject(ctx, id, "alice", "Demo", cred, "wf:create"); err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
-	v2, err := store.StageArtifactForReview(ctx, id, 1, &MissionStatement{Vision: "v", Mission: "m"}, cred, "wf:stage")
+	v2, err := store.StageArtifactForReviewOnBranch(ctx, id, 1, "", &MissionStatement{Vision: "v", Mission: "m"}, cred, "wf:stage")
 	if err != nil {
 		t.Fatalf("StageArtifactForReview: %v", err)
 	}
@@ -2346,7 +2332,7 @@ func TestGitStore_RejectWithComments_IdempotentOnSameKey(t *testing.T) {
 	if _, err := store.CreateProject(ctx, id, "alice", "Demo", cred, "wf:create"); err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
-	v2, err := store.StageArtifactForReview(ctx, id, 1, &MissionStatement{Vision: "v", Mission: "m"}, cred, "wf:stage")
+	v2, err := store.StageArtifactForReviewOnBranch(ctx, id, 1, "", &MissionStatement{Vision: "v", Mission: "m"}, cred, "wf:stage")
 	if err != nil {
 		t.Fatalf("StageArtifactForReview: %v", err)
 	}
@@ -2378,7 +2364,7 @@ func TestGitStore_SetReviewCommentStatus_WaiveAndReopen(t *testing.T) {
 	if _, err := store.CreateProject(ctx, id, "alice", "Demo", cred, "wf:create"); err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
-	v2, err := store.StageArtifactForReview(ctx, id, 1, &MissionStatement{Vision: "v", Mission: "m"}, cred, "wf:stage")
+	v2, err := store.StageArtifactForReviewOnBranch(ctx, id, 1, "", &MissionStatement{Vision: "v", Mission: "m"}, cred, "wf:stage")
 	if err != nil {
 		t.Fatalf("StageArtifactForReview: %v", err)
 	}
@@ -2411,7 +2397,7 @@ func TestGitStore_SetReviewCommentStatus_UnknownIDNotFound(t *testing.T) {
 	if _, err := store.CreateProject(ctx, id, "alice", "Demo", cred, "wf:create"); err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
-	v2, err := store.StageArtifactForReview(ctx, id, 1, &MissionStatement{Vision: "v", Mission: "m"}, cred, "wf:stage")
+	v2, err := store.StageArtifactForReviewOnBranch(ctx, id, 1, "", &MissionStatement{Vision: "v", Mission: "m"}, cred, "wf:stage")
 	if err != nil {
 		t.Fatalf("StageArtifactForReview: %v", err)
 	}
@@ -2429,7 +2415,7 @@ func TestGitStore_ReviewThread_SurvivesRestage(t *testing.T) {
 	if _, err := store.CreateProject(ctx, id, "alice", "Demo", cred, "wf:create"); err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
-	v2, err := store.StageArtifactForReview(ctx, id, 1, &MissionStatement{Vision: "v", Mission: "m"}, cred, "wf:stage")
+	v2, err := store.StageArtifactForReviewOnBranch(ctx, id, 1, "", &MissionStatement{Vision: "v", Mission: "m"}, cred, "wf:stage")
 	if err != nil {
 		t.Fatalf("StageArtifactForReview: %v", err)
 	}
@@ -2438,7 +2424,7 @@ func TestGitStore_ReviewThread_SurvivesRestage(t *testing.T) {
 		t.Fatalf("reject: %v", err)
 	}
 	// Re-stage a fresh draft (the redraft) — the thread must persist (not be cleared).
-	if _, err := store.StageArtifactForReview(ctx, id, v3, &MissionStatement{Vision: "v2", Mission: "m2"}, cred, "wf:restage"); err != nil {
+	if _, err := store.StageArtifactForReviewOnBranch(ctx, id, v3, "", &MissionStatement{Vision: "v2", Mission: "m2"}, cred, "wf:restage"); err != nil {
 		t.Fatalf("re-stage: %v", err)
 	}
 	proj, err := store.ReadProject(fwra.Context{Context: ctx}, id, cred)
@@ -2462,7 +2448,7 @@ func TestGitStore_AcknowledgeStaleBasis(t *testing.T) {
 		t.Fatalf("CreateProject: %v", err)
 	}
 	stageCommit := func(v Version, kind ArtifactKind, model ArtifactModel, tag string) Version {
-		v2, err := store.StageArtifactForReview(ctx, id, v, model, cred, fwra.IdempotencyKey("wf:stage:"+tag))
+		v2, err := store.StageArtifactForReviewOnBranch(ctx, id, v, "", model, cred, fwra.IdempotencyKey("wf:stage:"+tag))
 		if err != nil {
 			t.Fatalf("stage %s: %v", tag, err)
 		}
@@ -2825,7 +2811,7 @@ func assertResearchCorpusFileOnDisk(ctx context.Context, t *testing.T, raw *fwgi
 // and asserts the corpus file and the research pointer both survive (carry-forward).
 func stageUnrelatedMutationAssertCorpusSurvives(ctx context.Context, t *testing.T, store *GitStore, raw *fwgithub.GitStore, id ProjectID, cred RepoCredential, v Version, body, wantPath string) {
 	t.Helper()
-	if _, err := store.StageArtifactForReview(ctx, id, v, &MissionStatement{Vision: "v", Mission: "m"}, cred, "wf:stage"); err != nil {
+	if _, err := store.StageArtifactForReviewOnBranch(ctx, id, v, "", &MissionStatement{Vision: "v", Mission: "m"}, cred, "wf:stage"); err != nil {
 		t.Fatalf("StageArtifactForReview: %v", err)
 	}
 	snap2, err := raw.ReadSubtree(ctx, ".aiarch/state", fwgithub.GitAuth{Local: true})
@@ -2855,7 +2841,7 @@ func TestGitStore_CommitArtifact_RevisionsAndStaleBasis(t *testing.T) {
 
 	// stageCommit stages a model for a kind then commits it, returning the new version.
 	stageCommit := func(v Version, kind ArtifactKind, model ArtifactModel, tag string) Version {
-		v2, err := store.StageArtifactForReview(ctx, id, v, model, cred, fwra.IdempotencyKey("wf:stage:"+tag))
+		v2, err := store.StageArtifactForReviewOnBranch(ctx, id, v, "", model, cred, fwra.IdempotencyKey("wf:stage:"+tag))
 		if err != nil {
 			t.Fatalf("stage %s: %v", tag, err)
 		}
@@ -2918,7 +2904,7 @@ func TestGitStore_StageCommitRoundTrip(t *testing.T) {
 	}
 
 	mission := &MissionStatement{Vision: "v", Mission: "m"}
-	v2, err := store.StageArtifactForReview(ctx, id, 1, mission, cred, "wf:stage")
+	v2, err := store.StageArtifactForReviewOnBranch(ctx, id, 1, "", mission, cred, "wf:stage")
 	if err != nil {
 		t.Fatalf("StageArtifactForReview: %v", err)
 	}
@@ -2942,24 +2928,25 @@ func TestGitStore_StageCommitRoundTrip(t *testing.T) {
 	}
 }
 
-// TestGitStore_RejectArtifactOnBranch_EmptyBranchIsMain proves the new branch-aware
-// Reject verb (I-DESIGN-DISPATCH §2a) behaves EXACTLY as RejectArtifact when branch=="":
-// it records the Rejected status + notes over the staged slot on main. This is the
-// documented empty-branch equivalence the non-git / dormant-rail callers rely on.
-func TestGitStore_RejectArtifactOnBranch_EmptyBranchIsMain(t *testing.T) {
+// TestGitStore_RejectArtifactOnBranchWithComments_EmptyBranchIsMain proves the surviving
+// branch-aware Reject verb (I-DESIGN-DISPATCH §2a) behaves EXACTLY as a main-path reject
+// when branch=="": it records the Rejected status + notes over the staged slot on main.
+// This is the documented empty-branch equivalence the non-git / dormant-rail callers rely
+// on (pin migrated from the retired RejectArtifactOnBranch — same assertion).
+func TestGitStore_RejectArtifactOnBranchWithComments_EmptyBranchIsMain(t *testing.T) {
 	store, cred, ctx := newLocalGitStore(t)
 	id := ProjectID(uuid.NewString())
 	if _, err := store.CreateProject(ctx, id, "alice", "Demo", cred, "wf:create"); err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
 	mission := &MissionStatement{Vision: "v", Mission: "m"}
-	v2, err := store.StageArtifactForReview(ctx, id, 1, mission, cred, "wf:stage")
+	v2, err := store.StageArtifactForReviewOnBranch(ctx, id, 1, "", mission, cred, "wf:stage")
 	if err != nil {
 		t.Fatalf("StageArtifactForReview: %v", err)
 	}
 	const notes = "rework the vision"
-	if _, err := store.RejectArtifactOnBranch(ctx, id, v2, "", KindMission, notes, cred, "wf:reject"); err != nil {
-		t.Fatalf("RejectArtifactOnBranch(branch=\"\"): %v", err)
+	if _, err := store.RejectArtifactOnBranchWithComments(ctx, id, v2, "", KindMission, notes, 0, nil, cred, "wf:reject"); err != nil {
+		t.Fatalf("RejectArtifactOnBranchWithComments(branch=\"\"): %v", err)
 	}
 	proj, err := store.ReadProject(fwra.Context{Context: ctx}, id, cred)
 	if err != nil {
@@ -2989,19 +2976,20 @@ func TestGitStore_ReconcileBranchFromMain_EmptyBranchIsMisuse(t *testing.T) {
 	}
 }
 
-// TestGitStore_RejectArtifactOnBranch_UnpopulatedSlotIsMisuse proves rejecting a slot
-// that was never staged is a ContractMisuse — the RA-level guard whose main-path
+// TestGitStore_RejectArtifactOnBranchWithComments_UnpopulatedSlotIsMisuse proves rejecting
+// a slot that was never staged is a ContractMisuse — the RA-level guard whose main-path
 // triggering (in the PR rail, where the draft lives on the session branch and main's slot
 // is empty) was the QA F28 crash. The Manager avoids it by rejecting ON the session
-// branch (where the model IS staged); this test pins the guard the fix routes around.
-func TestGitStore_RejectArtifactOnBranch_UnpopulatedSlotIsMisuse(t *testing.T) {
+// branch (where the model IS staged); this test pins the guard the fix routes around
+// (migrated from the retired RejectArtifactOnBranch — same ContractMisuse assertion).
+func TestGitStore_RejectArtifactOnBranchWithComments_UnpopulatedSlotIsMisuse(t *testing.T) {
 	store, cred, ctx := newLocalGitStore(t)
 	id := ProjectID(uuid.NewString())
 	if _, err := store.CreateProject(ctx, id, "alice", "Demo", cred, "wf:create"); err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
 	// No stage — the Mission slot is unpopulated on main.
-	_, err := store.RejectArtifactOnBranch(ctx, id, 1, "", KindMission, "notes", cred, "wf:reject")
+	_, err := store.RejectArtifactOnBranchWithComments(ctx, id, 1, "", KindMission, "notes", 0, nil, cred, "wf:reject")
 	if k := kindOf(t, err); k != fwra.ContractMisuse {
 		t.Fatalf("reject of an unpopulated slot kind = %v, want ContractMisuse", k)
 	}
@@ -3018,7 +3006,7 @@ func TestGitStore_WithdrawArtifactOnBranch_EmptyBranchIsMain(t *testing.T) {
 		t.Fatalf("CreateProject: %v", err)
 	}
 	mission := &MissionStatement{Vision: "v", Mission: "m"}
-	v2, err := store.StageArtifactForReview(ctx, id, 1, mission, cred, "wf:stage")
+	v2, err := store.StageArtifactForReviewOnBranch(ctx, id, 1, "", mission, cred, "wf:stage")
 	if err != nil {
 		t.Fatalf("StageArtifactForReview: %v", err)
 	}
@@ -3089,7 +3077,7 @@ func TestGitStore_NotFoundAndMisuse(t *testing.T) {
 		t.Fatalf("SetResearchInput(absent) kind = %v, want NotFound", k)
 	}
 
-	_, err = store.StageArtifactForReview(ctx, ProjectID(uuid.NewString()), 1, nil, cred, "wf:k")
+	_, err = store.StageArtifactForReviewOnBranch(ctx, ProjectID(uuid.NewString()), 1, "", nil, cred, "wf:k")
 	if k := kindOf(t, err); k != fwra.ContractMisuse {
 		t.Fatalf("Stage(nil model) kind = %v, want ContractMisuse", k)
 	}
@@ -3118,7 +3106,7 @@ func TestRefCasVsConcurrentWriter(t *testing.T) {
 	if _, err := store.CreateProject(ctx, id, "alice", "Race", cred, "wf:create"); err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
-	v2, err := store.StageArtifactForReview(ctx, id, 1, &MissionStatement{Vision: "v", Mission: "m"}, cred, "wf:stage")
+	v2, err := store.StageArtifactForReviewOnBranch(ctx, id, 1, "", &MissionStatement{Vision: "v", Mission: "m"}, cred, "wf:stage")
 	if err != nil {
 		t.Fatalf("StageArtifactForReview: %v", err)
 	}
@@ -3281,7 +3269,7 @@ func TestGitStore_ExternalActionDraftIsReadBack(t *testing.T) {
 	// And the HUMAN-GATE write path still works server-side over the read-back draft:
 	// stage the read-back model for review (the AwaitingReview thin-write), then commit
 	// on approve — proving the surviving human-gate verbs are intact post-re-scope.
-	v8, err := store.StageArtifactForReview(ctx, id, proj.Version, gotMission, cred, "wf:human-gate-stage")
+	v8, err := store.StageArtifactForReviewOnBranch(ctx, id, proj.Version, "", gotMission, cred, "wf:human-gate-stage")
 	if err != nil {
 		t.Fatalf("StageArtifactForReview (human-gate over read-back draft): %v", err)
 	}
@@ -3737,16 +3725,13 @@ func TestActivityConstructionPhase_String(t *testing.T) {
 }
 
 // TestDeploymentTopology_JSONRoundTrip proves the typed deployment topology on
-// OperationalConcepts serializes its enum fields as STRING wire names (matching
+// DeploymentOperationsModel serializes its enum fields as STRING wire names (matching
 // the Layer/ComponentKind/CallMode convention via enumjson.go) and round-trips
 // losslessly through json.Marshal/json.Unmarshal.
 func TestDeploymentTopology_JSONRoundTrip(t *testing.T) {
 	containerKey := "project-state-access"
 
-	original := &OperationalConcepts{
-		Decisions: []OperationalDecision{
-			{Topic: "communication topology", Decision: "synchronous", JustifyingObjective: 1},
-		},
+	original := &DeploymentOperationsModel{
 		Deployment: DeploymentTopology{
 			DeliveryStyle: StyleBoth,
 			Containers: []DeployContainer{
@@ -3801,7 +3786,7 @@ func TestDeploymentTopology_JSONRoundTrip(t *testing.T) {
 		}
 	}
 
-	var back OperationalConcepts
+	var back DeploymentOperationsModel
 	if err := json.Unmarshal(data, &back); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}

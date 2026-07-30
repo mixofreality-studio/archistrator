@@ -101,15 +101,16 @@ func TestComputeNet(t *testing.T) {
 		errDetail string
 	}{
 		{
-			// Payout: gross 100000, 10% share = 10000, compute = 100 units * 1 cent
-			// = 100, * (1 + 20/100) = 120. net = 100000 - 10000 - 120 = 89880 (> 0).
-			name:    "payout when net is positive",
+			// Charge-only: gross 100000, 10% share = 10000, compute = 100 units * 1 cent
+			// = 100, * (1 + 20/100) = 120. net = 100000 - 10000 - 120 = 89880 (> 0) —
+			// a positive net no longer pays out; it routes NoAction.
+			name:    "no-action when net is positive (charge-only, no payout)",
 			revenue: CycleRevenue{GrossInbound: usd(100000), EventCount: 7},
 			usage:   CycleUsage{ComputeUnitSeconds: 100},
 			terms:   launchTerms(),
 			want: BillingResult{
 				SignedNet:           usd(89880),
-				RoutingDirective:    RoutingPayout,
+				RoutingDirective:    RoutingNoAction,
 				RevenueShareApplied: usd(10000),
 				ComputeCostApplied:  usd(120),
 			},
@@ -210,10 +211,11 @@ func TestRecomputeNet(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// gross 50000, 10% = 5000, compute 100*1*1.20 = 120. net = 50000-5000-120 = 44880.
+	// gross 50000, 10% = 5000, compute 100*1*1.20 = 120. net = 50000-5000-120 = 44880 (> 0)
+	// — charge-only routes a positive net to NoAction (no payout).
 	want := BillingResult{
 		SignedNet:           usd(44880),
-		RoutingDirective:    RoutingPayout,
+		RoutingDirective:    RoutingNoAction,
 		RevenueShareApplied: usd(5000),
 		ComputeCostApplied:  usd(120),
 	}

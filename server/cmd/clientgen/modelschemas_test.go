@@ -202,7 +202,7 @@ var wantRootSchemas = []string{
 	"ModelVolatilities",
 	"ModelCoreUseCases",
 	"ModelSystem",
-	"ModelOperationalConcepts",
+	"ModelDeploymentOperationsModel",
 	"ModelStandardCheck",
 	"ModelPlanningAssumptions",
 	"ModelActivityList",

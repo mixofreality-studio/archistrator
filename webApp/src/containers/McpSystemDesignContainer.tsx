@@ -38,6 +38,7 @@ import { slotStageFromOrdinal } from '../contracts/adapters';
 import { PHASE1_ORDER, METHOD_METADATA } from '../contracts/methodMetadata';
 import { mapSessionState, systemArtifactKindFromOrdinal } from '../contracts/wire';
 
+import { useDesignHealth } from '../hooks/useDesignHealth';
 import { useProject } from '../hooks/useProject';
 import { isSessionAbsent } from '../hooks/sessionPolling';
 import { useSessionState, sessionStateKey } from '../hooks/useSessionState';
@@ -49,6 +50,8 @@ import {
 
 import { SystemDesignView, type SpineStep } from '../components/design/SystemDesignView';
 import { DesignExperienceSkeleton } from '../components/design/DesignSkeleton';
+import { CommittedSlotsProvider } from '../components/CommittedSlotsContext';
+import { StructureFindingsProvider } from '../components/flow/StructureFindingsContext';
 import { gateDecisionErrorMessage } from '../components/design/gateFaultLogic';
 import type { Anchor } from '../components/comments/CommentContext';
 
@@ -190,6 +193,10 @@ export function McpSystemDesignContainer({
   }, [queryClient, projectId]);
 
   const { data: project } = useProject(projectId);
+  // Live Design-Health findings for the architecture-diagram overlays
+  // (StructureFindingsProvider below) — rides the same transport-blind OpsClient
+  // as every other read here, so it works over the MCP host bridge too.
+  const { data: designHealth } = useDesignHealth(projectId);
   const spine = useMemo(() => buildSpine(project), [project]);
 
   // Seed the session-state cache from the FIRST pushed result in this state
@@ -362,48 +369,52 @@ export function McpSystemDesignContainer({
 
   return (
     <>
-      <SystemDesignView
-        allowEmptySendBack
-        {...(displayMode !== undefined ? { displayMode } : {})}
-        acknowledgeStaleError={acknowledgeStale.error?.message}
-        acknowledgeStalePending={acknowledgeStale.isPending}
-        activeIndex={safeIndex}
-        amendPending={requestDraft.isPending}
-        beginPending={requestDraft.isPending}
-        commentSurface={{
-          enabled: true,
-          commentCount: 0,
-          setAnchor: (anchor) => {
-            if (anchor !== null) {
-              setComposer({ mode: 'comment', anchor });
-              setComposerText('');
-              setSendFallbackHint(false);
-            }
-          },
-        }}
-        decisionPending={submitReview.isPending}
-        gateError={gateError}
-        needsResearch={false}
-        project={project}
-        researchPending={false}
-        retryPending={requestDraft.isPending}
-        session={session.data ?? undefined}
-        sessionLoading={session.isLoading}
-        sessionMissing={sessionMissing}
-        spine={spine}
-        onAcknowledgeStale={(note) => {
-          acknowledgeStale.mutate({ kind: activeKind, note });
-        }}
-        onClose={() => void app.requestTeardown()}
-        onRequestDraft={onRequestDraft}
-        onRetry={() => {
-          requestDraft.mutate({ kind: activeKind });
-        }}
-        onSelectStep={onSelectStep}
-        onSubmitResearch={() => undefined}
-        onSubmitReview={onSubmitReview}
-        onSubmitSelectionComment={(anchor, text) => void submitSelectionComment(anchor, text)}
-      />
+      <StructureFindingsProvider findings={designHealth?.findings}>
+        <CommittedSlotsProvider slots={project.slots}>
+          <SystemDesignView
+            allowEmptySendBack
+            {...(displayMode !== undefined ? { displayMode } : {})}
+            acknowledgeStaleError={acknowledgeStale.error?.message}
+            acknowledgeStalePending={acknowledgeStale.isPending}
+            activeIndex={safeIndex}
+            amendPending={requestDraft.isPending}
+            beginPending={requestDraft.isPending}
+            commentSurface={{
+              enabled: true,
+              commentCount: 0,
+              setAnchor: (anchor) => {
+                if (anchor !== null) {
+                  setComposer({ mode: 'comment', anchor });
+                  setComposerText('');
+                  setSendFallbackHint(false);
+                }
+              },
+            }}
+            decisionPending={submitReview.isPending}
+            gateError={gateError}
+            needsResearch={false}
+            project={project}
+            researchPending={false}
+            retryPending={requestDraft.isPending}
+            session={session.data ?? undefined}
+            sessionLoading={session.isLoading}
+            sessionMissing={sessionMissing}
+            spine={spine}
+            onAcknowledgeStale={(note) => {
+              acknowledgeStale.mutate({ kind: activeKind, note });
+            }}
+            onClose={() => void app.requestTeardown()}
+            onRequestDraft={onRequestDraft}
+            onRetry={() => {
+              requestDraft.mutate({ kind: activeKind });
+            }}
+            onSelectStep={onSelectStep}
+            onSubmitResearch={() => undefined}
+            onSubmitReview={onSubmitReview}
+            onSubmitSelectionComment={(anchor, text) => void submitSelectionComment(anchor, text)}
+          />
+        </CommittedSlotsProvider>
+      </StructureFindingsProvider>
       {composer !== null ? (
         <Box
           sx={{

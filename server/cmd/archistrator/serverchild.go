@@ -88,7 +88,7 @@ func (c serverChildConfig) env() []string {
 		// ARCHISTRATOR_CONSTRUCTION_DRYRUN is deliberately ABSENT from this
 		// forced set (I2, local-first-init-funnel final review). The local
 		// construction executor (Task 6, server/internal/resourceaccess/
-		// constructionpipeline/constructionpipelineaccess.go's localexec.go
+		// agenticjob/agenticjobaccess.go's localexec.go
 		// section — headless `claude`, sandboxed-by-default fail-closed) is
 		// BUILT, and scripts/build-local.sh now stages a compiled
 		// aiarch-state-mcp binary alongside archistrator-server (the

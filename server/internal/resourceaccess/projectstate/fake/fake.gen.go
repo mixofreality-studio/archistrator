@@ -20,7 +20,6 @@ type FakeConstructionTransitionAccess struct {
 	RecordPhaseCompletedFn          func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, phase projectstate.ActivityMethodPhase, artifactRef string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
 	RecordServiceContractProducedFn func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, component string, contract projectstate.ServiceContract, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
 	RecordPhaseArtifactProducedFn   func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, mapKey string, payload projectstate.PhaseArtifactPayload, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
-	ReadProjectFn                   func(rc fwra.Context, projectID projectstate.ProjectID, cred projectstate.RepoCredential) (projectstate.Project, error)
 }
 
 func (f *FakeConstructionTransitionAccess) RecordChangeReviewed(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
@@ -84,13 +83,6 @@ func (f *FakeConstructionTransitionAccess) RecordPhaseArtifactProduced(rc fwra.C
 		panic("FakeConstructionTransitionAccess.RecordPhaseArtifactProducedFn not set")
 	}
 	return f.RecordPhaseArtifactProducedFn(rc, projectID, expectedVersion, activityID, mapKey, payload, cred, idempotencyKey)
-}
-
-func (f *FakeConstructionTransitionAccess) ReadProject(rc fwra.Context, projectID projectstate.ProjectID, cred projectstate.RepoCredential) (projectstate.Project, error) {
-	if f.ReadProjectFn == nil {
-		panic("FakeConstructionTransitionAccess.ReadProjectFn not set")
-	}
-	return f.ReadProjectFn(rc, projectID, cred)
 }
 
 var _ projectstate.ConstructionTransitionAccess = (*FakeConstructionTransitionAccess)(nil)
@@ -224,26 +216,15 @@ var _ projectstate.GitActivityStatusAccess = (*FakeGitActivityStatusAccess)(nil)
 // FakeProjectStateAccess is a generated test double for projectstate.ProjectStateAccess: set the Fn field(s)
 // a test needs; calling a method whose Fn is unset panics.
 type FakeProjectStateAccess struct {
-	AcknowledgeStaleBasisFn              func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, kind projectstate.ArtifactKind, note string, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
-	AdvancePhaseFn                       func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version) (projectstate.Version, error)
-	CommitArtifactFn                     func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, kind projectstate.ArtifactKind) (projectstate.Version, error)
-	CreateProjectFn                      func(rc fwra.Context, projectID projectstate.ProjectID, owner projectstate.OwnerScope, name string) (projectstate.Version, error)
-	ListProjectsFn                       func(rc fwra.Context, owner projectstate.OwnerScope) ([]projectstate.ProjectSummary, error)
-	ReadProjectFn                        func(rc fwra.Context, projectID projectstate.ProjectID) (projectstate.Project, error)
-	ReadProjectOnBranchFn                func(rc fwra.Context, projectID projectstate.ProjectID, branch string) (projectstate.Project, error)
-	ReconcileBranchFromMainFn            func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
-	ReadProjectVersionFn                 func(rc fwra.Context, projectID projectstate.ProjectID) (projectstate.Version, error)
-	RejectArtifactFn                     func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, kind projectstate.ArtifactKind, notes string) (projectstate.Version, error)
-	RejectArtifactOnBranchFn             func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
-	RejectArtifactOnBranchWithCommentsFn func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, round int64, comments []projectstate.ReviewComment, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
-	SeedReviewCommentsOnBranchFn         func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, round int64, comments []projectstate.ReviewComment, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
-	SetOperatingModelFn                  func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, model projectstate.OperatingModel) (projectstate.Version, error)
-	SetResearchInputFn                   func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, research projectstate.ResearchInput) (projectstate.Version, error)
-	SetReviewCommentStatusOnBranchFn     func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, commentID string, status string, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
-	StageArtifactForReviewFn             func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, model projectstate.ArtifactModel) (projectstate.Version, error)
-	StageArtifactForReviewOnBranchFn     func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, model projectstate.ArtifactModel, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
-	WithdrawArtifactFn                   func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, kind projectstate.ArtifactKind, notes string) (projectstate.Version, error)
-	WithdrawArtifactOnBranchFn           func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
+	AcknowledgeStaleBasisFn func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, kind projectstate.ArtifactKind, note string, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
+	AdvancePhaseFn          func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version) (projectstate.Version, error)
+	CommitArtifactFn        func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, kind projectstate.ArtifactKind) (projectstate.Version, error)
+	CreateProjectFn         func(rc fwra.Context, projectID projectstate.ProjectID, owner projectstate.OwnerScope, name string) (projectstate.Version, error)
+	ListProjectsFn          func(rc fwra.Context, owner projectstate.OwnerScope) ([]projectstate.ProjectSummary, error)
+	ReadProjectFn           func(rc fwra.Context, projectID projectstate.ProjectID) (projectstate.Project, error)
+	ReadProjectVersionFn    func(rc fwra.Context, projectID projectstate.ProjectID) (projectstate.Version, error)
+	SetOperatingModelFn     func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, model projectstate.OperatingModel) (projectstate.Version, error)
+	SetResearchInputFn      func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, research projectstate.ResearchInput) (projectstate.Version, error)
 }
 
 func (f *FakeProjectStateAccess) AcknowledgeStaleBasis(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, kind projectstate.ArtifactKind, note string, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
@@ -288,53 +269,11 @@ func (f *FakeProjectStateAccess) ReadProject(rc fwra.Context, projectID projects
 	return f.ReadProjectFn(rc, projectID)
 }
 
-func (f *FakeProjectStateAccess) ReadProjectOnBranch(rc fwra.Context, projectID projectstate.ProjectID, branch string) (projectstate.Project, error) {
-	if f.ReadProjectOnBranchFn == nil {
-		panic("FakeProjectStateAccess.ReadProjectOnBranchFn not set")
-	}
-	return f.ReadProjectOnBranchFn(rc, projectID, branch)
-}
-
-func (f *FakeProjectStateAccess) ReconcileBranchFromMain(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
-	if f.ReconcileBranchFromMainFn == nil {
-		panic("FakeProjectStateAccess.ReconcileBranchFromMainFn not set")
-	}
-	return f.ReconcileBranchFromMainFn(rc, projectID, expectedVersion, branch, kind, idempotencyKey)
-}
-
 func (f *FakeProjectStateAccess) ReadProjectVersion(rc fwra.Context, projectID projectstate.ProjectID) (projectstate.Version, error) {
 	if f.ReadProjectVersionFn == nil {
 		panic("FakeProjectStateAccess.ReadProjectVersionFn not set")
 	}
 	return f.ReadProjectVersionFn(rc, projectID)
-}
-
-func (f *FakeProjectStateAccess) RejectArtifact(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, kind projectstate.ArtifactKind, notes string) (projectstate.Version, error) {
-	if f.RejectArtifactFn == nil {
-		panic("FakeProjectStateAccess.RejectArtifactFn not set")
-	}
-	return f.RejectArtifactFn(rc, projectID, expectedVersion, kind, notes)
-}
-
-func (f *FakeProjectStateAccess) RejectArtifactOnBranch(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
-	if f.RejectArtifactOnBranchFn == nil {
-		panic("FakeProjectStateAccess.RejectArtifactOnBranchFn not set")
-	}
-	return f.RejectArtifactOnBranchFn(rc, projectID, expectedVersion, branch, kind, notes, idempotencyKey)
-}
-
-func (f *FakeProjectStateAccess) RejectArtifactOnBranchWithComments(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, round int64, comments []projectstate.ReviewComment, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
-	if f.RejectArtifactOnBranchWithCommentsFn == nil {
-		panic("FakeProjectStateAccess.RejectArtifactOnBranchWithCommentsFn not set")
-	}
-	return f.RejectArtifactOnBranchWithCommentsFn(rc, projectID, expectedVersion, branch, kind, notes, round, comments, idempotencyKey)
-}
-
-func (f *FakeProjectStateAccess) SeedReviewCommentsOnBranch(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, round int64, comments []projectstate.ReviewComment, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
-	if f.SeedReviewCommentsOnBranchFn == nil {
-		panic("FakeProjectStateAccess.SeedReviewCommentsOnBranchFn not set")
-	}
-	return f.SeedReviewCommentsOnBranchFn(rc, projectID, expectedVersion, branch, kind, round, comments, idempotencyKey)
 }
 
 func (f *FakeProjectStateAccess) SetOperatingModel(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, model projectstate.OperatingModel) (projectstate.Version, error) {
@@ -349,41 +288,6 @@ func (f *FakeProjectStateAccess) SetResearchInput(rc fwra.Context, projectID pro
 		panic("FakeProjectStateAccess.SetResearchInputFn not set")
 	}
 	return f.SetResearchInputFn(rc, projectID, expectedVersion, research)
-}
-
-func (f *FakeProjectStateAccess) SetReviewCommentStatusOnBranch(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, commentID string, status string, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
-	if f.SetReviewCommentStatusOnBranchFn == nil {
-		panic("FakeProjectStateAccess.SetReviewCommentStatusOnBranchFn not set")
-	}
-	return f.SetReviewCommentStatusOnBranchFn(rc, projectID, expectedVersion, branch, kind, commentID, status, idempotencyKey)
-}
-
-func (f *FakeProjectStateAccess) StageArtifactForReview(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, model projectstate.ArtifactModel) (projectstate.Version, error) {
-	if f.StageArtifactForReviewFn == nil {
-		panic("FakeProjectStateAccess.StageArtifactForReviewFn not set")
-	}
-	return f.StageArtifactForReviewFn(rc, projectID, expectedVersion, model)
-}
-
-func (f *FakeProjectStateAccess) StageArtifactForReviewOnBranch(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, model projectstate.ArtifactModel, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
-	if f.StageArtifactForReviewOnBranchFn == nil {
-		panic("FakeProjectStateAccess.StageArtifactForReviewOnBranchFn not set")
-	}
-	return f.StageArtifactForReviewOnBranchFn(rc, projectID, expectedVersion, branch, model, idempotencyKey)
-}
-
-func (f *FakeProjectStateAccess) WithdrawArtifact(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, kind projectstate.ArtifactKind, notes string) (projectstate.Version, error) {
-	if f.WithdrawArtifactFn == nil {
-		panic("FakeProjectStateAccess.WithdrawArtifactFn not set")
-	}
-	return f.WithdrawArtifactFn(rc, projectID, expectedVersion, kind, notes)
-}
-
-func (f *FakeProjectStateAccess) WithdrawArtifactOnBranch(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
-	if f.WithdrawArtifactOnBranchFn == nil {
-		panic("FakeProjectStateAccess.WithdrawArtifactOnBranchFn not set")
-	}
-	return f.WithdrawArtifactOnBranchFn(rc, projectID, expectedVersion, branch, kind, notes, idempotencyKey)
 }
 
 var _ projectstate.ProjectStateAccess = (*FakeProjectStateAccess)(nil)

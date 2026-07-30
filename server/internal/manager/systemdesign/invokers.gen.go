@@ -11,7 +11,7 @@ import (
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/constructionpipeline"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/agenticjob"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 )
@@ -89,52 +89,10 @@ func (i genInvokers) ProjectStateReadProject(ctx workflow.Context, projectID pro
 	return out, err
 }
 
-// ProjectStateReadProjectOnBranch invokes activity "projectStateAccess.readProjectOnBranch".
-func (i genInvokers) ProjectStateReadProjectOnBranch(ctx workflow.Context, projectID projectstate.ProjectID, branch string) (projectstate.Project, error) {
-	var out projectstate.Project
-	err := workflow.ExecuteActivity(i.options(ctx, "projectStateAccess.readProjectOnBranch"), "projectStateAccess.readProjectOnBranch", projectID, branch).Get(ctx, &out)
-	return out, err
-}
-
 // ProjectStateReadProjectVersion invokes activity "projectStateAccess.readProjectVersion".
 func (i genInvokers) ProjectStateReadProjectVersion(ctx workflow.Context, projectID projectstate.ProjectID) (projectstate.Version, error) {
 	var out projectstate.Version
 	err := workflow.ExecuteActivity(i.options(ctx, "projectStateAccess.readProjectVersion"), "projectStateAccess.readProjectVersion", projectID).Get(ctx, &out)
-	return out, err
-}
-
-// ProjectStateReconcileBranchFromMain invokes activity "projectStateAccess.reconcileBranchFromMain".
-func (i genInvokers) ProjectStateReconcileBranchFromMain(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind) (projectstate.Version, error) {
-	var out projectstate.Version
-	err := workflow.ExecuteActivity(i.options(ctx, "projectStateAccess.reconcileBranchFromMain"), "projectStateAccess.reconcileBranchFromMain", projectID, expectedVersion, branch, kind).Get(ctx, &out)
-	return out, err
-}
-
-// ProjectStateRejectArtifact invokes activity "projectStateAccess.rejectArtifact".
-func (i genInvokers) ProjectStateRejectArtifact(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, kind projectstate.ArtifactKind, notes string) (projectstate.Version, error) {
-	var out projectstate.Version
-	err := workflow.ExecuteActivity(i.options(ctx, "projectStateAccess.rejectArtifact"), "projectStateAccess.rejectArtifact", projectID, expectedVersion, kind, notes).Get(ctx, &out)
-	return out, err
-}
-
-// ProjectStateRejectArtifactOnBranch invokes activity "projectStateAccess.rejectArtifactOnBranch".
-func (i genInvokers) ProjectStateRejectArtifactOnBranch(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string) (projectstate.Version, error) {
-	var out projectstate.Version
-	err := workflow.ExecuteActivity(i.options(ctx, "projectStateAccess.rejectArtifactOnBranch"), "projectStateAccess.rejectArtifactOnBranch", projectID, expectedVersion, branch, kind, notes).Get(ctx, &out)
-	return out, err
-}
-
-// ProjectStateRejectArtifactOnBranchWithComments invokes activity "projectStateAccess.rejectArtifactOnBranchWithComments".
-func (i genInvokers) ProjectStateRejectArtifactOnBranchWithComments(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, round int64, comments []projectstate.ReviewComment) (projectstate.Version, error) {
-	var out projectstate.Version
-	err := workflow.ExecuteActivity(i.options(ctx, "projectStateAccess.rejectArtifactOnBranchWithComments"), "projectStateAccess.rejectArtifactOnBranchWithComments", projectID, expectedVersion, branch, kind, notes, round, comments).Get(ctx, &out)
-	return out, err
-}
-
-// ProjectStateSeedReviewCommentsOnBranch invokes activity "projectStateAccess.seedReviewCommentsOnBranch".
-func (i genInvokers) ProjectStateSeedReviewCommentsOnBranch(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, round int64, comments []projectstate.ReviewComment) (projectstate.Version, error) {
-	var out projectstate.Version
-	err := workflow.ExecuteActivity(i.options(ctx, "projectStateAccess.seedReviewCommentsOnBranch"), "projectStateAccess.seedReviewCommentsOnBranch", projectID, expectedVersion, branch, kind, round, comments).Get(ctx, &out)
 	return out, err
 }
 
@@ -152,58 +110,23 @@ func (i genInvokers) ProjectStateSetResearchInput(ctx workflow.Context, projectI
 	return out, err
 }
 
-// ProjectStateSetReviewCommentStatusOnBranch invokes activity "projectStateAccess.setReviewCommentStatusOnBranch".
-func (i genInvokers) ProjectStateSetReviewCommentStatusOnBranch(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, commentID string, status string) (projectstate.Version, error) {
-	var out projectstate.Version
-	err := workflow.ExecuteActivity(i.options(ctx, "projectStateAccess.setReviewCommentStatusOnBranch"), "projectStateAccess.setReviewCommentStatusOnBranch", projectID, expectedVersion, branch, kind, commentID, status).Get(ctx, &out)
-	return out, err
-}
-
-// ProjectStateStageArtifactForReview invokes activity "projectStateAccess.stageArtifactForReview".
-func (i genInvokers) ProjectStateStageArtifactForReview(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, model projectstate.ArtifactModel) (projectstate.Version, error) {
-	var out projectstate.Version
-	err := workflow.ExecuteActivity(i.options(ctx, "projectStateAccess.stageArtifactForReview"), "projectStateAccess.stageArtifactForReview", projectID, expectedVersion, model).Get(ctx, &out)
-	return out, err
-}
-
-// ProjectStateStageArtifactForReviewOnBranch invokes activity "projectStateAccess.stageArtifactForReviewOnBranch".
-func (i genInvokers) ProjectStateStageArtifactForReviewOnBranch(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, model projectstate.ArtifactModel) (projectstate.Version, error) {
-	var out projectstate.Version
-	err := workflow.ExecuteActivity(i.options(ctx, "projectStateAccess.stageArtifactForReviewOnBranch"), "projectStateAccess.stageArtifactForReviewOnBranch", projectID, expectedVersion, branch, model).Get(ctx, &out)
-	return out, err
-}
-
-// ProjectStateWithdrawArtifact invokes activity "projectStateAccess.withdrawArtifact".
-func (i genInvokers) ProjectStateWithdrawArtifact(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, kind projectstate.ArtifactKind, notes string) (projectstate.Version, error) {
-	var out projectstate.Version
-	err := workflow.ExecuteActivity(i.options(ctx, "projectStateAccess.withdrawArtifact"), "projectStateAccess.withdrawArtifact", projectID, expectedVersion, kind, notes).Get(ctx, &out)
-	return out, err
-}
-
-// ProjectStateWithdrawArtifactOnBranch invokes activity "projectStateAccess.withdrawArtifactOnBranch".
-func (i genInvokers) ProjectStateWithdrawArtifactOnBranch(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string) (projectstate.Version, error) {
-	var out projectstate.Version
-	err := workflow.ExecuteActivity(i.options(ctx, "projectStateAccess.withdrawArtifactOnBranch"), "projectStateAccess.withdrawArtifactOnBranch", projectID, expectedVersion, branch, kind, notes).Get(ctx, &out)
-	return out, err
-}
-
-// PipelineCancelConstructionPipeline invokes activity "constructionPipelineAccess.cancelConstructionPipeline".
-func (i genInvokers) PipelineCancelConstructionPipeline(ctx workflow.Context, handle constructionpipeline.PipelineHandle) error {
-	err := workflow.ExecuteActivity(i.options(ctx, "constructionPipelineAccess.cancelConstructionPipeline"), "constructionPipelineAccess.cancelConstructionPipeline", handle).Get(ctx, nil)
+// PipelineCancelAgenticJob invokes activity "agenticJobAccess.cancelAgenticJob".
+func (i genInvokers) PipelineCancelAgenticJob(ctx workflow.Context, handle agenticjob.PipelineHandle) error {
+	err := workflow.ExecuteActivity(i.options(ctx, "agenticJobAccess.cancelAgenticJob"), "agenticJobAccess.cancelAgenticJob", handle).Get(ctx, nil)
 	return err
 }
 
-// PipelineObserveConstructionPipeline invokes activity "constructionPipelineAccess.observeConstructionPipeline".
-func (i genInvokers) PipelineObserveConstructionPipeline(ctx workflow.Context, handle constructionpipeline.PipelineHandle) (constructionpipeline.PipelineObservation, error) {
-	var out constructionpipeline.PipelineObservation
-	err := workflow.ExecuteActivity(i.options(ctx, "constructionPipelineAccess.observeConstructionPipeline"), "constructionPipelineAccess.observeConstructionPipeline", handle).Get(ctx, &out)
+// PipelineObserveAgenticJob invokes activity "agenticJobAccess.observeAgenticJob".
+func (i genInvokers) PipelineObserveAgenticJob(ctx workflow.Context, handle agenticjob.PipelineHandle) (agenticjob.PipelineObservation, error) {
+	var out agenticjob.PipelineObservation
+	err := workflow.ExecuteActivity(i.options(ctx, "agenticJobAccess.observeAgenticJob"), "agenticJobAccess.observeAgenticJob", handle).Get(ctx, &out)
 	return out, err
 }
 
-// PipelineSubmitConstructionPipeline invokes activity "constructionPipelineAccess.submitConstructionPipeline".
-func (i genInvokers) PipelineSubmitConstructionPipeline(ctx workflow.Context, spec constructionpipeline.PipelineSpec) (constructionpipeline.PipelineHandle, error) {
-	var out constructionpipeline.PipelineHandle
-	err := workflow.ExecuteActivity(i.options(ctx, "constructionPipelineAccess.submitConstructionPipeline"), "constructionPipelineAccess.submitConstructionPipeline", spec).Get(ctx, &out)
+// PipelineSubmitAgenticJob invokes activity "agenticJobAccess.submitAgenticJob".
+func (i genInvokers) PipelineSubmitAgenticJob(ctx workflow.Context, spec agenticjob.PipelineSpec) (agenticjob.PipelineHandle, error) {
+	var out agenticjob.PipelineHandle
+	err := workflow.ExecuteActivity(i.options(ctx, "agenticJobAccess.submitAgenticJob"), "agenticJobAccess.submitAgenticJob", spec).Get(ctx, &out)
 	return out, err
 }
 

@@ -1134,7 +1134,7 @@ func itoa64(n int64) string { return strconv.FormatInt(n, 10) }
 // asset accessor. The COMMIT is performed by the C-PM-Δ caller through the
 // already-built CommitManagedFiles verb; the DISPATCH is performed by the design
 // Managers (C-MSD-Δ / C-MPD-Δ) through the frozen
-// constructionPipelineAccess.SubmitConstructionPipeline verb. The workflow_dispatch
+// agenticJobAccess.SubmitAgenticJob verb. The workflow_dispatch
 // input names the workflow template declares are a CONTRACT with those Managers —
 // see designs/aiarch/implementation/log/C-WF-DESIGN.md.
 
@@ -1579,7 +1579,7 @@ func RailAppSlug(rail SourceControlAccess) string {
 // behavior.go carries the FREE-FUNCTION behaviour of the named-scalar / enum /
 // struct value types in this component's contract — the established "behavioral
 // value type → generated scalar + free functions" pattern (same as
-// durableexecution's ExecutionHandle/ExecutionStatus and constructionpipeline's
+// durableexecution's ExecutionHandle/ExecutionStatus and agenticjob's
 // PipelineHandle/PipelinePhase/RepoTarget). The opaque-handle value types
 // (Installation, RepoRef, CommitRef, BranchRef, PullRequestRef) are generated as
 // $def named scalars (contract.gen.go); the RepoCredential struct + the CheckState
@@ -1622,7 +1622,7 @@ func RepoRefFromString(s string) RepoRef { return RepoRef(s) }
 // RepoRefOwnerRepo decodes the RepoRef into its provider owner + repo coordinates —
 // the ONLY public accessor of the otherwise-opaque owner/repo encoding. It exists
 // so a caller that must address the repo on a DIFFERENT infrastructure port than
-// this RA (the per-project-design-dispatch: the constructionPipelineAccess seam
+// this RA (the per-project-design-dispatch: the agenticJobAccess seam
 // dispatches the agentic DESIGN job to the per-project repo) can resolve the
 // owner/repo WITHOUT re-implementing this RA's private RepoRef encoding. A malformed
 // ref is a ContractMisuse the caller surfaces. This is the single seam where
@@ -1769,14 +1769,14 @@ func NewGitHubSourceControl(client *fwgithub.AppClient, account, appSlug string,
 // (F-R3 local design PR rail) — the THIRD arm alongside the GitHub-backed realisation
 // (sourcecontrolaccess.go) and any dry-run stub. It backs the design managers' branch /
 // PR / review / merge lifecycle when the project runs on the LOCAL profile (a file:// bare
-// repo, the SAME one the projectstate GitStore + the constructionpipeline local executor
+// repo, the SAME one the projectstate GitStore + the agenticjob local executor
 // operate on), with NO GitHub App, NO network, and NO PR store.
 //
 // WHY IT EXISTS: on the local profile the cloud PR rail is unavailable (no GitHub App,
 // no Actions, no PR objects), yet the design spine still wants a branch-backed session
 // lifecycle — draft onto a session branch, gate on checks+mergeable, then merge to main.
 // This realisation provides that entirely over LOCAL git mechanics (throwaway clone +
-// push + merge --no-ff + branch delete), the SAME primitives constructionpipeline's
+// push + merge --no-ff + branch delete), the SAME primitives agenticjob's
 // mergeActivityBranch + the projectstate GitStore already use. A local "PR" is not a
 // stored object — it is a pure git construct (a head branch proposed into main), so the
 // PullRequestRef deterministically ENCODES the head branch ("local#<head>") and every
@@ -1803,7 +1803,7 @@ func NewGitHubSourceControl(client *fwgithub.AppClient, account, appSlug string,
 //     (ContractMisuse) — there is no GitHub App funnel locally.
 //
 // DUPLICATED GIT HELPERS: the tiny `git` subprocess plumbing below is deliberately
-// re-implemented rather than shared with constructionpipeline (an RA may not import a
+// re-implemented rather than shared with agenticjob (an RA may not import a
 // sibling RA — NoSideways), the SAME accepted-duplication precedent that file's own
 // header cites.
 
@@ -1837,7 +1837,7 @@ var gitLocalFarExpiry = time.Date(9999, 12, 31, 0, 0, 0, 0, time.UTC)
 // gitLocalAccess is the concrete local-git SourceControlAccess. It holds only the shared
 // repo URL and a mutex serialising this instance's own throwaway-clone git operations
 // against that repo (V1 assumes one local developer driving one session at a time — the
-// same scope constructionpipeline's localExecAccess documents).
+// same scope agenticjob's localExecAccess documents).
 type gitLocalAccess struct {
 	repoURL string
 	gitMu   sync.Mutex
@@ -1847,7 +1847,7 @@ var _ SourceControlAccess = (*gitLocalAccess)(nil)
 
 // NewGitLocalSourceControlAccess builds the local-git SourceControlAccess over the shared
 // repo at repoURL (a file:// bare repo or plain path — the SAME value the projectstate
-// GitStore + the constructionpipeline local executor are configured with). Like the other
+// GitStore + the agenticjob local executor are configured with). Like the other
 // GitLocal* variant constructors (projectstate.NewGitLocalProjectStateAccess) it panics on
 // a misconfiguration the composition root cannot recover from (empty repoURL), rather than
 // threading an error through the variant-constructor signature.
@@ -1895,7 +1895,7 @@ func (a *gitLocalAccess) AdoptProjectRepo(_ fwra.Context, spec RepoAdoptionSpec)
 }
 
 // CommitManagedFiles is a no-op success returning a sentinel CommitRef. The managed
-// scaffold (.claude prompt surface) is seated by the constructionpipeline local executor at
+// scaffold (.claude prompt surface) is seated by the agenticjob local executor at
 // dispatch time, not committed to the repo, so there is nothing to commit here.
 func (a *gitLocalAccess) CommitManagedFiles(_ fwra.Context, repo RepoRef, _ []ManagedFile, _ RepoCredential) (CommitRef, error) {
 	if RepoRefIsZero(repo) {
@@ -2047,7 +2047,7 @@ func (a *gitLocalAccess) MergePullRequest(_ fwra.Context, repo RepoRef, pr PullR
 
 // ---------------------------------------------------------------------------
 // git plumbing (throwaway-clone + push mechanics — duplicated per NoSideways;
-// mirrors constructionpipeline.mergeActivityBranch's style).
+// mirrors agenticjob.mergeActivityBranch's style).
 // ---------------------------------------------------------------------------
 
 // cloneMain clones the shared repo's main into a throwaway temp dir and returns the clone
@@ -2171,7 +2171,7 @@ func gitLocalPRHead(pr PullRequestRef) (string, error) {
 
 // gitLocalRun runs `git <args...>` with the given working dir (ignored when empty — used
 // for the initial clone) and wraps combined output into the error on failure, for a
-// debuggable diagnostic. Mirrors constructionpipeline.runGit.
+// debuggable diagnostic. Mirrors agenticjob.runGit.
 func gitLocalRun(dir string, args ...string) (string, error) {
 	cmd := exec.Command("git", args...) //nolint:gosec // fixed trusted binary, internally-derived args (repo URL / branch names)
 	if dir != "" {

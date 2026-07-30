@@ -55,6 +55,14 @@ func (c *HTTPClient) SystemDesignGetSessionState(ctx context.Context, projectID 
 	return out, err
 }
 
+// SystemDesignGetDesignHealth calls the GetDesignHealth operation on the SystemDesign manager over HTTP.
+func (c *HTTPClient) SystemDesignGetDesignHealth(ctx context.Context, projectID ProjectID) (DesignHealth, error) {
+	path := fmt.Sprintf("/api/v1/system-design/get-design-health/%s", projectID)
+	var out DesignHealth
+	err := c.doRequest(ctx, http.MethodGet, path, nil, &out, http.StatusOK)
+	return out, err
+}
+
 // SystemDesignListProjects calls the ListProjects operation on the SystemDesign manager over HTTP.
 func (c *HTTPClient) SystemDesignListProjects(ctx context.Context, owner OwnerScope) ([]ProjectSummary, error) {
 	path := "/api/v1/system-design/list-projects"

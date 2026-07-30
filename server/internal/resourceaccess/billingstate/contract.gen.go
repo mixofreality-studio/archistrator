@@ -6,15 +6,15 @@ package billingstate
 import (
 	"github.com/google/uuid"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+	"time"
 )
 
 type Billing struct {
-	ID            uuid.UUID    `json:"ID"`
-	Version       Version      `json:"Version"`
-	GatewayBound  bool         `json:"GatewayBound"`
-	Registered    bool         `json:"Registered"`
-	Terms         BillingTerms `json:"Terms"`
-	PayoutAccount string       `json:"PayoutAccount"`
+	ID           uuid.UUID    `json:"ID"`
+	Version      Version      `json:"Version"`
+	GatewayBound bool         `json:"GatewayBound"`
+	Registered   bool         `json:"Registered"`
+	Terms        BillingTerms `json:"Terms"`
 }
 
 type BillingOutcome struct {
@@ -30,9 +30,7 @@ type BillingTerms struct {
 	BillingKind      int64 `json:"BillingKind"`
 }
 
-type CustomerProfile struct {
-	PayoutAccountRef string `json:"PayoutAccountRef"`
-}
+type CustomerProfile map[string]interface{}
 
 type CustomerSummary struct {
 	ID               uuid.UUID `json:"ID"`
@@ -43,8 +41,10 @@ type DelinquencyScope struct {
 	ProjectID string `json:"ProjectID"`
 }
 
+type EntryRef string
+
 type GatewayBinding struct {
-	ConnectedAccountID string `json:"ConnectedAccountID"`
+	GatewayCustomerRef string `json:"GatewayCustomerRef"`
 }
 
 type Money struct {
@@ -52,11 +52,35 @@ type Money struct {
 	Currency   string `json:"Currency"`
 }
 
+type RevenueEntry struct {
+	CustomerID     uuid.UUID   `json:"CustomerID"`
+	CycleID        string      `json:"CycleID"`
+	Kind           RevenueKind `json:"Kind"`
+	Amount         Money       `json:"Amount"`
+	GatewayEventID string      `json:"GatewayEventID"`
+	OccurredAt     time.Time   `json:"OccurredAt"`
+}
+
+type RevenueKind int
+
+const (
+	RevenueKindInbound  RevenueKind = 0
+	RevenueKindReversal RevenueKind = 1
+)
+
+type ReversalEntry struct {
+	CustomerID             uuid.UUID `json:"CustomerID"`
+	CycleID                string    `json:"CycleID"`
+	Amount                 Money     `json:"Amount"`
+	GatewayEventID         string    `json:"GatewayEventID"`
+	ReversesGatewayEventID string    `json:"ReversesGatewayEventID"`
+	OccurredAt             time.Time `json:"OccurredAt"`
+}
+
 type RoutingDirective int
 
 const (
 	RoutingNoAction RoutingDirective = 0
-	RoutingPayout   RoutingDirective = 1
 	RoutingCharge   RoutingDirective = 2
 )
 
@@ -111,4 +135,11 @@ func (*stubBillingStateAccess) ResettleCycle(_ fwra.Context, _ uuid.UUID, _ Vers
 func (*stubBillingStateAccess) SettleCycle(_ fwra.Context, _ uuid.UUID, _ Version, _ string, _ BillingOutcome, _ fwra.IdempotencyKey) (Version, error) {
 	var zero Version
 	return zero, fwra.New(fwra.Unknown, "not implemented")
+}
+
+// RevenueLedgerAccess is the generated service-contract interface for this component.
+type RevenueLedgerAccess interface {
+	RecordInboundRevenue(rc fwra.Context, entry RevenueEntry) (EntryRef, error)
+	RecordReversal(rc fwra.Context, reversal ReversalEntry) (EntryRef, error)
+	ReadRange(rc fwra.Context, customerID uuid.UUID, cycleID string) ([]RevenueEntry, error)
 }

@@ -1,7 +1,10 @@
-// Package revenueledger is the revenueLedgerAccess component of the ResourceAccess
-// layer — the append-only ledger of usage-derived revenue events feeding the
-// charge-only billing rail (Settlement→Billing ratification, 2026-07-03).
-package revenueledger
+// revenueledgeraccess.go carries the revenueLedgerAccess CONTRACT FACET of the
+// billingStateAccess component: the append-only ledger of usage-derived revenue events
+// feeding the charge-only billing rail (Settlement→Billing ratification, 2026-07-03).
+// The facet was re-folded into this package (reversing the ea56a36 split) per the Wave 1
+// state reconciliation — one component, one Go package — while remaining a separate facet
+// contract (component: billingStateAccess) in project.json .serviceContracts.
+package billingstate
 
 import (
 	"github.com/google/uuid"

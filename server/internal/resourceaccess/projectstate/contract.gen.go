@@ -202,14 +202,15 @@ const (
 )
 
 type Component struct {
-	ID                  string        `json:"id"`
-	Name                string        `json:"name"`
-	Kind                ComponentKind `json:"kind"`
-	Layer               Layer         `json:"layer"`
-	Encapsulates        string        `json:"encapsulates"`
-	AtomicBusinessVerbs []string      `json:"atomicBusinessVerbs"`
-	BuildStatus         *string       `json:"buildStatus,omitempty"`
-	ContractKey         *string       `json:"contractKey,omitempty"`
+	ID                       string        `json:"id"`
+	Name                     string        `json:"name"`
+	Kind                     ComponentKind `json:"kind"`
+	Layer                    Layer         `json:"layer"`
+	Encapsulates             string        `json:"encapsulates"`
+	EncapsulatesVolatilities []string      `json:"encapsulatesVolatilities,omitempty"`
+	AtomicBusinessVerbs      []string      `json:"atomicBusinessVerbs"`
+	BuildStatus              *string       `json:"buildStatus,omitempty"`
+	ContractKey              *string       `json:"contractKey,omitempty"`
 }
 
 type ComponentKind int
@@ -237,6 +238,12 @@ type ConstructionProgress struct {
 	HandOffModel   string    `json:"HandOffModel"`
 	SupervisionCap int       `json:"SupervisionCap"`
 	Points         []EvPoint `json:"points,omitempty"`
+}
+
+type ConstructionVenue struct {
+	Kind           VenueKind `json:"kind"`
+	RepositoryHost *string   `json:"repositoryHost,omitempty"`
+	Note           *string   `json:"note,omitempty"`
 }
 
 type ContainerInstance struct {
@@ -288,6 +295,17 @@ type DeploymentEnvironment struct {
 	Profile DeploymentProfile `json:"profile"`
 	Title   string            `json:"title"`
 	Nodes   []DeploymentNode  `json:"nodes"`
+}
+
+type DeploymentOperationsModel struct {
+	ObjectiveLinks      map[string][]int64 `json:"objectiveLinks,omitempty"`
+	DeploymentScenario  ScenarioKind       `json:"deploymentScenario"`
+	ConstructionVenue   ConstructionVenue  `json:"constructionVenue"`
+	ReviewPolicyRef     string             `json:"reviewPolicyRef"`
+	ScalingPolicy       interface{}        `json:"scalingPolicy,omitempty"`
+	InfraBuildingBlocks []InfraBlock       `json:"infraBuildingBlocks,omitempty"`
+	TrustSummaries      TrustSummaries     `json:"trustSummaries"`
+	Deployment          DeploymentTopology `json:"deployment"`
 }
 
 type DeploymentProfile int
@@ -358,6 +376,12 @@ type GlossaryItem struct {
 	Term       string `json:"term"`
 	Definition string `json:"definition"`
 	Category   string `json:"category"`
+}
+
+type InfraBlock struct {
+	Name     string `json:"name"`
+	Category string `json:"category"`
+	Status   string `json:"status"`
 }
 
 type InfrastructureKind int
@@ -431,17 +455,6 @@ type NetworkSummary struct {
 type Objective struct {
 	Number    int    `json:"number"`
 	Statement string `json:"statement"`
-}
-
-type OperationalConcepts struct {
-	Decisions  []OperationalDecision `json:"decisions"`
-	Deployment DeploymentTopology    `json:"deployment"`
-}
-
-type OperationalDecision struct {
-	Topic               string `json:"topic"`
-	Decision            string `json:"decision"`
-	JustifyingObjective int    `json:"justifyingObjective"`
 }
 
 type OptionActivity struct {
@@ -579,8 +592,10 @@ type RepoCredential struct {
 }
 
 type Requirement struct {
-	ID        string `json:"id"`
-	Statement string `json:"statement"`
+	ID             string   `json:"id"`
+	Statement      string   `json:"statement"`
+	StatedAs       []string `json:"statedAs,omitempty"`
+	VolatilityHint []string `json:"volatilityHint,omitempty"`
 }
 
 type ResearchInput struct {
@@ -642,6 +657,15 @@ type SRSRecord struct {
 	Content    string     `json:"content"`
 	AuthoredAt *time.Time `json:"authoredAt,omitempty"`
 }
+
+type ScalingPolicy struct {
+	ScaleToZero          bool  `json:"scaleToZero"`
+	MinInstances         int64 `json:"minInstances"`
+	MaxInstances         int64 `json:"maxInstances"`
+	TargetUtilizationPct int64 `json:"targetUtilizationPct"`
+}
+
+type ScenarioKind string
 
 type ScheduleKind int
 
@@ -705,6 +729,8 @@ type System struct {
 	Components    []Component    `json:"components"`
 	Relationships []Relationship `json:"relationships"`
 	DynamicViews  []DynamicView  `json:"dynamicViews"`
+	Waivers       []CheckItem    `json:"waivers,omitempty"`
+	Attestations  []CheckItem    `json:"attestations,omitempty"`
 }
 
 type TestPlanRecord struct {
@@ -731,6 +757,12 @@ const (
 	TriggerBusMessage   Trigger = 2
 )
 
+type TrustSummaries struct {
+	Billing       string `json:"billing"`
+	UsageMetering string `json:"usageMetering"`
+	DataOwnership string `json:"dataOwnership"`
+}
+
 type UIDesignRecord struct {
 	Surface    string     `json:"surface"`
 	Content    string     `json:"content"`
@@ -750,15 +782,19 @@ type UsageAssumption struct {
 }
 
 type UseCaseDecision struct {
-	UseCase         UseCase `json:"useCase"`
-	RejectionReason string  `json:"rejectionReason"`
+	UseCase          UseCase `json:"useCase"`
+	RejectionReason  string  `json:"rejectionReason"`
+	EssenceRationale *string `json:"essenceRationale,omitempty"`
 }
+
+type VenueKind string
 
 type Version int64
 
 type Volatilities struct {
 	Items    []Volatility         `json:"items"`
 	Rejected []RejectedVolatility `json:"rejected,omitempty"`
+	Waivers  []CheckItem          `json:"waivers,omitempty"`
 }
 
 type Volatility struct {
@@ -790,7 +826,6 @@ type ConstructionTransitionAccess interface {
 	RecordPhaseCompleted(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, phase ActivityMethodPhase, artifactRef string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	RecordServiceContractProduced(rc fwra.Context, projectID ProjectID, expectedVersion Version, component string, contract ServiceContract, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	RecordPhaseArtifactProduced(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, mapKey string, payload PhaseArtifactPayload, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	ReadProject(rc fwra.Context, projectID ProjectID, cred RepoCredential) (Project, error)
 }
 
 // DesignSessionAccess is the generated service-contract interface for this component.
@@ -823,18 +858,7 @@ type ProjectStateAccess interface {
 	CreateProject(rc fwra.Context, projectID ProjectID, owner OwnerScope, name string) (Version, error)
 	ListProjects(rc fwra.Context, owner OwnerScope) ([]ProjectSummary, error)
 	ReadProject(rc fwra.Context, projectID ProjectID) (Project, error)
-	ReadProjectOnBranch(rc fwra.Context, projectID ProjectID, branch string) (Project, error)
-	ReconcileBranchFromMain(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	ReadProjectVersion(rc fwra.Context, projectID ProjectID) (Version, error)
-	RejectArtifact(rc fwra.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, notes string) (Version, error)
-	RejectArtifactOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	RejectArtifactOnBranchWithComments(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, round int64, comments []ReviewComment, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	SeedReviewCommentsOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, round int64, comments []ReviewComment, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	SetOperatingModel(rc fwra.Context, projectID ProjectID, expectedVersion Version, model OperatingModel) (Version, error)
 	SetResearchInput(rc fwra.Context, projectID ProjectID, expectedVersion Version, research ResearchInput) (Version, error)
-	SetReviewCommentStatusOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, commentID string, status string, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	StageArtifactForReview(rc fwra.Context, projectID ProjectID, expectedVersion Version, model ArtifactModel) (Version, error)
-	StageArtifactForReviewOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, model ArtifactModel, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	WithdrawArtifact(rc fwra.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, notes string) (Version, error)
-	WithdrawArtifactOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, idempotencyKey fwra.IdempotencyKey) (Version, error)
 }

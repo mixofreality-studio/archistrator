@@ -13,19 +13,59 @@
  * parentId + extent:'parent'); only `deployContainer` carries local UI state
  * (the expand/collapse of its packaged-components list).
  */
-import { useState, type ReactNode } from 'react';
+import { useState, type KeyboardEvent, type ReactNode } from 'react';
 import type { NodeProps } from '@xyflow/react';
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import Typography from '@mui/material/Typography';
 import { useTokens } from '../../utilities/theme/ThemeContext';
+import { useComments, deploymentAnchor } from '../comments/CommentContext';
 import { layerColors, type Layer } from './flowLayout';
 
-// Deployment-topology nodes are commentable: clicking any node arms a deployment
-// anchor (handled by DeploymentFlow's onNodeClick, which reads `profile` + name
-// from node.data). React Flow's own `selected` state is inert here (the graph is
-// controlled without a change handler), so a pointer cursor — not a select
-// toolbar — signals commentability. `profile` rides in each node's data.
+// Deployment-topology nodes are commentable AND keyboard-operable: a pointer click
+// arms a deployment anchor (handled by DeploymentFlow's onNodeClick, which reads
+// `profile` + name from node.data), and every node's root box is a focusable,
+// labelled `button` so keyboard/AT users can Tab to it and press Enter/'c' to arm the
+// same anchor — the C4Node convention (P1 a11y). React Flow's own `selected` state is
+// inert here (the graph is controlled without a change handler), so a pointer cursor +
+// focus ring — not a select toolbar — signals commentability. `profile` rides in data.
+
+/**
+ * The focusable/keyboard-comment props shared by every deployment node's root box:
+ * a labelled `button` role with a visible focus ring, arming the deployment comment
+ * anchor on Enter/'c' (gated on an active CommentContext). Mirrors C4Node so the
+ * deployment diagram is operable without a mouse.
+ */
+function useDeployNodeA11y(
+  name: string,
+  profile: string
+): {
+  role: 'button';
+  tabIndex: 0;
+  'aria-label': string;
+  onKeyDown: (e: KeyboardEvent) => void;
+} {
+  const { setAnchor, enabled } = useComments();
+  const onKeyDown = (e: KeyboardEvent): void => {
+    if (!enabled) return;
+    if (e.key === 'Enter' || e.key === 'c' || e.key === 'C') {
+      e.preventDefault();
+      if (name.length === 0 || profile.length === 0) return;
+      setAnchor({
+        kind: 'node',
+        label: name,
+        source: `Deployment · ${profile}`,
+        jsonPath: deploymentAnchor(profile, name),
+      });
+    }
+  };
+  return {
+    role: 'button',
+    tabIndex: 0,
+    'aria-label': enabled ? `${name}. Press C to comment.` : name,
+    onKeyDown,
+  };
+}
 
 export interface DeployGroupData {
   label: string;
@@ -79,8 +119,10 @@ const clamp2 = {
 export function DeployGroupNode({ data, width, height }: NodeProps): ReactNode {
   const t = useTokens();
   const d = data as DeployGroupData;
+  const a11y = useDeployNodeA11y(d.label, d.profile);
   return (
     <Box
+      {...a11y}
       sx={{
         width,
         height,
@@ -88,6 +130,8 @@ export function DeployGroupNode({ data, width, height }: NodeProps): ReactNode {
         border: `1.5px dashed ${t.line}`,
         borderRadius: t.radius / 8 + 0.5,
         cursor: 'pointer',
+        outline: 'none',
+        '&:focus-visible': { outline: `2px solid ${t.accent}`, outlineOffset: 2 },
       }}
     >
       <Box sx={{ px: 1, py: 0.5, borderBottom: `1px solid ${t.line}`, bgcolor: t.paperAlt }}>
@@ -152,9 +196,18 @@ export function DeployContainerNode({ data, width, height }: NodeProps): ReactNo
   const colors = layerColors(t);
   const [open, setOpen] = useState(false);
   const count = d.components.length;
+  const a11y = useDeployNodeA11y(d.name, d.profile);
   return (
     <Box
-      sx={{ position: 'relative', width, height, cursor: 'pointer' }}
+      {...a11y}
+      sx={{
+        position: 'relative',
+        width,
+        height,
+        cursor: 'pointer',
+        outline: 'none',
+        '&:focus-visible': { outline: `2px solid ${t.accent}`, outlineOffset: 2 },
+      }}
       onMouseEnter={() => {
         setOpen(true);
       }}
@@ -285,8 +338,10 @@ export function DeployContainerNode({ data, width, height }: NodeProps): ReactNo
 export function DeployInfraNode({ data, width, height }: NodeProps): ReactNode {
   const t = useTokens();
   const d = data as DeployInfraData;
+  const a11y = useDeployNodeA11y(d.name, d.profile);
   return (
     <Box
+      {...a11y}
       sx={{
         position: 'relative',
         width,
@@ -299,6 +354,8 @@ export function DeployInfraNode({ data, width, height }: NodeProps): ReactNode {
         borderRadius: 2,
         overflow: 'hidden',
         cursor: 'pointer',
+        outline: 'none',
+        '&:focus-visible': { outline: `2px solid ${t.accent}`, outlineOffset: 2 },
       }}
     >
       <Typography
@@ -347,8 +404,10 @@ export function DeployInfraNode({ data, width, height }: NodeProps): ReactNode {
 export function DeployExternalNode({ data, width, height }: NodeProps): ReactNode {
   const t = useTokens();
   const d = data as DeployExternalData;
+  const a11y = useDeployNodeA11y(d.name, d.profile);
   return (
     <Box
+      {...a11y}
       sx={{
         position: 'relative',
         width,
@@ -361,6 +420,8 @@ export function DeployExternalNode({ data, width, height }: NodeProps): ReactNod
         borderRadius: 2,
         overflow: 'hidden',
         cursor: 'pointer',
+        outline: 'none',
+        '&:focus-visible': { outline: `2px solid ${t.accent}`, outlineOffset: 2 },
       }}
     >
       <Typography

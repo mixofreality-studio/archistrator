@@ -24,10 +24,10 @@ type onboardInput struct {
 }
 
 // OnboardWorkflow drives UC5 onboard (billingManager.md §6.3):
-//  1. ReadBillingActivity → resolves deployedAppId → customerId + terms/payout.
-//  2. CreateConnectedAccountActivity (merchantGatewayAccess).
-//  3. BindGatewayLiveActivity (head-state; Conflict loop).
-//  4. RegisterScheduleActivity (the per-customer closeBillingCycle:<customerId> Schedule).
+//  1. ReadBillingActivity → resolves deployedAppId → customerId + terms.
+//  2. BindGatewayLiveActivity (head-state; Conflict loop) — charge-only: binds the
+//     gateway customer reference; no connected-account creation step.
+//  3. RegisterScheduleActivity (the per-customer closeBillingCycle:<customerId> Schedule).
 //
 // (Runtime payment-config wiring is NOT a billing step: publishing desired state into
 // the operated runtime is OperationsManager's publishDesiredState concern — the
@@ -52,13 +52,11 @@ func (wf *workflows) OnboardWorkflow(ctx workflow.Context, in onboardInput) (Bil
 	}
 	customerID := billing.ID
 
-	// Create the merchant connected account (external gateway).
-	binding, gerr := wf.createConnectedAccount(ctx, customerID)
-	if gerr != nil {
-		return BillingRef{}, gerr
-	}
-
-	// Record the binding (head-state; Conflict loop).
+	// Bind the gateway customer reference (head-state; Conflict loop). Charge-only: there
+	// is no connected-account creation step (the platform never pays out); the gateway
+	// customer reference is the customer's own stable id, which the charge rail
+	// (chargeCustomer) keys on, and bindGatewayLive flips GatewayBound.
+	binding := gatewayBindingFor(customerID)
 	if _, berr := wf.bindGatewayLive(ctx, customerID, billing.Version, binding); berr != nil {
 		return BillingRef{}, berr
 	}
@@ -91,17 +89,12 @@ func (wf *workflows) readBillingByDeployedApp(ctx workflow.Context, deployedAppI
 	return wf.readBilling(ctx, deployedAppID)
 }
 
-// createConnectedAccount invokes merchantGatewayAccess.createConnectedAccount (caller-
-// keyed onboard:{id}) and folds the merchantgateway-owned binding onto the
-// billingstate-owned GatewayBinding the head-state write (bindGatewayLive) persists —
-// two distinct generated types, same shape (ConnectedAccountID string).
-func (wf *workflows) createConnectedAccount(ctx workflow.Context, customerID customerID) (billingstate.GatewayBinding, error) {
-	key := fmt.Sprintf("onboard:%s", customerID)
-	b, err := wf.Acts.MerchantGatewayCreateConnectedAccount(ctx, fwra.IdempotencyKey(key), customerID, key)
-	if err != nil {
-		return billingstate.GatewayBinding{}, err
-	}
-	return billingstate.GatewayBinding{ConnectedAccountID: b.ConnectedAccountID}, nil
+// gatewayBindingFor builds the head-state GatewayBinding for onboarding. Under the
+// charge-only model there is no connected-account creation call (the retired
+// merchantGatewayAccess.createConnectedAccount); the gateway customer reference is the
+// customer's own stable id, which the charge rail keys on.
+func gatewayBindingFor(customerID customerID) billingstate.GatewayBinding {
+	return billingstate.GatewayBinding{GatewayCustomerRef: customerID.String()}
 }
 
 func (wf *workflows) bindGatewayLive(ctx workflow.Context, customerID customerID, seed billingstate.Version, binding billingstate.GatewayBinding) (billingstate.Version, error) {

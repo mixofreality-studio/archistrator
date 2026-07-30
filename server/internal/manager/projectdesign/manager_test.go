@@ -18,7 +18,7 @@ import (
 	billing "github.com/mixofreality-studio/archistrator/server/internal/engine/billing"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/estimation"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/operationestimation"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/constructionpipeline"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/agenticjob"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 	"github.com/stretchr/testify/mock"
@@ -644,7 +644,7 @@ func Test_CommittedSessionView_CarriesReviewThread(t *testing.T) {
 // read-back co-author gate (projectDesignManager.md §0.5), the TWIN of the C-MSD-Δ
 // spine. Method product → NO BDD; regression-first, black-box at the WIRE SEAM. The
 // LLM is stubbed at the EXTERNAL agentic-job boundary — a FAKE
-// constructionPipelineAccess (submit/observe) + a FAKE projectStateAccess serving the
+// agenticJobAccess (submit/observe) + a FAKE projectStateAccess serving the
 // read-back model the Action "committed". The Manager under test is NOT faked; the
 // workflow drives the REAL dispatch → observe → read-back → human-gate sequence over
 // the Temporal in-memory test environment (testsuite.WorkflowTestSuite — no Docker,
@@ -818,7 +818,7 @@ func (f *fakeProjectState) AcknowledgeStaleBasis(_ fwra.Context, _ projectstate.
 
 var _ projectstate.ProjectStateAccess = (*fakeProjectState)(nil)
 
-// ---- fakePipeline: the EXTERNAL agentic-job seam (constructionPipelineAccess) ---
+// ---- fakePipeline: the EXTERNAL agentic-job seam (agenticJobAccess) ---
 
 // fakePipeline stands in for the claude-code-action DESIGN job at the WIRE seam. It
 // records every submitted spec (so tests assert the ProjectID / artifact_kind / branch
@@ -858,17 +858,17 @@ func newFakePipeline(phases ...pipelinePhase) *fakePipeline {
 	return &fakePipeline{phases: phases, handlePhase: map[string]pipelinePhase{}}
 }
 
-// SubmitConstructionPipeline implements the GENERATED constructionpipeline contract seam
+// SubmitAgenticJob implements the GENERATED agenticjob contract seam
 // (the submit invoker reaches it via the registered genActivities). The idempotency key is
 // now stamped INSIDE the generated activity (genActivityIdempotencyKey) and arrives on the
 // fwra call Context; the RepoRef→RepoTarget decode happens workflow-side (dispatchDesignJob),
 // so spec.TargetRepo is the DECODED {Owner,Name} — recorded here as "owner/name".
-func (p *fakePipeline) SubmitConstructionPipeline(rc fwra.Context, spec constructionpipeline.PipelineSpec) (constructionpipeline.PipelineHandle, error) {
+func (p *fakePipeline) SubmitAgenticJob(rc fwra.Context, spec agenticjob.PipelineSpec) (agenticjob.PipelineHandle, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	idx := len(p.submits)
 	targetRepo := ""
-	if !constructionpipeline.RepoTargetIsZero(spec.TargetRepo) {
+	if !agenticjob.RepoTargetIsZero(spec.TargetRepo) {
 		targetRepo = spec.TargetRepo.Owner + "/" + spec.TargetRepo.Name
 	}
 	p.submits = append(p.submits, submitRecord{
@@ -889,7 +889,7 @@ func (p *fakePipeline) SubmitConstructionPipeline(rc fwra.Context, spec construc
 	p.nextID++
 	name := "design-run/" + uuid.NewString()
 	p.handlePhase[name] = phase
-	return constructionpipeline.PipelineHandle(name), nil
+	return agenticjob.PipelineHandle(name), nil
 }
 
 // submitCount returns how many dispatches have been submitted so far (thread-safe), so a
@@ -900,47 +900,47 @@ func (p *fakePipeline) submitCount() int {
 	return len(p.submits)
 }
 
-func (p *fakePipeline) ObserveConstructionPipeline(_ fwra.Context, handle constructionpipeline.PipelineHandle) (constructionpipeline.PipelineObservation, error) {
+func (p *fakePipeline) ObserveAgenticJob(_ fwra.Context, handle agenticjob.PipelineHandle) (agenticjob.PipelineObservation, error) {
 	p.mu.Lock()
-	phase := p.handlePhase[constructionpipeline.PipelineHandleString(handle)]
+	phase := p.handlePhase[agenticjob.PipelineHandleString(handle)]
 	diag := p.diagnostic
 	hook := p.onObserve
 	p.mu.Unlock()
 	if hook != nil {
 		hook()
 	}
-	obs := constructionpipeline.PipelineObservation{Phase: neutralToRAPhase(phase)}
+	obs := agenticjob.PipelineObservation{Phase: neutralToRAPhase(phase)}
 	if phase == pipelineFailed || phase == pipelineCancelled {
 		obs.Diagnostic = diag
 	}
 	return obs, nil
 }
 
-// CancelConstructionPipeline satisfies the contract; the Phase-2 draft path never cancels.
-func (p *fakePipeline) CancelConstructionPipeline(_ fwra.Context, _ constructionpipeline.PipelineHandle) error {
+// CancelAgenticJob satisfies the contract; the Phase-2 draft path never cancels.
+func (p *fakePipeline) CancelAgenticJob(_ fwra.Context, _ agenticjob.PipelineHandle) error {
 	return nil
 }
 
 // neutralToRAPhase maps this Manager's neutral scripted phase onto the RA phase the
 // generated observe activity returns (the inverse of designPipelinePhase).
-func neutralToRAPhase(p pipelinePhase) constructionpipeline.PipelinePhase {
+func neutralToRAPhase(p pipelinePhase) agenticjob.PipelinePhase {
 	switch p {
 	case pipelinePending:
-		return constructionpipeline.PhasePending
+		return agenticjob.PhasePending
 	case pipelineRunning:
-		return constructionpipeline.PhaseRunning
+		return agenticjob.PhaseRunning
 	case pipelineSucceeded:
-		return constructionpipeline.PhaseSucceeded
+		return agenticjob.PhaseSucceeded
 	case pipelineFailed:
-		return constructionpipeline.PhaseFailed
+		return agenticjob.PhaseFailed
 	case pipelineCancelled:
-		return constructionpipeline.PhaseCancelled
+		return agenticjob.PhaseCancelled
 	default:
-		return constructionpipeline.PhasePending
+		return agenticjob.PhasePending
 	}
 }
 
-var _ constructionpipeline.ConstructionPipelineAccess = (*fakePipeline)(nil)
+var _ agenticjob.AgenticJobAccess = (*fakePipeline)(nil)
 
 // ---- Test fixtures ----------------------------------------------------------
 
@@ -1060,16 +1060,16 @@ func newWorkflows() *workflows {
 // OVERRIDES the verbs it wants branch/ledger-aware behavior for — no separate
 // registration or capability opt-in needed.
 func registerGenActivities(env *testsuite.TestWorkflowEnvironment, ps projectstate.ProjectStateAccess, pipe *fakePipeline, rail sourcecontrol.SourceControlAccess) {
-	var pipeAcc constructionpipeline.ConstructionPipelineAccess
+	var pipeAcc agenticjob.AgenticJobAccess
 	if pipe != nil {
 		pipeAcc = pipe
 	}
 	acts := &genActivities{ProjectState: ps, Pipeline: pipeAcc, Rail: rail, DesignSession: projectstate.NewDesignSessionAccess(ps)}
 	env.RegisterActivityWithOptions(acts.ProjectStateReadProjectVersion, activity.RegisterOptions{Name: "projectStateAccess.readProjectVersion"})
 	env.RegisterActivityWithOptions(acts.ProjectStateAdvancePhase, activity.RegisterOptions{Name: "projectStateAccess.advancePhase"})
-	env.RegisterActivityWithOptions(acts.PipelineSubmitConstructionPipeline, activity.RegisterOptions{Name: "constructionPipelineAccess.submitConstructionPipeline"})
-	env.RegisterActivityWithOptions(acts.PipelineObserveConstructionPipeline, activity.RegisterOptions{Name: "constructionPipelineAccess.observeConstructionPipeline"})
-	env.RegisterActivityWithOptions(acts.PipelineCancelConstructionPipeline, activity.RegisterOptions{Name: "constructionPipelineAccess.cancelConstructionPipeline"})
+	env.RegisterActivityWithOptions(acts.PipelineSubmitAgenticJob, activity.RegisterOptions{Name: "agenticJobAccess.submitAgenticJob"})
+	env.RegisterActivityWithOptions(acts.PipelineObserveAgenticJob, activity.RegisterOptions{Name: "agenticJobAccess.observeAgenticJob"})
+	env.RegisterActivityWithOptions(acts.PipelineCancelAgenticJob, activity.RegisterOptions{Name: "agenticJobAccess.cancelAgenticJob"})
 	env.RegisterActivityWithOptions(acts.RailGetInstallationToken, activity.RegisterOptions{Name: "sourceControlAccess.getInstallationToken"})
 	env.RegisterActivityWithOptions(acts.RailOpenBranch, activity.RegisterOptions{Name: "sourceControlAccess.openBranch"})
 	env.RegisterActivityWithOptions(acts.RailOpenPullRequest, activity.RegisterOptions{Name: "sourceControlAccess.openPullRequest"})
@@ -3910,32 +3910,32 @@ func TestRateForSpec_FullModelIds(t *testing.T) {
 // pm-addressed dispatch actually fires, a re-ask re-fires with a fresh key, and a submit
 // fault is LOGGED LOUDLY rather than vanishing.
 
-// recordingPipeline is a fake ConstructionPipelineAccess that records every submit and can
+// recordingPipeline is a fake AgenticJobAccess that records every submit and can
 // be told to fail — the seam the swallowed error hid.
 type recordingPipeline struct {
-	specs []constructionpipeline.PipelineSpec
+	specs []agenticjob.PipelineSpec
 	keys  []fwra.IdempotencyKey
 	err   error
 }
 
-func (p *recordingPipeline) SubmitConstructionPipeline(rc fwra.Context, spec constructionpipeline.PipelineSpec) (constructionpipeline.PipelineHandle, error) {
+func (p *recordingPipeline) SubmitAgenticJob(rc fwra.Context, spec agenticjob.PipelineSpec) (agenticjob.PipelineHandle, error) {
 	p.specs = append(p.specs, spec)
 	p.keys = append(p.keys, rc.IdempotencyKey)
 	if p.err != nil {
-		return constructionpipeline.PipelineHandle(""), p.err
+		return agenticjob.PipelineHandle(""), p.err
 	}
-	return constructionpipeline.PipelineHandle("run-1"), nil
+	return agenticjob.PipelineHandle("run-1"), nil
 }
 
-func (p *recordingPipeline) ObserveConstructionPipeline(fwra.Context, constructionpipeline.PipelineHandle) (constructionpipeline.PipelineObservation, error) {
-	return constructionpipeline.PipelineObservation{}, nil
+func (p *recordingPipeline) ObserveAgenticJob(fwra.Context, agenticjob.PipelineHandle) (agenticjob.PipelineObservation, error) {
+	return agenticjob.PipelineObservation{}, nil
 }
 
-func (p *recordingPipeline) CancelConstructionPipeline(fwra.Context, constructionpipeline.PipelineHandle) error {
+func (p *recordingPipeline) CancelAgenticJob(fwra.Context, agenticjob.PipelineHandle) error {
 	return nil
 }
 
-func managerWith(pipe constructionpipeline.ConstructionPipelineAccess, repoOK bool) *projectDesignManager {
+func managerWith(pipe agenticjob.AgenticJobAccess, repoOK bool) *projectDesignManager {
 	return &projectDesignManager{
 		pipeline: pipe,
 		repo: func(ProjectID) (sourcecontrol.RepoRef, bool) {

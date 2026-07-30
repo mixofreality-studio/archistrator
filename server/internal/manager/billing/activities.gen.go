@@ -15,7 +15,6 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/billingstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/durableexecution"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/merchantgateway"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/revenueledger"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usage"
 )
 
@@ -27,7 +26,7 @@ type genActivities struct {
 	Usage            usage.UsageAccess
 	MerchantGateway  merchantgateway.MerchantGatewayAccess
 	DurableExecution durableexecution.DurableExecutionAccess
-	RevenueLedger    revenueledger.RevenueLedgerAccess
+	RevenueLedger    billingstate.RevenueLedgerAccess
 }
 
 // genActivityIdempotencyKey derives the run-scoped 3-part key
@@ -109,20 +108,6 @@ func (a *genActivities) MerchantGatewayChargeCustomer(ctx context.Context, key f
 	return fwmanager.MapError(err)
 }
 
-// MerchantGatewayCreateConnectedAccount wraps merchantGatewayAccess.createConnectedAccount.
-// Registered as "merchantGatewayAccess.createConnectedAccount".
-func (a *genActivities) MerchantGatewayCreateConnectedAccount(ctx context.Context, key fwra.IdempotencyKey, customerID uuid.UUID, idempotencyKey string) (merchantgateway.GatewayBinding, error) {
-	v, err := a.MerchantGateway.CreateConnectedAccount(fwra.Context{Context: ctx, IdempotencyKey: key}, customerID, idempotencyKey)
-	return v, fwmanager.MapError(err)
-}
-
-// MerchantGatewayPayoutCustomer wraps merchantGatewayAccess.payoutCustomer.
-// Registered as "merchantGatewayAccess.payoutCustomer".
-func (a *genActivities) MerchantGatewayPayoutCustomer(ctx context.Context, key fwra.IdempotencyKey, customerID uuid.UUID, amount merchantgateway.Money, idempotencyKey string) error {
-	err := a.MerchantGateway.PayoutCustomer(fwra.Context{Context: ctx, IdempotencyKey: key}, customerID, amount, idempotencyKey)
-	return fwmanager.MapError(err)
-}
-
 // MerchantGatewayValidateStoredInstrument wraps merchantGatewayAccess.validateStoredInstrument.
 // Registered as "merchantGatewayAccess.validateStoredInstrument".
 func (a *genActivities) MerchantGatewayValidateStoredInstrument(ctx context.Context, key fwra.IdempotencyKey, customerID uuid.UUID, idempotencyKey string) error {
@@ -160,21 +145,21 @@ func (a *genActivities) DurableExecutionStartOrSignalExecution(ctx context.Conte
 
 // RevenueLedgerReadRange wraps revenueLedgerAccess.readRange.
 // Registered as "revenueLedgerAccess.readRange".
-func (a *genActivities) RevenueLedgerReadRange(ctx context.Context, customerID uuid.UUID, cycleID string) ([]revenueledger.RevenueEntry, error) {
+func (a *genActivities) RevenueLedgerReadRange(ctx context.Context, customerID uuid.UUID, cycleID string) ([]billingstate.RevenueEntry, error) {
 	v, err := a.RevenueLedger.ReadRange(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, customerID, cycleID)
 	return v, fwmanager.MapError(err)
 }
 
 // RevenueLedgerRecordInboundRevenue wraps revenueLedgerAccess.recordInboundRevenue.
 // Registered as "revenueLedgerAccess.recordInboundRevenue".
-func (a *genActivities) RevenueLedgerRecordInboundRevenue(ctx context.Context, entry revenueledger.RevenueEntry) (revenueledger.EntryRef, error) {
+func (a *genActivities) RevenueLedgerRecordInboundRevenue(ctx context.Context, entry billingstate.RevenueEntry) (billingstate.EntryRef, error) {
 	v, err := a.RevenueLedger.RecordInboundRevenue(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, entry)
 	return v, fwmanager.MapError(err)
 }
 
 // RevenueLedgerRecordReversal wraps revenueLedgerAccess.recordReversal.
 // Registered as "revenueLedgerAccess.recordReversal".
-func (a *genActivities) RevenueLedgerRecordReversal(ctx context.Context, reversal revenueledger.ReversalEntry) (revenueledger.EntryRef, error) {
+func (a *genActivities) RevenueLedgerRecordReversal(ctx context.Context, reversal billingstate.ReversalEntry) (billingstate.EntryRef, error) {
 	v, err := a.RevenueLedger.RecordReversal(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, reversal)
 	return v, fwmanager.MapError(err)
 }

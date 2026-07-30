@@ -22,7 +22,7 @@
 // carried OPAQUELY — a {kind, model} envelope (DraftModel) — so systemdesign never
 // regenerates or shares projectstate's sealed ArtifactModel sum or its 17 variants.
 //
-// The consumer-side dependency interfaces (ConstructionPipelineAccess /
+// The consumer-side dependency interfaces (AgenticJobAccess /
 // SourceControlRail), the Temporal Workflows struct + workflow inputs/signals, the
 // PM-critique value types (Critique / CritiqueVerdict), and the behavior over the
 // contract value types (behavior.go) stay HAND-WRITTEN and are NOT part of the
@@ -55,12 +55,14 @@ import (
 
 	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
+	"github.com/mixofreality-studio/archistrator-platform/framework-go/methodcheck"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 	"github.com/mixofreality-studio/archistrator-platform/framework-go/utilities/security"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/estimation"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/constructionpipeline"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/agenticjob"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
+	"github.com/mixofreality-studio/archistrator/server/internal/utility/designhealth"
 	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/api/serviceerror"
 	"go.temporal.io/sdk/client"
@@ -90,7 +92,7 @@ var _ SystemDesignManager = (*systemDesignManager)(nil)
 // The façade methods use only the Temporal client + projectStateAccess (for the
 // StartSystemDesign ResearchInput precondition + the sync SetResearchInput write op).
 // It ALSO stores the three Worker-side deps it was constructed with — the published
-// constructionpipeline.ConstructionPipelineAccess (design-job dispatch), the published
+// agenticjob.AgenticJobAccess (design-job dispatch), the published
 // sourcecontrol.SourceControlAccess (the PR rail), and the per-project repo resolver —
 // so RegisterWorker can wire them (via the package's folded adapters) into the
 // hand-written Temporal Workflows. The former exported consumer-mirror interfaces +
@@ -103,7 +105,7 @@ var _ SystemDesignManager = (*systemDesignManager)(nil)
 type systemDesignManager struct {
 	client       client.Client
 	projectState projectstate.ProjectStateAccess
-	pipeline     constructionpipeline.ConstructionPipelineAccess
+	pipeline     agenticjob.AgenticJobAccess
 	rail         sourcecontrol.SourceControlAccess
 	repo         func(projectID ProjectID) (sourcecontrol.RepoRef, bool)
 	// estimator + repoBase serve the folded CATALOG ops (CreateProject/GetProject/
@@ -130,7 +132,7 @@ type systemDesignManager struct {
 // published deps into the façade. The façade itself uses only client + projectState;
 // pipeline/rail/repo are stored for RegisterWorker (rail may be nil — a dev server
 // with no source-control credentials runs the design spine repo-less).
-func newSystemDesignManager(c client.Client, ps projectstate.ProjectStateAccess, pipeline constructionpipeline.ConstructionPipelineAccess, rail sourcecontrol.SourceControlAccess, repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool), estimator estimation.EstimationEngine, designSession projectstate.DesignSessionAccess, repoBase string) *systemDesignManager {
+func newSystemDesignManager(c client.Client, ps projectstate.ProjectStateAccess, pipeline agenticjob.AgenticJobAccess, rail sourcecontrol.SourceControlAccess, repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool), estimator estimation.EstimationEngine, designSession projectstate.DesignSessionAccess, repoBase string) *systemDesignManager {
 	return &systemDesignManager{client: c, projectState: ps, pipeline: pipeline, rail: rail, repo: repo, estimator: estimator, designSession: designSession, repoBase: repoBase}
 }
 
@@ -1780,7 +1782,7 @@ func (m *systemDesignManager) AskQuestions(rc fwmanager.Context, projectID Proje
 			// ledger entries, and the re-fired answer job answers the right comments.
 			round = r
 		}
-		_, err = m.projectState.SeedReviewCommentsOnBranch(fwra.Context{Context: ctx}, psID, proj.Version, branch, psKind, round, qs, key)
+		_, err = m.designSession.SeedReviewCommentsOnBranch(fwra.Context{Context: ctx}, psID, proj.Version, branch, psKind, round, qs, key)
 		if err == nil {
 			// Best-effort dispatch of the answer job. A dispatch failure is logged by the
 			// pipeline access; the questions are already durably recorded, so we do not fail
@@ -1830,11 +1832,16 @@ func (m *systemDesignManager) resolveQuestionBranch(rc fwmanager.Context, projec
 	return projectstate.DesignBranch(projectstate.ProjectID(projectID), toPSKind(kind), projectstate.AmendmentIndexFor(slotFor(proj, kind)))
 }
 
-// readProjectMaybeBranch reads the head-state aggregate from the given branch: the
-// generated ProjectStateAccess contract is uniformly branch-aware post-C2-fold
-// (branch=="" reads main exactly as ReadProject), so this is a direct forward.
+// readProjectMaybeBranch reads the head-state aggregate from the given branch. The
+// on-branch read moved onto the designSessionAccess facet (Wave 1 reconciliation), which
+// ships the aggregate as a ProjectEnvelope across the Manager-Temporal boundary; decode it
+// back to the concrete Project here. branch=="" reads main exactly as ReadProject.
 func (m *systemDesignManager) readProjectMaybeBranch(ctx context.Context, psID projectstate.ProjectID, branch string) (projectstate.Project, error) {
-	return m.projectState.ReadProjectOnBranch(fwra.Context{Context: ctx}, psID, branch)
+	env, err := m.designSession.ReadProjectOnBranch(fwra.Context{Context: ctx}, psID, branch)
+	if err != nil {
+		return projectstate.Project{}, err
+	}
+	return env.Decode()
 }
 
 // isLiveSessionStage reports whether a co-author session is live (its ledger lives on the
@@ -1974,7 +1981,7 @@ func (m *systemDesignManager) dispatchAnswerJob(ctx context.Context, projectID P
 		}
 	}
 	// Direct manager-side dispatch (NOT a Temporal workflow): the answer job is a
-	// fire-and-forget submit over the PUBLISHED constructionPipelineAccess RA. The
+	// fire-and-forget submit over the PUBLISHED agenticJobAccess RA. The
 	// RepoRef→RepoTarget decode + the placeholder step graph the retired pipelineDispatchAdapter
 	// added are inlined here (the workflow-side twin is dispatchDesignJob in dispatch.go).
 	target, terr := designRepoTarget(sourcecontrol.RepoRefString(repoRef))
@@ -1998,11 +2005,11 @@ func (m *systemDesignManager) dispatchAnswerJob(ctx context.Context, projectID P
 		dispatchInputPriorStateRef: "",
 		dispatchInputJobMode:       jobModeAnswer,
 	}
-	spec := constructionpipeline.PipelineSpec{
-		ProjectID: constructionpipeline.ProjectID(projectID),
-		Steps: []constructionpipeline.PipelineStep{{
+	spec := agenticjob.PipelineSpec{
+		ProjectID: agenticjob.ProjectID(projectID),
+		Steps: []agenticjob.PipelineStep{{
 			Name:      "design",
-			Toolchain: constructionpipeline.ToolchainRef(pipelineDefaultToolchain),
+			Toolchain: agenticjob.ToolchainRef(pipelineDefaultToolchain),
 			Command:   []string{"sh", "-c", "true"},
 		}},
 		DispatchInputs: inputs,
@@ -2010,7 +2017,7 @@ func (m *systemDesignManager) dispatchAnswerJob(ctx context.Context, projectID P
 		WorkflowFile:   designWorkflowFileName,
 	}
 	key := answerJobDispatchKey(projectID, kind, branch, qs)
-	if _, err := m.pipeline.SubmitConstructionPipeline(fwra.Context{Context: ctx, IdempotencyKey: key}, spec); err != nil {
+	if _, err := m.pipeline.SubmitAgenticJob(fwra.Context{Context: ctx, IdempotencyKey: key}, spec); err != nil {
 		log.Error("answer job dispatch FAILED — the question is recorded but not auto-answered; re-run AskQuestions with the same question to retry",
 			"err", err.Error(), "key", string(key))
 		return
@@ -2183,6 +2190,121 @@ func (m *systemDesignManager) GetProject(rc fwmanager.Context, projectID Project
 	}
 	m.computeNetworkAtRead(&proj)
 	return m.projectStateToContract(proj), nil
+}
+
+// GetDesignHealth returns the LIVE design-health read-model for one project: the
+// mechanical Method-rule findings evaluated render-on-read over the COMMITTED
+// project.json (designhealth.EvaluateRaw — the one live-tier rule engine the
+// putDraftModel authoring gate and CI also drive), PLUS the committed waiver /
+// attestation ledgers, stamped with the state revision the findings ran against.
+// It never mutates state: a clean design returns empty finding/waiver/attestation
+// slices. This is the getDesignHealth VIEW op (ui.view "design-health"); the import
+// of internal/utility/designhealth here is the code that BACKS the
+// SystemDesignManager→DesignHealth architecture edge.
+func (m *systemDesignManager) GetDesignHealth(rc fwmanager.Context, projectID ProjectID) (DesignHealth, error) {
+	ctx := rc.Context
+	if projectID == "" {
+		return DesignHealth{}, newError(fwmanager.ContractMisuse, "empty projectId")
+	}
+	proj, err := m.projectState.ReadProject(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID))
+	if err != nil {
+		// Same clean NotFound mapping as GetProject — do not leak the git call chain.
+		if raErr := (*fwra.Error)(nil); errors.As(err, &raErr) && raErr.Kind == fwra.NotFound {
+			return DesignHealth{}, fwmanager.Wrap(fwmanager.NotFound, err, fmt.Sprintf("project %q not found", projectID))
+		}
+		return DesignHealth{}, mapRAError(err, "projectStateAccess.ReadProject")
+	}
+
+	// Live findings: re-serialize the committed aggregate to its canonical
+	// project.json bytes (the same bytes-in contract putDraftModel and CI feed) and
+	// run the shared live-tier rule engine over them.
+	raw, err := projectstate.EncodeProjectJSON(proj)
+	if err != nil {
+		return DesignHealth{}, fwmanager.Wrap(fwmanager.Infrastructure, err, "projectStateAccess.EncodeProjectJSON")
+	}
+	findings := findingsToContract(designhealth.EvaluateRaw(raw))
+
+	// Committed ledgers: waivers live on BOTH the systemDesign slot (App-C standard
+	// items) and the volatilities slot; attestations live on the systemDesign slot.
+	// Initialized non-nil so the required contract arrays serialize as [] not null.
+	waivers := []CheckItem{}
+	attestations := []CheckItem{}
+	if sys, ok := slotFor(proj, KindSystem).Model.(*projectstate.System); ok && sys != nil {
+		waivers = append(waivers, checkItemsToContract(sys.Waivers)...)
+		attestations = append(attestations, checkItemsToContract(sys.Attestations)...)
+	}
+	if vol, ok := slotFor(proj, KindVolatilities).Model.(*projectstate.Volatilities); ok && vol != nil {
+		waivers = append(waivers, checkItemsToContract(vol.Waivers)...)
+	}
+
+	return DesignHealth{
+		Findings:            findings,
+		Waivers:             waivers,
+		Attestations:        attestations,
+		EvaluatedAtRevision: int64(proj.Version),
+	}, nil
+}
+
+// findingsToContract maps the platform methodcheck.Finding values the live-tier
+// rule engine mints into the systemDesignManager contract Finding VIEW shape. The
+// slice is always non-nil so the required contract array serializes as [] not null.
+func findingsToContract(in []methodcheck.Finding) []Finding {
+	out := make([]Finding, 0, len(in))
+	for _, f := range in {
+		fc := Finding{
+			RuleID:   RuleID(f.RuleID),
+			Severity: severityToContract(f.Severity),
+			Message:  f.Message,
+		}
+		if f.Location != nil {
+			fc.Location = &Location{Ordinal: int64(f.Location.Ordinal), Section: f.Location.Section}
+		}
+		out = append(out, fc)
+	}
+	return out
+}
+
+// severityToContract renders a methodcheck severity ordinal as its VIEW string
+// (info/warning/error) — the contract Severity is a string enum where methodcheck's
+// is an int, so the value is translated by the same names the wire form uses.
+func severityToContract(s methodcheck.Severity) Severity {
+	switch s {
+	case methodcheck.SeverityError:
+		return SeverityError
+	case methodcheck.SeverityWarning:
+		return SeverityWarning
+	default:
+		return SeverityInfo
+	}
+}
+
+// checkItemsToContract maps committed RA CheckItem ledger entries (waivers /
+// attestations) to the contract CheckItem VIEW shape, translating the RA int
+// CheckStatus enum to its wire string exactly as GetProject converts its enums.
+func checkItemsToContract(in []projectstate.CheckItem) []CheckItem {
+	out := make([]CheckItem, 0, len(in))
+	for _, it := range in {
+		out = append(out, CheckItem{
+			Section:       it.Section,
+			Guideline:     it.Guideline,
+			Status:        checkStatusToView(it.Status),
+			Justification: it.Justification,
+		})
+	}
+	return out
+}
+
+// checkStatusToView maps the RA CheckStatus int enum to its VIEW wire string,
+// mirroring projectstate's own checkStatusNames (pass/waived/fail).
+func checkStatusToView(s projectstate.CheckStatus) string {
+	switch s {
+	case projectstate.CheckWaived:
+		return "waived"
+	case projectstate.CheckFail:
+		return "fail"
+	default:
+		return "pass"
+	}
 }
 
 // mapRAError translates a projectStateAccess / sourceControlAccess error into the
@@ -3253,8 +3375,8 @@ const pipelineDefaultToolchain = "go-1.23"
 
 // ===========================================================================
 // Workflow-side pipeline helpers. The temporalgen migration routes the submit/observe
-// design-job pair through the GENERATED constructionPipelineAccess invokers (wf.Acts.
-// PipelineSubmit/ObserveConstructionPipeline); the value mapping that lived on the folded
+// design-job pair through the GENERATED agenticJobAccess invokers (wf.Acts.
+// PipelineSubmit/ObserveAgenticJob); the value mapping that lived on the folded
 // pipelineDispatchAdapter — the RepoRef→RepoTarget decode, the PipelineSpec composition,
 // and the RA-phase→neutral-phase mapping — is now these PURE workflow-side helpers
 // (mirrors construction's dispatch.go). The idempotency key is stamped INSIDE the
@@ -3273,19 +3395,19 @@ const pipelineDefaultToolchain = "go-1.23"
 // sourceControlAccess (no encoding leak here).
 //
 // NOT promotable to projectstate (code-health-phase-bd task D3 verification): it needs
-// constructionpipeline.RepoTarget + sourcecontrol.RepoRefOwnerRepo/RepoRefFromString —
+// agenticjob.RepoTarget + sourcecontrol.RepoRefOwnerRepo/RepoRefFromString —
 // both sibling ResourceAccess packages, and TestMethodLayering forbids RA→RA sideways
 // imports (the RA-layer analog of "no Manager→Manager sideways"). Stays duplicated
 // per-manager alongside designBranch's twin.
-func designRepoTarget(repoRef string) (constructionpipeline.RepoTarget, error) {
+func designRepoTarget(repoRef string) (agenticjob.RepoTarget, error) {
 	if repoRef == "" {
-		return constructionpipeline.RepoTarget{}, nil
+		return agenticjob.RepoTarget{}, nil
 	}
 	owner, name, err := sourcecontrol.RepoRefOwnerRepo(sourcecontrol.RepoRefFromString(repoRef))
 	if err != nil {
-		return constructionpipeline.RepoTarget{}, err
+		return agenticjob.RepoTarget{}, err
 	}
-	return constructionpipeline.RepoTarget{Owner: owner, Name: name}, nil
+	return agenticjob.RepoTarget{Owner: owner, Name: name}, nil
 }
 
 // ===========================================================================
@@ -3327,7 +3449,7 @@ const (
 // byte-identical pure resolver, no longer duplicated with projectdesign's twin.
 
 // dispatchActivityOptions is the option preset for the generated
-// constructionPipelineAccess.submitConstructionPipeline Activity (consumed by the manager's
+// agenticJobAccess.submitAgenticJob Activity (consumed by the manager's
 // option hook — workermanifest.go). A transient submit error (ErrTransient / Retryable)
 // auto-retries via this RetryPolicy; a terminal RA fault (ContractMisuse / Auth /
 // QuotaExhausted) is non-retryable and surfaces to the workflow body. A PhaseFailed is NOT
@@ -3341,7 +3463,7 @@ func dispatchActivityOptions() workflow.ActivityOptions {
 }
 
 // observeActivityOptions is the option preset for the generated
-// constructionPipelineAccess.observeConstructionPipeline Activity. Transient reads retry;
+// agenticJobAccess.observeAgenticJob Activity. Transient reads retry;
 // a NotFound (GC'd handle) is non-retryable and surfaces.
 func observeActivityOptions() workflow.ActivityOptions {
 	return fwmanager.ActivityPreset{
@@ -3492,13 +3614,13 @@ const (
 // drafting MECHANISM flips from a synchronous worker call to an ASYNC dispatch →
 // observe → read-back round-trip. DRAFT and PM-CRITIQUE no longer call
 // workerAccess.GenerateTypedData in-process; instead the Manager DISPATCHES a
-// claude-code-action DESIGN job via Pipeline (constructionPipelineAccess), OBSERVES
+// claude-code-action DESIGN job via Pipeline (agenticJobAccess), OBSERVES
 // it to a typed terminal phase, and READS BACK the typed model the Action committed
 // via ProjectState.ReadProject. aiarch makes NO synchronous LLM call and writes NO
 // draft JSON on the main path (the Action commits it inside the user's CI; the
 // required CI validation check is the trust boundary).
 //
-//   - Pipeline (constructionPipelineAccess) — submit + observe, both Activity-
+//   - Pipeline (agenticJobAccess) — submit + observe, both Activity-
 //     wrapped (I/O). The claude-code-action job runs OUTSIDE aiarch's call graph
 //     (user's CI, user's token).
 //   - ProjectState — read-back of the committed Kind + the human-gate thin-writes
@@ -3515,7 +3637,7 @@ const (
 type workflows struct {
 	// Acts is the GENERATED typed invoker surface (invokers.gen.go) — the workflow's call
 	// surface for EVERY contract-backed RA op this Manager reaches: projectStateAccess
-	// readProjectVersion / advancePhase, the constructionPipelineAccess submit/observe
+	// readProjectVersion / advancePhase, the agenticJobAccess submit/observe
 	// design-job pair, the six sourceControlAccess PR-rail verbs plus syncManagedScaffold,
 	// and the eight designSessionAccess verbs (the envelope-parameter Stage op, the
 	// branch-aware read-back/commit/reject/withdraw/reconcile/review-ledger mutations —
@@ -3724,8 +3846,8 @@ func activityOptions() func(activityName string) (workflow.ActivityOptions, bool
 	presets := map[string]workflow.ActivityOptions{
 		"projectStateAccess.readProjectVersion":                  readProjectActivityOptions(),
 		"projectStateAccess.advancePhase":                        mutateActivityOptions(),
-		"constructionPipelineAccess.submitConstructionPipeline":  dispatchActivityOptions(),
-		"constructionPipelineAccess.observeConstructionPipeline": observeActivityOptions(),
+		"agenticJobAccess.submitAgenticJob":                      dispatchActivityOptions(),
+		"agenticJobAccess.observeAgenticJob":                     observeActivityOptions(),
 		"sourceControlAccess.getInstallationToken":               mintCredActivityOptions(),
 		"sourceControlAccess.openBranch":                         railActivityOptions(),
 		"sourceControlAccess.openPullRequest":                    railActivityOptions(),

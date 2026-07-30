@@ -31,6 +31,7 @@ export function LayerLegend({
   usedLayers,
   colors,
   counts,
+  footer,
   t,
 }: {
   usedLayers: Layer[];
@@ -39,6 +40,9 @@ export function LayerLegend({
    *  beside each legend row — surfaces The Method's per-layer cardinality guidance
    *  where the eye already is (Static architecture view). */
   counts?: Record<Layer, number>;
+  /** Optional extra row under the layer rows (e.g. the structure-findings count
+   *  chip linking to the Design Health step). */
+  footer?: ReactNode;
   t: Tokens;
 }): ReactNode {
   return (
@@ -77,6 +81,7 @@ export function LayerLegend({
             ) : null}
           </Box>
         ))}
+        {footer ?? null}
       </Box>
     </Panel>
   );

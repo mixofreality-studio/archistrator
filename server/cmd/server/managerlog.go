@@ -66,6 +66,11 @@ func (m loggingSystemDesignManager) GetProject(rc fwmanager.Context, projectID s
 	return v, logInfraError(m.log, "SystemDesign.GetProject", string(projectID), err)
 }
 
+func (m loggingSystemDesignManager) GetDesignHealth(rc fwmanager.Context, projectID systemdesign.ProjectID) (systemdesign.DesignHealth, error) {
+	v, err := m.inner.GetDesignHealth(rc, projectID)
+	return v, logInfraError(m.log, "SystemDesign.GetDesignHealth", string(projectID), err)
+}
+
 func (m loggingSystemDesignManager) GetSessionState(rc fwmanager.Context, projectID systemdesign.ProjectID, kind systemdesign.ArtifactKind) (systemdesign.SessionStateView, error) {
 	v, err := m.inner.GetSessionState(rc, projectID, kind)
 	return v, logInfraError(m.log, "SystemDesign.GetSessionState", string(projectID), err)

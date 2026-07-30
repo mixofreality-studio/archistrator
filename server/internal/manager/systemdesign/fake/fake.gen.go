@@ -15,6 +15,7 @@ type FakeSystemDesignManager struct {
 	CreateProjectFn          func(rc fwm.Context, owner systemdesign.OwnerScope, name string) (systemdesign.ProjectID, error)
 	GetProjectFn             func(rc fwm.Context, projectID systemdesign.ProjectID) (systemdesign.ProjectState, error)
 	GetSessionStateFn        func(rc fwm.Context, projectID systemdesign.ProjectID, kind systemdesign.ArtifactKind) (systemdesign.SessionStateView, error)
+	GetDesignHealthFn        func(rc fwm.Context, projectID systemdesign.ProjectID) (systemdesign.DesignHealth, error)
 	ListProjectsFn           func(rc fwm.Context, owner systemdesign.OwnerScope) ([]systemdesign.ProjectSummary, error)
 	RequestArtifactDraftFn   func(rc fwm.Context, projectID systemdesign.ProjectID, kind systemdesign.ArtifactKind, feedback *systemdesign.ReviewFeedback) (systemdesign.SessionRef, error)
 	SetOperatingModelFn      func(rc fwm.Context, projectID systemdesign.ProjectID, model systemdesign.OperatingModel) (systemdesign.Version, error)
@@ -52,6 +53,13 @@ func (f *FakeSystemDesignManager) GetSessionState(rc fwm.Context, projectID syst
 		panic("FakeSystemDesignManager.GetSessionStateFn not set")
 	}
 	return f.GetSessionStateFn(rc, projectID, kind)
+}
+
+func (f *FakeSystemDesignManager) GetDesignHealth(rc fwm.Context, projectID systemdesign.ProjectID) (systemdesign.DesignHealth, error) {
+	if f.GetDesignHealthFn == nil {
+		panic("FakeSystemDesignManager.GetDesignHealthFn not set")
+	}
+	return f.GetDesignHealthFn(rc, projectID)
 }
 
 func (f *FakeSystemDesignManager) ListProjects(rc fwm.Context, owner systemdesign.OwnerScope) ([]systemdesign.ProjectSummary, error) {

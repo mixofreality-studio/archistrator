@@ -48,6 +48,70 @@ export function axisLabel(axis: Axis): string {
   return axis === 'sameCustomerOverTime' ? 'Axis 1 — over time' : 'Axis 2 — across customers';
 }
 
+/**
+ * Compact per-item axis indicator ("A1"/"A2") for the lane chips, so an item's
+ * axis is readable at a glance without selecting it (the full axis phrasing
+ * stays on the lane header / detail panel / announcement via axisLabel).
+ */
+export function axisShortLabel(axis: Axis): string {
+  return axis === 'sameCustomerOverTime' ? 'A1' : 'A2';
+}
+
+// ── Encapsulated-by join — volatility → owning component(s) ──────────────────
+
+/**
+ * Normalize a name to bare alphanumerics for the tolerant PROSE join: a
+ * component's `encapsulates` prose typically leads with the volatility's exact
+ * name (often "<Name>: …"), so a normalized containment match links the two
+ * without depending on punctuation/casing.
+ */
+export function normalizeName(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+/** The component fields the encapsulated-by join reads (a C4Component subset). */
+export interface EncapsulationSource {
+  name: string;
+  /** Free prose — the legacy join surface for states predating the typed field. */
+  encapsulates: string;
+  /** Exact volatility names from the volatilities artifact (typed join surface). */
+  encapsulatesVolatilities: readonly string[];
+}
+
+/**
+ * Join each volatility to the System component(s) that encapsulate it (Method:
+ * one component per area of volatility — but a drafting defect can claim more,
+ * and the UI shows every claimant rather than hiding the smell).
+ *
+ * Mode selection is WHOLE-STATE, not per volatility: if ANY component carries a
+ * non-empty `encapsulatesVolatilities`, the committed System post-dates the
+ * typed field and the join is EXACT-NAME (whitespace-trimmed) against it — the
+ * fragile prose-substring join is retired wholesale. Only when NO component
+ * carries the field (older committed states) does the normalized prose-substring
+ * fallback apply. Returns a map keyed by the volatility's raw name; unowned
+ * volatilities are absent. Owners keep component order.
+ */
+export function encapsulationOwners(
+  volatilityNames: readonly string[],
+  components: readonly EncapsulationSource[]
+): Map<string, string[]> {
+  const typedMode = components.some((c) => c.encapsulatesVolatilities.length > 0);
+  const owners = new Map<string, string[]>();
+  for (const name of volatilityNames) {
+    const key = normalizeName(name);
+    if (key === '') continue; // a blank name would substring-match everything
+    const matched = components
+      .filter((c) =>
+        typedMode
+          ? c.encapsulatesVolatilities.some((v) => v.trim() === name.trim())
+          : normalizeName(c.encapsulates).includes(key)
+      )
+      .map((c) => c.name);
+    if (matched.length > 0) owners.set(name, matched);
+  }
+  return owners;
+}
+
 /** The polite live-region message announcing the current selection. */
 export function selectionAnnouncement(name: string, axis: Axis): string {
   return `Selected: ${name}, ${axisLabel(axis)}`;

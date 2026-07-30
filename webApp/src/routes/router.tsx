@@ -47,6 +47,13 @@ const systemDesignRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/project/$projectId/design/system/{-$stepSlug}',
   component: SystemDesignScreen,
+  // Optional ?view=<dynamic-view-key> deep link: the Architecture step's viewer
+  // preselects the Dynamic lens on that view (the use-case → call-chain jump).
+  // A dangling key is harmless — the viewer falls back to its defaults.
+  validateSearch: (search: Record<string, unknown>): { view?: string } => {
+    const view = search['view'];
+    return typeof view === 'string' && view.length > 0 ? { view } : {};
+  },
 });
 
 const projectDesignRoute = createRoute({
