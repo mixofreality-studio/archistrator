@@ -1,7 +1,8 @@
 // Package billing is the billingEngine — the Engine that encapsulates
 // billing-terms volatility (revenue share, compute-cost pricing, schedule,
 // billing): how the signed net for a customer's cycle is computed from inbound
-// revenue and compute usage, and which way (payout vs shortfall charge) it routes.
+// revenue and compute usage, and whether it routes a shortfall charge (charge-only:
+// a non-negative net routes NoAction — the platform never pays out).
 //
 // Contract: designs/aiarch/implementation/contracts/billingEngine.md (FROZEN
 // 2026-05-29). Layer rules: [[the-method-layers]] / Löwy ch. 5 — the Engine layer.
@@ -97,7 +98,7 @@ func (BillingEngineImpl) RecomputeNet(_ fweng.Context, affectedCycle ReBillingIn
 //	      base and markup folded into one integer ×/÷ to keep it exact
 //	signedNet           = GrossInbound − revenueShareApplied − computeCostApplied
 //
-// RoutingDirective follows the sign of signedNet (>0 Payout, <0 Charge, ==0 NoAction).
+// RoutingDirective follows the sign of signedNet (charge-only: <0 Charge, >=0 NoAction).
 func computeNet(revenue CycleRevenue, usage CycleUsage, terms BillingTerms) (BillingResult, error) {
 	// Pre-conditions — Manager wiring bugs, not "no-net-possible" outcomes.
 	if revenue.GrossInbound.Currency == "" {
@@ -156,16 +157,14 @@ func computeNet(revenue CycleRevenue, usage CycleUsage, terms BillingTerms) (Bil
 	return result, nil
 }
 
-// directiveFor maps a signed net (in minor units) to its routing directive.
+// directiveFor maps a signed net (in minor units) to its routing directive. Under the
+// charge-only model the platform never pays out, so a positive net (platform-owes-customer)
+// collapses to NoAction — only a negative net (customer-owes-platform) routes a Charge.
 func directiveFor(signedNetUnits int64) RoutingDirective {
-	switch {
-	case signedNetUnits > 0:
-		return RoutingPayout
-	case signedNetUnits < 0:
+	if signedNetUnits < 0 {
 		return RoutingCharge
-	default:
-		return RoutingNoAction
 	}
+	return RoutingNoAction
 }
 
 // directiveConsistent verifies a directive matches the sign of the net.

@@ -32,6 +32,7 @@ func (h *Handler) Register(srv *mcp.Server) {
 	mcp.AddTool(srv, &mcp.Tool{Name: "systemDesignCreateProject", Description: "Create a new archistrator project owned by the given owner scope, with the given display name, and return its generated project ID.", InputSchema: createProjectInputSchema(), OutputSchema: createProjectOutputSchema()}, h.handleCreateProject)
 	mcp.AddTool(srv, &mcp.Tool{Name: "systemDesignGetProject", Description: "Return the project head-state: its ID, current Method phase, name, owner, and high-level progress.", InputSchema: getProjectInputSchema(), OutputSchema: getProjectOutputSchema()}, h.handleGetProject)
 	mcp.AddTool(srv, &mcp.Tool{Name: "systemDesignGetSessionState", Description: "Return the current draft/review session state for one System-Design artifact (selected by kind): its stage, the latest AI draft, and any review feedback. Read-only.", InputSchema: getSessionStateInputSchema(), OutputSchema: getSessionStateOutputSchema(), Meta: mcp.Meta{"ui": map[string]any{"resourceUri": shellResourceURI, "view": "system-design-session"}}}, h.handleGetSessionState)
+	mcp.AddTool(srv, &mcp.Tool{Name: "systemDesignGetDesignHealth", Description: "Return the live Design Health for a project: the mechanical Method-rule findings evaluated render-on-read over the committed system design (each with a rule id, severity, and message), plus the committed waiver and attestation ledgers and the state revision the findings ran against. Read-only.", InputSchema: getDesignHealthInputSchema(), OutputSchema: getDesignHealthOutputSchema(), Meta: mcp.Meta{"ui": map[string]any{"resourceUri": shellResourceURI, "view": "design-health"}}}, h.handleGetDesignHealth)
 	mcp.AddTool(srv, &mcp.Tool{Name: "systemDesignListProjects", Description: "List every project visible to the given owner scope, most-recently-updated first.", InputSchema: listProjectsInputSchema(), OutputSchema: listProjectsOutputSchema()}, h.handleListProjects)
 	mcp.AddTool(srv, &mcp.Tool{Name: "systemDesignRequestArtifactDraft", Description: "Kick off (or re-run) the AI drafting of one System-Design artifact (selected by kind, e.g. the mission, glossary, or volatilities). Pass feedback to re-draft an existing artifact against review notes. Returns a handle to the asynchronous drafting session.", InputSchema: requestArtifactDraftInputSchema(), OutputSchema: requestArtifactDraftOutputSchema()}, h.handleRequestArtifactDraft)
 	mcp.AddTool(srv, &mcp.Tool{Name: "systemDesignSetOperatingModel", Description: "Set the project's operating model — selfOperated (the customer runs the built app in their own infrastructure; the default) or archistratorOperated (archistrator operates the app on the platform, which constrains the deployment design to the platform palette: CNPG Postgres, Temporal, Keycloak, the otel stack, deployed to the platform Kubernetes cluster). Choose at creation, before starting System Design. Returns the new project state version.", InputSchema: setOperatingModelInputSchema(), OutputSchema: setOperatingModelOutputSchema()}, h.handleSetOperatingModel)
@@ -76,6 +77,14 @@ type getSessionStateInput struct {
 
 type getSessionStateOutput struct {
 	Result mgr.SessionStateView `json:"result"`
+}
+
+type getDesignHealthInput struct {
+	ProjectID mgr.ProjectID `json:"projectID"`
+}
+
+type getDesignHealthOutput struct {
+	Result mgr.DesignHealth `json:"result"`
 }
 
 type listProjectsInput struct {
@@ -195,6 +204,16 @@ func getSessionStateInputSchema() *jsonschema.Schema {
 	allowNullMaps(s)
 	s.Required = []string{"projectID", "kind"}
 	s.Properties["kind"] = enumSchemaArtifactKind()
+	return s
+}
+
+// getDesignHealthInputSchema is the explicit MCP input schema for the GetDesignHealth operation.
+func getDesignHealthInputSchema() *jsonschema.Schema {
+	s := objectSchema[getDesignHealthInput]()
+	fixUUIDStrings(s)
+	relaxRawJSON(s)
+	allowNullMaps(s)
+	s.Required = []string{"projectID"}
 	return s
 }
 
@@ -324,6 +343,15 @@ func getProjectOutputSchema() *jsonschema.Schema {
 // getSessionStateOutputSchema is the explicit MCP output schema for the GetSessionState operation.
 func getSessionStateOutputSchema() *jsonschema.Schema {
 	s := objectSchema[getSessionStateOutput]()
+	fixUUIDStrings(s)
+	relaxRawJSON(s)
+	allowNullMaps(s)
+	return s
+}
+
+// getDesignHealthOutputSchema is the explicit MCP output schema for the GetDesignHealth operation.
+func getDesignHealthOutputSchema() *jsonschema.Schema {
+	s := objectSchema[getDesignHealthOutput]()
 	fixUUIDStrings(s)
 	relaxRawJSON(s)
 	allowNullMaps(s)
@@ -474,6 +502,19 @@ func (h *Handler) handleGetSessionState(ctx context.Context, _ *mcp.CallToolRequ
 	principal, _ := security.PrincipalFrom(ctx)
 	rc := fwmanager.Context{Context: ctx, Principal: principal}
 	result, err := h.Manager.GetSessionState(rc, in.ProjectID, in.Kind)
+	if err != nil {
+		return nil, out, mapManagerError(err)
+	}
+	out.Result = result
+	return nil, out, nil
+}
+
+// handleGetDesignHealth is the MCP tool handler for the GetDesignHealth operation.
+func (h *Handler) handleGetDesignHealth(ctx context.Context, _ *mcp.CallToolRequest, in getDesignHealthInput) (*mcp.CallToolResult, getDesignHealthOutput, error) {
+	var out getDesignHealthOutput
+	principal, _ := security.PrincipalFrom(ctx)
+	rc := fwmanager.Context{Context: ctx, Principal: principal}
+	result, err := h.Manager.GetDesignHealth(rc, in.ProjectID)
 	if err != nil {
 		return nil, out, mapManagerError(err)
 	}

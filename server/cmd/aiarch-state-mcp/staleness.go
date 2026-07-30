@@ -234,6 +234,21 @@ var ruleSlotAttributionPrefixes = []struct {
 	// PlanningAssumptions amendment.
 	{"ACT-", projectstate.KindActivityList, attribSlot},
 	{"PA-", projectstate.KindPlanningAssumptions, attribSlot},
+	// Live design-health tier (internal/designhealth). The DH-* rules are the
+	// mechanical systemDesign directives + joins; their subject is the architecture,
+	// so a DH-* Error is fixed by a systemDesign amendment. Attributing the whole
+	// family to the System slot keeps a DH-* Error from deadlocking a session amending
+	// a different slot (the same posture as the DV-*/USECASE-* System-attributed rules
+	// that also read sibling slots). This one prefix is ALSO how the
+	// Volatilities↔System (slot3↔slot5) join rules — DH-VOL-ENCAP-MISSING, DH-VOL-TRACE,
+	// and DH-COMP-VOL-DANGLING (the component-side typed encapsulatesVolatilities
+	// dangling-reference direction of the same join) — avoid the amendment deadlock: a
+	// Volatilities amendment that renames/removes a volatility sees them downgrade as
+	// other-slot findings, while the System amendment that CAN fix the typed lists
+	// keeps them at full severity. Finer sub-attribution (DH-OBJ-* →
+	// businessAlignment) is a later refinement; System is the dominant owner and the
+	// authoring-gate slot these run under.
+	{"DH-", projectstate.KindSystem, attribSlot},
 }
 
 // attributeRule resolves a rule id to its owning slot (attribSlot + kind), the testing

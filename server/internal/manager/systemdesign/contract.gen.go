@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	fwm "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/estimation"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/constructionpipeline"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/agenticjob"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 	"go.temporal.io/sdk/client"
@@ -154,6 +154,13 @@ const (
 	CICheckFailure CICheckState = 2
 )
 
+type CheckItem struct {
+	Section       string `json:"section"`
+	Guideline     string `json:"guideline"`
+	Status        string `json:"status"`
+	Justification string `json:"justification"`
+}
+
 type ConstructionProgress struct {
 	Week           int64     `json:"Week"`
 	TotalWeeks     int64     `json:"TotalWeeks"`
@@ -202,6 +209,13 @@ type DefectView struct {
 	Title    string `json:"title"`
 	Severity string `json:"severity"`
 	Note     string `json:"note"`
+}
+
+type DesignHealth struct {
+	Findings            []Finding   `json:"findings"`
+	Waivers             []CheckItem `json:"waivers"`
+	Attestations        []CheckItem `json:"attestations"`
+	EvaluatedAtRevision int64       `json:"evaluatedAtRevision"`
 }
 
 type DraftModel struct {
@@ -490,6 +504,7 @@ type SystemDesignManager interface {
 	CreateProject(rc fwm.Context, owner OwnerScope, name string) (ProjectID, error)
 	GetProject(rc fwm.Context, projectID ProjectID) (ProjectState, error)
 	GetSessionState(rc fwm.Context, projectID ProjectID, kind ArtifactKind) (SessionStateView, error)
+	GetDesignHealth(rc fwm.Context, projectID ProjectID) (DesignHealth, error)
 	ListProjects(rc fwm.Context, owner OwnerScope) ([]ProjectSummary, error)
 	RequestArtifactDraft(rc fwm.Context, projectID ProjectID, kind ArtifactKind, feedback *ReviewFeedback) (SessionRef, error)
 	SetOperatingModel(rc fwm.Context, projectID ProjectID, model OperatingModel) (Version, error)
@@ -505,6 +520,6 @@ type SystemDesignManager interface {
 // builder newSystemDesignManager in the manager package (which owns the stateful facade setup:
 // the Temporal client, the deps, and config). The constructor returns the
 // interface, so the concrete manager impl stays unexported.
-func NewSystemDesignManager(client client.Client, projectState projectstate.ProjectStateAccess, pipeline constructionpipeline.ConstructionPipelineAccess, rail sourcecontrol.SourceControlAccess, repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool), estimator estimation.EstimationEngine, designSession projectstate.DesignSessionAccess, repoBase string) SystemDesignManager {
+func NewSystemDesignManager(client client.Client, projectState projectstate.ProjectStateAccess, pipeline agenticjob.AgenticJobAccess, rail sourcecontrol.SourceControlAccess, repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool), estimator estimation.EstimationEngine, designSession projectstate.DesignSessionAccess, repoBase string) SystemDesignManager {
 	return newSystemDesignManager(client, projectState, pipeline, rail, repo, estimator, designSession, repoBase)
 }

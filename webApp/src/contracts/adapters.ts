@@ -21,35 +21,31 @@ import type {
   RiskModelModel,
   SdpReviewModel,
   Money,
-  ActivityNodeKind,
   Axis,
   CallMode,
   CheckItem,
-  Classification,
   ComponentKind,
   ContainerInstance,
   CoreUseCases,
   DeployContainer,
   DeploymentNode,
   DeploymentProfile,
-  EdgeKind,
   Glossary,
   GlossaryItem,
   Layer,
   MissionStatement,
   OperationalConcepts,
-  OperationalDecision,
   RejectedVolatility,
   Requirement,
   ScrubbedRequirements,
   StandardCheck,
   System,
-  UseCaseDecision,
   Volatilities,
 } from './types';
 import { METHOD_METADATA, PHASE1_ORDER, PHASE2_ORDER } from './methodMetadata';
 import { ARTIFACT_STAGE_APP_STRINGS } from './enums.gen';
 import { dynamicViewLabel, indexUseCaseNames } from './dynamicViewLabels';
+import { toUseCaseView, viewKeyForUseCase, type UseCaseView } from './useCaseViews';
 import { assertNever } from './exhaustive';
 
 // ---------------------------------------------------------------------------
@@ -263,6 +259,13 @@ export interface C4Component {
   /** The volatility this component encapsulates (empty for Resource / Utility). */
   encapsulates: string;
   /**
+   * Exact volatility NAMES (from the volatilities artifact) this component
+   * encapsulates — the typed join surface replacing the prose-substring match.
+   * Empty for documents drafted before the field existed (join falls back to
+   * the `encapsulates` prose) and for Resource / Utility components.
+   */
+  encapsulatesVolatilities: string[];
+  /**
    * The camelCase serviceContracts key this component is the architecture home of
    * (e.g. "systemDesignManager"). Empty when the component owns no contract
    * (utilities, resources) or the document predates the field (heuristic fallback).
@@ -284,20 +287,24 @@ export interface C4View {
 
 const EMPTY_C4_VIEW: C4View = { components: [], relationships: [] };
 
+/** Maps one wire component into the view model (shared by every System view). */
+function toC4Component(c: NonNullable<System['components']>[number]): C4Component {
+  return {
+    id: c.id,
+    name: c.name,
+    kind: c.kind,
+    layer: c.layer,
+    encapsulates: c.encapsulates,
+    encapsulatesVolatilities: c.encapsulatesVolatilities ?? [],
+    contractKey: c.contractKey ?? '',
+  };
+}
+
 /** Maps the typed System model into a C4 component + relationship view. */
 export function toC4View(envelope: ArtifactModelEnvelope | undefined): C4View {
   const model = narrow(envelope, 'system');
   if (model === undefined) return EMPTY_C4_VIEW;
-  const components = (model.components ?? []).map(
-    (c): C4Component => ({
-      id: c.id,
-      name: c.name,
-      kind: c.kind,
-      layer: c.layer,
-      encapsulates: c.encapsulates,
-      contractKey: c.contractKey ?? '',
-    })
-  );
+  const components = (model.components ?? []).map(toC4Component);
   const relationships = (model.relationships ?? []).map(
     (r): C4Relationship => ({ from: r.from, to: r.to, mode: r.mode, label: r.label })
   );
@@ -366,6 +373,20 @@ export function listDynamicViewsForComponent(
 }
 
 /**
+ * Resolves the System dynamic view that renders the given use case's call chain
+ * (every dynamic view carries a useCaseId back-link). Returns the FIRST keyed
+ * matching view's key — the ?view= deep-link target on the Architecture step —
+ * or undefined when the system model is absent, the id is blank, or no keyed
+ * view links back; callers render no affordance then.
+ */
+export function dynamicViewKeyForUseCase(
+  envelope: ArtifactModelEnvelope | undefined,
+  useCaseId: string
+): string | undefined {
+  return viewKeyForUseCase(narrow(envelope, 'system'), useCaseId);
+}
+
+/**
  * Maps one named DynamicView of the System model into render-ready participants +
  * ordered, sequence-numbered edges. Participants are looked up against the full
  * component set (unknown ids are dropped); edges are numbered 1..n in declared
@@ -382,14 +403,7 @@ export function toDynamicView(
 
   const byId = new Map<string, C4Component>();
   for (const c of model.components ?? []) {
-    byId.set(c.id, {
-      id: c.id,
-      name: c.name,
-      kind: c.kind,
-      layer: c.layer,
-      encapsulates: c.encapsulates,
-      contractKey: c.contractKey ?? '',
-    });
+    byId.set(c.id, toC4Component(c));
   }
 
   const participants = (view.participants ?? [])
@@ -558,35 +572,10 @@ export function toDeploymentView(
 // Core use cases → activity views (lanes / nodes / edges).
 // ---------------------------------------------------------------------------
 
-export interface ActivityNodeView {
-  id: string;
-  kind: ActivityNodeKind;
-  label: string;
-  /** The swim-lane (role) this node sits in. */
-  lane: string;
-}
-
-export interface ActivityEdgeView {
-  from: string;
-  to: string;
-  kind: EdgeKind;
-  /** Guard text on a guardedFlow edge (empty otherwise). */
-  guard: string;
-}
-
-export interface UseCaseView {
-  id: string;
-  name: string;
-  classification: Classification;
-  rejectionReason: string;
-  /** The id of the use case this one is a variation of (shares its activity
-   *  diagram), or empty when this use case owns its own diagram. */
-  variationOf: string;
-  /** Distinct swim-lanes, in first-seen order. */
-  lanes: string[];
-  nodes: ActivityNodeView[];
-  edges: ActivityEdgeView[];
-}
+// The per-use-case mapping + view types live in the pure, node-testable module
+// useCaseViews.ts (adapters' extensionless imports don't resolve under
+// node --test); re-exported here so existing consumers keep their import path.
+export type { ActivityNodeView, ActivityEdgeView, UseCaseView } from './useCaseViews';
 
 export interface CoreUseCasesView {
   useCases: UseCaseView[];
@@ -600,41 +589,6 @@ export function toCoreUseCasesView(envelope: ArtifactModelEnvelope | undefined):
   if (model === undefined) return EMPTY_USE_CASES_VIEW;
   const decisions = model.decisions ?? [];
   return { useCases: decisions.map((d) => toUseCaseView(d)) };
-}
-
-function toUseCaseView(decision: UseCaseDecision): UseCaseView {
-  const uc = decision.useCase;
-  const activity = uc.activity;
-  const rawNodes = activity?.nodes ?? [];
-  const rawEdges = activity?.edges ?? [];
-
-  const nodes = rawNodes.map(
-    (n): ActivityNodeView => ({
-      id: n.id,
-      kind: n.kind,
-      label: n.label,
-      lane: n.roleName.length > 0 ? n.roleName : 'Machine',
-    })
-  );
-  const edges = rawEdges.map(
-    (e): ActivityEdgeView => ({ from: e.from, to: e.to, kind: e.kind, guard: e.guard })
-  );
-
-  const lanes: string[] = [];
-  for (const node of nodes) {
-    if (!lanes.includes(node.lane)) lanes.push(node.lane);
-  }
-
-  return {
-    id: uc.id,
-    name: uc.name,
-    classification: uc.classification,
-    rejectionReason: decision.rejectionReason,
-    variationOf: uc.variationOf ?? '',
-    lanes,
-    nodes,
-    edges,
-  };
 }
 
 // ---------------------------------------------------------------------------
@@ -731,7 +685,7 @@ export function toMissionView(envelope: ArtifactModelEnvelope | undefined): Miss
   };
 }
 
-/** The typed scrubbed requirements (id + statement), safe-empty. */
+/** The typed required behaviors (id + behavior + provenance + volatility hints), safe-empty. */
 export function toScrubbedRequirementsView(
   envelope: ArtifactModelEnvelope | undefined
 ): Requirement[] {
@@ -739,13 +693,10 @@ export function toScrubbedRequirementsView(
   return model?.items ?? [];
 }
 
-/** The typed operational-concept decisions, safe-empty. */
-export function toOperationalDecisionsView(
-  envelope: ArtifactModelEnvelope | undefined
-): OperationalDecision[] {
-  const model = narrow(envelope, 'operationalConcepts');
-  return model?.decisions ?? [];
-}
+// The Deployment & Operations Model's per-project projection is pure and lives in a
+// leaf module (directly unit-testable under node --test); re-exported here so callers
+// keep importing the to* adapters from one place.
+export { toDeploymentOperationsView, type DeploymentOperationsView } from './deploymentOpsLogic';
 
 /** The typed standard-check rows, safe-empty. */
 export function toStandardCheckView(envelope: ArtifactModelEnvelope | undefined): CheckItem[] {
@@ -757,16 +708,35 @@ function scrubbedRequirementsToMarkdown(r: ScrubbedRequirements): string {
   const items = r.items ?? [];
   if (items.length === 0) return '';
   const rows = items.map((i) => `- **${i.id}** — ${i.statement}`).join('\n');
-  return `## Scrubbed Requirements\n\n${rows}`;
+  return `## Required Behaviors\n\n${rows}`;
 }
 
 function operationalConceptsToMarkdown(o: OperationalConcepts): string {
-  const decisions = o.decisions ?? [];
-  if (decisions.length === 0) return '';
-  const rows = decisions
-    .map((d) => `- **${d.topic}** — ${d.decision} _(objective ${String(d.justifyingObjective)})_`)
-    .join('\n');
-  return `## Operational Concepts\n\n${rows}`;
+  const parts: string[] = [];
+  const venue =
+    o.constructionVenue.repositoryHost != null && o.constructionVenue.repositoryHost.length > 0
+      ? `${o.constructionVenue.kind} (${o.constructionVenue.repositoryHost})`
+      : o.constructionVenue.kind;
+  parts.push(
+    [
+      '## Deployment & Operations Model',
+      '',
+      `- **Deployment scenario:** ${o.deploymentScenario}`,
+      `- **Construction venue:** ${venue}`,
+      `- **Review policy:** ${o.reviewPolicyRef}`,
+    ].join('\n')
+  );
+
+  const blocks = o.infraBuildingBlocks ?? [];
+  if (blocks.length > 0) {
+    const rows = blocks.map((b) => `- **${b.name}** _(${b.category})_ — ${b.status}`).join('\n');
+    parts.push(`## Infrastructure Building Blocks\n\n${rows}`);
+  }
+
+  const trust = o.trustSummaries;
+  parts.push(`## Trust\n\n- ${trust.billing}\n- ${trust.usageMetering}\n- ${trust.dataOwnership}`);
+
+  return parts.join('\n\n');
 }
 
 function standardCheckToMarkdown(s: StandardCheck): string {

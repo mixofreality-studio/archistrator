@@ -19,6 +19,7 @@ import type { ArtifactKind, ProjectState, ResearchInput, ReviewDecision } from '
 import { slotStageFromOrdinal } from '../contracts/adapters';
 import { PHASE1_ORDER, METHOD_METADATA, slugForKind } from '../contracts/methodMetadata';
 
+import { useDesignHealth } from '../hooks/useDesignHealth';
 import { useProject } from '../hooks/useProject';
 import { useSessionState } from '../hooks/useSessionState';
 import { isSessionAbsent } from '../hooks/sessionPolling';
@@ -34,6 +35,8 @@ import { useSetResearchInput, useStartSystemDesign } from '../hooks/useStartDesi
 import { ChatRail } from '../components/design/ChatRail';
 import { DesignExperienceSkeleton } from '../components/design/DesignSkeleton';
 import { SystemDesignView, type SpineStep } from '../components/design/SystemDesignView';
+import { CommittedSlotsProvider } from '../components/CommittedSlotsContext';
+import { StructureFindingsProvider } from '../components/flow/StructureFindingsContext';
 import { gateDecisionErrorMessage } from '../components/design/gateFaultLogic';
 import { useComments } from '../components/comments/CommentContext';
 
@@ -92,6 +95,11 @@ export function SystemDesignContainer({
   } = useComments();
 
   const { data: project, isLoading: projectLoading } = useProject(projectId);
+  // Live Design-Health findings, delivered to the architecture diagram via the
+  // StructureFindingsProvider below (findingOverlays render them ON the diagram).
+  // Loading / a fetch error leave data undefined → the diagram degrades to no
+  // overlays; the DesignHealthView step shares the same query cache entry.
+  const { data: designHealth } = useDesignHealth(projectId);
   const spine = useMemo(() => buildSpine(project), [project]);
 
   // The active step is URL-derived: the {-$stepSlug} path segment is the source
@@ -358,35 +366,39 @@ export function SystemDesignContainer({
   ) : undefined;
 
   return (
-    <SystemDesignView
-      acknowledgeStaleError={acknowledgeStale.error?.message}
-      acknowledgeStalePending={acknowledgeStale.isPending}
-      activeIndex={safeIndex}
-      amendPending={requestDraft.isPending}
-      beginPending={startDesign.isPending || requestDraft.isPending}
-      chat={chat}
-      chatOpen={chatOpen}
-      commentSurface={{ enabled: commentsEnabled, commentCount: comments.length, setAnchor }}
-      decisionPending={submitReview.isPending}
-      gateError={gateError}
-      needsResearch={needsResearch}
-      project={project}
-      researchPending={setResearch.isPending || startDesign.isPending}
-      retryPending={requestDraft.isPending}
-      session={session.data ?? undefined}
-      sessionLoading={session.isLoading}
-      sessionMissing={sessionMissing}
-      spine={spine}
-      onAcknowledgeStale={onAcknowledgeStale}
-      onClose={() => void navigate({ to: '/project/$projectId/home', params: { projectId } })}
-      onOpenChat={() => {
-        setChatOpen(true);
-      }}
-      onRequestDraft={handleRequestDraft}
-      onRetry={retryDraft}
-      onSelectStep={selectStep}
-      onSubmitResearch={submitResearch}
-      onSubmitReview={onSubmitReview}
-    />
+    <StructureFindingsProvider findings={designHealth?.findings}>
+      <CommittedSlotsProvider slots={project.slots}>
+        <SystemDesignView
+          acknowledgeStaleError={acknowledgeStale.error?.message}
+          acknowledgeStalePending={acknowledgeStale.isPending}
+          activeIndex={safeIndex}
+          amendPending={requestDraft.isPending}
+          beginPending={startDesign.isPending || requestDraft.isPending}
+          chat={chat}
+          chatOpen={chatOpen}
+          commentSurface={{ enabled: commentsEnabled, commentCount: comments.length, setAnchor }}
+          decisionPending={submitReview.isPending}
+          gateError={gateError}
+          needsResearch={needsResearch}
+          project={project}
+          researchPending={setResearch.isPending || startDesign.isPending}
+          retryPending={requestDraft.isPending}
+          session={session.data ?? undefined}
+          sessionLoading={session.isLoading}
+          sessionMissing={sessionMissing}
+          spine={spine}
+          onAcknowledgeStale={onAcknowledgeStale}
+          onClose={() => void navigate({ to: '/project/$projectId/home', params: { projectId } })}
+          onOpenChat={() => {
+            setChatOpen(true);
+          }}
+          onRequestDraft={handleRequestDraft}
+          onRetry={retryDraft}
+          onSelectStep={selectStep}
+          onSubmitResearch={submitResearch}
+          onSubmitReview={onSubmitReview}
+        />
+      </CommittedSlotsProvider>
+    </StructureFindingsProvider>
   );
 }

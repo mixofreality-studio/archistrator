@@ -14,7 +14,13 @@ import (
 // contract entry (a non-empty goPackage, the same selection cmd/modelgen makes)
 // must JOIN — case-folded + stereotype-suffix-normalized, and layer-scoped — to a
 // slot-5 component of kind manager | engine | resourceAccess whose `encapsulates`
-// is non-empty. This is the executable guard against:
+// is non-empty. A contract joins in one of two ratified shapes: directly, when
+// its KEY normalizes to a component id; or as a contract FACET, when its key names
+// no component but its `component` field joins an owning component (the ratified
+// resource-access facet doctrine — one component, e.g. projectStateAccess, that
+// publishes several cohesive contract facets living in its one package). A facet
+// joins on the SAME kind, so it must share its owner's layer. This is the
+// executable guard against:
 //
 //   - a contract key that names no architecture component (a junk/orphan entry
 //     like the deleted "operationsRead-ruling"), and
@@ -84,10 +90,15 @@ func TestEveryBuiltContractJoinsAComponent(t *testing.T) {
 	// NOT satisfy a contract, so the layer is part of the key.
 	type joinKey struct{ name, kind string }
 	index := map[joinKey]slot5Component{}
+	// byName indexes the same buildable components by normalized id alone. It is
+	// used ONLY to sharpen the failure message on the facet path: it lets the check
+	// say "owner exists but at the wrong layer" instead of "owner does not exist".
+	byName := map[string]slot5Component{}
 	for _, c := range comps {
 		switch c.Kind {
 		case "manager", "engine", "resourceAccess":
 			index[joinKey{normalizeComponentName(c.ID), c.Kind}] = c
+			byName[normalizeComponentName(c.ID)] = c
 		}
 	}
 
@@ -110,11 +121,27 @@ func TestEveryBuiltContractJoinsAComponent(t *testing.T) {
 			t.Errorf("%s: built contract has layer %q — only Manager/Engine/ResourceAccess are buildable, joinable layers", k, e.Layer)
 			continue
 		}
-		key := joinKey{normalizeComponentName(k), kind}
-		comp, found := index[key]
+		comp, found := index[joinKey{normalizeComponentName(k), kind}]
 		if !found {
-			t.Errorf("%s: built %s contract does not join any slot-5 component — normalized name %q + kind %q names no component in the committed systemDesign (orphan/junk entry, or a contract-key↔component-id naming skew)",
-				k, e.Layer, key.name, key.kind)
+			// The key names no component. This is legal for a contract FACET: a
+			// contract whose key is not a component id but whose `component` field
+			// joins an owning component (ratified resource-access facet doctrine —
+			// one component publishes several cohesive contract facets, all in the
+			// one package). The facet join is keyed on the SAME kind, so a facet
+			// that crosses layers (owner of a different kind) does NOT satisfy this
+			// lookup — enforcing the "a facet shares its owner's layer" rule.
+			comp, found = index[joinKey{normalizeComponentName(e.Component), kind}]
+		}
+		if !found {
+			// Sharpen the failure: distinguish a fossil entry (no owner at all)
+			// from a facet whose owner exists but sits at a different layer.
+			if owner, exists := byName[normalizeComponentName(e.Component)]; exists && e.Component != "" {
+				t.Errorf("%s: contract facet declares layer %q (kind %q) but its owning component %q (via component field %q) is kind %q — a contract facet must share its owning component's layer",
+					k, e.Layer, kind, owner.ID, e.Component, owner.Kind)
+			} else {
+				t.Errorf("%s: built %s contract joins no slot-5 component — its key (normalized %q) names no component, and its component field %q names no component either (orphan/junk entry, or a contract-key↔component-id naming skew)",
+					k, e.Layer, normalizeComponentName(k), e.Component)
+			}
 			continue
 		}
 		if strings.TrimSpace(comp.Encapsulates) == "" {

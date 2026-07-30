@@ -14,13 +14,16 @@ import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
+import IconButton from '@mui/material/IconButton';
+import Tooltip from '@mui/material/Tooltip';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
+import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline';
 import UndoIcon from '@mui/icons-material/Undo';
 import RestartAltIcon from '@mui/icons-material/RestartAlt';
 import FlagIcon from '@mui/icons-material/Flag';
 import type { UseCaseView } from '../../contracts/adapters';
 import { ActivityFlow, type ActivityHighlight } from './ActivityFlow';
-import { activityNodeAnchor } from '../comments/CommentContext';
+import { useComments, activityNodeAnchor } from '../comments/CommentContext';
 import { laneColors } from './laneColors';
 import { useTokens } from '../../utilities/theme/ThemeContext';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
@@ -64,6 +67,7 @@ export function UseCaseWalkthrough({
 }): ReactNode {
   const t = useTokens();
   const colors = laneColors(t, uc.lanes);
+  const { setAnchor, enabled, anchor: armedAnchor, comments } = useComments();
 
   const { nodesById, outEdges, startId } = useMemo(() => {
     const byId = new Map<string, NodeView>(uc.nodes.map((n) => [n.id, n]));
@@ -131,6 +135,16 @@ export function UseCaseWalkthrough({
   const isBranch = outs.length > 1;
   const isEnd = outs.length === 0;
 
+  // Per-step comment button, revealed like a CommentableList row's: hidden at rest,
+  // shown on hover / keyboard focus-within of the step card, and pinned visible when
+  // this step is the armed anchor or already carries a comment. It arms the SAME
+  // anchor as the card's drag-select-to-quote path (activityNodeAnchor on the current
+  // node) so a reviewer needn't select text to comment on the whole step.
+  const stepAnchorPath = activityNodeAnchor(useCaseIndex, currentId);
+  const stepArmed = armedAnchor?.jsonPath === stepAnchorPath;
+  const stepHasComments = comments.some((c) => c.anchor?.jsonPath === stepAnchorPath);
+  const stepRevealed = stepArmed || stepHasComments;
+
   const advance = (toId: string): void => {
     setPath((p) => [...p, toId]);
     stepTitleRef.current?.focus();
@@ -152,9 +166,23 @@ export function UseCaseWalkthrough({
             arms the SAME anchor as clicking the current node on the diagram. */}
         <Paper
           data-artifact-kind="coreUseCases"
-          data-comment-anchor={activityNodeAnchor(useCaseIndex, currentId)}
+          data-comment-anchor={stepAnchorPath}
           data-commentable={`${uc.name} · activity diagram`}
-          sx={{ p: 2.5, display: 'flex', flexDirection: 'column', gap: 1.5, minHeight: 210 }}
+          sx={{
+            p: 2.5,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 1.5,
+            minHeight: 210,
+            '& .walkthrough-step-action': {
+              opacity: stepRevealed ? 1 : 0,
+              transition: 'opacity 120ms',
+            },
+            '&:hover .walkthrough-step-action, &:focus-within .walkthrough-step-action': {
+              opacity: 1,
+            },
+            '@media (hover: none)': { '& .walkthrough-step-action': { opacity: 1 } },
+          }}
         >
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <Typography
@@ -168,21 +196,49 @@ export function UseCaseWalkthrough({
             >
               {kindHeader !== undefined ? `${kindHeader} · ` : ''}step {path.length}
             </Typography>
-            {node !== undefined && (
-              <Chip
-                label={node.lane}
-                size="small"
-                sx={{
-                  ml: 'auto',
-                  height: 20,
-                  fontFamily: t.mono,
-                  fontSize: 10,
-                  bgcolor: t.paperAlt,
-                  borderLeft: `4px solid ${colors[node.lane] ?? t.muted}`,
-                  borderRadius: 0.5,
-                }}
-              />
-            )}
+            <Box sx={{ ml: 'auto', display: 'flex', alignItems: 'center', gap: 1 }}>
+              {node !== undefined && (
+                <Chip
+                  label={node.lane}
+                  size="small"
+                  sx={{
+                    height: 20,
+                    fontFamily: t.mono,
+                    fontSize: 10,
+                    bgcolor: t.paperAlt,
+                    borderLeft: `4px solid ${colors[node.lane] ?? t.muted}`,
+                    borderRadius: 0.5,
+                  }}
+                />
+              )}
+              {enabled ? (
+                <Tooltip title={`Comment on step ${String(path.length)}`}>
+                  <IconButton
+                    aria-label={`Comment on step ${String(path.length)}`}
+                    className="walkthrough-step-action"
+                    size="small"
+                    sx={{
+                      flexShrink: 0,
+                      color: t.accentText,
+                      bgcolor: t.accent,
+                      border: `1.5px solid ${t.line}`,
+                      borderRadius: 1,
+                      '&:hover': { bgcolor: t.accent2 },
+                    }}
+                    onClick={() => {
+                      setAnchor({
+                        kind: 'node',
+                        label: node !== undefined ? nodeText(node) : `Step ${String(path.length)}`,
+                        source: `${uc.name} · activity diagram`,
+                        jsonPath: stepAnchorPath,
+                      });
+                    }}
+                  >
+                    <ChatBubbleOutlineIcon sx={{ fontSize: 15 }} />
+                  </IconButton>
+                </Tooltip>
+              ) : null}
+            </Box>
           </Box>
 
           <Typography

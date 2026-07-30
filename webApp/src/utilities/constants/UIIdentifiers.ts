@@ -69,6 +69,15 @@ export const UI_IDENTIFIERS = {
     // View-mode toggle (walkthrough choose-your-path vs. full activity diagram).
     VIEW_WALKTHROUGH: 'usecase-view-walkthrough',
     VIEW_DIAGRAM: 'usecase-view-diagram',
+    // Ch. 4 band-context marker on the corpus summary line ("target 2–6") —
+    // carries the warning accent when the core count falls outside the band.
+    CORE_BAND: 'usecase-core-band',
+    // The WHY-core essence rationale prose on a CORE use case's sidebar card
+    // (symmetric to the nonCore rejectionReason).
+    ESSENCE_RATIONALE: 'usecase-essence-rationale',
+    // Per-use-case navigable join → the Architecture step's Dynamic lens,
+    // preselected to this use case's call chain (?view=<dynamic-view-key>).
+    CALL_CHAIN_LINK: 'usecase-call-chain-link',
     // The walkthrough's "Next" advance control (single-successor step). Black-box
     // hook for asserting the per-step camera move on the you-are-here map.
     WALKTHROUGH_NEXT: 'walkthrough-next',
@@ -147,11 +156,22 @@ export const UI_IDENTIFIERS = {
     // Compact stale marker on a spine step, keyed by slot kind.
     spineStale: (kind: string) => `spine-stale-${kind}`,
   },
+  Mission: {
+    // The quiet "realized by" reverse-join line under a business objective —
+    // the committed Deployment & Operations knobs whose objectiveLinks cite it.
+    realizedBy: (objNumber: number) => `mission-realized-by-${String(objNumber)}`,
+    // One knob chip-link on that line (→ Deployment & Operations step), keyed by
+    // objective number + knob field name.
+    realizedLink: (objNumber: number, knob: string) =>
+      `mission-realized-link-${String(objNumber)}-${knob}`,
+  },
   Glossary: {
     // The glossary reference widget (GlossaryView): search + Four-Questions
     // filter chips + the grouped, alphabetized term list.
     ROOT: 'glossary-view',
     SEARCH: 'glossary-search',
+    // The search field's clear (×) button, shown only while the query is non-empty.
+    CLEAR: 'glossary-clear',
     // The "All · N" reset chip.
     CHIP_ALL: 'glossary-chip-all',
     // A category filter chip, keyed by its Four-Questions BASE label
@@ -161,6 +181,16 @@ export const UI_IDENTIFIERS = {
     section: (label: string) => `glossary-section-${label}`,
     // The "no terms match" filtered-empty state.
     EMPTY: 'glossary-empty',
+    // The per-term usage chip row (cross-artifact whole-word joins), keyed by the
+    // item's original-array index (the same identity the comment anchors use).
+    usage: (index: number) => `glossary-usage-${String(index)}`,
+    // One usage chip-link on that row (→ the used-in step), keyed by index + step kind.
+    usageLink: (index: number, kind: string) => `glossary-usage-link-${String(index)}-${kind}`,
+  },
+  ScrubbedRequirements: {
+    // A volatilityHint chip-link on a behavior row (→ Volatilities step),
+    // keyed by the hinted volatility name.
+    hintLink: (name: string) => `behavior-hint-link-${name}`,
   },
   VolatilityMap: {
     // The volatilities artifact's two-lane single-select map (VolatilityMap).
@@ -186,6 +216,11 @@ export const UI_IDENTIFIERS = {
     REJECTED_TOGGLE: 'volatility-rejected-toggle',
     REJECTED_LIST: 'volatility-rejected-list',
     rejectedItem: (index: number) => `volatility-rejected-${String(index)}`,
+    // Navigable joins on the detail card: "Encapsulated by" component links
+    // (→ Architecture step, keyed by owner position) and trace-id links
+    // (→ Required Behaviors step, keyed by the behavior id).
+    ownerLink: (index: number) => `volatility-owner-link-${String(index)}`,
+    traceLink: (id: string) => `volatility-trace-link-${id}`,
   },
   Architecture: {
     VIEW_SWITCH: 'arch-view-switch',
@@ -197,9 +232,28 @@ export const UI_IDENTIFIERS = {
     // Dynamic step-through Prev/Next controls (F-QA2-51 testability).
     DYNAMIC_STEP_PREV: 'arch-dynamic-step-prev',
     DYNAMIC_STEP_NEXT: 'arch-dynamic-step-next',
+    // The anti-functional-decomposition badge on a C4 node (a Manager/Engine/
+    // ResourceAccess encapsulating no identified volatility), keyed by component id.
+    noVolatility: (componentId: string) => `arch-no-volatility-${componentId}`,
+    // Design-Health structure findings joined onto the diagram (findingOverlays):
+    // the badge on an offending relationship edge (keyed by its from/to pair), the
+    // badge on an offending component node, and the legend count chip linking to
+    // the Design Health step.
+    findingEdge: (from: string, to: string) => `arch-finding-edge-${from}-${to}`,
+    findingNode: (componentId: string) => `arch-finding-node-${componentId}`,
+    FINDING_COUNT: 'arch-finding-count',
   },
   Deployment: {
     PROFILE_SWITCH: 'deploy-profile-switch',
+    /** Deployment & Operations Model sections (Wave-2 reshape). */
+    KNOBS: 'depops-knobs',
+    TRUST: 'depops-trust',
+    INFRA: 'depops-infra',
+    DOCTRINE: 'depops-doctrine',
+    // One "Obj N" objectiveLinks chip-link on a per-project knob (→ Mission step),
+    // keyed by knob field name + objective number.
+    objectiveLink: (knob: string, objNumber: number) =>
+      `depops-objective-link-${knob}-${String(objNumber)}`,
   },
   GatePanel: {
     ROOT: 'gate-panel',

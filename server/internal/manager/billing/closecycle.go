@@ -15,7 +15,6 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/billingstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/merchantgateway"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/revenueledger"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usage"
 )
 
@@ -114,14 +113,13 @@ func (wf *workflows) CloseCycleWorkflow(ctx workflow.Context, in closeInput) (Cl
 }
 
 // routeNet executes the Engine's routing directive (billingManager.md §6.3 / §0
-// decision 2). Payout → payoutCustomer; Charge → chargeCustomer (on failure
-// decide→execute {Retry|Escalate|Delay}); NoAction → skip. Returns whether the cycle
+// decision 2). Charge → chargeCustomer (on failure decide→execute
+// {Retry|Escalate|Delay}); NoAction → skip. Charge-only: there is no Payout directive —
+// a non-negative net routes NoAction. Returns whether the cycle
 // was escalated (the OQ-4 head-state escalation flag). attempt seeds the re-charge
 // budget for the Retry directive.
 func (wf *workflows) routeNet(ctx workflow.Context, customerID customerID, cycleID cycleID, result billingengine.BillingResult, attempt int) (escalated bool, err error) {
 	switch result.RoutingDirective {
-	case billingengine.RoutingPayout:
-		return false, wf.payoutCustomer(ctx, customerID, cycleID, Money{MinorUnits: result.SignedNet.MinorUnits, Currency: result.SignedNet.Currency})
 	case billingengine.RoutingCharge:
 		// Charge the positive magnitude of the negative shortfall net.
 		chargeAmount := Money{MinorUnits: -result.SignedNet.MinorUnits, Currency: result.SignedNet.Currency}
@@ -199,11 +197,11 @@ func (wf *workflows) drainInboundRevenue(ctx workflow.Context, customerID custom
 		if event.CycleID != cycleID {
 			continue
 		}
-		_ = wf.recordInboundRevenue(ctx, revenueledger.RevenueEntry{
+		_ = wf.recordInboundRevenue(ctx, billingstate.RevenueEntry{
 			CustomerID:     customerID,
 			CycleID:        string(cycleID),
-			Kind:           revenueledger.RevenueKindInbound,
-			Amount:         revenueledger.Money{MinorUnits: event.Amount.MinorUnits, Currency: event.Amount.Currency},
+			Kind:           billingstate.RevenueKindInbound,
+			Amount:         billingstate.Money{MinorUnits: event.Amount.MinorUnits, Currency: event.Amount.Currency},
 			GatewayEventID: event.GatewayEventID,
 			OccurredAt:     event.OccurredAt,
 		})
@@ -236,10 +234,10 @@ func (wf *workflows) awaitChargeback(ctx workflow.Context, customerID customerID
 //  5. route the DELTA charge/payout via the gateway. No rollback (forward-only).
 func (wf *workflows) recomputeCycle(ctx workflow.Context, customerID customerID, cycleID cycleID, event GatewayReversalEvent, prior billingengine.BillingResult) error {
 	// Append the reversal (idempotent on the chargeback's gateway event id).
-	if err := wf.recordReversal(ctx, revenueledger.ReversalEntry{
+	if err := wf.recordReversal(ctx, billingstate.ReversalEntry{
 		CustomerID:     customerID,
 		CycleID:        string(cycleID),
-		Amount:         revenueledger.Money{MinorUnits: event.Amount.MinorUnits, Currency: event.Amount.Currency},
+		Amount:         billingstate.Money{MinorUnits: event.Amount.MinorUnits, Currency: event.Amount.Currency},
 		GatewayEventID: event.GatewayEventID,
 		// ReversesGatewayEventID is an optional back-link; the generated façade type
 		// carries it as *string (`,omitempty`), the generated RA contract type as a
@@ -334,14 +332,6 @@ func (wf *workflows) foldUsage(ctx workflow.Context, customerID customerID, cycl
 	}, nil
 }
 
-// payoutCustomer invokes merchantGatewayAccess.payoutCustomer (caller-keyed
-// settle:{customerId}:{cycleId}).
-func (wf *workflows) payoutCustomer(ctx workflow.Context, customerID customerID, cycleID cycleID, amount Money) error {
-	key := gatewayIdempotencyKey(customerID, cycleID)
-	return wf.Acts.MerchantGatewayPayoutCustomer(ctx, fwra.IdempotencyKey(key), customerID,
-		merchantgateway.Money{MinorUnits: amount.MinorUnits, Currency: amount.Currency}, key)
-}
-
 // chargeCustomer invokes merchantGatewayAccess.chargeCustomer (caller-keyed
 // settle:{customerId}:{cycleId}). A terminal decline (RA Auth) surfaces to the
 // decideOnBillingFailure branch (OQ-4).
@@ -353,14 +343,14 @@ func (wf *workflows) chargeCustomer(ctx workflow.Context, customerID customerID,
 
 // recordInboundRevenue invokes revenueLedgerAccess.recordInboundRevenue (dedup on the
 // gateway event id; NO Conflict kind on this append-only ledger).
-func (wf *workflows) recordInboundRevenue(ctx workflow.Context, entry revenueledger.RevenueEntry) error {
+func (wf *workflows) recordInboundRevenue(ctx workflow.Context, entry billingstate.RevenueEntry) error {
 	_, err := wf.Acts.RevenueLedgerRecordInboundRevenue(ctx, entry)
 	return err
 }
 
 // recordReversal invokes revenueLedgerAccess.recordReversal (dedup on the chargeback's
 // gateway event id; NO Conflict kind on this append-only ledger).
-func (wf *workflows) recordReversal(ctx workflow.Context, reversal revenueledger.ReversalEntry) error {
+func (wf *workflows) recordReversal(ctx workflow.Context, reversal billingstate.ReversalEntry) error {
 	_, err := wf.Acts.RevenueLedgerRecordReversal(ctx, reversal)
 	return err
 }
@@ -438,7 +428,7 @@ const (
 
 // derefString returns the pointed-to string, or "" for nil. The generated
 // GatewayReversalEvent.ReversesGatewayEventID is optional (`,omitempty` ⇒ *string);
-// the generated revenueledger.ReversalEntry carries it as a plain string (empty ⇒
+// the generated billingstate.ReversalEntry carries it as a plain string (empty ⇒
 // absent).
 func derefString(s *string) string {
 	if s == nil {
@@ -454,8 +444,6 @@ func routingDirectiveName(d RoutingDirective) string {
 	switch d {
 	case RoutingDirectiveNoAction:
 		return "NoAction"
-	case RoutingDirectivePayout:
-		return "Payout"
 	case RoutingDirectiveCharge:
 		return "Charge"
 	}
@@ -481,8 +469,6 @@ func termsToEngine(t billingstate.BillingTerms) billingengine.BillingTerms {
 // RA-owned persisted enum by IDENTITY (explicit switch — re-order safe).
 func routingDirectiveToState(d billingengine.RoutingDirective) billingstate.RoutingDirective {
 	switch d {
-	case billingengine.RoutingPayout:
-		return billingstate.RoutingPayout
 	case billingengine.RoutingCharge:
 		return billingstate.RoutingCharge
 	case billingengine.RoutingNoAction:

@@ -447,7 +447,7 @@ func classifyCommon(err error) error {
 
 // behavior.go carries the FREE-FUNCTION behaviour of the named-scalar / enum value
 // types in this component's contract — the established "behavioral value type →
-// generated scalar + free functions" pattern (same as constructionpipeline's
+// generated scalar + free functions" pattern (same as agenticjob's
 // PipelineHandle and artifactAccess's OutputPath). ExecutionHandle is generated as a
 // $def named scalar (`type ExecutionHandle string`, contract.gen.go) and
 // ExecutionStatus as a generated enum; their methods would not survive codegen, so

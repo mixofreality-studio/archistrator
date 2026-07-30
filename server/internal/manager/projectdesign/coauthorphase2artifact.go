@@ -8,7 +8,7 @@ import (
 
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/constructionpipeline"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/agenticjob"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 	"go.temporal.io/sdk/temporal"
@@ -144,7 +144,7 @@ func (wf *workflows) applyRecovering(
 //  2. COMPOSE the Phase-2 architect-role prompt IN-MEMORY (prompts.go) — never
 //     persisted; on a redraft the ReviewFeedback.Notes are woven in.
 //  3. DISPATCH -> OBSERVE -> READ-BACK (agentic pivot): dispatch a claude-code-action
-//     DESIGN job via Pipeline.SubmitConstructionPipeline (FROZEN verb), observe it to a
+//     DESIGN job via Pipeline.SubmitAgenticJob (FROZEN verb), observe it to a
 //     TYPED terminal phase, and on PhaseSucceeded read back the typed Phase-2 model the
 //     Action committed via ProjectState.ReadProject. On a terminal FAILURE phase the
 //     session lands in StageDraftFailed and suspends at the human gate (the anti-wedge
@@ -1176,7 +1176,7 @@ func (wf *workflows) awaitDraftFailedRecovery(
 
 // draftFailedReason renders the human "why" for the StageDraftFailed screen from the
 // job's neutral Diagnostic. It is infrastructure-neutral (the Diagnostic is already a
-// summary, not a log firehose — constructionPipelineAccess.md Non-goal #4).
+// summary, not a log firehose — agenticJobAccess.md Non-goal #4).
 func draftFailedReason(diagnostic string) string {
 	if diagnostic == "" {
 		return "the Phase-2 design job failed in CI — retry or withdraw"
@@ -1279,13 +1279,13 @@ func dispatchErrSummary(err error) string {
 //
 //   - DISPATCH  the Manager selects the Method Phase-2 role .claude command slug
 //               (DesignCommandFor) and dispatches a claude-code-action DESIGN job via
-//               the FROZEN constructionPipelineAccess.SubmitConstructionPipeline verb,
+//               the FROZEN agenticJobAccess.SubmitAgenticJob verb,
 //               carrying {artifact_kind, command, target_branch, prior_state_ref,
 //               job_mode} on the additive PipelineSpec.DispatchInputs field
 //               (C-WF-DESIGN input schema). The Method Phase-2 doctrine lives in the
 //               command's method-assets, not a composed in-memory prompt. The RA
 //               reserves + stamps idempotency_token itself; the Manager MUST NOT set it.
-//   - OBSERVE   the Manager polls ObserveConstructionPipeline(handle) between
+//   - OBSERVE   the Manager polls ObserveAgenticJob(handle) between
 //               durableExecutionAccess timer waits until a TYPED terminal phase.
 //   - READ-BACK on PhaseSucceeded the Manager reads the committed typed Phase-2 Kind
 //               via projectStateAccess.ReadProject (the Action committed the JSON;
@@ -1310,8 +1310,8 @@ func dispatchErrSummary(err error) string {
 
 // ===========================================================================
 // Workflow-side pipeline helpers. The temporalgen migration routes the submit/observe
-// design-job pair through the GENERATED constructionPipelineAccess invokers (wf.Acts.
-// PipelineSubmit/ObserveConstructionPipeline); the value mapping that lived on the folded
+// design-job pair through the GENERATED agenticJobAccess invokers (wf.Acts.
+// PipelineSubmit/ObserveAgenticJob); the value mapping that lived on the folded
 // pipelineDispatchAdapter — the RepoRef→RepoTarget decode, the PipelineSpec composition,
 // and the RA-phase→neutral-phase mapping — is now these PURE workflow-side helpers
 // (mirrors construction's dispatch.go). The idempotency key is stamped INSIDE the
@@ -1319,12 +1319,12 @@ func dispatchErrSummary(err error) string {
 // the old hand-derived key used), so the redraft-vs-auto-retry distinction is unchanged.
 // ===========================================================================
 
-// dispatchDesignJob composes the constructionpipeline.PipelineSpec for one design job and
+// dispatchDesignJob composes the agenticjob.PipelineSpec for one design job and
 // submits it through the generated invoker, returning the opaque handle. The four DESIGN
 // parameters ride on DispatchInputs; a per-project TargetRepo (decoded from the opaque
 // RepoRef) + WorkflowFile target the user's per-project repo + aiarch-design.yml, else an
 // empty target falls back to the RA's configured construction repo.
-func (wf *workflows) dispatchDesignJob(ctx workflow.Context, a dispatchDesignJobArgs) (constructionpipeline.PipelineHandle, error) {
+func (wf *workflows) dispatchDesignJob(ctx workflow.Context, a dispatchDesignJobArgs) (agenticjob.PipelineHandle, error) {
 	// The .claude command slug the design job runs — the Phase-2 doctrine that used to be
 	// composed into design_prompt now lives in that command's method-assets. Project Design
 	// only ever dispatches a DRAFT (there is no PM-critique; the answer job dispatches manager-
@@ -1332,7 +1332,7 @@ func (wf *workflows) dispatchDesignJob(ctx workflow.Context, a dispatchDesignJob
 	// assembled server-side, never dispatched); fail terminally before dispatch.
 	command := projectstate.DesignCommandFor(toPSKind(a.ArtifactKind), projectstate.DesignJobModeDraft, "")
 	if command == "" {
-		return constructionpipeline.PipelineHandle(""), temporal.NewNonRetryableApplicationError(
+		return agenticjob.PipelineHandle(""), temporal.NewNonRetryableApplicationError(
 			"no design command slug for this artifactKind — undispatchable design job", "UndispatchableDesignJob", nil)
 	}
 	inputs := map[string]string{
@@ -1347,16 +1347,16 @@ func (wf *workflows) dispatchDesignJob(ctx workflow.Context, a dispatchDesignJob
 	// construction repo). Empty TargetRepo ⇒ zero RepoTarget ⇒ the RA falls back.
 	target, terr := designRepoTarget(a.TargetRepo)
 	if terr != nil {
-		return constructionpipeline.PipelineHandle(""), terr
+		return agenticjob.PipelineHandle(""), terr
 	}
-	spec := constructionpipeline.PipelineSpec{
-		ProjectID: constructionpipeline.ProjectID(a.ProjectID),
+	spec := agenticjob.PipelineSpec{
+		ProjectID: agenticjob.ProjectID(a.ProjectID),
 		// A non-empty, well-formed step graph satisfies the RA's §2.1 pre-condition; the
 		// design recipe lives in the user's aiarch-design.yml workflow file, so the step is
 		// a logical placeholder. The Phase-2 DESIGN-job parameters ride on DispatchInputs.
-		Steps: []constructionpipeline.PipelineStep{{
+		Steps: []agenticjob.PipelineStep{{
 			Name:      "design",
-			Toolchain: constructionpipeline.ToolchainRef(pipelineDefaultToolchain),
+			Toolchain: agenticjob.ToolchainRef(pipelineDefaultToolchain),
 			Command:   []string{"sh", "-c", "true"},
 		}},
 		DispatchInputs: inputs,
@@ -1365,14 +1365,14 @@ func (wf *workflows) dispatchDesignJob(ctx workflow.Context, a dispatchDesignJob
 	if a.TargetRepo != "" {
 		spec.WorkflowFile = designWorkflowFileName
 	}
-	return wf.Acts.PipelineSubmitConstructionPipeline(ctx, spec)
+	return wf.Acts.PipelineSubmitAgenticJob(ctx, spec)
 }
 
 // observeDesignJob reads the dispatched job's phase once (pull-shaped, side-effect-free;
-// constructionPipelineAccess.md §2.2) through the generated invoker and maps the RA phase
+// agenticJobAccess.md §2.2) through the generated invoker and maps the RA phase
 // onto this Manager's neutral phase.
-func (wf *workflows) observeDesignJob(ctx workflow.Context, handle constructionpipeline.PipelineHandle) (pipelineObservation, error) {
-	obs, err := wf.Acts.PipelineObserveConstructionPipeline(ctx, handle)
+func (wf *workflows) observeDesignJob(ctx workflow.Context, handle agenticjob.PipelineHandle) (pipelineObservation, error) {
+	obs, err := wf.Acts.PipelineObserveAgenticJob(ctx, handle)
 	if err != nil {
 		return pipelineObservation{}, err
 	}
@@ -1385,24 +1385,24 @@ func (wf *workflows) observeDesignJob(ctx workflow.Context, handle constructionp
 // designPipelinePhase maps the RA's phase to this Manager's neutral phase, preserving
 // the Cancelled terminal distinctly (the design Manager treats any non-Succeeded
 // terminal as a StageDraftFailed gate).
-func designPipelinePhase(p constructionpipeline.PipelinePhase) pipelinePhase {
+func designPipelinePhase(p agenticjob.PipelinePhase) pipelinePhase {
 	switch p {
-	case constructionpipeline.PhasePending:
+	case agenticjob.PhasePending:
 		return pipelinePending
-	case constructionpipeline.PhaseRunning:
+	case agenticjob.PhaseRunning:
 		return pipelineRunning
-	case constructionpipeline.PhaseSucceeded:
+	case agenticjob.PhaseSucceeded:
 		return pipelineSucceeded
-	case constructionpipeline.PhaseFailed:
+	case agenticjob.PhaseFailed:
 		return pipelineFailed
-	case constructionpipeline.PhaseCancelled:
+	case agenticjob.PhaseCancelled:
 		return pipelineCancelled
 	default:
 		return pipelinePhaseUnknown
 	}
 }
 
-// pipelinePhase mirrors constructionPipelineAccess.md §3 — the infrastructure-neutral
+// pipelinePhase mirrors agenticJobAccess.md §3 — the infrastructure-neutral
 // lifecycle phase the Manager branches on. The terminal trio drives the observe
 // loop's exit + the failure path.
 type pipelinePhase int
@@ -1428,7 +1428,7 @@ func (p pipelinePhase) IsTerminal() bool {
 	}
 }
 
-// pipelineObservation mirrors constructionPipelineAccess.md §3 — a point-in-time,
+// pipelineObservation mirrors agenticJobAccess.md §3 — a point-in-time,
 // infrastructure-neutral view carrying the phase and (on terminal failure) a neutral
 // Diagnostic summary (NOT a log firehose).
 type pipelineObservation struct {
@@ -1477,7 +1477,7 @@ func (wf *workflows) dispatchAndObserve(ctx workflow.Context, args dispatchDesig
 	if err != nil {
 		return pipelineObservation{}, err
 	}
-	if constructionpipeline.PipelineHandleIsZero(handle) {
+	if agenticjob.PipelineHandleIsZero(handle) {
 		return pipelineObservation{}, temporal.NewNonRetryableApplicationError(
 			"dispatch returned an empty pipeline handle", "EmptyPipelineHandle", nil)
 	}

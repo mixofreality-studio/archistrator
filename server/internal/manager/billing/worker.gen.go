@@ -45,8 +45,6 @@ func RegisterWorker(w worker.Worker, mf genWorkerManifest) {
 	w.RegisterActivityWithOptions(acts.DurableExecutionRegisterSchedule, activity.RegisterOptions{Name: "durableExecutionAccess.registerSchedule"})
 	w.RegisterActivityWithOptions(acts.DurableExecutionStartOrSignalExecution, activity.RegisterOptions{Name: "durableExecutionAccess.startOrSignalExecution"})
 	w.RegisterActivityWithOptions(acts.MerchantGatewayChargeCustomer, activity.RegisterOptions{Name: "merchantGatewayAccess.chargeCustomer"})
-	w.RegisterActivityWithOptions(acts.MerchantGatewayCreateConnectedAccount, activity.RegisterOptions{Name: "merchantGatewayAccess.createConnectedAccount"})
-	w.RegisterActivityWithOptions(acts.MerchantGatewayPayoutCustomer, activity.RegisterOptions{Name: "merchantGatewayAccess.payoutCustomer"})
 	w.RegisterActivityWithOptions(acts.MerchantGatewayValidateStoredInstrument, activity.RegisterOptions{Name: "merchantGatewayAccess.validateStoredInstrument"})
 	w.RegisterActivityWithOptions(acts.RevenueLedgerReadRange, activity.RegisterOptions{Name: "revenueLedgerAccess.readRange"})
 	w.RegisterActivityWithOptions(acts.RevenueLedgerRecordInboundRevenue, activity.RegisterOptions{Name: "revenueLedgerAccess.recordInboundRevenue"})

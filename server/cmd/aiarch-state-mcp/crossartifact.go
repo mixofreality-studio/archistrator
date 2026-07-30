@@ -58,16 +58,28 @@ import (
 
 	"github.com/mixofreality-studio/archistrator-platform/framework-go/methodcheck"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
+	"github.com/mixofreality-studio/archistrator/server/internal/utility/designhealth"
 )
 
 // appendAppSideCrossArtifactFindings appends the app-side cross-artifact findings for
 // proj to findings. Rules only fire over COMMITTED slots (the same posture as the
 // framework's cross-artifact rules): an absent / uncommitted counterpart slot means
 // there is nothing to join yet, never a violation.
+//
+// It also appends the LIVE design-health tier (internal/utility/designhealth, Wave-2
+// reshape-3): the pure DH-* rule layer over the re-encoded document. Re-encoding
+// proj yields the same bytes methodcheck.ValidateProjectJSON validated at this seam,
+// so the live tier sees exactly the drafted state. DH-* findings then flow through
+// the same staleness / slot-scope severity policies below (DH-* is attributed to the
+// systemDesign slot in ruleSlotAttributionPrefixes), so the in-loop authoring gate,
+// the construct gate, and the CI `validate` subcommand share one design-health verdict.
 func appendAppSideCrossArtifactFindings(proj projectstate.Project, findings []methodcheck.Finding) []methodcheck.Finding {
 	findings = append(findings, activityCoverageFindings(proj)...)
 	findings = append(findings, rateCardFindings(proj)...)
 	findings = append(findings, paEnumHoleFindings(proj)...)
+	if raw, err := projectstate.EncodeProjectJSON(proj); err == nil {
+		findings = append(findings, designhealth.EvaluateRaw(raw)...)
+	}
 	return findings
 }
 

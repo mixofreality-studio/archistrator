@@ -136,7 +136,7 @@ func TestLocalProjectID(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// newAppHooks + FinalizeConstructionPipelineAccess — end-to-end selection proof
+// newAppHooks + FinalizeAgenticJobAccess — end-to-end selection proof
 // that the wiring actually reaches the local executor for local-without-creds +
 // DRYRUN=false, and still prefers the GitHub-backed real pipeline when creds ARE
 // present ("creds present keeps the existing behavior").
@@ -169,12 +169,12 @@ func TestNewAppHooks_LocalNoCreds_DryRunFalse_BuildsLocalPipeline(t *testing.T) 
 		t.Fatal("expected h.realPipeline to stay nil with no GitHub creds configured")
 	}
 
-	got := h.FinalizeConstructionPipelineAccess(cfg, nil)
+	got := h.FinalizeAgenticJobAccess(cfg, nil)
 	if got == nil {
-		t.Fatal("FinalizeConstructionPipelineAccess returned nil — the local executor arm did not select")
+		t.Fatal("FinalizeAgenticJobAccess returned nil — the local executor arm did not select")
 	}
 	if got != h.localPipeline {
-		t.Fatal("FinalizeConstructionPipelineAccess did not select h.localPipeline")
+		t.Fatal("FinalizeAgenticJobAccess did not select h.localPipeline")
 	}
 }
 
@@ -211,7 +211,7 @@ func TestNewAppHooks_LocalNoCreds_DryRunTrue_MissingBinaryIsNonFatal(t *testing.
 		t.Fatal("expected h.localPipeline to stay nil when the state-mcp binary could not be found")
 	}
 	// The dry-run stub still wins regardless.
-	got := h.FinalizeConstructionPipelineAccess(cfg, nil)
+	got := h.FinalizeAgenticJobAccess(cfg, nil)
 	if got == nil {
 		t.Fatal("expected the dry-run stub, got nil")
 	}

@@ -3,6 +3,7 @@ package internal_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	projectmodel "github.com/mixofreality-studio/archistrator-platform/framework-go-projectmodel"
@@ -77,10 +78,27 @@ func TestProjectJSONLoadsUnderPublishedProjectmodel(t *testing.T) {
 // .serviceContracts entry still joins to a systemDesign component. That gap
 // is exactly how fossil contract entries (removed from the architecture
 // diagram by later design rulings but never pruned from project.json)
-// survived undetected. This test closes it: every key in model.Contracts
-// must resolve via model.System.ComponentByContractKey, or the entry is
-// stale and the architecture diagram (systemDesign, the source of truth)
-// says it should not exist.
+// survived undetected. This test closes it: every .serviceContracts entry
+// must resolve to a systemDesign component, or the entry is stale and the
+// architecture diagram (systemDesign, the source of truth) says it should not
+// exist.
+//
+// A contract resolves in one of two ratified shapes:
+//
+//   - COMPONENT contract — its key joins a component via
+//     model.System.ComponentByContractKey (the exact/heuristic key↔component
+//     join). This is the common one-component-one-contract case.
+//
+//   - contract FACET — its key names NO component, but its `component` field
+//     resolves to an owning component. This is the ratified resource-access
+//     facet doctrine (operational-concepts "resource-access facets"): a single
+//     component (e.g. projectStateAccess, billingStateAccess) publishes several
+//     cohesive contract facets that all live in the one package. A facet is
+//     valid IFF its `component` field resolves AND the facet declares the same
+//     layer as its owning component (a facet cannot cross layers).
+//
+// A contract whose key does not join AND whose `component` field resolves to
+// nothing is a stale/fossil entry — that error is preserved.
 func TestServiceContractsMatchSystemComponents(t *testing.T) {
 	root := findRepoRootFromCwd(t)
 	model, err := projectmodel.LoadFile(filepath.Join(root, ".aiarch", "state", "project.json"))
@@ -88,11 +106,30 @@ func TestServiceContractsMatchSystemComponents(t *testing.T) {
 		t.Fatalf("load project.json: %v", err)
 	}
 
-	for key := range model.Contracts {
-		if _, ok := model.System.ComponentByContractKey(key); !ok {
-			t.Errorf("service contract %q has no corresponding systemDesign component — "+
-				"it is a stale/fossil entry (the architecture diagram is the source of "+
-				"truth; either add a systemDesign component for it or delete the contract)", key)
+	for key, c := range model.Contracts {
+		// Shape 1: the key is itself a component contract key. Nothing more to check.
+		if _, ok := model.System.ComponentByContractKey(key); ok {
+			continue
+		}
+		// Shape 2: contract facet — the key names no component, so it is valid
+		// only if its `component` field joins an owning component.
+		owner, ok := model.System.ComponentByContractKey(c.Component)
+		if !ok {
+			t.Errorf("service contract %q resolves to no systemDesign component — "+
+				"its key is not a component contract key, and its component field %q "+
+				"names no component either. It is a stale/fossil entry (the architecture "+
+				"diagram is the source of truth; either add a systemDesign component for "+
+				"it, point its component field at an existing one to make it a facet, or "+
+				"delete the contract)", key, c.Component)
+			continue
+		}
+		// A facet must share its owner's layer (component layer is kind-cased,
+		// e.g. "resourceAccess"; the contract layer is Method-cased, e.g.
+		// "ResourceAccess" — EqualFold reconciles the casing convention).
+		if !strings.EqualFold(c.Layer, owner.Layer) {
+			t.Errorf("contract facet %q declares layer %q but its owning component %q "+
+				"(via component field %q) is layer %q — a contract facet must share its "+
+				"owning component's layer", key, c.Layer, owner.ID, c.Component, owner.Layer)
 		}
 	}
 }

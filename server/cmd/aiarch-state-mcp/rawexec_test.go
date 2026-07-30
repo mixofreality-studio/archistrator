@@ -22,29 +22,29 @@ func toolByComponent(t *testing.T, component string) projectstate.InternalTool {
 }
 
 // TestExecuteEngineTool_LiveDispatch proves the generic reflection invoker runs a
-// real Engine operation in process: handOffEngine.PickWorkerClass with a valid
-// activity + policy returns a result and no error. This is the end-to-end proof the
+// real Engine operation in process: interventionEngine.DecideOnVariance with a valid
+// variance + policy returns a directive and no error. This is the end-to-end proof the
 // execution rail binds named args to the live Go method's positional params.
 func TestExecuteEngineTool_LiveDispatch(t *testing.T) {
-	tool, ok := projectstate.InternalToolByName("handOffPickWorkerClass")
+	tool, ok := projectstate.InternalToolByName("interventionDecideOnVariance")
 	if !ok {
-		t.Fatal("handOffPickWorkerClass not in catalog")
+		t.Fatal("interventionDecideOnVariance not in catalog")
 	}
 	res, err := executeRawTool(context.Background(), nil, tool, map[string]any{
-		"activity": map[string]any{
+		"variance": map[string]any{
+			"ProjectID":    "P1",
 			"ActivityID":   "C-PE",
-			"Kind":         2, // ActivityKindConstruction
-			"ComponentID":  "billing-engine",
-			"Layer":        "Engine",
-			"EstimateDays": 5,
+			"Kind":         2, // WorkerMiss
+			"AttemptCount": 0,
+			"Severity":     0,
+			"Policy":       map[string]any{"Mode": 2, "RetryBudget": 2}, // Tiered
 		},
-		"policy": map[string]any{"PreferAI": true, "SeniorOnlyLayers": []any{}},
 	})
 	if err != nil {
 		t.Fatalf("live engine dispatch failed: %v", err)
 	}
 	if res == nil {
-		t.Fatal("expected a WorkerClass result, got nil")
+		t.Fatal("expected a VarianceDirective result, got nil")
 	}
 }
 
@@ -52,15 +52,14 @@ func TestExecuteEngineTool_LiveDispatch(t *testing.T) {
 // ContractMisuse from empty input) is surfaced through the invoker rather than
 // swallowed — the method really ran.
 func TestExecuteEngineTool_SurfacesDomainError(t *testing.T) {
-	tool, _ := projectstate.InternalToolByName("handOffPickWorkerClass")
+	tool, _ := projectstate.InternalToolByName("interventionDecideOnVariance")
 	_, err := executeRawTool(context.Background(), nil, tool, map[string]any{
-		"activity": map[string]any{}, // empty ActivityID → ContractMisuse
-		"policy":   map[string]any{},
+		"variance": map[string]any{}, // empty ProjectID/ActivityID → ContractMisuse
 	})
 	if err == nil {
 		t.Fatal("expected the engine's ContractMisuse error to surface")
 	}
-	if !strings.Contains(err.Error(), "ActivityID") {
+	if !strings.Contains(err.Error(), "ProjectID") {
 		t.Fatalf("expected the engine's own error, got: %v", err)
 	}
 }
@@ -118,7 +117,7 @@ func TestExecuteProjectStateRead_ReadProject(t *testing.T) {
 	}
 }
 
-// TestInSubstrateLedger pins the executes-vs-unavailable split: exactly the 7 Engines
+// TestInSubstrateLedger pins the executes-vs-unavailable split: exactly the 6 Engines
 // + projectStateAccess execute in-substrate, and every other RA component is on the
 // documented unavailable ledger. A new component must consciously land on one side.
 func TestInSubstrateLedger(t *testing.T) {
@@ -134,8 +133,8 @@ func TestInSubstrateLedger(t *testing.T) {
 			t.Errorf("component %q is neither in-substrate nor on the unavailable ledger — classify it", tl.Component)
 		}
 	}
-	// The in-substrate set is exactly projectStateAccess + the 7 engines.
-	if got := len(inSubstrateComponents()); got != 8 {
-		t.Errorf("expected 8 in-substrate components (projectStateAccess + 7 engines), got %d: %v", got, inSubstrateComponents())
+	// The in-substrate set is exactly projectStateAccess + the 6 engines.
+	if got := len(inSubstrateComponents()); got != 7 {
+		t.Errorf("expected 7 in-substrate components (projectStateAccess + 6 engines), got %d: %v", got, inSubstrateComponents())
 	}
 }

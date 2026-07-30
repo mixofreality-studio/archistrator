@@ -395,6 +395,12 @@ components:
                         - string
                 encapsulates:
                     type: string
+                encapsulatesVolatilities:
+                    items:
+                        type: string
+                    type:
+                        - "null"
+                        - array
                 id:
                     type: string
                 kind:
@@ -424,6 +430,22 @@ components:
                 - layer
                 - encapsulates
                 - atomicBusinessVerbs
+            type: object
+        ModelConstructionVenue:
+            additionalProperties: false
+            properties:
+                kind:
+                    type: string
+                note:
+                    type:
+                        - "null"
+                        - string
+                repositoryHost:
+                    type:
+                        - "null"
+                        - string
+            required:
+                - kind
             type: object
         ModelContainerInstance:
             additionalProperties: false
@@ -553,6 +575,41 @@ components:
                 - containerInstances
                 - softwareSystemInstances
             type: object
+        ModelDeploymentOperationsModel:
+            additionalProperties: false
+            properties:
+                constructionVenue:
+                    $ref: '#/components/schemas/ModelConstructionVenue'
+                deployment:
+                    $ref: '#/components/schemas/ModelDeploymentTopology'
+                deploymentScenario:
+                    type: string
+                infraBuildingBlocks:
+                    items:
+                        $ref: '#/components/schemas/ModelInfraBlock'
+                    type:
+                        - "null"
+                        - array
+                objectiveLinks:
+                    additionalProperties:
+                        items:
+                            type: integer
+                        type:
+                            - "null"
+                            - array
+                    type: object
+                reviewPolicyRef:
+                    type: string
+                scalingPolicy: true
+                trustSummaries:
+                    $ref: '#/components/schemas/ModelTrustSummaries'
+            required:
+                - deploymentScenario
+                - constructionVenue
+                - reviewPolicyRef
+                - trustSummaries
+                - deployment
+            type: object
         ModelDeploymentTopology:
             additionalProperties: false
             properties:
@@ -632,6 +689,20 @@ components:
                 - term
                 - definition
                 - category
+            type: object
+        ModelInfraBlock:
+            additionalProperties: false
+            properties:
+                category:
+                    type: string
+                name:
+                    type: string
+                status:
+                    type: string
+            required:
+                - name
+                - category
+                - status
             type: object
         ModelInfrastructureNode:
             additionalProperties: false
@@ -825,35 +896,6 @@ components:
                 - number
                 - statement
             type: object
-        ModelOperationalConcepts:
-            additionalProperties: false
-            properties:
-                decisions:
-                    items:
-                        $ref: '#/components/schemas/ModelOperationalDecision'
-                    type:
-                        - "null"
-                        - array
-                deployment:
-                    $ref: '#/components/schemas/ModelDeploymentTopology'
-            required:
-                - decisions
-                - deployment
-            type: object
-        ModelOperationalDecision:
-            additionalProperties: false
-            properties:
-                decision:
-                    type: string
-                justifyingObjective:
-                    type: integer
-                topic:
-                    type: string
-            required:
-                - topic
-                - decision
-                - justifyingObjective
-            type: object
         ModelPlanningAssumptions:
             additionalProperties: false
             properties:
@@ -933,8 +975,20 @@ components:
             properties:
                 id:
                     type: string
+                statedAs:
+                    items:
+                        type: string
+                    type:
+                        - "null"
+                        - array
                 statement:
                     type: string
+                volatilityHint:
+                    items:
+                        type: string
+                    type:
+                        - "null"
+                        - array
             required:
                 - id
                 - statement
@@ -1204,6 +1258,12 @@ components:
         ModelSystem:
             additionalProperties: false
             properties:
+                attestations:
+                    items:
+                        $ref: '#/components/schemas/ModelCheckItem'
+                    type:
+                        - "null"
+                        - array
                 components:
                     items:
                         $ref: '#/components/schemas/ModelComponent'
@@ -1222,10 +1282,30 @@ components:
                     type:
                         - "null"
                         - array
+                waivers:
+                    items:
+                        $ref: '#/components/schemas/ModelCheckItem'
+                    type:
+                        - "null"
+                        - array
             required:
                 - components
                 - relationships
                 - dynamicViews
+            type: object
+        ModelTrustSummaries:
+            additionalProperties: false
+            properties:
+                billing:
+                    type: string
+                dataOwnership:
+                    type: string
+                usageMetering:
+                    type: string
+            required:
+                - billing
+                - usageMetering
+                - dataOwnership
             type: object
         ModelUsageAssumption:
             additionalProperties: false
@@ -1287,6 +1367,10 @@ components:
         ModelUseCaseDecision:
             additionalProperties: false
             properties:
+                essenceRationale:
+                    type:
+                        - "null"
+                        - string
                 rejectionReason:
                     type: string
                 useCase:
@@ -1307,6 +1391,12 @@ components:
                 rejected:
                     items:
                         $ref: '#/components/schemas/ModelRejectedVolatility'
+                    type:
+                        - "null"
+                        - array
+                waivers:
+                    items:
+                        $ref: '#/components/schemas/ModelCheckItem'
                     type:
                         - "null"
                         - array
@@ -1792,10 +1882,10 @@ components:
                     oneOf:
                         - $ref: '#/components/schemas/ModelActivityList'
                         - $ref: '#/components/schemas/ModelCoreUseCases'
+                        - $ref: '#/components/schemas/ModelDeploymentOperationsModel'
                         - $ref: '#/components/schemas/ModelGlossary'
                         - $ref: '#/components/schemas/ModelMissionStatement'
                         - $ref: '#/components/schemas/ModelNetwork'
-                        - $ref: '#/components/schemas/ModelOperationalConcepts'
                         - $ref: '#/components/schemas/ModelPlanningAssumptions'
                         - $ref: '#/components/schemas/ModelRiskModel'
                         - $ref: '#/components/schemas/ModelScrubbedRequirements'
@@ -2261,10 +2351,10 @@ components:
                     oneOf:
                         - $ref: '#/components/schemas/ModelActivityList'
                         - $ref: '#/components/schemas/ModelCoreUseCases'
+                        - $ref: '#/components/schemas/ModelDeploymentOperationsModel'
                         - $ref: '#/components/schemas/ModelGlossary'
                         - $ref: '#/components/schemas/ModelMissionStatement'
                         - $ref: '#/components/schemas/ModelNetwork'
-                        - $ref: '#/components/schemas/ModelOperationalConcepts'
                         - $ref: '#/components/schemas/ModelPlanningAssumptions'
                         - $ref: '#/components/schemas/ModelRiskModel'
                         - $ref: '#/components/schemas/ModelScrubbedRequirements'
@@ -2332,6 +2422,27 @@ components:
                 - CICheckSuccess
                 - CICheckFailure
             x-go-base: int
+        SystemDesignCheckItem:
+            additionalProperties: false
+            properties:
+                guideline:
+                    type: string
+                justification:
+                    type: string
+                section:
+                    type: string
+                status:
+                    enum:
+                        - pass
+                        - waived
+                        - fail
+                    type: string
+            required:
+                - section
+                - guideline
+                - status
+                - justification
+            type: object
         SystemDesignConstructionProgress:
             additionalProperties: false
             properties:
@@ -2469,6 +2580,29 @@ components:
                 - severity
                 - note
             type: object
+        SystemDesignDesignHealth:
+            additionalProperties: false
+            properties:
+                attestations:
+                    items:
+                        $ref: '#/components/schemas/SystemDesignCheckItem'
+                    type: array
+                evaluatedAtRevision:
+                    type: integer
+                findings:
+                    items:
+                        $ref: '#/components/schemas/SystemDesignFinding'
+                    type: array
+                waivers:
+                    items:
+                        $ref: '#/components/schemas/SystemDesignCheckItem'
+                    type: array
+            required:
+                - findings
+                - waivers
+                - attestations
+                - evaluatedAtRevision
+            type: object
         SystemDesignDraftModel:
             additionalProperties: false
             properties:
@@ -2478,10 +2612,10 @@ components:
                     oneOf:
                         - $ref: '#/components/schemas/ModelActivityList'
                         - $ref: '#/components/schemas/ModelCoreUseCases'
+                        - $ref: '#/components/schemas/ModelDeploymentOperationsModel'
                         - $ref: '#/components/schemas/ModelGlossary'
                         - $ref: '#/components/schemas/ModelMissionStatement'
                         - $ref: '#/components/schemas/ModelNetwork'
-                        - $ref: '#/components/schemas/ModelOperationalConcepts'
                         - $ref: '#/components/schemas/ModelPlanningAssumptions'
                         - $ref: '#/components/schemas/ModelRiskModel'
                         - $ref: '#/components/schemas/ModelScrubbedRequirements'
@@ -5092,6 +5226,66 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/SystemDesignProjectID'
+                    description: success
+                "400":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: contract misuse
+                "401":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: unauthenticated
+                "403":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: forbidden
+                "404":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: not found
+                "409":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: failed precondition
+                "500":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: internal error
+                "503":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: infrastructure unavailable
+            security:
+                - bearerAuth: []
+    /api/v1/system-design/get-design-health/{projectID}:
+        get:
+            operationId: GetDesignHealth
+            parameters:
+                - in: path
+                  name: projectID
+                  required: true
+                  schema:
+                    $ref: '#/components/schemas/SystemDesignProjectID'
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignDesignHealth'
                     description: success
                 "400":
                     content:

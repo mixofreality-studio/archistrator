@@ -16,7 +16,7 @@ import (
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/estimation"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/constructionpipeline"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/agenticjob"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 	"github.com/stretchr/testify/mock"
@@ -1177,7 +1177,7 @@ func Test_GetSessionState_QueryFailedTaskState_CleanInfrastructure(t *testing.T)
 // C-MSD-Δ regression spine — the AGENTIC-PIVOT dispatch → observe → read-back
 // child gate (systemDesignManager.md §0d). Method product → NO BDD; regression-
 // first, black-box at the WIRE SEAM. The LLM is stubbed at the EXTERNAL agentic-job
-// boundary — a FAKE constructionPipelineAccess (submit/observe) + a FAKE
+// boundary — a FAKE agenticJobAccess (submit/observe) + a FAKE
 // projectStateAccess serving the read-back model the Action "committed". The
 // Manager under test is NOT faked; the workflow drives the REAL dispatch → observe
 // → read-back → human-gate sequence over the Temporal in-memory test environment
@@ -1409,7 +1409,7 @@ func (f *fakeProjectState) AcknowledgeStaleBasis(_ fwra.Context, _ projectstate.
 
 var _ projectstate.ProjectStateAccess = (*fakeProjectState)(nil)
 
-// ---- fakePipeline: the EXTERNAL agentic-job seam (constructionPipelineAccess) ---
+// ---- fakePipeline: the EXTERNAL agentic-job seam (agenticJobAccess) ---
 
 // fakePipeline stands in for the claude-code-action DESIGN job at the WIRE seam. It
 // records every submitted spec (so tests assert the ProjectID / artifact_kind /
@@ -1428,7 +1428,7 @@ type fakePipeline struct {
 	// surfaces it on live runs for the generating deep-link and on terminal failures
 	// for the failed card's "why" pointer).
 	runURL string
-	// submitErr, when non-nil, makes SubmitConstructionPipeline FAIL (a terminal
+	// submitErr, when non-nil, makes SubmitAgenticJob FAIL (a terminal
 	// dispatch-rejection fault, e.g. GitHub 422 → ContractMisuse) — the F15 gap-2a path.
 	submitErr error
 
@@ -1456,23 +1456,23 @@ func newFakePipeline(phases ...pipelinePhase) *fakePipeline {
 	return &fakePipeline{phases: phases, handlePhase: map[string]pipelinePhase{}}
 }
 
-// SubmitConstructionPipeline implements the GENERATED constructionpipeline contract seam
+// SubmitAgenticJob implements the GENERATED agenticjob contract seam
 // (the submit invoker reaches it via the registered genActivities). The idempotency key is
 // now stamped INSIDE the generated activity (genActivityIdempotencyKey) and arrives on the
 // fwra call Context; the RepoRef→RepoTarget decode happens workflow-side (dispatchDesignJob),
 // so spec.TargetRepo is the DECODED {Owner,Name} — recorded here as "owner/name".
-func (p *fakePipeline) SubmitConstructionPipeline(rc fwra.Context, spec constructionpipeline.PipelineSpec) (constructionpipeline.PipelineHandle, error) {
+func (p *fakePipeline) SubmitAgenticJob(rc fwra.Context, spec agenticjob.PipelineSpec) (agenticjob.PipelineHandle, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	targetRepo := ""
-	if !constructionpipeline.RepoTargetIsZero(spec.TargetRepo) {
+	if !agenticjob.RepoTargetIsZero(spec.TargetRepo) {
 		targetRepo = spec.TargetRepo.Owner + "/" + spec.TargetRepo.Name
 	}
 	if p.submitErr != nil {
 		// Record the attempt so a test can still assert the dispatch was tried, then fail
 		// the submit — the terminal dispatch-rejection path (the whole round-trip errors).
 		p.submits = append(p.submits, submitRecord{projectID: ProjectID(spec.ProjectID), idempotencyKey: rc.IdempotencyKey, dispatchInputs: spec.DispatchInputs})
-		return constructionpipeline.PipelineHandle(""), p.submitErr
+		return agenticjob.PipelineHandle(""), p.submitErr
 	}
 	idx := len(p.submits)
 	p.submits = append(p.submits, submitRecord{
@@ -1493,7 +1493,7 @@ func (p *fakePipeline) SubmitConstructionPipeline(rc fwra.Context, spec construc
 	p.nextID++
 	name := "design-run/" + uuid.NewString()
 	p.handlePhase[name] = phase
-	return constructionpipeline.PipelineHandle(name), nil
+	return agenticjob.PipelineHandle(name), nil
 }
 
 // submitCount returns how many dispatches have been submitted so far (thread-safe), so a
@@ -1504,9 +1504,9 @@ func (p *fakePipeline) submitCount() int {
 	return len(p.submits)
 }
 
-func (p *fakePipeline) ObserveConstructionPipeline(_ fwra.Context, handle constructionpipeline.PipelineHandle) (constructionpipeline.PipelineObservation, error) {
+func (p *fakePipeline) ObserveAgenticJob(_ fwra.Context, handle agenticjob.PipelineHandle) (agenticjob.PipelineObservation, error) {
 	p.mu.Lock()
-	phase := p.handlePhase[constructionpipeline.PipelineHandleString(handle)]
+	phase := p.handlePhase[agenticjob.PipelineHandleString(handle)]
 	hook := p.onObserve
 	diag := p.diagnostic
 	runURL := p.runURL
@@ -1514,7 +1514,7 @@ func (p *fakePipeline) ObserveConstructionPipeline(_ fwra.Context, handle constr
 	if hook != nil {
 		hook()
 	}
-	obs := constructionpipeline.PipelineObservation{Phase: neutralToRAPhase(phase)}
+	obs := agenticjob.PipelineObservation{Phase: neutralToRAPhase(phase)}
 	// Mirror the real RA: the resolved run URL rides on EVERY observation (live runs
 	// power the generating deep-link; terminal failures power the failed card).
 	obs.RunURL = runURL
@@ -1524,31 +1524,31 @@ func (p *fakePipeline) ObserveConstructionPipeline(_ fwra.Context, handle constr
 	return obs, nil
 }
 
-// CancelConstructionPipeline satisfies the contract; the design draft path never cancels.
-func (p *fakePipeline) CancelConstructionPipeline(_ fwra.Context, _ constructionpipeline.PipelineHandle) error {
+// CancelAgenticJob satisfies the contract; the design draft path never cancels.
+func (p *fakePipeline) CancelAgenticJob(_ fwra.Context, _ agenticjob.PipelineHandle) error {
 	return nil
 }
 
 // neutralToRAPhase maps this Manager's neutral scripted phase onto the RA phase the
 // generated observe activity returns (the inverse of designPipelinePhase).
-func neutralToRAPhase(p pipelinePhase) constructionpipeline.PipelinePhase {
+func neutralToRAPhase(p pipelinePhase) agenticjob.PipelinePhase {
 	switch p {
 	case pipelinePending:
-		return constructionpipeline.PhasePending
+		return agenticjob.PhasePending
 	case pipelineRunning:
-		return constructionpipeline.PhaseRunning
+		return agenticjob.PhaseRunning
 	case pipelineSucceeded:
-		return constructionpipeline.PhaseSucceeded
+		return agenticjob.PhaseSucceeded
 	case pipelineFailed:
-		return constructionpipeline.PhaseFailed
+		return agenticjob.PhaseFailed
 	case pipelineCancelled:
-		return constructionpipeline.PhaseCancelled
+		return agenticjob.PhaseCancelled
 	default:
-		return constructionpipeline.PhasePending
+		return agenticjob.PhasePending
 	}
 }
 
-var _ constructionpipeline.ConstructionPipelineAccess = (*fakePipeline)(nil)
+var _ agenticjob.AgenticJobAccess = (*fakePipeline)(nil)
 
 // ---- helpers ----------------------------------------------------------------
 
@@ -1578,16 +1578,16 @@ func newWorkflows() *workflows {
 // the verbs it wants branch/ledger-aware behavior for — no separate registration or
 // capability opt-in needed.
 func registerGenActivities(env *testsuite.TestWorkflowEnvironment, ps projectstate.ProjectStateAccess, pipe *fakePipeline, rail sourcecontrol.SourceControlAccess) {
-	var pipeAcc constructionpipeline.ConstructionPipelineAccess
+	var pipeAcc agenticjob.AgenticJobAccess
 	if pipe != nil {
 		pipeAcc = pipe
 	}
 	acts := &genActivities{ProjectState: ps, Pipeline: pipeAcc, Rail: rail, DesignSession: projectstate.NewDesignSessionAccess(ps)}
 	env.RegisterActivityWithOptions(acts.ProjectStateReadProjectVersion, activity.RegisterOptions{Name: "projectStateAccess.readProjectVersion"})
 	env.RegisterActivityWithOptions(acts.ProjectStateAdvancePhase, activity.RegisterOptions{Name: "projectStateAccess.advancePhase"})
-	env.RegisterActivityWithOptions(acts.PipelineSubmitConstructionPipeline, activity.RegisterOptions{Name: "constructionPipelineAccess.submitConstructionPipeline"})
-	env.RegisterActivityWithOptions(acts.PipelineObserveConstructionPipeline, activity.RegisterOptions{Name: "constructionPipelineAccess.observeConstructionPipeline"})
-	env.RegisterActivityWithOptions(acts.PipelineCancelConstructionPipeline, activity.RegisterOptions{Name: "constructionPipelineAccess.cancelConstructionPipeline"})
+	env.RegisterActivityWithOptions(acts.PipelineSubmitAgenticJob, activity.RegisterOptions{Name: "agenticJobAccess.submitAgenticJob"})
+	env.RegisterActivityWithOptions(acts.PipelineObserveAgenticJob, activity.RegisterOptions{Name: "agenticJobAccess.observeAgenticJob"})
+	env.RegisterActivityWithOptions(acts.PipelineCancelAgenticJob, activity.RegisterOptions{Name: "agenticJobAccess.cancelAgenticJob"})
 	env.RegisterActivityWithOptions(acts.RailGetInstallationToken, activity.RegisterOptions{Name: "sourceControlAccess.getInstallationToken"})
 	env.RegisterActivityWithOptions(acts.RailOpenBranch, activity.RegisterOptions{Name: "sourceControlAccess.openBranch"})
 	env.RegisterActivityWithOptions(acts.RailOpenPullRequest, activity.RegisterOptions{Name: "sourceControlAccess.openPullRequest"})
@@ -3206,7 +3206,7 @@ func zeroCommittedModelFor(t *testing.T, kind projectstate.ArtifactKind) project
 	case projectstate.KindSystem:
 		return &projectstate.System{}
 	case projectstate.KindOperationalConcepts:
-		return &projectstate.OperationalConcepts{}
+		return &projectstate.DeploymentOperationsModel{}
 	case projectstate.KindStandardCheck:
 		return &projectstate.StandardCheck{}
 	default:
@@ -3445,7 +3445,7 @@ func allPhase1Committed(t *testing.T) projectstate.Project {
 		Volatilities:         committedSlot(&projectstate.Volatilities{}),
 		CoreUseCases:         committedSlot(&projectstate.CoreUseCases{}),
 		SystemDesign:         committedSlot(&projectstate.System{}),
-		OperationalConcepts:  committedSlot(&projectstate.OperationalConcepts{}),
+		OperationalConcepts:  committedSlot(&projectstate.DeploymentOperationsModel{}),
 		StandardCheck:        committedSlot(&projectstate.StandardCheck{}),
 	}
 }
@@ -3661,29 +3661,29 @@ func Test_useCaseActivityFindings_ScopedToCoreUseCasesKind(t *testing.T) {
 // submit fault loudly.
 
 type recordingPipeline struct {
-	specs []constructionpipeline.PipelineSpec
+	specs []agenticjob.PipelineSpec
 	keys  []fwra.IdempotencyKey
 	err   error
 }
 
-func (p *recordingPipeline) SubmitConstructionPipeline(rc fwra.Context, spec constructionpipeline.PipelineSpec) (constructionpipeline.PipelineHandle, error) {
+func (p *recordingPipeline) SubmitAgenticJob(rc fwra.Context, spec agenticjob.PipelineSpec) (agenticjob.PipelineHandle, error) {
 	p.specs = append(p.specs, spec)
 	p.keys = append(p.keys, rc.IdempotencyKey)
 	if p.err != nil {
-		return constructionpipeline.PipelineHandle(""), p.err
+		return agenticjob.PipelineHandle(""), p.err
 	}
-	return constructionpipeline.PipelineHandle("run-1"), nil
+	return agenticjob.PipelineHandle("run-1"), nil
 }
 
-func (p *recordingPipeline) ObserveConstructionPipeline(fwra.Context, constructionpipeline.PipelineHandle) (constructionpipeline.PipelineObservation, error) {
-	return constructionpipeline.PipelineObservation{}, nil
+func (p *recordingPipeline) ObserveAgenticJob(fwra.Context, agenticjob.PipelineHandle) (agenticjob.PipelineObservation, error) {
+	return agenticjob.PipelineObservation{}, nil
 }
 
-func (p *recordingPipeline) CancelConstructionPipeline(fwra.Context, constructionpipeline.PipelineHandle) error {
+func (p *recordingPipeline) CancelAgenticJob(fwra.Context, agenticjob.PipelineHandle) error {
 	return nil
 }
 
-func sdManagerWith(pipe constructionpipeline.ConstructionPipelineAccess) *systemDesignManager {
+func sdManagerWith(pipe agenticjob.AgenticJobAccess) *systemDesignManager {
 	return &systemDesignManager{
 		pipeline: pipe,
 		repo: func(ProjectID) (sourcecontrol.RepoRef, bool) {
@@ -4962,7 +4962,7 @@ func Test_useCaseDynamicFindings_ScopedToSystemKind(t *testing.T) {
 //      fires before any merge/commit and the session recovers, not crashes.
 //
 // Real Manager under test (the REAL CoAuthorArtifactWorkflow + every Activity);
-// FAKE ONLY the external agentic-job seam (constructionPipelineAccess, reusing
+// FAKE ONLY the external agentic-job seam (agenticJobAccess, reusing
 // fakePipeline from workflow_test.go) + the GitHub PR-rail seam (a coherent
 // SCRIPTED fakeRail) + the branch-aware projectStateAccess read-back. NO internal
 // Manager component is faked. Temporal in-memory test env, runs under -short.
@@ -9253,20 +9253,10 @@ func Test_scrubbedID_Clean(t *testing.T) {
 	}
 }
 
-// ---- OPC-TOPIC-COVERAGE ----
-
-func Test_opcTopic_MissingTopicInfo(t *testing.T) {
-	op := &projectstate.OperationalConcepts{Decisions: []projectstate.OperationalDecision{
-		{Topic: "communication topology"},
-		{Topic: "layering style"},
-		{Topic: "project state storage"},
-	}}
-	f := opcTopicFindings(KindOperationalConcepts, op)
-	// Only sync/queued is unaddressed → exactly one info nudge, addressing "sync/queued".
-	if len(f) != 1 || f[0].Severity != SeverityInfo || !strings.Contains(f[0].Message, `"sync/queued"`) {
-		t.Fatalf("expected a single OPC-TOPIC-COVERAGE nudge for sync/queued, got: %+v", f)
-	}
-}
+// OPC-TOPIC-COVERAGE was retired with the Wave-2 typed DeploymentOperationsModel: the
+// free-text decisions[].topic list the nudge walked no longer exists (the topics are now
+// required typed fields the schema enforces), so opcTopicFindings is inert and there is
+// nothing left to assert here.
 
 // ---- AdvancePhase pre-seal gates ----
 

@@ -26,6 +26,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/system-design/create-project", h.handleCreateProject)
 	mux.HandleFunc("GET /api/v1/system-design/get-project/{projectID}", h.handleGetProject)
 	mux.HandleFunc("GET /api/v1/system-design/get-session-state/{projectID}", h.handleGetSessionState)
+	mux.HandleFunc("GET /api/v1/system-design/get-design-health/{projectID}", h.handleGetDesignHealth)
 	mux.HandleFunc("GET /api/v1/system-design/list-projects", h.handleListProjects)
 	mux.HandleFunc("POST /api/v1/system-design/request-artifact-draft/{projectID}", h.handleRequestArtifactDraft)
 	mux.HandleFunc("POST /api/v1/system-design/set-operating-model/{projectID}", h.handleSetOperatingModel)
@@ -184,6 +185,30 @@ func (h *Handler) handleGetSessionState(w http.ResponseWriter, r *http.Request) 
 	}
 	rc := fwmanager.Context{Context: r.Context(), Principal: principal}
 	result, err := h.Manager.GetSessionState(rc, projectID, kind)
+	if err != nil {
+		writeManagerError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+// handleGetDesignHealth binds GET /api/v1/system-design/get-design-health/{projectID} -> mgr.GetDesignHealth.
+func (h *Handler) handleGetDesignHealth(w http.ResponseWriter, r *http.Request) {
+	projectID := mgr.ProjectID(r.PathValue("projectID"))
+	principal, ok := security.PrincipalFrom(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthenticated", "authentication required")
+		return
+	}
+	decision, err := h.Security.Authorize(r.Context(), principal,
+		security.Action{Verb: "get-design-health"},
+		security.ResourceRef{Kind: "project", ID: string(projectID)})
+	if err != nil || !decision.Permit {
+		writeError(w, http.StatusForbidden, "forbidden", "not permitted")
+		return
+	}
+	rc := fwmanager.Context{Context: r.Context(), Principal: principal}
+	result, err := h.Manager.GetDesignHealth(rc, projectID)
 	if err != nil {
 		writeManagerError(w, err)
 		return

@@ -16,7 +16,14 @@
  * Keying anchors by index (not by term text) keeps duplicate term names from
  * silently colliding onto one anchor.
  */
-import type { GlossaryItem } from '../contracts/types';
+import type {
+  ArtifactModelEnvelope,
+  CoreUseCases,
+  GlossaryItem,
+  ScrubbedRequirements,
+  System,
+  Volatilities,
+} from '../contracts/types';
 
 // The Four Questions, in canonical order; anything else sinks to the end.
 export const CATEGORY_ORDER = ['Who', 'What', 'How', 'Where', 'Uncategorized'];
@@ -68,12 +75,34 @@ export function indexGlossaryItems(items: readonly GlossaryItem[]): IndexedGloss
 }
 
 /**
+ * Whether an item's term or definition contains the (already trimmed +
+ * lowercased) query; the empty query matches everything. Shared by the chip
+ * bar and the section list so they stay in lock-step on what "matches".
+ */
+function matchesQuery(item: GlossaryItem, loweredQuery: string): boolean {
+  if (loweredQuery === '') return true;
+  return (
+    item.term.toLowerCase().includes(loweredQuery) ||
+    item.definition.toLowerCase().includes(loweredQuery)
+  );
+}
+
+/**
  * The chip bar's categories: [base label, count] aggregated by categoryBase so
  * refined How sub-labels roll up under one "How" chip, in Four-Questions order.
+ *
+ * Counts come from a TEXT-only pass that ignores whichever category chip is
+ * active, so every chip shows how many of the query's matches fall in it — the
+ * counts track the live query and never go stale under an active category.
  */
-export function chipCategories(entries: readonly IndexedGlossaryItem[]): [string, number][] {
+export function chipCategories(
+  entries: readonly IndexedGlossaryItem[],
+  query: string
+): [string, number][] {
+  const q = query.trim().toLowerCase();
   const counts = new Map<string, number>();
   for (const e of entries) {
+    if (!matchesQuery(e.item, q)) continue;
     const base = categoryBase(normalizeCategory(e.item.category));
     counts.set(base, (counts.get(base) ?? 0) + 1);
   }
@@ -101,8 +130,7 @@ export function filterGlossary(
   const matches = entries.filter((e) => {
     const label = normalizeCategory(e.item.category);
     if (activeBase !== null && categoryBase(label) !== activeBase) return false;
-    if (q === '') return true;
-    return e.item.term.toLowerCase().includes(q) || e.item.definition.toLowerCase().includes(q);
+    return matchesQuery(e.item, q);
   });
   const g = new Map<string, IndexedGlossaryItem[]>();
   for (const e of matches) {
@@ -124,4 +152,112 @@ export function filterGlossary(
 export function matchAnnouncement(total: number): string {
   if (total === 0) return 'No terms match';
   return total === 1 ? '1 term matches' : `${String(total)} terms match`;
+}
+
+// ── Cross-artifact term-usage joins (glossary usability pass) ─────────────────
+//
+// Per term, WHERE is it actually used across the committed downstream artifacts?
+// Pure text logic over per-step item texts: the view builds the corpus once from
+// the committed slot envelopes (buildUsageCorpus), then termUsage answers with
+// per-STEP item counts ("Behaviors ×3", "Architecture ×2") — never a
+// per-occurrence listing.
+
+/** The searched steps, in canonical (spine) order. */
+export const USAGE_STEP_KINDS = [
+  'scrubbedRequirements',
+  'volatilities',
+  'coreUseCases',
+  'system',
+] as const;
+export type UsageStepKind = (typeof USAGE_STEP_KINDS)[number];
+
+/** Short chip labels per searched step (the chips stay quiet — one word each). */
+export const USAGE_STEP_LABELS: Record<UsageStepKind, string> = {
+  scrubbedRequirements: 'Behaviors',
+  volatilities: 'Volatilities',
+  coreUseCases: 'Use Cases',
+  system: 'Architecture',
+};
+
+/** Per step, one searchable text per ITEM (a term hitting an item's text twice
+ *  still counts that item once). */
+export type UsageCorpus = Record<UsageStepKind, readonly string[]>;
+
+/** One usage chip: the step plus how many of its items mention the term. */
+export interface UsageChip {
+  kind: UsageStepKind;
+  count: number;
+}
+
+/** Narrow an envelope to its model when the kind matches; else undefined. The
+ *  caller casts to the kind's typed model (the asDeploymentModel idiom). */
+function modelOf(
+  envelope: ArtifactModelEnvelope | undefined,
+  kind: UsageStepKind
+): ArtifactModelEnvelope['model'] {
+  if (envelope?.kind !== kind || envelope.model === undefined) return undefined;
+  return envelope.model;
+}
+
+/**
+ * Build the per-step item-text corpus from the committed slot envelopes:
+ * Required Behaviors statements, volatility names+rationales, use case names,
+ * component names+encapsulates. Absent/mismatched envelopes yield empty steps —
+ * the joins degrade to nothing, never crash.
+ */
+export function buildUsageCorpus(slots: {
+  scrubbedRequirements: ArtifactModelEnvelope | undefined;
+  volatilities: ArtifactModelEnvelope | undefined;
+  coreUseCases: ArtifactModelEnvelope | undefined;
+  system: ArtifactModelEnvelope | undefined;
+}): UsageCorpus {
+  const behaviors = modelOf(slots.scrubbedRequirements, 'scrubbedRequirements') as
+    | ScrubbedRequirements
+    | undefined;
+  const volatilities = modelOf(slots.volatilities, 'volatilities') as Volatilities | undefined;
+  const useCases = modelOf(slots.coreUseCases, 'coreUseCases') as CoreUseCases | undefined;
+  const system = modelOf(slots.system, 'system') as System | undefined;
+  return {
+    scrubbedRequirements: (behaviors?.items ?? []).map((i) => i.statement),
+    volatilities: (volatilities?.items ?? []).map((v) => `${v.name} ${v.rationale}`),
+    coreUseCases: (useCases?.decisions ?? []).map((d) => d.useCase.name),
+    system: (system?.components ?? []).map((c) => `${c.name} ${c.encapsulates}`),
+  };
+}
+
+/**
+ * Compile a term into its case-insensitive, whole-word-ish matcher:
+ *  • boundaries are non-letter/digit on both sides (so "cat" never hits
+ *    "catalog" and "session" never hits "SessionManager"),
+ *  • internal whitespace matches any space/hyphen run (so "design session"
+ *    hits "design-session"),
+ *  • the whole term tolerates a simple trailing plural ("book" hits "books"),
+ *  • regex metacharacters in the term are literal.
+ * Null for a blank term.
+ */
+function termMatcher(term: string): RegExp | null {
+  const words = term
+    .trim()
+    .split(/\s+/)
+    .filter((w) => w.length > 0);
+  if (words.length === 0) return null;
+  const escaped = words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  const body = escaped.join('[\\s-]+');
+  return new RegExp(`(?<![\\p{L}\\p{N}])(?:${body})(?:e?s)?(?![\\p{L}\\p{N}])`, 'iu');
+}
+
+/**
+ * Where a glossary term is USED: per searched step (canonical order), the count
+ * of that step's items mentioning the term. Zero-count steps are omitted; a
+ * blank or unmatched term yields [].
+ */
+export function termUsage(term: string, corpus: UsageCorpus): UsageChip[] {
+  const matcher = termMatcher(term);
+  if (matcher === null) return [];
+  const chips: UsageChip[] = [];
+  for (const kind of USAGE_STEP_KINDS) {
+    const count = corpus[kind].filter((text) => matcher.test(text)).length;
+    if (count > 0) chips.push({ kind, count });
+  }
+  return chips;
 }

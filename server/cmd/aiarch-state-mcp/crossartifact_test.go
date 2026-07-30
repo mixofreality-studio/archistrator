@@ -97,7 +97,11 @@ func TestValidate_ActivityCoverageDriftFails(t *testing.T) {
 	if !strings.Contains(log, "ACT-UNKNOWN-COMPONENT") || !strings.Contains(log, "persistence-access-coding") {
 		t.Errorf("gate log must carry the stale-name ACT-UNKNOWN-COMPONENT warning, got:\n%s", log)
 	}
-	// Covered components and exempt activities produce no findings.
+	// Covered components and exempt activities produce no findings. The live
+	// design-health tier (DH-* rules) is appended at this seam too, but it does not
+	// flag this fixture's covered components: the GtdManager "m1" orchestrates two
+	// ResourceAccess components, which is a valid Method design (DH-GRAPH-MANAGER-EMPTY
+	// fires only on a manager orchestrating nothing), so the whole-log check holds.
 	for _, unwanted := range []string{`"c1"`, `"m1"`, "integrate-app-server-components", "provision-task-db"} {
 		if strings.Contains(log, unwanted) {
 			t.Errorf("gate log must NOT flag %q, got:\n%s", unwanted, log)

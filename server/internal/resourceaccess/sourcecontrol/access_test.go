@@ -1580,7 +1580,7 @@ func TestIdempotencyAnchorMatchesDispatchConstants(t *testing.T) {
 		t.Fatalf("parse: %v", err)
 	}
 	// The load-bearing input name MUST equal the satellite constant the
-	// constructionPipelineAccess RA fills, or dispatch/observe/cancel break.
+	// agenticJobAccess RA fills, or dispatch/observe/cancel break.
 	if _, ok := doc.On.WorkflowDispatch.Inputs[fwgithub.DispatchInputKeyIdempotency]; !ok {
 		t.Errorf("workflow must declare the %q input (DispatchInputKeyIdempotency)",
 			fwgithub.DispatchInputKeyIdempotency)
@@ -2141,7 +2141,7 @@ func TestSyncManagedScaffoldMessageNamesGenerations(t *testing.T) {
 // gitlocalsourcecontrol_test.go — black-box-at-the-verbs tests for the LOCAL-GIT
 // SourceControlAccess realisation (gitlocalsourcecontrol.go). Every git operation runs
 // against a REAL throwaway bare repo via the actual `git` binary (no fake for that seam —
-// the SAME style constructionpipeline's local-executor tests use); no GitHub, no network.
+// the SAME style agenticjob's local-executor tests use); no GitHub, no network.
 //
 //   GL1  OpenBranch creates off main; re-open is an idempotent no-op success
 //   GL2  OpenPullRequest returns "local#<head>" and round-trips via gitLocalPRHead;

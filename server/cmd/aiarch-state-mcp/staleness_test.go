@@ -44,10 +44,7 @@ func deadlockFixtureProject(staleOpConcepts bool) projectstate.Project {
 	p.OperationalConcepts = projectstate.ArtifactSlot{
 		Status:     projectstate.ReviewCommitted,
 		StaleBasis: staleOpConcepts,
-		Model: &projectstate.OperationalConcepts{
-			Decisions: []projectstate.OperationalDecision{
-				{Topic: "communication topology", Decision: "direct calls, no bus", JustifyingObjective: 1},
-			},
+		Model: &projectstate.DeploymentOperationsModel{
 			Deployment: originalDeployment(),
 		},
 	}
@@ -172,7 +169,7 @@ func TestValidate_FreshOpConceptsDepDriftFails(t *testing.T) {
 // join, never internal incoherence of the draft itself.
 func TestValidate_SameArtifactErrorNeverDowngraded(t *testing.T) {
 	p := deadlockFixtureProject(true)
-	oc := p.OperationalConcepts.Model.(*projectstate.OperationalConcepts)
+	oc := p.OperationalConcepts.Model.(*projectstate.DeploymentOperationsModel)
 	oc.Deployment.Environments[0].Nodes[0].ContainerInstances = append(
 		oc.Deployment.Environments[0].Nodes[0].ContainerInstances,
 		projectstate.ContainerInstance{ContainerKey: "ghost"},
@@ -358,6 +355,14 @@ func TestAttributeRule_Table(t *testing.T) {
 		{"DEP-COVERAGE", projectstate.KindOperationalConcepts, attribSlot},
 		{"STD-WAIVE", projectstate.KindStandardCheck, attribSlot},
 		{"STP-OP-EXISTS", 0, attribTesting},
+		// The DH-* live tier is System-attributed as one family — including the
+		// slot3↔slot5 volatility-join rules, so a Volatilities amendment is never
+		// deadlocked by them while the System amendment that fixes them keeps full
+		// severity. DH-COMP-VOL-DANGLING (typed encapsulatesVolatilities dangling
+		// reference) must participate exactly like DH-VOL-ENCAP-MISSING / DH-VOL-TRACE.
+		{"DH-VOL-ENCAP-MISSING", projectstate.KindSystem, attribSlot},
+		{"DH-VOL-TRACE", projectstate.KindSystem, attribSlot},
+		{"DH-COMP-VOL-DANGLING", projectstate.KindSystem, attribSlot},
 		{"TOTALLY-UNKNOWN", 0, attribNone},
 	}
 	for _, c := range cases {
@@ -398,6 +403,20 @@ func TestApplySlotScopeDowngrades_Unit(t *testing.T) {
 	}
 	if findings[0].Severity != methodcheck.SeverityError {
 		t.Fatalf("applySlotScopeDowngrades must not mutate its input")
+	}
+
+	// The slot3↔slot5 volatility-join direction: a session amending the Volatilities
+	// slot cannot write the System's typed encapsulatesVolatilities lists, so a
+	// DH-COMP-VOL-DANGLING Error (System-attributed) must downgrade for it — the
+	// rename/removal amendment is never deadlocked by the stale component-side edge.
+	dangling := []methodcheck.Finding{{RuleID: "DH-COMP-VOL-DANGLING", Severity: methodcheck.SeverityError, Message: "stale typed entry"}}
+	fromVolSession := applySlotScopeDowngrades(projectstate.KindVolatilities, dangling)
+	if fromVolSession[0].Severity != methodcheck.SeverityWarning || !strings.Contains(fromVolSession[0].Message, "system") {
+		t.Fatalf("DH-COMP-VOL-DANGLING must downgrade for a Volatilities-ambient session naming the system slot, got: %+v", fromVolSession[0])
+	}
+	fromSystemSession := applySlotScopeDowngrades(projectstate.KindSystem, dangling)
+	if fromSystemSession[0].Severity != methodcheck.SeverityError {
+		t.Fatalf("DH-COMP-VOL-DANGLING must keep Error severity for the System-ambient session that can fix it, got: %+v", fromSystemSession[0])
 	}
 }
 

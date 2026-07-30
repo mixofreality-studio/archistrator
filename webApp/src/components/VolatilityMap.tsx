@@ -19,21 +19,36 @@
  * (pitch scaling, height cap, arrow tips) is pure and unit-tested in
  * volatilityMapLogic.axesLayout.
  *
+ * The axes sketch and the detail panel share ONE card (founder 2026-07-20): with
+ * nothing selected the card teaches — the aria-hidden axes sketch over the
+ * "N VOLATILITIES" heading + explainer; selecting a volatility swaps the whole
+ * card for the detail panel. The always-visible lane listboxes below are the only
+ * permanent representation, so the diagram is a teaching aid rather than a
+ * permanent fixture over dead space.
+ *
  * Each lane is a single-select WAI-ARIA listbox (role=option + aria-selected,
  * roving tabindex — the CommentableList precedent): ↑/↓/Home/End move focus
  * within a lane, click/Enter/Space select (focus alone never selects), Escape
- * anywhere in the map clears. Selecting opens the rail inspect card — the rail
- * sits BESIDE the axes overview (it flexes into what was dead space right of
- * the fit-content sketch), while the lanes row below spans full width — (a
- * visually-hidden polite live region announces the swap) and arms a comment
- * anchor (`$.items[n]`) for the chat rail. Pure keyboard/announcement logic
- * lives in volatilityMapLogic.ts. Recolored from tokens.
+ * anywhere in the map clears. Selecting swaps the shared card to the detail panel
+ * (a visually-hidden polite live region announces the swap) and arms a comment
+ * anchor (`$.items[n]`) for the chat rail. Clearing (the Clear button or Escape)
+ * returns focus to the lane chip that opened the panel — the panel unmounts under
+ * focus, so a map-level chip registry keyed by flat index refocuses it (the
+ * UseCaseWalkthrough refocus precedent). Pure keyboard/announcement logic lives
+ * in volatilityMapLogic.ts. Recolored from tokens.
  *
  * Below the lanes, rejected candidates (model `rejected`, absent on older
  * artifacts → renders nothing) appear in a collapsed disclosure (GatePanel's
  * button + aria-expanded/aria-controls pattern): name, classification chip,
  * reason, and a per-item comment anchor at `$.rejected[n]` — a path disjoint
  * from the accepted `$.items[n]`, so anchors never collide.
+ *
+ * Cross-artifact joins are NAVIGABLE (StepLink): the detail card's trace ids
+ * link to the Required Behaviors step and its "Encapsulated by" component
+ * names (the encapsulationOwners join — typed exact-name field first, prose
+ * fallback for older states, multiple owners preserved) link to the
+ * Architecture step. Each lane chip also carries a compact A1/A2 axis badge so
+ * the axis reads without selecting.
  */
 import { useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import Box from '@mui/material/Box';
@@ -59,26 +74,21 @@ import { useComments, volatilityAnchor, rejectedVolatilityAnchor } from './comme
 import {
   axesLayout,
   axisLabel,
+  axisShortLabel,
+  encapsulationOwners,
   laneKeyAction,
   rejectionClassLabel,
   selectionAnnouncement,
 } from './volatilityMapLogic';
+import { StepLink } from './shared/StepLink';
 import { useTokens } from '../utilities/theme/ThemeContext';
 import type { Tokens } from '../utilities/theme/themes';
 import { UI_IDENTIFIERS } from '../utilities/constants/UIIdentifiers';
 
-/**
- * Normalize a name to bare alphanumerics for a tolerant join: a component's
- * `encapsulates` prose typically leads with the volatility's exact name (often
- * "<Name>: …"), so a normalized containment match reliably links the two without
- * depending on punctuation/casing.
- */
-function normalizeName(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9]/g, '');
-}
-
+// Axis color for the detail panel's axis LABEL (text) — uses the text-safe
+// committed-green variant so the axis-2 label clears AA contrast on paper.
 function axisColor(t: Tokens, a: Axis): string {
-  return a === 'sameCustomerOverTime' ? t.accent2 : t.committedDot;
+  return a === 'sameCustomerOverTime' ? t.accent2 : t.committedText;
 }
 
 /** A point paired with its stable index in the flat points array (the anchor). */
@@ -101,20 +111,37 @@ export function VolatilityMap({
   const { points, rejected } = toVolatilityView(envelope);
   const selected = sel !== null ? points[sel] : undefined;
 
-  // Join the committed System artifact: which component encapsulates each volatility.
-  // The component that names this volatility in its `encapsulates` prose owns it
-  // (Method: one component per area of volatility). Keyed by normalized volatility
-  // name; absent when the System isn't committed or no component claims it.
+  // Lane-chip DOM registry keyed by a point's flat index, so clearing the
+  // selection can imperatively land focus back on the chip that opened the
+  // detail panel (the Clear button / Escape unmounts under focus, which would
+  // otherwise drop it to <body> — the UseCaseWalkthrough refocus precedent).
+  // The lanes never unmount, so a chip element registered here stays valid.
+  const chipEls = useRef<Map<number, HTMLDivElement | null>>(new Map());
+  const registerChip = (index: number, el: HTMLDivElement | null): void => {
+    if (el === null) chipEls.current.delete(index);
+    else chipEls.current.set(index, el);
+  };
+  const clearSelection = (): void => {
+    const prev = sel;
+    setSel(null);
+    // The chip is already mounted (lanes are always visible), so focus it
+    // synchronously — moving focus off the doomed Clear button before React
+    // unmounts the detail panel keeps it from falling to <body>.
+    if (prev !== null) chipEls.current.get(prev)?.focus();
+  };
+
+  // Join the committed System artifact: which component(s) encapsulate each
+  // volatility (Method: one component per area of volatility — extra claimants
+  // are shown, not hidden). encapsulationOwners prefers the typed
+  // `encapsulatesVolatilities` exact-name join whenever any component carries
+  // it, falling back to the normalized prose-substring match only for older
+  // committed states. Keyed by the volatility's raw name; absent when the
+  // System isn't committed or no component claims it.
   const encapsulatedBy = useMemo(() => {
     const systemEnvelope = project?.slots.find((s) => s.kind === 'system')?.model;
     const components = toC4View(systemEnvelope).components;
-    const m = new Map<string, string>();
-    for (const p of toVolatilityView(envelope).points) {
-      const key = normalizeName(p.name);
-      const owner = components.find((c) => normalizeName(c.encapsulates).includes(key));
-      if (owner !== undefined) m.set(key, owner.name);
-    }
-    return m;
+    const names = toVolatilityView(envelope).points.map((p) => p.name);
+    return encapsulationOwners(names, components);
   }, [project, envelope]);
 
   if (points.length === 0 && rejected.length === 0) {
@@ -134,48 +161,48 @@ export function VolatilityMap({
       data-testid={UI_IDENTIFIERS.VolatilityMap.ROOT}
       sx={{ display: 'flex', gap: 2, flexDirection: 'column' }}
       onKeyDown={(e) => {
-        // Escape anywhere within the map clears the selection (back to summary).
+        // Escape anywhere within the map clears the selection (back to summary)
+        // and returns focus to the lane chip that opened the panel.
         if (e.key === 'Escape' && sel !== null) {
           e.stopPropagation();
-          setSel(null);
+          clearSelection();
         }
       }}
     >
-      {/* Top row: the compact axes sketch (fit-content, no dead-space frame)
-          with the summary/selection rail flexing into the space beside it. */}
-      <Box sx={{ display: 'flex', gap: 2, flexDirection: { xs: 'column', md: 'row' } }}>
-        {points.length > 0 ? (
-          <AxesOverview axis1={axis1} axis2={axis2} sel={sel} t={t} onSelect={setSel} />
-        ) : null}
-
-        {/* rail: selection inspect + comment, beside the axes overview */}
-        <Box sx={{ flex: 1, minWidth: 0 }}>
-          <Paper sx={{ p: 2, height: '100%' }}>
-            <Typography sx={{ color: t.muted, mb: 1 }} variant="subtitle2">
-              {points.length} VOLATILITIES
-            </Typography>
-            {selected !== undefined && sel !== null ? (
-              <SelectionCard
-                encapsulatedBy={encapsulatedBy.get(normalizeName(selected.name))}
-                t={t}
-                v={selected}
-                onClear={() => {
-                  setSel(null);
-                }}
-                onComment={
-                  enabled
-                    ? (): void => {
-                        setAnchor({
-                          kind: 'node',
-                          label: selected.name,
-                          source: 'Volatilities · axis lanes',
-                          jsonPath: volatilityAnchor(sel),
-                        });
-                      }
-                    : undefined
-                }
-              />
-            ) : (
+      {/* One card, two states (founder 2026-07-20): with NOTHING selected it
+          teaches — the aria-hidden axes sketch over the "N VOLATILITIES" heading
+          and explainer; selecting a volatility swaps the whole card for the
+          detail panel. The always-visible lane listboxes below are the only
+          permanent representation, so the diagram is a teaching aid, not clutter. */}
+      <Paper sx={{ p: 2 }}>
+        {selected !== undefined && sel !== null ? (
+          <SelectionCard
+            encapsulatedBy={encapsulatedBy.get(selected.name)}
+            t={t}
+            v={selected}
+            onClear={clearSelection}
+            onComment={
+              enabled
+                ? (): void => {
+                    setAnchor({
+                      kind: 'node',
+                      label: selected.name,
+                      source: 'Volatilities · axis lanes',
+                      jsonPath: volatilityAnchor(sel),
+                    });
+                  }
+                : undefined
+            }
+          />
+        ) : (
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+            {points.length > 0 ? (
+              <AxesOverview axis1={axis1} axis2={axis2} sel={sel} t={t} onSelect={setSel} />
+            ) : null}
+            <Box>
+              <Typography sx={{ color: t.muted, mb: 1 }} variant="subtitle2">
+                {points.length} VOLATILITIES
+              </Typography>
               <Typography
                 data-testid={UI_IDENTIFIERS.VolatilityMap.SUMMARY}
                 sx={{ color: t.muted, fontSize: 13.5, lineHeight: 1.6 }}
@@ -184,16 +211,17 @@ export function VolatilityMap({
                 differs across customers at one moment. Select a volatility to inspect
                 {enabled ? ' or comment' : ''}.
               </Typography>
-            )}
-          </Paper>
-        </Box>
-      </Box>
+            </Box>
+          </Box>
+        )}
+      </Paper>
 
       <Box sx={{ display: 'flex', gap: 2, flexDirection: { xs: 'column', sm: 'row' } }}>
         <Lane
           axis="sameCustomerOverTime"
           color={t.accent2}
           items={axis1}
+          registerChip={registerChip}
           sel={sel}
           subtitle="Varies for one customer over time."
           t={t}
@@ -204,6 +232,7 @@ export function VolatilityMap({
           axis="allCustomersAtOneTime"
           color={t.committedDot}
           items={axis2}
+          registerChip={registerChip}
           sel={sel}
           subtitle="Differs across customers at one moment."
           t={t}
@@ -327,81 +356,81 @@ function AxesOverview({
   );
 
   return (
-    // fit-content kills the dead-space frame right of the sketch (the rail sits
-    // there now); maxWidth + minWidth let the flex row shrink it so the internal
-    // overflowX scroll still engages for large counts on narrow viewports.
-    <Paper sx={{ p: 1.5, width: 'fit-content', maxWidth: '100%', minWidth: 0, flexShrink: 1 }}>
-      <Box sx={{ overflowX: 'auto' }}>
-        <svg
-          aria-hidden="true"
-          data-testid={UI_IDENTIFIERS.VolatilityMap.AXES}
-          focusable="false"
-          height={layout.height}
-          style={{ display: 'block' }}
-          width={layout.width}
+    // No own frame: the sketch lives INSIDE the shared pre-selection card now, so
+    // it just contributes its drawing. overflowX keeps the horizontal axis
+    // scrollable for large counts on narrow viewports.
+    <Box sx={{ overflowX: 'auto', maxWidth: '100%' }}>
+      <svg
+        aria-hidden="true"
+        data-testid={UI_IDENTIFIERS.VolatilityMap.AXES}
+        focusable="false"
+        height={layout.height}
+        style={{ display: 'block' }}
+        width={layout.width}
+      >
+        {/* axis lines + arrowheads */}
+        <line
+          stroke={t.line}
+          strokeWidth={1.5}
+          x1={origin.x}
+          x2={yArrowTip.x}
+          y1={origin.y}
+          y2={yArrowTip.y}
+        />
+        <line
+          stroke={t.line}
+          strokeWidth={1.5}
+          x1={origin.x}
+          x2={xArrowTip.x}
+          y1={origin.y}
+          y2={xArrowTip.y}
+        />
+        <polygon
+          fill={t.line}
+          points={`${String(yArrowTip.x)},${String(yArrowTip.y - 7)} ${String(yArrowTip.x - 4.5)},${String(yArrowTip.y + 2)} ${String(yArrowTip.x + 4.5)},${String(yArrowTip.y + 2)}`}
+        />
+        <polygon
+          fill={t.line}
+          points={`${String(xArrowTip.x + 7)},${String(xArrowTip.y)} ${String(xArrowTip.x - 2)},${String(xArrowTip.y - 4.5)} ${String(xArrowTip.x - 2)},${String(xArrowTip.y + 4.5)}`}
+        />
+
+        {/* axis labels, colored like their lanes */}
+        <text
+          fill={t.accent2}
+          fontFamily={t.mono}
+          fontSize={10.5}
+          fontWeight={700}
+          x={yArrowTip.x + 10}
+          y={yArrowTip.y + 4}
         >
-          {/* axis lines + arrowheads */}
-          <line
-            stroke={t.line}
-            strokeWidth={1.5}
-            x1={origin.x}
-            x2={yArrowTip.x}
-            y1={origin.y}
-            y2={yArrowTip.y}
-          />
-          <line
-            stroke={t.line}
-            strokeWidth={1.5}
-            x1={origin.x}
-            x2={xArrowTip.x}
-            y1={origin.y}
-            y2={xArrowTip.y}
-          />
-          <polygon
-            fill={t.line}
-            points={`${String(yArrowTip.x)},${String(yArrowTip.y - 7)} ${String(yArrowTip.x - 4.5)},${String(yArrowTip.y + 2)} ${String(yArrowTip.x + 4.5)},${String(yArrowTip.y + 2)}`}
-          />
-          <polygon
-            fill={t.line}
-            points={`${String(xArrowTip.x + 7)},${String(xArrowTip.y)} ${String(xArrowTip.x - 2)},${String(xArrowTip.y - 4.5)} ${String(xArrowTip.x - 2)},${String(xArrowTip.y + 4.5)}`}
-          />
+          {AXIS1_LABEL}
+        </text>
+        {/* Axis-2 caption UNDER the axis, left-aligned at the origin — end-anchoring
+              it at the arrow tip would clip left when the dot count is small. The
+              text-safe committed-green (committedText) keeps this caption at AA on
+              paper; the dots below stay committedDot. */}
+        <text
+          fill={t.committedText}
+          fontFamily={t.mono}
+          fontSize={10.5}
+          fontWeight={700}
+          x={origin.x}
+          y={origin.y + 18}
+        >
+          {AXIS2_LABEL}
+        </text>
 
-          {/* axis labels, colored like their lanes */}
-          <text
-            fill={t.accent2}
-            fontFamily={t.mono}
-            fontSize={10.5}
-            fontWeight={700}
-            x={yArrowTip.x + 10}
-            y={yArrowTip.y + 4}
-          >
-            {AXIS1_LABEL}
-          </text>
-          {/* Axis-2 caption UNDER the axis, left-aligned at the origin — end-anchoring
-              it at the arrow tip would clip left when the dot count is small. */}
-          <text
-            fill={t.committedDot}
-            fontFamily={t.mono}
-            fontSize={10.5}
-            fontWeight={700}
-            x={origin.x}
-            y={origin.y + 18}
-          >
-            {AXIS2_LABEL}
-          </text>
-
-          {/* Dots only — names surface in the hover Tooltip, click selects. */}
-          {axis1.map((p, k) => {
-            const d = layout.yDots[k];
-            return d === undefined ? null : dot(p, d.x, d.y, t.accent2);
-          })}
-          {axis2.map((p, k) => {
-            const d = layout.xDots[k];
-            return d === undefined ? null : dot(p, d.x, d.y, t.committedDot);
-          })}
-        </svg>
-      </Box>
-    </Paper>
+        {/* Dots only — names surface in the hover Tooltip, click selects. */}
+        {axis1.map((p, k) => {
+          const d = layout.yDots[k];
+          return d === undefined ? null : dot(p, d.x, d.y, t.accent2);
+        })}
+        {axis2.map((p, k) => {
+          const d = layout.xDots[k];
+          return d === undefined ? null : dot(p, d.x, d.y, t.committedDot);
+        })}
+      </svg>
+    </Box>
   );
 }
 
@@ -540,6 +569,7 @@ function Lane({
   items,
   sel,
   onSelect,
+  registerChip,
 }: {
   t: Tokens;
   color: string;
@@ -550,6 +580,10 @@ function Lane({
   items: IndexedPoint[];
   sel: number | null;
   onSelect: (i: number) => void;
+  /** Register a chip's DOM node by its flat point index (map-level focus registry
+   *  for the clear-selection refocus). Separate from the lane's own by-position
+   *  chipRefs, which drive roving-tabindex arrow movement. */
+  registerChip: (index: number, el: HTMLDivElement | null) => void;
 }): ReactNode {
   // Roving tab stop WITHIN this lane (each lane is one listbox, one tab stop).
   const [focused, setFocused] = useState(0);
@@ -586,6 +620,7 @@ function Lane({
             active={sel === i}
             chipRef={(el) => {
               chipRefs.current[pos] = el;
+              registerChip(i, el);
             }}
             color={color}
             index={i}
@@ -681,6 +716,30 @@ function VolChip({
       >
         {v.name}
       </Typography>
+      <Box sx={{ flexGrow: 1 }} />
+      {/* Compact per-item axis indicator (A1/A2) so the axis is readable without
+          selecting — visual reinforcement only (aria-hidden: the lane's own
+          aria-label already names the axis for AT), in the lane's accent color
+          except on the active chip, where the chip bg IS that accent. */}
+      <Box
+        aria-hidden="true"
+        component="span"
+        sx={{
+          fontFamily: t.mono,
+          fontWeight: 700,
+          fontSize: 9,
+          lineHeight: 1,
+          px: 0.5,
+          py: 0.25,
+          borderRadius: 0.75,
+          flexShrink: 0,
+          color: active ? t.accentText : axisColor(t, v.axis),
+          border: `1px solid ${active ? t.accentText : axisColor(t, v.axis)}`,
+          opacity: active ? 0.9 : 0.75,
+        }}
+      >
+        {axisShortLabel(v.axis)}
+      </Box>
     </Box>
   );
 }
@@ -694,13 +753,15 @@ function SelectionCard({
 }: {
   v: VolatilityPoint;
   t: Tokens;
-  /** The System component that encapsulates this volatility, when the join resolves. */
-  encapsulatedBy?: string | undefined;
+  /** The System component(s) that encapsulate this volatility, when the join
+   *  resolves — each name links to the Architecture step. */
+  encapsulatedBy?: string[] | undefined;
   /** Back affordance: clear the selection and return to the summary card. */
   onClear: () => void;
   /** Present only when commenting is active; omit on read-only surfaces. */
   onComment?: (() => void) | undefined;
 }): ReactNode {
+  const traces = v.traces;
   return (
     <Box data-testid={UI_IDENTIFIERS.VolatilityMap.DETAIL}>
       {/* Header row: name/axis on the left, the comment + clear affordances PINNED
@@ -770,9 +831,20 @@ function SelectionCard({
           <Box component="span" sx={{ color: t.muted }}>
             Encapsulated by
           </Box>
-          <Box component="span" sx={{ fontWeight: 700 }}>
-            {encapsulatedBy}
-          </Box>
+          {/* Each owning component links to the Architecture step (multiple
+              owners — a drafting smell — all render, comma-separated). */}
+          {encapsulatedBy.map((owner, i) => (
+            <Box component="span" key={owner} sx={{ fontWeight: 700 }}>
+              <StepLink
+                kind="system"
+                label={owner}
+                testId={UI_IDENTIFIERS.VolatilityMap.ownerLink(i)}
+              >
+                {owner}
+              </StepLink>
+              {i < encapsulatedBy.length - 1 ? ',' : null}
+            </Box>
+          ))}
         </Typography>
       ) : null}
 
@@ -780,14 +852,27 @@ function SelectionCard({
         {v.rationale}
       </Typography>
 
-      {/* Requirement traceability, when the artifact recorded it (SR-… ids). */}
-      {v.traces !== undefined ? (
+      {/* Requirement traceability, when the artifact recorded it — each behavior
+          id links to the Required Behaviors step. */}
+      {traces !== undefined ? (
         <Typography
           component="p"
           sx={{ mt: 1.5, fontFamily: t.mono, fontSize: 11, color: t.muted }}
           variant="caption"
         >
-          Traces: {v.traces.join(', ')}
+          Traces:{' '}
+          {traces.map((id, i) => (
+            <Box component="span" key={id}>
+              <StepLink
+                kind="scrubbedRequirements"
+                label={id}
+                testId={UI_IDENTIFIERS.VolatilityMap.traceLink(id)}
+              >
+                {id}
+              </StepLink>
+              {i < traces.length - 1 ? ', ' : null}
+            </Box>
+          ))}
         </Typography>
       ) : null}
     </Box>

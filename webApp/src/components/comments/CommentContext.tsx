@@ -16,8 +16,7 @@
  *
  *   mission              $.vision | $.mission | $.objectives[n]
  *   glossary             $.items[n]                  (n = glossary item index)
- *   scrubbedRequirements $.items[n]
- *   operationalConcepts  $.decisions[n]
+ *   scrubbedRequirements $.items[n]                  (a required behavior, B-id keyed)
  *   standardCheck        $.items[n]
  *   volatilities         $.items[n]                  (n = scatter-point index)
  *   coreUseCases         $.decisions[n].useCase                 (whole use case)
@@ -25,7 +24,10 @@
  *   system               $.components[id=<compId>]   (a C4 component)
  *                        $.relationships[from=<a>,to=<b>]          (a call edge)
  *                        $.dynamicViews[key=<k>].edges[seq=<n>]    (a sequence step)
- *   operationalConcepts  $.decisions[n]
+ *   operationalConcepts  $.deploymentScenario | $.constructionVenue | $.reviewPolicyRef
+ *                        | $.scalingPolicy                    (a per-project selection)
+ *                        $.trustSummaries.<key>               (a customer trust summary)
+ *                        $.infraBuildingBlocks[n]             (an infra building block)
  *                        $.deployment.environments[profile=<p>]..[name=<name>]  (a topology node)
  *
  * For free prose selection without a structured index we fall back to a section
@@ -393,9 +395,20 @@ export function scrubbedRequirementAnchor(index: number, id?: string): string {
 export function standardCheckItemAnchor(index: number): string {
   return `$.items[${String(index)}]`;
 }
-/** An operational-concept decision by index → `$.decisions[n]`. */
-export function operationalDecisionAnchor(index: number): string {
-  return `$.decisions[${String(index)}]`;
+/** A per-project deployment-ops selection (scenario / venue / review policy / scaling)
+ *  by its typed field name → `$.<field>`. The customer's ratifiable knobs. */
+export function deploymentOpsFieldAnchor(
+  field: 'deploymentScenario' | 'constructionVenue' | 'reviewPolicyRef' | 'scalingPolicy'
+): string {
+  return `$.${field}`;
+}
+/** A customer trust summary by its typed key → `$.trustSummaries.<key>`. */
+export function trustSummaryAnchor(key: 'billing' | 'usageMetering' | 'dataOwnership'): string {
+  return `$.trustSummaries.${key}`;
+}
+/** An infrastructure building block by index → `$.infraBuildingBlocks[n]`. */
+export function infraBlockAnchor(index: number): string {
+  return `$.infraBuildingBlocks[${String(index)}]`;
 }
 
 // Phase 2 — Project Design.

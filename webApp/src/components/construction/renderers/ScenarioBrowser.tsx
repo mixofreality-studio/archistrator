@@ -48,6 +48,7 @@ function caseToDynamic(
       kind: 'client',
       layer: 'client',
       encapsulates: '',
+      encapsulatesVolatilities: [],
       contractKey: '',
     },
   ];
@@ -61,6 +62,7 @@ function caseToDynamic(
         kind: 'manager',
         layer: 'manager',
         encapsulates: '',
+        encapsulatesVolatilities: [],
         contractKey: '',
       });
     }

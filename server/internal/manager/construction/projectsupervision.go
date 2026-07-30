@@ -8,7 +8,7 @@ import (
 	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/constructionpipeline"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/agenticjob"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
@@ -17,7 +17,7 @@ import (
 // §6.3 PauseProjectBranch + §6.2). The pause Signal (operatorPauseRequested) is a
 // signal-with-start against {projectId}:construction; the supervision workflow
 // resumes on awaitSignal, runs interventionEngine.applyPausePolicy → pausePlan
-// (DECIDE), then the Manager EXECUTES the plan (cancelConstructionPipeline per
+// (DECIDE), then the Manager EXECUTES the plan (cancelAgenticJob per
 // pipeline + recordOperatorPaused).
 
 // projectSupervisionInput is the start payload for the project-level supervision
@@ -93,5 +93,5 @@ func (wf *workflows) runPauseBranch(ctx workflow.Context, projectID ProjectID, r
 
 // cancelPipeline calls the GENERATED cancel invoker (idempotent-on-intent in the RA).
 func (wf *workflows) cancelPipeline(ctx workflow.Context, handle pipelineHandle) error {
-	return wf.Acts.PipelineCancelConstructionPipeline(ctx, constructionpipeline.ParsePipelineHandle(handle.Name))
+	return wf.Acts.PipelineCancelAgenticJob(ctx, agenticjob.ParsePipelineHandle(handle.Name))
 }

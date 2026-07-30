@@ -1,6 +1,8 @@
 /**
  * A React-Flow node for the C4 component view. Colored by Method layer; selecting
  * it reveals a toolbar that arms a component comment anchor (`$.components[id=…]`).
+ * A Manager/Engine/ResourceAccess node encapsulating NO volatility carries a
+ * quiet warning badge (the anti-functional-decomposition cue, architectureCues).
  */
 import { useState, type FocusEvent, type KeyboardEvent, type ReactNode } from 'react';
 import { Handle, Position, NodeToolbar, type NodeProps } from '@xyflow/react';
@@ -9,8 +11,15 @@ import Button from '@mui/material/Button';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline';
+import ErrorOutlineRoundedIcon from '@mui/icons-material/ErrorOutlineRounded';
+import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded';
 import { useTokens } from '../../utilities/theme/ThemeContext';
+import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 import { useComments, componentAnchor } from '../comments/CommentContext';
+import type { Finding } from '../../contracts/types';
+import { NO_VOLATILITY_WARNING } from './architectureCues';
+import { findingLines, maxSeverity } from './findingOverlays';
+import { severityColor } from './flowLayout';
 
 export interface C4NodeData {
   componentId: string;
@@ -20,6 +29,12 @@ export interface C4NodeData {
   /** Show the clamped volatility preview in the node body (Static / focus lenses).
    *  Off for the Dynamic step-through. Undefined is treated as on. */
   showEncapsulates?: boolean;
+  /** Volatility-bearing layer with no identified volatility → quiet warning badge. */
+  volatilityWarning?: boolean;
+  /** Design-Health structure findings anchored to this component (findingOverlays):
+   *  a quiet severity badge beside the layer tag, tooltip + aria carrying each
+   *  "ruleId — message" line. Absent/empty → no badge. */
+  structureFindings?: Finding[];
   color: string;
   /** Selection carried through data (xyflow's built-in controlled selection is inert
    *  here) — drives the Comment toolbar + accent ring. */
@@ -33,6 +48,19 @@ export function C4Node({ data, selected }: NodeProps): ReactNode {
   const d = data as C4NodeData;
   const hasDetail = d.encapsulates.length > 0;
   const showPreview = d.showEncapsulates !== false && hasDetail;
+  const warned = d.volatilityWarning === true;
+  const findings = d.structureFindings ?? [];
+  const findingCopy =
+    findings.length > 0
+      ? `${String(findings.length)} structure finding${findings.length === 1 ? '' : 's'}: ${findingLines(findings).join('. ')}`
+      : '';
+  // AT parity with the badge tooltips: the warning/finding copy rides the node's
+  // accessible name (the badge icons themselves are hover-only).
+  const nodeLabel = [
+    `${d.name}, ${d.layer} layer`,
+    ...(warned ? [NO_VOLATILITY_WARNING] : []),
+    ...(findingCopy !== '' ? [findingCopy] : []),
+  ].join('. ');
   // Selecting a node = focusing it (click focuses the Box; keyboard Tab does too).
   // xyflow captures node pointer events, so onNodeClick is unreliable here — driving
   // the Comment toolbar + ring off the Box's own focus is robust for mouse AND keyboard.
@@ -92,17 +120,66 @@ export function C4Node({ data, selected }: NodeProps): ReactNode {
       >
         {d.name}
       </Typography>
-      <Typography
-        sx={{
-          fontFamily: t.mono,
-          fontSize: 9,
-          color: d.color,
-          letterSpacing: '0.08em',
-          textTransform: 'uppercase',
-        }}
-      >
-        {d.layer}
-      </Typography>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+        <Typography
+          sx={{
+            fontFamily: t.mono,
+            fontSize: 9,
+            color: d.color,
+            letterSpacing: '0.08em',
+            textTransform: 'uppercase',
+          }}
+        >
+          {d.layer}
+        </Typography>
+        {warned ? (
+          // Quiet anti-functional-decomposition badge: this volatility-bearing
+          // layer names NO volatility. Hover reveals the smell; the node's
+          // aria-label carries the same copy for keyboard/AT users.
+          <Tooltip title={NO_VOLATILITY_WARNING}>
+            <WarningAmberRoundedIcon
+              data-testid={UI_IDENTIFIERS.Architecture.noVolatility(d.componentId)}
+              sx={{ fontSize: 12, color: t.awaitingFg }}
+            />
+          </Tooltip>
+        ) : null}
+        {findings.length > 0 ? (
+          // Quiet Design-Health badge: structure findings anchored to this
+          // component (findingOverlays). Same idiom as the no-volatility cue —
+          // hover reveals each "ruleId — message" line; the node's aria-label
+          // carries the same copy for keyboard/AT users.
+          <Tooltip
+            title={
+              <>
+                {findingLines(findings).map((line) => (
+                  <Typography
+                    key={line}
+                    sx={{ fontFamily: t.mono, fontSize: 10.5, lineHeight: 1.45 }}
+                  >
+                    {line}
+                  </Typography>
+                ))}
+              </>
+            }
+          >
+            {maxSeverity(findings) === 'error' ? (
+              <ErrorOutlineRoundedIcon
+                aria-label={findingCopy}
+                data-testid={UI_IDENTIFIERS.Architecture.findingNode(d.componentId)}
+                role="img"
+                sx={{ fontSize: 12, color: severityColor(t, 'error') }}
+              />
+            ) : (
+              <WarningAmberRoundedIcon
+                aria-label={findingCopy}
+                data-testid={UI_IDENTIFIERS.Architecture.findingNode(d.componentId)}
+                role="img"
+                sx={{ fontSize: 12, color: severityColor(t, maxSeverity(findings)) }}
+              />
+            )}
+          </Tooltip>
+        ) : null}
+      </Box>
       {showPreview ? (
         <Typography
           sx={{
@@ -158,11 +235,7 @@ export function C4Node({ data, selected }: NodeProps): ReactNode {
           Enter/'c' comment shortcut. Comment arming is gated on `enabled`; focus and
           label are always on (read-only home base still keyboard-navigable). */}
       <Box
-        aria-label={
-          enabled
-            ? `${d.name}, ${d.layer} layer. Press C to comment.`
-            : `${d.name}, ${d.layer} layer`
-        }
+        aria-label={enabled ? `${nodeLabel}. Press C to comment.` : nodeLabel}
         role="button"
         sx={{
           borderRadius: 4,

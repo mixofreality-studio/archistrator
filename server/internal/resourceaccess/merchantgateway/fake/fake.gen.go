@@ -13,8 +13,6 @@ import (
 // a test needs; calling a method whose Fn is unset panics.
 type FakeMerchantGatewayAccess struct {
 	ChargeCustomerFn           func(rc fwra.Context, customerID uuid.UUID, amount merchantgateway.Money, idempotencyKey string) error
-	CreateConnectedAccountFn   func(rc fwra.Context, customerID uuid.UUID, idempotencyKey string) (merchantgateway.GatewayBinding, error)
-	PayoutCustomerFn           func(rc fwra.Context, customerID uuid.UUID, amount merchantgateway.Money, idempotencyKey string) error
 	ValidateStoredInstrumentFn func(rc fwra.Context, customerID uuid.UUID, idempotencyKey string) error
 }
 
@@ -23,20 +21,6 @@ func (f *FakeMerchantGatewayAccess) ChargeCustomer(rc fwra.Context, customerID u
 		panic("FakeMerchantGatewayAccess.ChargeCustomerFn not set")
 	}
 	return f.ChargeCustomerFn(rc, customerID, amount, idempotencyKey)
-}
-
-func (f *FakeMerchantGatewayAccess) CreateConnectedAccount(rc fwra.Context, customerID uuid.UUID, idempotencyKey string) (merchantgateway.GatewayBinding, error) {
-	if f.CreateConnectedAccountFn == nil {
-		panic("FakeMerchantGatewayAccess.CreateConnectedAccountFn not set")
-	}
-	return f.CreateConnectedAccountFn(rc, customerID, idempotencyKey)
-}
-
-func (f *FakeMerchantGatewayAccess) PayoutCustomer(rc fwra.Context, customerID uuid.UUID, amount merchantgateway.Money, idempotencyKey string) error {
-	if f.PayoutCustomerFn == nil {
-		panic("FakeMerchantGatewayAccess.PayoutCustomerFn not set")
-	}
-	return f.PayoutCustomerFn(rc, customerID, amount, idempotencyKey)
 }
 
 func (f *FakeMerchantGatewayAccess) ValidateStoredInstrument(rc fwra.Context, customerID uuid.UUID, idempotencyKey string) error {

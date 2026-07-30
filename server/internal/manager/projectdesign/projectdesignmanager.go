@@ -26,7 +26,7 @@
 // {kind, model} envelope (DraftModel) — so projectdesign never regenerates or shares
 // projectstate's sealed ArtifactModel sum or its 17 variants.
 //
-// The consumer-side dependency interfaces (ConstructionPipelineAccess /
+// The consumer-side dependency interfaces (AgenticJobAccess /
 // SourceControlRail), the Temporal workflows struct + workflow inputs/signals, and
 // the internal SDP-assembly (assembleSdpReview over projectstate.Project) stay
 // HAND-WRITTEN and are NOT part of the generated contract.
@@ -60,7 +60,7 @@ import (
 	billing "github.com/mixofreality-studio/archistrator/server/internal/engine/billing"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/estimation"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/operationestimation"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/constructionpipeline"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/agenticjob"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 	enumspb "go.temporal.io/api/enums/v1"
@@ -76,7 +76,7 @@ import (
 // (projectDesignManager.md §2). Each op leads with the Manager-layer call Context
 // (fwmanager.Context, embedding context.Context + the Principal); the *projectDesignManager derives
 // ctx := rc.Context inside. The concrete *projectDesignManager satisfies it; the consumer-side
-// dependency seams (constructionPipelineAccess / sourceControlRail) + the Temporal
+// dependency seams (agenticJobAccess / sourceControlRail) + the Temporal
 // workflows struct stay hand-written and are NOT part of this contract.
 
 // Compile-time proof the concrete projectDesignManager satisfies the generated
@@ -103,7 +103,7 @@ var _ ProjectDesignManager = (*projectDesignManager)(nil)
 // The façade methods themselves use ONLY the Temporal client. It ALSO stores the
 // Worker-side deps it was constructed with — the published
 // projectstate.ProjectStateAccess (head-state read-back + thin writes), the published
-// constructionpipeline.ConstructionPipelineAccess (Phase-2 design-job dispatch), the
+// agenticjob.AgenticJobAccess (Phase-2 design-job dispatch), the
 // published sourcecontrol.SourceControlAccess (the PR rail), the three estimation
 // Engines (the in-workflow SDP-assembly join), and the per-project repo resolver — so
 // RegisterWorker can wire them (via the package's folded adapters) into the
@@ -113,7 +113,7 @@ var _ ProjectDesignManager = (*projectDesignManager)(nil)
 type projectDesignManager struct {
 	client       client.Client
 	projectState projectstate.ProjectStateAccess
-	pipeline     constructionpipeline.ConstructionPipelineAccess
+	pipeline     agenticjob.AgenticJobAccess
 	rail         sourcecontrol.SourceControlAccess
 	estimator    estimation.EstimationEngine
 	opEstimator  operationestimation.OperationEstimationEngine
@@ -141,7 +141,7 @@ type projectDesignManager struct {
 func newProjectDesignManager(
 	c client.Client,
 	projectState projectstate.ProjectStateAccess,
-	pipeline constructionpipeline.ConstructionPipelineAccess,
+	pipeline agenticjob.AgenticJobAccess,
 	rail sourcecontrol.SourceControlAccess,
 	estimator estimation.EstimationEngine,
 	opEstimator operationestimation.OperationEstimationEngine,
@@ -1587,7 +1587,7 @@ func (m *projectDesignManager) AskQuestions(rc fwmanager.Context, projectID Proj
 			// ledger entries, and the re-fired answer job answers the right comments.
 			round = r
 		}
-		_, err = m.projectState.SeedReviewCommentsOnBranch(fwra.Context{Context: ctx}, psID, proj.Version, branch, psKind, round, qs, key)
+		_, err = m.designSession.SeedReviewCommentsOnBranch(fwra.Context{Context: ctx}, psID, proj.Version, branch, psKind, round, qs, key)
 		if err == nil {
 			minted := make([]projectstate.ReviewComment, len(qs))
 			for i := range qs {
@@ -1624,11 +1624,16 @@ func (m *projectDesignManager) resolveQuestionBranch(rc fwmanager.Context, proje
 	return projectstate.DesignBranch(projectstate.ProjectID(projectID), toPSKind(kind), projectstate.AmendmentIndexFor(slotFor(proj, toPSKind(kind))))
 }
 
-// readProjectMaybeBranch reads the head-state aggregate from the given branch: the
-// generated ProjectStateAccess contract is uniformly branch-aware post-C2-fold
-// (branch=="" reads main exactly as ReadProject), so this is a direct forward.
+// readProjectMaybeBranch reads the head-state aggregate from the given branch. The
+// on-branch read moved onto the designSessionAccess facet (Wave 1 reconciliation), which
+// ships the aggregate as a ProjectEnvelope across the Manager-Temporal boundary; decode it
+// back to the concrete Project here. branch=="" reads main exactly as ReadProject.
 func (m *projectDesignManager) readProjectMaybeBranch(ctx context.Context, psID projectstate.ProjectID, branch string) (projectstate.Project, error) {
-	return m.projectState.ReadProjectOnBranch(fwra.Context{Context: ctx}, psID, branch)
+	env, err := m.designSession.ReadProjectOnBranch(fwra.Context{Context: ctx}, psID, branch)
+	if err != nil {
+		return projectstate.Project{}, err
+	}
+	return env.Decode()
 }
 
 // isLiveSessionStage reports whether a co-author session is live (its ledger lives on the
@@ -1737,7 +1742,7 @@ func (m *projectDesignManager) dispatchAnswerJob(ctx context.Context, projectID 
 		}
 	}
 	// Direct manager-side dispatch (NOT a Temporal workflow): the answer job is a
-	// fire-and-forget submit over the PUBLISHED constructionPipelineAccess RA. The
+	// fire-and-forget submit over the PUBLISHED agenticJobAccess RA. The
 	// RepoRef→RepoTarget decode + the placeholder step graph that the retired
 	// pipelineDispatchAdapter added are inlined here (the workflow-side twin is
 	// dispatchDesignJob in dispatch.go).
@@ -1762,11 +1767,11 @@ func (m *projectDesignManager) dispatchAnswerJob(ctx context.Context, projectID 
 		dispatchInputPriorStateRef: "",
 		dispatchInputJobMode:       jobModeAnswer,
 	}
-	spec := constructionpipeline.PipelineSpec{
-		ProjectID: constructionpipeline.ProjectID(projectID),
-		Steps: []constructionpipeline.PipelineStep{{
+	spec := agenticjob.PipelineSpec{
+		ProjectID: agenticjob.ProjectID(projectID),
+		Steps: []agenticjob.PipelineStep{{
 			Name:      "design",
-			Toolchain: constructionpipeline.ToolchainRef(pipelineDefaultToolchain),
+			Toolchain: agenticjob.ToolchainRef(pipelineDefaultToolchain),
 			Command:   []string{"sh", "-c", "true"},
 		}},
 		DispatchInputs: inputs,
@@ -1774,7 +1779,7 @@ func (m *projectDesignManager) dispatchAnswerJob(ctx context.Context, projectID 
 		WorkflowFile:   designWorkflowFileName,
 	}
 	key := answerJobDispatchKey(projectID, kind, branch, qs)
-	if _, err := m.pipeline.SubmitConstructionPipeline(fwra.Context{Context: ctx, IdempotencyKey: key}, spec); err != nil {
+	if _, err := m.pipeline.SubmitAgenticJob(fwra.Context{Context: ctx, IdempotencyKey: key}, spec); err != nil {
 		log.Error("answer job dispatch FAILED — the question is recorded but not auto-answered; re-run AskQuestions with the same question to retry",
 			"err", err.Error(), "key", string(key))
 		return
@@ -1821,19 +1826,19 @@ const pipelineDefaultToolchain = "go-1.23"
 // stays owned by sourceControlAccess (no encoding leak here).
 //
 // NOT promotable to projectstate (code-health-phase-bd task D3 verification): it needs
-// constructionpipeline.RepoTarget + sourcecontrol.RepoRefOwnerRepo/RepoRefFromString —
+// agenticjob.RepoTarget + sourcecontrol.RepoRefOwnerRepo/RepoRefFromString —
 // both sibling ResourceAccess packages, and TestMethodLayering forbids RA→RA sideways
 // imports (the RA-layer analog of "no Manager→Manager sideways"). Stays duplicated
 // per-manager alongside designBranch's twin.
-func designRepoTarget(repoRef string) (constructionpipeline.RepoTarget, error) {
+func designRepoTarget(repoRef string) (agenticjob.RepoTarget, error) {
 	if repoRef == "" {
-		return constructionpipeline.RepoTarget{}, nil
+		return agenticjob.RepoTarget{}, nil
 	}
 	owner, name, err := sourcecontrol.RepoRefOwnerRepo(sourcecontrol.RepoRefFromString(repoRef))
 	if err != nil {
-		return constructionpipeline.RepoTarget{}, err
+		return agenticjob.RepoTarget{}, err
 	}
-	return constructionpipeline.RepoTarget{Owner: owner, Name: name}, nil
+	return agenticjob.RepoTarget{Owner: owner, Name: name}, nil
 }
 
 // designBranch PROMOTED to projectstate.DesignBranch (code-health-phase-bd task D3) —
@@ -1857,7 +1862,7 @@ const (
 )
 
 // dispatchActivityOptions is the option preset for the generated
-// constructionPipelineAccess.submitConstructionPipeline Activity (consumed by the
+// agenticJobAccess.submitAgenticJob Activity (consumed by the
 // manager's option hook — workermanifest.go). A transient submit error (ErrTransient /
 // Retryable) auto-retries via this RetryPolicy; a terminal RA fault (ContractMisuse / Auth
 // / QuotaExhausted) is non-retryable and surfaces to the workflow body. A PhaseFailed is
@@ -1871,7 +1876,7 @@ func dispatchActivityOptions() workflow.ActivityOptions {
 }
 
 // observeActivityOptions is the option preset for the generated
-// constructionPipelineAccess.observeConstructionPipeline Activity. Transient reads retry;
+// agenticJobAccess.observeAgenticJob Activity. Transient reads retry;
 // a NotFound (GC'd handle) is non-retryable and surfaces.
 func observeActivityOptions() workflow.ActivityOptions {
 	return fwmanager.ActivityPreset{
@@ -2006,13 +2011,13 @@ const (
 // dispatch → observe → read-back round-trip. The per-artifact CoAuthorPhase2-
 // ArtifactWorkflow no longer calls workerAccess.GenerateTypedData in-process; instead
 // the Manager DISPATCHES a claude-code-action DESIGN job via the generated
-// constructionPipelineAccess submit/observe activities, OBSERVES it to a typed terminal
+// agenticJobAccess submit/observe activities, OBSERVES it to a typed terminal
 // phase, and READS BACK the typed model the Action committed via the generated
 // designSessionAccess.readProjectOnBranch activity. aiarch makes NO synchronous LLM
 // call and writes NO draft JSON on the main path.
 //
 // DROPPED from the draft path (§0.5.5): workerAccess (no synchronous LLM call
-// survives; the in-flight cancel is constructionPipelineAccess.cancel) and
+// survives; the in-flight cancel is agenticJobAccess.cancel) and
 // artifactValidationEngine (Phase-2 validation is the required CI check inside the
 // Action, surfaced as the job's terminal phase). Both are removed from this struct.
 type workflows struct {
@@ -2022,7 +2027,7 @@ type workflows struct {
 
 	// Acts is the GENERATED typed invoker surface (invokers.gen.go) — the workflow's call
 	// surface for EVERY contract-backed RA op: projectStateAccess readProjectVersion /
-	// advancePhase, the constructionPipelineAccess submit/observe design-job pair, the
+	// advancePhase, the agenticJobAccess submit/observe design-job pair, the
 	// seven sourceControlAccess PR-rail verbs, and the eight designSessionAccess
 	// branch-session verbs. Each invoker consults the manager's per-op preset hook
 	// (workermanifest.go activityOptions), keyed by the generated activity name.
@@ -2314,8 +2319,8 @@ func activityOptions() func(activityName string) (workflow.ActivityOptions, bool
 	presets := map[string]workflow.ActivityOptions{
 		"projectStateAccess.readProjectVersion":                  readProjectActivityOptions(),
 		"projectStateAccess.advancePhase":                        mutateActivityOptions(),
-		"constructionPipelineAccess.submitConstructionPipeline":  dispatchActivityOptions(),
-		"constructionPipelineAccess.observeConstructionPipeline": observeActivityOptions(),
+		"agenticJobAccess.submitAgenticJob":                      dispatchActivityOptions(),
+		"agenticJobAccess.observeAgenticJob":                     observeActivityOptions(),
 		"sourceControlAccess.getInstallationToken":               mintCredActivityOptions(),
 		"sourceControlAccess.openBranch":                         railActivityOptions(),
 		"sourceControlAccess.openPullRequest":                    railActivityOptions(),

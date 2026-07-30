@@ -12,10 +12,9 @@ import (
 
 	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
-	"github.com/mixofreality-studio/archistrator/server/internal/engine/handoff"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/review"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/constructionpipeline"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/agenticjob"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 )
@@ -29,8 +28,6 @@ type pipelineSpec struct {
 	Ref         string
 	// Phase is the ActivityMethodPhase.String() for the current activity phase.
 	Phase string
-	// Role is the WorkerClass.String() for the assigned worker role.
-	Role string
 }
 
 // pipelineObservation is the Manager's neutral pipeline observation.
@@ -59,19 +56,19 @@ const constructWorkflowFileName = "aiarch-construct.yml"
 // pre-B5 legacy behavior, preserved for unresolvable projects). A malformed RepoRef
 // surfaces the RA's ContractMisuse — decoded via sourcecontrol's own OwnerRepo accessor
 // so the RepoRef encoding stays owned by sourceControlAccess (no encoding leak here).
-func (wf *workflows) constructRepoTarget(projectID ProjectID) (constructionpipeline.RepoTarget, string, error) {
+func (wf *workflows) constructRepoTarget(projectID ProjectID) (agenticjob.RepoTarget, string, error) {
 	if wf.Repo == nil {
-		return constructionpipeline.RepoTarget{}, "", nil
+		return agenticjob.RepoTarget{}, "", nil
 	}
 	repoRef, ok := wf.Repo(projectID)
 	if !ok {
-		return constructionpipeline.RepoTarget{}, "", nil
+		return agenticjob.RepoTarget{}, "", nil
 	}
 	owner, name, err := sourcecontrol.RepoRefOwnerRepo(repoRef)
 	if err != nil {
-		return constructionpipeline.RepoTarget{}, "", err
+		return agenticjob.RepoTarget{}, "", err
 	}
-	return constructionpipeline.RepoTarget{Owner: owner, Name: name}, constructWorkflowFileName, nil
+	return agenticjob.RepoTarget{Owner: owner, Name: name}, constructWorkflowFileName, nil
 }
 
 // dispatchInputsFor builds the DispatchInputs bag for a construction pipeline dispatch.
@@ -90,26 +87,23 @@ func dispatchInputsFor(spec pipelineSpec) map[string]string {
 		variant := projectstate.DeriveVariant(spec.ActivityID)
 		m["command"] = projectstate.CommandFor(typ, variant, projectstate.ActivityMethodPhase(spec.Phase))
 	}
-	if spec.Role != "" {
-		m["role"] = spec.Role
-	}
 	return m
 }
 
 // managerPipelinePhase maps the contract PipelinePhase onto the Manager-neutral
 // PipelinePhase (mapped here so a future re-order is safe). Moved workflow-side from the
 // retired pipelineAdapter.
-func managerPipelinePhase(p constructionpipeline.PipelinePhase) PipelinePhase {
+func managerPipelinePhase(p agenticjob.PipelinePhase) PipelinePhase {
 	switch p {
-	case constructionpipeline.PhasePending:
+	case agenticjob.PhasePending:
 		return PipelinePending
-	case constructionpipeline.PhaseRunning:
+	case agenticjob.PhaseRunning:
 		return PipelineRunning
-	case constructionpipeline.PhaseSucceeded:
+	case agenticjob.PhaseSucceeded:
 		return PipelineSucceeded
-	case constructionpipeline.PhaseFailed:
+	case agenticjob.PhaseFailed:
 		return PipelineFailed
-	case constructionpipeline.PhaseCancelled:
+	case agenticjob.PhaseCancelled:
 		return PipelineCancelled
 	default:
 		return PipelinePhaseUnknown
@@ -127,14 +121,14 @@ func (wf *workflows) submitPipeline(ctx workflow.Context, spec pipelineSpec) (pi
 	if terr != nil {
 		return pipelineHandle{}, terr
 	}
-	handle, err := wf.Acts.PipelineSubmitConstructionPipeline(ctx, constructionpipeline.PipelineSpec{
-		ActivityID: constructionpipeline.ConstructionActivityID(spec.ActivityID),
-		Steps: []constructionpipeline.PipelineStep{{
+	handle, err := wf.Acts.PipelineSubmitAgenticJob(ctx, agenticjob.PipelineSpec{
+		ActivityID: agenticjob.ConstructionActivityID(spec.ActivityID),
+		Steps: []agenticjob.PipelineStep{{
 			Name:      "build",
-			Toolchain: constructionpipeline.ToolchainRef(pipelineDefaultToolchain),
+			Toolchain: agenticjob.ToolchainRef(pipelineDefaultToolchain),
 			Command:   []string{"sh", "-c", "true"},
 		}},
-		WorkspaceRef:   constructionpipeline.ArtifactRef(spec.RepoURL + "@" + spec.Ref),
+		WorkspaceRef:   agenticjob.ArtifactRef(spec.RepoURL + "@" + spec.Ref),
 		DispatchInputs: dispatchInputsFor(spec),
 		TargetRepo:     target,
 		WorkflowFile:   workflowFile,
@@ -142,13 +136,13 @@ func (wf *workflows) submitPipeline(ctx workflow.Context, spec pipelineSpec) (pi
 	if err != nil {
 		return pipelineHandle{}, err
 	}
-	return pipelineHandle{Name: constructionpipeline.PipelineHandleString(handle)}, nil
+	return pipelineHandle{Name: agenticjob.PipelineHandleString(handle)}, nil
 }
 
 // observePipeline calls the GENERATED observe invoker and maps the contract observation
 // back to the Manager-neutral pipelineObservation.
 func (wf *workflows) observePipeline(ctx workflow.Context, handle pipelineHandle) (pipelineObservation, error) {
-	obs, err := wf.Acts.PipelineObserveConstructionPipeline(ctx, constructionpipeline.ParsePipelineHandle(handle.Name))
+	obs, err := wf.Acts.PipelineObserveAgenticJob(ctx, agenticjob.ParsePipelineHandle(handle.Name))
 	if err != nil {
 		return pipelineObservation{}, err
 	}
@@ -495,27 +489,27 @@ func prBody(activity constructionActivity) string {
 		activity.ComponentID, activityKindName(activity.Kind), activity.Layer)
 }
 
-// activityKindName returns the canonical activity-kind name — a free-function
-// replacement for the retired Manager-local activityKind.String() method (methods
-// cannot be added to the published handoff.ActivityKind from this package). Produces
-// the IDENTICAL strings the former Stringer did (PR body text — zero behavior change).
-func activityKindName(k handoff.ActivityKind) string {
+// activityKindName returns the canonical activity-kind name — a free function over
+// the Manager-owned activityKind enum (the schema-first rule keeps enum types
+// method-free, so the Stringer behaviour lives here). Produces the IDENTICAL strings
+// the former handoff.ActivityKind Stringer did (PR body text — zero behavior change).
+func activityKindName(k activityKind) string {
 	switch k {
-	case handoff.ActivityKindUnknown:
+	case activityKindUnknown:
 		// zero-value sentinel, not a real activity kind.
 		return "Unknown"
-	case handoff.ActivityKindDetailedDesign:
+	case activityKindDetailedDesign:
 		return "DetailedDesign"
-	case handoff.ActivityKindConstruction:
+	case activityKindConstruction:
 		return "Construction"
-	case handoff.ActivityKindIntegration:
+	case activityKindIntegration:
 		return "Integration"
-	case handoff.ActivityKindNoncoding:
+	case activityKindNoncoding:
 		return "Noncoding"
 	}
-	// Unreachable for the five defined handoff.ActivityKind values above (the
-	// exhaustive linter enforces that every real variant has its own case); kept
-	// as a defensive fallback for an out-of-range ordinal.
+	// Unreachable for the five defined activityKind values above (the exhaustive
+	// linter enforces that every real variant has its own case); kept as a defensive
+	// fallback for an out-of-range ordinal.
 	return "Unknown"
 }
 
@@ -565,39 +559,15 @@ func mapCheckState(s sourcecontrol.CheckState) projectstate.CICheckState {
 // (constructionActivity, this component's generated façade ReviewSet/Reviewer) and
 // each dependency's PUBLISHED contract shape, for the calls that are NOT identity —
 // either because the Manager's own type carries strictly more fields than the Engine
-// needs (handoffActivityFromConstruction), or because the target is this component's
+// needs, or because the target is this component's
 // OWN generated public façade type with a real field-shape divergence
 // (reviewSetFromEngine), or because the Manager derives a real config value from raw
 // composition-root config (constructionInterventionPolicy).
 //
-// After Task 6 the three Engines (handoff.HandOffEngine / intervention.InterventionEngine
-// / review.ReviewEngine) have NO adapter STRUCT — the workflow calls their published
-// contracts DIRECTLY (workflow.go / signals.go), with fweng.Context{Context:
-// context.Background()} supplied inline at each call site. The identity enum maps that
-// used to bridge Manager-local mirror enums onto the Engines' published enums
-// (handoffActivityKind, managerWorkerClass, interventionVarianceKind,
-// managerVarianceDirective) are deleted along with the mirror types themselves
-// (deps.go) — every Manager-local enum that was ordinal-identical to its published
-// counterpart is now typed AS that published enum directly.
-
-// ===========================================================================
-// handOffEngine — handoffActivityFromConstruction narrows the Manager's broader
-// constructionActivity (used package-wide — git-forward fields, resolved Phases) onto
-// the Engine's published handoff.ConstructionActivity input. A REAL (if today
-// field-for-field trivial) projection, not an identity mirror to delete: the two
-// structs are NOT the same shape (constructionActivity carries CRLabel/IsRevert/Phases
-// the Engine never sees).
-// ===========================================================================
-
-func handoffActivityFromConstruction(a constructionActivity) handoff.ConstructionActivity {
-	return handoff.ConstructionActivity{
-		ActivityID:   a.ActivityID,
-		Kind:         a.Kind,
-		ComponentID:  a.ComponentID,
-		Layer:        a.Layer,
-		EstimateDays: a.EstimateDays,
-	}
-}
+// The two Engines (intervention.InterventionEngine / review.ReviewEngine) have NO
+// adapter STRUCT — the workflow calls their published contracts DIRECTLY (workflow.go /
+// signals.go), with fweng.Context{Context: context.Background()} supplied inline at each
+// call site.
 
 // ===========================================================================
 // reviewEngine — reviewSetFromEngine bridges the published review.ReviewSet/Reviewer
@@ -636,7 +606,7 @@ const maxVarianceAttempts = 10
 // re-enters the variance loop or fails the activity).
 const maxPhaseRedrafts = 5
 
-// pipelinePollInterval is the durable wait between observeConstructionPipeline
+// pipelinePollInterval is the durable wait between observeAgenticJob
 // polls (the Manager's own startTimer cadence; §6.3 step 3).
 const pipelinePollInterval = 15 * time.Second
 
@@ -731,8 +701,9 @@ const (
 )
 
 // runAttempt executes ONE supervision attempt of the per-activity UC3 spine: guard the
-// variance budget, cast the worker class, handle the architectOnly / dispatch paths, walk
-// the phase profile, and (on a clean pass) finalize the activity. It returns attemptDone
+// variance budget, open the branch/PR, walk the phase profile (each phase dispatched as
+// an agent job, with the review-policy gate inserting a human where required), and (on a
+// clean pass) finalize the activity. It returns attemptDone
 // when the activity has terminally exited or attemptRetry when the supervision loop should
 // try again. The ORDER of workflow commands is identical to the former inline loop body.
 func (wf *workflows) runAttempt(
@@ -753,27 +724,12 @@ func (wf *workflows) runAttempt(
 		return attemptDone, wf.failVarianceExhausted(ctx, in, headVersion, state, startedCred)
 	}
 
-	// --- Step 1: cast worker class (DECIDE — direct in-workflow Engine call) --
-	class, herr := wf.HandOff.PickWorkerClass(fweng.Context{Context: context.Background()},
-		handoffActivityFromConstruction(in.Activity), wf.HandOffPolicy)
-	if herr != nil {
-		return attemptDone, fwmanager.MapError(herr)
-	}
-
-	// architectOnly ⇒ skip dispatch + pipeline; await the architect via override
-	// (handOffEngine OQ-2). The architect's steer arrives on operatorOverride, BOUNDED
-	// by EscalationWaitTimeout: if no architect override arrives within the window the
-	// activity terminally FAILS (EscalationTimedOut) instead of hanging forever.
-	if class == handoff.ArchitectOnly {
-		done, err := wf.runArchitectOnly(ctx, in, overrideCh, headVersion, state, gitOn, startedCred)
-		if err != nil {
-			return attemptDone, err
-		}
-		if done {
-			return attemptDone, nil
-		}
-		return attemptRetry, nil
-	}
+	// --- Step 1: dispatch (the former per-activity worker-class cast is retired). The
+	// handOffEngine is gone: agent-class selection collapsed to the platform's single
+	// "agent" dispatch default, and automated-vs-human routing is now the project's
+	// review-policy preset, applied per phase by the runPhaseGate gate below (via
+	// reviewPolicy.EffectiveGate) rather than an up-front worker-class decision. Every
+	// activity dispatches; a human is inserted where the review policy requires one.
 
 	// --- Step 2a: open the per-activity branch + PR and mirror it (git-forward,
 	// C-MCN-GIT). Lazy + once: the row is born on the first dispatch and reused on
@@ -898,34 +854,6 @@ func (wf *workflows) failVarianceExhausted(
 	state.stage = StageExited
 	workflow.GetLogger(ctx).Info("construction activity failed — variance budget exhausted", "activityId", in.ActivityID)
 	return nil
-}
-
-// runArchitectOnly handles the architectOnly hand-off: skip dispatch + pipeline and await
-// the architect's steer on operatorOverride, BOUNDED by EscalationWaitTimeout. Returns
-// done=true when the activity terminally exits (an escalation timeout, or an override that
-// exits — e.g. Skip), false when the override loops back into supervision.
-func (wf *workflows) runArchitectOnly(
-	ctx workflow.Context,
-	in constructActivityInput,
-	overrideCh workflow.ReceiveChannel,
-	headVersion *projectstate.Version,
-	state *constructState,
-	gitOn bool,
-	startedCred railCredEnvelope,
-) (bool, error) {
-	state.stage = StageAwaitingTakeover
-	sig, got := wf.awaitOverrideBounded(ctx, overrideCh)
-	if !got {
-		v, e := wf.recordActivityFailed(ctx, in, *headVersion, projectstate.EscalationTimedOut,
-			"architect override timed out: no operator steer within the escalation-wait window", startedCred)
-		if e != nil {
-			return false, e
-		}
-		*headVersion = v
-		state.stage = StageExited
-		return true, nil
-	}
-	return wf.executeOverride(ctx, in, sig.Override, headVersion, state, gitOn, startedCred)
 }
 
 // walkPhases dispatches ONE GH-Actions job per profile phase, riding the CI poll cadence
@@ -1229,7 +1157,7 @@ func (wf *workflows) completePhase(
 //   - a risk-floor-flagged activity (deploy/spend/schema contract) → ALWAYS
 //     hold, regardless of preset, including vibes.
 // The merge itself is EXECUTED by the local pipeline arm via the frozen Submit
-// surface (DispatchInputs["job"]="merge" — constructionpipeline.DispatchJobMerge):
+// surface (DispatchInputs["job"]="merge" — agenticjob.DispatchJobMerge):
 // a --no-ff merge of activity/<id> into main + branch delete, atomic-on-intent
 // (a conflict aborts in a throwaway clone; nothing partial ever lands). A merge
 // failure flows through the SAME intervention path as a failed phase pipeline.
@@ -1319,22 +1247,22 @@ func (wf *workflows) runLocalMergeStep(
 // runPipeline's discipline). The spec deliberately carries NO "command"/"phase"
 // inputs — the job key routes it inside the local arm; it never spawns claude.
 func (wf *workflows) runMergePipeline(ctx workflow.Context, in constructActivityInput, state *constructState) (pipelineObservation, error) {
-	handle, err := wf.Acts.PipelineSubmitConstructionPipeline(ctx, constructionpipeline.PipelineSpec{
-		ActivityID: constructionpipeline.ConstructionActivityID(string(in.ActivityID)),
-		Steps: []constructionpipeline.PipelineStep{{
+	handle, err := wf.Acts.PipelineSubmitAgenticJob(ctx, agenticjob.PipelineSpec{
+		ActivityID: agenticjob.ConstructionActivityID(string(in.ActivityID)),
+		Steps: []agenticjob.PipelineStep{{
 			Name:      "build",
-			Toolchain: constructionpipeline.ToolchainRef(pipelineDefaultToolchain),
+			Toolchain: agenticjob.ToolchainRef(pipelineDefaultToolchain),
 			Command:   []string{"sh", "-c", "true"},
 		}},
 		DispatchInputs: map[string]string{
-			constructionpipeline.DispatchInputJobKey: constructionpipeline.DispatchJobMerge,
-			"activity_id":                            string(in.ActivityID),
+			agenticjob.DispatchInputJobKey: agenticjob.DispatchJobMerge,
+			"activity_id":                  string(in.ActivityID),
 		},
 	})
 	if err != nil {
 		return pipelineObservation{}, err
 	}
-	h := pipelineHandle{Name: constructionpipeline.PipelineHandleString(handle)}
+	h := pipelineHandle{Name: agenticjob.PipelineHandleString(handle)}
 	for range maxPipelinePolls {
 		obs, oerr := wf.observePipeline(ctx, h)
 		if oerr != nil {

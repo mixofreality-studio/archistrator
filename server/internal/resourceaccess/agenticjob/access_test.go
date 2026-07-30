@@ -1,6 +1,6 @@
-package constructionpipeline
+package agenticjob
 
-// SERVICE TEST PLAN (STP) — constructionPipelineAccess (C-CP-R rework, GitHub
+// SERVICE TEST PLAN (STP) — agenticJobAccess (C-CP-R rework, GitHub
 // Actions). Per [[the-method-testing]], the STP enumerates every way to demonstrate
 // the component does NOT work; written before/with the code; black-box at the RA's
 // public verbs, faking ONLY the external GitHub Actions boundary (the ghActionsClient
@@ -65,7 +65,7 @@ import (
 )
 
 // SERVICE TEST PLAN (STP) — the LOCAL-EXECUTOR realisation (the localexec
-// section of constructionpipelineaccess.go, WORKTREE-PER-ACTIVITY rework). Per
+// section of agenticjobaccess.go, WORKTREE-PER-ACTIVITY rework). Per
 // [[the-method-testing]], black-box at the RA's public verbs. The only external
 // boundary faked is the `claude` binary itself (a PATH shim script, the SAME
 // pattern framework-go-infrastructure-llm/claudecli_test.go uses for the SAME
@@ -333,7 +333,7 @@ func containsFold(s, sub string) bool {
 
 func itoaTest(n int64) string { return strconv.FormatInt(n, 10) }
 
-// subRC builds the ResourceAccess call Context for a SubmitConstructionPipeline call —
+// subRC builds the ResourceAccess call Context for a SubmitAgenticJob call —
 // the cross-cutting ctx + caller-supplied idempotencyKey now ride on fwra.Context
 // (the RA-context bootstrap) instead of being explicit Submit params.
 func subRC(ctx context.Context, key fwra.IdempotencyKey) fwra.Context {
@@ -356,27 +356,27 @@ func TestSubmitContractMisuse(t *testing.T) {
 	a := newAccessForTest(t, newFakeActions())
 	ctx := context.Background()
 
-	if _, err := a.SubmitConstructionPipeline(subRC(ctx, ""), goodSpec()); kind(err) != fwra.ContractMisuse {
+	if _, err := a.SubmitAgenticJob(subRC(ctx, ""), goodSpec()); kind(err) != fwra.ContractMisuse {
 		t.Fatalf("empty key kind = %v", kind(err))
 	}
 	noSteps := goodSpec()
 	noSteps.Steps = nil
-	if _, err := a.SubmitConstructionPipeline(subRC(ctx, "k"), noSteps); kind(err) != fwra.ContractMisuse {
+	if _, err := a.SubmitAgenticJob(subRC(ctx, "k"), noSteps); kind(err) != fwra.ContractMisuse {
 		t.Fatalf("no steps kind = %v", kind(err))
 	}
 	dup := goodSpec()
 	dup.Steps = []PipelineStep{{Name: "x"}, {Name: "x"}}
-	if _, err := a.SubmitConstructionPipeline(subRC(ctx, "k"), dup); kind(err) != fwra.ContractMisuse {
+	if _, err := a.SubmitAgenticJob(subRC(ctx, "k"), dup); kind(err) != fwra.ContractMisuse {
 		t.Fatalf("dup step kind = %v", kind(err))
 	}
 	empty := goodSpec()
 	empty.Steps = []PipelineStep{{Name: "  "}}
-	if _, err := a.SubmitConstructionPipeline(subRC(ctx, "k"), empty); kind(err) != fwra.ContractMisuse {
+	if _, err := a.SubmitAgenticJob(subRC(ctx, "k"), empty); kind(err) != fwra.ContractMisuse {
 		t.Fatalf("empty step name kind = %v", kind(err))
 	}
 	dangling := goodSpec()
 	dangling.Edges = []StepDependency{{From: "build", To: "nope"}}
-	if _, err := a.SubmitConstructionPipeline(subRC(ctx, "k"), dangling); kind(err) != fwra.ContractMisuse {
+	if _, err := a.SubmitAgenticJob(subRC(ctx, "k"), dangling); kind(err) != fwra.ContractMisuse {
 		t.Fatalf("dangling edge kind = %v", kind(err))
 	}
 }
@@ -384,14 +384,14 @@ func TestSubmitContractMisuse(t *testing.T) {
 func TestObserveCancelHandleMisuse(t *testing.T) {
 	a := newAccessForTest(t, newFakeActions())
 	ctx := context.Background()
-	if _, err := a.ObserveConstructionPipeline(obsRC(ctx), PipelineHandle("")); kind(err) != fwra.ContractMisuse {
+	if _, err := a.ObserveAgenticJob(obsRC(ctx), PipelineHandle("")); kind(err) != fwra.ContractMisuse {
 		t.Fatalf("zero handle observe kind = %v", kind(err))
 	}
-	if err := a.CancelConstructionPipeline(obsRC(ctx), PipelineHandle("")); kind(err) != fwra.ContractMisuse {
+	if err := a.CancelAgenticJob(obsRC(ctx), PipelineHandle("")); kind(err) != fwra.ContractMisuse {
 		t.Fatalf("zero handle cancel kind = %v", kind(err))
 	}
 	bad := ParsePipelineHandle("garbage-no-slash")
-	if _, err := a.ObserveConstructionPipeline(obsRC(ctx), bad); kind(err) != fwra.ContractMisuse {
+	if _, err := a.ObserveAgenticJob(obsRC(ctx), bad); kind(err) != fwra.ContractMisuse {
 		t.Fatalf("malformed handle observe kind = %v", kind(err))
 	}
 }
@@ -399,7 +399,7 @@ func TestObserveCancelHandleMisuse(t *testing.T) {
 func TestSubmitHappyPath(t *testing.T) {
 	f := newFakeActions()
 	a := newAccessForTest(t, f)
-	h, err := a.SubmitConstructionPipeline(subRC(context.Background(), "key-1"), goodSpec())
+	h, err := a.SubmitAgenticJob(subRC(context.Background(), "key-1"), goodSpec())
 	if err != nil {
 		t.Fatalf("submit: %v", err)
 	}
@@ -430,7 +430,7 @@ func TestSubmitForwardsDispatchInputs(t *testing.T) {
 			"target_branch":   "aiarch-design-mission",
 			"prior_state_ref": "",
 		}
-		if _, err := a.SubmitConstructionPipeline(subRC(context.Background(), "key-di"), spec); err != nil {
+		if _, err := a.SubmitAgenticJob(subRC(context.Background(), "key-di"), spec); err != nil {
 			t.Fatalf("submit: %v", err)
 		}
 		for _, k := range []string{"artifact_kind", "design_prompt", "target_branch", "prior_state_ref"} {
@@ -460,7 +460,7 @@ func TestSubmitForwardsDispatchInputs(t *testing.T) {
 			"artifact_kind":     "Glossary",
 			"idempotency_token": "SPOOFED-BY-CALLER",
 		}
-		if _, err := a.SubmitConstructionPipeline(subRC(context.Background(), "key-spoof"), spec); err != nil {
+		if _, err := a.SubmitAgenticJob(subRC(context.Background(), "key-spoof"), spec); err != nil {
 			t.Fatalf("submit: %v", err)
 		}
 		got := f.lastDispatchInputs["idempotency_token"]
@@ -482,7 +482,7 @@ func TestSubmitForwardsDispatchInputs(t *testing.T) {
 		f := newFakeActions()
 		a := newAccessForTest(t, f)
 		spec := goodSpec() // DispatchInputs is nil
-		if _, err := a.SubmitConstructionPipeline(subRC(context.Background(), "key-nil"), spec); err != nil {
+		if _, err := a.SubmitAgenticJob(subRC(context.Background(), "key-nil"), spec); err != nil {
 			t.Fatalf("submit: %v", err)
 		}
 		if len(f.lastDispatchInputs) != 1 {
@@ -511,7 +511,7 @@ func TestSubmitPerProjectTargetRetargetsDispatchAndHandle(t *testing.T) {
 		spec.TargetRepo = RepoTarget{Owner: "acme", Name: "my-system"}
 		spec.WorkflowFile = "aiarch-design.yml"
 
-		h, err := a.SubmitConstructionPipeline(subRC(context.Background(), "key-pp"), spec)
+		h, err := a.SubmitAgenticJob(subRC(context.Background(), "key-pp"), spec)
 		if err != nil {
 			t.Fatalf("submit: %v", err)
 		}
@@ -532,7 +532,7 @@ func TestSubmitPerProjectTargetRetargetsDispatchAndHandle(t *testing.T) {
 	t.Run("construction_dispatch_zero_target_legacy_handle", func(t *testing.T) {
 		f := newFakeActions()
 		a := newAccessForTest(t, f)
-		h, err := a.SubmitConstructionPipeline(subRC(context.Background(), "key-uc3"), goodSpec())
+		h, err := a.SubmitAgenticJob(subRC(context.Background(), "key-uc3"), goodSpec())
 		if err != nil {
 			t.Fatalf("submit: %v", err)
 		}
@@ -542,7 +542,7 @@ func TestSubmitPerProjectTargetRetargetsDispatchAndHandle(t *testing.T) {
 		if PipelineHandleString(h) != "run/1" {
 			t.Fatalf("UC3 handle = %q, want legacy run/1", PipelineHandleString(h))
 		}
-		if _, err := a.ObserveConstructionPipeline(obsRC(context.Background()), h); err != nil {
+		if _, err := a.ObserveAgenticJob(obsRC(context.Background()), h); err != nil {
 			t.Fatalf("observe: %v", err)
 		}
 		if !f.lastGetTarget.isZero() {
@@ -558,12 +558,12 @@ func TestSubmitPerProjectTargetRetargetsDispatchAndHandle(t *testing.T) {
 		spec := goodSpec()
 		spec.TargetRepo = RepoTarget{Owner: "o", Name: "r"}
 		spec.WorkflowFile = "aiarch-design.yml"
-		h, err := a.SubmitConstructionPipeline(subRC(context.Background(), "key-rt"), spec)
+		h, err := a.SubmitAgenticJob(subRC(context.Background(), "key-rt"), spec)
 		if err != nil {
 			t.Fatalf("submit: %v", err)
 		}
 		rt := ParsePipelineHandle(PipelineHandleString(h))
-		if _, err := a.ObserveConstructionPipeline(obsRC(context.Background()), rt); err != nil {
+		if _, err := a.ObserveAgenticJob(obsRC(context.Background()), rt); err != nil {
 			t.Fatalf("observe round-tripped handle: %v", err)
 		}
 		want := ghTarget{owner: "o", repo: "r", workflowFile: "aiarch-design.yml"}
@@ -578,14 +578,14 @@ func TestSubmitPerProjectTargetRetargetsDispatchAndHandle(t *testing.T) {
 func assertObserveCancelReaddressTarget(t *testing.T, a *access, f *fakeActions, h PipelineHandle, want ghTarget) {
 	t.Helper()
 	// Observe re-addresses the per-project repo (not the construction default).
-	if _, err := a.ObserveConstructionPipeline(obsRC(context.Background()), h); err != nil {
+	if _, err := a.ObserveAgenticJob(obsRC(context.Background()), h); err != nil {
 		t.Fatalf("observe: %v", err)
 	}
 	if f.lastGetTarget != want {
 		t.Fatalf("observe target = %+v, want %+v", f.lastGetTarget, want)
 	}
 	// Cancel re-addresses the per-project repo too.
-	if err := a.CancelConstructionPipeline(obsRC(context.Background()), h); err != nil {
+	if err := a.CancelAgenticJob(obsRC(context.Background()), h); err != nil {
 		t.Fatalf("cancel: %v", err)
 	}
 	if f.lastCancelTarget != want {
@@ -609,13 +609,13 @@ func TestObserveStatusMapping(t *testing.T) {
 	for _, tc := range cases {
 		f := newFakeActions()
 		a := newAccessForTest(t, f)
-		h, err := a.SubmitConstructionPipeline(subRC(context.Background(), "k"), goodSpec())
+		h, err := a.SubmitAgenticJob(subRC(context.Background(), "k"), goodSpec())
 		if err != nil {
 			t.Fatalf("submit: %v", err)
 		}
 		f.runs[0].status = tc.status
 		f.runs[0].conclusion = tc.conclusion
-		obs, err := a.ObserveConstructionPipeline(obsRC(context.Background()), h)
+		obs, err := a.ObserveAgenticJob(obsRC(context.Background()), h)
 		if err != nil {
 			t.Fatalf("observe: %v", err)
 		}
@@ -652,14 +652,14 @@ func TestObserveSurfacesRunURL(t *testing.T) {
 	for _, tc := range cases {
 		f := newFakeActions()
 		a := newAccessForTest(t, f)
-		h, err := a.SubmitConstructionPipeline(subRC(context.Background(), "k"), goodSpec())
+		h, err := a.SubmitAgenticJob(subRC(context.Background(), "k"), goodSpec())
 		if err != nil {
 			t.Fatalf("submit: %v", err)
 		}
 		f.runs[0].status = tc.status
 		f.runs[0].conclusion = tc.conclusion
 		f.runs[0].htmlURL = "https://github.com/acme/widgets/actions/runs/42"
-		obs, err := a.ObserveConstructionPipeline(obsRC(context.Background()), h)
+		obs, err := a.ObserveAgenticJob(obsRC(context.Background()), h)
 		if err != nil {
 			t.Fatalf("observe: %v", err)
 		}
@@ -670,13 +670,13 @@ func TestObserveSurfacesRunURL(t *testing.T) {
 	// An unresolvable URL (the realisation could not build it) stays empty — never fabricated.
 	f := newFakeActions()
 	a := newAccessForTest(t, f)
-	h, err := a.SubmitConstructionPipeline(subRC(context.Background(), "k"), goodSpec())
+	h, err := a.SubmitAgenticJob(subRC(context.Background(), "k"), goodSpec())
 	if err != nil {
 		t.Fatalf("submit: %v", err)
 	}
 	f.runs[0].status = "in_progress"
 	f.runs[0].htmlURL = ""
-	obs, err := a.ObserveConstructionPipeline(obsRC(context.Background()), h)
+	obs, err := a.ObserveAgenticJob(obsRC(context.Background()), h)
 	if err != nil {
 		t.Fatalf("observe: %v", err)
 	}
@@ -698,7 +698,7 @@ func TestRunHTMLURL(t *testing.T) {
 func TestObserveNotFound(t *testing.T) {
 	f := newFakeActions()
 	a := newAccessForTest(t, f)
-	if _, err := a.ObserveConstructionPipeline(obsRC(context.Background()), ParsePipelineHandle("run/999")); kind(err) != fwra.NotFound {
+	if _, err := a.ObserveAgenticJob(obsRC(context.Background()), ParsePipelineHandle("run/999")); kind(err) != fwra.NotFound {
 		t.Fatalf("observe unknown kind = %v, want NotFound", kind(err))
 	}
 }
@@ -707,14 +707,14 @@ func TestSubmitErrorKinds(t *testing.T) {
 	f := newFakeActions()
 	f.listErr = fwra.New(fwra.Auth, "denied")
 	a := newAccessForTest(t, f)
-	if _, err := a.SubmitConstructionPipeline(subRC(context.Background(), "k"), goodSpec()); kind(err) != fwra.Auth {
+	if _, err := a.SubmitAgenticJob(subRC(context.Background(), "k"), goodSpec()); kind(err) != fwra.Auth {
 		t.Fatalf("auth submit kind = %v", kind(err))
 	}
 
 	f2 := newFakeActions()
 	f2.dispatchErr = fwra.New(fwra.Transient, "blip")
 	a2 := newAccessForTest(t, f2)
-	if _, err := a2.SubmitConstructionPipeline(subRC(context.Background(), "k"), goodSpec()); kind(err) != fwra.Transient {
+	if _, err := a2.SubmitAgenticJob(subRC(context.Background(), "k"), goodSpec()); kind(err) != fwra.Transient {
 		t.Fatalf("transient submit kind = %v", kind(err))
 	}
 }
@@ -722,12 +722,12 @@ func TestSubmitErrorKinds(t *testing.T) {
 func TestCancel(t *testing.T) {
 	f := newFakeActions()
 	a := newAccessForTest(t, f)
-	h, _ := a.SubmitConstructionPipeline(subRC(context.Background(), "k"), goodSpec())
-	if err := a.CancelConstructionPipeline(obsRC(context.Background()), h); err != nil {
+	h, _ := a.SubmitAgenticJob(subRC(context.Background(), "k"), goodSpec())
+	if err := a.CancelAgenticJob(obsRC(context.Background()), h); err != nil {
 		t.Fatalf("cancel running: %v", err)
 	}
 	// cancel an absent run → seam NotFound → RA success
-	if err := a.CancelConstructionPipeline(obsRC(context.Background()), ParsePipelineHandle("run/999")); err != nil {
+	if err := a.CancelAgenticJob(obsRC(context.Background()), ParsePipelineHandle("run/999")); err != nil {
 		t.Fatalf("cancel absent = %v, want nil", err)
 	}
 }
@@ -768,11 +768,11 @@ func assertReplayShortCircuitsDispatch(ctx context.Context, t *testing.T) {
 	t.Helper()
 	f := newFakeActions()
 	a := newAccessForTest(t, f)
-	h1, err := a.SubmitConstructionPipeline(subRC(ctx, "same-key"), goodSpec())
+	h1, err := a.SubmitAgenticJob(subRC(ctx, "same-key"), goodSpec())
 	if err != nil {
 		t.Fatalf("submit1: %v", err)
 	}
-	h2, err := a.SubmitConstructionPipeline(subRC(ctx, "same-key"), goodSpec())
+	h2, err := a.SubmitAgenticJob(subRC(ctx, "same-key"), goodSpec())
 	if err != nil {
 		t.Fatalf("submit2: %v", err)
 	}
@@ -802,7 +802,7 @@ func assertConcurrentSubmitsConverge(ctx context.Context, t *testing.T, iter int
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			handles[idx], errs[idx] = a.SubmitConstructionPipeline(subRC(ctx, "race-key"), goodSpec())
+			handles[idx], errs[idx] = a.SubmitAgenticJob(subRC(ctx, "race-key"), goodSpec())
 		}(i)
 	}
 	wg.Wait()
@@ -854,13 +854,13 @@ func assertReplayAfterCompletion(ctx context.Context, t *testing.T) {
 	t.Helper()
 	f := newFakeActions()
 	a := newAccessForTest(t, f)
-	h1, err := a.SubmitConstructionPipeline(subRC(ctx, "done-key"), goodSpec())
+	h1, err := a.SubmitAgenticJob(subRC(ctx, "done-key"), goodSpec())
 	if err != nil {
 		t.Fatalf("submit1: %v", err)
 	}
 	f.runs[0].status = "completed"
 	f.runs[0].conclusion = "success"
-	h2, err := a.SubmitConstructionPipeline(subRC(ctx, "done-key"), goodSpec())
+	h2, err := a.SubmitAgenticJob(subRC(ctx, "done-key"), goodSpec())
 	if err != nil {
 		t.Fatalf("submit2: %v", err)
 	}
@@ -1047,21 +1047,21 @@ func commitShim(t *testing.T, captureDir string) string {
 // ---------------------------------------------------------------------------
 
 func TestNewLocalExec_RejectsEmptyRepoURL(t *testing.T) {
-	_, err := NewLocalExecConstructionPipelineAccess("", "p", fakeStateMCPBin(t), 0)
+	_, err := NewLocalExecAgenticJobAccess("", "p", fakeStateMCPBin(t), 0)
 	if kind(err) != fwra.ContractMisuse {
 		t.Fatalf("kind = %v, want ContractMisuse", kind(err))
 	}
 }
 
 func TestNewLocalExec_RejectsEmptyStateMCPBin(t *testing.T) {
-	_, err := NewLocalExecConstructionPipelineAccess("file:///tmp/x", "p", "", 0)
+	_, err := NewLocalExecAgenticJobAccess("file:///tmp/x", "p", "", 0)
 	if kind(err) != fwra.ContractMisuse {
 		t.Fatalf("kind = %v, want ContractMisuse", kind(err))
 	}
 }
 
 func TestNewLocalExec_RejectsMissingStateMCPBin(t *testing.T) {
-	_, err := NewLocalExecConstructionPipelineAccess("file:///tmp/x", "p", "/no/such/binary-xyz", 0)
+	_, err := NewLocalExecAgenticJobAccess("file:///tmp/x", "p", "/no/such/binary-xyz", 0)
 	if kind(err) != fwra.ContractMisuse {
 		t.Fatalf("kind = %v, want ContractMisuse", kind(err))
 	}
@@ -1070,7 +1070,7 @@ func TestNewLocalExec_RejectsMissingStateMCPBin(t *testing.T) {
 func TestNewLocalExec_RejectsNonLocalRepoURL(t *testing.T) {
 	// The worktree-per-activity executor operates git worktrees directly on the
 	// shared repo's filesystem path — a network URL cannot host a worktree.
-	_, err := NewLocalExecConstructionPipelineAccess("https://github.com/acme/repo.git", "p", fakeStateMCPBin(t), 0)
+	_, err := NewLocalExecAgenticJobAccess("https://github.com/acme/repo.git", "p", fakeStateMCPBin(t), 0)
 	if kind(err) != fwra.ContractMisuse {
 		t.Fatalf("kind = %v, want ContractMisuse", kind(err))
 	}
@@ -1126,9 +1126,9 @@ func waitForNoLingeringWorktrees(t *testing.T, repoDir string, timeout time.Dura
 
 func newLocalExecForTest(t *testing.T, repoURL string, runTimeout time.Duration) *localExecAccess {
 	t.Helper()
-	v, err := NewLocalExecConstructionPipelineAccess(repoURL, "test-project", fakeStateMCPBin(t), runTimeout)
+	v, err := NewLocalExecAgenticJobAccess(repoURL, "test-project", fakeStateMCPBin(t), runTimeout)
 	if err != nil {
-		t.Fatalf("NewLocalExecConstructionPipelineAccess: %v", err)
+		t.Fatalf("NewLocalExecAgenticJobAccess: %v", err)
 	}
 	a, ok := v.(*localExecAccess)
 	if !ok {
@@ -1143,7 +1143,7 @@ func TestLocalExecSubmit_ContractMisuse(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("empty idempotencyKey", func(t *testing.T) {
-		_, err := a.SubmitConstructionPipeline(fwra.Context{Context: ctx}, goodSpec())
+		_, err := a.SubmitAgenticJob(fwra.Context{Context: ctx}, goodSpec())
 		if kind(err) != fwra.ContractMisuse {
 			t.Fatalf("kind = %v, want ContractMisuse", kind(err))
 		}
@@ -1151,7 +1151,7 @@ func TestLocalExecSubmit_ContractMisuse(t *testing.T) {
 	t.Run("no steps", func(t *testing.T) {
 		spec := goodSpec()
 		spec.Steps = nil
-		_, err := a.SubmitConstructionPipeline(subRC(ctx, "k1"), spec)
+		_, err := a.SubmitAgenticJob(subRC(ctx, "k1"), spec)
 		if kind(err) != fwra.ContractMisuse {
 			t.Fatalf("kind = %v, want ContractMisuse", kind(err))
 		}
@@ -1160,7 +1160,7 @@ func TestLocalExecSubmit_ContractMisuse(t *testing.T) {
 		spec := goodSpec()
 		spec.ActivityID = ""
 		spec.DispatchInputs = map[string]string{"command": "service-construction", "component_id": "C-X"}
-		_, err := a.SubmitConstructionPipeline(subRC(ctx, "k2"), spec)
+		_, err := a.SubmitAgenticJob(subRC(ctx, "k2"), spec)
 		if kind(err) != fwra.ContractMisuse {
 			t.Fatalf("kind = %v, want ContractMisuse", kind(err))
 		}
@@ -1168,7 +1168,7 @@ func TestLocalExecSubmit_ContractMisuse(t *testing.T) {
 	t.Run("missing command dispatch input", func(t *testing.T) {
 		spec := goodSpec()
 		spec.DispatchInputs = map[string]string{"component_id": "C-X"}
-		_, err := a.SubmitConstructionPipeline(subRC(ctx, "k3"), spec)
+		_, err := a.SubmitAgenticJob(subRC(ctx, "k3"), spec)
 		if kind(err) != fwra.ContractMisuse {
 			t.Fatalf("kind = %v, want ContractMisuse", kind(err))
 		}
@@ -1181,10 +1181,10 @@ func TestLocalExecObserveCancel_HandleMisuse(t *testing.T) {
 	ctx := obsRC(context.Background())
 
 	for _, h := range []PipelineHandle{"", "run/42", "local:"} {
-		if _, err := a.ObserveConstructionPipeline(ctx, h); kind(err) != fwra.ContractMisuse {
+		if _, err := a.ObserveAgenticJob(ctx, h); kind(err) != fwra.ContractMisuse {
 			t.Fatalf("Observe(%q) kind = %v, want ContractMisuse", h, kind(err))
 		}
-		if err := a.CancelConstructionPipeline(ctx, h); kind(err) != fwra.ContractMisuse {
+		if err := a.CancelAgenticJob(ctx, h); kind(err) != fwra.ContractMisuse {
 			t.Fatalf("Cancel(%q) kind = %v, want ContractMisuse", h, kind(err))
 		}
 	}
@@ -1199,7 +1199,7 @@ func TestLocalExecObserveCancel_HandleMisuse(t *testing.T) {
 func TestLocalExecObserve_RestartLostHandle_TerminalFailed(t *testing.T) {
 	_, url := newBareRepo(t)
 	a := newLocalExecForTest(t, url, 0)
-	obs, err := a.ObserveConstructionPipeline(obsRC(context.Background()), "local:deadbeef")
+	obs, err := a.ObserveAgenticJob(obsRC(context.Background()), "local:deadbeef")
 	if err != nil {
 		t.Fatalf("Observe(lost handle) returned an error %v, want a terminal-failed observation with nil error", err)
 	}
@@ -1226,13 +1226,13 @@ func TestLocalExecObserve_KnownRunning_StillRunning(t *testing.T) {
 	a := newLocalExecForTest(t, url, 20*time.Second)
 
 	spec := localSpec("C-RUNNING", "someComponent", "service-construction")
-	handle, err := a.SubmitConstructionPipeline(subRC(context.Background(), "running-key"), spec)
+	handle, err := a.SubmitAgenticJob(subRC(context.Background(), "running-key"), spec)
 	if err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
 	// The subprocess is running (the shim sleeps); Observe must report Running, never the
 	// restart-lost terminal-failed path (the record IS in a.runs).
-	obs, err := a.ObserveConstructionPipeline(obsRC(context.Background()), handle)
+	obs, err := a.ObserveAgenticJob(obsRC(context.Background()), handle)
 	if err != nil {
 		t.Fatalf("Observe(running): %v", err)
 	}
@@ -1240,7 +1240,7 @@ func TestLocalExecObserve_KnownRunning_StillRunning(t *testing.T) {
 		t.Fatalf("Phase = %v, want PhaseRunning for a known in-flight run", obs.Phase)
 	}
 	// Clean up: cancel the sleeping subprocess so the test does not leak it.
-	if err := a.CancelConstructionPipeline(obsRC(context.Background()), handle); err != nil {
+	if err := a.CancelAgenticJob(obsRC(context.Background()), handle); err != nil {
 		t.Fatalf("Cancel: %v", err)
 	}
 	waitForTerminal(t, a, handle, 5*time.Second)
@@ -1249,7 +1249,7 @@ func TestLocalExecObserve_KnownRunning_StillRunning(t *testing.T) {
 func TestLocalExecCancel_UnknownHandle_NoopSuccess(t *testing.T) {
 	_, url := newBareRepo(t)
 	a := newLocalExecForTest(t, url, 0)
-	if err := a.CancelConstructionPipeline(obsRC(context.Background()), "local:deadbeef"); err != nil {
+	if err := a.CancelAgenticJob(obsRC(context.Background()), "local:deadbeef"); err != nil {
 		t.Fatalf("Cancel(unknown): unexpected error: %v", err)
 	}
 }
@@ -1275,7 +1275,7 @@ func waitForTerminal(t *testing.T, a *localExecAccess, handle PipelineHandle, ti
 	t.Helper()
 	deadline := time.Now().Add(timeout)
 	for {
-		obs, err := a.ObserveConstructionPipeline(obsRC(context.Background()), handle)
+		obs, err := a.ObserveAgenticJob(obsRC(context.Background()), handle)
 		if err != nil {
 			t.Fatalf("Observe: %v", err)
 		}
@@ -1307,7 +1307,7 @@ func TestLocalExecSubmit_HappyPath_SpawnsClaudeWithCorrectShapeAndPushesCommit(t
 	a := newLocalExecForTest(t, url, 10*time.Second)
 
 	spec := localSpec("C-BILLENG", "billingGatewayAccess", "service-construction")
-	handle, err := a.SubmitConstructionPipeline(subRC(context.Background(), "activity-key-1"), spec)
+	handle, err := a.SubmitAgenticJob(subRC(context.Background(), "activity-key-1"), spec)
 	if err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
@@ -1585,7 +1585,7 @@ func TestLocalExecSubmit_SecondPhase_ReattachesToExistingActivityBranch(t *testi
 	a := newLocalExecForTest(t, url, 10*time.Second)
 
 	spec1 := localSpec("C-BILLENG", "billingGatewayAccess", "service-requirements")
-	h1, err := a.SubmitConstructionPipeline(subRC(context.Background(), "phase-key-1"), spec1)
+	h1, err := a.SubmitAgenticJob(subRC(context.Background(), "phase-key-1"), spec1)
 	if err != nil {
 		t.Fatalf("Submit (phase 1): %v", err)
 	}
@@ -1594,7 +1594,7 @@ func TestLocalExecSubmit_SecondPhase_ReattachesToExistingActivityBranch(t *testi
 	}
 
 	spec2 := localSpec("C-BILLENG", "billingGatewayAccess", "service-construction")
-	h2, err := a.SubmitConstructionPipeline(subRC(context.Background(), "phase-key-2"), spec2)
+	h2, err := a.SubmitAgenticJob(subRC(context.Background(), "phase-key-2"), spec2)
 	if err != nil {
 		t.Fatalf("Submit (phase 2): %v", err)
 	}
@@ -1621,11 +1621,11 @@ func TestLocalExecSubmit_DuplicateKey_ConvergesWithoutRedispatch(t *testing.T) {
 	a := newLocalExecForTest(t, url, 10*time.Second)
 
 	spec := localSpec("C-BILLENG", "billingGatewayAccess", "service-construction")
-	h1, err := a.SubmitConstructionPipeline(subRC(context.Background(), "same-key"), spec)
+	h1, err := a.SubmitAgenticJob(subRC(context.Background(), "same-key"), spec)
 	if err != nil {
 		t.Fatalf("Submit (1): %v", err)
 	}
-	h2, err := a.SubmitConstructionPipeline(subRC(context.Background(), "same-key"), spec)
+	h2, err := a.SubmitAgenticJob(subRC(context.Background(), "same-key"), spec)
 	if err != nil {
 		t.Fatalf("Submit (2): %v", err)
 	}
@@ -1655,7 +1655,7 @@ func TestLocalExecObserve_NonZeroExit_Failed(t *testing.T) {
 	a := newLocalExecForTest(t, url, 10*time.Second)
 
 	spec := localSpec("C-FAIL", "someComponent", "service-construction")
-	handle, err := a.SubmitConstructionPipeline(subRC(context.Background(), "fail-key"), spec)
+	handle, err := a.SubmitAgenticJob(subRC(context.Background(), "fail-key"), spec)
 	if err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
@@ -1682,7 +1682,7 @@ func TestLocalExecObserve_Timeout_FailedWithTimeoutDiagnostic(t *testing.T) {
 
 	spec := localSpec("C-SLOW", "someComponent", "service-construction")
 	start := time.Now()
-	handle, err := a.SubmitConstructionPipeline(subRC(context.Background(), "slow-key"), spec)
+	handle, err := a.SubmitAgenticJob(subRC(context.Background(), "slow-key"), spec)
 	if err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
@@ -1707,7 +1707,7 @@ func TestLocalExecObserve_CleanExitNoCommit_Failed(t *testing.T) {
 	a := newLocalExecForTest(t, url, 10*time.Second)
 
 	spec := localSpec("C-NOCOMMIT", "someComponent", "service-construction")
-	handle, err := a.SubmitConstructionPipeline(subRC(context.Background(), "nocommit-key"), spec)
+	handle, err := a.SubmitAgenticJob(subRC(context.Background(), "nocommit-key"), spec)
 	if err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
@@ -1731,14 +1731,14 @@ func TestLocalExecCancel_Running_ConvergesToCancelledNeverFailed(t *testing.T) {
 	a := newLocalExecForTest(t, url, 20*time.Second)
 
 	spec := localSpec("C-CANCEL", "someComponent", "service-construction")
-	handle, err := a.SubmitConstructionPipeline(subRC(context.Background(), "cancel-key"), spec)
+	handle, err := a.SubmitAgenticJob(subRC(context.Background(), "cancel-key"), spec)
 	if err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
 
 	// Give the subprocess a moment to actually start before cancelling.
 	time.Sleep(200 * time.Millisecond)
-	if err := a.CancelConstructionPipeline(obsRC(context.Background()), handle); err != nil {
+	if err := a.CancelAgenticJob(obsRC(context.Background()), handle); err != nil {
 		t.Fatalf("Cancel: %v", err)
 	}
 
@@ -1761,17 +1761,17 @@ func TestLocalExecCancel_AlreadyTerminal_NoopSuccess(t *testing.T) {
 	a := newLocalExecForTest(t, url, 10*time.Second)
 
 	spec := localSpec("C-DONE", "someComponent", "service-construction")
-	handle, err := a.SubmitConstructionPipeline(subRC(context.Background(), "done-key"), spec)
+	handle, err := a.SubmitAgenticJob(subRC(context.Background(), "done-key"), spec)
 	if err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
 	waitForTerminal(t, a, handle, 10*time.Second)
 
-	if err := a.CancelConstructionPipeline(obsRC(context.Background()), handle); err != nil {
+	if err := a.CancelAgenticJob(obsRC(context.Background()), handle); err != nil {
 		t.Fatalf("Cancel(already-terminal): unexpected error: %v", err)
 	}
 	// still succeeded, not overwritten by the no-op cancel.
-	obs, err := a.ObserveConstructionPipeline(obsRC(context.Background()), handle)
+	obs, err := a.ObserveAgenticJob(obsRC(context.Background()), handle)
 	if err != nil {
 		t.Fatalf("Observe: %v", err)
 	}
@@ -1938,7 +1938,7 @@ func TestLocalExecObserve_NoCommit_EnrichesDiagnosticFromJSONEnvelope(t *testing
 		"exit 0\n")
 	a := newLocalExecForTest(t, url, 10*time.Second)
 
-	handle, err := a.SubmitConstructionPipeline(subRC(context.Background(), "obs-json-key"),
+	handle, err := a.SubmitAgenticJob(subRC(context.Background(), "obs-json-key"),
 		localSpec("C-OBSJSON", "someComponent", "service-construction"))
 	if err != nil {
 		t.Fatalf("Submit: %v", err)
@@ -1965,7 +1965,7 @@ func TestLocalExecObserve_NoCommit_NonJSONStdoutFallsBackToRawTail(t *testing.T)
 	installClaudeShim(t, "#!/bin/sh\necho 'Invalid API key · Please run /login'\nexit 0\n")
 	a := newLocalExecForTest(t, url, 10*time.Second)
 
-	handle, err := a.SubmitConstructionPipeline(subRC(context.Background(), "obs-raw-key"),
+	handle, err := a.SubmitAgenticJob(subRC(context.Background(), "obs-raw-key"),
 		localSpec("C-OBSRAW", "someComponent", "service-construction"))
 	if err != nil {
 		t.Fatalf("Submit: %v", err)
@@ -1987,7 +1987,7 @@ func TestLocalExecFailedRun_WritesDurableOutputLogThatSurvivesCleanup(t *testing
 		"exit 0\n")
 	a := newLocalExecForTest(t, url, 10*time.Second)
 
-	handle, err := a.SubmitConstructionPipeline(subRC(context.Background(), "obs-log-key"),
+	handle, err := a.SubmitAgenticJob(subRC(context.Background(), "obs-log-key"),
 		localSpec("C-OBSLOG", "someComponent", "service-construction"))
 	if err != nil {
 		t.Fatalf("Submit: %v", err)
@@ -2015,7 +2015,7 @@ func TestLocalExecSuccessfulRun_NoDiagnosticAndNoLogLitter(t *testing.T) {
 	commitShim(t, filepath.Join(t.TempDir(), "capture"))
 	a := newLocalExecForTest(t, url, 10*time.Second)
 
-	handle, err := a.SubmitConstructionPipeline(subRC(context.Background(), "obs-clean-key"),
+	handle, err := a.SubmitAgenticJob(subRC(context.Background(), "obs-clean-key"),
 		localSpec("C-OBSCLEAN", "someComponent", "service-construction"))
 	if err != nil {
 		t.Fatalf("Submit: %v", err)
@@ -2263,7 +2263,7 @@ func TestLocalExecSubmit_AllowUnsandboxedEscapeHatch_EndToEnd(t *testing.T) {
 	a := newLocalExecForTest(t, url, 10*time.Second)
 
 	spec := localSpec("C-ESCAPEHATCH", "billingGatewayAccess", "service-construction")
-	handle, err := a.SubmitConstructionPipeline(subRC(context.Background(), "escape-key-1"), spec)
+	handle, err := a.SubmitAgenticJob(subRC(context.Background(), "escape-key-1"), spec)
 	if err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
@@ -2346,11 +2346,11 @@ func TestLocalExecMergeJob_MergesNoFFAndDeletesBranch(t *testing.T) {
 	seedActivityBranch(t, bare, "C-M1", "work.txt", "branch content\n")
 	a := newLocalExecForTest(t, url, 0)
 
-	handle, err := a.SubmitConstructionPipeline(subRC(context.Background(), "merge-key-1"), mergeJobSpec("C-M1"))
+	handle, err := a.SubmitAgenticJob(subRC(context.Background(), "merge-key-1"), mergeJobSpec("C-M1"))
 	if err != nil {
 		t.Fatalf("Submit(merge): %v", err)
 	}
-	obs, err := a.ObserveConstructionPipeline(obsRC(context.Background()), handle)
+	obs, err := a.ObserveAgenticJob(obsRC(context.Background()), handle)
 	if err != nil {
 		t.Fatalf("Observe: %v", err)
 	}
@@ -2380,11 +2380,11 @@ func TestLocalExecMergeJob_ConflictFailsCleanly(t *testing.T) {
 	mainBefore := strings.TrimSpace(testGitOut(t, bare, "rev-parse", "main"))
 	a := newLocalExecForTest(t, url, 0)
 
-	handle, err := a.SubmitConstructionPipeline(subRC(context.Background(), "merge-key-2"), mergeJobSpec("C-M2"))
+	handle, err := a.SubmitAgenticJob(subRC(context.Background(), "merge-key-2"), mergeJobSpec("C-M2"))
 	if err != nil {
 		t.Fatalf("Submit(merge): %v", err)
 	}
-	obs, err := a.ObserveConstructionPipeline(obsRC(context.Background()), handle)
+	obs, err := a.ObserveAgenticJob(obsRC(context.Background()), handle)
 	if err != nil {
 		t.Fatalf("Observe: %v", err)
 	}
@@ -2418,11 +2418,11 @@ func TestLocalExecMergeJob_AlreadyMergedDeletesBranchOnly(t *testing.T) {
 	mainBefore := strings.TrimSpace(testGitOut(t, bare, "rev-parse", "main"))
 	a := newLocalExecForTest(t, url, 0)
 
-	handle, err := a.SubmitConstructionPipeline(subRC(context.Background(), "merge-key-3"), mergeJobSpec("C-M3"))
+	handle, err := a.SubmitAgenticJob(subRC(context.Background(), "merge-key-3"), mergeJobSpec("C-M3"))
 	if err != nil {
 		t.Fatalf("Submit(merge): %v", err)
 	}
-	obs, err := a.ObserveConstructionPipeline(obsRC(context.Background()), handle)
+	obs, err := a.ObserveAgenticJob(obsRC(context.Background()), handle)
 	if err != nil {
 		t.Fatalf("Observe: %v", err)
 	}
@@ -2443,11 +2443,11 @@ func TestLocalExecMergeJob_MissingBranchFails(t *testing.T) {
 	_, url := newBareRepo(t)
 	a := newLocalExecForTest(t, url, 0)
 
-	handle, err := a.SubmitConstructionPipeline(subRC(context.Background(), "merge-key-4"), mergeJobSpec("C-NOPE"))
+	handle, err := a.SubmitAgenticJob(subRC(context.Background(), "merge-key-4"), mergeJobSpec("C-NOPE"))
 	if err != nil {
 		t.Fatalf("Submit(merge): %v", err)
 	}
-	obs, err := a.ObserveConstructionPipeline(obsRC(context.Background()), handle)
+	obs, err := a.ObserveAgenticJob(obsRC(context.Background()), handle)
 	if err != nil {
 		t.Fatalf("Observe: %v", err)
 	}
@@ -2466,11 +2466,11 @@ func TestLocalExecMergeJob_IdempotencyConvergence(t *testing.T) {
 	seedActivityBranch(t, bare, "C-M5", "work.txt", "branch content\n")
 	a := newLocalExecForTest(t, url, 0)
 
-	h1, err := a.SubmitConstructionPipeline(subRC(context.Background(), "merge-key-5"), mergeJobSpec("C-M5"))
+	h1, err := a.SubmitAgenticJob(subRC(context.Background(), "merge-key-5"), mergeJobSpec("C-M5"))
 	if err != nil {
 		t.Fatalf("Submit(merge) #1: %v", err)
 	}
-	h2, err := a.SubmitConstructionPipeline(subRC(context.Background(), "merge-key-5"), mergeJobSpec("C-M5"))
+	h2, err := a.SubmitAgenticJob(subRC(context.Background(), "merge-key-5"), mergeJobSpec("C-M5"))
 	if err != nil {
 		t.Fatalf("Submit(merge) #2: %v", err)
 	}
@@ -2558,7 +2558,7 @@ func TestLocalExecSubmit_DesignJob_FirstOfSession_CreatesBranchOffMain_AllModes(
 
 			command := "mission-" + mode
 			spec := designSpec(command, branch, "Mission", mode)
-			handle, err := a.SubmitConstructionPipeline(subRC(context.Background(), fwra.IdempotencyKey("design-key-"+mode)), spec)
+			handle, err := a.SubmitAgenticJob(subRC(context.Background(), fwra.IdempotencyKey("design-key-"+mode)), spec)
 			if err != nil {
 				t.Fatalf("Submit(design %s): %v", mode, err)
 			}
@@ -2642,7 +2642,7 @@ func TestLocalExecSubmit_DesignJob_MissingCommand_ContractMisuse(t *testing.T) {
 	_, url := newBareRepo(t)
 	a := newLocalExecForTest(t, url, 0)
 	spec := designSpec("", "design/mission/s1", "Mission", "draft")
-	_, err := a.SubmitConstructionPipeline(subRC(context.Background(), "d-nocommand"), spec)
+	_, err := a.SubmitAgenticJob(subRC(context.Background(), "d-nocommand"), spec)
 	if kind(err) != fwra.ContractMisuse {
 		t.Fatalf("kind = %v, want ContractMisuse", kind(err))
 	}
@@ -2653,7 +2653,7 @@ func TestLocalExecSubmit_DesignJob_MissingTargetBranch_ContractMisuse(t *testing
 	_, url := newBareRepo(t)
 	a := newLocalExecForTest(t, url, 0)
 	spec := designSpec("mission-draft", "", "Mission", "draft")
-	_, err := a.SubmitConstructionPipeline(subRC(context.Background(), "d-nobranch"), spec)
+	_, err := a.SubmitAgenticJob(subRC(context.Background(), "d-nobranch"), spec)
 	if kind(err) != fwra.ContractMisuse {
 		t.Fatalf("kind = %v, want ContractMisuse", kind(err))
 	}
@@ -2673,7 +2673,7 @@ func TestLocalExecSubmit_DesignJob_ExistingSessionBranch_ReattachesToTip(t *test
 	a := newLocalExecForTest(t, url, 10*time.Second)
 
 	spec := designSpec("mission-draft", branch, "Mission", "draft")
-	handle, err := a.SubmitConstructionPipeline(subRC(context.Background(), "d-redraft"), spec)
+	handle, err := a.SubmitAgenticJob(subRC(context.Background(), "d-redraft"), spec)
 	if err != nil {
 		t.Fatalf("Submit(design redraft): %v", err)
 	}
@@ -2705,11 +2705,11 @@ func TestLocalExecSubmit_DesignJob_DuplicateKey_ConvergesWithoutRedispatch(t *te
 	a := newLocalExecForTest(t, url, 10*time.Second)
 
 	spec := designSpec("glossary-draft", branch, "Glossary", "draft")
-	h1, err := a.SubmitConstructionPipeline(subRC(context.Background(), "design-same-key"), spec)
+	h1, err := a.SubmitAgenticJob(subRC(context.Background(), "design-same-key"), spec)
 	if err != nil {
 		t.Fatalf("Submit (1): %v", err)
 	}
-	h2, err := a.SubmitConstructionPipeline(subRC(context.Background(), "design-same-key"), spec)
+	h2, err := a.SubmitAgenticJob(subRC(context.Background(), "design-same-key"), spec)
 	if err != nil {
 		t.Fatalf("Submit (2): %v", err)
 	}
@@ -2804,9 +2804,9 @@ func TestLocalExecSubmit_SeatsClaudePromptSurfaceBeforeSpawn(t *testing.T) {
 		"echo '{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false}'\n"+
 		"exit 0\n")
 
-	v, err := NewLocalExecConstructionPipelineAccess(url, "test-project", stateMCPBin, 10*time.Second)
+	v, err := NewLocalExecAgenticJobAccess(url, "test-project", stateMCPBin, 10*time.Second)
 	if err != nil {
-		t.Fatalf("NewLocalExecConstructionPipelineAccess: %v", err)
+		t.Fatalf("NewLocalExecAgenticJobAccess: %v", err)
 	}
 	a, ok := v.(*localExecAccess)
 	if !ok {
@@ -2815,7 +2815,7 @@ func TestLocalExecSubmit_SeatsClaudePromptSurfaceBeforeSpawn(t *testing.T) {
 
 	branch := "aiarch-design/mission/session-seat"
 	spec := designSpec("mission-draft", branch, "Mission", "draft")
-	handle, err := a.SubmitConstructionPipeline(subRC(context.Background(), "seat-key"), spec)
+	handle, err := a.SubmitAgenticJob(subRC(context.Background(), "seat-key"), spec)
 	if err != nil {
 		t.Fatalf("Submit: %v", err)
 	}

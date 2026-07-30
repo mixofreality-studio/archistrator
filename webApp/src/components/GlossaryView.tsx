@@ -14,27 +14,76 @@
  * visually-hidden polite live region (StageChip pattern, keyed by message)
  * announces the match count when filtering changes it.
  */
-import { useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useRef, useState, type ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
 import TextField from '@mui/material/TextField';
 import InputAdornment from '@mui/material/InputAdornment';
+import IconButton from '@mui/material/IconButton';
 import Chip from '@mui/material/Chip';
 import Stack from '@mui/material/Stack';
 import SearchIcon from '@mui/icons-material/Search';
+import ClearIcon from '@mui/icons-material/Close';
 import { toGlossaryView } from '../contracts/adapters';
 import type { ArtifactModelEnvelope } from '../contracts/types';
 import { useTokens } from '../utilities/theme/ThemeContext';
 import { UI_IDENTIFIERS } from '../utilities/constants/UIIdentifiers';
 import { CommentableList } from './comments/CommentableList';
 import { glossaryItemAnchor } from './comments/CommentContext';
+import { useCommittedSlotEnvelope } from './CommittedSlotsContext';
+import { StepLink } from './shared/StepLink';
 import {
+  buildUsageCorpus,
   chipCategories,
   filterGlossary,
   indexGlossaryItems,
   matchAnnouncement,
+  termUsage,
+  USAGE_STEP_LABELS,
+  type UsageChip,
 } from './glossaryLogic';
+
+/**
+ * The quiet per-term usage row: where this term is USED across the committed
+ * downstream artifacts, one chip-link per step ("Behaviors ×3" — counts per
+ * step, never a per-occurrence listing). Nothing renders for an unused term or
+ * before the downstream slots commit.
+ */
+function UsageChips({ index, chips }: { index: number; chips: UsageChip[] }): ReactNode {
+  const t = useTokens();
+  if (chips.length === 0) return null;
+  return (
+    <Box
+      data-testid={UI_IDENTIFIERS.Glossary.usage(index)}
+      sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.6, mt: 0.5 }}
+    >
+      {chips.map((c) => (
+        <StepLink
+          key={c.kind}
+          kind={c.kind}
+          label={`Used in ${String(c.count)} ${USAGE_STEP_LABELS[c.kind]} item${c.count === 1 ? '' : 's'}`}
+          sx={{
+            px: 0.7,
+            py: 0.15,
+            borderRadius: 1,
+            border: `1px solid ${t.line}`,
+            bgcolor: t.paperAlt,
+            fontFamily: t.mono,
+            fontSize: 10,
+            color: t.accent2,
+            letterSpacing: '0.02em',
+            '&:hover': { borderColor: t.accent, textDecoration: 'underline' },
+          }}
+          testId={UI_IDENTIFIERS.Glossary.usageLink(index, c.kind)}
+          underline="none"
+        >
+          {USAGE_STEP_LABELS[c.kind]} ×{c.count}
+        </StepLink>
+      ))}
+    </Box>
+  );
+}
 
 export function GlossaryView({
   envelope,
@@ -58,18 +107,40 @@ export function GlossaryView({
   const items = toGlossaryView(envelope);
   const [query, setQuery] = useState('');
   const [activeBase, setActiveBase] = useState<string | null>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
 
   // Items paired with their index in the ORIGINAL model array, so a per-term
   // comment anchors to `$.items[n]` regardless of the filtered/regrouped
   // display order — and duplicates keep distinct anchors.
   const entries = useMemo(() => indexGlossaryItems(items), [items]);
 
-  const categories = useMemo(() => chipCategories(entries), [entries]);
+  // Chip counts track the live query (text-only, ignoring the active category),
+  // so a chip never advertises stale totals while a filter is typed. The "All"
+  // chip's count is the query's grand total — the sum of the per-chip counts.
+  const categories = useMemo(() => chipCategories(entries, query), [entries, query]);
+  const allCount = categories.reduce((n, [, count]) => n + count, 0);
 
   const grouped = useMemo(
     () => filterGlossary(entries, query, activeBase),
     [entries, query, activeBase]
   );
+
+  // Cross-artifact term-usage joins: the committed downstream slots arrive via
+  // CommittedSlotsContext (no provider / not committed → empty corpus → no
+  // chips), the corpus + per-term counts are memoized once per glossary render.
+  const behaviorsEnvelope = useCommittedSlotEnvelope('scrubbedRequirements');
+  const volatilitiesEnvelope = useCommittedSlotEnvelope('volatilities');
+  const useCasesEnvelope = useCommittedSlotEnvelope('coreUseCases');
+  const systemEnvelope = useCommittedSlotEnvelope('system');
+  const usage = useMemo(() => {
+    const corpus = buildUsageCorpus({
+      scrubbedRequirements: behaviorsEnvelope,
+      volatilities: volatilitiesEnvelope,
+      coreUseCases: useCasesEnvelope,
+      system: systemEnvelope,
+    });
+    return new Map(entries.map((e) => [e.index, termUsage(e.item.term, corpus)]));
+  }, [entries, behaviorsEnvelope, volatilitiesEnvelope, useCasesEnvelope, systemEnvelope]);
 
   if (items.length === 0) {
     return (
@@ -97,6 +168,7 @@ export function GlossaryView({
       <Box sx={{ p: 2, borderBottom: `1px solid ${t.line}`, flexShrink: 0 }}>
         <TextField
           fullWidth
+          inputRef={searchRef}
           placeholder="Filter terms…"
           size="small"
           slotProps={{
@@ -106,6 +178,23 @@ export function GlossaryView({
                   <SearchIcon sx={{ fontSize: 18, color: t.muted }} />
                 </InputAdornment>
               ),
+              endAdornment:
+                query !== '' ? (
+                  <InputAdornment position="end">
+                    <IconButton
+                      aria-label="Clear filter"
+                      data-testid={UI_IDENTIFIERS.Glossary.CLEAR}
+                      edge="end"
+                      size="small"
+                      onClick={() => {
+                        setQuery('');
+                        searchRef.current?.focus();
+                      }}
+                    >
+                      <ClearIcon sx={{ fontSize: 18, color: t.muted }} />
+                    </IconButton>
+                  </InputAdornment>
+                ) : undefined,
             },
             htmlInput: {
               'aria-label': 'Filter glossary terms',
@@ -117,12 +206,20 @@ export function GlossaryView({
           onChange={(e) => {
             setQuery(e.target.value);
           }}
+          onKeyDown={(e) => {
+            // Escape clears an active query; when already empty, let it bubble
+            // (so an enclosing dialog/menu can handle its own Escape).
+            if (e.key === 'Escape' && query !== '') {
+              e.preventDefault();
+              setQuery('');
+            }
+          }}
         />
         <Stack useFlexGap direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1 }}>
           <Chip
             aria-pressed={activeBase === null}
             data-testid={UI_IDENTIFIERS.Glossary.CHIP_ALL}
-            label={`All · ${String(items.length)}`}
+            label={`All · ${String(allCount)}`}
             size="small"
             variant={activeBase === null ? 'filled' : 'outlined'}
             onClick={() => {
@@ -222,6 +319,7 @@ export function GlossaryView({
                       {' — '}
                       {e.item.definition}
                     </Typography>
+                    <UsageChips chips={usage.get(e.index) ?? []} index={e.index} />
                   </Box>
                 )}
               />

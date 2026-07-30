@@ -20,6 +20,7 @@ export function ArtifactPane({
   envelope,
   serviceContracts,
   useCasesEnvelope,
+  systemEnvelope,
 }: {
   artifact: ArtifactMeta;
   envelope: ArtifactModelEnvelope | undefined;
@@ -28,6 +29,9 @@ export function ArtifactPane({
   /** The committed coreUseCases envelope: lets the Architecture section label
    *  blank-titled dynamic views by their linked use case (F-QA2-51). */
   useCasesEnvelope?: ArtifactModelEnvelope | undefined;
+  /** The committed System envelope: lets the use-case carousel offer the
+   *  "View call chain" join into the Architecture step's Dynamic lens. */
+  systemEnvelope?: ArtifactModelEnvelope | undefined;
 }): ReactNode {
   const t = useTokens();
 
@@ -45,6 +49,7 @@ export function ArtifactPane({
     <ArtifactRenderer
       envelope={envelope}
       serviceContracts={serviceContracts}
+      systemEnvelope={systemEnvelope}
       title={artifact.title}
       useCasesEnvelope={useCasesEnvelope}
     />

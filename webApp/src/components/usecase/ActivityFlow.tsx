@@ -47,7 +47,9 @@ import type { ActivityNodeKind } from '../../contracts/types';
 const nodeTypes = { activity: ActivityNode, swimlane: SwimlaneBackground };
 const edgeTypes = { activity: ActivityEdge };
 
-const FIT_PADDING = 0.14;
+// Kept tight so the whole-graph fit fills the canvas — especially in full-diagram
+// mode, where the frame now has the entire row width (no meta sidebar) to spend.
+const FIT_PADDING = 0.1;
 
 // Per-step walkthrough focus: how tightly the camera zooms onto the current node
 // and how long the glide takes. FOCUS_ZOOM sits below ReactFlow's maxZoom (1.4) so

@@ -62,18 +62,18 @@ func assertForecastGoTemporalPostgres(t *testing.T, f OperationForecast) {
 	if !found {
 		t.Fatal("usage cost curve missing the 1.0 load point")
 	}
-	// signed net: SensitivityLow (cheaper) >= ExpectedNet >= SensitivityHigh (costlier)
-	net := f.PayoutVsShortfallForecast
-	if net.SensitivityLow.MinorUnits < net.ExpectedPerCycleNet.MinorUnits {
-		t.Fatalf("SensitivityLow (%d) should be >= ExpectedNet (%d)",
-			net.SensitivityLow.MinorUnits, net.ExpectedPerCycleNet.MinorUnits)
+	// signed net: SensitivityLow (cheaper) >= ExpectedCharge >= SensitivityHigh (costlier)
+	net := f.CostSensitivityForecast
+	if net.SensitivityLow.MinorUnits < net.ExpectedPerCycleCharge.MinorUnits {
+		t.Fatalf("SensitivityLow (%d) should be >= ExpectedCharge (%d)",
+			net.SensitivityLow.MinorUnits, net.ExpectedPerCycleCharge.MinorUnits)
 	}
-	if net.ExpectedPerCycleNet.MinorUnits < net.SensitivityHigh.MinorUnits {
-		t.Fatalf("ExpectedNet (%d) should be >= SensitivityHigh (%d)",
-			net.ExpectedPerCycleNet.MinorUnits, net.SensitivityHigh.MinorUnits)
+	if net.ExpectedPerCycleCharge.MinorUnits < net.SensitivityHigh.MinorUnits {
+		t.Fatalf("ExpectedCharge (%d) should be >= SensitivityHigh (%d)",
+			net.ExpectedPerCycleCharge.MinorUnits, net.SensitivityHigh.MinorUnits)
 	}
-	if net.ExpectedPerCycleNet.Currency != "USD" {
-		t.Fatalf("expected USD currency, got %q", net.ExpectedPerCycleNet.Currency)
+	if net.ExpectedPerCycleCharge.Currency != "USD" {
+		t.Fatalf("expected USD currency, got %q", net.ExpectedPerCycleCharge.Currency)
 	}
 }
 

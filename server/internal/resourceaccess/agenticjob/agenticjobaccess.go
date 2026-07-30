@@ -1,18 +1,18 @@
-// Package constructionpipeline is the constructionPipelineAccess component of the
+// Package agenticjob is the agenticJobAccess component of the
 // ResourceAccess layer — the port over the construction-pipeline runtime that
 // dispatches and observes agentic construction jobs (GitHub Actions realisation
-// below; see constructionPipelineAccess.md).
-package constructionpipeline
+// below; see agenticJobAccess.md).
+package agenticjob
 
 // actions.go is the GITHUB-ACTIONS-backed realisation of the
-// ConstructionPipelineAccess port (constructionPipelineAccess.md §6 infrastructure
+// AgenticJobAccess port (agenticJobAccess.md §6 infrastructure
 // mapping) — the C-CP-R rework that swapped the construction-pipeline runtime from
 // Argo Workflows on Kubernetes to the USER'S GitHub Actions (the 2026-06-09 pivot:
 // the user's GitHub + Actions, no Argo). It REPLACES the former argo.go /
 // argo_http_client.go.
 //
 // THE LOAD-BEARING LAYER RULE is unchanged from the frozen contract: this RA's
-// PUBLIC surface (constructionpipeline.go) carries ZERO GitHub-Actions lexemes
+// PUBLIC surface (agenticjob.go) carries ZERO GitHub-Actions lexemes
 // (workflow_dispatch, workflow_run, run id, ref, owner/repo) and imports NO
 // Temporal. The three atomic, infrastructure-opaque business verbs — submit /
 // observe / cancel one construction pipeline — are unchanged. ALL GitHub-Actions
@@ -144,7 +144,7 @@ type ghActionsClient interface {
 	// dispatch triggers a workflow_dispatch in the targeted repo+workflow carrying the
 	// idempotency token (which the dispatched aiarch workflow stamps into the run name as
 	// runName) PLUS the caller's optional extra DispatchInputs (the additive D-MSD-Δ
-	// design-dispatch inputs — constructionPipelineAccess.md §0d.6). The seam merges the
+	// design-dispatch inputs — agenticJobAccess.md §0d.6). The seam merges the
 	// extra inputs FIRST and the RA-controlled idempotency token LAST, so the token always
 	// wins a key collision and stays RA-controlled. It does NOT return a run id — GitHub
 	// creates the run asynchronously; the RA resolves it via listRunsByName.
@@ -162,16 +162,16 @@ type ghActionsClient interface {
 // ---------------------------------------------------------------------------
 
 // access is the concrete, GitHub-Actions-backed implementation of the
-// ConstructionPipelineAccess port (constructionPipelineAccess.md §6). It is
+// AgenticJobAccess port (agenticJobAccess.md §6). It is
 // UNEXPORTED — the package's only public surface is the generated
-// ConstructionPipelineAccess interface + models + the generated
-// NewGitHubActionsConstructionPipelineAccess constructor (plus the value-type
+// AgenticJobAccess interface + models + the generated
+// NewGitHubActionsAgenticJobAccess constructor (plus the value-type
 // behaviour free functions). It derives a
 // deterministic dedup token + run name from the caller-supplied idempotencyKey,
 // converges concurrent submits on the lowest-run-id canonical run, and maps a run's
 // status+conclusion back to an infrastructure-neutral PipelineObservation.
 //
-// The struct imports NO Temporal (layer rule, constructionPipelineAccess.md §2):
+// The struct imports NO Temporal (layer rule, agenticJobAccess.md §2):
 // the idempotencyKey arrives as an ordinary parameter, never read from ambient
 // context. All GitHub-Actions coupling is confined to the ghActionsClient seam.
 //
@@ -195,7 +195,7 @@ type access struct {
 }
 
 // compile-time proof the concrete impl satisfies the port.
-var _ ConstructionPipelineAccess = (*access)(nil)
+var _ AgenticJobAccess = (*access)(nil)
 
 const (
 	defaultResolveAttempts = 10
@@ -217,15 +217,15 @@ func liveOrSucceeded(runs []ghRun) []ghRun {
 }
 
 // newAccess builds an access over the supplied GitHub-Actions client seam. It is
-// the hand-written core both the generated NewGitHubActionsConstructionPipelineAccess
-// constructor (via newGitHubActionsConstructionPipelineAccess, which wires the
+// the hand-written core both the generated NewGitHubActionsAgenticJobAccess
+// constructor (via newGitHubActionsAgenticJobAccess, which wires the
 // concrete ghActionsRESTClient seam over the App identity) and the in-package tests
 // (which pass a fake ghActionsClient) build through. Returns the concrete *access so
 // the in-package tests can tune resolveAttempts/resolveDelay; the public path returns
-// the ConstructionPipelineAccess interface.
+// the AgenticJobAccess interface.
 func newAccess(client ghActionsClient) (*access, error) {
 	if client == nil {
-		return nil, fwra.New(fwra.ContractMisuse, "constructionpipeline.NewGitHubActionsConstructionPipelineAccess: nil actions client")
+		return nil, fwra.New(fwra.ContractMisuse, "agenticjob.NewGitHubActionsAgenticJobAccess: nil actions client")
 	}
 	return &access{
 		client:          client,
@@ -240,10 +240,10 @@ func newAccess(client ghActionsClient) (*access, error) {
 // the RA + its fake share it without a satellite import.
 const runNamePrefix = "aiarch-cp-"
 
-// SubmitConstructionPipeline converges the caller-supplied idempotencyKey on a
+// SubmitAgenticJob converges the caller-supplied idempotencyKey on a
 // single canonical GitHub Actions run and returns its handle (non-blocking on
 // completion). Re-submitting the same key returns the SAME handle without launching
-// a second effective run (constructionPipelineAccess.md §2.1). The convergence
+// a second effective run (agenticJobAccess.md §2.1). The convergence
 // mechanism is documented in the file header (probe → dispatch → resolve → select
 // lowest-id canonical → cancel siblings).
 //
@@ -255,7 +255,7 @@ const runNamePrefix = "aiarch-cp-"
 // checkout. A non-empty, well-formed spec is still required (a malformed spec is a
 // caller pre-condition violation → ContractMisuse), preserving the contract's §2.1
 // pre-conditions.
-func (a *access) SubmitConstructionPipeline(rc fwra.Context, spec PipelineSpec) (PipelineHandle, error) {
+func (a *access) SubmitAgenticJob(rc fwra.Context, spec PipelineSpec) (PipelineHandle, error) {
 	// The cross-cutting ctx + idempotencyKey now ride the ResourceAccess call Context
 	// (fwra.Context embeds context.Context and carries the caller-supplied
 	// IdempotencyKey); the package still never reads Temporal — the key is an ordinary
@@ -263,7 +263,7 @@ func (a *access) SubmitConstructionPipeline(rc fwra.Context, spec PipelineSpec) 
 	ctx := rc.Context
 	idempotencyKey := rc.IdempotencyKey
 	if idempotencyKey.IsZero() {
-		return "", fwra.New(fwra.ContractMisuse, "SubmitConstructionPipeline: empty idempotencyKey")
+		return "", fwra.New(fwra.ContractMisuse, "SubmitAgenticJob: empty idempotencyKey")
 	}
 	if err := validateSpec(spec); err != nil {
 		return "", err
@@ -309,7 +309,7 @@ func (a *access) SubmitConstructionPipeline(rc fwra.Context, spec PipelineSpec) 
 		// Dispatched but the run never surfaced within the resolve window — transient
 		// (GitHub may still be creating it); the Manager retries the whole submit,
 		// which is idempotent (the probe will then find it).
-		return "", fwra.New(fwra.Transient, "SubmitConstructionPipeline: dispatched run did not surface within resolve window")
+		return "", fwra.New(fwra.Transient, "SubmitAgenticJob: dispatched run did not surface within resolve window")
 	}
 
 	// 4 + 5. SELECT canonical + RECONCILE siblings. Prefer the live/succeeded runs so a
@@ -375,11 +375,11 @@ func (a *access) resolveAfterDispatch(ctx context.Context, tgt ghTarget, runName
 	return nil, nil
 }
 
-// ObserveConstructionPipeline reads the canonical run's status+conclusion and maps
+// ObserveAgenticJob reads the canonical run's status+conclusion and maps
 // it to an infrastructure-neutral PipelineObservation
-// (constructionPipelineAccess.md §2.2). Pure read; no side effects. An unknown /
+// (agenticJobAccess.md §2.2). Pure read; no side effects. An unknown /
 // GC'd handle surfaces as fwra.NotFound.
-func (a *access) ObserveConstructionPipeline(rc fwra.Context, handle PipelineHandle) (PipelineObservation, error) {
+func (a *access) ObserveAgenticJob(rc fwra.Context, handle PipelineHandle) (PipelineObservation, error) {
 	ctx := rc.Context
 	runID, tgt, err := a.runIDFromHandle(handle)
 	if err != nil {
@@ -392,12 +392,12 @@ func (a *access) ObserveConstructionPipeline(rc fwra.Context, handle PipelineHan
 	return observationFrom(handle, run), nil
 }
 
-// CancelConstructionPipeline requests cancellation of the canonical run. Cancelling
+// CancelAgenticJob requests cancellation of the canonical run. Cancelling
 // an already-terminal / already-cancelled / unknown run is a no-op SUCCESS — the
 // desired post-condition ("no further steps will start") already holds, which makes
 // cancel safe to retry against the operator-pause race
-// (constructionPipelineAccess.md §2.3). The seam maps GitHub's 409/404 to success.
-func (a *access) CancelConstructionPipeline(rc fwra.Context, handle PipelineHandle) error {
+// (agenticJobAccess.md §2.3). The seam maps GitHub's 409/404 to success.
+func (a *access) CancelAgenticJob(rc fwra.Context, handle PipelineHandle) error {
 	ctx := rc.Context
 	runID, tgt, err := a.runIDFromHandle(handle)
 	if err != nil {
@@ -455,16 +455,16 @@ func (a *access) handleFor(tgt ghTarget, runID int64) PipelineHandle {
 // (the construction-repo default — the seam substitutes its configured repo).
 func (a *access) runIDFromHandle(handle PipelineHandle) (int64, ghTarget, error) {
 	if PipelineHandleIsZero(handle) {
-		return 0, ghTarget{}, fwra.New(fwra.ContractMisuse, "constructionpipeline: zero PipelineHandle")
+		return 0, ghTarget{}, fwra.New(fwra.ContractMisuse, "agenticjob: zero PipelineHandle")
 	}
 	runPart, targetPart, hasTarget := strings.Cut(string(handle), handleSep)
 	kind, rest, ok := strings.Cut(runPart, "/")
 	if !ok || kind != "run" || rest == "" {
-		return 0, ghTarget{}, fwra.New(fwra.ContractMisuse, "constructionpipeline: malformed PipelineHandle")
+		return 0, ghTarget{}, fwra.New(fwra.ContractMisuse, "agenticjob: malformed PipelineHandle")
 	}
 	id, perr := strconv.ParseInt(rest, 10, 64)
 	if perr != nil {
-		return 0, ghTarget{}, fwra.New(fwra.ContractMisuse, "constructionpipeline: malformed PipelineHandle run id")
+		return 0, ghTarget{}, fwra.New(fwra.ContractMisuse, "agenticjob: malformed PipelineHandle run id")
 	}
 	if !hasTarget {
 		return id, ghTarget{}, nil
@@ -473,7 +473,7 @@ func (a *access) runIDFromHandle(handle PipelineHandle) (int64, ghTarget, error)
 	owner, restTarget, ok1 := strings.Cut(targetPart, "/")
 	repo, workflowFile, ok2 := strings.Cut(restTarget, "/")
 	if !ok1 || !ok2 || owner == "" || repo == "" || workflowFile == "" {
-		return 0, ghTarget{}, fwra.New(fwra.ContractMisuse, "constructionpipeline: malformed PipelineHandle target")
+		return 0, ghTarget{}, fwra.New(fwra.ContractMisuse, "agenticjob: malformed PipelineHandle target")
 	}
 	return id, ghTarget{owner: owner, repo: repo, workflowFile: workflowFile}, nil
 }
@@ -530,7 +530,7 @@ func validateSpec(spec PipelineSpec) error {
 // ---------------------------------------------------------------------------
 
 // observationFrom maps a GitHub Actions run's status+conclusion to an
-// infrastructure-neutral PipelineObservation (constructionPipelineAccess.md §6).
+// infrastructure-neutral PipelineObservation (agenticJobAccess.md §6).
 // GitHub's run-level model has no per-step breakdown on the run object (jobs are a
 // separate fetch the contract does not need — Non-goal #4 keeps observe a single
 // cohesive read), so Steps is left empty and the observation carries phase + (on
@@ -581,7 +581,7 @@ func mapPhase(status, conclusion string) PipelinePhase {
 }
 
 // neutralDiagnostic builds an infrastructure-neutral failure summary for the
-// Manager's intervention decision (constructionPipelineAccess.md §2.2 / Non-goal #4
+// Manager's intervention decision (agenticJobAccess.md §2.2 / Non-goal #4
 // — a SUMMARY, never a log firehose). It names the terminal outcome with no
 // GitHub/Actions lexeme (the conclusion words success/failure/timed_out etc. are
 // generic CI vocabulary, not GitHub-proprietary).
@@ -669,14 +669,14 @@ var _ ghActionsClient = (*ghActionsRESTClient)(nil)
 // tokenRefreshSkew re-mints the installation token a little before its hard expiry.
 const tokenRefreshSkew = 60 * time.Second
 
-// newGitHubActionsConstructionPipelineAccess is the hand-written, unexported builder
-// behind the generated NewGitHubActionsConstructionPipelineAccess constructor
+// newGitHubActionsAgenticJobAccess is the hand-written, unexported builder
+// behind the generated NewGitHubActionsAgenticJobAccess constructor
 // (option-1 delegated DI). It wires the token-caching ghActionsRESTClient seam over
 // the framework *fwgithub.AppClient + the repo/workflow config, then the access impl,
-// returning the ConstructionPipelineAccess interface so the concrete impl + its seam
+// returning the AgenticJobAccess interface so the concrete impl + its seam
 // stay unexported. The composition root (cmd/server/main.go) builds the App client via
 // fwgithub.NewAppClient and passes it here.
-func newGitHubActionsConstructionPipelineAccess(app *fwgithub.AppClient, owner, repo, workflowFile, ref string, installationID int64) (ConstructionPipelineAccess, error) {
+func newGitHubActionsAgenticJobAccess(app *fwgithub.AppClient, owner, repo, workflowFile, ref string, installationID int64) (AgenticJobAccess, error) {
 	seam, err := newActionsRESTClient(app, owner, repo, workflowFile, ref, installationID)
 	if err != nil {
 		return nil, err
@@ -690,16 +690,16 @@ func newGitHubActionsConstructionPipelineAccess(app *fwgithub.AppClient, owner, 
 // is minted lazily on first use.
 func newActionsRESTClient(app *fwgithub.AppClient, owner, repo, workflowFile, ref string, installationID int64) (*ghActionsRESTClient, error) {
 	if app == nil {
-		return nil, fwra.New(fwra.ContractMisuse, "constructionpipeline: nil github app client")
+		return nil, fwra.New(fwra.ContractMisuse, "agenticjob: nil github app client")
 	}
 	if strings.TrimSpace(owner) == "" {
-		return nil, fwra.New(fwra.ContractMisuse, "constructionpipeline: empty Owner")
+		return nil, fwra.New(fwra.ContractMisuse, "agenticjob: empty Owner")
 	}
 	if strings.TrimSpace(repo) == "" {
-		return nil, fwra.New(fwra.ContractMisuse, "constructionpipeline: empty Repo")
+		return nil, fwra.New(fwra.ContractMisuse, "agenticjob: empty Repo")
 	}
 	if strings.TrimSpace(workflowFile) == "" {
-		return nil, fwra.New(fwra.ContractMisuse, "constructionpipeline: empty WorkflowFile")
+		return nil, fwra.New(fwra.ContractMisuse, "agenticjob: empty WorkflowFile")
 	}
 	ref = strings.TrimSpace(ref)
 	if ref == "" {
@@ -784,7 +784,7 @@ func (c *ghActionsRESTClient) dispatch(ctx context.Context, tgt ghTarget, idempo
 	}
 	// Merge the caller's optional extra inputs FIRST, then stamp the RA-controlled
 	// idempotency token LAST so it wins any key collision (the load-bearing dedup /
-	// run-name anchor stays RA-controlled — constructionPipelineAccess.md §0d.6).
+	// run-name anchor stays RA-controlled — agenticJobAccess.md §0d.6).
 	inputs := make(map[string]string, len(dispatchInputs)+1)
 	maps.Copy(inputs, dispatchInputs)
 	inputs[fwgithub.DispatchInputKeyIdempotency] = idempotencyToken
@@ -929,13 +929,13 @@ func StepOutcomeString(o StepOutcome) string {
 // fall-back-to-default case).
 func RepoTargetIsZero(t RepoTarget) bool { return t.Owner == "" && t.Name == "" }
 
-// Package constructionpipeline is the constructionPipelineAccess component of the
+// Package agenticjob is the agenticJobAccess component of the
 // aiarch server's ResourceAccess layer — the INFRASTRUCTURE-OPAQUE port over the
 // construction-task face of WorkflowRuntime volatility
-// (constructionPipelineAccess.md). It is the only component permitted to call the
+// (agenticJobAccess.md). It is the only component permitted to call the
 // constructionPipelineRuntime Resource (architecture.dsl line 284).
 //
-// THE LOAD-BEARING LAYER RULE (constructionPipelineAccess.md §1, §3;
+// THE LOAD-BEARING LAYER RULE (agenticJobAccess.md §1, §3;
 // [[the-method-layers]] "Temporal mapping"): this RA fronts the USER'S GitHub
 // Actions (the 2026-06-09 pivot; the C-CP-R rework swapped the runtime from Argo
 // Workflows on Kubernetes to GitHub Actions), yet its PUBLIC surface carries ZERO
@@ -946,7 +946,7 @@ func RepoTargetIsZero(t RepoTarget) bool { return t.Owner == "" && t.Name == "" 
 // convergence) and actions_http_client.go (the concrete seam over the github
 // satellite behind it), and to the github satellite itself.
 //
-// Idempotency on the write verb (SubmitConstructionPipeline) is carried by a
+// Idempotency on the write verb (SubmitAgenticJob) is carried by a
 // CALLER-SUPPLIED idempotencyKey (the deterministic continuity token), never read
 // from ambient Temporal context — the same move artifactAccess /
 // durableExecutionAccess use. GitHub's workflow_dispatch has no duplicate dedup, so
@@ -966,7 +966,7 @@ func RepoTargetIsZero(t RepoTarget) bool { return t.Owner == "" && t.Name == "" 
 // alias so this component's contract reads in its own terms while every RA
 // component shares one fixed enum. Construct with fwra.New / fwra.Wrap using the
 // shared kinds. The contract's logical error vocabulary
-// (constructionPipelineAccess.md §3 PipelineAccessError) maps onto the shared
+// (agenticJobAccess.md §3 PipelineAccessError) maps onto the shared
 // kinds as follows:
 //
 //   - ErrTransient       → fwra.Transient        (retryable: GitHub 429 / 5xx)
@@ -980,12 +980,12 @@ func RepoTargetIsZero(t RepoTarget) bool { return t.Owner == "" && t.Name == "" 
 // GitHub-Actions rework; only the underlying fault sources differ (GitHub REST
 // status codes now drive the classification, via the satellite's ClassifyStatus).
 // The contract's ErrCapacity (a HARD, non-retryable runtime-capacity stall the
-// Manager escalates to interventionEngine, constructionPipelineAccess.md §6 OQ4)
+// Manager escalates to interventionEngine, agenticJobAccess.md §6 OQ4)
 // maps to fwra.QuotaExhausted, whose DefaultRetryable() is false — preserving the
 // "non-retryable + escalate" classification the senior review confirmed.
 type Error = fwra.Error
 
-// variant.go holds the DRY-RUN variant stub for constructionPipelineAccess — the
+// variant.go holds the DRY-RUN variant stub for agenticJobAccess — the
 // in-memory profile that backs the UC3 construction Worker when
 // ARCHISTRATOR_CONSTRUCTION_DRYRUN=true, folded out of cmd/server (construction_dryrun.go)
 // into the owning package. Every submit instantly "succeeds": Submit returns a
@@ -1000,37 +1000,37 @@ type Error = fwra.Error
 // server-side LLM worker seam.
 //
 // The REAL GitHub-Actions variant is the generated DI constructor
-// NewGitHubActionsConstructionPipelineAccess (contract.gen.go); the composition root
+// NewGitHubActionsAgenticJobAccess (contract.gen.go); the composition root
 // builds the shared *fwgithub.AppClient satellite and passes it in.
 
-// NewDryRunConstructionPipelineAccess returns the in-memory dry-run pipeline stub.
-func NewDryRunConstructionPipelineAccess() ConstructionPipelineAccess {
+// NewDryRunAgenticJobAccess returns the in-memory dry-run pipeline stub.
+func NewDryRunAgenticJobAccess() AgenticJobAccess {
 	return dryRunPipeline{}
 }
 
 type dryRunPipeline struct{}
 
-var _ ConstructionPipelineAccess = dryRunPipeline{}
+var _ AgenticJobAccess = dryRunPipeline{}
 
-func (dryRunPipeline) SubmitConstructionPipeline(_ fwra.Context, spec PipelineSpec) (PipelineHandle, error) {
+func (dryRunPipeline) SubmitAgenticJob(_ fwra.Context, spec PipelineSpec) (PipelineHandle, error) {
 	return PipelineHandle("dryrun:" + string(spec.ActivityID)), nil
 }
 
-func (dryRunPipeline) ObserveConstructionPipeline(_ fwra.Context, handle PipelineHandle) (PipelineObservation, error) {
+func (dryRunPipeline) ObserveAgenticJob(_ fwra.Context, handle PipelineHandle) (PipelineObservation, error) {
 	return PipelineObservation{Handle: handle, Phase: PhaseSucceeded}, nil
 }
 
-func (dryRunPipeline) CancelConstructionPipeline(_ fwra.Context, _ PipelineHandle) error {
+func (dryRunPipeline) CancelAgenticJob(_ fwra.Context, _ PipelineHandle) error {
 	return nil
 }
 
-// localexec.go is the LOCAL-EXECUTOR realisation of the ConstructionPipelineAccess
+// localexec.go is the LOCAL-EXECUTOR realisation of the AgenticJobAccess
 // port (local-first-init-funnel Task 6, docs/superpowers/plans/2026-07-19-local-
 // first-init-funnel.md) — the THIRD construction-dispatch arm alongside the
 // GitHub-Actions-backed realisation (defined earlier in this file) and the
 // in-memory dry-run stub
-// (NewDryRunConstructionPipelineAccess). Selected by cmd/server/hooks.go's
-// FinalizeConstructionPipelineAccess for a LOCAL-profile boot with NO GitHub App
+// (NewDryRunAgenticJobAccess). Selected by cmd/server/hooks.go's
+// FinalizeAgenticJobAccess for a LOCAL-profile boot with NO GitHub App
 // creds configured (orthogonal to the projectstate substrate profile, exactly as
 // hooks.go documents for the existing local-WITH-creds arm): "dispatch" means spawn
 // a headless `claude` subprocess directly on the developer's own machine, riding
@@ -1039,7 +1039,7 @@ func (dryRunPipeline) CancelConstructionPipeline(_ fwra.Context, _ PipelineHandl
 // triggering a GitHub Actions workflow_dispatch.
 //
 // SAME THREE-VERB PORT, SAME PROMPT CONTRACT: this realisation satisfies the exact
-// ConstructionPipelineAccess surface the GitHub-Actions realisation does (Submit/
+// AgenticJobAccess surface the GitHub-Actions realisation does (Submit/
 // Observe/Cancel) — the
 // Manager (constructactivity.go) neither knows nor cares which arm it is talking
 // to. The prompt handed to `claude` — "/<command> <component_id> <activity_id>" —
@@ -1051,7 +1051,7 @@ func (dryRunPipeline) CancelConstructionPipeline(_ fwra.Context, _ PipelineHandl
 // envActivityID/envTargetBranch/envStateRoot).
 //
 // THREE JOB SHAPES ON THE ONE SUBMIT SURFACE (the discriminator):
-// SubmitConstructionPipeline serves THREE distinct dispatch shapes, discriminated off
+// SubmitAgenticJob serves THREE distinct dispatch shapes, discriminated off
 // DispatchInputs (never off ActivityID, which is CONSTRUCT-ONLY):
 //
 //   - CONSTRUCT (the default) — a headless claude run on the activity/<id> branch.
@@ -1078,7 +1078,7 @@ func (dryRunPipeline) CancelConstructionPipeline(_ fwra.Context, _ PipelineHandl
 //     not a claude run at all (see below).
 //
 // WHY EVERY DISPATCH GETS A GIT WORKTREE (the worktree-per-activity rework,
-// superseding the original fresh-clone-per-dispatch): SubmitConstructionPipeline
+// superseding the original fresh-clone-per-dispatch): SubmitAgenticJob
 // runs `git worktree add` against the configured repo's LOCAL filesystem path (the
 // constructor now REQUIRES a local file:// / plain-path repoURL — a worktree cannot
 // span the network), creating (off main) or re-attaching to the deterministic
@@ -1135,7 +1135,7 @@ const localExecWaitDelay = 5 * time.Second
 
 // localHandlePrefix distinguishes a local-executor handle from actions.go's
 // "run/<id>" GitHub-Actions handle shape — the two realisations are never mixed
-// (a given ConstructionPipelineAccess instance is exactly one arm), but keeping the
+// (a given AgenticJobAccess instance is exactly one arm), but keeping the
 // shapes visually distinct aids debugging shared logs/audit trails.
 const localHandlePrefix = "local:"
 
@@ -1164,7 +1164,7 @@ type localRun struct {
 	cancel     context.CancelFunc // cancels the claude subprocess's bounded run context
 }
 
-// localExecAccess is the concrete local-executor ConstructionPipelineAccess. It
+// localExecAccess is the concrete local-executor AgenticJobAccess. It
 // imports NO Temporal (layer rule, same as access — the idempotencyKey arrives as
 // an ordinary rc.IdempotencyKey parameter).
 type localExecAccess struct {
@@ -1186,9 +1186,9 @@ type localExecAccess struct {
 	runs map[string]*localRun // keyed by dedupToken(idempotencyKey)
 }
 
-var _ ConstructionPipelineAccess = (*localExecAccess)(nil)
+var _ AgenticJobAccess = (*localExecAccess)(nil)
 
-// NewLocalExecConstructionPipelineAccess builds the local-executor realisation.
+// NewLocalExecAgenticJobAccess builds the local-executor realisation.
 // repoURL must address a LOCAL repo — a file:// URL or a plain filesystem path
 // (local mode always passes the same value the projectstate GitStore was
 // configured with — cfg.ProjectStateGitRepoURL, a file:// path): the
@@ -1208,10 +1208,10 @@ var _ ConstructionPipelineAccess = (*localExecAccess)(nil)
 // the activity branch). Best-effort: a prune failure (e.g. the repo does not
 // exist yet) is NOT a constructor error — the same fault surfaces per-dispatch
 // with a proper diagnostic.
-func NewLocalExecConstructionPipelineAccess(repoURL, projectID, stateMCPBin string, runTimeout time.Duration) (ConstructionPipelineAccess, error) {
+func NewLocalExecAgenticJobAccess(repoURL, projectID, stateMCPBin string, runTimeout time.Duration) (AgenticJobAccess, error) {
 	repoURL = strings.TrimSpace(repoURL)
 	if repoURL == "" {
-		return nil, fwra.New(fwra.ContractMisuse, "constructionpipeline.NewLocalExecConstructionPipelineAccess: empty repoURL")
+		return nil, fwra.New(fwra.ContractMisuse, "agenticjob.NewLocalExecAgenticJobAccess: empty repoURL")
 	}
 	repoPath, err := localRepoPath(repoURL)
 	if err != nil {
@@ -1219,10 +1219,10 @@ func NewLocalExecConstructionPipelineAccess(repoURL, projectID, stateMCPBin stri
 	}
 	stateMCPBin = strings.TrimSpace(stateMCPBin)
 	if stateMCPBin == "" {
-		return nil, fwra.New(fwra.ContractMisuse, "constructionpipeline.NewLocalExecConstructionPipelineAccess: empty stateMCPBin")
+		return nil, fwra.New(fwra.ContractMisuse, "agenticjob.NewLocalExecAgenticJobAccess: empty stateMCPBin")
 	}
 	if _, err := os.Stat(stateMCPBin); err != nil {
-		return nil, fwra.Wrap(fwra.ContractMisuse, err, "constructionpipeline.NewLocalExecConstructionPipelineAccess: aiarch-state-mcp binary not found")
+		return nil, fwra.Wrap(fwra.ContractMisuse, err, "agenticjob.NewLocalExecAgenticJobAccess: aiarch-state-mcp binary not found")
 	}
 	if runTimeout <= 0 {
 		runTimeout = defaultLocalRunTimeout
@@ -1251,7 +1251,7 @@ func localRepoPath(repoURL string) (string, error) {
 		return p, nil
 	}
 	if strings.Contains(repoURL, "://") {
-		return "", fwra.New(fwra.ContractMisuse, "constructionpipeline.NewLocalExecConstructionPipelineAccess: worktree executor requires a local file:// or plain-path repoURL, got "+repoURL)
+		return "", fwra.New(fwra.ContractMisuse, "agenticjob.NewLocalExecAgenticJobAccess: worktree executor requires a local file:// or plain-path repoURL, got "+repoURL)
 	}
 	return repoURL, nil
 }
@@ -1261,17 +1261,17 @@ func localRepoPath(repoURL string) (string, error) {
 // file-header note on why this is duplicated rather than shared.
 func localBranchName(activityID string) string { return "activity/" + activityID }
 
-// SubmitConstructionPipeline converges the caller-supplied idempotencyKey on a
+// SubmitAgenticJob converges the caller-supplied idempotencyKey on a
 // single in-memory run record and returns its handle, spawning the claude
 // subprocess ONLY on the first submit for a given key (idempotent convergence,
-// mirroring actions.go's SubmitConstructionPipeline — same contract, different
+// mirroring actions.go's SubmitAgenticJob — same contract, different
 // executor). A pre-spawn failure (git clone/checkout, missing dispatch inputs)
 // returns an error and leaves NO run record, so a retry with the SAME key tries
 // again cleanly; once the subprocess has started, Submit returns success and the
-// eventual outcome is observable only via ObserveConstructionPipeline.
-func (a *localExecAccess) SubmitConstructionPipeline(rc fwra.Context, spec PipelineSpec) (PipelineHandle, error) {
+// eventual outcome is observable only via ObserveAgenticJob.
+func (a *localExecAccess) SubmitAgenticJob(rc fwra.Context, spec PipelineSpec) (PipelineHandle, error) {
 	if rc.IdempotencyKey.IsZero() {
-		return "", fwra.New(fwra.ContractMisuse, "SubmitConstructionPipeline: empty idempotencyKey")
+		return "", fwra.New(fwra.ContractMisuse, "SubmitAgenticJob: empty idempotencyKey")
 	}
 	if err := validateSpec(spec); err != nil {
 		return "", err
@@ -1294,7 +1294,7 @@ func (a *localExecAccess) SubmitConstructionPipeline(rc fwra.Context, spec Pipel
 
 	activityID := strings.TrimSpace(string(spec.ActivityID))
 	if activityID == "" {
-		return "", fwra.New(fwra.ContractMisuse, "SubmitConstructionPipeline: empty ActivityID")
+		return "", fwra.New(fwra.ContractMisuse, "SubmitAgenticJob: empty ActivityID")
 	}
 	// Policy-gated local merge job (local-merge-and-policy Commit 1): a dispatch
 	// carrying DispatchInputs["job"]="merge" is NOT a claude run — it merges the
@@ -1311,28 +1311,28 @@ func (a *localExecAccess) SubmitConstructionPipeline(rc fwra.Context, spec Pipel
 	}
 	command := strings.TrimSpace(spec.DispatchInputs[dispatchInputCommandKey])
 	if command == "" {
-		return "", fwra.New(fwra.ContractMisuse, `SubmitConstructionPipeline: missing DispatchInputs["command"]`)
+		return "", fwra.New(fwra.ContractMisuse, `SubmitAgenticJob: missing DispatchInputs["command"]`)
 	}
 	componentID := spec.DispatchInputs[dispatchInputComponentIDKey]
 
 	return a.submitClaudeRun(rc, constructDispatchPlan(a.projectID, activityID, command, componentID))
 }
 
-// submitDesignJob is the DESIGN arm of SubmitConstructionPipeline — the local-executor
+// submitDesignJob is the DESIGN arm of SubmitAgenticJob — the local-executor
 // counterpart of aiarch-design.yml's draft job. It validates the design dispatch inputs
 // (command + target_branch are REQUIRED; a missing one is ContractMisuse, exactly as the
 // construct arm rejects a missing command), builds the design dispatch plan, and hands
 // off to the SAME convergence + spawn machinery the construct arm uses (submitClaudeRun).
-// It deliberately does NOT require ActivityID — see the SubmitConstructionPipeline
+// It deliberately does NOT require ActivityID — see the SubmitAgenticJob
 // discriminator note and designDispatchPlan.
 func (a *localExecAccess) submitDesignJob(rc fwra.Context, spec PipelineSpec, jobMode string) (PipelineHandle, error) {
 	command := strings.TrimSpace(spec.DispatchInputs[dispatchInputCommandKey])
 	if command == "" {
-		return "", fwra.New(fwra.ContractMisuse, `SubmitConstructionPipeline: missing DispatchInputs["command"] for a design job`)
+		return "", fwra.New(fwra.ContractMisuse, `SubmitAgenticJob: missing DispatchInputs["command"] for a design job`)
 	}
 	targetBranch := strings.TrimSpace(spec.DispatchInputs[dispatchInputTargetBranchKey])
 	if targetBranch == "" {
-		return "", fwra.New(fwra.ContractMisuse, `SubmitConstructionPipeline: missing DispatchInputs["target_branch"] for a design job`)
+		return "", fwra.New(fwra.ContractMisuse, `SubmitAgenticJob: missing DispatchInputs["target_branch"] for a design job`)
 	}
 	artifactKind := strings.TrimSpace(spec.DispatchInputs[dispatchInputArtifactKindKey])
 	return a.submitClaudeRun(rc, designDispatchPlan(a.projectID, jobMode, command, targetBranch, artifactKind))
@@ -1345,7 +1345,7 @@ func (a *localExecAccess) submitDesignJob(rc fwra.Context, spec PipelineSpec, jo
 // (branch + create-off-main policy + AIARCH_* rig + prompt); the convergence + spawn +
 // pre-spawn-rollback is identical. A pre-spawn failure leaves NO run record, so a retry
 // with the SAME key tries again cleanly; once the subprocess has started, Submit returns
-// success and the eventual outcome is observable only via ObserveConstructionPipeline
+// success and the eventual outcome is observable only via ObserveAgenticJob
 // (mirroring actions.go's probe-then-dispatch convergence, different executor).
 func (a *localExecAccess) submitClaudeRun(rc fwra.Context, plan localDispatchPlan) (PipelineHandle, error) {
 	token := dedupToken(rc.IdempotencyKey)
@@ -1654,7 +1654,7 @@ func seatAssetsEnv() []string {
 // directly — no push; partial progress on a failed run is already durable),
 // removes the worktree (completion AND cancel paths alike — the SIGTERM'd cancel
 // path flows through here too, since cmd.Wait returns either way), cleans up the
-// temp dirs, then records the terminal outcome. If CancelConstructionPipeline
+// temp dirs, then records the terminal outcome. If CancelAgenticJob
 // already recorded localRunCancelled before this observes completion, that
 // outcome wins (Wait()'s own error, expected after a SIGTERM, is not allowed to
 // overwrite an explicit cancel with "Failed").
@@ -1701,7 +1701,7 @@ func (a *localExecAccess) awaitCompletion(
 		// The failure-path IO (temp-dir write) deliberately runs BEFORE the record
 		// lock, matching this function's existing discipline: every other blocking
 		// step (git subprocesses, RemoveAll) also completes before the lock, so a
-		// concurrent ObserveConstructionPipeline poll never waits on filesystem IO.
+		// concurrent ObserveAgenticJob poll never waits on filesystem IO.
 		stderrForDetail := stderr.String()
 		if stderrShown {
 			// classifyLocalExecFailure already embedded the stderr tail in the
@@ -1765,7 +1765,7 @@ func localRunOutcome(
 	}
 }
 
-// localRunLostDiagnostic is the terminal-failure diagnostic ObserveConstructionPipeline
+// localRunLostDiagnostic is the terminal-failure diagnostic ObserveAgenticJob
 // reports for a well-formed handle whose in-memory run record is GONE. The local executor
 // keeps run records ONLY in memory (a.runs), so a server RESTART mid-run loses them while
 // the Manager's Temporal workflow still holds the PipelineHandle and keeps polling. Unlike
@@ -1775,7 +1775,7 @@ func localRunOutcome(
 // Withdraw gate instead of spinning to the maxObservePolls (1h) ceiling (F-R1).
 const localRunLostDiagnostic = "local run record not found — the server restarted while this run was in flight; the run cannot be recovered, retry to re-dispatch"
 
-// ObserveConstructionPipeline reads the in-memory run record and maps its status to the
+// ObserveAgenticJob reads the in-memory run record and maps its status to the
 // infrastructure-neutral PipelinePhase. A malformed/foreign-shaped handle is ContractMisuse.
 //
 // RESTART-LOST RUN (F-R1): a WELL-FORMED handle whose run record is MISSING from a.runs is
@@ -1788,10 +1788,10 @@ const localRunLostDiagnostic = "local run record not found — the server restar
 // rather than looping to the maxObservePolls ceiling. This DIVERGES DELIBERATELY from
 // actions.go's cloud arm (durable, re-observable runs → a GC'd handle is fwra.NotFound):
 // the divergence exists precisely because in-memory local runs are not restart-durable.
-func (a *localExecAccess) ObserveConstructionPipeline(_ fwra.Context, handle PipelineHandle) (PipelineObservation, error) {
+func (a *localExecAccess) ObserveAgenticJob(_ fwra.Context, handle PipelineHandle) (PipelineObservation, error) {
 	token, ok := localTokenFromHandle(handle)
 	if !ok {
-		return PipelineObservation{}, fwra.New(fwra.ContractMisuse, "constructionpipeline(localexec): malformed PipelineHandle")
+		return PipelineObservation{}, fwra.New(fwra.ContractMisuse, "agenticjob(localexec): malformed PipelineHandle")
 	}
 	a.mu.Lock()
 	run, ok := a.runs[token]
@@ -1809,13 +1809,13 @@ func (a *localExecAccess) ObserveConstructionPipeline(_ fwra.Context, handle Pip
 	return obs, nil
 }
 
-// CancelConstructionPipeline requests cancellation of a running local dispatch.
+// CancelAgenticJob requests cancellation of a running local dispatch.
 // Cancelling an unknown/already-terminal run is a no-op SUCCESS (idempotent-on-
-// intent, same contract as actions.go's CancelConstructionPipeline).
-func (a *localExecAccess) CancelConstructionPipeline(_ fwra.Context, handle PipelineHandle) error {
+// intent, same contract as actions.go's CancelAgenticJob).
+func (a *localExecAccess) CancelAgenticJob(_ fwra.Context, handle PipelineHandle) error {
 	token, ok := localTokenFromHandle(handle)
 	if !ok {
-		return fwra.New(fwra.ContractMisuse, "constructionpipeline(localexec): malformed PipelineHandle")
+		return fwra.New(fwra.ContractMisuse, "agenticjob(localexec): malformed PipelineHandle")
 	}
 	a.mu.Lock()
 	run, ok := a.runs[token]
@@ -1894,7 +1894,7 @@ func classifyLocalExecFailure(runErr error, stderrText string) string {
 // outputTail bounds a diagnostic's subprocess-output excerpt to the LAST n bytes
 // (Non-goal: this is a summary, never a log firehose — the same discipline
 // actions.go's neutralDiagnostic doc comment cites from
-// constructionPipelineAccess.md). Used for stderr AND for unstructured stdout:
+// agenticJobAccess.md). Used for stderr AND for unstructured stdout:
 // when a process dies mid-flight, what it printed LAST is what explains it.
 // Rune-safe — the excerpt reaches a UI panel, so it never splits a multi-byte
 // character into a replacement glyph.
@@ -2263,7 +2263,7 @@ const localExecAllowUnsandboxedEnv = "ARCHISTRATOR_LOCAL_EXEC_ALLOW_UNSANDBOXED"
 // escape hatch. Mirrors the plain os.Getenv-driven policy reads already
 // established in this package (e.g. claudeSubprocessEnv's ANTHROPIC_API_KEY
 // stripping precedent) rather than threading a new constructor parameter
-// through NewLocalExecConstructionPipelineAccess for a rarely-used override.
+// through NewLocalExecAgenticJobAccess for a rarely-used override.
 func allowUnsandboxedFromEnv() bool {
 	return strings.EqualFold(strings.TrimSpace(os.Getenv(localExecAllowUnsandboxedEnv)), "true")
 }

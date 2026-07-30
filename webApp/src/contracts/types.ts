@@ -87,8 +87,36 @@ export type SoftwareSystemInstance = S['ModelSoftwareSystemInstance'];
 export type DeploymentNode = S['ModelDeploymentNode'];
 export type DeploymentEnvironment = S['ModelDeploymentEnvironment'];
 export type DeploymentTopology = S['ModelDeploymentTopology'];
-export type OperationalDecision = S['ModelOperationalDecision'];
-export type OperationalConcepts = S['ModelOperationalConcepts'];
+export type ConstructionVenue = S['ModelConstructionVenue'];
+export type InfraBlock = S['ModelInfraBlock'];
+export type TrustSummaries = S['ModelTrustSummaries'];
+/**
+ * Per-app autoscaling knobs (Löwy Autoscaling-Policy instance, present only under the
+ * deployed-operated scenario). The generated OAS carries `scalingPolicy` as `unknown`
+ * — the Go field is an omitempty pointer the jsonschema emitter widened — so this is
+ * the ONE hand-pinned refinement for the deployment-ops model (mirrors the FloatBand
+ * drift above). The concrete shape is the ScalingPolicy Go struct (models_phase1.go);
+ * DeploymentOperationsModel refines the loose field onto it.
+ */
+export interface ScalingPolicy {
+  scaleToZero: boolean;
+  minInstances: number;
+  maxInstances: number;
+  targetUtilizationPct: number;
+}
+/**
+ * The Deployment & Operations Model (slot 6, wire kind `operationalConcepts`): the
+ * per-project SELECTIONS the customer ratifies (scenario / venue / review policy /
+ * scaling / infra blocks), the three customer trust summaries, and the deployment
+ * topology view. `scalingPolicy` is refined off the loose generated `unknown` and
+ * stays optional — absent under the deployed-not-operated scenario.
+ */
+export type DeploymentOperationsModel = Omit<
+  S['ModelDeploymentOperationsModel'],
+  'scalingPolicy'
+> & { scalingPolicy?: null | ScalingPolicy };
+/** The wire kind stays `operationalConcepts`; the type is the reshaped model. */
+export type OperationalConcepts = DeploymentOperationsModel;
 export type CheckStatus = S['ModelCheckItem']['status'];
 export type CheckItem = S['ModelCheckItem'];
 export type StandardCheck = S['ModelStandardCheck'];
@@ -208,6 +236,20 @@ export interface Finding {
   severity: Severity;
   message: string;
   location?: { ordinal: number; section: string };
+}
+
+/**
+ * The Design Health read-model (GetDesignHealth) — the render-on-read step-8 join
+ * (Wave-2 reshape 3): the ~40 live methodcheck findings (recomputed each read, never
+ * committed), the committed waivers + attestations relocated onto their host
+ * artifacts, and the head-state revision the health was evaluated against (a value
+ * older than the project's current version signals the checks are stale — drift).
+ */
+export interface DesignHealth {
+  findings: Finding[];
+  waivers: CheckItem[];
+  attestations: CheckItem[];
+  evaluatedAtRevision: number;
 }
 
 /**

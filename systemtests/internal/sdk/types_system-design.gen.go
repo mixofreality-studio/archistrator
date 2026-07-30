@@ -102,6 +102,13 @@ const (
 	CICheckFailure CICheckState = 2
 )
 
+type CheckItem struct {
+	Section       string `json:"section"`
+	Guideline     string `json:"guideline"`
+	Status        string `json:"status"`
+	Justification string `json:"justification"`
+}
+
 type ConstructionProgress struct {
 	Week           int64     `json:"Week"`
 	TotalWeeks     int64     `json:"TotalWeeks"`
@@ -150,6 +157,13 @@ type DefectView struct {
 	Title    string `json:"title"`
 	Severity string `json:"severity"`
 	Note     string `json:"note"`
+}
+
+type DesignHealth struct {
+	Findings            []Finding   `json:"findings"`
+	Waivers             []CheckItem `json:"waivers"`
+	Attestations        []CheckItem `json:"attestations"`
+	EvaluatedAtRevision int64       `json:"evaluatedAtRevision"`
 }
 
 type EVCurve struct {

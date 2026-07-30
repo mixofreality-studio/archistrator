@@ -52,6 +52,7 @@ import type { Anchor } from '../comments/CommentContext';
 import type { SelectionCommentSurface } from '../comments/SelectionPopover';
 
 import { ArtifactRenderer } from '../ArtifactRenderer';
+import { DesignHealthView } from '../DesignHealthView';
 import { ArtifactIntro, ArtifactInfoButton } from './ArtifactIntro';
 import { StageChip } from '../StageChip';
 import { headerChipStage } from './headerChipStage';
@@ -215,6 +216,9 @@ export function SystemDesignView({
   // The committed coreUseCases envelope (precedes `system` in the ladder): lets the
   // Architecture view label blank-titled dynamic views by their use case (F-QA2-51).
   const useCasesEnvelope = project.slots.find((s) => s.kind === 'coreUseCases')?.model;
+  // The committed System envelope (the reverse join): lets the use-case carousel
+  // offer "View call chain" into the Architecture step's Dynamic lens.
+  const systemEnvelope = project.slots.find((s) => s.kind === 'system')?.model;
   const committedRevisions = committedSlot?.revisions;
   const committedProvenance = committedSlot?.provenance;
   const committedStale = committedSlot?.staleBasis === true;
@@ -232,6 +236,20 @@ export function SystemDesignView({
   const upstreamStaleCount = spine.slice(0, safeIndex).filter((s) => s.stale === true).length;
   const showStandardCheckCaveat = activeKind === 'standardCheck' && upstreamStaleCount > 0;
   const commentCount = commentSurface?.commentCount ?? 0;
+
+  // Whether StepBody's committed-panel arm (below) is what renders: the CommittedArtifactPanel
+  // already carries a full-width "COMMITTED" strip with the actionable Amend button, so when it
+  // shows, the header's COMMITTED StageChip is a redundant second signal (QA'd stacked on
+  // Scrubbed Requirements). This mirrors StepBody's early-return sequence up to the F-GTD-11
+  // committed-panel guard; the strip wins, so the header chip is suppressed when it is true.
+  const showsCommittedPanel =
+    !needsResearch &&
+    !draftFailed &&
+    !generating &&
+    !(sessionLoading && view === undefined) &&
+    (sessionMissing || stage === 'committed') &&
+    activeCommitted &&
+    committedEnvelope !== undefined;
 
   // F-GTD-12: while this artifact's own co-author session is LIVE (an amendment in
   // flight — a committed slot can only host an amendment), the ack would commit to
@@ -282,7 +300,11 @@ export function SystemDesignView({
               <Typography component="h1" sx={{ color: t.ink }} variant="h4">
                 {meta.title}
               </Typography>
-              <StageChip stage={headerChipStage(activeCommitted, stage)} />
+              {/* Suppressed when the committed-panel strip below already shows COMMITTED
+                  (+ Amend), so the header chip is not a duplicate signal. */}
+              {showsCommittedPanel ? null : (
+                <StageChip stage={headerChipStage(activeCommitted, stage)} />
+              )}
               {/* Committed framing copy moved off the full-width banner into a (?) info
                   popover; staleness moved off the amber banner into a compact chip —
                   so the first paint of a committed step is content, not banners. */}
@@ -371,6 +393,7 @@ export function SystemDesignView({
           retryPending={retryPending}
           sessionMissing={sessionMissing}
           stage={stage}
+          systemEnvelope={systemEnvelope}
           t={t}
           title={meta.title}
           useCasesEnvelope={useCasesEnvelope}
@@ -406,6 +429,7 @@ function StepBody({
   committedRevisions,
   committedProvenance,
   useCasesEnvelope,
+  systemEnvelope,
   loading,
   generating,
   needsResearch,
@@ -446,6 +470,8 @@ function StepBody({
   committedProvenance: ArtifactProvenance | undefined;
   /** The committed coreUseCases envelope (F-QA2-51 dynamic-view label fallback). */
   useCasesEnvelope: ArtifactModelEnvelope | undefined;
+  /** The committed System envelope (the carousel's "View call chain" join). */
+  systemEnvelope: ArtifactModelEnvelope | undefined;
   loading: boolean;
   generating: boolean;
   needsResearch: boolean;
@@ -477,6 +503,12 @@ function StepBody({
   onWithdraw: () => void;
   onAmend: (feedback: string, onAccepted: () => void) => void;
 }): ReactNode {
+  // Step 8 is render-on-read Design Health (Wave-2 reshape 3): it is never drafted or
+  // committed, so it bypasses the draft/session/gate/Request-draft machinery entirely
+  // and renders the self-fetching dashboard directly.
+  if (activeKind === 'standardCheck') {
+    return <DesignHealthView />;
+  }
   if (needsResearch) {
     return <ResearchInputPanel pending={researchPending} onSubmit={onSubmitResearch} />;
   }
@@ -565,6 +597,7 @@ function StepBody({
                   <ArtifactRenderer
                     envelope={committedEnvelope}
                     height={480}
+                    systemEnvelope={systemEnvelope}
                     title={title}
                     useCasesEnvelope={useCasesEnvelope}
                   />
@@ -586,10 +619,13 @@ function StepBody({
   if (loading && view === undefined) {
     return <SkeletonContentCard t={t} />;
   }
-  // When the session is missing (404) but the slot is committed in the project
-  // head-state, render the committed model read-only under the committed panel
-  // (revision meta + stale-basis reconcile + Amend affordance).
-  if (sessionMissing && committed && committedEnvelope !== undefined) {
+  // When the slot is committed and no review is in progress — either the co-author
+  // session is gone (404) or it has reached its terminal 'committed' stage — render
+  // the committed model read-only under the committed panel (revision meta +
+  // stale-basis reconcile + Amend affordance). Without the stage==='committed' arm a
+  // freshly-approved artifact loses its Amend affordance until the session ages out
+  // (F-GTD-11): the architect could no longer reopen a clean committed slot.
+  if ((sessionMissing || stage === 'committed') && committed && committedEnvelope !== undefined) {
     // Same fill rule as the live-session path: a self-scrolling committed card (the
     // glossary) grows to the bottom of the scroll area (no dead region below it),
     // while the panel's COMMITTED strip + Amend affordance stay natural above it.
@@ -609,6 +645,7 @@ function StepBody({
             envelope={committedEnvelope}
             fill={committedFill}
             height={620}
+            systemEnvelope={systemEnvelope}
             title={title}
             useCasesEnvelope={useCasesEnvelope}
           />
@@ -671,6 +708,7 @@ function StepBody({
             envelope={view?.draft}
             fill={fill}
             height={620}
+            systemEnvelope={systemEnvelope}
             title={title}
             useCasesEnvelope={useCasesEnvelope}
           />

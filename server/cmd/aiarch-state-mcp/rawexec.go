@@ -10,7 +10,7 @@ package main
 // SUBSTRATE MODEL (agentic-managers spec item 1). The MCP binary runs INSIDE a
 // checkout, so:
 //
-//   - ENGINES (all 7) are pure in-process computation with no outbound calls and
+//   - ENGINES (all 6) are pure in-process computation with no outbound calls and
 //     zero-arg constructors, so they are constructed directly and invoked in
 //     process. Dispatch is generic (reflection over the constructed interface
 //     value + the catalog's ordered Params), so a new Engine op becomes executable
@@ -40,7 +40,6 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/autoscaler"
 	enginebilling "github.com/mixofreality-studio/archistrator/server/internal/engine/billing"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/estimation"
-	"github.com/mixofreality-studio/archistrator/server/internal/engine/handoff"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/operationestimation"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/review"
@@ -56,7 +55,6 @@ func engineImpls() map[string]any {
 		"autoscalerEngine":          autoscaler.NewAutoscalerEngine(),
 		"billingEngine":             enginebilling.NewBillingEngine(),
 		"estimationEngine":          estimation.NewEstimationEngine(),
-		"handOffEngine":             handoff.NewHandOffEngine(),
 		"interventionEngine":        intervention.NewInterventionEngine(),
 		"operationEstimationEngine": operationestimation.NewOperationEstimationEngine(),
 		"reviewEngine":              review.NewReviewEngine(),
@@ -70,15 +68,15 @@ func engineImpls() map[string]any {
 // surface (Engines + projectStateAccess reads are the in-substrate set; everything
 // listed here is out-of-substrate).
 var unavailableDeps = map[string]string{
-	"sourceControlAccess":        "a GitHub App client (installation credentials)",
-	"artifactAccess":             "a GitHub blob store + auth resolver",
-	"constructionPipelineAccess": "a GitHub Actions App installation",
-	"durableExecutionAccess":     "a Temporal client",
-	"usageAccess":                "a Postgres connection pool",
-	"operatedSystemStateAccess":  "a Postgres connection pool",
-	"operatedRuntimeAccess":      "an operated-runtime profile/infrastructure",
-	"billingStateAccess":         "the billing-state store (a server-side stub, not a real substrate impl)",
-	"merchantGatewayAccess":      "a merchant payment gateway (Stripe)",
+	"sourceControlAccess":       "a GitHub App client (installation credentials)",
+	"artifactAccess":            "a GitHub blob store + auth resolver",
+	"agenticJobAccess":          "a GitHub Actions App installation",
+	"durableExecutionAccess":    "a Temporal client",
+	"usageAccess":               "a Postgres connection pool",
+	"operatedSystemStateAccess": "a Postgres connection pool",
+	"operatedRuntimeAccess":     "an operated-runtime profile/infrastructure",
+	"billingStateAccess":        "the billing-state store (a server-side stub, not a real substrate impl)",
+	"merchantGatewayAccess":     "a merchant payment gateway (Stripe)",
 	// B6: constructionTransitionAccess / gitActivityStatusAccess / designSessionAccess
 	// share projectStateAccess's git substrate (the checkout IS available here), but
 	// unlike projectStateAccess's plain reads, every op on these three is a

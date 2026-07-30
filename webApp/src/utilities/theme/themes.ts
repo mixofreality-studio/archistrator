@@ -34,6 +34,15 @@ export interface Tokens {
   committedBg: string;
   committedFg: string;
   committedDot: string;
+  /**
+   * Text-safe variant of committedDot, used ONLY where the committed-green reads
+   * as TEXT on paper (the axis-2 caption + the detail panel's axis-2 label). The
+   * dot/border usages keep committedDot; on every theme but retro this equals
+   * committedDot (those already clear AA as text). Retro darkens it: the mid-olive
+   * committedDot (#6E8A3F) hit only 3.63:1 on the warm paper (#FBF6EA), below the
+   * 4.5:1 AA floor for small text — #566E2E clears it at 5.31:1, same olive family.
+   */
+  committedText: string;
   /** error / danger tone — e.g. a defect ticket / wax seal in the team avatars. */
   dangerFg: string;
   awaitingBg: string;
@@ -78,6 +87,9 @@ export const TOKENS: Record<ThemeKey, Tokens> = {
     committedBg: '#D8E4C2',
     committedFg: '#2C3F1B',
     committedDot: '#6E8A3F',
+    // Darkened from the #6E8A3F dot (3.63:1 as text on paper #FBF6EA, below AA
+    // 4.5:1) to a text-safe olive that clears 5.31:1 while staying in family.
+    committedText: '#566E2E',
     dangerFg: '#8A2A18',
     awaitingBg: '#F2D6AE',
     awaitingFg: '#5A2E10',
@@ -116,6 +128,7 @@ export const TOKENS: Record<ThemeKey, Tokens> = {
     committedBg: 'rgba(123,160,110,0.16)',
     committedFg: '#b6d49a',
     committedDot: '#7BA86E',
+    committedText: '#7BA86E',
     dangerFg: '#f0a59a',
     awaitingBg: 'rgba(200,150,70,0.18)',
     awaitingFg: '#e0b06a',
@@ -150,6 +163,7 @@ export const TOKENS: Record<ThemeKey, Tokens> = {
     committedBg: 'rgba(140,170,100,0.18)',
     committedFg: '#cfe0a8',
     committedDot: '#9CB36A',
+    committedText: '#9CB36A',
     dangerFg: '#eaa78f',
     awaitingBg: 'rgba(217,138,43,0.2)',
     awaitingFg: '#e7b574',
@@ -185,6 +199,7 @@ export const TOKENS: Record<ThemeKey, Tokens> = {
     committedBg: 'rgba(95,198,232,0.16)',
     committedFg: '#a9e3f5',
     committedDot: '#5FC6E8',
+    committedText: '#5FC6E8',
     dangerFg: '#f3a89a',
     awaitingBg: 'rgba(240,180,90,0.18)',
     awaitingFg: '#f0c074',
@@ -220,6 +235,7 @@ export const TOKENS: Record<ThemeKey, Tokens> = {
     committedBg: 'rgba(110,198,230,0.14)',
     committedFg: '#a8def0',
     committedDot: '#6EC6E6',
+    committedText: '#6EC6E6',
     dangerFg: '#eaa3ad',
     awaitingBg: 'rgba(200,150,70,0.18)',
     awaitingFg: '#e0b06a',

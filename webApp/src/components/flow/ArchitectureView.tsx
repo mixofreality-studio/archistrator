@@ -11,7 +11,8 @@
  * first component) for the perspective. All three reuse the shared flow chrome and
  * preserve comment anchoring through C4Node.
  */
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useRouter, type RegisteredRouter } from '@tanstack/react-router';
 import Box from '@mui/material/Box';
 import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
@@ -26,6 +27,7 @@ import type {
   ServiceContract,
   ServiceContracts,
 } from '../../contracts/types';
+import { useStructureFindings } from './StructureFindingsContext';
 import { resolveContractComponentId } from '../../contracts/contractComponentId';
 import { useTokens } from '../../utilities/theme/ThemeContext';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
@@ -35,6 +37,7 @@ import { PerspectiveFlow } from './PerspectiveFlow';
 import { ServiceContractView } from '../construction/ServiceContractView';
 import { type Layer, LAYER_ORDER, LAYER_LABEL } from './flowLayout';
 import { useComments, dynamicEdgeAnchor } from '../comments/CommentContext';
+import { resolveDeepLinkView } from './architectureDeepLink';
 
 type ViewMode = 'static' | 'dynamic' | 'perspective';
 
@@ -46,10 +49,19 @@ type ViewMode = 'static' | 'dynamic' | 'perspective';
  * one ArchitectureView is on screen at a time; stale ids self-heal via the guards
  * below (they fall back to defaults when the id isn't in the current model).
  */
-const viewMemory: { mode: ViewMode; dynamicKey: string; componentId: string } = {
+const viewMemory: {
+  mode: ViewMode;
+  dynamicKey: string;
+  componentId: string;
+  /** The history location key at which a ?view= deep link was last consumed —
+   *  lets a fresh NAVIGATION win over memory while a background-refetch remount
+   *  of the same location yields to it (see architectureDeepLink.ts). */
+  consumedLocationKey: string;
+} = {
   mode: 'static',
   dynamicKey: '',
   componentId: '',
+  consumedLocationKey: '',
 };
 
 export function ArchitectureView({
@@ -70,6 +82,11 @@ export function ArchitectureView({
 }): ReactNode {
   const t = useTokens();
   const { setAnchor, enabled } = useComments();
+  // Design-Health structure findings for the diagram overlays, delivered via
+  // context by whichever orchestrator owns the fetch (StructureFindingsContext);
+  // [] when no provider is mounted or the health read hasn't resolved — the
+  // Static/Component-focus lenses then render overlay-free.
+  const structureFindings = useStructureFindings();
   const c4 = useMemo(() => toC4View(envelope), [envelope]);
   const dynamicViews = useMemo(
     () => listDynamicViews(envelope, useCasesEnvelope),
@@ -91,11 +108,32 @@ export function ArchitectureView({
   const defaultComponentId = firstManager?.id ?? c4.components[0]?.id ?? '';
   const defaultDynamicKey = dynamicViews[0]?.key ?? '';
 
+  // ?view= deep link (the use-case → call-chain jump from the carousel): read
+  // through the same probe idiom as StepLink so the router-less MCP shell keeps
+  // working — outside a RouterProvider both reads yield '' and module memory
+  // rules as before. Non-reactive on purpose: the param matters at mount /
+  // navigation time; afterwards the picker owns the selection.
+  const router = useRouter({ warn: false }) as RegisteredRouter | undefined;
+  const location = router?.state.location;
+  const rawViewParam = (location?.search as { view?: unknown } | undefined)?.view;
+  const viewParam = typeof rawViewParam === 'string' ? rawViewParam : '';
+  const locationKey = location?.state.key ?? location?.state.__TSR_key ?? '';
+  const deepLink = resolveDeepLinkView({
+    viewParam,
+    locationKey,
+    consumedLocationKey: viewMemory.consumedLocationKey,
+    availableKeys: dynamicViews.map((v) => v.key),
+  });
+
   // Initialise from module memory (survives remounts) and mirror every change back
-  // into it, so a remount restores the last lens + selection instead of Static.
-  const [storedMode, setStoredMode] = useState<ViewMode>(viewMemory.mode);
+  // into it, so a remount restores the last lens + selection instead of Static —
+  // unless an unconsumed ?view= deep link targets a real dynamic view: the
+  // explicit param wins on mount (and is consumed in the effect below).
+  const [storedMode, setStoredMode] = useState<ViewMode>(
+    deepLink.apply ? 'dynamic' : viewMemory.mode
+  );
   const [storedDynamicKey, setStoredDynamicKey] = useState(
-    viewMemory.dynamicKey || defaultDynamicKey
+    deepLink.apply ? deepLink.key : viewMemory.dynamicKey || defaultDynamicKey
   );
   const [storedComponentId, setStoredComponentId] = useState(
     viewMemory.componentId || defaultComponentId
@@ -115,6 +153,21 @@ export function ArchitectureView({
     viewMemory.componentId = id;
     setStoredComponentId(id);
   };
+
+  // Consume the deep link (at most once per mount): mirror it into module memory
+  // and record the location key it was consumed at, so a background-refetch
+  // remount of the SAME location never snaps a reader who has since changed lens
+  // back to the deep-linked view — while a new navigation (new key) re-applies.
+  // Runs every render (no dep array) so a model that resolves after first paint
+  // still honors the param; the resolve guard + ref keep it idempotent.
+  const consumedThisMount = useRef(false);
+  useEffect(() => {
+    if (!deepLink.apply || consumedThisMount.current) return;
+    consumedThisMount.current = true;
+    viewMemory.consumedLocationKey = locationKey;
+    setMode('dynamic');
+    setDynamicKey(deepLink.key);
+  });
 
   const activeDynamicKey = dynamicViews.some((v) => v.key === dynamicKey)
     ? dynamicKey
@@ -217,7 +270,9 @@ export function ArchitectureView({
         )}
       </Box>
 
-      {mode === 'static' && <ArchitectureFlow envelope={envelope} height={height} />}
+      {mode === 'static' && (
+        <ArchitectureFlow envelope={envelope} findings={structureFindings} height={height} />
+      )}
       {mode === 'dynamic' && (
         <DynamicViewFlow
           dv={dynamicModel}
@@ -242,7 +297,13 @@ export function ArchitectureView({
       )}
       {mode === 'perspective' && (
         <>
-          <PerspectiveFlow componentId={activeComponentId} height={height} view={c4} />
+          <PerspectiveFlow
+            componentId={activeComponentId}
+            findings={structureFindings}
+            height={height}
+            view={c4}
+            onFocusComponent={setComponentId}
+          />
           {/* Once the component's service contract has been established (in
               construction), drill into its interface + diagrams right here. */}
           {focusedContract !== undefined && (

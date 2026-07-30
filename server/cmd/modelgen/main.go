@@ -60,7 +60,6 @@ const serverModulePath = "github.com/mixofreality-studio/archistrator/server"
 // engine ever needs a non-pure shape.
 var engineImplAllowlist = []string{
 	"reviewEngine",
-	"handOffEngine",
 	"interventionEngine",
 	"settlementEngine",
 	"billingEngine",

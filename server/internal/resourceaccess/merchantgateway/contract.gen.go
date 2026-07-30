@@ -8,10 +8,6 @@ import (
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 )
 
-type GatewayBinding struct {
-	ConnectedAccountID string `json:"ConnectedAccountID"`
-}
-
 type Money struct {
 	MinorUnits int64  `json:"MinorUnits"`
 	Currency   string `json:"Currency"`
@@ -20,8 +16,6 @@ type Money struct {
 // MerchantGatewayAccess is the generated service-contract interface for this component.
 type MerchantGatewayAccess interface {
 	ChargeCustomer(rc fwra.Context, customerID uuid.UUID, amount Money, idempotencyKey string) error
-	CreateConnectedAccount(rc fwra.Context, customerID uuid.UUID, idempotencyKey string) (GatewayBinding, error)
-	PayoutCustomer(rc fwra.Context, customerID uuid.UUID, amount Money, idempotencyKey string) error
 	ValidateStoredInstrument(rc fwra.Context, customerID uuid.UUID, idempotencyKey string) error
 }
 
@@ -37,15 +31,6 @@ func NewMerchantGatewayAccess() MerchantGatewayAccess { return &stubMerchantGate
 var _ MerchantGatewayAccess = (*stubMerchantGatewayAccess)(nil)
 
 func (*stubMerchantGatewayAccess) ChargeCustomer(_ fwra.Context, _ uuid.UUID, _ Money, _ string) error {
-	return fwra.New(fwra.Unknown, "not implemented")
-}
-
-func (*stubMerchantGatewayAccess) CreateConnectedAccount(_ fwra.Context, _ uuid.UUID, _ string) (GatewayBinding, error) {
-	var zero GatewayBinding
-	return zero, fwra.New(fwra.Unknown, "not implemented")
-}
-
-func (*stubMerchantGatewayAccess) PayoutCustomer(_ fwra.Context, _ uuid.UUID, _ Money, _ string) error {
 	return fwra.New(fwra.Unknown, "not implemented")
 }
 

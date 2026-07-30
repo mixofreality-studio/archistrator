@@ -288,7 +288,7 @@ func (wf *workflows) assembleSdpReview(proj projectstate.Project, feedback strin
 			BuildCost:            toProjectStateMoneyFromEstimation(ce.BuildCost),
 			CompositeRisk:        ce.Risk.Composite,
 			ProjectedMonthlyCost: monthlyCostAtDeclaredLoad(of.UsageCostCurve),
-			ExpectedPerCycleNet:  toProjectStateMoney(of.PayoutVsShortfallForecast.ExpectedPerCycleNet),
+			ExpectedPerCycleNet:  toProjectStateMoney(of.CostSensitivityForecast.ExpectedPerCycleCharge),
 			RevenueSharePercent:  proj2.RevenueSharePercent,
 		})
 	}

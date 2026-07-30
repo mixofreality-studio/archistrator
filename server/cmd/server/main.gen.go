@@ -29,7 +29,6 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/autoscaler"
 	enginebilling "github.com/mixofreality-studio/archistrator/server/internal/engine/billing"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/estimation"
-	"github.com/mixofreality-studio/archistrator/server/internal/engine/handoff"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/operationestimation"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/review"
@@ -38,14 +37,13 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/operations"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/projectdesign"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/systemdesign"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/agenticjob"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/billingstate"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/constructionpipeline"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/merchantgateway"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedruntime"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedsystemstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/revenueledger"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usage"
 	otelhttp "go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
@@ -103,17 +101,17 @@ type Hooks interface {
 	// managers are supplied for transports the generated server does not mount.
 	ExtraMounts(root *http.ServeMux, cfg *Config, dev web.DevConfig, validator security.Validator, managers WebManagers)
 
+	// AgenticJobAccessGitHubActionsArgs supplies the agenticJobAccess GitHubActions variant's constructor
+	// arguments the deployment model cannot express (composition-root ports /
+	// typed values). Read from cfg; the returned tuple is spread into the
+	// generated variant constructor call.
+	AgenticJobAccessGitHubActionsArgs(cfg *Config) (*github.AppClient, string, string, string, string, int64)
+
 	// ArtifactAccessGitHubCloudArgs supplies the artifactAccess GitHubCloud variant's constructor
 	// arguments the deployment model cannot express (composition-root ports /
 	// typed values). Read from cfg; the returned tuple is spread into the
 	// generated variant constructor call.
 	ArtifactAccessGitHubCloudArgs(cfg *Config) (string, string, string, string, string, int64)
-
-	// ConstructionPipelineAccessGitHubActionsArgs supplies the constructionPipelineAccess GitHubActions variant's constructor
-	// arguments the deployment model cannot express (composition-root ports /
-	// typed values). Read from cfg; the returned tuple is spread into the
-	// generated variant constructor call.
-	ConstructionPipelineAccessGitHubActionsArgs(cfg *Config) (*github.AppClient, string, string, string, string, int64)
 
 	// ConstructionTransitionAccessGitHubArgs supplies the constructionTransitionAccess GitHub variant's constructor
 	// arguments the deployment model cannot express (composition-root ports /
@@ -169,6 +167,12 @@ type Hooks interface {
 	// generated variant constructor call.
 	SourceControlAccessGitLocalArgs(cfg *Config) string
 
+	// FinalizeAgenticJobAccess is called immediately after agenticJobAccess's construction
+	// (presence optional-dormant). Return v unchanged unless
+	// composition policy needs to swap or wrap it (e.g. a construction
+	// dry-run stub swap-in) — the identity implementation is always correct.
+	FinalizeAgenticJobAccess(cfg *Config, v agenticjob.AgenticJobAccess) agenticjob.AgenticJobAccess
+
 	// FinalizeArtifactAccess is called immediately after artifactAccess's construction
 	// (presence optional-dormant). Return v unchanged unless
 	// composition policy needs to swap or wrap it (e.g. a construction
@@ -180,12 +184,6 @@ type Hooks interface {
 	// composition policy needs to swap or wrap it (e.g. a construction
 	// dry-run stub swap-in) — the identity implementation is always correct.
 	FinalizeBillingStateAccess(cfg *Config, v billingstate.BillingStateAccess) billingstate.BillingStateAccess
-
-	// FinalizeConstructionPipelineAccess is called immediately after constructionPipelineAccess's construction
-	// (presence optional-dormant). Return v unchanged unless
-	// composition policy needs to swap or wrap it (e.g. a construction
-	// dry-run stub swap-in) — the identity implementation is always correct.
-	FinalizeConstructionPipelineAccess(cfg *Config, v constructionpipeline.ConstructionPipelineAccess) constructionpipeline.ConstructionPipelineAccess
 
 	// FinalizeConstructionTransitionAccess is called immediately after constructionTransitionAccess's construction
 	// (presence required). Return v unchanged unless
@@ -233,7 +231,7 @@ type Hooks interface {
 	// (presence required). Return v unchanged unless
 	// composition policy needs to swap or wrap it (e.g. a construction
 	// dry-run stub swap-in) — the identity implementation is always correct.
-	FinalizeRevenueLedgerAccess(cfg *Config, v revenueledger.RevenueLedgerAccess) revenueledger.RevenueLedgerAccess
+	FinalizeRevenueLedgerAccess(cfg *Config, v billingstate.RevenueLedgerAccess) billingstate.RevenueLedgerAccess
 
 	// FinalizeSourceControlAccess is called immediately after sourceControlAccess's construction
 	// (presence optional-dormant). Return v unchanged unless
@@ -371,6 +369,17 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 	}
 
 	// ResourceAccess — one binding per component, variant-selected by profile.
+	var agenticJobAccess agenticjob.AgenticJobAccess
+	switch profile {
+	case "cloud":
+		v, err := agenticjob.NewGitHubActionsAgenticJobAccess(hooks.AgenticJobAccessGitHubActionsArgs(cfg))
+		if err != nil {
+			return err
+		}
+		agenticJobAccess = v
+		logger.Info("agenticJobAccess (GitHubActions) ready")
+	}
+	agenticJobAccess = hooks.FinalizeAgenticJobAccess(cfg, agenticJobAccess)
 	var artifactAccess artifact.ArtifactAccess
 	switch profile {
 	case "cloud":
@@ -388,17 +397,6 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 	billingStateAccess := billingstate.NewBillingStateAccess()
 	logger.Info("billingStateAccess (stub) ready")
 	billingStateAccess = hooks.FinalizeBillingStateAccess(cfg, billingStateAccess)
-	var constructionPipelineAccess constructionpipeline.ConstructionPipelineAccess
-	switch profile {
-	case "cloud":
-		v, err := constructionpipeline.NewGitHubActionsConstructionPipelineAccess(hooks.ConstructionPipelineAccessGitHubActionsArgs(cfg))
-		if err != nil {
-			return err
-		}
-		constructionPipelineAccess = v
-		logger.Info("constructionPipelineAccess (GitHubActions) ready")
-	}
-	constructionPipelineAccess = hooks.FinalizeConstructionPipelineAccess(cfg, constructionPipelineAccess)
 	var constructionTransitionAccess projectstate.ConstructionTransitionAccess
 	switch profile {
 	case "cloud":
@@ -494,7 +492,7 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 		return errors.New("projectStateAccess: no ResourceAccess variant for the active profile")
 	}
 	projectStateAccess = hooks.FinalizeProjectStateAccess(cfg, projectStateAccess)
-	revenueLedgerAccess := revenueledger.NewRevenueLedgerAccess()
+	revenueLedgerAccess := billingstate.NewRevenueLedgerAccess()
 	logger.Info("revenueLedgerAccess (stub) ready")
 	revenueLedgerAccess = hooks.FinalizeRevenueLedgerAccess(cfg, revenueLedgerAccess)
 	var sourceControlAccess sourcecontrol.SourceControlAccess
@@ -532,7 +530,6 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 	autoscalerEngine := autoscaler.NewAutoscalerEngine()
 	billingEngine := enginebilling.NewBillingEngine()
 	estimationEngine := estimation.NewEstimationEngine()
-	handOffEngine := handoff.NewHandOffEngine()
 	interventionEngine := intervention.NewInterventionEngine()
 	operationEstimationEngine := operationestimation.NewOperationEstimationEngine()
 	reviewEngine := review.NewReviewEngine()
@@ -546,7 +543,7 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 	}
 	defer wBillingManager.Stop()
 	logger.Info("embedded temporal worker started", "taskQueue", managerbilling.TaskQueue)
-	constructionManager := construction.NewConstructionManager(tc, projectStateAccess, artifactAccess, handOffEngine, interventionEngine, reviewEngine, constructionPipelineAccess, sourceControlAccess, constructionTransitionAccess, gitActivityStatusAccess, designSessionAccess, hooks.ConstructionManagerEscalationWaitTimeout(), hooks.ConstructionManagerInterventionMode(), hooks.ConstructionManagerRepo())
+	constructionManager := construction.NewConstructionManager(tc, projectStateAccess, artifactAccess, interventionEngine, reviewEngine, agenticJobAccess, sourceControlAccess, constructionTransitionAccess, gitActivityStatusAccess, designSessionAccess, hooks.ConstructionManagerEscalationWaitTimeout(), hooks.ConstructionManagerInterventionMode(), hooks.ConstructionManagerRepo())
 	if hooks.RegisterConstructionManagerWorker(cfg) {
 		wConstructionManager := worker.New(tc, construction.TaskQueue, worker.Options{})
 		construction.RegisterManagerWorker(wConstructionManager, constructionManager)
@@ -570,7 +567,7 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 	} else {
 		logger.Warn("operationsManager Worker NOT registered — optional-dormant dependencies absent (RegisterOperationsManagerWorker gate returned false)")
 	}
-	projectDesignManager := projectdesign.NewProjectDesignManager(tc, projectStateAccess, constructionPipelineAccess, sourceControlAccess, estimationEngine, operationEstimationEngine, billingEngine, designSessionAccess, hooks.ProjectDesignManagerRepo())
+	projectDesignManager := projectdesign.NewProjectDesignManager(tc, projectStateAccess, agenticJobAccess, sourceControlAccess, estimationEngine, operationEstimationEngine, billingEngine, designSessionAccess, hooks.ProjectDesignManagerRepo())
 	if hooks.RegisterProjectDesignManagerWorker(cfg) {
 		wProjectDesignManager := worker.New(tc, projectdesign.TaskQueue, worker.Options{})
 		projectdesign.RegisterManagerWorker(wProjectDesignManager, projectDesignManager)
@@ -582,7 +579,7 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 	} else {
 		logger.Warn("projectDesignManager Worker NOT registered — optional-dormant dependencies absent (RegisterProjectDesignManagerWorker gate returned false)")
 	}
-	systemDesignManager := systemdesign.NewSystemDesignManager(tc, projectStateAccess, constructionPipelineAccess, sourceControlAccess, hooks.SystemDesignManagerRepo(), estimationEngine, designSessionAccess, hooks.SystemDesignManagerRepoBase())
+	systemDesignManager := systemdesign.NewSystemDesignManager(tc, projectStateAccess, agenticJobAccess, sourceControlAccess, hooks.SystemDesignManagerRepo(), estimationEngine, designSessionAccess, hooks.SystemDesignManagerRepoBase())
 	if hooks.RegisterSystemDesignManagerWorker(cfg) {
 		wSystemDesignManager := worker.New(tc, systemdesign.TaskQueue, worker.Options{})
 		systemdesign.RegisterManagerWorker(wSystemDesignManager, systemDesignManager)
