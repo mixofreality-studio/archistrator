@@ -6,12 +6,19 @@
  *   Dynamic         → DynamicViewFlow  (one call chain per use case, via a picker)
  *   Component focus → PerspectiveFlow  (one component + its inbound/outbound edges)
  *
+ * The Dynamic lens is a TRACE, not just a chain: the owning use case's activity
+ * diagram is rendered beside it (ActivityFlow, the same you-are-here map the
+ * use-case walkthrough uses), synced to the step that owns the current call — so
+ * the reader sees the call chain realize the very steps they just walked on the
+ * previous screen. When the view links no use case with a diagram, the chain
+ * renders full-width exactly as before.
+ *
  * Dynamic / perspective each surface a MUI Select picker (dynamic views by title;
  * components grouped by layer). Defaults: first dynamic view; first Manager (else
  * first component) for the perspective. All three reuse the shared flow chrome and
  * preserve comment anchoring through C4Node.
  */
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useRouter, type RegisteredRouter } from '@tanstack/react-router';
 import Box from '@mui/material/Box';
 import ToggleButton from '@mui/material/ToggleButton';
@@ -21,7 +28,14 @@ import MenuItem from '@mui/material/MenuItem';
 import ListSubheader from '@mui/material/ListSubheader';
 import FormControl from '@mui/material/FormControl';
 import Typography from '@mui/material/Typography';
-import { listDynamicViews, toC4View, toDynamicView } from '../../contracts/adapters';
+import {
+  listDynamicViews,
+  toC4View,
+  toCoreUseCasesView,
+  toDynamicView,
+  dynamicViewUseCaseId,
+  type SequencedCall,
+} from '../../contracts/adapters';
 import type {
   ArtifactModelEnvelope,
   ServiceContract,
@@ -35,9 +49,11 @@ import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 import { ArchitectureFlow } from './ArchitectureFlow';
 import { DynamicViewFlow } from './DynamicViewFlow';
 import { PerspectiveFlow } from './PerspectiveFlow';
+import { ActivityFlow } from '../usecase/ActivityFlow';
+import { traceHighlight } from './traceHighlight';
 import { ServiceContractView } from '../construction/ServiceContractView';
 import { type Layer, LAYER_ORDER, LAYER_LABEL } from './flowLayout';
-import { useComments, dynamicEdgeAnchor } from '../comments/CommentContext';
+import { useComments, dynamicEdgeAnchor, CommentProvider } from '../comments/CommentContext';
 import { resolveDeepLinkView } from './architectureDeepLink';
 
 type ViewMode = 'static' | 'dynamic' | 'perspective';
@@ -220,6 +236,67 @@ export function ArchitectureView({
     [dynamicModel, structureFindings, activeDynamicKey]
   );
 
+  // ── The side-by-side activity trace ────────────────────────────────────────
+  // The step-through owns the walk's position, so it publishes it here (the call
+  // it is standing on, tagged with the view it belongs to) and the activity pane
+  // projects that onto the use case's own diagram. Tagging matters: view keys
+  // change before the flow re-publishes, and seq numbers repeat across views —
+  // an untagged position would light the WRONG step for a frame. A mismatched
+  // tag reads as "no position yet" and the diagram renders plain.
+  const [stepPos, setStepPos] = useState<{ key: string; call: SequencedCall | undefined }>({
+    key: '',
+    call: undefined,
+  });
+  const handleStepChange = useCallback(
+    (call: SequencedCall | undefined): void => {
+      setStepPos({ key: activeDynamicKey, call });
+    },
+    [activeDynamicKey]
+  );
+
+  // The use case this view realizes, plus its position in the committed slot
+  // order (ActivityFlow's comment anchors are keyed by that index). Undefined —
+  // and the chain then renders full-width, exactly as before — when the view
+  // links no use case (a synthetic view), the use cases aren't loaded, or the
+  // linked use case owns no activity diagram (e.g. a variation, which shares its
+  // parent's; the carousel does not substitute it either).
+  const tracedUseCase = useMemo(() => {
+    const useCaseId = dynamicViewUseCaseId(envelope, activeDynamicKey);
+    if (useCaseId === undefined) return undefined;
+    const { useCases } = toCoreUseCasesView(useCasesEnvelope);
+    const index = useCases.findIndex((u) => u.id === useCaseId);
+    const uc = useCases[index];
+    if (uc === undefined || uc.nodes.length === 0) return undefined;
+    return { uc, index };
+  }, [envelope, useCasesEnvelope, activeDynamicKey]);
+
+  const activityHighlight = useMemo(() => {
+    if (tracedUseCase === undefined) return undefined;
+    const seq = stepPos.key === activeDynamicKey ? stepPos.call?.seq : undefined;
+    return traceHighlight(dynamicModel.edges, seq, tracedUseCase.uc.edges);
+  }, [tracedUseCase, dynamicModel.edges, stepPos, activeDynamicKey]);
+
+  // Container-aware split: MUI viewport breakpoints can't see that this view can
+  // sit inside a narrow design-experience column, where a 40/60 split would
+  // squeeze both diagrams into unreadable strips. Measure our OWN width and
+  // stack the two panes when the row can't seat them (the UseCaseWalkthrough
+  // idiom). Observed on the always-mounted root so the lens switch never leaves
+  // the observer unattached.
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [sideBySide, setSideBySide] = useState(true);
+  useEffect(() => {
+    const el = rootRef.current;
+    if (el === null) return undefined;
+    const ro = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry !== undefined) setSideBySide(entry.contentRect.width >= 1100);
+    });
+    ro.observe(el);
+    return (): void => {
+      ro.disconnect();
+    };
+  }, []);
+
   // Components grouped by layer for the perspective picker.
   const grouped = useMemo(() => {
     return LAYER_ORDER.map((layer): { layer: Layer; items: typeof c4.components } => ({
@@ -228,8 +305,37 @@ export function ArchitectureView({
     })).filter((g) => g.items.length > 0);
   }, [c4]);
 
+  // The call-chain step-through itself, built once so the two-up trace layout and
+  // the full-width fallback render the SAME element (only its frame differs).
+  const dynamicFlow =
+    mode === 'dynamic' ? (
+      <DynamicViewFlow
+        dv={dynamicModel}
+        height={height}
+        initialStep={consumedStep - 1}
+        resetKey={`${activeDynamicKey}#${String(consumedStep)}`}
+        {...(dynamicStatusBySeq !== undefined ? { statusBySeq: dynamicStatusBySeq } : {})}
+        onCommentStep={
+          enabled
+            ? (edge): void => {
+                const nameOf = new Map(dynamicModel.participants.map((c) => [c.id, c.name]));
+                const from = nameOf.get(edge.from) ?? edge.from;
+                const to = nameOf.get(edge.to) ?? edge.to;
+                setAnchor({
+                  kind: 'node',
+                  label: `${String(edge.seq)}. ${edge.label} (${from} → ${to})`,
+                  source: `${dynamicModel.title} · step`,
+                  jsonPath: dynamicEdgeAnchor(activeDynamicKey, edge.seq),
+                });
+              }
+            : undefined
+        }
+        onStepChange={handleStepChange}
+      />
+    ) : null;
+
   return (
-    <Box>
+    <Box ref={rootRef}>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1.5, flexWrap: 'wrap' }}>
         <ToggleButtonGroup
           exclusive
@@ -316,30 +422,50 @@ export function ArchitectureView({
       {mode === 'static' && (
         <ArchitectureFlow envelope={envelope} findings={structureFindings} height={height} />
       )}
-      {mode === 'dynamic' && (
-        <DynamicViewFlow
-          dv={dynamicModel}
-          height={height}
-          initialStep={consumedStep - 1}
-          resetKey={`${activeDynamicKey}#${String(consumedStep)}`}
-          {...(dynamicStatusBySeq !== undefined ? { statusBySeq: dynamicStatusBySeq } : {})}
-          onCommentStep={
-            enabled
-              ? (edge): void => {
-                  const nameOf = new Map(dynamicModel.participants.map((c) => [c.id, c.name]));
-                  const from = nameOf.get(edge.from) ?? edge.from;
-                  const to = nameOf.get(edge.to) ?? edge.to;
-                  setAnchor({
-                    kind: 'node',
-                    label: `${String(edge.seq)}. ${edge.label} (${from} → ${to})`,
-                    source: `${dynamicModel.title} · step`,
-                    jsonPath: dynamicEdgeAnchor(activeDynamicKey, edge.seq),
-                  });
-                }
-              : undefined
-          }
-        />
-      )}
+      {mode === 'dynamic' &&
+        (tracedUseCase !== undefined ? (
+          <Box
+            sx={{
+              display: 'flex',
+              flexDirection: sideBySide ? 'row' : 'column',
+              alignItems: 'stretch',
+              gap: 2,
+            }}
+          >
+            {/* Supplementary pane: the use case's OWN activity diagram, walked in
+                lock-step with the chain. The step position is announced by the
+                step-through's caption live region (StepBar) — this map is the
+                visual companion, so it is grouped and named, not a second
+                announcer. */}
+            <Box
+              aria-label={`Activity diagram trace for ${tracedUseCase.uc.name}`}
+              data-testid={UI_IDENTIFIERS.Architecture.DYNAMIC_ACTIVITY_TRACE}
+              role="group"
+              sx={{ flex: sideBySide ? '0 0 40%' : '1 1 auto', minWidth: 0 }}
+            >
+              <PaneLabel>{`Activity — ${tracedUseCase.uc.name}`}</PaneLabel>
+              {/* Comment-inert: this pane belongs to the CORE USE CASES artifact,
+                  and its node anchors ($.decisions[i]…) address that model — arming
+                  one while reviewing the System artifact would file the comment
+                  against the wrong slot. Feedback on a step belongs on the use-case
+                  screen; here the diagram is a map, not a review surface. */}
+              <CommentProvider enabled={false}>
+                <ActivityFlow
+                  height={height}
+                  uc={tracedUseCase.uc}
+                  useCaseIndex={tracedUseCase.index}
+                  {...(activityHighlight !== undefined ? { highlight: activityHighlight } : {})}
+                />
+              </CommentProvider>
+            </Box>
+            <Box sx={{ flex: sideBySide ? '1 1 60%' : '1 1 auto', minWidth: 0 }}>
+              <PaneLabel>Call chain</PaneLabel>
+              {dynamicFlow}
+            </Box>
+          </Box>
+        ) : (
+          dynamicFlow
+        ))}
       {mode === 'perspective' && (
         <>
           <PerspectiveFlow
@@ -372,5 +498,30 @@ export function ArchitectureView({
         </>
       )}
     </Box>
+  );
+}
+
+/**
+ * The small overline naming one pane of the dynamic lens' two-up trace layout
+ * ("ACTIVITY — <use case>" / "CALL CHAIN"). Each canvas already carries its own
+ * frame (ActivityFlow / FlowCanvas draw the border), so the pane adds a label
+ * rather than a second box around a box.
+ */
+function PaneLabel({ children }: { children: ReactNode }): ReactNode {
+  const t = useTokens();
+  return (
+    <Typography
+      sx={{
+        fontFamily: t.mono,
+        fontWeight: 700,
+        fontSize: 10,
+        letterSpacing: '0.1em',
+        textTransform: 'uppercase',
+        color: t.muted,
+        mb: 0.75,
+      }}
+    >
+      {children}
+    </Typography>
   );
 }

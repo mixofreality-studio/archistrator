@@ -149,6 +149,14 @@ No new shell; the two existing views consume the realization.
 - Two-level step-bar caption: *activity step label — call k/n: call label*.
 - Validation reuses the existing `statusBySeq` tinting: calls with an
   attributed `CC-*`/`DV-*` finding render red; finding text in the caption bar.
+- **Side-by-side activity trace** (founder QA iteration 2026-07-31): the lens
+  renders the owning use case's activity diagram (`ActivityFlow`, the same
+  you-are-here map the walkthrough uses) beside the call chain, synced to the
+  current call's owning step — visited steps stay lit, the current step rings
+  and auto-centers. This is what makes the realization *visible*: the reader
+  watches the chain trace the very steps they walked on the previous screen.
+  Views with no linked use case / no activity diagram render the chain
+  full-width as before; the pane stacks below the chain on narrow containers.
 
 **Both-surface entries:** an entry step carrying both `web-client` and
 `mcp-client` calls highlights **both** clients when its fragment lights up —

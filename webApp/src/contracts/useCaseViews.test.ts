@@ -13,7 +13,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { System, UseCaseDecision } from './types';
-import { toUseCaseView, viewKeyForUseCase } from './useCaseViews.ts';
+import { ownerUseCaseId, toUseCaseView, viewKeyForUseCase } from './useCaseViews.ts';
 
 function decision(
   id: string,
@@ -101,4 +101,26 @@ void test('returns undefined for an absent model or a blank id', () => {
 void test('tolerates null dynamicViews', () => {
   const bare: System = { components: null, relationships: null, dynamicViews: null };
   assert.equal(viewKeyForUseCase(bare, 'uc-1'), undefined);
+});
+
+// ── ownerUseCaseId resolution (the inverse join) ───────────────────────────
+
+void test('resolves the use case a keyed dynamic view realizes', () => {
+  assert.equal(ownerUseCaseId(SYSTEM, 'dv-order'), 'uc-1');
+  assert.equal(ownerUseCaseId(SYSTEM, 'dv-track'), 'uc-2');
+});
+
+void test('returns undefined for an unknown, blank or absent key/model', () => {
+  assert.equal(ownerUseCaseId(SYSTEM, 'dv-none'), undefined);
+  assert.equal(ownerUseCaseId(SYSTEM, '  '), undefined);
+  assert.equal(ownerUseCaseId(undefined, 'dv-order'), undefined);
+});
+
+void test('a view with no use-case back-link resolves to undefined', () => {
+  const synthetic: System = {
+    components: null,
+    relationships: null,
+    dynamicViews: [{ key: 'dv-synth', title: 'Synthetic', useCaseId: '', steps: null }],
+  };
+  assert.equal(ownerUseCaseId(synthetic, 'dv-synth'), undefined);
 });

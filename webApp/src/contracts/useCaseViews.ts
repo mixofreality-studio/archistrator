@@ -95,3 +95,21 @@ export function viewKeyForUseCase(
   if (id.length === 0) return undefined;
   return (model.dynamicViews ?? []).find((v) => v.useCaseId === id && v.key.length > 0)?.key;
 }
+
+/**
+ * The inverse join: the use case a given dynamic view realizes. Used by the
+ * Architecture step's dynamic lens to render that use case's activity diagram
+ * beside the call chain. Undefined when the model is absent, the key is blank /
+ * unknown, or the view carries no back-link (a synthetic view) — the lens then
+ * renders the chain alone.
+ *
+ * (Named for the OWNER rather than `useCaseIdFor…`: a `use`-prefixed export
+ * reads as a React hook to the rules-of-hooks lint at every call site.)
+ */
+export function ownerUseCaseId(model: System | undefined, key: string): string | undefined {
+  if (model === undefined) return undefined;
+  const k = key.trim();
+  if (k.length === 0) return undefined;
+  const id = (model.dynamicViews ?? []).find((v) => v.key === k)?.useCaseId ?? '';
+  return id.length > 0 ? id : undefined;
+}

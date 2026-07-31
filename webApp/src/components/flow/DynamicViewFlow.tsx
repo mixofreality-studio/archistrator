@@ -22,7 +22,7 @@
  * surfaced as an "unresolved" warning chip above the canvas rather than silently
  * dropping the call's line.
  */
-import { useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Edge, Node } from '@xyflow/react';
 import Box from '@mui/material/Box';
 import Chip from '@mui/material/Chip';
@@ -415,6 +415,7 @@ export function DynamicViewFlow({
   statusBySeq,
   detailBySeq,
   onCommentStep,
+  onStepChange,
 }: {
   /** The ordered call chain to render (system use case or test scenario). */
   dv: DynamicViewModel;
@@ -437,6 +438,12 @@ export function DynamicViewFlow({
    *  that arms an anchor for the current call (system-design use only; omitted for
    *  the read-only test-scenario views). */
   onCommentStep?: ((edge: SequencedCall) => void) | undefined;
+  /** Optional notification of where the walk now stands — the current call, or
+   *  undefined when the view has no calls. Fired on mount, on every step, and
+   *  after a `resetKey` restart, so a companion surface (the Architecture lens'
+   *  activity-diagram trace) can follow along. Keep the handler stable
+   *  (useCallback) — it is an effect dependency. */
+  onStepChange?: ((call: SequencedCall | undefined) => void) | undefined;
 }): ReactNode {
   const t = useTokens();
   const [stepIndex, setStepIndex] = useState(() => clampStep(initialStep, dv.edges.length));
@@ -457,10 +464,23 @@ export function DynamicViewFlow({
 
   // Recenter the camera on the current call's two endpoints as you step (only the
   // endpoints that actually got a node — an unresolved id would frame nothing).
-  const focusIds = useMemo(() => {
-    const c = dv.edges[safeStep];
-    return c !== undefined ? [c.from, c.to].filter((id) => placed.has(id)) : [];
-  }, [dv, safeStep, placed]);
+  const currentCall = dv.edges[safeStep];
+  const focusIds = useMemo(
+    () =>
+      currentCall !== undefined
+        ? [currentCall.from, currentCall.to].filter((id) => placed.has(id))
+        : [],
+    [currentCall, placed]
+  );
+
+  // Publish the walk's position to whoever is following along (the Architecture
+  // lens' side-by-side activity trace). Declared above the empty-view early
+  // return so the hook order is stable, and keyed on the call OBJECT — the
+  // memoized `dv` hands back the same reference until the model itself changes,
+  // so a listener that mirrors it into state settles immediately.
+  useEffect(() => {
+    onStepChange?.(currentCall);
+  }, [onStepChange, currentCall]);
 
   if (dv.participants.length === 0 && dv.persons.length === 0) {
     return <FlowEmpty label="No call chain to render yet." t={t} />;

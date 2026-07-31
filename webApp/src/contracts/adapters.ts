@@ -45,7 +45,7 @@ import type {
 import { METHOD_METADATA, PHASE1_ORDER, PHASE2_ORDER } from './methodMetadata';
 import { ARTIFACT_STAGE_APP_STRINGS } from './enums.gen';
 import { dynamicViewLabel, indexUseCaseNames } from './dynamicViewLabels';
-import { toUseCaseView, viewKeyForUseCase, type UseCaseView } from './useCaseViews';
+import { ownerUseCaseId, toUseCaseView, viewKeyForUseCase, type UseCaseView } from './useCaseViews';
 import { linearizeSteps, personParticipants } from './realization';
 import { assertNever } from './exhaustive';
 
@@ -430,6 +430,20 @@ export function dynamicViewKeyForUseCase(
   useCaseId: string
 ): string | undefined {
   return viewKeyForUseCase(narrow(envelope, 'system'), useCaseId);
+}
+
+/**
+ * The inverse of dynamicViewKeyForUseCase: the id of the use case whose call
+ * chain the given dynamic view realizes — the join the Architecture step's
+ * dynamic lens uses to pair the chain with its activity diagram. Undefined when
+ * the system model is absent, the key is blank/unknown, or the view carries no
+ * back-link (a synthetic view); the lens then renders the chain alone.
+ */
+export function dynamicViewUseCaseId(
+  envelope: ArtifactModelEnvelope | undefined,
+  key: string
+): string | undefined {
+  return ownerUseCaseId(narrow(envelope, 'system'), key);
 }
 
 /**
