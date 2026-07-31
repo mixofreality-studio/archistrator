@@ -699,15 +699,20 @@ export interface components {
         | 'loop'
         | 'switch'
         | 'goto'
-        | 'interruptEdge';
+        | 'interruptEdge'
+        | 'timeEvent'
+        | 'acceptEvent';
       label: string;
       linkedActorId: null | string;
-      linkedCompId: null | string;
       roleName: string;
     };
     ModelActor: {
       id: string;
       role: string;
+    };
+    ModelCallStep: {
+      activityNodeId: string;
+      calls: null | components['schemas']['ModelRelationship'][];
     };
     ModelCheckItem: {
       guideline: string;
@@ -785,9 +790,8 @@ export interface components {
       environments: null | components['schemas']['ModelDeploymentEnvironment'][];
     };
     ModelDynamicView: {
-      edges: null | components['schemas']['ModelRelationship'][];
       key: string;
-      participants: null | string[];
+      steps: null | components['schemas']['ModelCallStep'][];
       title: string;
       useCaseId: string;
     };
