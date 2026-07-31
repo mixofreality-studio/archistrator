@@ -8,8 +8,6 @@
  * ArtifactSlotView; we narrow on it before reading the concrete typed model.
  */
 import type {
-  ActivityDiagram,
-  ActivityEdge,
   ArtifactKindFull,
   ArtifactModelEnvelope,
   ArtifactSlotView,
@@ -48,7 +46,7 @@ import { METHOD_METADATA, PHASE1_ORDER, PHASE2_ORDER } from './methodMetadata';
 import { ARTIFACT_STAGE_APP_STRINGS } from './enums.gen';
 import { dynamicViewLabel, indexUseCaseNames } from './dynamicViewLabels';
 import { toUseCaseView, viewKeyForUseCase, type UseCaseView } from './useCaseViews';
-import { personParticipants } from './realization';
+import { linearizeSteps, personParticipants } from './realization';
 import { assertNever } from './exhaustive';
 
 // ---------------------------------------------------------------------------
@@ -434,106 +432,20 @@ export function dynamicViewKeyForUseCase(
   return viewKeyForUseCase(narrow(envelope, 'system'), useCaseId);
 }
 
-/** One authored call, still tagged with the step (activity node) it belongs to,
- *  ordered by the DFS linearization below — everything SequencedCall carries
- *  except the global `seq` (assigned once the full walk is known). */
-type StepTaggedCall = Omit<SequencedCall, 'seq'>;
-
-/**
- * Deterministic linearization of a use case's step-keyed calls: a DFS over the
- * activity graph from its entry nodes (start ∪ event nodes, diagram-declared
- * order), following authored edge order, each edge traversed at most once. A
- * step's calls are emitted the FIRST time its node is visited. Steps whose node
- * the walk never reaches (dangling, off-path, or — when no activity diagram is
- * linked — every step) are appended afterward in AUTHORED step order, never
- * silently dropped. `activity` absent degrades to "no graph": every step is
- * emitted in authored order and stepLabel falls back to the node id.
- */
-function linearizeSteps(
-  steps: NonNullable<System['dynamicViews']>[number]['steps'],
-  activity: ActivityDiagram | null | undefined
-): StepTaggedCall[] {
-  const stepList = steps ?? [];
-  const stepsByNode = new Map<string, (typeof stepList)[number]>();
-  for (const s of stepList) stepsByNode.set(s.activityNodeId, s);
-
-  const nodes = activity?.nodes ?? [];
-  const edges = activity?.edges ?? [];
-  const labelById = new Map(nodes.map((n) => [n.id, n.label]));
-
-  // Adjacency in authored edge order.
-  const outgoing = new Map<string, ActivityEdge[]>();
-  for (const e of edges) {
-    const list = outgoing.get(e.from);
-    if (list === undefined) outgoing.set(e.from, [e]);
-    else list.push(e);
-  }
-
-  const visitedNodes = new Set<string>();
-  const visitedEdges = new Set<ActivityEdge>();
-  const visitOrder: string[] = [];
-
-  function dfs(nodeId: string): void {
-    if (!visitedNodes.has(nodeId)) {
-      visitedNodes.add(nodeId);
-      visitOrder.push(nodeId);
-    }
-    for (const edge of outgoing.get(nodeId) ?? []) {
-      if (visitedEdges.has(edge)) continue;
-      visitedEdges.add(edge);
-      dfs(edge.to);
-    }
-  }
-
-  const entries = nodes.filter(
-    (n) => n.kind === 'start' || n.kind === 'timeEvent' || n.kind === 'acceptEvent'
-  );
-  for (const entry of entries) dfs(entry.id);
-
-  const out: StepTaggedCall[] = [];
-  const emitted = new Set<string>();
-
-  function emitStep(nodeId: string): void {
-    if (emitted.has(nodeId)) return;
-    const step = stepsByNode.get(nodeId);
-    if (step === undefined) return;
-    emitted.add(nodeId);
-    const calls = step.calls ?? [];
-    const stepLabel = labelById.get(nodeId) ?? nodeId;
-    calls.forEach((c, i) => {
-      out.push({
-        from: c.from,
-        to: c.to,
-        mode: c.mode,
-        label: c.label,
-        stepNodeId: nodeId,
-        stepLabel,
-        callInStep: i + 1,
-        callsInStep: calls.length,
-      });
-    });
-  }
-
-  // First-visit order from the DFS walk, then every never-visited step
-  // (dangling/off-path, or ALL steps when there is no activity diagram at all)
-  // appended in its AUTHORED position.
-  for (const nodeId of visitOrder) emitStep(nodeId);
-  for (const step of stepList) emitStep(step.activityNodeId);
-
-  return out;
-}
-
 /**
  * Maps one named DynamicView of the System model into a render-ready sequence:
  * its calls linearized by DFS over the linked use case's activity graph (see
- * linearizeSteps), globally sequence-numbered; participants are the System
- * components referenced as a call endpoint (first-appearance order); persons
- * are the use case's actors that appear as an endpoint (personParticipants);
- * an endpoint resolving to NEITHER is never silently dropped — it is listed in
- * `unresolved` (first-appearance order) instead. `useCasesEnvelope` supplies the
- * activity graph + actors for the view's linked use case (absent → every step
- * still renders, linearized in authored order, with no persons). Absent system
- * / missing key → an empty view.
+ * realization.ts' linearizeSteps — kept in that leaf module, with its own unit
+ * tests, since it is the most complex logic here and adapters.ts' extensionless
+ * imports don't resolve under `node --test`), globally sequence-numbered here;
+ * participants are the System components referenced as a call endpoint
+ * (first-appearance order); persons are the use case's actors that appear as
+ * an endpoint (personParticipants); an endpoint resolving to NEITHER is never
+ * silently dropped — it is listed in `unresolved` (first-appearance order)
+ * instead. `useCasesEnvelope` supplies the activity graph + actors for the
+ * view's linked use case (absent → every step still renders, linearized in
+ * authored order, with no persons). Absent system / missing key → an empty
+ * view.
  */
 export function toDynamicView(
   envelope: ArtifactModelEnvelope | undefined,

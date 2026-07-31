@@ -1,16 +1,19 @@
 /**
  * Pure per-use-case call-chain realization: joins a System's step-keyed
  * DynamicView (dynamicViews[].steps, one CallStep per authored activity node)
- * onto a use case, WITHOUT walking the activity graph — that DFS linearization
- * (global sequencing for the Architecture step-through) lives in adapters.ts'
- * toDynamicView; this module is the simpler per-node join the Core Use Cases
- * activity-diagram overlay (Tasks 9-11) consumes directly.
+ * onto a use case, plus the deterministic DFS linearization of those steps
+ * over the use case's activity graph (global sequencing for the Architecture
+ * step-through — see linearizeSteps below; adapters.ts' toDynamicView is the
+ * only caller, assigning the final global `seq`).
  *
  * Kept import-free of adapters (type-only imports from './types') so it is
  * directly unit-testable under `node --test` (adapters.ts' extensionless
  * imports don't resolve there — see useCaseViews.ts for the same discipline).
+ * This is also WHY linearizeSteps lives here rather than in adapters.ts: it is
+ * the most complex logic Tasks 9-11 consume, and needs its own leaf-module
+ * test coverage.
  */
-import type { CallMode, System, UseCase } from './types';
+import type { ActivityDiagram, ActivityEdge, CallMode, System, UseCase } from './types';
 
 /** One realized call: a Relationship stripped to the fields the overlay needs. */
 export interface RealizedCall {
@@ -81,4 +84,108 @@ export function personParticipants(
   return (uc.actors ?? [])
     .filter((a) => endpoints.has(a.id))
     .map((a) => ({ id: a.id, role: a.role }));
+}
+
+/** One authored call, still tagged with the step (activity node) it belongs to,
+ *  in DFS-linearized order — everything adapters.ts' SequencedCall carries
+ *  except the global `seq` (assigned by the caller once the full walk is
+ *  known — it is the one field this leaf module, which knows nothing of the
+ *  wider view, cannot itself compute). */
+export interface LinearizedCall {
+  from: string;
+  to: string;
+  mode: CallMode;
+  label: string;
+  /** The activity node whose CallStep authored this call. */
+  stepNodeId: string;
+  /** That node's activity-diagram label ('' / the node id when no diagram is linked). */
+  stepLabel: string;
+  /** 1-based position of this call within its own step. */
+  callInStep: number;
+  /** Total calls authored on this step. */
+  callsInStep: number;
+}
+
+/**
+ * Deterministic linearization of a use case's step-keyed calls: a DFS over the
+ * activity graph from its entry nodes (start ∪ event nodes, diagram-declared
+ * order), following authored edge order, each edge traversed at most once. A
+ * step's calls are emitted the FIRST time its node is visited. Steps whose node
+ * the walk never reaches (dangling, off-path, or — when no activity diagram is
+ * linked — every step) are appended afterward in AUTHORED step order, never
+ * silently dropped. `activity` absent degrades to "no graph": every step is
+ * emitted in authored order and stepLabel falls back to the node id.
+ */
+export function linearizeSteps(
+  steps: NonNullable<System['dynamicViews']>[number]['steps'],
+  activity: ActivityDiagram | null | undefined
+): LinearizedCall[] {
+  const stepList = steps ?? [];
+  const stepsByNode = new Map<string, (typeof stepList)[number]>();
+  for (const s of stepList) stepsByNode.set(s.activityNodeId, s);
+
+  const nodes = activity?.nodes ?? [];
+  const edges = activity?.edges ?? [];
+  const labelById = new Map(nodes.map((n) => [n.id, n.label]));
+
+  // Adjacency in authored edge order.
+  const outgoing = new Map<string, ActivityEdge[]>();
+  for (const e of edges) {
+    const list = outgoing.get(e.from);
+    if (list === undefined) outgoing.set(e.from, [e]);
+    else list.push(e);
+  }
+
+  const visitedNodes = new Set<string>();
+  const visitedEdges = new Set<ActivityEdge>();
+  const visitOrder: string[] = [];
+
+  function dfs(nodeId: string): void {
+    if (!visitedNodes.has(nodeId)) {
+      visitedNodes.add(nodeId);
+      visitOrder.push(nodeId);
+    }
+    for (const edge of outgoing.get(nodeId) ?? []) {
+      if (visitedEdges.has(edge)) continue;
+      visitedEdges.add(edge);
+      dfs(edge.to);
+    }
+  }
+
+  const entries = nodes.filter(
+    (n) => n.kind === 'start' || n.kind === 'timeEvent' || n.kind === 'acceptEvent'
+  );
+  for (const entry of entries) dfs(entry.id);
+
+  const out: LinearizedCall[] = [];
+  const emitted = new Set<string>();
+
+  function emitStep(nodeId: string): void {
+    if (emitted.has(nodeId)) return;
+    const step = stepsByNode.get(nodeId);
+    if (step === undefined) return;
+    emitted.add(nodeId);
+    const calls = step.calls ?? [];
+    const stepLabel = labelById.get(nodeId) ?? nodeId;
+    calls.forEach((c, i) => {
+      out.push({
+        from: c.from,
+        to: c.to,
+        mode: c.mode,
+        label: c.label,
+        stepNodeId: nodeId,
+        stepLabel,
+        callInStep: i + 1,
+        callsInStep: calls.length,
+      });
+    });
+  }
+
+  // First-visit order from the DFS walk, then every never-visited step
+  // (dangling/off-path, or ALL steps when there is no activity diagram at all)
+  // appended in its AUTHORED position.
+  for (const nodeId of visitOrder) emitStep(nodeId);
+  for (const step of stepList) emitStep(step.activityNodeId);
+
+  return out;
 }
