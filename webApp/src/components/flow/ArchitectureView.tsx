@@ -54,6 +54,7 @@ import { useTokens } from '../../utilities/theme/ThemeContext';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 import { ArchitectureFlow } from './ArchitectureFlow';
 import { DynamicViewFlow } from './DynamicViewFlow';
+import { resolveDecider } from './deciderResolution';
 import { PerspectiveFlow } from './PerspectiveFlow';
 import { UseCaseWalkthrough } from '../usecase/UseCaseWalkthrough';
 import { walkthroughPathTo, walkthroughRoots } from '../usecase/walkthroughRoots';
@@ -314,6 +315,35 @@ export function ArchitectureView({
     [activeDynamicKey]
   );
   const focusStepNodeId = walkPos.key === activeDynamicKey ? walkPos.nodeId : initialWalkNodeId;
+  // The current node itself (undefined off the entry chooser or when no use
+  // case is traced) — source for both its ActivityNodeKind and, for a
+  // decision/switch node, its swim-lane (change 3 below).
+  const focusStepNode = tracedUseCase?.uc.nodes.find((n) => n.id === focusStepNodeId);
+  // DynamicViewFlow needs the kind only to tell a real realization gap (an
+  // action/timeEvent/acceptEvent node authoring no calls) apart from a
+  // by-design control-flow step (merge/fork/join/start/end/…) when the
+  // current fragment authors no calls at all (founder QA round 3). Blank on
+  // the multi-root entry chooser and when no use case is traced — the caption
+  // helper treats both an unknown kind and the blank id conservatively.
+  const focusStepKind = focusStepNode?.kind;
+  // CHANGE 3 (founder QA round 3 addendum — "if it's a decision shouldn't the
+  // person or engine responsible for making that decision be highlighted?"):
+  // a decision/switch node with no realized step highlights its DECIDER
+  // instead of muting the whole diagram — the actor whose swim-lane role
+  // matches the node's lane, else the use case's entry Manager. Every other
+  // call-less kind (and a decision/switch node that DOES author calls)
+  // ignores this prop entirely — DynamicViewFlow only consults it when the
+  // fragment it's driving is actually empty.
+  const focusDecider = useMemo(() => {
+    if (focusStepNode === undefined) return undefined;
+    if (focusStepNode.kind !== 'decision' && focusStepNode.kind !== 'switch') return undefined;
+    return resolveDecider(
+      focusStepNode.lane,
+      tracedUseCase?.uc.actors ?? [],
+      dynamicModel.participants,
+      dynamicModel.edges
+    );
+  }, [focusStepNode, tracedUseCase, dynamicModel]);
 
   // Container-aware split: MUI viewport breakpoints can't see that this view can
   // sit inside a narrow design-experience column, where a 40/60 split would
@@ -356,6 +386,8 @@ export function ArchitectureView({
         initialStep={consumedStep - 1}
         resetKey={`${activeDynamicKey}#${String(consumedStep)}`}
         {...(tracedUseCase !== undefined ? { focusStepNodeId } : {})}
+        {...(focusStepKind !== undefined ? { focusStepKind } : {})}
+        {...(focusDecider !== undefined ? { focusDecider } : {})}
         {...(dynamicStatusBySeq !== undefined ? { statusBySeq: dynamicStatusBySeq } : {})}
         onCommentStep={
           enabled

@@ -159,7 +159,20 @@ No new shell; the two existing views consume the realization.
   all at once — and its caption lists them (`n. label · from → to`) in place of
   the single-call Prev/Next pager, which the walkthrough has replaced. A step the
   chain does not realize (and the multi-root entry chooser) reads "No realization
-  for this step" rather than crashing or lying. `?step=` still deep-links: the seq
+  for this step" rather than crashing or lying (founder QA round 3, 2026-07-31: a
+  call-less step now MUTES THE WHOLE DIAGRAM — every node and edge, including the
+  Utilities carve-out — rather than rendering it plain, and the caption
+  differentiates that real gap from a by-design control-flow step,
+  merge/fork/join/start/end/…, which reads "Control-flow step — no
+  calls" instead; the camera fits ONCE to the whole diagram when the view
+  changes and never moves again while stepping, replacing any per-step recenter —
+  the self-paced step-through's own per-step recenter is unchanged. Same-day
+  addendum: a call-less `decision`/`switch` node is carved out of that mute-all —
+  "if it's a decision shouldn't the person or engine responsible for making that
+  decision be highlighted?" — decisions highlight their decider — actor lane →
+  person, else entry Manager — one node lit ("Decided by <name>"), everything
+  else muted, Utilities carve-out intact, still no camera movement; a decider
+  that can't be resolved falls back to mute-all). `?step=` still deep-links: the seq
   resolves to its owning activity node and then, via a BFS shortest path over the
   activity edges (`walkthroughPathTo`), to the route the walkthrough opens on.
   Views with no linked use case / no activity diagram render the chain full-width

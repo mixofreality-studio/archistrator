@@ -14,14 +14,21 @@
  * FRAGMENT its current activity step realizes — every call of that step at once,
  * everything else muted — and the internal Prev/Next paging gives way to a
  * caption listing those calls. The stepper lives on the other side of the split;
- * this pane follows.
+ * this pane follows. A call-less step (nothing to light — an unrealized node, a
+ * control-flow node by design, or the multi-root entry chooser) MUTES THE WHOLE
+ * DIAGRAM instead, and the caption differentiates a real gap from "by design"
+ * using `focusStepKind` (founder QA round 3). The camera fits ONCE to the whole
+ * diagram when the view changes (`resetKey`) and never moves again while
+ * stepping — the founder does not want the canvas panning/zooming per step, only
+ * muting; the self-paced step-through keeps its own per-step recenter.
  *
  * Decoupled from the System envelope: callers pass a prebuilt `dv` (system views via
  * toDynamicView; test scenarios via testScenarioToDynamicView) plus a `resetKey`
- * that restarts the walk when the selected view changes. An optional `statusBySeq`
- * colours each call red (target / failing) or green (passing) — the test views' own
- * run status, or (Architecture) the owning step's CC findings via callStatus.ts.
- * Reuses the shared C4 node, colours, decoration, legend and canvas chrome.
+ * that restarts the walk (and, in fragment mode, re-fits the camera) when the
+ * selected view changes. An optional `statusBySeq` colours each call red (target /
+ * failing) or green (passing) — the test views' own run status, or (Architecture)
+ * the owning step's CC findings via callStatus.ts. Reuses the shared C4 node,
+ * colours, decoration, legend and canvas chrome.
  *
  * PEOPLE: a realized chain's endpoints include the use case's actors, which are not
  * System components. They are laid out in their own `person` row above the Clients
@@ -41,6 +48,7 @@ import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline';
 import type { DynamicViewModel, SequencedCall } from '../../contracts/adapters';
+import type { ActivityNodeKind } from '../../contracts/types';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 import { useTokens } from '../../utilities/theme/ThemeContext';
 import type { Tokens } from '../../utilities/theme/themes';
@@ -57,6 +65,7 @@ import {
   sortByLayoutPosition,
 } from './flowLayout';
 import { LayerLegend, FlowCanvas, FlowEmpty, FocusNodes } from './flowShared';
+import { fragmentCallLessHeading } from './fragmentCaption';
 
 /** Per-call status for the test views: 'red' = target/failing, 'green' = passing. */
 export type StepStatus = 'red' | 'green';
@@ -71,7 +80,21 @@ function build(
   t: Tokens,
   focused: readonly SequencedCall[],
   focalComponentId: string | undefined,
-  statusBySeq: Map<number, StepStatus> | undefined
+  statusBySeq: Map<number, StepStatus> | undefined,
+  /** Fragment mode's call-less steps (founder QA round 3): an unrealized
+   *  activity node, a control-flow step by design, or the multi-root entry
+   *  chooser all light NOTHING, so mute the WHOLE diagram — every node
+   *  (including the Utilities bar's usual never-dimmed carve-out) and every
+   *  edge — rather than rendering it plain/unmuted, which read as a silent
+   *  no-op rather than "no calls happen here". False whenever `focusNodeId`
+   *  is set (change 3 below) — the two are mutually exclusive. */
+  muteAll: boolean,
+  /** Change 3 (founder QA round 3 addendum): a decision/switch call-less step
+   *  highlights its DECIDER — one participant id (an actor or a component) —
+   *  instead of muting everything. Folded into `focusEndpoints` below so it
+   *  gets the exact same glow/dim treatment a real call's endpoint gets;
+   *  `muteAll` is false whenever this is set. */
+  focusNodeId: string | undefined
 ): {
   nodes: Node[];
   edges: Edge[];
@@ -92,19 +115,28 @@ function build(
   // What is lit: ONE call in the step-through, the whole fragment in
   // walkthrough-driven mode. Everything else is muted exactly as the static
   // graph mutes a hovered component's non-neighbours (founder QA round 2 — the
-  // glow alone did not read as focus). With NOTHING focused (an activity step
-  // the chain does not realize) there is nothing to mute against, so the chain
-  // renders plain and quiet rather than uniformly ghosted.
+  // glow alone did not read as focus).
   const focusSeqs = new Set(focused.map((c) => c.seq));
-  const focusEndpoints = new Set(focused.flatMap((c) => [c.from, c.to]));
+  const focusEndpoints = new Set([
+    ...focused.flatMap((c) => [c.from, c.to]),
+    // Change 3: the decider highlight rides the SAME endpoint set a real
+    // call's endpoints use — same glow, same dimming of everyone else, same
+    // Utilities carve-out (no calls exist for this step, so no edge is ever
+    // "current" — every edge below just goes quietly `muted`).
+    ...(focusNodeId !== undefined ? [focusNodeId] : []),
+  ]);
   const hasFocus = focusEndpoints.size > 0;
   const isEndpoint = (id: string): boolean => focusEndpoints.has(id);
+  // Feeds edges + the person row: a real per-call focus OR the call-less
+  // mute-all — mutually exclusive (muteAll is only ever true when `focused`,
+  // and therefore `focusEndpoints`, is empty).
+  const muted = hasFocus || muteAll;
 
   // People first (top row), then the components in the layout's visual reading
   // order (row top→down, then x) so DOM/tab order matches what the eye sees.
   const nodes: Node[] = dv.persons.map((p) => {
     const base = personNode(p, layout.pos.get(p.id) ?? { x: 0, y: 0 }, colors.person, {
-      dimmed: hasFocus && !isEndpoint(p.id),
+      dimmed: muted && !isEndpoint(p.id),
     });
     return isEndpoint(p.id)
       ? { ...base, style: { filter: `drop-shadow(0 0 6px ${t.accent})` } }
@@ -118,12 +150,14 @@ function build(
       // step caption rail, so the node bodies stay compact (no volatility prose) — this
       // keeps heights stable and stops tall cards overlapping their neighbours.
       // Utilities carry the static graph's carve-out: shared infrastructure in a
-      // side bar that receives no lines is never dimmed, it simply exists.
+      // side bar that receives no lines is never dimmed, it simply exists — EXCEPT
+      // under mute-all, which overrides every carve-out (including this one and the
+      // focal glow below) so the whole diagram reads as "no calls happen here".
       const base = c4Node(c, layout.pos.get(c.id) ?? { x: 0, y: 0 }, colors, {
         showEncapsulates: false,
-        dimmed: hasFocus && !isEndpoint(c.id) && !isFocal && c.layer !== 'utility',
+        dimmed: muteAll || (muted && !isEndpoint(c.id) && !isFocal && c.layer !== 'utility'),
       });
-      if (isEndpoint(c.id) || isFocal) {
+      if (!muteAll && (isEndpoint(c.id) || isFocal)) {
         return {
           ...base,
           data: { ...base.data, ...(isFocal ? { color: t.accent } : {}) },
@@ -149,9 +183,9 @@ function build(
       const isCurrent = focusSeqs.has(r.seq);
       const stroke = statusColor(statusBySeq?.get(r.seq), t);
       return flowEdge(`${String(r.seq)}-${r.from}-${r.to}`, r.from, r.to, r.label, t, {
-        variant: isCurrent ? 'focus' : hasFocus ? 'muted' : 'normal',
+        variant: isCurrent ? 'focus' : muted ? 'muted' : 'normal',
         dashed: r.mode !== 'sync', // queued / pub-sub calls render dashed
-        ...(stroke !== undefined ? { stroke, opacity: isCurrent || !hasFocus ? 1 : 0.4 } : {}),
+        ...(stroke !== undefined ? { stroke, opacity: isCurrent || !muted ? 1 : 0.4 } : {}),
       });
     });
 
@@ -393,6 +427,9 @@ function StepBar({
 function FragmentBar({
   dv,
   calls,
+  focusStepNodeId,
+  focusStepKind,
+  focusDecider,
   statusBySeq,
   onCommentStep,
   t,
@@ -401,6 +438,18 @@ function FragmentBar({
   /** The focused step's calls in chain order — EMPTY when the step realizes
    *  none (an unrealized node the reader walked onto, or the entry chooser). */
   calls: readonly SequencedCall[];
+  /** The activity node id the walkthrough is standing on ('' = the multi-root
+   *  entry chooser) — needed only to pick the right call-less heading. */
+  focusStepNodeId: string;
+  /** That node's ActivityNodeKind, when the caller (ArchitectureView) knows
+   *  it — differentiates a real realization gap from a by-design
+   *  control-flow step when `calls` is empty (founder QA round 3). */
+  focusStepKind: ActivityNodeKind | undefined;
+  /** Change 3 (founder QA round 3 addendum): a decision/switch call-less step's
+   *  resolved decider (an actor or the entry Manager) — takes priority over
+   *  `fragmentCallLessHeading` when `calls` is empty. Undefined for every
+   *  other call-less kind, or when no decider could be resolved. */
+  focusDecider: { id: string; label: string } | undefined;
   statusBySeq: Map<number, StepStatus> | undefined;
   /** When provided, a Comment button anchoring the fragment's FIRST call. */
   onCommentStep: ((edge: SequencedCall) => void) | undefined;
@@ -427,11 +476,13 @@ function FragmentBar({
   const captionAccent = statusColor(worst, t) ?? t.accent;
   const stepLabel = first !== undefined && first.stepLabel.length > 0 ? first.stepLabel : undefined;
   const heading =
-    first === undefined
-      ? 'No realization for this step'
-      : `Step: ${stepLabel ?? first.stepNodeId} — ${String(calls.length)} call${
+    first !== undefined
+      ? `Step: ${stepLabel ?? first.stepNodeId} — ${String(calls.length)} call${
           calls.length === 1 ? '' : 's'
-        }`;
+        }`
+      : focusDecider !== undefined
+        ? `Decided by ${focusDecider.label}`
+        : fragmentCallLessHeading(focusStepNodeId, focusStepKind);
 
   return (
     <Box sx={{ mb: 1.5 }}>
@@ -520,11 +571,11 @@ function FragmentBar({
               </Typography>
             ))}
           </Box>
-        ) : (
+        ) : focusStepNodeId !== '' ? (
           <Typography sx={{ fontFamily: t.body, fontSize: 11.5, color: t.muted, mt: 0.5 }}>
             This step authors no calls — the chain stays as it was while you walk past it.
           </Typography>
-        )}
+        ) : null}
       </Box>
     </Box>
   );
@@ -583,6 +634,8 @@ export function DynamicViewFlow({
   statusBySeq,
   detailBySeq,
   focusStepNodeId,
+  focusStepKind,
+  focusDecider,
   onCommentStep,
 }: {
   /** The ordered call chain to render (system use case or test scenario). */
@@ -610,6 +663,17 @@ export function DynamicViewFlow({
    *  entry chooser, or a step the chain does not realize) — renders the chain
    *  with nothing focused and says so. Undefined = the self-driven step-through. */
   focusStepNodeId?: string;
+  /** The focused node's ActivityNodeKind, when the caller (ArchitectureView)
+   *  knows it — used only to pick the right call-less caption (a real
+   *  realization gap vs. a by-design control-flow step; founder QA round 3).
+   *  Ignored outside fragment mode. */
+  focusStepKind?: ActivityNodeKind;
+  /** Change 3 (founder QA round 3 addendum): the resolved DECIDER for a
+   *  decision/switch call-less step — one participant (an actor or the use
+   *  case's entry Manager) to highlight instead of muting everything, per
+   *  ArchitectureView's `resolveDecider`. Ignored when `calls` is non-empty
+   *  or outside fragment mode; undefined falls back to `muteAll`. */
+  focusDecider?: { id: string; label: string };
   /** Optional per-step comment handler: enables a Comment button in the caption bar
    *  that arms an anchor for the current call — the fragment's FIRST call in
    *  fragment mode (system-design use only; omitted for the read-only
@@ -643,15 +707,25 @@ export function DynamicViewFlow({
           : [],
     [dv.edges, focusStepNodeId, currentCall]
   );
+  // Fragment mode's call-less steps mute the WHOLE diagram (founder QA round 3)
+  // rather than rendering it plain — see build()'s `muteAll` doc — UNLESS the
+  // caller resolved a decider (change 3 addendum: a decision/switch node
+  // highlights whoever makes the call instead). Never true in the self-driven
+  // step-through (there `focusedCalls` is only empty when the view has no
+  // edges at all, which renders no StepBar either).
+  const callLess = fragmentMode && focusedCalls.length === 0;
+  const muteAll = callLess && focusDecider === undefined;
+  const focusNodeId = callLess ? focusDecider?.id : undefined;
 
   const { nodes, edges, colors, usedLayers, placed } = useMemo(
-    () => build(dv, t, focusedCalls, focalComponentId, statusBySeq),
-    [dv, t, focusedCalls, focalComponentId, statusBySeq]
+    () => build(dv, t, focusedCalls, focalComponentId, statusBySeq, muteAll, focusNodeId),
+    [dv, t, focusedCalls, focalComponentId, statusBySeq, muteAll, focusNodeId]
   );
 
   // Recenter the camera on what is lit (only the endpoints that actually got a
   // node — an unresolved id would frame nothing). Deduped: a fragment's calls
-  // routinely share an endpoint.
+  // routinely share an endpoint. Only consumed by the self-driven step-through's
+  // per-step FocusNodes below — fragment mode's camera never moves per step.
   const focusIds = useMemo(
     () => [...new Set(focusedCalls.flatMap((c) => [c.from, c.to]))].filter((id) => placed.has(id)),
     [focusedCalls, placed]
@@ -667,6 +741,9 @@ export function DynamicViewFlow({
         <FragmentBar
           calls={focusedCalls}
           dv={dv}
+          focusDecider={focusDecider}
+          focusStepKind={focusStepKind}
+          focusStepNodeId={focusStepNodeId}
           statusBySeq={statusBySeq}
           t={t}
           onCommentStep={onCommentStep}
@@ -683,12 +760,22 @@ export function DynamicViewFlow({
         />
       )}
       <UnresolvedChips ids={dv.unresolved} t={t} />
-      <FlowCanvas edges={edges} height={height} nodes={nodes} t={t}>
+      {/* STILL CAMERA in fragment mode (founder QA round 3): keying the canvas to
+          `resetKey` remounts ReactFlow whenever the VIEW changes, so its own
+          `fitView` prop (FlowCanvas) fits the whole diagram once — the same
+          initial-fit mechanism every flow lens uses on mount — and then nothing
+          moves the camera again while the walkthrough steps (no FocusNodes here).
+          The self-driven step-through keeps its own key (stable across steps) and
+          its per-step FocusNodes recenter, unchanged. */}
+      <FlowCanvas
+        edges={edges}
+        height={height}
+        key={fragmentMode ? `fragment:${resetKey}` : 'step-through'}
+        nodes={nodes}
+        t={t}
+      >
         <LayerLegend colors={colors} t={t} usedLayers={usedLayers} />
-        <FocusNodes
-          dep={fragmentMode ? `step:${focusStepNodeId}` : String(safeStep)}
-          nodeIds={focusIds}
-        />
+        {!fragmentMode && <FocusNodes dep={String(safeStep)} nodeIds={focusIds} />}
       </FlowCanvas>
     </Box>
   );

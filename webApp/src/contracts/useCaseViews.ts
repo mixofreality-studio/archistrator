@@ -6,7 +6,14 @@
  * don't resolve there); adapters.toCoreUseCasesView / dynamicViewKeyForUseCase
  * delegate here.
  */
-import type { ActivityNodeKind, Classification, EdgeKind, System, UseCaseDecision } from './types';
+import type {
+  Actor,
+  ActivityNodeKind,
+  Classification,
+  EdgeKind,
+  System,
+  UseCaseDecision,
+} from './types';
 
 export interface ActivityNodeView {
   id: string;
@@ -40,6 +47,12 @@ export interface UseCaseView {
   lanes: string[];
   nodes: ActivityNodeView[];
   edges: ActivityEdgeView[];
+  /** The use case's actors (id + role), verbatim off the wire model. Consumed
+   *  by the Architecture dynamic lens' decider resolution (founder QA round
+   *  3): an actor-lane decision/switch node with no realized step highlights
+   *  whichever of these has a `role` matching the node's lane. Empty for a
+   *  use case authored before actors existed on the wire, or with none. */
+  actors: Actor[];
 }
 
 /** Maps one typed UseCaseDecision into its render-ready activity view. */
@@ -76,6 +89,7 @@ export function toUseCaseView(decision: UseCaseDecision): UseCaseView {
     lanes,
     nodes,
     edges,
+    actors: uc.actors ?? [],
   };
 }
 
