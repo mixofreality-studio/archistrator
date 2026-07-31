@@ -16,6 +16,14 @@ import { maxSeverity } from './findingOverlays';
 
 export type { Layer };
 
+/**
+ * A lane in the layered layout: a Method layer, or the synthetic `person` lane.
+ * People (use-case actors) are NOT System components — they hold no volatility
+ * and sit outside the architecture — but they DO participate in a realized call
+ * chain, so the dynamic lens places them in their own row above the Clients.
+ */
+export type FlowLayer = Layer | 'person';
+
 /** Full Method layer stack, top-to-bottom (utility is drawn as a side bar, not a row). */
 export const LAYER_ORDER: readonly Layer[] = [
   'client',
@@ -26,10 +34,16 @@ export const LAYER_ORDER: readonly Layer[] = [
   'utility',
 ];
 
-/** The layers that occupy horizontal rows (top→down). Utility is excluded — it is
+/** Every lane the layout can place, in render order: the people who drive the
+ *  system sit above the Method stack. Drives the visual reading (tab) order. */
+export const FLOW_LAYER_ORDER: readonly FlowLayer[] = ['person', ...LAYER_ORDER];
+
+/** The lanes that occupy horizontal rows (top→down). Utility is excluded — it is
  *  rendered as a vertical bar on the right that spans all rows (Righting Software
- *  Fig 3-4). */
-export const LAYER_ROWS: readonly Layer[] = [
+ *  Fig 3-4). A row with no members is skipped, so the person lane costs nothing
+ *  in the views (static / perspective) that place no people. */
+export const LAYER_ROWS: readonly FlowLayer[] = [
+  'person',
   'client',
   'manager',
   'engine',
@@ -46,8 +60,12 @@ export const LAYER_LABEL: Record<Layer, string> = {
   utility: 'Utility',
 };
 
-export function layerColors(t: Tokens): Record<Layer, string> {
+export function layerColors(t: Tokens): Record<FlowLayer, string> {
   return {
+    // People are not a Method layer, so the person lane deliberately takes the
+    // neutral ink tone rather than a sixth accent: it must never read as one of
+    // the five layer colours (and t.muted is already Resource / Utility).
+    person: t.ink,
     client: t.accent,
     manager: t.accent2,
     engine: t.committedDot,
@@ -85,10 +103,10 @@ const UTIL_PAD = 16;
 
 // --- layered layout engine ------------------------------------------------
 
-/** Minimal shape the layout needs from a component. */
+/** Minimal shape the layout needs from a placed participant (component or person). */
 export interface LayoutComponent {
   id: string;
-  layer: Layer;
+  layer: FlowLayer;
 }
 /** Minimal shape the layout needs from a relationship (direction: from → to). */
 export interface LayoutEdge {
@@ -100,7 +118,7 @@ export interface Layout {
   /** Absolute position per component id. */
   pos: Map<string, { x: number; y: number }>;
   /** The present non-utility rows, in top→down order, with their y. */
-  rows: { layer: Layer; y: number }[];
+  rows: { layer: FlowLayer; y: number }[];
   /** Utility component ids, stacked top→down in the side bar. */
   utilityIds: string[];
   /** X of the Utilities bar column. */
@@ -163,8 +181,10 @@ export function computeLayout(components: LayoutComponent[], relationships: Layo
 
 /** Row-gutter label text: the Method component-layer name for each row (matches
  *  the legend). Utilities are labeled by their own side-bar frame, not a gutter row. */
-function rowLabelText(layer: Layer): string | null {
+function rowLabelText(layer: FlowLayer): string | null {
   switch (layer) {
+    case 'person':
+      return 'People';
     case 'client':
       return 'Clients';
     case 'manager':
@@ -223,8 +243,8 @@ export function decorativeNodes(layout: Layout): Node[] {
 
 /**
  * Returns a COPY of `components` ordered by the computed layout's visual reading
- * order — layer row top→down (Utilities side bar last), then left→right within a
- * row (top→down within the bar). React-Flow renders nodes in array order, so the
+ * order — lane row top→down (People first, Utilities side bar last), then
+ * left→right within a row (top→down within the bar). React-Flow renders nodes in array order, so the
  * DOM/tab order of the focusable C4 nodes follows the visual top-down layout
  * instead of the model's drafted order (F-QA2-51). Ids/keys are untouched — only
  * the emission order changes, so React-Flow keys stay stable.
@@ -234,7 +254,7 @@ export function sortByLayoutPosition<T extends LayoutComponent>(
   layout: Layout
 ): T[] {
   return [...components].sort((a, b) => {
-    const rowDelta = LAYER_ORDER.indexOf(a.layer) - LAYER_ORDER.indexOf(b.layer);
+    const rowDelta = FLOW_LAYER_ORDER.indexOf(a.layer) - FLOW_LAYER_ORDER.indexOf(b.layer);
     if (rowDelta !== 0) return rowDelta;
     const pa = layout.pos.get(a.id) ?? { x: 0, y: 0 };
     const pb = layout.pos.get(b.id) ?? { x: 0, y: 0 };
@@ -289,6 +309,24 @@ export function c4Node(
     },
     draggable: false,
     ...(opts.dimmed === true ? { style: { opacity: 0.12 } } : {}),
+  };
+}
+
+/** Builds a `person`-type React-Flow node for one use-case actor participating in
+ *  a realized call chain (PersonNode renders the stick-figure glyph + role). Not a
+ *  component: no layer tag, no volatility, no comment anchor — an actor is outside
+ *  the system boundary. */
+export function personNode(
+  person: { id: string; role: string },
+  position: { x: number; y: number },
+  color: string
+): Node {
+  return {
+    id: person.id,
+    type: 'person',
+    position,
+    data: { personId: person.id, role: person.role, color },
+    draggable: false,
   };
 }
 

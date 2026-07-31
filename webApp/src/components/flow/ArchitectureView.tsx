@@ -28,6 +28,7 @@ import type {
   ServiceContracts,
 } from '../../contracts/types';
 import { useStructureFindings } from './StructureFindingsContext';
+import { statusBySeqFromFindings } from './callStatus';
 import { resolveContractComponentId } from '../../contracts/contractComponentId';
 import { useTokens } from '../../utilities/theme/ThemeContext';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
@@ -176,9 +177,24 @@ export function ArchitectureView({
     ? componentId
     : defaultComponentId;
   const focusedContract = contractByComponentId.get(activeComponentId);
+  // The use-cases envelope carries the linked use case's activity graph (which
+  // orders the steps and names them) and its actors (the person participants), so
+  // it is passed through whenever the caller has it.
   const dynamicModel = useMemo(
-    () => toDynamicView(envelope, activeDynamicKey),
-    [envelope, activeDynamicKey]
+    () => toDynamicView(envelope, activeDynamicKey, useCasesEnvelope),
+    [envelope, activeDynamicKey, useCasesEnvelope]
+  );
+
+  // Per-call CC tint: red where the owning step carries a Design-Health finding,
+  // green where the step is realized and clean. With NO findings loaded there is
+  // nothing to report — an all-green chain would falsely claim it had been
+  // checked — so no map is passed and the step-through keeps its neutral look.
+  const dynamicStatusBySeq = useMemo(
+    () =>
+      structureFindings.length === 0
+        ? undefined
+        : statusBySeqFromFindings(dynamicModel, structureFindings, activeDynamicKey),
+    [dynamicModel, structureFindings, activeDynamicKey]
   );
 
   // Components grouped by layer for the perspective picker.
@@ -278,6 +294,7 @@ export function ArchitectureView({
           dv={dynamicModel}
           height={height}
           resetKey={activeDynamicKey}
+          {...(dynamicStatusBySeq !== undefined ? { statusBySeq: dynamicStatusBySeq } : {})}
           onCommentStep={
             enabled
               ? (edge): void => {
