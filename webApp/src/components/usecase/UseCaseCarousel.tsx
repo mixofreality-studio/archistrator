@@ -36,7 +36,7 @@ import { StepLink } from '../shared/StepLink';
 import { ActivityFlow } from './ActivityFlow';
 import { UseCaseWalkthrough } from './UseCaseWalkthrough';
 import { coreBand } from './coreBand';
-import { realizationChip, isEligibleForRealization } from './useCaseChip';
+import { realizationChip, isEligibleForRealization, toneColor } from './useCaseChip';
 import { laneColors } from './laneColors';
 
 // Diagram-view mode survives the design-experience remount that would otherwise
@@ -308,8 +308,8 @@ export function UseCaseCarousel({
                   size="small"
                   sx={{
                     bgcolor: 'transparent',
-                    color: chipToneColor(realizationSummary.tone, t),
-                    border: `1.5px solid ${chipToneColor(realizationSummary.tone, t)}`,
+                    color: toneColor(realizationSummary.tone, t),
+                    border: `1.5px solid ${toneColor(realizationSummary.tone, t)}`,
                   }}
                 />
               ) : null}
@@ -520,13 +520,6 @@ export function UseCaseCarousel({
       </Paper>
     </Box>
   );
-}
-
-/** Realization chip tone → token color (mirrors DynamicViewFlow's statusColor idiom). */
-function chipToneColor(tone: 'ok' | 'warn' | 'error', t: Tokens): string {
-  if (tone === 'ok') return t.committedDot;
-  if (tone === 'error') return t.dangerFg;
-  return t.awaitingFg;
 }
 
 /**

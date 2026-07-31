@@ -28,10 +28,9 @@ import { ActivityFlow, type ActivityHighlight } from './ActivityFlow';
 import { useComments, activityNodeAnchor } from '../comments/CommentContext';
 import { laneColors } from './laneColors';
 import { useTokens } from '../../utilities/theme/ThemeContext';
-import type { Tokens } from '../../utilities/theme/themes';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 import { walkthroughRoots, walkthroughNavFloor } from './walkthroughRoots';
-import { isEligibleForRealization } from './useCaseChip';
+import { stepBadgeState, toneColor } from './useCaseChip';
 import { StepLink } from '../shared/StepLink';
 
 type NodeView = UseCaseView['nodes'][number];
@@ -64,36 +63,20 @@ function branchLabel(e: EdgeView, nodesById: Map<string, NodeView>): string {
   return tgt !== undefined ? nodeText(tgt) : 'this path';
 }
 
-type BadgeTone = 'ok' | 'warn' | 'error';
-
-/** The realization badge shown on the focus card for the CURRENT node — a step
- *  exists (findings empty → ✓ realized, else ✗ <first ruleId>), or none exists
- *  (eligible kind → — no realization; every other kind needs no badge at all,
- *  which is what `undefined` means here — pure control flow, nothing to say). */
+/** The realization badge shown on the focus card for the CURRENT node — thin
+ *  data marshalling over useCaseChip's pure `stepBadgeState` (which gates on
+ *  eligibility FIRST: a decision/switch node carrying a realized step is still
+ *  not badge-worthy). `stepFindings` is only invoked once a step is known to
+ *  exist, avoiding a wasted lookup for nodes with none. */
 function stepBadge(
   node: NodeView | undefined,
   realization: Map<string, RealizedStep>,
   stepFindings: (nodeId: string) => Finding[]
-): { label: string; tone: BadgeTone } | undefined {
+): { label: string; tone: 'ok' | 'warn' | 'error' } | undefined {
   if (node === undefined) return undefined;
   const realized = realization.get(node.id);
-  if (realized !== undefined) {
-    const findings = stepFindings(node.id);
-    if (findings.length > 0) {
-      return { label: `✗ ${findings[0]?.ruleId ?? ''}`, tone: 'error' };
-    }
-    return { label: '✓ realized', tone: 'ok' };
-  }
-  return isEligibleForRealization(node.kind)
-    ? { label: '— no realization', tone: 'warn' }
-    : undefined;
-}
-
-/** Badge tone → token color (mirrors DynamicViewFlow's statusColor idiom). */
-function badgeColor(tone: BadgeTone, t: Tokens): string {
-  if (tone === 'ok') return t.committedDot;
-  if (tone === 'error') return t.dangerFg;
-  return t.awaitingFg;
+  const findings = realized !== undefined ? stepFindings(node.id) : [];
+  return stepBadgeState(node.kind, realized, findings);
 }
 
 export function UseCaseWalkthrough({
@@ -311,8 +294,8 @@ export function UseCaseWalkthrough({
                     fontSize: 10,
                     fontWeight: 700,
                     bgcolor: 'transparent',
-                    color: badgeColor(badge.tone, t),
-                    border: `1.5px solid ${badgeColor(badge.tone, t)}`,
+                    color: toneColor(badge.tone, t),
+                    border: `1.5px solid ${toneColor(badge.tone, t)}`,
                     borderRadius: 0.5,
                   }}
                 />
