@@ -156,7 +156,9 @@ No new shell; the two existing views consume the realization.
   and auto-centers. This is what makes the realization *visible*: the reader
   watches the chain trace the very steps they walked on the previous screen.
   Views with no linked use case / no activity diagram render the chain
-  full-width as before; the pane stacks below the chain on narrow containers.
+  full-width as before. The chain leads (left, 60%) and the map follows (right,
+  40%); on a narrow container they stack chain-first — DOM order, visual order
+  and tab order agree at every width.
 
 **Both-surface entries:** an entry step carrying both `web-client` and
 `mcp-client` calls highlights **both** clients when its fragment lights up —

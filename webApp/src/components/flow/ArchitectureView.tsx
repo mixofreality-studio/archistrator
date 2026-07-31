@@ -10,8 +10,9 @@
  * diagram is rendered beside it (ActivityFlow, the same you-are-here map the
  * use-case walkthrough uses), synced to the step that owns the current call — so
  * the reader sees the call chain realize the very steps they just walked on the
- * previous screen. When the view links no use case with a diagram, the chain
- * renders full-width exactly as before.
+ * previous screen. Chain leads (left, 60%), map follows (right, 40%), stacking
+ * chain-first on a narrow container. When the view links no use case with a
+ * diagram, the chain renders full-width exactly as before.
  *
  * Dynamic / perspective each surface a MUI Select picker (dynamic views by title;
  * components grouped by layer). Defaults: first dynamic view; first Manager (else
@@ -432,6 +433,16 @@ export function ArchitectureView({
               gap: 2,
             }}
           >
+            {/* The chain leads — in BOTH directions. It is the artifact under
+                review, it owns the controls the reader drives (Prev/Next), and it
+                is what this step is about; the map is the companion you glance at.
+                Ordering it first keeps DOM order == visual order == tab order at
+                every width, so the narrow layout stacks the chain on TOP (no
+                `order` overrides, no focus-order mismatch). */}
+            <Box sx={{ flex: sideBySide ? '1 1 60%' : '1 1 auto', minWidth: 0 }}>
+              <PaneLabel>Call chain</PaneLabel>
+              {dynamicFlow}
+            </Box>
             {/* Supplementary pane: the use case's OWN activity diagram, walked in
                 lock-step with the chain. The step position is announced by the
                 step-through's caption live region (StepBar) — this map is the
@@ -457,10 +468,6 @@ export function ArchitectureView({
                   {...(activityHighlight !== undefined ? { highlight: activityHighlight } : {})}
                 />
               </CommentProvider>
-            </Box>
-            <Box sx={{ flex: sideBySide ? '1 1 60%' : '1 1 auto', minWidth: 0 }}>
-              <PaneLabel>Call chain</PaneLabel>
-              {dynamicFlow}
             </Box>
           </Box>
         ) : (
