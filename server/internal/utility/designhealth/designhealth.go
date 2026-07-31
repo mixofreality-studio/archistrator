@@ -88,6 +88,25 @@ const (
 	RuleContractOpMax    methodcheck.RuleID = "DH-CONTRACT-OPCOUNT-MAX"
 	RuleContractFacet    methodcheck.RuleID = "DH-CONTRACT-FACET"
 	RuleContractDeadOp   methodcheck.RuleID = "DH-CONTRACT-DEADOP"
+
+	// CC-* call-chain correspondence family (2026-07-30 callchain-realization): the
+	// app-side live-tier mirror of framework-go/methodcheck's rules_callchain.go,
+	// over this package's own tolerant slot-4/slot-5 slices (see rules_callchain.go
+	// for the full family doctrine). Unlike the DH- namespace, these ids are NOT
+	// package-prefixed — they are the SAME rule-id strings the platform framework
+	// emits, because the webApp's Design Health surface joins on rule id across
+	// both call sites (the authoring-gate seam and this live tier) and a finding
+	// must read identically wherever it renders.
+	RuleCCViewUseCase   methodcheck.RuleID = "CC-VIEW-USECASE"
+	RuleCCStepNode      methodcheck.RuleID = "CC-STEP-NODE"
+	RuleCCStepUnique    methodcheck.RuleID = "CC-STEP-UNIQUE"
+	RuleCCCoverage      methodcheck.RuleID = "CC-COVERAGE"
+	RuleCCStepNonempty  methodcheck.RuleID = "CC-STEP-NONEMPTY"
+	RuleCCEndpoint      methodcheck.RuleID = "CC-ENDPOINT-RESOLVES"
+	RuleCCActorEdge     methodcheck.RuleID = "CC-ACTOR-EDGE"
+	RuleCCActorLane     methodcheck.RuleID = "CC-ACTOR-LANE"
+	RuleCCTriggerEvent  methodcheck.RuleID = "CC-TRIGGER-EVENT"
+	RuleCCPathConnected methodcheck.RuleID = "CC-PATH-CONNECTED"
 )
 
 // Input is the decoded, rule-ready view of one project.json: the published
@@ -102,14 +121,16 @@ type Input struct {
 }
 
 // Evaluate runs every live-tier rule over in and returns the findings in a
-// stable family order (cardinality, graph, chains, coverage, contracts). It never
-// returns an error: a rule with nothing to say returns no findings.
+// stable family order (cardinality, graph, chains, coverage, call-chain,
+// contracts). It never returns an error: a rule with nothing to say returns no
+// findings.
 func Evaluate(in Input) []methodcheck.Finding {
 	var out []methodcheck.Finding
 	out = append(out, cardinalityFindings(in)...)
 	out = append(out, graphFindings(in)...)
 	out = append(out, chainFindings(in)...)
 	out = append(out, coverageFindings(in)...)
+	out = append(out, callChainFindings(in)...)
 	out = append(out, contractFindings(in)...)
 	return out
 }

@@ -90,6 +90,55 @@ func TestGreenFixtureAdvisoriesFire(t *testing.T) {
 	assertAbsent(t, got, RuleVolTrace)
 	assertAbsent(t, got, RuleCovUCDynamic)
 	assertAbsent(t, got, RuleObjResolve)
+
+	// CC-* call-chain family (2026-07-30 callchain-realization): the committed
+	// state's 16 use cases all still carry OLD-shape (zero-step) dynamic views,
+	// so only the two rules that can fire against an empty-step view actually
+	// do — CC-COVERAGE (an activity node realized by no step — true regardless
+	// of step count) and CC-TRIGGER-EVENT (checks the diagram's own entry node,
+	// independent of the view). Every step-walking rule (CC-STEP-*,
+	// CC-ENDPOINT-RESOLVES, CC-ACTOR-*, CC-PATH-CONNECTED) is vacuously
+	// satisfied with nothing to walk, and every view's useCaseId resolves
+	// cleanly (CC-VIEW-USECASE silent). The exact counts below mirror the
+	// platform framework-go/methodcheck gate's inventory on this same
+	// committed document (verified by hand-count 2026-07-30: 125 CC-COVERAGE
+	// findings across all 16 use cases, 5 CC-TRIGGER-EVENT findings on the
+	// timer/busMessage-triggered use cases whose diagrams declare no matching
+	// event entry) — a drift here means this mirror parses the slot-4
+	// activity/slot-5 step shapes differently than the platform gate.
+	assertPresent(t, got, RuleCCCoverage, methodcheck.SeverityWarning)
+	assertPresent(t, got, RuleCCTriggerEvent, methodcheck.SeverityWarning)
+	var ccCoverageCount, ccTriggerCount int
+	ccCoverageUseCases := map[string]bool{}
+	for _, f := range findings {
+		switch f.RuleID {
+		case RuleCCCoverage:
+			ccCoverageCount++
+			if f.Location != nil {
+				ccCoverageUseCases[f.Location.Section] = true
+			}
+		case RuleCCTriggerEvent:
+			ccTriggerCount++
+		}
+	}
+	if ccCoverageCount != 125 {
+		t.Errorf("CC-COVERAGE fired %d times on the committed state, want 125 (matches the platform gate's inventory — investigate any drift, don't just re-pin)", ccCoverageCount)
+	}
+	if len(ccCoverageUseCases) != 16 {
+		t.Errorf("CC-COVERAGE fired across %d use cases, want all 16 committed use cases", len(ccCoverageUseCases))
+	}
+	if ccTriggerCount != 5 {
+		t.Errorf("CC-TRIGGER-EVENT fired %d times on the committed state, want 5 (the timer/busMessage-triggered use cases lacking a matching event entry)", ccTriggerCount)
+	}
+	// Step-walking rules are vacuous on the current zero-step views.
+	assertAbsent(t, got, RuleCCViewUseCase)
+	assertAbsent(t, got, RuleCCStepNode)
+	assertAbsent(t, got, RuleCCStepUnique)
+	assertAbsent(t, got, RuleCCStepNonempty)
+	assertAbsent(t, got, RuleCCEndpoint)
+	assertAbsent(t, got, RuleCCActorEdge)
+	assertAbsent(t, got, RuleCCActorLane)
+	assertAbsent(t, got, RuleCCPathConnected)
 }
 
 // ---------------------------------------------------------------------------
@@ -364,6 +413,142 @@ func TestNegativeFixturesEachRuleFires(t *testing.T) {
 				},
 			),
 			wantRule: RuleContractDeadOp, wantSev: methodcheck.SeverityWarning,
+		},
+
+		// ---- CC-* call-chain correspondence family (2026-07-30 callchain-realization) ----
+		{
+			name: "call-chain: view references unresolvable useCaseId",
+			doc: withSlots(
+				sysDoc(comps(comp("c", "client"), comp("m", "manager")),
+					rels(rel("c", "m", "sync")),
+					dvs(dvSteps("uc-typo", step("act", edge("c", "m", "sync"))))),
+				useCasesDoc(ucCase("uc-real", "clientAction", ucActors(ucActor("user")),
+					actDiagram(
+						actNodes(actNode("start", "start"), actNode("act", "action"), actNode("end", "end")),
+						actEdges(actEdge("start", "act"), actEdge("act", "end"))))),
+			),
+			wantRule: RuleCCViewUseCase, wantSev: ccLiveSeverity,
+		},
+		{
+			name: "call-chain: step keys a node the diagram does not declare",
+			doc: withSlots(
+				sysDoc(comps(comp("c", "client"), comp("m", "manager")),
+					rels(rel("c", "m", "sync")),
+					dvs(dvSteps("uc-a", step("ghost-node", edge("c", "m", "sync"))))),
+				useCasesDoc(ucCase("uc-a", "clientAction", ucActors(),
+					actDiagram(
+						actNodes(actNode("start", "start"), actNode("act", "action"), actNode("end", "end")),
+						actEdges(actEdge("start", "act"), actEdge("act", "end"))))),
+			),
+			wantRule: RuleCCStepNode, wantSev: ccLiveSeverity,
+		},
+		{
+			name: "call-chain: duplicate step for the same activity node",
+			doc: withSlots(
+				sysDoc(comps(comp("c", "client"), comp("m", "manager")),
+					rels(rel("c", "m", "sync")),
+					dvs(dvSteps("uc-b",
+						step("act", edge("c", "m", "sync")),
+						step("act", edge("c", "m", "sync"))))),
+				useCasesDoc(ucCase("uc-b", "clientAction", ucActors(),
+					actDiagram(
+						actNodes(actNode("start", "start"), actNode("act", "action"), actNode("end", "end")),
+						actEdges(actEdge("start", "act"), actEdge("act", "end"))))),
+			),
+			wantRule: RuleCCStepUnique, wantSev: ccLiveSeverity,
+		},
+		{
+			name: "call-chain: action node realized by no step",
+			doc: withSlots(
+				sysDoc(comps(comp("c", "client"), comp("m", "manager")),
+					rels(rel("c", "m", "sync")),
+					dvs(dvSteps("uc-c"))),
+				useCasesDoc(ucCase("uc-c", "clientAction", ucActors(),
+					actDiagram(
+						actNodes(actNode("start", "start"), actNode("act", "action"), actNode("end", "end")),
+						actEdges(actEdge("start", "act"), actEdge("act", "end"))))),
+			),
+			wantRule: RuleCCCoverage, wantSev: ccLiveSeverity,
+		},
+		{
+			name: "call-chain: realized step makes no call",
+			doc: withSlots(
+				sysDoc(comps(comp("c", "client"), comp("m", "manager")),
+					rels(rel("c", "m", "sync")),
+					dvs(dvSteps("uc-d", step("act")))),
+				useCasesDoc(ucCase("uc-d", "clientAction", ucActors(),
+					actDiagram(
+						actNodes(actNode("start", "start"), actNode("act", "action"), actNode("end", "end")),
+						actEdges(actEdge("start", "act"), actEdge("act", "end"))))),
+			),
+			wantRule: RuleCCStepNonempty, wantSev: ccLiveSeverity,
+		},
+		{
+			name: "call-chain: call endpoint resolves to nothing",
+			doc: withSlots(
+				sysDoc(comps(comp("c", "client"), comp("m", "manager")),
+					rels(rel("c", "m", "sync")),
+					dvs(dvSteps("uc-e", step("act", edge("c", "ghost-component", "sync"))))),
+				useCasesDoc(ucCase("uc-e", "clientAction", ucActors(),
+					actDiagram(
+						actNodes(actNode("start", "start"), actNode("act", "action"), actNode("end", "end")),
+						actEdges(actEdge("start", "act"), actEdge("act", "end"))))),
+			),
+			wantRule: RuleCCEndpoint, wantSev: ccLiveSeverity,
+		},
+		{
+			name: "call-chain: actor calls a non-Client component",
+			doc: withSlots(
+				sysDoc(comps(comp("c", "client"), comp("m", "manager")),
+					rels(rel("c", "m", "sync")),
+					dvs(dvSteps("uc-f", step("act", edge("user", "m", "sync"))))),
+				useCasesDoc(ucCase("uc-f", "clientAction", ucActors(ucActor("user")),
+					actDiagram(
+						actNodes(actNode("start", "start"), actNode("act", "action"), actNode("end", "end")),
+						actEdges(actEdge("start", "act"), actEdge("act", "end"))))),
+			),
+			wantRule: RuleCCActorEdge, wantSev: ccLiveSeverity,
+		},
+		{
+			name: "call-chain: lane-linked node's step never touches its actor",
+			doc: withSlots(
+				sysDoc(comps(comp("c", "client"), comp("m", "manager")),
+					rels(rel("c", "m", "sync")),
+					dvs(dvSteps("uc-g", step("act", edge("c", "m", "sync"))))),
+				useCasesDoc(ucCase("uc-g", "clientAction", ucActors(ucActor("user")),
+					actDiagram(
+						actNodes(actNode("start", "start"), actNodeLane("act", "action", "User", "user"), actNode("end", "end")),
+						actEdges(actEdge("start", "act"), actEdge("act", "end"))))),
+			),
+			wantRule: RuleCCActorLane, wantSev: ccLiveSeverity,
+		},
+		{
+			name: "call-chain: timer-triggered use case has no timeEvent entry",
+			doc: withSlots(
+				sysDoc(comps(comp("c", "client"), comp("m", "manager")),
+					rels(rel("c", "m", "sync")),
+					dvs(dvSteps("uc-h", step("act", edge("c", "m", "sync"))))),
+				useCasesDoc(ucCase("uc-h", "timer", ucActors(),
+					actDiagram(
+						actNodes(actNode("start", "start"), actNode("act", "action"), actNode("end", "end")),
+						actEdges(actEdge("start", "act"), actEdge("act", "end"))))),
+			),
+			wantRule: RuleCCTriggerEvent, wantSev: ccLiveSeverity,
+		},
+		{
+			name: "call-chain: later step calls from a component the chain never reached",
+			doc: withSlots(
+				sysDoc(comps(comp("c", "client"), comp("m", "manager"), comp("ra", "resourceAccess"), comp("res", "resource")),
+					rels(rel("c", "m", "sync"), rel("m", "ra", "sync"), rel("ra", "res", "sync")),
+					dvs(dvSteps("uc-i",
+						step("a1", edge("user", "c", "sync"), edge("c", "m", "sync")),
+						step("a2", edge("ra", "res", "sync"))))),
+				useCasesDoc(ucCase("uc-i", "clientAction", ucActors(ucActor("user")),
+					actDiagram(
+						actNodes(actNode("start", "start"), actNode("a1", "action"), actNode("a2", "action"), actNode("end", "end")),
+						actEdges(actEdge("start", "a1"), actEdge("a1", "a2"), actEdge("a2", "end"))))),
+			),
+			wantRule: RuleCCPathConnected, wantSev: ccLiveSeverity,
 		},
 	}
 
@@ -924,6 +1109,96 @@ func dvs(vs ...map[string]any) []any {
 	out := make([]any, len(vs))
 	for i, v := range vs {
 		out[i] = v
+	}
+	return out
+}
+
+// ---- CC-* call-chain fixture builders (step-keyed dynamic views + the slot-4
+// activity/trigger/actor shape the correspondence family joins against) ----
+
+// dvSteps builds a step-keyed dynamic view fixture: useCaseId and key both set
+// to useCaseID, plus the given callStep-shaped steps (see step()). Unlike
+// dynView (which wraps its edges into a single synthetic "step1"), the CALLER
+// picks each step's activity-node key — the shape the CC-* rules join on.
+func dvSteps(useCaseID string, steps ...map[string]any) map[string]any {
+	ss := make([]any, len(steps))
+	for i, s := range steps {
+		ss[i] = s
+	}
+	return map[string]any{"useCaseId": useCaseID, "key": useCaseID, "steps": ss}
+}
+
+// step builds one callStep fixture: the activity node it realizes, plus its
+// ordered calls (built with edge(from, to, mode)).
+func step(nodeID string, es ...map[string]any) map[string]any {
+	calls := make([]any, len(es))
+	for i, e := range es {
+		calls[i] = e
+	}
+	return map[string]any{"activityNodeId": nodeID, "calls": calls}
+}
+
+// useCasesDoc builds a coreUseCases slot (kind 4) fixture from full use-case
+// fixtures (see ucCase) — the slot-4 activity/trigger/actor surface the CC-*
+// family joins a dynamic view against.
+func useCasesDoc(ucs ...map[string]any) slotSpec {
+	arr := make([]any, len(ucs))
+	for i, u := range ucs {
+		arr[i] = map[string]any{"useCase": u}
+	}
+	return slot("4", 4, map[string]any{"decisions": arr})
+}
+
+// ucCase builds one full use-case fixture: id, trigger, its actor roster (see
+// ucActors/ucActor), and its activity diagram (see actDiagram).
+func ucCase(id, trigger string, actors []any, activity map[string]any) map[string]any {
+	return map[string]any{"id": id, "trigger": trigger, "actors": actors, "activity": activity}
+}
+
+func ucActor(id string) map[string]any {
+	return map[string]any{"id": id}
+}
+
+func ucActors(as ...map[string]any) []any {
+	out := make([]any, len(as))
+	for i, a := range as {
+		out[i] = a
+	}
+	return out
+}
+
+// actDiagram builds an activity-diagram fixture from node/edge lists (see
+// actNodes/actEdges).
+func actDiagram(nodes, edges []any) map[string]any {
+	return map[string]any{"nodes": nodes, "edges": edges}
+}
+
+func actNode(id, kind string) map[string]any {
+	return map[string]any{"id": id, "kind": kind}
+}
+
+// actNodeLane builds an activity node carrying a swim-lane actor link
+// (roleName + linkedActorId) — the CC-ACTOR-LANE join key.
+func actNodeLane(id, kind, roleName, linkedActorID string) map[string]any {
+	return map[string]any{"id": id, "kind": kind, "roleName": roleName, "linkedActorId": linkedActorID}
+}
+
+func actNodes(ns ...map[string]any) []any {
+	out := make([]any, len(ns))
+	for i, n := range ns {
+		out[i] = n
+	}
+	return out
+}
+
+func actEdge(from, to string) map[string]any {
+	return map[string]any{"from": from, "to": to}
+}
+
+func actEdges(es ...map[string]any) []any {
+	out := make([]any, len(es))
+	for i, e := range es {
+		out[i] = e
 	}
 	return out
 }

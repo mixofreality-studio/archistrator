@@ -90,6 +90,49 @@ type coreUseCase struct {
 	// core classification (the symmetric twin of the nonCore rejectionReason). Nil
 	// when the wire field is absent or null — the DH-UC-ESSENCE-MISSING subject.
 	EssenceRationale *string
+	// Trigger, Actors, and Activity are the CC-* call-chain family's slot-4 join
+	// surface (2026-07-30 call-chain realization): the use case's trigger kind, its
+	// declared actor roster, and its activity diagram — the Grammar B half of the
+	// correspondence CC-* checks against a use case's step-keyed DynamicView
+	// (Grammar A). A committed use case predating these fields decodes them to
+	// their zero values (empty trigger, nil actors, nil activity), which the CC
+	// rules treat as "nothing to check" exactly like an absent dynamic view.
+	Trigger  string
+	Actors   []ucActorRef
+	Activity *activityDiagram
+}
+
+// ucActorRef is a use case's actor participant — just the id the CC-* endpoint/
+// edge rules resolve calls against (the use-case-scoped actor namespace).
+type ucActorRef struct {
+	ID string `json:"id"`
+}
+
+// activityDiagram mirrors a use case's Grammar B activity diagram: the nodes and
+// edges CC-* walks (activitypaths.go) to check the DynamicView call chain against
+// it.
+type activityDiagram struct {
+	Nodes []activityNode `json:"nodes"`
+	Edges []activityEdge `json:"edges"`
+}
+
+// activityNode is one activity-diagram node. RoleName/LinkedActorID are populated
+// only for a swim-lane node (CC-ACTOR-LANE's join key); LinkedActorID mirrors the
+// app's nullable *string as a plain string ("" when null/absent) — JSON null into
+// a non-pointer string field is a no-op for encoding/json, leaving the zero value.
+type activityNode struct {
+	ID            string `json:"id"`
+	Kind          string `json:"kind"`
+	Label         string `json:"label"`
+	RoleName      string `json:"roleName"`
+	LinkedActorID string `json:"linkedActorId"`
+}
+
+// activityEdge is one directed activity-diagram edge.
+type activityEdge struct {
+	From  string `json:"from"`
+	To    string `json:"to"`
+	Guard string `json:"guard"`
 }
 
 // coreUseCaseSlot mirrors the core-use-cases slot model: decisions[].useCase plus
@@ -97,8 +140,11 @@ type coreUseCase struct {
 type coreUseCaseSlot struct {
 	Decisions []struct {
 		UseCase struct {
-			ID             string `json:"id"`
-			Classification string `json:"classification"`
+			ID             string           `json:"id"`
+			Classification string           `json:"classification"`
+			Trigger        string           `json:"trigger"`
+			Actors         []ucActorRef     `json:"actors"`
+			Activity       *activityDiagram `json:"activity"`
 		} `json:"useCase"`
 		EssenceRationale *string `json:"essenceRationale"`
 	} `json:"decisions"`
@@ -200,6 +246,9 @@ func parseSlots(raw []byte) (slotData, error) {
 					ID:               d.UseCase.ID,
 					Classification:   d.UseCase.Classification,
 					EssenceRationale: d.EssenceRationale,
+					Trigger:          d.UseCase.Trigger,
+					Actors:           d.UseCase.Actors,
+					Activity:         d.UseCase.Activity,
 				})
 			}
 		case kindSystemDesign:
