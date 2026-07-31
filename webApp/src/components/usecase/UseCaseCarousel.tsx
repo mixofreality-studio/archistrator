@@ -244,80 +244,82 @@ export function UseCaseCarousel({
         {/* meta sidebar — hidden in full-diagram mode (its facts move to the compact
             header strip so the canvas gets the whole row). */}
         {!fullDiagram && (
-        <Box
-          sx={{
-            width: { xs: '100%', md: 300 },
-            flexShrink: 0,
-            p: 3,
-            borderRight: { md: `1.5px solid ${t.line}` },
-            bgcolor: t.paperAlt,
-          }}
-        >
-          <Typography sx={{ color: t.muted }} variant="overline">
-            {isCore ? 'Core Use Case' : 'Variation'}
-          </Typography>
-          <Typography sx={{ color: t.ink, lineHeight: 1.1, mt: 0.5, mb: 1.5 }} variant="h4">
-            {uc.name}
-          </Typography>
-          <Chip
-            label={isCore ? 'CORE' : 'NON-CORE'}
-            size="small"
+          <Box
             sx={{
-              bgcolor: isCore ? t.committedBg : t.awaitingBg,
-              color: isCore ? t.committedFg : t.awaitingFg,
-              mb: 2,
+              width: { xs: '100%', md: 300 },
+              flexShrink: 0,
+              p: 3,
+              borderRight: { md: `1.5px solid ${t.line}` },
+              bgcolor: t.paperAlt,
             }}
-          />
-          {/* WHY this is core — the essence-of-the-business argument, symmetric to
+          >
+            <Typography sx={{ color: t.muted }} variant="overline">
+              {isCore ? 'Core Use Case' : 'Variation'}
+            </Typography>
+            <Typography sx={{ color: t.ink, lineHeight: 1.1, mt: 0.5, mb: 1.5 }} variant="h4">
+              {uc.name}
+            </Typography>
+            <Chip
+              label={isCore ? 'CORE' : 'NON-CORE'}
+              size="small"
+              sx={{
+                bgcolor: isCore ? t.committedBg : t.awaitingBg,
+                color: isCore ? t.committedFg : t.awaitingFg,
+                mb: 2,
+              }}
+            />
+            {/* WHY this is core — the essence-of-the-business argument, symmetric to
               the nonCore rejectionReason below. Absent on older states → no chrome. */}
-          {isCore && uc.essenceRationale.length > 0 ? (
-            <Typography
-              data-testid={UI_IDENTIFIERS.UseCaseCarousel.ESSENCE_RATIONALE}
-              sx={{ color: t.muted, fontSize: 13, lineHeight: 1.6, mb: 3 }}
-            >
-              {uc.essenceRationale}
-            </Typography>
-          ) : null}
-          {!isCore && uc.rejectionReason.length > 0 && (
-            <Typography sx={{ color: t.muted, fontSize: 13, lineHeight: 1.6, mb: 3 }}>
-              {uc.rejectionReason}
-            </Typography>
-          )}
-          {/* Navigable join → this use case's call chain (the Architecture step's
-              Dynamic lens, preselected via ?view=). No dynamic view → no link. */}
-          {callChainKey !== undefined && (
-            <Box sx={{ mb: 2.5 }}>
-              <StepLink
-                kind="system"
-                label={`${uc.name} call chain`}
-                search={{ view: callChainKey }}
-                sx={{ fontFamily: t.mono, fontSize: 12 }}
-                testId={UI_IDENTIFIERS.UseCaseCarousel.CALL_CHAIN_LINK}
+            {isCore && uc.essenceRationale.length > 0 ? (
+              <Typography
+                data-testid={UI_IDENTIFIERS.UseCaseCarousel.ESSENCE_RATIONALE}
+                sx={{ color: t.muted, fontSize: 13, lineHeight: 1.6, mb: 3 }}
               >
-                View call chain →
-              </StepLink>
-            </Box>
-          )}
-          <Typography sx={{ color: t.muted, mb: 1 }} variant="subtitle2">
-            SWIMLANES
-          </Typography>
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
-            {uc.lanes.map((l) => (
-              <Box key={l} sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-                <Box
-                  sx={{
-                    width: 11,
-                    height: 11,
-                    bgcolor: colors[l],
-                    border: `1.5px solid ${t.line}`,
-                    flexShrink: 0,
-                  }}
-                />
-                <Typography sx={{ fontFamily: t.mono, fontSize: 12, color: t.ink }}>{l}</Typography>
+                {uc.essenceRationale}
+              </Typography>
+            ) : null}
+            {!isCore && uc.rejectionReason.length > 0 && (
+              <Typography sx={{ color: t.muted, fontSize: 13, lineHeight: 1.6, mb: 3 }}>
+                {uc.rejectionReason}
+              </Typography>
+            )}
+            {/* Navigable join → this use case's call chain (the Architecture step's
+              Dynamic lens, preselected via ?view=). No dynamic view → no link. */}
+            {callChainKey !== undefined && (
+              <Box sx={{ mb: 2.5 }}>
+                <StepLink
+                  kind="system"
+                  label={`${uc.name} call chain`}
+                  search={{ view: callChainKey }}
+                  sx={{ fontFamily: t.mono, fontSize: 12 }}
+                  testId={UI_IDENTIFIERS.UseCaseCarousel.CALL_CHAIN_LINK}
+                >
+                  View call chain →
+                </StepLink>
               </Box>
-            ))}
+            )}
+            <Typography sx={{ color: t.muted, mb: 1 }} variant="subtitle2">
+              SWIMLANES
+            </Typography>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+              {uc.lanes.map((l) => (
+                <Box key={l} sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                  <Box
+                    sx={{
+                      width: 11,
+                      height: 11,
+                      bgcolor: colors[l],
+                      border: `1.5px solid ${t.line}`,
+                      flexShrink: 0,
+                    }}
+                  />
+                  <Typography sx={{ fontFamily: t.mono, fontSize: 12, color: t.ink }}>
+                    {l}
+                  </Typography>
+                </Box>
+              ))}
+            </Box>
           </Box>
-        </Box>
         )}
 
         {/* hero: walkthrough (choose-your-path) or the full diagram. When this use
@@ -379,10 +381,7 @@ export function UseCaseCarousel({
                       }}
                     >
                       {uc.lanes.map((l) => (
-                        <Box
-                          key={l}
-                          sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}
-                        >
+                        <Box key={l} sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                           <Box
                             sx={{
                               width: 10,
@@ -392,9 +391,7 @@ export function UseCaseCarousel({
                               flexShrink: 0,
                             }}
                           />
-                          <Typography
-                            sx={{ fontFamily: t.mono, fontSize: 11, color: t.muted }}
-                          >
+                          <Typography sx={{ fontFamily: t.mono, fontSize: 11, color: t.muted }}>
                             {l}
                           </Typography>
                         </Box>

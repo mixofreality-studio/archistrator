@@ -41,7 +41,10 @@ export function useProjectSessionState(
         const { data, error, response } = await apiClient.GET(
           '/api/v1/project-design/get-session-state/{projectID}',
           {
-            params: { path: { projectID: projectId }, query: { kind: artifactKindToOrdinal(kind) } },
+            params: {
+              path: { projectID: projectId },
+              query: { kind: artifactKindToOrdinal(kind) },
+            },
           }
         );
         if (error !== undefined) throw toApiError(response.status, error);
