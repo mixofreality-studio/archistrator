@@ -48,6 +48,7 @@ import type {
 import { realizationByNode } from '../../contracts/realization';
 import { useStructureFindings } from './StructureFindingsContext';
 import { statusBySeqFromFindings } from './callStatus';
+import { visitedSeqsForPath } from './callTrail';
 import { findingsForStep } from './useCaseFindings';
 import { resolveContractComponentId } from '../../contracts/contractComponentId';
 import { useTokens } from '../../utilities/theme/ThemeContext';
@@ -315,6 +316,33 @@ export function ArchitectureView({
     [activeDynamicKey]
   );
   const focusStepNodeId = walkPos.key === activeDynamicKey ? walkPos.nodeId : initialWalkNodeId;
+
+  // THE VISITED TRAIL (founder QA round 4). The walkthrough also publishes the
+  // whole ROUTE it has walked; every call authored on a node the reader has
+  // already LEFT stays lit at a mid tint, so the chain accretes instead of
+  // re-lighting one lonely fragment per step. Tagged with the view key for the
+  // same reason the position is — a key change lands a render before the
+  // walkthrough remounts, and a stale route would light another use case's
+  // calls. Before the first publish the deep link's seed route stands in, so the
+  // opening frame already shows the trail the reader "arrived through".
+  const [walkPath, setWalkPath] = useState<{ key: string; path: readonly string[] }>({
+    key: '',
+    path: [],
+  });
+  const handlePathChange = useCallback(
+    (nodeIds: string[]): void => {
+      setWalkPath({ key: activeDynamicKey, path: nodeIds });
+    },
+    [activeDynamicKey]
+  );
+  const visitedSeqs = useMemo(
+    () =>
+      visitedSeqsForPath(
+        dynamicModel.edges,
+        walkPath.key === activeDynamicKey ? walkPath.path : (seedPath ?? [])
+      ),
+    [dynamicModel, walkPath, activeDynamicKey, seedPath]
+  );
   // The current node itself (undefined off the entry chooser or when no use
   // case is traced) — source for both its ActivityNodeKind and, for a
   // decision/switch node, its swim-lane (change 3 below).
@@ -385,7 +413,7 @@ export function ArchitectureView({
         height={height}
         initialStep={consumedStep - 1}
         resetKey={`${activeDynamicKey}#${String(consumedStep)}`}
-        {...(tracedUseCase !== undefined ? { focusStepNodeId } : {})}
+        {...(tracedUseCase !== undefined ? { focusStepNodeId, visitedSeqs } : {})}
         {...(focusStepKind !== undefined ? { focusStepKind } : {})}
         {...(focusDecider !== undefined ? { focusDecider } : {})}
         {...(dynamicStatusBySeq !== undefined ? { statusBySeq: dynamicStatusBySeq } : {})}
@@ -541,6 +569,7 @@ export function ArchitectureView({
                   useCaseIndex={tracedUseCase.index}
                   {...(seedPath !== undefined ? { initialPath: seedPath } : {})}
                   onCurrentNodeChange={handleCurrentNodeChange}
+                  onPathChange={handlePathChange}
                 />
               </CommentProvider>
             </Box>

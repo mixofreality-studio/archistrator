@@ -6,21 +6,32 @@
  * at a time. Each step highlights exactly one relationship (bold edge + glowing
  * endpoints, EVERY other participant muted to the static graph's hover opacity)
  * and surfaces that single call's text in a caption bar above the diagram — the
- * only place relationship labels appear. No labels sit on the lines; no lines
- * are drawn to the Utilities bar.
+ * only place relationship labels appear. No call text sits on the lines.
  *
  * FRAGMENT MODE (`focusStepNodeId`, founder QA round 2): the walk can instead be
  * driven from outside by a use-case walkthrough. The chain then lights the whole
- * FRAGMENT its current activity step realizes — every call of that step at once,
- * everything else muted — and the internal Prev/Next paging gives way to a
- * caption listing those calls. The stepper lives on the other side of the split;
- * this pane follows. A call-less step (nothing to light — an unrealized node, a
- * control-flow node by design, or the multi-root entry chooser) MUTES THE WHOLE
- * DIAGRAM instead, and the caption differentiates a real gap from "by design"
- * using `focusStepKind` (founder QA round 3). The camera fits ONCE to the whole
- * diagram when the view changes (`resetKey`) and never moves again while
- * stepping — the founder does not want the canvas panning/zooming per step, only
- * muting; the self-paced step-through keeps its own per-step recenter.
+ * FRAGMENT its current activity step realizes — every call of that step at once —
+ * and the internal Prev/Next paging gives way to a caption listing those calls.
+ * The stepper lives on the other side of the split; this pane follows. A
+ * call-less step's caption differentiates a real realization gap from a
+ * by-design control-flow step using `focusStepKind` (founder QA round 3).
+ *
+ * THE TRAIL (founder QA round 4 — the architect's Playwright assessment): the
+ * chain BUILDS as you walk. Three tiers, not two: the current fragment at full
+ * strength with its global sequence number chipped onto each wire, the calls
+ * already walked (`visitedSeqs`, derived from the walkthrough's breadcrumb) at a
+ * mid tint, and the never-walked remainder as ghosts at the same opacity the
+ * muted boxes take. So a call-less step no longer blanks the canvas — it shows
+ * the chain so far, and only a start with nothing behind it is dark. Parallel
+ * strands between one pair are fanned apart (parallelEdges.ts) so stepping
+ * between two of them visibly moves, and a call to a Utility draws a real edge:
+ * the static graph's no-lines-to-the-bar convention does not belong in a call
+ * chain, where the call IS the content.
+ *
+ * The camera fits ONCE to the whole diagram when the view changes (`resetKey`)
+ * and never moves again while stepping — the founder does not want the canvas
+ * panning/zooming per step, only muting; the self-paced step-through keeps its
+ * own per-step recenter, its own two-tier muting, and the Utilities carve-out.
  *
  * Decoupled from the System envelope: callers pass a prebuilt `dv` (system views via
  * toDynamicView; test scenarios via testScenarioToDynamicView) plus a `resetKey`
@@ -56,6 +67,8 @@ import {
   type Layer,
   type LayoutComponent,
   LAYER_ORDER,
+  MUTED_NODE_OPACITY,
+  VISITED_OPACITY,
   layerColors,
   computeLayout,
   decorativeNodes,
@@ -65,7 +78,12 @@ import {
   sortByLayoutPosition,
 } from './flowLayout';
 import { LayerLegend, FlowCanvas, FlowEmpty, FocusNodes } from './flowShared';
-import { fragmentCallLessHeading } from './fragmentCaption';
+import {
+  fragmentCallLessBody,
+  fragmentCallLessHeading,
+  fragmentPositionLabel,
+} from './fragmentCaption';
+import { parallelIndex } from './parallelEdges';
 
 /** Per-call status for the test views: 'red' = target/failing, 'green' = passing. */
 export type StepStatus = 'red' | 'green';
@@ -75,26 +93,38 @@ function statusColor(status: StepStatus | undefined, t: Tokens): string | undefi
   return status === 'green' ? t.committedDot : t.dangerFg;
 }
 
+/** The React-Flow id for one sequenced call: stable across renders (a seq is
+ *  unique within a linearization) and the key the parallel-strand slots use. */
+function edgeId(r: SequencedCall): string {
+  return `${String(r.seq)}-${r.from}-${r.to}`;
+}
+
+/** No trail at all — the shared empty set, so a chain rendered outside fragment
+ *  mode never rebuilds its memo on a fresh identity. */
+const NO_VISITED: ReadonlySet<number> = new Set<number>();
+
 function build(
   dv: DynamicViewModel,
   t: Tokens,
   focused: readonly SequencedCall[],
   focalComponentId: string | undefined,
   statusBySeq: Map<number, StepStatus> | undefined,
-  /** Fragment mode's call-less steps (founder QA round 3): an unrealized
-   *  activity node, a control-flow step by design, or the multi-root entry
-   *  chooser all light NOTHING, so mute the WHOLE diagram — every node
-   *  (including the Utilities bar's usual never-dimmed carve-out) and every
-   *  edge — rather than rendering it plain/unmuted, which read as a silent
-   *  no-op rather than "no calls happen here". False whenever `focusNodeId`
-   *  is set (change 3 below) — the two are mutually exclusive. */
-  muteAll: boolean,
   /** Change 3 (founder QA round 3 addendum): a decision/switch call-less step
    *  highlights its DECIDER — one participant id (an actor or a component) —
-   *  instead of muting everything. Folded into `focusEndpoints` below so it
-   *  gets the exact same glow/dim treatment a real call's endpoint gets;
-   *  `muteAll` is false whenever this is set. */
-  focusNodeId: string | undefined
+   *  instead of leaving the current tier empty. Folded into `focusEndpoints`
+   *  below so it gets the exact same glow a real call's endpoint gets, sitting
+   *  ON TOP of the visited trail rather than replacing it. */
+  focusNodeId: string | undefined,
+  /** True when the walkthrough drives this chain. Fragment mode carries the
+   *  three-tier treatment (current / visited / never-walked) and drops the
+   *  Utilities carve-out; the self-paced step-through keeps its own, older
+   *  two-tier treatment untouched. */
+  fragmentMode: boolean,
+  /** Founder QA round 4: the seqs of every call the reader has ALREADY walked
+   *  past (callTrail.visitedSeqsForPath). Fragment mode only — this is the
+   *  accreting trail that makes the chain build as you walk instead of
+   *  re-rendering one lonely fragment at every step. */
+  visitedSeqs: ReadonlySet<number>
 ): {
   nodes: Node[];
   edges: Edge[];
@@ -112,58 +142,80 @@ function build(
   ];
   const layout = computeLayout(placedComponents, dv.edges);
   const layerOf = new Map(dv.participants.map((c) => [c.id, c.layer]));
-  // What is lit: ONE call in the step-through, the whole fragment in
-  // walkthrough-driven mode. Everything else is muted exactly as the static
-  // graph mutes a hovered component's non-neighbours (founder QA round 2 — the
-  // glow alone did not read as focus).
+  // What is lit. THREE tiers in fragment mode (founder QA round 4): the calls the
+  // current step realizes burn at full strength, the calls already WALKED hold a
+  // mid tint so the chain accretes behind the reader, and everything never walked
+  // stays a ghost at the same 0.12 the muted nodes take (the old 0.40 wires over
+  // 0.12 boxes was the "glitch look" the architect flagged). The self-paced
+  // step-through keeps its original two tiers: one call lit, the rest muted
+  // exactly as the static graph mutes a hovered component's non-neighbours.
   const focusSeqs = new Set(focused.map((c) => c.seq));
+  // The brighter tier always wins: a path that loops back onto its own node puts
+  // that node's calls in BOTH sets, and they belong to the current fragment.
+  const visited = new Set([...visitedSeqs].filter((s) => !focusSeqs.has(s)));
   const focusEndpoints = new Set([
     ...focused.flatMap((c) => [c.from, c.to]),
-    // Change 3: the decider highlight rides the SAME endpoint set a real
-    // call's endpoints use — same glow, same dimming of everyone else, same
-    // Utilities carve-out (no calls exist for this step, so no edge is ever
-    // "current" — every edge below just goes quietly `muted`).
+    // Change 3: the decider highlight rides the SAME endpoint set a real call's
+    // endpoints use — same glow, same dimming of everyone else. With a trail
+    // beneath it, the decider now lights ON TOP of the walked chain rather than
+    // being the only thing on an otherwise blank canvas.
     ...(focusNodeId !== undefined ? [focusNodeId] : []),
   ]);
+  const visitedEndpoints = new Set(
+    dv.edges
+      .filter((r) => visited.has(r.seq))
+      .flatMap((r) => [r.from, r.to])
+      .filter((id) => !focusEndpoints.has(id))
+  );
   const hasFocus = focusEndpoints.size > 0;
-  const isEndpoint = (id: string): boolean => focusEndpoints.has(id);
-  // Feeds edges + the person row: a real per-call focus OR the call-less
-  // mute-all — mutually exclusive (muteAll is only ever true when `focused`,
-  // and therefore `focusEndpoints`, is empty).
-  const muted = hasFocus || muteAll;
+  // Feeds the node tiers + the edges. Fragment mode ALWAYS mutes: a call-less
+  // step with no trail behind it darkens the whole diagram (the honest picture —
+  // no call has happened yet), and a step with a trail darkens everything the
+  // reader has not walked.
+  const muted = fragmentMode || hasFocus;
+  /** Which of the three tiers a participant sits in. */
+  const tierOf = (id: string): 'focus' | 'visited' | 'rest' =>
+    focusEndpoints.has(id) ? 'focus' : visitedEndpoints.has(id) ? 'visited' : 'rest';
 
   // People first (top row), then the components in the layout's visual reading
   // order (row top→down, then x) so DOM/tab order matches what the eye sees.
   const nodes: Node[] = dv.persons.map((p) => {
+    const tier = tierOf(p.id);
     const base = personNode(p, layout.pos.get(p.id) ?? { x: 0, y: 0 }, colors.person, {
-      dimmed: muted && !isEndpoint(p.id),
+      dimmed: muted && tier === 'rest',
     });
-    return isEndpoint(p.id)
-      ? { ...base, style: { filter: `drop-shadow(0 0 6px ${t.accent})` } }
-      : base;
+    if (tier === 'focus') return { ...base, style: { filter: `drop-shadow(0 0 6px ${t.accent})` } };
+    if (tier === 'visited') return { ...base, style: { opacity: VISITED_OPACITY } };
+    return base;
   });
 
   nodes.push(
     ...sortByLayoutPosition(dv.participants, layout).map((c) => {
       const isFocal = focalComponentId !== undefined && c.id === focalComponentId;
+      const tier = tierOf(c.id);
       // Dynamic lens: names + layer tags only. The current call's detail lives in the
       // step caption rail, so the node bodies stay compact (no volatility prose) — this
       // keeps heights stable and stops tall cards overlapping their neighbours.
-      // Utilities carry the static graph's carve-out: shared infrastructure in a
-      // side bar that receives no lines is never dimmed, it simply exists — EXCEPT
-      // under mute-all, which overrides every carve-out (including this one and the
-      // focal glow below) so the whole diagram reads as "no calls happen here".
+      //
+      // THE UTILITIES CARVE-OUT (never dimmed, because the static graph draws it no
+      // lines) survives ONLY in the self-paced step-through it was written for. In a
+      // walkthrough-driven TRACE a call to a Utility is content like any other call
+      // (change 2 draws its edge), so a permanently-lit DesignHealth was simply a lie
+      // about which steps touch it — the founder read it as "every step calls
+      // Design Health" (QA round 4).
+      const carveOut = !fragmentMode && c.layer === 'utility';
       const base = c4Node(c, layout.pos.get(c.id) ?? { x: 0, y: 0 }, colors, {
         showEncapsulates: false,
-        dimmed: muteAll || (muted && !isEndpoint(c.id) && !isFocal && c.layer !== 'utility'),
+        dimmed: muted && tier === 'rest' && !isFocal && !carveOut,
       });
-      if (!muteAll && (isEndpoint(c.id) || isFocal)) {
+      if (tier === 'focus' || isFocal) {
         return {
           ...base,
           data: { ...base.data, ...(isFocal ? { color: t.accent } : {}) },
           style: { filter: `drop-shadow(0 0 6px ${t.accent})` },
         };
       }
+      if (muted && tier === 'visited') return { ...base, style: { opacity: VISITED_OPACITY } };
       return base;
     })
   );
@@ -171,23 +223,58 @@ function build(
 
   const placed = new Set(nodes.map((n) => n.id));
 
-  // No utility lines; no labels on any line. Every call is drawn quiet except the
-  // current step, which is highlighted — its text lives in the caption bar. When a
-  // status map is supplied each call is tinted red (failing / flagged) or green
-  // (passing / clean) so the whole picture reads at a glance while you step. A call
-  // with an UNRESOLVED endpoint gets no line (there is no node to attach it to) —
-  // the unresolved ids are surfaced as chips above the canvas instead.
-  const edges: Edge[] = dv.edges
-    .filter((r) => layerOf.get(r.to) !== 'utility' && placed.has(r.from) && placed.has(r.to))
-    .map((r) => {
-      const isCurrent = focusSeqs.has(r.seq);
-      const stroke = statusColor(statusBySeq?.get(r.seq), t);
-      return flowEdge(`${String(r.seq)}-${r.from}-${r.to}`, r.from, r.to, r.label, t, {
-        variant: isCurrent ? 'focus' : muted ? 'muted' : 'normal',
-        dashed: r.mode !== 'sync', // queued / pub-sub calls render dashed
-        ...(stroke !== undefined ? { stroke, opacity: isCurrent || !muted ? 1 : 0.4 } : {}),
-      });
+  // EVERY call gets a line, Utilities included (change 2, founder QA round 4).
+  // The static graph's no-lines-to-the-Utilities-bar convention belongs to the
+  // static graph: in a CALL CHAIN the call is the content, so ci-check's
+  // SystemDesignManager→DesignHealth call must be a real, numbered, tintable
+  // edge — routed through the side handles into the bar rather than dropped.
+  //
+  // No call TEXT on any line; the current fragment's lines carry only their
+  // sequence chip (change 4a), which is what ties them to the caption's numbered
+  // list. When a status map is supplied each call is tinted red (failing /
+  // flagged) or green (passing / clean) so the whole picture reads at a glance.
+  // A call with an UNRESOLVED endpoint gets no line (there is no node to attach
+  // it to) — the unresolved ids are surfaced as chips above the canvas instead.
+  const drawn = dv.edges.filter((r) => placed.has(r.from) && placed.has(r.to));
+  const slots = parallelIndex(drawn.map((r) => ({ id: edgeId(r), from: r.from, to: r.to })));
+  const edges: Edge[] = drawn.map((r) => {
+    const isCurrent = focusSeqs.has(r.seq);
+    const isVisited = visited.has(r.seq);
+    const status = statusColor(statusBySeq?.get(r.seq), t);
+    // Visited wires take the ink stroke a focused wire takes (they ARE part of
+    // the chain), held back by opacity alone — a status tint still wins.
+    const stroke = status ?? (fragmentMode && isVisited ? t.ink : undefined);
+    // Fragment mode drives opacity off the tier. The step-through keeps its own
+    // rule: only status-tinted wires were ever explicitly faded (to 0.4), and
+    // everything else rides flowEdge's per-variant default.
+    const opacity = fragmentMode
+      ? isCurrent
+        ? 1
+        : isVisited
+          ? VISITED_OPACITY
+          : MUTED_NODE_OPACITY
+      : status !== undefined
+        ? isCurrent || !muted
+          ? 1
+          : 0.4
+        : undefined;
+    const slot = slots.get(edgeId(r));
+    return flowEdge(edgeId(r), r.from, r.to, r.label, t, {
+      variant: isCurrent
+        ? 'focus'
+        : fragmentMode && isVisited
+          ? 'normal'
+          : muted
+            ? 'muted'
+            : 'normal',
+      dashed: r.mode !== 'sync', // queued / pub-sub calls render dashed
+      toUtility: layerOf.get(r.to) === 'utility',
+      ...(stroke !== undefined ? { stroke } : {}),
+      ...(opacity !== undefined ? { opacity } : {}),
+      ...(isCurrent ? { seqChip: r.seq } : {}),
+      ...(slot !== undefined ? { parallel: slot } : {}),
     });
+  });
 
   const present = new Set(dv.participants.map((c) => c.layer));
   const usedLayers = LAYER_ORDER.filter((l) => present.has(l));
@@ -427,6 +514,7 @@ function StepBar({
 function FragmentBar({
   dv,
   calls,
+  hasTrail,
   focusStepNodeId,
   focusStepKind,
   focusDecider,
@@ -435,6 +523,10 @@ function FragmentBar({
   t,
 }: {
   dv: DynamicViewModel;
+  /** Founder QA round 4: the reader has already walked past at least one call,
+   *  so the canvas is showing a lit trail even when this step realizes nothing.
+   *  Drives the call-less copy — "nothing here" vs "nothing NEW here". */
+  hasTrail: boolean;
   /** The focused step's calls in chain order — EMPTY when the step realizes
    *  none (an unrealized node the reader walked onto, or the entry chooser). */
   calls: readonly SequencedCall[];
@@ -475,14 +567,21 @@ function FragmentBar({
       : undefined;
   const captionAccent = statusColor(worst, t) ?? t.accent;
   const stepLabel = first !== undefined && first.stepLabel.length > 0 ? first.stepLabel : undefined;
+  // Where this fragment sits in the WHOLE chain (founder QA round 4): a step's
+  // own "3 calls" says nothing about progress through 22.
+  const position = fragmentPositionLabel(
+    calls.map((c) => c.seq),
+    dv.edges.length
+  );
   const heading =
     first !== undefined
       ? `Step: ${stepLabel ?? first.stepNodeId} — ${String(calls.length)} call${
           calls.length === 1 ? '' : 's'
-        }`
+        }${position !== undefined ? ` · ${position}` : ''}`
       : focusDecider !== undefined
         ? `Decided by ${focusDecider.label}`
-        : fragmentCallLessHeading(focusStepNodeId, focusStepKind);
+        : fragmentCallLessHeading(focusStepNodeId, focusStepKind, hasTrail);
+  const callLessBody = fragmentCallLessBody(hasTrail);
 
   return (
     <Box sx={{ mb: 1.5 }}>
@@ -571,9 +670,9 @@ function FragmentBar({
               </Typography>
             ))}
           </Box>
-        ) : focusStepNodeId !== '' ? (
+        ) : callLessBody !== undefined ? (
           <Typography sx={{ fontFamily: t.body, fontSize: 11.5, color: t.muted, mt: 0.5 }}>
-            This step authors no calls — the chain stays as it was while you walk past it.
+            {callLessBody}
           </Typography>
         ) : null}
       </Box>
@@ -636,6 +735,7 @@ export function DynamicViewFlow({
   focusStepNodeId,
   focusStepKind,
   focusDecider,
+  visitedSeqs,
   onCommentStep,
 }: {
   /** The ordered call chain to render (system use case or test scenario). */
@@ -674,6 +774,15 @@ export function DynamicViewFlow({
    *  ArchitectureView's `resolveDecider`. Ignored when `calls` is non-empty
    *  or outside fragment mode; undefined falls back to `muteAll`. */
   focusDecider?: { id: string; label: string };
+  /** FRAGMENT MODE, founder QA round 4 (the visited trail): the seqs of every
+   *  call the reader has already walked past — the caller derives them from the
+   *  walkthrough's breadcrumb path (callTrail.visitedSeqsForPath), so Back and
+   *  Restart shrink the trail with no extra state anywhere. Those calls hold a
+   *  mid tint between the current fragment and the never-walked remainder, which
+   *  is what makes the chain BUILD as you walk instead of re-lighting one lonely
+   *  fragment per step. Must be a stable identity across renders (a useMemo) —
+   *  it feeds the layout memo. Omitted / empty = nothing walked yet. */
+  visitedSeqs?: ReadonlySet<number>;
   /** Optional per-step comment handler: enables a Comment button in the caption bar
    *  that arms an anchor for the current call — the fragment's FIRST call in
    *  fragment mode (system-design use only; omitted for the read-only
@@ -707,19 +816,24 @@ export function DynamicViewFlow({
           : [],
     [dv.edges, focusStepNodeId, currentCall]
   );
-  // Fragment mode's call-less steps mute the WHOLE diagram (founder QA round 3)
-  // rather than rendering it plain — see build()'s `muteAll` doc — UNLESS the
-  // caller resolved a decider (change 3 addendum: a decision/switch node
-  // highlights whoever makes the call instead). Never true in the self-driven
-  // step-through (there `focusedCalls` is only empty when the view has no
-  // edges at all, which renders no StepBar either).
+  // Fragment mode's call-less steps (an unrealized node, a control-flow step by
+  // design, the multi-root entry chooser) light no CURRENT fragment. They no
+  // longer blank the diagram (founder QA round 4): the visited trail stays lit
+  // beneath them, and only a step reached with nothing walked yet — the start
+  // node, the entry chooser — darkens everything, which is then the honest
+  // picture rather than a contradiction of its own caption. A resolved decider
+  // (change 3 addendum) still lights on top of whatever the trail shows.
   const callLess = fragmentMode && focusedCalls.length === 0;
-  const muteAll = callLess && focusDecider === undefined;
   const focusNodeId = callLess ? focusDecider?.id : undefined;
+  // Outside fragment mode the trail is meaningless — the reader is paging calls
+  // one at a time, not walking a route — so it is pinned empty there.
+  const visited = fragmentMode ? (visitedSeqs ?? NO_VISITED) : NO_VISITED;
+  const hasTrail = visited.size > 0;
 
   const { nodes, edges, colors, usedLayers, placed } = useMemo(
-    () => build(dv, t, focusedCalls, focalComponentId, statusBySeq, muteAll, focusNodeId),
-    [dv, t, focusedCalls, focalComponentId, statusBySeq, muteAll, focusNodeId]
+    () =>
+      build(dv, t, focusedCalls, focalComponentId, statusBySeq, focusNodeId, fragmentMode, visited),
+    [dv, t, focusedCalls, focalComponentId, statusBySeq, focusNodeId, fragmentMode, visited]
   );
 
   // Recenter the camera on what is lit (only the endpoints that actually got a
@@ -744,6 +858,7 @@ export function DynamicViewFlow({
           focusDecider={focusDecider}
           focusStepKind={focusStepKind}
           focusStepNodeId={focusStepNodeId}
+          hasTrail={hasTrail}
           statusBySeq={statusBySeq}
           t={t}
           onCommentStep={onCommentStep}

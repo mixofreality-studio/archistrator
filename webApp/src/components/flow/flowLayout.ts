@@ -83,6 +83,16 @@ export function layerColors(t: Tokens): Record<FlowLayer, string> {
  */
 export const MUTED_NODE_OPACITY = 0.12;
 
+/**
+ * The opacity of the VISITED tier — the calls (and their endpoints) the reader
+ * has already walked past in the Dynamic lens' fragment mode (founder QA round
+ * 4's trail accretion). Deliberately a mid tint: it must read as "already
+ * walked" at a glance, sitting clearly ABOVE the never-walked ghosts at
+ * MUTED_NODE_OPACITY and clearly BELOW the current fragment at full strength.
+ * One token for nodes and edges alike, so the trail reads as one thing.
+ */
+export const VISITED_OPACITY = 0.55;
+
 /** Theme colour for a Design-Health finding severity (edge strokes + badges). */
 export function severityColor(t: Tokens, severity: Severity): string {
   switch (severity) {
@@ -367,6 +377,16 @@ export interface EdgeOpts {
    *  takes the severity colour and LayeredStepEdge renders a midpoint badge
    *  carrying "ruleId — message" (tooltip + aria). */
   findings?: Finding[];
+  /** Founder QA round 4 (canvas↔caption correspondence): the call's GLOBAL
+   *  sequence number, drawn as a small high-contrast chip at the edge's
+   *  midpoint. Set ONLY on the current fragment's calls — the chip is what ties
+   *  a numbered caption line to a specific wire on the canvas, so numbering
+   *  everything would defeat it. */
+  seqChip?: number;
+  /** Founder QA round 4 (parallel-strand separation): this edge's slot among the
+   *  strands sharing its (source, target) pair — see parallelEdges.ts. Absent
+   *  (or count 1) leaves the path exactly where it has always been drawn. */
+  parallel?: { index: number; count: number };
 }
 
 /** A directed, arrow-headed smoothstep edge in the shared visual language. */
@@ -390,7 +410,16 @@ export function flowEdge(
       : variant === 'focus'
         ? t.ink
         : t.muted);
-  const opacity = opts.opacity ?? (variant === 'muted' ? 0.12 : 1);
+  const opacity = opts.opacity ?? (variant === 'muted' ? MUTED_NODE_OPACITY : 1);
+  // Only spread a `parallel` slot the renderer would act on: a lone strand must
+  // leave the drawn path byte-identical to what every other view already emits.
+  const parallel =
+    opts.parallel !== undefined && opts.parallel.count > 1 ? opts.parallel : undefined;
+  const hasData =
+    opts.comment !== undefined ||
+    findings !== undefined ||
+    opts.seqChip !== undefined ||
+    parallel !== undefined;
   return {
     id,
     source,
@@ -400,11 +429,13 @@ export function flowEdge(
     label: opts.showLabel === true ? label : undefined,
     hidden: opts.hidden === true,
     selectable: opts.comment !== undefined,
-    ...(opts.comment !== undefined || findings !== undefined
+    ...(hasData
       ? {
           data: {
             ...(opts.comment !== undefined ? { comment: opts.comment } : {}),
             ...(findings !== undefined ? { findings } : {}),
+            ...(opts.seqChip !== undefined ? { seqChip: opts.seqChip } : {}),
+            ...(parallel !== undefined ? { parallel } : {}),
           },
         }
       : {}),

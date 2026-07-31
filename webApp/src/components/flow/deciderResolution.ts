@@ -2,10 +2,12 @@
  * Pure (JSX-free, contracts-import-free) DECIDER resolution for a
  * decision/switch activity node with no realized step (founder QA round 3,
  * change 3 addendum): "if it's a decision shouldn't the person or engine
- * responsible for making that decision be highlighted?" Rather than muting
- * the whole diagram (DynamicViewFlow's `build()` `muteAll` — the by-design
- * control-flow treatment for merge/fork/join/start/end/…), highlight the ONE
- * participant responsible for making the branch choice.
+ * responsible for making that decision be highlighted?" Rather than lighting no
+ * current fragment at all (the by-design control-flow treatment for
+ * merge/fork/join/start/end/…), highlight the ONE participant responsible for
+ * making the branch choice. Since founder QA round 4 that highlight lands ON TOP
+ * of the visited trail: the decider burns at focus strength over the chain the
+ * reader has already walked, rather than being the only thing on a blank canvas.
  *
  *  - An ACTOR-lane node (`lane !== 'Machine'`, the ActivityNodeView sentinel
  *    for a machine/system-driven node — see useCaseViews.toUseCaseView): the

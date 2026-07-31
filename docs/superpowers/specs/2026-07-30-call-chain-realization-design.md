@@ -159,8 +159,10 @@ No new shell; the two existing views consume the realization.
   all at once — and its caption lists them (`n. label · from → to`) in place of
   the single-call Prev/Next pager, which the walkthrough has replaced. A step the
   chain does not realize (and the multi-root entry chooser) reads "No realization
-  for this step" rather than crashing or lying (founder QA round 3, 2026-07-31: a
-  call-less step now MUTES THE WHOLE DIAGRAM — every node and edge, including the
+  for this step" rather than crashing or lying (founder QA round 3, 2026-07-31 —
+  the mute-all part of this clause is SUPERSEDED by the visited trail in round 4
+  below, which leaves the walked chain lit instead: a
+  call-less step then MUTED THE WHOLE DIAGRAM — every node and edge, including the
   Utilities carve-out — rather than rendering it plain, and the caption
   differentiates that real gap from a by-design control-flow step,
   merge/fork/join/start/end/…, which reads "Control-flow step — no
@@ -188,6 +190,49 @@ No new shell; the two existing views consume the realization.
   the same Utilities carve-out. This applies in BOTH modes: fragment mode and the
   self-paged step-through (`ScenarioBrowser`, service-contract views, and the
   no-use-case fallback).
+- **The visited trail** (founder QA round 4, 2026-07-31 — from the
+  system-architect's Playwright walk of the whole use case). Fragment mode's
+  one-fragment-at-a-time picture never accumulated: every step looked like the
+  first, "Next" between two of the seven stacked
+  `SystemDesignManager→AgenticJobAccess` strands appeared to do nothing, a
+  call-less step blanked the canvas while its caption claimed "the chain stays as
+  it was", and `DesignHealth` sat permanently lit because the Utilities carve-out
+  exempted it from every mute. Five changes, fragment mode unless noted:
+  1. **The Utilities carve-out is dropped in fragment mode.** A Utility mutes
+     like everything else unless it is an endpoint of the current fragment's or a
+     visited call. The carve-out remains in the self-paced step-through it was
+     written for.
+  2. **Calls to Utilities draw real edges** (BOTH modes). The static graph's
+     no-lines-to-the-Utilities-bar convention does not belong in a call chain,
+     where the call IS the content: `ci-check`'s
+     `SystemDesignManager→DesignHealth` call renders as a numbered, tintable edge
+     routed through the side handles. `ArchitectureFlow` is untouched.
+  3. **The chain accretes as you walk.** `UseCaseWalkthrough` gains
+     `onPathChange` (the whole breadcrumb route; `[]` for the entry chooser)
+     alongside `onCurrentNodeChange`; `ArchitectureView` derives `visitedSeqs`
+     (`callTrail.visitedSeqsForPath` — the calls of every path node BEFORE the
+     last) and passes it to `DynamicViewFlow`. Three render tiers replace two:
+     CURRENT fragment at full strength, VISITED calls and their endpoints at a
+     mid tint (`VISITED_OPACITY` 0.55), never-walked calls at
+     `MUTED_NODE_OPACITY` — matching the muted nodes, so ghost wires no longer
+     float at 0.40 between 0.12 boxes. Back / Restart shrink the trail for free
+     because it is path-derived, not stored. The caption gains the chain-wide
+     position, "call K–L of 22".
+  4. **Canvas↔caption correspondence.** Each CURRENT-fragment edge carries a
+     small high-contrast chip at its midpoint bearing the same global seq the
+     caption prints (a side route into the Utilities bar places its chip at the
+     arrival end, since a dogleg's geometric midpoint lands on unrelated nodes).
+     Parallel strands sharing a `(from, to)` pair are fanned laterally by
+     per-pair ordinal (`parallelEdges.parallelIndex` / `parallelLane`,
+     applied in `LayeredStepEdge`) so seven stacked strands read as seven lines
+     and stepping between two of them visibly moves.
+  5. **Honest call-less behaviour.** With a trail beneath it a call-less step
+     shows the walked chain rather than blanking: "Control flow — no calls; the
+     chain so far stays lit". With no trail (start, entry chooser) it says "No
+     calls yet — step forward to begin the chain." A real realization gap still
+     outranks both ("No realization for this step") — it is a defect signal, not
+     a navigation state. The decider highlight (call-less `decision`/`switch`) is
+     unchanged except that it now lights ON TOP of the trail.
 
 **Both-surface entries:** an entry step carrying both `web-client` and
 `mcp-client` calls highlights **both** clients when its fragment lights up —

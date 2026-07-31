@@ -11,7 +11,9 @@
  * It is also the STEPPER other surfaces are driven by: `onCurrentNodeChange`
  * publishes the focused activity node, which the Architecture step's Dynamic
  * lens uses to light that step's fragment of the realized call chain (founder QA
- * round 2 — the same controls, now walking two diagrams at once).
+ * round 2 — the same controls, now walking two diagrams at once), and
+ * `onPathChange` publishes the whole route behind it, which the same lens turns
+ * into a lit trail of everything already walked (founder QA round 4).
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import Box from '@mui/material/Box';
@@ -95,6 +97,7 @@ export function UseCaseWalkthrough({
   initialPath: seedPath,
   hideCallChainLink = false,
   onCurrentNodeChange,
+  onPathChange,
 }: {
   uc: UseCaseView;
   useCaseIndex: number;
@@ -127,6 +130,16 @@ export function UseCaseWalkthrough({
    *  call-chain fragment) follows the walk. Keep the handler stable
    *  (useCallback) — it is an effect dependency. */
   onCurrentNodeChange?: ((nodeId: string) => void) | undefined;
+  /** Optional notification of the whole ROUTE walked so far — the breadcrumb
+   *  path, oldest first, ending on the node in focus; empty while the
+   *  multi-root entry chooser is up. Fired on mount and on every path change,
+   *  exactly like `onCurrentNodeChange` (which reports only its last element).
+   *  A driven surface uses it to accrete: the Architecture lens' call chain
+   *  keeps every call authored on a node the reader has already LEFT lit as a
+   *  visited trail (founder QA round 4). Because it is the path — not a
+   *  separate accumulator — Back and Restart shrink the trail for free. Keep
+   *  the handler stable (useCallback): it is an effect dependency. */
+  onPathChange?: ((nodeIds: string[]) => void) | undefined;
 }): ReactNode {
   const t = useTokens();
   const colors = laneColors(t, uc.lanes);
@@ -219,6 +232,15 @@ export function UseCaseWalkthrough({
   useEffect(() => {
     onCurrentNodeChange?.(showEntryChooser ? '' : currentId);
   }, [onCurrentNodeChange, showEntryChooser, currentId]);
+
+  // …and the whole route behind it, for a host that accretes rather than
+  // replaces (the Dynamic lens' visited call trail). Same construction as the
+  // publish above — `path` is state, so this fires exactly when the walk moves
+  // and never loops. A fresh array per publish keeps the state the host stores
+  // from aliasing ours.
+  useEffect(() => {
+    onPathChange?.(showEntryChooser ? [] : [...path]);
+  }, [onPathChange, showEntryChooser, path]);
 
   if (uc.nodes.length === 0) {
     return (
