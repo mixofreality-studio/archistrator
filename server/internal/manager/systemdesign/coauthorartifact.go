@@ -3828,19 +3828,6 @@ func componentDisplayLabel(c projectstate.Component, i int) string {
 	return fmt.Sprintf("component %d", i+1)
 }
 
-func dvLabel(dv projectstate.DynamicView, i int) string {
-	if strings.TrimSpace(dv.Title) != "" {
-		return dv.Title
-	}
-	if strings.TrimSpace(dv.Key) != "" {
-		return dv.Key
-	}
-	if strings.TrimSpace(dv.UseCaseID) != "" {
-		return dv.UseCaseID
-	}
-	return fmt.Sprintf("dynamic view %d", i+1)
-}
-
 func modeWire(m projectstate.CallMode) string {
 	b, err := m.MarshalJSON()
 	if err != nil {

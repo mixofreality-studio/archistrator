@@ -5088,31 +5088,48 @@ func requireSystemFields(raw []byte) error {
 		if err := requireNonEmptyString(obj, "useCaseId", label); err != nil {
 			return err
 		}
-		if steps, ok := obj["steps"]; ok && !isJSONNull(steps) {
-			var stepRaws []json.RawMessage
-			if err := json.Unmarshal(steps, &stepRaws); err != nil {
-				return fmt.Errorf("%s steps is not a JSON array: %w", label, err)
-			}
-			for j, sRaw := range stepRaws {
-				sObj, err := rawObject(sRaw)
-				if err != nil {
-					return fmt.Errorf("%s step %d is not a JSON object: %w", label, j+1, err)
-				}
-				stepLabel := fmt.Sprintf("%s step %d", label, j+1)
-				if err := requireNonEmptyString(sObj, "activityNodeId", stepLabel); err != nil {
-					return err
-				}
-				if calls, ok := sObj["calls"]; ok && !isJSONNull(calls) {
-					var callRaws []json.RawMessage
-					if err := json.Unmarshal(calls, &callRaws); err != nil {
-						return fmt.Errorf("%s calls is not a JSON array: %w", stepLabel, err)
-					}
-					for k, cRaw := range callRaws {
-						if err := requireRelationshipFields(cRaw, fmt.Sprintf("%s call %d", stepLabel, k+1)); err != nil {
-							return err
-						}
-					}
-				}
+		if err := requireDynamicViewSteps(obj, label); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// requireDynamicViewSteps enforces the step-keyed shape introduced by the
+// call-chain realization model: every dynamic view step must carry a
+// non-empty activityNodeId, and every call on a step must satisfy the same
+// from/to/mode contract as a top-level relationship. Split out of
+// requireSystemFields to keep that function's cyclomatic complexity within
+// the project's gocyclo gate.
+func requireDynamicViewSteps(obj map[string]json.RawMessage, label string) error {
+	steps, ok := obj["steps"]
+	if !ok || isJSONNull(steps) {
+		return nil
+	}
+	var stepRaws []json.RawMessage
+	if err := json.Unmarshal(steps, &stepRaws); err != nil {
+		return fmt.Errorf("%s steps is not a JSON array: %w", label, err)
+	}
+	for j, sRaw := range stepRaws {
+		sObj, err := rawObject(sRaw)
+		if err != nil {
+			return fmt.Errorf("%s step %d is not a JSON object: %w", label, j+1, err)
+		}
+		stepLabel := fmt.Sprintf("%s step %d", label, j+1)
+		if err := requireNonEmptyString(sObj, "activityNodeId", stepLabel); err != nil {
+			return err
+		}
+		calls, ok := sObj["calls"]
+		if !ok || isJSONNull(calls) {
+			continue
+		}
+		var callRaws []json.RawMessage
+		if err := json.Unmarshal(calls, &callRaws); err != nil {
+			return fmt.Errorf("%s calls is not a JSON array: %w", stepLabel, err)
+		}
+		for k, cRaw := range callRaws {
+			if err := requireRelationshipFields(cRaw, fmt.Sprintf("%s call %d", stepLabel, k+1)); err != nil {
+				return err
 			}
 		}
 	}
