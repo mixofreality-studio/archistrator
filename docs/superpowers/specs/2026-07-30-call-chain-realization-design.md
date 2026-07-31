@@ -71,8 +71,16 @@ type CallStep struct {
 - Actors come from `UseCase.Actors`; the System's static model stays
   components-only. The realization is the only join point between the two
   artifacts.
-- Step eligibility by node kind: `action` **must** have a step; `decision`
-  **may** (when evaluating the guard itself requires a call); all other kinds
+- **New activity node kinds (UML-faithful triggers, founder ruling
+  2026-07-30):** `ActivityNodeKind` gains `NodeTimeEvent` (accept time event —
+  the UML hourglass) and `NodeAcceptEvent` (accept event action) — appended
+  after `NodeInterruptEdge` (the iota ordering is load-bearing). Event nodes
+  may have **no incoming edge** — standard UML alternative entries — and
+  `UC-ACTDIAG` well-formedness accepts that. Every `timer`/`busMessage` use
+  case models its trigger as an event node instead of a pseudo-action.
+- Step eligibility by node kind: `action` **must** have a step; `timeEvent` /
+  `acceptEvent` **must** (they realize the trigger entry); `decision` **may**
+  (when evaluating the guard itself requires a call); all other kinds
   (`start/end/merge/fork/join/swimlane/note/loop/switch/goto/interruptEdge`)
   must not.
 
@@ -88,11 +96,12 @@ checkpoint, hard from the final phase; see §6).
 | --- | --- |
 | `CC-STEP-NODE` | every step's `ActivityNodeID` resolves to a node of the owning use case's activity diagram |
 | `CC-STEP-UNIQUE` | at most one step per activity node |
-| `CC-COVERAGE` | every `action` node has a step; steps on ineligible kinds are illegal; optional on `decision` |
+| `CC-COVERAGE` | every `action`, `timeEvent`, and `acceptEvent` node has a step; steps on ineligible kinds are illegal; optional on `decision` |
+| `CC-TRIGGER-EVENT` | trigger↔diagram alignment: `timer` diagrams have ≥1 `timeEvent` entry (no incoming edge), `busMessage` ≥1 `acceptEvent` entry, `clientAction` no event-node entries — the trigger taxonomy is machine-checked against the diagram |
 | `CC-STEP-NONEMPTY` | every step has ≥1 call |
 | `CC-ENDPOINT-RESOLVES` | every endpoint resolves to exactly one of {component, use-case actor}; dangling or ambiguous ids are Errors |
 | `CC-ACTOR-EDGE` | a call touching an actor has a Client-layer component on the other end, mode `sync`, never actor↔actor |
-| `CC-PATH-CONNECTED` | for every start→end path (decision branches enumerated, loops taken once, fork branches in declared order — fork-without-join and multiple end nodes supported): concatenated fragments form a connected chain. **Legal fragment roots:** (i) actor→Client — the `clientAction` entry AND mid-chain human re-entry (human gates, operator escalation); (ii) scheduling-Client→Manager — the `timer`/`busMessage` entry (the pump; keeps `scheduler-client` in derived participant sets). Every other call's `From` must already be in the accumulated chain |
+| `CC-PATH-CONNECTED` | for every entry→end path — entries are the initial node and any event node; decision branches enumerated, loops taken once, fork branches in declared order; fork-without-join and multiple end nodes supported — concatenated fragments form a connected chain. **Roots are model-driven:** a path from the initial node of a `clientAction` use case roots with actor→Client (both-surface entries legal: multiple equivalent actor→Client + Client→Manager calls in one entry step); a path from a `timeEvent` node roots with scheduling-Client→Manager; from an `acceptEvent` node, with the queued call into the receiving Manager. Mid-chain actor→Client re-entry (human gates, operator escalation) starts a new legal fragment. Every other call's `From` must already be in the accumulated chain |
 | `CC-ACTOR-LANE` | a node carrying `linkedActorId` must have that actor as an endpoint in its step's calls (activity diagrams are amended so only Client-touching human actors use `linkedActorId`; external systems are lanes by `roleName` only) |
 
 Existing rules:
@@ -101,7 +110,8 @@ Existing rules:
   (component→component calls only — actor edges have no static counterpart by
   design; matches on `(from, to, mode)`, labels free per call — multiple steps
   reusing one static relationship with different labels is expected),
-  `DV-MODE`, `DV-SINGLE-MGR`, `APPC-INT-CLIENT-MULTI-MGR`,
+  `DV-MODE`, `DV-SINGLE-MGR` (all Client entries must target one and the same
+  Manager — R4 both-surface entries stay legal), `APPC-INT-CLIENT-MULTI-MGR`,
   `APPC-INT-MGR-MULTI-QUEUE`, `DV-STATIC-COVERAGE`, `DV-REL-COVERAGE`
   (computed over the union of fragments), `DV-KEY-UNIQUE`,
   `DV-PLANNED-SKIPPED`.
@@ -137,6 +147,15 @@ No new shell; the two existing views consume the realization.
 - Validation reuses the existing `statusBySeq` tinting: calls with an
   attributed `CC-*`/`DV-*` finding render red; finding text in the caption bar.
 
+**Both-surface entries:** an entry step carrying both `web-client` and
+`mcp-client` calls highlights **both** clients when its fragment lights up —
+the walkthrough steps by activity node, so the whole fragment (either surface)
+is lit together, reading as "either surface performs this."
+
+**ActivityFlow** renders the two new node kinds with their UML glyphs
+(hourglass for `timeEvent`, concave pentagon for `acceptEvent`), including as
+edge-less entry nodes.
+
 **UseCaseWalkthrough / UseCaseCarousel**
 
 - Per-node realization badge: ✓ realized / ✗ missing-or-failing (from
@@ -162,7 +181,10 @@ removed).
 1. Server `projectstate` — schema source regen; `NewSystem` validation;
    read-back findings.
 2. Platform `framework-go/methodcheck` — new types + `CC-*` + retargeted
-   `DV-*`; framework-go release + archistrator pin bump (release/push remains
+   `DV-*`; its parallel `ActivityNode` gains the `roleName`/`linkedActorId`
+   fields it currently omits (needed by `CC-ACTOR-LANE` and actor roots) and
+   the two event kinds; `UC-ACTDIAG` well-formedness accepts edge-less event
+   entries. framework-go release + archistrator pin bump (release/push remains
    with the founder).
 3. Server `designhealth` — hand-rolled decode moves to the new shape; mirrors
    `CC-*`.
@@ -225,42 +247,48 @@ whole project, so cross-slot validation fits); the hard gate is the existing
 slot-5 staging path. Every fix the amendment forces is an activity-diagram or
 realization-authoring fix — zero static-model surgery.
 
-**Rulings folded into the design (from the architect's gap list):**
+**Rulings (architect's gap list; founder-ratified 2026-07-30):**
 
-1. **Connectivity is root-aware** — `CC-PATH-CONNECTED` legal fragment roots
-   are actor→Client (entry and mid-chain human re-entry: `human-gate`,
-   `escalate-operator`) and scheduling-Client→Manager (the pump entry for
-   `timer`/`busMessage`). Without these, correct designs fail
-   (`drive-system-design`, `execute-a-construction-activity`,
+1. **Connectivity is root-aware and model-driven** — path entries are the
+   initial node and any event node; mid-chain actor→Client re-entry is a legal
+   fragment root (`human-gate`, `escalate-operator`). Without these, correct
+   designs fail (`drive-system-design`, `execute-a-construction-activity`,
    `operate-a-delivered-system`).
-2. **Scheduler entry is accepted**, not omitted — otherwise `scheduler-client`
-   (buildStatus=planned) appears in zero derived participant sets and vanishes
-   from every render.
-3. **R4 cross-surface equivalence**: realizations use ONE canonical Client
-   (web-client); the 9 old dual-entry (`web-client` + `mcp-client`) duplicate
-   edges are not carried per step. `mcp-client`'s resulting
-   `DV-STATIC-COVERAGE` miss is covered by a waiver backed by the R4
-   attestation (same Manager entry, cross-surface equivalence).
+2. **Triggers are UML event nodes** (founder: stick to standard UML
+   activity-diagram concepts): `timeEvent`/`acceptEvent` node kinds model the
+   `timer`/`busMessage` entries, and their steps realize the
+   scheduling-Client→Manager / queued-into-Manager entry — so
+   `scheduler-client` stays in derived participant sets with no special-cased
+   root rule.
+3. **R4 cross-surface equivalence — both surfaces in the data** (founder
+   ruling, replacing the architect's canonical-client-plus-waiver suggestion):
+   entry steps carry both `web-client` and `mcp-client` calls wherever both
+   surfaces can perform the operation; the UI highlights both/either. No
+   waiver needed — `mcp-client` keeps real coverage. The two web-only use
+   cases stay single-surface until MCP genuinely supports them.
 4. **`linkedActorId` reconciliation** — `CC-ACTOR-LANE` (see §4) plus activity
    amendments clearing external-system "actors" that can never legally call a
    Client (`payment-provider` on `charge-user`, `customer` on
    `customer-charged`, `settlement-manager`, `operated-system`,
    `infrastructure`).
-5. **Trigger taxonomy fixes ride the amendment**:
-   `replan-under-scope-change` (busMessage with no queued static realization —
-   reclassify to timer/sweep) and `operate-a-delivered-system` (dual-trigger
-   fork-without-join, two end nodes — split into per-trigger realizations or
-   reshape the fork at the use-case level).
+5. **Trigger taxonomy fixes ride the amendment, using standard UML only**:
+   `replan-under-scope-change` either gains a `timeEvent` entry (timer/sweep
+   reclassification) or a real queued edge — `CC-TRIGGER-EVENT` forces the
+   choice; `operate-a-delivered-system` drops its artificial fork in favor of
+   two standard entries (initial→operator path + edge-less `timeEvent` entry
+   for the reconcile sweep).
 6. **Activity-diagram touch-ups, not new calls**: nodes with no honest
    realization become notes or fold into neighbors (`customer-charged`,
-   `in-flight`, `argo-reconcile`).
+   `in-flight`, `argo-reconcile`); `period-elapses` becomes the `timeEvent`
+   entry of `bill-the-user-for-usage`.
 7. **Entry-call convention**: the actor→Client + Client→Manager entry calls
    ride on the first action node (no "user initiates" node exists) — documented
    in the rewritten step-9 doctrine.
 8. **Keys/titles preserved** (`uc1-*`/`var-*`) — they are deep-link anchors.
 
-**Amendment scope facts:** 16 views re-authored; 125 action nodes across all
-16 diagrams need steps (vs 131 old flat edges); sampled walks
+**Amendment scope facts:** 16 views re-authored; the 5 `timer`/`busMessage`
+diagrams gain event-node entries; 125 action nodes across all 16 diagrams need
+steps (vs 131 old flat edges); sampled walks
 (`view-the-project-state-log`, `drive-system-design`,
 `bill-the-user-for-usage`, plus cross-checks) found every action node
 realizable from the existing static relationship set once the touch-ups above
