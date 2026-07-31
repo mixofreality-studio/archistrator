@@ -85,6 +85,8 @@ const (
 	NodeSwitch        ActivityNodeKind = 10
 	NodeGoto          ActivityNodeKind = 11
 	NodeInterruptEdge ActivityNodeKind = 12
+	NodeTimeEvent     ActivityNodeKind = 13
+	NodeAcceptEvent   ActivityNodeKind = 14
 )
 
 type ActivityOutcome int
@@ -178,6 +180,11 @@ const (
 	CallQueued      CallMode = 1
 	CallEventPubSub CallMode = 2
 )
+
+type CallStep struct {
+	ActivityNodeID string         `json:"activityNodeId"`
+	Calls          []Relationship `json:"calls"`
+}
 
 type CheckItem struct {
 	Section       string      `json:"section"`
@@ -335,11 +342,10 @@ type DocOutlineRecord struct {
 }
 
 type DynamicView struct {
-	UseCaseID    string         `json:"useCaseId"`
-	Key          string         `json:"key"`
-	Title        string         `json:"title"`
-	Participants []string       `json:"participants"`
-	Edges        []Relationship `json:"edges"`
+	UseCaseID string     `json:"useCaseId"`
+	Key       string     `json:"key"`
+	Title     string     `json:"title"`
+	Steps     []CallStep `json:"steps"`
 }
 
 type EdgeKind int

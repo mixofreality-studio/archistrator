@@ -17119,7 +17119,9 @@
             9,
             10,
             11,
-            12
+            12,
+            13,
+            14
           ],
           "x-enum-varnames": [
             "NodeStart",
@@ -17134,7 +17136,9 @@
             "NodeLoop",
             "NodeSwitch",
             "NodeGoto",
-            "NodeInterruptEdge"
+            "NodeInterruptEdge",
+            "NodeTimeEvent",
+            "NodeAcceptEvent"
           ],
           "x-go-base": "int"
         },
@@ -17340,6 +17344,29 @@
             "CallEventPubSub"
           ],
           "x-go-base": "int"
+        },
+        "CallStep": {
+          "type": "object",
+          "properties": {
+            "activityNodeId": {
+              "type": "string",
+              "x-go-name": "ActivityNodeID"
+            },
+            "calls": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/Relationship"
+              }
+            }
+          },
+          "required": [
+            "activityNodeId",
+            "calls"
+          ],
+          "additionalProperties": false
         },
         "CheckItem": {
           "type": "object",
@@ -17823,22 +17850,13 @@
             "title": {
               "type": "string"
             },
-            "participants": {
+            "steps": {
               "type": [
                 "null",
                 "array"
               ],
               "items": {
-                "type": "string"
-              }
-            },
-            "edges": {
-              "type": [
-                "null",
-                "array"
-              ],
-              "items": {
-                "$ref": "#/$defs/Relationship"
+                "$ref": "#/$defs/CallStep"
               }
             }
           },
@@ -17846,8 +17864,7 @@
             "useCaseId",
             "key",
             "title",
-            "participants",
-            "edges"
+            "steps"
           ],
           "additionalProperties": false
         },

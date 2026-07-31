@@ -2290,7 +2290,7 @@ func (p ProjectID) String() string { return string(p) }
 // human-readable Name, carried as a JSONPath/React-key-safe SLUG string. The
 // server assigns ComponentID = Slug(Component.Name) in the LLM-draft finalize
 // pass (systemdesign.finalize*); the LLM never emits an id. Cross-references
-// (Relationship.From/To, DynamicView.Participants/UseCaseID,
+// (Relationship.From/To, a DynamicView step's call endpoints,
 // DeployContainer.Components) carry this same slug. It is a plain string
 // alias — validators use it as an opaque map key and format it directly; the
 // persisted/served `id` field and the webApp JSONPath anchors ($.components[id=…])
@@ -3938,14 +3938,18 @@ func canonicalLayer(k ComponentKind) Layer {
 
 // destination-layer vocabulary (STRUCTURIZR-CONVENTIONS "Edge-label conventions")
 
-// DynamicView is one call chain per use case (ch. 4): the participating components
-// and the sync/queued edges among them. Maps 1:1 to a Structurizr dynamic view on
-// render via artifactRenderingAccess. (projectStateAccess.md §3.3)
+// DynamicView is one call-chain realization per use case (ch. 4): STEP-KEYED, one
+// CallStep per realized activity node (Grammar B ActivityNode.ID), each step naming
+// the Relationship calls dispatched at that node. Participants are DERIVED from the
+// steps' call endpoints — there is no separate participants list; each endpoint
+// resolves to either a Component.ID or an Actor.ID owned by the view's use case.
+// Maps 1:1 to a Structurizr dynamic view on render via artifactRenderingAccess.
+// (projectStateAccess.md §3.3)
 
 // links to a UseCase (Grammar B)
 // stable view key, e.g. "uc1-coauthor-method-artifact"
 
-// Mode ∈ {CallSync, CallQueued}; ordered
+// CallStep.ActivityNodeID; CallStep.Calls Mode ∈ {CallSync, CallQueued}; ordered
 
 // System is the canonical typed static-architecture model (Grammar A, ch. 3/4).
 // The .dsl/Structurizr text is a rendering produced by artifactRenderingAccess from
@@ -4014,10 +4018,15 @@ func NewSystem(components []Component, relationships []Relationship, dynamicView
 // UML-general
 // UML-general
 // UML-general
+// UML-general, a UML time event (an elapsed-timer entry point)
+// UML-general, a UML accept-event action (a bus/queue-message entry point)
 
 // BookEnumerated reports whether a node kind is in the book's closed set (vs UML-general).
 // WARNING: the iota ordering is load-bearing — book-enumerated node kinds must be
-// declared before NodeNote; do not insert non-book nodes before it.
+// declared before NodeNote; do not insert non-book nodes before it. NodeTimeEvent and
+// NodeAcceptEvent are appended AFTER NodeInterruptEdge and are, like it, UML-general
+// (NOT book-enumerated); k <= NodeNote already excludes them, so no change to the
+// comparison itself is needed.
 // (projectStateAccess.md §3.4)
 func (k ActivityNodeKind) BookEnumerated() bool { return k <= NodeNote }
 
@@ -4025,18 +4034,17 @@ func (k ActivityNodeKind) BookEnumerated() bool { return k <= NodeNote }
 //
 // NAME-AS-IDENTITY (2026-06-04): ID is a server-assigned SLUG of the node Label
 // (or a positional fallback for unlabeled structural nodes), NOT a UUID and NOT
-// LLM-authored. ActivityEdge.From/To carry this same slug. LinkedActorID /
-// LinkedCompID are NAME-slug references (the linked Actor's role-slug / the linked
-// Component's id) resolved server-side from the names the LLM emitted.
+// LLM-authored. ActivityEdge.From/To carry this same slug. LinkedActorID is a
+// NAME-slug reference (the linked Actor's role-slug) resolved server-side from
+// the name the LLM emitted.
 // (projectStateAccess.md §3.4)
 type ActivityNode struct {
 	ID    string           `json:"id"`
 	Kind  ActivityNodeKind `json:"kind"`
 	Label string           `json:"label"`
-	// For NodeSwimLane: the role name and an optional link to an actor or Component.
-	RoleName      string       `json:"roleName"`
-	LinkedActorID *string      `json:"linkedActorId"`
-	LinkedCompID  *ComponentID `json:"linkedCompId"`
+	// For NodeSwimLane: the role name and an optional link to an actor.
+	RoleName      string  `json:"roleName"`
+	LinkedActorID *string `json:"linkedActorId"`
 }
 
 // EdgeKind is the closed set of activity-edge kinds. (projectStateAccess.md §3.4)
@@ -4984,8 +4992,9 @@ func RequireModelFields(kind ArtifactKind, raw []byte) error {
 
 // requireSystemFields enforces the presence + consistency of the System model's
 // closed-enum / identity fields: every component's id/name/kind/layer, every
-// relationship's from/to/mode, and every dynamic view's useCaseId (and its edges'
-// from/to/mode). The load-bearing check is layer==canonicalLayer(kind): it catches the
+// relationship's from/to/mode, and every dynamic view's useCaseId (and each of its
+// steps' activityNodeId + its calls' from/to/mode). The load-bearing check is
+// layer==canonicalLayer(kind): it catches the
 // live F81 case (kind present, layer omitted→client) as a mismatch. The both-omitted
 // case (kind AND layer absent → both client → self-consistent) is caught by the presence
 // checks below and, at the whole-system level, by the SYSTEM-LAYER-DEGENERATE rule.
@@ -5074,14 +5083,30 @@ func requireSystemFields(raw []byte) error {
 		if err := requireNonEmptyString(obj, "useCaseId", label); err != nil {
 			return err
 		}
-		if edges, ok := obj["edges"]; ok && !isJSONNull(edges) {
-			var edgeRaws []json.RawMessage
-			if err := json.Unmarshal(edges, &edgeRaws); err != nil {
-				return fmt.Errorf("%s edges is not a JSON array: %w", label, err)
+		if steps, ok := obj["steps"]; ok && !isJSONNull(steps) {
+			var stepRaws []json.RawMessage
+			if err := json.Unmarshal(steps, &stepRaws); err != nil {
+				return fmt.Errorf("%s steps is not a JSON array: %w", label, err)
 			}
-			for j, eRaw := range edgeRaws {
-				if err := requireRelationshipFields(eRaw, fmt.Sprintf("%s edge %d", label, j+1)); err != nil {
+			for j, sRaw := range stepRaws {
+				sObj, err := rawObject(sRaw)
+				if err != nil {
+					return fmt.Errorf("%s step %d is not a JSON object: %w", label, j+1, err)
+				}
+				stepLabel := fmt.Sprintf("%s step %d", label, j+1)
+				if err := requireNonEmptyString(sObj, "activityNodeId", stepLabel); err != nil {
 					return err
+				}
+				if calls, ok := sObj["calls"]; ok && !isJSONNull(calls) {
+					var callRaws []json.RawMessage
+					if err := json.Unmarshal(calls, &callRaws); err != nil {
+						return fmt.Errorf("%s calls is not a JSON array: %w", stepLabel, err)
+					}
+					for k, cRaw := range callRaws {
+						if err := requireRelationshipFields(cRaw, fmt.Sprintf("%s call %d", stepLabel, k+1)); err != nil {
+							return err
+						}
+					}
 				}
 			}
 		}
@@ -5981,6 +6006,8 @@ var activityNodeKindNames = map[ActivityNodeKind]string{
 	NodeSwitch:        "switch",
 	NodeGoto:          "goto",
 	NodeInterruptEdge: "interruptEdge",
+	NodeTimeEvent:     "timeEvent",
+	NodeAcceptEvent:   "acceptEvent",
 }
 var activityNodeKindByName = invert(activityNodeKindNames)
 
