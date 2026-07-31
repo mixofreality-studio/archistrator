@@ -75,9 +75,9 @@ const SYSTEM: System = {
   components: null,
   relationships: null,
   dynamicViews: [
-    { key: 'dv-order', title: 'Place Order', useCaseId: 'uc-1', participants: null, edges: null },
-    { key: '', title: 'Broken', useCaseId: 'uc-2', participants: null, edges: null },
-    { key: 'dv-track', title: 'Track', useCaseId: 'uc-2', participants: null, edges: null },
+    { key: 'dv-order', title: 'Place Order', useCaseId: 'uc-1', steps: null },
+    { key: '', title: 'Broken', useCaseId: 'uc-2', steps: null },
+    { key: 'dv-track', title: 'Track', useCaseId: 'uc-2', steps: null },
   ],
 };
 
