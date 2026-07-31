@@ -3951,23 +3951,10 @@ func canonicalLayer(k ComponentKind) Layer {
 
 // CallStep.ActivityNodeID; CallStep.Calls Mode ∈ {CallSync, CallQueued}; ordered
 
-// ParticipantIDs derives the distinct endpoint ids of a realization's calls, in
-// first-appearance order. Actor ids are included; callers filter as needed.
-func ParticipantIDs(dv DynamicView) []string {
-	seen := map[string]bool{}
-	var out []string
-	for _, s := range dv.Steps {
-		for _, c := range s.Calls {
-			for _, id := range []string{c.From, c.To} {
-				if !seen[id] {
-					seen[id] = true
-					out = append(out, id)
-				}
-			}
-		}
-	}
-	return out
-}
+// ParticipantIDs (the derived-participants helper over Steps/Calls) was RETIRED
+// 2026-07-30 (callchain-realization Task 6) along with its sole caller,
+// systemdesign's dvChainFindings (DV-CHAIN-CONNECTED) — the rule moved to platform
+// methodcheck as CC-PATH-CONNECTED, which derives participants itself.
 
 // System is the canonical typed static-architecture model (Grammar A, ch. 3/4).
 // The .dsl/Structurizr text is a rendering produced by artifactRenderingAccess from

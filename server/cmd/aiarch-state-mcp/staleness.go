@@ -23,8 +23,9 @@ package main
 // reject before findings exist, a rule id with no slot attribution keeps full severity
 // by construction, and every rule ATTRIBUTED TO THE AMBIENT SLOT keeps full severity —
 // including the ambient slot's name-resolution integrity INTO other slots (those rules
-// are attributed to the referencing slot, e.g. USECASE-DYNAMIC-MISSING and the DV-*
-// family are System-attributed even though they read CoreUseCases).
+// are attributed to the referencing slot, e.g. USECASE-DYNAMIC-MISSING, the DV-*
+// family, and the CC-* call-chain family are System-attributed even though they read
+// CoreUseCases).
 //
 // THE ORIGINAL (STALENESS) DEADLOCK: the System slot carries components/relationships/dynamicViews only; the
 // deployment topology (containers + environments) is carried by OperationalConcepts. The
@@ -222,6 +223,7 @@ var ruleSlotAttributionPrefixes = []struct {
 	{"SYSTEM-", projectstate.KindSystem, attribSlot},
 	{"SYS-", projectstate.KindSystem, attribSlot},
 	{"DV-", projectstate.KindSystem, attribSlot},
+	{"CC-", projectstate.KindSystem, attribSlot},
 	{"ARCH-", projectstate.KindSystem, attribSlot},
 	{"APPC-", projectstate.KindSystem, attribSlot},
 	{"OPC-", projectstate.KindOperationalConcepts, attribSlot},

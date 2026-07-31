@@ -8936,71 +8936,11 @@ func Test_relDup_LabelSplitWarning(t *testing.T) {
 	}
 }
 
-// ---- DV-CHAIN-CONNECTED ----
-
-func Test_dvChain_ConnectedClean(t *testing.T) {
-	sys := &projectstate.System{
-		Components: []projectstate.Component{
-			compE("web", "WebClient", projectstate.CompClient, projectstate.LayerClient, ""),
-			compE("mgr", "OrderManager", projectstate.CompManager, projectstate.LayerManager, "wf"),
-		},
-		DynamicViews: []projectstate.DynamicView{{
-			UseCaseID: "uc1",
-			Steps: []projectstate.CallStep{{
-				ActivityNodeID: "s1",
-				Calls:          []projectstate.Relationship{rel("web", "mgr", projectstate.CallSync, "")},
-			}},
-		}},
-	}
-	if f := dvChainFindings(KindSystem, sys); len(f) != 0 {
-		t.Fatalf("a connected client-rooted chain is clean, got: %+v", f)
-	}
-}
-
-func Test_dvChain_DisconnectedWarning(t *testing.T) {
-	sys := &projectstate.System{
-		Components: []projectstate.Component{
-			compE("web", "WebClient", projectstate.CompClient, projectstate.LayerClient, ""),
-			compE("mgr", "OrderManager", projectstate.CompManager, projectstate.LayerManager, "wf"),
-			compE("ra", "OrderAccess", projectstate.CompResourceAccess, projectstate.LayerResourceAccess, "store"),
-			compE("ra2", "BillingAccess", projectstate.CompResourceAccess, projectstate.LayerResourceAccess, "billing"),
-		},
-		DynamicViews: []projectstate.DynamicView{{
-			UseCaseID: "uc1",
-			Steps: []projectstate.CallStep{
-				{ActivityNodeID: "s1", Calls: []projectstate.Relationship{rel("web", "mgr", projectstate.CallSync, "")}},
-				// "ra" is a call endpoint (so it derives as a participant), but its caller
-				// "ra2" is never itself reached from the client root — an unreachable
-				// participant, same as the pre-step-keyed fixture's bare "ra". Both ends
-				// must be REGISTERED components (not a bare id) so the derived-participant
-				// walk doesn't collide with kindByID's zero-value default (CompClient == 0).
-				{ActivityNodeID: "s2", Calls: []projectstate.Relationship{rel("ra2", "ra", projectstate.CallSync, "")}},
-			},
-		}},
-	}
-	if !hasRule(dvChainFindings(KindSystem, sys), "DV-CHAIN-CONNECTED", SeverityWarning) {
-		t.Fatal("an unreachable participant must warn DV-CHAIN-CONNECTED")
-	}
-}
-
-func Test_dvChain_NoClientRootWarning(t *testing.T) {
-	sys := &projectstate.System{
-		Components: []projectstate.Component{
-			compE("mgr", "OrderManager", projectstate.CompManager, projectstate.LayerManager, "wf"),
-			compE("ra", "OrderAccess", projectstate.CompResourceAccess, projectstate.LayerResourceAccess, "store"),
-		},
-		DynamicViews: []projectstate.DynamicView{{
-			UseCaseID: "uc1",
-			Steps: []projectstate.CallStep{{
-				ActivityNodeID: "s1",
-				Calls:          []projectstate.Relationship{rel("mgr", "ra", projectstate.CallSync, "")},
-			}},
-		}},
-	}
-	if !hasRule(dvChainFindings(KindSystem, sys), "DV-CHAIN-CONNECTED", SeverityWarning) {
-		t.Fatal("a chain with no client root must warn DV-CHAIN-CONNECTED")
-	}
-}
+// DV-CHAIN-CONNECTED and its tests (dvChainFindings) were RETIRED 2026-07-30
+// (callchain-realization Task 6): the rule duplicated — and, under the step-keyed
+// DynamicView shape, CONTRADICTED — platform methodcheck's CC-PATH-CONNECTED, which
+// also blesses actor-rooted (not just Client-rooted) chains. See
+// framework-go/methodcheck/rules_callchain.go.
 
 // ---- DV-TITLE-EMPTY (F10 gate lint) ----
 

@@ -148,3 +148,7 @@ require (
 )
 
 tool github.com/alecthomas/go-check-sumtype/cmd/go-check-sumtype
+
+// PoC-TEMPORARY (callchain-realization): consume local methodcheck CC-* rules.
+// The post-QA rollout releases framework-go and swaps this for a version pin.
+replace github.com/mixofreality-studio/archistrator-platform/framework-go => ../../archistrator-platform/framework-go

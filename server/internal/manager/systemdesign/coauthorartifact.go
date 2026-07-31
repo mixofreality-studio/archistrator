@@ -3,7 +3,6 @@ package systemdesign
 import (
 	"errors"
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
@@ -3319,10 +3318,14 @@ func (c *critique) Validate() error {
 // view() appends. Each takes the drafted artifact's kind + model and returns nil for a
 // non-matching kind, so the whole set can be applied unconditionally.
 var stateValidationFindingGenerators = []func(ArtifactKind, projectstate.ArtifactModel) []Finding{
-	raOrphanFindings,      // SYS-RA-ORPHAN
-	encapsulatesFindings,  // SYS-ENCAPSULATES
-	relDupFindings,        // SYS-REL-DUP
-	dvChainFindings,       // DV-CHAIN-CONNECTED
+	raOrphanFindings,     // SYS-RA-ORPHAN
+	encapsulatesFindings, // SYS-ENCAPSULATES
+	relDupFindings,       // SYS-REL-DUP
+	// DV-CHAIN-CONNECTED (dvChainFindings) RETIRED 2026-07-30 (callchain-realization
+	// Task 6): it demanded a Client-rooted chain and duplicated — and, under the
+	// step-keyed DynamicView shape, CONTRADICTED — platform methodcheck's
+	// CC-PATH-CONNECTED, which also blesses actor-rooted chains. The rule now lives
+	// solely as CC-PATH-CONNECTED in framework-go/methodcheck.
 	dvTitleFindings,       // DV-TITLE-EMPTY (F10)
 	variationRefFindings,  // UC-VARIATION-REF
 	glossaryFourQFindings, // GLOSS-FOURQ
@@ -3649,88 +3652,6 @@ func relDupFindings(kind ArtifactKind, draft projectstate.ArtifactModel) []Findi
 		}
 	}
 	return out
-}
-
-// dvChainFindings — DV-CHAIN-CONNECTED (warning). Each dynamic view's edges should form a
-// connected chain rooted at a Client participant: every participant must be reachable by
-// following the directed edges out of some Client-kind participant. An unrooted or
-// disconnected call chain is a modeling smell (a participant nothing calls).
-func dvChainFindings(kind ArtifactKind, draft projectstate.ArtifactModel) []Finding {
-	if kind != KindSystem {
-		return nil
-	}
-	sys, ok := draft.(*projectstate.System)
-	if !ok || sys == nil {
-		return nil
-	}
-	kindByID := make(map[string]projectstate.ComponentKind, len(sys.Components))
-	for _, c := range sys.Components {
-		kindByID[c.ID] = c.Kind
-	}
-	var out []Finding
-	for i, dv := range sys.DynamicViews {
-		participants := projectstate.ParticipantIDs(dv)
-		if len(participants) <= 1 {
-			continue
-		}
-		adj := map[string][]string{}
-		for _, s := range dv.Steps {
-			for _, e := range s.Calls {
-				adj[e.From] = append(adj[e.From], e.To)
-			}
-		}
-		roots := []string{}
-		for _, pid := range participants {
-			if kindByID[pid] == projectstate.CompClient {
-				roots = append(roots, pid)
-			}
-		}
-		label := dvLabel(dv, i)
-		if len(roots) == 0 {
-			out = append(out, Finding{
-				RuleID:   "DV-CHAIN-CONNECTED",
-				Severity: SeverityWarning,
-				Message:  fmt.Sprintf("dynamic view %q has no Client participant to root its call chain; a use-case call chain should originate at a Client.", label),
-				Location: &Location{Ordinal: int64(i), Section: "dynamic view " + label},
-			})
-			continue
-		}
-		unreached := dvUnreachedParticipants(participants, adj, roots)
-		if len(unreached) > 0 {
-			out = append(out, Finding{
-				RuleID:   "DV-CHAIN-CONNECTED",
-				Severity: SeverityWarning,
-				Message:  fmt.Sprintf("dynamic view %q is not a connected chain from its Client root(s): %s unreachable via its edges.", label, strings.Join(unreached, ", ")),
-				Location: &Location{Ordinal: int64(i), Section: "dynamic view " + label},
-			})
-		}
-	}
-	return out
-}
-
-// dvUnreachedParticipants walks the directed edges (adj) depth-first from the Client
-// roots and returns the participants no root reaches, sorted for a deterministic
-// finding message. Pure — deterministic over its inputs.
-func dvUnreachedParticipants(participants []string, adj map[string][]string, roots []string) []string {
-	seen := map[string]bool{}
-	stack := append([]string{}, roots...)
-	for len(stack) > 0 {
-		n := stack[len(stack)-1]
-		stack = stack[:len(stack)-1]
-		if seen[n] {
-			continue
-		}
-		seen[n] = true
-		stack = append(stack, adj[n]...)
-	}
-	var unreached []string
-	for _, pid := range participants {
-		if !seen[pid] {
-			unreached = append(unreached, pid)
-		}
-	}
-	sort.Strings(unreached)
-	return unreached
 }
 
 // variationRefFindings — UC-VARIATION-REF (error). variationOf, when set, must resolve to
