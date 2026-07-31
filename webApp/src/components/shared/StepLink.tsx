@@ -34,8 +34,9 @@ interface StepLinkProps {
   /** Call-site chrome (font, color, chip borders); merged over the base style. */
   sx?: SystemStyleObject<Theme>;
   /** Optional search params carried on the link — e.g. { view } preselects a
-   *  dynamic view on the Architecture step (the route's validated search). */
-  search?: { view?: string };
+   *  dynamic view on the Architecture step, and { view, step } additionally
+   *  lands on that view's 1-based step (the route's validated search). */
+  search?: { view?: string; step?: number };
   testId?: string;
   /** 'always' for links inside prose (non-color distinction); 'none' for
    *  chip-shaped links whose border already signals interactivity. */

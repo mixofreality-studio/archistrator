@@ -47,12 +47,22 @@ const systemDesignRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/project/$projectId/design/system/{-$stepSlug}',
   component: SystemDesignScreen,
-  // Optional ?view=<dynamic-view-key> deep link: the Architecture step's viewer
-  // preselects the Dynamic lens on that view (the use-case → call-chain jump).
-  // A dangling key is harmless — the viewer falls back to its defaults.
-  validateSearch: (search: Record<string, unknown>): { view?: string } => {
+  // Optional ?view=<dynamic-view-key>&step=<1-based-seq> deep link: the
+  // Architecture step's viewer preselects the Dynamic lens on that view (the
+  // use-case → call-chain jump), landing on a specific step of the chain when
+  // `step` also parses as a positive integer. A dangling key / bad step is
+  // harmless — the viewer falls back to its defaults.
+  validateSearch: (search: Record<string, unknown>): { view?: string; step?: number } => {
     const view = search['view'];
-    return typeof view === 'string' && view.length > 0 ? { view } : {};
+    const step = search['step'];
+    const stepValid =
+      (typeof step === 'string' || typeof step === 'number') &&
+      Number.isInteger(Number(step)) &&
+      Number(step) > 0;
+    return {
+      ...(typeof view === 'string' && view.length > 0 ? { view } : {}),
+      ...(stepValid ? { step: Number(step) } : {}),
+    };
   },
 });
 

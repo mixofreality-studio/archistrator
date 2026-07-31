@@ -23,12 +23,20 @@ import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline';
-import { dynamicViewKeyForUseCase, toCoreUseCasesView } from '../../contracts/adapters';
-import type { ArtifactModelEnvelope } from '../../contracts/types';
+import {
+  dynamicViewKeyForUseCase,
+  toCoreUseCasesView,
+  toDynamicView,
+} from '../../contracts/adapters';
+import type { ArtifactModelEnvelope, Finding, System } from '../../contracts/types';
+import { realizationByNode } from '../../contracts/realization';
+import { findingsForUseCase, findingsForStep } from '../flow/useCaseFindings';
+import { useStructureFindings } from '../flow/StructureFindingsContext';
 import { StepLink } from '../shared/StepLink';
 import { ActivityFlow } from './ActivityFlow';
 import { UseCaseWalkthrough } from './UseCaseWalkthrough';
 import { coreBand } from './coreBand';
+import { realizationChip, isEligibleForRealization } from './useCaseChip';
 import { laneColors } from './laneColors';
 
 // Diagram-view mode survives the design-experience remount that would otherwise
@@ -55,6 +63,10 @@ export function UseCaseCarousel({
 }): ReactNode {
   const t = useTokens();
   const { setAnchor, enabled } = useComments();
+  // Design-Health findings for the realization badges/chip — [] with no provider
+  // mounted or the health read unresolved, same defensive-empty contract every
+  // other StructureFindingsContext consumer relies on.
+  const structureFindings = useStructureFindings();
   const [i, setI] = useState(0);
   const [mode, setMode] = useState<UcViewMode>(viewMemory.mode);
   const useCases = toCoreUseCasesView(envelope).useCases;
@@ -78,6 +90,25 @@ export function UseCaseCarousel({
   // The use-case → architecture navigable join: the System dynamic view that
   // renders THIS use case's call chain, when one exists (undefined → no link).
   const callChainKey = dynamicViewKeyForUseCase(systemEnvelope, uc.id);
+  // Local narrow to the System model (adapters.ts' own `narrow` is private to
+  // that module) — same cast idiom, scoped to just the 'system' kind this needs.
+  const systemModel =
+    systemEnvelope?.kind === 'system' ? (systemEnvelope.model as System | undefined) : undefined;
+  // This use case's realized calls, keyed by activity node id — the walkthrough
+  // badges' and the roll-up chip's shared data source.
+  const realization = realizationByNode(systemModel, uc.id);
+  // Nodes a dynamic view is REQUIRED to realize — the chip's denominator.
+  const eligibleNodeIds = uc.nodes.filter((n) => isEligibleForRealization(n.kind)).map((n) => n.id);
+  const useCaseFindings = findingsForUseCase(structureFindings, uc.id, callChainKey);
+  const realizationSummary = realizationChip(realization, eligibleNodeIds, useCaseFindings);
+  const stepFindings = (nodeId: string): Finding[] =>
+    findingsForStep(structureFindings, callChainKey ?? '', nodeId);
+  // The linearized call chain, for the walkthrough's per-step "View call chain"
+  // join's 1-based global seq — only built when a call chain actually exists.
+  const dynamicModel =
+    callChainKey !== undefined ? toDynamicView(systemEnvelope, callChainKey, envelope) : undefined;
+  const firstSeqOfNode = (nodeId: string): number | undefined =>
+    dynamicModel?.edges.find((e) => e.stepNodeId === nodeId)?.seq;
   // A variation shares its parent's activity diagram; resolve the parent so the
   // no-diagram surface can name it and offer a jump instead of a generic blank.
   // Committed data carries the parent NAME (not the slug id), so match id OR exact
@@ -259,15 +290,30 @@ export function UseCaseCarousel({
             <Typography sx={{ color: t.ink, lineHeight: 1.1, mt: 0.5, mb: 1.5 }} variant="h4">
               {uc.name}
             </Typography>
-            <Chip
-              label={isCore ? 'CORE' : 'NON-CORE'}
-              size="small"
-              sx={{
-                bgcolor: isCore ? t.committedBg : t.awaitingBg,
-                color: isCore ? t.committedFg : t.awaitingFg,
-                mb: 2,
-              }}
-            />
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2, flexWrap: 'wrap' }}>
+              <Chip
+                label={isCore ? 'CORE' : 'NON-CORE'}
+                size="small"
+                sx={{
+                  bgcolor: isCore ? t.committedBg : t.awaitingBg,
+                  color: isCore ? t.committedFg : t.awaitingFg,
+                }}
+              />
+              {/* Realization roll-up ("N/M steps realized") — only meaningful once
+                  this use case owns a diagram to realize steps of. */}
+              {hasDiagram ? (
+                <Chip
+                  data-testid={UI_IDENTIFIERS.UseCaseCarousel.REALIZATION_CHIP}
+                  label={realizationSummary.label}
+                  size="small"
+                  sx={{
+                    bgcolor: 'transparent',
+                    color: chipToneColor(realizationSummary.tone, t),
+                    border: `1.5px solid ${chipToneColor(realizationSummary.tone, t)}`,
+                  }}
+                />
+              ) : null}
+            </Box>
             {/* WHY this is core — the essence-of-the-business argument, symmetric to
               the nonCore rejectionReason below. Absent on older states → no chrome. */}
             {isCore && uc.essenceRationale.length > 0 ? (
@@ -442,7 +488,16 @@ export function UseCaseCarousel({
                 </ToggleButtonGroup>
               </Box>
               {mode === 'walkthrough' ? (
-                <UseCaseWalkthrough height={560} key={uc.id} uc={uc} useCaseIndex={active} />
+                <UseCaseWalkthrough
+                  callChainKey={callChainKey}
+                  firstSeqOfNode={firstSeqOfNode}
+                  height={560}
+                  key={uc.id}
+                  realization={realization}
+                  stepFindings={stepFindings}
+                  uc={uc}
+                  useCaseIndex={active}
+                />
               ) : (
                 <ActivityFlow height={580} uc={uc} useCaseIndex={active} />
               )}
@@ -465,6 +520,13 @@ export function UseCaseCarousel({
       </Paper>
     </Box>
   );
+}
+
+/** Realization chip tone → token color (mirrors DynamicViewFlow's statusColor idiom). */
+function chipToneColor(tone: 'ok' | 'warn' | 'error', t: Tokens): string {
+  if (tone === 'ok') return t.committedDot;
+  if (tone === 'error') return t.dangerFg;
+  return t.awaitingFg;
 }
 
 /**

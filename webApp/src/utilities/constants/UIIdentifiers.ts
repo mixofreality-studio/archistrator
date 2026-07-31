@@ -92,6 +92,16 @@ export const UI_IDENTIFIERS = {
     // The you-are-here map's CURRENT step node (the ringed node). Exactly one is
     // present in walkthrough mode; its identity changes as the reader advances.
     WALKTHROUGH_CURRENT_NODE: 'walkthrough-current-node',
+    // Per-use-case realization roll-up chip ("N/M steps realized"), rendered next
+    // to the CORE/NON-CORE chip — the carousel-level summary of the walkthrough's
+    // per-step badges (Task 11).
+    REALIZATION_CHIP: 'usecase-realization-chip',
+    // The current walkthrough step's realization badge on the focus card — one of
+    // "✓ realized" / "✗ <ruleId>" / "— no realization".
+    STEP_BADGE: 'usecase-step-badge',
+    // The current step's compact mono call list + "View call chain" join, shown
+    // below the focus card's title whenever the step is realized.
+    STEP_CALLS: 'usecase-step-calls',
   },
   DesignExperience: {
     ROOT: 'design-experience',

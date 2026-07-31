@@ -53,6 +53,11 @@ type ViewMode = 'static' | 'dynamic' | 'perspective';
 const viewMemory: {
   mode: ViewMode;
   dynamicKey: string;
+  /** The 1-based step last consumed off a ?view=&step= deep link, mirrored like
+   *  `dynamicKey` — 0 means "no step deep-linked" (the walk opens on its first
+   *  step, same as always). There is no picker for this value (unlike
+   *  dynamicKey's Select), so it is only ever written by deep-link consumption. */
+  dynamicStep: number;
   componentId: string;
   /** The history location key at which a ?view= deep link was last consumed —
    *  lets a fresh NAVIGATION win over memory while a background-refetch remount
@@ -61,6 +66,7 @@ const viewMemory: {
 } = {
   mode: 'static',
   dynamicKey: '',
+  dynamicStep: 0,
   componentId: '',
   consumedLocationKey: '',
 };
@@ -118,9 +124,15 @@ export function ArchitectureView({
   const location = router?.state.location;
   const rawViewParam = (location?.search as { view?: unknown } | undefined)?.view;
   const viewParam = typeof rawViewParam === 'string' ? rawViewParam : '';
+  const rawStepParam = (location?.search as { step?: unknown } | undefined)?.step;
+  const stepParam =
+    typeof rawStepParam === 'number' || typeof rawStepParam === 'string'
+      ? String(rawStepParam)
+      : '';
   const locationKey = location?.state.key ?? location?.state.__TSR_key ?? '';
   const deepLink = resolveDeepLinkView({
     viewParam,
+    stepParam,
     locationKey,
     consumedLocationKey: viewMemory.consumedLocationKey,
     availableKeys: dynamicViews.map((v) => v.key),
@@ -139,9 +151,15 @@ export function ArchitectureView({
   const [storedComponentId, setStoredComponentId] = useState(
     viewMemory.componentId || defaultComponentId
   );
+  // The step consumed off a ?view=&step= deep link (1-based; 0 = none), mirrored
+  // into module memory the same way dynamicKey is — see viewMemory.dynamicStep.
+  const [storedDynamicStep, setStoredDynamicStep] = useState(
+    deepLink.apply && deepLink.step !== undefined ? deepLink.step : viewMemory.dynamicStep
+  );
   const mode = storedMode;
   const dynamicKey = storedDynamicKey;
   const componentId = storedComponentId;
+  const consumedStep = storedDynamicStep;
   const setMode = (m: ViewMode): void => {
     viewMemory.mode = m;
     setStoredMode(m);
@@ -153,6 +171,10 @@ export function ArchitectureView({
   const setComponentId = (id: string): void => {
     viewMemory.componentId = id;
     setStoredComponentId(id);
+  };
+  const setDynamicStep = (s: number): void => {
+    viewMemory.dynamicStep = s;
+    setStoredDynamicStep(s);
   };
 
   // Consume the deep link (at most once per mount): mirror it into module memory
@@ -168,6 +190,7 @@ export function ArchitectureView({
     viewMemory.consumedLocationKey = locationKey;
     setMode('dynamic');
     setDynamicKey(deepLink.key);
+    setDynamicStep(deepLink.step ?? 0);
   });
 
   const activeDynamicKey = dynamicViews.some((v) => v.key === dynamicKey)
@@ -246,6 +269,10 @@ export function ArchitectureView({
               value={activeDynamicKey}
               onChange={(e) => {
                 setDynamicKey(e.target.value);
+                // A manually picked view is a fresh choice, not a continuation of
+                // wherever a stale deep-linked step left off — clear it so the
+                // newly selected view opens on its own first step.
+                setDynamicStep(0);
               }}
             >
               {dynamicViews.map((v) => (
@@ -293,7 +320,8 @@ export function ArchitectureView({
         <DynamicViewFlow
           dv={dynamicModel}
           height={height}
-          resetKey={activeDynamicKey}
+          initialStep={consumedStep - 1}
+          resetKey={`${activeDynamicKey}#${String(consumedStep)}`}
           {...(dynamicStatusBySeq !== undefined ? { statusBySeq: dynamicStatusBySeq } : {})}
           onCommentStep={
             enabled

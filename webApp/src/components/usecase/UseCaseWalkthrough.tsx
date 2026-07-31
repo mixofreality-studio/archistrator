@@ -22,12 +22,17 @@ import UndoIcon from '@mui/icons-material/Undo';
 import RestartAltIcon from '@mui/icons-material/RestartAlt';
 import FlagIcon from '@mui/icons-material/Flag';
 import type { UseCaseView } from '../../contracts/adapters';
+import type { Finding } from '../../contracts/types';
+import type { RealizedStep } from '../../contracts/realization';
 import { ActivityFlow, type ActivityHighlight } from './ActivityFlow';
 import { useComments, activityNodeAnchor } from '../comments/CommentContext';
 import { laneColors } from './laneColors';
 import { useTokens } from '../../utilities/theme/ThemeContext';
+import type { Tokens } from '../../utilities/theme/themes';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 import { walkthroughRoots, walkthroughNavFloor } from './walkthroughRoots';
+import { isEligibleForRealization } from './useCaseChip';
+import { StepLink } from '../shared/StepLink';
 
 type NodeView = UseCaseView['nodes'][number];
 type EdgeView = UseCaseView['edges'][number];
@@ -59,14 +64,63 @@ function branchLabel(e: EdgeView, nodesById: Map<string, NodeView>): string {
   return tgt !== undefined ? nodeText(tgt) : 'this path';
 }
 
+type BadgeTone = 'ok' | 'warn' | 'error';
+
+/** The realization badge shown on the focus card for the CURRENT node — a step
+ *  exists (findings empty → ✓ realized, else ✗ <first ruleId>), or none exists
+ *  (eligible kind → — no realization; every other kind needs no badge at all,
+ *  which is what `undefined` means here — pure control flow, nothing to say). */
+function stepBadge(
+  node: NodeView | undefined,
+  realization: Map<string, RealizedStep>,
+  stepFindings: (nodeId: string) => Finding[]
+): { label: string; tone: BadgeTone } | undefined {
+  if (node === undefined) return undefined;
+  const realized = realization.get(node.id);
+  if (realized !== undefined) {
+    const findings = stepFindings(node.id);
+    if (findings.length > 0) {
+      return { label: `✗ ${findings[0]?.ruleId ?? ''}`, tone: 'error' };
+    }
+    return { label: '✓ realized', tone: 'ok' };
+  }
+  return isEligibleForRealization(node.kind)
+    ? { label: '— no realization', tone: 'warn' }
+    : undefined;
+}
+
+/** Badge tone → token color (mirrors DynamicViewFlow's statusColor idiom). */
+function badgeColor(tone: BadgeTone, t: Tokens): string {
+  if (tone === 'ok') return t.committedDot;
+  if (tone === 'error') return t.dangerFg;
+  return t.awaitingFg;
+}
+
 export function UseCaseWalkthrough({
   uc,
   useCaseIndex,
   height = 580,
+  realization,
+  stepFindings,
+  callChainKey,
+  firstSeqOfNode,
 }: {
   uc: UseCaseView;
   useCaseIndex: number;
   height?: number;
+  /** This use case's realized calls, keyed by activity node id (empty map when
+   *  the use case links no dynamic view, or none of its steps are realized). */
+  realization: Map<string, RealizedStep>;
+  /** Design-Health findings anchored to one step (activity node) of this use
+   *  case's dynamic view — [] when the node carries none (or no view exists). */
+  stepFindings: (nodeId: string) => Finding[];
+  /** The System dynamic-view key this use case's call chain renders under, for
+   *  the "View call chain" join — undefined when no such view exists. */
+  callChainKey: string | undefined;
+  /** The realized call chain's 1-based GLOBAL sequence position of a given
+   *  step's first call, for the call-chain join's `?step=` deep link —
+   *  undefined when the node has no step, or no call chain exists at all. */
+  firstSeqOfNode: (nodeId: string) => number | undefined;
 }): ReactNode {
   const t = useTokens();
   const colors = laneColors(t, uc.lanes);
@@ -162,6 +216,12 @@ export function UseCaseWalkthrough({
   const isBranch = outs.length > 1;
   const isEnd = !showEntryChooser && outs.length === 0;
 
+  // Realization badge + calls list for the current node — both naturally absent
+  // during the entry chooser (currentId is '', which no node/step ever keys).
+  const badge = stepBadge(node, realization, stepFindings);
+  const realizedStep = realization.get(currentId);
+  const firstSeq = realizedStep !== undefined ? firstSeqOfNode(currentId) : undefined;
+
   // Per-step comment button, revealed like a CommentableList row's: hidden at rest,
   // shown on hover / keyboard focus-within of the step card, and pinned visible when
   // this step is the armed anchor or already carries a comment. It arms the SAME
@@ -240,6 +300,23 @@ export function UseCaseWalkthrough({
                   }}
                 />
               )}
+              {badge !== undefined ? (
+                <Chip
+                  data-testid={UI_IDENTIFIERS.UseCaseCarousel.STEP_BADGE}
+                  label={badge.label}
+                  size="small"
+                  sx={{
+                    height: 20,
+                    fontFamily: t.mono,
+                    fontSize: 10,
+                    fontWeight: 700,
+                    bgcolor: 'transparent',
+                    color: badgeColor(badge.tone, t),
+                    border: `1.5px solid ${badgeColor(badge.tone, t)}`,
+                    borderRadius: 0.5,
+                  }}
+                />
+              ) : null}
               {enabled && !showEntryChooser ? (
                 <Tooltip title={`Comment on step ${String(path.length)}`}>
                   <IconButton
@@ -289,6 +366,39 @@ export function UseCaseWalkthrough({
                 ? nodeText(node)
                 : '—'}
           </Typography>
+
+          {/* realized calls for the current step, when it has one — the
+              from → to · label list plus a join into the Architecture step's
+              Dynamic lens, landing on this exact step (?step= = its global seq). */}
+          {realizedStep !== undefined ? (
+            <Box
+              data-testid={UI_IDENTIFIERS.UseCaseCarousel.STEP_CALLS}
+              sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}
+            >
+              {realizedStep.calls.map((c, idx) => (
+                <Typography
+                  key={`${c.from}-${c.to}-${String(idx)}`}
+                  sx={{ fontFamily: t.mono, fontSize: 11, color: t.muted }}
+                >
+                  {c.from} → {c.to} · {c.label}
+                </Typography>
+              ))}
+              {callChainKey !== undefined ? (
+                <StepLink
+                  kind="system"
+                  label={`${uc.name} call chain`}
+                  search={
+                    firstSeq !== undefined
+                      ? { view: callChainKey, step: firstSeq }
+                      : { view: callChainKey }
+                  }
+                  sx={{ fontFamily: t.mono, fontSize: 11 }}
+                >
+                  View call chain →
+                </StepLink>
+              ) : null}
+            </Box>
+          ) : null}
 
           {/* controls */}
           {showEntryChooser ? (

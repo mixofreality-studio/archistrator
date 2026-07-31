@@ -148,6 +148,11 @@ export const TESTID = {
   walkthroughBranch: UI_IDENTIFIERS.UseCaseCarousel.walkthroughBranch,
   walkthroughPathStep: UI_IDENTIFIERS.UseCaseCarousel.walkthroughPathStep,
   walkthroughCurrentNode: UI_IDENTIFIERS.UseCaseCarousel.WALKTHROUGH_CURRENT_NODE,
+  // Per-use-case realization roll-up chip, per-step badge, and the current
+  // step's compact call list + call-chain join (Task 11).
+  useCaseRealizationChip: UI_IDENTIFIERS.UseCaseCarousel.REALIZATION_CHIP,
+  useCaseStepBadge: UI_IDENTIFIERS.UseCaseCarousel.STEP_BADGE,
+  useCaseStepCalls: UI_IDENTIFIERS.UseCaseCarousel.STEP_CALLS,
 
   // Deployment (operationalConcepts artifact) profile switcher — the switch
   // VALUES ('cloud'/'local'/'test') are this package's own concern (no
