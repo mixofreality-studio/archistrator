@@ -4,9 +4,17 @@
  * STEP-THROUGH: participants are placed by Method layer (shared computeLayout, with
  * the row-label gutter and Utilities side bar), and the ordered calls are walked one
  * at a time. Each step highlights exactly one relationship (bold edge + glowing
- * endpoints, everything else quiet) and surfaces that single call's text in a
- * caption bar above the diagram — the only place relationship labels appear. No
- * labels sit on the lines; no lines are drawn to the Utilities bar.
+ * endpoints, EVERY other participant muted to the static graph's hover opacity)
+ * and surfaces that single call's text in a caption bar above the diagram — the
+ * only place relationship labels appear. No labels sit on the lines; no lines
+ * are drawn to the Utilities bar.
+ *
+ * FRAGMENT MODE (`focusStepNodeId`, founder QA round 2): the walk can instead be
+ * driven from outside by a use-case walkthrough. The chain then lights the whole
+ * FRAGMENT its current activity step realizes — every call of that step at once,
+ * everything else muted — and the internal Prev/Next paging gives way to a
+ * caption listing those calls. The stepper lives on the other side of the split;
+ * this pane follows.
  *
  * Decoupled from the System envelope: callers pass a prebuilt `dv` (system views via
  * toDynamicView; test scenarios via testScenarioToDynamicView) plus a `resetKey`
@@ -22,7 +30,7 @@
  * surfaced as an "unresolved" warning chip above the canvas rather than silently
  * dropping the call's line.
  */
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Edge, Node } from '@xyflow/react';
 import Box from '@mui/material/Box';
 import Chip from '@mui/material/Chip';
@@ -61,7 +69,7 @@ function statusColor(status: StepStatus | undefined, t: Tokens): string | undefi
 function build(
   dv: DynamicViewModel,
   t: Tokens,
-  stepIndex: number,
+  focused: readonly SequencedCall[],
   focalComponentId: string | undefined,
   statusBySeq: Map<number, StepStatus> | undefined
 ): {
@@ -81,13 +89,23 @@ function build(
   ];
   const layout = computeLayout(placedComponents, dv.edges);
   const layerOf = new Map(dv.participants.map((c) => [c.id, c.layer]));
-  const current = dv.edges[stepIndex];
-  const isEndpoint = (id: string): boolean => id === current?.from || id === current?.to;
+  // What is lit: ONE call in the step-through, the whole fragment in
+  // walkthrough-driven mode. Everything else is muted exactly as the static
+  // graph mutes a hovered component's non-neighbours (founder QA round 2 — the
+  // glow alone did not read as focus). With NOTHING focused (an activity step
+  // the chain does not realize) there is nothing to mute against, so the chain
+  // renders plain and quiet rather than uniformly ghosted.
+  const focusSeqs = new Set(focused.map((c) => c.seq));
+  const focusEndpoints = new Set(focused.flatMap((c) => [c.from, c.to]));
+  const hasFocus = focusEndpoints.size > 0;
+  const isEndpoint = (id: string): boolean => focusEndpoints.has(id);
 
   // People first (top row), then the components in the layout's visual reading
   // order (row top→down, then x) so DOM/tab order matches what the eye sees.
   const nodes: Node[] = dv.persons.map((p) => {
-    const base = personNode(p, layout.pos.get(p.id) ?? { x: 0, y: 0 }, colors.person);
+    const base = personNode(p, layout.pos.get(p.id) ?? { x: 0, y: 0 }, colors.person, {
+      dimmed: hasFocus && !isEndpoint(p.id),
+    });
     return isEndpoint(p.id)
       ? { ...base, style: { filter: `drop-shadow(0 0 6px ${t.accent})` } }
       : base;
@@ -95,13 +113,16 @@ function build(
 
   nodes.push(
     ...sortByLayoutPosition(dv.participants, layout).map((c) => {
+      const isFocal = focalComponentId !== undefined && c.id === focalComponentId;
       // Dynamic lens: names + layer tags only. The current call's detail lives in the
       // step caption rail, so the node bodies stay compact (no volatility prose) — this
       // keeps heights stable and stops tall cards overlapping their neighbours.
+      // Utilities carry the static graph's carve-out: shared infrastructure in a
+      // side bar that receives no lines is never dimmed, it simply exists.
       const base = c4Node(c, layout.pos.get(c.id) ?? { x: 0, y: 0 }, colors, {
         showEncapsulates: false,
+        dimmed: hasFocus && !isEndpoint(c.id) && !isFocal && c.layer !== 'utility',
       });
-      const isFocal = focalComponentId !== undefined && c.id === focalComponentId;
       if (isEndpoint(c.id) || isFocal) {
         return {
           ...base,
@@ -125,12 +146,12 @@ function build(
   const edges: Edge[] = dv.edges
     .filter((r) => layerOf.get(r.to) !== 'utility' && placed.has(r.from) && placed.has(r.to))
     .map((r) => {
-      const isCurrent = r.seq === current?.seq;
+      const isCurrent = focusSeqs.has(r.seq);
       const stroke = statusColor(statusBySeq?.get(r.seq), t);
       return flowEdge(`${String(r.seq)}-${r.from}-${r.to}`, r.from, r.to, r.label, t, {
-        variant: isCurrent ? 'focus' : 'muted',
+        variant: isCurrent ? 'focus' : hasFocus ? 'muted' : 'normal',
         dashed: r.mode !== 'sync', // queued / pub-sub calls render dashed
-        ...(stroke !== undefined ? { stroke, opacity: isCurrent ? 1 : 0.4 } : {}),
+        ...(stroke !== undefined ? { stroke, opacity: isCurrent || !hasFocus ? 1 : 0.4 } : {}),
       });
     });
 
@@ -362,6 +383,153 @@ function StepBar({
   );
 }
 
+/**
+ * The caption for the FRAGMENT the walkthrough is standing on: every call the
+ * current activity step realizes, listed together, in the same card the
+ * step-through's caption uses. There is deliberately no Prev/Next here — the
+ * walkthrough beside it owns the navigation (founder QA round 2), so this rail
+ * reports rather than steers.
+ */
+function FragmentBar({
+  dv,
+  calls,
+  statusBySeq,
+  onCommentStep,
+  t,
+}: {
+  dv: DynamicViewModel;
+  /** The focused step's calls in chain order — EMPTY when the step realizes
+   *  none (an unrealized node the reader walked onto, or the entry chooser). */
+  calls: readonly SequencedCall[];
+  statusBySeq: Map<number, StepStatus> | undefined;
+  /** When provided, a Comment button anchoring the fragment's FIRST call. */
+  onCommentStep: ((edge: SequencedCall) => void) | undefined;
+  t: Tokens;
+}): ReactNode {
+  // Endpoint display names: components by name, people by their (id) name.
+  const nameOf = useMemo(
+    () =>
+      new Map([
+        ...dv.persons.map((p): [string, string] => [p.id, p.id]),
+        ...dv.participants.map((c): [string, string] => [c.id, c.name]),
+      ]),
+    [dv.participants, dv.persons]
+  );
+  const first = calls[0];
+  // Loudest status across the fragment: one flagged call tints the whole card,
+  // the same way a single failing call tints its step in the step-through.
+  const statuses = calls.map((c) => statusBySeq?.get(c.seq));
+  const worst: StepStatus | undefined = statuses.includes('red')
+    ? 'red'
+    : statuses.includes('green')
+      ? 'green'
+      : undefined;
+  const captionAccent = statusColor(worst, t) ?? t.accent;
+  const stepLabel = first !== undefined && first.stepLabel.length > 0 ? first.stepLabel : undefined;
+  const heading =
+    first === undefined
+      ? 'No realization for this step'
+      : `Step: ${stepLabel ?? first.stepNodeId} — ${String(calls.length)} call${
+          calls.length === 1 ? '' : 's'
+        }`;
+
+  return (
+    <Box sx={{ mb: 1.5 }}>
+      <Box
+        data-testid={UI_IDENTIFIERS.Architecture.DYNAMIC_FRAGMENT}
+        sx={{
+          p: 1.25,
+          border: `1.5px solid ${t.line}`,
+          borderLeft: `3px solid ${captionAccent}`,
+          borderRadius: 1,
+          bgcolor: t.paper,
+        }}
+      >
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          {/* The live region: the walkthrough moved the focus, so this rail is
+              what announces WHERE the chain now stands. */}
+          <Typography
+            aria-live="polite"
+            role="status"
+            sx={{
+              fontFamily: t.mono,
+              fontWeight: 700,
+              fontSize: 13,
+              color: t.ink,
+              wordBreak: 'break-word',
+            }}
+          >
+            {heading}
+          </Typography>
+          {worst !== undefined ? (
+            <Chip
+              label={worst === 'green' ? 'passing ✓' : 'target'}
+              size="small"
+              sx={{
+                height: 18,
+                fontFamily: t.mono,
+                fontSize: 9,
+                fontWeight: 700,
+                bgcolor: 'transparent',
+                color: captionAccent,
+                border: `1.5px solid ${captionAccent}`,
+              }}
+            />
+          ) : null}
+          {onCommentStep !== undefined && first !== undefined ? (
+            <>
+              <Box sx={{ flexGrow: 1 }} />
+              <Button
+                data-testid={UI_IDENTIFIERS.Comments.STEP_COMMENT}
+                size="small"
+                startIcon={<ChatBubbleOutlineIcon sx={{ fontSize: 14 }} />}
+                sx={{
+                  py: 0.25,
+                  color: t.accentText,
+                  bgcolor: t.accent,
+                  border: `1.5px solid ${t.line}`,
+                  fontFamily: t.mono,
+                  '&:hover': { bgcolor: t.accent2 },
+                }}
+                onClick={() => {
+                  onCommentStep(first);
+                }}
+              >
+                Comment
+              </Button>
+            </>
+          ) : null}
+        </Box>
+        {calls.length > 0 ? (
+          <Box sx={{ mt: 0.5, display: 'flex', flexDirection: 'column', gap: 0.35 }}>
+            {calls.map((c) => (
+              <Typography
+                key={c.seq}
+                sx={{
+                  fontFamily: t.mono,
+                  fontSize: 12,
+                  color: t.ink,
+                  wordBreak: 'break-word',
+                }}
+              >
+                {c.seq}. {c.label}
+                <Box component="span" sx={{ color: t.muted }}>
+                  {'  ·  '}
+                  {nameOf.get(c.from) ?? c.from} → {nameOf.get(c.to) ?? c.to}
+                </Box>
+              </Typography>
+            ))}
+          </Box>
+        ) : (
+          <Typography sx={{ fontFamily: t.body, fontSize: 11.5, color: t.muted, mt: 0.5 }}>
+            This step authors no calls — the chain stays as it was while you walk past it.
+          </Typography>
+        )}
+      </Box>
+    </Box>
+  );
+}
+
 /** One labelled monospace row in the step caption (in / out / err). */
 function CaptionRow({
   k,
@@ -414,8 +582,8 @@ export function DynamicViewFlow({
   initialStep,
   statusBySeq,
   detailBySeq,
+  focusStepNodeId,
   onCommentStep,
-  onStepChange,
 }: {
   /** The ordered call chain to render (system use case or test scenario). */
   dv: DynamicViewModel;
@@ -434,16 +602,19 @@ export function DynamicViewFlow({
   statusBySeq?: Map<number, StepStatus>;
   /** Optional per-call concrete detail (test views): seq → inputs / expected. */
   detailBySeq?: Map<number, StepDetail>;
+  /** FRAGMENT MODE (founder QA round 2): follow a use-case walkthrough instead of
+   *  paging calls yourself. Defined = the activity node the reader is standing
+   *  on; ALL of that step's calls light up together and the internal step-through
+   *  (Prev/Next + its single-call caption) gives way to a fragment caption
+   *  listing them. An id no call was authored on — including '' (the multi-root
+   *  entry chooser, or a step the chain does not realize) — renders the chain
+   *  with nothing focused and says so. Undefined = the self-driven step-through. */
+  focusStepNodeId?: string;
   /** Optional per-step comment handler: enables a Comment button in the caption bar
-   *  that arms an anchor for the current call (system-design use only; omitted for
-   *  the read-only test-scenario views). */
+   *  that arms an anchor for the current call — the fragment's FIRST call in
+   *  fragment mode (system-design use only; omitted for the read-only
+   *  test-scenario views). */
   onCommentStep?: ((edge: SequencedCall) => void) | undefined;
-  /** Optional notification of where the walk now stands — the current call, or
-   *  undefined when the view has no calls. Fired on mount, on every step, and
-   *  after a `resetKey` restart, so a companion surface (the Architecture lens'
-   *  activity-diagram trace) can follow along. Keep the handler stable
-   *  (useCallback) — it is an effect dependency. */
-  onStepChange?: ((call: SequencedCall | undefined) => void) | undefined;
 }): ReactNode {
   const t = useTokens();
   const [stepIndex, setStepIndex] = useState(() => clampStep(initialStep, dv.edges.length));
@@ -457,30 +628,34 @@ export function DynamicViewFlow({
   }
   const safeStep = Math.min(Math.max(stepIndex, 0), Math.max(dv.edges.length - 1, 0));
 
-  const { nodes, edges, colors, usedLayers, placed } = useMemo(
-    () => build(dv, t, safeStep, focalComponentId, statusBySeq),
-    [dv, t, safeStep, focalComponentId, statusBySeq]
-  );
-
-  // Recenter the camera on the current call's two endpoints as you step (only the
-  // endpoints that actually got a node — an unresolved id would frame nothing).
+  // What the diagram lights. Fragment mode takes every call the driving
+  // walkthrough's current step authored (both surfaces of a dual-entry step
+  // light together — that is the point); otherwise it is the one call the
+  // internal step-through stands on.
+  const fragmentMode = focusStepNodeId !== undefined;
   const currentCall = dv.edges[safeStep];
-  const focusIds = useMemo(
+  const focusedCalls = useMemo(
     () =>
-      currentCall !== undefined
-        ? [currentCall.from, currentCall.to].filter((id) => placed.has(id))
-        : [],
-    [currentCall, placed]
+      focusStepNodeId !== undefined
+        ? dv.edges.filter((e) => e.stepNodeId === focusStepNodeId)
+        : currentCall !== undefined
+          ? [currentCall]
+          : [],
+    [dv.edges, focusStepNodeId, currentCall]
   );
 
-  // Publish the walk's position to whoever is following along (the Architecture
-  // lens' side-by-side activity trace). Declared above the empty-view early
-  // return so the hook order is stable, and keyed on the call OBJECT — the
-  // memoized `dv` hands back the same reference until the model itself changes,
-  // so a listener that mirrors it into state settles immediately.
-  useEffect(() => {
-    onStepChange?.(currentCall);
-  }, [onStepChange, currentCall]);
+  const { nodes, edges, colors, usedLayers, placed } = useMemo(
+    () => build(dv, t, focusedCalls, focalComponentId, statusBySeq),
+    [dv, t, focusedCalls, focalComponentId, statusBySeq]
+  );
+
+  // Recenter the camera on what is lit (only the endpoints that actually got a
+  // node — an unresolved id would frame nothing). Deduped: a fragment's calls
+  // routinely share an endpoint.
+  const focusIds = useMemo(
+    () => [...new Set(focusedCalls.flatMap((c) => [c.from, c.to]))].filter((id) => placed.has(id)),
+    [focusedCalls, placed]
+  );
 
   if (dv.participants.length === 0 && dv.persons.length === 0) {
     return <FlowEmpty label="No call chain to render yet." t={t} />;
@@ -488,19 +663,32 @@ export function DynamicViewFlow({
 
   return (
     <Box>
-      <StepBar
-        detailBySeq={detailBySeq}
-        dv={dv}
-        setStepIndex={setStepIndex}
-        statusBySeq={statusBySeq}
-        stepIndex={safeStep}
-        t={t}
-        onCommentStep={onCommentStep}
-      />
+      {fragmentMode ? (
+        <FragmentBar
+          calls={focusedCalls}
+          dv={dv}
+          statusBySeq={statusBySeq}
+          t={t}
+          onCommentStep={onCommentStep}
+        />
+      ) : (
+        <StepBar
+          detailBySeq={detailBySeq}
+          dv={dv}
+          setStepIndex={setStepIndex}
+          statusBySeq={statusBySeq}
+          stepIndex={safeStep}
+          t={t}
+          onCommentStep={onCommentStep}
+        />
+      )}
       <UnresolvedChips ids={dv.unresolved} t={t} />
       <FlowCanvas edges={edges} height={height} nodes={nodes} t={t}>
         <LayerLegend colors={colors} t={t} usedLayers={usedLayers} />
-        <FocusNodes dep={String(safeStep)} nodeIds={focusIds} />
+        <FocusNodes
+          dep={fragmentMode ? `step:${focusStepNodeId}` : String(safeStep)}
+          nodeIds={focusIds}
+        />
       </FlowCanvas>
     </Box>
   );

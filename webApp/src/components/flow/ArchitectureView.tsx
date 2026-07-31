@@ -6,13 +6,15 @@
  *   Dynamic         → DynamicViewFlow  (one call chain per use case, via a picker)
  *   Component focus → PerspectiveFlow  (one component + its inbound/outbound edges)
  *
- * The Dynamic lens is a TRACE, not just a chain: the owning use case's activity
- * diagram is rendered beside it (ActivityFlow, the same you-are-here map the
- * use-case walkthrough uses), synced to the step that owns the current call — so
- * the reader sees the call chain realize the very steps they just walked on the
- * previous screen. Chain leads (left, 60%), map follows (right, 40%), stacking
- * chain-first on a narrow container. When the view links no use case with a
- * diagram, the chain renders full-width exactly as before.
+ * The Dynamic lens is a walkthrough-DRIVEN trace, not just a chain: the owning
+ * use case's WALKTHROUGH leads (left, 40% — the same focus card, Next / branch
+ * buttons, Back / Restart, breadcrumb and you-are-here map as the use-cases
+ * screen), and the call chain follows (right, 60%) in fragment mode, lighting
+ * every call the current step realizes and muting everything else. The reader
+ * makes the decisions; the architecture answers. Narrow containers stack
+ * WALKTHROUGH-first (founder QA round 2, 2026-07-31 — reversing the earlier
+ * chain-first ruling). When the view links no use case with a diagram, the chain
+ * renders full-width and pages itself exactly as before.
  *
  * Dynamic / perspective each surface a MUI Select picker (dynamic views by title;
  * components grouped by layer). Defaults: first dynamic view; first Manager (else
@@ -35,23 +37,26 @@ import {
   toCoreUseCasesView,
   toDynamicView,
   dynamicViewUseCaseId,
-  type SequencedCall,
 } from '../../contracts/adapters';
 import type {
   ArtifactModelEnvelope,
+  Finding,
   ServiceContract,
   ServiceContracts,
+  System,
 } from '../../contracts/types';
+import { realizationByNode } from '../../contracts/realization';
 import { useStructureFindings } from './StructureFindingsContext';
 import { statusBySeqFromFindings } from './callStatus';
+import { findingsForStep } from './useCaseFindings';
 import { resolveContractComponentId } from '../../contracts/contractComponentId';
 import { useTokens } from '../../utilities/theme/ThemeContext';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 import { ArchitectureFlow } from './ArchitectureFlow';
 import { DynamicViewFlow } from './DynamicViewFlow';
 import { PerspectiveFlow } from './PerspectiveFlow';
-import { ActivityFlow } from '../usecase/ActivityFlow';
-import { traceHighlight } from './traceHighlight';
+import { UseCaseWalkthrough } from '../usecase/UseCaseWalkthrough';
+import { walkthroughPathTo, walkthroughRoots } from '../usecase/walkthroughRoots';
 import { ServiceContractView } from '../construction/ServiceContractView';
 import { type Layer, LAYER_ORDER, LAYER_LABEL } from './flowLayout';
 import { useComments, dynamicEdgeAnchor, CommentProvider } from '../comments/CommentContext';
@@ -237,30 +242,13 @@ export function ArchitectureView({
     [dynamicModel, structureFindings, activeDynamicKey]
   );
 
-  // ── The side-by-side activity trace ────────────────────────────────────────
-  // The step-through owns the walk's position, so it publishes it here (the call
-  // it is standing on, tagged with the view it belongs to) and the activity pane
-  // projects that onto the use case's own diagram. Tagging matters: view keys
-  // change before the flow re-publishes, and seq numbers repeat across views —
-  // an untagged position would light the WRONG step for a frame. A mismatched
-  // tag reads as "no position yet" and the diagram renders plain.
-  const [stepPos, setStepPos] = useState<{ key: string; call: SequencedCall | undefined }>({
-    key: '',
-    call: undefined,
-  });
-  const handleStepChange = useCallback(
-    (call: SequencedCall | undefined): void => {
-      setStepPos({ key: activeDynamicKey, call });
-    },
-    [activeDynamicKey]
-  );
-
+  // ── The walkthrough-driven trace ───────────────────────────────────────────
   // The use case this view realizes, plus its position in the committed slot
-  // order (ActivityFlow's comment anchors are keyed by that index). Undefined —
-  // and the chain then renders full-width, exactly as before — when the view
-  // links no use case (a synthetic view), the use cases aren't loaded, or the
-  // linked use case owns no activity diagram (e.g. a variation, which shares its
-  // parent's; the carousel does not substitute it either).
+  // order (the walkthrough's comment anchors are keyed by that index). Undefined
+  // — and the chain then renders full-width and self-paged, exactly as before —
+  // when the view links no use case (a synthetic view), the use cases aren't
+  // loaded, or the linked use case owns no activity diagram (e.g. a variation,
+  // which shares its parent's; the carousel does not substitute it either).
   const tracedUseCase = useMemo(() => {
     const useCaseId = dynamicViewUseCaseId(envelope, activeDynamicKey);
     if (useCaseId === undefined) return undefined;
@@ -271,11 +259,61 @@ export function ArchitectureView({
     return { uc, index };
   }, [envelope, useCasesEnvelope, activeDynamicKey]);
 
-  const activityHighlight = useMemo(() => {
-    if (tracedUseCase === undefined) return undefined;
-    const seq = stepPos.key === activeDynamicKey ? stepPos.call?.seq : undefined;
-    return traceHighlight(dynamicModel.edges, seq, tracedUseCase.uc.edges);
-  }, [tracedUseCase, dynamicModel.edges, stepPos, activeDynamicKey]);
+  // The walkthrough's per-step data, built exactly as the use-cases carousel
+  // builds it (realization badges + per-step Design-Health findings) so the two
+  // surfaces say the same thing about the same step.
+  const systemModel =
+    envelope?.kind === 'system' ? (envelope.model as System | undefined) : undefined;
+  const realization = useMemo(
+    () => realizationByNode(systemModel, tracedUseCase?.uc.id ?? ''),
+    [systemModel, tracedUseCase]
+  );
+  const stepFindings = useCallback(
+    (nodeId: string): Finding[] => findingsForStep(structureFindings, activeDynamicKey, nodeId),
+    [structureFindings, activeDynamicKey]
+  );
+  const firstSeqOfNode = useCallback(
+    (nodeId: string): number | undefined =>
+      dynamicModel.edges.find((e) => e.stepNodeId === nodeId)?.seq,
+    [dynamicModel]
+  );
+
+  // A `?view=&step=` deep link lands on ONE call; the walkthrough steps by
+  // activity node, so the seq resolves to its owning step and then to the route
+  // a reader would have walked to reach it (BFS, deterministic). No such route
+  // (or no deep link) → the walkthrough opens at its own natural beginning.
+  const seedPath = useMemo(() => {
+    if (tracedUseCase === undefined || consumedStep <= 0) return undefined;
+    const stepNodeId = dynamicModel.edges.find((e) => e.seq === consumedStep)?.stepNodeId;
+    if (stepNodeId === undefined || stepNodeId.length === 0) return undefined;
+    return walkthroughPathTo(tracedUseCase.uc.nodes, tracedUseCase.uc.edges, stepNodeId);
+  }, [tracedUseCase, dynamicModel, consumedStep]);
+
+  // Where the chain looks BEFORE the walkthrough's first publish: the same node
+  // the walkthrough itself will open on (its seed, else its single root — a
+  // multi-root diagram opens on the entry chooser, which focuses nothing).
+  // Computing it here rather than waiting for the mount effect keeps the first
+  // painted frame correct instead of flashing "no realization".
+  const initialWalkNodeId = useMemo(() => {
+    if (tracedUseCase === undefined) return '';
+    if (seedPath !== undefined) return seedPath[seedPath.length - 1] ?? '';
+    const roots = walkthroughRoots(tracedUseCase.uc.nodes, tracedUseCase.uc.edges);
+    return roots.length === 1 ? (roots[0] ?? '') : '';
+  }, [tracedUseCase, seedPath]);
+
+  // The walkthrough owns the position and publishes it here (the activity node
+  // it stands on, tagged with the view it belongs to). Tagging matters: the view
+  // key changes a render before the walkthrough remounts and re-publishes, and
+  // node ids repeat across use cases — an untagged position would light the
+  // WRONG fragment for a frame. A mismatched tag falls back to the opening node.
+  const [walkPos, setWalkPos] = useState<{ key: string; nodeId: string }>({ key: '', nodeId: '' });
+  const handleCurrentNodeChange = useCallback(
+    (nodeId: string): void => {
+      setWalkPos({ key: activeDynamicKey, nodeId });
+    },
+    [activeDynamicKey]
+  );
+  const focusStepNodeId = walkPos.key === activeDynamicKey ? walkPos.nodeId : initialWalkNodeId;
 
   // Container-aware split: MUI viewport breakpoints can't see that this view can
   // sit inside a narrow design-experience column, where a 40/60 split would
@@ -306,8 +344,10 @@ export function ArchitectureView({
     })).filter((g) => g.items.length > 0);
   }, [c4]);
 
-  // The call-chain step-through itself, built once so the two-up trace layout and
-  // the full-width fallback render the SAME element (only its frame differs).
+  // The call chain itself, built once so the two-up trace layout and the
+  // full-width fallback render the SAME element (only its frame differs). With a
+  // walkthrough beside it the chain runs in FRAGMENT mode (it follows); without
+  // one it keeps its own Prev/Next step-through.
   const dynamicFlow =
     mode === 'dynamic' ? (
       <DynamicViewFlow
@@ -315,6 +355,7 @@ export function ArchitectureView({
         height={height}
         initialStep={consumedStep - 1}
         resetKey={`${activeDynamicKey}#${String(consumedStep)}`}
+        {...(tracedUseCase !== undefined ? { focusStepNodeId } : {})}
         {...(dynamicStatusBySeq !== undefined ? { statusBySeq: dynamicStatusBySeq } : {})}
         onCommentStep={
           enabled
@@ -331,7 +372,6 @@ export function ArchitectureView({
               }
             : undefined
         }
-        onStepChange={handleStepChange}
       />
     ) : null;
 
@@ -433,41 +473,51 @@ export function ArchitectureView({
               gap: 2,
             }}
           >
-            {/* The chain leads — in BOTH directions. It is the artifact under
-                review, it owns the controls the reader drives (Prev/Next), and it
-                is what this step is about; the map is the companion you glance at.
-                Ordering it first keeps DOM order == visual order == tab order at
-                every width, so the narrow layout stacks the chain on TOP (no
-                `order` overrides, no focus-order mismatch). */}
-            <Box sx={{ flex: sideBySide ? '1 1 60%' : '1 1 auto', minWidth: 0 }}>
-              <PaneLabel>Call chain</PaneLabel>
-              {dynamicFlow}
-            </Box>
-            {/* Supplementary pane: the use case's OWN activity diagram, walked in
-                lock-step with the chain. The step position is announced by the
-                step-through's caption live region (StepBar) — this map is the
-                visual companion, so it is grouped and named, not a second
-                announcer. */}
+            {/* The WALKTHROUGH leads — in both directions (founder QA round 2).
+                It owns the controls the reader drives (Next, the branch buttons
+                that make the decisions, Back / Restart), so ordering it first
+                keeps DOM order == visual order == tab order at every width and
+                the narrow layout stacks the activity on TOP (no `order`
+                overrides, no focus-order mismatch).
+
+                Comment-inert: this pane belongs to the CORE USE CASES artifact,
+                and its node anchors ($.decisions[i]…) address that model — arming
+                one while reviewing the System artifact would file the comment
+                against the wrong slot. Feedback on a step belongs on the use-case
+                screen; here the walkthrough is a control, not a review surface.
+
+                Remounted (key) whenever the view or the deep-linked step changes,
+                so a fresh `?step=` seeds a fresh route rather than leaving the
+                reader wherever the previous walk stood. */}
             <Box
-              aria-label={`Activity diagram trace for ${tracedUseCase.uc.name}`}
+              aria-label={`Walkthrough of ${tracedUseCase.uc.name}`}
               data-testid={UI_IDENTIFIERS.Architecture.DYNAMIC_ACTIVITY_TRACE}
               role="group"
               sx={{ flex: sideBySide ? '0 0 40%' : '1 1 auto', minWidth: 0 }}
             >
               <PaneLabel>{`Activity — ${tracedUseCase.uc.name}`}</PaneLabel>
-              {/* Comment-inert: this pane belongs to the CORE USE CASES artifact,
-                  and its node anchors ($.decisions[i]…) address that model — arming
-                  one while reviewing the System artifact would file the comment
-                  against the wrong slot. Feedback on a step belongs on the use-case
-                  screen; here the diagram is a map, not a review surface. */}
               <CommentProvider enabled={false}>
-                <ActivityFlow
+                <UseCaseWalkthrough
+                  hideCallChainLink
+                  callChainKey={activeDynamicKey}
+                  firstSeqOfNode={firstSeqOfNode}
                   height={height}
+                  key={`${activeDynamicKey}#${String(consumedStep)}`}
+                  realization={realization}
+                  stepFindings={stepFindings}
                   uc={tracedUseCase.uc}
                   useCaseIndex={tracedUseCase.index}
-                  {...(activityHighlight !== undefined ? { highlight: activityHighlight } : {})}
+                  {...(seedPath !== undefined ? { initialPath: seedPath } : {})}
+                  onCurrentNodeChange={handleCurrentNodeChange}
                 />
               </CommentProvider>
+            </Box>
+            {/* The driven pane: the call chain, lighting the fragment the
+                walkthrough's current step realizes. Its caption rail is the live
+                region that reports where the chain now stands. */}
+            <Box sx={{ flex: sideBySide ? '1 1 60%' : '1 1 auto', minWidth: 0 }}>
+              <PaneLabel>Call chain</PaneLabel>
+              {dynamicFlow}
             </Box>
           </Box>
         ) : (

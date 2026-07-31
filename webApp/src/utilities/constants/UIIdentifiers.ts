@@ -242,10 +242,14 @@ export const UI_IDENTIFIERS = {
     // Dynamic step-through Prev/Next controls (F-QA2-51 testability).
     DYNAMIC_STEP_PREV: 'arch-dynamic-step-prev',
     DYNAMIC_STEP_NEXT: 'arch-dynamic-step-next',
-    // The owning use case's activity diagram, rendered beside the call chain in
-    // the dynamic lens and synced to the current call's owning step. Absent when
-    // the view links no use case with a diagram (the chain then runs full-width).
+    // The owning use case's WALKTHROUGH, rendered beside the call chain in the
+    // dynamic lens: the stepper that drives it (founder QA round 2). Absent when
+    // the view links no use case with a diagram (the chain then runs full-width
+    // and pages itself with DYNAMIC_STEP_PREV/NEXT).
     DYNAMIC_ACTIVITY_TRACE: 'arch-dynamic-activity-trace',
+    // The call-chain caption in fragment mode: the calls the walkthrough's
+    // current step realizes, or "No realization for this step".
+    DYNAMIC_FRAGMENT: 'arch-dynamic-fragment',
     // The anti-functional-decomposition badge on a C4 node (a Manager/Engine/
     // ResourceAccess encapsulating no identified volatility), keyed by component id.
     noVolatility: (componentId: string) => `arch-no-volatility-${componentId}`,

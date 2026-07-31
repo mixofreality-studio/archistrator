@@ -75,6 +75,14 @@ export function layerColors(t: Tokens): Record<FlowLayer, string> {
   };
 }
 
+/**
+ * The opacity a MUTED (out-of-focus) participant fades to. One token, shared by
+ * every flow that mutes: the static graph's hover neighbourhood (ArchitectureFlow)
+ * and the dynamic lens' focused call/fragment (DynamicViewFlow) must read as the
+ * SAME treatment — that identity is the point (founder QA round 2).
+ */
+export const MUTED_NODE_OPACITY = 0.12;
+
 /** Theme colour for a Design-Health finding severity (edge strokes + badges). */
 export function severityColor(t: Tokens, severity: Severity): string {
   switch (severity) {
@@ -308,7 +316,7 @@ export function c4Node(
         : {}),
     },
     draggable: false,
-    ...(opts.dimmed === true ? { style: { opacity: 0.12 } } : {}),
+    ...(opts.dimmed === true ? { style: { opacity: MUTED_NODE_OPACITY } } : {}),
   };
 }
 
@@ -319,7 +327,12 @@ export function c4Node(
 export function personNode(
   person: { id: string; role: string },
   position: { x: number; y: number },
-  color: string
+  color: string,
+  opts: {
+    /** Fade this actor out — the same mute a non-neighbour component takes when
+     *  the diagram has a focus (c4Node's `dimmed`; MUTED_NODE_OPACITY). */
+    dimmed?: boolean;
+  } = {}
 ): Node {
   return {
     id: person.id,
@@ -327,6 +340,7 @@ export function personNode(
     position,
     data: { personId: person.id, role: person.role, color },
     draggable: false,
+    ...(opts.dimmed === true ? { style: { opacity: MUTED_NODE_OPACITY } } : {}),
   };
 }
 

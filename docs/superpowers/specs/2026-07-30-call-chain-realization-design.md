@@ -149,16 +149,32 @@ No new shell; the two existing views consume the realization.
 - Two-level step-bar caption: *activity step label — call k/n: call label*.
 - Validation reuses the existing `statusBySeq` tinting: calls with an
   attributed `CC-*`/`DV-*` finding render red; finding text in the caption bar.
-- **Side-by-side activity trace** (founder QA iteration 2026-07-31): the lens
-  renders the owning use case's activity diagram (`ActivityFlow`, the same
-  you-are-here map the walkthrough uses) beside the call chain, synced to the
-  current call's owning step — visited steps stay lit, the current step rings
-  and auto-centers. This is what makes the realization *visible*: the reader
-  watches the chain trace the very steps they walked on the previous screen.
-  Views with no linked use case / no activity diagram render the chain
-  full-width as before. The chain leads (left, 60%) and the map follows (right,
-  40%); on a narrow container they stack chain-first — DOM order, visual order
-  and tab order agree at every width.
+- **Walkthrough-driven trace** (founder QA round 2, 2026-07-31): the lens is not
+  a chain with a map beside it — it is the use case's own **walkthrough** driving
+  the chain. The `UseCaseWalkthrough` from the use-cases screen renders on the
+  LEFT (~40%): the focus card, `Next`, the decision **branch buttons** (the
+  reader makes the decisions), Back / Restart, the breadcrumb and the
+  you-are-here activity map. The call chain follows on the RIGHT (~60%) in
+  **fragment mode**: it lights every call the current activity step realizes —
+  all at once — and its caption lists them (`n. label · from → to`) in place of
+  the single-call Prev/Next pager, which the walkthrough has replaced. A step the
+  chain does not realize (and the multi-root entry chooser) reads "No realization
+  for this step" rather than crashing or lying. `?step=` still deep-links: the seq
+  resolves to its owning activity node and then, via a BFS shortest path over the
+  activity edges (`walkthroughPathTo`), to the route the walkthrough opens on.
+  Views with no linked use case / no activity diagram render the chain full-width
+  and self-paged, exactly as before. On a narrow container the panes stack
+  **activity-first** — this REVERSES the earlier chain-first ruling (founder QA
+  round 2, 2026-07-31: the activity is what he wants primary), and DOM order,
+  visual order and tab order still agree at every width because the walkthrough
+  is also what owns the controls.
+- **Muting** (same round): focus is carried by MUTING, not by a glow alone.
+  Everything that is not an endpoint of the lit call(s) — components AND persons
+  — fades to the static graph's hover opacity (`MUTED_NODE_OPACITY`, the token
+  `ArchitectureFlow` already uses for a hovered component's non-neighbours), with
+  the same Utilities carve-out. This applies in BOTH modes: fragment mode and the
+  self-paged step-through (`ScenarioBrowser`, service-contract views, and the
+  no-use-case fallback).
 
 **Both-surface entries:** an entry step carrying both `web-client` and
 `mcp-client` calls highlights **both** clients when its fragment lights up —

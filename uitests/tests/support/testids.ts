@@ -135,6 +135,10 @@ export const TESTID = {
   archPerspectivePicker: UI_IDENTIFIERS.Architecture.PERSPECTIVE_PICKER,
   archDynamicStepPrev: UI_IDENTIFIERS.Architecture.DYNAMIC_STEP_PREV,
   archDynamicStepNext: UI_IDENTIFIERS.Architecture.DYNAMIC_STEP_NEXT,
+  // The dynamic lens' walkthrough-driven trace: the walkthrough pane that steers
+  // it, and the call-chain caption listing the current step's fragment.
+  archDynamicActivityTrace: UI_IDENTIFIERS.Architecture.DYNAMIC_ACTIVITY_TRACE,
+  archDynamicFragment: UI_IDENTIFIERS.Architecture.DYNAMIC_FRAGMENT,
 
   // Core Use Cases artifact — the grouped (Core / Variations) use-case picker.
   useCasePicker: UI_IDENTIFIERS.UseCaseCarousel.PICKER,

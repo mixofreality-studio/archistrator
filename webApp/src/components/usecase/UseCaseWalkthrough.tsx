@@ -7,6 +7,11 @@
  * is a breadcrumb (click to rewind) and is mirrored live onto the activity
  * diagram beside it as a "you-are-here" map (current node ringed, path
  * emphasized, rest dimmed). Bound to a UseCaseView (adapters.toCoreUseCasesView).
+ *
+ * It is also the STEPPER other surfaces are driven by: `onCurrentNodeChange`
+ * publishes the focused activity node, which the Architecture step's Dynamic
+ * lens uses to light that step's fragment of the realized call chain (founder QA
+ * round 2 — the same controls, now walking two diagrams at once).
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import Box from '@mui/material/Box';
@@ -87,6 +92,9 @@ export function UseCaseWalkthrough({
   stepFindings,
   callChainKey,
   firstSeqOfNode,
+  initialPath: seedPath,
+  hideCallChainLink = false,
+  onCurrentNodeChange,
 }: {
   uc: UseCaseView;
   useCaseIndex: number;
@@ -104,6 +112,21 @@ export function UseCaseWalkthrough({
    *  step's first call, for the call-chain join's `?step=` deep link —
    *  undefined when the node has no step, or no call chain exists at all. */
   firstSeqOfNode: (nodeId: string) => number | undefined;
+  /** Optional route to OPEN on (walkthroughPathTo), for a caller landing the
+   *  reader mid-diagram — the Architecture lens' `?step=` deep link. Consumed
+   *  once, on mount: remount (a `key` change) to land somewhere else. Restart
+   *  still returns to the natural beginning, not here. */
+  initialPath?: readonly string[];
+  /** Suppress the focus card's "View call chain →" join. Set by a host that IS
+   *  the call chain (the Architecture lens' walkthrough-driven trace), where the
+   *  link would navigate to the screen the reader is already on. */
+  hideCallChainLink?: boolean;
+  /** Optional notification of the step now in focus — the activity node id, or
+   *  '' while the multi-root entry chooser is up (no step chosen yet). Fired on
+   *  mount and on every path change, so a driven surface (the Architecture lens'
+   *  call-chain fragment) follows the walk. Keep the handler stable
+   *  (useCallback) — it is an effect dependency. */
+  onCurrentNodeChange?: ((nodeId: string) => void) | undefined;
 }): ReactNode {
   const t = useTokens();
   const colors = laneColors(t, uc.lanes);
@@ -130,9 +153,12 @@ export function UseCaseWalkthrough({
 
   // A single root behaves exactly as before (auto-focused as step 1). Multiple
   // roots start with no step chosen — the initial focus card becomes an entry
-  // chooser instead.
+  // chooser instead. This is also where Restart returns to: a seeded landing
+  // (below) is where the reader came IN, not the beginning of the story.
   const initialPath = roots.length === 1 ? roots : [];
-  const [path, setPath] = useState<string[]>(initialPath);
+  const [path, setPath] = useState<string[]>(() =>
+    seedPath !== undefined && seedPath.length > 0 ? [...seedPath] : initialPath
+  );
   // Back/Restart rewind floor: single-root diagrams can't go below the start
   // (path length 1); multi-root diagrams can rewind all the way back to the
   // entry chooser (path length 0), since re-choosing the beginning is itself
@@ -181,6 +207,19 @@ export function UseCaseWalkthrough({
     };
   }, [path]);
 
+  // With multiple roots, the walkthrough opens on no step at all — the entry
+  // chooser occupies the focus card until the reader picks a starting event.
+  const showEntryChooser = path.length === 0 && roots.length > 1;
+  const currentId = path[path.length - 1] ?? '';
+
+  // Publish the focused step to a host that follows the walk (the Architecture
+  // lens' dynamic trace, which lights that step's fragment of the call chain).
+  // '' while the entry chooser is up: no step is chosen yet, and holding a stale
+  // id would light a fragment the reader has not walked to.
+  useEffect(() => {
+    onCurrentNodeChange?.(showEntryChooser ? '' : currentId);
+  }, [onCurrentNodeChange, showEntryChooser, currentId]);
+
   if (uc.nodes.length === 0) {
     return (
       <Box sx={{ py: 6, textAlign: 'center', color: t.muted, fontFamily: t.mono }}>
@@ -189,10 +228,6 @@ export function UseCaseWalkthrough({
     );
   }
 
-  // With multiple roots, the walkthrough opens on no step at all — the entry
-  // chooser occupies the focus card until the reader picks a starting event.
-  const showEntryChooser = path.length === 0 && roots.length > 1;
-  const currentId = path[path.length - 1] ?? '';
   const node = nodesById.get(currentId);
   const outs = outEdges.get(currentId) ?? [];
   const kindHeader = node !== undefined ? KIND_HEADER[node.kind] : undefined;
@@ -366,7 +401,7 @@ export function UseCaseWalkthrough({
                   {c.from} → {c.to} · {c.label}
                 </Typography>
               ))}
-              {callChainKey !== undefined ? (
+              {callChainKey !== undefined && !hideCallChainLink ? (
                 <StepLink
                   kind="system"
                   label={`${uc.name} call chain`}
