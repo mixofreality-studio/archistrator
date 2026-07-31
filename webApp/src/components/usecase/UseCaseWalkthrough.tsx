@@ -27,7 +27,7 @@ import { useComments, activityNodeAnchor } from '../comments/CommentContext';
 import { laneColors } from './laneColors';
 import { useTokens } from '../../utilities/theme/ThemeContext';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
-import { walkthroughRoots } from './walkthroughRoots';
+import { walkthroughRoots, walkthroughNavFloor } from './walkthroughRoots';
 
 type NodeView = UseCaseView['nodes'][number];
 type EdgeView = UseCaseView['edges'][number];
@@ -96,6 +96,11 @@ export function UseCaseWalkthrough({
   // chooser instead.
   const initialPath = roots.length === 1 ? roots : [];
   const [path, setPath] = useState<string[]>(initialPath);
+  // Back/Restart rewind floor: single-root diagrams can't go below the start
+  // (path length 1); multi-root diagrams can rewind all the way back to the
+  // entry chooser (path length 0), since re-choosing the beginning is itself
+  // a legal move once more than one beginning exists.
+  const navFloor = walkthroughNavFloor(roots.length);
 
   // Container-aware layout: MUI viewport breakpoints can't see that this widget
   // lives inside a narrow hero (a 300px meta sidebar already eats the row), which
@@ -122,7 +127,12 @@ export function UseCaseWalkthrough({
     };
   }, []);
 
-  const highlight: ActivityHighlight = useMemo(() => {
+  // No highlight at all while the path is empty (the multi-root entry chooser):
+  // an empty ActivityHighlight would dim every node/edge to 25% with nothing
+  // ringed, which is illegible right when the reader most needs the map to
+  // orient them among the candidate entries.
+  const highlight: ActivityHighlight | undefined = useMemo(() => {
+    if (path.length === 0) return undefined;
     const visitedEdges = new Set<string>();
     for (let k = 0; k < path.length - 1; k++) {
       visitedEdges.add(`${path[k] ?? ''}-${path[k + 1] ?? ''}`);
@@ -376,12 +386,12 @@ export function UseCaseWalkthrough({
         <Box sx={{ display: 'flex', gap: 1 }}>
           <Button
             data-testid={UI_IDENTIFIERS.UseCaseCarousel.WALKTHROUGH_BACK}
-            disabled={path.length <= 1}
+            disabled={path.length <= navFloor}
             size="small"
             startIcon={<UndoIcon sx={{ fontSize: 15 }} />}
             sx={{ color: t.ink, textTransform: 'none' }}
             onClick={() => {
-              setPath((p) => (p.length > 1 ? p.slice(0, -1) : p));
+              setPath((p) => (p.length > navFloor ? p.slice(0, -1) : p));
               stepTitleRef.current?.focus();
             }}
           >
@@ -389,7 +399,7 @@ export function UseCaseWalkthrough({
           </Button>
           <Button
             data-testid={UI_IDENTIFIERS.UseCaseCarousel.WALKTHROUGH_RESTART}
-            disabled={path.length <= 1}
+            disabled={path.length <= navFloor}
             size="small"
             startIcon={<RestartAltIcon sx={{ fontSize: 15 }} />}
             sx={{ color: t.ink, textTransform: 'none' }}
@@ -402,64 +412,72 @@ export function UseCaseWalkthrough({
           </Button>
         </Box>
 
-        {/* breadcrumb trail (click a step to rewind) */}
-        <Paper sx={{ p: 1.5, bgcolor: t.paperAlt }}>
-          <Typography
-            sx={{
-              fontFamily: t.mono,
-              fontSize: 10,
-              letterSpacing: '0.08em',
-              textTransform: 'uppercase',
-              color: t.muted,
-              mb: 0.75,
-            }}
-          >
-            Path
-          </Typography>
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 0.5 }}>
-            {path.map((id, idx) => {
-              const n = nodesById.get(id);
-              const last = idx === path.length - 1;
-              return (
-                <Box
-                  key={`${id}-${String(idx)}`}
-                  sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}
-                >
-                  {idx > 0 && <Typography sx={{ color: t.muted, fontSize: 11 }}>→</Typography>}
-                  <Typography
-                    data-testid={UI_IDENTIFIERS.UseCaseCarousel.walkthroughPathStep(idx)}
-                    role="button"
-                    sx={{
-                      fontFamily: t.mono,
-                      fontSize: 11,
-                      cursor: 'pointer',
-                      color: last ? t.accent : t.muted,
-                      fontWeight: last ? 700 : 400,
-                      '&:hover': { color: t.ink },
-                    }}
-                    tabIndex={0}
-                    onClick={() => {
-                      setPath((p) => p.slice(0, idx + 1));
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        setPath((p) => p.slice(0, idx + 1));
-                      }
-                    }}
+        {/* breadcrumb trail (click a step to rewind) — nothing to show yet
+            while the entry chooser is up (path is empty). */}
+        {path.length > 0 && (
+          <Paper sx={{ p: 1.5, bgcolor: t.paperAlt }}>
+            <Typography
+              sx={{
+                fontFamily: t.mono,
+                fontSize: 10,
+                letterSpacing: '0.08em',
+                textTransform: 'uppercase',
+                color: t.muted,
+                mb: 0.75,
+              }}
+            >
+              Path
+            </Typography>
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 0.5 }}>
+              {path.map((id, idx) => {
+                const n = nodesById.get(id);
+                const last = idx === path.length - 1;
+                return (
+                  <Box
+                    key={`${id}-${String(idx)}`}
+                    sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}
                   >
-                    {n !== undefined ? nodeText(n) : id}
-                  </Typography>
-                </Box>
-              );
-            })}
-          </Box>
-        </Paper>
+                    {idx > 0 && <Typography sx={{ color: t.muted, fontSize: 11 }}>→</Typography>}
+                    <Typography
+                      data-testid={UI_IDENTIFIERS.UseCaseCarousel.walkthroughPathStep(idx)}
+                      role="button"
+                      sx={{
+                        fontFamily: t.mono,
+                        fontSize: 11,
+                        cursor: 'pointer',
+                        color: last ? t.accent : t.muted,
+                        fontWeight: last ? 700 : 400,
+                        '&:hover': { color: t.ink },
+                      }}
+                      tabIndex={0}
+                      onClick={() => {
+                        setPath((p) => p.slice(0, idx + 1));
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          setPath((p) => p.slice(0, idx + 1));
+                        }
+                      }}
+                    >
+                      {n !== undefined ? nodeText(n) : id}
+                    </Typography>
+                  </Box>
+                );
+              })}
+            </Box>
+          </Paper>
+        )}
       </Box>
 
       {/* live "you-are-here" map */}
       <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-        <ActivityFlow height={height} highlight={highlight} uc={uc} useCaseIndex={useCaseIndex} />
+        <ActivityFlow
+          height={height}
+          uc={uc}
+          useCaseIndex={useCaseIndex}
+          {...(highlight !== undefined ? { highlight } : {})}
+        />
       </Box>
     </Box>
   );

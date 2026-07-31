@@ -28,3 +28,15 @@ export function walkthroughRoots(
 
   return nodes.filter((n) => isRoot.has(n.id)).map((n) => n.id);
 }
+
+/**
+ * The walked-path length below which Back/Restart have nothing left to rewind
+ * to. A single-root diagram floors at 1 — the start node is always on the
+ * path, so there is no "before the start". A multi-root diagram floors at 0 —
+ * the entry chooser (no step picked yet) is itself a legal, revisitable state,
+ * since more than one beginning exists and the reader may want to reconsider
+ * which one they took.
+ */
+export function walkthroughNavFloor(rootCount: number): number {
+  return rootCount > 1 ? 0 : 1;
+}
