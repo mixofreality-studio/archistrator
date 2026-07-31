@@ -10,9 +10,16 @@
  *  - An ACTOR-lane node (`lane !== 'Machine'`, the ActivityNodeView sentinel
  *    for a machine/system-driven node — see useCaseViews.toUseCaseView): the
  *    actor whose `role` equals the lane string, among the owning use case's
- *    actors. No match falls through to the entry-Manager rule below (an
- *    actor lane naming nobody is presumably an authoring gap, not a reason
- *    to highlight nothing).
+ *    actors — PROVIDED that actor is actually PLACED in this dynamic view,
+ *    i.e. appears as a call endpoint (`from`/`to`) on some edge. This is the
+ *    exact same test `dv.persons` itself is built from (personParticipants,
+ *    contracts/realization.ts) — a role match with no placement would name a
+ *    node that does not exist in this view's rendered persons, and
+ *    DynamicViewFlow's focusNodeId would then match nothing (review fix
+ *    round 1: everything dims, nothing lights). No role match, OR a role
+ *    match that isn't placed, falls through to the entry-Manager rule below
+ *    (an actor lane naming nobody present is presumably an authoring gap,
+ *    not a reason to highlight nothing).
  *  - A MACHINE-lane node (or the actor fallback above): the use case's ENTRY
  *    MANAGER — the `to` of the FIRST call in the view whose from-side
  *    participant layer is `client` and to-side layer is `manager`
@@ -57,7 +64,9 @@ export function resolveDecider(
 ): DeciderResult | undefined {
   if (lane !== 'Machine') {
     const actor = actors.find((a) => a.role === lane);
-    if (actor !== undefined) return { id: actor.id, label: actor.role };
+    if (actor !== undefined && edges.some((e) => e.from === actor.id || e.to === actor.id)) {
+      return { id: actor.id, label: actor.role };
+    }
   }
   const layerOf = new Map(participants.map((p) => [p.id, p.layer]));
   const nameOf = new Map(participants.map((p) => [p.id, p.name]));

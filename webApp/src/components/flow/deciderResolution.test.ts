@@ -1,8 +1,9 @@
 /// <reference types="node" />
 /**
  * Unit tests for resolveDecider: the decision/switch call-less-step decider
- * highlight (founder QA round 3, change 3) — actor-lane match, the
- * Machine-lane / no-match fallthrough to the entry Manager, and the
+ * highlight (founder QA round 3, change 3) — actor-lane match (guarded on the
+ * actor being PLACED in the view — review fix round 1), the Machine-lane /
+ * no-match / not-placed fallthrough to the entry Manager, and the
  * zero-step-view fallback to undefined (mute-all).
  */
 import { test } from 'node:test';
@@ -33,12 +34,12 @@ const PARTICIPANTS = [
   comp('project-state-access', 'resourceAccess', 'ProjectStateAccess'),
 ];
 
-void test('an actor-lane node resolves to the actor whose role matches the lane', () => {
+void test('an actor-lane node resolves to the actor whose role matches the lane, when that actor is placed (a call endpoint) in the view', () => {
   const result = resolveDecider(
     'Reviewer',
     [actor('architect-user', 'Reviewer'), actor('pm-user', 'PM')],
     PARTICIPANTS,
-    [call('web-client', 'system-design-manager')]
+    [call('architect-user', 'system-design-manager')]
   );
   assert.deepEqual(result, { id: 'architect-user', label: 'Reviewer' });
 });
@@ -47,6 +48,19 @@ void test('an actor-lane node with no matching actor role falls through to the e
   const result = resolveDecider('Nobody', [actor('architect-user', 'Reviewer')], PARTICIPANTS, [
     call('web-client', 'system-design-manager'),
   ]);
+  assert.deepEqual(result, { id: 'system-design-manager', label: 'SystemDesignManager' });
+});
+
+void test('an actor-lane node whose role matches but the actor is NOT placed anywhere in the view (no call endpoint) falls through to the entry Manager', () => {
+  // review fix round 1: a lane-matching actor absent from every call in the view
+  // is also absent from dv.persons (personParticipants filters on the same call
+  // endpoints) — resolving to it would name a node the diagram never renders.
+  const result = resolveDecider(
+    'Reviewer',
+    [actor('architect-user', 'Reviewer')],
+    PARTICIPANTS,
+    [call('web-client', 'system-design-manager')] // architect-user is not an endpoint here
+  );
   assert.deepEqual(result, { id: 'system-design-manager', label: 'SystemDesignManager' });
 });
 
