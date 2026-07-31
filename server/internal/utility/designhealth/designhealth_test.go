@@ -91,21 +91,30 @@ func TestGreenFixtureAdvisoriesFire(t *testing.T) {
 	assertAbsent(t, got, RuleCovUCDynamic)
 	assertAbsent(t, got, RuleObjResolve)
 
-	// CC-* call-chain family (2026-07-30 callchain-realization): the committed
-	// state's 16 use cases all still carry OLD-shape (zero-step) dynamic views,
-	// so only the two rules that can fire against an empty-step view actually
-	// do — CC-COVERAGE (an activity node realized by no step — true regardless
-	// of step count) and CC-TRIGGER-EVENT (checks the diagram's own entry node,
-	// independent of the view). Every step-walking rule (CC-STEP-*,
-	// CC-ENDPOINT-RESOLVES, CC-ACTOR-*, CC-PATH-CONNECTED) is vacuously
-	// satisfied with nothing to walk, and every view's useCaseId resolves
-	// cleanly (CC-VIEW-USECASE silent). The exact counts below mirror the
-	// platform framework-go/methodcheck gate's inventory on this same
-	// committed document (verified by hand-count 2026-07-30: 125 CC-COVERAGE
-	// findings across all 16 use cases, 5 CC-TRIGGER-EVENT findings on the
-	// timer/busMessage-triggered use cases whose diagrams declare no matching
-	// event entry) — a drift here means this mirror parses the slot-4
-	// activity/slot-5 step shapes differently than the platform gate.
+	// CC-* call-chain family (2026-07-30 callchain-realization). The committed
+	// state now carries ONE fully realized view — uc1-drive-system-design, the
+	// PoC design amendment (15 steps / 22 calls over the use case's 14 action
+	// nodes plus the ci-check decision) — and 15 views still on the reshaped but
+	// UNrealized (zero-step) form. So:
+	//
+	//   * CC-COVERAGE fires for every step-REQUIRING activity node of the 15
+	//     unrealized use cases (an activity node realized by no step — true
+	//     regardless of step count) and for NONE of drive-system-design's, which
+	//     the amendment realized in full. 125 - 14 = 111, across 15 use cases.
+	//   * CC-TRIGGER-EVENT is unmoved at 5: it checks the diagram's own entry
+	//     node, independent of any realization, and drive-system-design is
+	//     clientAction-triggered with a plain start entry (never one of the 5).
+	//   * every step-walking rule (CC-STEP-*, CC-ENDPOINT-RESOLVES, CC-ACTOR-*,
+	//     CC-PATH-CONNECTED) stays SILENT — vacuous on the 15 zero-step views,
+	//     and genuinely clean on the realized one. That is the PoC's success
+	//     criterion, so the assertAbsent block below is now load-bearing rather
+	//     than vacuous: a regression in the walker shows up here.
+	//
+	// The exact counts mirror the platform framework-go/methodcheck gate's
+	// inventory on this same committed document (verified 2026-07-30/31 against
+	// `aiarch-state-mcp validate --slot System`, which runs both tiers and
+	// reports 2x these counts) — a drift here means this mirror parses the
+	// slot-4 activity / slot-5 step shapes differently than the platform gate.
 	assertPresent(t, got, RuleCCCoverage, methodcheck.SeverityWarning)
 	assertPresent(t, got, RuleCCTriggerEvent, methodcheck.SeverityWarning)
 	var ccCoverageCount, ccTriggerCount int
@@ -121,16 +130,19 @@ func TestGreenFixtureAdvisoriesFire(t *testing.T) {
 			ccTriggerCount++
 		}
 	}
-	if ccCoverageCount != 125 {
-		t.Errorf("CC-COVERAGE fired %d times on the committed state, want 125 (matches the platform gate's inventory — investigate any drift, don't just re-pin)", ccCoverageCount)
+	if ccCoverageCount != 111 {
+		t.Errorf("CC-COVERAGE fired %d times on the committed state, want 111 (matches the platform gate's inventory — investigate any drift, don't just re-pin)", ccCoverageCount)
 	}
-	if len(ccCoverageUseCases) != 16 {
-		t.Errorf("CC-COVERAGE fired across %d use cases, want all 16 committed use cases", len(ccCoverageUseCases))
+	if len(ccCoverageUseCases) != 15 {
+		t.Errorf("CC-COVERAGE fired across %d use cases, want the 15 committed use cases whose dynamic view is not yet realized (drive-system-design is realized and must NOT appear)", len(ccCoverageUseCases))
+	}
+	if ccCoverageUseCases["useCase drive-system-design"] {
+		t.Error("CC-COVERAGE fired for drive-system-design, whose dynamic view is fully realized by the PoC design amendment — the realization or the rule has drifted")
 	}
 	if ccTriggerCount != 5 {
 		t.Errorf("CC-TRIGGER-EVENT fired %d times on the committed state, want 5 (the timer/busMessage-triggered use cases lacking a matching event entry)", ccTriggerCount)
 	}
-	// Step-walking rules are vacuous on the current zero-step views.
+	// Vacuous on the 15 zero-step views; genuinely clean on the realized one.
 	assertAbsent(t, got, RuleCCViewUseCase)
 	assertAbsent(t, got, RuleCCStepNode)
 	assertAbsent(t, got, RuleCCStepUnique)

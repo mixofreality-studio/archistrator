@@ -1797,200 +1797,175 @@
                     "kind": "start",
                     "label": "",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "read-prior-models",
                     "kind": "action",
                     "label": "Review prior approved artifacts and research input",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "dispatch-draft-job",
                     "kind": "action",
                     "label": "Draft the design artifact",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "observe-read-back",
                     "kind": "action",
                     "label": "Read back the drafted result",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "ci-check",
                     "kind": "decision",
                     "label": "Draft valid?",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "regenerate-escalate",
                     "kind": "action",
                     "label": "Regenerate / escalate / manual",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "pm-assigned",
                     "kind": "decision",
                     "label": "Critique round assigned for this artifact?",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "dispatch-critique-job",
                     "kind": "action",
                     "label": "Obtain the assigned critic's review of the draft (PM for business-alignment artifacts; architect self-critique for the architecture)",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "critique-result",
                     "kind": "decision",
                     "label": "Critique = Revise?",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "weave-pm-notes",
                     "kind": "action",
                     "label": "Incorporate the critic's notes into the next draft",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "merge-pm",
                     "kind": "merge",
                     "label": "",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "policy-gate",
                     "kind": "decision",
                     "label": "Review policy routes this gate to a human?",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "stage-for-review",
                     "kind": "action",
                     "label": "Submit draft for human review",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "human-gate",
                     "kind": "action",
                     "label": "Architect reviews the artifact; submits a review action",
                     "roleName": "Architect User",
-                    "linkedActorId": "architect-user",
-                    "linkedCompId": null
+                    "linkedActorId": "architect-user"
                   },
                   {
                     "id": "decision",
                     "kind": "decision",
                     "label": "Review action?",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "ask-questions",
                     "kind": "action",
                     "label": "Record questions in the review thread; an answer job posts per-question responses (no redraft)",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "weave-feedback",
                     "kind": "action",
                     "label": "Incorporate change requests into the next draft; answer each comment in the thread; repeat the critique round",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "approve-gate",
                     "kind": "decision",
                     "label": "Open change requests remain?",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "commit-advance",
                     "kind": "action",
                     "label": "Commit the artifact (open questions warn only); advance to the next design step",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "withdraw",
                     "kind": "action",
                     "label": "Withdraw the artifact; remain at the prior step",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "more-steps",
                     "kind": "decision",
                     "label": "More design steps remain?",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "stale-check",
                     "kind": "decision",
                     "label": "Committed slots stale from amendments?",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "reconcile-stale",
                     "kind": "action",
                     "label": "Amend the stale artifact, or acknowledge 'reviewed - unaffected' (audited)",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "seal-phase",
                     "kind": "action",
                     "label": "Seal the phase; system design complete",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "end",
                     "kind": "end",
                     "label": "",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   }
                 ],
                 "edges": [
@@ -2224,96 +2199,84 @@
                     "kind": "start",
                     "label": "",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "await-decision",
                     "kind": "action",
                     "label": "Present the project options; await the architect's decision",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "review-options",
                     "kind": "action",
                     "label": "Architect reviews SDP options + curves; submits decision",
                     "roleName": "Architect User",
-                    "linkedActorId": "architect-user",
-                    "linkedCompId": null
+                    "linkedActorId": "architect-user"
                   },
                   {
                     "id": "decision",
                     "kind": "decision",
                     "label": "Decision?",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "bind-option",
                     "kind": "action",
                     "label": "Bind resource assignments; freeze activity network",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "apply-price",
                     "kind": "action",
                     "label": "Apply price model -> compute build-cost ceiling",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "commit-option",
                     "kind": "action",
                     "label": "Record the commitment; project approved for construction",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "revoke-window",
                     "kind": "decision",
                     "label": "Revoke within grace window?",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "revoke",
                     "kind": "action",
                     "label": "Revoke the commitment; await a new decision",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "reject-all",
                     "kind": "action",
                     "label": "Reject all options with feedback; return to project design",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "merge",
                     "kind": "merge",
                     "label": "",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "end",
                     "kind": "end",
                     "label": "",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   }
                 ],
                 "edges": [
@@ -2425,160 +2388,140 @@
                     "kind": "start",
                     "label": "",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "activity-eligible",
                     "kind": "action",
                     "label": "Activity eligible: predecessors done; assign an agent to the activity",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "dispatch-job",
                     "kind": "action",
                     "label": "Carry out the coding work for the activity",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "observe-validate",
                     "kind": "action",
                     "label": "Validate the work against exit criteria",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "exit-met",
                     "kind": "decision",
                     "label": "Exit criteria met?",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "retry-remain",
                     "kind": "decision",
                     "label": "Retries remain?",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "escalate-operator",
                     "kind": "action",
                     "label": "Escalate to operator per intervention policy",
                     "roleName": "Operator",
-                    "linkedActorId": "operator",
-                    "linkedCompId": null
+                    "linkedActorId": "operator"
                   },
                   {
                     "id": "operator-intervened",
                     "kind": "decision",
                     "label": "Operator intervened?",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "propose-reviews",
                     "kind": "action",
                     "label": "Determine the reviewer set for the change from the project's review policy",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "policy-check",
                     "kind": "decision",
                     "label": "Does the review policy require review of this change?",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "dispatch-reviewers",
                     "kind": "action",
                     "label": "Reviewers review the work product",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "may-amend",
                     "kind": "decision",
                     "label": "Reviewer amendment required?",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "re-stage-amended",
                     "kind": "action",
                     "label": "Resubmit the amended design",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "merge-amend",
                     "kind": "merge",
                     "label": "",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "record-review-merge",
                     "kind": "action",
                     "label": "Record the approval; accept the change",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "record-exit",
                     "kind": "action",
                     "label": "Record binary exit; recompute earned value + projection",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "variance",
                     "kind": "decision",
                     "label": "Variance exceeds threshold?",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "scope-change",
                     "kind": "action",
                     "label": "Trigger scope-change replan",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "merge-variance",
                     "kind": "merge",
                     "label": "",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "end",
                     "kind": "end",
                     "label": "",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   }
                 ],
                 "edges": [
@@ -2766,176 +2709,154 @@
                     "kind": "start",
                     "label": "",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "in-flight",
                     "kind": "action",
                     "label": "Operated system in flight",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "fork",
                     "kind": "fork",
                     "label": "",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "publish-trigger",
                     "kind": "action",
                     "label": "Operator deploys/withdraws/scales OR delinquency pause OR automatic scaling decision",
                     "roleName": "Operator",
-                    "linkedActorId": "operator",
-                    "linkedCompId": null
+                    "linkedActorId": "operator"
                   },
                   {
                     "id": "render-manifests-a",
                     "kind": "action",
                     "label": "Determine the desired runtime state",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "publish-a",
                     "kind": "action",
                     "label": "Publish desired runtime state",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "argo-reconcile",
                     "kind": "action",
                     "label": "Infrastructure converges to desired state",
                     "roleName": "Infrastructure",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "record-published-a",
                     "kind": "action",
                     "label": "Record the publication and its reason",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "end-a",
                     "kind": "end",
                     "label": "",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "schedule-fires",
                     "kind": "action",
                     "label": "Periodic health check comes due",
                     "roleName": "Infrastructure",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "read-app-set",
                     "kind": "action",
                     "label": "Read the in-flight systems and their last-known status",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "pull-telemetry",
                     "kind": "action",
                     "label": "Collect health, SLO, and compute-usage telemetry",
                     "roleName": "Infrastructure",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "state-transition",
                     "kind": "decision",
                     "label": "Status changed since last check?",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "record-status",
                     "kind": "action",
                     "label": "Record status change and compute usage; decide on intervention",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "merge-b",
                     "kind": "merge",
                     "label": "",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "autoscale-decide",
                     "kind": "action",
                     "label": "Evaluate scaling policy against telemetry",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "decision-nochange",
                     "kind": "decision",
                     "label": "No change needed?",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "render-manifests-c",
                     "kind": "action",
                     "label": "Determine the revised runtime state",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "publish-c",
                     "kind": "action",
                     "label": "Publish desired runtime state",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "record-published-c",
                     "kind": "action",
                     "label": "Record the publication (automatic scaling)",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "merge-c",
                     "kind": "merge",
                     "label": "",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "end-bc",
                     "kind": "end",
                     "label": "",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   }
                 ],
                 "edges": [
@@ -3107,104 +3028,91 @@
                     "kind": "start",
                     "label": "",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "period-elapses",
                     "kind": "action",
                     "label": "Billing period closes, or an immediate charge is required",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "read-hosting-usage",
                     "kind": "action",
                     "label": "Read hosting usage for the period",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "price-invoice",
                     "kind": "action",
                     "label": "Compute the charge for the period's metered usage under the customer's terms",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "charge-user",
                     "kind": "action",
                     "label": "Charge the customer for the period",
                     "roleName": "Merchant Gateway Provider",
-                    "linkedActorId": "payment-provider",
-                    "linkedCompId": null
+                    "linkedActorId": "payment-provider"
                   },
                   {
                     "id": "customer-charged",
                     "kind": "action",
                     "label": "Customer charged for service usage",
                     "roleName": "Customer",
-                    "linkedActorId": "customer",
-                    "linkedCompId": null
+                    "linkedActorId": "customer"
                   },
                   {
                     "id": "charge-succeeded",
                     "kind": "decision",
                     "label": "Charge succeeded?",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "record-close",
                     "kind": "action",
                     "label": "Record service invoice; close period",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "retries-left",
                     "kind": "decision",
                     "label": "Retries left?",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "persistent-decline",
                     "kind": "action",
                     "label": "Record persistent decline; escalate per intervention policy",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "record-unpaid",
                     "kind": "action",
                     "label": "Record service invoice (unpaid); close period",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "merge",
                     "kind": "merge",
                     "label": "",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "end",
                     "kind": "end",
                     "label": "",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   }
                 ],
                 "edges": [
@@ -3318,88 +3226,77 @@
                     "kind": "start",
                     "label": "",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "prepare-repo",
                     "kind": "action",
                     "label": "Owner prepares a repo: project topic plus the required app installs",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "submit-create",
                     "kind": "action",
                     "label": "Submit the project name and the operating-model choice",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "adopt-repo",
                     "kind": "action",
                     "label": "Adopt the repo (name-as-identity); seat the managed design workflow",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "create-head-state",
                     "kind": "action",
                     "label": "Create the project head state",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "operating-model",
                     "kind": "decision",
                     "label": "Operated by archistrator?",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "record-operated",
                     "kind": "action",
                     "label": "Record the archistrator-operated constraint (platform palette only)",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "merge-model",
                     "kind": "merge",
                     "label": "",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "catalog-open",
                     "kind": "action",
                     "label": "Project appears in the catalog; owner opens it to read cross-phase state",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "capture-research",
                     "kind": "action",
                     "label": "Capture the research input once system design begins",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "end",
                     "kind": "end",
                     "label": "",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   }
                 ],
                 "edges": [
@@ -3494,96 +3391,84 @@
                     "kind": "start",
                     "label": "",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "charge-declined",
                     "kind": "action",
                     "label": "Settlement charge for the cycle is declined",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "consult-policy",
                     "kind": "action",
                     "label": "Consult the intervention policy for the failure",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "retry-budget",
                     "kind": "decision",
                     "label": "Retry budget left?",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "recharge",
                     "kind": "action",
                     "label": "Retry the charge under the same settlement idempotency key",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "charge-ok",
                     "kind": "decision",
                     "label": "Charge succeeded?",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "record-settled",
                     "kind": "action",
                     "label": "Record the settlement; close the cycle",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "tolerance",
                     "kind": "decision",
                     "label": "Shortfall within tolerance sweeps?",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "delay-sweep",
                     "kind": "action",
                     "label": "Leave the shortfall for the next scheduled sweep to retry",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "escalate-delinquent",
                     "kind": "action",
                     "label": "Flag the customer delinquent; escalate to a human; queue the delinquency pause to operations",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "merge-out",
                     "kind": "merge",
                     "label": "",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "end",
                     "kind": "end",
                     "label": "",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   }
                 ],
                 "edges": [
@@ -3696,80 +3581,70 @@
                     "kind": "start",
                     "label": "",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "resolve-app",
                     "kind": "action",
                     "label": "Resolve the deployed app to its billing customer",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "registered",
                     "kind": "decision",
                     "label": "Customer aggregate registered?",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "validate-instrument",
                     "kind": "action",
                     "label": "Validate the stored payment instrument (zero-amount authorization)",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "register-customer",
                     "kind": "action",
                     "label": "Open the customer billing record",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "merge-reg",
                     "kind": "merge",
                     "label": "",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "create-connected",
                     "kind": "action",
                     "label": "Create the connected account with the payment provider (charge-only)",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "bind-gateway",
                     "kind": "action",
                     "label": "Bind the gateway account to the customer's billing state",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "register-schedule",
                     "kind": "action",
                     "label": "Register the recurring settlement-cycle schedule",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "end",
                     "kind": "end",
                     "label": "",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   }
                 ],
                 "edges": [
@@ -3858,104 +3733,91 @@
                     "kind": "start",
                     "label": "",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "capture-uc",
                     "kind": "action",
                     "label": "Capture the new use case: actor, trigger, outcome; scrub solutions from requirements",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "core-check",
                     "kind": "decision",
                     "label": "Core use case, or a variation?",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "revalidate",
                     "kind": "action",
                     "label": "Re-validate the decomposition and volatilities; the architecture may change",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "merge-amend",
                     "kind": "merge",
                     "label": "",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "reopen-slot",
                     "kind": "action",
                     "label": "Reopen the committed use-case model as an amendment session",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "redraft-review",
                     "kind": "action",
                     "label": "Redraft with the new use case; architect reviews and approves",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "commit-stale",
                     "kind": "action",
                     "label": "Re-commit bumps the revision; downstream committed artifacts are flagged stale",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "reconcile",
                     "kind": "action",
                     "label": "Reconcile each stale artifact: amend it, or acknowledge 'reviewed - unaffected'",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "replan-check",
                     "kind": "decision",
                     "label": "New components or activities required?",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "replan",
                     "kind": "action",
                     "label": "Add activities to the plan; recompute floats; recommend a new SDP review",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "merge-out",
                     "kind": "merge",
                     "label": "",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "end",
                     "kind": "end",
                     "label": "",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   }
                 ],
                 "edges": [
@@ -4068,112 +3930,98 @@
                     "kind": "start",
                     "label": "",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "capture-trigger",
                     "kind": "action",
                     "label": "Capture the scope trigger; never answer the request in the room",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "snapshot",
                     "kind": "action",
                     "label": "Snapshot activity exits, float consumed, and the earned-value trend; construction continues against the current network",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "classify",
                     "kind": "decision",
                     "label": "Architecture change requested?",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "back-to-design",
                     "kind": "action",
                     "label": "Not a scope change; return to system design",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "reenter",
                     "kind": "action",
                     "label": "Re-enter project design at the affected step (assumptions, activities, or network)",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "rebuild-options",
                     "kind": "action",
                     "label": "Rebuild the options - normal, decompressed, subcritical, compressed - with risk",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "present",
                     "kind": "action",
                     "label": "Present the new SDP revision with deltas to management",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "mgmt",
                     "kind": "decision",
                     "label": "Management decision?",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "adopt",
                     "kind": "action",
                     "label": "Adopt the new network as the commitment; reset the planned earned-value curve",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "record-reject",
                     "kind": "action",
                     "label": "Record the rejection; keep the current commitment",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "flag-risk",
                     "kind": "action",
                     "label": "Document a decision date; flag the project at-risk while deferred",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "merge-end",
                     "kind": "merge",
                     "label": "",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "end",
                     "kind": "end",
                     "label": "",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   }
                 ],
                 "edges": [
@@ -4298,104 +4146,91 @@
                     "kind": "start",
                     "label": "",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "week-elapses",
                     "kind": "action",
                     "label": "Tracking week comes due",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "read-exits",
                     "kind": "action",
                     "label": "Read binary activity exits and phase transitions",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "compute-ev",
                     "kind": "action",
                     "label": "Compute the week's earned-value point",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "enough-points",
                     "kind": "decision",
                     "label": "At least four points recorded?",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "project-eac",
                     "kind": "action",
                     "label": "Project estimate-at-completion and the schedule trend",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "no-trend",
                     "kind": "action",
                     "label": "Record the point without a trend",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "merge-trend",
                     "kind": "merge",
                     "label": "",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "record-point",
                     "kind": "action",
                     "label": "Append the tracking point to the durable progress record",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "off-track",
                     "kind": "decision",
                     "label": "Variance beyond threshold?",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "corrective",
                     "kind": "action",
                     "label": "Trigger corrective action or a scope-change replan",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "merge-out",
                     "kind": "merge",
                     "label": "",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "end",
                     "kind": "end",
                     "label": "",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   }
                 ],
                 "edges": [
@@ -4508,64 +4343,56 @@
                     "kind": "start",
                     "label": "",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "open-history",
                     "kind": "action",
                     "label": "Owner opens the project's state history",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "read-commits",
                     "kind": "action",
                     "label": "Read the state repo's commit history; each mutation is one commit naming its operation",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "read-ledger",
                     "kind": "action",
                     "label": "Cross-reference the applied-mutations ledger for idempotent applies",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "inspect",
                     "kind": "decision",
                     "label": "Drill into a specific change?",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "diff-slot",
                     "kind": "action",
                     "label": "Diff the typed state at that commit against its parent",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "merge-out",
                     "kind": "merge",
                     "label": "",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "end",
                     "kind": "end",
                     "label": "",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   }
                 ],
                 "edges": [
@@ -4642,72 +4469,63 @@
                     "kind": "start",
                     "label": "",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "work-merges",
                     "kind": "action",
                     "label": "Construction merges reviewed work into the adopted repo via pull requests",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "open-repo",
                     "kind": "action",
                     "label": "Owner opens their own adopted repo; generated source is already on main",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "fetch-how",
                     "kind": "decision",
                     "label": "How does the owner fetch it?",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "git-clone",
                     "kind": "action",
                     "label": "Clone or pull the repo",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "provider-archive",
                     "kind": "action",
                     "label": "Download the provider's archive of the repo",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "merge-fetch",
                     "kind": "merge",
                     "label": "",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "hold-source",
                     "kind": "action",
                     "label": "Owner holds the generated source; no archistrator surface is involved",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "end",
                     "kind": "end",
                     "label": "",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   }
                 ],
                 "edges": [
@@ -4790,72 +4608,63 @@
                     "kind": "start",
                     "label": "",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "open-console",
                     "kind": "action",
                     "label": "Owner opens the operations console for the deployed app",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "request-projection",
                     "kind": "action",
                     "label": "Request a cost projection with what-if scale points",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "app-known",
                     "kind": "decision",
                     "label": "Operated app registered?",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "report-unknown",
                     "kind": "action",
                     "label": "Report the app is not operated",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "read-usage",
                     "kind": "action",
                     "label": "Read observed compute usage for the current cycle",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "project-costs",
                     "kind": "action",
                     "label": "Project the run-rate, monthly cost, and what-if scale curve from the cost model",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "render",
                     "kind": "action",
                     "label": "Render the projection beside current health and SLO status",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "end",
                     "kind": "end",
                     "label": "",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   }
                 ],
                 "edges": [
@@ -4938,104 +4747,91 @@
                     "kind": "start",
                     "label": "",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "write-questions",
                     "kind": "action",
                     "label": "Reviewer writes one or more anchored questions addressed to the PM or the architect",
                     "roleName": "Architect User",
-                    "linkedActorId": "architect-user",
-                    "linkedCompId": null
+                    "linkedActorId": "architect-user"
                   },
                   {
                     "id": "artifact-state",
                     "kind": "decision",
                     "label": "Artifact under live review?",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "append-session-branch",
                     "kind": "action",
                     "label": "Append question entries to the durable review thread on the session branch",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "seed-main-thread",
                     "kind": "action",
                     "label": "Seed a question-only thread on main; no amendment session opens",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "merge-recorded",
                     "kind": "merge",
                     "label": "",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "dispatch-answer-job",
                     "kind": "action",
                     "label": "Dispatch a lightweight answer job to the addressed role",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "answer-ran",
                     "kind": "decision",
                     "label": "Answer job completed?",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "record-answers",
                     "kind": "action",
                     "label": "Addressee posts a per-question response into the review thread",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "remain-open",
                     "kind": "action",
                     "label": "Questions stay recorded, unanswered; the addressee can be re-prompted",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "merge-answered",
                     "kind": "merge",
                     "label": "",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "approve-unblocked",
                     "kind": "action",
                     "label": "Open questions warn at the approve gate but never block it",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "end",
                     "kind": "end",
                     "label": "",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   }
                 ],
                 "edges": [
@@ -5148,88 +4944,77 @@
                     "kind": "start",
                     "label": "",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "anchor-comments",
                     "kind": "action",
                     "label": "Reviewer anchors change-request comments to locations in the staged draft",
                     "roleName": "Architect User",
-                    "linkedActorId": "architect-user",
-                    "linkedCompId": null
+                    "linkedActorId": "architect-user"
                   },
                   {
                     "id": "send-back",
                     "kind": "action",
                     "label": "Send the draft back; open change requests now gate approve",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "retain-thread",
                     "kind": "action",
                     "label": "Comments persist in the durable review thread on the session branch",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "redraft",
                     "kind": "action",
                     "label": "Redraft weaves every change request into the next draft",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "respond-per-comment",
                     "kind": "action",
                     "label": "The drafting agent records a per-comment response in the thread",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "restage",
                     "kind": "action",
                     "label": "Amended draft re-staged for review",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "re-review",
                     "kind": "action",
                     "label": "Reviewer re-reviews the new draft against the thread",
                     "roleName": "Architect User",
-                    "linkedActorId": "architect-user",
-                    "linkedCompId": null
+                    "linkedActorId": "architect-user"
                   },
                   {
                     "id": "resolved",
                     "kind": "decision",
                     "label": "Change requests resolved?",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "close-comments",
                     "kind": "action",
                     "label": "Close the comments; approve is unblocked",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   },
                   {
                     "id": "end",
                     "kind": "end",
                     "label": "",
                     "roleName": "",
-                    "linkedActorId": null,
-                    "linkedCompId": null
+                    "linkedActorId": null
                   }
                 ],
                 "edges": [
@@ -6196,68 +5981,213 @@
             "useCaseId": "drive-system-design",
             "key": "uc1-drive-system-design",
             "title": "Drive System Design",
-            "participants": [
-              "web-client",
-              "system-design-manager",
-              "project-state-access",
-              "agentic-job-access",
-              "mcp-client",
-              "project-git-repo"
-            ],
-            "edges": [
+            "steps": [
               {
-                "from": "web-client",
-                "to": "system-design-manager",
-                "mode": "sync",
-                "label": "startSystemDesign(projectId)"
+                "activityNodeId": "read-prior-models",
+                "calls": [
+                  {
+                    "from": "architect-user",
+                    "to": "web-client",
+                    "mode": "sync",
+                    "label": "opens the design experience"
+                  },
+                  {
+                    "from": "architect-user",
+                    "to": "mcp-client",
+                    "mode": "sync",
+                    "label": "drives design via the MCP surface (R4 cross-surface equivalence)"
+                  },
+                  {
+                    "from": "web-client",
+                    "to": "system-design-manager",
+                    "mode": "sync",
+                    "label": "startSystemDesign(projectId)"
+                  },
+                  {
+                    "from": "mcp-client",
+                    "to": "system-design-manager",
+                    "mode": "sync",
+                    "label": "startSystemDesign(projectId) — MCP surface, same Manager entry (R4 cross-surface equivalence)"
+                  },
+                  {
+                    "from": "system-design-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "readProject(projectId) → head-state incl. ResearchInput + committed prior slots"
+                  }
+                ]
               },
               {
-                "from": "mcp-client",
-                "to": "system-design-manager",
-                "mode": "sync",
-                "label": "startSystemDesign(projectId) — MCP surface, same Manager entry (R4 cross-surface equivalence)"
+                "activityNodeId": "dispatch-draft-job",
+                "calls": [
+                  {
+                    "from": "system-design-manager",
+                    "to": "agentic-job-access",
+                    "mode": "sync",
+                    "label": "dispatch architect-draft job for the current artifact kind"
+                  }
+                ]
               },
               {
-                "from": "system-design-manager",
-                "to": "project-state-access",
-                "mode": "sync",
-                "label": "readProject(projectId) → head-state incl. ResearchInput + committed prior slots"
+                "activityNodeId": "observe-read-back",
+                "calls": [
+                  {
+                    "from": "system-design-manager",
+                    "to": "agentic-job-access",
+                    "mode": "sync",
+                    "label": "observe the job; read the drafted slot back from git"
+                  }
+                ]
               },
               {
-                "from": "system-design-manager",
-                "to": "agentic-job-access",
-                "mode": "sync",
-                "label": "dispatch architect-draft / critique agentic job (PM critique or architect self-critique, per step); observe; read back from git"
+                "activityNodeId": "ci-check",
+                "calls": [
+                  {
+                    "from": "system-design-manager",
+                    "to": "design-health",
+                    "mode": "sync",
+                    "label": "EvaluateDesignHealth(draft) → findings"
+                  }
+                ]
               },
               {
-                "from": "web-client",
-                "to": "system-design-manager",
-                "mode": "sync",
-                "label": "submitReviewDecision(projectId, artifactKind, decision, feedback?)"
+                "activityNodeId": "regenerate-escalate",
+                "calls": [
+                  {
+                    "from": "system-design-manager",
+                    "to": "agentic-job-access",
+                    "mode": "sync",
+                    "label": "re-dispatch / escalate the draft job"
+                  }
+                ]
               },
               {
-                "from": "system-design-manager",
-                "to": "project-state-access",
-                "mode": "sync",
-                "label": "commitArtifact(kind) per step; advancePhase on Phase-1 seal"
+                "activityNodeId": "dispatch-critique-job",
+                "calls": [
+                  {
+                    "from": "system-design-manager",
+                    "to": "agentic-job-access",
+                    "mode": "sync",
+                    "label": "dispatch critique job (PM critique, or architect self-critique for the architecture)"
+                  }
+                ]
               },
               {
-                "from": "project-state-access",
-                "to": "project-git-repo",
-                "mode": "sync",
-                "label": "commit guarded by git ref compare-and-swap [contract 1: typed state]"
+                "activityNodeId": "weave-pm-notes",
+                "calls": [
+                  {
+                    "from": "system-design-manager",
+                    "to": "agentic-job-access",
+                    "mode": "sync",
+                    "label": "re-dispatch the draft job carrying the critic's notes"
+                  }
+                ]
               },
               {
-                "from": "system-design-manager",
-                "to": "project-state-access",
-                "mode": "sync",
-                "label": "design-session facet: readProjectOnBranch / stageArtifactForReviewOnBranch / commitArtifactWithProvenance / rejectArtifactOnBranchWithComments / withdrawArtifactOnBranch / reconcileBranchFromMain / set·seedReviewCommentsOnBranch"
+                "activityNodeId": "stage-for-review",
+                "calls": [
+                  {
+                    "from": "system-design-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "stageArtifactForReviewOnBranch(projectId, kind, draft)"
+                  }
+                ]
               },
               {
-                "from": "project-state-access",
-                "to": "project-git-repo",
-                "mode": "sync",
-                "label": "design-session facet: read state JSON / commit design-session writes guarded by git ref compare-and-swap"
+                "activityNodeId": "human-gate",
+                "calls": [
+                  {
+                    "from": "architect-user",
+                    "to": "web-client",
+                    "mode": "sync",
+                    "label": "reviews the staged artifact; submits a review action"
+                  },
+                  {
+                    "from": "web-client",
+                    "to": "system-design-manager",
+                    "mode": "sync",
+                    "label": "submitReviewDecision(projectId, artifactKind, decision, feedback?)"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "ask-questions",
+                "calls": [
+                  {
+                    "from": "system-design-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "seedReviewCommentsOnBranch(questions) — thread only, no redraft"
+                  },
+                  {
+                    "from": "system-design-manager",
+                    "to": "agentic-job-access",
+                    "mode": "sync",
+                    "label": "dispatch answer job (per-question responses)"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "weave-feedback",
+                "calls": [
+                  {
+                    "from": "system-design-manager",
+                    "to": "agentic-job-access",
+                    "mode": "sync",
+                    "label": "re-dispatch the draft job carrying the change requests"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "commit-advance",
+                "calls": [
+                  {
+                    "from": "system-design-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "commitArtifactWithProvenance(kind); advance to the next design step"
+                  },
+                  {
+                    "from": "project-state-access",
+                    "to": "project-git-repo",
+                    "mode": "sync",
+                    "label": "commit guarded by git ref compare-and-swap"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "withdraw",
+                "calls": [
+                  {
+                    "from": "system-design-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "withdrawArtifactOnBranch(projectId, kind) — remain at the prior step"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "reconcile-stale",
+                "calls": [
+                  {
+                    "from": "system-design-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "reconcileBranchFromMain / amend the stale slot (audited acknowledgement)"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "seal-phase",
+                "calls": [
+                  {
+                    "from": "system-design-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "advancePhase(projectId) — Phase-1 seal"
+                  }
+                ]
               }
             ]
           },
@@ -6265,975 +6195,91 @@
             "useCaseId": "commit-to-a-project-option",
             "key": "uc2-commit-project-option",
             "title": "Commit to a Project Option",
-            "participants": [
-              "web-client",
-              "project-design-manager",
-              "project-state-access",
-              "estimation-engine",
-              "operation-estimation-engine",
-              "billing-engine",
-              "mcp-client"
-            ],
-            "edges": [
-              {
-                "from": "web-client",
-                "to": "project-design-manager",
-                "mode": "sync",
-                "label": "submitSDPDecision(projectId, decision, optionId?, feedback?)"
-              },
-              {
-                "from": "mcp-client",
-                "to": "project-design-manager",
-                "mode": "sync",
-                "label": "submitSDPDecision(projectId, decision, optionId?, feedback?) — MCP surface, same Manager entry (R4 cross-surface equivalence)"
-              },
-              {
-                "from": "project-design-manager",
-                "to": "project-state-access",
-                "mode": "sync",
-                "label": "readProject → sdpReview + chosenOption"
-              },
-              {
-                "from": "project-design-manager",
-                "to": "estimation-engine",
-                "mode": "sync",
-                "label": "EstimateForOption(chosenOption) → {duration, buildCost, risk}"
-              },
-              {
-                "from": "project-design-manager",
-                "to": "operation-estimation-engine",
-                "mode": "sync",
-                "label": "EstimateForOption(chosenOption, declaredUsageAssumptions, infrastructureKind) → {usageCostCurve}"
-              },
-              {
-                "from": "project-design-manager",
-                "to": "billing-engine",
-                "mode": "sync",
-                "label": "ProjectCommitTimeChargeAndComputeCost(chosenOption, terms) → {commit-time projection}"
-              },
-              {
-                "from": "project-design-manager",
-                "to": "project-state-access",
-                "mode": "sync",
-                "label": "commitOption | recordSdpReviewOutcome"
-              },
-              {
-                "from": "project-design-manager",
-                "to": "project-state-access",
-                "mode": "sync",
-                "label": "recordActivityWorkItemOpened(activityId, WorkItemRef)"
-              },
-              {
-                "from": "project-design-manager",
-                "to": "project-state-access",
-                "mode": "sync",
-                "label": "design-session facet: readProjectOnBranch / stageArtifactForReviewOnBranch / commitArtifactWithProvenance / rejectArtifactOnBranchWithComments / withdrawArtifactOnBranch / reconcileBranchFromMain / set·seedReviewCommentsOnBranch"
-              }
-            ]
+            "steps": []
           },
           {
             "useCaseId": "execute-a-construction-activity",
             "key": "uc3-execute-construction-activity",
             "title": "Execute a Construction Activity",
-            "participants": [
-              "scheduler-client",
-              "construction-manager",
-              "project-state-access",
-              "source-control-access",
-              "agentic-job-access",
-              "construction-pipeline-runtime",
-              "review-engine",
-              "intervention-engine",
-              "github",
-              "project-git-repo",
-              "artifact-access"
-            ],
-            "edges": [
-              {
-                "from": "scheduler-client",
-                "to": "construction-manager",
-                "mode": "sync",
-                "label": "executeNextActivity"
-              },
-              {
-                "from": "construction-manager",
-                "to": "project-state-access",
-                "mode": "sync",
-                "label": "readProject → next eligible activity"
-              },
-              {
-                "from": "construction-manager",
-                "to": "source-control-access",
-                "mode": "sync",
-                "label": "getInstallationToken(repo) → RepoCredential"
-              },
-              {
-                "from": "construction-manager",
-                "to": "source-control-access",
-                "mode": "sync",
-                "label": "openBranch(repo, branch, cred, key) → BranchRef"
-              },
-              {
-                "from": "source-control-access",
-                "to": "github",
-                "mode": "sync",
-                "label": "branch / PR operations against the per-project repo via the GitHub App installation token"
-              },
-              {
-                "from": "construction-manager",
-                "to": "agentic-job-access",
-                "mode": "sync",
-                "label": "submitAgenticJob(agentic job: prompt, branch, contract, cred)"
-              },
-              {
-                "from": "agentic-job-access",
-                "to": "construction-pipeline-runtime",
-                "mode": "sync",
-                "label": "dispatch GitHub Action running claude-code-action"
-              },
-              {
-                "from": "construction-manager",
-                "to": "agentic-job-access",
-                "mode": "sync",
-                "label": "observeAgenticJob(pipelineId)"
-              },
-              {
-                "from": "construction-manager",
-                "to": "artifact-access",
-                "mode": "sync",
-                "label": "storeConstructionOutput(activityOutput) → OutputRef"
-              },
-              {
-                "from": "artifact-access",
-                "to": "project-git-repo",
-                "mode": "sync",
-                "label": "store Phase-3 construction output (content-addressed commit)"
-              },
-              {
-                "from": "construction-manager",
-                "to": "source-control-access",
-                "mode": "sync",
-                "label": "openPullRequest(repo, prSpec, cred, key) → PullRequestRef"
-              },
-              {
-                "from": "construction-manager",
-                "to": "review-engine",
-                "mode": "sync",
-                "label": "ProposeReviews(activityOutput, component, artifactKind, architectureGraph, contracts) → ReviewSet"
-              },
-              {
-                "from": "construction-manager",
-                "to": "agentic-job-access",
-                "mode": "sync",
-                "label": "dispatch reviewer agentic job (reviewPrompt, change) → ReviewVerdict"
-              },
-              {
-                "from": "construction-manager",
-                "to": "project-state-access",
-                "mode": "sync",
-                "label": "recordChangeReviewed"
-              },
-              {
-                "from": "construction-manager",
-                "to": "source-control-access",
-                "mode": "sync",
-                "label": "postReview(repo, pr, review='architecture +1', cred, key) → void"
-              },
-              {
-                "from": "construction-manager",
-                "to": "source-control-access",
-                "mode": "sync",
-                "label": "getPullRequestStatus(repo, pr, cred) → PullRequestStatus"
-              },
-              {
-                "from": "construction-manager",
-                "to": "intervention-engine",
-                "mode": "sync",
-                "label": "DecideOnVariance(variance) → {Retry | Escalate | Takeover}"
-              },
-              {
-                "from": "construction-manager",
-                "to": "source-control-access",
-                "mode": "sync",
-                "label": "mergePullRequest(repo, pr, cred, key) → MergeResult"
-              },
-              {
-                "from": "construction-manager",
-                "to": "project-state-access",
-                "mode": "sync",
-                "label": "recordActivityExited"
-              },
-              {
-                "from": "construction-manager",
-                "to": "project-state-access",
-                "mode": "sync",
-                "label": "construction-transition facet: record construction transitions (change reviewed, activity exited, activity failed, operator paused, review policy, phase started, phase completed, service contract produced, phase artifact produced)"
-              },
-              {
-                "from": "project-state-access",
-                "to": "project-git-repo",
-                "mode": "sync",
-                "label": "construction-transition facet: read state JSON / commit construction-transition writes guarded by git ref compare-and-swap"
-              },
-              {
-                "from": "construction-manager",
-                "to": "project-state-access",
-                "mode": "sync",
-                "label": "git-activity-status facet: record per-activity git head-state (branch opened, CI observed, arch approved, merged, construction started, construction completed)"
-              },
-              {
-                "from": "project-state-access",
-                "to": "project-git-repo",
-                "mode": "sync",
-                "label": "git-activity-status facet: read state JSON / commit git-activity-status writes guarded by git ref compare-and-swap"
-              }
-            ]
+            "steps": []
           },
           {
             "useCaseId": "operate-a-delivered-system",
             "key": "uc4-operate-delivered-system",
             "title": "Operate a Delivered System",
-            "participants": [
-              "web-client",
-              "scheduler-client",
-              "operations-manager",
-              "operated-system-state-access",
-              "operated-runtime-access",
-              "operated-runtime",
-              "intervention-engine",
-              "usage-access",
-              "autoscaler-engine",
-              "mcp-client",
-              "operated-system-state",
-              "artifact-access",
-              "durable-execution-access"
-            ],
-            "edges": [
-              {
-                "from": "web-client",
-                "to": "operations-manager",
-                "mode": "sync",
-                "label": "deployAfterConstruction(deployedAppId)"
-              },
-              {
-                "from": "mcp-client",
-                "to": "operations-manager",
-                "mode": "sync",
-                "label": "deployAfterConstruction(deployedAppId) — MCP surface, same Manager entry (R4 cross-surface equivalence)"
-              },
-              {
-                "from": "operations-manager",
-                "to": "operated-system-state-access",
-                "mode": "sync",
-                "label": "readOperatedSystem (desiredState, deployableBundleRef)"
-              },
-              {
-                "from": "operated-system-state-access",
-                "to": "operated-system-state",
-                "mode": "sync",
-                "label": "read row / guarded in-place update (version + applied_mutation dedup)"
-              },
-              {
-                "from": "operations-manager",
-                "to": "artifact-access",
-                "mode": "sync",
-                "label": "retrieveConstructionOutput(deployableBundleRef) → deployable bundle"
-              },
-              {
-                "from": "operations-manager",
-                "to": "operated-runtime-access",
-                "mode": "sync",
-                "label": "publishDesiredState(manifestBundle)"
-              },
-              {
-                "from": "operated-runtime-access",
-                "to": "operated-runtime",
-                "mode": "sync",
-                "label": "publish desired state (idempotency: deterministic manifest paths)"
-              },
-              {
-                "from": "operations-manager",
-                "to": "operated-system-state-access",
-                "mode": "sync",
-                "label": "publishDesiredState(reason=operator|deployAfterConstruction|delinquency)"
-              },
-              {
-                "from": "operations-manager",
-                "to": "durable-execution-access",
-                "mode": "sync",
-                "label": "registerSchedule(operatedStateReconcile)"
-              },
-              {
-                "from": "scheduler-client",
-                "to": "operations-manager",
-                "mode": "sync",
-                "label": "reconcileOperatedState"
-              },
-              {
-                "from": "operations-manager",
-                "to": "operated-system-state-access",
-                "mode": "sync",
-                "label": "readInFlightOperatedApps (lastKnownStatus)"
-              },
-              {
-                "from": "operations-manager",
-                "to": "operated-runtime-access",
-                "mode": "sync",
-                "label": "getApplicationHealth / getSloStatus / readComputeAttribution(appIds)"
-              },
-              {
-                "from": "operated-runtime-access",
-                "to": "operated-runtime",
-                "mode": "sync",
-                "label": "read application health / SLO / capacity metrics"
-              },
-              {
-                "from": "operations-manager",
-                "to": "intervention-engine",
-                "mode": "sync",
-                "label": "DecideOnHealth(healthChange) → {Retry | Escalate}"
-              },
-              {
-                "from": "operations-manager",
-                "to": "usage-access",
-                "mode": "sync",
-                "label": "recordComputeUsage(observedEvents)"
-              },
-              {
-                "from": "operations-manager",
-                "to": "operated-system-state-access",
-                "mode": "sync",
-                "label": "recordRuntimeStatusChange — only on transition"
-              },
-              {
-                "from": "operations-manager",
-                "to": "autoscaler-engine",
-                "mode": "sync",
-                "label": "ProposeDesiredState(telemetry, currentDesired, policy, infrastructureKind) → {NoChange | ScaleUp | ScaleDown | Pause | Resume}"
-              },
-              {
-                "from": "operations-manager",
-                "to": "operated-runtime-access",
-                "mode": "sync",
-                "label": "publishDesiredState(revisedManifests) — autoscaler-driven"
-              },
-              {
-                "from": "operations-manager",
-                "to": "operated-system-state-access",
-                "mode": "sync",
-                "label": "publishDesiredState(reason=autoscale, decision)"
-              }
-            ]
+            "steps": []
           },
           {
             "useCaseId": "bill-the-user-for-usage",
             "key": "uc5-bill-user-for-usage",
             "title": "Bill the User for Usage",
-            "participants": [
-              "scheduler-client",
-              "billing-manager",
-              "billing-state-access",
-              "billing-state",
-              "usage-access",
-              "usage-log",
-              "billing-engine",
-              "merchant-gateway-access",
-              "merchant-gateway"
-            ],
-            "edges": [
-              {
-                "from": "scheduler-client",
-                "to": "billing-manager",
-                "mode": "sync",
-                "label": "closeBillingCycle(customerId, cycleId)"
-              },
-              {
-                "from": "billing-manager",
-                "to": "billing-state-access",
-                "mode": "sync",
-                "label": "readBilling(customerId) → terms + instrument binding"
-              },
-              {
-                "from": "billing-state-access",
-                "to": "billing-state",
-                "mode": "sync",
-                "label": "read row"
-              },
-              {
-                "from": "billing-manager",
-                "to": "usage-access",
-                "mode": "sync",
-                "label": "readRange(customerId, cycleId) → compute usage"
-              },
-              {
-                "from": "usage-access",
-                "to": "usage-log",
-                "mode": "sync",
-                "label": "read range (compute usage entries)"
-              },
-              {
-                "from": "billing-manager",
-                "to": "billing-engine",
-                "mode": "sync",
-                "label": "ComputeCharge(cycleUsage, terms) → {chargeAmount}"
-              },
-              {
-                "from": "billing-manager",
-                "to": "merchant-gateway-access",
-                "mode": "sync",
-                "label": "chargeCustomer(cycleCharge)"
-              },
-              {
-                "from": "merchant-gateway-access",
-                "to": "merchant-gateway",
-                "mode": "sync",
-                "label": "charge (idempotency: Stripe Idempotency-Key settle:{customerId}:{cycleId})"
-              },
-              {
-                "from": "billing-manager",
-                "to": "billing-state-access",
-                "mode": "sync",
-                "label": "settleCycle(customerId, cycleId, chargeAmount, outcome)"
-              },
-              {
-                "from": "billing-state-access",
-                "to": "billing-state",
-                "mode": "sync",
-                "label": "guarded in-place update (version + applied_mutation dedup)"
-              }
-            ]
+            "steps": []
           },
           {
             "useCaseId": "manage-projects",
             "key": "var-manage-projects",
             "title": "Manage Projects",
-            "participants": [
-              "web-client",
-              "mcp-client",
-              "system-design-manager",
-              "source-control-access",
-              "github",
-              "project-state-access",
-              "project-git-repo"
-            ],
-            "edges": [
-              {
-                "from": "web-client",
-                "to": "system-design-manager",
-                "mode": "sync",
-                "label": "createProject(name, repo) | listProjects() | getProject(projectId)"
-              },
-              {
-                "from": "mcp-client",
-                "to": "system-design-manager",
-                "mode": "sync",
-                "label": "createProject | listProjects | getProject — MCP surface, same Manager entry (R4 cross-surface equivalence)"
-              },
-              {
-                "from": "system-design-manager",
-                "to": "source-control-access",
-                "mode": "sync",
-                "label": "getInstallationToken(repo) → RepoCredential (verify the GitHub App installation on the project repo)"
-              },
-              {
-                "from": "source-control-access",
-                "to": "github",
-                "mode": "sync",
-                "label": "authorize GitHub App installation / provision the per-project repo"
-              },
-              {
-                "from": "system-design-manager",
-                "to": "project-state-access",
-                "mode": "sync",
-                "label": "createProject / readProject / listProjects (head-state catalog)"
-              },
-              {
-                "from": "project-state-access",
-                "to": "project-git-repo",
-                "mode": "sync",
-                "label": "read state JSON / initial commit guarded by git ref compare-and-swap"
-              }
-            ]
+            "steps": []
           },
           {
             "useCaseId": "retry-a-declined-service-invoice",
             "key": "var-retry-declined-invoice",
             "title": "Retry a Declined Service Invoice",
-            "participants": [
-              "scheduler-client",
-              "billing-manager",
-              "billing-state-access",
-              "billing-state",
-              "intervention-engine",
-              "merchant-gateway-access",
-              "merchant-gateway",
-              "durable-execution-access",
-              "durable-execution-runtime",
-              "operations-manager"
-            ],
-            "edges": [
-              {
-                "from": "scheduler-client",
-                "to": "billing-manager",
-                "mode": "sync",
-                "label": "runShortfallSweep — retry declined cycle charges"
-              },
-              {
-                "from": "billing-manager",
-                "to": "billing-state-access",
-                "mode": "sync",
-                "label": "readPersistentlyDelinquentCustomers → declined cycles"
-              },
-              {
-                "from": "billing-state-access",
-                "to": "billing-state",
-                "mode": "sync",
-                "label": "read row"
-              },
-              {
-                "from": "billing-manager",
-                "to": "intervention-engine",
-                "mode": "sync",
-                "label": "DecideOnBillingFailure(declinedCharge) → {Retry | Escalate | Delay}"
-              },
-              {
-                "from": "billing-manager",
-                "to": "merchant-gateway-access",
-                "mode": "sync",
-                "label": "chargeCustomer(cycleCharge) — idempotent retry (same settle key)"
-              },
-              {
-                "from": "merchant-gateway-access",
-                "to": "merchant-gateway",
-                "mode": "sync",
-                "label": "charge retry (Stripe Idempotency-Key settle:{customerId}:{cycleId})"
-              },
-              {
-                "from": "billing-manager",
-                "to": "billing-state-access",
-                "mode": "sync",
-                "label": "resettleCycle(customerId, cycleId, outcome)"
-              },
-              {
-                "from": "billing-state-access",
-                "to": "billing-state",
-                "mode": "sync",
-                "label": "guarded in-place update (version + applied_mutation dedup)"
-              },
-              {
-                "from": "billing-manager",
-                "to": "durable-execution-access",
-                "mode": "sync",
-                "label": "registerSchedule(shortfallSweep) / deliverSignal(applyDelinquencyPolicy) on persistent delinquency"
-              },
-              {
-                "from": "durable-execution-access",
-                "to": "durable-execution-runtime",
-                "mode": "sync",
-                "label": "register schedule / deliver signal"
-              },
-              {
-                "from": "billing-manager",
-                "to": "operations-manager",
-                "mode": "queued",
-                "label": "delivers applyDelinquencyPolicy (queued M→M) — pause the persistently delinquent operated app"
-              }
-            ]
+            "steps": []
           },
           {
             "useCaseId": "onboard-a-new-customer",
             "key": "var-onboard-new-customer",
             "title": "Onboard a New Customer",
-            "participants": [
-              "web-client",
-              "mcp-client",
-              "billing-manager",
-              "merchant-gateway-access",
-              "merchant-gateway",
-              "billing-state-access",
-              "billing-state"
-            ],
-            "edges": [
-              {
-                "from": "web-client",
-                "to": "billing-manager",
-                "mode": "sync",
-                "label": "registerCustomer(customerInfo), then bindPaymentInstrument(instrument)"
-              },
-              {
-                "from": "mcp-client",
-                "to": "billing-manager",
-                "mode": "sync",
-                "label": "registerCustomer | bindPaymentInstrument — MCP surface, same Manager entry (R4 cross-surface equivalence)"
-              },
-              {
-                "from": "billing-manager",
-                "to": "merchant-gateway-access",
-                "mode": "sync",
-                "label": "validateStoredInstrument(instrument)"
-              },
-              {
-                "from": "merchant-gateway-access",
-                "to": "merchant-gateway",
-                "mode": "sync",
-                "label": "validate the stored instrument with the payment provider"
-              },
-              {
-                "from": "billing-manager",
-                "to": "billing-state-access",
-                "mode": "sync",
-                "label": "registerCustomer / bindPaymentInstrument"
-              },
-              {
-                "from": "billing-state-access",
-                "to": "billing-state",
-                "mode": "sync",
-                "label": "guarded in-place update (version + applied_mutation dedup)"
-              }
-            ]
+            "steps": []
           },
           {
             "useCaseId": "add-a-use-case-to-an-in-flight-project",
             "key": "var-add-use-case",
             "title": "Add a Use Case to an In-Flight Project",
-            "participants": [
-              "web-client",
-              "mcp-client",
-              "system-design-manager",
-              "project-state-access",
-              "agentic-job-access",
-              "project-git-repo"
-            ],
-            "edges": [
-              {
-                "from": "web-client",
-                "to": "system-design-manager",
-                "mode": "sync",
-                "label": "requestPhase1ArtifactDraft(kind, amendment) — reopen coreUseCases/system with the new use case"
-              },
-              {
-                "from": "mcp-client",
-                "to": "system-design-manager",
-                "mode": "sync",
-                "label": "requestPhase1ArtifactDraft (amendment) — MCP surface, same Manager entry (R4 cross-surface equivalence)"
-              },
-              {
-                "from": "system-design-manager",
-                "to": "project-state-access",
-                "mode": "sync",
-                "label": "readProject → committed coreUseCases + system (the amendment basis, revision N)"
-              },
-              {
-                "from": "system-design-manager",
-                "to": "agentic-job-access",
-                "mode": "sync",
-                "label": "dispatch architect amendment job on the -amend-N session branch"
-              },
-              {
-                "from": "web-client",
-                "to": "system-design-manager",
-                "mode": "sync",
-                "label": "submitReviewDecision(approve) — re-commit the amended artifact"
-              },
-              {
-                "from": "system-design-manager",
-                "to": "project-state-access",
-                "mode": "sync",
-                "label": "commitArtifact — revision bump; committed downstream slots flagged staleBasis"
-              },
-              {
-                "from": "project-state-access",
-                "to": "project-git-repo",
-                "mode": "sync",
-                "label": "commit guarded by git ref compare-and-swap"
-              }
-            ]
+            "steps": []
           },
           {
             "useCaseId": "replan-under-scope-change",
             "key": "var-replan-scope-change",
             "title": "Replan Under Scope Change",
-            "participants": [
-              "scheduler-client",
-              "construction-manager",
-              "project-state-access",
-              "intervention-engine",
-              "project-git-repo"
-            ],
-            "edges": [
-              {
-                "from": "scheduler-client",
-                "to": "construction-manager",
-                "mode": "sync",
-                "label": "runReplanSweep — detect scope/variance drift against the committed network"
-              },
-              {
-                "from": "construction-manager",
-                "to": "project-state-access",
-                "mode": "sync",
-                "label": "readProject → activity variances vs the committed network"
-              },
-              {
-                "from": "construction-manager",
-                "to": "intervention-engine",
-                "mode": "sync",
-                "label": "DecideOnVariance(variance) → Escalate (replan required)"
-              },
-              {
-                "from": "construction-manager",
-                "to": "project-state-access",
-                "mode": "sync",
-                "label": "record replan-required; pause dependent activities pending a fresh SDP review"
-              },
-              {
-                "from": "project-state-access",
-                "to": "project-git-repo",
-                "mode": "sync",
-                "label": "commit guarded by git ref compare-and-swap"
-              }
-            ]
+            "steps": []
           },
           {
             "useCaseId": "track-weekly-project-progress",
             "key": "var-track-weekly-progress",
             "title": "Track Weekly Project Progress",
-            "participants": [
-              "web-client",
-              "mcp-client",
-              "system-design-manager",
-              "project-state-access",
-              "estimation-engine"
-            ],
-            "edges": [
-              {
-                "from": "web-client",
-                "to": "system-design-manager",
-                "mode": "sync",
-                "label": "getProject(projectId) — weekly tracking read"
-              },
-              {
-                "from": "mcp-client",
-                "to": "system-design-manager",
-                "mode": "sync",
-                "label": "getProject — MCP surface, same Manager entry (R4 cross-surface equivalence)"
-              },
-              {
-                "from": "system-design-manager",
-                "to": "project-state-access",
-                "mode": "sync",
-                "label": "readProject → activityConstruction transitions (binary exits)"
-              },
-              {
-                "from": "system-design-manager",
-                "to": "estimation-engine",
-                "mode": "sync",
-                "label": "computeNetwork / computeEarnedValue (compute-at-read projections)"
-              }
-            ]
+            "steps": []
           },
           {
             "useCaseId": "view-the-project-state-log",
             "key": "var-view-state-log",
             "title": "View the Project State Log",
-            "participants": [
-              "web-client",
-              "mcp-client",
-              "system-design-manager",
-              "project-state-access",
-              "project-git-repo"
-            ],
-            "edges": [
-              {
-                "from": "web-client",
-                "to": "system-design-manager",
-                "mode": "sync",
-                "label": "getProject(projectId) — state-log read"
-              },
-              {
-                "from": "mcp-client",
-                "to": "system-design-manager",
-                "mode": "sync",
-                "label": "getProject — MCP surface, same Manager entry (R4 cross-surface equivalence)"
-              },
-              {
-                "from": "system-design-manager",
-                "to": "project-state-access",
-                "mode": "sync",
-                "label": "readProject (+ state history render-on-read)"
-              },
-              {
-                "from": "project-state-access",
-                "to": "project-git-repo",
-                "mode": "sync",
-                "label": "read state JSON + git log of guarded state commits"
-              }
-            ]
+            "steps": []
           },
           {
             "useCaseId": "download-generated-source-code",
             "key": "var-download-source",
             "title": "Download Generated Source Code",
-            "participants": [
-              "web-client",
-              "mcp-client",
-              "construction-manager",
-              "artifact-access",
-              "project-git-repo"
-            ],
-            "edges": [
-              {
-                "from": "web-client",
-                "to": "construction-manager",
-                "mode": "sync",
-                "label": "retrieveOutputTree(projectId) — download generated source"
-              },
-              {
-                "from": "mcp-client",
-                "to": "construction-manager",
-                "mode": "sync",
-                "label": "retrieveOutputTree — MCP surface, same Manager entry (R4 cross-surface equivalence)"
-              },
-              {
-                "from": "construction-manager",
-                "to": "artifact-access",
-                "mode": "sync",
-                "label": "retrieveConstructionOutput / retrieveOutputTree → content-addressed refs"
-              },
-              {
-                "from": "artifact-access",
-                "to": "project-git-repo",
-                "mode": "sync",
-                "label": "fetch Phase-3 construction output (content-addressed)"
-              }
-            ]
+            "steps": []
           },
           {
             "useCaseId": "view-operating-cost-projection",
             "key": "var-view-cost-projection",
             "title": "View Operating-Cost Projection for a Deployed App",
-            "participants": [
-              "web-client",
-              "mcp-client",
-              "operations-manager",
-              "operated-system-state-access",
-              "operated-system-state",
-              "usage-access",
-              "usage-log",
-              "operation-estimation-engine"
-            ],
-            "edges": [
-              {
-                "from": "web-client",
-                "to": "operations-manager",
-                "mode": "sync",
-                "label": "queryCostProjection(deployedAppId, scaleWhatIfPoints)"
-              },
-              {
-                "from": "mcp-client",
-                "to": "operations-manager",
-                "mode": "sync",
-                "label": "queryCostProjection — MCP surface, same Manager entry (R4 cross-surface equivalence)"
-              },
-              {
-                "from": "operations-manager",
-                "to": "operated-system-state-access",
-                "mode": "sync",
-                "label": "readOperatedSystem → infrastructureKind + current desired state"
-              },
-              {
-                "from": "operated-system-state-access",
-                "to": "operated-system-state",
-                "mode": "sync",
-                "label": "read row"
-              },
-              {
-                "from": "operations-manager",
-                "to": "usage-access",
-                "mode": "sync",
-                "label": "read observed compute usage for the projection window"
-              },
-              {
-                "from": "usage-access",
-                "to": "usage-log",
-                "mode": "sync",
-                "label": "read range (compute usage entries)"
-              },
-              {
-                "from": "operations-manager",
-                "to": "operation-estimation-engine",
-                "mode": "sync",
-                "label": "ProjectForOperatedApp(observedUsage, infrastructureKind, scaleWhatIfPoints) → {currentRunRate, projectedMonthlyCost, scaleWhatIfCurve}"
-              }
-            ]
+            "steps": []
           },
           {
             "useCaseId": "ask-a-clarifying-question-during-review",
             "key": "var-ask-review-question",
             "title": "Ask a Clarifying Question During Review",
-            "participants": [
-              "web-client",
-              "system-design-manager",
-              "project-state-access",
-              "project-git-repo"
-            ],
-            "edges": [
-              {
-                "from": "web-client",
-                "to": "system-design-manager",
-                "mode": "sync",
-                "label": "submitReviewDecision(question, addressee=pm|architect) — file a question on the staged draft"
-              },
-              {
-                "from": "system-design-manager",
-                "to": "project-state-access",
-                "mode": "sync",
-                "label": "append question ReviewComment to the slot reviewThread (server-minted id, round-stamped, non-blocking)"
-              },
-              {
-                "from": "project-state-access",
-                "to": "project-git-repo",
-                "mode": "sync",
-                "label": "commit on the session branch guarded by git ref compare-and-swap"
-              }
-            ]
+            "steps": []
           },
           {
             "useCaseId": "send-back-change-requests-for-a-redraft",
             "key": "var-send-back-redraft",
             "title": "Send Back Change Requests for a Redraft",
-            "participants": [
-              "web-client",
-              "system-design-manager",
-              "project-state-access",
-              "agentic-job-access",
-              "project-git-repo"
-            ],
-            "edges": [
-              {
-                "from": "web-client",
-                "to": "system-design-manager",
-                "mode": "sync",
-                "label": "submitReviewDecision(reject, changeRequests[]) — send the staged draft back"
-              },
-              {
-                "from": "system-design-manager",
-                "to": "project-state-access",
-                "mode": "sync",
-                "label": "rejectArtifactOnBranch + append open change-request comments (feedback retained on the session branch)"
-              },
-              {
-                "from": "project-state-access",
-                "to": "project-git-repo",
-                "mode": "sync",
-                "label": "commit on the session branch guarded by git ref compare-and-swap"
-              },
-              {
-                "from": "system-design-manager",
-                "to": "agentic-job-access",
-                "mode": "sync",
-                "label": "dispatch redraft agentic job carrying the open change-request comments"
-              }
-            ]
+            "steps": []
           }
         ],
         "waivers": [
