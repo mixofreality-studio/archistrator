@@ -15,7 +15,7 @@
  * `onPathChange` publishes the whole route behind it, which the same lens turns
  * into a lit trail of everything already walked (founder QA round 4).
  */
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
@@ -237,6 +237,21 @@ export function UseCaseWalkthrough({
   // Irrelevant when hideMap is false (the map always renders) — kept as plain
   // state either way since it costs nothing unused.
   const [mapOpen, setMapOpen] = useState(false);
+  // LAZY MOUNT (fix-round-1 Finding 1): MUI's Collapse hides its children via
+  // height/overflow — it never unmounts them — so an always-mounted
+  // <Collapse><ActivityFlow/></Collapse> ran a full second invisible
+  // React-Flow instance (layout, ResizeObserver, fitView) on every render of
+  // the trace, confirmed by the fix-1..8 verification's own measurement JSON
+  // (activityCanvasRect.height=403 at every step, collapsed or not). The
+  // ActivityFlow subtree now renders only once the reader has opened it at
+  // least once; after that first open it stays mounted (never reverts to
+  // "not yet opened") so re-collapsing keeps the Collapse animation and the
+  // camera's fitted state instead of remounting from scratch.
+  const [mapEverOpened, setMapEverOpened] = useState(false);
+  // Stable ids (fix-round-1 MINOR) linking each disclosure toggle to the
+  // Collapse region it controls, for aria-controls.
+  const mapRegionId = useId();
+  const pathRegionId = useId();
 
   // hideMap /path breadcrumb cap (fix 8): whether the path trail's natural
   // height exceeds its 2-line collapsed cap — measured (not computed), the
@@ -484,11 +499,18 @@ export function UseCaseWalkthrough({
                 // The call chain's own FragmentBar caption is the single source
                 // of call detail in this embedding (the Architecture lens'
                 // trace) — the focus card just names how many (fix 6, founder
-                // QA round 5), styled like the STEP_BADGE realization chip.
+                // QA round 5), styled like the STEP_BADGE realization chip. No
+                // trailing arrow (fix-round-1 Finding 2): this chip is not a
+                // link — nothing here navigates or expands — and an arrow
+                // reads as a broken promise in a file where the identical
+                // glyph IS a real link (the "View call chain →" StepLink
+                // below, and the non-compact "N calls →"-shaped affordance
+                // would otherwise imply). Plain count, no punctuation to
+                // misread as an affordance.
                 <Chip
                   label={`${String(realizedStep.calls.length)} call${
                     realizedStep.calls.length === 1 ? '' : 's'
-                  } →`}
+                  }`}
                   size="small"
                   sx={{
                     alignSelf: 'flex-start',
@@ -680,7 +702,7 @@ export function UseCaseWalkthrough({
             >
               Path
             </Typography>
-            <Collapse collapsedSize={PATH_COLLAPSED_HEIGHT} in={pathExpanded}>
+            <Collapse collapsedSize={PATH_COLLAPSED_HEIGHT} id={pathRegionId} in={pathExpanded}>
               <Box
                 ref={pathBoxRef}
                 sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 0.5 }}
@@ -725,6 +747,7 @@ export function UseCaseWalkthrough({
             </Collapse>
             {pathOverflowing || pathExpanded ? (
               <ButtonBase
+                aria-controls={pathRegionId}
                 aria-expanded={pathExpanded}
                 sx={{
                   mt: 0.5,
@@ -755,6 +778,7 @@ export function UseCaseWalkthrough({
       {hideMap ? (
         <Box sx={{ flexGrow: 1, minWidth: 0 }}>
           <ButtonBase
+            aria-controls={mapRegionId}
             aria-expanded={mapOpen}
             sx={{
               mb: 0.75,
@@ -768,18 +792,23 @@ export function UseCaseWalkthrough({
             }}
             onClick={() => {
               setMapOpen((o) => !o);
+              setMapEverOpened(true);
             }}
           >
             {mapOpen ? 'Hide activity map ▴' : 'Show activity map ▾'}
           </ButtonBase>
-          <Collapse in={mapOpen}>
-            <ActivityFlow
-              height={height}
-              uc={uc}
-              useCaseIndex={useCaseIndex}
-              {...(highlight !== undefined ? { highlight } : {})}
-            />
-          </Collapse>
+          {/* Lazy-mounted (fix-round-1 Finding 1): nothing here — not even a
+              hidden React-Flow instance — until the first open. */}
+          {mapEverOpened ? (
+            <Collapse id={mapRegionId} in={mapOpen}>
+              <ActivityFlow
+                height={height}
+                uc={uc}
+                useCaseIndex={useCaseIndex}
+                {...(highlight !== undefined ? { highlight } : {})}
+              />
+            </Collapse>
+          ) : null}
         </Box>
       ) : (
         <Box sx={{ flexGrow: 1, minWidth: 0 }}>
