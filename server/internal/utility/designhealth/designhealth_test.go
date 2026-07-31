@@ -912,11 +912,12 @@ func edge(from, to, mode string) map[string]any {
 }
 
 func dynView(useCaseID string, es ...map[string]any) map[string]any {
-	edges := make([]any, len(es))
+	calls := make([]any, len(es))
 	for i, e := range es {
-		edges[i] = e
+		calls[i] = e
 	}
-	return map[string]any{"useCaseId": useCaseID, "key": useCaseID, "edges": edges}
+	steps := []any{map[string]any{"activityNodeId": "step1", "calls": calls}}
+	return map[string]any{"useCaseId": useCaseID, "key": useCaseID, "steps": steps}
 }
 
 func dvs(vs ...map[string]any) []any {

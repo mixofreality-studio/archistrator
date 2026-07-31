@@ -3951,6 +3951,24 @@ func canonicalLayer(k ComponentKind) Layer {
 
 // CallStep.ActivityNodeID; CallStep.Calls Mode ∈ {CallSync, CallQueued}; ordered
 
+// ParticipantIDs derives the distinct endpoint ids of a realization's calls, in
+// first-appearance order. Actor ids are included; callers filter as needed.
+func ParticipantIDs(dv DynamicView) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, s := range dv.Steps {
+		for _, c := range s.Calls {
+			for _, id := range []string{c.From, c.To} {
+				if !seen[id] {
+					seen[id] = true
+					out = append(out, id)
+				}
+			}
+		}
+	}
+	return out
+}
+
 // System is the canonical typed static-architecture model (Grammar A, ch. 3/4).
 // The .dsl/Structurizr text is a rendering produced by artifactRenderingAccess from
 // this model — never stored separately, never the source of truth.

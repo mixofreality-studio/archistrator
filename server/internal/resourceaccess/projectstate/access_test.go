@@ -4816,11 +4816,13 @@ func TestSystem_StringEnums_CamelCase(t *testing.T) {
 		}},
 		Relationships: []Relationship{{From: cid, To: cid, Mode: CallQueued, Label: "x"}},
 		DynamicViews: []DynamicView{{
-			UseCaseID:    ucid,
-			Key:          "uc1",
-			Title:        "Co-author",
-			Participants: []ComponentID{cid},
-			Edges:        []Relationship{{From: cid, To: cid, Mode: CallSync, Label: "y"}},
+			UseCaseID: ucid,
+			Key:       "uc1",
+			Title:     "Co-author",
+			Steps: []CallStep{{
+				ActivityNodeID: "step1",
+				Calls:          []Relationship{{From: cid, To: cid, Mode: CallSync, Label: "y"}},
+			}},
 		}},
 	}
 	data, err := json.Marshal(s)

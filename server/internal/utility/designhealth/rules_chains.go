@@ -31,14 +31,16 @@ func chainFindings(in Input) []methodcheck.Finding {
 		// queued Managers (permitted by §6b) are not entry points.
 		entryManagers := map[string]bool{}
 		queuedManagerHops := 0
-		for _, e := range dv.Edges {
-			from, okF := idx[e.From]
-			to, okT := idx[e.To]
-			if okF && okT && from.Kind == "client" && to.Kind == "manager" {
-				entryManagers[to.ID] = true
-			}
-			if okF && from.Kind == "manager" && e.Mode == "queued" {
-				queuedManagerHops++
+		for _, s := range dv.Steps {
+			for _, e := range s.Calls {
+				from, okF := idx[e.From]
+				to, okT := idx[e.To]
+				if okF && okT && from.Kind == "client" && to.Kind == "manager" {
+					entryManagers[to.ID] = true
+				}
+				if okF && from.Kind == "manager" && e.Mode == "queued" {
+					queuedManagerHops++
+				}
 			}
 		}
 		if len(entryManagers) > 1 {

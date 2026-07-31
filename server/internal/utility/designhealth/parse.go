@@ -104,11 +104,23 @@ type coreUseCaseSlot struct {
 	} `json:"decisions"`
 }
 
+// dynamicView mirrors the step-keyed DynamicView wire shape (2026-07-30
+// call-chain realization reshape): one callStep per realized activity node,
+// each naming the calls dispatched at that node. There is no separate
+// participants list — participants are derived from the steps' call
+// endpoints (see chainFindings). A committed view still on the OLD
+// participants/edges shape decodes here as zero steps (tolerant decode:
+// unknown JSON keys are ignored), which the chain rules treat as nothing to
+// check, not an error.
 type dynamicView struct {
-	UseCaseID    string     `json:"useCaseId"`
-	Key          string     `json:"key"`
-	Participants []string   `json:"participants"`
-	Edges        []viewEdge `json:"edges"`
+	UseCaseID string     `json:"useCaseId"`
+	Key       string     `json:"key"`
+	Steps     []callStep `json:"steps"`
+}
+
+type callStep struct {
+	ActivityNodeID string     `json:"activityNodeId"`
+	Calls          []viewEdge `json:"calls"`
 }
 
 type viewEdge struct {

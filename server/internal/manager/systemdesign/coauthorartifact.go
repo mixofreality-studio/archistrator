@@ -3669,15 +3669,18 @@ func dvChainFindings(kind ArtifactKind, draft projectstate.ArtifactModel) []Find
 	}
 	var out []Finding
 	for i, dv := range sys.DynamicViews {
-		if len(dv.Participants) <= 1 {
+		participants := projectstate.ParticipantIDs(dv)
+		if len(participants) <= 1 {
 			continue
 		}
 		adj := map[string][]string{}
-		for _, e := range dv.Edges {
-			adj[e.From] = append(adj[e.From], e.To)
+		for _, s := range dv.Steps {
+			for _, e := range s.Calls {
+				adj[e.From] = append(adj[e.From], e.To)
+			}
 		}
 		roots := []string{}
-		for _, pid := range dv.Participants {
+		for _, pid := range participants {
 			if kindByID[pid] == projectstate.CompClient {
 				roots = append(roots, pid)
 			}
@@ -3692,7 +3695,7 @@ func dvChainFindings(kind ArtifactKind, draft projectstate.ArtifactModel) []Find
 			})
 			continue
 		}
-		unreached := dvUnreachedParticipants(dv.Participants, adj, roots)
+		unreached := dvUnreachedParticipants(participants, adj, roots)
 		if len(unreached) > 0 {
 			out = append(out, Finding{
 				RuleID:   "DV-CHAIN-CONNECTED",

@@ -8945,9 +8945,11 @@ func Test_dvChain_ConnectedClean(t *testing.T) {
 			compE("mgr", "OrderManager", projectstate.CompManager, projectstate.LayerManager, "wf"),
 		},
 		DynamicViews: []projectstate.DynamicView{{
-			UseCaseID:    "uc1",
-			Participants: []string{"web", "mgr"},
-			Edges:        []projectstate.Relationship{rel("web", "mgr", projectstate.CallSync, "")},
+			UseCaseID: "uc1",
+			Steps: []projectstate.CallStep{{
+				ActivityNodeID: "s1",
+				Calls:          []projectstate.Relationship{rel("web", "mgr", projectstate.CallSync, "")},
+			}},
 		}},
 	}
 	if f := dvChainFindings(KindSystem, sys); len(f) != 0 {
@@ -8961,11 +8963,19 @@ func Test_dvChain_DisconnectedWarning(t *testing.T) {
 			compE("web", "WebClient", projectstate.CompClient, projectstate.LayerClient, ""),
 			compE("mgr", "OrderManager", projectstate.CompManager, projectstate.LayerManager, "wf"),
 			compE("ra", "OrderAccess", projectstate.CompResourceAccess, projectstate.LayerResourceAccess, "store"),
+			compE("ra2", "BillingAccess", projectstate.CompResourceAccess, projectstate.LayerResourceAccess, "billing"),
 		},
 		DynamicViews: []projectstate.DynamicView{{
-			UseCaseID:    "uc1",
-			Participants: []string{"web", "mgr", "ra"},
-			Edges:        []projectstate.Relationship{rel("web", "mgr", projectstate.CallSync, "")},
+			UseCaseID: "uc1",
+			Steps: []projectstate.CallStep{
+				{ActivityNodeID: "s1", Calls: []projectstate.Relationship{rel("web", "mgr", projectstate.CallSync, "")}},
+				// "ra" is a call endpoint (so it derives as a participant), but its caller
+				// "ra2" is never itself reached from the client root — an unreachable
+				// participant, same as the pre-step-keyed fixture's bare "ra". Both ends
+				// must be REGISTERED components (not a bare id) so the derived-participant
+				// walk doesn't collide with kindByID's zero-value default (CompClient == 0).
+				{ActivityNodeID: "s2", Calls: []projectstate.Relationship{rel("ra2", "ra", projectstate.CallSync, "")}},
+			},
 		}},
 	}
 	if !hasRule(dvChainFindings(KindSystem, sys), "DV-CHAIN-CONNECTED", SeverityWarning) {
@@ -8980,9 +8990,11 @@ func Test_dvChain_NoClientRootWarning(t *testing.T) {
 			compE("ra", "OrderAccess", projectstate.CompResourceAccess, projectstate.LayerResourceAccess, "store"),
 		},
 		DynamicViews: []projectstate.DynamicView{{
-			UseCaseID:    "uc1",
-			Participants: []string{"mgr", "ra"},
-			Edges:        []projectstate.Relationship{rel("mgr", "ra", projectstate.CallSync, "")},
+			UseCaseID: "uc1",
+			Steps: []projectstate.CallStep{{
+				ActivityNodeID: "s1",
+				Calls:          []projectstate.Relationship{rel("mgr", "ra", projectstate.CallSync, "")},
+			}},
 		}},
 	}
 	if !hasRule(dvChainFindings(KindSystem, sys), "DV-CHAIN-CONNECTED", SeverityWarning) {

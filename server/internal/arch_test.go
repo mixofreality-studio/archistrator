@@ -523,6 +523,12 @@ var encapsulationAllowlistData = map[string][]string{
 		"Objective",
 		"OptionActivity",
 		"OptionID",
+		// ParticipantIDs (2026-07-30 call-chain realization reshape, Task 2): the
+		// derived-participants helper over a step-keyed DynamicView's own already-
+		// public Steps/Calls fields — same PURE DERIVATION HELPER category as
+		// ClassifyType/CommandFor above, consumed by the systemdesign Manager's
+		// DV-CHAIN-CONNECTED validation (dvChainFindings).
+		"ParticipantIDs",
 		"Phase1RequiredKinds",
 		"Phase2RequiredKinds",
 		"PhaseArtifactPayload",
