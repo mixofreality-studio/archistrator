@@ -72,6 +72,9 @@ function caseToDynamic(
     mode: 'sync',
     label: `${st.operation}()`,
     seq: st.seq,
+    // Synthetic id (case::seq) — intentionally matches no activity node, since
+    // this case has no activity diagram. Must never be passed through
+    // findingsForStep (there is no CC-* realization to join against).
     stepNodeId: `${c.id}::${String(st.seq)}`,
     stepLabel: c.title,
     callInStep: 1,

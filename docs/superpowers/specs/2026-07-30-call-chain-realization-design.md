@@ -89,11 +89,14 @@ type CallStep struct {
 New `CC-*` (call-chain correspondence) family in platform
 `framework-go/methodcheck` (authoritative: `putDraftModel` + CI), mirrored in
 the app's `designhealth` live tier. All Error severity; System draft/commit is
-blocked while any fire (gate activation is staged — advisory during the PoC
-checkpoint, hard from the final phase; see §6).
+blocked while any fire — the staging is implemented as the `ccGateSeverity` /
+`ccLiveSeverity` constants (`Warning` in the PoC; the post-QA phase flips them
+to `Error`), and the retargeted `DV-STATIC-COVERAGE`/`DV-REL-COVERAGE` ride the
+same constants (see §6).
 
 | Rule | Checks |
 | --- | --- |
+| `CC-VIEW-USECASE` | a dynamic view whose `useCaseId` names no use case in the committed set fires (all other CC rules skip an unresolvable view — this is the guard) |
 | `CC-STEP-NODE` | every step's `ActivityNodeID` resolves to a node of the owning use case's activity diagram |
 | `CC-STEP-UNIQUE` | at most one step per activity node |
 | `CC-COVERAGE` | every `action`, `timeEvent`, and `acceptEvent` node has a step; steps on ineligible kinds are illegal; optional on `decision` |

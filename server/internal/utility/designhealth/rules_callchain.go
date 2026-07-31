@@ -85,7 +85,7 @@ func callChainFindings(in Input) []methodcheck.Finding {
 			// CC-VIEW-USECASE. A view whose UseCaseID resolves to NOTHING silently
 			// disables every other CC-* rule for it, and no other rule notices —
 			// report the dangling join key rather than no-op'ing the whole family.
-			out = append(out, ccFinding(RuleCCViewUseCase, i, "dynamicView "+dv.Key,
+			out = append(out, ccFinding(RuleCCViewUseCase, i, "dynamicView "+ccViewLabel(dv),
 				"dynamic view %q references useCaseId %q, which resolves to no use case in the committed set; the call chain cannot be checked against any activity diagram until the join key is fixed",
 				ccViewLabel(dv), dv.UseCaseID))
 			continue
@@ -619,6 +619,12 @@ type activityWalk struct {
 }
 
 // activityPaths enumerates every entry→end node-id path of a.
+//
+// PRE-MERGE TRACKED (post-QA plan): full enumeration before truncation is
+// exponential in nested fork×decision depth; designhealth runs this
+// render-on-read on committed state, so a pathological committed diagram is a
+// CPU sink. Bound the walk (budget the recursion, not just the output) before
+// third-party/generated diagrams.
 func activityPaths(a activityDiagram) []struct {
 	Entry pathEntry
 	Nodes []string // node ids in walk order, Entry.NodeID first

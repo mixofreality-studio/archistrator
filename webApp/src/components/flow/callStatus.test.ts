@@ -43,6 +43,13 @@ function dv(edges: SequencedCall[]): DynamicViewModel {
 }
 
 // n-validate authors two calls, n-charge one, n-notify one.
+//
+// NOTE: this fixture's sections are step-scoped ("dynamicView <key> step
+// <nodeId>") by design, to exercise the realization-focused join in
+// isolation. In the real live tier, DH-CHAIN-* findings (rules_chains.go) are
+// view-scoped and useCaseId-first — they never carry a step-scoped section —
+// so they never tint an individual call here; only the CC-* family
+// (rules_callchain.go) produces step-scoped sections.
 const VIEW = dv([call(1, 'n-validate', 1, 2), call(2, 'n-validate', 2, 2), call(3, 'n-charge')]);
 
 const chargeFinding = fnd('RuleChainEntryManager', 'warning', 'dynamicView dv-order step n-charge');
