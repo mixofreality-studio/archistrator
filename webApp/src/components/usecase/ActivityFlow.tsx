@@ -265,7 +265,10 @@ export function ActivityFlow({
 }: {
   uc: UseCaseView;
   useCaseIndex: number;
-  height?: number;
+  /** A fixed pixel height (the historical default) or a CSS length — the
+   *  Architecture lens' walkthrough-driven trace passes a viewport-relative
+   *  `clamp(...)` for the you-are-here map (founder QA round 5). */
+  height?: number | string;
   /** When set, the diagram renders as a walkthrough "you-are-here" map. */
   highlight?: ActivityHighlight;
 }): ReactNode {

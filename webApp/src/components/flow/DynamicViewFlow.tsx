@@ -78,10 +78,7 @@ import {
   sortByLayoutPosition,
 } from './flowLayout';
 import { LayerLegend, FlowCanvas, FlowEmpty, FocusNodes } from './flowShared';
-import {
-  fragmentCallLessCaption,
-  fragmentPositionLabel,
-} from './fragmentCaption';
+import { fragmentCallLessCaption, fragmentPositionLabel } from './fragmentCaption';
 import { parallelIndex } from './parallelEdges';
 
 /** Per-call status for the test views: 'red' = target/failing, 'green' = passing. */
@@ -746,7 +743,11 @@ export function DynamicViewFlow({
   /** Changing this restarts the step-through at `initialStep` (e.g. the picked
    *  view/scenario id). */
   resetKey: string;
-  height?: number;
+  /** A fixed pixel height (the historical default) or a CSS length — the
+   *  Architecture lens' walkthrough-driven trace passes a viewport-relative
+   *  `clamp(...)` so the chain fits above the fold beside the walkthrough
+   *  (founder QA round 5). */
+  height?: number | string;
   /** Optional component id (kebab-case) to visually emphasize in the diagram. */
   focalComponentId?: string;
   /** Optional 0-based step to open on, clamped into range — the landing step of a

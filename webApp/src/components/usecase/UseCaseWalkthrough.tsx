@@ -20,7 +20,9 @@ import Box from '@mui/material/Box';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
 import Button from '@mui/material/Button';
+import ButtonBase from '@mui/material/ButtonBase';
 import Chip from '@mui/material/Chip';
+import Collapse from '@mui/material/Collapse';
 import IconButton from '@mui/material/IconButton';
 import Tooltip from '@mui/material/Tooltip';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
@@ -55,6 +57,13 @@ const KIND_HEADER: Record<string, string> = {
   timeEvent: 'Time event',
   acceptEvent: 'Event received',
 };
+
+/** ~2 wrapped rows of the breadcrumb's 11px chips (fix 8, founder QA round 5):
+ *  the path trail otherwise grows without bound as the reader advances,
+ *  eventually pushing the map (or, in the trace embedding, everything below
+ *  it) off-screen. Collapse's `collapsedSize` clips to this and a "Show full
+ *  path" toggle appears only once the trail actually exceeds it. */
+const PATH_COLLAPSED_HEIGHT = 44;
 
 /** Fallback text when a node (start/end/merge) carries no label of its own. */
 function nodeText(n: NodeView): string {
@@ -96,12 +105,17 @@ export function UseCaseWalkthrough({
   firstSeqOfNode,
   initialPath: seedPath,
   hideCallChainLink = false,
+  hideMap = false,
+  compactCalls = false,
   onCurrentNodeChange,
   onPathChange,
 }: {
   uc: UseCaseView;
   useCaseIndex: number;
-  height?: number;
+  /** A fixed pixel height (the historical default) or a CSS length, forwarded
+   *  to the you-are-here map (ActivityFlow) — the Architecture lens' trace
+   *  passes a viewport-relative `clamp(...)` (founder QA round 5). */
+  height?: number | string;
   /** This use case's realized calls, keyed by activity node id (empty map when
    *  the use case links no dynamic view, or none of its steps are realized). */
   realization: Map<string, RealizedStep>;
@@ -124,6 +138,22 @@ export function UseCaseWalkthrough({
    *  the call chain (the Architecture lens' walkthrough-driven trace), where the
    *  link would navigate to the screen the reader is already on. */
   hideCallChainLink?: boolean;
+  /** Collapse the you-are-here map behind a "Show activity map ▾" text toggle
+   *  (closed by default) instead of always rendering its canvas. Set by the
+   *  Architecture lens' walkthrough-driven trace, where the map duplicates
+   *  the call chain beside it and the always-on canvas was the single
+   *  largest claim on vertical space above the fold (founder QA round 5).
+   *  The standalone Use Cases screen leaves this false — the map stays
+   *  always-on there, unchanged. */
+  hideMap?: boolean;
+  /** Collapse the current step's per-call list to a single "N calls →"
+   *  summary chip (styled like the STEP_BADGE realization chip) instead of a
+   *  full from → to · label row per call. Set by the Architecture lens'
+   *  trace, where the call chain's own FragmentBar caption is the single
+   *  source of call detail and the focus card's full list was pure
+   *  duplication (founder QA round 5). The standalone screen leaves this
+   *  false — the full list stays, unchanged. */
+  compactCalls?: boolean;
   /** Optional notification of the step now in focus — the activity node id, or
    *  '' while the multi-root entry chooser is up (no step chosen yet). Fired on
    *  mount and on every path change, so a driven surface (the Architecture lens'
@@ -202,6 +232,34 @@ export function UseCaseWalkthrough({
       ro.disconnect();
     };
   }, []);
+
+  // hideMap (fix 3): the you-are-here map opens closed in the trace embedding.
+  // Irrelevant when hideMap is false (the map always renders) — kept as plain
+  // state either way since it costs nothing unused.
+  const [mapOpen, setMapOpen] = useState(false);
+
+  // hideMap /path breadcrumb cap (fix 8): whether the path trail's natural
+  // height exceeds its 2-line collapsed cap — measured (not computed), the
+  // same ResizeObserver-threshold idiom as `wide`/`sideBySide` above, since
+  // whether wrapped text overflows a fixed height depends on the rendered
+  // font metrics and container width, not a value derivable from `path`
+  // alone. Drives whether the "Show full path" toggle appears at all.
+  const pathBoxRef = useRef<HTMLDivElement>(null);
+  const [pathOverflowing, setPathOverflowing] = useState(false);
+  const [pathExpanded, setPathExpanded] = useState(false);
+  useEffect(() => {
+    const el = pathBoxRef.current;
+    if (el === null) return undefined;
+    const check = (): void => {
+      setPathOverflowing(el.scrollHeight > PATH_COLLAPSED_HEIGHT + 1);
+    };
+    check();
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    return (): void => {
+      ro.disconnect();
+    };
+  }, [path]);
 
   // No highlight at all while the path is empty (the multi-root entry chooser):
   // an empty ActivityHighlight would dim every node/edge to 25% with nothing
@@ -301,6 +359,13 @@ export function UseCaseWalkthrough({
             flexDirection: 'column',
             gap: 1.5,
             minHeight: 210,
+            // Capped + internally scrollable (fix 4, founder QA round 5): a long
+            // call list (before `compactCalls` collapses it) or step label could
+            // otherwise push the Next/branch controls below the fold. Those
+            // controls are pinned sticky (below) so they stay reachable even
+            // while this card scrolls.
+            maxHeight: 'min(46vh, 420px)',
+            overflowY: 'auto',
             '& .walkthrough-step-action': {
               opacity: stepRevealed ? 1 : 0,
               transition: 'opacity 120ms',
@@ -415,14 +480,38 @@ export function UseCaseWalkthrough({
               data-testid={UI_IDENTIFIERS.UseCaseCarousel.STEP_CALLS}
               sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}
             >
-              {realizedStep.calls.map((c, idx) => (
-                <Typography
-                  key={`${c.from}-${c.to}-${String(idx)}`}
-                  sx={{ fontFamily: t.mono, fontSize: 11, color: t.muted }}
-                >
-                  {c.from} → {c.to} · {c.label}
-                </Typography>
-              ))}
+              {compactCalls ? (
+                // The call chain's own FragmentBar caption is the single source
+                // of call detail in this embedding (the Architecture lens'
+                // trace) — the focus card just names how many (fix 6, founder
+                // QA round 5), styled like the STEP_BADGE realization chip.
+                <Chip
+                  label={`${String(realizedStep.calls.length)} call${
+                    realizedStep.calls.length === 1 ? '' : 's'
+                  } →`}
+                  size="small"
+                  sx={{
+                    alignSelf: 'flex-start',
+                    height: 20,
+                    fontFamily: t.mono,
+                    fontSize: 10,
+                    fontWeight: 700,
+                    bgcolor: 'transparent',
+                    color: t.muted,
+                    border: `1.5px solid ${t.line}`,
+                    borderRadius: 0.5,
+                  }}
+                />
+              ) : (
+                realizedStep.calls.map((c, idx) => (
+                  <Typography
+                    key={`${c.from}-${c.to}-${String(idx)}`}
+                    sx={{ fontFamily: t.mono, fontSize: 11, color: t.muted }}
+                  >
+                    {c.from} → {c.to} · {c.label}
+                  </Typography>
+                ))
+              )}
               {callChainKey !== undefined && !hideCallChainLink ? (
                 <StepLink
                   kind="system"
@@ -440,96 +529,103 @@ export function UseCaseWalkthrough({
             </Box>
           ) : null}
 
-          {/* controls */}
-          {showEntryChooser ? (
-            <Box sx={{ mt: 'auto', display: 'flex', flexDirection: 'column', gap: 0.75 }}>
-              {roots.map((rootId) => {
-                const n = nodesById.get(rootId);
-                return (
-                  <Button
-                    data-testid={UI_IDENTIFIERS.UseCaseCarousel.walkthroughBranch(
-                      `entry-${rootId}`
-                    )}
-                    key={rootId}
-                    sx={{
-                      justifyContent: 'flex-start',
-                      textAlign: 'left',
-                      textTransform: 'none',
-                      color: t.ink,
-                      borderColor: t.line,
-                      '&:hover': { borderColor: t.accent, bgcolor: t.paperAlt },
-                    }}
-                    variant="outlined"
-                    onClick={() => {
-                      advance(rootId);
-                    }}
-                  >
-                    <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 13 }}>
-                      {n !== undefined ? nodeText(n) : rootId}
-                    </Typography>
-                  </Button>
-                );
-              })}
-            </Box>
-          ) : isEnd ? (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 'auto' }}>
-              <FlagIcon sx={{ fontSize: 18, color: t.committedDot }} />
-              <Typography sx={{ color: t.muted, fontSize: 13, fontFamily: t.mono }}>
-                End of this path.
-              </Typography>
-            </Box>
-          ) : isBranch ? (
-            <Box sx={{ mt: 'auto', display: 'flex', flexDirection: 'column', gap: 0.75 }}>
-              <Typography sx={{ fontFamily: t.mono, fontSize: 11, color: t.muted }}>
-                Which branch?
-              </Typography>
-              {outs.map((e) => {
-                const tgt = nodesById.get(e.to);
-                return (
-                  <Button
-                    data-testid={UI_IDENTIFIERS.UseCaseCarousel.walkthroughBranch(
-                      `${e.from}-${e.to}`
-                    )}
-                    key={`${e.from}-${e.to}`}
-                    sx={{
-                      justifyContent: 'flex-start',
-                      textAlign: 'left',
-                      textTransform: 'none',
-                      color: t.ink,
-                      borderColor: t.line,
-                      '&:hover': { borderColor: t.accent, bgcolor: t.paperAlt },
-                    }}
-                    variant="outlined"
-                    onClick={() => {
-                      advance(e.to);
-                    }}
-                  >
-                    <Box>
+          {/* controls — pinned to the bottom of the (now internally scrollable)
+              focus card so Next/branch buttons never scroll out of view
+              (fix 4, founder QA round 5). `mt: 'auto'` still pushes the block
+              to the bottom in the common case where the card's own content is
+              shorter than its cap; `position: sticky` is what keeps it in
+              place once the card actually scrolls. */}
+          <Box sx={{ mt: 'auto', position: 'sticky', bottom: 0, bgcolor: t.paper, pt: 1 }}>
+            {showEntryChooser ? (
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+                {roots.map((rootId) => {
+                  const n = nodesById.get(rootId);
+                  return (
+                    <Button
+                      data-testid={UI_IDENTIFIERS.UseCaseCarousel.walkthroughBranch(
+                        `entry-${rootId}`
+                      )}
+                      key={rootId}
+                      sx={{
+                        justifyContent: 'flex-start',
+                        textAlign: 'left',
+                        textTransform: 'none',
+                        color: t.ink,
+                        borderColor: t.line,
+                        '&:hover': { borderColor: t.accent, bgcolor: t.paperAlt },
+                      }}
+                      variant="outlined"
+                      onClick={() => {
+                        advance(rootId);
+                      }}
+                    >
                       <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 13 }}>
-                        {branchLabel(e, nodesById)}
+                        {n !== undefined ? nodeText(n) : rootId}
                       </Typography>
-                      <Typography sx={{ fontSize: 11, color: t.muted }}>
-                        → {tgt !== undefined ? nodeText(tgt) : e.to}
-                      </Typography>
-                    </Box>
-                  </Button>
-                );
-              })}
-            </Box>
-          ) : (
-            <Button
-              data-testid={UI_IDENTIFIERS.UseCaseCarousel.WALKTHROUGH_NEXT}
-              endIcon={<ArrowForwardIcon />}
-              sx={{ mt: 'auto', alignSelf: 'flex-start', textTransform: 'none' }}
-              variant="contained"
-              onClick={() => {
-                const next = outs[0];
-                if (next !== undefined) advance(next.to);
-              }}
-            >
-              Next
-            </Button>
-          )}
+                    </Button>
+                  );
+                })}
+              </Box>
+            ) : isEnd ? (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <FlagIcon sx={{ fontSize: 18, color: t.committedDot }} />
+                <Typography sx={{ color: t.muted, fontSize: 13, fontFamily: t.mono }}>
+                  End of this path.
+                </Typography>
+              </Box>
+            ) : isBranch ? (
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+                <Typography sx={{ fontFamily: t.mono, fontSize: 11, color: t.muted }}>
+                  Which branch?
+                </Typography>
+                {outs.map((e) => {
+                  const tgt = nodesById.get(e.to);
+                  return (
+                    <Button
+                      data-testid={UI_IDENTIFIERS.UseCaseCarousel.walkthroughBranch(
+                        `${e.from}-${e.to}`
+                      )}
+                      key={`${e.from}-${e.to}`}
+                      sx={{
+                        justifyContent: 'flex-start',
+                        textAlign: 'left',
+                        textTransform: 'none',
+                        color: t.ink,
+                        borderColor: t.line,
+                        '&:hover': { borderColor: t.accent, bgcolor: t.paperAlt },
+                      }}
+                      variant="outlined"
+                      onClick={() => {
+                        advance(e.to);
+                      }}
+                    >
+                      <Box>
+                        <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 13 }}>
+                          {branchLabel(e, nodesById)}
+                        </Typography>
+                        <Typography sx={{ fontSize: 11, color: t.muted }}>
+                          → {tgt !== undefined ? nodeText(tgt) : e.to}
+                        </Typography>
+                      </Box>
+                    </Button>
+                  );
+                })}
+              </Box>
+            ) : (
+              <Button
+                data-testid={UI_IDENTIFIERS.UseCaseCarousel.WALKTHROUGH_NEXT}
+                endIcon={<ArrowForwardIcon />}
+                sx={{ alignSelf: 'flex-start', textTransform: 'none' }}
+                variant="contained"
+                onClick={() => {
+                  const next = outs[0];
+                  if (next !== undefined) advance(next.to);
+                }}
+              >
+                Next
+              </Button>
+            )}
+          </Box>
         </Paper>
 
         {/* nav: back / restart */}
@@ -563,7 +659,13 @@ export function UseCaseWalkthrough({
         </Box>
 
         {/* breadcrumb trail (click a step to rewind) — nothing to show yet
-            while the entry chooser is up (path is empty). */}
+            while the entry chooser is up (path is empty). Capped to ~2 wrapped
+            lines (fix 8, founder QA round 5): an uncapped trail grows without
+            bound as the reader advances, eventually pushing everything below
+            it off-screen in EITHER embedding (the standalone screen and the
+            Architecture lens' trace both render this same component). The
+            "Show full path" toggle only appears once the trail actually
+            exceeds the cap (`pathOverflowing`, measured above). */}
         {path.length > 0 && (
           <Paper sx={{ p: 1.5, bgcolor: t.paperAlt }}>
             <Typography
@@ -578,57 +680,117 @@ export function UseCaseWalkthrough({
             >
               Path
             </Typography>
-            <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 0.5 }}>
-              {path.map((id, idx) => {
-                const n = nodesById.get(id);
-                const last = idx === path.length - 1;
-                return (
-                  <Box
-                    key={`${id}-${String(idx)}`}
-                    sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}
-                  >
-                    {idx > 0 && <Typography sx={{ color: t.muted, fontSize: 11 }}>→</Typography>}
-                    <Typography
-                      data-testid={UI_IDENTIFIERS.UseCaseCarousel.walkthroughPathStep(idx)}
-                      role="button"
-                      sx={{
-                        fontFamily: t.mono,
-                        fontSize: 11,
-                        cursor: 'pointer',
-                        color: last ? t.accent : t.muted,
-                        fontWeight: last ? 700 : 400,
-                        '&:hover': { color: t.ink },
-                      }}
-                      tabIndex={0}
-                      onClick={() => {
-                        setPath((p) => p.slice(0, idx + 1));
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault();
-                          setPath((p) => p.slice(0, idx + 1));
-                        }
-                      }}
+            <Collapse collapsedSize={PATH_COLLAPSED_HEIGHT} in={pathExpanded}>
+              <Box
+                ref={pathBoxRef}
+                sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 0.5 }}
+              >
+                {path.map((id, idx) => {
+                  const n = nodesById.get(id);
+                  const last = idx === path.length - 1;
+                  return (
+                    <Box
+                      key={`${id}-${String(idx)}`}
+                      sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}
                     >
-                      {n !== undefined ? nodeText(n) : id}
-                    </Typography>
-                  </Box>
-                );
-              })}
-            </Box>
+                      {idx > 0 && <Typography sx={{ color: t.muted, fontSize: 11 }}>→</Typography>}
+                      <Typography
+                        data-testid={UI_IDENTIFIERS.UseCaseCarousel.walkthroughPathStep(idx)}
+                        role="button"
+                        sx={{
+                          fontFamily: t.mono,
+                          fontSize: 11,
+                          cursor: 'pointer',
+                          color: last ? t.accent : t.muted,
+                          fontWeight: last ? 700 : 400,
+                          '&:hover': { color: t.ink },
+                        }}
+                        tabIndex={0}
+                        onClick={() => {
+                          setPath((p) => p.slice(0, idx + 1));
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            setPath((p) => p.slice(0, idx + 1));
+                          }
+                        }}
+                      >
+                        {n !== undefined ? nodeText(n) : id}
+                      </Typography>
+                    </Box>
+                  );
+                })}
+              </Box>
+            </Collapse>
+            {pathOverflowing || pathExpanded ? (
+              <ButtonBase
+                aria-expanded={pathExpanded}
+                sx={{
+                  mt: 0.5,
+                  justifyContent: 'flex-start',
+                  fontFamily: t.mono,
+                  fontSize: 10.5,
+                  fontWeight: 700,
+                  color: t.muted,
+                  letterSpacing: '0.03em',
+                  '&:hover': { color: t.ink },
+                }}
+                onClick={() => {
+                  setPathExpanded((o) => !o);
+                }}
+              >
+                {pathExpanded ? 'Show less ▴' : 'Show full path ▾'}
+              </ButtonBase>
+            ) : null}
           </Paper>
         )}
       </Box>
 
-      {/* live "you-are-here" map */}
-      <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-        <ActivityFlow
-          height={height}
-          uc={uc}
-          useCaseIndex={useCaseIndex}
-          {...(highlight !== undefined ? { highlight } : {})}
-        />
-      </Box>
+      {/* live "you-are-here" map — collapsed behind a text toggle in the
+          Architecture lens' trace (`hideMap`, fix 3, founder QA round 5): the
+          map duplicates the call chain beside it there, and the always-on
+          canvas was the single largest claim on vertical space above the
+          fold. The standalone Use Cases screen keeps it always-on. */}
+      {hideMap ? (
+        <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+          <ButtonBase
+            aria-expanded={mapOpen}
+            sx={{
+              mb: 0.75,
+              justifyContent: 'flex-start',
+              fontFamily: t.mono,
+              fontSize: 11,
+              fontWeight: 700,
+              color: t.muted,
+              letterSpacing: '0.03em',
+              '&:hover': { color: t.ink },
+            }}
+            onClick={() => {
+              setMapOpen((o) => !o);
+            }}
+          >
+            {mapOpen ? 'Hide activity map ▴' : 'Show activity map ▾'}
+          </ButtonBase>
+          <Collapse in={mapOpen}>
+            <ActivityFlow
+              height={height}
+              uc={uc}
+              useCaseIndex={useCaseIndex}
+              {...(highlight !== undefined ? { highlight } : {})}
+            />
+          </Collapse>
+        </Box>
+      ) : (
+        <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+          <ActivityFlow
+            height={height}
+            uc={uc}
+            useCaseIndex={useCaseIndex}
+            {...(highlight !== undefined ? { highlight } : {})}
+          />
+        </Box>
+      )}
     </Box>
   );
 }

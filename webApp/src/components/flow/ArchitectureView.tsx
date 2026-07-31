@@ -66,6 +66,13 @@ import { resolveDeepLinkView } from './architectureDeepLink';
 
 type ViewMode = 'static' | 'dynamic' | 'perspective';
 
+/** Viewport-relative canvas height for the walkthrough-driven trace's two-up
+ *  layout ONLY (fix 2, founder QA round 5) — never the full-width fallback,
+ *  Static, or Component-focus, which keep their caller-supplied numeric
+ *  height. Clamped so the canvas stays legible on a short viewport (360px
+ *  floor) without growing unboundedly tall on a big one (560px ceiling). */
+const TRACE_CANVAS_HEIGHT = 'clamp(360px, 45vh, 560px)';
+
 /**
  * Module-level memory of the last-picked lens + selections. The design experience
  * can remount this view (a background refetch / HMR flips a render branch), which
@@ -379,6 +386,11 @@ export function ArchitectureView({
   // stack the two panes when the row can't seat them (the UseCaseWalkthrough
   // idiom). Observed on the always-mounted root so the lens switch never leaves
   // the observer unattached.
+  //
+  // 900px, not 1100 (fix 1, founder QA round 5): measured at 1440x900 with the
+  // comment rail open, the container was 996px — comfortably readable at a
+  // 40/60 split, but the old 1100 threshold stacked it vertically anyway,
+  // pushing the call-chain pane entirely below the fold.
   const rootRef = useRef<HTMLDivElement>(null);
   const [sideBySide, setSideBySide] = useState(true);
   useEffect(() => {
@@ -386,7 +398,7 @@ export function ArchitectureView({
     if (el === null) return undefined;
     const ro = new ResizeObserver((entries) => {
       const entry = entries[0];
-      if (entry !== undefined) setSideBySide(entry.contentRect.width >= 1100);
+      if (entry !== undefined) setSideBySide(entry.contentRect.width >= 900);
     });
     ro.observe(el);
     return (): void => {
@@ -406,11 +418,20 @@ export function ArchitectureView({
   // full-width fallback render the SAME element (only its frame differs). With a
   // walkthrough beside it the chain runs in FRAGMENT mode (it follows); without
   // one it keeps its own Prev/Next step-through.
+  //
+  // Viewport-relative height, traced two-up layout ONLY (fix 2, founder QA
+  // round 5): a fixed numeric height (the caller's `height` prop, historically
+  // 600) is what pushed the chain below the fold at real viewport sizes — a
+  // clamp keeps both panes' canvases at least partially on-screen from 900px
+  // side-by-side up through very tall screens, without letting either shrink
+  // illegibly. The full-width fallback (no traced use case), Static, and
+  // Component-focus all keep the caller's numeric `height` unchanged.
+  const dynamicChainHeight = tracedUseCase !== undefined ? TRACE_CANVAS_HEIGHT : height;
   const dynamicFlow =
     mode === 'dynamic' ? (
       <DynamicViewFlow
         dv={dynamicModel}
-        height={height}
+        height={dynamicChainHeight}
         initialStep={consumedStep - 1}
         resetKey={`${activeDynamicKey}#${String(consumedStep)}`}
         {...(tracedUseCase !== undefined ? { focusStepNodeId, visitedSeqs } : {})}
@@ -558,10 +579,12 @@ export function ArchitectureView({
               <PaneLabel>{`Activity — ${tracedUseCase.uc.name}`}</PaneLabel>
               <CommentProvider enabled={false}>
                 <UseCaseWalkthrough
+                  compactCalls
                   hideCallChainLink
+                  hideMap
                   callChainKey={activeDynamicKey}
                   firstSeqOfNode={firstSeqOfNode}
-                  height={height}
+                  height={TRACE_CANVAS_HEIGHT}
                   key={`${activeDynamicKey}#${String(consumedStep)}`}
                   realization={realization}
                   stepFindings={stepFindings}

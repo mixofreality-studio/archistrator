@@ -107,7 +107,11 @@ export function FlowCanvas({
 }: {
   nodes: Node[];
   edges: Edge[];
-  height: number;
+  /** A fixed pixel height (the historical default) or a CSS length — the
+   *  walkthrough-driven trace passes a viewport-relative `clamp(...)` so the
+   *  two-up layout fits above the fold instead of a tall fixed canvas pushing
+   *  the fold below both panes (founder QA round 5). */
+  height: number | string;
   t: Tokens;
   nodeTypes?: NodeTypes;
   onNodeMouseEnter?: NodeMouseHandler;

@@ -270,6 +270,39 @@ unresolvable endpoint) are visible error states in the UI — never silently
 dropped (today's adapter silently drops unknown participants; that behavior is
 removed).
 
+**Viewport-adaptive trace layout** (founder QA round 5, 2026-07-31 — a
+measured Playwright pass found the two-up trace stacked vertically at a
+common real-world width, 996px inside a 1440×900 viewport with the comment
+rail open, pushing the call-chain pane entirely below the fold at 48.7% of
+the trace visible on initial load). Four changes, all scoped to the
+`UseCaseWalkthrough` + `DynamicViewFlow` pairing `ArchitectureView` renders for
+the traced two-up layout — the standalone Use Cases screen and the Static /
+Component-focus lenses are unaffected:
+1. **Side-by-side threshold lowered to 900px** (from 1100). The old threshold
+   stacked layouts that were comfortably readable at a 40/60 split.
+2. **Viewport-relative canvas heights.** `FlowCanvas`, `DynamicViewFlow`, and
+   `ActivityFlow`'s `height` prop widens from `number` to `number | string`;
+   the traced two-up layout passes `clamp(360px, 45vh, 560px)` to both the
+   walkthrough's you-are-here map and the call chain, so both canvases fit
+   above the fold at common viewport heights instead of a fixed pixel height
+   pushing the second pane down. Every other caller keeps its numeric height.
+3. **The you-are-here map collapses behind a toggle** (`hideMap`, default
+   false): in this embedding the map duplicates the call chain beside it, so
+   it opens closed behind a "Show activity map ▾" disclosure; the standalone
+   screen keeps it always-on. **The per-call list collapses to a summary
+   chip** (`compactCalls`, default false): "N calls →", since the call chain's
+   own FragmentBar caption is the single source of call detail in this
+   embedding; the standalone screen keeps the full from → to · label list.
+4. **Sticky controls + capped breadcrumb.** The focus card caps to
+   `min(46vh, 420px)` with internal scroll, and its Next/branch controls pin
+   `position: sticky; bottom: 0` so they never scroll out of view. The PATH
+   breadcrumb caps to ~2 wrapped lines with a "Show full path ▾" toggle once
+   it overflows — this applies in both embeddings, since unbounded breadcrumb
+   growth was a defect everywhere, not just the traced two-up layout.
+
+Per-pane independent scroll and chat-rail default-collapse were assessed and
+explicitly deferred (follow-ups, not part of this clause).
+
 ## 6. Migration & rollout
 
 **Model fan-out (4 copies):**

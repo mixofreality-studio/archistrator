@@ -37,21 +37,23 @@ import type { ArtifactProvenance } from '../../contracts/types';
 
 /**
  * Compose the quiet one-line provenance summary (PM-P2-4) from the optional record —
- * 'committed <date> · rev N · approved by X · drafted by Y' — omitting any absent field.
+ * 'committed <date> · approved by X · drafted by Y' — omitting any absent field.
  * committedAt (RFC3339) is rendered as a locale date; an unparseable value falls back to the
  * raw string. Returns '' when nothing is worth showing.
+ *
+ * Deliberately excludes the revision number (fix 7, founder QA round 5): the
+ * strip immediately above already reads "COMMITTED · revision N", and on a
+ * pre-provenance commit (no committedAt/approvedBy/draftedBy) this line used
+ * to render as nothing BUT "rev N" — a caption whose entire content
+ * duplicated the banner ~20px above it.
  */
-function provenanceSummary(
-  provenance: ArtifactProvenance | undefined,
-  revisions: number | undefined
-): string {
+function provenanceSummary(provenance: ArtifactProvenance | undefined): string {
   const parts: string[] = [];
   const committedAt = provenance?.committedAt;
   if (committedAt !== undefined && committedAt.length > 0) {
     const d = new Date(committedAt);
     parts.push(`committed ${Number.isNaN(d.getTime()) ? committedAt : d.toLocaleDateString()}`);
   }
-  if (revisions !== undefined && revisions > 1) parts.push(`rev ${String(revisions)}`);
   if (provenance?.approvedBy !== undefined && provenance.approvedBy.length > 0) {
     parts.push(`approved by ${provenance.approvedBy}`);
   }
@@ -138,7 +140,7 @@ export function CommittedArtifactPanel({
   };
 
   const revisionN = revisions ?? 0;
-  const provLine = provenanceSummary(provenance, revisions);
+  const provLine = provenanceSummary(provenance);
 
   return (
     <Box
