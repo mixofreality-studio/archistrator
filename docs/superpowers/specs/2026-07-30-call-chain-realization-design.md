@@ -226,13 +226,22 @@ No new shell; the two existing views consume the realization.
      per-pair ordinal (`parallelEdges.parallelIndex` / `parallelLane`,
      applied in `LayeredStepEdge`) so seven stacked strands read as seven lines
      and stepping between two of them visibly moves.
-  5. **Honest call-less behaviour.** With a trail beneath it a call-less step
-     shows the walked chain rather than blanking: "Control flow — no calls; the
-     chain so far stays lit". With no trail (start, entry chooser) it says "No
-     calls yet — step forward to begin the chain." A real realization gap still
-     outranks both ("No realization for this step") — it is a defect signal, not
-     a navigation state. The decider highlight (call-less `decision`/`switch`) is
-     unchanged except that it now lights ON TOP of the trail.
+  5. **Honest call-less behaviour.** A call-less step shows the walked chain
+     rather than blanking. One function (`fragmentCallLessCaption`) decides the
+     heading AND its optional gloss together, in a single precedence chain, so
+     the two lines cannot disagree — fix round 1, after the gloss was found
+     softening a defect heading: a resolved decider first ("Decided by <name>"),
+     then the multi-root entry chooser ("Choose an entry to begin." — you pick an
+     entry here, there is no step to move forward through), then a real
+     realization gap ("No realization for this step", **never** glossed, because
+     it is a defect signal and not a navigation state), then by-design control
+     flow — "Control flow — no calls; the chain so far stays lit" with the gloss
+     when a trail exists, "No calls yet — step forward to begin the chain."
+     without one. The gloss ("Nothing new is called here — what stays lit is the
+     chain you have already walked.") is emitted in exactly that one control-flow
+     state, plus alongside a decider that has a trail behind it. The decider
+     highlight (call-less `decision`/`switch`) is otherwise unchanged except that
+     it now lights ON TOP of the trail.
 
 **Both-surface entries:** an entry step carrying both `web-client` and
 `mcp-client` calls highlights **both** clients when its fragment lights up —

@@ -79,8 +79,7 @@ import {
 } from './flowLayout';
 import { LayerLegend, FlowCanvas, FlowEmpty, FocusNodes } from './flowShared';
 import {
-  fragmentCallLessBody,
-  fragmentCallLessHeading,
+  fragmentCallLessCaption,
   fragmentPositionLabel,
 } from './fragmentCaption';
 import { parallelIndex } from './parallelEdges';
@@ -538,9 +537,9 @@ function FragmentBar({
    *  control-flow step when `calls` is empty (founder QA round 3). */
   focusStepKind: ActivityNodeKind | undefined;
   /** Change 3 (founder QA round 3 addendum): a decision/switch call-less step's
-   *  resolved decider (an actor or the entry Manager) — takes priority over
-   *  `fragmentCallLessHeading` when `calls` is empty. Undefined for every
-   *  other call-less kind, or when no decider could be resolved. */
+   *  resolved decider (an actor or the entry Manager) — the highest-precedence
+   *  call-less caption (`fragmentCallLessCaption`) when `calls` is empty.
+   *  Undefined for every other call-less kind, or when no decider resolved. */
   focusDecider: { id: string; label: string } | undefined;
   statusBySeq: Map<number, StepStatus> | undefined;
   /** When provided, a Comment button anchoring the fragment's FIRST call. */
@@ -573,15 +572,19 @@ function FragmentBar({
     calls.map((c) => c.seq),
     dv.edges.length
   );
+  // A call-less fragment's two lines are decided TOGETHER (fix round 1) so the
+  // heading and its gloss can never disagree — in particular so a realization
+  // gap is never softened by the trail's reassuring second line.
+  const callLess =
+    first === undefined
+      ? fragmentCallLessCaption(focusStepNodeId, focusStepKind, hasTrail, focusDecider?.label)
+      : undefined;
   const heading =
     first !== undefined
       ? `Step: ${stepLabel ?? first.stepNodeId} — ${String(calls.length)} call${
           calls.length === 1 ? '' : 's'
         }${position !== undefined ? ` · ${position}` : ''}`
-      : focusDecider !== undefined
-        ? `Decided by ${focusDecider.label}`
-        : fragmentCallLessHeading(focusStepNodeId, focusStepKind, hasTrail);
-  const callLessBody = fragmentCallLessBody(hasTrail);
+      : (callLess?.heading ?? '');
 
   return (
     <Box sx={{ mb: 1.5 }}>
@@ -670,9 +673,9 @@ function FragmentBar({
               </Typography>
             ))}
           </Box>
-        ) : callLessBody !== undefined ? (
+        ) : callLess?.body !== undefined ? (
           <Typography sx={{ fontFamily: t.body, fontSize: 11.5, color: t.muted, mt: 0.5 }}>
-            {callLessBody}
+            {callLess.body}
           </Typography>
         ) : null}
       </Box>

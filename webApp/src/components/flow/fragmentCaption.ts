@@ -16,6 +16,8 @@
  *     to surface;
  *   - the multi-root entry chooser (`focusStepNodeId === ''`, no step chosen
  *     yet) — a neutral prompt, not a gap at all;
+ *   - a `decision`/`switch` node whose DECIDER the caller resolved (founder QA
+ *     round 3 addendum) — that participant is lit, so the caption names it;
  *   - any other activity-node kind (merge / decision / fork / join / start /
  *     end / …) — by design, no calls happen here.
  *
@@ -23,10 +25,20 @@
  * diagram — the calls already walked stay lit — so the copy that said "the chain
  * stays as it was" over an empty canvas is retired. The captions now turn on
  * whether a TRAIL exists: with one, a control-flow step reports that the chain
- * so far stays lit; with none (the very first step, the start node, the entry
- * chooser) the honest statement is that no call has happened yet. That is the
- * `hasTrail` argument — it is the difference between "nothing here" and
- * "nothing NEW here".
+ * so far stays lit; with none (the very first step, the start node) the honest
+ * statement is that no call has happened yet. That is the `hasTrail` argument —
+ * it is the difference between "nothing here" and "nothing NEW here".
+ *
+ * ONE FUNCTION OWNS BOTH LINES (fix round 1). The heading and its explanatory
+ * body were briefly computed by two independent functions over the same inputs,
+ * with the body gated only on `hasTrail` — so a genuine unrealized step reached
+ * mid-chain printed "No realization for this step" with the reassuring "what
+ * stays lit is the chain you have already walked" directly beneath it, which
+ * diluted the very defect signal the precedence above exists to protect. Nothing
+ * structural stopped the two from disagreeing, so they are now decided together,
+ * in one pass, and the body is emitted ONLY where it is both true and useful:
+ * alongside a by-design control-flow heading that has a trail behind it. A
+ * defect heading never gets a soothing second line.
  *
  * An unknown kind (should not happen once ArchitectureView wires
  * `focusStepKind` alongside `focusStepNodeId`, but the prop is optional)
@@ -36,38 +48,62 @@
 import type { ActivityNodeKind } from '../../contracts/types';
 import { isEligibleForRealization } from '../usecase/useCaseChip.ts';
 
-/** The FragmentBar heading for a call-less step (`calls.length === 0`).
- *  `hasTrail` = the reader has already walked past at least one realized call,
- *  so something IS lit behind them. */
-export function fragmentCallLessHeading(
-  focusStepNodeId: string,
-  focusStepKind: ActivityNodeKind | undefined,
-  hasTrail: boolean
-): string {
-  // A real realization gap is a defect signal, not a navigation state: it is
-  // reported whether or not a trail exists. The blank id is the entry chooser,
-  // which keys no node and therefore can never be a gap.
-  if (
-    focusStepNodeId !== '' &&
-    (focusStepKind === undefined || isEligibleForRealization(focusStepKind))
-  ) {
-    return 'No realization for this step';
-  }
-  if (hasTrail) {
-    return focusStepNodeId === ''
-      ? 'Choose an entry to begin.'
-      : 'Control flow — no calls; the chain so far stays lit';
-  }
-  return 'No calls yet — step forward to begin the chain.';
+/** The two caption lines for a call-less fragment, decided together. */
+export interface CallLessCaption {
+  /** The bold first line — always present. */
+  heading: string;
+  /** The quiet gloss beneath it, or undefined when the heading must stand
+   *  alone (a defect signal, or nothing lit for it to explain). */
+  body: string | undefined;
 }
 
-/** The FragmentBar's explanatory second line for a call-less step, or undefined
- *  when the heading already says everything (an empty trail: the heading's
- *  "step forward to begin" needs no gloss, and there is nothing lit to explain). */
-export function fragmentCallLessBody(hasTrail: boolean): string | undefined {
+/** The only body line this rail ever shows: what the still-lit wires MEAN once
+ *  the reader has walked past a step that itself calls nothing. */
+const TRAIL_BODY =
+  'Nothing new is called here — what stays lit is the chain you have already walked.';
+
+/**
+ * The FragmentBar caption for a step that realizes no calls
+ * (`calls.length === 0`).
+ *
+ * @param focusStepNodeId the activity node in focus; '' is the multi-root entry
+ *   chooser, which keys no node and therefore can never be a realization gap.
+ * @param focusStepKind that node's kind, when the caller knows it.
+ * @param hasTrail the reader has already walked past at least one realized
+ *   call, so something IS lit behind them.
+ * @param deciderLabel the resolved decider's display name for a call-less
+ *   `decision`/`switch` node, else undefined.
+ */
+export function fragmentCallLessCaption(
+  focusStepNodeId: string,
+  focusStepKind: ActivityNodeKind | undefined,
+  hasTrail: boolean,
+  deciderLabel: string | undefined
+): CallLessCaption {
+  // A resolved decider is lit ON TOP of the trail, so it speaks first — it is
+  // the one call-less state where something new IS highlighted. Only ever set
+  // for decision/switch nodes, which are never call-eligible, so this can not
+  // mask a realization gap.
+  if (deciderLabel !== undefined) {
+    return { heading: `Decided by ${deciderLabel}`, body: hasTrail ? TRAIL_BODY : undefined };
+  }
+  // The multi-root entry chooser wants its own affordance: you PICK an entry
+  // here, there is no single step to move forward through (reviewer, fix round
+  // 1). Its trail is always empty — the path is empty by definition.
+  if (focusStepNodeId === '') {
+    return { heading: 'Choose an entry to begin.', body: undefined };
+  }
+  // A real realization gap is a defect signal, not a navigation state: reported
+  // whether or not a trail exists, and NEVER softened by the trail gloss.
+  if (focusStepKind === undefined || isEligibleForRealization(focusStepKind)) {
+    return { heading: 'No realization for this step', body: undefined };
+  }
+  // By design, no calls here. With a trail the chain behind the reader stays
+  // lit and the gloss explains what those wires are; without one there is
+  // simply nothing lit yet, and the heading already says so.
   return hasTrail
-    ? 'Nothing new is called here — what stays lit is the chain you have already walked.'
-    : undefined;
+    ? { heading: 'Control flow — no calls; the chain so far stays lit', body: TRAIL_BODY }
+    : { heading: 'No calls yet — step forward to begin the chain.', body: undefined };
 }
 
 /**
@@ -75,7 +111,7 @@ export function fragmentCallLessBody(hasTrail: boolean): string | undefined {
  * "call 5 of 22" for a single-call step). Founder QA round 4 — the fragment
  * caption reported the step's own calls but never the reader's overall position,
  * so a 22-call chain gave no sense of progress. Undefined when the fragment
- * lights nothing (the call-less headings speak instead) or the chain is empty.
+ * lights nothing (the call-less captions speak instead) or the chain is empty.
  */
 export function fragmentPositionLabel(seqs: readonly number[], total: number): string | undefined {
   if (seqs.length === 0 || total <= 0) return undefined;
