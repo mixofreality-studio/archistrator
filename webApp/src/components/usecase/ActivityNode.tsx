@@ -1,8 +1,9 @@
 /**
  * A React-Flow node for the activity diagrams. Renders a real UML shape per kind:
- * start = filled dot, end = ringed final node, action/loop/goto/interruptEdge =
- * rounded card, decision/switch = diamond, merge = smaller diamond, fork/join =
- * synchronization bar, note = sticky note. Lane-colored. Selecting a node reveals
+ * start = filled dot, end = ringed final node, action/loop/goto/interruptEdge/
+ * acceptEvent = rounded card (acceptEvent notched into a flag), decision/switch =
+ * diamond, merge = smaller diamond, fork/join = synchronization bar, note =
+ * sticky note, timeEvent = hourglass. Lane-colored. Selecting a node reveals
  * a toolbar that arms an activity-node comment anchor
  * (`$.decisions[uc].useCase.activity.nodes[id=…]`).
  */
@@ -184,6 +185,58 @@ function Card(t: Tokens, d: ActivityNodeData, selected: boolean): ReactNode {
   );
 }
 
+function Hourglass(t: Tokens, d: ActivityNodeData, selected: boolean): ReactNode {
+  const dim = NODE_DIMS.timeEvent;
+  return (
+    <Box
+      sx={{
+        width: dim.w,
+        height: dim.h,
+        bgcolor: t.paperAlt,
+        border: `1.5px solid ${selected ? t.accent : t.line}`,
+        borderLeft: `5px solid ${d.color}`,
+        // Two stacked triangles meeting at the waist — the UML time-event glyph.
+        clipPath: 'polygon(0 0, 100% 0, 50% 50%, 100% 100%, 0 100%, 50% 50%)',
+        boxShadow: selected ? `0 0 0 2px ${t.accent}` : 'none',
+      }}
+    />
+  );
+}
+
+function Pentagon(t: Tokens, d: ActivityNodeData, selected: boolean): ReactNode {
+  const dim = NODE_DIMS.acceptEvent;
+  return (
+    <Box
+      sx={{
+        position: 'relative',
+        width: dim.w,
+        minHeight: dim.h,
+        pl: '26px',
+        pr: 1.75,
+        py: 1.1,
+        display: 'flex',
+        alignItems: 'center',
+        bgcolor: t.paperAlt,
+        color: t.ink,
+        border: `1.5px solid ${selected ? t.accent : t.line}`,
+        borderLeft: `5px solid ${d.color}`,
+        // Concave "flag" left edge — a notch pointing in at mid-height.
+        clipPath: 'polygon(0 0, 100% 0, 100% 100%, 0 100%, 18px 50%)',
+        boxShadow: selected ? `0 0 0 2px ${t.accent}` : 'none',
+      }}
+    >
+      <Box sx={{ minWidth: 0 }}>
+        <Typography sx={{ fontFamily: t.body, fontWeight: 600, fontSize: 13, lineHeight: 1.25 }}>
+          {d.label}
+        </Typography>
+        <Typography sx={{ fontFamily: t.mono, fontSize: 9.5, color: t.muted, opacity: 0.85 }}>
+          {d.lane}
+        </Typography>
+      </Box>
+    </Box>
+  );
+}
+
 function Note(t: Tokens, d: ActivityNodeData, selected: boolean): ReactNode {
   return (
     <Box
@@ -259,6 +312,12 @@ export function ActivityNode({ data, selected }: NodeProps): ReactNode {
       break;
     case 'note':
       shape = Note(t, d, isSelected);
+      break;
+    case 'timeEvent':
+      shape = Hourglass(t, d, isSelected);
+      break;
+    case 'acceptEvent':
+      shape = Pentagon(t, d, isSelected);
       break;
     case 'action':
     case 'loop':

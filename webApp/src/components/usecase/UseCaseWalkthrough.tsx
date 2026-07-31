@@ -27,6 +27,7 @@ import { useComments, activityNodeAnchor } from '../comments/CommentContext';
 import { laneColors } from './laneColors';
 import { useTokens } from '../../utilities/theme/ThemeContext';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
+import { walkthroughRoots } from './walkthroughRoots';
 
 type NodeView = UseCaseView['nodes'][number];
 type EdgeView = UseCaseView['edges'][number];
@@ -40,6 +41,8 @@ const KIND_HEADER: Record<string, string> = {
   join: 'Parallel join',
   decision: 'Decision',
   switch: 'Decision',
+  timeEvent: 'Time event',
+  acceptEvent: 'Event received',
 };
 
 /** Fallback text when a node (start/end/merge) carries no label of its own. */
@@ -69,7 +72,12 @@ export function UseCaseWalkthrough({
   const colors = laneColors(t, uc.lanes);
   const { setAnchor, enabled, anchor: armedAnchor, comments } = useComments();
 
-  const { nodesById, outEdges, startId } = useMemo(() => {
+  // Roots: every `start` node plus every edge-less (in-degree-0) node — an
+  // activity can begin either at its literal start pseudostate or at an
+  // accept/time-event that has no incoming edge. A cyclic diagram with no
+  // start and no in-degree-0 node (a degenerate/malformed case) falls back to
+  // the first node so the walkthrough always has somewhere to begin.
+  const { nodesById, outEdges, roots } = useMemo(() => {
     const byId = new Map<string, NodeView>(uc.nodes.map((n) => [n.id, n]));
     const outs = new Map<string, EdgeView[]>();
     for (const e of uc.edges) {
@@ -77,11 +85,17 @@ export function UseCaseWalkthrough({
       arr.push(e);
       outs.set(e.from, arr);
     }
-    const start = uc.nodes.find((n) => n.kind === 'start')?.id ?? uc.nodes[0]?.id ?? '';
-    return { nodesById: byId, outEdges: outs, startId: start };
+    const detected = walkthroughRoots(uc.nodes, uc.edges);
+    const first = uc.nodes[0];
+    const rootIds = detected.length > 0 ? detected : first !== undefined ? [first.id] : [];
+    return { nodesById: byId, outEdges: outs, roots: rootIds };
   }, [uc]);
 
-  const [path, setPath] = useState<string[]>(startId.length > 0 ? [startId] : []);
+  // A single root behaves exactly as before (auto-focused as step 1). Multiple
+  // roots start with no step chosen — the initial focus card becomes an entry
+  // chooser instead.
+  const initialPath = roots.length === 1 ? roots : [];
+  const [path, setPath] = useState<string[]>(initialPath);
 
   // Container-aware layout: MUI viewport breakpoints can't see that this widget
   // lives inside a narrow hero (a 300px meta sidebar already eats the row), which
@@ -128,12 +142,15 @@ export function UseCaseWalkthrough({
     );
   }
 
-  const currentId = path[path.length - 1] ?? startId;
+  // With multiple roots, the walkthrough opens on no step at all — the entry
+  // chooser occupies the focus card until the reader picks a starting event.
+  const showEntryChooser = path.length === 0 && roots.length > 1;
+  const currentId = path[path.length - 1] ?? '';
   const node = nodesById.get(currentId);
   const outs = outEdges.get(currentId) ?? [];
   const kindHeader = node !== undefined ? KIND_HEADER[node.kind] : undefined;
   const isBranch = outs.length > 1;
-  const isEnd = outs.length === 0;
+  const isEnd = !showEntryChooser && outs.length === 0;
 
   // Per-step comment button, revealed like a CommentableList row's: hidden at rest,
   // shown on hover / keyboard focus-within of the step card, and pinned visible when
@@ -194,7 +211,9 @@ export function UseCaseWalkthrough({
                 color: t.muted,
               }}
             >
-              {kindHeader !== undefined ? `${kindHeader} · ` : ''}step {path.length}
+              {showEntryChooser
+                ? 'Entry'
+                : `${kindHeader !== undefined ? `${kindHeader} · ` : ''}step ${String(path.length)}`}
             </Typography>
             <Box sx={{ ml: 'auto', display: 'flex', alignItems: 'center', gap: 1 }}>
               {node !== undefined && (
@@ -211,7 +230,7 @@ export function UseCaseWalkthrough({
                   }}
                 />
               )}
-              {enabled ? (
+              {enabled && !showEntryChooser ? (
                 <Tooltip title={`Comment on step ${String(path.length)}`}>
                   <IconButton
                     aria-label={`Comment on step ${String(path.length)}`}
@@ -254,11 +273,45 @@ export function UseCaseWalkthrough({
             }}
             tabIndex={-1}
           >
-            {node !== undefined ? nodeText(node) : '—'}
+            {showEntryChooser
+              ? 'How does this use case begin?'
+              : node !== undefined
+                ? nodeText(node)
+                : '—'}
           </Typography>
 
           {/* controls */}
-          {isEnd ? (
+          {showEntryChooser ? (
+            <Box sx={{ mt: 'auto', display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+              {roots.map((rootId) => {
+                const n = nodesById.get(rootId);
+                return (
+                  <Button
+                    data-testid={UI_IDENTIFIERS.UseCaseCarousel.walkthroughBranch(
+                      `entry-${rootId}`
+                    )}
+                    key={rootId}
+                    sx={{
+                      justifyContent: 'flex-start',
+                      textAlign: 'left',
+                      textTransform: 'none',
+                      color: t.ink,
+                      borderColor: t.line,
+                      '&:hover': { borderColor: t.accent, bgcolor: t.paperAlt },
+                    }}
+                    variant="outlined"
+                    onClick={() => {
+                      advance(rootId);
+                    }}
+                  >
+                    <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 13 }}>
+                      {n !== undefined ? nodeText(n) : rootId}
+                    </Typography>
+                  </Button>
+                );
+              })}
+            </Box>
+          ) : isEnd ? (
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 'auto' }}>
               <FlagIcon sx={{ fontSize: 18, color: t.committedDot }} />
               <Typography sx={{ color: t.muted, fontSize: 13, fontFamily: t.mono }}>
@@ -341,7 +394,7 @@ export function UseCaseWalkthrough({
             startIcon={<RestartAltIcon sx={{ fontSize: 15 }} />}
             sx={{ color: t.ink, textTransform: 'none' }}
             onClick={() => {
-              setPath(startId.length > 0 ? [startId] : []);
+              setPath(initialPath);
               stepTitleRef.current?.focus();
             }}
           >
