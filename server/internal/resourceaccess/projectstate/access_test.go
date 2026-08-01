@@ -4588,6 +4588,48 @@ func TestRequireModelFields_ActivityPresent_NoActionRejected(t *testing.T) {
 	}
 }
 
+// ---- UC-ACT-PRESENT tier parity (2026-07-30 callchain-realization): an ENTRY is a start
+// node OR an edge-less timeEvent/acceptEvent node — mirrors methodcheck's
+// activityHasEntryAndAction (framework-go/methodcheck/rules_statevalidation.go). ----
+
+func TestRequireModelFields_ActivityPresent_EventEntryOnly_Passes(t *testing.T) {
+	// No start node at all: the diagram's only entry is an edge-less timeEvent — the
+	// standard ingress for a scheduled use case. Must be accepted.
+	j := `{
+      "decisions": [
+        {"useCase":{"id":"uc1","name":"Nightly sweep","actors":[],"trigger":"timer","classification":"core",
+          "activity":{"nodes":[{"id":"t","kind":"timeEvent","label":"midnight"},
+                                {"id":"a","kind":"action","label":"do"},
+                                {"id":"e","kind":"end","label":""}],
+                      "edges":[{"from":"t","to":"a","kind":"controlFlow","guard":""},
+                               {"from":"a","to":"e","kind":"controlFlow","guard":""}]}},
+         "rejectionReason":""}
+      ]
+    }`
+	if err := RequireModelFields(KindCoreUseCases, []byte(j)); err != nil {
+		t.Fatalf("an edge-less timeEvent entry (no start node) must be accepted as an entry, got: %v", err)
+	}
+}
+
+func TestRequireModelFields_ActivityPresent_EventWithIncomingEdge_Rejected(t *testing.T) {
+	// The diagram's only event node HAS an incoming edge — it is not an entry — and
+	// there is no start node, so the diagram must still be rejected as structurally
+	// empty (an event node mid-flow does not satisfy UC-ACT-PRESENT).
+	j := `{
+      "decisions": [
+        {"useCase":{"id":"uc1","name":"Nightly sweep","actors":[],"trigger":"timer","classification":"core",
+          "activity":{"nodes":[{"id":"a","kind":"action","label":"do"},
+                                {"id":"t","kind":"timeEvent","label":"midnight"}],
+                      "edges":[{"from":"a","to":"t","kind":"controlFlow","guard":""}]}},
+         "rejectionReason":""}
+      ]
+    }`
+	err := RequireModelFields(KindCoreUseCases, []byte(j))
+	if err == nil || !strings.Contains(err.Error(), "structurally empty") {
+		t.Fatalf("a timeEvent node with an incoming edge is not an entry; must be rejected as structurally empty, got: %v", err)
+	}
+}
+
 // ---- UC-GUARD-LABEL: a guardedFlow edge must carry non-empty guard text ----
 
 func TestRequireModelFields_GuardLabel_EmptyGuardRejected(t *testing.T) {

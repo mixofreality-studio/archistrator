@@ -3590,6 +3590,37 @@ func wellFormedActivity() *projectstate.ActivityDiagram {
 	}
 }
 
+// eventEntryActivity has NO start node; its only entry is an edge-less timeEvent node
+// (tier parity with methodcheck's activityHasEntryAndAction, 2026-07-30
+// callchain-realization) -> action -> end. Acceptable.
+func eventEntryActivity() *projectstate.ActivityDiagram {
+	return &projectstate.ActivityDiagram{
+		Nodes: []projectstate.ActivityNode{
+			{ID: "n1", Kind: projectstate.NodeTimeEvent, Label: "midnight"},
+			{ID: "n2", Kind: projectstate.NodeAction, Label: "Do the thing"},
+			{ID: "n3", Kind: projectstate.NodeEnd},
+		},
+		Edges: []projectstate.ActivityEdge{
+			{From: "n1", To: "n2"},
+			{From: "n2", To: "n3"},
+		},
+	}
+}
+
+// eventNodeWithIncomingEdgeActivity has NO start node, and its only event node HAS an
+// incoming edge — it is mid-flow, not an entry — so it must NOT satisfy UC-ACT-PRESENT.
+func eventNodeWithIncomingEdgeActivity() *projectstate.ActivityDiagram {
+	return &projectstate.ActivityDiagram{
+		Nodes: []projectstate.ActivityNode{
+			{ID: "n1", Kind: projectstate.NodeAction, Label: "Do the thing"},
+			{ID: "n2", Kind: projectstate.NodeAcceptEvent, Label: "await message"},
+		},
+		Edges: []projectstate.ActivityEdge{
+			{From: "n1", To: "n2"},
+		},
+	}
+}
+
 // A use case with a null or structurally-empty activity produces exactly one ERROR
 // finding; a use case with a start + action diagram produces none.
 func Test_useCaseActivityFindings_FlagsMissingAndEmptyDiagrams(t *testing.T) {
@@ -3652,6 +3683,36 @@ func Test_useCaseActivityFindings_ScopedToCoreUseCasesKind(t *testing.T) {
 	ok := &projectstate.CoreUseCases{Decisions: []projectstate.UseCaseDecision{ucd("Capture", wellFormedActivity())}}
 	if got := useCaseActivityFindings(KindCoreUseCases, ok); got != nil {
 		t.Errorf("all-diagrammed draft must yield no findings, got %+v", got)
+	}
+}
+
+// Tier parity (2026-07-30 callchain-realization): an ENTRY is a start node OR an
+// edge-less timeEvent/acceptEvent node — mirrors methodcheck's
+// activityHasEntryAndAction (framework-go/methodcheck/rules_statevalidation.go).
+func Test_useCaseActivityFindings_EventEntryTierParity(t *testing.T) {
+	draft := &projectstate.CoreUseCases{Decisions: []projectstate.UseCaseDecision{
+		ucd("NightlySweep", eventEntryActivity()),                // event-only entry — acceptable
+		ucd("AwaitMessage", eventNodeWithIncomingEdgeActivity()), // event node HAS incoming edge — not an entry
+		ucd("Capture", wellFormedActivity()),                     // start-rooted — stays green
+	}}
+
+	findings := useCaseActivityFindings(KindCoreUseCases, draft)
+	if len(findings) != 1 {
+		t.Fatalf("expected exactly 1 ERROR finding (AwaitMessage's event node is not an entry), got %d: %+v", len(findings), findings)
+	}
+	f := findings[0]
+	if !strings.Contains(f.Message, "AwaitMessage") {
+		t.Errorf("finding must name use case AwaitMessage, got %q", f.Message)
+	}
+	if !strings.Contains(f.Message, "no entry") {
+		t.Errorf("finding must name the entry rule honestly, got %q", f.Message)
+	}
+	for _, name := range []string{"NightlySweep", "Capture"} {
+		for _, f := range findings {
+			if strings.Contains(f.Message, name) {
+				t.Errorf("use case %q must not be flagged; got %q", name, f.Message)
+			}
+		}
 	}
 }
 

@@ -5222,10 +5222,13 @@ func requireCoreUseCasesFields(raw []byte) error {
 		// read-back finding to a WRITE-PATH block). The strict codec previously SKIPPED a
 		// null activity here, letting a diagram-less use case commit. Every use case — core
 		// AND nonCore variation — must now carry a non-null activity diagram with at least
-		// one start node and one action step; requireActivityFields enforces the floor.
+		// one ENTRY (a start node, or a timeEvent/acceptEvent node with no incoming edge —
+		// tier parity with methodcheck's activityHasEntryAndAction, framework-go/methodcheck/
+		// rules_statevalidation.go, ratified 2026-07-30) and one action step;
+		// requireActivityFields enforces the floor.
 		act, ok := uc["activity"]
 		if !ok || isJSONNull(act) {
-			return fmt.Errorf("%s is missing its required activity diagram (activity is null); every use case must carry a non-empty activity diagram with a start node and at least one action step", label)
+			return fmt.Errorf("%s is missing its required activity diagram (activity is null); every use case must carry a non-empty activity diagram with an entry (a start node, or an edge-less timeEvent/acceptEvent) and at least one action step", label)
 		}
 		if err := requireActivityFields(act, label); err != nil {
 			return err
@@ -5242,22 +5245,27 @@ func requireActivityFields(raw json.RawMessage, ucLabel string) error {
 	if err != nil {
 		return fmt.Errorf("%s activity is not a JSON object: %w", ucLabel, err)
 	}
-	hasStart, hasAction, err := requireActivityNodes(act, ucLabel)
+	hasEntry, hasAction, err := requireActivityNodes(act, ucLabel)
 	if err != nil {
 		return err
 	}
-	// UC-ACT-PRESENT floor: a non-empty activity diagram carries at least a start node
-	// and one action step (App C 1c). The write-path twin of the read-back activityDefect
-	// classifier in the systemdesign Manager.
-	if !hasStart || !hasAction {
-		return fmt.Errorf("%s activity diagram is structurally empty: it must contain at least one start node and at least one action step", ucLabel)
+	// UC-ACT-PRESENT floor: a non-empty activity diagram carries at least one ENTRY — a
+	// start node, OR a timeEvent/acceptEvent node with no incoming edge (tier parity with
+	// methodcheck's activityHasEntryAndAction, framework-go/methodcheck/
+	// rules_statevalidation.go, ratified 2026-07-30) — and one action step (App C 1c). The
+	// write-path twin of the read-back activityDefect classifier in the systemdesign
+	// Manager.
+	if !hasEntry || !hasAction {
+		return fmt.Errorf("%s activity diagram is structurally empty: it must contain at least one entry — a start node or an edge-less timeEvent/acceptEvent — and at least one action step", ucLabel)
 	}
 	return requireActivityEdges(act, ucLabel)
 }
 
 // requireActivityNodes validates every node's kind enum and reports whether the diagram
-// carries a start node and an action node (the UC-ACT-PRESENT floor inputs).
-func requireActivityNodes(act map[string]json.RawMessage, ucLabel string) (hasStart, hasAction bool, err error) {
+// carries an ENTRY (a start node, or a timeEvent/acceptEvent node with no incoming edge —
+// see activityIncomingEdgeCounts) and an action node (the UC-ACT-PRESENT floor inputs).
+func requireActivityNodes(act map[string]json.RawMessage, ucLabel string) (hasEntry, hasAction bool, err error) {
+	incoming := activityIncomingEdgeCounts(act)
 	var nodeRaws []json.RawMessage
 	if nodes, ok := act["nodes"]; ok && !isJSONNull(nodes) {
 		if e := json.Unmarshal(nodes, &nodeRaws); e != nil {
@@ -5278,7 +5286,14 @@ func requireActivityNodes(act map[string]json.RawMessage, ucLabel string) (hasSt
 			return false, false, fmt.Errorf("%s has an unrecognized kind: %w", label, e)
 		}
 		if nk == NodeStart {
-			hasStart = true
+			hasEntry = true
+		}
+		if nk == NodeTimeEvent || nk == NodeAcceptEvent {
+			var id string
+			_ = json.Unmarshal(obj["id"], &id)
+			if incoming[id] == 0 {
+				hasEntry = true
+			}
 		}
 		if nk == NodeAction {
 			hasAction = true
@@ -5291,7 +5306,39 @@ func requireActivityNodes(act map[string]json.RawMessage, ucLabel string) (hasSt
 			return false, false, e
 		}
 	}
-	return hasStart, hasAction, nil
+	return hasEntry, hasAction, nil
+}
+
+// activityIncomingEdgeCounts returns, for each node ID targeted by an edge's "to", the
+// number of edges pointing at it — used only to detect an edge-less UML event node (the
+// entry alternative to a literal start node; tier parity with methodcheck's
+// activityHasEntryAndAction, framework-go/methodcheck/rules_statevalidation.go, ratified
+// 2026-07-30). Tolerant of a missing, null, or malformed edges array: the authoritative
+// edge SHAPE validation is requireActivityEdges, called after the structural
+// (entry+action) check succeeds, so a malformed edges array still surfaces its own error
+// there.
+func activityIncomingEdgeCounts(act map[string]json.RawMessage) map[string]int {
+	incoming := map[string]int{}
+	edges, ok := act["edges"]
+	if !ok || isJSONNull(edges) {
+		return incoming
+	}
+	var edgeRaws []json.RawMessage
+	if err := json.Unmarshal(edges, &edgeRaws); err != nil {
+		return incoming
+	}
+	for _, eRaw := range edgeRaws {
+		obj, err := rawObject(eRaw)
+		if err != nil {
+			continue
+		}
+		var to string
+		if err := json.Unmarshal(obj["to"], &to); err != nil {
+			continue
+		}
+		incoming[to]++
+	}
+	return incoming
 }
 
 // requireActivityEdges validates every edge's kind enum and enforces UC-GUARD-LABEL (a

@@ -1602,12 +1602,14 @@ func (s *coAuthorState) view() (SessionStateView, error) {
 // diagram is missing or structurally empty, for the CoreUseCases artifact ONLY
 // (nil for every other kind and for a nil/absent draft). The founder ruling
 // (2026-07-05) requires EVERY use case — core AND supporting — to carry a
-// non-empty activity diagram (a start node plus at least one action step). The
-// Action's CI validate check does NOT enforce this (the committed gtdapp
-// CoreUseCases shipped core use cases with "activity": null), so this read-back
-// check is the app-side surface that flags a diagram-less use case at the review
-// panel. It classifies the defect only — full UML well-formedness stays the
-// Action's CI concern.
+// non-empty activity diagram with an ENTRY (a start node, or a timeEvent/
+// acceptEvent node with no incoming edge — tier parity with methodcheck's
+// activityHasEntryAndAction, framework-go/methodcheck/rules_statevalidation.go,
+// ratified 2026-07-30) plus at least one action step. The Action's CI validate
+// check does NOT enforce this (the committed gtdapp CoreUseCases shipped core
+// use cases with "activity": null), so this read-back check is the app-side
+// surface that flags a diagram-less use case at the review panel. It classifies
+// the defect only — full UML well-formedness stays the Action's CI concern.
 func useCaseActivityFindings(kind ArtifactKind, draft projectstate.ArtifactModel) []Finding {
 	if kind != KindCoreUseCases {
 		return nil
@@ -1630,7 +1632,7 @@ func useCaseActivityFindings(kind ArtifactKind, draft projectstate.ArtifactModel
 		out = append(out, Finding{
 			RuleID:   "USECASE-ACTIVITY-MISSING",
 			Severity: SeverityError,
-			Message:  fmt.Sprintf("Use case %q %s; every use case (core AND supporting) must carry a non-empty activity diagram with a start node and at least one action step.", label, reason),
+			Message:  fmt.Sprintf("Use case %q %s; every use case (core AND supporting) must carry a non-empty activity diagram with an entry (a start node, or an edge-less timeEvent/acceptEvent) and at least one action step.", label, reason),
 			Location: &Location{Ordinal: int64(i), Section: "use case " + label},
 		})
 	}
@@ -1683,11 +1685,13 @@ func useCaseDynamicFindings(kind ArtifactKind, draft projectstate.ArtifactModel,
 }
 
 // activityDefect classifies why a use case's activity diagram fails the founder's
-// non-empty floor, or "" when it is acceptable (present, with a start node AND at
-// least one action node). It deliberately does NOT re-validate full UML
-// well-formedness (decision/merge, fork/join, guards) — that is the Action's CI
-// check; this only enforces "the diagram exists and carries the minimum
-// meaningful nodes".
+// non-empty floor, or "" when it is acceptable (present, with an ENTRY — a start
+// node, or a timeEvent/acceptEvent node with no incoming edge (tier parity with
+// methodcheck's activityHasEntryAndAction, framework-go/methodcheck/
+// rules_statevalidation.go, ratified 2026-07-30) — AND at least one action node).
+// It deliberately does NOT re-validate full UML well-formedness (decision/merge,
+// fork/join, guards) — that is the Action's CI check; this only enforces "the
+// diagram exists and carries the minimum meaningful nodes".
 func activityDefect(a *projectstate.ActivityDiagram) string {
 	if a == nil {
 		return "has no activity diagram (activity is null)"
@@ -1695,23 +1699,30 @@ func activityDefect(a *projectstate.ActivityDiagram) string {
 	if len(a.Nodes) == 0 {
 		return "has an empty activity diagram (no nodes)"
 	}
-	var hasStart, hasAction bool
+	incoming := make(map[string]int, len(a.Nodes))
+	for _, e := range a.Edges {
+		incoming[e.To]++
+	}
+	var hasEntry, hasAction bool
 	for _, n := range a.Nodes {
-		// Only the start + action node kinds matter to the founder's floor; every other
+		// Only the entry + action node kinds matter to the founder's floor; every other
 		// node kind is irrelevant here (plain comparisons, not a switch, so the exhaustive
 		// linter is not drawn into the full ActivityNodeKind set).
 		if n.Kind == projectstate.NodeStart {
-			hasStart = true
+			hasEntry = true
+		}
+		if (n.Kind == projectstate.NodeTimeEvent || n.Kind == projectstate.NodeAcceptEvent) && incoming[n.ID] == 0 {
+			hasEntry = true
 		}
 		if n.Kind == projectstate.NodeAction {
 			hasAction = true
 		}
 	}
 	switch {
-	case !hasStart && !hasAction:
-		return "has an activity diagram with no start node and no action step"
-	case !hasStart:
-		return "has an activity diagram with no start node"
+	case !hasEntry && !hasAction:
+		return "has an activity diagram with no entry (no start node, and no edge-less timeEvent/acceptEvent) and no action step"
+	case !hasEntry:
+		return "has an activity diagram with no entry (no start node, and no edge-less timeEvent/acceptEvent)"
 	case !hasAction:
 		return "has an activity diagram with no action step"
 	}
