@@ -265,8 +265,10 @@ export const UI_IDENTIFIERS = {
     // realized · pending" / "N CC findings" / "N/M realized".
     VIEW_VERDICT: 'arch-view-verdict',
     // The FragmentBar CC-checks chip ("CC checks · passing" / "CC checks · N
-    // findings") — a real StepLink into the Design Health step, present only
-    // when findings context is loaded (statusBySeq defined).
+    // findings here" — "here" qualifies the step-scoped count against
+    // VIEW_VERDICT's view-scoped one, fix round 1 FINDING 2) — a real
+    // StepLink into the Design Health step, present only when findings
+    // context is loaded (statusBySeq defined).
     CC_CHECKS_CHIP: 'arch-cc-checks-chip',
   },
   Deployment: {

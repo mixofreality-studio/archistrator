@@ -18,14 +18,30 @@
  * "findings → error tone" rule does.
  *
  * The one genuinely NEW shape here is 'pending': a view with ZERO realized
- * steps is not "in progress" (realizationChip would still call that 'warn') —
- * it reads as an honest "nothing built here yet, as expected" state, distinct
- * from a real CC defect. Checked BEFORE the findings branch on purpose: a
- * wholly-unrealized view's CC-COVERAGE findings (one per missing eligible
- * node) are the EXPECTED shape of "hasn't been realized yet", not a fault to
- * flag loud-error red — the 'pending' amber reads as "not yet", the 'error'
- * red as "built, but wrong". Once at least one step is realized, a finding
- * always wins tone regardless of ratio (mirrors realizationChip verbatim).
+ * steps and NO dvKey-scoped findings reads as an honest "nothing built here
+ * yet, as expected" state (realizationChip would still call that 'warn').
+ *
+ * PRECEDENCE (fix round 1 — corrected): findings are checked FIRST, always.
+ * Any dvKey-scoped finding wins 'error' regardless of the realized ratio,
+ * including at zero-realized — mirroring realizationChip's own
+ * "findings → error tone" rule with NO carve-out. 'pending' only applies once
+ * findings are confirmed empty AND realized is zero. This matters for a real,
+ * reachable case: a view can have a realized DECISION step (ineligible for
+ * the realized/eligible count) that still carries a genuine dvKey-scoped
+ * defect (e.g. CC-ACTOR-EDGE, section "dynamicView <key> step <decisionNode>")
+ * while eligible-realized sits at 0 — checking zero-realized first would have
+ * printed "pending" and hidden a real error.
+ *
+ * The EARLIER version of this module got the ordering backwards on a false
+ * premise: it assumed a wholly-unrealized view's CC-COVERAGE findings would
+ * flood the findings branch and need to be suppressed by checking zero-
+ * realized first. CC-COVERAGE findings are actually USE-CASE-scoped
+ * ("useCase <useCaseId>"), never dvKey-scoped ("dynamicView <dvKey>...") — see
+ * server/internal/utility/designhealth/rules_callchain.go — so
+ * `findingsForView`'s dvKey-prefix join structurally never sees them in the
+ * first place. Their absence from this roll-up is a harmless side effect of
+ * the section grammar (they anchor to the use case, not this one view), not
+ * something this function's branch order needs to protect against.
  */
 import type { Finding } from '../../contracts/types';
 
@@ -61,10 +77,11 @@ function findingsForView(findings: readonly Finding[], dvKey: string): Finding[]
  * its own `dvKey`-scoped join, the same idiom `statusBySeqFromFindings` uses)
  * for this one view.
  *
- *   0 realized (eligibleNodeCount > 0)      -> 'pending' — "0/7 realized · pending"
- *   any view finding, otherwise             -> 'error'   — "2 CC findings"
- *   realizedStepCount === eligibleNodeCount -> 'ok'       — "15/15 realized · CC clean"
- *   otherwise                                -> 'warn'     — "3/7 realized"
+ *   any dvKey-scoped finding, ALWAYS first   -> 'error'   — "2 CC findings"
+ *   0 realized, no findings (eligibleNodeCount > 0)
+ *                                             -> 'pending' — "0/7 realized · pending"
+ *   realizedStepCount === eligibleNodeCount  -> 'ok'       — "15/15 realized · CC clean"
+ *   otherwise                                 -> 'warn'     — "3/7 realized"
  */
 export function viewVerdict(
   findings: readonly Finding[],
@@ -72,13 +89,13 @@ export function viewVerdict(
   realizedStepCount: number,
   eligibleNodeCount: number
 ): ViewVerdict {
-  if (eligibleNodeCount > 0 && realizedStepCount === 0) {
-    return { label: `0/${String(eligibleNodeCount)} realized · pending`, tone: 'pending' };
-  }
   const viewFindings = findingsForView(findings, dvKey);
   if (viewFindings.length > 0) {
     const n = viewFindings.length;
     return { label: `${String(n)} CC finding${n === 1 ? '' : 's'}`, tone: 'error' };
+  }
+  if (eligibleNodeCount > 0 && realizedStepCount === 0) {
+    return { label: `0/${String(eligibleNodeCount)} realized · pending`, tone: 'pending' };
   }
   if (realizedStepCount === eligibleNodeCount) {
     return {

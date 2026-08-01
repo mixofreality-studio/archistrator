@@ -5,7 +5,13 @@
  * designhealth CC-* section grammar exactly as callStatus.test.ts uses it:
  *
  *   "dynamicView <key>"                   - view-scoped (CC-VIEW-USECASE)
- *   "dynamicView <key> step <nodeId>"     - step-scoped
+ *   "dynamicView <key> step <nodeId>"     - step-scoped (e.g. CC-ACTOR-EDGE)
+ *   "useCase <useCaseId>"                 - use-case-scoped (e.g. CC-COVERAGE
+ *                                            — see server/internal/utility/
+ *                                            designhealth/rules_callchain.go).
+ *                                            NEVER dvKey-prefixed, so
+ *                                            findingsForView structurally
+ *                                            cannot see it.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -23,7 +29,7 @@ void test('all eligible nodes realized, no findings -> ok, "N/N realized · CC c
   assert.deepEqual(out, { label: '15/15 realized · CC clean', tone: 'ok' });
 });
 
-void test('zero realized -> pending, regardless of eligible count', () => {
+void test('(a) zero realized, no view-scoped findings -> pending, regardless of eligible count', () => {
   const out = viewVerdict([], 'dv-order', 0, 7);
   assert.deepEqual(out, { label: '0/7 realized · pending', tone: 'pending' });
 });
@@ -49,10 +55,31 @@ void test('exactly one finding reads "1 CC finding", not "1 CC findings"', () =>
   assert.deepEqual(out, { label: '1 CC finding', tone: 'error' });
 });
 
-// ── the pending state outranks findings (module doc's core design decision) ─
+// ── precedence: findings ALWAYS win, even at zero-realized (fix round 1) ────
+//
+// FINDING 1 (task reviewer): the earlier version of this module checked
+// zero-realized BEFORE findings, on the false premise that a wholly-
+// unrealized view's CC-COVERAGE findings would need suppressing. CC-COVERAGE
+// is use-case-scoped, never dvKey-scoped, so that premise was wrong — and the
+// old precedence hid a REAL reachable defect: a realized DECISION step
+// (ineligible for the realized/eligible count) can still carry a genuine
+// dvKey-scoped finding while eligible-realized sits at 0.
 
-void test('zero realized still reads pending even when the view already carries findings', () => {
-  const findings = [fnd('RuleCCCoverage', 'error', 'dynamicView dv-order step n-validate')];
+void test('(b) zero-eligible-realized + a genuine dvKey-scoped finding -> error, not pending', () => {
+  // CC-ACTOR-EDGE-style: step-scoped under a DECISION node, which never counts
+  // toward eligibleNodeCount (only action/timeEvent/acceptEvent do) — so
+  // realizedStepCount is 0 out of 7 eligible, yet a real defect exists.
+  const findings = [fnd('RuleCCActorEdge', 'error', 'dynamicView dv-order step n-decide')];
+  const out = viewVerdict(findings, 'dv-order', 0, 7);
+  assert.deepEqual(out, { label: '1 CC finding', tone: 'error' });
+});
+
+void test("(c) a use-case-scoped finding (CC-COVERAGE's real shape) never flips the view verdict", () => {
+  // "useCase <id>" carries no "dynamicView <dvKey>" prefix at all, so
+  // findingsForView's join can't see it — the verdict falls through to the
+  // (correct) pending shape, proving CC-COVERAGE's absence here is the
+  // section grammar at work, not a precedence carve-out.
+  const findings = [fnd('RuleCCCoverage', 'error', 'useCase uc-order')];
   const out = viewVerdict(findings, 'dv-order', 0, 7);
   assert.deepEqual(out, { label: '0/7 realized · pending', tone: 'pending' });
 });

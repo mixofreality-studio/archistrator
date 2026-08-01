@@ -43,10 +43,15 @@
  *
  * CC VISIBILITY (Task 6, call-chain rollout): in fragment mode the FragmentBar's
  * tint chip is a REAL affordance, not decoration — it names what it is ("CC
- * checks · passing" / "CC checks · N findings", never the test-view's bare
- * "passing ✓") and clicks through to the Design Health step (StepLink, kind
- * `standardCheck`). It only ever appears when `statusBySeq` is loaded (no
- * findings context → no chip, same as before). A dynamic view that resolves to
+ * checks · passing" / "CC checks · N findings here", never the test-view's
+ * bare "passing ✓") and clicks through to the Design Health step (StepLink,
+ * kind `standardCheck`). The trailing "here" (fix round 1, FINDING 2) flags
+ * this count as STEP-scoped, distinct from the Architecture picker's
+ * view-scoped viewVerdict roll-up beside it — otherwise the same reader could
+ * see "2 findings here" beside "5 CC findings" for the same view and read it
+ * as a contradiction rather than two different scopes. It only ever appears
+ * when `statusBySeq` is loaded (no findings context → no chip, same as
+ * before). A dynamic view that resolves to
  * NO participants/persons — nothing to draw at all — now distinguishes a real,
  * known use-case view that simply hasn't been realized yet (`pendingRealization`)
  * from a synthetic/unresolvable one: the former reads "Not yet realized — part

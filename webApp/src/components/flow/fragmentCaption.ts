@@ -151,9 +151,17 @@ export function fragmentRowLabel(call: { seq: number; altLabel?: string }): stri
  * (DynamicViewFlow's `worst`, itself sourced from callStatus.ts); a clean
  * fragment's `findingsCount` is never consulted, so a caller that only ever
  * has a count for the flagged case can safely pass 0.
+ *
+ * SCOPE QUALIFIER (fix round 1, FINDING 2 — task reviewer): this chip's count
+ * is step-scoped (this fragment only), while the Architecture picker's
+ * viewVerdict roll-up beside it is view-scoped (every step) — the SAME reader
+ * can see "CC checks · 2 findings" here and "5 CC findings" there for the
+ * same view, which reads as a contradiction unless the smaller number is
+ * qualified as local. The trailing "here" is that qualifier; the clean
+ * "CC checks · passing" copy is unaffected (there is no count to misread).
  */
 export function ccChecksChipLabel(status: 'red' | 'green', findingsCount: number): string {
   if (status === 'green') return 'CC checks · passing';
   const n = Math.max(findingsCount, 0);
-  return `CC checks · ${String(n)} finding${n === 1 ? '' : 's'}`;
+  return `CC checks · ${String(n)} finding${n === 1 ? '' : 's'} here`;
 }

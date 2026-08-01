@@ -161,11 +161,15 @@ void test('a clean fragment reads "CC checks · passing", ignoring findingsCount
   assert.equal(ccChecksChipLabel('green', 4), 'CC checks · passing');
 });
 
-void test('a flagged fragment names the count, pluralized', () => {
-  assert.equal(ccChecksChipLabel('red', 1), 'CC checks · 1 finding');
-  assert.equal(ccChecksChipLabel('red', 2), 'CC checks · 2 findings');
+void test('a flagged fragment names the count, pluralized, qualified "here" (fix round 1, FINDING 2)', () => {
+  // The "here" qualifier disambiguates this step-scoped count from the
+  // Architecture picker's view-scoped viewVerdict roll-up beside it — without
+  // it, "CC checks · 2 findings" here and "5 CC findings" there for the SAME
+  // view would read as contradicting each other.
+  assert.equal(ccChecksChipLabel('red', 1), 'CC checks · 1 finding here');
+  assert.equal(ccChecksChipLabel('red', 2), 'CC checks · 2 findings here');
 });
 
 void test('a flagged fragment with a somehow-absent count reads 0 findings rather than throwing', () => {
-  assert.equal(ccChecksChipLabel('red', -1), 'CC checks · 0 findings');
+  assert.equal(ccChecksChipLabel('red', -1), 'CC checks · 0 findings here');
 });
