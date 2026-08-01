@@ -3707,11 +3707,11 @@ func Test_useCaseActivityFindings_EventEntryTierParity(t *testing.T) {
 	if !strings.Contains(f.Message, "no entry") {
 		t.Errorf("finding must name the entry rule honestly, got %q", f.Message)
 	}
+	// findings has exactly 1 element (asserted above), already bound to f —
+	// no need to loop over findings again to check what it doesn't mention.
 	for _, name := range []string{"NightlySweep", "Capture"} {
-		for _, f := range findings {
-			if strings.Contains(f.Message, name) {
-				t.Errorf("use case %q must not be flagged; got %q", name, f.Message)
-			}
+		if strings.Contains(f.Message, name) {
+			t.Errorf("use case %q must not be flagged; got %q", name, f.Message)
 		}
 	}
 }

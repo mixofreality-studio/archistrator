@@ -5063,6 +5063,25 @@ func TestCommittedProjectJSON_DynamicViewCalls_NoAlt(t *testing.T) {
 	}
 }
 
+// wantDecidedByTally is the Task-7 architect spec's D-table explicit-value
+// tally (8 distinct deciders across the 24 explicit rows). Pinning the VALUES,
+// not just the count, is load-bearing: Task 7b renames the "design-health"
+// component to "design-health-engine" and must atomically retarget uc1's
+// ci-check.decidedBy (spec FLAG-6) — a rename that forgets the slot-4 retarget
+// would still decode 24 nodes of the right kinds and so stay green against a
+// count-only pin. This map makes that omission fail here instead (fix-round-1
+// FINDING 5).
+var wantDecidedByTally = map[string]int{
+	"architect-user":      10,
+	"intervention-engine": 5,
+	"merchant-gateway":    2,
+	"estimation-engine":   2,
+	"operator":            2,
+	"design-health":       1,
+	"review-engine":       1,
+	"autoscaler-engine":   1,
+}
+
 // TestCommittedProjectJSON_ActivityNodes_DecidedBySplit is the tolerant-decode
 // regression for ActivityNode.DecidedBy (rollout rulings 2026-07-31; authored
 // 2026-08-01 by the Task-7 design amendment). It replaces the earlier
@@ -5073,9 +5092,10 @@ func TestCommittedProjectJSON_DynamicViewCalls_NoAlt(t *testing.T) {
 // version pins the AMENDED reality instead: every activity node decodes without
 // error, exactly 24 nodes across the 16 use cases carry a non-nil DecidedBy, every
 // one of those 24 sits on a decision or switch node (DecidedBy is illegal on any
-// other kind — CC-DECIDED-BY's placement rule), and the field is still nil
-// everywhere it isn't explicitly authored (tolerant decode: no zero-value string
-// stands in for absence).
+// other kind — CC-DECIDED-BY's placement rule), the field is still nil everywhere
+// it isn't explicitly authored (tolerant decode: no zero-value string stands in
+// for absence), and the VALUES tally exactly against wantDecidedByTally (not
+// merely the count — see its doc comment).
 func TestCommittedProjectJSON_ActivityNodes_DecidedBySplit(t *testing.T) {
 	proj := decodeCommittedProject(t)
 
@@ -5087,6 +5107,7 @@ func TestCommittedProjectJSON_ActivityNodes_DecidedBySplit(t *testing.T) {
 		t.Fatal("committed CoreUseCases has no decisions — fixture assumption no longer holds")
 	}
 	nodeCount, decidedByCount := 0, 0
+	gotTally := map[string]int{}
 	for _, d := range cuc.Decisions {
 		if d.UseCase.Activity == nil {
 			continue
@@ -5106,6 +5127,7 @@ func TestCommittedProjectJSON_ActivityNodes_DecidedBySplit(t *testing.T) {
 				t.Fatalf("use case %q activity node %q decoded an empty-string DecidedBy — "+
 					"the field should be omitted, not empty, when there is no decider", d.UseCase.ID, node.ID)
 			}
+			gotTally[*node.DecidedBy]++
 		}
 	}
 	if nodeCount == 0 {
@@ -5114,6 +5136,11 @@ func TestCommittedProjectJSON_ActivityNodes_DecidedBySplit(t *testing.T) {
 	if decidedByCount != 24 {
 		t.Fatalf("committed activity nodes carry DecidedBy on %d nodes, want 24 (the Task-7 "+
 			"architect spec's D-table explicit rows) — investigate drift, don't just re-pin", decidedByCount)
+	}
+	if !reflect.DeepEqual(gotTally, wantDecidedByTally) {
+		t.Fatalf("committed DecidedBy value tally = %v, want %v (a value drifted — e.g. a rename "+
+			"that forgot to retarget a slot-4 decidedBy — even though the count still matches)",
+			gotTally, wantDecidedByTally)
 	}
 }
 

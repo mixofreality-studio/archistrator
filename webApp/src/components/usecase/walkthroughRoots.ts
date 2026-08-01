@@ -4,15 +4,24 @@
  * single `start` pseudostate, but an accept/time-event node with no incoming
  * edges is also a legal entry — the activity can begin when that event arrives,
  * not only when the reader clicks through from a literal start node. Roots are
- * the union of `start`-kind nodes and in-degree-0 nodes, deduped, in diagram
- * (node-array) order. Extracted from UseCaseWalkthrough so multi-root diagrams
- * are unit-testable without mounting the component.
+ * the union of `start`-kind nodes (always) and in-degree-0 `timeEvent`/
+ * `acceptEvent` nodes, deduped, in diagram (node-array) order — the SAME entry
+ * vocabulary the platform gates use (CC-TRIGGER-EVENT / UC-ACT-PRESENT):
+ * `{start, timeEvent, acceptEvent}`. An in-degree-0 node of any OTHER kind
+ * (notably `note` — the Task-7 design amendment's edge-less documentation
+ * nodes, e.g. `customer-charged`, `in-flight`, `argo-reconcile`) is not a legal
+ * entry and must not become a walkthrough root just because nothing points to
+ * it (fix-round-1 FINDING 1: this previously offered dead-end notes as
+ * beginnings in the entry chooser). Extracted from UseCaseWalkthrough so
+ * multi-root diagrams are unit-testable without mounting the component.
  *
  * `walkthroughPathTo` is the same vocabulary read the other way round: given a
  * node, the route a reader would have taken from a root to reach it — what a
  * deep link into the middle of a diagram needs to seed the stepper.
  */
 import type { ActivityNodeKind } from '../../contracts/types';
+
+const EVENT_ENTRY_KINDS = new Set<ActivityNodeKind>(['timeEvent', 'acceptEvent']);
 
 export function walkthroughRoots(
   nodes: { id: string; kind: ActivityNodeKind }[],
@@ -27,7 +36,9 @@ export function walkthroughRoots(
 
   const isRoot = new Set<string>();
   for (const n of nodes) {
-    if (n.kind === 'start' || (inDegree.get(n.id) ?? 0) === 0) isRoot.add(n.id);
+    if (n.kind === 'start' || (EVENT_ENTRY_KINDS.has(n.kind) && (inDegree.get(n.id) ?? 0) === 0)) {
+      isRoot.add(n.id);
+    }
   }
 
   return nodes.filter((n) => isRoot.has(n.id)).map((n) => n.id);
