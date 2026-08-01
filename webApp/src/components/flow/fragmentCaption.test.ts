@@ -7,7 +7,11 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fragmentCallLessCaption, fragmentPositionLabel } from './fragmentCaption.ts';
+import {
+  fragmentCallLessCaption,
+  fragmentPositionLabel,
+  fragmentRowLabel,
+} from './fragmentCaption.ts';
 
 const TRAIL_BODY =
   'Nothing new is called here — what stays lit is the chain you have already walked.';
@@ -130,4 +134,21 @@ void test('the range is the fragment min/max whatever order the seqs arrive in',
 void test('nothing lit, or nothing to be lit, yields no position label', () => {
   assert.equal(fragmentPositionLabel([], 22), undefined);
   assert.equal(fragmentPositionLabel([1], 0), undefined);
+});
+
+// --- the per-row global/local scale bridge (fix round 1, FINDING 2) ---------
+
+void test('a plain call (no altLabel) shows only its seq — unaffected, no parenthetical noise', () => {
+  assert.equal(fragmentRowLabel({ seq: 22 }), '22');
+});
+
+void test('an alt-labeled call shows its altLabel PLUS the true global seq in parentheses', () => {
+  // The bridge to fragmentPositionLabel's heading ("call 18–22 of 22"): a
+  // founder reading "1a (call 18)" beneath that heading can see these are the
+  // SAME calls, not a contradiction.
+  assert.equal(fragmentRowLabel({ seq: 18, altLabel: '1a' }), '1a (call 18)');
+});
+
+void test('a plain call WITHIN an alt-containing step (its own altLabel has no letter) still gets the parenthetical', () => {
+  assert.equal(fragmentRowLabel({ seq: 22, altLabel: '3' }), '3 (call 22)');
 });

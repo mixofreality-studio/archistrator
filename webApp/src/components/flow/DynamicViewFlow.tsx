@@ -78,8 +78,13 @@ import {
   sortByLayoutPosition,
 } from './flowLayout';
 import { LayerLegend, FlowCanvas, FlowEmpty, FocusNodes } from './flowShared';
-import { fragmentCallLessCaption, fragmentPositionLabel } from './fragmentCaption';
+import {
+  fragmentCallLessCaption,
+  fragmentPositionLabel,
+  fragmentRowLabel,
+} from './fragmentCaption';
 import { parallelIndex } from './parallelEdges';
+import { seqChipLabel } from './seqChipLabel';
 
 /** Per-call status for the test views: 'red' = target/failing, 'green' = passing. */
 export type StepStatus = 'red' | 'green';
@@ -267,7 +272,7 @@ function build(
       toUtility: layerOf.get(r.to) === 'utility',
       ...(stroke !== undefined ? { stroke } : {}),
       ...(opacity !== undefined ? { opacity } : {}),
-      ...(isCurrent ? { seqChip: r.altLabel ?? r.seq } : {}),
+      ...(isCurrent ? { seqChip: seqChipLabel(fragmentMode, r) } : {}),
       ...(slot !== undefined ? { parallel: slot } : {}),
     });
   });
@@ -662,7 +667,7 @@ function FragmentBar({
                   wordBreak: 'break-word',
                 }}
               >
-                {c.altLabel ?? c.seq}. {c.label}
+                {fragmentRowLabel(c)}. {c.label}
                 <Box component="span" sx={{ color: t.muted }}>
                   {'  ·  '}
                   {nameOf.get(c.from) ?? c.from} → {nameOf.get(c.to) ?? c.to}

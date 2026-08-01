@@ -120,3 +120,24 @@ export function fragmentPositionLabel(seqs: readonly number[], total: number): s
   const where = min === max ? String(min) : `${String(min)}–${String(max)}`;
   return `call ${where} of ${String(total)}`;
 }
+
+/**
+ * The leading number for one call's row in the FragmentBar's per-call list
+ * (fix round 1 on the call-chain rollout Task 5 review, FINDING 2 — the
+ * summary/detail scale mismatch): `fragmentPositionLabel` above ALWAYS
+ * reports the fragment's true GLOBAL `seq` range in the heading ("call 18–22
+ * of 22"), but a step authoring an alt-group relabels its OWN rows locally
+ * ("1a"/"1b"/"3" — realization.ts' altLabelsForStep). Printed with no
+ * cross-reference, a heading reading "18–22 of 22" above a list reading
+ * "1a … 3" gives a founder no way to tell these are the SAME five calls
+ * rather than a contradiction. Every locally-relabeled row therefore
+ * parenthesizes its own true global position too, so the row itself carries
+ * the bridge: `1a (call 18)`. A call with no altLabel (the overwhelming
+ * common case, and true of every call before this field existed) is
+ * unaffected — its number already IS the global position, so a repeated
+ * "(call N)" would be pure noise.
+ */
+export function fragmentRowLabel(call: { seq: number; altLabel?: string }): string {
+  if (call.altLabel === undefined) return String(call.seq);
+  return `${call.altLabel} (call ${String(call.seq)})`;
+}

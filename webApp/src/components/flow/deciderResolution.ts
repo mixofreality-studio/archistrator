@@ -76,6 +76,10 @@ export function resolveDecider(
   const placed = (id: string): boolean => edges.some((e) => e.from === id || e.to === id);
 
   if (decidedBy !== undefined && decidedBy.length > 0) {
+    // Actor ids and component ids are authored from disjoint id spaces in
+    // practice; checking actors first is only a tie-break should one ever
+    // coincide with a component id — a named PERSON is the more specific,
+    // more intentional decider of the two.
     const actor = actors.find((a) => a.id === decidedBy);
     if (actor !== undefined && placed(actor.id)) {
       return { id: actor.id, label: actor.role };
