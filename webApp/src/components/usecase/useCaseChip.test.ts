@@ -154,3 +154,7 @@ void test('toneColor maps ok/error/warn to the committed/danger/awaiting tokens'
   assert.equal(toneColor('error', FAKE_TOKENS), '#a00');
   assert.equal(toneColor('warn', FAKE_TOKENS), '#aa0');
 });
+
+void test('toneColor maps the widened "pending" tone to the same awaiting token as warn (Task 6)', () => {
+  assert.equal(toneColor('pending', FAKE_TOKENS), '#aa0');
+});

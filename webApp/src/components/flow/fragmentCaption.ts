@@ -141,3 +141,19 @@ export function fragmentRowLabel(call: { seq: number; altLabel?: string }): stri
   if (call.altLabel === undefined) return String(call.seq);
   return `${call.altLabel} (call ${String(call.seq)})`;
 }
+
+/**
+ * The FragmentBar CC-checks chip's label (Task 6, call-chain rollout): the
+ * chip that used to read a bare "passing ✓" / "target" now names WHAT passed —
+ * this is Design-Health's CC-* call-chain family, not a test run — and, when
+ * flagged, says how many findings rather than leaving the reader to click
+ * through and count. `status` is the fragment's own worst-of-its-calls tint
+ * (DynamicViewFlow's `worst`, itself sourced from callStatus.ts); a clean
+ * fragment's `findingsCount` is never consulted, so a caller that only ever
+ * has a count for the flagged case can safely pass 0.
+ */
+export function ccChecksChipLabel(status: 'red' | 'green', findingsCount: number): string {
+  if (status === 'green') return 'CC checks · passing';
+  const n = Math.max(findingsCount, 0);
+  return `CC checks · ${String(n)} finding${n === 1 ? '' : 's'}`;
+}

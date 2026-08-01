@@ -139,6 +139,10 @@ export const TESTID = {
   // it, and the call-chain caption listing the current step's fragment.
   archDynamicActivityTrace: UI_IDENTIFIERS.Architecture.DYNAMIC_ACTIVITY_TRACE,
   archDynamicFragment: UI_IDENTIFIERS.Architecture.DYNAMIC_FRAGMENT,
+  // Per-view CC verdict roll-up beside the dynamic picker, and the FragmentBar's
+  // named CC-checks click-through chip (Task 6, call-chain rollout).
+  archViewVerdict: UI_IDENTIFIERS.Architecture.VIEW_VERDICT,
+  archCcChecksChip: UI_IDENTIFIERS.Architecture.CC_CHECKS_CHIP,
 
   // Core Use Cases artifact — the grouped (Core / Variations) use-case picker.
   useCasePicker: UI_IDENTIFIERS.UseCaseCarousel.PICKER,

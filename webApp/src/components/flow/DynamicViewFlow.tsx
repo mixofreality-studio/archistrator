@@ -41,6 +41,18 @@
  * the owning step's CC findings via callStatus.ts. Reuses the shared C4 node,
  * colours, decoration, legend and canvas chrome.
  *
+ * CC VISIBILITY (Task 6, call-chain rollout): in fragment mode the FragmentBar's
+ * tint chip is a REAL affordance, not decoration — it names what it is ("CC
+ * checks · passing" / "CC checks · N findings", never the test-view's bare
+ * "passing ✓") and clicks through to the Design Health step (StepLink, kind
+ * `standardCheck`). It only ever appears when `statusBySeq` is loaded (no
+ * findings context → no chip, same as before). A dynamic view that resolves to
+ * NO participants/persons — nothing to draw at all — now distinguishes a real,
+ * known use-case view that simply hasn't been realized yet (`pendingRealization`)
+ * from a synthetic/unresolvable one: the former reads "Not yet realized — part
+ * of the pending realization amendment" in the pending tone, the latter keeps
+ * the original generic placeholder.
+ *
  * PEOPLE: a realized chain's endpoints include the use case's actors, which are not
  * System components. They are laid out in their own `person` row above the Clients
  * (flowLayout's FlowLayer) and drawn with PersonNode; calls touching them are drawn
@@ -79,12 +91,14 @@ import {
 } from './flowLayout';
 import { LayerLegend, FlowCanvas, FlowEmpty, FocusNodes } from './flowShared';
 import {
+  ccChecksChipLabel,
   fragmentCallLessCaption,
   fragmentPositionLabel,
   fragmentRowLabel,
 } from './fragmentCaption';
 import { parallelIndex } from './parallelEdges';
 import { seqChipLabel } from './seqChipLabel';
+import { StepLink } from '../shared/StepLink';
 
 /** Per-call status for the test views: 'red' = target/failing, 'green' = passing. */
 export type StepStatus = 'red' | 'green';
@@ -520,6 +534,7 @@ function FragmentBar({
   focusStepKind,
   focusDecider,
   statusBySeq,
+  ccFindingsCount,
   onCommentStep,
   t,
 }: {
@@ -544,6 +559,12 @@ function FragmentBar({
    *  Undefined for every other call-less kind, or when no decider resolved. */
   focusDecider: { id: string; label: string } | undefined;
   statusBySeq: Map<number, StepStatus> | undefined;
+  /** Task 6 (call-chain rollout): the count of CC findings anchored to THIS
+   *  fragment's step (ArchitectureView's `stepFindings(focusStepNodeId).length`
+   *  — the exact same join `statusBySeq` used to decide red/green for this
+   *  step, so the chip's count can never disagree with its own tint). Only
+   *  ever read when `worst === 'red'`; a clean fragment never consults it. */
+  ccFindingsCount: number | undefined;
   /** When provided, a Comment button anchoring the fragment's FIRST call. */
   onCommentStep: ((edge: SequencedCall) => void) | undefined;
   t: Tokens;
@@ -617,19 +638,26 @@ function FragmentBar({
             {heading}
           </Typography>
           {worst !== undefined ? (
-            <Chip
-              label={worst === 'green' ? 'passing ✓' : 'target'}
-              size="small"
+            <StepLink
+              kind="standardCheck"
+              label={ccChecksChipLabel(worst, ccFindingsCount ?? 0)}
               sx={{
                 height: 18,
+                display: 'inline-flex',
+                alignItems: 'center',
                 fontFamily: t.mono,
                 fontSize: 9,
                 fontWeight: 700,
-                bgcolor: 'transparent',
                 color: captionAccent,
                 border: `1.5px solid ${captionAccent}`,
+                borderRadius: 1,
+                px: 0.75,
               }}
-            />
+              testId={UI_IDENTIFIERS.Architecture.CC_CHECKS_CHIP}
+              underline="none"
+            >
+              {ccChecksChipLabel(worst, ccFindingsCount ?? 0)}
+            </StepLink>
           ) : null}
           {onCommentStep !== undefined && first !== undefined ? (
             <>
@@ -742,6 +770,8 @@ export function DynamicViewFlow({
   focusDecider,
   visitedSeqs,
   onCommentStep,
+  ccFindingsCount,
+  pendingRealization = false,
 }: {
   /** The ordered call chain to render (system use case or test scenario). */
   dv: DynamicViewModel;
@@ -797,6 +827,20 @@ export function DynamicViewFlow({
    *  fragment mode (system-design use only; omitted for the read-only
    *  test-scenario views). */
   onCommentStep?: ((edge: SequencedCall) => void) | undefined;
+  /** Task 6 (call-chain rollout): the CC finding count for the CURRENT fragment
+   *  step, fed straight to FragmentBar's CC-checks chip (see its own doc). Fed
+   *  by ArchitectureView from the same `stepFindings` join `statusBySeq` used to
+   *  decide this step's tint — never independently sourced, so the chip's
+   *  count and its color can never disagree. Ignored outside fragment mode. */
+  ccFindingsCount?: number;
+  /** Task 6 (call-chain rollout): true when THIS is a real, known dynamic view
+   *  (present in the Architecture picker) that simply authors no calls yet —
+   *  distinct from a synthetic/unresolvable view (an unknown key, or no system
+   *  model at all). Only consulted on the empty-chain guard below, to pick the
+   *  honest "pending realization amendment" copy over the generic fallback.
+   *  Default false keeps every other caller (ServiceContractView,
+   *  ScenarioBrowser, and the no-model case) on the original generic message. */
+  pendingRealization?: boolean;
 }): ReactNode {
   const t = useTokens();
   const [stepIndex, setStepIndex] = useState(() => clampStep(initialStep, dv.edges.length));
@@ -855,7 +899,15 @@ export function DynamicViewFlow({
   );
 
   if (dv.participants.length === 0 && dv.persons.length === 0) {
-    return <FlowEmpty label="No call chain to render yet." t={t} />;
+    return pendingRealization ? (
+      <FlowEmpty
+        label="Not yet realized — part of the pending realization amendment."
+        t={t}
+        tone="pending"
+      />
+    ) : (
+      <FlowEmpty label="No call chain to render yet." t={t} />
+    );
   }
 
   return (
@@ -863,6 +915,7 @@ export function DynamicViewFlow({
       {fragmentMode ? (
         <FragmentBar
           calls={focusedCalls}
+          ccFindingsCount={ccFindingsCount}
           dv={dv}
           focusDecider={focusDecider}
           focusStepKind={focusStepKind}

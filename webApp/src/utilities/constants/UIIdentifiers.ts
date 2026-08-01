@@ -260,6 +260,14 @@ export const UI_IDENTIFIERS = {
     findingEdge: (from: string, to: string) => `arch-finding-edge-${from}-${to}`,
     findingNode: (componentId: string) => `arch-finding-node-${componentId}`,
     FINDING_COUNT: 'arch-finding-count',
+    // Task 6 (call-chain rollout): the per-view CC verdict roll-up (viewVerdict),
+    // rendered beside DYNAMIC_PICKER — "15/15 realized · CC clean" / "0/7
+    // realized · pending" / "N CC findings" / "N/M realized".
+    VIEW_VERDICT: 'arch-view-verdict',
+    // The FragmentBar CC-checks chip ("CC checks · passing" / "CC checks · N
+    // findings") — a real StepLink into the Design Health step, present only
+    // when findings context is loaded (statusBySeq defined).
+    CC_CHECKS_CHIP: 'arch-cc-checks-chip',
   },
   Deployment: {
     PROFILE_SWITCH: 'deploy-profile-switch',

@@ -49,8 +49,13 @@ export function stepBadgeState(
 
 /** Realization tone → token color — shared by the walkthrough's per-step badge
  *  and the carousel's roll-up chip (byte-identical mapping; hoisted here so
- *  the two call sites can't drift apart). */
-export function toneColor(tone: 'ok' | 'warn' | 'error', t: Tokens): string {
+ *  the two call sites can't drift apart). Widened to accept 'pending' (Task 6,
+ *  call-chain rollout: the Architecture dynamic lens' per-view viewVerdict roll-
+ *  up) so that SIBLING roll-up shares this exact color mapping too — 'pending'
+ *  reads the same amber as 'warn' (both are "nothing wrong yet", not a fault),
+ *  kept as a distinct tone string only so the two states are never conflated in
+ *  the label/telemetry layer. */
+export function toneColor(tone: 'ok' | 'warn' | 'error' | 'pending', t: Tokens): string {
   if (tone === 'ok') return t.committedDot;
   if (tone === 'error') return t.dangerFg;
   return t.awaitingFg;

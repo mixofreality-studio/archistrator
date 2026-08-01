@@ -24,6 +24,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useRouter, type RegisteredRouter } from '@tanstack/react-router';
 import Box from '@mui/material/Box';
+import Chip from '@mui/material/Chip';
 import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import Select from '@mui/material/Select';
@@ -50,6 +51,8 @@ import { useStructureFindings } from './StructureFindingsContext';
 import { statusBySeqFromFindings } from './callStatus';
 import { visitedSeqsForPath } from './callTrail';
 import { findingsForStep } from './useCaseFindings';
+import { viewVerdict } from './viewVerdict';
+import { isEligibleForRealization, toneColor } from '../usecase/useCaseChip';
 import { resolveContractComponentId } from '../../contracts/contractComponentId';
 import { useTokens } from '../../utilities/theme/ThemeContext';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
@@ -239,6 +242,18 @@ export function ArchitectureView({
     [envelope, activeDynamicKey, useCasesEnvelope]
   );
 
+  // Task 6 (call-chain rollout): a dynamic view that resolves to literally
+  // nothing to draw (`toDynamicView`'s EMPTY_DYNAMIC_VIEW, or a real view that
+  // simply authors no calls) is EITHER a genuinely unknown/synthetic view OR a
+  // real, known use case whose call chain just hasn't been realized yet — the
+  // two read very differently to a founder and get distinct copy in
+  // DynamicViewFlow's empty guard (see its own doc comment).
+  const isKnownDynamicView = dynamicViews.some((v) => v.key === activeDynamicKey);
+  const dynamicViewPending =
+    isKnownDynamicView &&
+    dynamicModel.participants.length === 0 &&
+    dynamicModel.persons.length === 0;
+
   // Per-call CC tint: red where the owning step carries a Design-Health finding,
   // green where the step is realized and clean. With NO findings loaded there is
   // nothing to report — an all-green chain would falsely claim it had been
@@ -280,6 +295,31 @@ export function ArchitectureView({
   const stepFindings = useCallback(
     (nodeId: string): Finding[] => findingsForStep(structureFindings, activeDynamicKey, nodeId),
     [structureFindings, activeDynamicKey]
+  );
+  // Task 6 (call-chain rollout): the per-view CC verdict roll-up beside the
+  // dynamic picker (viewVerdict) — same eligibility rule as the carousel's
+  // realizationChip (action/timeEvent/acceptEvent only, isEligibleForRealization),
+  // so the two roll-ups can never disagree about what a use case's chain was
+  // REQUIRED to realize. Undefined outside the traced branch — a full-width
+  // fallback view (no resolved use case) has no eligible-node count to report.
+  const eligibleNodeIds = useMemo(
+    () =>
+      tracedUseCase !== undefined
+        ? tracedUseCase.uc.nodes.filter((n) => isEligibleForRealization(n.kind)).map((n) => n.id)
+        : [],
+    [tracedUseCase]
+  );
+  const realizedStepCount = useMemo(
+    () => eligibleNodeIds.filter((id) => realization.has(id)).length,
+    [eligibleNodeIds, realization]
+  );
+  const eligibleNodeCount = eligibleNodeIds.length;
+  const dynamicRollup = useMemo(
+    () =>
+      tracedUseCase !== undefined
+        ? viewVerdict(structureFindings, activeDynamicKey, realizedStepCount, eligibleNodeCount)
+        : undefined,
+    [tracedUseCase, structureFindings, activeDynamicKey, realizedStepCount, eligibleNodeCount]
   );
   const firstSeqOfNode = useCallback(
     (nodeId: string): number | undefined =>
@@ -323,6 +363,17 @@ export function ArchitectureView({
     [activeDynamicKey]
   );
   const focusStepNodeId = walkPos.key === activeDynamicKey ? walkPos.nodeId : initialWalkNodeId;
+
+  // Task 6 (call-chain rollout): the CC finding count for the CURRENT fragment
+  // step, fed to FragmentBar's CC-checks chip. Sourced from the SAME
+  // `stepFindings` join `dynamicStatusBySeq` used to decide this step's
+  // red/green tint, so the chip's count and its colour can never disagree.
+  // Undefined whenever no findings context is loaded (mirrors
+  // `dynamicStatusBySeq`'s own gate below).
+  const ccFindingsCount = useMemo(
+    () => (dynamicStatusBySeq !== undefined ? stepFindings(focusStepNodeId).length : undefined),
+    [dynamicStatusBySeq, stepFindings, focusStepNodeId]
+  );
 
   // THE VISITED TRAIL (founder QA round 4). The walkthrough also publishes the
   // whole ROUTE it has walked; every call authored on a node the reader has
@@ -440,6 +491,8 @@ export function ArchitectureView({
         {...(focusStepKind !== undefined ? { focusStepKind } : {})}
         {...(focusDecider !== undefined ? { focusDecider } : {})}
         {...(dynamicStatusBySeq !== undefined ? { statusBySeq: dynamicStatusBySeq } : {})}
+        {...(ccFindingsCount !== undefined ? { ccFindingsCount } : {})}
+        pendingRealization={dynamicViewPending}
         onCommentStep={
           enabled
             ? (edge): void => {
@@ -512,6 +565,27 @@ export function ArchitectureView({
               ))}
             </Select>
           </FormControl>
+        )}
+
+        {/* Task 6 (call-chain rollout): the per-view CC verdict roll-up —
+            "N/M realized" plus the same finding-vs-realization tone rule the
+            carousel's realizationChip already uses, so the two roll-ups can
+            never read as disagreeing about the same use case. Undefined
+            outside the traced branch (the full-width fallback has no
+            resolved use case to count eligible nodes against). */}
+        {mode === 'dynamic' && dynamicRollup !== undefined && (
+          <Chip
+            data-testid={UI_IDENTIFIERS.Architecture.VIEW_VERDICT}
+            label={dynamicRollup.label}
+            size="small"
+            sx={{
+              bgcolor: 'transparent',
+              fontFamily: t.mono,
+              fontWeight: 700,
+              color: toneColor(dynamicRollup.tone, t),
+              border: `1.5px solid ${toneColor(dynamicRollup.tone, t)}`,
+            }}
+          />
         )}
 
         {mode === 'perspective' && c4.components.length > 0 && (

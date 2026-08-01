@@ -11,6 +11,7 @@ import {
   fragmentCallLessCaption,
   fragmentPositionLabel,
   fragmentRowLabel,
+  ccChecksChipLabel,
 } from './fragmentCaption.ts';
 
 const TRAIL_BODY =
@@ -151,4 +152,20 @@ void test('an alt-labeled call shows its altLabel PLUS the true global seq in pa
 
 void test('a plain call WITHIN an alt-containing step (its own altLabel has no letter) still gets the parenthetical', () => {
   assert.equal(fragmentRowLabel({ seq: 22, altLabel: '3' }), '3 (call 22)');
+});
+
+// --- the FragmentBar CC-checks chip label (Task 6, call-chain rollout) ------
+
+void test('a clean fragment reads "CC checks · passing", ignoring findingsCount', () => {
+  assert.equal(ccChecksChipLabel('green', 0), 'CC checks · passing');
+  assert.equal(ccChecksChipLabel('green', 4), 'CC checks · passing');
+});
+
+void test('a flagged fragment names the count, pluralized', () => {
+  assert.equal(ccChecksChipLabel('red', 1), 'CC checks · 1 finding');
+  assert.equal(ccChecksChipLabel('red', 2), 'CC checks · 2 findings');
+});
+
+void test('a flagged fragment with a somehow-absent count reads 0 findings rather than throwing', () => {
+  assert.equal(ccChecksChipLabel('red', -1), 'CC checks · 0 findings');
 });
