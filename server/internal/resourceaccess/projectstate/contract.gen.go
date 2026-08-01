@@ -555,6 +555,7 @@ type ProjectSummary struct {
 	CommittedCount int        `json:"CommittedCount"`
 	TotalCount     int        `json:"TotalCount"`
 	UpdatedAt      time.Time  `json:"UpdatedAt"`
+	OperatorPaused *bool      `json:"OperatorPaused,omitempty"`
 }
 
 type ProvisioningSpecRecord struct {

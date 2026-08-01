@@ -124,7 +124,7 @@ func main() {
 // construction → Engines → security Utility → Managers via their DI ctors → one
 // Worker per Manager → generated web Handlers + NewServer + ExtraMounts → serve +
 // shutdown), driving a hand cmd/server/hooks.go for the genuinely-compositional
-// policy. Three driver knobs the deployment model cannot express:
+// policy. Four driver knobs the deployment model cannot express:
 //
 //   - WebExposedManagers = clientgen's exposedManagers (the 4 web-wired
 //     managers). billingManager carries a web-client/mcp-client relationship in
@@ -137,12 +137,15 @@ func main() {
 //     PORTS (an RA→RA edge forbidden inside projectstate); artifact GitHubCloud
 //     needs the repoURL/owner strings + a typed int64 installationID; messageBus
 //     Temporal (Task 7c) needs the cross-manager ExecutionKind→KindBinding table
-//     (composegen threads its bound temporal infra, `tc`, automatically — see
-//     the entry's own comment below).
+//     (composegen threads its bound temporal infra, `tc`, automatically as an
+//     extra positional constructor arg — see the entry's own comment below).
 //   - VariantConstructorNoError overrides the infra-implies-error-return
 //     heuristic for messageBus/Temporal (Task 7c): messagebus.
 //     NewTemporalMessageBus is single-return despite consuming infra, unlike
 //     every other infra-consuming variant above.
+//   - ScheduleRegistrarComponent (fix round 1, Task 7c live-firing review)
+//     names "messageBus" as the component whose Manager dependents get a
+//     startup RegisterSchedules call emitted after their Worker starts.
 func generateMain(m *projectmodel.Model) {
 	files, err := composegen.Generate(m, composegen.Config{
 		ContainerKey: containerKey,
@@ -235,12 +238,14 @@ func generateMain(m *projectmodel.Model) {
 			},
 			// messageBus Temporal (Task 7c): the deployment model can supply `tc`
 			// positionally (its bound "temporal" infra — composegen threads it as an
-			// extra hook parameter automatically since the substrate resolves to an
-			// already-constructed local, not a cfg field), but the KindBinding table
-			// (ExecutionKind -> registered workflow-type name + owning Manager's
-			// TaskQueue, across billing/operations/construction's RegisterSchedule
-			// call sites) is cross-manager composition-root knowledge the model has
-			// no notion of at all (see hooks.go's MessageBusTemporalArgs).
+			// extra POSITIONAL ARG on the surrounding NewTemporalMessageBus(tc, ...)
+			// call automatically, since the substrate resolves to an
+			// already-constructed local, not a cfg field; the hook itself stays
+			// cfg-only), but the KindBinding table (ExecutionKind -> registered
+			// workflow-type name + owning Manager's TaskQueue, across
+			// billing/operations/construction's RegisterSchedule call sites) is
+			// cross-manager composition-root knowledge the model has no notion of at
+			// all (see hooks.go's MessageBusTemporalArgs).
 			"messageBus/Temporal": {
 				{GoType: "map[messagebus.ExecutionKind]messagebus.KindBinding", GoImport: messagebusPkg},
 			},
@@ -251,6 +256,13 @@ func generateMain(m *projectmodel.Model) {
 		VariantConstructorNoError: map[string]bool{
 			"messageBus/Temporal": true,
 		},
+		// ScheduleRegistrarComponent (fix round 1, Task 7c live-firing review,
+		// FINDING 4): names "messageBus" as the component whose Manager
+		// dependents (billing/operations/construction) get a startup
+		// RegisterSchedules(ctx, messageBus) call emitted right after their
+		// embedded Worker starts. Replaces composegen's earlier hard-coded
+		// "messageBus" constant with this driver-supplied value.
+		ScheduleRegistrarComponent: "messageBus",
 	})
 	if err != nil {
 		fatal(fmt.Errorf("composegen: %w", err))

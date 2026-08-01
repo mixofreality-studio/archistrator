@@ -1014,6 +1014,55 @@ func Test_Sweep_QuietSweep_NoSignals(t *testing.T) {
 	}
 }
 
+// G3 (fix round 1, Task 7c live-firing review): billingStateAccess is an
+// arm-less REQUIRED binding today (no deployment perProfile arm) — this test
+// backs the Activity with the REAL generated stub (billingstate.
+// NewBillingStateAccess(), NOT a scripted fake) to reproduce exactly what fired
+// live: every op returns fwra.Unknown("not implemented"). The sweep must
+// complete CLEANLY (no workflow error, an empty result) instead of failing.
+func Test_Sweep_UnimplementedBillingState_QuietNoOpTick(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	wf := newWorkflows(wfDeps{Acts: genInvokers{Opts: activityOptions()}})
+	env.RegisterWorkflowWithOptions(wf.ShortfallSweepWorkflow, workflow.RegisterOptions{Name: executionKindShortfallSweep})
+	stubActs := &genActivities{BillingState: billingstate.NewBillingStateAccess()}
+	env.RegisterActivityWithOptions(stubActs.BillingStateReadPersistentlyDelinquentCustomers,
+		activity.RegisterOptions{Name: "billingStateAccess.readPersistentlyDelinquentCustomers"})
+
+	env.ExecuteWorkflow(executionKindShortfallSweep, shortfallSweepInput{})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("want a quiet no-op tick against the unimplemented stub RA, got workflow error: %v", err)
+	}
+	var res ShortfallSweepResult
+	if err := env.GetWorkflowResult(&res); err != nil {
+		t.Fatalf("decode result: %v", err)
+	}
+	if len(res.SignalledCustomers) != 0 {
+		t.Fatalf("want an empty result on the tolerant tick, got %v", res.SignalledCustomers)
+	}
+}
+
+// G4: isRAUnimplemented is the EXACT condition gating the tolerant tick's WARN
+// log (shortfallsweep.go) — the TestWorkflowEnvironment exposes no hook to
+// assert on log TEXT, so this proves the gate itself fires correctly against
+// the REAL stub's REAL (fwmgr-mapped) error, run outside any workflow: the
+// same stubBillingStateAccess.ReadPersistentlyDelinquentCustomers call
+// Test_Sweep_UnimplementedBillingState_QuietNoOpTick exercises through the
+// Activity boundary, mapped exactly as that boundary maps it.
+func Test_IsRAUnimplemented_RealStubError(t *testing.T) {
+	stub := billingstate.NewBillingStateAccess()
+	_, err := stub.ReadPersistentlyDelinquentCustomers(fwra.Context{Context: t.Context()}, billingstate.DelinquencyScope{})
+	if err == nil {
+		t.Fatal("want the arm-less stub to return an error")
+	}
+	mapped := fwmgr.MapError(err)
+	if !isRAUnimplemented(mapped) {
+		t.Fatalf("want isRAUnimplemented(true) for the stub's mapped error, got false (mapped: %v)", mapped)
+	}
+}
+
 // ============================ H. §6.5 Conflict (money write) ================
 
 // H1: settleCycle returns Conflict twice → the workflow re-reads the version and

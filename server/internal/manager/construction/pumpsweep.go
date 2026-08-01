@@ -24,6 +24,16 @@ import (
 // project's own PumpNextActivityWorkflow, unchanged. Mirrors ReplanSweepWorkflow's
 // structure (replansweep.go) and billingManager's ShortfallSweepWorkflow's
 // enumerate-then-fan-out shape (shortfallsweep.go).
+//
+// OPERATOR PAUSE (fix round 1, Task 7c live-firing review): a project with
+// OperatorPaused=true is EXCLUDED from the fan-out — the sweep must not
+// override an operator's PauseProject call every 30s. This is the safe half of
+// the fix: the MANUAL ExecuteNextActivity path (constructionManager.md §2.1,
+// the founder/operator clicking "Begin"/driving construction directly) stays
+// DELIBERATELY UNGATED — it pumps regardless of OperatorPaused, and that is
+// the de-facto RESUME mechanism today (no dedicated "resume" verb exists). The
+// product question of a real resume verb is routed to the Task 11 founder
+// gate, not decided here.
 // ===========================================================================
 
 // pumpSweepInput is the start payload for PumpSweepWorkflow — platform-wide, no
@@ -37,8 +47,11 @@ type pumpSweepInput struct{}
 // carries no service-contract entry, unlike the generated, exported PumpResult /
 // ReplanSweepResult the frozen façade ops return.
 type pumpSweepResult struct {
-	// PumpedProjects is every construction-phase project this tick started (or
-	// found already cascading) a pump for.
+	// PumpedProjects is every construction-phase, non-paused project this tick
+	// itself STARTED a NEW pump for. A project whose prior tick is still
+	// cascading is skipped by the collapse branch below (a `continue` BEFORE
+	// the append) and does NOT appear here, even though its pump is (still)
+	// running — this field is "started just now", not "currently pumping".
 	PumpedProjects []ProjectID
 }
 
@@ -80,6 +93,12 @@ func (wf *workflows) PumpSweepWorkflow(ctx workflow.Context, _ pumpSweepInput) (
 		// filtering HERE just avoids spawning a quiet no-op child every tick for
 		// every system-design/project-design-phase project on the platform.
 		if s.Phase != projectstate.PhaseConstruction {
+			continue
+		}
+		// Operator pause: skip a project the operator paused (PauseProject /
+		// RecordOperatorPaused) — the sweep must not silently override that every
+		// 30s. See the header doc comment for the ungated-manual-path tradeoff.
+		if s.OperatorPaused != nil && *s.OperatorPaused {
 			continue
 		}
 		projectID := ProjectID(s.ProjectID)

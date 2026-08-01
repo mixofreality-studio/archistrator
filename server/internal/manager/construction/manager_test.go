@@ -2791,6 +2791,75 @@ func Test_PumpSweep_FiltersToConstructionPhaseOnly(t *testing.T) {
 	}
 }
 
+// boolPtr is a tiny test helper — ProjectSummary.OperatorPaused is *bool
+// (generated, omitempty).
+func boolPtr(b bool) *bool { return &b }
+
+// Fix round 1 (Task 7c live-firing review), FINDING 2: a paused project is
+// EXCLUDED from the fan-out even though it is otherwise eligible
+// (construction-phase); an unpaused construction-phase project alongside it is
+// still pumped — the pause check must not over- or under-fire.
+func Test_PumpSweep_ExcludesPausedProject_IncludesUnpaused(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	pausedID := projectstate.ProjectID(uuid.NewString())
+	activeID := projectstate.ProjectID(uuid.NewString())
+	ps := &fakeProjectState{project: projectstate.Project{Version: 1, Phase: 2}}
+	lister := fakeProjectLister{
+		fakeFullProjectState: fakeFullProjectState{ps},
+		summaries: []projectstate.ProjectSummary{
+			{ProjectID: pausedID, Phase: projectstate.PhaseConstruction, OperatorPaused: boolPtr(true)},
+			{ProjectID: activeID, Phase: projectstate.PhaseConstruction, OperatorPaused: boolPtr(false)},
+		},
+	}
+	wf := newWorkflows(wfDeps{Intervention: &fakeIntervention{}, Review: &fakeReview{}})
+	registerPumpSweep(env, wf, lister, ps, &fakePipeline{phase: PipelineSucceeded})
+
+	env.ExecuteWorkflow(executionKindPumpSweep, pumpSweepInput{})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("pump sweep error: %v", err)
+	}
+	var res pumpSweepResult
+	if err := env.GetWorkflowResult(&res); err != nil {
+		t.Fatalf("decode pump sweep result: %v", err)
+	}
+	if len(res.PumpedProjects) != 1 || res.PumpedProjects[0] != ProjectID(activeID) {
+		t.Fatalf("want only the unpaused project pumped (paused excluded), got %v", res.PumpedProjects)
+	}
+}
+
+// A nil OperatorPaused (the zero value ListProjects reports for a
+// never-paused project, per its own omitempty convention) must NOT be
+// mistaken for "paused" — it means "not paused", same as an explicit false.
+func Test_PumpSweep_NilOperatorPaused_TreatedAsNotPaused(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	pid := projectstate.ProjectID(uuid.NewString())
+	ps := &fakeProjectState{project: projectstate.Project{ID: pid, Version: 1, Phase: 2}}
+	lister := fakeProjectLister{
+		fakeFullProjectState: fakeFullProjectState{ps},
+		summaries:            []projectstate.ProjectSummary{{ProjectID: pid, Phase: projectstate.PhaseConstruction, OperatorPaused: nil}},
+	}
+	wf := newWorkflows(wfDeps{Intervention: &fakeIntervention{}, Review: &fakeReview{}})
+	registerPumpSweep(env, wf, lister, ps, &fakePipeline{phase: PipelineSucceeded})
+
+	env.ExecuteWorkflow(executionKindPumpSweep, pumpSweepInput{})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("pump sweep error: %v", err)
+	}
+	var res pumpSweepResult
+	if err := env.GetWorkflowResult(&res); err != nil {
+		t.Fatalf("decode pump sweep result: %v", err)
+	}
+	if len(res.PumpedProjects) != 1 || res.PumpedProjects[0] != ProjectID(pid) {
+		t.Fatalf("want the nil-OperatorPaused project pumped (nil != paused), got %v", res.PumpedProjects)
+	}
+}
+
 // An eligible construction-phase project gets a per-project child pump started
 // (PumpNextActivityWorkflow, unchanged) — this test proves the fan-out actually
 // reaches and runs that workflow (a quiet tick: no eligible activity wired), not
@@ -2836,6 +2905,51 @@ func Test_PumpSweepChildWorkflowID_DiffersFromClientDrivenPumpWorkflowID(t *test
 		if clientID := pumpWorkflowID(pid, tick); clientID == sweepID {
 			t.Fatalf("pumpSweepChildWorkflowID(%q) == pumpWorkflowID(%q, %q) — id spaces must never collide", pid, pid, tick)
 		}
+	}
+}
+
+// Fix round 1 (Task 7c live-firing review), FINDING 6: the "prior tick still
+// cascading → collapse, not fail" branch (temporal.
+// IsWorkflowExecutionAlreadyStartedError in PumpSweepWorkflow) IS reachable in
+// the mocked TestWorkflowEnvironment — the SDK's test env tracks running child
+// workflows by ID and rejects a second start against a STILL-RUNNING one with
+// a real ChildWorkflowExecutionAlreadyStartedError, exactly like the real
+// server (internal_workflow_testsuite.go checks runningWorkflows on start).
+// §10d of the earlier report was WRONG to call this untestable — the cheap
+// trigger is simply two ProjectSummary entries sharing one ProjectID in the
+// SAME tick: the first starts the child; by the time the loop reaches the
+// second (same stable pumpSweepChildWorkflowID, since it depends only on
+// ProjectID), that child has not yet completed, so the second start collides
+// for real and the collapse branch runs.
+func Test_PumpSweep_DuplicateProjectIDInOneTick_SecondCollapsesOntoFirst(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	pid := projectstate.ProjectID(uuid.NewString())
+	ps := &fakeProjectState{project: projectstate.Project{ID: pid, Version: 1, Phase: 2}}
+	lister := fakeProjectLister{
+		fakeFullProjectState: fakeFullProjectState{ps},
+		summaries: []projectstate.ProjectSummary{
+			{ProjectID: pid, Phase: projectstate.PhaseConstruction},
+			{ProjectID: pid, Phase: projectstate.PhaseConstruction}, // duplicate — same stable child id
+		},
+	}
+	wf := newWorkflows(wfDeps{Intervention: &fakeIntervention{}, Review: &fakeReview{}})
+	registerPumpSweep(env, wf, lister, ps, &fakePipeline{phase: PipelineSucceeded})
+
+	env.ExecuteWorkflow(executionKindPumpSweep, pumpSweepInput{})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("pump sweep error: %v — the collapse branch must not propagate the already-started error", err)
+	}
+	var res pumpSweepResult
+	if err := env.GetWorkflowResult(&res); err != nil {
+		t.Fatalf("decode pump sweep result: %v", err)
+	}
+	// The duplicate collapses onto the first (not appended twice, not failed) —
+	// per pumpSweepResult.PumpedProjects's doc: a collapsed entry never appears.
+	if len(res.PumpedProjects) != 1 || res.PumpedProjects[0] != ProjectID(pid) {
+		t.Fatalf("want exactly one pump for the duplicate id (the second collapses onto the first), got %v", res.PumpedProjects)
 	}
 }
 

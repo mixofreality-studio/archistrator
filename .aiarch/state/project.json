@@ -17455,6 +17455,9 @@
               "format": "date-time",
               "x-go-import": "time",
               "x-go-type": "time.Time"
+            },
+            "OperatorPaused": {
+              "type": "boolean"
             }
           },
           "required": [

@@ -470,7 +470,7 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 		messageBus = messagebus.NewTemporalMessageBus(tc, hooks.MessageBusTemporalArgs(cfg))
 		logger.Info("messageBus (Temporal) ready")
 	default:
-		return errors.New("messageBus: no ResourceAccess variant for the active profile")
+		return errors.New("messageBus: no Utility variant for the active profile")
 	}
 	messageBus = hooks.FinalizeMessageBus(cfg, messageBus)
 	var operatedRuntimeAccess operatedruntime.OperatedRuntimeAccess

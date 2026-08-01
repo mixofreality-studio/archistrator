@@ -2733,6 +2733,37 @@ func TestGitStore_ListProjects_ReturnsStoredOwner(t *testing.T) {
 	}
 }
 
+// TestGitStore_ListProjects_SurfacesOperatorPaused (fix round 1, Task 7c
+// live-firing review, FINDING 2): ListProjects must surface OperatorPaused —
+// PumpSweepWorkflow's eligibility filter skips a paused project reading
+// exactly this field, at zero extra I/O cost (the per-project N+1 read
+// ListProjects already performs, readProjectForList, already has the full
+// Project in hand). nil (omitted) before any pause, a true pointer after.
+func TestGitStore_ListProjects_SurfacesOperatorPaused(t *testing.T) {
+	store, id, v, cred := newConstructionStore(t)
+	ctx := context.Background()
+
+	before, err := store.ListProjects(ctx, "alice", cred)
+	if err != nil {
+		t.Fatalf("ListProjects (before pause): %v", err)
+	}
+	if len(before) != 1 || before[0].OperatorPaused != nil {
+		t.Fatalf("want nil OperatorPaused before any pause, got %+v", before)
+	}
+
+	if _, err := store.RecordOperatorPaused(fwra.Context{Context: ctx}, id, v, "operator pause", cred, fwra.IdempotencyKey("wf:paused")); err != nil {
+		t.Fatalf("RecordOperatorPaused: %v", err)
+	}
+
+	after, err := store.ListProjects(ctx, "alice", cred)
+	if err != nil {
+		t.Fatalf("ListProjects (after pause): %v", err)
+	}
+	if len(after) != 1 || after[0].OperatorPaused == nil || !*after[0].OperatorPaused {
+		t.Fatalf("want OperatorPaused=true after RecordOperatorPaused, got %+v", after)
+	}
+}
+
 // TestGitStore_StageCommitRoundTrip — stage a typed model, commit it, read it back
 // with its review status (a model round-trips through git JSON).
 // TestGitStore_SetResearchInput_WritesFilesAndPointer proves the F42 files-not-JSON model

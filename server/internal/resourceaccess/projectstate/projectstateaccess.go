@@ -634,6 +634,15 @@ func (s *GitStore) ListProjects(ctx context.Context, owner OwnerScope, cred Repo
 				summary.UpdatedAt = docUpdatedAt
 			}
 			summary.CommittedCount, summary.TotalCount = phaseProgress(p)
+			// OperatorPaused (fix round 1, Task 7c): surfaces the SAME head-state flag
+			// PumpSweepWorkflow's eligibility filter reads, at zero extra I/O cost — p
+			// is already the full per-project read this N+1 pass performs. Omitted
+			// (nil) rather than always-set-false, mirroring the doc field's own
+			// "omitted when false" convention (Project.OperatorPaused).
+			if p.OperatorPaused {
+				paused := true
+				summary.OperatorPaused = &paused
+			}
 		} else if !isNotFound(perr) {
 			// A real read fault (auth/transient/infra) on a discovered repo is surfaced;
 			// a NotFound (repo provisioned, project.json not yet committed) is tolerated —
