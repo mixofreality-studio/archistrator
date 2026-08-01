@@ -9,6 +9,14 @@
  * of the visited trail: the decider burns at focus strength over the chain the
  * reader has already walked, rather than being the only thing on a blank canvas.
  *
+ *  - AN EXPLICIT `decidedBy` (call-chain rollout Task 5 — the node's authored
+ *    decider id, an actor id or a component id): resolved against persons
+ *    (`actors`) first, then components (`participants`), under the SAME
+ *    placement guard as the actor-lane rule below — the resolved participant
+ *    must appear as a call endpoint on some edge in this view. An id that
+ *    resolves to neither, or resolves but isn't placed, is unresolvable and
+ *    falls through to the inference chain below (it takes no precedence over
+ *    the rest, only over the "no explicit decider" case).
  *  - An ACTOR-lane node (`lane !== 'Machine'`, the ActivityNodeView sentinel
  *    for a machine/system-driven node — see useCaseViews.toUseCaseView): the
  *    actor whose `role` equals the lane string, among the owning use case's
@@ -59,14 +67,30 @@ export interface DeciderResult {
 }
 
 export function resolveDecider(
+  decidedBy: string | undefined,
   lane: string,
   actors: readonly DeciderActor[],
   participants: readonly DeciderParticipant[],
   edges: readonly DeciderCall[]
 ): DeciderResult | undefined {
+  const placed = (id: string): boolean => edges.some((e) => e.from === id || e.to === id);
+
+  if (decidedBy !== undefined && decidedBy.length > 0) {
+    const actor = actors.find((a) => a.id === decidedBy);
+    if (actor !== undefined && placed(actor.id)) {
+      return { id: actor.id, label: actor.role };
+    }
+    const participant = participants.find((p) => p.id === decidedBy);
+    if (participant !== undefined && placed(participant.id)) {
+      return { id: participant.id, label: participant.name };
+    }
+    // Unresolvable (unknown id, or a known id that isn't a call endpoint in
+    // this view) — fall through to the lane/entry-Manager inference chain.
+  }
+
   if (lane !== 'Machine') {
     const actor = actors.find((a) => a.role === lane);
-    if (actor !== undefined && edges.some((e) => e.from === actor.id || e.to === actor.id)) {
+    if (actor !== undefined && placed(actor.id)) {
       return { id: actor.id, label: actor.role };
     }
   }

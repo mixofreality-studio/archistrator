@@ -364,7 +364,8 @@ export function ArchitectureView({
   // CHANGE 3 (founder QA round 3 addendum — "if it's a decision shouldn't the
   // person or engine responsible for making that decision be highlighted?"):
   // a decision/switch node with no realized step highlights its DECIDER
-  // instead of muting the whole diagram — the actor whose swim-lane role
+  // instead of muting the whole diagram — an explicit authored `decidedBy`
+  // first (call-chain rollout Task 5), else the actor whose swim-lane role
   // matches the node's lane, else the use case's entry Manager. Every other
   // call-less kind (and a decision/switch node that DOES author calls)
   // ignores this prop entirely — DynamicViewFlow only consults it when the
@@ -373,6 +374,7 @@ export function ArchitectureView({
     if (focusStepNode === undefined) return undefined;
     if (focusStepNode.kind !== 'decision' && focusStepNode.kind !== 'switch') return undefined;
     return resolveDecider(
+      focusStepNode.decidedBy,
       focusStepNode.lane,
       tracedUseCase?.uc.actors ?? [],
       dynamicModel.participants,

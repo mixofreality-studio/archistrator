@@ -12,7 +12,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import type { System, UseCaseDecision } from './types';
+import type { ActivityNode, System, UseCaseDecision } from './types';
 import { ownerUseCaseId, toUseCaseView, viewKeyForUseCase } from './useCaseViews.ts';
 
 function decision(
@@ -67,6 +67,50 @@ void test('rejectionReason keeps mapping alongside the new field', () => {
   );
   assert.equal(uc.rejectionReason, 'A variation.');
   assert.equal(uc.essenceRationale, '');
+});
+
+// ── decidedBy mapping (call-chain rollout Task 5) ───────────────────────────
+
+function decisionWithNodes(nodes: ActivityNode[]): UseCaseDecision {
+  return {
+    rejectionReason: '',
+    useCase: {
+      id: 'uc-1',
+      name: 'Place Order',
+      classification: 'core',
+      trigger: 'clientAction',
+      actors: [],
+      activity: { nodes, edges: [] },
+      variationOf: null,
+    },
+  };
+}
+
+function activityNode(decidedBy?: string | null): ActivityNode {
+  return {
+    id: 'd1',
+    kind: 'decision',
+    label: 'Check',
+    linkedActorId: null,
+    roleName: '',
+    ...(decidedBy !== undefined ? { decidedBy } : {}),
+  };
+}
+
+void test('a node with a decidedBy id maps it onto the ActivityNodeView verbatim', () => {
+  const uc = toUseCaseView(decisionWithNodes([activityNode('architect-user')]));
+  assert.equal(uc.nodes[0]?.decidedBy, 'architect-user');
+});
+
+void test('a node with no decidedBy, or an explicit null, maps to no decidedBy key at all', () => {
+  const uc = toUseCaseView(decisionWithNodes([activityNode(), activityNode(null)]));
+  assert.equal('decidedBy' in (uc.nodes[0] ?? {}), false);
+  assert.equal('decidedBy' in (uc.nodes[1] ?? {}), false);
+});
+
+void test('a node with a blank decidedBy string maps to no decidedBy key', () => {
+  const uc = toUseCaseView(decisionWithNodes([activityNode('')]));
+  assert.equal('decidedBy' in (uc.nodes[0] ?? {}), false);
 });
 
 // ── viewKeyForUseCase resolution ────────────────────────────────────────────

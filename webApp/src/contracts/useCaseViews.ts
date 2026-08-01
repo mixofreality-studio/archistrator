@@ -21,6 +21,17 @@ export interface ActivityNodeView {
   label: string;
   /** The swim-lane (role) this node sits in. */
   lane: string;
+  /**
+   * The explicit decider id (an actor id or a component id) the node was
+   * authored with (call-chain rollout Task 5) — takes precedence over the
+   * lane/entry-Manager inference chain in the Architecture dynamic lens'
+   * `resolveDecider`, PROVIDED it resolves to a person or component actually
+   * placed (a call endpoint) in the rendered view; an unplaced or unresolvable
+   * id falls through to that inference chain instead. Undefined when the node
+   * carries no explicit decidedBy (the wire field is optional/nullable, and
+   * absent for every node authored before it existed).
+   */
+  decidedBy?: string;
 }
 
 export interface ActivityEdgeView {
@@ -68,6 +79,7 @@ export function toUseCaseView(decision: UseCaseDecision): UseCaseView {
       kind: n.kind,
       label: n.label,
       lane: n.roleName.length > 0 ? n.roleName : 'Machine',
+      ...(n.decidedBy != null && n.decidedBy.length > 0 ? { decidedBy: n.decidedBy } : {}),
     })
   );
   const edges = rawEdges.map(

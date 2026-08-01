@@ -337,6 +337,10 @@ export type SequencedCall = C4Relationship & {
   callInStep: number;
   /** Total calls authored on this step. */
   callsInStep: number;
+  /** Alternative-group display label ("1a", "1b", …) — see realization.ts'
+   *  linearizeSteps/altLabelsForStep. Undefined for a step with no `alt`
+   *  calls at all; callers display `altLabel ?? String(seq)`. */
+  altLabel?: string;
 };
 
 /** A single dynamic call-chain view: ordered participants + sequenced edges. */

@@ -684,6 +684,7 @@ export interface components {
       activities: null | components['schemas']['ModelActivityItem'][];
     };
     ModelActivityNode: {
+      decidedBy?: null | string;
       id: string;
       /** @enum {string} */
       kind:
@@ -712,7 +713,7 @@ export interface components {
     };
     ModelCallStep: {
       activityNodeId: string;
-      calls: null | components['schemas']['ModelRelationship'][];
+      calls: null | components['schemas']['ModelTraceCall'][];
     };
     ModelCheckItem: {
       guideline: string;
@@ -1037,6 +1038,14 @@ export interface components {
       dynamicViews: null | components['schemas']['ModelDynamicView'][];
       relationships: null | components['schemas']['ModelRelationship'][];
       waivers?: null | components['schemas']['ModelCheckItem'][];
+    };
+    ModelTraceCall: {
+      alt?: null | string;
+      from: string;
+      label: string;
+      /** @enum {string} */
+      mode: 'sync' | 'queued' | 'eventPubSub';
+      to: string;
     };
     ModelTrustSummaries: {
       billing: string;

@@ -381,8 +381,10 @@ export interface EdgeOpts {
    *  sequence number, drawn as a small high-contrast chip at the edge's
    *  midpoint. Set ONLY on the current fragment's calls — the chip is what ties
    *  a numbered caption line to a specific wire on the canvas, so numbering
-   *  everything would defeat it. */
-  seqChip?: number;
+   *  everything would defeat it. A string when the call carries an
+   *  alt-group display label ("1a", "1b", … — call-chain rollout Task 5)
+   *  instead of the plain global number. */
+  seqChip?: number | string;
   /** Founder QA round 4 (parallel-strand separation): this edge's slot among the
    *  strands sharing its (source, target) pair — see parallelEdges.ts. Absent
    *  (or count 1) leaves the path exactly where it has always been drawn. */

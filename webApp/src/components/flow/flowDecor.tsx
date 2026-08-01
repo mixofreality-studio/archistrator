@@ -75,7 +75,7 @@ export function LayeredStepEdge({
   // the anchor (via ArchitectureFlow's onEdgeClick — React Flow's own `selected`
   // state is inert here since the graph is controlled without a change handler).
   const d = data as
-    | { comment?: Anchor; findings?: Finding[]; seqChip?: number; parallel?: ParallelSlot }
+    | { comment?: Anchor; findings?: Finding[]; seqChip?: number | string; parallel?: ParallelSlot }
     | undefined;
   const commentable = d?.comment !== undefined;
   const findings = d?.findings ?? [];
@@ -135,7 +135,9 @@ export function LayeredStepEdge({
  * global sequence number, matching the number the fragment caption prints beside
  * the same call. Without it a caption reading "6. dispatch the draft job" and a
  * lit wire on the canvas were two facts the reader had to correlate by guesswork
- * — the architect's "no canvas↔caption correspondence".
+ * — the architect's "no canvas↔caption correspondence". A string value is an
+ * alt-group display label ("1a", "1b", … — call-chain rollout Task 5) rather
+ * than the plain global number.
  *
  * Deliberately aria-hidden and pointer-transparent: the caption already states
  * the number, the label and both endpoints as text, so announcing it again on
@@ -147,7 +149,7 @@ function EdgeSeqChip({
   y,
   nudged,
 }: {
-  seq: number;
+  seq: number | string;
   x: number;
   y: number;
   /** Shift clear of the finding badge that already occupies this midpoint. */

@@ -104,6 +104,57 @@ export interface LinearizedCall {
   callInStep: number;
   /** Total calls authored on this step. */
   callsInStep: number;
+  /**
+   * Alternative-group display label ("1a", "1b", …), when this step authors at
+   * least one call with a non-empty `alt` value (call-chain rollout Task 5).
+   * Calls sharing the SAME `alt` value on this step are concurrent
+   * alternatives — cardinality rules read them as targeting the same
+   * Manager — so they share the numeric part and take a letter suffix in
+   * declared order; a plain call (no `alt`) on the SAME step still consumes
+   * the next numeric position by itself, with no letter, so a group of N
+   * alternatives compresses to ONE position rather than inflating the count
+   * by N. A step authoring NO alt calls at all leaves every one of its
+   * calls' altLabel undefined — those calls keep the plain global `seq`
+   * adapters.ts' toDynamicView assigns, unchanged from before this field
+   * existed.
+   */
+  altLabel?: string;
+}
+
+/**
+ * Per-step alt-aware position labels, aligned 1:1 with `calls` in declared
+ * order. A step with no `alt` value on ANY of its calls (the common case)
+ * returns an array of `undefined`s — its calls fall back to plain global
+ * `seq` numbering, untouched. Otherwise every call in the step gets a label:
+ * an alt-group's members share the numeric part (assigned the first time
+ * that `alt` value is seen, in declared order) with a letter suffix by
+ * declared order within the group ('a', 'b', …); a plain call still advances
+ * the numeric counter by one, alone.
+ */
+function altLabelsForStep(calls: readonly { alt?: string | null }[]): (string | undefined)[] {
+  if (!calls.some((c) => c.alt != null && c.alt.length > 0)) {
+    return calls.map(() => undefined);
+  }
+  const positionByAlt = new Map<string, number>();
+  const nextLetterByAlt = new Map<string, number>();
+  let position = 0;
+  return calls.map((c) => {
+    const alt = c.alt;
+    if (alt == null || alt.length === 0) {
+      position += 1;
+      return String(position);
+    }
+    let pos = positionByAlt.get(alt);
+    if (pos === undefined) {
+      position += 1;
+      pos = position;
+      positionByAlt.set(alt, pos);
+      nextLetterByAlt.set(alt, 0);
+    }
+    const letterIndex = nextLetterByAlt.get(alt) ?? 0;
+    nextLetterByAlt.set(alt, letterIndex + 1);
+    return `${String(pos)}${String.fromCharCode(97 + letterIndex)}`;
+  });
 }
 
 /**
@@ -167,6 +218,7 @@ export function linearizeSteps(
     emitted.add(nodeId);
     const calls = step.calls ?? [];
     const stepLabel = labelById.get(nodeId) ?? nodeId;
+    const altLabels = altLabelsForStep(calls);
     calls.forEach((c, i) => {
       out.push({
         from: c.from,
@@ -177,6 +229,7 @@ export function linearizeSteps(
         stepLabel,
         callInStep: i + 1,
         callsInStep: calls.length,
+        ...(altLabels[i] !== undefined ? { altLabel: altLabels[i] } : {}),
       });
     });
   }

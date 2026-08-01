@@ -329,3 +329,84 @@ void test('(f) an absent/null activity diagram still linearizes every step, in a
     ]
   );
 });
+
+// ── linearizeSteps: alt-aware numbering (call-chain rollout Task 5) ─────────
+// alt alternatives are AUTHORED as concurrent (cardinality rules read calls
+// sharing an `alt` value as targeting the same Manager) — the display
+// numbering must not contradict that by counting them as N sequential steps.
+
+void test('two alt pairs + a trailing plain call: groups share a numeric position lettered by declared order, and consume ONE position each', () => {
+  const steps: NonNullable<System['dynamicViews']>[number]['steps'] = [
+    {
+      activityNodeId: 'entry',
+      calls: [
+        { from: 'client', to: 'mgr', mode: 'sync', label: 'call1', alt: 'g1' },
+        { from: 'client', to: 'mgr', mode: 'sync', label: 'call2', alt: 'g1' },
+        { from: 'client', to: 'mgr', mode: 'sync', label: 'call3', alt: 'g2' },
+        { from: 'client', to: 'mgr', mode: 'sync', label: 'call4', alt: 'g2' },
+        { from: 'client', to: 'mgr', mode: 'sync', label: 'call5' },
+      ],
+    },
+  ];
+  const out = linearizeSteps(steps, undefined);
+  assert.deepEqual(
+    out.map((c) => c.altLabel),
+    ['1a', '1b', '2a', '2b', '3']
+  );
+});
+
+void test('alt-group letters follow DECLARED order even when the group is not contiguous within the step', () => {
+  const steps: NonNullable<System['dynamicViews']>[number]['steps'] = [
+    {
+      activityNodeId: 'entry',
+      calls: [
+        { from: 'a', to: 'b', mode: 'sync', label: 'first', alt: 'g1' },
+        { from: 'a', to: 'c', mode: 'sync', label: 'other', alt: 'g2' },
+        { from: 'a', to: 'b', mode: 'sync', label: 'second', alt: 'g1' },
+      ],
+    },
+  ];
+  const out = linearizeSteps(steps, undefined);
+  assert.deepEqual(
+    out.map((c) => c.altLabel),
+    ['1a', '2a', '1b']
+  );
+});
+
+void test('a step authoring NO alt calls at all leaves altLabel ABSENT (not merely undefined) on every call', () => {
+  const steps: NonNullable<System['dynamicViews']>[number]['steps'] = [
+    {
+      activityNodeId: 'n1',
+      calls: [
+        { from: 'a', to: 'b', mode: 'sync', label: 'one' },
+        { from: 'b', to: 'c', mode: 'sync', label: 'two' },
+      ],
+    },
+  ];
+  const out = linearizeSteps(steps, undefined);
+  // deepEqual (strict) fails if either object carried an extra `altLabel: undefined`
+  // key — this is the regression guard for the common (no-alt) case: those calls'
+  // display must keep falling back to the plain global `seq` unaffected.
+  assert.deepEqual(out, [
+    {
+      from: 'a',
+      to: 'b',
+      mode: 'sync',
+      label: 'one',
+      stepNodeId: 'n1',
+      stepLabel: 'n1',
+      callInStep: 1,
+      callsInStep: 2,
+    },
+    {
+      from: 'b',
+      to: 'c',
+      mode: 'sync',
+      label: 'two',
+      stepNodeId: 'n1',
+      stepLabel: 'n1',
+      callInStep: 2,
+      callsInStep: 2,
+    },
+  ]);
+});

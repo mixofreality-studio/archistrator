@@ -267,7 +267,7 @@ function build(
       toUtility: layerOf.get(r.to) === 'utility',
       ...(stroke !== undefined ? { stroke } : {}),
       ...(opacity !== undefined ? { opacity } : {}),
-      ...(isCurrent ? { seqChip: r.seq } : {}),
+      ...(isCurrent ? { seqChip: r.altLabel ?? r.seq } : {}),
       ...(slot !== undefined ? { parallel: slot } : {}),
     });
   });
@@ -662,7 +662,7 @@ function FragmentBar({
                   wordBreak: 'break-word',
                 }}
               >
-                {c.seq}. {c.label}
+                {c.altLabel ?? c.seq}. {c.label}
                 <Box component="span" sx={{ color: t.muted }}>
                   {'  ·  '}
                   {nameOf.get(c.from) ?? c.from} → {nameOf.get(c.to) ?? c.to}
