@@ -78,8 +78,8 @@ type TraceCall struct {
 - **Deleted:** `DynamicView.Participants` (derived: union of call endpoints),
   `DynamicView.Edges` (replaced by `Steps`), `ActivityNode.LinkedCompID`
   (superseded; `RoleName`/`LinkedActorID` stay — swim-lanes are unaffected).
-- `Relationship` is reused as the call type: `Mode ∈ {sync, queued}` and the
-  destination-layer label vocabulary carry over unchanged.
+- `Relationship`'s `Mode`/label vocabulary carries over unchanged into
+  `TraceCall` (the call type since the rollout rulings).
 - **`CallStep.Calls` is now `[]TraceCall`** (rollout rulings 2026-07-31): same
   fields as `Relationship` plus optional `Alt *string` (wire `alt`, optional).
   Calls in one step sharing an `alt` value are surface-alternatives —
@@ -107,18 +107,21 @@ type TraceCall struct {
 
 ## 4. Validation
 
-New `CC-*` (call-chain correspondence) family in platform
-`framework-go/methodcheck` (authoritative: `putDraftModel` + CI), mirrored in
-the app's `designhealth` live tier. All Error severity; System draft/commit is
-blocked while any fire — the staging is implemented as the `ccGateSeverity` /
-`ccLiveSeverity` constants (`Warning` in the PoC; the post-QA phase flips them
-to `Error`), and the retargeted `DV-STATIC-COVERAGE`/`DV-REL-COVERAGE` ride the
-same constants (see §6). Two more rules join the same staging (rollout
-rulings 2026-07-31): `CUC-ACTOR-REQUIRED` and `CC-DECIDED-BY` both ride
-`ccGateSeverity` — `CUC-ACTOR-REQUIRED` despite being CoreUseCases-attributed
-rather than System-attributed, the same staleness exception the
-`applyGateSeverityPolicies` note below already carves out for the rest of
-this family.
+New `CC-*` (call-chain correspondence) family (includes one
+CoreUseCases-attributed rule, `CUC-ACTOR-REQUIRED` — see note below) in
+platform `framework-go/methodcheck` (authoritative: `putDraftModel` + CI),
+mirrored in the app's `designhealth` live tier. All Error severity; System
+draft/commit is blocked while any fire — the staging is implemented as the
+`ccGateSeverity` / `ccLiveSeverity` constants (`Warning` in the PoC; the
+post-QA phase flips them to `Error`), and the retargeted
+`DV-STATIC-COVERAGE`/`DV-REL-COVERAGE` ride the same constants (see §6). Two
+more rules join the same staging (rollout rulings 2026-07-31):
+`CUC-ACTOR-REQUIRED` and `CC-DECIDED-BY` both ride `ccGateSeverity`. This is
+the reverse of the `applyGateSeverityPolicies` exception below — that note
+reattributes a CC-* finding to System despite reading CoreUseCases data;
+`CUC-ACTOR-REQUIRED` stays CoreUseCases-attributed and merely borrows the
+System-gate's severity constant, so its attribution/section grammar do not
+change.
 
 | Rule | Checks |
 | --- | --- |
@@ -152,7 +155,8 @@ Existing rules:
   `DV-CHAIN-CONNECTED` (superseded by the stronger per-path
   `CC-PATH-CONNECTED`).
 - **Unchanged:** `USECASE-DYNAMIC-MISSING`, `ARCH-CHAINCOV`,
-  `USECASE-ACTIVITY-MISSING`, all `UC-*`/`CUC-*`/`SYS-*` rules.
+  `USECASE-ACTIVITY-MISSING`, all `UC-*`/`SYS-*` rules, and all `CUC-*` rules
+  except the new `CUC-ACTOR-REQUIRED` (added by the rollout rulings above).
 - `applyGateSeverityPolicies` staleness note extends to `CC-*`: they are
   System-attributed even though they read CoreUseCases.
 - The read-back findings in `systemdesign` manager (`coauthorartifact.go`)
