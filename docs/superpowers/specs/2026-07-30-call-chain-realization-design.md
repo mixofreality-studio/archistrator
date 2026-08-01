@@ -58,8 +58,20 @@ type DynamicView struct {
 // CallStep realizes one activity node as an ordered call fragment.
 // Endpoints resolve to a Component.ID or an Actor.ID of the owning use case.
 type CallStep struct {
-    ActivityNodeID string         `json:"activityNodeId"`
-    Calls          []Relationship `json:"calls"` // ≥1, ordered
+    ActivityNodeID string      `json:"activityNodeId"`
+    Calls          []TraceCall `json:"calls"` // ≥1, ordered
+}
+
+// TraceCall is one call within a step (rollout rulings 2026-07-31): the same
+// fields as Relationship plus an optional alt-group tag. Calls in one step
+// sharing an Alt value are surface-alternatives — equivalent entries, not a
+// sequence.
+type TraceCall struct {
+    From  string   `json:"from"`
+    To    string   `json:"to"`
+    Mode  CallMode `json:"mode"`
+    Label string   `json:"label"`
+    Alt   *string  `json:"alt,omitempty"`
 }
 ```
 
@@ -68,6 +80,10 @@ type CallStep struct {
   (superseded; `RoleName`/`LinkedActorID` stay — swim-lanes are unaffected).
 - `Relationship` is reused as the call type: `Mode ∈ {sync, queued}` and the
   destination-layer label vocabulary carry over unchanged.
+- **`CallStep.Calls` is now `[]TraceCall`** (rollout rulings 2026-07-31): same
+  fields as `Relationship` plus optional `Alt *string` (wire `alt`, optional).
+  Calls in one step sharing an `alt` value are surface-alternatives —
+  equivalent entries, not a sequence.
 - Actors come from `UseCase.Actors`; the System's static model stays
   components-only. The realization is the only join point between the two
   artifacts.
@@ -78,6 +94,11 @@ type CallStep struct {
   may have **no incoming edge** — standard UML alternative entries — and
   `UC-ACTDIAG` well-formedness accepts that. Every `timer`/`busMessage` use
   case models its trigger as an event node instead of a pseudo-action.
+- **`ActivityNode.DecidedBy`** (rollout rulings 2026-07-31): optional
+  `*string` (wire `decidedBy`), legal ONLY on `decision`/`switch` kinds;
+  resolves like a call endpoint — a `Component.ID` or the owning use case's
+  `Actor.ID`. Illegal placement (any other kind) or a value that resolves to
+  neither is `CC-DECIDED-BY` (§4).
 - Step eligibility by node kind: `action` **must** have a step; `timeEvent` /
   `acceptEvent` **must** (they realize the trigger entry); `decision` **may**
   (when evaluating the guard itself requires a call); all other kinds
@@ -92,7 +113,12 @@ the app's `designhealth` live tier. All Error severity; System draft/commit is
 blocked while any fire — the staging is implemented as the `ccGateSeverity` /
 `ccLiveSeverity` constants (`Warning` in the PoC; the post-QA phase flips them
 to `Error`), and the retargeted `DV-STATIC-COVERAGE`/`DV-REL-COVERAGE` ride the
-same constants (see §6).
+same constants (see §6). Two more rules join the same staging (rollout
+rulings 2026-07-31): `CUC-ACTOR-REQUIRED` and `CC-DECIDED-BY` both ride
+`ccGateSeverity` — `CUC-ACTOR-REQUIRED` despite being CoreUseCases-attributed
+rather than System-attributed, the same staleness exception the
+`applyGateSeverityPolicies` note below already carves out for the rest of
+this family.
 
 | Rule | Checks |
 | --- | --- |
@@ -104,8 +130,10 @@ same constants (see §6).
 | `CC-STEP-NONEMPTY` | every step has ≥1 call |
 | `CC-ENDPOINT-RESOLVES` | every endpoint resolves to exactly one of {component, use-case actor}; dangling or ambiguous ids are Errors |
 | `CC-ACTOR-EDGE` | a call touching an actor has a Client-layer component on the other end, mode `sync`, never actor↔actor |
-| `CC-PATH-CONNECTED` | for every entry→end path — entries are the initial node and any event node; decision branches enumerated, loops taken once, fork branches in declared order; fork-without-join and multiple end nodes supported — concatenated fragments form a connected chain. **Roots are model-driven:** a path from the initial node of a `clientAction` use case roots with actor→Client (both-surface entries legal: multiple equivalent actor→Client + Client→Manager calls in one entry step); a path from a `timeEvent` node roots with scheduling-Client→Manager; from an `acceptEvent` node, with the queued call into the receiving Manager. Mid-chain actor→Client re-entry (human gates, operator escalation) starts a new legal fragment. Every other call's `From` must already be in the accumulated chain |
+| `CC-PATH-CONNECTED` | for every entry→end path — entries are the initial node and any event node; decision branches enumerated, loops taken once, fork branches in declared order; fork-without-join and multiple end nodes supported — concatenated fragments form a connected chain. **Roots are model-driven:** a path from the initial node of a `clientAction` use case roots with actor→Client (both-surface entries legal: multiple equivalent actor→Client + Client→Manager calls in one entry step); a path from a `timeEvent` node roots with scheduling-Client→Manager; from an `acceptEvent` node, with the queued call into the receiving Manager. Mid-chain actor→Client re-entry (human gates, operator escalation) starts a new legal fragment. Every other call's `From` must already be in the accumulated chain. **Alternative groups don't change this (rollout rulings 2026-07-31):** every call sharing an `alt` value seeds `reached`; the `1a`/`1b` numbering is presentation, not a distinct path branch |
 | `CC-ACTOR-LANE` | a node carrying `linkedActorId` must have that actor as an endpoint in its step's calls (activity diagrams are amended so only Client-touching human actors use `linkedActorId`; external systems are lanes by `roleName` only) |
+| `CUC-ACTOR-REQUIRED` | a `clientAction` use case with zero actors fires — coreUseCases-scoped, section `"useCase "+id` (rollout rulings 2026-07-31) |
+| `CC-DECIDED-BY` | a `decidedBy` that resolves to neither a component nor an owning-use-case actor, or that appears on a non-`decision`/`switch` kind, fires — step-scoped/use-case-scoped per site (rollout rulings 2026-07-31) |
 
 Existing rules:
 
@@ -129,6 +157,14 @@ Existing rules:
   System-attributed even though they read CoreUseCases.
 - The read-back findings in `systemdesign` manager (`coauthorartifact.go`)
   update to the new shape.
+- **Section-grammar alignment (rollout rulings 2026-07-31):** the platform
+  tier's CC Section strings move to key-first — `dynamicView <key>` (falling
+  back to `useCaseId` only when `key` is empty) view-scoped, `dynamicView
+  <key> step <nodeId>` step-scoped, `useCase <ucId>` use-case-scoped —
+  matching the app's existing `designhealth` construction (`ccViewLabel`).
+  This supersedes the title-first `viewLabel` helper the platform used to
+  build CC sections; finding message TEXT may still name the view's title for
+  readability — only the Section identifier changes.
 
 ## 5. UI
 
@@ -149,6 +185,13 @@ No new shell; the two existing views consume the realization.
 - Two-level step-bar caption: *activity step label — call k/n: call label*.
 - Validation reuses the existing `statusBySeq` tinting: calls with an
   attributed `CC-*`/`DV-*` finding render red; finding text in the caption bar.
+- **Validation visibility** (rollout rulings 2026-07-31): the FragmentBar's
+  passing chip is named — `CC checks · passing` / `N CC findings` — and its
+  click-through now routes to the Design Health step; the dynamic-view picker
+  gains a per-view roll-up chip alongside it (e.g. `15/15 realized · CC
+  clean`); an empty sibling view (no steps authored yet) reads "Not yet
+  realized — part of the pending amendment" rather than the generic empty
+  state — a distinct, non-failure tone.
 - **Walkthrough-driven trace** (founder QA round 2, 2026-07-31): the lens is not
   a chain with a map beside it — it is the use case's own **walkthrough** driving
   the chain. The `UseCaseWalkthrough` from the use-cases screen renders on the
@@ -171,10 +214,11 @@ No new shell; the two existing views consume the realization.
   the self-paced step-through's own per-step recenter is unchanged. Same-day
   addendum: a call-less `decision`/`switch` node is carved out of that mute-all —
   "if it's a decision shouldn't the person or engine responsible for making that
-  decision be highlighted?" — decisions highlight their decider — actor lane →
-  person, else entry Manager — one node lit ("Decided by <name>"), everything
-  else muted, Utilities carve-out intact, still no camera movement; a decider
-  that can't be resolved falls back to mute-all). `?step=` still deep-links: the seq
+  decision be highlighted?" — decisions highlight their decider — explicit
+  `decidedBy` first (rollout rulings 2026-07-31), else actor lane → person,
+  else entry-Manager inference — one node lit ("Decided by <name>"),
+  everything else muted, Utilities carve-out intact, still no camera
+  movement; a decider that can't be resolved falls back to mute-all). `?step=` still deep-links: the seq
   resolves to its owning activity node and then, via a BFS shortest path over the
   activity edges (`walkthroughPathTo`), to the route the walkthrough opens on.
   Views with no linked use case / no activity diagram render the chain full-width
@@ -246,7 +290,11 @@ No new shell; the two existing views consume the realization.
 **Both-surface entries:** an entry step carrying both `web-client` and
 `mcp-client` calls highlights **both** clients when its fragment lights up —
 the walkthrough steps by activity node, so the whole fragment (either surface)
-is lit together, reading as "either surface performs this."
+is lit together, reading as "either surface performs this." Numbering follows
+the model's `alt` grouping (rollout rulings 2026-07-31): calls in one step
+sharing an `alt` value render as lettered siblings of one ordinal — `1a`/`1b`
+chips and captions — rather than a plain sequence; both-surface entries are
+the first alt group in the data.
 
 **ActivityFlow** renders the two new node kinds with their UML glyphs
 (hourglass for `timeEvent`, concave pentagon for `acceptEvent`), including as
@@ -365,6 +413,20 @@ captions and tinting, deep links, Design Health chips. During the PoC the
 inspected amid 15 unrealized ones; the hard draft/commit gate flips on in the
 final phase together with the full 16-view alignment amendment. Nothing beyond
 the PoC slice proceeds without founder sign-off.
+
+**Post-QA rollout order (rollout rulings 2026-07-31).** The founder accepted
+the PoC slice; the full rollout now follows the numbered plan at
+`docs/superpowers/plans/2026-07-31-callchain-rollout.md`, superseding the
+open-ended "nothing beyond the PoC slice" gate above with a concrete order:
+model refinements land first (this amendment — `decidedBy`, alternative
+groups, `CUC-ACTOR-REQUIRED`, key-first grammar, §3–§5) so the 16-view
+amendment pass authors against the final model exactly once; then both
+validation tiers and the webApp increment; then the activity-diagram
+amendment (the §6a fixes below) and the 16 realizations in three
+review-sized batches; then the collateral slots (attestations, staleness
+pass, `ACT-COMPONENT-COVERAGE`); then the severity flip to `Error`; then the
+`method-assets` doctrine update; then a cleanup wave; then release
+choreography — founder executes all pushes, tags, and merges.
 
 ## 6a. Architecture impact & amendment scope (system-architect input, 2026-07-30)
 
