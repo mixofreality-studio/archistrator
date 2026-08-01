@@ -5065,21 +5065,21 @@ func TestCommittedProjectJSON_DynamicViewCalls_NoAlt(t *testing.T) {
 
 // wantDecidedByTally is the Task-7 architect spec's D-table explicit-value
 // tally (8 distinct deciders across the 24 explicit rows). Pinning the VALUES,
-// not just the count, is load-bearing: Task 7b renames the "design-health"
-// component to "design-health-engine" and must atomically retarget uc1's
-// ci-check.decidedBy (spec FLAG-6) — a rename that forgets the slot-4 retarget
+// not just the count, is load-bearing: Task 7b renamed the "design-health"
+// component to "design-health-engine" and had to atomically retarget uc1's
+// ci-check.decidedBy (spec FLAG-6) — a rename that forgot the slot-4 retarget
 // would still decode 24 nodes of the right kinds and so stay green against a
-// count-only pin. This map makes that omission fail here instead (fix-round-1
-// FINDING 5).
+// count-only pin. It did its job: this pin failed until the retarget landed
+// (fix-round-1 FINDING 5), and it stays value-keyed for the next rename.
 var wantDecidedByTally = map[string]int{
-	"architect-user":      10,
-	"intervention-engine": 5,
-	"merchant-gateway":    2,
-	"estimation-engine":   2,
-	"operator":            2,
-	"design-health":       1,
-	"review-engine":       1,
-	"autoscaler-engine":   1,
+	"architect-user":       10,
+	"intervention-engine":  5,
+	"merchant-gateway":     2,
+	"estimation-engine":    2,
+	"operator":             2,
+	"design-health-engine": 1,
+	"review-engine":        1,
+	"autoscaler-engine":    1,
 }
 
 // TestCommittedProjectJSON_ActivityNodes_DecidedBySplit is the tolerant-decode

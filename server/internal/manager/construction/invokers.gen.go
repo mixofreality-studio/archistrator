@@ -15,6 +15,7 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
+	"github.com/mixofreality-studio/archistrator/server/internal/utility/messagebus"
 )
 
 // genInvokers is the workflow-side typed call surface: one method per
@@ -386,4 +387,16 @@ func (i genInvokers) DesignSessionWithdrawArtifactOnBranch(ctx workflow.Context,
 	var out projectstate.Version
 	err := workflow.ExecuteActivity(i.options(ctx, "designSessionAccess.withdrawArtifactOnBranch"), "designSessionAccess.withdrawArtifactOnBranch", projectID, expectedVersion, branch, kind, notes).Get(ctx, &out)
 	return out, err
+}
+
+// MessageBusDeliverSignal invokes activity "messageBus.deliverSignal".
+func (i genInvokers) MessageBusDeliverSignal(ctx workflow.Context, targetExecutionID messagebus.ExecutionID, signalName messagebus.SignalName, payload messagebus.ExecutionPayload) error {
+	err := workflow.ExecuteActivity(i.options(ctx, "messageBus.deliverSignal"), "messageBus.deliverSignal", targetExecutionID, signalName, payload).Get(ctx, nil)
+	return err
+}
+
+// MessageBusRegisterSchedule invokes activity "messageBus.registerSchedule".
+func (i genInvokers) MessageBusRegisterSchedule(ctx workflow.Context, scheduleID messagebus.ScheduleID, spec messagebus.ScheduleSpec) error {
+	err := workflow.ExecuteActivity(i.options(ctx, "messageBus.registerSchedule"), "messageBus.registerSchedule", scheduleID, spec).Get(ctx, nil)
+	return err
 }

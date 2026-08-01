@@ -13,20 +13,21 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/billingstate"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/durableexecution"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/merchantgateway"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usage"
+	"github.com/mixofreality-studio/archistrator/server/internal/utility/messagebus"
 )
 
 // genActivities hosts one Temporal Activity per operation of each
-// ResourceAccess component dependency — the manager's architecture-approved
-// call surface. Fields are the contract interfaces, threaded by RegisterWorker.
+// I/O component dependency (ResourceAccess, and any Utility carrying a service
+// contract) — the manager's architecture-approved call surface. Fields are the
+// contract interfaces, threaded by RegisterWorker.
 type genActivities struct {
-	BillingState     billingstate.BillingStateAccess
-	Usage            usage.UsageAccess
-	MerchantGateway  merchantgateway.MerchantGatewayAccess
-	DurableExecution durableexecution.DurableExecutionAccess
-	RevenueLedger    billingstate.RevenueLedgerAccess
+	BillingState    billingstate.BillingStateAccess
+	Usage           usage.UsageAccess
+	MerchantGateway merchantgateway.MerchantGatewayAccess
+	MessageBus      messagebus.MessageBus
+	RevenueLedger   billingstate.RevenueLedgerAccess
 }
 
 // genActivityIdempotencyKey derives the run-scoped 3-part key
@@ -115,32 +116,18 @@ func (a *genActivities) MerchantGatewayValidateStoredInstrument(ctx context.Cont
 	return fwmanager.MapError(err)
 }
 
-// DurableExecutionDeliverSignal wraps durableExecutionAccess.deliverSignal.
-// Registered as "durableExecutionAccess.deliverSignal".
-func (a *genActivities) DurableExecutionDeliverSignal(ctx context.Context, targetExecutionID durableexecution.ExecutionID, signalName durableexecution.SignalName, payload durableexecution.ExecutionPayload) error {
-	err := a.DurableExecution.DeliverSignal(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, targetExecutionID, signalName, payload)
+// MessageBusDeliverSignal wraps messageBus.deliverSignal.
+// Registered as "messageBus.deliverSignal".
+func (a *genActivities) MessageBusDeliverSignal(ctx context.Context, targetExecutionID messagebus.ExecutionID, signalName messagebus.SignalName, payload messagebus.ExecutionPayload) error {
+	err := a.MessageBus.DeliverSignal(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, targetExecutionID, signalName, payload)
 	return fwmanager.MapError(err)
 }
 
-// DurableExecutionQueryExecutionState wraps durableExecutionAccess.queryExecutionState.
-// Registered as "durableExecutionAccess.queryExecutionState".
-func (a *genActivities) DurableExecutionQueryExecutionState(ctx context.Context, executionID durableexecution.ExecutionID, queryName durableexecution.QueryName, args durableexecution.ExecutionPayload) (durableexecution.ExecutionStateView, error) {
-	v, err := a.DurableExecution.QueryExecutionState(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, executionID, queryName, args)
-	return v, fwmanager.MapError(err)
-}
-
-// DurableExecutionRegisterSchedule wraps durableExecutionAccess.registerSchedule.
-// Registered as "durableExecutionAccess.registerSchedule".
-func (a *genActivities) DurableExecutionRegisterSchedule(ctx context.Context, scheduleID durableexecution.ScheduleID, spec durableexecution.ScheduleSpec) error {
-	err := a.DurableExecution.RegisterSchedule(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, scheduleID, spec)
+// MessageBusRegisterSchedule wraps messageBus.registerSchedule.
+// Registered as "messageBus.registerSchedule".
+func (a *genActivities) MessageBusRegisterSchedule(ctx context.Context, scheduleID messagebus.ScheduleID, spec messagebus.ScheduleSpec) error {
+	err := a.MessageBus.RegisterSchedule(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, scheduleID, spec)
 	return fwmanager.MapError(err)
-}
-
-// DurableExecutionStartOrSignalExecution wraps durableExecutionAccess.startOrSignalExecution.
-// Registered as "durableExecutionAccess.startOrSignalExecution".
-func (a *genActivities) DurableExecutionStartOrSignalExecution(ctx context.Context, executionKind durableexecution.ExecutionKind, executionID durableexecution.ExecutionID, signalName durableexecution.SignalName, payload durableexecution.ExecutionPayload) (durableexecution.ExecutionHandle, error) {
-	v, err := a.DurableExecution.StartOrSignalExecution(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, executionKind, executionID, signalName, payload)
-	return v, fwmanager.MapError(err)
 }
 
 // RevenueLedgerReadRange wraps revenueLedgerAccess.readRange.

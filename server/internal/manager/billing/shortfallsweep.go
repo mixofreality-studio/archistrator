@@ -7,7 +7,7 @@ import (
 	"go.temporal.io/sdk/workflow"
 
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/billingstate"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/durableexecution"
+	"github.com/mixofreality-studio/archistrator/server/internal/utility/messagebus"
 )
 
 // ===========================================================================
@@ -54,7 +54,7 @@ func (wf *workflows) readDelinquent(ctx workflow.Context, scope billingstate.Del
 
 // deliverSignalPayload mirrors the applyDelinquencyPolicy payload delivered to
 // operationsManager (the receiving handler dedups; D-DA §9 OQ3). The composition root
-// adapts it onto durableexecution.ExecutionPayload.
+// adapts it onto messagebus.ExecutionPayload.
 type deliverSignalPayload struct {
 	CustomerID       customerID
 	PauseNotWithdraw bool
@@ -63,10 +63,10 @@ type deliverSignalPayload struct {
 // signalApplyDelinquencyPolicy is the cross-Manager signal name delivered to
 // operationsManager (matches operations.SignalApplyDelinquencyPolicy). Declared here as
 // a string literal to avoid a Manager→Manager package import (the edge is queued via
-// durableExecutionAccess, not a direct call).
+// the messageBus utility, not a direct call).
 const signalApplyDelinquencyPolicy = "applyDelinquencyPolicy"
 
-// deliverDelinquencySignal invokes durableExecutionAccess.deliverSignal — the one
+// deliverDelinquencySignal invokes messageBus.deliverSignal — the one
 // sanctioned queued M→M edge (applyDelinquencyPolicy → operationsManager). Fire-and-
 // forget; dedup is the receiving handler's concern (D-DA §9 OQ3). The target is the
 // customer's operations delinquency workflow ({customerId}:delinquency). The payload is
@@ -77,8 +77,8 @@ func (wf *workflows) deliverDelinquencySignal(ctx workflow.Context, customerID c
 		return err
 	}
 	targetWorkflowID := fmt.Sprintf("%s:delinquency", customerID)
-	return wf.Acts.DurableExecutionDeliverSignal(ctx,
-		durableexecution.ExecutionID(targetWorkflowID),
-		durableexecution.SignalName(signalApplyDelinquencyPolicy),
-		durableexecution.ExecutionPayload{Bytes: bytes, ContentType: "application/json"})
+	return wf.Acts.MessageBusDeliverSignal(ctx,
+		messagebus.ExecutionID(targetWorkflowID),
+		messagebus.SignalName(signalApplyDelinquencyPolicy),
+		messagebus.ExecutionPayload{Bytes: bytes, ContentType: "application/json"})
 }

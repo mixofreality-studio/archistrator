@@ -13,8 +13,12 @@ import (
 // drifts away from the committed systemDesign (slot 5) architecture. Every BUILT
 // contract entry (a non-empty goPackage, the same selection cmd/modelgen makes)
 // must JOIN — case-folded + stereotype-suffix-normalized, and layer-scoped — to a
-// slot-5 component of kind manager | engine | resourceAccess whose `encapsulates`
-// is non-empty. A contract joins in one of two ratified shapes: directly, when
+// slot-5 component of kind manager | engine | resourceAccess | utility whose
+// `encapsulates` is non-empty. Utility joined the buildable set on 2026-08-01 with
+// the messageBus fold: MOST utilities are external (Security/Logging/Diagnostics
+// carry buildStatus "external" and no contract, so they never reach this check),
+// but a utility CAN be app code with a generated contract, and when it is, the
+// same no-drift guarantee must hold. A contract joins in one of two ratified shapes: directly, when
 // its KEY normalizes to a component id; or as a contract FACET, when its key names
 // no component but its `component` field joins an owning component (the ratified
 // resource-access facet doctrine — one component, e.g. projectStateAccess, that
@@ -51,12 +55,14 @@ type slot5Component struct {
 }
 
 // contractLayerToKind maps a ServiceContract.Layer (Method-cased) to the slot-5
-// component kind it must join to. Only the three buildable layers are in the map;
-// a built contract in any other layer is itself a failure (reported below).
+// component kind it must join to. Only the buildable layers are in the map; a
+// built contract in any other layer (Client, Resource) is itself a failure
+// (reported below).
 var contractLayerToKind = map[string]string{
 	"Manager":        "manager",
 	"Engine":         "engine",
 	"ResourceAccess": "resourceAccess",
+	"Utility":        "utility",
 }
 
 func TestEveryBuiltContractJoinsAComponent(t *testing.T) {
@@ -85,9 +91,9 @@ func TestEveryBuiltContractJoinsAComponent(t *testing.T) {
 	}
 
 	// Index the buildable slot-5 components by (normalized-id, kind). Only
-	// manager/engine/resourceAccess kinds are join targets; a same-normalized-name
-	// resource (e.g. the "settlement-state" resource vs the settlementState RA) must
-	// NOT satisfy a contract, so the layer is part of the key.
+	// manager/engine/resourceAccess/utility kinds are join targets; a
+	// same-normalized-name resource (e.g. the "settlement-state" resource vs the
+	// settlementState RA) must NOT satisfy a contract, so the layer is part of the key.
 	type joinKey struct{ name, kind string }
 	index := map[joinKey]slot5Component{}
 	// byName indexes the same buildable components by normalized id alone. It is
@@ -96,7 +102,7 @@ func TestEveryBuiltContractJoinsAComponent(t *testing.T) {
 	byName := map[string]slot5Component{}
 	for _, c := range comps {
 		switch c.Kind {
-		case "manager", "engine", "resourceAccess":
+		case "manager", "engine", "resourceAccess", "utility":
 			index[joinKey{normalizeComponentName(c.ID), c.Kind}] = c
 			byName[normalizeComponentName(c.ID)] = c
 		}
@@ -118,7 +124,7 @@ func TestEveryBuiltContractJoinsAComponent(t *testing.T) {
 
 		kind, ok := contractLayerToKind[e.Layer]
 		if !ok {
-			t.Errorf("%s: built contract has layer %q — only Manager/Engine/ResourceAccess are buildable, joinable layers", k, e.Layer)
+			t.Errorf("%s: built contract has layer %q — only Manager/Engine/ResourceAccess/Utility are buildable, joinable layers", k, e.Layer)
 			continue
 		}
 		comp, found := index[joinKey{normalizeComponentName(k), kind}]

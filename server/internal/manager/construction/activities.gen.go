@@ -15,11 +15,13 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
+	"github.com/mixofreality-studio/archistrator/server/internal/utility/messagebus"
 )
 
 // genActivities hosts one Temporal Activity per operation of each
-// ResourceAccess component dependency — the manager's architecture-approved
-// call surface. Fields are the contract interfaces, threaded by RegisterWorker.
+// I/O component dependency (ResourceAccess, and any Utility carrying a service
+// contract) — the manager's architecture-approved call surface. Fields are the
+// contract interfaces, threaded by RegisterWorker.
 type genActivities struct {
 	ProjectState           projectstate.ProjectStateAccess
 	Artifact               artifact.ArtifactAccess
@@ -28,6 +30,7 @@ type genActivities struct {
 	ConstructionTransition projectstate.ConstructionTransitionAccess
 	GitStatus              projectstate.GitActivityStatusAccess
 	DesignSession          projectstate.DesignSessionAccess
+	MessageBus             messagebus.MessageBus
 }
 
 // genActivityIdempotencyKey derives the run-scoped 3-part key
@@ -380,4 +383,18 @@ func (a *genActivities) DesignSessionStageArtifactForReviewOnBranch(ctx context.
 func (a *genActivities) DesignSessionWithdrawArtifactOnBranch(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string) (projectstate.Version, error) {
 	v, err := a.DesignSession.WithdrawArtifactOnBranch(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, branch, kind, notes, genActivityIdempotencyKey(ctx))
 	return v, fwmanager.MapError(err)
+}
+
+// MessageBusDeliverSignal wraps messageBus.deliverSignal.
+// Registered as "messageBus.deliverSignal".
+func (a *genActivities) MessageBusDeliverSignal(ctx context.Context, targetExecutionID messagebus.ExecutionID, signalName messagebus.SignalName, payload messagebus.ExecutionPayload) error {
+	err := a.MessageBus.DeliverSignal(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, targetExecutionID, signalName, payload)
+	return fwmanager.MapError(err)
+}
+
+// MessageBusRegisterSchedule wraps messageBus.registerSchedule.
+// Registered as "messageBus.registerSchedule".
+func (a *genActivities) MessageBusRegisterSchedule(ctx context.Context, scheduleID messagebus.ScheduleID, spec messagebus.ScheduleSpec) error {
+	err := a.MessageBus.RegisterSchedule(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, scheduleID, spec)
+	return fwmanager.MapError(err)
 }

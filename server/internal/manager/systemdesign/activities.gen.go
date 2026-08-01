@@ -17,8 +17,9 @@ import (
 )
 
 // genActivities hosts one Temporal Activity per operation of each
-// ResourceAccess component dependency — the manager's architecture-approved
-// call surface. Fields are the contract interfaces, threaded by RegisterWorker.
+// I/O component dependency (ResourceAccess, and any Utility carrying a service
+// contract) — the manager's architecture-approved call surface. Fields are the
+// contract interfaces, threaded by RegisterWorker.
 type genActivities struct {
 	ProjectState  projectstate.ProjectStateAccess
 	Pipeline      agenticjob.AgenticJobAccess

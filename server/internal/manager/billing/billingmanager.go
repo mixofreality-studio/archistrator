@@ -14,7 +14,7 @@
 // head-state RA write. Temporal lives ONLY in this component; the downstream
 // Engines (billingEngine, interventionEngine — pure, in-workflow, by value) and
 // ResourceAccess ports (billingStateAccess, revenueLedgerAccess, usageAccess,
-// merchantGatewayAccess, operatedRuntimeAccess, durableExecutionAccess) import no
+// merchantGatewayAccess, operatedRuntimeAccess) and the messageBus Utility import no
 // Temporal.
 //
 // The SIX frozen public ops (billingManager.md §2):
@@ -55,9 +55,9 @@ import (
 	billingengine "github.com/mixofreality-studio/archistrator/server/internal/engine/billing"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/billingstate"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/durableexecution"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/merchantgateway"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usage"
+	"github.com/mixofreality-studio/archistrator/server/internal/utility/messagebus"
 )
 
 // BillingManager is the billingManager port — the public use-case surface of the
@@ -96,16 +96,16 @@ var _ BillingManager = (*billingManager)(nil)
 type billingManager struct {
 	client client.Client
 
-	billingState     billingstate.BillingStateAccess
-	usage            usage.UsageAccess
-	merchantGateway  merchantgateway.MerchantGatewayAccess
-	durableExecution durableexecution.DurableExecutionAccess
-	billing          billingengine.BillingEngine
-	intervention     intervention.InterventionEngine
+	billingState    billingstate.BillingStateAccess
+	usage           usage.UsageAccess
+	merchantGateway merchantgateway.MerchantGatewayAccess
+	messageBus      messagebus.MessageBus
+	billing         billingengine.BillingEngine
+	intervention    intervention.InterventionEngine
 
 	// revenueLedger (B6/B7) is the generated revenueLedgerAccess dep, threaded into
 	// genActivities (workermanifest.go) exactly like billingState/usage/merchantGateway
-	// /durableExecution: the workflow reaches it through the generated invoker surface
+	// /messageBus: the workflow reaches it through the generated invoker surface
 	// (invokers.gen.go/activities.gen.go) — no Manager-local seam or custom Activity.
 	revenueLedger billingstate.RevenueLedgerAccess
 }
@@ -119,20 +119,20 @@ func newBillingManager(
 	billingState billingstate.BillingStateAccess,
 	usage usage.UsageAccess,
 	merchantGateway merchantgateway.MerchantGatewayAccess,
-	durableExecution durableexecution.DurableExecutionAccess,
+	messageBus messagebus.MessageBus,
 	billing billingengine.BillingEngine,
 	interventionEng intervention.InterventionEngine,
 	revenueLedger billingstate.RevenueLedgerAccess,
 ) *billingManager {
 	return &billingManager{
-		client:           c,
-		revenueLedger:    revenueLedger,
-		billingState:     billingState,
-		usage:            usage,
-		merchantGateway:  merchantGateway,
-		durableExecution: durableExecution,
-		billing:          billing,
-		intervention:     interventionEng,
+		client:          c,
+		revenueLedger:   revenueLedger,
+		billingState:    billingState,
+		usage:           usage,
+		merchantGateway: merchantGateway,
+		messageBus:      messageBus,
+		billing:         billing,
+		intervention:    interventionEng,
 	}
 }
 
@@ -509,10 +509,10 @@ func newError(kind fwmgr.Kind, detail string) *fwmgr.Error {
 // "accept interfaces" idiom) for the one collaborator still reached through a
 // Manager-local seam, plus the seam data types it carries:
 //
-//   - DurableExecutionAccess — exists as internal/resourceaccess/durableexecution;
+//   - messageBus — exists as internal/utility/messagebus;
 //     consumed here via a NARROW seam interface (RegisterSchedule only, for the
 //     startup shortfallSweep registration). The composition root adapts the concrete
-//     *durableexecution.Runtime (durableAdapter, adapters.go).
+//     published messagebus.MessageBus port onto it (messageBusAdapter, below).
 //
 // Every other collaborator — billingStateAccess, usageAccess, merchantGatewayAccess,
 // revenueLedgerAccess, billingengine.BillingEngine, intervention.InterventionEngine —
@@ -520,7 +520,7 @@ func newError(kind fwmgr.Kind, detail string) *fwmgr.Error {
 // published contracts (workflow.go); no Manager-local seam or data mirror remains for
 // any of them (see the per-collaborator notes below). The in-workflow awaitSignal
 // primitive (the inbound/reversal/chargeback waits) is the Manager's OWN workflow code
-// (D-DA category A), NOT an RA method.
+// (D-DA category A), NOT a bus verb.
 
 // ===========================================================================
 // billingStateAccess — the billing/customer head-state RA. Each WRITE carries
@@ -566,28 +566,28 @@ func newError(kind fwmgr.Kind, detail string) *fwmgr.Error {
 // ===========================================================================
 
 // ===========================================================================
-// durableExecutionAccess — EXISTS (internal/resourceaccess/durableexecution). The two
+// messageBusSeam — EXISTS (internal/utility/messagebus). The two
 // category-B control-plane verbs this Manager calls: deliverSignal (the one queued
 // cross-Manager applyDelinquencyPolicy edge) + registerSchedule (×2). Consumed via a
-// narrow seam interface so the composition root adapts the concrete *durableexecution.
+// narrow seam interface so the composition root adapts the concrete *messagebus.
 // Runtime (whose RegisterSchedule / DeliverSignal signatures differ). awaitSignal (the
 // inbound/reversal/chargeback waits) is the Manager's OWN workflow code (D-DA category
-// A), NOT an RA method.
+// A), NOT a bus verb.
 // ===========================================================================
 
-// DurableExecutionAccess is the Manager's consumer view for the STARTUP Schedule
+// MessageBus is the Manager's consumer view for the STARTUP Schedule
 // registration only. The workflow-invoked category-B verbs — deliverSignal (the queued
 // applyDelinquencyPolicy → operationsManager edge) and the per-customer registerSchedule
 // (op 2.1) — are reached through the generated invokers now; only the startup
 // shortfallSweep registration (RegisterSchedules) still goes through this seam +
-// durableAdapter (adapters.go).
-type durableExecutionAccess interface {
+// messageBusAdapter (adapters.go).
+type messageBusSeam interface {
 	// RegisterSchedule registers (idempotently, by id) a recurring Schedule.
 	RegisterSchedule(ctx context.Context, spec scheduleSpec) error
 }
 
-// scheduleSpec mirrors durableexecution.ScheduleSpec for the two Schedules this Manager
-// registers. The composition root adapts the concrete RA.
+// scheduleSpec mirrors messagebus.ScheduleSpec for the two Schedules this Manager
+// registers. The composition root adapts the concrete utility.
 type scheduleSpec struct {
 	ID           string
 	WorkflowType string
@@ -636,26 +636,26 @@ type scheduleSpec struct {
 // ===========================================================================
 
 // ===========================================================================
-// durableExecutionAccess adapter — over durableexecution.DurableExecutionAccess. Only
+// messageBusSeam adapter — over messagebus.MessageBus. Only
 // the startup RegisterSchedule verb is consumed (the platform-wide shortfallSweep; the
 // workflow-invoked deliverSignal + per-customer registerSchedule now go through the
 // generated invokers). The published ScheduleSpec resolves the task queue via its
 // KindBinding table, so the seam's TaskQueue is not threaded.
 // ===========================================================================
 
-type durableAdapter struct {
-	inner durableexecution.DurableExecutionAccess
+type messageBusAdapter struct {
+	inner messagebus.MessageBus
 }
 
-var _ durableExecutionAccess = durableAdapter{}
+var _ messageBusSeam = messageBusAdapter{}
 
-func (a durableAdapter) RegisterSchedule(ctx context.Context, spec scheduleSpec) error {
+func (a messageBusAdapter) RegisterSchedule(ctx context.Context, spec scheduleSpec) error {
 	return a.inner.RegisterSchedule(
 		fwra.Context{Context: ctx},
-		durableexecution.ScheduleID(spec.ID),
-		durableexecution.ScheduleSpec{
-			ExecutionKind: durableexecution.ExecutionKind(spec.WorkflowType),
-			Cadence:       durableexecution.Cadence{Every: time.Duration(spec.IntervalSecs) * time.Second},
+		messagebus.ScheduleID(spec.ID),
+		messagebus.ScheduleSpec{
+			ExecutionKind: messagebus.ExecutionKind(spec.WorkflowType),
+			Cadence:       messagebus.Cadence{Every: time.Duration(spec.IntervalSecs) * time.Second},
 		},
 	)
 }
@@ -834,9 +834,9 @@ func gatewayActivityOptions() workflow.ActivityOptions {
 	}.Options()
 }
 
-// durableActivityOptions — durableExecutionAccess deliverSignal / registerSchedule (30s;
+// messageBusActivityOptions — messageBus deliverSignal / registerSchedule (30s;
 // terminal NotFound/ContractMisuse).
-func durableActivityOptions() workflow.ActivityOptions {
+func messageBusActivityOptions() workflow.ActivityOptions {
 	return fwmgr.ActivityPreset{
 		Timeout:    30 * time.Second,
 		TerminalRA: []fwra.Kind{fwra.NotFound, fwra.ContractMisuse},
@@ -860,8 +860,8 @@ func activityOptions() func(activityName string) (workflow.ActivityOptions, bool
 		"revenueLedgerAccess.recordReversal":                     ledgerActivityOptions(),
 		"merchantGatewayAccess.chargeCustomer":                   gatewayActivityOptions(),
 		"merchantGatewayAccess.validateStoredInstrument":         gatewayActivityOptions(),
-		"durableExecutionAccess.deliverSignal":                   durableActivityOptions(),
-		"durableExecutionAccess.registerSchedule":                durableActivityOptions(),
+		"messageBus.deliverSignal":                               messageBusActivityOptions(),
+		"messageBus.registerSchedule":                            messageBusActivityOptions(),
 	}
 	return func(name string) (workflow.ActivityOptions, bool) {
 		o, ok := presets[name]
@@ -876,7 +876,7 @@ func activityOptions() func(activityName string) (workflow.ActivityOptions, bool
 // activities (activities.gen.go/worker.gen.go), reached workflow-side through
 // wf.Acts (invokers.gen.go) exactly like every other RA.
 //
-// Unlike operations, billing's durableExecutionAccess IS wired into genActivities: the
+// Unlike operations, billing's messageBus IS wired into genActivities: the
 // close-schedule registration (op 2.1) and the queued applyDelinquencyPolicy cross-
 // Manager signal (ncuc5) are workflow-invoked generated activities. (The startup
 // shortfallSweep Schedule is still registered directly via RegisterSchedules, not
@@ -898,11 +898,11 @@ func (m *billingManager) WorkerManifest() genWorkerManifest {
 		},
 		ActivityOptions: optsHook,
 		Activities: genActivities{
-			BillingState:     m.billingState,
-			Usage:            m.usage,
-			MerchantGateway:  m.merchantGateway,
-			DurableExecution: m.durableExecution,
-			RevenueLedger:    m.revenueLedger,
+			BillingState:    m.billingState,
+			Usage:           m.usage,
+			MerchantGateway: m.merchantGateway,
+			MessageBus:      m.messageBus,
+			RevenueLedger:   m.revenueLedger,
 		},
 	}
 }
@@ -921,12 +921,12 @@ func RegisterManagerWorker(w worker.Worker, m BillingManager) {
 }
 
 // RegisterSchedules registers (idempotently) the platform-wide shortfallSweep (hourly)
-// Temporal Schedule at startup via durableExecutionAccess (billingManager.md §6.1;
+// Temporal Schedule at startup via the messageBus utility (billingManager.md §6.1;
 // FU-MST-3). Called once at process start. The per-customer closeBillingCycle:<customerId>
 // Schedule is NOT registered here — it is registered per-customer at onboarding (op 2.1,
-// via the generated durableExecutionAccess.registerSchedule activity).
-func RegisterSchedules(ctx context.Context, durable durableexecution.DurableExecutionAccess) error {
-	return durableAdapter{inner: durable}.RegisterSchedule(ctx, scheduleSpec{
+// via the generated messageBus.registerSchedule activity).
+func RegisterSchedules(ctx context.Context, bus messagebus.MessageBus) error {
+	return messageBusAdapter{inner: bus}.RegisterSchedule(ctx, scheduleSpec{
 		ID:           scheduleIDShortfallSweep,
 		WorkflowType: executionKindShortfallSweep,
 		TaskQueue:    TaskQueue,

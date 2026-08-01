@@ -252,9 +252,23 @@ No new shell; the two existing views consume the realization.
      written for.
   2. **Calls to Utilities draw real edges** (BOTH modes). The static graph's
      no-lines-to-the-Utilities-bar convention does not belong in a call chain,
-     where the call IS the content: `ci-check`'s
-     `SystemDesignManager→DesignHealth` call renders as a numbered, tintable edge
-     routed through the side handles. `ArchitectureFlow` is untouched.
+     where the call IS the content: a Utility call renders as a numbered,
+     tintable edge routed through the side handles. `ArchitectureFlow` is
+     untouched.
+
+     This clause's original example, `ci-check`'s
+     `SystemDesignManager→DesignHealth` call, is no longer a Utility call at all:
+     precisely BECAUSE that call carries the step's business verdict, founder
+     ruling R-F (2026-08-01) reclassified the component to
+     `design-health-engine`, and the edge is now an ordinary Engine-lane M→E. The
+     clause continues to govern true Utilities, whose canonical example is now the
+     **message-bus `registerSchedule` call** on the onboard chain. Per the same
+     ruling's companion (Task 7b §C, "verb calls draw; deliveries don't"), a
+     Utility call is drawable exactly when the verb IS the activity node's
+     business work; a `deliverSignal` whose business meaning is already a declared
+     queued Manager→Manager relationship is realized as that queued call and NEVER
+     additionally as a bus call — the bus is the medium of the queued edge, not a
+     party to it.
   3. **The chain accretes as you walk.** `UseCaseWalkthrough` gains
      `onPathChange` (the whole breadcrumb route; `[]` for the entry chooser)
      alongside `onCurrentNodeChange`; `ArchitectureView` derives `visitedSeqs`
@@ -437,9 +451,10 @@ choreography — founder executes all pushes, tags, and merges.
 **Verdict: no component or relationship changes.** The redesign changes the
 shape of a typed artifact owned by the already-encapsulated typed-state
 volatility behind `project-state-access`; the new rules ride the existing
-`system-design-manager → design-health` edge (its signature already takes the
-whole project, so cross-slot validation fits); the hard gate is the existing
-slot-5 staging path. Every fix the amendment forces is an activity-diagram or
+`system-design-manager → design-health-engine` edge (renamed from `design-health`
+by founder ruling R-F, 2026-08-01; its signature already takes the whole project,
+so cross-slot validation fits); the hard gate is the existing slot-5 staging
+path. Every fix the amendment forces is an activity-diagram or
 realization-authoring fix — zero static-model surgery.
 
 **Rulings (architect's gap list; founder-ratified 2026-07-30):**

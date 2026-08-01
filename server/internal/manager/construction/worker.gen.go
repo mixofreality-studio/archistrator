@@ -63,6 +63,8 @@ func RegisterWorker(w worker.Worker, mf genWorkerManifest) {
 	w.RegisterActivityWithOptions(acts.GitStatusRecordActivityCompleted, activity.RegisterOptions{Name: "gitActivityStatusAccess.recordActivityCompleted"})
 	w.RegisterActivityWithOptions(acts.GitStatusRecordActivityMerged, activity.RegisterOptions{Name: "gitActivityStatusAccess.recordActivityMerged"})
 	w.RegisterActivityWithOptions(acts.GitStatusRecordActivityStarted, activity.RegisterOptions{Name: "gitActivityStatusAccess.recordActivityStarted"})
+	w.RegisterActivityWithOptions(acts.MessageBusDeliverSignal, activity.RegisterOptions{Name: "messageBus.deliverSignal"})
+	w.RegisterActivityWithOptions(acts.MessageBusRegisterSchedule, activity.RegisterOptions{Name: "messageBus.registerSchedule"})
 	w.RegisterActivityWithOptions(acts.ProjectStateAcknowledgeStaleBasis, activity.RegisterOptions{Name: "projectStateAccess.acknowledgeStaleBasis"})
 	w.RegisterActivityWithOptions(acts.ProjectStateAdvancePhase, activity.RegisterOptions{Name: "projectStateAccess.advancePhase"})
 	w.RegisterActivityWithOptions(acts.ProjectStateCommitArtifact, activity.RegisterOptions{Name: "projectStateAccess.commitArtifact"})

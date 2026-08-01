@@ -1826,7 +1826,7 @@
                     "label": "Draft valid?",
                     "roleName": "",
                     "linkedActorId": null,
-                    "decidedBy": "design-health"
+                    "decidedBy": "design-health-engine"
                   },
                   {
                     "id": "regenerate-escalate",
@@ -5228,6 +5228,18 @@
             "atomicBusinessVerbs": []
           },
           {
+            "id": "design-health-engine",
+            "contractKey": null,
+            "name": "DesignHealthEngine",
+            "kind": "engine",
+            "layer": "engine",
+            "encapsulates": "Encapsulates the design-conformance evaluation activity of the System Design Phase Workflow volatility (B-02, B-03): WHICH Method rules judge a draft (counts, layer rules, chain coverage, traceability joins, drift) and HOW findings are computed — the rule inventory evolves with the Method doctrine release over release while the Manager's gate choreography stays put. Pure computation over the typed project state SystemDesignManager passes in (no I/O). Shared typed owner of the volatility with SystemDesignManager (workflow facet vs evaluation facet). Interim home of the platform methodcheck extension; contents upstream to the platform framework at the earmarked release.",
+            "encapsulatesVolatilities": [
+              "System Design Phase Workflow"
+            ],
+            "atomicBusinessVerbs": []
+          },
+          {
             "id": "project-state-access",
             "contractKey": "projectStateAccess",
             "name": "ProjectStateAccess",
@@ -5383,25 +5395,6 @@
             ]
           },
           {
-            "id": "durable-execution-access",
-            "contractKey": "durableExecutionAccess",
-            "name": "DurableExecutionAccess",
-            "kind": "resourceAccess",
-            "layer": "resourceAccess",
-            "encapsulates": "Encapsulates the Workflow Execution Substrate volatility (B-14): registerSchedule/deliverSignal (plus workflow execute/signal/query) as verbs over the durable-execution substrate (Temporal today), so Managers never bind to a runtime API directly.",
-            "encapsulatesVolatilities": [
-              "Workflow Execution Substrate"
-            ],
-            "atomicBusinessVerbs": [
-              "executeWorkflow",
-              "signal",
-              "query",
-              "timer",
-              "schedule",
-              "spawn"
-            ]
-          },
-          {
             "id": "artifact-access",
             "contractKey": "artifactAccess",
             "name": "ArtifactAccess",
@@ -5466,14 +5459,6 @@
             "atomicBusinessVerbs": []
           },
           {
-            "id": "durable-execution-runtime",
-            "name": "DurableExecutionRuntime",
-            "kind": "resource",
-            "layer": "resource",
-            "encapsulates": "The durable-execution substrate (Temporal) hosting Manager workflows, schedules, and signals. Deliberate exemption per the operational-concepts decision 'durable primitives are execution substrate, not architecture edges': a Manager's workflow-internal durable primitives (timers, awaitSignal, child workflows) do NOT appear as edges — only explicit cross-component verbs (registerSchedule, deliverSignal) surface, via DurableExecutionAccess.",
-            "atomicBusinessVerbs": []
-          },
-          {
             "id": "merchant-gateway",
             "name": "MerchantGateway",
             "kind": "resource",
@@ -5518,13 +5503,19 @@
             "buildStatus": "external"
           },
           {
-            "id": "design-health",
-            "name": "DesignHealth",
+            "id": "message-bus",
+            "contractKey": "messageBus",
+            "name": "MessageBus",
             "kind": "utility",
             "layer": "utility",
-            "contractKey": null,
-            "atomicBusinessVerbs": [],
-            "encapsulates": "Utility: design-conformance rule evaluation — computes the live design-health findings (counts, layer rules, chain coverage, traceability joins, drift) from the typed project state, identically for every project on the platform. Passes the cappuccino-machine test — serves any project, owns no business volatility. Interim home of the platform methodcheck extension; contents upstream to the platform framework at the earmarked release."
+            "encapsulates": "Utility (restricted clientele — ch. 5): the messaging surface between Managers — deliverSignal delivers a queued Manager→Manager message; registerSchedule registers the recurring timers that fire through the SchedulerClient channel. Encapsulates the Workflow Execution Substrate volatility (B-14): Temporal today, another durable-execution substrate later — Managers never bind to a runtime API. Only Managers may call it (arch-test import rule). The substrate's execution role stays invisible: a Manager's workflow-internal durable primitives (timers, awaitSignal, child workflows) are execution substrate, not architecture edges — only these two cross-component verbs surface, and a queued Manager→Manager relationship remains the architectural representation of every delivery.",
+            "encapsulatesVolatilities": [
+              "Workflow Execution Substrate"
+            ],
+            "atomicBusinessVerbs": [
+              "deliverSignal",
+              "registerSchedule"
+            ]
           }
         ],
         "relationships": [
@@ -5769,18 +5760,6 @@
             "label": "getInstallationToken | openBranch | openPullRequest | getPullRequestStatus | postReview | mergePullRequest"
           },
           {
-            "from": "operations-manager",
-            "to": "durable-execution-access",
-            "mode": "sync",
-            "label": "registerSchedule(operatedStateReconcile)"
-          },
-          {
-            "from": "billing-manager",
-            "to": "durable-execution-access",
-            "mode": "sync",
-            "label": "deliverSignal(applyDelinquencyPolicy) / registerSchedule(shortfallSweep)"
-          },
-          {
             "from": "project-state-access",
             "to": "project-git-repo",
             "mode": "sync",
@@ -5833,12 +5812,6 @@
             "to": "github",
             "mode": "sync",
             "label": "install/authorize GitHub App / provision per-project repo / writeActionsSecret / commitAgenticWorkflowFile"
-          },
-          {
-            "from": "durable-execution-access",
-            "to": "durable-execution-runtime",
-            "mode": "sync",
-            "label": "execute workflow / signal / query / register schedule / dispatch activity"
           },
           {
             "from": "web-client",
@@ -5920,9 +5893,33 @@
           },
           {
             "from": "billing-manager",
+            "to": "message-bus",
+            "mode": "sync",
+            "label": "deliverSignal(applyDelinquencyPolicy) / registerSchedule(shortfallSweep, closeBillingCycle)"
+          },
+          {
+            "from": "operations-manager",
+            "to": "message-bus",
+            "mode": "sync",
+            "label": "registerSchedule(operatedStateReconcile)"
+          },
+          {
+            "from": "construction-manager",
+            "to": "message-bus",
+            "mode": "sync",
+            "label": "registerSchedule(constructionPump, replanSweep) / deliverSignal(replan trigger)"
+          },
+          {
+            "from": "billing-manager",
             "to": "operations-manager",
             "mode": "queued",
             "label": "delivers applyDelinquencyPolicy (queued)"
+          },
+          {
+            "from": "construction-manager",
+            "to": "project-design-manager",
+            "mode": "queued",
+            "label": "variance detected → trigger replan sweep (queued)"
           },
           {
             "from": "system-design-manager",
@@ -5932,7 +5929,7 @@
           },
           {
             "from": "system-design-manager",
-            "to": "design-health",
+            "to": "design-health-engine",
             "mode": "sync",
             "label": "EvaluateDesignHealth(project, systemModel) → findings"
           }
@@ -6005,7 +6002,7 @@
                 "calls": [
                   {
                     "from": "system-design-manager",
-                    "to": "design-health",
+                    "to": "design-health-engine",
                     "mode": "sync",
                     "label": "EvaluateDesignHealth(draft) → findings"
                   }
@@ -6248,13 +6245,13 @@
             "section": "§2d",
             "guideline": "Golden Engines-to-Managers ratio — fewer Engines than Managers (the book's expectation).",
             "status": "waived",
-            "justification": "WAIVED (Refreshed 2026-07-22 (reconciliation)): 6 Engines against 5 Managers still inverts the book's ~3-for-5 ratio. HandOffEngine was retired (hand-off policy folded into Review Policy / ReviewEngine). Remaining consolidation candidates examined and rejected: EstimationEngine + OperationEstimationEngine encapsulate two independently-evolving estimation models with disjoint caller sets; InterventionEngine + AutoscalerEngine encapsulate distinct policies with different reuse profiles. Each of the 6 Engines has a 1:1 volatility-to-encapsulator relationship. Re-evaluate at the next scope-change replan."
+            "justification": "WAIVED (Refreshed 2026-07-22 (reconciliation)): 7 Engines against 5 Managers still inverts the book's ~3-for-5 ratio. HandOffEngine was retired (hand-off policy folded into Review Policy / ReviewEngine). Remaining consolidation candidates examined and rejected: EstimationEngine + OperationEstimationEngine encapsulate two independently-evolving estimation models with disjoint caller sets; InterventionEngine + AutoscalerEngine encapsulate distinct policies with different reuse profiles. Each of the 7 Engines has a 1:1 volatility-to-encapsulator relationship. design-health-engine joined the Engine set 2026-08-01 (founder ruling R-F: its call carries the ci-check business verdict in uc1's chain — an evaluation Strategy, not ambient infrastructure); its 1:1 relationship holds as a shared System Design Phase Workflow facet with the Manager (workflow choreography vs rule evaluation). Re-evaluate at the next scope-change replan."
           },
           {
             "section": "§naming",
             "guideline": "Engine names are gerunds (ch. 3 naming rule: gerund + Engine suffix, e.g. MatchingEngine).",
             "status": "waived",
-            "justification": "WAIVED (Refreshed 2026-07-22 (reconciliation)): 5 of 6 Engines are noun-named rather than gerund-named (EstimationEngine, OperationEstimationEngine, InterventionEngine, AutoscalerEngine, ReviewEngine; only BillingEngine conforms). The rule is a readability convention, not a structural one. Renaming cascades through component ids, serviceContracts keys, and Go packages while construction is active — apply gerund names opportunistically whenever an architectural change next touches a given Engine's contract."
+            "justification": "WAIVED (Refreshed 2026-07-22 (reconciliation)): 6 of 7 Engines are noun-named rather than gerund-named (EstimationEngine, OperationEstimationEngine, InterventionEngine, AutoscalerEngine, ReviewEngine, DesignHealthEngine; only BillingEngine conforms). The rule is a readability convention, not a structural one. Renaming cascades through component ids, serviceContracts keys, and Go packages while construction is active — apply gerund names opportunistically whenever an architectural change next touches a given Engine's contract."
           }
         ],
         "attestations": [
@@ -6413,6 +6410,7 @@
                 "SystemDesignManager",
                 "AutoscalerEngine",
                 "BillingEngine",
+                "DesignHealthEngine",
                 "EstimationEngine",
                 "InterventionEngine",
                 "OperationEstimationEngine",
@@ -6421,7 +6419,6 @@
                 "BillingStateAccess",
                 "ArtifactAccess",
                 "AgenticJobAccess",
-                "DurableExecutionAccess",
                 "OperatedRuntimeAccess",
                 "OperatedSystemStateAccess",
                 "ProjectStateAccess",
@@ -7040,7 +7037,7 @@
               "perProfile": {}
             },
             {
-              "component": "durableExecutionAccess",
+              "component": "messageBus",
               "presence": "optional",
               "provides": [],
               "settings": [],
@@ -9652,8 +9649,8 @@
           "component": "merchantGatewayAccess"
         },
         {
-          "name": "durableExecution",
-          "component": "durableExecutionAccess"
+          "name": "messageBus",
+          "component": "messageBus"
         },
         {
           "name": "billing",
@@ -10368,6 +10365,10 @@
         {
           "name": "designSession",
           "component": "designSessionAccess"
+        },
+        {
+          "name": "messageBus",
+          "component": "messageBus"
         },
         {
           "name": "escalationWaitTimeout",
@@ -11861,261 +11862,6 @@
       },
       "railAuthority": true
     },
-    "durableExecutionAccess": {
-      "component": "durableExecutionAccess",
-      "layer": "ResourceAccess",
-      "goPackage": "internal/resourceaccess/durableexecution",
-      "infra": [
-        "Temporal"
-      ],
-      "title": "durableexecution contract",
-      "$defs": {
-        "Cadence": {
-          "type": "object",
-          "properties": {
-            "Every": {
-              "type": "integer",
-              "x-go-import": "time",
-              "x-go-type": "time.Duration"
-            },
-            "CronExpr": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "Every",
-            "CronExpr"
-          ],
-          "additionalProperties": false
-        },
-        "ExecutionHandle": {
-          "type": "string"
-        },
-        "ExecutionID": {
-          "type": "string"
-        },
-        "ExecutionKind": {
-          "type": "string"
-        },
-        "ExecutionPayload": {
-          "type": "object",
-          "properties": {
-            "Bytes": {
-              "type": "string",
-              "contentEncoding": "base64",
-              "x-go-type": "[]byte"
-            },
-            "ContentType": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "Bytes",
-            "ContentType"
-          ],
-          "additionalProperties": false
-        },
-        "ExecutionStateView": {
-          "type": "object",
-          "properties": {
-            "Handle": {
-              "$ref": "#/$defs/ExecutionHandle"
-            },
-            "Status": {
-              "$ref": "#/$defs/ExecutionStatus"
-            },
-            "QueryResult": {
-              "type": "string",
-              "contentEncoding": "base64",
-              "x-go-type": "[]byte"
-            },
-            "StartedAt": {
-              "type": "string",
-              "format": "date-time",
-              "x-go-import": "time",
-              "x-go-type": "time.Time"
-            },
-            "ClosedAt": {
-              "type": [
-                "null",
-                "string"
-              ],
-              "format": "date-time",
-              "x-go-import": "time",
-              "x-go-type": "time.Time"
-            }
-          },
-          "required": [
-            "Handle",
-            "Status",
-            "QueryResult",
-            "StartedAt"
-          ],
-          "additionalProperties": false
-        },
-        "ExecutionStatus": {
-          "type": "integer",
-          "enum": [
-            0,
-            1,
-            2,
-            3,
-            4,
-            5
-          ],
-          "x-enum-varnames": [
-            "StatusUnknown",
-            "StatusRunning",
-            "StatusCompleted",
-            "StatusFailed",
-            "StatusCancelled",
-            "StatusTimedOut"
-          ],
-          "x-go-base": "int"
-        },
-        "QueryName": {
-          "type": "string"
-        },
-        "ScheduleID": {
-          "type": "string"
-        },
-        "ScheduleSpec": {
-          "type": "object",
-          "properties": {
-            "ExecutionKind": {
-              "$ref": "#/$defs/ExecutionKind"
-            },
-            "Cadence": {
-              "$ref": "#/$defs/Cadence"
-            },
-            "TargetIDTemplate": {
-              "type": "string"
-            },
-            "StartPayload": {
-              "$ref": "#/$defs/ExecutionPayload"
-            }
-          },
-          "required": [
-            "ExecutionKind",
-            "Cadence",
-            "TargetIDTemplate",
-            "StartPayload"
-          ],
-          "additionalProperties": false
-        },
-        "SignalName": {
-          "type": "string"
-        }
-      },
-      "interface": {
-        "name": "DurableExecutionAccess",
-        "layer": "resourceaccess",
-        "operations": [
-          {
-            "name": "DeliverSignal",
-            "params": [
-              {
-                "name": "targetExecutionID",
-                "schema": {
-                  "$ref": "#/$defs/ExecutionID"
-                }
-              },
-              {
-                "name": "signalName",
-                "schema": {
-                  "$ref": "#/$defs/SignalName"
-                }
-              },
-              {
-                "name": "payload",
-                "schema": {
-                  "$ref": "#/$defs/ExecutionPayload"
-                }
-              }
-            ],
-            "error": true
-          },
-          {
-            "name": "QueryExecutionState",
-            "params": [
-              {
-                "name": "executionID",
-                "schema": {
-                  "$ref": "#/$defs/ExecutionID"
-                }
-              },
-              {
-                "name": "queryName",
-                "schema": {
-                  "$ref": "#/$defs/QueryName"
-                }
-              },
-              {
-                "name": "args",
-                "schema": {
-                  "$ref": "#/$defs/ExecutionPayload"
-                }
-              }
-            ],
-            "result": {
-              "$ref": "#/$defs/ExecutionStateView"
-            },
-            "error": true
-          },
-          {
-            "name": "RegisterSchedule",
-            "params": [
-              {
-                "name": "scheduleID",
-                "schema": {
-                  "$ref": "#/$defs/ScheduleID"
-                }
-              },
-              {
-                "name": "spec",
-                "schema": {
-                  "$ref": "#/$defs/ScheduleSpec"
-                }
-              }
-            ],
-            "error": true
-          },
-          {
-            "name": "StartOrSignalExecution",
-            "params": [
-              {
-                "name": "executionKind",
-                "schema": {
-                  "$ref": "#/$defs/ExecutionKind"
-                }
-              },
-              {
-                "name": "executionID",
-                "schema": {
-                  "$ref": "#/$defs/ExecutionID"
-                }
-              },
-              {
-                "name": "signalName",
-                "schema": {
-                  "$ref": "#/$defs/SignalName"
-                }
-              },
-              {
-                "name": "payload",
-                "schema": {
-                  "$ref": "#/$defs/ExecutionPayload"
-                }
-              }
-            ],
-            "result": {
-              "$ref": "#/$defs/ExecutionHandle"
-            },
-            "error": true
-          }
-        ]
-      }
-    },
     "estimationEngine": {
       "component": "estimationEngine",
       "layer": "Engine",
@@ -13531,6 +13277,137 @@
         ]
       }
     },
+    "messageBus": {
+      "component": "messageBus",
+      "layer": "Utility",
+      "goPackage": "internal/utility/messagebus",
+      "infra": [
+        "Temporal"
+      ],
+      "title": "messagebus contract",
+      "$defs": {
+        "Cadence": {
+          "type": "object",
+          "properties": {
+            "Every": {
+              "type": "integer",
+              "x-go-import": "time",
+              "x-go-type": "time.Duration"
+            },
+            "CronExpr": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "Every",
+            "CronExpr"
+          ],
+          "additionalProperties": false
+        },
+        "ExecutionID": {
+          "type": "string"
+        },
+        "ExecutionKind": {
+          "type": "string"
+        },
+        "ExecutionPayload": {
+          "type": "object",
+          "properties": {
+            "Bytes": {
+              "type": "string",
+              "contentEncoding": "base64",
+              "x-go-type": "[]byte"
+            },
+            "ContentType": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "Bytes",
+            "ContentType"
+          ],
+          "additionalProperties": false
+        },
+        "ScheduleID": {
+          "type": "string"
+        },
+        "ScheduleSpec": {
+          "type": "object",
+          "properties": {
+            "ExecutionKind": {
+              "$ref": "#/$defs/ExecutionKind"
+            },
+            "Cadence": {
+              "$ref": "#/$defs/Cadence"
+            },
+            "TargetIDTemplate": {
+              "type": "string"
+            },
+            "StartPayload": {
+              "$ref": "#/$defs/ExecutionPayload"
+            }
+          },
+          "required": [
+            "ExecutionKind",
+            "Cadence",
+            "TargetIDTemplate",
+            "StartPayload"
+          ],
+          "additionalProperties": false
+        },
+        "SignalName": {
+          "type": "string"
+        }
+      },
+      "interface": {
+        "name": "MessageBus",
+        "layer": "utility",
+        "operations": [
+          {
+            "name": "DeliverSignal",
+            "params": [
+              {
+                "name": "targetExecutionID",
+                "schema": {
+                  "$ref": "#/$defs/ExecutionID"
+                }
+              },
+              {
+                "name": "signalName",
+                "schema": {
+                  "$ref": "#/$defs/SignalName"
+                }
+              },
+              {
+                "name": "payload",
+                "schema": {
+                  "$ref": "#/$defs/ExecutionPayload"
+                }
+              }
+            ],
+            "error": true
+          },
+          {
+            "name": "RegisterSchedule",
+            "params": [
+              {
+                "name": "scheduleID",
+                "schema": {
+                  "$ref": "#/$defs/ScheduleID"
+                }
+              },
+              {
+                "name": "spec",
+                "schema": {
+                  "$ref": "#/$defs/ScheduleSpec"
+                }
+              }
+            ],
+            "error": true
+          }
+        ]
+      }
+    },
     "operatedRuntimeAccess": {
       "component": "operatedRuntimeAccess",
       "layer": "ResourceAccess",
@@ -14577,8 +14454,8 @@
           "component": "artifactAccess"
         },
         {
-          "name": "durableExecution",
-          "component": "durableExecutionAccess"
+          "name": "messageBus",
+          "component": "messageBus"
         },
         {
           "name": "intervention",

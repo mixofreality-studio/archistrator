@@ -58,11 +58,11 @@ import (
 	"github.com/mixofreality-studio/archistrator-platform/framework-go/methodcheck"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 	"github.com/mixofreality-studio/archistrator-platform/framework-go/utilities/security"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/designhealth"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/estimation"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/agenticjob"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
-	"github.com/mixofreality-studio/archistrator/server/internal/utility/designhealth"
 	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/api/serviceerror"
 	"go.temporal.io/sdk/client"
@@ -125,6 +125,15 @@ type systemDesignManager struct {
 	// BranchAware/Ledger/Provenance/Reconciling type-assertion chains are deleted — this
 	// Manager now has ZERO custom Temporal Activities).
 	designSession projectstate.DesignSessionAccess
+
+	// designHealth is the DesignHealthEngine port behind the getDesignHealth
+	// read-model op — the M→E half of the shared System Design Phase Workflow
+	// volatility (this Manager owns the gate choreography; the Engine owns which
+	// rules judge a draft). It is NOT a generated constructor dep: the component
+	// carries no service contract, and an Engine is pure and stateless, so the
+	// builder constructs it directly rather than threading a parameter no
+	// composition root could vary.
+	designHealth designhealth.DesignHealthEngine
 }
 
 // newSystemDesignManager is the hand-written, unexported builder the generated
@@ -133,7 +142,7 @@ type systemDesignManager struct {
 // pipeline/rail/repo are stored for RegisterWorker (rail may be nil — a dev server
 // with no source-control credentials runs the design spine repo-less).
 func newSystemDesignManager(c client.Client, ps projectstate.ProjectStateAccess, pipeline agenticjob.AgenticJobAccess, rail sourcecontrol.SourceControlAccess, repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool), estimator estimation.EstimationEngine, designSession projectstate.DesignSessionAccess, repoBase string) *systemDesignManager {
-	return &systemDesignManager{client: c, projectState: ps, pipeline: pipeline, rail: rail, repo: repo, estimator: estimator, designSession: designSession, repoBase: repoBase}
+	return &systemDesignManager{client: c, projectState: ps, pipeline: pipeline, rail: rail, repo: repo, estimator: estimator, designSession: designSession, repoBase: repoBase, designHealth: designhealth.NewDesignHealthEngine()}
 }
 
 // StartSystemDesign — op 2.0 (2026-05-29). Temporal Workflow (entry;
@@ -2194,13 +2203,13 @@ func (m *systemDesignManager) GetProject(rc fwmanager.Context, projectID Project
 
 // GetDesignHealth returns the LIVE design-health read-model for one project: the
 // mechanical Method-rule findings evaluated render-on-read over the COMMITTED
-// project.json (designhealth.EvaluateRaw — the one live-tier rule engine the
-// putDraftModel authoring gate and CI also drive), PLUS the committed waiver /
-// attestation ledgers, stamped with the state revision the findings ran against.
-// It never mutates state: a clean design returns empty finding/waiver/attestation
-// slices. This is the getDesignHealth VIEW op (ui.view "design-health"); the import
-// of internal/utility/designhealth here is the code that BACKS the
-// SystemDesignManager→DesignHealth architecture edge.
+// project.json, PLUS the committed waiver / attestation ledgers, stamped with the
+// state revision the findings ran against. It never mutates state: a clean design
+// returns empty finding/waiver/attestation slices. This is the getDesignHealth
+// VIEW op (ui.view "design-health" — the view slug, not the component id); the
+// DesignHealthEngine call below is the code that BACKS the
+// SystemDesignManager → DesignHealthEngine architecture edge, an ordinary
+// downward M→E call.
 func (m *systemDesignManager) GetDesignHealth(rc fwmanager.Context, projectID ProjectID) (DesignHealth, error) {
 	ctx := rc.Context
 	if projectID == "" {
@@ -2222,7 +2231,11 @@ func (m *systemDesignManager) GetDesignHealth(rc fwmanager.Context, projectID Pr
 	if err != nil {
 		return DesignHealth{}, fwmanager.Wrap(fwmanager.Infrastructure, err, "projectStateAccess.EncodeProjectJSON")
 	}
-	findings := findingsToContract(designhealth.EvaluateRaw(raw))
+	live, err := m.designHealth.EvaluateDesignHealth(fweng.Context{Context: ctx}, raw)
+	if err != nil {
+		return DesignHealth{}, fwmanager.Wrap(fwmanager.Infrastructure, err, "designHealthEngine.EvaluateDesignHealth")
+	}
+	findings := findingsToContract(live)
 
 	// Committed ledgers: waivers live on BOTH the systemDesign slot (App-C standard
 	// items) and the volatilities slot; attestations live on the systemDesign slot.

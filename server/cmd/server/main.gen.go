@@ -543,7 +543,7 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 	}
 	defer wBillingManager.Stop()
 	logger.Info("embedded temporal worker started", "taskQueue", managerbilling.TaskQueue)
-	constructionManager := construction.NewConstructionManager(tc, projectStateAccess, artifactAccess, interventionEngine, reviewEngine, agenticJobAccess, sourceControlAccess, constructionTransitionAccess, gitActivityStatusAccess, designSessionAccess, hooks.ConstructionManagerEscalationWaitTimeout(), hooks.ConstructionManagerInterventionMode(), hooks.ConstructionManagerRepo())
+	constructionManager := construction.NewConstructionManager(tc, projectStateAccess, artifactAccess, interventionEngine, reviewEngine, agenticJobAccess, sourceControlAccess, constructionTransitionAccess, gitActivityStatusAccess, designSessionAccess, nil, hooks.ConstructionManagerEscalationWaitTimeout(), hooks.ConstructionManagerInterventionMode(), hooks.ConstructionManagerRepo())
 	if hooks.RegisterConstructionManagerWorker(cfg) {
 		wConstructionManager := worker.New(tc, construction.TaskQueue, worker.Options{})
 		construction.RegisterManagerWorker(wConstructionManager, constructionManager)

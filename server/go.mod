@@ -152,3 +152,9 @@ tool github.com/alecthomas/go-check-sumtype/cmd/go-check-sumtype
 // PoC-TEMPORARY (callchain-realization): consume local methodcheck CC-* rules.
 // The post-QA rollout releases framework-go and swaps this for a version pin.
 replace github.com/mixofreality-studio/archistrator-platform/framework-go => ../../archistrator-platform/framework-go
+
+// PoC-TEMPORARY (callchain-realization): consume local modelgen with the Utility
+// layerContext, without which the messageBus utility contract emits context-less
+// signatures and NO Temporal implementation. The post-QA rollout releases
+// framework-go-app-generator and swaps this for a version pin.
+replace github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator => ../../archistrator-platform/framework-go-app-generator

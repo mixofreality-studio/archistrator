@@ -12,7 +12,7 @@
 // in this component; the downstream Engines (interventionEngine,
 // reviewEngine — pure, in-workflow, by value) and ResourceAccess ports
 // (projectStateAccess, artifactAccess, workerAccess, agenticJobAccess,
-// durableExecutionAccess) import no Temporal.
+// messageBus) import no Temporal.
 //
 // The FIVE frozen public ops (constructionManager.md §2):
 //   - ExecuteNextActivity — Workflow (entry; scheduler-triggered pump; per-activity child)
@@ -64,6 +64,7 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
+	"github.com/mixofreality-studio/archistrator/server/internal/utility/messagebus"
 )
 
 // constructionManager is the constructionManager façade — the concrete
@@ -105,6 +106,14 @@ type constructionManager struct {
 	// wfDeps.Repo (WorkerManifest).
 	repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool)
 
+	// messageBus (7b) is the generated messageBus Utility dep — the restricted
+	// Manager-only signal/schedule surface. Threaded into genActivities so the
+	// workflows can reach registerSchedule/deliverSignal through the generated
+	// invokers. Task 7c adds this Manager's RegisterSchedules (the pump tick and the
+	// replan sweep) and the startup wiring; until then the composition root threads
+	// nil, exactly as it did for billing/operations before their schedules landed.
+	messageBus messagebus.MessageBus
+
 	// designSession (B6) is the generated designSessionAccess dep. Since the B8
 	// follow-up it is CONSUMED by the workflows: the pump's whole-aggregate read rides
 	// the generated designSessionAccess.readProjectOnBranch invoker with branch ""
@@ -133,6 +142,7 @@ func newConstructionManager(
 	constructionTransition projectstate.ConstructionTransitionAccess,
 	gitActivityStatus projectstate.GitActivityStatusAccess,
 	designSession projectstate.DesignSessionAccess,
+	messageBus messagebus.MessageBus,
 	escalationWaitTimeout time.Duration,
 	interventionMode string,
 	repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool),
@@ -148,6 +158,7 @@ func newConstructionManager(
 		constructionTransition: constructionTransition,
 		gitActivityStatus:      gitActivityStatus,
 		designSession:          designSession,
+		messageBus:             messageBus,
 		escalationWaitTimeout:  escalationWaitTimeout,
 		interventionMode:       interventionMode,
 		repo:                   repo,
@@ -1342,6 +1353,7 @@ func (m *constructionManager) WorkerManifest() genWorkerManifest {
 			ConstructionTransition: m.constructionTransition,
 			GitStatus:              m.gitActivityStatus,
 			DesignSession:          m.designSession,
+			MessageBus:             m.messageBus,
 		},
 	}
 }
