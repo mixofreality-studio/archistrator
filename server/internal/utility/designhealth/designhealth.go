@@ -105,8 +105,23 @@ const (
 	RuleCCEndpoint      methodcheck.RuleID = "CC-ENDPOINT-RESOLVES"
 	RuleCCActorEdge     methodcheck.RuleID = "CC-ACTOR-EDGE"
 	RuleCCActorLane     methodcheck.RuleID = "CC-ACTOR-LANE"
+	RuleCCDecidedBy     methodcheck.RuleID = "CC-DECIDED-BY"
 	RuleCCTriggerEvent  methodcheck.RuleID = "CC-TRIGGER-EVENT"
 	RuleCCPathConnected methodcheck.RuleID = "CC-PATH-CONNECTED"
+
+	// RuleCUCActorRequired mirrors the platform's CoreUseCases-attributed
+	// CUC-ACTOR-REQUIRED (rollout rulings 2026-07-31): a clientAction use case
+	// must name who initiates it. It ships alongside CC-DECIDED-BY as the
+	// rollout's other new rule, and lives in rules_callchain.go too, but unlike
+	// the CC-* family above it is NOT dynamic-view-scoped — it fires for every
+	// committed use case regardless of whether a dynamic view exists for it
+	// yet. It is unnamespaced for the same reason the CC-* ids are: this is
+	// the SAME rule-id string the platform framework emits, and the webApp
+	// joins on rule id across both call sites. Unlike the platform (whose
+	// registry can attribute a rule to the CoreUseCases artifact family),
+	// designhealth findings carry no separate artifact-family attribution, so
+	// this is just the rule id + section, like its CC-* siblings.
+	RuleCUCActorRequired methodcheck.RuleID = "CUC-ACTOR-REQUIRED"
 )
 
 // Input is the decoded, rule-ready view of one project.json: the published

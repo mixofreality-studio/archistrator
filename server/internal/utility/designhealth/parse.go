@@ -126,6 +126,15 @@ type activityNode struct {
 	Label         string `json:"label"`
 	RoleName      string `json:"roleName"`
 	LinkedActorID string `json:"linkedActorId"`
+
+	// DecidedBy names WHO resolves this node's branch (rollout rulings
+	// 2026-07-31). It is legal ONLY on a decision/switch kind, and it resolves
+	// exactly like a call endpoint: against the System's components UNION the
+	// owning use case's actors. Empty means absent (the shape every
+	// pre-rulings committed node has) — the same zero-value mirroring as
+	// LinkedActorID above. CC-DECIDED-BY (rules_callchain.go) checks both
+	// halves; nothing here enforces them.
+	DecidedBy string `json:"decidedBy"`
 }
 
 // activityEdge is one directed activity-diagram edge.
@@ -174,6 +183,22 @@ type viewEdge struct {
 	To    string `json:"to"`
 	Mode  string `json:"mode"`
 	Label string `json:"label"`
+
+	// Alt tags a surface-alternative group (rollout rulings 2026-07-31): calls
+	// within one step sharing an Alt value are equivalent entries into the
+	// same chain (e.g. the web and MCP surfaces of one use case), not a
+	// sequence. Alt is decoded here for completeness but is INERT for every
+	// CC-* verdict — see TestCCPathConnectedAltGroupBothSeedReached, the
+	// designhealth twin of the platform's alt-both-seed-reached pin — because
+	// no CC-* rule branches on it; every alternative is still checked (and
+	// still seeds CC-PATH-CONNECTED's reached set) exactly like an ordinary
+	// call. The per-view §6a/§6b chain rules (rules_chains.go) do NOT special-
+	// case it either, which is deliberate: they read a view's calls as
+	// concurrent, so an alt group entering two different Managers still fires
+	// DH-CHAIN-ENTRY-MANAGER — alternatives are two doors into ONE chain (same
+	// Manager), not two chains. Empty means absent — the same zero-value
+	// mirroring as the other nullable fields in this file.
+	Alt string `json:"alt"`
 }
 
 // opConceptsSlot mirrors the operational-concepts slot's two objective-reference

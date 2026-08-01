@@ -9,16 +9,19 @@ import (
 
 // rules_callchain.go is the app-side LIVE-TIER mirror of the platform's CC-*
 // CALL-CHAIN CORRESPONDENCE family (framework-go/methodcheck/rules_callchain.go
-// + activitypaths.go, 2026-07-30 callchain-realization): the machine check that
-// every use case's step-keyed DynamicView realization CORRESPONDS to that use
-// case's activity diagram. This is the tier the webApp's Design Health surface
-// actually renders (render-on-read over the committed project.json — see the
-// package doc comment in designhealth.go), so the ten rules below are re-derived
-// over this package's own tolerant slices (dynamicView/callStep/coreUseCase) —
-// the same posture as the rest of this package relative to framework-go/
-// methodcheck (structural mirror, no shared types).
+// + activitypaths.go, 2026-07-30 callchain-realization, extended 2026-07-31 by
+// the rollout rulings with decidedBy resolution and a work-bounded walker): the
+// machine check that every use case's step-keyed DynamicView realization
+// CORRESPONDS to that use case's activity diagram. This is the tier the
+// webApp's Design Health surface actually renders (render-on-read over the
+// committed project.json — see the package doc comment in designhealth.go), so
+// the eleven rules below are re-derived over this package's own tolerant slices
+// (dynamicView/callStep/coreUseCase) — the same posture as the rest of this
+// package relative to framework-go/methodcheck (structural mirror, no shared
+// types).
 //
-// The ten rules (nine correspondence checks plus the dangling-join-key guard):
+// The eleven rules (nine correspondence checks, the dangling-join-key guard,
+// and the decider-attribution check):
 //
 //	CC-VIEW-USECASE    a view's useCaseId must resolve to a use case in slot 4
 //	CC-STEP-NODE       every step keys a node the diagram declares
@@ -29,8 +32,15 @@ import (
 //	CC-ENDPOINT-RESOLVES  every call endpoint resolves to exactly one of {Component, Actor}
 //	CC-ACTOR-EDGE      an actor may only interact, synchronously, with a Client
 //	CC-ACTOR-LANE      a lane-linked node's step must touch that actor
+//	CC-DECIDED-BY      a node's decider sits on a branching node and resolves
 //	CC-TRIGGER-EVENT   the use-case trigger and the diagram's entry nodes agree
 //	CC-PATH-CONNECTED  every activity-diagram PATH is realized as a connected chain
+//
+// A twelfth rule, CUC-ACTOR-REQUIRED, lives in this file too (see
+// actorRequiredFindings below) even though it is CoreUseCases-attributed rather
+// than per-dynamic-view: the rollout rulings shipped it alongside CC-DECIDED-BY
+// as the pass's two new rules, and designhealth has no separate
+// artifact-family split the way the platform's rules.go/rules_callchain.go do.
 //
 // SEVERITY: the whole family is advisory in this PoC (ccLiveSeverity =
 // SeverityWarning below) — the post-QA rollout flips it to Error, mirroring the
@@ -41,15 +51,24 @@ import (
 // step-scoped findings use "dynamicView " + <view key, falling back to
 // useCaseId only when the key is empty> + " step " + <activity node id>;
 // use-case-scoped findings use "useCase " + <use case id>. See ccViewLabel and
-// ccContext.stepLoc/ucLoc below. This is the OPPOSITE priority of dvLabel
-// (useCaseId-first, used by the pre-existing DH-CHAIN-* rules in
-// rules_chains.go) — a view's title/useCaseId-first identifier was flagged
-// unstable; the key is the stable identity the app's join relies on.
+// ccContext.stepLoc/ucLoc below. Both tiers now share this key-first grammar
+// (rollout rulings 2026-07-31 brought the platform in line — see its
+// ccKeyLabel), so the comparison this comment used to draw against the
+// platform's title-first section grammar no longer applies; what's still true,
+// and worth keeping in mind, is that this remains the OPPOSITE priority of
+// dvLabel (useCaseId-first, used by the pre-existing DH-CHAIN-* rules in
+// rules_chains.go) — the key, not the title or the use-case id, is the stable
+// identity the app's join relies on. MESSAGE TEXT is a different matter: this
+// tier has always led with the key there too (ccViewLabel), while the platform
+// keeps its title-first viewLabel in message text — that divergence is
+// intentional (only Section is the cross-tier join key) and is not "corrected"
+// by this port.
 //
 // ACTORS: an endpoint id is resolved against the component index UNION the
 // OWNING use case's Actors. Actors are per-use-case, so the same id may name an
 // actor in one use case and nothing in another — resolution is always relative
-// to the view's use case.
+// to the view's use case. ActivityNode.DecidedBy resolves in exactly the same
+// two namespaces.
 const ccLiveSeverity = methodcheck.SeverityWarning
 
 // ccMustHaveStep is the set of activity-node kinds that MUST carry a realizing
@@ -79,6 +98,7 @@ func callChainFindings(in Input) []methodcheck.Finding {
 	idx := in.componentIndex()
 	ucByID := useCaseIndex(in.Slots.CoreUseCases)
 	var out []methodcheck.Finding
+	out = append(out, actorRequiredFindings(in.Slots.CoreUseCases)...)
 	for i, dv := range in.Slots.DynamicViews {
 		uc, ok := ucByID[dv.UseCaseID]
 		if !ok {
@@ -96,6 +116,32 @@ func callChainFindings(in Input) []methodcheck.Finding {
 			continue
 		}
 		out = append(out, newCCContext(dv, uc, idx, i).findings()...)
+	}
+	return out
+}
+
+// ---- CUC-ACTOR-REQUIRED ----
+
+// actorRequiredFindings — CUC-ACTOR-REQUIRED (founder ruling R-A, rollout
+// rulings 2026-07-31). A clientAction use case is, by definition, initiated BY
+// somebody: declaring zero actors leaves the initiator unnamed, and leaves the
+// realization with no legal chain root either (CC-PATH-CONNECTED roots a
+// clientAction path on actor→Client). Timer- and busMessage-triggered use
+// cases are started by the clock or the bus and legitimately declare none.
+//
+// Unlike the rest of this file's CC-* family, this rule is NOT per-dynamic-view
+// — it runs over every committed use case regardless of whether a dynamic view
+// exists for it yet — so callChainFindings calls it directly rather than
+// folding it into ccContext.findings().
+func actorRequiredFindings(ucs []coreUseCase) []methodcheck.Finding {
+	var out []methodcheck.Finding
+	for i, uc := range ucs {
+		if uc.Trigger != "clientAction" || len(uc.Actors) > 0 {
+			continue
+		}
+		out = append(out, ccFinding(RuleCUCActorRequired, i, "useCase "+uc.ID,
+			"use case %q is clientAction-triggered but declares no actors; a client-initiated use case must name who initiates it (and its call chain needs that actor as its root)",
+			uc.ID))
 	}
 	return out
 }
@@ -173,6 +219,7 @@ func (cc ccContext) findings() []methodcheck.Finding {
 	out = append(out, cc.endpointResolves()...)
 	out = append(out, cc.actorEdges()...)
 	out = append(out, cc.actorLane()...)
+	out = append(out, cc.decidedBy()...)
 	out = append(out, cc.triggerEvent()...)
 	out = append(out, cc.pathConnected()...)
 	return out
@@ -392,6 +439,66 @@ func stepTouches(st callStep, id string) bool {
 	return false
 }
 
+// ---- CC-DECIDED-BY ----
+
+// decidedBy checks the optional decider attribution an activity node may carry
+// (rollout rulings 2026-07-31), in its two halves:
+//
+//   - PLACEMENT: only a decision/switch RESOLVES a branch, so only those kinds
+//     can name who resolves it. A decidedBy anywhere else is misplaced even
+//     when its value resolves perfectly well.
+//   - RESOLUTION: the value resolves exactly like a call endpoint — against
+//     the System's components UNION the owning use case's actors. Naming
+//     neither is a dangling attribution; naming BOTH is ambiguous, for the
+//     same reason CC-ENDPOINT-RESOLVES treats a both-match as one finding.
+//
+// The rule is USE-CASE-scoped: a node is not a step, so there is no step
+// section to hang it on.
+func (cc ccContext) decidedBy() []methodcheck.Finding {
+	var out []methodcheck.Finding
+	for _, n := range cc.uc.Activity.Nodes {
+		if n.DecidedBy == "" {
+			continue
+		}
+		if !ccResolvesBranch(n.Kind) {
+			out = append(out, ccFinding(RuleCCDecidedBy, cc.ordinal, cc.ucLoc(),
+				"activity node %q (%s) of use case %s carries decidedBy %q; only a decision/switch node resolves a branch, so only those kinds may name who resolves it",
+				n.ID, n.Kind, cc.uc.ID, n.DecidedBy))
+			continue
+		}
+		if f, bad := cc.decidedByResolution(n); bad {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// ccResolvesBranch reports whether a node kind resolves a branch — the only
+// kinds a decidedBy may sit on. It coincides with ccMayHaveStep's membership,
+// but for a different reason (that set is about carrying CALLS), so the two
+// are kept apart.
+func ccResolvesBranch(kind string) bool {
+	return kind == "decision" || kind == "switch"
+}
+
+// decidedByResolution resolves one branching node's decider against the two
+// namespaces, mirroring endpointFinding.
+func (cc ccContext) decidedByResolution(n activityNode) (methodcheck.Finding, bool) {
+	_, isComponent := cc.idx[n.DecidedBy]
+	isActor := cc.actors[n.DecidedBy]
+	switch {
+	case isComponent && isActor:
+		return ccFinding(RuleCCDecidedBy, cc.ordinal, cc.ucLoc(),
+			"activity node %q of use case %s is decidedBy %q, which resolves to BOTH a System Component and an actor of that use case; a decider id must denote exactly one of them",
+			n.ID, cc.uc.ID, n.DecidedBy), true
+	case !isComponent && !isActor:
+		return ccFinding(RuleCCDecidedBy, cc.ordinal, cc.ucLoc(),
+			"activity node %q of use case %s is decidedBy %q, which is neither a System Component nor an actor of that use case; name the component or the person who resolves the branch",
+			n.ID, cc.uc.ID, n.DecidedBy), true
+	}
+	return methodcheck.Finding{}, false
+}
+
 // ---- CC-TRIGGER-EVENT ----
 
 // triggerEvent aligns the use-case trigger with the diagram's ENTRY nodes: a
@@ -586,28 +693,82 @@ func (cc ccContext) rootsEntry(call viewEdge, entry pathEntry) bool {
 // node-id path through an activityDiagram. This is a package-local copy of the
 // platform's framework-go/methodcheck/activitypaths.go (the same
 // designhealth-vs-methodcheck twin duplication the rest of this package
-// already carries), ported verbatim including its two review-driven fixes:
+// already carries), ported verbatim including its bounding rules:
 //
-//  1. the FULL enumeration is computed first — per-branch alternative sets are
-//     cross-producted in declared order at a fork (fork-without-join legal,
-//     each branch's own alternatives computed exactly once) — and the
-//     maxActivityPaths cap is applied ONCE, as a final prefix-truncation of
-//     the complete, uncapped result. Nothing inside the recursion is
-//     budget-aware, so an asymmetric branch shape can neither over-charge nor
-//     silently drop a legitimate combination.
-//  2. entries are every "start" node PLUS every UML event node (timeEvent/
+//   - entries are every "start" node PLUS every UML event node (timeEvent/
 //     acceptEvent), wherever they sit; loops (back-edges) are traversed AT
-//     MOST ONCE per path via a per-path visited-EDGE set.
+//     MOST ONCE per path via a per-path visited-EDGE set; a fork's branches
+//     cross-product (each branch's own alternative set computed exactly once)
+//     and concatenate into the SAME path (fork-without-join legal).
+//   - the OUTPUT cap (maxActivityPaths) truncates the returned set, applied
+//     EXACTLY ONCE as a final truncation of whatever was enumerated.
+//   - the WORK budget (maxWalkWork, 2026-07-31 rollout rulings) bounds the
+//     RECURSION itself: designhealth runs this render-on-read over committed
+//     state, so a pathological diagram is a CPU/memory sink even with the
+//     output capped — truncating the output alone still requires
+//     materializing the complete result first. The budget is charged per
+//     WALK-STEP (one node id materialized into a sequence — see spend/carry),
+//     never per final path.
+//
+// On exhaustion the walk stops EXPLORING; the walks it had already COMPLETED
+// are still carried up to the caller, capped at maxActivityPaths per level
+// (carry), so a blowup degrades to a smaller — often still cap-sized — answer
+// instead of an empty or fabricated one. The degradation is deterministic
+// (entries in declared order, branches in declared edge order) and only ever
+// UNDER-approximates: every returned path is a real, complete path of the
+// diagram, so CC-PATH-CONNECTED can lose a finding to a pathological diagram
+// but can never gain a false one.
+//
+// carry's ONE exclusion: crossProduct is deliberately NOT wrapped in carry —
+// it charges via spend directly, raw. Exempting it from the post-exhaustion
+// escape hatch is what keeps the fork's per-combination visited-edge-set
+// allocation (the memory-heaviest shape) from reopening the hole
+// charge-by-length closed. One consequence, deliberate and NOT a bug: a
+// pure-fork-only blowup — the diagram's only entry leads into a fork that
+// never finishes folding — degrades to exhausted=true with a length-0 result,
+// not a partial answer. That is the pre-existing all-or-nothing-fork design
+// (walkFork returns nil the moment any branch or fold comes back empty),
+// unchanged by this port; see TestPaths_PureForkOnlyBlowupYieldsEmptyResult.
 // ---------------------------------------------------------------------------
 
 // maxActivityPaths caps the total number of enumerated paths per diagram
 // (across ALL entries).
 const maxActivityPaths = 512
 
+// maxWalkWork caps the enumeration's WALK-STEPS per diagram. One step is one
+// node id MATERIALIZED into a walk sequence — see spend and carry, which
+// between them charge every sequence the walk builds, both where one is
+// created and where one is COPIED a level up. Charging the copies is what
+// makes the budget a memory bound and not merely a CPU one.
+//
+// SIZING (re-derived from the platform's 2026-07-31 fix-round-1 measurement):
+// the honest claim is stated in terms of the OUTPUT CAP, not node count — any
+// diagram whose COMPLETE enumeration would fit the cap (<=512 paths, <=40
+// nodes deep, widest admitted fan) costs at most ~550k steps, so it is never
+// budget-truncated: its result is bit-identical to an unbounded walk's. A
+// 22-decision reconverging chain (4.2M true paths, no fork) returns a full
+// 512 paths at this budget having allocated well under the 256MB ceiling
+// TestPaths_BudgetBoundsDecisionChain asserts; an 8-branch fork of 5-way
+// decisions (390,625 combinations) trips the budget promptly. Raising the
+// budget further is not free: the fork shape allocates far more per step than
+// the decision shape (each combination unions two visited-edge SETS), so a
+// budget generous enough to fully enumerate a several-thousand-path chain
+// would put the fork-shaped worst case back into the memory-sink range this
+// bound exists to prevent — and such a diagram is truncated to the 512-path
+// cap either way, so nothing real is lost by holding the line here.
+const maxWalkWork = 1_000_000
+
 // pathEntry describes one enumeration root of an activity diagram.
 type pathEntry struct {
 	NodeID string
 	Kind   string // "start", "timeEvent", "acceptEvent"
+}
+
+// activityPath is one enumerated entry→end path: its root and the node ids it
+// visits, in walk order.
+type activityPath struct {
+	Entry pathEntry
+	Nodes []string // node ids in walk order, Entry.NodeID first
 }
 
 // activityWalk is one in-progress (or completed) DFS walk: the node-id
@@ -618,22 +779,49 @@ type activityWalk struct {
 	visited map[int]bool
 }
 
-// activityPaths enumerates every entry→end node-id path of a.
-//
-// PRE-MERGE TRACKED (post-QA plan): full enumeration before truncation is
-// exponential in nested fork×decision depth; designhealth runs this
-// render-on-read on committed state, so a pathological committed diagram is a
-// CPU sink. Bound the walk (budget the recursion, not just the output) before
-// third-party/generated diagrams.
-func activityPaths(a activityDiagram) []struct {
-	Entry pathEntry
-	Nodes []string // node ids in walk order, Entry.NodeID first
-} {
+// walker carries the diagram-wide, walk-invariant enumeration state — the
+// edge index, the node kinds, and the remaining work budget — so each step of
+// the recursion is a method with no parameter train.
+type walker struct {
+	edges       []activityEdge
+	kindByID    map[string]string
+	edgesByFrom map[string][]int // edge INDICES by From node, in declared order
+	remaining   int              // walk-steps left in this diagram's budget
+	exhausted   bool             // sticky: set the first time a charge is refused
+}
+
+// activityPaths enumerates every entry→end node-id path of a (see the file
+// header for the two bounds).
+func activityPaths(a activityDiagram) []activityPath {
+	paths, _ := boundedActivityPaths(a)
+	return paths
+}
+
+// boundedActivityPaths is activityPaths plus the budget verdict: exhausted
+// reports whether the walk stopped early because maxWalkWork ran out — the
+// difference between "this diagram has 3 paths" and "this diagram has more
+// paths than anyone can enumerate". Kept package-private (rules read
+// activityPaths; the walker's own tests read this) so the tests can assert on
+// the verdict instead of a flaky wall-clock assertion.
+func boundedActivityPaths(a activityDiagram) (paths []activityPath, exhausted bool) {
+	w := newWalker(a)
+	var out []activityPath
+	for _, entry := range diagramEntries(a) {
+		for _, walk := range w.walkFrom(entry.NodeID, map[int]bool{}) {
+			out = append(out, activityPath{Entry: entry, Nodes: walk.seq})
+		}
+	}
+	if len(out) > maxActivityPaths {
+		out = out[:maxActivityPaths]
+	}
+	return out, w.exhausted
+}
+
+func newWalker(a activityDiagram) *walker {
 	kindByID := make(map[string]string, len(a.Nodes))
 	for _, n := range a.Nodes {
 		kindByID[n.ID] = n.Kind
 	}
-
 	// edgesByFrom groups edge INDICES (not copies) by their From node,
 	// preserving the diagram's declared Edges order — that order decides both
 	// branch order (decision/switch) and concatenation order (fork).
@@ -641,7 +829,11 @@ func activityPaths(a activityDiagram) []struct {
 	for i, e := range a.Edges {
 		edgesByFrom[e.From] = append(edgesByFrom[e.From], i)
 	}
+	return &walker{edges: a.Edges, kindByID: kindByID, edgesByFrom: edgesByFrom, remaining: maxWalkWork}
+}
 
+// diagramEntries lists the diagram's enumeration roots in declared node order.
+func diagramEntries(a activityDiagram) []pathEntry {
 	var entries []pathEntry
 	for _, n := range a.Nodes {
 		switch n.Kind {
@@ -649,46 +841,84 @@ func activityPaths(a activityDiagram) []struct {
 			entries = append(entries, pathEntry{NodeID: n.ID, Kind: n.Kind})
 		}
 	}
-
-	var out []struct {
-		Entry pathEntry
-		Nodes []string
-	}
-	for _, entry := range entries {
-		for _, w := range walkActivity(entry.NodeID, a.Edges, kindByID, edgesByFrom, map[int]bool{}) {
-			out = append(out, struct {
-				Entry pathEntry
-				Nodes []string
-			}{Entry: entry, Nodes: w.seq})
-		}
-	}
-	if len(out) > maxActivityPaths {
-		out = out[:maxActivityPaths]
-	}
-	return out
+	return entries
 }
 
-// walkActivity performs the recursive DFS described above, returning every
-// completed walk starting at nodeID given the edges already visited on the
-// path so far. It is NOT budget-aware — activityPaths applies maxActivityPaths
-// exactly once, as a final truncation of the complete result.
-func walkActivity(nodeID string, edges []activityEdge, kindByID map[string]string, edgesByFrom map[string][]int, visited map[int]bool) []activityWalk {
-	eligible := eligibleEdges(nodeID, edgesByFrom, visited)
+// spend charges n walk-steps of MATERIALIZATION — a terminal walk, a fork
+// combination, or (through carry) a completed sub-walk copied a level up.
+// Every sequence the walk builds goes through here, which is what makes the
+// budget a memory bound and not merely a CPU one. Refusal is sticky — once
+// the walk is out of budget it stays out, so the result cannot depend on the
+// order in which the remainder of the recursion happened to ask.
+func (w *walker) spend(n int) bool {
+	if w.exhausted || w.remaining < n {
+		w.exhausted = true
+		return false
+	}
+	w.remaining -= n
+	return true
+}
+
+// carry charges n walk-steps of ASSEMBLY — copying an ALREADY-COMPLETED
+// sub-walk up one level — where assembled is how many walks this level has
+// carried so far.
+//
+// While the budget holds, assembly is charged exactly like exploration: the
+// copy is real materialization, and NOT charging it collapses the budget to a
+// walk-COUNT bound instead of a materialization bound (a decision-shaped
+// blowup then spikes memory well past the intended ceiling — the same defect
+// class the platform's fix-round-1 measured and fixed).
+//
+// Once exploration is exhausted, assembly continues UNBUDGETED but capped at
+// maxActivityPaths per level. That is the graceful-degradation half: the
+// walks already completed must be able to reach the caller instead of being
+// stranded one frame below it (charging assembly with no escape hatch would
+// drain the budget bottom-up and collapse every blowup to zero paths), and
+// carrying more than the output cap is pure waste because the caller
+// truncates to it anyway. The escape hatch is structurally bounded — at most
+// cap x depth node ids per level, over at most depth levels — so it cannot
+// reopen the memory hole the charging closed.
+//
+// crossProduct does NOT go through carry (it calls spend directly) — see the
+// file header's carry-exclusion note.
+func (w *walker) carry(assembled, n int) bool {
+	if !w.exhausted && w.spend(n) {
+		return true
+	}
+	return assembled < maxActivityPaths
+}
+
+// walkFrom performs the recursive DFS described on activityPaths, returning
+// every completed walk starting at nodeID given the edges already visited on
+// the path so far. An EMPTY return means the budget ran out before ANYTHING
+// below this node completed (an unexhausted walk always yields at least one
+// walk — worst case, the terminal one — and an exhausted one still carries up
+// whatever did complete). walkFork relies on that invariant to tell "this
+// branch contributed nothing" from "this branch contributed fewer
+// alternatives than it would have".
+func (w *walker) walkFrom(nodeID string, visited map[int]bool) []activityWalk {
+	if w.exhausted {
+		return nil
+	}
+	eligible := eligibleEdges(nodeID, w.edgesByFrom, visited)
 
 	// An end node always terminates, even with an outgoing edge; otherwise a
 	// node with no eligible (unvisited) outgoing edge left terminates too —
 	// this bounds a loop to being traversed at most once.
-	if kindByID[nodeID] == "end" || len(eligible) == 0 {
+	if w.kindByID[nodeID] == "end" || len(eligible) == 0 {
+		if !w.spend(1) {
+			return nil
+		}
 		return []activityWalk{{seq: []string{nodeID}, visited: visited}}
 	}
 
-	if kindByID[nodeID] == "fork" {
-		return walkFork(nodeID, eligible, edges, kindByID, edgesByFrom, visited)
+	if w.kindByID[nodeID] == "fork" {
+		return w.walkFork(nodeID, eligible, visited)
 	}
 
 	// Default: decision/switch (and, degenerately, any single-outgoing-edge
 	// node) — one walk per eligible outgoing edge.
-	return branchOverEdges(nodeID, eligible, edges, kindByID, edgesByFrom, visited)
+	return w.branchOverEdges(nodeID, eligible, visited)
 }
 
 // eligibleEdges lists nodeID's outgoing edge indices, in declared order,
@@ -707,52 +937,84 @@ func eligibleEdges(nodeID string, edgesByFrom map[string][]int, visited map[int]
 // default) case: one walk per eligible outgoing edge, each prefixed with
 // nodeID. Alternatives are mutually exclusive, so each starts from an
 // independent copy of the pre-branch visited set.
-func branchOverEdges(nodeID string, eligible []int, edges []activityEdge, kindByID map[string]string, edgesByFrom map[string][]int, visited map[int]bool) []activityWalk {
+//
+// A branch that comes back empty is one the budget cut short; its
+// already-completed siblings are kept and returned. That is the graceful
+// half of exhaustion: a decision blowup returns the alternatives enumerated
+// before the budget ran out, in declared order, truncated to what carry
+// still allows.
+func (w *walker) branchOverEdges(nodeID string, eligible []int, visited map[int]bool) []activityWalk {
 	var out []activityWalk
 	for _, idx := range eligible {
 		v := cloneVisited(visited)
 		v[idx] = true
-		for _, sub := range walkActivity(edges[idx].To, edges, kindByID, edgesByFrom, v) {
+		for _, sub := range w.walkFrom(w.edges[idx].To, v) {
+			if !w.carry(len(out), 1+len(sub.seq)) {
+				return out
+			}
 			out = append(out, activityWalk{seq: append([]string{nodeID}, sub.seq...), visited: sub.visited})
 		}
 	}
 	return out
 }
 
-// walkFork implements the fork's semantics: unlike a decision/switch, a fork's
-// outgoing edges do NOT branch into alternatives — every branch is taken, so
-// their walks are combined into the SAME path. A branch containing internal
-// decision/switch branching contributes multiple alternative walks of its
-// own, which are CROSS-PRODUCTED against the other branches' alternatives —
-// each branch's own alternative set computed exactly once, independent of how
-// many combinations have been accumulated from earlier branches so far.
-func walkFork(nodeID string, eligible []int, edges []activityEdge, kindByID map[string]string, edgesByFrom map[string][]int, visited map[int]bool) []activityWalk {
-	branches := make([][]activityWalk, len(eligible))
-	for i, idx := range eligible {
+// walkFork implements the fork's semantics: unlike a decision/switch, a
+// fork's outgoing edges do NOT branch into alternatives — every branch is
+// taken, so their walks are combined into the SAME path. A branch containing
+// internal decision/switch branching contributes multiple alternative walks
+// of its own, which are CROSS-PRODUCTED against the other branches'
+// alternatives — each branch's own alternative set computed exactly once,
+// independent of how many combinations have been accumulated from earlier
+// branches so far.
+//
+// Exhaustion is ALL-OR-NOTHING at the BRANCH level, unlike a decision's
+// graceful truncation: a fork path is only a real path of the diagram once
+// EVERY branch is folded into it, so a fork whose branch (or whose fold) came
+// back with NOTHING contributes no path at all, rather than a fabricated one
+// missing a parallel branch (which could make a perfectly connected call
+// chain look disconnected to CC-PATH-CONNECTED). This is what makes a
+// pure-fork-only blowup degrade to exhausted=true, len=0 rather than a
+// partial answer — pre-existing, deliberate, and not "fixed" by this bound.
+func (w *walker) walkFork(nodeID string, eligible []int, visited map[int]bool) []activityWalk {
+	partials := []activityWalk{{seq: nil, visited: visited}}
+	for _, idx := range eligible {
 		v := cloneVisited(visited)
 		v[idx] = true
-		branches[i] = walkActivity(edges[idx].To, edges, kindByID, edgesByFrom, v)
-	}
-
-	partials := []activityWalk{{seq: nil, visited: visited}}
-	for _, branch := range branches {
-		partials = crossProduct(partials, branch)
+		branch := w.walkFrom(w.edges[idx].To, v)
+		if len(branch) == 0 {
+			return nil // the budget cut this branch short — see the doc comment
+		}
+		partials = w.crossProduct(partials, branch)
+		if len(partials) == 0 {
+			return nil
+		}
 	}
 
 	out := make([]activityWalk, 0, len(partials))
 	for _, p := range partials {
+		if !w.carry(len(out), 1+len(p.seq)) {
+			break
+		}
 		out = append(out, activityWalk{seq: append([]string{nodeID}, p.seq...), visited: p.visited})
 	}
 	return out
 }
 
 // crossProduct combines every in-progress partial with every alternative of
-// the next branch, in order, concatenating sequences and UNIONING
-// visited-edge sets.
-func crossProduct(partials, branch []activityWalk) []activityWalk {
+// the next branch, in order (partials outer, branch inner — so branch N's
+// alternatives vary fastest), concatenating sequences and UNIONING
+// visited-edge sets. Deliberately EXCLUDED from carry — charged via spend
+// directly: the fork shape is the memory-heaviest case (each combination
+// allocates a fresh visited-edge-set union), so wrapping it in the
+// post-exhaustion unbudgeted escape hatch would reopen the memory hole
+// charge-by-length closed.
+func (w *walker) crossProduct(partials, branch []activityWalk) []activityWalk {
 	var next []activityWalk
 	for _, p := range partials {
 		for _, b := range branch {
+			if !w.spend(len(p.seq) + len(b.seq)) {
+				return next
+			}
 			next = append(next, activityWalk{
 				seq:     append(append([]string{}, p.seq...), b.seq...),
 				visited: unionVisited(p.visited, b.visited),
