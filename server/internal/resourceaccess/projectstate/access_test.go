@@ -5042,8 +5042,10 @@ func TestSystem_StringEnums_CamelCase(t *testing.T) {
 
 // decodeCommittedProject reads and decodes THIS repo's own committed
 // .aiarch/state/project.json — shared by the tolerant-decode regressions below, each
-// of which needs the same live fixture (16 realized/reshaped dynamic views; none
-// carries TraceCall.Alt; the Task-7 design amendment (2026-08-01) put explicit
+// of which needs the same live fixture (16 realized/reshaped dynamic views; the
+// Task-8 batch-1 design amendment (2026-08-01) put explicit TraceCall.Alt values
+// on 12 of the calls across uc2/uc4's both-surface entry steps — see
+// wantAltTally below; the Task-7 design amendment (2026-08-01) put explicit
 // ActivityNode.DecidedBy values on 24 of the 37 decision nodes — see
 // TestCommittedProjectJSON_ActivityNodes_DecidedBySplit).
 func decodeCommittedProject(t *testing.T) Project {
@@ -5063,11 +5065,42 @@ func decodeCommittedProject(t *testing.T) Project {
 	return proj
 }
 
-// TestCommittedProjectJSON_DynamicViewCalls_NoAlt is the tolerant-decode regression
-// for TraceCall.Alt (rollout rulings 2026-07-31): a call that never mentions "alt"
-// must decode EXACTLY as it did before the field existed — no error, and Alt reads
-// back nil (not a zero-value string standing in for absence).
-func TestCommittedProjectJSON_DynamicViewCalls_NoAlt(t *testing.T) {
+// altCallKey identifies one TraceCall within one dynamic-view step by its
+// (view, step, from, to) — unique within every step authored so far, batch-1
+// included (no step repeats a (from,to) pair).
+type altCallKey struct {
+	view, step, from, to string
+}
+
+// wantAltTally is the Task-8 architect spec's §2a/§2c alt-group authoring,
+// value-keyed exactly like wantDecidedByTally below: the both-surface entry
+// steps of uc2-commit-project-option (await-decision, review-options) and
+// uc4-operate-delivered-system (publish-trigger) pair the actor->Client leg
+// ("s1") with the Client->Manager leg ("s2") per the Task-5 alt-group
+// contract. Every other committed call carries no alt tag.
+var wantAltTally = map[altCallKey]string{
+	{"uc2-commit-project-option", "await-decision", "architect-user", "web-client"}:         "s1",
+	{"uc2-commit-project-option", "await-decision", "architect-user", "mcp-client"}:         "s1",
+	{"uc2-commit-project-option", "await-decision", "web-client", "project-design-manager"}: "s2",
+	{"uc2-commit-project-option", "await-decision", "mcp-client", "project-design-manager"}: "s2",
+	{"uc2-commit-project-option", "review-options", "architect-user", "web-client"}:         "s1",
+	{"uc2-commit-project-option", "review-options", "architect-user", "mcp-client"}:         "s1",
+	{"uc2-commit-project-option", "review-options", "web-client", "project-design-manager"}: "s2",
+	{"uc2-commit-project-option", "review-options", "mcp-client", "project-design-manager"}: "s2",
+	{"uc4-operate-delivered-system", "publish-trigger", "operator", "web-client"}:           "s1",
+	{"uc4-operate-delivered-system", "publish-trigger", "operator", "mcp-client"}:           "s1",
+	{"uc4-operate-delivered-system", "publish-trigger", "web-client", "operations-manager"}: "s2",
+	{"uc4-operate-delivered-system", "publish-trigger", "mcp-client", "operations-manager"}: "s2",
+}
+
+// TestCommittedProjectJSON_DynamicViewCalls_Alt is the tolerant-decode regression
+// for TraceCall.Alt (rollout rulings 2026-07-31), extended by Task 8 (2026-08-01)
+// to pin the VALUES batch-1 actually authored rather than only asserting absence:
+// a call that never mentions "alt" must decode EXACTLY as it did before the field
+// existed (Alt reads back nil, not a zero-value string standing in for absence),
+// and a call that IS one of wantAltTally's 12 batch-1 entries must decode to
+// exactly its authored group value.
+func TestCommittedProjectJSON_DynamicViewCalls_Alt(t *testing.T) {
 	proj := decodeCommittedProject(t)
 
 	sys, ok := proj.SystemDesign.Model.(*System)
@@ -5078,19 +5111,39 @@ func TestCommittedProjectJSON_DynamicViewCalls_NoAlt(t *testing.T) {
 		t.Fatal("committed System has no dynamic views — fixture assumption (16 realized views) no longer holds")
 	}
 	callCount := 0
+	seen := map[altCallKey]bool{}
 	for _, dv := range sys.DynamicViews {
 		for _, step := range dv.Steps {
 			for _, call := range step.Calls {
 				callCount++
-				if call.Alt != nil {
-					t.Fatalf("dynamic view %q step %q: call %+v decoded a non-nil Alt from data "+
-						"that predates the field — tolerant decode regressed", dv.Key, step.ActivityNodeID, call)
+				key := altCallKey{dv.Key, step.ActivityNodeID, call.From, call.To}
+				want, isAltGroup := wantAltTally[key]
+				if !isAltGroup {
+					if call.Alt != nil {
+						t.Fatalf("dynamic view %q step %q: call %+v decoded a non-nil Alt outside "+
+							"the authored batch-1 alt groups — tolerant decode or authoring regressed",
+							dv.Key, step.ActivityNodeID, call)
+					}
+					continue
+				}
+				seen[key] = true
+				if call.Alt == nil {
+					t.Errorf("dynamic view %q step %q: call %s->%s want alt %q, got nil",
+						dv.Key, step.ActivityNodeID, call.From, call.To, want)
+				} else if *call.Alt != want {
+					t.Errorf("dynamic view %q step %q: call %s->%s want alt %q, got %q",
+						dv.Key, step.ActivityNodeID, call.From, call.To, want, *call.Alt)
 				}
 			}
 		}
 	}
 	if callCount == 0 {
 		t.Fatal("committed dynamic views have zero calls across all steps — fixture assumption no longer holds")
+	}
+	for key := range wantAltTally {
+		if !seen[key] {
+			t.Errorf("wantAltTally entry %+v was not found among the committed calls — the alt-group authoring or this pin has drifted", key)
+		}
 	}
 }
 

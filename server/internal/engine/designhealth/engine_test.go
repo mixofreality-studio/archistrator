@@ -93,35 +93,31 @@ func TestGreenFixtureAdvisoriesFire(t *testing.T) {
 	assertAbsent(t, got, RuleCovUCDynamic)
 	assertAbsent(t, got, RuleObjResolve)
 
-	// CC-* call-chain family (2026-07-30 callchain-realization). The committed
-	// state now carries ONE fully realized view — uc1-drive-system-design, the
-	// PoC design amendment (15 steps / 22 calls over the use case's 14 action
-	// nodes plus the ci-check decision) — and 15 views still on the reshaped but
+	// CC-* call-chain family (2026-07-30 callchain-realization; batch 1 landed
+	// 2026-08-01, Task 8). The committed state now carries FIVE fully realized
+	// views — uc1-drive-system-design (the PoC, 15 steps / 22 calls) plus
+	// batch 1's uc2-commit-project-option (7/19), uc3-execute-construction-
+	// activity (13/25), uc4-operate-delivered-system (12/22), and
+	// uc5-bill-user-for-usage (8/13) — and 11 views still on the reshaped but
 	// UNrealized (zero-step) form. So:
 	//
-	//   * CC-COVERAGE fires for every step-REQUIRING activity node of the 15
+	//   * CC-COVERAGE fires for every step-REQUIRING activity node of the 11
 	//     unrealized use cases (an activity node realized by no step — true
-	//     regardless of step count) and for NONE of drive-system-design's, which
-	//     the amendment realized in full. 124 - 14 = 110, across 15 use cases.
-	//     (Task 7, 2026-08-01: the event-entry/reshape amendment shifted the
-	//     eligible-node count by net -1 across the 15 unrealized views — bill
-	//     8->7, operate 14->12, execute 10->11, replan 9->10, retry 6->6 — so
-	//     125->124 total and 111->110 fired here; see the Task-7 architect spec
-	//     §E for the per-UC arithmetic.)
-	//   * CC-TRIGGER-EVENT drops from 5 to 0 with the same amendment: it checks
-	//     the diagram's own entry node, independent of any realization, and the
-	//     5 timer/busMessage use cases that lacked a matching event entry
-	//     (execute, operate, bill, retry, replan) now each declare one.
-	//     drive-system-design is clientAction-triggered with a plain start entry
-	//     (never one of the 5) and is unaffected.
+	//     regardless of step count) and for NONE of the five realized views'.
+	//     Batch 1's eligible (must-have-step) node counts, per the Task-8
+	//     architect spec §4: uc2 7, uc3 11, uc4 12, uc5 7 — 37 total. 110 - 37
+	//     = 73, across 11 use cases.
+	//   * CC-TRIGGER-EVENT stays at 0 — batch 1 touched no slot-4 diagram
+	//     entries.
 	//   * every step-walking rule (CC-STEP-*, CC-ENDPOINT-RESOLVES, CC-ACTOR-*,
-	//     CC-PATH-CONNECTED) stays SILENT — vacuous on the 15 zero-step views,
-	//     and genuinely clean on the realized one. That is the PoC's success
-	//     criterion, so the assertAbsent block below is now load-bearing rather
-	//     than vacuous: a regression in the walker shows up here.
+	//     CC-PATH-CONNECTED) stays SILENT — vacuous on the 11 zero-step views,
+	//     and genuinely clean on the five realized ones. That is the
+	//     realization's success criterion, so the assertAbsent block below is
+	//     now load-bearing over five views rather than one: a regression in the
+	//     walker shows up here.
 	//
 	// The exact counts mirror the platform framework-go/methodcheck gate's
-	// inventory on this same committed document (verified 2026-07-30/31 against
+	// inventory on this same committed document (verified 2026-08-01 against
 	// `aiarch-state-mcp validate --slot System`, which runs both tiers and
 	// reports 2x these counts) — a drift here means this mirror parses the
 	// slot-4 activity / slot-5 step shapes differently than the platform gate.
@@ -145,19 +141,34 @@ func TestGreenFixtureAdvisoriesFire(t *testing.T) {
 			ccTriggerCount++
 		}
 	}
-	if ccCoverageCount != 110 {
-		t.Errorf("CC-COVERAGE fired %d times on the committed state, want 110 (matches the platform gate's inventory — investigate any drift, don't just re-pin)", ccCoverageCount)
+	if ccCoverageCount != 73 {
+		t.Errorf("CC-COVERAGE fired %d times on the committed state, want 73 (matches the platform gate's inventory — investigate any drift, don't just re-pin)", ccCoverageCount)
 	}
-	if len(ccCoverageUseCases) != 15 {
-		t.Errorf("CC-COVERAGE fired across %d use cases, want the 15 committed use cases whose dynamic view is not yet realized (drive-system-design is realized and must NOT appear)", len(ccCoverageUseCases))
+	if len(ccCoverageUseCases) != 11 {
+		t.Errorf("CC-COVERAGE fired across %d use cases, want the 11 committed use cases whose dynamic view is not yet realized (drive-system-design + batch 1's commit/execute/operate/bill are realized and must NOT appear)", len(ccCoverageUseCases))
 	}
 	if ccCoverageUseCases["useCase drive-system-design"] {
 		t.Error("CC-COVERAGE fired for drive-system-design, whose dynamic view is fully realized by the PoC design amendment — the realization or the rule has drifted")
 	}
+	// Batch 1 named-culprit guards (Task 8, F6): a regression that un-realizes
+	// any of the four batch-1 views, or that the walker stops recognizing as
+	// realized, must name itself here rather than only moving the tally.
+	if ccCoverageUseCases["useCase commit-to-a-project-option"] {
+		t.Error("CC-COVERAGE fired for commit-to-a-project-option, whose dynamic view is fully realized by the batch-1 design amendment — the realization or the rule has drifted")
+	}
+	if ccCoverageUseCases["useCase execute-a-construction-activity"] {
+		t.Error("CC-COVERAGE fired for execute-a-construction-activity, whose dynamic view is fully realized by the batch-1 design amendment — the realization or the rule has drifted")
+	}
+	if ccCoverageUseCases["useCase operate-a-delivered-system"] {
+		t.Error("CC-COVERAGE fired for operate-a-delivered-system, whose dynamic view is fully realized by the batch-1 design amendment — the realization or the rule has drifted")
+	}
+	if ccCoverageUseCases["useCase bill-the-user-for-usage"] {
+		t.Error("CC-COVERAGE fired for bill-the-user-for-usage, whose dynamic view is fully realized by the batch-1 design amendment — the realization or the rule has drifted")
+	}
 	if ccTriggerCount != 0 {
 		t.Errorf("CC-TRIGGER-EVENT fired %d times on the committed state, want 0 (Task 7 gave each of the 5 timer/busMessage use cases a matching event entry)", ccTriggerCount)
 	}
-	// Vacuous on the 15 zero-step views; genuinely clean on the realized one.
+	// Vacuous on the 11 zero-step views; genuinely clean on the five realized ones.
 	assertAbsent(t, got, RuleCCViewUseCase)
 	assertAbsent(t, got, RuleCCStepNode)
 	assertAbsent(t, got, RuleCCStepUnique)

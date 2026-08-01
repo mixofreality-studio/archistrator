@@ -6153,25 +6153,715 @@
             "useCaseId": "commit-to-a-project-option",
             "key": "uc2-commit-project-option",
             "title": "Commit to a Project Option",
-            "steps": []
+            "steps": [
+              {
+                "activityNodeId": "await-decision",
+                "calls": [
+                  {
+                    "from": "architect-user",
+                    "to": "web-client",
+                    "mode": "sync",
+                    "label": "opens the SDP review (project options + cost/risk curves)",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "architect-user",
+                    "to": "mcp-client",
+                    "mode": "sync",
+                    "label": "opens the SDP review via the MCP surface (R4 cross-surface equivalence)",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "web-client",
+                    "to": "project-design-manager",
+                    "mode": "sync",
+                    "label": "requestSDPCommit(projectId) → assembled SDP review",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "mcp-client",
+                    "to": "project-design-manager",
+                    "mode": "sync",
+                    "label": "requestSDPCommit(projectId) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "project-design-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "readProject → sdpReview + chosenOption"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "review-options",
+                "calls": [
+                  {
+                    "from": "architect-user",
+                    "to": "web-client",
+                    "mode": "sync",
+                    "label": "reviews the SDP options + curves; submits the decision",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "architect-user",
+                    "to": "mcp-client",
+                    "mode": "sync",
+                    "label": "reviews and decides via the MCP surface (R4 cross-surface equivalence)",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "web-client",
+                    "to": "project-design-manager",
+                    "mode": "sync",
+                    "label": "submitSDPDecision(projectId, decision, optionId?, feedback?)",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "mcp-client",
+                    "to": "project-design-manager",
+                    "mode": "sync",
+                    "label": "submitSDPDecision(projectId, decision, optionId?, feedback?) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
+                    "alt": "s2"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "bind-option",
+                "calls": [
+                  {
+                    "from": "project-design-manager",
+                    "to": "estimation-engine",
+                    "mode": "sync",
+                    "label": "EstimateForOption(chosenOption) → {duration, buildCost, risk} — freeze the activity network + final estimates"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "apply-price",
+                "calls": [
+                  {
+                    "from": "project-design-manager",
+                    "to": "operation-estimation-engine",
+                    "mode": "sync",
+                    "label": "EstimateForOption(chosenOption, declaredUsageAssumptions, infrastructureKind) → {usageCostCurve}"
+                  },
+                  {
+                    "from": "project-design-manager",
+                    "to": "billing-engine",
+                    "mode": "sync",
+                    "label": "ProjectCommitTimeChargeAndComputeCost(chosenOption, terms) → {commit-time projection; build-cost ceiling}"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "commit-option",
+                "calls": [
+                  {
+                    "from": "project-design-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "commitOption(optionId) · recordSdpReviewOutcome(committed)"
+                  },
+                  {
+                    "from": "project-design-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "recordActivityWorkItemOpened(activityId, WorkItemRef) — open construction work items"
+                  },
+                  {
+                    "from": "project-state-access",
+                    "to": "project-git-repo",
+                    "mode": "sync",
+                    "label": "commit guarded by git ref compare-and-swap"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "revoke",
+                "calls": [
+                  {
+                    "from": "architect-user",
+                    "to": "web-client",
+                    "mode": "sync",
+                    "label": "revokes the commitment within the grace window"
+                  },
+                  {
+                    "from": "web-client",
+                    "to": "project-design-manager",
+                    "mode": "sync",
+                    "label": "submitSDPDecision(revoke) — grace-window revocation"
+                  },
+                  {
+                    "from": "project-design-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "recordSdpReviewOutcome(revoked) — reopen the SDP decision"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "reject-all",
+                "calls": [
+                  {
+                    "from": "project-design-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "recordSdpReviewOutcome(rejectAll, feedback) — return to project design"
+                  }
+                ]
+              }
+            ]
           },
           {
             "useCaseId": "execute-a-construction-activity",
             "key": "uc3-execute-construction-activity",
             "title": "Execute a Construction Activity",
-            "steps": []
+            "steps": [
+              {
+                "activityNodeId": "pump-fires",
+                "calls": [
+                  {
+                    "from": "scheduler-client",
+                    "to": "construction-manager",
+                    "mode": "sync",
+                    "label": "executeNextActivity"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "activity-eligible",
+                "calls": [
+                  {
+                    "from": "construction-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "readProject → next eligible activity"
+                  },
+                  {
+                    "from": "construction-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "recordActivityStarted(activityId, assigned agent)"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "dispatch-job",
+                "calls": [
+                  {
+                    "from": "construction-manager",
+                    "to": "source-control-access",
+                    "mode": "sync",
+                    "label": "getInstallationToken(repo) → RepoCredential"
+                  },
+                  {
+                    "from": "construction-manager",
+                    "to": "source-control-access",
+                    "mode": "sync",
+                    "label": "openBranch(repo, branch, cred, key) → BranchRef"
+                  },
+                  {
+                    "from": "source-control-access",
+                    "to": "github",
+                    "mode": "sync",
+                    "label": "branch / PR operations against the per-project repo via the GitHub App installation token"
+                  },
+                  {
+                    "from": "construction-manager",
+                    "to": "agentic-job-access",
+                    "mode": "sync",
+                    "label": "submitAgenticJob(agentic job: prompt, branch, contract, cred)"
+                  },
+                  {
+                    "from": "agentic-job-access",
+                    "to": "construction-pipeline-runtime",
+                    "mode": "sync",
+                    "label": "dispatch GitHub Action running claude-code-action"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "observe-validate",
+                "calls": [
+                  {
+                    "from": "construction-manager",
+                    "to": "agentic-job-access",
+                    "mode": "sync",
+                    "label": "observeAgenticJob(pipelineId) → outcome vs exit criteria"
+                  },
+                  {
+                    "from": "construction-manager",
+                    "to": "artifact-access",
+                    "mode": "sync",
+                    "label": "storeConstructionOutput(activityOutput) → OutputRef"
+                  },
+                  {
+                    "from": "artifact-access",
+                    "to": "project-git-repo",
+                    "mode": "sync",
+                    "label": "store Phase-3 construction output (content-addressed commit)"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "retry-remain",
+                "calls": [
+                  {
+                    "from": "construction-manager",
+                    "to": "intervention-engine",
+                    "mode": "sync",
+                    "label": "DecideOnVariance(validation failure) → {Retry | Escalate | Takeover}"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "escalate-operator",
+                "calls": [
+                  {
+                    "from": "construction-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "record operator escalation (activity paused pending takeover)"
+                  },
+                  {
+                    "from": "operator",
+                    "to": "web-client",
+                    "mode": "sync",
+                    "label": "picks up the escalated activity"
+                  },
+                  {
+                    "from": "web-client",
+                    "to": "construction-manager",
+                    "mode": "sync",
+                    "label": "overrideActivity(activityId, resolution) — operator resolves or takes over"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "propose-reviews",
+                "calls": [
+                  {
+                    "from": "construction-manager",
+                    "to": "source-control-access",
+                    "mode": "sync",
+                    "label": "openPullRequest(repo, prSpec, cred, key) → PullRequestRef"
+                  },
+                  {
+                    "from": "construction-manager",
+                    "to": "review-engine",
+                    "mode": "sync",
+                    "label": "ProposeReviews(activityOutput, component, artifactKind, architectureGraph, contracts) → ReviewSet"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "dispatch-reviewers",
+                "calls": [
+                  {
+                    "from": "construction-manager",
+                    "to": "agentic-job-access",
+                    "mode": "sync",
+                    "label": "dispatch reviewer agentic job (reviewPrompt, change) → ReviewVerdict"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "re-stage-amended",
+                "calls": [
+                  {
+                    "from": "construction-manager",
+                    "to": "agentic-job-access",
+                    "mode": "sync",
+                    "label": "re-dispatch the activity job carrying the reviewer's amendments"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "record-review-merge",
+                "calls": [
+                  {
+                    "from": "construction-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "recordChangeReviewed"
+                  },
+                  {
+                    "from": "construction-manager",
+                    "to": "source-control-access",
+                    "mode": "sync",
+                    "label": "postReview(repo, pr, review='architecture +1', cred, key) → void"
+                  },
+                  {
+                    "from": "construction-manager",
+                    "to": "source-control-access",
+                    "mode": "sync",
+                    "label": "mergePullRequest(repo, pr, cred, key) → MergeResult"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "record-exit",
+                "calls": [
+                  {
+                    "from": "construction-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "recordActivityExited (binary exit; actuals feed earned value + projection at read)"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "variance",
+                "calls": [
+                  {
+                    "from": "construction-manager",
+                    "to": "intervention-engine",
+                    "mode": "sync",
+                    "label": "DecideOnVariance(exit variance) → {Retry | Escalate | Takeover}"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "scope-change",
+                "calls": [
+                  {
+                    "from": "construction-manager",
+                    "to": "project-design-manager",
+                    "mode": "queued",
+                    "label": "variance detected → trigger replan sweep (queued)"
+                  }
+                ]
+              }
+            ]
           },
           {
             "useCaseId": "operate-a-delivered-system",
             "key": "uc4-operate-delivered-system",
             "title": "Operate a Delivered System",
-            "steps": []
+            "steps": [
+              {
+                "activityNodeId": "publish-trigger",
+                "calls": [
+                  {
+                    "from": "operator",
+                    "to": "web-client",
+                    "mode": "sync",
+                    "label": "initiates deploy / withdraw / scale from the operations view",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "operator",
+                    "to": "mcp-client",
+                    "mode": "sync",
+                    "label": "initiates the same operation via the MCP surface (R4 cross-surface equivalence)",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "web-client",
+                    "to": "operations-manager",
+                    "mode": "sync",
+                    "label": "deployAfterConstruction(deployedAppId)",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "mcp-client",
+                    "to": "operations-manager",
+                    "mode": "sync",
+                    "label": "deployAfterConstruction(deployedAppId) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
+                    "alt": "s2"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "render-manifests-a",
+                "calls": [
+                  {
+                    "from": "operations-manager",
+                    "to": "operated-system-state-access",
+                    "mode": "sync",
+                    "label": "readOperatedSystem (desiredState, deployableBundleRef)"
+                  },
+                  {
+                    "from": "operations-manager",
+                    "to": "artifact-access",
+                    "mode": "sync",
+                    "label": "retrieveConstructionOutput(deployableBundleRef) → deployable bundle"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "publish-a",
+                "calls": [
+                  {
+                    "from": "operations-manager",
+                    "to": "operated-runtime-access",
+                    "mode": "sync",
+                    "label": "publishDesiredState(manifestBundle)"
+                  },
+                  {
+                    "from": "operated-runtime-access",
+                    "to": "operated-runtime",
+                    "mode": "sync",
+                    "label": "publish desired state (idempotency: deterministic manifest paths)"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "record-published-a",
+                "calls": [
+                  {
+                    "from": "operations-manager",
+                    "to": "operated-system-state-access",
+                    "mode": "sync",
+                    "label": "publishDesiredState(reason=operator | deployAfterConstruction)"
+                  },
+                  {
+                    "from": "operated-system-state-access",
+                    "to": "operated-system-state",
+                    "mode": "sync",
+                    "label": "read row / guarded in-place update (version + applied_mutation dedup)"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "schedule-fires",
+                "calls": [
+                  {
+                    "from": "scheduler-client",
+                    "to": "operations-manager",
+                    "mode": "sync",
+                    "label": "reconcileOperatedState"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "read-app-set",
+                "calls": [
+                  {
+                    "from": "operations-manager",
+                    "to": "operated-system-state-access",
+                    "mode": "sync",
+                    "label": "readInFlightOperatedApps (lastKnownStatus)"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "pull-telemetry",
+                "calls": [
+                  {
+                    "from": "operations-manager",
+                    "to": "operated-runtime-access",
+                    "mode": "sync",
+                    "label": "getApplicationHealth / getSloStatus / readComputeAttribution(appIds)"
+                  },
+                  {
+                    "from": "operated-runtime-access",
+                    "to": "operated-runtime",
+                    "mode": "sync",
+                    "label": "read application health / SLO / capacity metrics"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "record-status",
+                "calls": [
+                  {
+                    "from": "operations-manager",
+                    "to": "operated-system-state-access",
+                    "mode": "sync",
+                    "label": "recordRuntimeStatusChange — only on transition"
+                  },
+                  {
+                    "from": "operations-manager",
+                    "to": "usage-access",
+                    "mode": "sync",
+                    "label": "recordComputeUsage(observedEvents)"
+                  },
+                  {
+                    "from": "usage-access",
+                    "to": "usage-log",
+                    "mode": "sync",
+                    "label": "append entry (compute usage)"
+                  },
+                  {
+                    "from": "operations-manager",
+                    "to": "intervention-engine",
+                    "mode": "sync",
+                    "label": "DecideOnHealth(healthChange) → {Retry | Escalate}"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "autoscale-decide",
+                "calls": [
+                  {
+                    "from": "operations-manager",
+                    "to": "autoscaler-engine",
+                    "mode": "sync",
+                    "label": "ProposeDesiredState(telemetry, currentDesired, policy, infrastructureKind) → {NoChange | ScaleUp | ScaleDown | Pause | Resume}"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "render-manifests-c",
+                "calls": [
+                  {
+                    "from": "operations-manager",
+                    "to": "operated-system-state-access",
+                    "mode": "sync",
+                    "label": "readOperatedSystem — revision basis (current desired state + version)"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "publish-c",
+                "calls": [
+                  {
+                    "from": "operations-manager",
+                    "to": "operated-runtime-access",
+                    "mode": "sync",
+                    "label": "publishDesiredState(revisedManifests) — autoscaler-driven"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "record-published-c",
+                "calls": [
+                  {
+                    "from": "operations-manager",
+                    "to": "operated-system-state-access",
+                    "mode": "sync",
+                    "label": "publishDesiredState(reason=autoscale, decision)"
+                  }
+                ]
+              }
+            ]
           },
           {
             "useCaseId": "bill-the-user-for-usage",
             "key": "uc5-bill-user-for-usage",
             "title": "Bill the User for Usage",
-            "steps": []
+            "steps": [
+              {
+                "activityNodeId": "period-elapses",
+                "calls": [
+                  {
+                    "from": "scheduler-client",
+                    "to": "billing-manager",
+                    "mode": "sync",
+                    "label": "closeBillingCycle(customerId, cycleId)"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "read-hosting-usage",
+                "calls": [
+                  {
+                    "from": "billing-manager",
+                    "to": "billing-state-access",
+                    "mode": "sync",
+                    "label": "readBilling(customerId) → terms + instrument binding"
+                  },
+                  {
+                    "from": "billing-state-access",
+                    "to": "billing-state",
+                    "mode": "sync",
+                    "label": "read row"
+                  },
+                  {
+                    "from": "billing-manager",
+                    "to": "usage-access",
+                    "mode": "sync",
+                    "label": "readRange(customerId, cycleId) → compute usage"
+                  },
+                  {
+                    "from": "usage-access",
+                    "to": "usage-log",
+                    "mode": "sync",
+                    "label": "read range (compute usage entries)"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "price-invoice",
+                "calls": [
+                  {
+                    "from": "billing-manager",
+                    "to": "billing-engine",
+                    "mode": "sync",
+                    "label": "ComputeCharge(cycleUsage, terms) → {chargeAmount}"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "charge-user",
+                "calls": [
+                  {
+                    "from": "billing-manager",
+                    "to": "merchant-gateway-access",
+                    "mode": "sync",
+                    "label": "chargeCustomer(cycleCharge)"
+                  },
+                  {
+                    "from": "merchant-gateway-access",
+                    "to": "merchant-gateway",
+                    "mode": "sync",
+                    "label": "charge (idempotency: Stripe Idempotency-Key settle:{customerId}:{cycleId})"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "record-close",
+                "calls": [
+                  {
+                    "from": "billing-manager",
+                    "to": "billing-state-access",
+                    "mode": "sync",
+                    "label": "settleCycle(customerId, cycleId, chargeAmount, outcome=paid)"
+                  },
+                  {
+                    "from": "billing-state-access",
+                    "to": "billing-state",
+                    "mode": "sync",
+                    "label": "guarded in-place update (version + applied_mutation dedup)"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "retries-left",
+                "calls": [
+                  {
+                    "from": "billing-manager",
+                    "to": "intervention-engine",
+                    "mode": "sync",
+                    "label": "DecideOnBillingFailure(declinedCharge) → {Retry | Escalate | Delay}"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "persistent-decline",
+                "calls": [
+                  {
+                    "from": "billing-manager",
+                    "to": "billing-state-access",
+                    "mode": "sync",
+                    "label": "record persistent decline — marks the customer persistently delinquent (picked up by the shortfall sweep)"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "record-unpaid",
+                "calls": [
+                  {
+                    "from": "billing-manager",
+                    "to": "billing-state-access",
+                    "mode": "sync",
+                    "label": "settleCycle(customerId, cycleId, chargeAmount, outcome=unpaid) — close period"
+                  }
+                ]
+              }
+            ]
           },
           {
             "useCaseId": "manage-projects",
@@ -22879,7 +23569,7 @@
           "id": "STP-UC3",
           "useCase": "execute-a-construction-activity",
           "title": "Execute a Construction Activity (client op: superviseConstruction)",
-          "description": "Black-box exercise of the constructionManager pump + review-gate surface. Proves that ExecuteNextActivity respects the dependency network, that send-back blocks a merge, and that the pump is tick-idempotent (retries do not double-dispatch).",
+          "description": "Black-box exercise of the constructionManager pump + review-gate surface. Proves that ExecuteNextActivity respects the dependency network, that send-back blocks a merge, and that the pump is tick-idempotent (retries do not double-dispatch), and that an operator override resolves a pump-level escalation and returns the activity to active construction.",
           "cases": [
             {
               "id": "STP-UC3-H1",
@@ -22986,6 +23676,84 @@
                     "errorExpected": false
                   },
                   "assertion": "A later tick progresses construction; on approved review the PR merges and the activity records an exit."
+                }
+              ]
+            },
+            {
+              "id": "STP-UC3-H2",
+              "kind": "happy",
+              "title": "Escalated activity is resolved by an operator takeover and resumes construction",
+              "proves": "OverrideActivity resolves an operator escalation raised when DecideOnVariance returns VarianceEscalate, and hands the activity back into active construction (mirrors uc3 chain: executeNextActivity -> ... -> DecideOnVariance(Escalate) -> escalate-operator -> OverrideActivity(Takeover) -> resume dispatch). Covers the architecture's operator mid-chain escalation entry chain executeNextActivity -> overrideActivity (closes STP-CHAIN-COVER).",
+              "expectedOutcome": "First tick dispatches an activity whose agentic job goes on to exhaust its retry budget and escalate (StageAwaitingTakeover); the operator's OverrideActivity(kind=Takeover) is accepted with no error; a subsequent read shows the activity has left StageAwaitingTakeover and resumed at StageDispatching under a changed arrangement.",
+              "steps": [
+                {
+                  "seq": 1,
+                  "component": "constructionManager",
+                  "operation": "ExecuteNextActivity",
+                  "inputs": [
+                    {
+                      "name": "projectID",
+                      "value": "proj-aiarch-01",
+                      "schemaRef": "#/$defs/ProjectID"
+                    },
+                    {
+                      "name": "tickID",
+                      "value": "tick-escalate-01"
+                    }
+                  ],
+                  "expect": {
+                    "result": "{\"dispatched\":true,\"activityId\":\"C-BILLENG\"}",
+                    "errorExpected": false
+                  },
+                  "assertion": "dispatched=true - C-BILLENG is dispatched. The fixture's agentic job for this activity is fault-injected to fail validation on every attempt, so the retry budget is exhausted and interventionEngine.DecideOnVariance returns VarianceEscalate rather than VarianceRetry."
+                },
+                {
+                  "seq": 2,
+                  "component": "constructionManager",
+                  "operation": "OverrideActivity",
+                  "inputs": [
+                    {
+                      "name": "projectID",
+                      "value": "proj-aiarch-01",
+                      "schemaRef": "#/$defs/ProjectID"
+                    },
+                    {
+                      "name": "activityID",
+                      "value": "C-BILLENG",
+                      "schemaRef": "#/$defs/ActivityID"
+                    },
+                    {
+                      "name": "override",
+                      "value": "{\"kind\":1,\"notes\":\"Operator takeover: C-BILLENG's agentic job exhausted its retry budget on repeated validation failures; taking the activity over and returning it to active construction under a changed arrangement.\",\"comments\":null}",
+                      "schemaRef": "#/$defs/ActivityOverride"
+                    }
+                  ],
+                  "expect": {
+                    "errorExpected": false
+                  },
+                  "assertion": "kind=1 (OverrideTakeover); no error - the operatorOverride signal is durably enqueued to the activity's child workflow, which was waiting on it in StageAwaitingTakeover."
+                },
+                {
+                  "seq": 3,
+                  "component": "constructionManager",
+                  "operation": "GetSessionState",
+                  "inputs": [
+                    {
+                      "name": "projectID",
+                      "value": "proj-aiarch-01",
+                      "schemaRef": "#/$defs/ProjectID"
+                    },
+                    {
+                      "name": "activityID",
+                      "value": "C-BILLENG",
+                      "schemaRef": "#/$defs/ActivityID"
+                    }
+                  ],
+                  "expect": {
+                    "result": "{}",
+                    "errorExpected": false
+                  },
+                  "assertion": "Session view's stage has moved off StageAwaitingTakeover (4) to StageDispatching (1) - the override cleared the escalation and the activity resumed active construction under the changed arrangement (executeOverride's OverrideTakeover branch). This is the honest observation point, NOT a recorded exit: OverrideTakeover loops back into supervision exactly like Retry/Reassign - only OverrideSkip records a terminal exit. The flagged variance from the original failure remains visible on the view until a subsequent clean pass clears it."
                 }
               ]
             },
