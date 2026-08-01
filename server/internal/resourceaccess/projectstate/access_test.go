@@ -4295,6 +4295,62 @@ func TestRequireModelFields_ValidSystem(t *testing.T) {
 	}
 }
 
+// ---- TraceCall.Alt (rollout rulings 2026-07-31): tolerant-decode on requireDynamicViewSteps ----
+
+func TestRequireModelFields_DynamicViewStep_NoAlt_Passes(t *testing.T) {
+	// A step-keyed dynamic view whose call omits "alt" entirely — the shape every
+	// committed view predates the field with. Absence must be fine.
+	j := `{
+      "components": [
+        {"id":"c","name":"WebClient","kind":"client","layer":"client","encapsulates":"","atomicBusinessVerbs":[]}
+      ],
+      "relationships": [],
+      "dynamicViews": [
+        {"useCaseId":"uc1","key":"uc1-k","title":"UC1","steps":[
+          {"activityNodeId":"n1","calls":[{"from":"c","to":"c","mode":"sync","label":"x"}]}
+        ]}
+      ]
+    }`
+	if err := RequireModelFields(KindSystem, []byte(j)); err != nil {
+		t.Fatalf("a step call omitting alt should pass, got: %v", err)
+	}
+}
+
+func TestRequireModelFields_DynamicViewStep_AltString_Passes(t *testing.T) {
+	j := `{
+      "components": [
+        {"id":"c","name":"WebClient","kind":"client","layer":"client","encapsulates":"","atomicBusinessVerbs":[]}
+      ],
+      "relationships": [],
+      "dynamicViews": [
+        {"useCaseId":"uc1","key":"uc1-k","title":"UC1","steps":[
+          {"activityNodeId":"n1","calls":[{"from":"c","to":"c","mode":"sync","label":"x","alt":"g1"}]}
+        ]}
+      ]
+    }`
+	if err := RequireModelFields(KindSystem, []byte(j)); err != nil {
+		t.Fatalf("a step call with a string alt should pass, got: %v", err)
+	}
+}
+
+func TestRequireModelFields_DynamicViewStep_AltWrongType_Rejected(t *testing.T) {
+	j := `{
+      "components": [
+        {"id":"c","name":"WebClient","kind":"client","layer":"client","encapsulates":"","atomicBusinessVerbs":[]}
+      ],
+      "relationships": [],
+      "dynamicViews": [
+        {"useCaseId":"uc1","key":"uc1-k","title":"UC1","steps":[
+          {"activityNodeId":"n1","calls":[{"from":"c","to":"c","mode":"sync","label":"x","alt":42}]}
+        ]}
+      ]
+    }`
+	err := RequireModelFields(KindSystem, []byte(j))
+	if err == nil || !strings.Contains(err.Error(), "alt") {
+		t.Fatalf("a non-string alt must be rejected naming alt, got: %v", err)
+	}
+}
+
 func TestRequireModelFields_MissingLayer(t *testing.T) {
 	// The live F81 case: a manager component that omits "layer". The strict struct decode
 	// would silently default it to LayerClient; the presence+consistency check must reject.
@@ -4406,6 +4462,59 @@ func TestRequireModelFields_CoreUseCases(t *testing.T) {
     }`
 	if err := RequireModelFields(KindCoreUseCases, []byte(missingNodeKind)); err == nil || !strings.Contains(err.Error(), "kind") {
 		t.Fatalf("an activity node missing its kind must be rejected, got: %v", err)
+	}
+}
+
+// ---- ActivityNode.DecidedBy (rollout rulings 2026-07-31): tolerant-decode on requireActivityNodes ----
+
+func TestRequireModelFields_ActivityNode_NoDecidedBy_Passes(t *testing.T) {
+	// An activity node omitting "decidedBy" entirely — the shape every committed use
+	// case predates the field with. Absence must be fine.
+	j := `{
+      "decisions": [
+        {"useCase":{"id":"uc1","name":"Place order","actors":[],"trigger":"clientAction","classification":"core",
+          "activity":{"nodes":[{"id":"s","kind":"start","label":""},{"id":"a","kind":"action","label":"do"}],
+                      "edges":[{"from":"s","to":"a","kind":"controlFlow","guard":""}]}},
+         "rejectionReason":""}
+      ]
+    }`
+	if err := RequireModelFields(KindCoreUseCases, []byte(j)); err != nil {
+		t.Fatalf("an activity node omitting decidedBy should pass, got: %v", err)
+	}
+}
+
+func TestRequireModelFields_ActivityNode_DecidedByString_Passes(t *testing.T) {
+	j := `{
+      "decisions": [
+        {"useCase":{"id":"uc1","name":"Place order","actors":[],"trigger":"clientAction","classification":"core",
+          "activity":{"nodes":[{"id":"s","kind":"start","label":""},
+                                {"id":"d","kind":"decision","label":"route","decidedBy":"order-mgr"},
+                                {"id":"a","kind":"action","label":"do"}],
+                      "edges":[{"from":"s","to":"d","kind":"controlFlow","guard":""},
+                               {"from":"d","to":"a","kind":"guardedFlow","guard":"g"}]}},
+         "rejectionReason":""}
+      ]
+    }`
+	if err := RequireModelFields(KindCoreUseCases, []byte(j)); err != nil {
+		t.Fatalf("a decision node with a string decidedBy should pass, got: %v", err)
+	}
+}
+
+func TestRequireModelFields_ActivityNode_DecidedByWrongType_Rejected(t *testing.T) {
+	j := `{
+      "decisions": [
+        {"useCase":{"id":"uc1","name":"Place order","actors":[],"trigger":"clientAction","classification":"core",
+          "activity":{"nodes":[{"id":"s","kind":"start","label":""},
+                                {"id":"d","kind":"decision","label":"route","decidedBy":42},
+                                {"id":"a","kind":"action","label":"do"}],
+                      "edges":[{"from":"s","to":"d","kind":"controlFlow","guard":""},
+                               {"from":"d","to":"a","kind":"guardedFlow","guard":"g"}]}},
+         "rejectionReason":""}
+      ]
+    }`
+	err := RequireModelFields(KindCoreUseCases, []byte(j))
+	if err == nil || !strings.Contains(err.Error(), "decidedBy") {
+		t.Fatalf("a non-string decidedBy must be rejected naming decidedBy, got: %v", err)
 	}
 }
 
@@ -4821,7 +4930,7 @@ func TestSystem_StringEnums_CamelCase(t *testing.T) {
 			Title:     "Co-author",
 			Steps: []CallStep{{
 				ActivityNodeID: "step1",
-				Calls:          []Relationship{{From: cid, To: cid, Mode: CallSync, Label: "y"}},
+				Calls:          []TraceCall{{From: cid, To: cid, Mode: CallSync, Label: "y"}},
 			}},
 		}},
 	}
@@ -4855,6 +4964,90 @@ func TestSystem_StringEnums_CamelCase(t *testing.T) {
 	}
 	if !reflect.DeepEqual(s, back) {
 		t.Fatalf("round-trip mismatch:\n got %+v\nwant %+v", back, s)
+	}
+}
+
+// decodeCommittedProject reads and decodes THIS repo's own committed
+// .aiarch/state/project.json — shared by the tolerant-decode regressions below, each
+// of which needs the same live fixture (16 realized/reshaped dynamic views, none
+// carrying TraceCall.Alt or ActivityNode.DecidedBy).
+func decodeCommittedProject(t *testing.T) Project {
+	t.Helper()
+	root := findRepoRootFromCwd(t)
+	raw, err := os.ReadFile(filepath.Join(root, ".aiarch", "state", "project.json"))
+	if err != nil {
+		t.Fatalf("read project.json: %v", err)
+	}
+	proj, ok, err := DecodeProjectJSON(raw, "")
+	if err != nil {
+		t.Fatalf("DecodeProjectJSON: %v", err)
+	}
+	if !ok {
+		t.Fatal("DecodeProjectJSON reported not-ok for the committed project.json")
+	}
+	return proj
+}
+
+// TestCommittedProjectJSON_DynamicViewCalls_NoAlt is the tolerant-decode regression
+// for TraceCall.Alt (rollout rulings 2026-07-31): a call that never mentions "alt"
+// must decode EXACTLY as it did before the field existed — no error, and Alt reads
+// back nil (not a zero-value string standing in for absence).
+func TestCommittedProjectJSON_DynamicViewCalls_NoAlt(t *testing.T) {
+	proj := decodeCommittedProject(t)
+
+	sys, ok := proj.SystemDesign.Model.(*System)
+	if !ok || sys == nil {
+		t.Fatal("SystemDesign slot did not decode to a non-nil *System")
+	}
+	if len(sys.DynamicViews) == 0 {
+		t.Fatal("committed System has no dynamic views — fixture assumption (16 realized views) no longer holds")
+	}
+	callCount := 0
+	for _, dv := range sys.DynamicViews {
+		for _, step := range dv.Steps {
+			for _, call := range step.Calls {
+				callCount++
+				if call.Alt != nil {
+					t.Fatalf("dynamic view %q step %q: call %+v decoded a non-nil Alt from data "+
+						"that predates the field — tolerant decode regressed", dv.Key, step.ActivityNodeID, call)
+				}
+			}
+		}
+	}
+	if callCount == 0 {
+		t.Fatal("committed dynamic views have zero calls across all steps — fixture assumption no longer holds")
+	}
+}
+
+// TestCommittedProjectJSON_ActivityNodes_NoDecidedBy is the tolerant-decode
+// regression for ActivityNode.DecidedBy (rollout rulings 2026-07-31): a node that
+// never mentions "decidedBy" must decode EXACTLY as it did before the field
+// existed — no error, and DecidedBy reads back nil.
+func TestCommittedProjectJSON_ActivityNodes_NoDecidedBy(t *testing.T) {
+	proj := decodeCommittedProject(t)
+
+	cuc, ok := proj.CoreUseCases.Model.(*CoreUseCases)
+	if !ok || cuc == nil {
+		t.Fatal("CoreUseCases slot did not decode to a non-nil *CoreUseCases")
+	}
+	if len(cuc.Decisions) == 0 {
+		t.Fatal("committed CoreUseCases has no decisions — fixture assumption no longer holds")
+	}
+	nodeCount := 0
+	for _, d := range cuc.Decisions {
+		if d.UseCase.Activity == nil {
+			continue
+		}
+		for _, node := range d.UseCase.Activity.Nodes {
+			nodeCount++
+			if node.DecidedBy != nil {
+				t.Fatalf("use case %q activity node %q decoded a non-nil DecidedBy from data "+
+					"that predates the field — tolerant decode regressed", d.UseCase.ID, node.ID)
+			}
+		}
+	}
+	if nodeCount == 0 {
+		t.Fatal("committed use cases have zero activity nodes across all decisions — fixture assumption no longer holds")
 	}
 }
 

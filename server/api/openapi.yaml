@@ -306,6 +306,10 @@ components:
         ModelActivityNode:
             additionalProperties: false
             properties:
+                decidedBy:
+                    type:
+                        - "null"
+                        - string
                 id:
                     type: string
                 kind:
@@ -359,7 +363,7 @@ components:
                     type: string
                 calls:
                     items:
-                        $ref: '#/components/schemas/ModelRelationship'
+                        $ref: '#/components/schemas/ModelTraceCall'
                     type:
                         - "null"
                         - array
@@ -1297,6 +1301,31 @@ components:
                 - components
                 - relationships
                 - dynamicViews
+            type: object
+        ModelTraceCall:
+            additionalProperties: false
+            properties:
+                alt:
+                    type:
+                        - "null"
+                        - string
+                from:
+                    type: string
+                label:
+                    type: string
+                mode:
+                    enum:
+                        - sync
+                        - queued
+                        - eventPubSub
+                    type: string
+                to:
+                    type: string
+            required:
+                - from
+                - to
+                - mode
+                - label
             type: object
         ModelTrustSummaries:
             additionalProperties: false

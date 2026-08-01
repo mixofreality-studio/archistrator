@@ -4043,6 +4043,12 @@ func (k ActivityNodeKind) BookEnumerated() bool { return k <= NodeNote }
 // NAME-slug reference (the linked Actor's role-slug) resolved server-side from
 // the name the LLM emitted.
 // (projectStateAccess.md §3.4)
+//
+// DecidedBy (rollout rulings 2026-07-31): optional, legal ONLY on decision/switch
+// kinds — who resolves the branch. Resolves endpoint-style, like a call endpoint:
+// a Component.ID or the owning use case's Actor.ID. Illegal placement (any other
+// kind) or a value resolving to neither is CC-DECIDED-BY (methodcheck/designhealth,
+// not enforced by this write-path shape validator — see requireActivityNodes).
 type ActivityNode struct {
 	ID    string           `json:"id"`
 	Kind  ActivityNodeKind `json:"kind"`
@@ -4050,6 +4056,8 @@ type ActivityNode struct {
 	// For NodeSwimLane: the role name and an optional link to an actor.
 	RoleName      string  `json:"roleName"`
 	LinkedActorID *string `json:"linkedActorId"`
+	// DecidedBy: see doc comment above.
+	DecidedBy *string `json:"decidedBy,omitempty"`
 }
 
 // EdgeKind is the closed set of activity-edge kinds. (projectStateAccess.md §3.4)
@@ -5128,7 +5136,19 @@ func requireDynamicViewSteps(obj map[string]json.RawMessage, label string) error
 			return fmt.Errorf("%s calls is not a JSON array: %w", stepLabel, err)
 		}
 		for k, cRaw := range callRaws {
-			if err := requireRelationshipFields(cRaw, fmt.Sprintf("%s call %d", stepLabel, k+1)); err != nil {
+			callLabel := fmt.Sprintf("%s call %d", stepLabel, k+1)
+			if err := requireRelationshipFields(cRaw, callLabel); err != nil {
+				return err
+			}
+			// TraceCall.Alt (rollout rulings 2026-07-31): optional alt-group tag, not on
+			// the shared Relationship shape, so checked here rather than inside
+			// requireRelationshipFields (which also validates top-level relationships
+			// that have no alt field). Tolerant: absent is fine; wrong type is an error.
+			cObj, err := rawObject(cRaw)
+			if err != nil {
+				return fmt.Errorf("%s is not a JSON object: %w", callLabel, err)
+			}
+			if err := requireOptionalStringField(cObj, "alt", callLabel); err != nil {
 				return err
 			}
 		}
@@ -5262,6 +5282,13 @@ func requireActivityNodes(act map[string]json.RawMessage, ucLabel string) (hasSt
 		}
 		if nk == NodeAction {
 			hasAction = true
+		}
+		// ActivityNode.DecidedBy (rollout rulings 2026-07-31): optional endpoint-resolving
+		// string. Tolerant: absent is fine (old committed nodes have no decidedBy); wrong
+		// type is an error. Legality (decision/switch-only, resolves to a real endpoint) is
+		// CC-DECIDED-BY (methodcheck/designhealth), not this write-path shape validator.
+		if e := requireOptionalStringField(obj, "decidedBy", label); e != nil {
+			return false, false, e
 		}
 	}
 	return hasStart, hasAction, nil
@@ -5419,6 +5446,25 @@ func requireNonEmptyString(obj map[string]json.RawMessage, key, label string) er
 	}
 	if strings.TrimSpace(s) == "" {
 		return fmt.Errorf("%s field %q must not be empty", label, key)
+	}
+	return nil
+}
+
+// requireOptionalStringField asserts that IF key is present and non-null, its value
+// decodes as a JSON string. Absent or null is tolerant (the field is optional on the
+// wire — old committed data without it must decode unchanged); only a wrong TYPE is
+// an error. Used for the call-chain realization's optional endpoint-resolving fields
+// (TraceCall.Alt, ActivityNode.DecidedBy) — neither has a real zero value to silently
+// absorb an omission, so unlike requirePresent's fields there is nothing to enforce
+// here beyond shape.
+func requireOptionalStringField(obj map[string]json.RawMessage, key, label string) error {
+	v, ok := obj[key]
+	if !ok || isJSONNull(v) {
+		return nil
+	}
+	var s string
+	if err := json.Unmarshal(v, &s); err != nil {
+		return fmt.Errorf("%s field %q must be a string: %w", label, key, err)
 	}
 	return nil
 }

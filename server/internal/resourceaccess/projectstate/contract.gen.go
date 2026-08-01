@@ -182,8 +182,8 @@ const (
 )
 
 type CallStep struct {
-	ActivityNodeID string         `json:"activityNodeId"`
-	Calls          []Relationship `json:"calls"`
+	ActivityNodeID string      `json:"activityNodeId"`
+	Calls          []TraceCall `json:"calls"`
 }
 
 type CheckItem struct {
@@ -754,6 +754,14 @@ const (
 	TestVariantSystemTest TestingVariant = 3
 	TestVariantQAProcess  TestingVariant = 4
 )
+
+type TraceCall struct {
+	From  string   `json:"from"`
+	To    string   `json:"to"`
+	Mode  CallMode `json:"mode"`
+	Label string   `json:"label"`
+	Alt   *string  `json:"alt,omitempty"`
+}
 
 type Trigger int
 

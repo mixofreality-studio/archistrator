@@ -16404,7 +16404,7 @@
                 "array"
               ],
               "items": {
-                "$ref": "#/$defs/Relationship"
+                "$ref": "#/$defs/TraceCall"
               }
             }
           },
@@ -18315,6 +18315,33 @@
             "TestVariantQAProcess"
           ],
           "x-go-base": "int"
+        },
+        "TraceCall": {
+          "type": "object",
+          "properties": {
+            "from": {
+              "type": "string"
+            },
+            "to": {
+              "type": "string"
+            },
+            "mode": {
+              "$ref": "#/$defs/CallMode"
+            },
+            "label": {
+              "type": "string"
+            },
+            "alt": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "from",
+            "to",
+            "mode",
+            "label"
+          ],
+          "additionalProperties": false
         },
         "Trigger": {
           "type": "integer",
