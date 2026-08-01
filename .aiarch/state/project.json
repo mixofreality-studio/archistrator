@@ -7038,10 +7038,19 @@
             },
             {
               "component": "messageBus",
-              "presence": "optional",
+              "presence": "required",
               "provides": [],
               "settings": [],
-              "perProfile": {}
+              "perProfile": {
+                "local": {
+                  "variant": "Temporal",
+                  "infra": ["temporal"]
+                },
+                "cloud": {
+                  "variant": "Temporal",
+                  "infra": ["temporal"]
+                }
+              }
             }
           ],
           "settings": [

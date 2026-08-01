@@ -115,7 +115,9 @@ import (
 	tlog "go.temporal.io/sdk/log"
 
 	"github.com/mixofreality-studio/archistrator/server/internal/client/web"
+	managerbilling "github.com/mixofreality-studio/archistrator/server/internal/manager/billing"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/construction"
+	"github.com/mixofreality-studio/archistrator/server/internal/manager/operations"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/projectdesign"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/systemdesign"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/agenticjob"
@@ -127,6 +129,7 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usage"
+	"github.com/mixofreality-studio/archistrator/server/internal/utility/messagebus"
 )
 
 // appHooks implements the generated Hooks interface. Built once by newAppHooks.
@@ -708,6 +711,47 @@ func (h *appHooks) FinalizeDesignSessionAccess(_ *Config, v projectstate.DesignS
 // arm-less stub binding (billingstate.NewRevenueLedgerAccess, a permanent no-op per
 // the charge-only R-013 rationale); no composition-root policy applies.
 func (h *appHooks) FinalizeRevenueLedgerAccess(_ *Config, v billingstate.RevenueLedgerAccess) billingstate.RevenueLedgerAccess {
+	return v
+}
+
+// MessageBusTemporalArgs supplies messageBus's ONE constructor argument the
+// deployment model cannot express (Task 7c): the ExecutionKind -> KindBinding
+// table messagebus.NewTemporalMessageBus's registry resolves every
+// RegisterSchedule call against (both the three managers' STARTUP schedules
+// below and any future workflow-invoked registerSchedule call, e.g. billing's
+// per-customer closeBillingCycle:<id>). composegen threads the dialed `tc` as
+// a separate positional arg ahead of this hook call — see the generated
+// main.gen.go call site — so this hook supplies ONLY the table.
+//
+// NOT compiler-linked to the managers' own private executionKind* constants
+// (they are unexported; a cross-package reference is impossible) — this table
+// is the single hand-maintained source of truth pairing each logical
+// ExecutionKind string with its registered Temporal workflow-type name (always
+// identical today, since every RegisterSchedule caller passes its own
+// executionKind* constant as both) and the owning Manager's TaskQueue. A
+// rename of any of these constants must be mirrored here; nothing else
+// enforces it.
+func (h *appHooks) MessageBusTemporalArgs(_ *Config) map[messagebus.ExecutionKind]messagebus.KindBinding {
+	return map[messagebus.ExecutionKind]messagebus.KindBinding{
+		// billing: the startup shortfallSweep Schedule (billingmanager.go's
+		// executionKindShortfallSweep) + the per-customer closeBillingCycle:<id>
+		// Schedule registered at onboarding (executionKindClose).
+		"billingShortfallSweep": {WorkflowType: "billingShortfallSweep", TaskQueue: managerbilling.TaskQueue},
+		"billingCloseCycle":     {WorkflowType: "billingCloseCycle", TaskQueue: managerbilling.TaskQueue},
+		// operations: the startup operatedStateReconcile Schedule
+		// (operationsmanager.go's executionKindReconcile).
+		"operationsReconcile": {WorkflowType: "operationsReconcile", TaskQueue: operations.TaskQueue},
+		// construction: the two startup Schedules (Task 7c;
+		// constructionmanager.go's executionKindPumpSweep/executionKindReplanSweep).
+		"constructionPumpSweep":   {WorkflowType: "constructionPumpSweep", TaskQueue: construction.TaskQueue},
+		"constructionReplanSweep": {WorkflowType: "constructionReplanSweep", TaskQueue: construction.TaskQueue},
+	}
+}
+
+// FinalizeMessageBus is identity — messageBus is now a required, single-arm
+// (Temporal, every profile) binding with no orthogonal toggle; no
+// composition-root policy applies.
+func (h *appHooks) FinalizeMessageBus(_ *Config, v messagebus.MessageBus) messagebus.MessageBus {
 	return v
 }
 

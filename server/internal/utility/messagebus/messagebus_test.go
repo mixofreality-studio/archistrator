@@ -220,8 +220,10 @@ const (
 	testTaskQueue            = "messagebus-test"
 	kindSignalWaiter         = ExecutionKind("signalWaiter")
 	kindScheduled            = ExecutionKind("scheduledNoop")
+	kindStructSweep          = ExecutionKind("structSweep")
 	wtSignalWaiter           = "SignalWaiterWorkflow"
 	wtScheduled              = "ScheduledNoopWorkflow"
+	wtStructSweep            = "StructSweepWorkflow"
 	signalGo                 = "go"
 	integrationWaitTimeout   = 20 * time.Second
 	integrationPollFrequency = 100 * time.Millisecond
@@ -262,6 +264,31 @@ func scheduledWorkflow(_ workflow.Context, _ []byte) error {
 	return nil
 }
 
+// structSweepInput mirrors the SHAPE every REAL Schedule-fired workflow this
+// package's caller managers register — a single TYPED STRUCT parameter whose
+// ZERO VALUE is a legitimate "no scope, sweep everything" input (billing's
+// shortfallSweepInput, operations' reconcileInput, construction's
+// replanSweepInput / pumpSweepInput). Deliberately NOT []byte (scheduledWorkflow
+// above) — a []byte target would still decode under the STALE []any{payload.
+// Bytes} construction (byte-slice payloads decode fine into a []byte target),
+// masking exactly the bug scheduleWorkflowArgs fixes; only a concrete struct
+// target exposes it.
+type structSweepInput struct {
+	Scope []string
+}
+
+// structSweepWorkflow proves a Schedule-fired execution with an EMPTY
+// StartPayload (scheduleWorkflowArgs → nil Args, the universal shape every
+// current real caller uses) decodes cleanly into its zero value — it returns
+// whether Scope was nil (the "swept everything" zero-value meaning) so the
+// integration test can assert on it via the workflow RESULT, not just "did not
+// error" (a decode failure surfaces as a start/task failure, not a clean
+// result, so asserting the result already proves decode succeeded — the extra
+// bool return catches a corrupted-but-still-struct-shaped decode too).
+func structSweepWorkflow(_ workflow.Context, in structSweepInput) (bool, error) {
+	return in.Scope == nil, nil
+}
+
 // integrationBus spins a test Worker registering the two workflow types and
 // returns a MessageBus over the dev-server client bound to the test registry,
 // alongside that raw client for the test's own arrange/assert steps.
@@ -275,6 +302,7 @@ func integrationBus(t *testing.T) (MessageBus, client.Client) {
 	w := worker.New(c, testTaskQueue, worker.Options{})
 	w.RegisterWorkflowWithOptions(signalWaiterWorkflow, workflow.RegisterOptions{Name: wtSignalWaiter})
 	w.RegisterWorkflowWithOptions(scheduledWorkflow, workflow.RegisterOptions{Name: wtScheduled})
+	w.RegisterWorkflowWithOptions(structSweepWorkflow, workflow.RegisterOptions{Name: wtStructSweep})
 	if err := w.Start(); err != nil {
 		t.Fatalf("worker.Start: %v", err)
 	}
@@ -283,6 +311,7 @@ func integrationBus(t *testing.T) (MessageBus, client.Client) {
 	r := NewTemporalMessageBus(c, map[ExecutionKind]KindBinding{
 		kindSignalWaiter: {WorkflowType: wtSignalWaiter, TaskQueue: testTaskQueue},
 		kindScheduled:    {WorkflowType: wtScheduled, TaskQueue: testTaskQueue},
+		kindStructSweep:  {WorkflowType: wtStructSweep, TaskQueue: testTaskQueue},
 	})
 	return r, c
 }
@@ -374,6 +403,60 @@ func TestIntegration_RegisterSchedule_Idempotent(t *testing.T) {
 	if err := r.RegisterSchedule(rc(t.Context()), scheduleID, spec); err != nil {
 		t.Fatalf("RegisterSchedule (changed spec): %v", err)
 	}
+}
+
+// I4 (Task 7c fix): a Schedule registered with an EMPTY StartPayload — the
+// shape every current real caller (billing/operations/construction) uses —
+// fires a REAL execution against the dev server whose target parameter is a
+// concrete STRUCT (not []byte), and that execution decodes cleanly to the
+// struct's zero value and runs to completion, instead of failing to decode
+// its start argument (the bug scheduleWorkflowArgs fixes: the stale
+// []any{payload.Bytes} construction always encoded a "binary/plain" payload,
+// which only a []byte/interface{} target — never a struct — can decode).
+func TestIntegration_RegisterSchedule_EmptyStartPayload_DecodesStructZeroValue(t *testing.T) {
+	r, c := integrationBus(t)
+	scheduleID := ScheduleID(fmt.Sprintf("structsweep:%d", time.Now().UnixNano()))
+	spec := ScheduleSpec{
+		ExecutionKind: kindStructSweep,
+		Cadence:       Cadence{Every: time.Second}, // short: the test waits for a real firing
+		// TargetIDTemplate + StartPayload deliberately left zero-valued —
+		// matching EVERY current real RegisterSchedule caller.
+	}
+	if err := r.RegisterSchedule(rc(t.Context()), scheduleID, spec); err != nil {
+		t.Fatalf("RegisterSchedule: %v", err)
+	}
+	handle := c.ScheduleClient().GetHandle(context.Background(), string(scheduleID))
+	t.Cleanup(func() { _ = handle.Delete(context.Background()) })
+
+	we := waitForScheduleFiring(t, handle)
+
+	var sweptEverything bool
+	if err := c.GetWorkflow(t.Context(), we.WorkflowID, we.FirstExecutionRunID).Get(t.Context(), &sweptEverything); err != nil {
+		t.Fatalf("Schedule-fired execution failed (likely a start-argument decode error): %v", err)
+	}
+	if !sweptEverything {
+		t.Fatal("want the zero-value structSweepInput{Scope: nil} (\"sweep everything\"), got a non-nil Scope")
+	}
+}
+
+// waitForScheduleFiring polls a Schedule's Describe until it reports at least
+// one RecentAction (the schedule has actually fired and started its target
+// workflow), returning that action's started execution.
+func waitForScheduleFiring(t *testing.T, handle client.ScheduleHandle) client.ScheduleWorkflowExecution {
+	t.Helper()
+	deadline := time.Now().Add(integrationWaitTimeout)
+	for time.Now().Before(deadline) {
+		desc, err := handle.Describe(t.Context())
+		if err == nil && len(desc.Info.RecentActions) > 0 {
+			result := desc.Info.RecentActions[len(desc.Info.RecentActions)-1].StartWorkflowResult
+			if result != nil {
+				return *result
+			}
+		}
+		time.Sleep(integrationPollFrequency)
+	}
+	t.Fatal("schedule did not fire within the wait timeout")
+	return client.ScheduleWorkflowExecution{}
 }
 
 // dumpHistory writes the workflow event history as a replayable artifact (like

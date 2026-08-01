@@ -69,6 +69,11 @@ const projectstatePkg = serverModule + "/internal/resourceaccess/projectstate"
 // New<Variant><Iface> with the same name and collide.
 const githubInfraPkg = "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github"
 
+// messagebusPkg is the archistrator messagebus package import — the source of
+// the ExecutionKind/KindBinding types the messageBus Temporal variant-arg hook
+// (Task 7c) returns; see generateMain's VariantHookArgs["messageBus/Temporal"].
+const messagebusPkg = serverModule + "/internal/utility/messagebus"
+
 // callerKeyedOps: ops whose idempotency is BUSINESS-stable, not run-scoped —
 // the workflow supplies the key explicitly (billing money-moves; see
 // gatewayIdempotencyKey in internal/manager/billing).
@@ -119,7 +124,7 @@ func main() {
 // construction → Engines → security Utility → Managers via their DI ctors → one
 // Worker per Manager → generated web Handlers + NewServer + ExtraMounts → serve +
 // shutdown), driving a hand cmd/server/hooks.go for the genuinely-compositional
-// policy. Two driver knobs the deployment model cannot express:
+// policy. Three driver knobs the deployment model cannot express:
 //
 //   - WebExposedManagers = clientgen's exposedManagers (the 4 web-wired
 //     managers). billingManager carries a web-client/mcp-client relationship in
@@ -127,10 +132,17 @@ func main() {
 //     internal/client/web/billing package (money-move ops are not web-wired), so
 //     the relationship alone must not force a <mgr>web.Handler that would not
 //     compile.
-//   - VariantHookArgs for the two variant ctors whose args the model cannot
-//     supply (G3): projectstate GitHub needs the sourcecontrol-backed catalog +
-//     minter PORTS (an RA→RA edge forbidden inside projectstate), and artifact
-//     GitHubCloud needs the repoURL/owner strings + a typed int64 installationID.
+//   - VariantHookArgs for the variant ctors whose args the model cannot supply
+//     (G3): projectstate GitHub needs the sourcecontrol-backed catalog + minter
+//     PORTS (an RA→RA edge forbidden inside projectstate); artifact GitHubCloud
+//     needs the repoURL/owner strings + a typed int64 installationID; messageBus
+//     Temporal (Task 7c) needs the cross-manager ExecutionKind→KindBinding table
+//     (composegen threads its bound temporal infra, `tc`, automatically — see
+//     the entry's own comment below).
+//   - VariantConstructorNoError overrides the infra-implies-error-return
+//     heuristic for messageBus/Temporal (Task 7c): messagebus.
+//     NewTemporalMessageBus is single-return despite consuming infra, unlike
+//     every other infra-consuming variant above.
 func generateMain(m *projectmodel.Model) {
 	files, err := composegen.Generate(m, composegen.Config{
 		ContainerKey: containerKey,
@@ -221,6 +233,23 @@ func generateMain(m *projectmodel.Model) {
 				{GoType: "string"}, // ref
 				{GoType: "int64"},  // installationID
 			},
+			// messageBus Temporal (Task 7c): the deployment model can supply `tc`
+			// positionally (its bound "temporal" infra — composegen threads it as an
+			// extra hook parameter automatically since the substrate resolves to an
+			// already-constructed local, not a cfg field), but the KindBinding table
+			// (ExecutionKind -> registered workflow-type name + owning Manager's
+			// TaskQueue, across billing/operations/construction's RegisterSchedule
+			// call sites) is cross-manager composition-root knowledge the model has
+			// no notion of at all (see hooks.go's MessageBusTemporalArgs).
+			"messageBus/Temporal": {
+				{GoType: "map[messagebus.ExecutionKind]messagebus.KindBinding", GoImport: messagebusPkg},
+			},
+		},
+		// messagebus.NewTemporalMessageBus(cl, table) is single-return despite
+		// consuming the temporal infra (Task 7c) — every OTHER infra-consuming
+		// variant above happens to return an error; this one does not.
+		VariantConstructorNoError: map[string]bool{
+			"messageBus/Temporal": true,
 		},
 	})
 	if err != nil {

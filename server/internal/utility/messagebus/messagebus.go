@@ -58,11 +58,26 @@
 // context; the same move artifactAccess/projectStateAccess make with their
 // caller-supplied idempotencyKey. The runtime is natively idempotent on those ids.
 //
-// PAYLOAD OPACITY: ExecutionPayload.Bytes are passed to the runtime as a raw
-// []byte argument. Temporal's default data converter stores a []byte verbatim
-// (ByteSlicePayloadConverter), so the bytes round-trip uninterpreted — this
-// utility is a transport, not a serialiser. The receiving workflow's signal
-// handler owns the payload semantics.
+// PAYLOAD OPACITY: DeliverSignal's ExecutionPayload.Bytes are passed to the
+// runtime as a raw []byte argument. Temporal's default data converter stores a
+// []byte verbatim (ByteSlicePayloadConverter), so the bytes round-trip
+// uninterpreted — this utility is a transport, not a serialiser. The
+// receiving workflow's signal handler owns the payload semantics.
+//
+// RegisterSchedule's StartPayload is DIFFERENT, of necessity: a signal is
+// received mid-execution against a target type the WORKFLOW BODY chooses at
+// the Receive call, so raw bytes are fine; a Schedule fires a fresh WORKFLOW
+// START, whose target parameter is a fixed, concrete Go type declared by the
+// registered workflow function (every current caller's is a struct —
+// pumpSweepInput, replanSweepInput, shortfallSweepInput, reconcileInput — none
+// is []byte). scheduleWorkflowArgs therefore omits Args entirely when
+// StartPayload is empty (every current caller) — the Go SDK decodes a missing
+// argument as the target parameter's zero value, and each of those four
+// structs' zero value IS its documented "no scope, sweep everything" meaning
+// — and, only if StartPayload is ever populated, wraps it as json.RawMessage
+// so it decodes via the ordinary JSON converter into whatever concrete struct
+// the target workflow declares, rather than the byte-slice converter (which
+// only a []byte/interface{} target — never a struct — can decode).
 //
 // AUTH: the runtime connection is authenticated where the client.Client is
 // constructed (mTLS / namespace creds acquired by the aiarch-server pod's
@@ -71,6 +86,7 @@
 package messagebus
 
 import (
+	"encoding/json"
 	"errors"
 	"maps"
 
@@ -167,7 +183,7 @@ func (r *temporalMessageBus) RegisterSchedule(rc fwra.Context, scheduleID Schedu
 	action := &client.ScheduleWorkflowAction{
 		ID:        spec.TargetIDTemplate,
 		Workflow:  binding.workflowType,
-		Args:      []any{spec.StartPayload.Bytes},
+		Args:      scheduleWorkflowArgs(spec.StartPayload),
 		TaskQueue: binding.taskQueue,
 	}
 	sc := r.cl.ScheduleClient()
@@ -200,6 +216,40 @@ func (r *temporalMessageBus) RegisterSchedule(rc fwra.Context, scheduleID Schedu
 		return nil
 	}
 	return mapScheduleError(createErr)
+}
+
+// scheduleWorkflowArgs builds the ScheduleWorkflowAction.Args a Schedule
+// firing starts its target workflow with — the SAME per-firing argument list
+// on every tick (a Temporal Schedule carries fixed Args, never per-firing
+// values). Every current RegisterSchedule caller (billing/operations/
+// construction) leaves StartPayload at its zero value, so this is a
+// correctness fix for a latent decode hazard, not new plumbing:
+//
+//   - EMPTY payload (today's universal case) returns nil (zero Args), NOT
+//     []any{payload.Bytes} (a nil []byte is still a NON-nil, []byte-TYPED
+//     interface value — Temporal's default DataConverter therefore encodes it
+//     via ByteSlicePayloadConverter, "binary/plain", NOT the nil converter,
+//     which only special-cases a literal nil interface or a nil pointer, not a
+//     nil slice). Decoding a "binary/plain" payload requires the target
+//     parameter to be []byte or interface{} — every current Schedule-fired
+//     workflow's input is a concrete struct (pumpSweepInput, replanSweepInput,
+//     shortfallSweepInput, reconcileInput), so that decode would fail with
+//     "type *X: value is not a byte slice" the moment a Schedule actually
+//     fired. Zero Args is what the Go SDK is DESIGNED to tolerate: a workflow
+//     started with fewer arguments than its function declares leaves the
+//     missing ones at their zero value — and every one of those four structs'
+//     zero value is its documented "no scope / sweep everything" meaning, so
+//     this is not a behavior change for any of them, only a decode fix.
+//   - NON-EMPTY payload (no caller uses this yet) is wrapped as
+//     json.RawMessage, forcing the JSON converter (not the byte-slice one) —
+//     json.RawMessage.MarshalJSON returns its bytes verbatim, so the payload's
+//     data is exactly payload.Bytes, "json/plain" encoded, decodable via
+//     ordinary encoding/json into ANY target struct.
+func scheduleWorkflowArgs(payload ExecutionPayload) []any {
+	if len(payload.Bytes) == 0 {
+		return nil
+	}
+	return []any{json.RawMessage(payload.Bytes)}
 }
 
 // toScheduleSpec maps the infrastructure-neutral Cadence to the runtime's
