@@ -10,9 +10,9 @@
 // (awaitSignal / startTimer / executeChild), and derives the idempotency key
 // "${workflowId}:${activityId}" passed down to each RA verb. Temporal lives ONLY
 // in this component; the downstream Engines (interventionEngine,
-// reviewEngine — pure, in-workflow, by value) and ResourceAccess ports
-// (projectStateAccess, artifactAccess, workerAccess, agenticJobAccess,
-// messageBus) import no Temporal.
+// reviewEngine — pure, in-workflow, by value), the ResourceAccess ports
+// (projectStateAccess, artifactAccess, workerAccess, agenticJobAccess) and the
+// messageBus Utility import no Temporal.
 //
 // The FIVE frozen public ops (constructionManager.md §2):
 //   - ExecuteNextActivity — Workflow (entry; scheduler-triggered pump; per-activity child)

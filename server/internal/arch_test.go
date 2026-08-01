@@ -109,10 +109,11 @@ func TestMessageBusManagersOnly(t *testing.T) {
 	}
 }
 
-// messageBusAllowedDirs are the ModulePrefix-relative directory prefixes allowed
-// to import the bus: the Manager layer, plus the component's own subtree (its
-// generated fake).
-var messageBusAllowedDirs = []string{"manager/", "utility/messagebus"}
+// messageBusAllowedDirs are the ModulePrefix-relative DIRECTORIES allowed to
+// import the bus: the Manager layer, plus the component's own subtree (its
+// generated fake). Written without trailing slashes — restrictedImportViolations
+// matches them as directories, not as raw string prefixes.
+var messageBusAllowedDirs = []string{"manager", "utility/messagebus"}
 
 // restrictedImportViolations is the pure core of TestMessageBusManagersOnly:
 // given each package's import list, it returns the importing package paths that
@@ -120,17 +121,17 @@ var messageBusAllowedDirs = []string{"manager/", "utility/messagebus"}
 // (the vacuity guard's input). Separated from packages.Load so the rule itself is
 // unit-testable against a synthetic package set — see
 // TestRestrictedImportViolations.
-func restrictedImportViolations(imports map[string][]string, target string, allowedDirPrefixes []string) (violations []string, importers int) {
+func restrictedImportViolations(imports map[string][]string, target string, allowedDirs []string) (violations []string, importers int) {
 	for pkgPath, ips := range imports {
 		rel := strings.TrimPrefix(pkgPath, modulePrefix)
 		for _, ip := range ips {
-			if ip != target && !strings.HasPrefix(ip, target+"/") {
+			if !underDir(ip, target) {
 				continue
 			}
 			importers++
 			allowed := false
-			for _, prefix := range allowedDirPrefixes {
-				if strings.HasPrefix(rel, prefix) {
+			for _, dir := range allowedDirs {
+				if underDir(rel, dir) {
 					allowed = true
 					break
 				}
@@ -143,6 +144,16 @@ func restrictedImportViolations(imports map[string][]string, target string, allo
 	}
 	sort.Strings(violations)
 	return violations, importers
+}
+
+// underDir reports whether an import path or ModulePrefix-relative package path
+// IS dir or lives beneath it. It matches on the path SEPARATOR, never on the raw
+// string, so a sibling whose name merely starts with dir — utility/messagebusfoo
+// against utility/messagebus, or managerial against manager — is correctly
+// excluded. A trailing slash on dir is tolerated so callers may write either form.
+func underDir(p, dir string) bool {
+	dir = strings.TrimSuffix(dir, "/")
+	return p == dir || strings.HasPrefix(p, dir+"/")
 }
 
 // TestRestrictedImportViolations is the NEGATIVE proof that
@@ -158,17 +169,23 @@ func TestRestrictedImportViolations(t *testing.T) {
 		modulePrefix + "engine/designhealth":     {bus},
 		modulePrefix + "resourceaccess/usage":    {bus},
 		modulePrefix + "client/web":              {modulePrefix + "manager/billing"},
+		// Name-prefix impostors: neither is inside an allowed DIRECTORY, so a raw
+		// strings.HasPrefix over the allow list would wrongly exempt both.
+		modulePrefix + "utility/messagebusfoo": {bus},
+		modulePrefix + "managerial":            {bus},
 	}, bus, messageBusAllowedDirs)
 
 	want := []string{
 		modulePrefix + "engine/designhealth",
+		modulePrefix + "managerial",
 		modulePrefix + "resourceaccess/usage",
+		modulePrefix + "utility/messagebusfoo",
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("violations = %v, want %v", got, want)
 	}
-	if importers != 4 {
-		t.Errorf("importers = %d, want 4 (manager + fake + engine + RA)", importers)
+	if importers != 6 {
+		t.Errorf("importers = %d, want 6 (manager + fake + engine + RA + 2 impostors)", importers)
 	}
 }
 

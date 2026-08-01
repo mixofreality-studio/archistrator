@@ -236,7 +236,7 @@ var ruleSlotAttributionPrefixes = []struct {
 	// PlanningAssumptions amendment.
 	{"ACT-", projectstate.KindActivityList, attribSlot},
 	{"PA-", projectstate.KindPlanningAssumptions, attribSlot},
-	// Live design-health tier (internal/designhealth). The DH-* rules are the
+	// Live design-health tier (internal/engine/designhealth). The DH-* rules are the
 	// mechanical systemDesign directives + joins; their subject is the architecture,
 	// so a DH-* Error is fixed by a systemDesign amendment. Attributing the whole
 	// family to the System slot keeps a DH-* Error from deadlocking a session amending
