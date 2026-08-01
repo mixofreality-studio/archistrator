@@ -123,6 +123,18 @@ Consult the system-architect agent BEFORE authoring (founder standing directive)
 
 ---
 
+### Task 7b: Reclassification amendment — message-bus utility + design-health engine + replan queued edge (FOUNDER-RATIFIED 2026-08-01)
+
+**Files:** `.aiarch/state/project.json` (slot 5 + `.serviceContracts` re-home), server package moves (`internal/resourceaccess/durableexecution` → `internal/utility/messagebus` or per alignment-gate naming; `internal/utility/designhealth` → `internal/engine/designhealth`), `server/internal/arch_test.go` (Managers-only import rule for the messaging utility), generated artifacts re-run, webApp flow-layer/UI cleanup (utility carve-outs no longer apply to design-health).
+
+Rulings encoded: durable-execution-access + durable-execution-runtime fold into a `message-bus` UTILITY (verbs deliverSignal/registerSchedule; execution-substrate role stays invisible; M→RA edges REMOVED; queued M→M edges remain the messaging representation; only-Managers enforced by arch-test import rule — the ch. 5 restriction). design-health becomes an ENGINE (`design-health-engine`; existing sdm edge becomes canonical M→E; webApp utility carve-outs stop applying naturally — verify the trace renders it as a normal engine). NEW queued edge `construction-manager →(queued)→ project-design-manager` ("variance detected → trigger replan sweep (queued)") added in the same slot-5 amendment. Architect consult REQUIRED before landing (formal amendment spec: exact component/edge/volatility-mapping/contract changes + package-move map + which methodcheck/designhealth expectations shift). All gates green both repos; realizations (8–10) author against the corrected roster.
+
+### Task 7c: Schedule wiring (FOUNDER-RATIFIED 2026-08-01)
+
+**Files:** `server/cmd/server` startup path (or hooks.go seam), `server/internal/manager/construction/` (new RegisterSchedules: pump 30s + replanSweep 5m via the messaging utility's registerSchedule), stale header comment fix (`constructionmanager.go:7-8`), tests.
+
+Wire `RegisterSchedules` (billing, operations, construction) at startup so the Schedule-fired model describes running code. Idempotent registration (the RA/utility verb already converges via last-writer-wins). Verify: a locally booted server registers all schedules against dev Temporal (assert via ScheduleClient list in a test or the report); `SettlementDelay` retry path becomes live.
+
 ### Tasks 8–10: Realize the 15 views (three batches) + uc1 retrofit
 
 **Batching (one task each, identical procedure):**
