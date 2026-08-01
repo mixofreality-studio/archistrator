@@ -286,8 +286,11 @@ var encapsulationAllowlistData = map[string][]string{
 	// workflow/activity methods, every *Input/*Args/*Signal payload struct, the consumer-mirror
 	// seam/enum types, the workflow/signal name consts) was UNEXPORTED — only these registration
 	// entrypoints cross the package boundary.
+	// RegisterSchedules registers the two platform-wide construction Schedules at
+	// startup (Task 7c): the pump sweep (30s) and the replan sweep (5m).
 	"internal/manager/construction": {
 		"RegisterManagerWorker",
+		"RegisterSchedules",
 		"RegisterWorker",
 		"TaskQueue",
 	},

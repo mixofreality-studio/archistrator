@@ -28,6 +28,7 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	projectstatefake "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate/fake"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
+	"github.com/mixofreality-studio/archistrator/server/internal/utility/messagebus"
 )
 
 // ---------------------------------------------------------------------------
@@ -2045,6 +2046,31 @@ func registerReplanSweep(env *testsuite.TestWorkflowEnvironment, wf *workflows, 
 	registerGenDesignSessionRead(env, ps)
 }
 
+// fakeProjectLister widens fakeFullProjectState with a SCRIPTED ListProjects — the
+// one surface PumpSweepWorkflow's enumeration depends on. Every other method falls
+// through to fakeFullProjectState's stubs (never exercised by the sweep itself).
+type fakeProjectLister struct {
+	fakeFullProjectState
+	summaries []projectstate.ProjectSummary
+}
+
+func (f fakeProjectLister) ListProjects(fwra.Context, projectstate.OwnerScope) ([]projectstate.ProjectSummary, error) {
+	return f.summaries, nil
+}
+
+var _ projectstate.ProjectStateAccess = fakeProjectLister{}
+
+// registerPumpSweep registers PumpSweepWorkflow + projectStateAccess.listProjects
+// (backed by lister) alongside everything PumpNextActivityWorkflow needs for its
+// per-project child dispatch (registerPump's own set) — the sweep starts that exact
+// workflow as an ABANDON-policy child per eligible project.
+func registerPumpSweep(env *testsuite.TestWorkflowEnvironment, wf *workflows, lister fakeProjectLister, ps *fakeProjectState, pipe agenticjob.AgenticJobAccess) {
+	env.RegisterWorkflowWithOptions(wf.PumpSweepWorkflow, workflow.RegisterOptions{Name: executionKindPumpSweep})
+	acts := &genActivities{ProjectState: lister}
+	env.RegisterActivityWithOptions(acts.ProjectStateListProjects, activity.RegisterOptions{Name: "projectStateAccess.listProjects"})
+	registerPump(env, wf, ps, pipe)
+}
+
 func sampleActivity() constructionActivity {
 	return constructionActivity{
 		ActivityID:  "C-XYZ",
@@ -2702,6 +2728,178 @@ func Test_ReplanSweep_QuietSweep_EmptyResult(t *testing.T) {
 	}
 	if len(res.FlaggedVariances) != 0 {
 		t.Fatalf("want an empty quiet sweep, got %v", res.FlaggedVariances)
+	}
+}
+
+// ---- Tests: pump sweep (PumpSweepWorkflow, Task 7c) -------------------------
+
+// No projects on the platform ⇒ an empty, quiet sweep.
+func Test_PumpSweep_NoProjects_EmptyResult(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	ps := &fakeProjectState{project: projectstate.Project{Version: 1, Phase: 2}}
+	lister := fakeProjectLister{fakeFullProjectState: fakeFullProjectState{ps}}
+	wf := newWorkflows(wfDeps{Intervention: &fakeIntervention{}, Review: &fakeReview{}})
+	registerPumpSweep(env, wf, lister, ps, &fakePipeline{phase: PipelineSucceeded})
+
+	env.ExecuteWorkflow(executionKindPumpSweep, pumpSweepInput{})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("pump sweep error: %v", err)
+	}
+	var res pumpSweepResult
+	if err := env.GetWorkflowResult(&res); err != nil {
+		t.Fatalf("decode pump sweep result: %v", err)
+	}
+	if len(res.PumpedProjects) != 0 {
+		t.Fatalf("want an empty sweep with no projects, got %v", res.PumpedProjects)
+	}
+}
+
+// Only construction-phase projects are pumped; system-design/project-design-phase
+// projects are skipped WITHOUT starting a child pump for them (the eligibility
+// filter mirrors nextEligibleActivity's own Phase gate).
+func Test_PumpSweep_FiltersToConstructionPhaseOnly(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	constructionProjectID := projectstate.ProjectID(uuid.NewString())
+	ps := &fakeProjectState{project: projectstate.Project{Version: 1, Phase: 2}}
+	lister := fakeProjectLister{
+		fakeFullProjectState: fakeFullProjectState{ps},
+		summaries: []projectstate.ProjectSummary{
+			{ProjectID: projectstate.ProjectID(uuid.NewString()), Phase: projectstate.PhaseSystemDesign},
+			{ProjectID: projectstate.ProjectID(uuid.NewString()), Phase: projectstate.PhaseProjectDesign},
+			{ProjectID: constructionProjectID, Phase: projectstate.PhaseConstruction},
+		},
+	}
+	wf := newWorkflows(wfDeps{Intervention: &fakeIntervention{}, Review: &fakeReview{}})
+	registerPumpSweep(env, wf, lister, ps, &fakePipeline{phase: PipelineSucceeded})
+
+	env.ExecuteWorkflow(executionKindPumpSweep, pumpSweepInput{})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("pump sweep error: %v", err)
+	}
+	var res pumpSweepResult
+	if err := env.GetWorkflowResult(&res); err != nil {
+		t.Fatalf("decode pump sweep result: %v", err)
+	}
+	if len(res.PumpedProjects) != 1 || res.PumpedProjects[0] != ProjectID(constructionProjectID) {
+		t.Fatalf("want exactly the one construction-phase project pumped, got %v", res.PumpedProjects)
+	}
+}
+
+// An eligible construction-phase project gets a per-project child pump started
+// (PumpNextActivityWorkflow, unchanged) — this test proves the fan-out actually
+// reaches and runs that workflow (a quiet tick: no eligible activity wired), not
+// just that the sweep enumerates.
+func Test_PumpSweep_ConstructionPhaseProject_StartsChildPump(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	pid := projectstate.ProjectID(uuid.NewString())
+	ps := &fakeProjectState{project: projectstate.Project{ID: pid, Version: 1, Phase: 2}}
+	lister := fakeProjectLister{
+		fakeFullProjectState: fakeFullProjectState{ps},
+		summaries:            []projectstate.ProjectSummary{{ProjectID: pid, Phase: projectstate.PhaseConstruction}},
+	}
+	wf := newWorkflows(wfDeps{
+		Intervention:         &fakeIntervention{},
+		Review:               &fakeReview{},
+		NextEligibleActivity: nil, // every started child pump goes quiet immediately
+	})
+	registerPumpSweep(env, wf, lister, ps, &fakePipeline{phase: PipelineSucceeded})
+
+	env.ExecuteWorkflow(executionKindPumpSweep, pumpSweepInput{})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("pump sweep error: %v", err)
+	}
+	var res pumpSweepResult
+	if err := env.GetWorkflowResult(&res); err != nil {
+		t.Fatalf("decode pump sweep result: %v", err)
+	}
+	if len(res.PumpedProjects) != 1 || res.PumpedProjects[0] != ProjectID(pid) {
+		t.Fatalf("want the one construction-phase project pumped, got %v", res.PumpedProjects)
+	}
+}
+
+// pumpSweepChildWorkflowID must be a DIFFERENT shape from pumpWorkflowID's
+// client-driven id (which always carries a non-empty tickId segment) — the two id
+// spaces must never collide.
+func Test_PumpSweepChildWorkflowID_DiffersFromClientDrivenPumpWorkflowID(t *testing.T) {
+	pid := ProjectID(uuid.NewString())
+	sweepID := pumpSweepChildWorkflowID(pid)
+	for _, tick := range []string{"t1", "2026-08-01T00:00:00Z"} {
+		if clientID := pumpWorkflowID(pid, tick); clientID == sweepID {
+			t.Fatalf("pumpSweepChildWorkflowID(%q) == pumpWorkflowID(%q, %q) — id spaces must never collide", pid, pid, tick)
+		}
+	}
+}
+
+// ---- Tests: RegisterSchedules (Task 7c) -------------------------------------
+
+// fakeScheduleBus records every RegisterSchedule call. Satisfies messagebus.MessageBus.
+type fakeScheduleBus struct {
+	mu    sync.Mutex
+	specs []messagebus.ScheduleSpec
+	ids   []messagebus.ScheduleID
+}
+
+func (b *fakeScheduleBus) DeliverSignal(fwra.Context, messagebus.ExecutionID, messagebus.SignalName, messagebus.ExecutionPayload) error {
+	return nil
+}
+
+func (b *fakeScheduleBus) RegisterSchedule(_ fwra.Context, scheduleID messagebus.ScheduleID, spec messagebus.ScheduleSpec) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.ids = append(b.ids, scheduleID)
+	b.specs = append(b.specs, spec)
+	return nil
+}
+
+var _ messagebus.MessageBus = (*fakeScheduleBus)(nil)
+
+// RegisterSchedules must register exactly the two platform-wide Schedules — the
+// pump sweep (30s, targeting PumpSweepWorkflow) and the replan sweep (5m, targeting
+// ReplanSweepWorkflow) — with the right ids/workflow-types/intervals.
+func Test_RegisterSchedules_RegistersPumpSweepAndReplanSweep(t *testing.T) {
+	bus := &fakeScheduleBus{}
+
+	if err := RegisterSchedules(context.Background(), bus); err != nil {
+		t.Fatalf("RegisterSchedules: %v", err)
+	}
+
+	if len(bus.ids) != 2 {
+		t.Fatalf("want 2 Schedules registered, got %d: %v", len(bus.ids), bus.ids)
+	}
+	byID := make(map[messagebus.ScheduleID]messagebus.ScheduleSpec, len(bus.ids))
+	for i, id := range bus.ids {
+		byID[id] = bus.specs[i]
+	}
+
+	pumpSpec, ok := byID[messagebus.ScheduleID(scheduleIDPumpSweep)]
+	if !ok {
+		t.Fatalf("missing pump-sweep Schedule %q; got ids %v", scheduleIDPumpSweep, bus.ids)
+	}
+	if string(pumpSpec.ExecutionKind) != executionKindPumpSweep {
+		t.Fatalf("pump-sweep ExecutionKind = %q, want %q", pumpSpec.ExecutionKind, executionKindPumpSweep)
+	}
+	if pumpSpec.Cadence.Every != pumpSweepIntervalSecs*time.Second {
+		t.Fatalf("pump-sweep interval = %v, want %ds", pumpSpec.Cadence.Every, pumpSweepIntervalSecs)
+	}
+
+	replanSpec, ok := byID[messagebus.ScheduleID(scheduleIDReplanSweep)]
+	if !ok {
+		t.Fatalf("missing replan-sweep Schedule %q; got ids %v", scheduleIDReplanSweep, bus.ids)
+	}
+	if string(replanSpec.ExecutionKind) != executionKindReplanSweep {
+		t.Fatalf("replan-sweep ExecutionKind = %q, want %q", replanSpec.ExecutionKind, executionKindReplanSweep)
+	}
+	if replanSpec.Cadence.Every != replanSweepIntervalSecs*time.Second {
+		t.Fatalf("replan-sweep interval = %v, want %ds", replanSpec.Cadence.Every, replanSweepIntervalSecs)
 	}
 }
 

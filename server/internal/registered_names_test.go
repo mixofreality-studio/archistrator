@@ -95,6 +95,7 @@ var registeredTemporalNamesGolden = []string{
 	"constructionConstructActivity",
 	"constructionProjectSupervision",
 	"constructionPumpNextActivity",
+	"constructionPumpSweep",
 	"constructionReplanSweep",
 	"constructionTransitionAccess.recordActivityExited",
 	"constructionTransitionAccess.recordActivityFailed",
