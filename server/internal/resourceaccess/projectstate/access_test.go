@@ -5011,8 +5011,10 @@ func TestSystem_StringEnums_CamelCase(t *testing.T) {
 
 // decodeCommittedProject reads and decodes THIS repo's own committed
 // .aiarch/state/project.json — shared by the tolerant-decode regressions below, each
-// of which needs the same live fixture (16 realized/reshaped dynamic views, none
-// carrying TraceCall.Alt or ActivityNode.DecidedBy).
+// of which needs the same live fixture (16 realized/reshaped dynamic views; none
+// carries TraceCall.Alt; the Task-7 design amendment (2026-08-01) put explicit
+// ActivityNode.DecidedBy values on 24 of the 37 decision nodes — see
+// TestCommittedProjectJSON_ActivityNodes_DecidedBySplit).
 func decodeCommittedProject(t *testing.T) Project {
 	t.Helper()
 	root := findRepoRootFromCwd(t)
@@ -5061,11 +5063,20 @@ func TestCommittedProjectJSON_DynamicViewCalls_NoAlt(t *testing.T) {
 	}
 }
 
-// TestCommittedProjectJSON_ActivityNodes_NoDecidedBy is the tolerant-decode
-// regression for ActivityNode.DecidedBy (rollout rulings 2026-07-31): a node that
-// never mentions "decidedBy" must decode EXACTLY as it did before the field
-// existed — no error, and DecidedBy reads back nil.
-func TestCommittedProjectJSON_ActivityNodes_NoDecidedBy(t *testing.T) {
+// TestCommittedProjectJSON_ActivityNodes_DecidedBySplit is the tolerant-decode
+// regression for ActivityNode.DecidedBy (rollout rulings 2026-07-31; authored
+// 2026-08-01 by the Task-7 design amendment). It replaces the earlier
+// "_NoDecidedBy" pin — that one asserted the field was universally absent, which
+// was only ever a point-in-time fact (no committed node used the field yet); the
+// Task-7 amendment legitimately adds explicit values on 24 of the committed
+// design's 37 decision nodes (the D-table in the Task-7 architect spec), so this
+// version pins the AMENDED reality instead: every activity node decodes without
+// error, exactly 24 nodes across the 16 use cases carry a non-nil DecidedBy, every
+// one of those 24 sits on a decision or switch node (DecidedBy is illegal on any
+// other kind — CC-DECIDED-BY's placement rule), and the field is still nil
+// everywhere it isn't explicitly authored (tolerant decode: no zero-value string
+// stands in for absence).
+func TestCommittedProjectJSON_ActivityNodes_DecidedBySplit(t *testing.T) {
 	proj := decodeCommittedProject(t)
 
 	cuc, ok := proj.CoreUseCases.Model.(*CoreUseCases)
@@ -5075,21 +5086,34 @@ func TestCommittedProjectJSON_ActivityNodes_NoDecidedBy(t *testing.T) {
 	if len(cuc.Decisions) == 0 {
 		t.Fatal("committed CoreUseCases has no decisions — fixture assumption no longer holds")
 	}
-	nodeCount := 0
+	nodeCount, decidedByCount := 0, 0
 	for _, d := range cuc.Decisions {
 		if d.UseCase.Activity == nil {
 			continue
 		}
 		for _, node := range d.UseCase.Activity.Nodes {
 			nodeCount++
-			if node.DecidedBy != nil {
-				t.Fatalf("use case %q activity node %q decoded a non-nil DecidedBy from data "+
-					"that predates the field — tolerant decode regressed", d.UseCase.ID, node.ID)
+			if node.DecidedBy == nil {
+				continue
+			}
+			decidedByCount++
+			if node.Kind != NodeDecision && node.Kind != NodeSwitch {
+				t.Fatalf("use case %q activity node %q (kind %v) carries a DecidedBy but is not a "+
+					"decision/switch node — CC-DECIDED-BY placement violation on the committed state",
+					d.UseCase.ID, node.ID, node.Kind)
+			}
+			if *node.DecidedBy == "" {
+				t.Fatalf("use case %q activity node %q decoded an empty-string DecidedBy — "+
+					"the field should be omitted, not empty, when there is no decider", d.UseCase.ID, node.ID)
 			}
 		}
 	}
 	if nodeCount == 0 {
 		t.Fatal("committed use cases have zero activity nodes across all decisions — fixture assumption no longer holds")
+	}
+	if decidedByCount != 24 {
+		t.Fatalf("committed activity nodes carry DecidedBy on %d nodes, want 24 (the Task-7 "+
+			"architect spec's D-table explicit rows) — investigate drift, don't just re-pin", decidedByCount)
 	}
 }
 

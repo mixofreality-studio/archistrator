@@ -102,10 +102,18 @@ func TestGreenFixtureAdvisoriesFire(t *testing.T) {
 	//   * CC-COVERAGE fires for every step-REQUIRING activity node of the 15
 	//     unrealized use cases (an activity node realized by no step — true
 	//     regardless of step count) and for NONE of drive-system-design's, which
-	//     the amendment realized in full. 125 - 14 = 111, across 15 use cases.
-	//   * CC-TRIGGER-EVENT is unmoved at 5: it checks the diagram's own entry
-	//     node, independent of any realization, and drive-system-design is
-	//     clientAction-triggered with a plain start entry (never one of the 5).
+	//     the amendment realized in full. 124 - 14 = 110, across 15 use cases.
+	//     (Task 7, 2026-08-01: the event-entry/reshape amendment shifted the
+	//     eligible-node count by net -1 across the 15 unrealized views — bill
+	//     8->7, operate 14->12, execute 10->11, replan 9->10, retry 6->6 — so
+	//     125->124 total and 111->110 fired here; see the Task-7 architect spec
+	//     §E for the per-UC arithmetic.)
+	//   * CC-TRIGGER-EVENT drops from 5 to 0 with the same amendment: it checks
+	//     the diagram's own entry node, independent of any realization, and the
+	//     5 timer/busMessage use cases that lacked a matching event entry
+	//     (execute, operate, bill, retry, replan) now each declare one.
+	//     drive-system-design is clientAction-triggered with a plain start entry
+	//     (never one of the 5) and is unaffected.
 	//   * every step-walking rule (CC-STEP-*, CC-ENDPOINT-RESOLVES, CC-ACTOR-*,
 	//     CC-PATH-CONNECTED) stays SILENT — vacuous on the 15 zero-step views,
 	//     and genuinely clean on the realized one. That is the PoC's success
@@ -118,7 +126,12 @@ func TestGreenFixtureAdvisoriesFire(t *testing.T) {
 	// reports 2x these counts) — a drift here means this mirror parses the
 	// slot-4 activity / slot-5 step shapes differently than the platform gate.
 	assertPresent(t, got, RuleCCCoverage, methodcheck.SeverityWarning)
-	assertPresent(t, got, RuleCCTriggerEvent, methodcheck.SeverityWarning)
+	// CC-TRIGGER-EVENT (Task 7, 2026-08-01): the 5 timer/busMessage use cases
+	// that lacked a matching event entry each now declare one (execute's
+	// pump-fires timeEvent, operate's schedule-fires timeEvent, bill's
+	// period-elapses timeEvent, retry's charge-declined timeEvent, replan's
+	// replan-triggered acceptEvent) — the rule is silent on the committed state.
+	assertAbsent(t, got, RuleCCTriggerEvent)
 	var ccCoverageCount, ccTriggerCount int
 	ccCoverageUseCases := map[string]bool{}
 	for _, f := range findings {
@@ -132,8 +145,8 @@ func TestGreenFixtureAdvisoriesFire(t *testing.T) {
 			ccTriggerCount++
 		}
 	}
-	if ccCoverageCount != 111 {
-		t.Errorf("CC-COVERAGE fired %d times on the committed state, want 111 (matches the platform gate's inventory — investigate any drift, don't just re-pin)", ccCoverageCount)
+	if ccCoverageCount != 110 {
+		t.Errorf("CC-COVERAGE fired %d times on the committed state, want 110 (matches the platform gate's inventory — investigate any drift, don't just re-pin)", ccCoverageCount)
 	}
 	if len(ccCoverageUseCases) != 15 {
 		t.Errorf("CC-COVERAGE fired across %d use cases, want the 15 committed use cases whose dynamic view is not yet realized (drive-system-design is realized and must NOT appear)", len(ccCoverageUseCases))
@@ -141,8 +154,8 @@ func TestGreenFixtureAdvisoriesFire(t *testing.T) {
 	if ccCoverageUseCases["useCase drive-system-design"] {
 		t.Error("CC-COVERAGE fired for drive-system-design, whose dynamic view is fully realized by the PoC design amendment — the realization or the rule has drifted")
 	}
-	if ccTriggerCount != 5 {
-		t.Errorf("CC-TRIGGER-EVENT fired %d times on the committed state, want 5 (the timer/busMessage-triggered use cases lacking a matching event entry)", ccTriggerCount)
+	if ccTriggerCount != 0 {
+		t.Errorf("CC-TRIGGER-EVENT fired %d times on the committed state, want 0 (Task 7 gave each of the 5 timer/busMessage use cases a matching event entry)", ccTriggerCount)
 	}
 	// Vacuous on the 15 zero-step views; genuinely clean on the realized one.
 	assertAbsent(t, got, RuleCCViewUseCase)

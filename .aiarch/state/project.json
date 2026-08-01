@@ -1825,7 +1825,8 @@
                     "kind": "decision",
                     "label": "Draft valid?",
                     "roleName": "",
-                    "linkedActorId": null
+                    "linkedActorId": null,
+                    "decidedBy": "design-health"
                   },
                   {
                     "id": "regenerate-escalate",
@@ -1895,7 +1896,8 @@
                     "kind": "decision",
                     "label": "Review action?",
                     "roleName": "",
-                    "linkedActorId": null
+                    "linkedActorId": null,
+                    "decidedBy": "architect-user"
                   },
                   {
                     "id": "ask-questions",
@@ -2220,7 +2222,8 @@
                     "kind": "decision",
                     "label": "Decision?",
                     "roleName": "",
-                    "linkedActorId": null
+                    "linkedActorId": null,
+                    "decidedBy": "architect-user"
                   },
                   {
                     "id": "bind-option",
@@ -2248,7 +2251,8 @@
                     "kind": "decision",
                     "label": "Revoke within grace window?",
                     "roleName": "",
-                    "linkedActorId": null
+                    "linkedActorId": null,
+                    "decidedBy": "architect-user"
                   },
                   {
                     "id": "revoke",
@@ -2378,18 +2382,11 @@
                   "role": "Operator"
                 }
               ],
-              "trigger": "busMessage",
+              "trigger": "timer",
               "classification": "core",
               "variationOf": null,
               "activity": {
                 "nodes": [
-                  {
-                    "id": "start",
-                    "kind": "start",
-                    "label": "",
-                    "roleName": "",
-                    "linkedActorId": null
-                  },
                   {
                     "id": "activity-eligible",
                     "kind": "action",
@@ -2423,7 +2420,8 @@
                     "kind": "decision",
                     "label": "Retries remain?",
                     "roleName": "",
-                    "linkedActorId": null
+                    "linkedActorId": null,
+                    "decidedBy": "intervention-engine"
                   },
                   {
                     "id": "escalate-operator",
@@ -2437,7 +2435,8 @@
                     "kind": "decision",
                     "label": "Operator intervened?",
                     "roleName": "",
-                    "linkedActorId": null
+                    "linkedActorId": null,
+                    "decidedBy": "operator"
                   },
                   {
                     "id": "propose-reviews",
@@ -2451,7 +2450,8 @@
                     "kind": "decision",
                     "label": "Does the review policy require review of this change?",
                     "roleName": "",
-                    "linkedActorId": null
+                    "linkedActorId": null,
+                    "decidedBy": "review-engine"
                   },
                   {
                     "id": "dispatch-reviewers",
@@ -2500,7 +2500,8 @@
                     "kind": "decision",
                     "label": "Variance exceeds threshold?",
                     "roleName": "",
-                    "linkedActorId": null
+                    "linkedActorId": null,
+                    "decidedBy": "intervention-engine"
                   },
                   {
                     "id": "scope-change",
@@ -2522,15 +2523,16 @@
                     "label": "",
                     "roleName": "",
                     "linkedActorId": null
+                  },
+                  {
+                    "id": "pump-fires",
+                    "kind": "timeEvent",
+                    "label": "Construction pump comes due",
+                    "roleName": "",
+                    "linkedActorId": null
                   }
                 ],
                 "edges": [
-                  {
-                    "from": "start",
-                    "to": "activity-eligible",
-                    "kind": "controlFlow",
-                    "guard": ""
-                  },
                   {
                     "from": "dispatch-job",
                     "to": "observe-validate",
@@ -2674,6 +2676,12 @@
                     "to": "merge-amend",
                     "kind": "guardedFlow",
                     "guard": "[auto-accept]"
+                  },
+                  {
+                    "from": "pump-fires",
+                    "to": "activity-eligible",
+                    "kind": "controlFlow",
+                    "guard": ""
                   }
                 ]
               }
@@ -2713,15 +2721,8 @@
                   },
                   {
                     "id": "in-flight",
-                    "kind": "action",
+                    "kind": "note",
                     "label": "Operated system in flight",
-                    "roleName": "",
-                    "linkedActorId": null
-                  },
-                  {
-                    "id": "fork",
-                    "kind": "fork",
-                    "label": "",
                     "roleName": "",
                     "linkedActorId": null
                   },
@@ -2748,7 +2749,7 @@
                   },
                   {
                     "id": "argo-reconcile",
-                    "kind": "action",
+                    "kind": "note",
                     "label": "Infrastructure converges to desired state",
                     "roleName": "Infrastructure",
                     "linkedActorId": null
@@ -2769,9 +2770,9 @@
                   },
                   {
                     "id": "schedule-fires",
-                    "kind": "action",
+                    "kind": "timeEvent",
                     "label": "Periodic health check comes due",
-                    "roleName": "Infrastructure",
+                    "roleName": "",
                     "linkedActorId": null
                   },
                   {
@@ -2821,7 +2822,8 @@
                     "kind": "decision",
                     "label": "No change needed?",
                     "roleName": "",
-                    "linkedActorId": null
+                    "linkedActorId": null,
+                    "decidedBy": "autoscaler-engine"
                   },
                   {
                     "id": "render-manifests-c",
@@ -2861,24 +2863,6 @@
                 ],
                 "edges": [
                   {
-                    "from": "start",
-                    "to": "in-flight",
-                    "kind": "controlFlow",
-                    "guard": ""
-                  },
-                  {
-                    "from": "in-flight",
-                    "to": "fork",
-                    "kind": "controlFlow",
-                    "guard": ""
-                  },
-                  {
-                    "from": "fork",
-                    "to": "publish-trigger",
-                    "kind": "controlFlow",
-                    "guard": ""
-                  },
-                  {
                     "from": "publish-trigger",
                     "to": "render-manifests-a",
                     "kind": "controlFlow",
@@ -2891,26 +2875,8 @@
                     "guard": ""
                   },
                   {
-                    "from": "publish-a",
-                    "to": "argo-reconcile",
-                    "kind": "controlFlow",
-                    "guard": ""
-                  },
-                  {
-                    "from": "argo-reconcile",
-                    "to": "record-published-a",
-                    "kind": "controlFlow",
-                    "guard": ""
-                  },
-                  {
                     "from": "record-published-a",
                     "to": "end-a",
-                    "kind": "controlFlow",
-                    "guard": ""
-                  },
-                  {
-                    "from": "fork",
-                    "to": "schedule-fires",
                     "kind": "controlFlow",
                     "guard": ""
                   },
@@ -2997,6 +2963,18 @@
                     "to": "end-bc",
                     "kind": "controlFlow",
                     "guard": ""
+                  },
+                  {
+                    "from": "start",
+                    "to": "publish-trigger",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "publish-a",
+                    "to": "record-published-a",
+                    "kind": "controlFlow",
+                    "guard": ""
                   }
                 ]
               }
@@ -3024,15 +3002,8 @@
               "activity": {
                 "nodes": [
                   {
-                    "id": "start",
-                    "kind": "start",
-                    "label": "",
-                    "roleName": "",
-                    "linkedActorId": null
-                  },
-                  {
                     "id": "period-elapses",
-                    "kind": "action",
+                    "kind": "timeEvent",
                     "label": "Billing period closes, or an immediate charge is required",
                     "roleName": "",
                     "linkedActorId": null
@@ -3056,21 +3027,22 @@
                     "kind": "action",
                     "label": "Charge the customer for the period",
                     "roleName": "Merchant Gateway Provider",
-                    "linkedActorId": "payment-provider"
+                    "linkedActorId": null
                   },
                   {
                     "id": "customer-charged",
-                    "kind": "action",
+                    "kind": "note",
                     "label": "Customer charged for service usage",
                     "roleName": "Customer",
-                    "linkedActorId": "customer"
+                    "linkedActorId": null
                   },
                   {
                     "id": "charge-succeeded",
                     "kind": "decision",
                     "label": "Charge succeeded?",
                     "roleName": "",
-                    "linkedActorId": null
+                    "linkedActorId": null,
+                    "decidedBy": "merchant-gateway"
                   },
                   {
                     "id": "record-close",
@@ -3084,7 +3056,8 @@
                     "kind": "decision",
                     "label": "Retries left?",
                     "roleName": "",
-                    "linkedActorId": null
+                    "linkedActorId": null,
+                    "decidedBy": "intervention-engine"
                   },
                   {
                     "id": "persistent-decline",
@@ -3117,12 +3090,6 @@
                 ],
                 "edges": [
                   {
-                    "from": "start",
-                    "to": "period-elapses",
-                    "kind": "controlFlow",
-                    "guard": ""
-                  },
-                  {
                     "from": "period-elapses",
                     "to": "read-hosting-usage",
                     "kind": "controlFlow",
@@ -3137,18 +3104,6 @@
                   {
                     "from": "price-invoice",
                     "to": "charge-user",
-                    "kind": "controlFlow",
-                    "guard": ""
-                  },
-                  {
-                    "from": "charge-user",
-                    "to": "customer-charged",
-                    "kind": "controlFlow",
-                    "guard": ""
-                  },
-                  {
-                    "from": "customer-charged",
-                    "to": "charge-succeeded",
                     "kind": "controlFlow",
                     "guard": ""
                   },
@@ -3197,6 +3152,12 @@
                   {
                     "from": "merge",
                     "to": "end",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "charge-user",
+                    "to": "charge-succeeded",
                     "kind": "controlFlow",
                     "guard": ""
                   }
@@ -3261,7 +3222,8 @@
                     "kind": "decision",
                     "label": "Operated by archistrator?",
                     "roleName": "",
-                    "linkedActorId": null
+                    "linkedActorId": null,
+                    "decidedBy": "architect-user"
                   },
                   {
                     "id": "record-operated",
@@ -3387,16 +3349,9 @@
               "activity": {
                 "nodes": [
                   {
-                    "id": "start",
-                    "kind": "start",
-                    "label": "",
-                    "roleName": "",
-                    "linkedActorId": null
-                  },
-                  {
                     "id": "charge-declined",
-                    "kind": "action",
-                    "label": "Settlement charge for the cycle is declined",
+                    "kind": "timeEvent",
+                    "label": "Retry sweep comes due: the cycle's settlement charge stands declined",
                     "roleName": "",
                     "linkedActorId": null
                   },
@@ -3412,7 +3367,8 @@
                     "kind": "decision",
                     "label": "Retry budget left?",
                     "roleName": "",
-                    "linkedActorId": null
+                    "linkedActorId": null,
+                    "decidedBy": "intervention-engine"
                   },
                   {
                     "id": "recharge",
@@ -3426,7 +3382,8 @@
                     "kind": "decision",
                     "label": "Charge succeeded?",
                     "roleName": "",
-                    "linkedActorId": null
+                    "linkedActorId": null,
+                    "decidedBy": "merchant-gateway"
                   },
                   {
                     "id": "record-settled",
@@ -3440,7 +3397,8 @@
                     "kind": "decision",
                     "label": "Shortfall within tolerance sweeps?",
                     "roleName": "",
-                    "linkedActorId": null
+                    "linkedActorId": null,
+                    "decidedBy": "intervention-engine"
                   },
                   {
                     "id": "delay-sweep",
@@ -3472,12 +3430,6 @@
                   }
                 ],
                 "edges": [
-                  {
-                    "from": "start",
-                    "to": "charge-declined",
-                    "kind": "controlFlow",
-                    "guard": ""
-                  },
                   {
                     "from": "charge-declined",
                     "to": "consult-policy",
@@ -3747,7 +3699,8 @@
                     "kind": "decision",
                     "label": "Core use case, or a variation?",
                     "roleName": "",
-                    "linkedActorId": null
+                    "linkedActorId": null,
+                    "decidedBy": "architect-user"
                   },
                   {
                     "id": "revalidate",
@@ -3796,7 +3749,8 @@
                     "kind": "decision",
                     "label": "New components or activities required?",
                     "roleName": "",
-                    "linkedActorId": null
+                    "linkedActorId": null,
+                    "decidedBy": "architect-user"
                   },
                   {
                     "id": "replan",
@@ -3926,13 +3880,6 @@
               "activity": {
                 "nodes": [
                   {
-                    "id": "start",
-                    "kind": "start",
-                    "label": "",
-                    "roleName": "",
-                    "linkedActorId": null
-                  },
-                  {
                     "id": "capture-trigger",
                     "kind": "action",
                     "label": "Capture the scope trigger; never answer the request in the room",
@@ -3951,7 +3898,8 @@
                     "kind": "decision",
                     "label": "Architecture change requested?",
                     "roleName": "",
-                    "linkedActorId": null
+                    "linkedActorId": null,
+                    "decidedBy": "architect-user"
                   },
                   {
                     "id": "back-to-design",
@@ -3986,7 +3934,8 @@
                     "kind": "decision",
                     "label": "Management decision?",
                     "roleName": "",
-                    "linkedActorId": null
+                    "linkedActorId": null,
+                    "decidedBy": "architect-user"
                   },
                   {
                     "id": "adopt",
@@ -4022,15 +3971,16 @@
                     "label": "",
                     "roleName": "",
                     "linkedActorId": null
+                  },
+                  {
+                    "id": "replan-triggered",
+                    "kind": "acceptEvent",
+                    "label": "Variance-triggered replan request received",
+                    "roleName": "",
+                    "linkedActorId": null
                   }
                 ],
                 "edges": [
-                  {
-                    "from": "start",
-                    "to": "capture-trigger",
-                    "kind": "controlFlow",
-                    "guard": ""
-                  },
                   {
                     "from": "capture-trigger",
                     "to": "snapshot",
@@ -4120,6 +4070,12 @@
                     "to": "end",
                     "kind": "controlFlow",
                     "guard": ""
+                  },
+                  {
+                    "from": "replan-triggered",
+                    "to": "capture-trigger",
+                    "kind": "controlFlow",
+                    "guard": ""
                   }
                 ]
               }
@@ -4174,7 +4130,8 @@
                     "kind": "decision",
                     "label": "At least four points recorded?",
                     "roleName": "",
-                    "linkedActorId": null
+                    "linkedActorId": null,
+                    "decidedBy": "estimation-engine"
                   },
                   {
                     "id": "project-eac",
@@ -4209,7 +4166,8 @@
                     "kind": "decision",
                     "label": "Variance beyond threshold?",
                     "roleName": "",
-                    "linkedActorId": null
+                    "linkedActorId": null,
+                    "decidedBy": "estimation-engine"
                   },
                   {
                     "id": "corrective",
@@ -4371,7 +4329,8 @@
                     "kind": "decision",
                     "label": "Drill into a specific change?",
                     "roleName": "",
-                    "linkedActorId": null
+                    "linkedActorId": null,
+                    "decidedBy": "operator"
                   },
                   {
                     "id": "diff-slot",
@@ -4490,7 +4449,8 @@
                     "kind": "decision",
                     "label": "How does the owner fetch it?",
                     "roleName": "",
-                    "linkedActorId": null
+                    "linkedActorId": null,
+                    "decidedBy": "architect-user"
                   },
                   {
                     "id": "git-clone",
@@ -5000,7 +4960,8 @@
                     "kind": "decision",
                     "label": "Change requests resolved?",
                     "roleName": "",
-                    "linkedActorId": null
+                    "linkedActorId": null,
+                    "decidedBy": "architect-user"
                   },
                   {
                     "id": "close-comments",
