@@ -153,9 +153,22 @@ func (a *localFSEpisodeAccess) AppendEpisode(_ fwra.Context, projectID ProjectID
 		}
 	}
 
+	// If the ledger's last line is torn (a crash mid-write left it with no
+	// trailing newline — the same artifact readLedgerLocked tolerates by
+	// skipping the line on read), a plain O_APPEND write would glue this
+	// new record onto the torn tail and corrupt IT too. Lead with a
+	// newline in that case so the new record always starts its own line.
+	needsLeadingNL, err := ledgerTailNeedsNewline(a.ledgerPath())
+	if err != nil {
+		return fwra.Wrap(fwra.Infrastructure, err, op+": check ledger tail")
+	}
+
 	line, err := json.Marshal(storedEpisode{ProjectID: projectID, Record: record})
 	if err != nil {
 		return fwra.Wrap(fwra.ContractMisuse, err, op+": marshal record")
+	}
+	if needsLeadingNL {
+		line = append([]byte("\n"), line...)
 	}
 	line = append(line, '\n')
 
@@ -284,7 +297,16 @@ func (a *localFSEpisodeAccess) ensureTracesDirLocked() error {
 
 // readLedgerLocked reads and parses every ledger line. A missing ledger
 // (nothing appended yet) is an empty, non-nil-error result — NOT NotFound.
-// Caller must hold a.mu.
+//
+// A malformed line does NOT brick the store: it is skipped rather than
+// failing the whole read. A truncated FINAL line is the expected artifact of
+// a crash mid-append; mid-file corruption gets the same tolerant treatment —
+// this is a local dogfood store where availability beats strictness, and
+// list-time last-wins dedupe (ListEpisodes) already tolerates extra/
+// duplicate lines, so tolerating a corrupt one is the same posture. Every
+// skip is logged (non-fatal) with its 1-based line number so corruption is
+// still observable without taking ListEpisodes or AppendEpisode's dedupe
+// scan down. Caller must hold a.mu.
 func (a *localFSEpisodeAccess) readLedgerLocked() ([]storedEpisode, error) {
 	data, err := os.ReadFile(a.ledgerPath())
 	if err != nil {
@@ -294,17 +316,53 @@ func (a *localFSEpisodeAccess) readLedgerLocked() ([]storedEpisode, error) {
 		return nil, err
 	}
 	var out []storedEpisode
-	for _, l := range bytes.Split(data, []byte("\n")) {
+	var skipped int
+	for i, l := range bytes.Split(data, []byte("\n")) {
 		if len(bytes.TrimSpace(l)) == 0 {
 			continue
 		}
 		var e storedEpisode
 		if err := json.Unmarshal(l, &e); err != nil {
-			return nil, err
+			skipped++
+			slog.Warn("episode ledger: skipping unparseable line (tolerant scan)",
+				"path", a.ledgerPath(), "line", i+1, "error", err)
+			continue
 		}
 		out = append(out, e)
 	}
+	if skipped > 0 {
+		slog.Warn("episode ledger: scan completed with skipped line(s)",
+			"path", a.ledgerPath(), "skipped", skipped, "kept", len(out))
+	}
 	return out, nil
+}
+
+// ledgerTailNeedsNewline reports whether path exists, is non-empty, and does
+// NOT already end with a newline — i.e. its last line is torn (a crash
+// mid-append, the same artifact readLedgerLocked tolerates on read). A
+// missing ledger needs no leading newline (O_CREATE starts it fresh).
+func ledgerTailNeedsNewline(path string) (bool, error) {
+	f, err := os.Open(path) // #nosec G304 -- fixed ledger path, not user input
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	defer func() { _ = f.Close() }()
+
+	info, err := f.Stat()
+	if err != nil {
+		return false, err
+	}
+	if info.Size() == 0 {
+		return false, nil
+	}
+	last := make([]byte, 1)
+	if _, err := f.ReadAt(last, info.Size()-1); err != nil {
+		return false, err
+	}
+	return last[0] != '\n', nil
 }
 
 // ---------------------------------------------------------------------------

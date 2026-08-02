@@ -259,6 +259,60 @@ func TestAppendDedupesOnEpisodeID(t *testing.T) {
 	}
 }
 
+// TestListToleratesCorruptTrailingLine proves a malformed ledger line (the
+// expected artifact of a crash mid-write, or any mid-file corruption) does
+// not brick the store: ListEpisodes must skip it and return the valid
+// records with NO error, and a subsequent AppendEpisode — whose dedupe scan
+// reads the same ledger — must still succeed (availability beats strictness
+// for this local dogfood store; list-time last-wins dedupe already tolerates
+// extra/duplicate lines, so tolerating a corrupt one is the same posture).
+func TestListToleratesCorruptTrailingLine(t *testing.T) {
+	a, root := newTestAccess(t)
+	if err := a.AppendEpisode(rc(), "p1", testRecord("ep-1", EpisodeSucceeded)); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.AppendEpisode(rc(), "p1", testRecord("ep-2", EpisodeSucceeded)); err != nil {
+		t.Fatal(err)
+	}
+
+	// Simulate a crash mid-write: a truncated JSON fragment as the ledger's
+	// final line, written directly to disk (bypassing AppendEpisode, no
+	// trailing newline — exactly what an interrupted append leaves behind).
+	ledger := filepath.Join(tracesDir(root), "episodes.jsonl")
+	f, err := os.OpenFile(ledger, os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString(`{"ProjectID":"p1","Record":{"EpisodeID":"ep-3","Kind":0,"TargetR`); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := a.ListEpisodes(rc(), EpisodeQuery{ProjectID: "p1"})
+	if err != nil {
+		t.Fatalf("ListEpisodes returned an error on a corrupt trailing line, want a tolerant skip: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %d episodes, want 2 (corrupt line skipped): %v", len(got), got)
+	}
+
+	// The dedupe scan inside AppendEpisode reads the same ledger — it must
+	// also tolerate the corrupt line rather than permanently bricking future
+	// appends.
+	if err := a.AppendEpisode(rc(), "p1", testRecord("ep-4", EpisodeSucceeded)); err != nil {
+		t.Fatalf("AppendEpisode after corrupt line: %v", err)
+	}
+	got, err = a.ListEpisodes(rc(), EpisodeQuery{ProjectID: "p1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("got %d episodes after new append, want 3: %v", len(got), got)
+	}
+}
+
 // readLedgerLines reads the raw non-empty lines of episodes.jsonl under root.
 func readLedgerLines(t *testing.T, root string) []string {
 	t.Helper()
