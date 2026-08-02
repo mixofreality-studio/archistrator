@@ -3572,8 +3572,8 @@
                   },
                   {
                     "id": "create-connected",
-                    "kind": "action",
-                    "label": "Create the connected account with the payment provider (charge-only)",
+                    "kind": "note",
+                    "label": "Charge-only (ratified 2026-07-03): no connected account is created — the gateway reference is the customer's own stable id; the charge rail keys on it",
                     "roleName": "",
                     "linkedActorId": null
                   },
@@ -4432,15 +4432,15 @@
                   },
                   {
                     "id": "work-merges",
-                    "kind": "action",
-                    "label": "Construction merges reviewed work into the adopted repo via pull requests",
+                    "kind": "note",
+                    "label": "Construction has already merged reviewed work onto the adopted repo's main via pull requests — the in-system chain is realized at uc3 'record-review-merge' (construction-manager → source-control-access → github)",
                     "roleName": "",
                     "linkedActorId": null
                   },
                   {
                     "id": "open-repo",
                     "kind": "action",
-                    "label": "Owner opens their own adopted repo; generated source is already on main",
+                    "label": "Owner locates the delivered source from the construction view; the adopted repo already holds the generated source on main",
                     "roleName": "",
                     "linkedActorId": null
                   },
@@ -4454,15 +4454,15 @@
                   },
                   {
                     "id": "git-clone",
-                    "kind": "action",
-                    "label": "Clone or pull the repo",
+                    "kind": "note",
+                    "label": "Outside the system boundary: the owner clones or pulls the adopted repo directly from the provider",
                     "roleName": "",
                     "linkedActorId": null
                   },
                   {
                     "id": "provider-archive",
-                    "kind": "action",
-                    "label": "Download the provider's archive of the repo",
+                    "kind": "note",
+                    "label": "Outside the system boundary: the owner downloads the provider's archive of the repo",
                     "roleName": "",
                     "linkedActorId": null
                   },
@@ -4475,8 +4475,8 @@
                   },
                   {
                     "id": "hold-source",
-                    "kind": "action",
-                    "label": "Owner holds the generated source; no archistrator surface is involved",
+                    "kind": "note",
+                    "label": "Outside the system boundary: the owner holds the generated source; no archistrator surface is involved",
                     "roleName": "",
                     "linkedActorId": null
                   },
@@ -4593,8 +4593,8 @@
                   },
                   {
                     "id": "report-unknown",
-                    "kind": "action",
-                    "label": "Report the app is not operated",
+                    "kind": "note",
+                    "label": "Response render: the queryCostProjection reply reports the app is not operated (FailedPrecondition) — rendered by the querying surface; no further calls",
                     "roleName": "",
                     "linkedActorId": null
                   },
@@ -7207,13 +7207,309 @@
             "useCaseId": "onboard-a-new-customer",
             "key": "var-onboard-new-customer",
             "title": "Onboard a New Customer",
-            "steps": []
+            "steps": [
+              {
+                "activityNodeId": "resolve-app",
+                "calls": [
+                  {
+                    "from": "architect-user",
+                    "to": "web-client",
+                    "mode": "sync",
+                    "label": "opens payment onboarding for the deployed app",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "architect-user",
+                    "to": "mcp-client",
+                    "mode": "sync",
+                    "label": "opens payment onboarding via the MCP surface (R4 cross-surface equivalence)",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "web-client",
+                    "to": "billing-manager",
+                    "mode": "sync",
+                    "label": "onboardPaymentIntegration(deployedAppId)",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "mcp-client",
+                    "to": "billing-manager",
+                    "mode": "sync",
+                    "label": "onboardPaymentIntegration(deployedAppId) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "billing-manager",
+                    "to": "billing-state-access",
+                    "mode": "sync",
+                    "label": "readBilling(deployedAppId) → resolve the owning customer aggregate + terms"
+                  },
+                  {
+                    "from": "billing-state-access",
+                    "to": "billing-state",
+                    "mode": "sync",
+                    "label": "read row"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "validate-instrument",
+                "calls": [
+                  {
+                    "from": "architect-user",
+                    "to": "web-client",
+                    "mode": "sync",
+                    "label": "registers the customer: provides the payment instrument",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "architect-user",
+                    "to": "mcp-client",
+                    "mode": "sync",
+                    "label": "registers via the MCP surface (R4 cross-surface equivalence)",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "web-client",
+                    "to": "billing-manager",
+                    "mode": "sync",
+                    "label": "registerCustomer(customerId)",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "mcp-client",
+                    "to": "billing-manager",
+                    "mode": "sync",
+                    "label": "registerCustomer(customerId) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "billing-manager",
+                    "to": "merchant-gateway-access",
+                    "mode": "sync",
+                    "label": "validateStoredInstrument(customerId) — zero-amount registration authorization"
+                  },
+                  {
+                    "from": "merchant-gateway-access",
+                    "to": "merchant-gateway",
+                    "mode": "sync",
+                    "label": "validate stored instrument (idempotency: validate:{customerId})"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "register-customer",
+                "calls": [
+                  {
+                    "from": "billing-manager",
+                    "to": "billing-state-access",
+                    "mode": "sync",
+                    "label": "registerCustomer(customerId, profile) — open the billing aggregate (Conflict loop)"
+                  },
+                  {
+                    "from": "billing-state-access",
+                    "to": "billing-state",
+                    "mode": "sync",
+                    "label": "guarded in-place update (version + applied_mutation dedup)"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "bind-gateway",
+                "calls": [
+                  {
+                    "from": "billing-manager",
+                    "to": "billing-state-access",
+                    "mode": "sync",
+                    "label": "bindGatewayLive(customerId, expectedVersion, binding) — flip GatewayBound (charge-only: the gateway reference is the customer's stable id)"
+                  },
+                  {
+                    "from": "billing-state-access",
+                    "to": "billing-state",
+                    "mode": "sync",
+                    "label": "guarded in-place update (version + applied_mutation dedup)"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "register-schedule",
+                "calls": [
+                  {
+                    "from": "billing-manager",
+                    "to": "message-bus",
+                    "mode": "sync",
+                    "label": "registerSchedule(closeBillingCycle:<customerId>) — recurring settlement cycle (idempotent by schedule id)"
+                  }
+                ]
+              }
+            ]
           },
           {
             "useCaseId": "add-a-use-case-to-an-in-flight-project",
             "key": "var-add-use-case",
             "title": "Add a Use Case to an In-Flight Project",
-            "steps": []
+            "steps": [
+              {
+                "activityNodeId": "capture-uc",
+                "calls": [
+                  {
+                    "from": "architect-user",
+                    "to": "web-client",
+                    "mode": "sync",
+                    "label": "captures the new use case (actor, trigger, outcome); scrubs solutions from the requirement text",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "architect-user",
+                    "to": "mcp-client",
+                    "mode": "sync",
+                    "label": "captures the new use case via the MCP surface (R4 cross-surface equivalence)",
+                    "alt": "s1"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "revalidate",
+                "calls": [
+                  {
+                    "from": "web-client",
+                    "to": "system-design-manager",
+                    "mode": "sync",
+                    "label": "getDesignHealth(projectId) — re-validate decomposition + volatilities against the new use case",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "mcp-client",
+                    "to": "system-design-manager",
+                    "mode": "sync",
+                    "label": "getDesignHealth(projectId) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "system-design-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "readProject → committed volatilities + system model (revalidation basis)"
+                  },
+                  {
+                    "from": "system-design-manager",
+                    "to": "design-health-engine",
+                    "mode": "sync",
+                    "label": "EvaluateDesignHealth(project, systemModel) → findings (does the architecture absorb the use case?)"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "reopen-slot",
+                "calls": [
+                  {
+                    "from": "web-client",
+                    "to": "system-design-manager",
+                    "mode": "sync",
+                    "label": "requestArtifactDraft(projectId, kind=useCases, feedback: the captured use case) — reopen the committed slot as an amendment session",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "mcp-client",
+                    "to": "system-design-manager",
+                    "mode": "sync",
+                    "label": "requestArtifactDraft(projectId, kind=useCases) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "system-design-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "readProject → committed use-case model (amendment basis)"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "redraft-review",
+                "calls": [
+                  {
+                    "from": "system-design-manager",
+                    "to": "agentic-job-access",
+                    "mode": "sync",
+                    "label": "dispatch the redraft job weaving the new use case (aja-only dispatch idiom)"
+                  },
+                  {
+                    "from": "system-design-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "stageArtifactForReviewOnBranch(projectId, useCases, amended draft)"
+                  },
+                  {
+                    "from": "architect-user",
+                    "to": "web-client",
+                    "mode": "sync",
+                    "label": "reviews the amended use-case model; approves",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "architect-user",
+                    "to": "mcp-client",
+                    "mode": "sync",
+                    "label": "reviews and approves via the MCP surface (R4 cross-surface equivalence)",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "web-client",
+                    "to": "system-design-manager",
+                    "mode": "sync",
+                    "label": "submitReviewDecision(projectId, useCases, approve)",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "mcp-client",
+                    "to": "system-design-manager",
+                    "mode": "sync",
+                    "label": "submitReviewDecision(projectId, useCases, approve) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
+                    "alt": "s2"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "commit-stale",
+                "calls": [
+                  {
+                    "from": "system-design-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "commitArtifactWithProvenance(useCases) — re-commit bumps the revision; downstream committed artifacts flagged stale"
+                  },
+                  {
+                    "from": "project-state-access",
+                    "to": "project-git-repo",
+                    "mode": "sync",
+                    "label": "commit guarded by git ref compare-and-swap"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "reconcile",
+                "calls": [
+                  {
+                    "from": "system-design-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "reconcileBranchFromMain / amend the stale slot, or acknowledgeStaleBasis('reviewed — unaffected') (audited acknowledgement)"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "replan",
+                "calls": [
+                  {
+                    "from": "system-design-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "record the scope-change replan trigger (new components / activities) — picked up by the scheduled replan sweep (scheduler → cm runReplanSweep → queued cm→pdm → var-replan-scope-change rebuilds the options and recommends the new SDP review)"
+                  }
+                ]
+              }
+            ]
           },
           {
             "useCaseId": "replan-under-scope-change",
@@ -7533,31 +7829,515 @@
             "useCaseId": "view-the-project-state-log",
             "key": "var-view-state-log",
             "title": "View the Project State Log",
-            "steps": []
+            "steps": [
+              {
+                "activityNodeId": "open-history",
+                "calls": [
+                  {
+                    "from": "operator",
+                    "to": "web-client",
+                    "mode": "sync",
+                    "label": "opens the project's state history",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "operator",
+                    "to": "mcp-client",
+                    "mode": "sync",
+                    "label": "opens the state history via the MCP surface (R4 cross-surface equivalence)",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "web-client",
+                    "to": "system-design-manager",
+                    "mode": "sync",
+                    "label": "getProject(projectId) → cross-phase head state (the history surface's basis)",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "mcp-client",
+                    "to": "system-design-manager",
+                    "mode": "sync",
+                    "label": "getProject(projectId) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
+                    "alt": "s2"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "read-commits",
+                "calls": [
+                  {
+                    "from": "system-design-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "read the state repo's commit log — one commit per mutation, message naming its operation (gross terms; contract earmark F2a)"
+                  },
+                  {
+                    "from": "project-state-access",
+                    "to": "project-git-repo",
+                    "mode": "sync",
+                    "label": "read the commit history of the state repo"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "read-ledger",
+                "calls": [
+                  {
+                    "from": "system-design-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "read the applied-mutations ledger — idempotent applies cross-referenced to commits (gross terms; contract earmark F2a)"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "diff-slot",
+                "calls": [
+                  {
+                    "from": "system-design-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "readProjectVersion / read the typed state at the chosen commit and its parent — diff basis (gross terms; contract earmark F2a)"
+                  }
+                ]
+              }
+            ]
           },
           {
             "useCaseId": "download-generated-source-code",
             "key": "var-download-source",
             "title": "Download Generated Source Code",
-            "steps": []
+            "steps": [
+              {
+                "activityNodeId": "open-repo",
+                "calls": [
+                  {
+                    "from": "architect-user",
+                    "to": "web-client",
+                    "mode": "sync",
+                    "label": "opens the project's construction view to locate the delivered source",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "architect-user",
+                    "to": "mcp-client",
+                    "mode": "sync",
+                    "label": "locates the delivered source via the MCP surface (R4 cross-surface equivalence)",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "web-client",
+                    "to": "construction-manager",
+                    "mode": "sync",
+                    "label": "getSessionState(projectId) → merged activities + adopted-repo location",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "mcp-client",
+                    "to": "construction-manager",
+                    "mode": "sync",
+                    "label": "getSessionState(projectId) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "construction-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "readProject → adopted repo ref + merged-activity ledger"
+                  }
+                ]
+              }
+            ]
           },
           {
             "useCaseId": "view-operating-cost-projection",
             "key": "var-view-cost-projection",
             "title": "View Operating-Cost Projection for a Deployed App",
-            "steps": []
+            "steps": [
+              {
+                "activityNodeId": "open-console",
+                "calls": [
+                  {
+                    "from": "operator",
+                    "to": "web-client",
+                    "mode": "sync",
+                    "label": "opens the operations console for the deployed app",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "operator",
+                    "to": "mcp-client",
+                    "mode": "sync",
+                    "label": "opens the operations console via the MCP surface (R4 cross-surface equivalence)",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "web-client",
+                    "to": "operations-manager",
+                    "mode": "sync",
+                    "label": "queryOperatedSystemView(operatedAppId) → operations console view",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "mcp-client",
+                    "to": "operations-manager",
+                    "mode": "sync",
+                    "label": "queryOperatedSystemView(operatedAppId) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
+                    "alt": "s2"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "request-projection",
+                "calls": [
+                  {
+                    "from": "operator",
+                    "to": "web-client",
+                    "mode": "sync",
+                    "label": "requests a cost projection with what-if scale points",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "operator",
+                    "to": "mcp-client",
+                    "mode": "sync",
+                    "label": "requests the projection via the MCP surface (R4 cross-surface equivalence)",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "web-client",
+                    "to": "operations-manager",
+                    "mode": "sync",
+                    "label": "queryCostProjection(operatedAppId, requestId, scaleWhatIfPoints)",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "mcp-client",
+                    "to": "operations-manager",
+                    "mode": "sync",
+                    "label": "queryCostProjection(operatedAppId, requestId, scaleWhatIfPoints) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "operations-manager",
+                    "to": "operated-system-state-access",
+                    "mode": "sync",
+                    "label": "readOperatedSystem(operatedAppId) — registered/operated? (guard basis for app-known)"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "read-usage",
+                "calls": [
+                  {
+                    "from": "operations-manager",
+                    "to": "usage-access",
+                    "mode": "sync",
+                    "label": "readRange(operatedAppId, currentCycle) → observed compute usage"
+                  },
+                  {
+                    "from": "usage-access",
+                    "to": "usage-log",
+                    "mode": "sync",
+                    "label": "read range (compute usage entries)"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "project-costs",
+                "calls": [
+                  {
+                    "from": "operations-manager",
+                    "to": "operation-estimation-engine",
+                    "mode": "sync",
+                    "label": "ProjectForOperatedApp(observedUsage, infrastructureKind, scaleWhatIfPoints) → {currentRunRate, projectedMonthlyCost, whatIfCurve}"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "render",
+                "calls": [
+                  {
+                    "from": "operations-manager",
+                    "to": "operated-system-state-access",
+                    "mode": "sync",
+                    "label": "readInFlightOperatedApps → lastKnownStatus (health + SLO rendered beside the projection)"
+                  }
+                ]
+              }
+            ]
           },
           {
             "useCaseId": "ask-a-clarifying-question-during-review",
             "key": "var-ask-review-question",
             "title": "Ask a Clarifying Question During Review",
-            "steps": []
+            "steps": [
+              {
+                "activityNodeId": "write-questions",
+                "calls": [
+                  {
+                    "from": "architect-user",
+                    "to": "web-client",
+                    "mode": "sync",
+                    "label": "writes anchored questions addressed to the PM or the architect",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "architect-user",
+                    "to": "mcp-client",
+                    "mode": "sync",
+                    "label": "asks via the MCP surface (R4 cross-surface equivalence; systemDesignAskQuestions tool)",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "web-client",
+                    "to": "system-design-manager",
+                    "mode": "sync",
+                    "label": "askQuestions(projectId, kind, addressee, questions)",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "mcp-client",
+                    "to": "system-design-manager",
+                    "mode": "sync",
+                    "label": "askQuestions(projectId, kind, addressee, questions) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "system-design-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "readProject → artifact review state (routing basis: live session vs committed)"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "append-session-branch",
+                "calls": [
+                  {
+                    "from": "system-design-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "seedReviewCommentsOnBranch(sessionBranch, kind, round, questions) — question-type entries appended to the durable review thread"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "seed-main-thread",
+                "calls": [
+                  {
+                    "from": "system-design-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "seedReviewCommentsOnBranch(main, kind, round, questions) — question-only thread on the committed artifact; no amendment session opens"
+                  },
+                  {
+                    "from": "project-state-access",
+                    "to": "project-git-repo",
+                    "mode": "sync",
+                    "label": "commit guarded by git ref compare-and-swap"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "dispatch-answer-job",
+                "calls": [
+                  {
+                    "from": "system-design-manager",
+                    "to": "agentic-job-access",
+                    "mode": "sync",
+                    "label": "dispatch the lightweight answer job to the addressed role (PM or architect)"
+                  },
+                  {
+                    "from": "system-design-manager",
+                    "to": "agentic-job-access",
+                    "mode": "sync",
+                    "label": "observeAgenticJob → answer outcome (guard basis for answer-ran)"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "record-answers",
+                "calls": [
+                  {
+                    "from": "system-design-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "per-question responses recorded in place in the review thread (setReviewCommentStatusOnBranch: answered)"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "remain-open",
+                "calls": [
+                  {
+                    "from": "system-design-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "record the dispatch miss — questions stay open; the addressee can be re-prompted (gross terms)"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "approve-unblocked",
+                "calls": [
+                  {
+                    "from": "system-design-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "readProjectOnBranch → open-question tally (warns at the approve gate; never blocks it)"
+                  }
+                ]
+              }
+            ]
           },
           {
             "useCaseId": "send-back-change-requests-for-a-redraft",
             "key": "var-send-back-redraft",
             "title": "Send Back Change Requests for a Redraft",
-            "steps": []
+            "steps": [
+              {
+                "activityNodeId": "anchor-comments",
+                "calls": [
+                  {
+                    "from": "architect-user",
+                    "to": "web-client",
+                    "mode": "sync",
+                    "label": "anchors change-request comments to locations in the staged draft",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "architect-user",
+                    "to": "mcp-client",
+                    "mode": "sync",
+                    "label": "anchors change requests via the MCP surface (R4 cross-surface equivalence; structured AnchoredComment input)",
+                    "alt": "s1"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "send-back",
+                "calls": [
+                  {
+                    "from": "web-client",
+                    "to": "system-design-manager",
+                    "mode": "sync",
+                    "label": "submitReviewDecision(projectId, kind, decision=sendBack, feedback: anchored change requests)",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "mcp-client",
+                    "to": "system-design-manager",
+                    "mode": "sync",
+                    "label": "submitReviewDecision(projectId, kind, sendBack) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
+                    "alt": "s2"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "retain-thread",
+                "calls": [
+                  {
+                    "from": "system-design-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "rejectArtifactOnBranchWithComments(projectId, kind, notes, round, comments) — rejection recorded with the thread retained on the session branch (F28 feedback retention)"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "redraft",
+                "calls": [
+                  {
+                    "from": "system-design-manager",
+                    "to": "agentic-job-access",
+                    "mode": "sync",
+                    "label": "re-dispatch the draft job carrying the change requests (aja-only dispatch idiom)"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "respond-per-comment",
+                "calls": [
+                  {
+                    "from": "system-design-manager",
+                    "to": "agentic-job-access",
+                    "mode": "sync",
+                    "label": "observe the redraft job — the drafting agent records a per-comment response in the thread"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "restage",
+                "calls": [
+                  {
+                    "from": "system-design-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "stageArtifactForReviewOnBranch(projectId, kind, amended draft) — re-staged for review"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "re-review",
+                "calls": [
+                  {
+                    "from": "architect-user",
+                    "to": "web-client",
+                    "mode": "sync",
+                    "label": "re-reviews the new draft against the thread",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "architect-user",
+                    "to": "mcp-client",
+                    "mode": "sync",
+                    "label": "re-reviews via the MCP surface (R4 cross-surface equivalence)",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "web-client",
+                    "to": "system-design-manager",
+                    "mode": "sync",
+                    "label": "getSessionState(projectId, kind) → staged draft + review thread",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "mcp-client",
+                    "to": "system-design-manager",
+                    "mode": "sync",
+                    "label": "getSessionState(projectId, kind) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
+                    "alt": "s2"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "close-comments",
+                "calls": [
+                  {
+                    "from": "web-client",
+                    "to": "system-design-manager",
+                    "mode": "sync",
+                    "label": "setReviewCommentStatus(projectId, kind, commentId, resolved)",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "mcp-client",
+                    "to": "system-design-manager",
+                    "mode": "sync",
+                    "label": "setReviewCommentStatus(projectId, kind, commentId, resolved) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "system-design-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "setReviewCommentStatusOnBranch(commentId, resolved) — comments closed; approve unblocked"
+                  }
+                ]
+              }
+            ]
           }
         ],
         "waivers": [

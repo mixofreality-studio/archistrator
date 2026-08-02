@@ -5042,10 +5042,12 @@ func TestSystem_StringEnums_CamelCase(t *testing.T) {
 
 // decodeCommittedProject reads and decodes THIS repo's own committed
 // .aiarch/state/project.json — shared by the tolerant-decode regressions below, each
-// of which needs the same live fixture (16 realized dynamic views; the Task-8
+// of which needs the same live fixture (16 dynamic views, 16 realized — finally
+// simply true as of the Task-10 batch-3 landing (2026-08-01); the Task-8
 // batch-1 design amendment (2026-08-01) put explicit TraceCall.Alt values on 12
-// of the calls across uc2/uc4's both-surface entry steps, and the Task-9 batch-2
-// design amendment (2026-08-01) grew that to 52 — see wantAltTally below; the
+// of the calls across uc2/uc4's both-surface entry steps, the Task-9 batch-2
+// design amendment (2026-08-01) grew that to 52, and the Task-10 batch-3
+// design amendment (2026-08-01) grew that to 100 — see wantAltTally below; the
 // Task-7 design amendment (2026-08-01) put explicit ActivityNode.DecidedBy
 // values on 24 of the 37 decision nodes — see
 // TestCommittedProjectJSON_ActivityNodes_DecidedBySplit).
@@ -5071,13 +5073,15 @@ func decodeCommittedProject(t *testing.T) Project {
 // ALT-CARRYING calls only: every (view, step, from, to) that appears as a key
 // in wantAltTally below is unique, which is all wantAltTally's lookup needs.
 // It is NOT true that no step repeats a (from,to) pair outside an alt group —
-// six committed steps legitimately do (uc1-drive-system-design's new
+// seven committed steps legitimately do (uc1-drive-system-design's new
 // `decision` step reads then rejects on the same sdm->psa edge;
 // uc2-commit-project-option's `commit-option`; uc3-execute-construction-
 // activity's `activity-eligible`, `dispatch-job`, and `record-review-merge`;
 // var-manage-projects' new `adopt-repo`, which adopts then seats the repo on
-// the same sdm->sca edge) — none of those repeated pairs carries an alt tag,
-// so they never collide in wantAltTally.
+// the same sdm->sca edge; and batch-3's var-ask-review-question
+// `dispatch-answer-job`, which dispatches then observes the same sdm->aja
+// edge) — none of those repeated pairs carries an alt tag, so they never
+// collide in wantAltTally.
 type altCallKey struct {
 	view, step, from, to string
 }
@@ -5088,9 +5092,11 @@ type altCallKey struct {
 // Task-9 architect spec's §3a/§3b/§3c/§4 batch-2 authoring (uc1's
 // read-prior-models + human-gate retrofit, uc2's revoke patch (Ruling A1),
 // uc3's escalate-operator patch (Ruling A3), and the four newly realized
-// views' both-surface entry steps — +40 entries, 52 total), value-keyed
-// exactly like wantDecidedByTally below: every both-surface entry step pairs
-// the actor->Client leg ("s1") with the Client->Manager leg ("s2") per the
+// views' both-surface entry steps — +40 entries, 52 total), further extended
+// by the Task-10 architect spec's §4 batch-3 authoring (the final seven
+// views' both-surface entry steps, R-1/R-2 — +48 entries, 100 total),
+// value-keyed exactly like wantDecidedByTally below: every both-surface
+// entry step pairs the actor->Client leg ("s1") with the Client->Manager leg ("s2") per the
 // Task-5 alt-group contract. Every other committed call carries no alt tag.
 var wantAltTally = map[altCallKey]string{
 	{"uc2-commit-project-option", "await-decision", "architect-user", "web-client"}:                  "s1",
@@ -5145,16 +5151,73 @@ var wantAltTally = map[altCallKey]string{
 	{"var-replan-scope-change", "mgmt", "architect-user", "mcp-client"}:                              "s1",
 	{"var-replan-scope-change", "mgmt", "web-client", "project-design-manager"}:                      "s2",
 	{"var-replan-scope-change", "mgmt", "mcp-client", "project-design-manager"}:                      "s2",
+	// Task-10 batch-3 additions (2026-08-01, §4 of the batch-3 architect spec):
+	// the final seven views' both-surface entry steps (48 entries, all s1/s2
+	// pairs). onboard 8 (resolve-app 4, validate-instrument 4), add-use-case 10
+	// (capture-uc 2, revalidate 2, reopen-slot 2, redraft-review 4), view-log
+	// 4, download 4, cost-projection 8 (open-console 4, request-projection 4),
+	// ask 4, send-back 10 (anchor-comments 2, send-back 2, re-review 4,
+	// close-comments 2) — 52 + 48 = 100 total.
+	{"var-onboard-new-customer", "resolve-app", "architect-user", "web-client"}:            "s1",
+	{"var-onboard-new-customer", "resolve-app", "architect-user", "mcp-client"}:            "s1",
+	{"var-onboard-new-customer", "resolve-app", "web-client", "billing-manager"}:           "s2",
+	{"var-onboard-new-customer", "resolve-app", "mcp-client", "billing-manager"}:           "s2",
+	{"var-onboard-new-customer", "validate-instrument", "architect-user", "web-client"}:    "s1",
+	{"var-onboard-new-customer", "validate-instrument", "architect-user", "mcp-client"}:    "s1",
+	{"var-onboard-new-customer", "validate-instrument", "web-client", "billing-manager"}:   "s2",
+	{"var-onboard-new-customer", "validate-instrument", "mcp-client", "billing-manager"}:   "s2",
+	{"var-add-use-case", "capture-uc", "architect-user", "web-client"}:                     "s1",
+	{"var-add-use-case", "capture-uc", "architect-user", "mcp-client"}:                     "s1",
+	{"var-add-use-case", "revalidate", "web-client", "system-design-manager"}:              "s2",
+	{"var-add-use-case", "revalidate", "mcp-client", "system-design-manager"}:              "s2",
+	{"var-add-use-case", "reopen-slot", "web-client", "system-design-manager"}:             "s2",
+	{"var-add-use-case", "reopen-slot", "mcp-client", "system-design-manager"}:             "s2",
+	{"var-add-use-case", "redraft-review", "architect-user", "web-client"}:                 "s1",
+	{"var-add-use-case", "redraft-review", "architect-user", "mcp-client"}:                 "s1",
+	{"var-add-use-case", "redraft-review", "web-client", "system-design-manager"}:          "s2",
+	{"var-add-use-case", "redraft-review", "mcp-client", "system-design-manager"}:          "s2",
+	{"var-view-state-log", "open-history", "operator", "web-client"}:                       "s1",
+	{"var-view-state-log", "open-history", "operator", "mcp-client"}:                       "s1",
+	{"var-view-state-log", "open-history", "web-client", "system-design-manager"}:          "s2",
+	{"var-view-state-log", "open-history", "mcp-client", "system-design-manager"}:          "s2",
+	{"var-download-source", "open-repo", "architect-user", "web-client"}:                   "s1",
+	{"var-download-source", "open-repo", "architect-user", "mcp-client"}:                   "s1",
+	{"var-download-source", "open-repo", "web-client", "construction-manager"}:             "s2",
+	{"var-download-source", "open-repo", "mcp-client", "construction-manager"}:             "s2",
+	{"var-view-cost-projection", "open-console", "operator", "web-client"}:                 "s1",
+	{"var-view-cost-projection", "open-console", "operator", "mcp-client"}:                 "s1",
+	{"var-view-cost-projection", "open-console", "web-client", "operations-manager"}:       "s2",
+	{"var-view-cost-projection", "open-console", "mcp-client", "operations-manager"}:       "s2",
+	{"var-view-cost-projection", "request-projection", "operator", "web-client"}:           "s1",
+	{"var-view-cost-projection", "request-projection", "operator", "mcp-client"}:           "s1",
+	{"var-view-cost-projection", "request-projection", "web-client", "operations-manager"}: "s2",
+	{"var-view-cost-projection", "request-projection", "mcp-client", "operations-manager"}: "s2",
+	{"var-ask-review-question", "write-questions", "architect-user", "web-client"}:         "s1",
+	{"var-ask-review-question", "write-questions", "architect-user", "mcp-client"}:         "s1",
+	{"var-ask-review-question", "write-questions", "web-client", "system-design-manager"}:  "s2",
+	{"var-ask-review-question", "write-questions", "mcp-client", "system-design-manager"}:  "s2",
+	{"var-send-back-redraft", "anchor-comments", "architect-user", "web-client"}:           "s1",
+	{"var-send-back-redraft", "anchor-comments", "architect-user", "mcp-client"}:           "s1",
+	{"var-send-back-redraft", "send-back", "web-client", "system-design-manager"}:          "s2",
+	{"var-send-back-redraft", "send-back", "mcp-client", "system-design-manager"}:          "s2",
+	{"var-send-back-redraft", "re-review", "architect-user", "web-client"}:                 "s1",
+	{"var-send-back-redraft", "re-review", "architect-user", "mcp-client"}:                 "s1",
+	{"var-send-back-redraft", "re-review", "web-client", "system-design-manager"}:          "s2",
+	{"var-send-back-redraft", "re-review", "mcp-client", "system-design-manager"}:          "s2",
+	{"var-send-back-redraft", "close-comments", "web-client", "system-design-manager"}:     "s2",
+	{"var-send-back-redraft", "close-comments", "mcp-client", "system-design-manager"}:     "s2",
 }
 
 // TestCommittedProjectJSON_DynamicViewCalls_Alt is the tolerant-decode regression
 // for TraceCall.Alt (rollout rulings 2026-07-31), extended by Task 8 (2026-08-01)
-// to pin the VALUES batch-1 actually authored, and by Task 9 (2026-08-01) to
-// extend the pin over batch-2's additions, rather than only asserting absence:
-// a call that never mentions "alt" must decode EXACTLY as it did before the
-// field existed (Alt reads back nil, not a zero-value string standing in for
-// absence), and a call that IS one of wantAltTally's 52 entries must decode to
-// exactly its authored group value.
+// to pin the VALUES batch-1 actually authored, by Task 9 (2026-08-01) to
+// extend the pin over batch-2's additions, and by Task 10 (2026-08-01) to
+// extend the pin over batch-3's additions (the final seven views — all 16
+// dynamic views now realized), rather than only asserting absence: a call
+// that never mentions "alt" must decode EXACTLY as it did before the field
+// existed (Alt reads back nil, not a zero-value string standing in for
+// absence), and a call that IS one of wantAltTally's 100 entries must decode
+// to exactly its authored group value.
 func TestCommittedProjectJSON_DynamicViewCalls_Alt(t *testing.T) {
 	proj := decodeCommittedProject(t)
 
