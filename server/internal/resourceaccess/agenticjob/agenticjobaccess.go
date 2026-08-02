@@ -69,6 +69,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -1193,12 +1194,13 @@ type localRun struct {
 	// the cancel short-circuit, which records nothing else). It is therefore nil
 	// on every non-terminal observation by construction — a half-read stream is
 	// never reported. Written once, then treated as immutable: ObserveAgenticJob
-	// hands out a struct copy. episodeGapReason explains a gap outcome (and any
-	// trace truncation); EpisodeSummary carries no field for it, so it stays in
-	// this package and in the logs — the observation's Diagnostic is what crosses
-	// the port.
-	episode          *EpisodeSummary
-	episodeGapReason string
+	// hands out a deep-enough copy.
+	//
+	// A gap's REASON is deliberately not kept here: it is logged at WARN, and
+	// every operator-facing fact already reaches the caller through the
+	// observation's Diagnostic (which is also all Task 7's Manager can read). A
+	// second, unread copy on the record would be state nobody consults.
+	episode *EpisodeSummary
 }
 
 // localExecAccess is the concrete local-executor AgenticJobAccess. It
@@ -1991,18 +1993,30 @@ func closeEpisodeTrace(traceFile traceWriteCloser, tracePath string) {
 // WHAT IS AND IS NOT AUTHORITATIVE:
 //
 //   - Usage is the TERMINAL result event's own usage — the CLI's authoritative
-//     accounting for the whole episode, subagents included.
-//   - StreamedUsage is the sum of the per-turn assistant events' usage. It is
-//     recorded as a SECOND, INDEPENDENT total and is NEVER reconciled against
-//     the first: the two legitimately diverge (an assistant event may be
-//     re-emitted, and a subagent's turns are billed into the terminal total by a
-//     path the main-loop stream does not fully narrate). Two honest numbers beat
-//     one laundered one.
-//   - ToolCallCounts counts MAIN-LOOP tool_use blocks only — an event carrying
-//     parent_tool_use_id belongs to a subagent and is attributed to that span
-//     instead, so "the agent called Write twice" means the agent, not its
-//     delegates. StreamedUsage, by contrast, sums EVERY assistant event
-//     including subagents': it is a token total, not an attribution.
+//     accounting for the whole episode.
+//   - StreamedUsage is the PER-TURN total, and it is DEDUPLICATED BY
+//     message.id. This is the one non-obvious rule in the miner, and getting it
+//     wrong silently inflates every number: stream-json emits SEVERAL assistant
+//     events for a single turn (one per content block — a text block, then the
+//     tool_use block, …), each carrying the SAME message.id and the SAME
+//     CUMULATIVE usage block for that turn, not a delta. Summing them
+//     unconditionally double-counts; on the two success fixtures it inflated
+//     cache_read by 46% and cache_create by 97%. So the LAST usage seen for a
+//     given message.id supersedes the earlier ones, and the sum runs once over
+//     those per-turn values at the end. An assistant event with no message.id
+//     (an older/synthetic shape) falls back to direct summing.
+//
+//     Deduplicated, StreamedUsage reproduces the terminal event's In, CacheRead
+//     and CacheCreate EXACTLY on both success fixtures. Out still differs (2 vs
+//     171, 3 vs 266) because a turn's output_tokens is a partial count at the
+//     moment the event is emitted while the terminal event has the final one —
+//     a REAL divergence, which is why both totals are recorded and neither is
+//     reconciled against the other.
+//   - ToolCallCounts counts MAIN-LOOP tool_use blocks only. Blocks on an event
+//     carrying parent_tool_use_id are EXCLUDED — not re-attributed anywhere:
+//     SubagentSpan carries no counts field, so a span records THAT a subagent ran
+//     and WHEN, never what it did. "The agent called Write twice" therefore means
+//     the agent itself, and a subagent's tool calls appear in no count at all.
 //   - Outcome keys on `is_error`, NOT on subtype. A real captured failure
 //     (testdata/streamjson/failure.jsonl) is subtype "success" with
 //     is_error true — a CLI quirk that a subtype-only reading would report as a
@@ -2015,15 +2029,19 @@ func closeEpisodeTrace(traceFile traceWriteCloser, tracePath string) {
 // WHY THE GAP REASON IS A SEPARATE RETURN VALUE: EpisodeSummary deliberately
 // carries no reason field (Task 4 — GapReason lives on episodeAccess's
 // EpisodeRecord, which the Manager assembles at persist time from what it knows).
-// So the reason travels back to the caller out-of-band: this package records it
-// on the run record and logs it, and the observation's existing Diagnostic is
-// what crosses the port.
+// So the reason travels back to the caller out-of-band, where it is LOGGED at
+// WARN. It is deliberately NOT stored on the run record: the observation's
+// Diagnostic already carries every operator-facing fact this package knows (the
+// lost-run sentence on the lost path, Task 5's truncation notice on a failed
+// truncated run), and Task 7's Manager composes EpisodeRecord.GapReason from the
+// observation — which never had access to a run-record field anyway.
 // ---------------------------------------------------------------------------
 
 // episodeStreamMaxLineBytes bounds ONE stream-json event line. A single tool
-// result can be large, so the default bufio.Scanner 64KB limit is far too small;
-// 1MB spans every event shape observed while still refusing to buffer a
-// pathological line into memory unbounded.
+// result can be large, so a 64KB limit is far too small; 1MB spans every event
+// shape observed while still refusing to buffer a pathological line into memory
+// unbounded. A line ABOVE this is skipped and the scan CONTINUES — see
+// scanEpisodeLines.
 const episodeStreamMaxLineBytes = 1 << 20
 
 // streamUsage is the token block as it appears BOTH on an assistant event's
@@ -2063,7 +2081,12 @@ type streamContentBlock struct {
 // left RAW and decoded separately: some CLI versions spell a user message's
 // content as a plain string rather than an array, and that must cost us the
 // event's model/usage, not the whole line.
+//
+// ID is the TURN identity, and it is what makes StreamedUsage correct: several
+// assistant events share one id and repeat that turn's CUMULATIVE usage. See the
+// section header.
 type streamMessage struct {
+	ID      string          `json:"id"`
 	Model   string          `json:"model"`
 	Usage   *streamUsage    `json:"usage"`
 	Content json.RawMessage `json:"content"`
@@ -2096,12 +2119,14 @@ type streamEvent struct {
 // what the restart-lost path has: an orphaned trace and no run record to date it.
 //
 // TOLERANCE IS THE POINT: a trace is a log, not a document. Blank lines,
-// non-JSON noise (a crashed CLI's stack trace, a stray warning on stdout) and a
-// half-written final line are SKIPPED, never fatal — losing the events that did
-// parse because of the ones that did not would be the worst possible trade. The
-// returned error is reserved for a genuine READ fault (including an
-// over-long line, which ends the scan); the summary accumulated up to that point
-// is still returned alongside it, and reads as a gap.
+// non-JSON noise (a crashed CLI's stack trace, a stray warning on stdout), a
+// half-written final line and an OVER-LONG line are all SKIPPED INDIVIDUALLY and
+// the scan continues — losing the events that did parse because of the ones that
+// did not would be the worst possible trade, and the terminal result event is
+// the LAST line, so anything that abandons the rest of the file turns a
+// successful episode into a gap. The returned error is reserved for a genuine
+// READ fault; the summary accumulated up to that point is still returned
+// alongside it, and reads as a gap.
 //
 // Returns (summary, gapReason, err). gapReason is non-empty exactly when the
 // outcome is a gap, and explains what is missing.
@@ -2113,20 +2138,24 @@ func parseEpisodeStream(r io.Reader, episodeID, tracePath string, started, ended
 	}
 
 	acc := newEpisodeAccumulator()
-	sc := bufio.NewScanner(r)
-	sc.Buffer(make([]byte, 0, 64*1024), episodeStreamMaxLineBytes)
-	for sc.Scan() {
-		line := bytes.TrimSpace(sc.Bytes())
+	skipped, scanErr := scanEpisodeLines(r, func(line []byte) {
+		line = bytes.TrimSpace(line)
 		if len(line) == 0 || line[0] != '{' {
-			continue // blank line or plain noise — not an event
+			return // blank line or plain noise — not an event
 		}
 		var ev streamEvent
 		if err := json.Unmarshal(line, &ev); err != nil {
-			continue // a half-written / foreign line: skip it, keep the rest
+			return // a half-written / foreign line: skip it, keep the rest
 		}
 		acc.observe(ev)
+	})
+	if skipped > 0 {
+		// Never silent: an over-long line is REAL event data we discarded, unlike
+		// the noise lines above.
+		slog.Warn("localexec: skipped over-long line(s) while mining an episode trace",
+			"episodeId", episodeID, "tracePath", tracePath,
+			"skippedLines", skipped, "maxLineBytes", episodeStreamMaxLineBytes)
 	}
-	scanErr := sc.Err()
 
 	acc.applyStreamFields(&sum)
 	if acc.terminal == nil {
@@ -2141,13 +2170,78 @@ func parseEpisodeStream(r io.Reader, episodeID, tracePath string, started, ended
 	return sum, "", scanErr
 }
 
+// scanEpisodeLines calls fn for every complete line in r, SKIPPING any line
+// longer than episodeStreamMaxLineBytes and continuing with the next one. It
+// returns how many lines were skipped that way, plus any genuine read fault.
+//
+// WHY NOT bufio.Scanner: a Scanner whose token exceeds its max buffer returns
+// bufio.ErrTooLong and then yields NO FURTHER TOKENS — one oversized
+// tool_result line would abandon the whole rest of the file. The terminal result
+// event is the LAST line of a trace, so that failure mode silently converts a
+// successful episode into a gap, losing its usage, cost and outcome. Skipping
+// the one bad line instead is the same tolerance the non-JSON-line rule already
+// applies, and it keeps memory bounded by the same constant.
+//
+// The slice handed to fn is only valid FOR THE DURATION OF THE CALL — on the
+// common path it aliases the reader's internal buffer. Callers must consume it
+// (parse, copy) before returning.
+func scanEpisodeLines(r io.Reader, fn func(line []byte)) (skipped int, err error) {
+	br := bufio.NewReaderSize(r, 64*1024)
+	var (
+		buf      []byte // accumulates a line that spans several reads
+		overlong bool   // the line in flight already blew the cap; drain it
+	)
+	for {
+		chunk, readErr := br.ReadSlice('\n')
+		full := !errors.Is(readErr, bufio.ErrBufferFull)
+
+		switch {
+		case overlong:
+			// mid-skip: swallow this piece
+		case len(buf)+len(chunk) > episodeStreamMaxLineBytes:
+			overlong, buf = true, nil
+		case !full:
+			buf = append(buf, chunk...) // more of this line is coming
+		case len(buf) == 0:
+			fn(chunk) // whole line in one read — no copy needed
+		default:
+			fn(append(buf, chunk...))
+		}
+
+		if full {
+			if overlong {
+				skipped++
+			}
+			buf, overlong = buf[:0], false
+		} else {
+			continue // same line continues; do not touch readErr, it is ErrBufferFull
+		}
+
+		if readErr != nil {
+			if errors.Is(readErr, io.EOF) {
+				return skipped, nil
+			}
+			return skipped, readErr
+		}
+	}
+}
+
 // episodeAccumulator is parseEpisodeStream's fold state: everything learned from
 // the events BEFORE the terminal one, plus the terminal one itself. Split out so
 // the parse stays a readable scan-decode-observe loop and each fold rule is
 // separately legible.
 type episodeAccumulator struct {
-	streamed        EpisodeUsage
+	// turnUsage holds the LAST usage block seen for each assistant message.id.
+	// Several events share one id and repeat that turn's CUMULATIVE usage, so a
+	// later event supersedes an earlier one and the sum runs ONCE at the end —
+	// see the section header for the double-counting this prevents.
+	turnUsage map[string]streamUsage
+	// unkeyedUsage sums assistant events that carry usage but NO message.id
+	// (an older or synthetic shape); there is nothing to dedup them by, so they
+	// are added directly.
+	unkeyedUsage    EpisodeUsage
 	sawStreamedTurn bool
+
 	tools           map[string]int64
 	spans           map[string]*SubagentSpan
 	spanOrder       []string // first-seen order — deterministic output
@@ -2158,7 +2252,11 @@ type episodeAccumulator struct {
 }
 
 func newEpisodeAccumulator() *episodeAccumulator {
-	return &episodeAccumulator{tools: map[string]int64{}, spans: map[string]*SubagentSpan{}}
+	return &episodeAccumulator{
+		turnUsage: map[string]streamUsage{},
+		tools:     map[string]int64{},
+		spans:     map[string]*SubagentSpan{},
+	}
 }
 
 // observe folds ONE decoded event in.
@@ -2217,16 +2315,22 @@ func (acc *episodeAccumulator) extendSpan(toolUseID string, at time.Time) {
 	}
 }
 
-// observeAssistant folds one assistant turn: its model, its tokens (ALWAYS
-// summed, subagent turns included — a token total is not an attribution), and
-// its tool calls (MAIN-LOOP ONLY — a parented turn's tools belong to its span).
+// observeAssistant folds one assistant event: its model, its turn's tokens
+// (deduplicated by message.id — subagent turns included, since a token total is
+// not an attribution), and its tool calls (MAIN-LOOP ONLY — a parented event's
+// tool calls are EXCLUDED from every count, because SubagentSpan has no counts
+// field to attribute them to).
 func (acc *episodeAccumulator) observeAssistant(ev streamEvent) {
 	if acc.assistantModel == "" {
 		acc.assistantModel = ev.Message.Model
 	}
-	if ev.Message.Usage != nil {
-		addUsage(&acc.streamed, *ev.Message.Usage)
+	if u := ev.Message.Usage; u != nil {
 		acc.sawStreamedTurn = true
+		if id := ev.Message.ID; id != "" {
+			acc.turnUsage[id] = *u // LAST wins: the block is cumulative for the turn
+		} else {
+			addUsage(&acc.unkeyedUsage, *u)
+		}
 	}
 	if ev.ParentToolUseID != "" {
 		return
@@ -2255,8 +2359,13 @@ func (acc *episodeAccumulator) applyStreamFields(sum *EpisodeSummary) {
 		sum.Model = &model
 	}
 	if acc.sawStreamedTurn {
-		s := acc.streamed
-		sum.StreamedUsage = &s
+		// ONE addition per TURN, not per event. Integer addition is commutative,
+		// so map iteration order does not affect the total.
+		total := acc.unkeyedUsage
+		for _, u := range acc.turnUsage {
+			addUsage(&total, u)
+		}
+		sum.StreamedUsage = &total
 	}
 	if len(acc.tools) > 0 {
 		sum.ToolCallCounts = acc.tools
@@ -2357,9 +2466,9 @@ const episodeTraceTruncatedGapNote = "the per-episode trace is INCOMPLETE, writi
 // artifact is missing an unknown suffix. It is folded into the gap reason and
 // does NOT change the outcome — a truncated trace that still contains its
 // terminal result event told us how the episode ended.
-func (a *localExecAccess) mineEpisode(run *localRun, tracePath string, endedAt time.Time, truncation error) (*EpisodeSummary, string) {
+func (a *localExecAccess) mineEpisode(run *localRun, tracePath string, endedAt time.Time, truncation error) *EpisodeSummary {
 	if run.episodeID == "" {
-		return nil, "" // not an agentic episode (the merge job) — nothing to summarise
+		return nil // not an agentic episode (the merge job) — nothing to summarise
 	}
 	sum, gapReason := a.readEpisodeTrace(run, tracePath, endedAt)
 	if truncation != nil {
@@ -2369,7 +2478,7 @@ func (a *localExecAccess) mineEpisode(run *localRun, tracePath string, endedAt t
 		slog.Warn("localexec: the episode summary is incomplete",
 			"episodeId", run.episodeID, "tracePath", tracePath, "reason", gapReason)
 	}
-	return &sum, gapReason
+	return &sum
 }
 
 // readEpisodeTrace is mineEpisode's IO half: open, parse, or degrade to a gap.
@@ -2466,7 +2575,7 @@ func (a *localExecAccess) awaitCompletion(
 	// ObserveAgenticJob poll never waits on IO. The summary is published below on
 	// whichever completion path this run turns out to be on.
 	endedAt := time.Now().UTC()
-	episode, episodeGap := a.mineEpisode(run, tracePath, endedAt, traceTruncation)
+	episode := a.mineEpisode(run, tracePath, endedAt, traceTruncation)
 
 	a.gitMu.Lock()
 	afterSHA, revErr := revParseBranch(a.repoPath, branch)
@@ -2498,7 +2607,7 @@ func (a *localExecAccess) awaitCompletion(
 		// The cancel path skips the diagnostic/durable-log work, but it does NOT
 		// skip the episode: a cancelled run spent real tokens and did real work
 		// before the SIGTERM, and that is exactly what must still be accounted for.
-		publishEpisode(run, cancelledEpisode(episode), episodeGap)
+		publishEpisode(run, cancelledEpisode(episode))
 		return
 	}
 
@@ -2536,13 +2645,12 @@ func (a *localExecAccess) awaitCompletion(
 		run.mu.Unlock()
 		// A cancel landed DURING the window above and owns the outcome — including
 		// the episode's, on the same reasoning as the short-circuit.
-		publishEpisode(run, cancelledEpisode(episode), episodeGap)
+		publishEpisode(run, cancelledEpisode(episode))
 		return
 	}
 	run.status = status
 	run.diagnostic = diagnostic
 	run.episode = episode
-	run.episodeGapReason = episodeGap
 	run.mu.Unlock()
 }
 
@@ -2551,11 +2659,26 @@ func (a *localExecAccess) awaitCompletion(
 // the same breath as the terminal status, so no observation can see one without
 // the other. Only awaitCompletion's own goroutine ever calls it, exactly once
 // per run.
-func publishEpisode(run *localRun, episode *EpisodeSummary, gapReason string) {
+func publishEpisode(run *localRun, episode *EpisodeSummary) {
 	run.mu.Lock()
 	defer run.mu.Unlock()
 	run.episode = episode
-	run.episodeGapReason = gapReason
+}
+
+// copyEpisodeSummary returns an independent copy of a summary for handing across
+// the port, or nil for nil. The struct is copied AND its map/slice fields are
+// cloned: a shallow copy would share ToolCallCounts and SubagentSpans by
+// reference, letting any caller mutate this RA's own run record through them.
+// (run.episode is only ever set alongside a terminal status, so a running
+// observation gets nil here by construction.)
+func copyEpisodeSummary(src *EpisodeSummary) *EpisodeSummary {
+	if src == nil {
+		return nil
+	}
+	out := *src
+	out.ToolCallCounts = maps.Clone(src.ToolCallCounts)
+	out.SubagentSpans = slices.Clone(src.SubagentSpans)
+	return &out
 }
 
 // cancelledEpisode stamps the operator's verdict onto a mined summary. The
@@ -2663,15 +2786,7 @@ func (a *localExecAccess) ObserveAgenticJob(_ fwra.Context, handle PipelineHandl
 	if run.status == localRunFailed {
 		obs.Diagnostic = run.diagnostic
 	}
-	if run.episode != nil {
-		// A COPY: the record's summary is written once and then immutable, and
-		// handing out its address would let a caller mutate this RA's own state.
-		// (The struct's map/slice fields are shared, which is safe under the same
-		// write-once discipline.) run.episode is only ever set alongside a terminal
-		// status, so a running observation carries none by construction.
-		e := *run.episode
-		obs.Episode = &e
-	}
+	obs.Episode = copyEpisodeSummary(run.episode)
 	return obs, nil
 }
 

@@ -3395,7 +3395,12 @@ func TestParseEpisodeStreamSuccess(t *testing.T) {
 	assertTurnsAndCost(t, sum, 2, 0.054201000000000006)
 	assertUsage(t, "Usage (terminal result event)", sum.Usage,
 		EpisodeUsage{In: 4, Out: 171, CacheRead: 63600, CacheCreate: 5424})
-	assertStreamedUsage(t, sum, EpisodeUsage{In: 6, Out: 3, CacheRead: 92778, CacheCreate: 10668})
+	// DEDUPED BY message.id: success_with_tools emits msg_011CdeZ44G5n3VmRyeeUj6Hk
+	// TWICE (a text block then a tool_use block) with the SAME cumulative usage.
+	// Summing per EVENT would give {6, 3, 92778, 10668} — cache_read inflated 46%,
+	// cache_create 97%. Deduped, In/CacheRead/CacheCreate reproduce the terminal
+	// event EXACTLY; only Out differs (a turn's output_tokens is partial at emit).
+	assertStreamedUsage(t, sum, EpisodeUsage{In: 4, Out: 2, CacheRead: 63600, CacheCreate: 5424})
 	assertSoleToolCall(t, sum.ToolCallCounts, "Write", 1)
 	if len(sum.SubagentSpans) != 0 {
 		t.Fatalf("SubagentSpans = %v, want none (this fixture spawned no subagent)", sum.SubagentSpans)
@@ -3445,10 +3450,25 @@ func TestParseEpisodeStreamSubagent(t *testing.T) {
 	}
 	assertUsage(t, "Usage (terminal result event)", sum.Usage,
 		EpisodeUsage{In: 4, Out: 266, CacheRead: 63944, CacheCreate: 5941})
-	assertStreamedUsage(t, sum, EpisodeUsage{In: 6, Out: 5, CacheRead: 93122, CacheCreate: 11529})
-	// Both totals are non-zero and DIVERGE. Recorded as two facts, never reconciled.
+	// Deduped by message.id — msg_011CdeZNZXiq8QnTfcAxZoC2 appears twice (thinking,
+	// then tool_use) with one cumulative usage block. Matches the terminal event on
+	// every field except Out.
+	assertStreamedUsage(t, sum, EpisodeUsage{In: 4, Out: 3, CacheRead: 63944, CacheCreate: 5941})
+	// The two totals still DIVERGE after dedup — on Out alone (3 vs 266), because a
+	// turn's output_tokens is a partial count at the moment the event is emitted
+	// while the terminal event carries the final one. Recorded as two facts, never
+	// reconciled.
 	if sum.Usage == *sum.StreamedUsage {
 		t.Fatal("the fixture's two totals happen to be equal; the test's premise (they may diverge) is stale")
+	}
+	if sum.Usage.Out == sum.StreamedUsage.Out {
+		t.Fatal("Out was expected to be the diverging field after dedup")
+	}
+	if sum.Usage.In != sum.StreamedUsage.In ||
+		sum.Usage.CacheRead != sum.StreamedUsage.CacheRead ||
+		sum.Usage.CacheCreate != sum.StreamedUsage.CacheCreate {
+		t.Fatalf("deduped StreamedUsage %+v should match the terminal Usage %+v on In/CacheRead/CacheCreate; a mismatch means the per-turn dedup regressed into double-counting",
+			*sum.StreamedUsage, sum.Usage)
 	}
 }
 
@@ -3717,6 +3737,25 @@ func TestLocalExecObserve_FailedRun_TerminalObservationCarriesFailedEpisode(t *t
 	if obs.Episode.ToolCallCounts["Bash"] != 1 {
 		t.Fatalf("Episode.ToolCallCounts = %v, want {Bash:1}", obs.Episode.ToolCallCounts)
 	}
+
+	// The observation owns its summary OUTRIGHT. A shallow struct copy would
+	// share ToolCallCounts and SubagentSpans by reference, letting any caller
+	// corrupt this RA's own run record through them — so mutating what we were
+	// handed must not be visible to the next observer.
+	obs.Episode.ToolCallCounts["Bash"] = 9999
+	obs.Episode.ToolCallCounts["Injected"] = 1
+	obs.Episode.SubagentSpans = append(obs.Episode.SubagentSpans, SubagentSpan{ToolUseID: "injected"})
+
+	again, err := a.ObserveAgenticJob(obsRC(context.Background()), handle)
+	if err != nil {
+		t.Fatalf("Observe(second): %v", err)
+	}
+	if again.Episode.ToolCallCounts["Bash"] != 1 || again.Episode.ToolCallCounts["Injected"] != 0 {
+		t.Fatalf("a caller's mutation reached the run record: ToolCallCounts = %v", again.Episode.ToolCallCounts)
+	}
+	if len(again.Episode.SubagentSpans) != 0 {
+		t.Fatalf("a caller's append reached the run record: SubagentSpans = %v", again.Episode.SubagentSpans)
+	}
 }
 
 // waitForEpisode polls to a terminal observation that CARRIES its episode
@@ -3744,4 +3783,94 @@ func waitForEpisode(t *testing.T, a *localExecAccess, handle PipelineHandle, tim
 		}
 	}
 	return obs
+}
+
+// TE13 — an OVER-LONG line must cost only itself. bufio.Scanner would have
+// returned ErrTooLong and then yielded NO FURTHER TOKENS, abandoning the rest of
+// the file; because the terminal result event is the LAST line of a trace, that
+// would silently turn a successful episode into a gap and lose its usage, cost
+// and outcome. The 2MB junk line here sits BETWEEN the assistant turn and the
+// terminal event, so anything that stops early fails this test loudly.
+func TestParseEpisodeStreamSkipsOverLongLineAndKeepsGoing(t *testing.T) {
+	var b strings.Builder
+	b.WriteString(`{"type":"system","subtype":"init","model":"claude-sonnet-5"}` + "\n")
+	b.WriteString(`{"type":"assistant","message":{"id":"msg_1","model":"claude-sonnet-5","usage":{"input_tokens":2,"output_tokens":1,"cache_read_input_tokens":30,"cache_creation_input_tokens":7},"content":[{"type":"tool_use","id":"toolu_1","name":"Read"}]}}` + "\n")
+	// A single line well past episodeStreamMaxLineBytes — a giant tool_result is
+	// the realistic source. Valid JSON, so only its LENGTH can exclude it, and it
+	// carries a usage block with unmistakable values: if the line were NOT skipped
+	// those tokens would land in StreamedUsage and the assertion below would fail.
+	// That makes the skip observable rather than merely assumed.
+	b.WriteString(`{"type":"assistant","message":{"id":"msg_huge","usage":{"input_tokens":999999,"output_tokens":999999},"content":[{"type":"tool_use","id":"toolu_h","name":"NeverCounted"},{"type":"text","text":"`)
+	b.WriteString(strings.Repeat("x", 2<<20))
+	b.WriteString(`"}]}}` + "\n")
+	b.WriteString(`{"type":"result","subtype":"success","is_error":false,"num_turns":1,"total_cost_usd":0.01,"usage":{"input_tokens":2,"output_tokens":40,"cache_read_input_tokens":30,"cache_creation_input_tokens":7}}` + "\n")
+
+	sum, gapReason, err := parseEpisodeStream(strings.NewReader(b.String()),
+		"ep-13", "trace/ep-13.jsonl", fixtureStarted, fixtureEnded)
+	if err != nil {
+		t.Fatalf("parseEpisodeStream: %v — an over-long line must not be a read fault", err)
+	}
+	if gapReason != "" {
+		t.Fatalf("gapReason = %q, want empty: the terminal event AFTER the over-long line must still be reached", gapReason)
+	}
+	if sum.Outcome != EpisodeSucceeded {
+		t.Fatalf("Outcome = %v, want EpisodeSucceeded", sum.Outcome)
+	}
+	assertUsage(t, "Usage", sum.Usage, EpisodeUsage{In: 2, Out: 40, CacheRead: 30, CacheCreate: 7})
+	// The events on BOTH sides of the skipped line survived...
+	assertModel(t, sum, "claude-sonnet-5")
+	// ...and NOTHING from the skipped line leaked in: no NeverCounted tool call,
+	// and none of its 999999-token usage.
+	assertSoleToolCall(t, sum.ToolCallCounts, "Read", 1)
+	assertStreamedUsage(t, sum, EpisodeUsage{In: 2, Out: 1, CacheRead: 30, CacheCreate: 7})
+}
+
+// TE15 — a line LONGER than the reader's internal buffer but UNDER the cap must
+// be reassembled across refills, not dropped. 64KB reader buffer vs a ~300KB
+// event: the boundary case that separates "skip the pathological line" from
+// "silently lose every large-but-legitimate tool_use event".
+func TestParseEpisodeStreamReassemblesLinesLongerThanTheReadBuffer(t *testing.T) {
+	padding := strings.Repeat("y", 300*1024)
+	lines := []string{
+		`{"type":"assistant","message":{"id":"msg_big","usage":{"input_tokens":11,"output_tokens":4},"content":[{"type":"tool_use","id":"t1","name":"Grep"},{"type":"text","text":"` + padding + `"}]}}`,
+		`{"type":"result","subtype":"success","is_error":false,"num_turns":1}`,
+	}
+	sum, gapReason, err := parseEpisodeStream(strings.NewReader(strings.Join(lines, "\n")+"\n"),
+		"ep-15", "", fixtureStarted, fixtureEnded)
+	if err != nil {
+		t.Fatalf("parseEpisodeStream: %v", err)
+	}
+	if gapReason != "" {
+		t.Fatalf("gapReason = %q, want empty", gapReason)
+	}
+	if sum.Outcome != EpisodeSucceeded {
+		t.Fatalf("Outcome = %v, want EpisodeSucceeded", sum.Outcome)
+	}
+	// The multi-refill line was assembled and parsed, not discarded.
+	assertSoleToolCall(t, sum.ToolCallCounts, "Grep", 1)
+	assertStreamedUsage(t, sum, EpisodeUsage{In: 11, Out: 4})
+}
+
+// TE14 — the per-turn dedup rule, pinned independently of the fixtures so a
+// future CLI capture cannot quietly change what the rule IS.
+//
+// Three assistant events: two share message.id (the second supersedes — a usage
+// block is CUMULATIVE for its turn, not a delta), one has a different id, and
+// one carries no id at all and so falls back to direct summing (the shape the
+// local shims and older captures emit). Expected: 100+7+1 / 10+3+1 / 0 / 0.
+func TestParseEpisodeStreamDeduplicatesTurnUsageByMessageID(t *testing.T) {
+	lines := []string{
+		`{"type":"assistant","message":{"id":"msg_a","usage":{"input_tokens":50,"output_tokens":5}}}`,
+		`{"type":"assistant","message":{"id":"msg_a","usage":{"input_tokens":100,"output_tokens":10}}}`,
+		`{"type":"assistant","message":{"id":"msg_b","usage":{"input_tokens":7,"output_tokens":3}}}`,
+		`{"type":"assistant","message":{"usage":{"input_tokens":1,"output_tokens":1}}}`,
+		`{"type":"result","subtype":"success","is_error":false}`,
+	}
+	sum, _, err := parseEpisodeStream(strings.NewReader(strings.Join(lines, "\n")+"\n"),
+		"ep-14", "", fixtureStarted, fixtureEnded)
+	if err != nil {
+		t.Fatalf("parseEpisodeStream: %v", err)
+	}
+	// NOT 158/19 — msg_a is counted ONCE, at its last-seen (cumulative) value.
+	assertStreamedUsage(t, sum, EpisodeUsage{In: 108, Out: 14})
 }
