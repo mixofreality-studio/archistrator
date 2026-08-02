@@ -39,15 +39,19 @@
 ```bash
 cd "$(mktemp -d)"
 claude -p 'Create a file named hello.txt containing the word hi, then read it back.' \
-  --output-format stream-json --verbose --max-turns 6 \
+  --output-format stream-json --verbose --max-turns 6 --dangerously-skip-permissions \
   > success_with_tools.jsonl
 ```
+
+(`--dangerously-skip-permissions` is required: headless `-p` otherwise denies Write/Read/Task
+tool calls, and the fixture would capture permission refusals instead of `tool_use` events.
+Scratch dir, trivial prompt — harmless.)
 
 - [ ] **Step 2: Capture a subagent fixture** (exercises `parent_tool_use_id` sidechain events):
 
 ```bash
 claude -p 'Use the Task tool to dispatch one subagent that answers: what is 2+2? Then report its answer.' \
-  --output-format stream-json --verbose --max-turns 6 \
+  --output-format stream-json --verbose --max-turns 6 --dangerously-skip-permissions \
   > success_with_subagent.jsonl
 ```
 
@@ -88,7 +92,6 @@ for f in *.jsonl; do tail -1 "$f" | python3 -c 'import json,sys; e=json.load(sys
   "component": "episodeAccess",
   "layer": "ResourceAccess",
   "goPackage": "internal/resourceaccess/episode",
-  "infra": ["LocalFS"],
   "title": "episode contract",
   "$defs": {
     "ProjectID": { "type": "string" },
@@ -151,7 +154,7 @@ for f in *.jsonl; do tail -1 "$f" | python3 -c 'import json,sys; e=json.load(sys
       { "name": "ReadTraceEvents",
         "params": [ { "name": "projectID", "schema": { "$ref": "#/$defs/ProjectID" } },
                     { "name": "episodeID", "schema": { "type": "string" } } ],
-        "result": { "type": "array", "items": { "type": "object",
+        "result": { "type": "array", "items": { "type": ["null"],
                     "x-go-import": "encoding/json", "x-go-type": "json.RawMessage" } },
         "error": true }
     ]
@@ -159,9 +162,20 @@ for f in *.jsonl; do tail -1 "$f" | python3 -c 'import json,sys; e=json.load(sys
 }
 ```
 
-(If `x-go-type: json.RawMessage` is rejected by modelgen, fall back to `{"type":"string"}` per event line; record which in the commit message.)
+**No `infra` entry** — modelgen's infra table is a closed platform allowlist
+(`Git, GitHub, Postgres, Temporal, GitHubActions, Anthropic, Ollama, Replay, Profiled` —
+framework-go-app-generator `modelgen/infra.go:79-205`; unknown names hard-fail
+`emit_impl.go:80-82`; there is no filesystem binding). The RA gets a generated interface +
+models only; the variant constructors are **hand-written in Task 3**
+(`NewLocalFSEpisodeAccess(repoURL string) (EpisodeAccess, error)` +
+`NewNoOpEpisodeAccess() EpisodeAccess`), exported, and added to the encapsulation allowlist —
+exact precedent: `NewLocalExecAgenticJobAccess` / `NewNoOpOperatedSystemStateAccess`.
 
-- [ ] **Step 2: Register the component in the system model.** Add to `.slots["5"].model.components`: `{ "id": "episode-access", "kind": "resourceAccess", "layer": "resourceAccess", "contractKey": "episodeAccess", "name": "EpisodeAccess", "encapsulates": ["episode ledger + trace sidecar storage"], "encapsulatesVolatilities": ["how episode observations are retained locally vs deployed"], "atomicBusinessVerbs": ["append episode", "list episodes", "read trace"] }` (match neighboring components' exact field set — copy `usage-access` and edit). Add relationships from `construction-manager`, `systemdesign-manager`, `projectdesign-manager`, and (added in Task 9) `episode-manager` to `episode-access`. Add `"EpisodeAccess"` to the archistrator-server container's components in `.slots["6"]`.
+`x-go-type: json.RawMessage` with `"type": ["null"]` is the established shape — three live
+precedents in project.json (e.g. `projectDesignManager/$defs/DraftModel/properties/model`),
+one already web-exposed through clientgen.
+
+- [ ] **Step 2: Register the component in the system model.** Add to `.slots["5"].model.components`: `{ "id": "episode-access", "kind": "resourceAccess", "layer": "resourceAccess", "contractKey": "episodeAccess", "name": "EpisodeAccess", "encapsulates": "episode ledger + trace sidecar storage", "encapsulatesVolatilities": [...], "atomicBusinessVerbs": [...] }` — note `encapsulates` is a **string** in real entries; match neighboring components' exact field set (copy `usage-access` and edit). Add relationships from `construction-manager`, `systemdesign-manager`, `projectdesign-manager`, and (added in Task 9) `episode-manager` to `episode-access`. Add `"EpisodeAccess"` to the archistrator-server container's components in `.slots["6"]`. **Also add a deployment binding** (composegen has no construction recipe without one): `{ "component": "episodeAccess", "presence": "required", "settings": [], "perProfile": { "local": { "variant": "LocalFS", "infra": [] }, "cloud": { "variant": "NoOp", "infra": [] } } }` — the NoOp variant appends/lists nothing (explicit, logged) until the deferred deployed profile lands; never a nil RA under an unbounded-retry activity.
 
 - [ ] **Step 3: Regenerate + gates.**
 
@@ -187,9 +201,9 @@ Expected: build passes; the four guard tests pass. If `TestMethodLayering`/`appA
 
 **Interfaces:**
 - Consumes: generated `EpisodeAccess` interface + types from Task 2.
-- Produces: `NewEpisodeAccess(...)` constructor (exact exported name/signature dictated by the generated contract's constructor convention — copy the delegating-constructor pattern from `internal/resourceaccess/usage`'s impl). Store layout: `<projectRepoRoot>/.aiarch/traces/episodes.jsonl` (ledger, one `EpisodeRecord` JSON per line) + `<projectRepoRoot>/.aiarch/traces/<episodeId>.jsonl` (raw traces, written by agenticjob) + `<projectRepoRoot>/.aiarch/traces/.gitignore` containing `*\n` (self-ignoring — operated repos need no scaffold change).
+- Produces: hand-written variant constructors `NewLocalFSEpisodeAccess(repoURL string) (EpisodeAccess, error)` and `NewNoOpEpisodeAccess() EpisodeAccess` (precedent: `NewLocalExecAgenticJobAccess`; do NOT copy usage's delegating ctor — that one is generated from its `infra` entry). Store layout: `<projectRepoRoot>/.aiarch/traces/episodes.jsonl` (ledger, one `EpisodeRecord` JSON per line) + `<projectRepoRoot>/.aiarch/traces/<episodeId>.jsonl` (raw traces, written by agenticjob) + `<projectRepoRoot>/.aiarch/traces/.gitignore` containing `*\n` (self-ignoring — operated repos need no scaffold change).
 
-- [ ] **Step 1: Resolve the project-repo path the same way the local git substrate does.** Read how `projectstate`'s GitLocal substrate maps `projectID → repo root` (start at `server/internal/resourceaccess/projectstate/projectstateaccess.go`, `statePathPrefix` at :49, and the substrate's constructor config). If that resolution helper is package-private, lift it into an existing shared utility package under `server/internal/utility/` (do NOT call projectstate from episode — no RA→RA calls) and have both use it. If lifting is invasive, duplicate the ~few-line resolution with a comment naming the source of truth.
+- [ ] **Step 1: Resolve the repo root the way the local rail actually works.** The local rail is **one repo per server config** (`NewGitLocalProjectStateAccess(cfg.ProjectStateGitRepoURL)`, name-as-identity) — there is no projectID→path mapping. `NewLocalFSEpisodeAccess(repoURL)` performs the same `file://` URL → path translation as `localRepoPath` (`agenticjobaccess.go:1249`); `projectID` is recorded/validated on the record, never used for path resolution.
 
 - [ ] **Step 2: Write failing contract tests** in `access_test.go` against a `t.TempDir()` repo root:
 
@@ -262,7 +276,7 @@ func TestClaudeArgvStreamJSON(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Implement.** In `claudeArgv`, replace `--output-format json` with `--output-format stream-json` + `--verbose`. At the spawn site (:1591 area): create `.aiarch/traces/` under the local checkout root (`repoPath`, resolved at :1172/:1216), open `<episodeId>.jsonl`, and set `cmd.Stdout = io.MultiWriter(traceFile, &tail)` where `tail` is the `tailBuffer` replacing the unbounded `bytes.Buffer`. All downstream consumers of stdout (`awaitCompletion` :1665, `claudeResultEnvelope` :1987, `envelopeDetail` :2024) read from `tail.String()` — they only need the last JSON lines, which the 512KB tail preserves. Close/fsync the trace file in `awaitCompletion` before parsing. `persistFailedRunOutput` (:2118) writes the trace-file *path* into its log dir instead of a verbatim `stdout.json` copy.
+- [ ] **Step 2: Implement.** In `claudeArgv`, replace `--output-format json` with `--output-format stream-json` + `--verbose`. At the spawn site (:1591 area): create `.aiarch/traces/` under the local checkout root (`repoPath`, resolved at :1172/:1216), open `<episodeId>.jsonl`, and set `cmd.Stdout = io.MultiWriter(traceFile, &tail)` where `tail` is the `tailBuffer` replacing the unbounded `bytes.Buffer`. All downstream consumers of stdout (`awaitCompletion` :1665, `claudeResultEnvelope` :1987, `envelopeDetail` :2024) read from `tail.String()` — they only need the last JSON lines, which the 512KB tail preserves. Close/fsync the trace file in `awaitCompletion` before parsing. `persistFailedRunOutput` (:2118) writes the trace-file *path* into its log dir instead of a verbatim `stdout.json` copy. Open the trace file with `O_TRUNC` at dispatch so a retry-reused episode id can never interleave two runs' streams (verify whether idempotency keys are attempt-scoped; truncate regardless). **Trust-rule assertion:** the agent sandbox write allowlist is `[workDir, gitDir]` (`agenticjobaccess.go:1578-1581`, `gitDir` from `git rev-parse --absolute-git-dir` at :2549) — add a test + runtime check that the resolved traces dir is NOT under `gitDir`; if the shared repo is bare (`gitDir == repoPath`), fail loudly rather than tee into agent-writable space.
 
 - [ ] **Step 3:** Run the package's existing tests + new ones: `GOWORK=off go test ./internal/resourceaccess/agenticjob/ -short -v`. Existing envelope-parsing tests must stay green (stream-json's terminal `result` event carries the same `subtype`/`is_error`/`result` fields — verify against Task 1 fixtures if any test needs its fixture swapped from json to stream-json format).
 
@@ -305,7 +319,7 @@ Pin exact expected numbers by reading each fixture once (`jq`), then hard-code t
 
 - [ ] **Step 2: Implement** `parseEpisodeStream`: `bufio.Scanner` (1MB max line), per line decode `{type, subtype?, parent_tool_use_id?, message?{model?, usage?{input_tokens,output_tokens,cache_read_input_tokens,cache_creation_input_tokens}, content?[]}, usage?, total_cost_usd?, num_turns?, is_error?}` into a tolerant struct; accumulate: assistant-event usage → `StreamedUsage`; `content[].type=="tool_use"` → `ToolCallCounts[name]++` (main loop) or subagent span attribution when `parent_tool_use_id != ""` (span keyed by that id; first/last event timestamps as StartedAt/EndedAt); terminal `result` → `Usage` (its `usage`), `CostUSD`, `NumTurns`, Outcome (`success` → succeeded else failed). No terminal event → `Outcome: gap, GapReason: "stream ended without terminal result event"`.
 
-- [ ] **Step 3: Wire into `awaitCompletion`:** on every completion path (success, failure), reopen the trace file and call `parseEpisodeStream`; attach the summary to the run state so `ObserveAgenticJob` (:1791) includes it on the terminal observation. On the cancel short-circuit (:1685–1696) and `CancelAgenticJob` (:1815): still parse whatever trace exists and report `Outcome: cancelled` (override the parsed outcome). On the restart-lost-run path (`localRunLostDiagnostic` :1776/:1800): report `Outcome: gap, GapReason: <diagnostic>` with whatever partial trace exists.
+- [ ] **Step 3: Wire into `awaitCompletion`:** on every completion path (success, failure), reopen the trace file and call `parseEpisodeStream`; attach the summary to the run state so `ObserveAgenticJob` (:1786) includes it on the terminal observation. **On cancel: do NOT parse inside `CancelAgenticJob` (the subprocess is still exiting there — trace mid-write); modify `awaitCompletion`'s `alreadyCancelled` short-circuit (~:1706), which today returns before doing any work, to close the trace file, parse, and attach the summary with `Outcome: cancelled` (overriding the parsed outcome) before returning.** On the restart-lost-run path (`localRunLostDiagnostic` :1776/:1800): report `Outcome: gap, GapReason: <diagnostic>` with whatever partial trace exists (the episode id is recoverable from the handle via `localTokenFromHandle` :1861).
 
 - [ ] **Step 4:** Tests green; full package test run; **Commit** (`feat(agenticjob): episode stream parser + terminal observation reporting`).
 
@@ -316,8 +330,9 @@ Pin exact expected numbers by reading each fixture once (`jq`), then hard-code t
 **Files:**
 - Modify: `.aiarch/state/project.json` — add `{ "name": "episodes", "component": "episodeAccess" }` to the `deps` of `constructionManager`, `systemDesignManager`, `projectDesignManager` contract entries
 - Modify: `server/internal/manager/construction/constructactivity.go` (~:969 `runPipeline` loop and the second loop ~:1267)
-- Modify: `server/internal/manager/systemdesign/coauthorartifact.go` (design-dispatch observe loop)
-- Modify: `server/internal/manager/projectdesign/projectdesignmanager.go` (~:1744 `dispatchAnswerJob`)
+- Modify: `server/internal/manager/systemdesign/coauthorartifact.go` (`dispatchAndObserve` ~:2465 — one choke point covers draft AND critique dispatches)
+- Modify: `server/internal/manager/projectdesign/coauthorphase2artifact.go` (~:1475 `dispatchAndObserve` — the Phase-2 twin of systemdesign's; hook the append at the same terminal-observation point. Omitting this silently loses every Phase-2 drafting episode)
+- Modify: `server/internal/manager/projectdesign/projectdesignmanager.go` (:1715 `dispatchAnswerJob`)
 - Generated: each manager's `activities.gen.go`, `invokers.gen.go`, `worker.gen.go` (via `make gen-temporal`)
 - Test: each manager's existing `manager_test.go`
 
@@ -345,9 +360,9 @@ func TestAppendFailureDoesNotFailBusinessFlow(t *testing.T) {
 }
 ```
 
-- [ ] **Step 3: Implement.** In `runPipeline` (both loops) and the systemdesign observe loop: after a terminal phase (`Succeeded|Failed|Cancelled`), build the `EpisodeRecord` from `obs.Episode` (or gap record if nil), fill `Kind/TargetRef/WorkerClass` from workflow state and `Lineage` from `workflow.GetInfo(ctx).WorkflowExecution`, and call the generated append invoker. Schedule the append AFTER the business handling of the observation (business first, episode second — spec ordering), with its own activity options (unlimited-ish retry, `ScheduleToCloseTimeout` 0, independent of business retries). In `dispatchAnswerJob`: after the fire-and-forget submit completes its observation (follow that function's existing completion callback/goroutine), append directly via the RA dependency with `Kind: EpisodeKindAnswer, Lineage: nil`.
+- [ ] **Step 3: Implement.** In `runPipeline` (both loops), systemdesign's `dispatchAndObserve` (coauthorartifact.go:2465), and projectdesign's `dispatchAndObserve` (coauthorphase2artifact.go:1475): after a terminal phase (`Succeeded|Failed|Cancelled`), build the `EpisodeRecord` from `obs.Episode` (or gap record if nil), fill `Kind/TargetRef/WorkerClass` from workflow state and `Lineage` from `workflow.GetInfo(ctx).WorkflowExecution`, and call the generated append invoker. Schedule the append AFTER the business handling of the observation (business first, episode second — spec ordering), with its own activity options (unlimited-ish retry, `ScheduleToCloseTimeout` 0, independent of business retries). In `dispatchAnswerJob` (:1715): **there is NO existing observation of the answer job — it is genuinely fire-and-forget.** After a successful submit, spawn a bounded manager-side goroutine that polls `m.pipeline.ObserveAgenticJob(handle)` until a terminal phase or a hard deadline (reuse the local run-timeout bound), then appends via the RA dep with `Kind: EpisodeKindAnswer, Lineage: nil`; on deadline without a terminal phase, append an explicit gap record. This path is non-durable (a server restart loses the goroutine) — acceptable and documented: only the workflow-side paths carry the durable never-silent guarantee.
 - [ ] **Step 4:** Tests green; `make gen-temporal-check`; update `registeredTemporalNamesGolden` in `server/internal/registered_names_test.go` if new activity names registered (expected: `episodeAccess.appendEpisode` per manager queue); run `make method-check`.
-- [ ] **Step 5: Commit** (`feat(managers): persist episode records at terminal observations`).
+- [ ] **Step 5: Release note + commit.** Add to the commit body and to Task 12's closeout notes: **DRAIN in-flight construction/coauthor workflows before deploying this change** — it inserts a new episode-append activity command into existing workflow bodies (not the pure-addition case `pumpnextactivity.go:44` describes; no `GetVersion` guard is carried), so in-flight executions would replay against a changed command sequence. Same standing convention as the callchain and layer-layout releases. Commit (`feat(managers): persist episode records at terminal observations`).
 
 ---
 
@@ -361,7 +376,7 @@ func TestAppendFailureDoesNotFailBusinessFlow(t *testing.T) {
 **Interfaces:**
 - Produces: a booting server with `episodeAccess` constructed and injected into the three managers.
 
-- [ ] **Step 1:** `make gen-temporal` (regenerates main.gen.go/config.gen.go). If composegen cannot construct `episodeAccess` (unknown constructor arity for the repo-root config), register the variant in `appgen`'s `generateMain()` variant lists (`VariantConstructorNoError` / `VariantHookArgs`, `server/cmd/appgen/main.go` ~:155 area) or supply the argument via `server/cmd/server/hooks.go` — copy how an existing file-backed component gets its config. Config value: reuse the same env-derived projects-root the GitLocal substrate uses (found in Task 3 Step 1); if a new env var is unavoidable, add it through the deployment-model config so `config.gen.go`/`envnames.gen.go` stay generated.
+- [ ] **Step 1:** `make gen-temporal` (regenerates main.gen.go/config.gen.go). Register the constructor variant exactly as the existing file-backed precedent: `VariantHookArgs["episodeAccess/LocalFS"] = [{GoType: "string"}]` in `generateMain()` (`server/cmd/appgen/main.go` ~:177 — `constructionTransitionAccess/GitLocal` is the copy-from), with the hook returning `cfg.ProjectStateGitRepoURL` — **no new env var**. The cloud profile constructs the NoOp variant per Task 2's binding.
 - [ ] **Step 2:** `GOWORK=off go build ./... && make gen-main-check && make gen-config-check`.
 - [ ] **Step 3: Boot smoke:** `scripts/build-local.sh`, start the local stack per `docs`' run-app-locally flow, confirm clean startup logs (no episode wiring panic).
 - [ ] **Step 4: Commit** (`feat(server): wire episodeAccess into composition root`).
@@ -380,13 +395,13 @@ func TestAppendFailureDoesNotFailBusinessFlow(t *testing.T) {
 **Interfaces:**
 - Produces (manager contract, lowerCamel wire props like `billingManager`): `EpisodeManager` with exactly 3 ops —
   - `ListEpisodesForTarget(projectID string, targetRef string) ([]EpisodeRecordView, error)`
-  - `GetEpisodeTimeline(projectID string, episodeID string) (EpisodeTimeline, error)` — `EpisodeTimeline { record EpisodeRecordView, events []TimelineEvent }`, `TimelineEvent { seq int, eventType string, raw <json.RawMessage or string> }`
+  - `GetEpisodeTimeline(projectID string, episodeID string) (EpisodeTimeline, error)` — `EpisodeTimeline { record EpisodeRecordView, events []TimelineEvent }`, `TimelineEvent { seq int, eventType string, raw json.RawMessage }` (the `["null"]` + `x-go-type` shape from Task 2 — no string fallback)
   - `ExportEpisodes(projectID string, targetRef string) (EpisodeExport, error)` — JSON only (`EpisodeExport { records []EpisodeRecordView, traces map[string][]TimelineEvent }`); **CSV is client-side** (spec ruling).
   - `EpisodeRecordView` mirrors Task 2's `EpisodeRecord` with lowerCamel wire props (`x-go-name` for Go casing), and MUST NOT add OCSF/audit fields.
 - Consumes: `episodeAccess` (sole dep).
 
-- [ ] **Step 1:** Author the contract (deps: `[{"name":"episodes","component":"episodeAccess"}]`; copy `billingManager` skeleton). Register component/relationships/deployment as in Task 2 Step 2. Add to the three hard-coded lists. Record the **manager-cardinality waiver (5 → 6)** as a note on the slot-5 component entry, per spec §5.
-- [ ] **Step 2:** `make gen-models && make gen-temporal && make gen-client && make gen-fakes`. Read the generated files: if the generators require every manager op to be a Temporal workflow, implement each read as a trivial workflow (Rule-2 files `listepisodesfortarget.go`, `getepisodetimeline.go`, `exportepisodes.go`) whose only step is the generated append/list invoker; if plain read methods are supported (check how existing at-read ops in `systemDesignManager` are declared), implement them as plain methods in `episodemanager.go`. Follow whatever the generated `worker.gen.go`/handlers dictate — do not fight the rail.
+- [ ] **Step 1:** Author the contract (deps: `[{"name":"episodes","component":"episodeAccess"}]`; copy `billingManager` skeleton). Register component/relationships/deployment as in Task 2 Step 2. Add to the three hard-coded lists. The manager-cardinality question is handled in **Task 9b — read it before starting this task; it contains a founder gate.**
+- [ ] **Step 2:** `make gen-models && make gen-temporal && make gen-client && make gen-fakes`. **All three ops are plain methods in `episodemanager.go`** — generated web handlers call the manager directly (`h.Manager.AdvancePhase(rc, …)`, `web/systemdesign/system-design_handlers.gen.go:106`), and existing manager read ops are plain methods calling the RA (`systemDesignManager.ListProjects`/`GetProject`, systemdesignmanager.go:2164/:2183 — no Temporal). No Rule-2 workflow files, no workflow registrations. This is the first workflow-less manager on the rail: verify `worker.gen.go`/composegen tolerate it (temporalgen still emits the dep's activity surface — harmless), and keep any `client client.Client` dep out of the contract unless composegen's one-Worker-per-Manager walk demands it; if it does, mirror billingManager's client dep and accept an idle worker. **Note:** `make gen-temporal` also regenerates the systemtests SDK (`../systemtests/internal/sdk` — `gen-sdk-check` diffs it); commit those files with this task. Confirm the emitted handler path (kebab-derived from the contract title) before assuming `episode_handlers.gen.go`.
 - [ ] **Step 3: Failing manager tests** in `manager_test.go` (fake `episodeAccess`): list maps records through; timeline stitches record + trace events with sequential `seq`; export bundles both; unknown episode → error surfaced.
 - [ ] **Step 4:** Implement to green. Update `registeredTemporalNamesGolden`, encapsulation allowlist, `appArchSpec()`. Run full server verification suite (Global Constraints list).
 - [ ] **Step 5:** `make gen-client-check`; confirm `api/openapi.yaml` now carries the three ops.
@@ -394,30 +409,48 @@ func TestAppendFailureDoesNotFailBusinessFlow(t *testing.T) {
 
 ---
 
+### Task 9b: System-model realization + cardinality gate
+
+**Files:**
+- Modify: `.aiarch/state/project.json` — `.slots["5"].model.dynamicViews`, `.slots["5"].model.waivers[]`
+
+**Why this task exists:** `make method-check` runs rules from the pinned framework-go at
+**SeverityError**, and two of them fail on Tasks 2/9 as authored:
+`DV-STATIC-COVERAGE`/`DV-REL-COVERAGE` (`methodcheck/rules_dynamic.go:127-131` — every
+non-Resource/non-Utility component must appear in ≥1 dynamic view, every static sync
+relationship must be exercised by one) and `SYS-CARD-MGR` (>5 Managers,
+`methodcheck/rules_system.go:324-331`).
+
+- [ ] **Step 1: Dynamic-view coverage.** Extend the affected use-case realizations in `.slots["5"].model.dynamicViews`: add one call fragment `{from: <dispatching manager>, to: "episode-access", mode: "sync", label: "appendEpisode (terminal-observation episode record)"}` on the terminal-observation step of each agentic-dispatch view (construction activity, design draft, Phase-2 draft), and add a realized view for the trace-read surface (actor → webClient → episode-manager → episode-access) keyed to its use case's activity diagram in `.coreUseCases`. Run `make method-check` — DV rules green.
+- [ ] **Step 2: Author the cardinality waiver** as a `.slots["5"].model.waivers[]` entry (shape per the existing §2d entry at project.json:8478): `{section: "SYS-2a", guideline: "...≤5 Managers...", status: "waived", justification: "episodeManager is a thin read-only surface over one RA; ratified in the 2026-08-02 self-improvement spec; the audit spine will add auditManager as a 7th on the same grounds"}`.
+- [ ] **Step 3: FOUNDER GATE — STOP.** `SYS-CARD-MGR` is emitted at SeverityError and `applyWaivers` only downgrades **Warning**-severity App-C findings (`rules_appc.go:353-368`, `validate.go:169`) — **the ≤5-Managers Error is not waiver-downgradable in framework-go v0.10.0**, so the waiver in Step 2 does not turn method-check green. Do not proceed on a red method-check; do not weaken the gate locally. Escalate to the founder with the two options: (a) a framework-go release making SYS-CARD-MGR waiver-aware (needed anyway — the audit spec plans a 7th manager), or (b) an interim founder-ratified alternative. Record the ruling here before Task 9 lands.
+
+---
+
 ### Task 10: SPA — Episodes panel, timeline, export
 
 **Files:**
 - Generated: `webApp/src/contracts/schema.ts`, `webApp/src/contracts/enums.gen.ts`, `webApp/src/api/ops.gen.ts` (via `npm run gen:api && npm run gen:ops`)
-- Create: `webApp/src/components/episodes/EpisodesPanel.tsx`, `webApp/src/components/episodes/EpisodeTimeline.tsx`, `webApp/src/utilities/episodeCsv.ts`, `webApp/src/hooks/useEpisodes.ts`
-- Modify: `webApp/src/components/design/SystemDesignView.tsx` (mount panel per artifact page), `webApp/src/components/construction/ActivityTrackingDetail.tsx` and `ArtifactActivityDetail.tsx` (mount per activity), `webApp/src/utilities/constants/UIIdentifiers` (new testids)
+- Create: `webApp/src/components/episodes/EpisodesPanel.tsx`, `webApp/src/components/episodes/EpisodeTimeline.tsx` (both **pure, props-only** — components layer cannot import hooks: `eslint.platform.config.js:53/:60`), `webApp/src/containers/EpisodesPanelContainer.tsx` (hooks wiring), `webApp/src/utilities/episodeCsv.ts`, `webApp/src/hooks/useEpisodes.ts`
+- Modify: `webApp/src/containers/SystemDesignContainer.tsx` + the Phase-2 equivalent reached from `webApp/src/routes/ProjectDesignExperience.tsx` (mount container per design-artifact page, Phase 1 AND Phase 2), the construction route/container that renders `ActivityTrackingDetail`/`ArtifactActivityDetail` (mount per activity — never from inside a components-layer file; if inline placement inside those detail components' layout is required, pass `episodesSlot?: ReactNode` down as a prop), `webApp/src/utilities/constants/UIIdentifiers` (new testids)
 - Test: `webApp/src/utilities/episodeCsv.test.ts`
 
 **Interfaces:**
 - Consumes: generated ops for `listEpisodesForTarget` / `getEpisodeTimeline` / `exportEpisodes` from `ops.gen.ts` (exact op ids appear after Task 9's regen — read `ops.gen.ts`).
-- Produces: `<EpisodesPanel projectId targetRef />` — collapsible panel listing episodes (outcome chip incl. `cancelled`/`gap`, duration, model, tokens in/out/cache, turns, tool count, subagent count) with an **optional `badges` render-prop slot** (spec: audit spine adds assurance/completeness later without forking); row-click expands `<EpisodeTimeline />` (per-turn tokens, tool rows with name + metadata, subagent spans, filter-by-event-type dropdown — dropdown per UI selection convention); **Export** menu: "JSON" (download of `exportEpisodes` result) and "CSV" (client-side flatten via `episodeCsv.ts`).
+- Produces: `<EpisodesPanelContainer projectId targetRef />` (container) rendering `<EpisodesPanel />` (pure) — collapsible panel listing episodes (outcome chip incl. `cancelled`/`gap`, duration, model, **worker class**, tokens in/out/cache, turns, tool count, subagent count, and the **lineage tree**: workflow → activity → episode → subagent spans, per spec §5) with an **optional `badges` render-prop slot** (spec: audit spine adds assurance/completeness later without forking); row-click expands `<EpisodeTimeline />` (per-turn tokens, tool rows with name + metadata, subagent spans, filter-by-event-type dropdown — dropdown per UI selection convention); **Export** menu: "JSON" (download of `exportEpisodes` result) and "CSV" (client-side flatten via `episodeCsv.ts`).
 
 - [ ] **Step 1:** `cd webApp && npm run gen:api && npm run gen:ops`; commit the regenerated files separately (`chore(webApp): regen API surface for episodeManager`).
 - [ ] **Step 2: Failing test for the CSV flattener** (`node --test` — repo has no vitest):
 
 ```ts
 // episodeCsv.test.ts — flattenEpisodesToCsv(export: EpisodeExport): string
-// asserts: header row "episodeId,kind,targetRef,outcome,model,tokensIn,tokensOut,cacheRead,cacheCreate,costUsd,numTurns,startedAt,endedAt";
+// asserts: header row "episodeId,kind,targetRef,outcome,model,workerClass,tokensIn,tokensOut,cacheRead,cacheCreate,costUsd,numTurns,startedAt,endedAt";
 // one row per record; fields containing commas/quotes are RFC-4180 quoted; \n line endings.
 ```
 
 - [ ] **Step 3:** Implement `episodeCsv.ts` (pure function, `utilities` layer — no imports above it), run `npm run test` to green.
-- [ ] **Step 4:** Implement `useEpisodes.ts` (hooks layer: wraps the two read ops with loading/error state, following an existing hook in `src/hooks/` for the fetch pattern), then the two components (components layer; MUI `Paper` panel modeled on `construction/PhaseGatePanel.tsx`; theme via `useTokens()`). Register testids: `episodes-panel`, `episodes-row`, `episode-timeline`, `episode-export-json`, `episode-export-csv`, `episode-outcome-chip` in `UI_IDENTIFIERS`.
-- [ ] **Step 5:** Mount: in `SystemDesignView.tsx` below the artifact renderer with `targetRef = <artifactKind slug>`; in `ActivityTrackingDetail.tsx` + `ArtifactActivityDetail.tsx` with `targetRef = activityId`.
+- [ ] **Step 4:** Implement `useEpisodes.ts` (hooks layer: wraps the two read ops with loading/error state, following an existing hook in `src/hooks/` for the fetch pattern), `EpisodesPanelContainer.tsx` (containers layer: calls `useEpisodes`, passes data down), then the two pure components (components layer; props-only; MUI `Paper` panel modeled on `construction/PhaseGatePanel.tsx`; theme via `useTokens()`). Register testids: `episodes-panel`, `episodes-row`, `episode-timeline`, `episode-lineage-tree`, `episode-export-json`, `episode-export-csv`, `episode-outcome-chip` in `UI_IDENTIFIERS`.
+- [ ] **Step 5:** Mount the **container** from containers/routes only: `SystemDesignContainer.tsx` below the artifact renderer with `targetRef = <artifactKind slug>` (Phase 1), the Phase-2 design container reached from `ProjectDesignExperience.tsx` (same pattern), and the construction route/container that renders the activity detail components with `targetRef = activityId` (pass `episodesSlot` prop if inline placement is needed).
 - [ ] **Step 6:** `npm run check` (typecheck, lint incl. boundaries DAG, format, test) — green.
 - [ ] **Step 7: Commit** (`feat(webApp): episodes panel + timeline + JSON/CSV export`).
 
@@ -432,7 +465,7 @@ func TestAppendFailureDoesNotFailBusinessFlow(t *testing.T) {
 **Interfaces:**
 - Consumes: testids from Task 10; a locally provisioned stack (recipe: `.github/workflows/uitests.yml` — Postgres + Temporal + `go build ./cmd/server` + `ARCHISTRATOR_*` env; SPA auto-started by Playwright config).
 
-- [ ] **Step 1: Generate real episode state:** with the local stack up, run one real dry-run-off local design dispatch on the dogfood project (smallest available: a design-artifact draft) so the ledger holds ≥1 real episode. If a full real episode is impractical in the loop, append a **captured-fixture-derived** record via a small Go seeding helper in `uitests` support (fed from Task 1 fixtures — still not hand-authored).
+- [ ] **Step 1: Generate real episode state:** with the local stack up, run one real dry-run-off local design dispatch on the dogfood project (smallest available: a design-artifact draft) so the ledger holds ≥1 real episode. If a full real episode is impractical in the loop, append a **captured-fixture-derived** record via a small Go seeding helper housed with the existing fixture tooling at `server/cmd/gen-uitests-fixtures` (fed from Task 1 fixtures — still not hand-authored).
 - [ ] **Step 2: Spec** (model on `tests/design-experience.spec.ts` structure, `data-testid` selectors only): panel renders ≥1 row on a design artifact page; row expands to timeline with ≥1 tool event; **gap/cancelled outcome renders its chip** (seed one gap record — the spec's "badges are the point" acceptance); export JSON click downloads a file whose parsed content has `records.length ≥ 1`; export CSV click downloads a file whose first line is the exact Task-10 header.
 - [ ] **Step 3:** `cd uitests && npm test -- episodes-panel.spec.ts` → green.
 - [ ] **Step 4: STOP for founder review** of the rendered UI (standing UI review loop). Do not proceed to Task 12 until reviewed.
@@ -444,7 +477,7 @@ func TestAppendFailureDoesNotFailBusinessFlow(t *testing.T) {
 
 - [ ] **Step 1:** From `server/`: the entire Global Constraints verification list, including every `gen-*-check`, `make encapsulation-check`, `make sumtype-check`, `make method-check`.
 - [ ] **Step 2:** From `webApp/`: `npm run check`. From `uitests/`: full `npm test`. From `systemtests/`: `make test-short`.
-- [ ] **Step 3:** Update `docs/superpowers/specs/2026-08-02-self-improvement-pipeline-design.md` §5 status note: SP1 implemented; record any deviations discovered during implementation (e.g. json.RawMessage fallback, workflow-vs-plain read decision from Task 9) as dated amendments.
+- [ ] **Step 3:** Update `docs/superpowers/specs/2026-08-02-self-improvement-pipeline-design.md` §5 status note: SP1 implemented; record the deviations as dated amendments — at minimum: self-ignoring sidecar `.gitignore` instead of the method-assets scaffold change (system-architect endorsed), plain-method reads on episodeManager, the NoOp cloud variant, the Task 9b cardinality ruling, and the **DRAIN-before-deploy** release note from Task 7.
 - [ ] **Step 4: Commit** (`chore: SP1 capture seam + trace UI complete`).
 
 ---
