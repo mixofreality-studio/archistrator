@@ -19,6 +19,7 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/estimation"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/operationestimation"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/agenticjob"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/episode"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 	"github.com/stretchr/testify/mock"
@@ -51,7 +52,7 @@ func asProjectDesignError(t *testing.T, err error) *fwmanager.Error {
 // ---- RequestArtifactDraft ---------------------------------------------------
 
 func Test_RequestArtifactDraft_EmptyProjectID(t *testing.T) {
-	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.RequestArtifactDraft(fwmanager.Context{Context: context.Background()}, ProjectID(""), KindPlanningAssumptions, nil)
 	if got := asProjectDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %d", got)
@@ -59,7 +60,7 @@ func Test_RequestArtifactDraft_EmptyProjectID(t *testing.T) {
 }
 
 func Test_RequestArtifactDraft_Phase1Kind_FailedPrecondition(t *testing.T) {
-	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	// A Phase-1 kind is a Client bug for the Phase-2 Manager.
 	_, err := m.RequestArtifactDraft(fwmanager.Context{Context: context.Background()}, ProjectID(uuid.NewString()), KindMission, nil)
 	if got := asProjectDesignError(t, err).Kind; got != fwmanager.FailedPrecondition {
@@ -68,7 +69,7 @@ func Test_RequestArtifactDraft_Phase1Kind_FailedPrecondition(t *testing.T) {
 }
 
 func Test_RequestArtifactDraft_SdpReviewKind_FailedPrecondition(t *testing.T) {
-	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	// The SDP review is assembled, not co-authored.
 	_, err := m.RequestArtifactDraft(fwmanager.Context{Context: context.Background()}, ProjectID(uuid.NewString()), KindSdpReview, nil)
 	if got := asProjectDesignError(t, err).Kind; got != fwmanager.FailedPrecondition {
@@ -262,7 +263,7 @@ func Test_RequestArtifactDraft_Phase2PredecessorUncommitted_FailedPrecondition(t
 	pid := ProjectID(uuid.NewString())
 	// activityList requested while its predecessor planningAssumptions is uncommitted.
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid)}}
-	m := NewProjectDesignManager(nil, ps, nil, nil, nil, nil, nil, nil, nil)
+	m := NewProjectDesignManager(nil, ps, nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.RequestArtifactDraft(fwmanager.Context{Context: context.Background()}, pid, KindActivityList, nil)
 	pde := asProjectDesignError(t, err)
 	if pde.Kind != fwmanager.FailedPrecondition {
@@ -277,7 +278,7 @@ func Test_RequestArtifactDraft_Phase2PredecessorUncommitted_FailedPrecondition(t
 func Test_RequestArtifactDraft_NoProjectRow_FailedPrecondition(t *testing.T) {
 	pid := ProjectID(uuid.NewString())
 	ps := &fakeProjectState{notFound: true}
-	m := NewProjectDesignManager(nil, ps, nil, nil, nil, nil, nil, nil, nil)
+	m := NewProjectDesignManager(nil, ps, nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.RequestArtifactDraft(fwmanager.Context{Context: context.Background()}, pid, KindActivityList, nil)
 	if got := asProjectDesignError(t, err).Kind; got != fwmanager.FailedPrecondition {
 		t.Fatalf("want FailedPrecondition for missing project row, got %d", got)
@@ -288,7 +289,7 @@ func Test_RequestArtifactDraft_NoProjectRow_FailedPrecondition(t *testing.T) {
 // without any head-state read (mirrors the SPA unlocking it without a sealed Phase 1),
 // so a nil projectState is safe.
 func Test_CheckPhase2Predecessor_FirstKind_NoRead(t *testing.T) {
-	m := newProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := newProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	if err := m.checkPhase2Predecessor(context.Background(), ProjectID(uuid.NewString()), KindPlanningAssumptions); err != nil {
 		t.Fatalf("planningAssumptions has no predecessor; gate must pass, got %v", err)
 	}
@@ -298,7 +299,7 @@ func Test_CheckPhase2Predecessor_FirstKind_NoRead(t *testing.T) {
 func Test_CheckPhase2Predecessor_Committed_Proceeds(t *testing.T) {
 	pid := ProjectID(uuid.NewString())
 	ps := &fakeProjectState{project: committedPhase2Project(pid, KindPlanningAssumptions)}
-	m := newProjectDesignManager(nil, ps, nil, nil, nil, nil, nil, nil, nil)
+	m := newProjectDesignManager(nil, ps, nil, nil, nil, nil, nil, nil, nil, nil)
 	if err := m.checkPhase2Predecessor(context.Background(), pid, KindActivityList); err != nil {
 		t.Fatalf("committed predecessor; gate must pass, got %v", err)
 	}
@@ -330,7 +331,7 @@ func Test_Phase2PredecessorKind(t *testing.T) {
 // ---- RequestSDPCommit -------------------------------------------------------
 
 func Test_RequestSDPCommit_EmptyProjectID(t *testing.T) {
-	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.RequestSDPCommit(fwmanager.Context{Context: context.Background()}, ProjectID(""))
 	if got := asProjectDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %d", got)
@@ -340,7 +341,7 @@ func Test_RequestSDPCommit_EmptyProjectID(t *testing.T) {
 // ---- SubmitSDPDecision ------------------------------------------------------
 
 func Test_SubmitSDPDecision_EmptyProjectID(t *testing.T) {
-	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	err := m.SubmitSDPDecision(fwmanager.Context{Context: context.Background()}, ProjectID(""), SDPCommit, nil, nil)
 	if got := asProjectDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %d", got)
@@ -348,7 +349,7 @@ func Test_SubmitSDPDecision_EmptyProjectID(t *testing.T) {
 }
 
 func Test_SubmitSDPDecision_CommitRequiresOptionID(t *testing.T) {
-	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	pid := ProjectID(uuid.NewString())
 
 	// nil optionId.
@@ -366,7 +367,7 @@ func Test_SubmitSDPDecision_CommitRequiresOptionID(t *testing.T) {
 }
 
 func Test_SubmitSDPDecision_RejectAllRequiresFeedback(t *testing.T) {
-	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	pid := ProjectID(uuid.NewString())
 
 	err := m.SubmitSDPDecision(fwmanager.Context{Context: context.Background()}, pid, SDPRejectAll, nil, nil)
@@ -381,7 +382,7 @@ func Test_SubmitSDPDecision_RejectAllRequiresFeedback(t *testing.T) {
 }
 
 func Test_SubmitSDPDecision_UnknownDecision(t *testing.T) {
-	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	err := m.SubmitSDPDecision(fwmanager.Context{Context: context.Background()}, ProjectID(uuid.NewString()), SDPDecisionUnknown, nil, nil)
 	if got := asProjectDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse for unknown decision, got %d", got)
@@ -391,7 +392,7 @@ func Test_SubmitSDPDecision_UnknownDecision(t *testing.T) {
 // ---- SubmitReviewDecision (per-artifact OQ-3 gate) --------------------------
 
 func Test_SubmitReviewDecision_EmptyProjectID(t *testing.T) {
-	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	err := m.SubmitReviewDecision(fwmanager.Context{Context: context.Background()}, ProjectID(""), KindPlanningAssumptions, ReviewApprove, nil)
 	if got := asProjectDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %d", got)
@@ -399,7 +400,7 @@ func Test_SubmitReviewDecision_EmptyProjectID(t *testing.T) {
 }
 
 func Test_SubmitReviewDecision_RejectRequiresFeedback(t *testing.T) {
-	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	pid := ProjectID(uuid.NewString())
 	err := m.SubmitReviewDecision(fwmanager.Context{Context: context.Background()}, pid, KindActivityList, ReviewReject, nil)
 	if got := asProjectDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
@@ -413,7 +414,7 @@ func Test_SubmitReviewDecision_RejectRequiresFeedback(t *testing.T) {
 }
 
 func Test_SubmitReviewDecision_WrongPhaseKind(t *testing.T) {
-	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	// A Phase-1 kind is a Client bug for the Phase-2 Manager.
 	err := m.SubmitReviewDecision(fwmanager.Context{Context: context.Background()}, ProjectID(uuid.NewString()), KindMission, ReviewApprove, nil)
 	if got := asProjectDesignError(t, err).Kind; got != fwmanager.FailedPrecondition {
@@ -422,7 +423,7 @@ func Test_SubmitReviewDecision_WrongPhaseKind(t *testing.T) {
 }
 
 func Test_SubmitReviewDecision_SdpReviewKind_FailedPrecondition(t *testing.T) {
-	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	// The SDP review is not gated via the per-artifact reviewDecision signal.
 	err := m.SubmitReviewDecision(fwmanager.Context{Context: context.Background()}, ProjectID(uuid.NewString()), KindSdpReview, ReviewApprove, nil)
 	if got := asProjectDesignError(t, err).Kind; got != fwmanager.FailedPrecondition {
@@ -431,7 +432,7 @@ func Test_SubmitReviewDecision_SdpReviewKind_FailedPrecondition(t *testing.T) {
 }
 
 func Test_SubmitReviewDecision_UnknownDecision(t *testing.T) {
-	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	err := m.SubmitReviewDecision(fwmanager.Context{Context: context.Background()}, ProjectID(uuid.NewString()), KindNetwork, ReviewDecisionUnknown, nil)
 	if got := asProjectDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse for unknown decision, got %d", got)
@@ -441,7 +442,7 @@ func Test_SubmitReviewDecision_UnknownDecision(t *testing.T) {
 // ---- AdvanceToConstruction --------------------------------------------------
 
 func Test_AdvanceToConstruction_EmptyProjectID(t *testing.T) {
-	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.AdvanceToConstruction(fwmanager.Context{Context: context.Background()}, ProjectID(""), false)
 	if got := asProjectDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %d", got)
@@ -456,7 +457,7 @@ func Test_AdvanceToConstruction_StaleSlot_FailedPreconditionNamingSlot(t *testin
 	proj := committedPhase2Project(pid, KindPlanningAssumptions, KindActivityList, KindNetwork)
 	proj.Network.StaleBasis = true
 	ps := &fakeProjectState{project: proj}
-	m := NewProjectDesignManager(nil, ps, nil, nil, nil, nil, nil, nil, nil)
+	m := NewProjectDesignManager(nil, ps, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	_, err := m.AdvanceToConstruction(fwmanager.Context{Context: context.Background()}, pid, false)
 	pde := asProjectDesignError(t, err)
@@ -507,7 +508,7 @@ func Test_AdvanceToConstruction_NoStaleSlot_ProceedsUnchanged(t *testing.T) {
 // ---- GetSessionState --------------------------------------------------------
 
 func Test_GetSessionState_EmptyProjectID(t *testing.T) {
-	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.GetSessionState(fwmanager.Context{Context: context.Background()}, ProjectID(""), KindPlanningAssumptions)
 	if got := asProjectDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %d", got)
@@ -561,7 +562,7 @@ func Test_RequestArtifactDraft_DeliversFeedbackViaRedraftSignal(t *testing.T) {
 	// index 0 (a normal/retry draft, not an amendment). The point under test is DELIVERY.
 	ps := &fakeProjectState{notFound: true}
 	fc := &recordingStartClient{}
-	m := newProjectDesignManager(fc, ps, nil, nil, nil, nil, nil, nil, nil)
+	m := newProjectDesignManager(fc, ps, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	const notes = "resources must be plain strings, not objects"
 	if _, err := m.RequestArtifactDraft(fwmanager.Context{Context: context.Background()}, pid, KindPlanningAssumptions, &ReviewFeedback{Notes: notes}); err != nil {
@@ -841,6 +842,14 @@ type fakePipeline struct {
 	// onObserve, when set, is invoked on each observe (used to snapshot/mutate state
 	// mid-flight — the ONLY moment a dispatch is genuinely in flight; systemdesign twin).
 	onObserve func()
+	// runURL, when set, rides EVERY observation and marks the REMOTE (GitHub-Actions)
+	// venue — the only venue signal the capture seam can see.
+	runURL string
+	// episodes is the SP1 capture-seam script: one entry per observe call, consumed in
+	// order; once exhausted the LAST entry repeats. nil entries mirror an observation
+	// with no mined summary. An empty script means "never any episode".
+	episodes []*agenticjob.EpisodeSummary
+	observes int
 }
 
 type submitRecord struct {
@@ -913,7 +922,26 @@ func (p *fakePipeline) ObserveAgenticJob(_ fwra.Context, handle agenticjob.Pipel
 	if phase == pipelineFailed || phase == pipelineCancelled {
 		obs.Diagnostic = diag
 	}
+	obs.RunURL = p.runURL
+	obs.Episode = p.nextEpisode()
 	return obs, nil
+}
+
+// nextEpisode serves the SP1 capture-seam script: entry N for observe N, the last entry
+// repeating once the script is exhausted (mirroring the real RA, whose mined summary is
+// stable once it lands).
+func (p *fakePipeline) nextEpisode() *agenticjob.EpisodeSummary {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if len(p.episodes) == 0 {
+		return nil
+	}
+	i := p.observes
+	p.observes++
+	if i >= len(p.episodes) {
+		i = len(p.episodes) - 1
+	}
+	return p.episodes[i]
 }
 
 // CancelAgenticJob satisfies the contract; the Phase-2 draft path never cancels.
@@ -1059,12 +1087,66 @@ func newWorkflows() *workflows {
 // test's fake (e.g. gitrail_test.go's seqProjectState / ledgerThreadFake) simply
 // OVERRIDES the verbs it wants branch/ledger-aware behavior for — no separate
 // registration or capability opt-in needed.
-func registerGenActivities(env *testsuite.TestWorkflowEnvironment, ps projectstate.ProjectStateAccess, pipe *fakePipeline, rail sourcecontrol.SourceControlAccess) {
+// fakeEpisodes is the episodeAccess test double: it RECORDS every appended record and
+// counts every attempt, so a test can assert both what was written and how many times the
+// append was retried. failAlways fails every attempt (the ledger-is-down case).
+type fakeEpisodes struct {
+	mu         sync.Mutex
+	appended   []episode.EpisodeRecord
+	attempts   int
+	failAlways bool
+}
+
+func (f *fakeEpisodes) AppendEpisode(_ fwra.Context, _ episode.ProjectID, record episode.EpisodeRecord) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.attempts++
+	if f.failAlways {
+		return fwra.New(fwra.Infrastructure, "episode ledger unavailable")
+	}
+	f.appended = append(f.appended, record)
+	return nil
+}
+
+func (f *fakeEpisodes) ListEpisodes(fwra.Context, episode.EpisodeQuery) ([]episode.EpisodeRecord, error) {
+	return nil, nil
+}
+
+func (f *fakeEpisodes) ReadTraceEvents(fwra.Context, episode.ProjectID, string) ([]json.RawMessage, error) {
+	return nil, nil
+}
+
+func (f *fakeEpisodes) records() []episode.EpisodeRecord {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]episode.EpisodeRecord(nil), f.appended...)
+}
+
+func (f *fakeEpisodes) attemptCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.attempts
+}
+
+var _ episode.EpisodeAccess = (*fakeEpisodes)(nil)
+
+// registerGenActivities registers the generated Activity surface. eps is variadic purely
+// so the existing register* call sites stay untouched: a test that cares about the
+// episode capture seam passes its recorder, every other test gets a silent one. The
+// production Worker registers episodeAccess.appendEpisode for every design execution, so
+// the test env must too — otherwise the capture seam's append would fail as UNREGISTERED
+// on every workflow test and burn its whole (virtual-time) retry envelope doing it.
+func registerGenActivities(env *testsuite.TestWorkflowEnvironment, ps projectstate.ProjectStateAccess, pipe *fakePipeline, rail sourcecontrol.SourceControlAccess, eps ...*fakeEpisodes) {
 	var pipeAcc agenticjob.AgenticJobAccess
 	if pipe != nil {
 		pipeAcc = pipe
 	}
-	acts := &genActivities{ProjectState: ps, Pipeline: pipeAcc, Rail: rail, DesignSession: projectstate.NewDesignSessionAccess(ps)}
+	var episodes episode.EpisodeAccess = &fakeEpisodes{}
+	if len(eps) > 0 && eps[0] != nil {
+		episodes = eps[0]
+	}
+	acts := &genActivities{ProjectState: ps, Pipeline: pipeAcc, Rail: rail, DesignSession: projectstate.NewDesignSessionAccess(ps), Episodes: episodes}
+	env.RegisterActivityWithOptions(acts.EpisodesAppendEpisode, activity.RegisterOptions{Name: "episodeAccess.appendEpisode"})
 	env.RegisterActivityWithOptions(acts.ProjectStateReadProjectVersion, activity.RegisterOptions{Name: "projectStateAccess.readProjectVersion"})
 	env.RegisterActivityWithOptions(acts.ProjectStateAdvancePhase, activity.RegisterOptions{Name: "projectStateAccess.advancePhase"})
 	env.RegisterActivityWithOptions(acts.PipelineSubmitAgenticJob, activity.RegisterOptions{Name: "agenticJobAccess.submitAgenticJob"})
@@ -1096,9 +1178,9 @@ func registerName(name string) workflow.RegisterOptions {
 // Activity is generated (registerGenActivities); ps is the fake substrate the generated
 // projectState/designSession activities are backed by (threaded explicitly — the
 // workflows struct no longer carries an RA dep).
-func registerCoAuthor(env *testsuite.TestWorkflowEnvironment, wf *workflows, ps projectstate.ProjectStateAccess, pipe *fakePipeline) {
+func registerCoAuthor(env *testsuite.TestWorkflowEnvironment, wf *workflows, ps projectstate.ProjectStateAccess, pipe *fakePipeline, eps ...*fakeEpisodes) {
 	env.RegisterWorkflowWithOptions(wf.CoAuthorPhase2ArtifactWorkflow, registerName(executionKindCoAuthor))
-	registerGenActivities(env, ps, pipe, nil)
+	registerGenActivities(env, ps, pipe, nil, eps...)
 }
 
 // ---- Pure unit test of the deterministic assembly + engine-join helper ------
@@ -4184,7 +4266,7 @@ func Test_checkReviewPrecondition_Matrix(t *testing.T) {
 
 func Test_SubmitReviewDecision_Approve_WhileDrafting_FailsWithoutSignal(t *testing.T) {
 	fc := &fakeQueryClient{stage: StageDrafting}
-	m := newProjectDesignManager(fc, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := newProjectDesignManager(fc, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	err := m.SubmitReviewDecision(fwmanager.Context{Context: context.Background()}, ProjectID(uuid.NewString()), KindActivityList, ReviewApprove, nil)
 	if got := asProjectDesignError(t, err).Kind; got != fwmanager.FailedPrecondition {
 		t.Fatalf("approve while drafting must FailedPrecondition, got %d", got)
@@ -4196,7 +4278,7 @@ func Test_SubmitReviewDecision_Approve_WhileDrafting_FailsWithoutSignal(t *testi
 
 func Test_SubmitReviewDecision_Approve_AtAwaitingReview_Signals(t *testing.T) {
 	fc := &fakeQueryClient{stage: StageAwaitingReview}
-	m := newProjectDesignManager(fc, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := newProjectDesignManager(fc, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	if err := m.SubmitReviewDecision(fwmanager.Context{Context: context.Background()}, ProjectID(uuid.NewString()), KindActivityList, ReviewApprove, nil); err != nil {
 		t.Fatalf("approve at AwaitingReview must succeed, got %v", err)
 	}
@@ -4209,7 +4291,7 @@ func Test_SubmitReviewDecision_Approve_AtAwaitingReview_Signals(t *testing.T) {
 
 func Test_GetSessionState_BeforePhase2_CleanNotFound(t *testing.T) {
 	fc := &fakeQueryClient{queryErr: serviceerror.NewNotFound("workflow not found for ID: gtdapp:8")}
-	m := newProjectDesignManager(fc, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := newProjectDesignManager(fc, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.GetSessionState(fwmanager.Context{Context: context.Background()}, ProjectID("gtdapp"), KindPlanningAssumptions)
 	e := asProjectDesignError(t, err)
 	if e.Kind != fwmanager.NotFound {
@@ -4286,5 +4368,293 @@ func TestWithStageName_StampsLabel(t *testing.T) {
 	}
 	if v.Stage != StageAwaitingReview {
 		t.Fatalf("withStageName must not alter the Stage int, got %d", int(v.Stage))
+	}
+}
+
+// ---- Tests: episode capture seam (SP1 Task 7) -------------------------------
+//
+// The invariant under test: every terminal observation of a Phase-2 design dispatch
+// produces EXACTLY ONE ledger record, and the append can never take the co-author
+// session down with it. Omitting this choke point would silently lose every Phase-2
+// drafting episode.
+
+// captureSeamSummary is the mined summary the local executor reports on a terminal
+// observation.
+func captureSeamSummary(id string) *agenticjob.EpisodeSummary {
+	model := "claude-sonnet-4"
+	cost := 0.42
+	turns := int64(7)
+	return &agenticjob.EpisodeSummary{
+		EpisodeID:      id,
+		Model:          &model,
+		Usage:          agenticjob.EpisodeUsage{In: 100, Out: 50, CacheRead: 10, CacheCreate: 3},
+		CostUSD:        &cost,
+		NumTurns:       &turns,
+		ToolCallCounts: map[string]int64{"Read": 4},
+		StartedAt:      time.Date(2026, 8, 2, 10, 0, 0, 0, time.UTC),
+		EndedAt:        time.Date(2026, 8, 2, 10, 5, 0, 0, time.UTC),
+		Outcome:        agenticjob.EpisodeSucceeded,
+	}
+}
+
+// A Phase-2 draft's terminal observation becomes exactly one EpisodeKindDesign record,
+// with the summary copied verbatim and the Manager-known TargetRef/Lineage stamped on.
+func Test_CoAuthor_TerminalObservation_PersistsDesignEpisode(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	ps := &fakeProjectState{project: planningAssumptionsReadBack(projectstate.ProjectID(id))}
+	pipe := newFakePipeline()
+	pipe.episodes = []*agenticjob.EpisodeSummary{captureSeamSummary("ep-plan-draft")}
+	eps := &fakeEpisodes{}
+	wf := newWorkflows()
+	registerCoAuthor(env, wf, ps, pipe, eps)
+
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 30*time.Second)
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindPlanningAssumptions})
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+
+	got := eps.records()
+	if len(got) != 1 {
+		t.Fatalf("the Phase-2 draft must append exactly one record, got %d: %+v", len(got), got)
+	}
+	rec := got[0]
+	if rec.EpisodeID != "ep-plan-draft" || rec.Kind != episode.EpisodeKindDesign {
+		t.Errorf("want the mined draft episode as a design episode, got id=%q kind=%d", rec.EpisodeID, rec.Kind)
+	}
+	if rec.TargetRef != artifactKindString(KindPlanningAssumptions) {
+		t.Errorf("TargetRef = %q, want the artifact kind", rec.TargetRef)
+	}
+	if rec.Lineage == nil || rec.Lineage.WorkflowID == "" || rec.Lineage.RunID == "" {
+		t.Fatalf("must carry the durable execution lineage, got %+v", rec.Lineage)
+	}
+	if rec.Usage != (episode.EpisodeUsage{In: 100, Out: 50, CacheRead: 10, CacheCreate: 3}) {
+		t.Errorf("Usage = %+v, want the mined usage verbatim", rec.Usage)
+	}
+	if rec.Outcome != episode.EpisodeSucceeded || rec.GapReason != nil {
+		t.Errorf("want a clean success, got outcome=%d gap=%v", rec.Outcome, rec.GapReason)
+	}
+}
+
+// A REJECT loops to a fresh dispatch — that second round is REWORK, and the ledger must
+// say so. Telling a first draft from a rework round is exactly what the ledger is for.
+func Test_CoAuthor_RedraftAfterReject_IsRecordedAsRework(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	ps := &fakeProjectState{project: planningAssumptionsReadBack(projectstate.ProjectID(id))}
+	pipe := newFakePipeline()
+	pipe.episodes = []*agenticjob.EpisodeSummary{captureSeamSummary("ep-draft-1"), captureSeamSummary("ep-draft-2")}
+	eps := &fakeEpisodes{}
+	wf := newWorkflows()
+	registerCoAuthor(env, wf, ps, pipe, eps)
+
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewReject, Feedback: &ReviewFeedback{Notes: "rework the staffing assumptions"}})
+	}, 30*time.Second)
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
+	}, 70*time.Second)
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindPlanningAssumptions})
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+
+	got := eps.records()
+	if len(got) < 2 {
+		t.Fatalf("a reject re-dispatches, so want >=2 records, got %d", len(got))
+	}
+	if got[0].Kind != episode.EpisodeKindDesign {
+		t.Errorf("the FIRST draft is a design episode, got kind=%d", got[0].Kind)
+	}
+	if got[1].Kind != episode.EpisodeKindRework {
+		t.Errorf("the redraft after a reject is a REWORK episode, got kind=%d", got[1].Kind)
+	}
+}
+
+// A terminal LOCAL-venue observation with NO summary must still be recorded, as an
+// explicit gap. A missing record is never silently missing.
+func Test_CoAuthor_MissingSummary_PersistsGapRecord(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	ps := &fakeProjectState{project: planningAssumptionsReadBack(projectstate.ProjectID(id))}
+	pipe := newFakePipeline() // no episode script, no run URL ⇒ local venue, nothing mined
+	eps := &fakeEpisodes{}
+	wf := newWorkflows()
+	registerCoAuthor(env, wf, ps, pipe, eps)
+
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 30*time.Second)
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindPlanningAssumptions})
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+
+	got := eps.records()
+	if len(got) != 1 {
+		t.Fatalf("a summary-less terminal observation must still be recorded, got %d", len(got))
+	}
+	if got[0].Outcome != episode.EpisodeGap {
+		t.Errorf("Outcome = %d, want EpisodeGap", got[0].Outcome)
+	}
+	if got[0].GapReason == nil || !strings.Contains(*got[0].GapReason, "no episode summary") {
+		t.Errorf("GapReason must name the missing summary, got %v", got[0].GapReason)
+	}
+	if got[0].EpisodeID == "" || strings.ContainsAny(got[0].EpisodeID, ":/ ") {
+		t.Errorf("a synthesized gap id must be non-empty and store-safe, got %q", got[0].EpisodeID)
+	}
+}
+
+// A REMOTE-venue (GitHub-Actions) run mines no episode in v1, so a nil summary there is
+// expected rather than lost: it must NOT produce a gap record.
+func Test_CoAuthor_RemoteVenue_WritesNoGapRecord(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	ps := &fakeProjectState{project: planningAssumptionsReadBack(projectstate.ProjectID(id))}
+	pipe := newFakePipeline()
+	pipe.runURL = "https://github.com/acme/widgets/actions/runs/123"
+	eps := &fakeEpisodes{}
+	wf := newWorkflows()
+	registerCoAuthor(env, wf, ps, pipe, eps)
+
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 30*time.Second)
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindPlanningAssumptions})
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	if got := eps.records(); len(got) != 0 {
+		t.Fatalf("the remote venue mines no episode in v1 — it must write nothing, got %+v", got)
+	}
+}
+
+// A permanently-failing ledger must NOT take the Phase-2 session down.
+func Test_CoAuthor_EpisodeAppendFailure_DoesNotFailBusinessFlow(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	ps := &fakeProjectState{project: planningAssumptionsReadBack(projectstate.ProjectID(id))}
+	pipe := newFakePipeline()
+	pipe.episodes = []*agenticjob.EpisodeSummary{captureSeamSummary("ep-1")}
+	eps := &fakeEpisodes{failAlways: true}
+	wf := newWorkflows()
+	registerCoAuthor(env, wf, ps, pipe, eps)
+
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 30*time.Minute)
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindPlanningAssumptions})
+
+	if !env.IsWorkflowCompleted() {
+		t.Fatal("a failing episode ledger must not stall the Phase-2 session")
+	}
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a failing episode ledger must not fail the Phase-2 session, got %v", err)
+	}
+	if len(ps.staged) != 1 {
+		t.Fatalf("business flow must still stage its read-back draft, got %d", len(ps.staged))
+	}
+	if eps.attemptCount() <= len(pipe.submits) {
+		t.Fatalf("want the append retried within its envelope, got %d attempts across %d dispatches",
+			eps.attemptCount(), len(pipe.submits))
+	}
+	if len(eps.records()) != 0 {
+		t.Fatalf("nothing can land in a permanently-failing ledger, got %+v", eps.records())
+	}
+}
+
+// ---- Tests: the ANSWER-job episode watch (manager-side, non-durable) --------
+
+// watchTestLogger is a quiet logger for the watch's error path.
+func watchTestLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))
+}
+
+// watchPipeline serves a scripted observation sequence to the answer-job watch: entry N
+// for observe N, the last entry repeating.
+type watchPipeline struct {
+	mu       sync.Mutex
+	script   []agenticjob.PipelineObservation
+	observes int
+}
+
+func (w *watchPipeline) SubmitAgenticJob(fwra.Context, agenticjob.PipelineSpec) (agenticjob.PipelineHandle, error) {
+	return agenticjob.PipelineHandle("local:answer-1"), nil
+}
+
+func (w *watchPipeline) ObserveAgenticJob(fwra.Context, agenticjob.PipelineHandle) (agenticjob.PipelineObservation, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	i := w.observes
+	w.observes++
+	if i >= len(w.script) {
+		i = len(w.script) - 1
+	}
+	return w.script[i], nil
+}
+
+func (w *watchPipeline) CancelAgenticJob(fwra.Context, agenticjob.PipelineHandle) error { return nil }
+
+var _ agenticjob.AgenticJobAccess = (*watchPipeline)(nil)
+
+// The answer job is dispatched fire-and-forget with nothing observing it; the watch is
+// what stops its episode from being invisible. A terminal observation carrying a summary
+// becomes exactly one EpisodeKindAnswer record with NO lineage.
+func Test_AnswerEpisodeWatch_PersistsAnswerEpisode(t *testing.T) {
+	pipe := &watchPipeline{script: []agenticjob.PipelineObservation{
+		{Phase: agenticjob.PhaseRunning},
+		{Phase: agenticjob.PhaseSucceeded, Episode: captureSeamSummary("ep-answer")},
+	}}
+	eps := &fakeEpisodes{}
+	w := answerEpisodeWatch{pipeline: pipe, episodes: eps, poll: time.Millisecond, window: 5 * time.Second, log: watchTestLogger()}
+
+	w.run(context.Background(), "proj-1", artifactKindString(KindPlanningAssumptions), "local:answer-1")
+
+	got := eps.records()
+	if len(got) != 1 {
+		t.Fatalf("want exactly one answer-episode record, got %d", len(got))
+	}
+	if got[0].EpisodeID != "ep-answer" || got[0].Kind != episode.EpisodeKindAnswer {
+		t.Fatalf("want the mined answer episode, got id=%q kind=%d", got[0].EpisodeID, got[0].Kind)
+	}
+	if got[0].TargetRef != artifactKindString(KindPlanningAssumptions) {
+		t.Errorf("TargetRef = %q, want the artifact kind", got[0].TargetRef)
+	}
+	if got[0].Lineage != nil {
+		t.Errorf("an answer job has no durable execution behind it — Lineage must be nil, got %+v", got[0].Lineage)
+	}
+}
+
+// A job that never terminates inside the watch window is recorded as an explicit gap,
+// never left silent and never watched forever by a leaked goroutine.
+func Test_AnswerEpisodeWatch_DeadlineRecordsGap(t *testing.T) {
+	pipe := &watchPipeline{script: []agenticjob.PipelineObservation{{Phase: agenticjob.PhaseRunning}}}
+	eps := &fakeEpisodes{}
+	w := answerEpisodeWatch{pipeline: pipe, episodes: eps, poll: time.Millisecond, window: 20 * time.Millisecond, log: watchTestLogger()}
+
+	w.run(context.Background(), "proj-1", artifactKindString(KindPlanningAssumptions), "local:answer-1")
+
+	got := eps.records()
+	if len(got) != 1 {
+		t.Fatalf("a watch that timed out still owes the ledger a gap, got %d records", len(got))
+	}
+	if got[0].Outcome != episode.EpisodeGap {
+		t.Fatalf("Outcome = %d, want EpisodeGap", got[0].Outcome)
+	}
+	if got[0].GapReason == nil || !strings.Contains(*got[0].GapReason, "watch window") {
+		t.Fatalf("GapReason must name the watch window, got %v", got[0].GapReason)
 	}
 }

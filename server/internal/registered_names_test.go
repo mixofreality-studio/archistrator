@@ -130,6 +130,15 @@ var registeredTemporalNamesGolden = []string{
 	"designSessionAccess.withdrawArtifactOnBranch",
 	"designSessionAccess.withdrawArtifactOnBranch",
 	"designSessionAccess.withdrawArtifactOnBranch",
+	"episodeAccess.appendEpisode",
+	"episodeAccess.appendEpisode",
+	"episodeAccess.appendEpisode",
+	"episodeAccess.listEpisodes",
+	"episodeAccess.listEpisodes",
+	"episodeAccess.listEpisodes",
+	"episodeAccess.readTraceEvents",
+	"episodeAccess.readTraceEvents",
+	"episodeAccess.readTraceEvents",
 	"gitActivityStatusAccess.recordActivityArchApproved",
 	"gitActivityStatusAccess.recordActivityBranchOpened",
 	"gitActivityStatusAccess.recordActivityCIObserved",
@@ -252,16 +261,16 @@ func mustRegisteredNames(t *testing.T) []string {
 	billingMgr := billing.NewBillingManager(nil, nil, nil, nil, nil, nil, nil, nil)
 	billing.RegisterManagerWorker(&reg, billingMgr)
 
-	constructionMgr := construction.NewConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
+	constructionMgr := construction.NewConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
 	construction.RegisterManagerWorker(&reg, constructionMgr)
 
 	operationsMgr := operations.NewOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	operations.RegisterManagerWorker(&reg, operationsMgr)
 
-	projectDesignMgr := projectdesign.NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	projectDesignMgr := projectdesign.NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	projectdesign.RegisterManagerWorker(&reg, projectDesignMgr)
 
-	systemDesignMgr := systemdesign.NewSystemDesignManager(nil, nil, nil, nil, nil, nil, nil, "")
+	systemDesignMgr := systemdesign.NewSystemDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, "")
 	systemdesign.RegisterManagerWorker(&reg, systemDesignMgr)
 
 	all := append([]string{}, reg.workflows...)

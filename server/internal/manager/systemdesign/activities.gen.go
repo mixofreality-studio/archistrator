@@ -4,6 +4,7 @@ package systemdesign
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"go.temporal.io/sdk/activity"
@@ -12,6 +13,7 @@ import (
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/agenticjob"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/episode"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 )
@@ -25,6 +27,7 @@ type genActivities struct {
 	Pipeline      agenticjob.AgenticJobAccess
 	Rail          sourcecontrol.SourceControlAccess
 	DesignSession projectstate.DesignSessionAccess
+	Episodes      episode.EpisodeAccess
 }
 
 // genActivityIdempotencyKey derives the run-scoped 3-part key
@@ -250,5 +253,26 @@ func (a *genActivities) DesignSessionStageArtifactForReviewOnBranch(ctx context.
 // Registered as "designSessionAccess.withdrawArtifactOnBranch".
 func (a *genActivities) DesignSessionWithdrawArtifactOnBranch(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string) (projectstate.Version, error) {
 	v, err := a.DesignSession.WithdrawArtifactOnBranch(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, branch, kind, notes, genActivityIdempotencyKey(ctx))
+	return v, fwmanager.MapError(err)
+}
+
+// EpisodesAppendEpisode wraps episodeAccess.appendEpisode.
+// Registered as "episodeAccess.appendEpisode".
+func (a *genActivities) EpisodesAppendEpisode(ctx context.Context, projectID episode.ProjectID, record episode.EpisodeRecord) error {
+	err := a.Episodes.AppendEpisode(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, record)
+	return fwmanager.MapError(err)
+}
+
+// EpisodesListEpisodes wraps episodeAccess.listEpisodes.
+// Registered as "episodeAccess.listEpisodes".
+func (a *genActivities) EpisodesListEpisodes(ctx context.Context, query episode.EpisodeQuery) ([]episode.EpisodeRecord, error) {
+	v, err := a.Episodes.ListEpisodes(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, query)
+	return v, fwmanager.MapError(err)
+}
+
+// EpisodesReadTraceEvents wraps episodeAccess.readTraceEvents.
+// Registered as "episodeAccess.readTraceEvents".
+func (a *genActivities) EpisodesReadTraceEvents(ctx context.Context, projectID episode.ProjectID, episodeID string) ([]json.RawMessage, error) {
+	v, err := a.Episodes.ReadTraceEvents(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, episodeID)
 	return v, fwmanager.MapError(err)
 }

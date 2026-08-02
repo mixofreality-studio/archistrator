@@ -40,6 +40,7 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/agenticjob"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/billingstate"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/episode"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/merchantgateway"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedruntime"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedsystemstate"
@@ -203,6 +204,12 @@ type Hooks interface {
 	// composition policy needs to swap or wrap it (e.g. a construction
 	// dry-run stub swap-in) — the identity implementation is always correct.
 	FinalizeDesignSessionAccess(cfg *Config, v projectstate.DesignSessionAccess) projectstate.DesignSessionAccess
+
+	// FinalizeEpisodeAccess is called immediately after episodeAccess's construction
+	// (presence required). Return v unchanged unless
+	// composition policy needs to swap or wrap it (e.g. a construction
+	// dry-run stub swap-in) — the identity implementation is always correct.
+	FinalizeEpisodeAccess(cfg *Config, v episode.EpisodeAccess) episode.EpisodeAccess
 
 	// FinalizeGitActivityStatusAccess is called immediately after gitActivityStatusAccess's construction
 	// (presence required). Return v unchanged unless
@@ -442,6 +449,18 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 		return errors.New("designSessionAccess: no ResourceAccess variant for the active profile")
 	}
 	designSessionAccess = hooks.FinalizeDesignSessionAccess(cfg, designSessionAccess)
+	var episodeAccess episode.EpisodeAccess
+	switch profile {
+	case "cloud":
+		episodeAccess = episode.NewNoOpEpisodeAccess()
+		logger.Info("episodeAccess (NoOp) ready")
+	case "local":
+		episodeAccess = episode.NewLocalFSEpisodeAccess()
+		logger.Info("episodeAccess (LocalFS) ready")
+	default:
+		return errors.New("episodeAccess: no ResourceAccess variant for the active profile")
+	}
+	episodeAccess = hooks.FinalizeEpisodeAccess(cfg, episodeAccess)
 	var gitActivityStatusAccess projectstate.GitActivityStatusAccess
 	switch profile {
 	case "cloud":
@@ -572,7 +591,7 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 		return err
 	}
 	logger.Info("billingManager Temporal Schedules registered")
-	constructionManager := construction.NewConstructionManager(tc, projectStateAccess, artifactAccess, interventionEngine, reviewEngine, agenticJobAccess, sourceControlAccess, constructionTransitionAccess, gitActivityStatusAccess, designSessionAccess, messageBus, hooks.ConstructionManagerEscalationWaitTimeout(), hooks.ConstructionManagerInterventionMode(), hooks.ConstructionManagerRepo())
+	constructionManager := construction.NewConstructionManager(tc, projectStateAccess, artifactAccess, interventionEngine, reviewEngine, agenticJobAccess, sourceControlAccess, constructionTransitionAccess, gitActivityStatusAccess, designSessionAccess, messageBus, episodeAccess, hooks.ConstructionManagerEscalationWaitTimeout(), hooks.ConstructionManagerInterventionMode(), hooks.ConstructionManagerRepo())
 	if hooks.RegisterConstructionManagerWorker(cfg) {
 		wConstructionManager := worker.New(tc, construction.TaskQueue, worker.Options{})
 		construction.RegisterManagerWorker(wConstructionManager, constructionManager)
@@ -604,7 +623,7 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 	} else {
 		logger.Warn("operationsManager Worker NOT registered — optional-dormant dependencies absent (RegisterOperationsManagerWorker gate returned false)")
 	}
-	projectDesignManager := projectdesign.NewProjectDesignManager(tc, projectStateAccess, agenticJobAccess, sourceControlAccess, estimationEngine, operationEstimationEngine, billingEngine, designSessionAccess, hooks.ProjectDesignManagerRepo())
+	projectDesignManager := projectdesign.NewProjectDesignManager(tc, projectStateAccess, agenticJobAccess, sourceControlAccess, estimationEngine, operationEstimationEngine, billingEngine, designSessionAccess, episodeAccess, hooks.ProjectDesignManagerRepo())
 	if hooks.RegisterProjectDesignManagerWorker(cfg) {
 		wProjectDesignManager := worker.New(tc, projectdesign.TaskQueue, worker.Options{})
 		projectdesign.RegisterManagerWorker(wProjectDesignManager, projectDesignManager)
@@ -616,7 +635,7 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 	} else {
 		logger.Warn("projectDesignManager Worker NOT registered — optional-dormant dependencies absent (RegisterProjectDesignManagerWorker gate returned false)")
 	}
-	systemDesignManager := systemdesign.NewSystemDesignManager(tc, projectStateAccess, agenticJobAccess, sourceControlAccess, hooks.SystemDesignManagerRepo(), estimationEngine, designSessionAccess, hooks.SystemDesignManagerRepoBase())
+	systemDesignManager := systemdesign.NewSystemDesignManager(tc, projectStateAccess, agenticJobAccess, sourceControlAccess, hooks.SystemDesignManagerRepo(), estimationEngine, designSessionAccess, episodeAccess, hooks.SystemDesignManagerRepoBase())
 	if hooks.RegisterSystemDesignManagerWorker(cfg) {
 		wSystemDesignManager := worker.New(tc, systemdesign.TaskQueue, worker.Options{})
 		systemdesign.RegisterManagerWorker(wSystemDesignManager, systemDesignManager)

@@ -76,6 +76,7 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/review"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/agenticjob"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/episode"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 	"github.com/mixofreality-studio/archistrator/server/internal/utility/messagebus"
@@ -139,6 +140,12 @@ type constructionManager struct {
 	// ReviewPolicy, envelope.go) that construction's former local codec carried, which
 	// is what retired the last custom Activity (ReadProjectActivity).
 	designSession projectstate.DesignSessionAccess
+
+	// episodes (SP1 capture-seam) is the generated episodeAccess dep — the agentic-
+	// episode ledger every terminal pipeline observation appends to. Reached ONLY
+	// through the generated invoker surface (Acts.EpisodesAppendEpisode) inside the
+	// workflows; this field exists to thread it into genActivities.
+	episodes episode.EpisodeAccess
 }
 
 // Compile-time proof the concrete constructionManager satisfies the generated port.
@@ -160,6 +167,7 @@ func newConstructionManager(
 	gitActivityStatus projectstate.GitActivityStatusAccess,
 	designSession projectstate.DesignSessionAccess,
 	messageBus messagebus.MessageBus,
+	episodes episode.EpisodeAccess,
 	escalationWaitTimeout time.Duration,
 	interventionMode string,
 	repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool),
@@ -176,6 +184,7 @@ func newConstructionManager(
 		gitActivityStatus:      gitActivityStatus,
 		designSession:          designSession,
 		messageBus:             messageBus,
+		episodes:               episodes,
 		escalationWaitTimeout:  escalationWaitTimeout,
 		interventionMode:       interventionMode,
 		repo:                   repo,
@@ -1128,6 +1137,30 @@ func recordActivityOptions() workflow.ActivityOptions {
 	}.Options()
 }
 
+// appendEpisodeRetryWindow is the HARD wall-clock bound on the episode-append's own
+// retry envelope. The append retries without an attempt cap inside it (bookkeeping the
+// ledger must not lose to a transient store fault), but it cannot retry FOREVER: the
+// workflow waits on it, so an unbounded envelope would let a permanently-broken ledger
+// wedge construction. Ten minutes is far past any real store fault and far short of any
+// business timeout.
+const appendEpisodeRetryWindow = 10 * time.Minute
+
+// appendEpisodeActivityOptions is the episode-append preset — DELIBERATELY its own
+// envelope, independent of every business preset (§capture-seam): a generous
+// per-attempt timeout, UNCAPPED attempts inside appendEpisodeRetryWindow (MaxAttempts
+// unset ⇒ Temporal treats it as unlimited), and ContractMisuse terminal (a malformed
+// record will never become well-formed by retrying — the caller logs it instead).
+// Built from the framework preset plus the ScheduleToCloseTimeout the preset cannot
+// express.
+func appendEpisodeActivityOptions() workflow.ActivityOptions {
+	o := fwm.ActivityPreset{
+		Timeout:    30 * time.Second,
+		TerminalRA: []fwra.Kind{fwra.ContractMisuse},
+	}.Options()
+	o.ScheduleToCloseTimeout = appendEpisodeRetryWindow
+	return o
+}
+
 // raConflictErrType is the canonical Temporal Type() a head-state mutation Activity
 // surfaces when expectedVersion is stale; the workflow recovers with the bounded
 // re-read→re-apply loop (§6.5).
@@ -1329,6 +1362,9 @@ func activityOptions() func(activityName string) (workflow.ActivityOptions, bool
 		"gitActivityStatusAccess.recordActivityMerged":       recordActivityOptions(),
 		"gitActivityStatusAccess.recordActivityStarted":      recordActivityOptions(),
 		"gitActivityStatusAccess.recordActivityCompleted":    recordActivityOptions(),
+		// SP1 capture-seam: the episode ledger append rides its OWN envelope, never a
+		// business one (see appendEpisodeActivityOptions).
+		"episodeAccess.appendEpisode": appendEpisodeActivityOptions(),
 	}
 	return func(name string) (workflow.ActivityOptions, bool) {
 		o, ok := presets[name]
@@ -1390,6 +1426,7 @@ func (m *constructionManager) WorkerManifest() genWorkerManifest {
 			Rail:                   m.rail,
 			ConstructionTransition: m.constructionTransition,
 			GitStatus:              m.gitActivityStatus,
+			Episodes:               m.episodes,
 			DesignSession:          m.designSession,
 			MessageBus:             m.messageBus,
 		},

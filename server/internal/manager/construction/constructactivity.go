@@ -15,6 +15,7 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/review"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/agenticjob"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/episode"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 )
@@ -34,6 +35,19 @@ type pipelineSpec struct {
 type pipelineObservation struct {
 	Phase      PipelinePhase
 	Diagnostic string
+	// RunURL is the dispatched run's URL when the bound agenticJobAccess realisation
+	// resolved one. It is carried for ONE reason here (construction has no run-link
+	// view): it is the only VENUE signal a workflow ever sees — the GitHub-Actions arm
+	// stamps the run's html URL on every observation, while the local executor and the
+	// dry-run stub never set it. See episodeVenueIsRemote.
+	RunURL string
+	// Episode is the terminal run's captured agentic-episode summary (SP1 capture-seam):
+	// the tokens/turns/tools the dispatched agent actually burned. Nil on every
+	// non-terminal observation, on the GitHub-Actions arm (which mines no episode in
+	// v1), on a non-agentic job (the local merge job spawns no agent), and — legitimately
+	// — on a CANCELLED run's FIRST terminal observation, whose summary lands only once
+	// the subprocess has unwound (see awaitLateEpisode).
+	Episode *agenticjob.EpisodeSummary
 }
 
 // pipelineDefaultToolchain is the single logical build step the Manager's neutral
@@ -146,7 +160,263 @@ func (wf *workflows) observePipeline(ctx workflow.Context, handle pipelineHandle
 	if err != nil {
 		return pipelineObservation{}, err
 	}
-	return pipelineObservation{Phase: managerPipelinePhase(obs.Phase), Diagnostic: obs.Diagnostic}, nil
+	return pipelineObservation{
+		Phase:      managerPipelinePhase(obs.Phase),
+		Diagnostic: obs.Diagnostic,
+		RunURL:     obs.RunURL,
+		Episode:    obs.Episode,
+	}, nil
+}
+
+// ---------------------------------------------------------------------------
+// Episode capture (SP1 capture-seam, Task 7)
+// ---------------------------------------------------------------------------
+//
+// EVERY terminal observation of an AGENTIC dispatch this Manager takes becomes
+// EXACTLY ONE EpisodeRecord in the episode ledger — either the mined summary or an
+// explicit GAP record. A missing record is never silently missing; the ledger is the
+// only place the platform can later answer "what did this activity actually cost".
+//
+// THREE disciplines hold here, and each has a reason:
+//
+//   - BUSINESS FIRST, EPISODE SECOND. The append is the LAST thing a terminal poll
+//     does: the in-loop business handling (the CI-rollup mirror, the phase stamp) has
+//     already run, and the append's own failure is swallowed. A ledger line claiming
+//     something happened when it did not is worse than a missing line.
+//   - THE APPEND NEVER FAILS THE BUSINESS FLOW. appendEpisodeActivityOptions gives it
+//     its own retry envelope, wholly independent of the business retries; when it is
+//     still failing at the end of that envelope the error is LOGGED and dropped.
+//     Construction must not fail because a bookkeeping write did.
+//   - VENUE. The GitHub-Actions arm mines no episode in v1, so a nil summary there is
+//     EXPECTED, not a gap — writing a gap record per GH run would fill the ledger with
+//     noise that means nothing. The only venue signal a workflow can see is the run URL
+//     (see pipelineObservation.RunURL), so that is what gates it.
+//
+// DETERMINISM: the append is a plain ExecuteActivity — a NEW command in an EXISTING
+// workflow body. In-flight executions must be DRAINED before deploying (the standing
+// convention; no GetVersion guard is carried — contrast pumpnextactivity.go:44, which
+// documents the pure-addition case that needs none).
+
+// maxLateEpisodePolls bounds the EXTRA observe polls a CANCELLED run is given before
+// its episode is written off as a gap. Cancel flips the RA's phase SYNCHRONOUSLY while
+// the agent subprocess is still unwinding, so a cancelled run's FIRST terminal
+// observation legitimately carries no summary — the production RA guarantees it appears
+// on a later poll. Four extra polls at lateEpisodePollInterval is the whole grace
+// window; past it the run is recorded as a gap rather than waited on forever.
+const maxLateEpisodePolls = 4
+
+// lateEpisodePollInterval spaces the late-episode grace polls. DELIBERATELY tighter than
+// the business poll interval: the wait is pure bookkeeping, but the workflow is blocked on
+// it, so a cancelled run would otherwise sit visibly "generating" for a further minute
+// before landing at its failure gate. Five seconds comfortably clears the executor's own
+// subprocess wait, and four of them cap the whole grace window at 20s.
+const lateEpisodePollInterval = 5 * time.Second
+
+// episodeVenueIsRemote reports whether this observation came from the REMOTE
+// (GitHub-Actions) venue, which mines no episode summary in v1. The run URL is the only
+// venue fact an observation carries: the Actions arm stamps it on every observation it
+// resolved, and neither the local executor nor the dry-run stub ever sets one. A GH run
+// whose URL the RA could not resolve therefore reads as local and earns a gap record —
+// deliberately the safe direction (a visible, labelled gap beats a silent loss).
+func episodeVenueIsRemote(runURL string) bool {
+	return runURL != ""
+}
+
+// awaitLateEpisode gives a CANCELLED run's episode summary a bounded chance to arrive
+// (see maxLateEpisodePolls). It returns the observation to RECORD: the later one that
+// carried a summary when it arrived, else the caller's original — which becomes a gap.
+// The business phase is taken from the ORIGINAL observation either way; this only ever
+// upgrades the episode payload.
+func (wf *workflows) awaitLateEpisode(ctx workflow.Context, handle pipelineHandle, obs pipelineObservation) pipelineObservation {
+	if obs.Phase != PipelineCancelled || obs.Episode != nil {
+		return obs
+	}
+	for range maxLateEpisodePolls {
+		if err := workflow.Sleep(ctx, lateEpisodePollInterval); err != nil {
+			return obs
+		}
+		next, err := wf.observePipeline(ctx, handle)
+		if err != nil {
+			return obs
+		}
+		if next.Episode != nil {
+			obs.Episode = next.Episode
+			return obs
+		}
+	}
+	return obs
+}
+
+// captureEpisode appends the ONE ledger record this terminal observation owes.
+// agentic=false marks a dispatch that spawns no agent at all (the local merge job): such
+// a run has no episode to lose, so a nil summary is recorded as NOTHING rather than as a
+// gap. A REMOTE-venue run is skipped entirely for the same "nothing to lose" reason.
+func (wf *workflows) captureEpisode(ctx workflow.Context, in constructActivityInput, handle pipelineHandle, obs pipelineObservation, agentic bool) {
+	if episodeVenueIsRemote(obs.RunURL) {
+		return
+	}
+	if obs.Episode == nil && !agentic {
+		return
+	}
+	rec := episodeRecordFor(ctx, obs, episodeIDSeed(handle, in), string(in.ActivityID))
+	if err := wf.Acts.EpisodesAppendEpisode(ctx, episode.ProjectID(in.ProjectID), rec); err != nil {
+		// Swallowed BY DESIGN — see the "never fails the business flow" discipline above.
+		workflow.GetLogger(ctx).Error("episode append failed after its full retry envelope; this episode is NOT in the ledger",
+			"activityId", string(in.ActivityID), "episodeId", rec.EpisodeID, "error", err.Error())
+	}
+}
+
+// episodeIDSeed is the deterministic, replay-stable seed a GAP record's EpisodeID is
+// built from — the dispatch handle (unique per dispatch, and already in workflow
+// history) with the activity id as the fallback for a zero handle.
+func episodeIDSeed(handle pipelineHandle, in constructActivityInput) string {
+	if handle.Name != "" {
+		return handle.Name
+	}
+	return string(in.ActivityID)
+}
+
+// episodeRecordFor composes the ledger record for ONE terminal observation. With a
+// summary it copies every mined field VERBATIM and stamps only what the Manager alone
+// knows (Kind/TargetRef/Lineage); with no summary it composes an explicit GAP record so
+// the loss is visible. Pure apart from workflow.GetInfo/Now, both replay-deterministic.
+func episodeRecordFor(ctx workflow.Context, obs pipelineObservation, idSeed, activityID string) episode.EpisodeRecord {
+	exec := workflow.GetInfo(ctx).WorkflowExecution
+	lineage := &episode.EpisodeLineage{
+		WorkflowID: exec.ID,
+		RunID:      exec.RunID,
+		// The METHOD activity this episode was burned on (there is no way to read the
+		// Temporal activity id from inside a workflow, and the Method id is the one that
+		// makes the lineage joinable to the project network).
+		ActivityID: &activityID,
+	}
+	// Construction dispatches are always EpisodeKindConstruction: the phase profile
+	// (requirements/detailed_design/test_plan/construction/integration) draws no
+	// review-vs-rework distinction, so there is nothing here to map onto the other kinds.
+	const kind = episode.EpisodeKindConstruction
+	if obs.Episode == nil {
+		return episodeGapRecord(kind, activityID, lineage, "gap-"+episodeIDSafe(idSeed),
+			episodeGapReason(episodeMissingSummaryReason, obs.Diagnostic), workflow.Now(ctx))
+	}
+	return episodeRecordFromSummary(*obs.Episode, kind, activityID, lineage, obs.Diagnostic)
+}
+
+// episodeMissingSummaryReason is the GapReason for the "the run terminated and reported
+// no episode at all" case — the one the never-silent rule exists for.
+const episodeMissingSummaryReason = "terminal observation carried no episode summary"
+
+// episodeRecordFromSummary copies a mined EpisodeSummary onto an EpisodeRecord field for
+// field — VERBATIM, no recomputation — and stamps the Manager-known Kind/TargetRef/
+// Lineage the RA cannot know. WorkerClass is left unset: construction's per-activity
+// snapshot (constructionActivity) carries the component/layer/phases, NOT the Phase-2
+// activity list's workerClass, so there is no honest value to put here.
+// diagnostic supplies the GapReason when the RA itself reported a GAP outcome (a
+// restart-lost run recovered from its orphaned trace) — the observation's diagnostic IS
+// the explanation on that path, since EpisodeSummary carries no reason field.
+func episodeRecordFromSummary(s agenticjob.EpisodeSummary, kind episode.EpisodeKind, targetRef string, lineage *episode.EpisodeLineage, diagnostic string) episode.EpisodeRecord {
+	rec := episode.EpisodeRecord{
+		EpisodeID:      s.EpisodeID,
+		Kind:           kind,
+		TargetRef:      targetRef,
+		Lineage:        lineage,
+		Model:          s.Model,
+		Usage:          episode.EpisodeUsage(s.Usage),
+		CostUSD:        s.CostUSD,
+		NumTurns:       s.NumTurns,
+		ToolCallCounts: s.ToolCallCounts,
+		SubagentSpans:  episodeSubagentSpans(s.SubagentSpans),
+		StartedAt:      s.StartedAt,
+		EndedAt:        s.EndedAt,
+		Outcome:        episodeOutcomeFrom(s.Outcome),
+		TracePath:      s.TracePath,
+	}
+	if s.StreamedUsage != nil {
+		u := episode.EpisodeUsage(*s.StreamedUsage)
+		rec.StreamedUsage = &u
+	}
+	if rec.Outcome == episode.EpisodeGap {
+		reason := episodeGapReason("the run reported a gap episode", diagnostic)
+		rec.GapReason = &reason
+	}
+	return rec
+}
+
+// episodeGapRecord composes the SYNTHESIZED gap record for a terminal observation that
+// carried no summary at all. now is supplied by the caller (workflow.Now on the
+// replay-deterministic workflow paths) because the run's own clock is exactly what was
+// lost.
+func episodeGapRecord(kind episode.EpisodeKind, targetRef string, lineage *episode.EpisodeLineage, episodeID, reason string, now time.Time) episode.EpisodeRecord {
+	return episode.EpisodeRecord{
+		EpisodeID: episodeID,
+		Kind:      kind,
+		TargetRef: targetRef,
+		Lineage:   lineage,
+		StartedAt: now,
+		EndedAt:   now,
+		Outcome:   episode.EpisodeGap,
+		GapReason: &reason,
+	}
+}
+
+// episodeGapReason joins the Manager's own reason to the observation's diagnostic when
+// the RA supplied one, so a gap says both WHAT was lost and what the rail reported.
+func episodeGapReason(reason, diagnostic string) string {
+	if strings.TrimSpace(diagnostic) == "" {
+		return reason
+	}
+	return reason + " — " + diagnostic
+}
+
+// episodeSubagentSpans re-types the mined subagent spans onto the ledger contract's own
+// span type (identical shapes, distinct contracts — contracts are self-contained).
+func episodeSubagentSpans(in []agenticjob.SubagentSpan) []episode.SubagentSpan {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]episode.SubagentSpan, 0, len(in))
+	for _, s := range in {
+		out = append(out, episode.SubagentSpan(s))
+	}
+	return out
+}
+
+// episodeOutcomeFrom maps the observation contract's outcome onto the ledger contract's.
+// Written as a TOTAL switch rather than a numeric cast so a future divergence between the
+// two independently-versioned contracts is a compile-time conversation, not silent drift.
+func episodeOutcomeFrom(o agenticjob.EpisodeOutcome) episode.EpisodeOutcome {
+	switch o {
+	case agenticjob.EpisodeSucceeded:
+		return episode.EpisodeSucceeded
+	case agenticjob.EpisodeFailed:
+		return episode.EpisodeFailed
+	case agenticjob.EpisodeCancelled:
+		return episode.EpisodeCancelled
+	case agenticjob.EpisodeGap:
+		return episode.EpisodeGap
+	default:
+		return episode.EpisodeGap
+	}
+}
+
+// episodeIDSafe rewrites s into the [A-Za-z0-9._-] alphabet episodeAccess requires of an
+// EpisodeID. A rejected id is ContractMisuse — non-retryable — so a gap record seeded
+// from a raw pipeline handle (which carries a ':') would be dropped on the floor, exactly
+// defeating the never-silent rule the gap record exists to serve.
+func episodeIDSafe(s string) string {
+	safe := strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+			return r
+		case r == '.', r == '_', r == '-':
+			return r
+		default:
+			return '-'
+		}
+	}, s)
+	if safe == "" {
+		return "unknown"
+	}
+	return safe
 }
 
 // gitforward.go is the WORKFLOW-LEVEL wiring of the git-forward (branch→PR→CI→+1→
@@ -977,6 +1247,7 @@ func (wf *workflows) runPipeline(ctx workflow.Context, in constructActivityInput
 		return pipelineObservation{}, err
 	}
 
+	var last pipelineObservation
 	for range maxPipelinePolls {
 		obs, err := wf.observePipeline(ctx, handle)
 		if err != nil {
@@ -991,12 +1262,26 @@ func (wf *workflows) runPipeline(ctx workflow.Context, in constructActivityInput
 		}
 
 		if obs.Phase == PipelineSucceeded || obs.Phase == PipelineFailed {
+			// Episode capture LAST, after this poll's business handling (§capture-seam).
+			wf.captureEpisode(ctx, in, handle, obs, true)
 			return obs, nil
 		}
+		last = obs
 		// Durable wait between polls (the Manager's own startTimer — category A).
 		_ = workflow.Sleep(ctx, pipelinePollInterval)
 	}
-	return pipelineObservation{Phase: PipelineFailed, Diagnostic: "pipeline did not reach a terminal phase within the poll budget"}, nil
+	// Poll budget exhausted without Succeeded/Failed (a stuck run, or a CANCELLED one —
+	// this loop deliberately does not treat Cancelled as terminal). The dispatch still
+	// burned tokens, so it still owes the ledger a record: carry whatever the LAST
+	// observation held (usually nothing ⇒ a gap) under the exhaustion diagnostic.
+	exhausted := pipelineObservation{
+		Phase:      PipelineFailed,
+		Diagnostic: "pipeline did not reach a terminal phase within the poll budget",
+		RunURL:     last.RunURL,
+		Episode:    last.Episode,
+	}
+	wf.captureEpisode(ctx, in, handle, exhausted, true)
+	return pipelineObservation{Phase: exhausted.Phase, Diagnostic: exhausted.Diagnostic}, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -1271,6 +1556,10 @@ func (wf *workflows) runMergePipeline(ctx workflow.Context, in constructActivity
 		ph := obs.Phase
 		state.pipelinePhase = &ph
 		if obs.Phase == PipelineSucceeded || obs.Phase == PipelineFailed || obs.Phase == PipelineCancelled {
+			// agentic=false: the merge job merges a branch, it never spawns an agent, so a
+			// missing summary here is not a loss and must not be recorded as a gap. The
+			// capture stays wired so a merge job that ever DOES mine one is not dropped.
+			wf.captureEpisode(ctx, in, h, wf.awaitLateEpisode(ctx, h, obs), false)
 			return obs, nil
 		}
 		_ = workflow.Sleep(ctx, pipelinePollInterval)

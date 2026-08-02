@@ -2,6 +2,7 @@ package construction
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -25,6 +26,7 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/review"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/agenticjob"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/episode"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	projectstatefake "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate/fake"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
@@ -57,7 +59,7 @@ func (f *fakeTemporalClient) SignalWorkflow(_ context.Context, workflowID string
 // constructionManager (all other deps nil — only used for pre-Temporal checks
 // and signal dispatch tests).
 func newTestConstructionManager(c client.Client) *constructionManager {
-	return newConstructionManager(c, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
+	return newConstructionManager(c, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
 }
 
 // testCtx returns a minimal fwmanager.Context backed by context.Background.
@@ -82,7 +84,7 @@ func asConstructionError(t *testing.T, err error) *fwmanager.Error {
 // ---- ExecuteNextActivity (op 2.1) ------------------------------------------
 
 func Test_ExecuteNextActivity_EmptyProjectID(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
 	_, err := m.ExecuteNextActivity(fwmanager.Context{Context: context.Background()}, ProjectID(""), "tick-1")
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -90,7 +92,7 @@ func Test_ExecuteNextActivity_EmptyProjectID(t *testing.T) {
 }
 
 func Test_ExecuteNextActivity_EmptyTickID(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
 	_, err := m.ExecuteNextActivity(fwmanager.Context{Context: context.Background()}, ProjectID(uuid.NewString()), "")
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -100,7 +102,7 @@ func Test_ExecuteNextActivity_EmptyTickID(t *testing.T) {
 // ---- RunReplanSweep (op 2.2) ------------------------------------------------
 
 func Test_RunReplanSweep_EmptyTickID(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
 	_, err := m.RunReplanSweep(fwmanager.Context{Context: context.Background()}, nil, "")
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -108,7 +110,7 @@ func Test_RunReplanSweep_EmptyTickID(t *testing.T) {
 }
 
 func Test_RunReplanSweep_EmptyProjectID(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
 	nilID := ProjectID("")
 	_, err := m.RunReplanSweep(fwmanager.Context{Context: context.Background()}, &nilID, "tick-1")
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
@@ -119,7 +121,7 @@ func Test_RunReplanSweep_EmptyProjectID(t *testing.T) {
 // ---- PauseProject (op 2.3) --------------------------------------------------
 
 func Test_PauseProject_EmptyProjectID(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
 	err := m.PauseProject(fwmanager.Context{Context: context.Background()}, ProjectID(""), "reason")
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -127,7 +129,7 @@ func Test_PauseProject_EmptyProjectID(t *testing.T) {
 }
 
 func Test_PauseProject_EmptyReason(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
 	err := m.PauseProject(fwmanager.Context{Context: context.Background()}, ProjectID(uuid.NewString()), "")
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse for an empty pause reason, got %s", got)
@@ -137,7 +139,7 @@ func Test_PauseProject_EmptyReason(t *testing.T) {
 // ---- OverrideActivity (op 2.4) ----------------------------------------------
 
 func Test_OverrideActivity_EmptyProjectID(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
 	err := m.OverrideActivity(fwmanager.Context{Context: context.Background()}, ProjectID(""), "C-1", ActivityOverride{Kind: OverrideRetry})
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -145,7 +147,7 @@ func Test_OverrideActivity_EmptyProjectID(t *testing.T) {
 }
 
 func Test_OverrideActivity_EmptyActivityID(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
 	err := m.OverrideActivity(fwmanager.Context{Context: context.Background()}, ProjectID(uuid.NewString()), "", ActivityOverride{Kind: OverrideRetry})
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse for an empty activityId, got %s", got)
@@ -153,7 +155,7 @@ func Test_OverrideActivity_EmptyActivityID(t *testing.T) {
 }
 
 func Test_OverrideActivity_UnknownOverrideKind(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
 	err := m.OverrideActivity(fwmanager.Context{Context: context.Background()}, ProjectID(uuid.NewString()), "C-1", ActivityOverride{Kind: OverrideUnknown})
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse for an unknown override kind, got %s", got)
@@ -163,7 +165,7 @@ func Test_OverrideActivity_UnknownOverrideKind(t *testing.T) {
 // ---- GetSessionState (op 2.5) -----------------------------------------------
 
 func Test_GetSessionState_EmptyProjectID(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
 	_, err := m.GetSessionState(fwmanager.Context{Context: context.Background()}, ProjectID(""), nil)
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -171,7 +173,7 @@ func Test_GetSessionState_EmptyProjectID(t *testing.T) {
 }
 
 func Test_GetSessionState_EmptyActivityID(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
 	empty := ActivityID("")
 	_, err := m.GetSessionState(fwmanager.Context{Context: context.Background()}, ProjectID(uuid.NewString()), &empty)
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
@@ -481,7 +483,7 @@ func TestUpdateReviewPolicy(t *testing.T) {
 			return projectstate.Project{Version: 7}, nil
 		},
 	}
-	m := newConstructionManager(nil, ps, nil, nil, nil, nil, nil, fake, nil, nil, nil, 0, "", nil)
+	m := newConstructionManager(nil, ps, nil, nil, nil, nil, nil, fake, nil, nil, nil, nil, 0, "", nil)
 
 	err := m.UpdateReviewPolicy(testCtx(), "proj-1", ReviewPolicyInput{
 		GatedPhasesByType: map[string][]string{
@@ -1869,6 +1871,13 @@ type fakePipeline struct {
 	submitted []agenticjob.PipelineSpec
 	cancelled []agenticjob.PipelineHandle
 	polls     int
+
+	// episode, when set, rides EVERY observation — the local executor's mined
+	// EpisodeSummary (SP1 capture-seam). nil mirrors the GitHub-Actions arm / a lost run.
+	episode *agenticjob.EpisodeSummary
+	// runURL, when set, marks the observation as coming from the REMOTE venue (the
+	// GitHub-Actions arm stamps the run's html URL; the local executor never does).
+	runURL string
 }
 
 func (p *fakePipeline) SubmitAgenticJob(_ fwra.Context, spec agenticjob.PipelineSpec) (agenticjob.PipelineHandle, error) {
@@ -1886,7 +1895,12 @@ func (p *fakePipeline) ObserveAgenticJob(_ fwra.Context, _ agenticjob.PipelineHa
 	if ph == PipelinePhaseUnknown {
 		ph = PipelineSucceeded
 	}
-	return agenticjob.PipelineObservation{Phase: contractPipelinePhase(ph), Diagnostic: p.diag}, nil
+	return agenticjob.PipelineObservation{
+		Phase:      contractPipelinePhase(ph),
+		Diagnostic: p.diag,
+		RunURL:     p.runURL,
+		Episode:    p.episode,
+	}, nil
 }
 
 func (p *fakePipeline) CancelAgenticJob(_ fwra.Context, handle agenticjob.PipelineHandle) error {
@@ -2008,12 +2022,72 @@ func registerGenDesignSessionRead(env *testsuite.TestWorkflowEnvironment, ps *fa
 	env.RegisterActivityWithOptions(acts.DesignSessionReadProjectOnBranch, activity.RegisterOptions{Name: "designSessionAccess.readProjectOnBranch"})
 }
 
+// fakeEpisodes is the episodeAccess test double: it RECORDS every appended record and
+// counts every attempt, so a test can assert both what was written and how many times the
+// append was retried. failN>0 fails the first failN attempts; failAlways fails every one.
+type fakeEpisodes struct {
+	mu         sync.Mutex
+	appended   []episode.EpisodeRecord
+	attempts   int
+	failN      int
+	failAlways bool
+}
+
+func (f *fakeEpisodes) AppendEpisode(_ fwra.Context, _ episode.ProjectID, record episode.EpisodeRecord) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.attempts++
+	if f.failAlways || f.attempts <= f.failN {
+		return fwra.New(fwra.Infrastructure, "episode ledger unavailable")
+	}
+	f.appended = append(f.appended, record)
+	return nil
+}
+
+func (f *fakeEpisodes) ListEpisodes(fwra.Context, episode.EpisodeQuery) ([]episode.EpisodeRecord, error) {
+	return nil, nil
+}
+
+func (f *fakeEpisodes) ReadTraceEvents(fwra.Context, episode.ProjectID, string) ([]json.RawMessage, error) {
+	return nil, nil
+}
+
+func (f *fakeEpisodes) records() []episode.EpisodeRecord {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]episode.EpisodeRecord(nil), f.appended...)
+}
+
+func (f *fakeEpisodes) attemptCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.attempts
+}
+
+var _ episode.EpisodeAccess = (*fakeEpisodes)(nil)
+
+// registerGenEpisodes registers the GENERATED episodeAccess Activities under their
+// registered names. The production Worker registers them for every construction
+// execution, so the test env must too — otherwise the capture seam's append would fail
+// as unregistered on EVERY workflow test rather than exercising the real path.
+// eps is variadic purely so the ~dozen existing register* call sites stay untouched: a
+// test that cares about episodes passes its recorder, every other test gets a silent one.
+func registerGenEpisodes(env *testsuite.TestWorkflowEnvironment, eps []*fakeEpisodes) {
+	var acc episode.EpisodeAccess = &fakeEpisodes{}
+	if len(eps) > 0 && eps[0] != nil {
+		acc = eps[0]
+	}
+	acts := &genActivities{Episodes: acc}
+	env.RegisterActivityWithOptions(acts.EpisodesAppendEpisode, activity.RegisterOptions{Name: "episodeAccess.appendEpisode"})
+}
+
 // registerConstruct registers the per-activity child workflow + its Activities — ALL
 // generated (B8 + follow-up): the pipeline/designSession-read/projectState-version/
 // constructionTransition/gitStatus surfaces, each backed by the fakes.
-func registerConstruct(env *testsuite.TestWorkflowEnvironment, wf *workflows, ps *fakeProjectState, pipe agenticjob.AgenticJobAccess) {
+func registerConstruct(env *testsuite.TestWorkflowEnvironment, wf *workflows, ps *fakeProjectState, pipe agenticjob.AgenticJobAccess, eps ...*fakeEpisodes) {
 	env.RegisterWorkflowWithOptions(wf.ConstructActivityWorkflow, workflow.RegisterOptions{Name: executionKindConstructActivity})
 	registerGenPipeline(env, pipe)
+	registerGenEpisodes(env, eps)
 	registerGenDesignSessionRead(env, ps)
 	registerGenProjectStateVersion(env, ps)
 	registerGenConstructionTransition(env, ps)
@@ -2022,9 +2096,10 @@ func registerConstruct(env *testsuite.TestWorkflowEnvironment, wf *workflows, ps
 	registerGenGitStatus(env, ps)
 }
 
-func registerPump(env *testsuite.TestWorkflowEnvironment, wf *workflows, ps *fakeProjectState, pipe agenticjob.AgenticJobAccess) {
+func registerPump(env *testsuite.TestWorkflowEnvironment, wf *workflows, ps *fakeProjectState, pipe agenticjob.AgenticJobAccess, eps ...*fakeEpisodes) {
 	env.RegisterWorkflowWithOptions(wf.PumpNextActivityWorkflow, workflow.RegisterOptions{Name: executionKindPump})
 	env.RegisterWorkflowWithOptions(wf.ConstructActivityWorkflow, workflow.RegisterOptions{Name: executionKindConstructActivity})
+	registerGenEpisodes(env, eps)
 	// The pump now waits for child COMPLETION (self-cascade), so the per-activity
 	// child runs end-to-end and ALL its activities must be registered.
 	registerGenPipeline(env, pipe)
@@ -2033,9 +2108,10 @@ func registerPump(env *testsuite.TestWorkflowEnvironment, wf *workflows, ps *fak
 	registerGenConstructionTransition(env, ps)
 }
 
-func registerSupervision(env *testsuite.TestWorkflowEnvironment, wf *workflows, ps *fakeProjectState, pipe agenticjob.AgenticJobAccess) {
+func registerSupervision(env *testsuite.TestWorkflowEnvironment, wf *workflows, ps *fakeProjectState, pipe agenticjob.AgenticJobAccess, eps ...*fakeEpisodes) {
 	env.RegisterWorkflowWithOptions(wf.ProjectSupervisionWorkflow, workflow.RegisterOptions{Name: executionKindProjectSupervision})
 	registerGenPipeline(env, pipe)
+	registerGenEpisodes(env, eps)
 	registerGenDesignSessionRead(env, ps)
 	registerGenProjectStateVersion(env, ps)
 	registerGenConstructionTransition(env, ps)
@@ -2064,11 +2140,11 @@ var _ projectstate.ProjectStateAccess = fakeProjectLister{}
 // (backed by lister) alongside everything PumpNextActivityWorkflow needs for its
 // per-project child dispatch (registerPump's own set) — the sweep starts that exact
 // workflow as an ABANDON-policy child per eligible project.
-func registerPumpSweep(env *testsuite.TestWorkflowEnvironment, wf *workflows, lister fakeProjectLister, ps *fakeProjectState, pipe agenticjob.AgenticJobAccess) {
+func registerPumpSweep(env *testsuite.TestWorkflowEnvironment, wf *workflows, lister fakeProjectLister, ps *fakeProjectState, pipe agenticjob.AgenticJobAccess, eps ...*fakeEpisodes) {
 	env.RegisterWorkflowWithOptions(wf.PumpSweepWorkflow, workflow.RegisterOptions{Name: executionKindPumpSweep})
 	acts := &genActivities{ProjectState: lister}
 	env.RegisterActivityWithOptions(acts.ProjectStateListProjects, activity.RegisterOptions{Name: "projectStateAccess.listProjects"})
-	registerPump(env, wf, ps, pipe)
+	registerPump(env, wf, ps, pipe, eps...)
 }
 
 func sampleActivity() constructionActivity {
@@ -3600,7 +3676,7 @@ func Test_Construct_LocalMerge_ConflictRoutesToIntervention(t *testing.T) {
 // setReviewPolicyManager wires a constructionManager over the generated
 // FakeConstructionTransitionAccess for the preset write-path tests.
 func setReviewPolicyManager(ps projectstate.ProjectStateAccess, ct projectstate.ConstructionTransitionAccess) *constructionManager {
-	return newConstructionManager(nil, ps, nil, nil, nil, nil, nil, ct, nil, nil, nil, 0, "", nil)
+	return newConstructionManager(nil, ps, nil, nil, nil, nil, nil, ct, nil, nil, nil, nil, 0, "", nil)
 }
 
 func Test_SetReviewPolicy_EmptyProjectID(t *testing.T) {
@@ -3707,5 +3783,273 @@ func Test_RailLifecycleEnabled_RequiresRailAndRepo(t *testing.T) {
 		if got := railLifecycleEnabled(tc.rail, tc.repo); got != tc.want {
 			t.Fatalf("%s: railLifecycleEnabled = %v, want %v", tc.name, got, tc.want)
 		}
+	}
+}
+
+// ---- Tests: episode capture seam (SP1 Task 7) -------------------------------
+//
+// The invariant under test: every terminal observation of an agentic construction
+// dispatch produces EXACTLY ONE ledger record — the mined summary when there is one, an
+// explicit GAP record when there is not — and the append can never take the business
+// workflow down with it.
+
+// captureSeamSummary is the mined summary the local executor reports on a terminal
+// observation. Every field is checked for VERBATIM carry-through below.
+func captureSeamSummary() *agenticjob.EpisodeSummary {
+	model := "claude-sonnet-4"
+	cost := 0.42
+	turns := int64(7)
+	trace := ".aiarch/traces/ep-1.jsonl"
+	streamed := agenticjob.EpisodeUsage{In: 90, Out: 40, CacheRead: 5, CacheCreate: 2}
+	return &agenticjob.EpisodeSummary{
+		EpisodeID:      "ep-1",
+		Model:          &model,
+		Usage:          agenticjob.EpisodeUsage{In: 100, Out: 50, CacheRead: 10, CacheCreate: 3},
+		StreamedUsage:  &streamed,
+		CostUSD:        &cost,
+		NumTurns:       &turns,
+		ToolCallCounts: map[string]int64{"Read": 4, "Edit": 2},
+		SubagentSpans:  []agenticjob.SubagentSpan{{ToolUseID: "tu-1"}},
+		StartedAt:      time.Date(2026, 8, 2, 10, 0, 0, 0, time.UTC),
+		EndedAt:        time.Date(2026, 8, 2, 10, 5, 0, 0, time.UTC),
+		Outcome:        agenticjob.EpisodeSucceeded,
+		TracePath:      &trace,
+	}
+}
+
+// assertSummaryCarriedVerbatim proves the whole mined summary reached the ledger
+// unchanged — the capture seam enriches, it never recomputes. Split into a scalar half
+// and a pointer half purely to keep each assertion block readable.
+func assertSummaryCarriedVerbatim(t *testing.T, rec episode.EpisodeRecord, want *agenticjob.EpisodeSummary) {
+	t.Helper()
+	if rec.EpisodeID != want.EpisodeID {
+		t.Errorf("EpisodeID = %q, want %q", rec.EpisodeID, want.EpisodeID)
+	}
+	if rec.Usage != episode.EpisodeUsage(want.Usage) {
+		t.Errorf("Usage = %+v, want %+v", rec.Usage, want.Usage)
+	}
+	if !rec.StartedAt.Equal(want.StartedAt) || !rec.EndedAt.Equal(want.EndedAt) {
+		t.Errorf("times = %v..%v, want the run's own clock %v..%v", rec.StartedAt, rec.EndedAt, want.StartedAt, want.EndedAt)
+	}
+	if rec.Outcome != episode.EpisodeSucceeded {
+		t.Errorf("Outcome = %d, want EpisodeSucceeded", rec.Outcome)
+	}
+	if rec.ToolCallCounts["Read"] != want.ToolCallCounts["Read"] || rec.ToolCallCounts["Edit"] != want.ToolCallCounts["Edit"] {
+		t.Errorf("ToolCallCounts = %v, want %v", rec.ToolCallCounts, want.ToolCallCounts)
+	}
+	if len(rec.SubagentSpans) != len(want.SubagentSpans) || rec.SubagentSpans[0].ToolUseID != want.SubagentSpans[0].ToolUseID {
+		t.Errorf("SubagentSpans = %+v, want %+v", rec.SubagentSpans, want.SubagentSpans)
+	}
+	if rec.GapReason != nil {
+		t.Errorf("a mined episode carries no GapReason, got %q", *rec.GapReason)
+	}
+	assertOptionalFieldsCarriedVerbatim(t, rec, want)
+}
+
+// assertOptionalFieldsCarriedVerbatim covers the summary's nil-able half.
+func assertOptionalFieldsCarriedVerbatim(t *testing.T, rec episode.EpisodeRecord, want *agenticjob.EpisodeSummary) {
+	t.Helper()
+	if rec.StreamedUsage == nil || *rec.StreamedUsage != episode.EpisodeUsage(*want.StreamedUsage) {
+		t.Errorf("StreamedUsage = %+v, want %+v", rec.StreamedUsage, want.StreamedUsage)
+	}
+	if rec.Model == nil || *rec.Model != *want.Model {
+		t.Errorf("Model = %v, want %q", rec.Model, *want.Model)
+	}
+	if rec.CostUSD == nil || *rec.CostUSD != *want.CostUSD {
+		t.Errorf("CostUSD = %v, want %v", rec.CostUSD, *want.CostUSD)
+	}
+	if rec.NumTurns == nil || *rec.NumTurns != *want.NumTurns {
+		t.Errorf("NumTurns = %v, want %v", rec.NumTurns, *want.NumTurns)
+	}
+	if rec.TracePath == nil || *rec.TracePath != *want.TracePath {
+		t.Errorf("TracePath = %v, want %q", rec.TracePath, *want.TracePath)
+	}
+}
+
+// A terminal observation carrying a mined summary becomes exactly one EpisodeRecord per
+// dispatched phase, with the summary copied verbatim and the Manager-known
+// Kind/TargetRef/Lineage stamped on.
+func Test_Construct_TerminalObservation_PersistsEpisodeRecord(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(uuid.NewString()), Version: 3, Phase: 2}}
+	pipe := &fakePipeline{phase: PipelineSucceeded, episode: captureSeamSummary()}
+	eps := &fakeEpisodes{}
+	wf := newWorkflows(wfDeps{
+		Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
+		Review:       &fakeReview{},
+	})
+	registerConstruct(env, wf, ps, pipe, eps)
+
+	env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{
+		ProjectID: ProjectID(ps.project.ID), ActivityID: "C-XYZ", Activity: sampleActivity(),
+	})
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+
+	got := eps.records()
+	// One episode per dispatched App-A phase — the capture rides the same choke point
+	// the dispatch does.
+	if len(got) != len(sampleActivity().Phases) {
+		t.Fatalf("want one appended episode per dispatched phase (%d), got %d", len(sampleActivity().Phases), len(got))
+	}
+	rec := got[0]
+	if rec.Kind != episode.EpisodeKindConstruction {
+		t.Errorf("Kind = %d, want EpisodeKindConstruction", rec.Kind)
+	}
+	if rec.TargetRef != "C-XYZ" {
+		t.Errorf("TargetRef = %q, want the activity id", rec.TargetRef)
+	}
+	if rec.Lineage == nil || rec.Lineage.WorkflowID == "" || rec.Lineage.RunID == "" {
+		t.Fatalf("Lineage must carry the durable execution identity, got %+v", rec.Lineage)
+	}
+	if rec.Lineage.ActivityID == nil || *rec.Lineage.ActivityID != "C-XYZ" {
+		t.Errorf("Lineage.ActivityID = %v, want the Method activity id", rec.Lineage.ActivityID)
+	}
+	assertSummaryCarriedVerbatim(t, rec, captureSeamSummary())
+}
+
+// A terminal LOCAL-venue observation with NO summary must still produce a record: an
+// explicit gap naming what went missing. A missing record is never silently missing.
+func Test_Construct_TerminalObservation_MissingSummary_PersistsGapRecord(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(uuid.NewString()), Version: 3, Phase: 2}}
+	pipe := &fakePipeline{phase: PipelineSucceeded} // no episode mined, no run URL ⇒ local venue
+	eps := &fakeEpisodes{}
+	wf := newWorkflows(wfDeps{
+		Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
+		Review:       &fakeReview{},
+	})
+	registerConstruct(env, wf, ps, pipe, eps)
+
+	env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{
+		ProjectID: ProjectID(ps.project.ID), ActivityID: "C-XYZ", Activity: sampleActivity(),
+	})
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+
+	got := eps.records()
+	if len(got) != len(sampleActivity().Phases) {
+		t.Fatalf("a summary-less terminal observation must still be recorded: want %d, got %d", len(sampleActivity().Phases), len(got))
+	}
+	rec := got[0]
+	if rec.Outcome != episode.EpisodeGap {
+		t.Errorf("Outcome = %d, want EpisodeGap", rec.Outcome)
+	}
+	if rec.GapReason == nil || !strings.Contains(*rec.GapReason, "no episode summary") {
+		t.Errorf("GapReason must name the missing summary, got %v", rec.GapReason)
+	}
+	if rec.EpisodeID == "" || strings.ContainsAny(rec.EpisodeID, ":/ ") {
+		t.Errorf("a synthesized gap id must be non-empty and store-safe, got %q", rec.EpisodeID)
+	}
+	if rec.Kind != episode.EpisodeKindConstruction || rec.TargetRef != "C-XYZ" {
+		t.Errorf("a gap still carries its Kind/TargetRef, got kind=%d ref=%q", rec.Kind, rec.TargetRef)
+	}
+}
+
+// A REMOTE-venue (GitHub-Actions) run mines no episode in v1, so a nil summary there is
+// expected rather than lost: it must NOT produce a gap record.
+func Test_Construct_RemoteVenue_WritesNoGapRecord(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(uuid.NewString()), Version: 3, Phase: 2}}
+	pipe := &fakePipeline{phase: PipelineSucceeded, runURL: "https://github.com/acme/repo/actions/runs/7"}
+	eps := &fakeEpisodes{}
+	wf := newWorkflows(wfDeps{
+		Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
+		Review:       &fakeReview{},
+	})
+	registerConstruct(env, wf, ps, pipe, eps)
+
+	env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{
+		ProjectID: ProjectID(ps.project.ID), ActivityID: "C-XYZ", Activity: sampleActivity(),
+	})
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	if got := eps.records(); len(got) != 0 {
+		t.Fatalf("the remote venue mines no episode in v1 — it must write nothing, got %+v", got)
+	}
+}
+
+// A permanently-failing ledger must NOT take construction down: the append is retried
+// inside its own envelope and then logged and dropped.
+func Test_Construct_EpisodeAppendFailure_DoesNotFailBusinessFlow(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(uuid.NewString()), Version: 3, Phase: 2}}
+	pipe := &fakePipeline{phase: PipelineSucceeded, episode: captureSeamSummary()}
+	eps := &fakeEpisodes{failAlways: true}
+	wf := newWorkflows(wfDeps{
+		Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
+		Review:       &fakeReview{},
+	})
+	registerConstruct(env, wf, ps, pipe, eps)
+
+	env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{
+		ProjectID: ProjectID(ps.project.ID), ActivityID: "C-XYZ", Activity: sampleActivity(),
+	})
+
+	if !env.IsWorkflowCompleted() {
+		t.Fatal("a failing episode ledger must not stall the construction workflow")
+	}
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a failing episode ledger must not fail the construction workflow, got %v", err)
+	}
+	// The business exit still landed, untouched by the bookkeeping fault.
+	if len(ps.exited) != 1 || ps.exited[0].outcome != projectstate.ActivityOutcomeCompleted {
+		t.Fatalf("business flow must still record its exit, got %v", ps.exited)
+	}
+	// And the append really was RETRIED (more attempts than dispatches), not given up on
+	// after one try.
+	if eps.attemptCount() <= len(sampleActivity().Phases) {
+		t.Fatalf("want the append retried within its envelope, got %d attempts across %d dispatches",
+			eps.attemptCount(), len(sampleActivity().Phases))
+	}
+	if len(eps.records()) != 0 {
+		t.Fatalf("nothing can land in a permanently-failing ledger, got %+v", eps.records())
+	}
+}
+
+// The local MERGE job spawns no agent at all, so a summary-less terminal observation
+// there is not a loss and must never be recorded as a gap. This rides the real
+// policy-gated merge path (the same setup as the local-merge tests above), so the merge
+// job genuinely dispatches and is genuinely observed.
+func Test_Construct_MergeJob_WritesNoGapRecord(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	ps := newFakeProjectStateWithPolicy(checkpointsPreset())
+	pipe := newFakePipeline()
+	eps := &fakeEpisodes{}
+	wf := newWorkflows(gateDeps(ps))
+	registerConstruct(env, wf, ps, pipe, eps)
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalPhaseDecision, phaseDecisionSignal{Phase: "detailed_design", Decision: PhaseApprove})
+	}, 20*time.Second)
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalPhaseDecision, phaseDecisionSignal{Phase: "construction", Decision: PhaseApprove})
+	}, 40*time.Second)
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalPhaseDecision, phaseDecisionSignal{Phase: mergeGateKey, Decision: PhaseApprove})
+	}, 60*time.Second)
+	env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{ProjectID: "p", ActivityID: "C-Orders", Activity: sampleActivity()})
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	// Sanity: the merge job really did dispatch and be observed on this path.
+	if len(mergeSubmits(pipe.submitted)) != 1 {
+		t.Fatalf("this test only means something if the merge job dispatched; got %d", len(mergeSubmits(pipe.submitted)))
+	}
+	// Exactly one record per AGENTIC phase dispatch — the merge adds none.
+	if n := len(eps.records()); n != len(sampleActivity().Phases) {
+		t.Fatalf("the merge job must add no ledger record: want %d (one per agentic phase), got %d",
+			len(sampleActivity().Phases), n)
 	}
 }

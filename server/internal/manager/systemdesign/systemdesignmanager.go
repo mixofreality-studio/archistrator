@@ -61,6 +61,7 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/designhealth"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/estimation"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/agenticjob"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/episode"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 	enumspb "go.temporal.io/api/enums/v1"
@@ -134,6 +135,14 @@ type systemDesignManager struct {
 	// builder constructs it directly rather than threading a parameter no
 	// composition root could vary.
 	designHealth designhealth.DesignHealthEngine
+
+	// episodes (SP1 capture-seam) is the generated episodeAccess dep — the agentic-
+	// episode ledger every terminal design dispatch appends to. The WORKFLOW paths reach
+	// it through the generated invoker surface (wf.Acts.EpisodesAppendEpisode); this
+	// field is held for two reasons: to thread it into genActivities, and because the
+	// answer-job capture (answerEpisodeWatch) runs MANAGER-SIDE, outside any workflow,
+	// and must call the RA directly.
+	episodes episode.EpisodeAccess
 }
 
 // newSystemDesignManager is the hand-written, unexported builder the generated
@@ -141,8 +150,8 @@ type systemDesignManager struct {
 // published deps into the façade. The façade itself uses only client + projectState;
 // pipeline/rail/repo are stored for RegisterWorker (rail may be nil — a dev server
 // with no source-control credentials runs the design spine repo-less).
-func newSystemDesignManager(c client.Client, ps projectstate.ProjectStateAccess, pipeline agenticjob.AgenticJobAccess, rail sourcecontrol.SourceControlAccess, repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool), estimator estimation.EstimationEngine, designSession projectstate.DesignSessionAccess, repoBase string) *systemDesignManager {
-	return &systemDesignManager{client: c, projectState: ps, pipeline: pipeline, rail: rail, repo: repo, estimator: estimator, designSession: designSession, repoBase: repoBase, designHealth: designhealth.NewDesignHealthEngine()}
+func newSystemDesignManager(c client.Client, ps projectstate.ProjectStateAccess, pipeline agenticjob.AgenticJobAccess, rail sourcecontrol.SourceControlAccess, repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool), estimator estimation.EstimationEngine, designSession projectstate.DesignSessionAccess, episodes episode.EpisodeAccess, repoBase string) *systemDesignManager {
+	return &systemDesignManager{client: c, projectState: ps, pipeline: pipeline, rail: rail, repo: repo, estimator: estimator, designSession: designSession, episodes: episodes, repoBase: repoBase, designHealth: designhealth.NewDesignHealthEngine()}
 }
 
 // StartSystemDesign — op 2.0 (2026-05-29). Temporal Workflow (entry;
@@ -2026,12 +2035,267 @@ func (m *systemDesignManager) dispatchAnswerJob(ctx context.Context, projectID P
 		WorkflowFile:   designWorkflowFileName,
 	}
 	key := answerJobDispatchKey(projectID, kind, branch, qs)
-	if _, err := m.pipeline.SubmitAgenticJob(fwra.Context{Context: ctx, IdempotencyKey: key}, spec); err != nil {
+	handle, err := m.pipeline.SubmitAgenticJob(fwra.Context{Context: ctx, IdempotencyKey: key}, spec)
+	if err != nil {
 		log.Error("answer job dispatch FAILED — the question is recorded but not auto-answered; re-run AskQuestions with the same question to retry",
 			"err", err.Error(), "key", string(key))
 		return
 	}
 	log.Info("answer job dispatched", "key", string(key))
+	m.watchAnswerEpisode(ctx, projectID, kind, handle, log)
+}
+
+// ---------------------------------------------------------------------------
+// Episode capture for the ANSWER job (SP1 capture-seam, Task 7)
+// ---------------------------------------------------------------------------
+//
+// The answer job is the ONE agentic dispatch this Manager makes outside a Temporal
+// workflow: AskQuestions submits it fire-and-forget and returns. Nothing observes it, so
+// without this watch every answer episode — real tokens, really spent — would be invisible
+// to the ledger.
+//
+// NON-DURABLE BY CONSTRUCTION, and that is accepted: this is a plain goroutine in the
+// server process. A restart between the dispatch and the terminal observation loses the
+// watch and therefore the record — no gap line either, because nothing is left to write
+// one. Only the WORKFLOW-side capture paths carry the durable never-silent guarantee; the
+// answer job is auxiliary (it gates nothing) and did not warrant its own workflow.
+
+const (
+	// answerEpisodePollInterval spaces the manager-side observe loop. Same order as the
+	// workflow-side observePollInterval — an answer job is the same kind of agentic run.
+	answerEpisodePollInterval = 15 * time.Second
+	// answerEpisodeWatchWindow is the hard deadline on the watch. Past it the episode is
+	// recorded as an explicit GAP rather than watched forever by a leaked goroutine.
+	answerEpisodeWatchWindow = 30 * time.Minute
+)
+
+// watchAnswerEpisode spawns the bounded manager-side watch for one dispatched answer job.
+// It detaches from the CALLER'S context on purpose: ctx is the AskQuestions request
+// context and is cancelled the moment that call returns, while the job it dispatched runs
+// for minutes afterwards. WithoutCancel keeps the request's values (tracing, principal)
+// and drops only the cancellation.
+func (m *systemDesignManager) watchAnswerEpisode(ctx context.Context, projectID ProjectID, kind ArtifactKind, handle agenticjob.PipelineHandle, log *slog.Logger) {
+	w := answerEpisodeWatch{
+		pipeline: m.pipeline,
+		episodes: m.episodes,
+		poll:     answerEpisodePollInterval,
+		window:   answerEpisodeWatchWindow,
+		log:      log,
+	}
+	go w.run(context.WithoutCancel(ctx), projectID, artifactKindString(kind), handle)
+}
+
+// answerEpisodeWatch is the bounded observe-then-append loop behind watchAnswerEpisode,
+// broken out with its timings injected so it can be exercised deterministically in tests.
+type answerEpisodeWatch struct {
+	pipeline agenticjob.AgenticJobAccess
+	episodes episode.EpisodeAccess
+	poll     time.Duration
+	window   time.Duration
+	log      *slog.Logger
+}
+
+// run polls handle to a terminal phase (or to the window's end) and appends the ONE ledger
+// record the dispatch owes. Blocking — watchAnswerEpisode spawns it.
+func (w answerEpisodeWatch) run(ctx context.Context, projectID ProjectID, targetRef string, handle agenticjob.PipelineHandle) {
+	if w.pipeline == nil || w.episodes == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(ctx, w.window)
+	defer cancel()
+
+	obs, terminal := w.observeToTerminal(ctx, handle)
+	if terminal && episodeVenueIsRemote(obs.RunURL) {
+		// Remote venue mines no episode in v1 — nothing was lost, so record nothing.
+		return
+	}
+	rec := w.answerRecord(obs, terminal, targetRef, handle)
+	key := fwra.IdempotencyKey("answerEpisode:" + string(handle))
+	if err := w.episodes.AppendEpisode(fwra.Context{Context: ctx, IdempotencyKey: key},
+		episode.ProjectID(projectID), rec); err != nil {
+		w.log.Error("answer-job episode NOT recorded: ledger append failed",
+			"episodeId", rec.EpisodeID, "err", err.Error())
+	}
+}
+
+// observeToTerminal polls the dispatched job until it reaches a terminal phase, the
+// window closes, or the RA faults. terminal=false means the second or third — the caller
+// turns that into a gap record.
+func (w answerEpisodeWatch) observeToTerminal(ctx context.Context, handle agenticjob.PipelineHandle) (agenticjob.PipelineObservation, bool) {
+	var last agenticjob.PipelineObservation
+	cancelGrace := 0
+	for {
+		obs, err := w.pipeline.ObserveAgenticJob(fwra.Context{Context: ctx}, handle)
+		if err != nil {
+			return last, false
+		}
+		last = obs
+		if terminal, done := w.classify(obs, &cancelGrace); done {
+			return obs, terminal
+		}
+		select {
+		case <-ctx.Done():
+			return last, false
+		case <-time.After(w.poll):
+		}
+	}
+}
+
+// classify decides whether THIS observation ends the watch. A terminal observation with a
+// summary always does. A terminal observation WITHOUT one ends it too — except for the
+// CANCEL RACE, where the phase flips synchronously while the agent subprocess is still
+// unwinding: that gets maxLateEpisodePolls further polls (the same grace the workflow-side
+// capture gives it) before the run is written off.
+func (w answerEpisodeWatch) classify(obs agenticjob.PipelineObservation, cancelGrace *int) (terminal, done bool) {
+	if !designPipelinePhase(obs.Phase).IsTerminal() {
+		return false, false
+	}
+	if obs.Episode != nil || obs.Phase != agenticjob.PhaseCancelled {
+		return true, true
+	}
+	if *cancelGrace >= maxLateEpisodePolls {
+		return true, true
+	}
+	*cancelGrace++
+	return false, false
+}
+
+// answerRecord composes the ledger record for a watched answer job: the mined summary, or
+// an explicit GAP naming which of the two ways it went missing.
+func (w answerEpisodeWatch) answerRecord(obs agenticjob.PipelineObservation, terminal bool, targetRef string, handle agenticjob.PipelineHandle) episode.EpisodeRecord {
+	// Lineage is nil BY DESIGN: this dispatch has no durable execution behind it.
+	if terminal && obs.Episode != nil {
+		return episodeRecordFromSummary(*obs.Episode, episode.EpisodeKindAnswer, targetRef, nil, obs.Diagnostic)
+	}
+	reason := episodeMissingSummaryReason
+	if !terminal {
+		reason = "answer job did not reach a terminal phase within the manager-side watch window"
+	}
+	return episodeGapRecord(episode.EpisodeKindAnswer, targetRef, nil,
+		"gap-"+episodeIDSafe(string(handle)),
+		episodeGapReason(reason, obs.Diagnostic), time.Now().UTC())
+}
+
+// ---------------------------------------------------------------------------
+// Episode record composition — shared by the workflow-side capture
+// (coauthorartifact.go) and the answer-job watch above.
+// ---------------------------------------------------------------------------
+
+// episodeMissingSummaryReason is the GapReason for the "the run terminated and reported
+// no episode at all" case — the one the never-silent rule exists for.
+const episodeMissingSummaryReason = "terminal observation carried no episode summary"
+
+// episodeRecordFromSummary copies a mined EpisodeSummary onto an EpisodeRecord field for
+// field — VERBATIM, no recomputation — and stamps the Manager-known Kind/TargetRef/
+// Lineage the RA cannot know. WorkerClass is left unset: a design dispatch carries the
+// artifact kind and the job mode, never the Phase-2 activity list's workerClass, so there
+// is no honest value to put here. diagnostic supplies the GapReason when the RA itself
+// reported a GAP outcome (a restart-lost run recovered from its orphaned trace) — the
+// observation's diagnostic IS the explanation there, since EpisodeSummary carries no
+// reason field.
+func episodeRecordFromSummary(s agenticjob.EpisodeSummary, kind episode.EpisodeKind, targetRef string, lineage *episode.EpisodeLineage, diagnostic string) episode.EpisodeRecord {
+	rec := episode.EpisodeRecord{
+		EpisodeID:      s.EpisodeID,
+		Kind:           kind,
+		TargetRef:      targetRef,
+		Lineage:        lineage,
+		Model:          s.Model,
+		Usage:          episode.EpisodeUsage(s.Usage),
+		CostUSD:        s.CostUSD,
+		NumTurns:       s.NumTurns,
+		ToolCallCounts: s.ToolCallCounts,
+		SubagentSpans:  episodeSubagentSpans(s.SubagentSpans),
+		StartedAt:      s.StartedAt,
+		EndedAt:        s.EndedAt,
+		Outcome:        episodeOutcomeFrom(s.Outcome),
+		TracePath:      s.TracePath,
+	}
+	if s.StreamedUsage != nil {
+		u := episode.EpisodeUsage(*s.StreamedUsage)
+		rec.StreamedUsage = &u
+	}
+	if rec.Outcome == episode.EpisodeGap {
+		reason := episodeGapReason("the run reported a gap episode", diagnostic)
+		rec.GapReason = &reason
+	}
+	return rec
+}
+
+// episodeGapRecord composes the SYNTHESIZED gap record for a dispatch that produced no
+// summary at all. now is supplied by the caller (workflow.Now on the replay-deterministic
+// workflow paths) because the run's own clock is exactly what was lost.
+func episodeGapRecord(kind episode.EpisodeKind, targetRef string, lineage *episode.EpisodeLineage, episodeID, reason string, now time.Time) episode.EpisodeRecord {
+	return episode.EpisodeRecord{
+		EpisodeID: episodeID,
+		Kind:      kind,
+		TargetRef: targetRef,
+		Lineage:   lineage,
+		StartedAt: now,
+		EndedAt:   now,
+		Outcome:   episode.EpisodeGap,
+		GapReason: &reason,
+	}
+}
+
+// episodeGapReason joins the Manager's own reason to the observation's diagnostic when
+// the RA supplied one, so a gap says both WHAT was lost and what the rail reported.
+func episodeGapReason(reason, diagnostic string) string {
+	if strings.TrimSpace(diagnostic) == "" {
+		return reason
+	}
+	return reason + " — " + diagnostic
+}
+
+// episodeSubagentSpans re-types the mined subagent spans onto the ledger contract's own
+// span type (identical shapes, distinct contracts — contracts are self-contained).
+func episodeSubagentSpans(in []agenticjob.SubagentSpan) []episode.SubagentSpan {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]episode.SubagentSpan, 0, len(in))
+	for _, s := range in {
+		out = append(out, episode.SubagentSpan(s))
+	}
+	return out
+}
+
+// episodeOutcomeFrom maps the observation contract's outcome onto the ledger contract's.
+// Written as a TOTAL switch rather than a numeric cast so a future divergence between the
+// two independently-versioned contracts is a compile-time conversation, not silent drift.
+func episodeOutcomeFrom(o agenticjob.EpisodeOutcome) episode.EpisodeOutcome {
+	switch o {
+	case agenticjob.EpisodeSucceeded:
+		return episode.EpisodeSucceeded
+	case agenticjob.EpisodeFailed:
+		return episode.EpisodeFailed
+	case agenticjob.EpisodeCancelled:
+		return episode.EpisodeCancelled
+	case agenticjob.EpisodeGap:
+		return episode.EpisodeGap
+	default:
+		return episode.EpisodeGap
+	}
+}
+
+// episodeIDSafe rewrites s into the [A-Za-z0-9._-] alphabet episodeAccess requires of an
+// EpisodeID. A rejected id is ContractMisuse — non-retryable — so a gap record seeded from
+// a raw pipeline handle (which carries a ':') would be dropped on the floor, exactly
+// defeating the never-silent rule the gap record exists to serve.
+func episodeIDSafe(s string) string {
+	safe := strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+			return r
+		case r == '.', r == '_', r == '-':
+			return r
+		default:
+			return '-'
+		}
+	}, s)
+	if safe == "" {
+		return "unknown"
+	}
+	return safe
 }
 
 // catalog.go holds the three CATALOG / cross-phase typed-read ops folded onto the
@@ -3467,6 +3731,27 @@ const (
 // auto-retries via this RetryPolicy; a terminal RA fault (ContractMisuse / Auth /
 // QuotaExhausted) is non-retryable and surfaces to the workflow body. A PhaseFailed is NOT
 // a dispatch error — it is a successful observation of a failed job (§0d.4).
+// appendEpisodeRetryWindow is the HARD wall-clock bound on the episode-append's own
+// retry envelope. The append retries without an attempt cap inside it (bookkeeping the
+// ledger must not lose to a transient store fault), but it cannot retry FOREVER: the
+// workflow waits on it, so an unbounded envelope would let a permanently-broken ledger
+// wedge a co-author session.
+const appendEpisodeRetryWindow = 10 * time.Minute
+
+// appendEpisodeActivityOptions is the episode-append preset — DELIBERATELY its own
+// envelope, independent of every business preset (§capture-seam): a generous per-attempt
+// timeout, UNCAPPED attempts inside appendEpisodeRetryWindow (MaxAttempts unset ⇒
+// Temporal treats it as unlimited), and ContractMisuse terminal (a malformed record will
+// never become well-formed by retrying — the caller logs it instead).
+func appendEpisodeActivityOptions() workflow.ActivityOptions {
+	o := fwmanager.ActivityPreset{
+		Timeout:    30 * time.Second,
+		TerminalRA: []fwra.Kind{fwra.ContractMisuse},
+	}.Options()
+	o.ScheduleToCloseTimeout = appendEpisodeRetryWindow
+	return o
+}
+
 func dispatchActivityOptions() workflow.ActivityOptions {
 	return fwmanager.ActivityPreset{
 		Timeout:     30 * time.Second,
@@ -3876,6 +4161,9 @@ func activityOptions() func(activityName string) (workflow.ActivityOptions, bool
 		"designSessionAccess.reconcileBranchFromMain":            mutateActivityOptions(),
 		"designSessionAccess.setReviewCommentStatusOnBranch":     mutateActivityOptions(),
 		"designSessionAccess.seedReviewCommentsOnBranch":         mutateActivityOptions(),
+		// SP1 capture-seam: the episode ledger append rides its OWN envelope, never a
+		// business one (see appendEpisodeActivityOptions).
+		"episodeAccess.appendEpisode": appendEpisodeActivityOptions(),
 	}
 	return func(name string) (workflow.ActivityOptions, bool) {
 		o, ok := presets[name]
@@ -3920,6 +4208,7 @@ func (m *systemDesignManager) WorkerManifest() genWorkerManifest {
 			Pipeline:      m.pipeline,
 			Rail:          m.rail,
 			DesignSession: m.designSession,
+			Episodes:      m.episodes,
 		},
 	}
 }

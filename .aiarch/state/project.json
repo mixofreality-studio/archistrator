@@ -12753,6 +12753,10 @@
           "component": "messageBus"
         },
         {
+          "name": "episodes",
+          "component": "episodeAccess"
+        },
+        {
           "name": "escalationWaitTimeout",
           "goType": "time.Duration",
           "goImport": "time"
@@ -17528,6 +17532,10 @@
           "component": "designSessionAccess"
         },
         {
+          "name": "episodes",
+          "component": "episodeAccess"
+        },
+        {
           "name": "repo",
           "goType": "func(projectID ProjectID) (sourcecontrol.RepoRef, bool)",
           "goImport": "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
@@ -22001,6 +22009,10 @@
         {
           "name": "designSession",
           "component": "designSessionAccess"
+        },
+        {
+          "name": "episodes",
+          "component": "episodeAccess"
         },
         {
           "name": "repoBase",

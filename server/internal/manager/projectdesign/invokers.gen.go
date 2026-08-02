@@ -3,6 +3,7 @@
 package projectdesign
 
 import (
+	"encoding/json"
 	"time"
 
 	"go.temporal.io/sdk/temporal"
@@ -12,6 +13,7 @@ import (
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/agenticjob"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/episode"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 )
@@ -258,5 +260,25 @@ func (i genInvokers) DesignSessionStageArtifactForReviewOnBranch(ctx workflow.Co
 func (i genInvokers) DesignSessionWithdrawArtifactOnBranch(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string) (projectstate.Version, error) {
 	var out projectstate.Version
 	err := workflow.ExecuteActivity(i.options(ctx, "designSessionAccess.withdrawArtifactOnBranch"), "designSessionAccess.withdrawArtifactOnBranch", projectID, expectedVersion, branch, kind, notes).Get(ctx, &out)
+	return out, err
+}
+
+// EpisodesAppendEpisode invokes activity "episodeAccess.appendEpisode".
+func (i genInvokers) EpisodesAppendEpisode(ctx workflow.Context, projectID episode.ProjectID, record episode.EpisodeRecord) error {
+	err := workflow.ExecuteActivity(i.options(ctx, "episodeAccess.appendEpisode"), "episodeAccess.appendEpisode", projectID, record).Get(ctx, nil)
+	return err
+}
+
+// EpisodesListEpisodes invokes activity "episodeAccess.listEpisodes".
+func (i genInvokers) EpisodesListEpisodes(ctx workflow.Context, query episode.EpisodeQuery) ([]episode.EpisodeRecord, error) {
+	var out []episode.EpisodeRecord
+	err := workflow.ExecuteActivity(i.options(ctx, "episodeAccess.listEpisodes"), "episodeAccess.listEpisodes", query).Get(ctx, &out)
+	return out, err
+}
+
+// EpisodesReadTraceEvents invokes activity "episodeAccess.readTraceEvents".
+func (i genInvokers) EpisodesReadTraceEvents(ctx workflow.Context, projectID episode.ProjectID, episodeID string) ([]json.RawMessage, error) {
+	var out []json.RawMessage
+	err := workflow.ExecuteActivity(i.options(ctx, "episodeAccess.readTraceEvents"), "episodeAccess.readTraceEvents", projectID, episodeID).Get(ctx, &out)
 	return out, err
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/estimation"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/operationestimation"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/agenticjob"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/episode"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 	"go.temporal.io/sdk/client"
@@ -178,6 +179,6 @@ type ProjectDesignManager interface {
 // builder newProjectDesignManager in the manager package (which owns the stateful facade setup:
 // the Temporal client, the deps, and config). The constructor returns the
 // interface, so the concrete manager impl stays unexported.
-func NewProjectDesignManager(client client.Client, projectState projectstate.ProjectStateAccess, pipeline agenticjob.AgenticJobAccess, rail sourcecontrol.SourceControlAccess, estimator estimation.EstimationEngine, operationEstimator operationestimation.OperationEstimationEngine, billingEstimator billing.BillingEngine, designSession projectstate.DesignSessionAccess, repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool)) ProjectDesignManager {
-	return newProjectDesignManager(client, projectState, pipeline, rail, estimator, operationEstimator, billingEstimator, designSession, repo)
+func NewProjectDesignManager(client client.Client, projectState projectstate.ProjectStateAccess, pipeline agenticjob.AgenticJobAccess, rail sourcecontrol.SourceControlAccess, estimator estimation.EstimationEngine, operationEstimator operationestimation.OperationEstimationEngine, billingEstimator billing.BillingEngine, designSession projectstate.DesignSessionAccess, episodes episode.EpisodeAccess, repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool)) ProjectDesignManager {
+	return newProjectDesignManager(client, projectState, pipeline, rail, estimator, operationEstimator, billingEstimator, designSession, episodes, repo)
 }

@@ -9,6 +9,7 @@ import (
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/agenticjob"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/episode"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 	"go.temporal.io/sdk/temporal"
@@ -559,6 +560,10 @@ func (wf *workflows) dispatchDraftAndReadBack(
 		// Per-project-design-dispatch: dispatch to the per-project repo + aiarch-design.yml
 		// (the rail's repoRef). "" when the rail is dormant ⇒ RA falls back to construction.
 		TargetRepo: gf.dispatchRepo(),
+		// Capture-seam only: the FIRST dispatch of a session is a fresh draft; anything
+		// after a reject (reviewRound) or a failed-gate retry (redraftCount) is rework.
+		// Both counters are consulted because the two recovery paths bump different ones.
+		Redraft: *redraftCount > 0 || *reviewRound > 0,
 	})
 	if derr != nil {
 		// A TRANSIENT dispatch/observe fault that exhausted its retry budget is an
@@ -1379,6 +1384,8 @@ func (wf *workflows) observeDesignJob(ctx workflow.Context, handle agenticjob.Pi
 	return pipelineObservation{
 		Phase:      designPipelinePhase(obs.Phase),
 		Diagnostic: obs.Diagnostic,
+		RunURL:     obs.RunURL,
+		Episode:    obs.Episode,
 	}, nil
 }
 
@@ -1434,6 +1441,16 @@ func (p pipelinePhase) IsTerminal() bool {
 type pipelineObservation struct {
 	Phase      pipelinePhase
 	Diagnostic string
+	// RunURL is the dispatched run's URL when the bound agenticJobAccess realisation
+	// resolved one. Phase-2 renders no run link, so it is carried for ONE reason: it is
+	// the only VENUE signal a workflow ever sees — see episodeVenueIsRemote.
+	RunURL string
+	// Episode is the terminal run's captured agentic-episode summary (SP1 capture-seam):
+	// the tokens/turns/tools the design agent actually burned. Nil on every non-terminal
+	// observation, on the GitHub-Actions arm (which mines no episode in v1), and —
+	// legitimately — on a CANCELLED run's FIRST terminal observation, whose summary lands
+	// only once the subprocess has unwound (see awaitLateEpisode).
+	Episode *agenticjob.EpisodeSummary
 }
 
 // observePollInterval spaces the observe-poll loop's durable timer waits. A design
@@ -1462,6 +1479,12 @@ type dispatchDesignJobArgs struct {
 	// was committed at project birth (per-project-design-dispatch). Empty ⇒ the RA falls
 	// back to the configured construction repo (the dormant-rail / non-git path).
 	TargetRepo string
+	// Redraft marks a re-dispatch of the SAME draft after a human send-back. It is a
+	// CAPTURE-SEAM field only — dispatchDesignJob ignores it, and the job the RA receives
+	// is byte-identical either way. It exists so the episode ledger can tell a first draft
+	// (EpisodeKindDesign) from a rework round (EpisodeKindRework), which is exactly the
+	// distinction the self-improvement pipeline is built to measure.
+	Redraft bool
 }
 
 // dispatchAndObserve runs ONE dispatch → observe round-trip: it dispatches the design
@@ -1482,14 +1505,18 @@ func (wf *workflows) dispatchAndObserve(ctx workflow.Context, args dispatchDesig
 			"dispatch returned an empty pipeline handle", "EmptyPipelineHandle", nil)
 	}
 
+	var last pipelineObservation
 	for range maxObservePolls {
 		obs, err := wf.observeDesignJob(ctx, handle)
 		if err != nil {
 			return pipelineObservation{}, err
 		}
 		if obs.Phase.IsTerminal() {
+			// Episode capture LAST, after this poll's business handling (§capture-seam).
+			wf.captureEpisode(ctx, args, handle, wf.awaitLateEpisode(ctx, handle, obs))
 			return obs, nil
 		}
+		last = obs
 		// Not yet terminal — space the next observe with a durable in-workflow timer.
 		if err := workflow.Sleep(ctx, observePollInterval); err != nil {
 			return pipelineObservation{}, err
@@ -1498,10 +1525,133 @@ func (wf *workflows) dispatchAndObserve(ctx workflow.Context, args dispatchDesig
 	// Bounded poll budget exhausted without a terminal phase. Treat as an explicit
 	// terminal failure (NOT a success, NOT a perpetual Drafting) so the caller routes
 	// to the StageDraftFailed human gate.
-	return pipelineObservation{
+	exhausted := pipelineObservation{
 		Phase:      pipelineFailed,
 		Diagnostic: "design job did not reach a terminal state within the observation window",
-	}, nil
+		RunURL:     last.RunURL,
+		Episode:    last.Episode,
+	}
+	// The stuck job still burned tokens, so it still owes the ledger a record (a gap when
+	// nothing was mined) — never silent.
+	wf.captureEpisode(ctx, args, handle, exhausted)
+	return pipelineObservation{Phase: exhausted.Phase, Diagnostic: exhausted.Diagnostic}, nil
+}
+
+// ---------------------------------------------------------------------------
+// Episode capture (SP1 capture-seam, Task 7)
+// ---------------------------------------------------------------------------
+//
+// EVERY terminal observation of a Phase-2 design dispatch becomes EXACTLY ONE
+// EpisodeRecord in the episode ledger: either the mined summary or an explicit GAP
+// record. Omitting this choke point would silently lose every Phase-2 drafting episode.
+//
+// THREE disciplines hold here, and each has a reason:
+//
+//   - BUSINESS FIRST, EPISODE SECOND. The append is the LAST thing a terminal poll does,
+//     and its own failure is swallowed. A ledger line claiming something happened when it
+//     did not is worse than a missing line.
+//   - THE APPEND NEVER FAILS THE SESSION. appendEpisodeActivityOptions gives it its own
+//     retry envelope, wholly independent of the business retries; still failing at the end
+//     of that envelope means LOG and continue.
+//   - VENUE. The GitHub-Actions arm mines no episode in v1, so a nil summary there is
+//     EXPECTED, not a gap.
+//
+// DETERMINISM: the append is a plain ExecuteActivity — a NEW command in an EXISTING
+// workflow body. In-flight executions must be DRAINED before deploying (no GetVersion
+// guard is carried).
+
+// maxLateEpisodePolls bounds the EXTRA observe polls a CANCELLED run is given before its
+// episode is written off as a gap. Cancel flips the RA's phase SYNCHRONOUSLY while the
+// agent subprocess is still unwinding, so a cancelled run's FIRST terminal observation
+// legitimately carries no summary — it appears on a later poll.
+const maxLateEpisodePolls = 4
+
+// lateEpisodePollInterval spaces the late-episode grace polls. DELIBERATELY tighter than
+// the business poll interval: the wait is pure bookkeeping, but the workflow is blocked on
+// it, so a cancelled run would otherwise sit visibly "generating" for a further minute
+// before landing at its failure gate. Five seconds comfortably clears the executor's own
+// subprocess wait, and four of them cap the whole grace window at 20s.
+const lateEpisodePollInterval = 5 * time.Second
+
+// episodeVenueIsRemote reports whether this observation came from the REMOTE
+// (GitHub-Actions) venue, which mines no episode summary in v1. The run URL is the only
+// venue fact an observation carries: the Actions arm stamps it, and neither the local
+// executor nor the dry-run stub ever does. A GH run whose URL the RA could not resolve
+// therefore reads as local and earns a gap — deliberately the safe direction (a visible,
+// labelled gap beats a silent loss).
+func episodeVenueIsRemote(runURL string) bool {
+	return runURL != ""
+}
+
+// awaitLateEpisode gives a CANCELLED run's episode summary a bounded chance to arrive
+// (see maxLateEpisodePolls). It returns the observation to RECORD: the caller's original
+// with a late summary folded in when one arrived, else the original unchanged — which
+// becomes a gap. The business phase is never altered.
+func (wf *workflows) awaitLateEpisode(ctx workflow.Context, handle agenticjob.PipelineHandle, obs pipelineObservation) pipelineObservation {
+	if obs.Phase != pipelineCancelled || obs.Episode != nil {
+		return obs
+	}
+	for range maxLateEpisodePolls {
+		if err := workflow.Sleep(ctx, lateEpisodePollInterval); err != nil {
+			return obs
+		}
+		next, err := wf.observeDesignJob(ctx, handle)
+		if err != nil {
+			return obs
+		}
+		if next.Episode != nil {
+			obs.Episode = next.Episode
+			return obs
+		}
+	}
+	return obs
+}
+
+// captureEpisode appends the ONE ledger record this terminal observation owes.
+func (wf *workflows) captureEpisode(ctx workflow.Context, args dispatchDesignJobArgs, handle agenticjob.PipelineHandle, obs pipelineObservation) {
+	if episodeVenueIsRemote(obs.RunURL) {
+		return
+	}
+	targetRef := artifactKindString(args.ArtifactKind)
+	// Phase 2 has NO PM critique — every dispatch through this choke point is the
+	// architect drafting, so the only distinction to draw is first draft vs rework.
+	kind := episode.EpisodeKindDesign
+	if args.Redraft {
+		kind = episode.EpisodeKindRework
+	}
+	lineage := episodeLineage(ctx)
+	var rec episode.EpisodeRecord
+	if obs.Episode == nil {
+		rec = episodeGapRecord(kind, targetRef, lineage,
+			"gap-"+episodeIDSafe(episodeIDSeed(handle, args)),
+			episodeGapReason(episodeMissingSummaryReason, obs.Diagnostic), workflow.Now(ctx))
+	} else {
+		rec = episodeRecordFromSummary(*obs.Episode, kind, targetRef, lineage, obs.Diagnostic)
+	}
+	if err := wf.Acts.EpisodesAppendEpisode(ctx, episode.ProjectID(args.ProjectID), rec); err != nil {
+		// Swallowed BY DESIGN — see the "never fails the session" discipline above.
+		workflow.GetLogger(ctx).Error("episode append failed after its full retry envelope; this episode is NOT in the ledger",
+			"artifactKind", targetRef, "episodeId", rec.EpisodeID, "error", err.Error())
+	}
+}
+
+// episodeIDSeed is the deterministic, replay-stable seed a GAP record's EpisodeID is
+// built from — the dispatch handle (unique per dispatch, already in workflow history),
+// falling back to the artifact kind for a zero handle.
+func episodeIDSeed(handle agenticjob.PipelineHandle, args dispatchDesignJobArgs) string {
+	if h := agenticjob.PipelineHandleString(handle); h != "" {
+		return h
+	}
+	return artifactKindString(args.ArtifactKind)
+}
+
+// episodeLineage stamps the durable-execution lineage every workflow-side episode carries.
+// ActivityID is left unset: a design episode is anchored to an ARTIFACT (the TargetRef),
+// not to a Phase-3 Method activity, and the Temporal activity id is not readable from
+// inside a workflow.
+func episodeLineage(ctx workflow.Context) *episode.EpisodeLineage {
+	exec := workflow.GetInfo(ctx).WorkflowExecution
+	return &episode.EpisodeLineage{WorkflowID: exec.ID, RunID: exec.RunID}
 }
 
 // readBackCommittedModelOn is readBackCommittedModel with an OPTIONAL branch override

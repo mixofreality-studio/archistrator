@@ -9,6 +9,7 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/review"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/agenticjob"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/episode"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 	"github.com/mixofreality-studio/archistrator/server/internal/utility/messagebus"
@@ -133,6 +134,6 @@ type ConstructionManager interface {
 // builder newConstructionManager in the manager package (which owns the stateful facade setup:
 // the Temporal client, the deps, and config). The constructor returns the
 // interface, so the concrete manager impl stays unexported.
-func NewConstructionManager(client client.Client, projectState projectstate.ProjectStateAccess, artifact artifact.ArtifactAccess, intervention intervention.InterventionEngine, review review.ReviewEngine, pipeline agenticjob.AgenticJobAccess, rail sourcecontrol.SourceControlAccess, constructionTransition projectstate.ConstructionTransitionAccess, gitStatus projectstate.GitActivityStatusAccess, designSession projectstate.DesignSessionAccess, messageBus messagebus.MessageBus, escalationWaitTimeout time.Duration, interventionMode string, repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool)) ConstructionManager {
-	return newConstructionManager(client, projectState, artifact, intervention, review, pipeline, rail, constructionTransition, gitStatus, designSession, messageBus, escalationWaitTimeout, interventionMode, repo)
+func NewConstructionManager(client client.Client, projectState projectstate.ProjectStateAccess, artifact artifact.ArtifactAccess, intervention intervention.InterventionEngine, review review.ReviewEngine, pipeline agenticjob.AgenticJobAccess, rail sourcecontrol.SourceControlAccess, constructionTransition projectstate.ConstructionTransitionAccess, gitStatus projectstate.GitActivityStatusAccess, designSession projectstate.DesignSessionAccess, messageBus messagebus.MessageBus, episodes episode.EpisodeAccess, escalationWaitTimeout time.Duration, interventionMode string, repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool)) ConstructionManager {
+	return newConstructionManager(client, projectState, artifact, intervention, review, pipeline, rail, constructionTransition, gitStatus, designSession, messageBus, episodes, escalationWaitTimeout, interventionMode, repo)
 }

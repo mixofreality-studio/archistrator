@@ -124,6 +124,7 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/agenticjob"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/billingstate"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/episode"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/merchantgateway"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedruntime"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedsystemstate"
@@ -705,6 +706,15 @@ func (h *appHooks) FinalizeGitActivityStatusAccess(_ *Config, v projectstate.Git
 }
 
 func (h *appHooks) FinalizeDesignSessionAccess(_ *Config, v projectstate.DesignSessionAccess) projectstate.DesignSessionAccess {
+	return v
+}
+
+// FinalizeEpisodeAccess is identity — the profile arm's build is always the right
+// episodeAccess (SP1 capture-seam). Required by the generated Hooks interface the moment
+// the three design/construction Managers took the episodeAccess dep; the CONSTRUCTOR
+// binding for the LocalFS/NoOp variants is composition-root work that does not live here
+// (see main.gen.go's per-profile switch).
+func (h *appHooks) FinalizeEpisodeAccess(_ *Config, v episode.EpisodeAccess) episode.EpisodeAccess {
 	return v
 }
 
