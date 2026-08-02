@@ -49,7 +49,7 @@ their own trail) and its committed-trace tier stays cut. Its calibration advisor
 |---|---|
 | Sequencing vs audit log | **Capture seam only**; audit spine decoupled, later |
 | Bench archive location | **One new sibling repo** `archistrator-bench` |
-| Run autonomy | **Fully autonomous** end-to-end (local venue, vibes autogate, zero human gates); HITL only at improvement review |
+| Run autonomy | **Fully autonomous** end-to-end (local venue, vibes autogate); **the human does nothing at all** — a scripted Claude Code **operator agent** drives archistrator (MCP server preferred, Playwright MCP on the local SPA as fallback) and auto-approves every surviving gate; HITL only at improvement review |
 | Output-app quality metric | **Frozen external acceptance suite** (hard, drives statistics) + **LLM-judged rubric** (recorded, labeled soft, never in significance tests) |
 | Dashboard | **Hand-built static Vite/React SPA** in the bench repo, no server/DB |
 | Learning opt-in | **Deferred entirely**; keep a one-line consent-filter seam at the analysis ingest boundary |
@@ -189,9 +189,7 @@ archistrator-bench/
     archistrator/  # hard   — archistrator rebuilt from its own requirements corpus
       # each: pinned research corpus (the constant input), frozen acceptance suite,
       #       feature checklist, soft LLM rubric
-  runner/          # CLI: provision project repo → seed pinned inputs → drive
-                   # system-design → project-design → construction, fully autonomous
-                   # (local venue, vibes autogate) → poll to completion → harvest
+  runner/          # deterministic CLI shell + the operator agent (see below)
   runs/<benchmark>/<runId>/    # IMMUTABLE, append-only, kept forever
     app/           # full built-app snapshot
     project.json
@@ -199,14 +197,43 @@ archistrator-bench/
     acceptance/    # frozen-suite results
     metrics.json   # stage-1 extraction output
     run.json       # archistrator commit SHA, model IDs, suite version/epoch,
+                   # operator prompt hash + operator model, pinned-fallback occurrences,
                    # timestamps, outcome (succeeded | failed)
+    operator/      # operator agent transcript — bench overhead, excluded from metrics.json
   analysis/        # SP3 (Python + scipy/numpy)
   dashboard/       # SP4 (static Vite/React SPA)
   runs/index.json  # regenerated aggregate the dashboard reads
 ```
 
+**The runner is two layers (founder ruling, 2026-08-02).**
+
+1. **Deterministic CLI shell** (plain code): provision the project repo, seed the pinned
+   research corpus, boot the archistrator local stack (server + Temporal + SPA), launch the
+   operator agent, poll to completion, harvest, archive. No judgment, no LLM.
+2. **The operator agent** — a Claude Code session acting as a scripted live QA operator that
+   drives archistrator exactly as a user would, end-to-end through system design → project
+   design → construction. **No human does anything at any point.** Tool surface, in preference
+   order: **archistrator's own MCP server** (the generated manager MCP tools) for every step
+   that exposes a verb; **Playwright MCP against the locally running SPA** for any step that
+   is UI-only — including clicking approve on any approval gate that survives the vibes
+   autogate policy. Doing it all via MCP is the desired end-state; the browser fallback is
+   acceptable wherever a verb is missing (each such gap gets noted for later MCP exposure).
+
+**Operator skew control.** The operator must not be a confound in the measurements:
+   - Its prompt is **frozen and versioned** in `runner/`: enter the pinned benchmark prompt
+     **verbatim** (never paraphrase, never add context), approve everything, never author
+     content, never answer a design question with its own ideas — if archistrator asks a
+     question the pinned inputs don't answer, the operator gives a pinned fallback response
+     ("proceed with your recommendation"), and the occurrence is recorded in `run.json`.
+   - `run.json` records the operator prompt hash + operator model ID; a change to either
+     starts a new comparability **epoch**, same as an acceptance-suite change.
+   - The operator's own session (its tokens, turns, transcript) is **bench overhead, not run
+     data**: archived alongside the run for debugging, but excluded from `metrics.json` — the
+     measured system is archistrator's agents, never the operator.
+
 - **Configuration identity = archistrator commit SHA.** Every improvement is a commit; runs
-  are keyed to what built them.
+  are keyed to what built them. (Bench-side identity — operator prompt, acceptance suite —
+  is tracked by the epoch fields in `run.json`.)
 - **Failed runs are archived too**, marked `failed`, traces included — failures are data.
   Reruns get fresh runIds; no in-place resume.
 - **Frozen suites:** versioned; never modified within an experiment series. A suite change
@@ -312,9 +339,10 @@ Built following the dataviz skill.
 
 ## 11. Open questions
 
-1. **Autonomous-run gaps** — which design-rail steps still hard-require a human on the local
-   venue (vibes autogate coverage) will be discovered in the SP2 hardening pass; each gets
-   fixed or explicitly stubbed for bench runs.
+1. **Autonomous-run gaps** — which design-rail steps still require an approval or answer on
+   the local venue (vibes autogate coverage) will be discovered in the SP2 hardening pass;
+   each is handled by the operator agent (MCP verb if exposed, Playwright click if UI-only),
+   and each UI-only gap is noted as a candidate for MCP exposure.
 2. **Subagent span fidelity** — how much per-subagent token/duration detail the stream-json
    exposes for Task tool calls (sidechain events carry `parent_tool_use_id`); capture what the
    supervisor can observe, no agent self-report. Known discrepancy: the terminal
