@@ -5,11 +5,11 @@ go 1.25.4
 require (
 	github.com/google/jsonschema-go v0.4.3
 	github.com/jackc/pgx/v5 v5.9.2
-	github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator v0.8.1
+	github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator v0.9.0
 	github.com/mixofreality-studio/archistrator-platform/framework-go-http-generator v0.4.0
 	github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-llm v0.2.0
 	github.com/mixofreality-studio/archistrator-platform/framework-go-projectmodel v0.2.3
-	github.com/mixofreality-studio/archistrator-platform/method-assets v0.1.8
+	github.com/mixofreality-studio/archistrator-platform/method-assets v0.2.0
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.60.0
 	go.temporal.io/api v1.62.12
 	go.temporal.io/sdk v1.44.0
@@ -123,7 +123,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.3.2 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.28.0 // indirect
-	github.com/mixofreality-studio/archistrator-platform/framework-go v0.9.0
+	github.com/mixofreality-studio/archistrator-platform/framework-go v0.10.0
 	github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github v0.1.5
 	github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-keycloak v0.2.0
 	github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-otel v0.1.0
@@ -148,21 +148,3 @@ require (
 )
 
 tool github.com/alecthomas/go-check-sumtype/cmd/go-check-sumtype
-
-// PoC-TEMPORARY (callchain-realization): consume local methodcheck CC-* rules.
-// The post-QA rollout releases framework-go and swaps this for a version pin.
-replace github.com/mixofreality-studio/archistrator-platform/framework-go => ../../archistrator-platform/framework-go
-
-// PoC-TEMPORARY (callchain-realization): consume local modelgen with the Utility
-// layerContext, without which the messageBus utility contract emits context-less
-// signatures and NO Temporal implementation. The post-QA rollout releases
-// framework-go-app-generator and swaps this for a version pin.
-replace github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator => ../../archistrator-platform/framework-go-app-generator
-
-// PoC-TEMPORARY (callchain-realization): materialize the step-keyed realization
-// doctrine into .claude before method-assets is released. `make claude-assets`
-// renders the prompt surface from this module, so the pinned v0.1.8 would seat
-// the pre-rollout doctrine (flat edge lists, back-populate linkedComp, "exactly
-// one start node"). The post-QA rollout releases method-assets and swaps this
-// for a version pin.
-replace github.com/mixofreality-studio/archistrator-platform/method-assets => ../../archistrator-platform/method-assets
