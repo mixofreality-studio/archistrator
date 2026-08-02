@@ -166,17 +166,34 @@ construction-activity page:
   **CSV flattening happens client-side in the SPA** from the JSON export — no hand-written
   handler, no waiver.
 
-Reads flow through a new thin **`episodeManager`** (3 ops: `listEpisodesForTarget`,
-`getEpisodeTimeline`, `exportEpisodes`) over `episodeAccess`, via the existing generated
-`clientgen` rail. It reads the **capture store only**; the future `auditManager` remains the
-evidence surface over `auditAccess` — two thin managers over two stores, sharing SPA
-components, per the audit spec's volatility split. Manager cardinality goes 5 → 6 (7 with the
-future auditManager) — under the Appendix-C failure line, but recorded as a waiver-with-
-justification so the next manager proposal meets resistance. The shared panel/timeline
-components take the `EpisodeSummary` event shape plus an **optional badges slot**
-(assurance/completeness), so the audit spine later adds badges without forking the component;
-`EpisodeSummary` stays free of OCSF/audit fields. Gap-entry shape stays aligned with the audit
-spec's gap records.
+**Read surface (AMENDED 2026-08-02, founder-ratified after system-architect consultation —
+supersedes the earlier thin-`episodeManager` shape).** "View episode traces" is not a use case
+in its own right; it is a **facet** of the existing use cases (as the EV chart is a facet of
+tracking), and episode observability encapsulates **no Manager-layer volatility** — observation
+varies in `agenticjob`, retention in `episodeAccess`, presentation in the Client. A dedicated
+`episodeManager` would have existed only because clientgen requires a manager contract — a rail
+constraint wearing an architecture costume. Therefore:
+
+- Reads are **facet ops on the managers that already persist the episodes** (each already holds
+  the `episodeAccess` dep for writes): `constructionManager.listEpisodesForActivity` +
+  `getEpisodeTimeline` (activity pages, tracking family, beside the EV chart);
+  `systemDesignManager.listEpisodesForArtifact` + `getEpisodeTimeline` and
+  `projectDesignManager.listEpisodesForArtifact` + `getEpisodeTimeline` (session views, beside
+  the dispatch observability they already carry). The two design-manager facets collapse into
+  one automatically when the ratified 2026-07-10 DesignManager merge is eventually executed.
+- **Manager roster stays at 5.** No cardinality waiver, no framework-go gate release, no
+  weakened gate. The cardinality reckoning is explicitly deferred to the audit spine, whose
+  customer-facing `auditManager` must re-argue its own case when it lands.
+- **Export**: per-target JSON/CSV via the SPA export button, assembled **client-side** from the
+  facet read ops. The whole-project REST export op is **cut from v1** — the bench harness reads
+  the sidecar from the working tree and never calls REST; a dedicated export op returns if a
+  real consumer appears.
+
+The shared panel/timeline components are unchanged: pure, `EpisodeSummary`-shaped, with an
+**optional badges slot** (assurance/completeness) so the audit spine later adds badges without
+forking; `EpisodeSummary` stays free of OCSF/audit fields; gap-entry shape stays aligned with
+the audit spec's gap records. Only the per-page containers differ in which manager's generated
+ops they call.
 
 ## 6. SP2 — Bench repo (`archistrator-bench`)
 

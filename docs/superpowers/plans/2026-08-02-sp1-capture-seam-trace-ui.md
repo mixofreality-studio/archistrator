@@ -175,7 +175,7 @@ exact precedent: `NewLocalExecAgenticJobAccess` / `NewNoOpOperatedSystemStateAcc
 precedents in project.json (e.g. `projectDesignManager/$defs/DraftModel/properties/model`),
 one already web-exposed through clientgen.
 
-- [ ] **Step 2: Register the component in the system model.** Add to `.slots["5"].model.components`: `{ "id": "episode-access", "kind": "resourceAccess", "layer": "resourceAccess", "contractKey": "episodeAccess", "name": "EpisodeAccess", "encapsulates": "episode ledger + trace sidecar storage", "encapsulatesVolatilities": [...], "atomicBusinessVerbs": [...] }` — note `encapsulates` is a **string** in real entries; match neighboring components' exact field set (copy `usage-access` and edit). Add relationships from `construction-manager`, `systemdesign-manager`, `projectdesign-manager`, and (added in Task 9) `episode-manager` to `episode-access`. Add `"EpisodeAccess"` to the archistrator-server container's components in `.slots["6"]`. **Also add a deployment binding** (composegen has no construction recipe without one): `{ "component": "episodeAccess", "presence": "required", "settings": [], "perProfile": { "local": { "variant": "LocalFS", "infra": [] }, "cloud": { "variant": "NoOp", "infra": [] } } }` — the NoOp variant appends/lists nothing (explicit, logged) until the deferred deployed profile lands; never a nil RA under an unbounded-retry activity.
+- [ ] **Step 2: Register the component in the system model.** Add to `.slots["5"].model.components`: `{ "id": "episode-access", "kind": "resourceAccess", "layer": "resourceAccess", "contractKey": "episodeAccess", "name": "EpisodeAccess", "encapsulates": "episode ledger + trace sidecar storage", "encapsulatesVolatilities": [...], "atomicBusinessVerbs": [...] }` — note `encapsulates` is a **string** in real entries; match neighboring components' exact field set (copy `usage-access` and edit). Add relationships from `construction-manager`, `systemdesign-manager`, and `projectdesign-manager` to `episode-access` (these carry both the Task-7 writes and the Task-9 facet reads — no other component touches it, per the 2026-08-02 facet ruling). Add `"EpisodeAccess"` to the archistrator-server container's components in `.slots["6"]`. **Also add a deployment binding** (composegen has no construction recipe without one): `{ "component": "episodeAccess", "presence": "required", "settings": [], "perProfile": { "local": { "variant": "LocalFS", "infra": [] }, "cloud": { "variant": "NoOp", "infra": [] } } }` — the NoOp variant appends/lists nothing (explicit, logged) until the deferred deployed profile lands; never a nil RA under an unbounded-retry activity.
 
 - [ ] **Step 3: Regenerate + gates.**
 
@@ -383,47 +383,51 @@ func TestAppendFailureDoesNotFailBusinessFlow(t *testing.T) {
 
 ---
 
-### Task 9: `episodeManager` (thin read manager) + client rail
+### Task 9: Facet read ops on the three dispatching managers (founder ruling 2026-08-02: NO new `episodeManager`)
+
+**Ruling context:** episode observability is a facet of existing use cases, not a Manager-layer
+volatility (spec §5 amendment, 2026-08-02). The reads live on the managers that already persist
+episodes (Task 7 gave each the `episodeAccess` dep). Roster stays at 5 — no cardinality waiver,
+no framework-go release. The whole-project `exportEpisodes` REST op is **cut from v1**
+(per-target export is client-side in Task 10; the bench harness reads the sidecar directly).
 
 **Files:**
-- Modify: `.aiarch/state/project.json` — `.serviceContracts.episodeManager` (new), slot-5 component `episode-manager` + relationship to `episode-access`, slot-6 container entry
-- Modify: `server/cmd/appgen/main.go:84` (`managers` list) and `:155` (`WebExposedManagers`); `server/cmd/clientgen/main.go:64` (`exposedManagers`)
-- Create: `server/internal/manager/episode/episodemanager.go` (Rule-1), `server/internal/manager/episode/manager_test.go` (Rule-3)
-- Modify: `server/internal/registered_names_test.go` (golden), `server/internal/arch_test.go` (allowlists/spec map)
-- Generated: `server/internal/manager/episode/{contract,activities,invokers,worker}.gen.go`, `server/internal/client/web/episode/episode_handlers.gen.go`, `server/internal/client/mcp/episode/episode_tools.gen.go`, `server/api/openapi.yaml`
+- Modify: `.aiarch/state/project.json` — `.serviceContracts.{constructionManager,systemDesignManager,projectDesignManager}` (add facet ops + episode view `$defs`; the `episodeAccess` deps already exist from Task 7)
+- Modify: `server/internal/manager/construction/constructionmanager.go`, `server/internal/manager/systemdesign/systemdesignmanager.go`, `server/internal/manager/projectdesign/projectdesignmanager.go` (plain-method implementations)
+- Modify: each manager's `manager_test.go`
+- Generated: each manager's `contract.gen.go` + `fake/fake.gen.go`; existing handler/tool files under `server/internal/client/web/*` and `server/internal/client/mcp/*`; `server/api/openapi.yaml`; `../systemtests/internal/sdk` (regenerated by the same appgen run)
 
 **Interfaces:**
-- Produces (manager contract, lowerCamel wire props like `billingManager`): `EpisodeManager` with exactly 3 ops —
-  - `ListEpisodesForTarget(projectID string, targetRef string) ([]EpisodeRecordView, error)`
-  - `GetEpisodeTimeline(projectID string, episodeID string) (EpisodeTimeline, error)` — `EpisodeTimeline { record EpisodeRecordView, events []TimelineEvent }`, `TimelineEvent { seq int, eventType string, raw json.RawMessage }` (the `["null"]` + `x-go-type` shape from Task 2 — no string fallback)
-  - `ExportEpisodes(projectID string, targetRef string) (EpisodeExport, error)` — JSON only (`EpisodeExport { records []EpisodeRecordView, traces map[string][]TimelineEvent }`); **CSV is client-side** (spec ruling).
-  - `EpisodeRecordView` mirrors Task 2's `EpisodeRecord` with lowerCamel wire props (`x-go-name` for Go casing), and MUST NOT add OCSF/audit fields.
-- Consumes: `episodeAccess` (sole dep).
+- Produces (manager contracts, lowerCamel wire props + `x-go-name` like `billingManager`):
+  - `constructionManager`: `ListEpisodesForActivity(projectID string, activityID string) ([]EpisodeRecordView, error)` + `GetEpisodeTimeline(projectID string, episodeID string) (EpisodeTimeline, error)`
+  - `systemDesignManager`: `ListEpisodesForArtifact(projectID string, artifactKind string) ([]EpisodeRecordView, error)` + `GetEpisodeTimeline(projectID string, episodeID string) (EpisodeTimeline, error)`
+  - `projectDesignManager`: same two ops as systemDesignManager (Phase-2 session views; these facets collapse into one when the ratified DesignManager merge lands)
+  - Shared view shapes, defined per contract (self-contained contracts repeat view types — `PipelinePhase` exists in four contracts today): `EpisodeRecordView` mirrors Task 2's `EpisodeRecord` with lowerCamel wire props, MUST NOT add OCSF/audit fields; `EpisodeTimeline { record EpisodeRecordView, events []TimelineEvent }`; `TimelineEvent { seq int, eventType string, raw json.RawMessage }` (the `["null"]` + `x-go-type` shape from Task 2 — no string fallback).
+- Consumes: each manager's existing `episodeAccess` dep (from Task 7).
 
-- [ ] **Step 1:** Author the contract (deps: `[{"name":"episodes","component":"episodeAccess"}]`; copy `billingManager` skeleton). Register component/relationships/deployment as in Task 2 Step 2. Add to the three hard-coded lists. The manager-cardinality question is handled in **Task 9b — read it before starting this task; it contains a founder gate.**
-- [ ] **Step 2:** `make gen-models && make gen-temporal && make gen-client && make gen-fakes`. **All three ops are plain methods in `episodemanager.go`** — generated web handlers call the manager directly (`h.Manager.AdvancePhase(rc, …)`, `web/systemdesign/system-design_handlers.gen.go:106`), and existing manager read ops are plain methods calling the RA (`systemDesignManager.ListProjects`/`GetProject`, systemdesignmanager.go:2164/:2183 — no Temporal). No Rule-2 workflow files, no workflow registrations. This is the first workflow-less manager on the rail: verify `worker.gen.go`/composegen tolerate it (temporalgen still emits the dep's activity surface — harmless), and keep any `client client.Client` dep out of the contract unless composegen's one-Worker-per-Manager walk demands it; if it does, mirror billingManager's client dep and accept an idle worker. **Note:** `make gen-temporal` also regenerates the systemtests SDK (`../systemtests/internal/sdk` — `gen-sdk-check` diffs it); commit those files with this task. Confirm the emitted handler path (kebab-derived from the contract title) before assuming `episode_handlers.gen.go`.
-- [ ] **Step 3: Failing manager tests** in `manager_test.go` (fake `episodeAccess`): list maps records through; timeline stitches record + trace events with sequential `seq`; export bundles both; unknown episode → error surfaced.
-- [ ] **Step 4:** Implement to green. Update `registeredTemporalNamesGolden`, encapsulation allowlist, `appArchSpec()`. Run full server verification suite (Global Constraints list).
-- [ ] **Step 5:** `make gen-client-check`; confirm `api/openapi.yaml` now carries the three ops.
-- [ ] **Step 6: Commit** (`feat(episode): episodeManager read surface through generated client rail`).
+- [ ] **Step 1:** Add the facet ops + episode view `$defs` to the three existing manager contract entries in `.serviceContracts` (lowerCamel wire props + `x-go-name`; copy the `$defs` shapes from Task 2, converting casing). **No new component, no slot-5/slot-6 entries, no hard-coded list changes, no new task queue** — the managers already exist on the rail. Op-count note: systemDesignManager is already the fattest contract (14 ops); +2 may trip the App-C avoid-12 *warning* — that one IS Warning-severity and waivable; add the waiver entry if methodcheck flags it, justified by the pending DesignManager merge.
+- [ ] **Step 2:** `make gen-models && make gen-fakes && make gen-client && make gen-temporal`. **All facet ops are plain methods** — generated web handlers call the manager directly (`h.Manager.AdvancePhase(rc, …)`, `web/systemdesign/system-design_handlers.gen.go:106`), and existing manager read ops are plain methods calling the RA (`systemDesignManager.ListProjects`/`GetProject`, systemdesignmanager.go:2164/:2183 — no Temporal). No Rule-2 workflow files, no new workflow registrations, no `registeredTemporalNamesGolden` workflow changes (activity names were already updated in Task 7). **Note:** `make gen-temporal` also regenerates the systemtests SDK (`../systemtests/internal/sdk` — `gen-sdk-check` diffs it); commit those files with this task.
+- [ ] **Step 3: Failing manager tests** in each `manager_test.go` (fake `episodeAccess`): list maps records through with the manager's targetRef semantics (activityID vs artifactKind); timeline stitches record + trace events with sequential `seq`; unknown episode → error surfaced.
+- [ ] **Step 4:** Implement to green (plain methods in each manager's Rule-1 impl file). Run full server verification suite (Global Constraints list).
+- [ ] **Step 5:** `make gen-client-check`; confirm `api/openapi.yaml` carries the six ops across the three existing surfaces.
+- [ ] **Step 6: Commit** (`feat(managers): episode facet read ops on construction/systemdesign/projectdesign`).
 
 ---
 
-### Task 9b: System-model realization + cardinality gate
+### Task 9b: System-model dynamic-view realization
 
 **Files:**
-- Modify: `.aiarch/state/project.json` — `.slots["5"].model.dynamicViews`, `.slots["5"].model.waivers[]`
+- Modify: `.aiarch/state/project.json` — `.slots["5"].model.dynamicViews`
 
-**Why this task exists:** `make method-check` runs rules from the pinned framework-go at
-**SeverityError**, and two of them fail on Tasks 2/9 as authored:
-`DV-STATIC-COVERAGE`/`DV-REL-COVERAGE` (`methodcheck/rules_dynamic.go:127-131` — every
-non-Resource/non-Utility component must appear in ≥1 dynamic view, every static sync
-relationship must be exercised by one) and `SYS-CARD-MGR` (>5 Managers,
-`methodcheck/rules_system.go:324-331`).
+**Why this task exists:** `DV-STATIC-COVERAGE`/`DV-REL-COVERAGE` run at **SeverityError**
+(`methodcheck/rules_dynamic.go:127-131`) — every non-Resource/non-Utility component must
+appear in ≥1 dynamic view and every static sync relationship must be exercised by one.
+`episode-access` and its new relationships appear in no view until this task.
+(The former SYS-CARD-MGR founder gate is **resolved**: founder ruling 2026-08-02 = facet
+reads, no 6th manager — the >5-managers Error never fires. Roster stays 5.)
 
-- [ ] **Step 1: Dynamic-view coverage.** Extend the affected use-case realizations in `.slots["5"].model.dynamicViews`: add one call fragment `{from: <dispatching manager>, to: "episode-access", mode: "sync", label: "appendEpisode (terminal-observation episode record)"}` on the terminal-observation step of each agentic-dispatch view (construction activity, design draft, Phase-2 draft), and add a realized view for the trace-read surface (actor → webClient → episode-manager → episode-access) keyed to its use case's activity diagram in `.coreUseCases`. Run `make method-check` — DV rules green.
-- [ ] **Step 2: Author the cardinality waiver** as a `.slots["5"].model.waivers[]` entry (shape per the existing §2d entry at project.json:8478): `{section: "SYS-2a", guideline: "...≤5 Managers...", status: "waived", justification: "episodeManager is a thin read-only surface over one RA; ratified in the 2026-08-02 self-improvement spec; the audit spine will add auditManager as a 7th on the same grounds"}`.
-- [ ] **Step 3: FOUNDER GATE — STOP.** `SYS-CARD-MGR` is emitted at SeverityError and `applyWaivers` only downgrades **Warning**-severity App-C findings (`rules_appc.go:353-368`, `validate.go:169`) — **the ≤5-Managers Error is not waiver-downgradable in framework-go v0.10.0**, so the waiver in Step 2 does not turn method-check green. Do not proceed on a red method-check; do not weaken the gate locally. Escalate to the founder with the two options: (a) a framework-go release making SYS-CARD-MGR waiver-aware (needed anyway — the audit spec plans a 7th manager), or (b) an interim founder-ratified alternative. Record the ruling here before Task 9 lands.
+- [ ] **Step 1: Dynamic-view coverage.** Extend the affected use-case realizations in `.slots["5"].model.dynamicViews`: add one call fragment `{from: <dispatching manager>, to: "episode-access", mode: "sync", label: "appendEpisode (terminal-observation episode record)"}` on the terminal-observation step of each agentic-dispatch view (construction activity, design draft, Phase-2 draft), and extend the relevant page-read realizations with the facet-read fragments (actor → webClient → <owning manager> → episode-access) keyed to their use cases' activity diagrams in `.coreUseCases`. Run `make method-check` — DV rules green, no new waivers expected (only the possible SDM op-count warning from Task 9 Step 1).
+- [ ] **Step 2: Commit** (`docs(model): realize episode-access in dynamic views`).
 
 ---
 
@@ -436,14 +440,15 @@ relationship must be exercised by one) and `SYS-CARD-MGR` (>5 Managers,
 - Test: `webApp/src/utilities/episodeCsv.test.ts`
 
 **Interfaces:**
-- Consumes: generated ops for `listEpisodesForTarget` / `getEpisodeTimeline` / `exportEpisodes` from `ops.gen.ts` (exact op ids appear after Task 9's regen — read `ops.gen.ts`).
-- Produces: `<EpisodesPanelContainer projectId targetRef />` (container) rendering `<EpisodesPanel />` (pure) — collapsible panel listing episodes (outcome chip incl. `cancelled`/`gap`, duration, model, **worker class**, tokens in/out/cache, turns, tool count, subagent count, and the **lineage tree**: workflow → activity → episode → subagent spans, per spec §5) with an **optional `badges` render-prop slot** (spec: audit spine adds assurance/completeness later without forking); row-click expands `<EpisodeTimeline />` (per-turn tokens, tool rows with name + metadata, subagent spans, filter-by-event-type dropdown — dropdown per UI selection convention); **Export** menu: "JSON" (download of `exportEpisodes` result) and "CSV" (client-side flatten via `episodeCsv.ts`).
+- Consumes: generated ops from `ops.gen.ts` (exact op ids appear after Task 9's regen — read `ops.gen.ts`): `listEpisodesForActivity` + construction `getEpisodeTimeline` on activity pages; `listEpisodesForArtifact` + the owning design manager's `getEpisodeTimeline` on Phase-1/Phase-2 design pages. There is **no** `exportEpisodes` op (cut per the 2026-08-02 facet ruling) — the export button assembles its payload client-side from the list + timeline ops already fetched.
+- Produces: `<EpisodesPanelContainer projectId targetRef />` (container) rendering `<EpisodesPanel />` (pure) — collapsible panel listing episodes (outcome chip incl. `cancelled`/`gap`, duration, model, **worker class**, tokens in/out/cache, turns, tool count, subagent count, and the **lineage tree**: workflow → activity → episode → subagent spans, per spec §5) with an **optional `badges` render-prop slot** (spec: audit spine adds assurance/completeness later without forking); row-click expands `<EpisodeTimeline />` (per-turn tokens, tool rows with name + metadata, subagent spans, filter-by-event-type dropdown — dropdown per UI selection convention); **Export** menu: "JSON" (download of a client-assembled `EpisodeExport { records, traces }` built from the list + timeline ops for the current target) and "CSV" (client-side flatten via `episodeCsv.ts` over the same assembled value).
 
 - [ ] **Step 1:** `cd webApp && npm run gen:api && npm run gen:ops`; commit the regenerated files separately (`chore(webApp): regen API surface for episodeManager`).
 - [ ] **Step 2: Failing test for the CSV flattener** (`node --test` — repo has no vitest):
 
 ```ts
-// episodeCsv.test.ts — flattenEpisodesToCsv(export: EpisodeExport): string
+// episodeCsv.test.ts — flattenEpisodesToCsv(exp: EpisodeExport): string
+// EpisodeExport is a client-side type in episodeCsv.ts: { records: EpisodeRecordView[], traces: Record<string, TimelineEvent[]> }
 // asserts: header row "episodeId,kind,targetRef,outcome,model,workerClass,tokensIn,tokensOut,cacheRead,cacheCreate,costUsd,numTurns,startedAt,endedAt";
 // one row per record; fields containing commas/quotes are RFC-4180 quoted; \n line endings.
 ```
@@ -477,7 +482,7 @@ relationship must be exercised by one) and `SYS-CARD-MGR` (>5 Managers,
 
 - [ ] **Step 1:** From `server/`: the entire Global Constraints verification list, including every `gen-*-check`, `make encapsulation-check`, `make sumtype-check`, `make method-check`.
 - [ ] **Step 2:** From `webApp/`: `npm run check`. From `uitests/`: full `npm test`. From `systemtests/`: `make test-short`.
-- [ ] **Step 3:** Update `docs/superpowers/specs/2026-08-02-self-improvement-pipeline-design.md` §5 status note: SP1 implemented; record the deviations as dated amendments — at minimum: self-ignoring sidecar `.gitignore` instead of the method-assets scaffold change (system-architect endorsed), plain-method reads on episodeManager, the NoOp cloud variant, the Task 9b cardinality ruling, and the **DRAIN-before-deploy** release note from Task 7.
+- [ ] **Step 3:** Update `docs/superpowers/specs/2026-08-02-self-improvement-pipeline-design.md` §5 status note: SP1 implemented; record the deviations as dated amendments — at minimum: self-ignoring sidecar `.gitignore` instead of the method-assets scaffold change (system-architect endorsed), the facet-reads ruling already amended into §5 (no episodeManager, export op cut), the NoOp cloud variant, and the **DRAIN-before-deploy** release note from Task 7.
 - [ ] **Step 4: Commit** (`chore: SP1 capture seam + trace UI complete`).
 
 ---
