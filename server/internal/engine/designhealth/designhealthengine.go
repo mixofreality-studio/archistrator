@@ -706,9 +706,13 @@ func (s slotData) typedEncapsulationActive() bool {
 // as the pass's two new rules, and designhealth has no separate
 // artifact-family split the way the platform's rules.go/rules_callchain.go do.
 //
-// SEVERITY: the whole family is advisory in this PoC (ccLiveSeverity =
-// SeverityWarning below) — the post-QA rollout flips it to Error, mirroring the
-// platform's ccGateSeverity.
+// SEVERITY: the whole family was advisory through the PoC and the realization
+// rollout. The rollout's Task 12 severity flip (2026-08-01) makes ccLiveSeverity
+// SeverityError below, mirroring the platform's ccGateSeverity — the hard gate is
+// now live: any future draft/commit with a CC-* or CUC-ACTOR-REQUIRED violation
+// blocks. The two tiers have no DV-STATIC-COVERAGE/DV-REL-COVERAGE analog here
+// (those two coverage rules live platform-side only — see rules_dynamic.go — so
+// there is no utility-target exemption to mirror in this engine).
 //
 // SECTION GRAMMAR (binding — the webApp's Design Health surface joins its
 // per-step finding badges on these exact strings, NOT on a title-first label):
@@ -733,7 +737,7 @@ func (s slotData) typedEncapsulationActive() bool {
 // actor in one use case and nothing in another — resolution is always relative
 // to the view's use case. ActivityNode.DecidedBy resolves in exactly the same
 // two namespaces.
-const ccLiveSeverity = methodcheck.SeverityWarning
+const ccLiveSeverity = methodcheck.SeverityError
 
 // ccMustHaveStep is the set of activity-node kinds that MUST carry a realizing
 // step: they are the nodes that DO something, so a call chain has to say what

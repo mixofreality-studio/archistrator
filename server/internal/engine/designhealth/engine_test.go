@@ -238,6 +238,32 @@ func TestGreenFixtureAdvisoriesFire(t *testing.T) {
 	assertAbsent(t, got, RuleCCDecidedBy)
 }
 
+// TestCC_AllRulesAreErrorSeverity pins ccLiveSeverity post-flip (Task 12,
+// 2026-08-01, "gates: live tier flips to Error"): the whole CC-* family (and its
+// CoreUseCases-attributed sibling CUC-ACTOR-REQUIRED) is now the HARD GATE — a
+// firing rule is SeverityError, mirroring the platform's
+// framework-go/methodcheck TestCC_AllRulesAreErrorSeverity. There is no
+// PoC-advisory posture left to pin honestly by name; unlike the platform tier
+// this app-side engine never carried a test asserting the OLD (Warning) posture
+// by name, so there is nothing to rename — this test is new.
+func TestCC_AllRulesAreErrorSeverity(t *testing.T) {
+	doc := withSlots(
+		sysDoc(comps(comp("c", "client"), comp("m", "manager")),
+			rels(rel("c", "m", "sync")),
+			dvs(dvSteps("uc-a", step("ghost-node", edge("c", "m", "sync"))))),
+		useCasesDoc(ucCase("uc-a", "clientAction", ucActors(),
+			actDiagram(
+				actNodes(actNode("start", "start"), actNode("act", "action"), actNode("end", "end")),
+				actEdges(actEdge("start", "act"), actEdge("act", "end"))))),
+	)
+	findings := EvaluateRaw(mustMarshal(t, doc))
+	got := indexBySeverity(findings)
+	assertPresent(t, got, RuleCCStepNode, methodcheck.SeverityError)
+	if ccLiveSeverity != methodcheck.SeverityError {
+		t.Fatalf("every CC-* rule must be the hard gate (SeverityError) post-flip, got %v", ccLiveSeverity)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // NEGATIVE FIXTURES — one per rule family, each a minimal project.json that
 // makes exactly the target rule fire at its designed severity. The docs are
