@@ -1249,6 +1249,11 @@ func TestLocalExecObserve_KnownRunning_StillRunning(t *testing.T) {
 	if obs.Phase != PhaseRunning {
 		t.Fatalf("Phase = %v, want PhaseRunning for a known in-flight run", obs.Phase)
 	}
+	// The episode summary is a TERMINAL fact — mined from the closed trace after
+	// cmd.Wait. A mid-flight observation must never carry a half-read one.
+	if obs.Episode != nil {
+		t.Fatalf("Episode = %+v on a still-running observation, want nil", obs.Episode)
+	}
 	// Clean up: cancel the sleeping subprocess so the test does not leak it.
 	if err := a.CancelAgenticJob(obsRC(context.Background()), handle); err != nil {
 		t.Fatalf("Cancel: %v", err)
@@ -3026,18 +3031,24 @@ func TestLocalExecSubmit_BareSharedRepo_RefusesToDispatch(t *testing.T) {
 // TR5 — the tee. claude's WHOLE stream-json stdout lands in the per-episode
 // trace file under the shared repo, keyed by the SAME dedup token the handle is
 // (no second identity), next to a self-ignoring .gitignore.
+//
+// TE7 (folded in rather than duplicating the whole dispatch harness): the SAME
+// real dispatched run's terminal observation carries the EpisodeSummary mined
+// from that trace — the end-to-end proof that the parser is actually wired into
+// awaitCompletion's success path and republished by ObserveAgenticJob.
 func TestLocalExecRun_TeesWholeStdoutToPerEpisodeTraceFile(t *testing.T) {
 	repoDir, url := newSharedRepo(t)
 	installClaudeShim(t, "#!/bin/sh\n"+
 		"set -e\n"+
 		"git config user.email shim@aiarch.local\n"+
 		"git config user.name shim\n"+
-		`echo '{"type":"system","subtype":"init","session_id":"s1"}'`+"\n"+
-		`echo '{"type":"assistant","message":{"content":[{"type":"text","text":"MIDDLE-EVENT"}]}}'`+"\n"+
+		`echo '{"type":"system","subtype":"init","session_id":"s1","model":"claude-sonnet-5"}'`+"\n"+
+		`echo '{"type":"assistant","message":{"content":[{"type":"text","text":"MIDDLE-EVENT"}],"usage":{"input_tokens":3,"output_tokens":2,"cache_read_input_tokens":100,"cache_creation_input_tokens":50}}}'`+"\n"+
+		`echo '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_a","name":"Write"}],"usage":{"input_tokens":1,"output_tokens":1,"cache_read_input_tokens":10,"cache_creation_input_tokens":5}}}'`+"\n"+
 		"echo work >> WORK.txt\n"+
 		"git add -A\n"+
 		"git commit -m 'shim work' >/dev/null\n"+
-		`echo '{"type":"result","subtype":"success","is_error":false,"result":"done"}'`+"\n"+
+		`echo '{"type":"result","subtype":"success","is_error":false,"result":"done","num_turns":2,"total_cost_usd":0.5,"usage":{"input_tokens":5,"output_tokens":4,"cache_read_input_tokens":120,"cache_creation_input_tokens":60}}'`+"\n"+
 		"exit 0\n")
 	a := newLocalExecForTest(t, url, 10*time.Second)
 
@@ -3047,7 +3058,8 @@ func TestLocalExecRun_TeesWholeStdoutToPerEpisodeTraceFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
-	if obs := waitForTerminal(t, a, handle, 10*time.Second); obs.Phase != PhaseSucceeded {
+	obs := waitForEpisode(t, a, handle, 10*time.Second)
+	if obs.Phase != PhaseSucceeded {
 		t.Fatalf("Phase = %v, want PhaseSucceeded (diagnostic: %q)", obs.Phase, obs.Diagnostic)
 	}
 
@@ -3070,6 +3082,36 @@ func TestLocalExecRun_TeesWholeStdoutToPerEpisodeTraceFile(t *testing.T) {
 	}
 	// Self-ignoring, so an operated repo needs no scaffold change.
 	assertFileContains(t, filepath.Join(tracesDir, ".gitignore"), "*")
+
+	assertDispatchedEpisode(t, obs.Episode, dedupToken(key), tracePath)
+}
+
+// assertDispatchedEpisode is TE7: the summary mined from the trace file TR5 just
+// asserted, as reported on the terminal observation. The id is the trace's own
+// name (one identity, no second spelling), TracePath points at that artifact,
+// BOTH token totals are present and DIFFER (proving neither is derived from the
+// other), and the wall-clock bounds come from the dispatch rather than the
+// stream — the TR5 shim emits no per-event timestamps, so the parser's fallback
+// must not have been used.
+func assertDispatchedEpisode(t *testing.T, ep *EpisodeSummary, wantID, wantTracePath string) {
+	t.Helper()
+	if ep.EpisodeID != wantID {
+		t.Fatalf("Episode.EpisodeID = %q, want the dedup token %q", ep.EpisodeID, wantID)
+	}
+	if ep.TracePath == nil || *ep.TracePath != wantTracePath {
+		t.Fatalf("Episode.TracePath = %v, want %q", ep.TracePath, wantTracePath)
+	}
+	if ep.Outcome != EpisodeSucceeded {
+		t.Fatalf("Episode.Outcome = %v, want EpisodeSucceeded", ep.Outcome)
+	}
+	assertModel(t, *ep, "claude-sonnet-5")
+	assertTurnsAndCost(t, *ep, 2, 0.5)
+	assertUsage(t, "Episode.Usage (terminal event)", ep.Usage, EpisodeUsage{In: 5, Out: 4, CacheRead: 120, CacheCreate: 60})
+	assertStreamedUsage(t, *ep, EpisodeUsage{In: 4, Out: 3, CacheRead: 110, CacheCreate: 55})
+	assertSoleToolCall(t, ep.ToolCallCounts, "Write", 1)
+	if ep.StartedAt.IsZero() || ep.EndedAt.IsZero() || ep.EndedAt.Before(ep.StartedAt) {
+		t.Fatalf("Episode wall-clock bounds %v..%v are not a real dispatch interval", ep.StartedAt, ep.EndedAt)
+	}
 }
 
 // TR6 is folded into LX-OBS3 above (the durable-log test): the log dir now
@@ -3242,4 +3284,464 @@ func TestLocalExecRun_TraceWriteFault_RunCompletesAndTruncationIsRecorded(t *tes
 			}
 		})
 	}
+}
+
+// ---------------------------------------------------------------------------
+// SP1 CAPTURE SEAM — TE-series: the episode stream parser + the summary the
+// terminal observation reports.
+//
+// Every expected number below is PINNED from the real Task-1 fixtures (read once
+// with jq, hard-coded here). They are not floors: a change in what the parser
+// counts must break these tests loudly rather than pass a ">= 1" check.
+// ---------------------------------------------------------------------------
+
+// fixtureTimes are the two arbitrary wall-clock bounds the parser is handed when
+// the caller knows them (the dispatch/completion instants). They must be
+// reported verbatim — the parser never second-guesses a caller-supplied bound.
+var (
+	fixtureStarted = time.Date(2026, 8, 2, 20, 0, 0, 0, time.UTC)
+	fixtureEnded   = time.Date(2026, 8, 2, 21, 0, 0, 0, time.UTC)
+)
+
+func openFixture(t *testing.T, name string) *os.File {
+	t.Helper()
+	f, err := os.Open(filepath.Join("testdata", "streamjson", name)) //nolint:gosec // fixed test fixture path
+	if err != nil {
+		t.Fatalf("open fixture %s: %v", name, err)
+	}
+	t.Cleanup(func() { _ = f.Close() })
+	return f
+}
+
+func readFixture(t *testing.T, name string) string {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("testdata", "streamjson", name)) //nolint:gosec // fixed test fixture path
+	if err != nil {
+		t.Fatalf("read fixture %s: %v", name, err)
+	}
+	return string(raw)
+}
+
+func assertUsage(t *testing.T, label string, got, want EpisodeUsage) {
+	t.Helper()
+	if got != want {
+		t.Fatalf("%s = %+v, want %+v", label, got, want)
+	}
+}
+
+func assertModel(t *testing.T, sum EpisodeSummary, want string) {
+	t.Helper()
+	if sum.Model == nil || *sum.Model != want {
+		t.Fatalf("Model = %v, want %q", sum.Model, want)
+	}
+}
+
+func assertTurnsAndCost(t *testing.T, sum EpisodeSummary, wantTurns int64, wantCost float64) {
+	t.Helper()
+	if sum.NumTurns == nil || *sum.NumTurns != wantTurns {
+		t.Fatalf("NumTurns = %v, want %d", sum.NumTurns, wantTurns)
+	}
+	if sum.CostUSD == nil || *sum.CostUSD != wantCost {
+		t.Fatalf("CostUSD = %v, want %v", sum.CostUSD, wantCost)
+	}
+}
+
+func assertStreamedUsage(t *testing.T, sum EpisodeSummary, want EpisodeUsage) {
+	t.Helper()
+	if sum.StreamedUsage == nil {
+		t.Fatal("StreamedUsage is nil; the per-turn assistant-event sum must be recorded too")
+	}
+	assertUsage(t, "StreamedUsage (summed assistant events)", *sum.StreamedUsage, want)
+}
+
+// assertSoleToolCall pins the tool-call histogram exactly: one tool, called
+// exactly n times, and nothing else counted.
+func assertSoleToolCall(t *testing.T, counts map[string]int64, name string, n int64) {
+	t.Helper()
+	if len(counts) != 1 || counts[name] != n {
+		t.Fatalf("ToolCallCounts = %v, want exactly {%s:%d}", counts, name, n)
+	}
+}
+
+func mustTime(t *testing.T, s string) time.Time {
+	t.Helper()
+	ts, err := time.Parse(time.RFC3339Nano, s)
+	if err != nil {
+		t.Fatalf("parse %q: %v", s, err)
+	}
+	return ts
+}
+
+// TE1 — success_with_tools.jsonl: one executed tool (Write, exactly once), a
+// terminal result event carrying the authoritative usage/cost/turns, and BOTH
+// token totals recorded (they differ: the terminal total is the API's own, the
+// streamed sum is per-turn — never assert equality).
+func TestParseEpisodeStreamSuccess(t *testing.T) {
+	sum, gapReason, err := parseEpisodeStream(openFixture(t, "success_with_tools.jsonl"),
+		"ep-1", "trace/ep-1.jsonl", fixtureStarted, fixtureEnded)
+	if err != nil {
+		t.Fatalf("parseEpisodeStream: %v", err)
+	}
+	if gapReason != "" {
+		t.Fatalf("gapReason = %q, want empty (the fixture HAS a terminal result event)", gapReason)
+	}
+	if sum.EpisodeID != "ep-1" {
+		t.Fatalf("EpisodeID = %q, want ep-1", sum.EpisodeID)
+	}
+	if sum.Outcome != EpisodeSucceeded {
+		t.Fatalf("Outcome = %v, want EpisodeSucceeded", sum.Outcome)
+	}
+	assertModel(t, sum, "claude-sonnet-5") // the init event's model
+	assertTurnsAndCost(t, sum, 2, 0.054201000000000006)
+	assertUsage(t, "Usage (terminal result event)", sum.Usage,
+		EpisodeUsage{In: 4, Out: 171, CacheRead: 63600, CacheCreate: 5424})
+	assertStreamedUsage(t, sum, EpisodeUsage{In: 6, Out: 3, CacheRead: 92778, CacheCreate: 10668})
+	assertSoleToolCall(t, sum.ToolCallCounts, "Write", 1)
+	if len(sum.SubagentSpans) != 0 {
+		t.Fatalf("SubagentSpans = %v, want none (this fixture spawned no subagent)", sum.SubagentSpans)
+	}
+	if !sum.StartedAt.Equal(fixtureStarted) || !sum.EndedAt.Equal(fixtureEnded) {
+		t.Fatalf("StartedAt/EndedAt = %v/%v, want the caller-supplied bounds %v/%v",
+			sum.StartedAt, sum.EndedAt, fixtureStarted, fixtureEnded)
+	}
+	if sum.TracePath == nil || *sum.TracePath != "trace/ep-1.jsonl" {
+		t.Fatalf("TracePath = %v, want trace/ep-1.jsonl", sum.TracePath)
+	}
+}
+
+// TE2 — success_with_subagent.jsonl: the main loop called Agent once; the ONE
+// event carrying parent_tool_use_id is attributed to that span and NOT to the
+// main-loop tool counts. Both usage totals are recorded and are ALLOWED to
+// diverge (a subagent's own turns are billed into the terminal total).
+func TestParseEpisodeStreamSubagent(t *testing.T) {
+	sum, gapReason, err := parseEpisodeStream(openFixture(t, "success_with_subagent.jsonl"),
+		"ep-2", "trace/ep-2.jsonl", fixtureStarted, fixtureEnded)
+	if err != nil {
+		t.Fatalf("parseEpisodeStream: %v", err)
+	}
+	if gapReason != "" {
+		t.Fatalf("gapReason = %q, want empty", gapReason)
+	}
+	if sum.Outcome != EpisodeSucceeded {
+		t.Fatalf("Outcome = %v, want EpisodeSucceeded", sum.Outcome)
+	}
+	// The subagent tool in this real capture is "Agent", not "Task".
+	assertSoleToolCall(t, sum.ToolCallCounts, "Agent", 1)
+	if len(sum.SubagentSpans) != 1 {
+		t.Fatalf("SubagentSpans = %v, want exactly 1", sum.SubagentSpans)
+	}
+	span := sum.SubagentSpans[0]
+	if span.ToolUseID != "toolu_01DL6Gqvj23os5rsNRhFSTmy" {
+		t.Fatalf("span.ToolUseID = %q, want the Agent tool_use id", span.ToolUseID)
+	}
+	// The fixture carries exactly ONE parented event, so the span's first and
+	// last timestamps are the same instant — both are real, neither is zero.
+	want := mustTime(t, "2026-08-02T20:33:05.433Z")
+	if span.StartedAt == nil || !span.StartedAt.Equal(want) {
+		t.Fatalf("span.StartedAt = %v, want %v", span.StartedAt, want)
+	}
+	if span.EndedAt == nil || !span.EndedAt.Equal(want) {
+		t.Fatalf("span.EndedAt = %v, want %v", span.EndedAt, want)
+	}
+	assertUsage(t, "Usage (terminal result event)", sum.Usage,
+		EpisodeUsage{In: 4, Out: 266, CacheRead: 63944, CacheCreate: 5941})
+	assertStreamedUsage(t, sum, EpisodeUsage{In: 6, Out: 5, CacheRead: 93122, CacheCreate: 11529})
+	// Both totals are non-zero and DIVERGE. Recorded as two facts, never reconciled.
+	if sum.Usage == *sum.StreamedUsage {
+		t.Fatal("the fixture's two totals happen to be equal; the test's premise (they may diverge) is stale")
+	}
+}
+
+// TE3 — failure.jsonl. THE CLI QUIRK: the terminal event is subtype "success"
+// with is_error true. Outcome keys on is_error, so this is a FAILED episode; a
+// subtype-only reading would have called it a success.
+func TestParseEpisodeStreamFailure(t *testing.T) {
+	sum, gapReason, err := parseEpisodeStream(openFixture(t, "failure.jsonl"),
+		"ep-3", "trace/ep-3.jsonl", fixtureStarted, fixtureEnded)
+	if err != nil {
+		t.Fatalf("parseEpisodeStream: %v", err)
+	}
+	if gapReason != "" {
+		t.Fatalf("gapReason = %q, want empty (a terminal result event IS present)", gapReason)
+	}
+	if sum.Outcome != EpisodeFailed {
+		t.Fatalf(`Outcome = %v, want EpisodeFailed — the terminal event is subtype "success" with is_error true`, sum.Outcome)
+	}
+	// The init event's model, NOT the "<synthetic>" model on the assistant turn.
+	assertModel(t, sum, "no-such-model")
+	assertTurnsAndCost(t, sum, 1, 0)
+	assertUsage(t, "Usage", sum.Usage, EpisodeUsage{})
+	// A zero-usage assistant turn is still a RECORDED total, not an absent one.
+	assertStreamedUsage(t, sum, EpisodeUsage{})
+	if len(sum.ToolCallCounts) != 0 {
+		t.Fatalf("ToolCallCounts = %v, want none", sum.ToolCallCounts)
+	}
+}
+
+// TE4 — the stream ends without its terminal result event (a killed subprocess,
+// a truncated trace). That is a GAP, not a success and not a failure: the parser
+// cannot say how the episode ended, and says so instead of guessing.
+func TestParseEpisodeStreamNoTerminal(t *testing.T) {
+	full := readFixture(t, "success_with_tools.jsonl")
+	lines := strings.Split(strings.TrimRight(full, "\n"), "\n")
+	truncated := strings.Join(lines[:len(lines)-1], "\n") + "\n"
+
+	sum, gapReason, err := parseEpisodeStream(strings.NewReader(truncated),
+		"ep-4", "trace/ep-4.jsonl", fixtureStarted, fixtureEnded)
+	if err != nil {
+		t.Fatalf("parseEpisodeStream: %v", err)
+	}
+	if sum.Outcome != EpisodeGap {
+		t.Fatalf("Outcome = %v, want EpisodeGap", sum.Outcome)
+	}
+	if gapReason == "" {
+		t.Fatal("a gap outcome must carry a reason explaining what is missing")
+	}
+	if !strings.Contains(gapReason, "terminal") {
+		t.Fatalf("gapReason = %q, want it to name the missing terminal result event", gapReason)
+	}
+	// Everything observed BEFORE the gap is still reported — a partial trace is
+	// partial evidence, not no evidence.
+	if sum.ToolCallCounts["Write"] != 1 {
+		t.Fatalf("ToolCallCounts = %v, want the pre-gap Write call still counted", sum.ToolCallCounts)
+	}
+	if sum.StreamedUsage == nil || *sum.StreamedUsage == (EpisodeUsage{}) {
+		t.Fatalf("StreamedUsage = %v, want the pre-gap per-turn sum", sum.StreamedUsage)
+	}
+	// The terminal-only fields stay unset rather than being invented.
+	if sum.NumTurns != nil || sum.CostUSD != nil {
+		t.Fatalf("NumTurns/CostUSD = %v/%v, want both nil (only the terminal event carries them)", sum.NumTurns, sum.CostUSD)
+	}
+	assertUsage(t, "Usage", sum.Usage, EpisodeUsage{})
+}
+
+// TE5 — a stream-json trace is a LOG, not a document: a crashed CLI, a stray
+// warning on stdout, or a half-written last line must never cost us the events
+// that DID parse. Non-JSON lines are skipped; the parse still succeeds.
+func TestParseEpisodeStreamGarbage(t *testing.T) {
+	full := readFixture(t, "success_with_tools.jsonl")
+	lines := strings.Split(strings.TrimRight(full, "\n"), "\n")
+	var b strings.Builder
+	b.WriteString("node:internal/process/promises warning\n")
+	for _, ln := range lines {
+		b.WriteString(ln)
+		b.WriteString("\n")
+		b.WriteString("\n")                                     // blank lines
+		b.WriteString("not json at all\n")                      // plain noise
+		b.WriteString(`{"type":"assistant","message":{` + "\n") // a half-written JSON line
+	}
+
+	sum, gapReason, err := parseEpisodeStream(strings.NewReader(b.String()),
+		"ep-5", "trace/ep-5.jsonl", fixtureStarted, fixtureEnded)
+	if err != nil {
+		t.Fatalf("parseEpisodeStream: %v — interleaved garbage must never be fatal", err)
+	}
+	if gapReason != "" {
+		t.Fatalf("gapReason = %q, want empty", gapReason)
+	}
+	if sum.Outcome != EpisodeSucceeded {
+		t.Fatalf("Outcome = %v, want EpisodeSucceeded (the good lines still parsed)", sum.Outcome)
+	}
+	assertSoleToolCall(t, sum.ToolCallCounts, "Write", 1)
+	assertUsage(t, "Usage", sum.Usage, EpisodeUsage{In: 4, Out: 171, CacheRead: 63600, CacheCreate: 5424})
+}
+
+// TE6 — with no caller-supplied bounds the parser falls back to the stream's OWN
+// first/last event timestamps. This is what the restart-lost path has: a trace
+// on disk and no run record to date it.
+func TestParseEpisodeStreamDerivesBoundsFromTheStream(t *testing.T) {
+	sum, _, err := parseEpisodeStream(openFixture(t, "success_with_tools.jsonl"),
+		"ep-6", "", time.Time{}, time.Time{})
+	if err != nil {
+		t.Fatalf("parseEpisodeStream: %v", err)
+	}
+	wantStart := mustTime(t, "2026-08-02T20:28:51.269Z")
+	wantEnd := mustTime(t, "2026-08-02T20:28:54.729Z")
+	if !sum.StartedAt.Equal(wantStart) {
+		t.Fatalf("StartedAt = %v, want the first timestamped event %v", sum.StartedAt, wantStart)
+	}
+	if !sum.EndedAt.Equal(wantEnd) {
+		t.Fatalf("EndedAt = %v, want the last timestamped event %v", sum.EndedAt, wantEnd)
+	}
+	if sum.TracePath != nil {
+		t.Fatalf("TracePath = %v, want nil when no path is known", sum.TracePath)
+	}
+}
+
+// TE8 — the CANCEL arm. awaitCompletion's already-cancelled short-circuit must
+// still close the trace, mine it, and publish a summary whose Outcome is
+// CANCELLED — overriding whatever the (necessarily partial) stream says. The
+// sleeping shim writes nothing at all, so this is also the empty-trace case: a
+// summary is still published, because "we ran an agent and it produced no
+// evidence" is itself the fact the capture seam records.
+func TestLocalExecCancel_TerminalObservationCarriesCancelledEpisode(t *testing.T) {
+	_, url := newSharedRepo(t)
+	installClaudeShim(t, "#!/bin/sh\nexec sleep 30\n")
+	a := newLocalExecForTest(t, url, 20*time.Second)
+
+	const key fwra.IdempotencyKey = "episode-cancel-key"
+	handle, err := a.SubmitAgenticJob(subRC(context.Background(), key),
+		localSpec("C-EPCANCEL", "someComponent", "service-construction"))
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	time.Sleep(200 * time.Millisecond)
+	if err := a.CancelAgenticJob(obsRC(context.Background()), handle); err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+
+	obs := waitForEpisode(t, a, handle, 10*time.Second)
+	if obs.Phase != PhaseCancelled {
+		t.Fatalf("Phase = %v, want PhaseCancelled", obs.Phase)
+	}
+	if obs.Episode.Outcome != EpisodeCancelled {
+		t.Fatalf("Episode.Outcome = %v, want EpisodeCancelled (the operator's intent overrides the stream)", obs.Episode.Outcome)
+	}
+	if obs.Episode.EpisodeID != dedupToken(key) {
+		t.Fatalf("Episode.EpisodeID = %q, want the dedup token %q", obs.Episode.EpisodeID, dedupToken(key))
+	}
+}
+
+// TE9 — the RESTART-LOST arm. The run record is gone, so the RA cannot attest
+// the outcome — but the trace it wrote is still on disk and is real evidence.
+// The observation reports a GAP episode recovered from the handle's own token,
+// alongside the existing lost-run diagnostic (which IS the gap reason on this
+// path — EpisodeSummary carries no reason field of its own).
+func TestLocalExecObserve_RestartLostRun_ReportsGapEpisodeFromTheOrphanedTrace(t *testing.T) {
+	repoDir, url := newSharedRepo(t)
+	a := newLocalExecForTest(t, url, 0)
+
+	// Simulate the restart: a trace file exists for a token whose run record does not.
+	const token = "aaaabbbbccccddddeeeeffff00001111"
+	tracesDir := filepath.Join(repoDir, ".aiarch", "traces")
+	if err := os.MkdirAll(tracesDir, 0o750); err != nil {
+		t.Fatalf("mkdir traces: %v", err)
+	}
+	partial := readFixture(t, "success_with_tools.jsonl")
+	if err := os.WriteFile(filepath.Join(tracesDir, token+".jsonl"), []byte(partial), 0o600); err != nil {
+		t.Fatalf("write orphaned trace: %v", err)
+	}
+
+	obs, err := a.ObserveAgenticJob(obsRC(context.Background()), PipelineHandle(localHandlePrefix+token))
+	if err != nil {
+		t.Fatalf("Observe(lost): %v", err)
+	}
+	if obs.Phase != PhaseFailed || obs.Diagnostic != localRunLostDiagnostic {
+		t.Fatalf("Phase/Diagnostic = %v/%q, want the unchanged lost-run terminal failure", obs.Phase, obs.Diagnostic)
+	}
+	if obs.Episode == nil {
+		t.Fatal("a lost run with an orphaned trace must still report the episode it can recover")
+	}
+	if obs.Episode.EpisodeID != token {
+		t.Fatalf("Episode.EpisodeID = %q, want the token recovered from the handle", obs.Episode.EpisodeID)
+	}
+	// GAP even though the trace HAS a terminal result event: the run record is
+	// gone, so the RA never verified its own post-conditions (ref advanced,
+	// worktree removed) and must not report a success it cannot attest.
+	if obs.Episode.Outcome != EpisodeGap {
+		t.Fatalf("Episode.Outcome = %v, want EpisodeGap for an unrecoverable run", obs.Episode.Outcome)
+	}
+	// The recovered evidence is still reported.
+	if obs.Episode.ToolCallCounts["Write"] != 1 {
+		t.Fatalf("Episode.ToolCallCounts = %v, want the orphaned trace's evidence", obs.Episode.ToolCallCounts)
+	}
+}
+
+// TE10 — a lost handle with NO trace on disk reports NO episode. This is what
+// keeps the local MERGE job (a handle + dedup token, no agent, no trace) from
+// ever being handed a fabricated episode.
+func TestLocalExecObserve_RestartLostRun_NoTraceReportsNoEpisode(t *testing.T) {
+	_, url := newSharedRepo(t)
+	a := newLocalExecForTest(t, url, 0)
+	obs, err := a.ObserveAgenticJob(obsRC(context.Background()), "local:deadbeef")
+	if err != nil {
+		t.Fatalf("Observe(lost): %v", err)
+	}
+	if obs.Episode != nil {
+		t.Fatalf("Episode = %+v, want nil — nothing ran, so there is nothing to summarise", obs.Episode)
+	}
+}
+
+// TE11 — the local MERGE job runs no agent: it has a handle and a dedup token
+// but never spawns claude and never opens a trace. Its terminal observation must
+// carry NO episode rather than an empty one.
+func TestLocalExecMergeJob_TerminalObservationCarriesNoEpisode(t *testing.T) {
+	sharedDir, url := newSharedRepo(t)
+	seedActivityBranch(t, sharedDir, "C-EPMERGE", "work.txt", "branch content\n")
+	a := newLocalExecForTest(t, url, 0)
+
+	handle, err := a.SubmitAgenticJob(subRC(context.Background(), "episode-merge-key"), mergeJobSpec("C-EPMERGE"))
+	if err != nil {
+		t.Fatalf("Submit(merge): %v", err)
+	}
+	obs, err := a.ObserveAgenticJob(obsRC(context.Background()), handle)
+	if err != nil {
+		t.Fatalf("Observe: %v", err)
+	}
+	if obs.Phase != PhaseSucceeded {
+		t.Fatalf("Phase = %v, want PhaseSucceeded (diagnostic: %q)", obs.Phase, obs.Diagnostic)
+	}
+	if obs.Episode != nil {
+		t.Fatalf("Episode = %+v, want nil — a merge job is not an agentic episode", obs.Episode)
+	}
+}
+
+// TE12 — a FAILED dispatched run still reports its episode: the failure panel's
+// diagnostic and the episode summary are independent facts, and a failed run's
+// token spend is exactly what the capture seam exists to account for.
+func TestLocalExecObserve_FailedRun_TerminalObservationCarriesFailedEpisode(t *testing.T) {
+	_, url := newSharedRepo(t)
+	installClaudeShim(t, "#!/bin/sh\n"+
+		`echo '{"type":"system","subtype":"init","model":"claude-sonnet-5"}'`+"\n"+
+		`echo '{"type":"assistant","message":{"model":"claude-sonnet-5","usage":{"input_tokens":7,"output_tokens":3,"cache_read_input_tokens":11,"cache_creation_input_tokens":5},"content":[{"type":"tool_use","id":"toolu_x","name":"Bash"}]}}'`+"\n"+
+		`echo '{"type":"result","subtype":"success","is_error":true,"num_turns":3,"total_cost_usd":0.25,"result":"boom","usage":{"input_tokens":9,"output_tokens":4,"cache_read_input_tokens":13,"cache_creation_input_tokens":6}}'`+"\n"+
+		"exit 1\n")
+	a := newLocalExecForTest(t, url, 10*time.Second)
+
+	handle, err := a.SubmitAgenticJob(subRC(context.Background(), "episode-fail-key"),
+		localSpec("C-EPFAIL", "someComponent", "service-construction"))
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	obs := waitForEpisode(t, a, handle, 10*time.Second)
+	if obs.Phase != PhaseFailed {
+		t.Fatalf("Phase = %v, want PhaseFailed", obs.Phase)
+	}
+	if obs.Diagnostic == "" {
+		t.Fatal("a failed run must keep its diagnostic")
+	}
+	if obs.Episode.Outcome != EpisodeFailed {
+		t.Fatalf("Episode.Outcome = %v, want EpisodeFailed", obs.Episode.Outcome)
+	}
+	assertUsage(t, "Episode.Usage", obs.Episode.Usage, EpisodeUsage{In: 9, Out: 4, CacheRead: 13, CacheCreate: 6})
+	if obs.Episode.ToolCallCounts["Bash"] != 1 {
+		t.Fatalf("Episode.ToolCallCounts = %v, want {Bash:1}", obs.Episode.ToolCallCounts)
+	}
+}
+
+// waitForEpisode polls to a terminal observation that CARRIES its episode
+// summary — the whole point of the capture seam on the local arm.
+//
+// It polls rather than reading the first terminal observation because on the
+// CANCEL arm the two facts land at different moments: CancelAgenticJob records
+// PhaseCancelled synchronously, while the episode can only be mined once the
+// SIGTERM'd subprocess has actually unwound and awaitCompletion has closed the
+// trace. Same reason TestLocalExecCancel_Running_ConvergesToCancelledNeverFailed
+// polls for the worktree removal instead of asserting it instantaneously.
+func waitForEpisode(t *testing.T, a *localExecAccess, handle PipelineHandle, timeout time.Duration) PipelineObservation {
+	t.Helper()
+	obs := waitForTerminal(t, a, handle, timeout)
+	deadline := time.Now().Add(timeout)
+	for obs.Episode == nil {
+		if time.Now().After(deadline) {
+			t.Fatalf("terminal observation (phase %v) never carried an Episode summary within %s", obs.Phase, timeout)
+		}
+		time.Sleep(50 * time.Millisecond)
+		var err error
+		obs, err = a.ObserveAgenticJob(obsRC(context.Background()), handle)
+		if err != nil {
+			t.Fatalf("Observe: %v", err)
+		}
+	}
+	return obs
 }

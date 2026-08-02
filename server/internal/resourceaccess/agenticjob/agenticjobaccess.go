@@ -54,6 +54,7 @@ package agenticjob
 // double-run. The hard exit gate TestSubmitIdempotencyConvergence proves it.
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -1159,6 +1160,18 @@ const (
 type localRun struct {
 	handle PipelineHandle
 
+	// episodeID and startedAt are set at CONSTRUCTION and never written again, so
+	// they are readable without mu (the goroutine that mines the episode sees them
+	// through the same happens-before edge that handed it the record).
+	//
+	// episodeID is the dispatch's episode id — the SAME dedup token the handle
+	// carries and the trace file is named after (one identity, no second
+	// spelling). It is EMPTY for a run that dispatches no agent (the local merge
+	// job): an empty id is what tells mineEpisode there is no episode to report,
+	// rather than an empty one.
+	episodeID string
+	startedAt time.Time
+
 	mu         sync.Mutex
 	status     localRunStatus
 	diagnostic string
@@ -1174,6 +1187,18 @@ type localRun struct {
 	// the underlying write fault. Both are set once, by awaitCompletion, under mu.
 	traceTruncated        bool
 	traceTruncationReason string
+
+	// episode is the summary mined from this run's trace, published by
+	// awaitCompletion at the SAME moment it records the terminal status (and by
+	// the cancel short-circuit, which records nothing else). It is therefore nil
+	// on every non-terminal observation by construction — a half-read stream is
+	// never reported. Written once, then treated as immutable: ObserveAgenticJob
+	// hands out a struct copy. episodeGapReason explains a gap outcome (and any
+	// trace truncation); EpisodeSummary carries no field for it, so it stays in
+	// this package and in the logs — the observation's Diagnostic is what crosses
+	// the port.
+	episode          *EpisodeSummary
+	episodeGapReason string
 }
 
 // localExecAccess is the concrete local-executor AgenticJobAccess. It
@@ -1377,7 +1402,7 @@ func (a *localExecAccess) submitClaudeRun(rc fwra.Context, plan localDispatchPla
 		a.mu.Unlock()
 		return existing.handle, nil
 	}
-	run := &localRun{handle: handle, status: localRunRunning}
+	run := &localRun{handle: handle, status: localRunRunning, episodeID: token, startedAt: time.Now().UTC()}
 	a.runs[token] = run
 	a.mu.Unlock()
 
@@ -1956,6 +1981,449 @@ func closeEpisodeTrace(traceFile traceWriteCloser, tracePath string) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// THE EPISODE MINER — the trace file → EpisodeSummary reduction.
+//
+// The trace written by the tee above is the raw evidence; this is the ONE place
+// that reads it back and states what the episode cost and did. It runs after
+// closeEpisodeTrace, so it reads a complete, no-longer-written file.
+//
+// WHAT IS AND IS NOT AUTHORITATIVE:
+//
+//   - Usage is the TERMINAL result event's own usage — the CLI's authoritative
+//     accounting for the whole episode, subagents included.
+//   - StreamedUsage is the sum of the per-turn assistant events' usage. It is
+//     recorded as a SECOND, INDEPENDENT total and is NEVER reconciled against
+//     the first: the two legitimately diverge (an assistant event may be
+//     re-emitted, and a subagent's turns are billed into the terminal total by a
+//     path the main-loop stream does not fully narrate). Two honest numbers beat
+//     one laundered one.
+//   - ToolCallCounts counts MAIN-LOOP tool_use blocks only — an event carrying
+//     parent_tool_use_id belongs to a subagent and is attributed to that span
+//     instead, so "the agent called Write twice" means the agent, not its
+//     delegates. StreamedUsage, by contrast, sums EVERY assistant event
+//     including subagents': it is a token total, not an attribution.
+//   - Outcome keys on `is_error`, NOT on subtype. A real captured failure
+//     (testdata/streamjson/failure.jsonl) is subtype "success" with
+//     is_error true — a CLI quirk that a subtype-only reading would report as a
+//     successful episode.
+//   - NO TERMINAL EVENT ⇒ GAP. Not a success, not a failure: the stream stopped
+//     before the CLI said how it ended (killed subprocess, truncated trace), so
+//     the miner says it cannot tell rather than guessing. Everything observed
+//     before the gap is still reported — partial evidence is not no evidence.
+//
+// WHY THE GAP REASON IS A SEPARATE RETURN VALUE: EpisodeSummary deliberately
+// carries no reason field (Task 4 — GapReason lives on episodeAccess's
+// EpisodeRecord, which the Manager assembles at persist time from what it knows).
+// So the reason travels back to the caller out-of-band: this package records it
+// on the run record and logs it, and the observation's existing Diagnostic is
+// what crosses the port.
+// ---------------------------------------------------------------------------
+
+// episodeStreamMaxLineBytes bounds ONE stream-json event line. A single tool
+// result can be large, so the default bufio.Scanner 64KB limit is far too small;
+// 1MB spans every event shape observed while still refusing to buffer a
+// pathological line into memory unbounded.
+const episodeStreamMaxLineBytes = 1 << 20
+
+// streamUsage is the token block as it appears BOTH on an assistant event's
+// message and on the terminal result event. Fields absent from a given shape
+// simply stay zero — every consumer here is additive.
+type streamUsage struct {
+	InputTokens              int64 `json:"input_tokens"`
+	OutputTokens             int64 `json:"output_tokens"`
+	CacheReadInputTokens     int64 `json:"cache_read_input_tokens"`
+	CacheCreationInputTokens int64 `json:"cache_creation_input_tokens"`
+}
+
+func (u streamUsage) episodeUsage() EpisodeUsage {
+	return EpisodeUsage{
+		In:          u.InputTokens,
+		Out:         u.OutputTokens,
+		CacheRead:   u.CacheReadInputTokens,
+		CacheCreate: u.CacheCreationInputTokens,
+	}
+}
+
+func addUsage(dst *EpisodeUsage, u streamUsage) {
+	dst.In += u.InputTokens
+	dst.Out += u.OutputTokens
+	dst.CacheRead += u.CacheReadInputTokens
+	dst.CacheCreate += u.CacheCreationInputTokens
+}
+
+// streamContentBlock is one entry of an assistant/user message's content array.
+// Only tool_use blocks are read here (type + name).
+type streamContentBlock struct {
+	Type string `json:"type"`
+	Name string `json:"name"`
+}
+
+// streamMessage is the `message` envelope on assistant/user events. Content is
+// left RAW and decoded separately: some CLI versions spell a user message's
+// content as a plain string rather than an array, and that must cost us the
+// event's model/usage, not the whole line.
+type streamMessage struct {
+	Model   string          `json:"model"`
+	Usage   *streamUsage    `json:"usage"`
+	Content json.RawMessage `json:"content"`
+}
+
+// streamEvent is the TOLERANT union of every stream-json event shape this miner
+// reads. It deliberately names only the fields it uses: the CLI adds event types
+// and fields between versions, and an unknown one must be a no-op, never a parse
+// failure.
+type streamEvent struct {
+	Type            string         `json:"type"`
+	Subtype         string         `json:"subtype"`
+	Model           string         `json:"model"` // top level, on the system/init event
+	ParentToolUseID string         `json:"parent_tool_use_id"`
+	Timestamp       string         `json:"timestamp"`
+	Message         *streamMessage `json:"message"`
+	Usage           *streamUsage   `json:"usage"` // top level, on the terminal result event
+	TotalCostUSD    *float64       `json:"total_cost_usd"`
+	NumTurns        *int64         `json:"num_turns"`
+	IsError         *bool          `json:"is_error"`
+}
+
+// parseEpisodeStream reduces one claude `--output-format stream-json` trace to
+// the EpisodeSummary the observation reports. See this section's header for what
+// each field means and why.
+//
+// started/ended are the caller's own wall-clock bounds (the dispatch and
+// completion instants). Either may be ZERO, in which case the corresponding
+// bound is derived from the stream's OWN first/last event timestamp — which is
+// what the restart-lost path has: an orphaned trace and no run record to date it.
+//
+// TOLERANCE IS THE POINT: a trace is a log, not a document. Blank lines,
+// non-JSON noise (a crashed CLI's stack trace, a stray warning on stdout) and a
+// half-written final line are SKIPPED, never fatal — losing the events that did
+// parse because of the ones that did not would be the worst possible trade. The
+// returned error is reserved for a genuine READ fault (including an
+// over-long line, which ends the scan); the summary accumulated up to that point
+// is still returned alongside it, and reads as a gap.
+//
+// Returns (summary, gapReason, err). gapReason is non-empty exactly when the
+// outcome is a gap, and explains what is missing.
+func parseEpisodeStream(r io.Reader, episodeID, tracePath string, started, ended time.Time) (EpisodeSummary, string, error) {
+	sum := EpisodeSummary{EpisodeID: episodeID, StartedAt: started, EndedAt: ended}
+	if tracePath != "" {
+		p := tracePath
+		sum.TracePath = &p
+	}
+
+	acc := newEpisodeAccumulator()
+	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 0, 64*1024), episodeStreamMaxLineBytes)
+	for sc.Scan() {
+		line := bytes.TrimSpace(sc.Bytes())
+		if len(line) == 0 || line[0] != '{' {
+			continue // blank line or plain noise — not an event
+		}
+		var ev streamEvent
+		if err := json.Unmarshal(line, &ev); err != nil {
+			continue // a half-written / foreign line: skip it, keep the rest
+		}
+		acc.observe(ev)
+	}
+	scanErr := sc.Err()
+
+	acc.applyStreamFields(&sum)
+	if acc.terminal == nil {
+		sum.Outcome = EpisodeGap
+		reason := "the stream ended without a terminal result event"
+		if scanErr != nil {
+			reason += "; reading it stopped early: " + scanErr.Error()
+		}
+		return sum, reason, scanErr
+	}
+	applyTerminalEvent(&sum, *acc.terminal)
+	return sum, "", scanErr
+}
+
+// episodeAccumulator is parseEpisodeStream's fold state: everything learned from
+// the events BEFORE the terminal one, plus the terminal one itself. Split out so
+// the parse stays a readable scan-decode-observe loop and each fold rule is
+// separately legible.
+type episodeAccumulator struct {
+	streamed        EpisodeUsage
+	sawStreamedTurn bool
+	tools           map[string]int64
+	spans           map[string]*SubagentSpan
+	spanOrder       []string // first-seen order — deterministic output
+	firstAt, lastAt time.Time
+	terminal        *streamEvent
+	initModel       string
+	assistantModel  string
+}
+
+func newEpisodeAccumulator() *episodeAccumulator {
+	return &episodeAccumulator{tools: map[string]int64{}, spans: map[string]*SubagentSpan{}}
+}
+
+// observe folds ONE decoded event in.
+func (acc *episodeAccumulator) observe(ev streamEvent) {
+	acc.observeTiming(ev)
+	switch {
+	case ev.Type == "system" && ev.Subtype == "init":
+		if acc.initModel == "" {
+			acc.initModel = ev.Model
+		}
+	case ev.Type == "assistant" && ev.Message != nil:
+		acc.observeAssistant(ev)
+	case ev.Type == "result":
+		acc.terminal = &ev // the LAST one wins; the CLI emits exactly one
+	}
+}
+
+// observeTiming widens the episode's own time bounds and, for a parented event,
+// its subagent span. A parented event with NO usable timestamp still PROVES the
+// span exists; it just cannot date it — recording the id with nil bounds is
+// honest, dropping the span would not be.
+func (acc *episodeAccumulator) observeTiming(ev streamEvent) {
+	at, dated := parseStreamTimestamp(ev.Timestamp)
+	if dated {
+		if acc.firstAt.IsZero() || at.Before(acc.firstAt) {
+			acc.firstAt = at
+		}
+		if acc.lastAt.IsZero() || at.After(acc.lastAt) {
+			acc.lastAt = at
+		}
+	}
+	if ev.ParentToolUseID != "" {
+		acc.extendSpan(ev.ParentToolUseID, at)
+	}
+}
+
+// extendSpan widens (or opens) the span for one parent_tool_use_id. A zero `at`
+// records the span's existence without dating it.
+func (acc *episodeAccumulator) extendSpan(toolUseID string, at time.Time) {
+	sp, ok := acc.spans[toolUseID]
+	if !ok {
+		sp = &SubagentSpan{ToolUseID: toolUseID}
+		acc.spans[toolUseID] = sp
+		acc.spanOrder = append(acc.spanOrder, toolUseID)
+	}
+	if at.IsZero() {
+		return
+	}
+	if sp.StartedAt == nil || at.Before(*sp.StartedAt) {
+		t := at
+		sp.StartedAt = &t
+	}
+	if sp.EndedAt == nil || at.After(*sp.EndedAt) {
+		t := at
+		sp.EndedAt = &t
+	}
+}
+
+// observeAssistant folds one assistant turn: its model, its tokens (ALWAYS
+// summed, subagent turns included — a token total is not an attribution), and
+// its tool calls (MAIN-LOOP ONLY — a parented turn's tools belong to its span).
+func (acc *episodeAccumulator) observeAssistant(ev streamEvent) {
+	if acc.assistantModel == "" {
+		acc.assistantModel = ev.Message.Model
+	}
+	if ev.Message.Usage != nil {
+		addUsage(&acc.streamed, *ev.Message.Usage)
+		acc.sawStreamedTurn = true
+	}
+	if ev.ParentToolUseID != "" {
+		return
+	}
+	for _, b := range decodeContentBlocks(ev.Message.Content) {
+		if b.Type == "tool_use" && b.Name != "" {
+			acc.tools[b.Name]++
+		}
+	}
+}
+
+// applyStreamFields writes everything learned from the non-terminal events onto
+// the summary. Caller-supplied time bounds always win; a zero one falls back to
+// the stream's own first/last timestamp.
+func (acc *episodeAccumulator) applyStreamFields(sum *EpisodeSummary) {
+	if sum.StartedAt.IsZero() {
+		sum.StartedAt = acc.firstAt
+	}
+	if sum.EndedAt.IsZero() {
+		sum.EndedAt = acc.lastAt
+	}
+	// The init event's model is the run's CONFIGURED model and is what the
+	// operator chose; an assistant event's model can be a synthetic stand-in
+	// (failure.jsonl's "<synthetic>"), so it is only the fallback.
+	if model := firstNonEmpty(acc.initModel, acc.assistantModel); model != "" {
+		sum.Model = &model
+	}
+	if acc.sawStreamedTurn {
+		s := acc.streamed
+		sum.StreamedUsage = &s
+	}
+	if len(acc.tools) > 0 {
+		sum.ToolCallCounts = acc.tools
+	}
+	for _, id := range acc.spanOrder {
+		sum.SubagentSpans = append(sum.SubagentSpans, *acc.spans[id])
+	}
+}
+
+// applyTerminalEvent writes the fields ONLY the terminal result event carries.
+// Each stays nil when the event omits it — an absent cost is not a zero cost.
+func applyTerminalEvent(sum *EpisodeSummary, ev streamEvent) {
+	if ev.Usage != nil {
+		sum.Usage = ev.Usage.episodeUsage()
+	}
+	if ev.TotalCostUSD != nil {
+		c := *ev.TotalCostUSD
+		sum.CostUSD = &c
+	}
+	if ev.NumTurns != nil {
+		n := *ev.NumTurns
+		sum.NumTurns = &n
+	}
+	sum.Outcome = terminalEventOutcome(ev)
+}
+
+// terminalEventOutcome reads the terminal result event's verdict. is_error is
+// checked FIRST and independently of subtype: the real captured failure fixture
+// is subtype "success" with is_error true, so subtype alone lies. An unknown
+// subtype (error_max_turns, error_during_execution, …) is a failure too — only
+// an explicitly successful shape reports success.
+func terminalEventOutcome(ev streamEvent) EpisodeOutcome {
+	if ev.IsError != nil && *ev.IsError {
+		return EpisodeFailed
+	}
+	switch ev.Subtype {
+	case "success", "":
+		return EpisodeSucceeded
+	default:
+		return EpisodeFailed
+	}
+}
+
+// decodeContentBlocks reads a message's content array, tolerating every other
+// spelling (a plain string, null, a foreign shape) as "no blocks".
+func decodeContentBlocks(raw json.RawMessage) []streamContentBlock {
+	if len(raw) == 0 {
+		return nil
+	}
+	var blocks []streamContentBlock
+	if err := json.Unmarshal(raw, &blocks); err != nil {
+		return nil
+	}
+	return blocks
+}
+
+// parseStreamTimestamp reads an event's RFC3339 timestamp. Not every event type
+// carries one (the system/hook/rate_limit events do not), so absence is normal
+// and reported as ok=false rather than as a fault.
+func parseStreamTimestamp(s string) (time.Time, bool) {
+	if s == "" {
+		return time.Time{}, false
+	}
+	ts, err := time.Parse(time.RFC3339Nano, s)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return ts, true
+}
+
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// episodeTraceTruncatedGapNote prefixes the trace-write fault on an episode's
+// gap reason. Distinct from localExecTraceTruncatedNotice (which goes on the
+// run's operator-facing diagnostic) — same fact, two audiences.
+const episodeTraceTruncatedGapNote = "the per-episode trace is INCOMPLETE, writing it failed: "
+
+// mineEpisode reopens the just-closed trace and reduces it to the summary the
+// terminal observation reports. Called on EVERY completion path (success,
+// failure, and the already-cancelled short-circuit) from awaitCompletion, after
+// closeEpisodeTrace — so the file it reads is complete and unwritten-to.
+//
+// NEVER FATAL, and never nil for a run that actually dispatched an agent: an
+// unreadable or unparseable trace yields a GAP-outcome summary, because "an
+// agent ran and we cannot say what it did" is precisely the fact the capture
+// seam exists to record. It returns nil ONLY when the run had no agent at all
+// (run.episodeID == "" — the local merge job, which spawns no claude and opens
+// no trace, and must never be handed a fabricated episode).
+//
+// truncation, when non-nil, is the trace-write fault Task 5 recorded: the
+// artifact is missing an unknown suffix. It is folded into the gap reason and
+// does NOT change the outcome — a truncated trace that still contains its
+// terminal result event told us how the episode ended.
+func (a *localExecAccess) mineEpisode(run *localRun, tracePath string, endedAt time.Time, truncation error) (*EpisodeSummary, string) {
+	if run.episodeID == "" {
+		return nil, "" // not an agentic episode (the merge job) — nothing to summarise
+	}
+	sum, gapReason := a.readEpisodeTrace(run, tracePath, endedAt)
+	if truncation != nil {
+		gapReason = strings.TrimSpace(gapReason + " " + episodeTraceTruncatedGapNote + truncation.Error())
+	}
+	if gapReason != "" {
+		slog.Warn("localexec: the episode summary is incomplete",
+			"episodeId", run.episodeID, "tracePath", tracePath, "reason", gapReason)
+	}
+	return &sum, gapReason
+}
+
+// readEpisodeTrace is mineEpisode's IO half: open, parse, or degrade to a gap.
+func (a *localExecAccess) readEpisodeTrace(run *localRun, tracePath string, endedAt time.Time) (EpisodeSummary, string) {
+	f, err := os.Open(tracePath) // #nosec G304 -- the path this dispatch itself opened for writing
+	if err != nil {
+		return EpisodeSummary{
+			EpisodeID: run.episodeID,
+			StartedAt: run.startedAt,
+			EndedAt:   endedAt,
+			Outcome:   EpisodeGap,
+		}, "the per-episode trace could not be reopened: " + err.Error()
+	}
+	defer func() { _ = f.Close() }()
+	sum, gapReason, err := parseEpisodeStream(f, run.episodeID, tracePath, run.startedAt, endedAt)
+	if err != nil && gapReason == "" {
+		gapReason = "the per-episode trace could not be read in full: " + err.Error()
+	}
+	return sum, gapReason
+}
+
+// orphanedTraceEpisode recovers what can be recovered for a RESTART-LOST run:
+// the in-memory record is gone, but the trace the dispatch wrote is still on
+// disk, and the episode id is recoverable from the handle itself (the id IS the
+// dedup token). Returns nil when no trace exists — which is also what keeps a
+// lost LOCAL MERGE job (a handle and a token, but no agent and no trace) from
+// being handed a fabricated episode.
+//
+// THE OUTCOME IS FORCED TO GAP even when the trace carries a terminal result
+// event. The result event says the AGENT finished; it says nothing about the
+// RA's own post-conditions (the branch ref advanced, the worktree came down),
+// which the lost awaitCompletion never verified. Reporting a success this
+// realisation cannot attest would be exactly the fake success state the local
+// arm's outcome table refuses everywhere else.
+func (a *localExecAccess) orphanedTraceEpisode(token string) *EpisodeSummary {
+	path := filepath.Join(episodeTracesDir(a.repoPath), token+".jsonl")
+	f, err := os.Open(path) // #nosec G304 -- token is the handle's 32-hex dedup digest under a fixed dir
+	if err != nil {
+		return nil
+	}
+	defer func() { _ = f.Close() }()
+	// Zero bounds: nothing dates this run any more, so the stream's own first/last
+	// event timestamps are the only honest interval available.
+	sum, gapReason, err := parseEpisodeStream(f, token, path, time.Time{}, time.Time{})
+	if err != nil {
+		slog.Warn("localexec: could not fully read the orphaned trace of a restart-lost run",
+			"episodeId", token, "tracePath", path, "cause", err.Error())
+	}
+	sum.Outcome = EpisodeGap
+	slog.Warn("localexec: reporting a GAP episode recovered from a restart-lost run's orphaned trace",
+		"episodeId", token, "tracePath", path, "streamGap", gapReason)
+	return &sum
+}
+
 // awaitCompletion blocks on the claude subprocess, verifies its commits advanced
 // the activity branch ref in the SHARED repo (worktree commits land there
 // directly — no push; partial progress on a failed run is already durable),
@@ -1993,6 +2461,13 @@ func (a *localExecAccess) awaitCompletion(
 	closeEpisodeTrace(sink.file, tracePath)
 	traceTruncation := sink.err
 
+	// Mine the episode from the file just closed, BEFORE any lock: it is
+	// filesystem IO, and this function's standing discipline is that a concurrent
+	// ObserveAgenticJob poll never waits on IO. The summary is published below on
+	// whichever completion path this run turns out to be on.
+	endedAt := time.Now().UTC()
+	episode, episodeGap := a.mineEpisode(run, tracePath, endedAt, traceTruncation)
+
 	a.gitMu.Lock()
 	afterSHA, revErr := revParseBranch(a.repoPath, branch)
 	removeErr := removeWorktree(a.repoPath, workDir)
@@ -2020,6 +2495,10 @@ func (a *localExecAccess) awaitCompletion(
 	alreadyCancelled := run.status == localRunCancelled
 	run.mu.Unlock()
 	if alreadyCancelled {
+		// The cancel path skips the diagnostic/durable-log work, but it does NOT
+		// skip the episode: a cancelled run spent real tokens and did real work
+		// before the SIGTERM, and that is exactly what must still be accounted for.
+		publishEpisode(run, cancelledEpisode(episode), episodeGap)
 		return
 	}
 
@@ -2053,12 +2532,42 @@ func (a *localExecAccess) awaitCompletion(
 	}
 
 	run.mu.Lock()
-	defer run.mu.Unlock()
 	if run.status == localRunCancelled {
+		run.mu.Unlock()
+		// A cancel landed DURING the window above and owns the outcome — including
+		// the episode's, on the same reasoning as the short-circuit.
+		publishEpisode(run, cancelledEpisode(episode), episodeGap)
 		return
 	}
 	run.status = status
 	run.diagnostic = diagnostic
+	run.episode = episode
+	run.episodeGapReason = episodeGap
+	run.mu.Unlock()
+}
+
+// publishEpisode records the mined summary on the run record, where
+// ObserveAgenticJob republishes it on the terminal observation. It is written in
+// the same breath as the terminal status, so no observation can see one without
+// the other. Only awaitCompletion's own goroutine ever calls it, exactly once
+// per run.
+func publishEpisode(run *localRun, episode *EpisodeSummary, gapReason string) {
+	run.mu.Lock()
+	defer run.mu.Unlock()
+	run.episode = episode
+	run.episodeGapReason = gapReason
+}
+
+// cancelledEpisode stamps the operator's verdict onto a mined summary. The
+// stream of a cancelled run is necessarily partial (usually terminating with no
+// result event at all, i.e. a gap), so the parsed outcome is OVERRIDDEN: the
+// cancel is the authoritative account of how the episode ended. Everything else
+// the stream did say — tokens spent, tools called — is kept.
+func cancelledEpisode(episode *EpisodeSummary) *EpisodeSummary {
+	if episode != nil {
+		episode.Outcome = EpisodeCancelled
+	}
+	return episode
 }
 
 // localRunOutcome maps one finished claude invocation onto its terminal run
@@ -2135,7 +2644,17 @@ func (a *localExecAccess) ObserveAgenticJob(_ fwra.Context, handle PipelineHandl
 	run, ok := a.runs[token]
 	a.mu.Unlock()
 	if !ok {
-		return PipelineObservation{Handle: handle, Phase: PhaseFailed, Diagnostic: localRunLostDiagnostic}, nil
+		// The run record is gone but its trace may not be: report the GAP episode
+		// recoverable from the handle's own token alongside the unchanged terminal
+		// failure. On this path localRunLostDiagnostic IS the gap's explanation —
+		// EpisodeSummary carries no reason field, and the observation already has
+		// one place to say why.
+		return PipelineObservation{
+			Handle:     handle,
+			Phase:      PhaseFailed,
+			Diagnostic: localRunLostDiagnostic,
+			Episode:    a.orphanedTraceEpisode(token),
+		}, nil
 	}
 
 	run.mu.Lock()
@@ -2143,6 +2662,15 @@ func (a *localExecAccess) ObserveAgenticJob(_ fwra.Context, handle PipelineHandl
 	obs := PipelineObservation{Handle: run.handle, Phase: localPhase(run.status)}
 	if run.status == localRunFailed {
 		obs.Diagnostic = run.diagnostic
+	}
+	if run.episode != nil {
+		// A COPY: the record's summary is written once and then immutable, and
+		// handing out its address would let a caller mutate this RA's own state.
+		// (The struct's map/slice fields are shared, which is safe under the same
+		// write-once discipline.) run.episode is only ever set alongside a terminal
+		// status, so a running observation carries none by construction.
+		e := *run.episode
+		obs.Episode = &e
 	}
 	return obs, nil
 }
