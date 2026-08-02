@@ -24525,6 +24525,107 @@
         "ConstructionActivityID": {
           "type": "string"
         },
+        "EpisodeOutcome": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "x-enum-varnames": [
+            "EpisodeSucceeded",
+            "EpisodeFailed",
+            "EpisodeCancelled",
+            "EpisodeGap"
+          ],
+          "x-go-base": "int"
+        },
+        "EpisodeSummary": {
+          "type": "object",
+          "properties": {
+            "EpisodeID": {
+              "type": "string"
+            },
+            "Model": {
+              "type": "string"
+            },
+            "Usage": {
+              "$ref": "#/$defs/EpisodeUsage"
+            },
+            "StreamedUsage": {
+              "$ref": "#/$defs/EpisodeUsage"
+            },
+            "CostUSD": {
+              "type": "number"
+            },
+            "NumTurns": {
+              "type": "integer"
+            },
+            "ToolCallCounts": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "integer"
+              }
+            },
+            "SubagentSpans": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/SubagentSpan"
+              }
+            },
+            "StartedAt": {
+              "type": "string",
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time"
+            },
+            "EndedAt": {
+              "type": "string",
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time"
+            },
+            "Outcome": {
+              "$ref": "#/$defs/EpisodeOutcome"
+            },
+            "TracePath": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "EpisodeID",
+            "Usage",
+            "StartedAt",
+            "EndedAt",
+            "Outcome"
+          ],
+          "additionalProperties": false
+        },
+        "EpisodeUsage": {
+          "type": "object",
+          "properties": {
+            "In": {
+              "type": "integer"
+            },
+            "Out": {
+              "type": "integer"
+            },
+            "CacheRead": {
+              "type": "integer"
+            },
+            "CacheCreate": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "In",
+            "Out",
+            "CacheRead",
+            "CacheCreate"
+          ],
+          "additionalProperties": false
+        },
         "PipelineHandle": {
           "type": "string"
         },
@@ -24569,6 +24670,9 @@
               "format": "date-time",
               "x-go-import": "time",
               "x-go-type": "time.Time"
+            },
+            "Episode": {
+              "$ref": "#/$defs/EpisodeSummary"
             }
           },
           "required": [
@@ -24783,6 +24887,30 @@
             "StepSkipped"
           ],
           "x-go-base": "int"
+        },
+        "SubagentSpan": {
+          "type": "object",
+          "properties": {
+            "ToolUseID": {
+              "type": "string"
+            },
+            "StartedAt": {
+              "type": "string",
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time"
+            },
+            "EndedAt": {
+              "type": "string",
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time"
+            }
+          },
+          "required": [
+            "ToolUseID"
+          ],
+          "additionalProperties": false
         },
         "ToolchainRef": {
           "type": "string"

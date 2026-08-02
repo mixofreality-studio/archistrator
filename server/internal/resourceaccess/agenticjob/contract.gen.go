@@ -13,6 +13,37 @@ type ArtifactRef string
 
 type ConstructionActivityID string
 
+type EpisodeOutcome int
+
+const (
+	EpisodeSucceeded EpisodeOutcome = 0
+	EpisodeFailed    EpisodeOutcome = 1
+	EpisodeCancelled EpisodeOutcome = 2
+	EpisodeGap       EpisodeOutcome = 3
+)
+
+type EpisodeSummary struct {
+	EpisodeID      string           `json:"EpisodeID"`
+	Model          *string          `json:"Model,omitempty"`
+	Usage          EpisodeUsage     `json:"Usage"`
+	StreamedUsage  *EpisodeUsage    `json:"StreamedUsage,omitempty"`
+	CostUSD        *float64         `json:"CostUSD,omitempty"`
+	NumTurns       *int64           `json:"NumTurns,omitempty"`
+	ToolCallCounts map[string]int64 `json:"ToolCallCounts,omitempty"`
+	SubagentSpans  []SubagentSpan   `json:"SubagentSpans,omitempty"`
+	StartedAt      time.Time        `json:"StartedAt"`
+	EndedAt        time.Time        `json:"EndedAt"`
+	Outcome        EpisodeOutcome   `json:"Outcome"`
+	TracePath      *string          `json:"TracePath,omitempty"`
+}
+
+type EpisodeUsage struct {
+	In          int64 `json:"In"`
+	Out         int64 `json:"Out"`
+	CacheRead   int64 `json:"CacheRead"`
+	CacheCreate int64 `json:"CacheCreate"`
+}
+
 type PipelineHandle string
 
 type PipelineObservation struct {
@@ -24,6 +55,7 @@ type PipelineObservation struct {
 	RunURL     string            `json:"RunURL"`
 	StartedAt  time.Time         `json:"StartedAt"`
 	FinishedAt *time.Time        `json:"FinishedAt,omitempty"`
+	Episode    *EpisodeSummary   `json:"Episode,omitempty"`
 }
 
 type PipelinePhase int
@@ -87,6 +119,12 @@ const (
 	StepFailed    StepOutcome = 3
 	StepSkipped   StepOutcome = 4
 )
+
+type SubagentSpan struct {
+	ToolUseID string     `json:"ToolUseID"`
+	StartedAt *time.Time `json:"StartedAt,omitempty"`
+	EndedAt   *time.Time `json:"EndedAt,omitempty"`
+}
 
 type ToolchainRef string
 
