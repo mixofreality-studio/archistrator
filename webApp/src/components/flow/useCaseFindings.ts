@@ -16,7 +16,11 @@
  * `dvLabel` is always the view's KEY (not its display title) — the same label
  * the section grammar uses. A `dynamicView ${dvLabel}` PREFIX match is
  * deliberate: it catches both the view-scoped section (no " step …" suffix) and
- * every step-scoped section under that view in one pass.
+ * every step-scoped section under that view in one pass — but the match must
+ * stop at a word boundary (exact, or followed by " step "), not a bare
+ * `startsWith`: view keys are free text, so "dv-order" is itself a STRING
+ * prefix of a different, unrelated view "dv-order2", and a bare prefix match
+ * would leak dv-order2's findings into dv-order's join.
  */
 import type { Finding } from '../../contracts/types';
 
@@ -37,7 +41,12 @@ export function findingsForUseCase(
     const section = f.location?.section;
     if (section === undefined) return false;
     if (section === useCaseSection) return true;
-    return dvPrefix !== undefined && section.startsWith(dvPrefix);
+    if (dvPrefix === undefined) return false;
+    // Boundary-safe: an exact view-scoped match, or a step-scoped match under
+    // THIS view specifically — not just any section string that happens to
+    // start with these characters (a longer view key, e.g. "dv-order2", would
+    // otherwise pass `startsWith("dynamicView dv-order")`).
+    return section === dvPrefix || section.startsWith(dvPrefix + ' step ');
   });
 }
 

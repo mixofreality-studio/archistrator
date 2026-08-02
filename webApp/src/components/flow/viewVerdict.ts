@@ -59,14 +59,18 @@ export interface ViewVerdict {
  *  <dvKey>`, CC-VIEW-USECASE) plus every step-scoped section under it
  *  (`dynamicView <dvKey> step <nodeId>`) — the same prefix join
  *  `statusBySeqFromFindings` performs per-step, just not narrowed to one
- *  step. A blank `dvKey` joins nothing (no section grammar to match on). */
+ *  step. A blank `dvKey` joins nothing (no section grammar to match on). The
+ *  match stops at a word boundary (exact, or followed by " step "), not a
+ *  bare `startsWith`: view keys are free text, so "dv-order" is itself a
+ *  STRING prefix of an unrelated view "dv-order2", and a bare prefix match
+ *  would leak dv-order2's findings into dv-order's verdict. */
 function findingsForView(findings: readonly Finding[], dvKey: string): Finding[] {
   if (dvKey.trim().length === 0) return [];
   const prefix = `dynamicView ${dvKey}`;
   return findings.filter((f) => {
     const section = f.location?.section;
     if (section === undefined) return false;
-    return section.startsWith(prefix);
+    return section === prefix || section.startsWith(prefix + ' step ');
   });
 }
 

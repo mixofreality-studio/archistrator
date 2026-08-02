@@ -5016,10 +5016,10 @@ func RequireModelFields(kind ArtifactKind, raw []byte) error {
 // closed-enum / identity fields: every component's id/name/kind/layer, every
 // relationship's from/to/mode, and every dynamic view's useCaseId (and each of its
 // steps' activityNodeId + its calls' from/to/mode). The load-bearing check is
-// layer==canonicalLayer(kind): it catches the
-// live F81 case (kind present, layer omitted→client) as a mismatch. The both-omitted
-// case (kind AND layer absent → both client → self-consistent) is caught by the presence
-// checks below and, at the whole-system level, by the SYSTEM-LAYER-DEGENERATE rule.
+// layer==canonicalLayer(kind): it catches the live F81 case (kind present, layer
+// omitted→client) as a mismatch. The both-omitted case (kind AND layer absent → both
+// client → self-consistent) is caught by the presence checks below and, at the
+// whole-system level, by the SYSTEM-LAYER-DEGENERATE rule.
 // requireComponentFields enforces one component's identity + closed-enum + encapsulates
 // surface (extracted from requireSystemFields to keep each function's cognitive
 // complexity within the linter's floor).
@@ -5146,17 +5146,21 @@ func requireDynamicViewSteps(obj map[string]json.RawMessage, label string) error
 		}
 		for k, cRaw := range callRaws {
 			callLabel := fmt.Sprintf("%s call %d", stepLabel, k+1)
-			if err := requireRelationshipFields(cRaw, callLabel); err != nil {
-				return err
-			}
-			// TraceCall.Alt (rollout rulings 2026-07-31): optional alt-group tag, not on
-			// the shared Relationship shape, so checked here rather than inside
-			// requireRelationshipFields (which also validates top-level relationships
-			// that have no alt field). Tolerant: absent is fine; wrong type is an error.
+			// Parsed once (requireActivityNodes' idiom: rawObject up front, every
+			// subsequent check reads the same obj) rather than letting
+			// requireRelationshipFields re-parse cRaw for its own from/to/mode
+			// checks.
 			cObj, err := rawObject(cRaw)
 			if err != nil {
 				return fmt.Errorf("%s is not a JSON object: %w", callLabel, err)
 			}
+			if err := requireRelationshipFieldsObj(cObj, callLabel); err != nil {
+				return err
+			}
+			// TraceCall.Alt (rollout rulings 2026-07-31): optional alt-group tag, not on
+			// the shared Relationship shape, so checked here rather than inside
+			// requireRelationshipFieldsObj (which also validates top-level relationships
+			// that have no alt field). Tolerant: absent is fine; wrong type is an error.
 			if err := requireOptionalStringField(cObj, "alt", callLabel); err != nil {
 				return err
 			}
@@ -5167,12 +5171,23 @@ func requireDynamicViewSteps(obj map[string]json.RawMessage, label string) error
 
 // requireRelationshipFields enforces from/to/mode on one Relationship (a top-level edge
 // or a dynamic-view edge). mode is the CallMode closed enum whose zero value (CallSync)
-// would silently absorb an omitted field.
+// would silently absorb an omitted field. Parses raw once and delegates to
+// requireRelationshipFieldsObj; callers that already hold the parsed object (e.g. a
+// dynamic-view call that also needs its optional alt field) should call that directly
+// instead of re-parsing.
 func requireRelationshipFields(raw json.RawMessage, label string) error {
 	obj, err := rawObject(raw)
 	if err != nil {
 		return fmt.Errorf("%s is not a JSON object: %w", label, err)
 	}
+	return requireRelationshipFieldsObj(obj, label)
+}
+
+// requireRelationshipFieldsObj is requireRelationshipFields' check body, split out so a
+// caller that already parsed the relationship object (requireDynamicViewSteps, which
+// also reads the call's optional alt field) does the from/to/mode checks without a
+// second rawObject parse of the same bytes.
+func requireRelationshipFieldsObj(obj map[string]json.RawMessage, label string) error {
 	if err := requireNonEmptyString(obj, "from", label); err != nil {
 		return err
 	}

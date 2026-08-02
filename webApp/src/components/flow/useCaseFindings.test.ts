@@ -93,6 +93,30 @@ void test('an absent dvLabel excludes every dynamicView-sectioned finding', () =
   assert.deepEqual(out, [useCaseFinding]);
 });
 
+void test('a view key that is a STRING PREFIX of the requested one does not collide', () => {
+  // "dv-order" is itself a prefix of "dv-order2" — a bare startsWith would let
+  // dv-order2's view-scoped and step-scoped findings leak into dv-order's join.
+  const collidingViewFinding = fnd(
+    'RuleCCViewUseCase',
+    'warning',
+    'wrong view',
+    'dynamicView dv-order2'
+  );
+  const collidingStepFinding = fnd(
+    'RuleCCActorEdge',
+    'error',
+    'wrong view step',
+    'dynamicView dv-order2 step n-validate'
+  );
+  const out = findingsForUseCase(
+    [...ALL, collidingViewFinding, collidingStepFinding],
+    'uc-1',
+    'dv-order'
+  );
+  assert.ok(!out.includes(collidingViewFinding));
+  assert.ok(!out.includes(collidingStepFinding));
+});
+
 // ── findingsForStep ──────────────────────────────────────────────────────────
 
 void test('matches exactly one step-scoped section', () => {

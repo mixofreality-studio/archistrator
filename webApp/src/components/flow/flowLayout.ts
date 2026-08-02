@@ -77,18 +77,19 @@ export function layerColors(t: Tokens): Record<FlowLayer, string> {
 
 /**
  * The opacity a MUTED (out-of-focus) participant fades to. One token, shared by
- * every flow that mutes: the static graph's hover neighbourhood (ArchitectureFlow)
- * and the dynamic lens' focused call/fragment (DynamicViewFlow) must read as the
- * SAME treatment — that identity is the point (founder QA round 2).
+ * every flow that mutes — nodes and edges alike: the static graph's hover
+ * neighbourhood (ArchitectureFlow), the dynamic lens' focused call/fragment
+ * (DynamicViewFlow), and flowEdge's muted variant must all read as the SAME
+ * treatment — that identity is the point (founder QA round 2).
  */
-export const MUTED_NODE_OPACITY = 0.12;
+export const MUTED_OPACITY = 0.12;
 
 /**
  * The opacity of the VISITED tier — the calls (and their endpoints) the reader
  * has already walked past in the Dynamic lens' fragment mode (founder QA round
  * 4's trail accretion). Deliberately a mid tint: it must read as "already
  * walked" at a glance, sitting clearly ABOVE the never-walked ghosts at
- * MUTED_NODE_OPACITY and clearly BELOW the current fragment at full strength.
+ * MUTED_OPACITY and clearly BELOW the current fragment at full strength.
  * One token for nodes and edges alike, so the trail reads as one thing.
  */
 export const VISITED_OPACITY = 0.55;
@@ -326,7 +327,7 @@ export function c4Node(
         : {}),
     },
     draggable: false,
-    ...(opts.dimmed === true ? { style: { opacity: MUTED_NODE_OPACITY } } : {}),
+    ...(opts.dimmed === true ? { style: { opacity: MUTED_OPACITY } } : {}),
   };
 }
 
@@ -340,7 +341,7 @@ export function personNode(
   color: string,
   opts: {
     /** Fade this actor out — the same mute a non-neighbour component takes when
-     *  the diagram has a focus (c4Node's `dimmed`; MUTED_NODE_OPACITY). */
+     *  the diagram has a focus (c4Node's `dimmed`; MUTED_OPACITY). */
     dimmed?: boolean;
   } = {}
 ): Node {
@@ -350,7 +351,7 @@ export function personNode(
     position,
     data: { personId: person.id, role: person.role, color },
     draggable: false,
-    ...(opts.dimmed === true ? { style: { opacity: MUTED_NODE_OPACITY } } : {}),
+    ...(opts.dimmed === true ? { style: { opacity: MUTED_OPACITY } } : {}),
   };
 }
 
@@ -412,7 +413,7 @@ export function flowEdge(
       : variant === 'focus'
         ? t.ink
         : t.muted);
-  const opacity = opts.opacity ?? (variant === 'muted' ? MUTED_NODE_OPACITY : 1);
+  const opacity = opts.opacity ?? (variant === 'muted' ? MUTED_OPACITY : 1);
   // Only spread a `parallel` slot the renderer would act on: a lone strand must
   // leave the drawn path byte-identical to what every other view already emits.
   const parallel =

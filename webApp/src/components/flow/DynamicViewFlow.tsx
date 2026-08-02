@@ -84,7 +84,7 @@ import {
   type Layer,
   type LayoutComponent,
   LAYER_ORDER,
-  MUTED_NODE_OPACITY,
+  MUTED_OPACITY,
   VISITED_OPACITY,
   layerColors,
   computeLayout,
@@ -272,7 +272,7 @@ function build(
         ? 1
         : isVisited
           ? VISITED_OPACITY
-          : MUTED_NODE_OPACITY
+          : MUTED_OPACITY
       : status !== undefined
         ? isCurrent || !muted
           ? 1

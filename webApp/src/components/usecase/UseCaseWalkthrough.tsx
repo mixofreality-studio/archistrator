@@ -175,11 +175,13 @@ export function UseCaseWalkthrough({
   const colors = laneColors(t, uc.lanes);
   const { setAnchor, enabled, anchor: armedAnchor, comments } = useComments();
 
-  // Roots: every `start` node plus every edge-less (in-degree-0) node — an
-  // activity can begin either at its literal start pseudostate or at an
-  // accept/time-event that has no incoming edge. A cyclic diagram with no
-  // start and no in-degree-0 node (a degenerate/malformed case) falls back to
-  // the first node so the walkthrough always has somewhere to begin.
+  // Roots: every `start` node plus every edge-less (in-degree-0) timeEvent or
+  // acceptEvent node — an activity can begin either at its literal start
+  // pseudostate or at an accept/time-event that has no incoming edge (see
+  // walkthroughRoots: an edge-less node of any OTHER kind, e.g. a
+  // documentation `note`, is not a legal entry). A cyclic diagram with no
+  // start and no in-degree-0 event node (a degenerate/malformed case) falls
+  // back to the first node so the walkthrough always has somewhere to begin.
   const { nodesById, outEdges, roots } = useMemo(() => {
     const byId = new Map<string, NodeView>(uc.nodes.map((n) => [n.id, n]));
     const outs = new Map<string, EdgeView[]>();
@@ -259,22 +261,28 @@ export function UseCaseWalkthrough({
   // whether wrapped text overflows a fixed height depends on the rendered
   // font metrics and container width, not a value derivable from `path`
   // alone. Drives whether the "Show full path" toggle appears at all.
-  const pathBoxRef = useRef<HTMLDivElement>(null);
+  // A callback ref (not useRef + a `[path]`-keyed effect): the path box only
+  // mounts once `path` is non-empty (below), so the observer must attach when
+  // the DOM node itself appears/disappears, not on every path change — the
+  // ResizeObserver already re-fires `check` on its own whenever the box's
+  // content (and so its height) changes on an advance/back/restart, so keying
+  // the effect to `path` was tearing down and recreating a fresh observer on
+  // every single step for no behavioural gain.
+  const [pathBoxEl, setPathBoxEl] = useState<HTMLDivElement | null>(null);
   const [pathOverflowing, setPathOverflowing] = useState(false);
   const [pathExpanded, setPathExpanded] = useState(false);
   useEffect(() => {
-    const el = pathBoxRef.current;
-    if (el === null) return undefined;
+    if (pathBoxEl === null) return undefined;
     const check = (): void => {
-      setPathOverflowing(el.scrollHeight > PATH_COLLAPSED_HEIGHT + 1);
+      setPathOverflowing(pathBoxEl.scrollHeight > PATH_COLLAPSED_HEIGHT + 1);
     };
     check();
     const ro = new ResizeObserver(check);
-    ro.observe(el);
+    ro.observe(pathBoxEl);
     return (): void => {
       ro.disconnect();
     };
-  }, [path]);
+  }, [pathBoxEl]);
 
   // No highlight at all while the path is empty (the multi-root entry chooser):
   // an empty ActivityHighlight would dim every node/edge to 25% with nothing
@@ -704,7 +712,7 @@ export function UseCaseWalkthrough({
             </Typography>
             <Collapse collapsedSize={PATH_COLLAPSED_HEIGHT} id={pathRegionId} in={pathExpanded}>
               <Box
-                ref={pathBoxRef}
+                ref={setPathBoxEl}
                 sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 0.5 }}
               >
                 {path.map((id, idx) => {
@@ -798,7 +806,12 @@ export function UseCaseWalkthrough({
             {mapOpen ? 'Hide activity map ▴' : 'Show activity map ▾'}
           </ButtonBase>
           {/* Lazy-mounted (fix-round-1 Finding 1): nothing here — not even a
-              hidden React-Flow instance — until the first open. */}
+              hidden React-Flow instance — until the first open. Before that
+              first open, the toggle's `aria-controls={mapRegionId}` above
+              would otherwise reference an id with no element in the DOM yet;
+              a plain empty div claiming that id (cheaper than pre-mounting
+              the real Collapse+ActivityFlow just to satisfy aria-controls)
+              keeps the reference valid pre-mount. */}
           {mapEverOpened ? (
             <Collapse id={mapRegionId} in={mapOpen}>
               <ActivityFlow
@@ -808,7 +821,9 @@ export function UseCaseWalkthrough({
                 {...(highlight !== undefined ? { highlight } : {})}
               />
             </Collapse>
-          ) : null}
+          ) : (
+            <div id={mapRegionId} />
+          )}
         </Box>
       ) : (
         <Box sx={{ flexGrow: 1, minWidth: 0 }}>

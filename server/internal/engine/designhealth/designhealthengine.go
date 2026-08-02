@@ -38,6 +38,21 @@
 // EvaluateRaw is that one implementation; the seam appends its findings alongside
 // the framework findings inside applyGateSeverityPolicies (see staleness.go).
 //
+// This package also carries an internal PORT of the platform's work-bounded
+// activity-path walker (framework-go/methodcheck/activitypaths.go — the platform
+// twin of this file's own walker type, further down): CC-PATH-CONNECTED here
+// re-derives spend/carry/crossProduct and the maxActivityPaths/maxWalkWork bounds
+// against this package's own tolerant slices, not the platform's typed ones, so
+// it is a structural mirror rather than shared code. The port discipline: spend
+// and carry are ported TOGETHER — a future change to either mechanic on the
+// platform twin must land here in lockstep, not piecemeal; crossProduct is
+// EXCLUDED from that lockstep on both sides (it charges via spend directly,
+// never through carry — see the carry-exclusion note near this file's walker);
+// and MESSAGE TEXT is the one place the twins are LICENSED to diverge — this
+// tier's CC-* messages lead with the view KEY, the platform's lead with the view
+// TITLE (see the SECTION GRAMMAR note near callChainFindings) — so a mechanics
+// change ports, a wording change does not.
+//
 // The rules that mint SeverityError findings are calibrated to pass ("green") on
 // the committed archistrator project.json; App-C-guideline and cardinality bounds
 // mint SeverityWarning/SeverityInfo so they surface in the Design Health view

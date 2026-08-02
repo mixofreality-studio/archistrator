@@ -104,6 +104,17 @@ void test('a blank dvKey joins no findings at all', () => {
   assert.deepEqual(out, { label: '5/7 realized', tone: 'warn' });
 });
 
+void test('a view key that is a STRING PREFIX of the requested one does not collide', () => {
+  // "dv-order" is itself a prefix of "dv-order2" — a bare startsWith would let
+  // dv-order2's view-scoped and step-scoped findings flip dv-order's verdict.
+  const findings = [
+    fnd('RuleCCViewUseCase', 'warning', 'dynamicView dv-order2'),
+    fnd('RuleCCActorEdge', 'error', 'dynamicView dv-order2 step n-validate'),
+  ];
+  const out = viewVerdict(findings, 'dv-order', 5, 7);
+  assert.deepEqual(out, { label: '5/7 realized', tone: 'warn' });
+});
+
 // ── zero-eligible edge case (nothing was ever required) ─────────────────────
 
 void test('zero eligible nodes, zero realized, no findings -> ok "0/0", not pending', () => {
