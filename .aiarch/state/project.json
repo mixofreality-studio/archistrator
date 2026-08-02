@@ -1834,7 +1834,7 @@
           },
           {
             "name": "Operational State Store",
-            "rationale": "Which storage substrate holds the platform's own operational records — operated-system state, billing state, and the usage log. Postgres today; managed alternatives later, potentially migrating per record family over the platform's lifetime. The atomic business verbs on each record family are stable; the substrate behind them — engine, consistency mechanics, hosting — is what varies. One axis fronted by three ResourceAccess components, one per verb family: operatedSystemStateAccess, billingStateAccess, usageAccess (ratified facet doctrine — see operational concepts). Deliberately distinct from Source Control Target: transactional row/append stores, not the per-project git repo.",
+            "rationale": "Which storage substrate holds the platform's own operational records — operated-system state, billing state, usage log, and (2026-08-02) the episode ledger. Postgres for state/usage/billing, a local gitignored sidecar for episode traces today; managed alternatives and a deployed episode profile later, potentially migrating per record family over the platform's lifetime. The atomic business verbs on each record family are stable; the substrate behind them — engine, consistency mechanics, hosting — is what varies. One axis fronted by four ResourceAccess components, one per verb family: operatedSystemStateAccess, billingStateAccess, usageAccess, episodeAccess (ratified facet doctrine — see operational concepts). Deliberately distinct from Source Control Target: transactional row/append stores, not the per-project git repo.",
             "axis": "sameCustomerOverTime",
             "traces": [
               "B-08",
@@ -5455,6 +5455,22 @@
             ]
           },
           {
+            "id": "episode-access",
+            "contractKey": "episodeAccess",
+            "name": "EpisodeAccess",
+            "kind": "resourceAccess",
+            "layer": "resourceAccess",
+            "encapsulates": "Encapsulates the Operational State Store volatility for the episode ledger (B-08, B-11, B-16): appendEpisode / listEpisodes / readTraceEvents over the episode ledger + raw stream-json trace sidecar, hiding the storage substrate — a local gitignored .aiarch/traces/ sidecar today, a deployed profile later — from the Managers that persist and read episode records (spec: docs/superpowers/specs/2026-08-02-self-improvement-pipeline-design.md §5).",
+            "encapsulatesVolatilities": [
+              "Operational State Store"
+            ],
+            "atomicBusinessVerbs": [
+              "appendEpisode",
+              "listEpisodes",
+              "readTraceEvents"
+            ]
+          },
+          {
             "id": "merchant-gateway-access",
             "contractKey": "merchantGatewayAccess",
             "name": "MerchantGatewayAccess",
@@ -5857,6 +5873,24 @@
             "to": "source-control-access",
             "mode": "sync",
             "label": "getInstallationToken | openBranch | openPullRequest | getPullRequestStatus | postReview | mergePullRequest"
+          },
+          {
+            "from": "construction-manager",
+            "to": "episode-access",
+            "mode": "sync",
+            "label": "appendEpisode / listEpisodes / readTraceEvents (episode capture + trace facet reads)"
+          },
+          {
+            "from": "system-design-manager",
+            "to": "episode-access",
+            "mode": "sync",
+            "label": "appendEpisode / listEpisodes / readTraceEvents (episode capture + trace facet reads)"
+          },
+          {
+            "from": "project-design-manager",
+            "to": "episode-access",
+            "mode": "sync",
+            "label": "appendEpisode / listEpisodes / readTraceEvents (episode capture + trace facet reads)"
           },
           {
             "from": "project-state-access",
@@ -8659,6 +8693,7 @@
                 "ProjectStateAccess",
                 "SourceControlAccess",
                 "UsageAccess",
+                "EpisodeAccess",
                 "Diagnostics",
                 "Logging",
                 "Security"
@@ -9229,6 +9264,22 @@
                   ]
                 },
                 "local": {
+                  "variant": "NoOp",
+                  "infra": []
+                }
+              }
+            },
+            {
+              "component": "episodeAccess",
+              "presence": "required",
+              "provides": [],
+              "settings": [],
+              "perProfile": {
+                "local": {
+                  "variant": "LocalFS",
+                  "infra": []
+                },
+                "cloud": {
                   "variant": "NoOp",
                   "infra": []
                 }
@@ -24141,6 +24192,281 @@
               "type": "array",
               "items": {
                 "$ref": "#/$defs/EntryRef"
+              }
+            },
+            "error": true
+          }
+        ]
+      }
+    },
+    "episodeAccess": {
+      "component": "episodeAccess",
+      "layer": "ResourceAccess",
+      "goPackage": "internal/resourceaccess/episode",
+      "title": "episode contract",
+      "$defs": {
+        "ProjectID": {
+          "type": "string"
+        },
+        "EpisodeOutcome": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "x-enum-varnames": [
+            "EpisodeSucceeded",
+            "EpisodeFailed",
+            "EpisodeCancelled",
+            "EpisodeGap"
+          ],
+          "x-go-base": "int"
+        },
+        "EpisodeKind": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2,
+            3,
+            4
+          ],
+          "x-enum-varnames": [
+            "EpisodeKindDesign",
+            "EpisodeKindConstruction",
+            "EpisodeKindReview",
+            "EpisodeKindRework",
+            "EpisodeKindAnswer"
+          ],
+          "x-go-base": "int"
+        },
+        "EpisodeUsage": {
+          "type": "object",
+          "properties": {
+            "In": {
+              "type": "integer"
+            },
+            "Out": {
+              "type": "integer"
+            },
+            "CacheRead": {
+              "type": "integer"
+            },
+            "CacheCreate": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "In",
+            "Out",
+            "CacheRead",
+            "CacheCreate"
+          ],
+          "additionalProperties": false
+        },
+        "EpisodeLineage": {
+          "type": "object",
+          "properties": {
+            "WorkflowID": {
+              "type": "string"
+            },
+            "RunID": {
+              "type": "string"
+            },
+            "ActivityID": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "WorkflowID",
+            "RunID"
+          ],
+          "additionalProperties": false
+        },
+        "SubagentSpan": {
+          "type": "object",
+          "properties": {
+            "ToolUseID": {
+              "type": "string"
+            },
+            "StartedAt": {
+              "type": "string",
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time"
+            },
+            "EndedAt": {
+              "type": "string",
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time"
+            }
+          },
+          "required": [
+            "ToolUseID"
+          ],
+          "additionalProperties": false
+        },
+        "EpisodeRecord": {
+          "type": "object",
+          "properties": {
+            "EpisodeID": {
+              "type": "string"
+            },
+            "Kind": {
+              "$ref": "#/$defs/EpisodeKind"
+            },
+            "TargetRef": {
+              "type": "string"
+            },
+            "Lineage": {
+              "$ref": "#/$defs/EpisodeLineage"
+            },
+            "WorkerClass": {
+              "type": "string"
+            },
+            "Model": {
+              "type": "string"
+            },
+            "Usage": {
+              "$ref": "#/$defs/EpisodeUsage"
+            },
+            "StreamedUsage": {
+              "$ref": "#/$defs/EpisodeUsage"
+            },
+            "CostUSD": {
+              "type": "number"
+            },
+            "NumTurns": {
+              "type": "integer"
+            },
+            "ToolCallCounts": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "integer"
+              }
+            },
+            "SubagentSpans": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/SubagentSpan"
+              }
+            },
+            "StartedAt": {
+              "type": "string",
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time"
+            },
+            "EndedAt": {
+              "type": "string",
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time"
+            },
+            "Outcome": {
+              "$ref": "#/$defs/EpisodeOutcome"
+            },
+            "GapReason": {
+              "type": "string"
+            },
+            "TracePath": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "EpisodeID",
+            "Kind",
+            "TargetRef",
+            "Usage",
+            "StartedAt",
+            "EndedAt",
+            "Outcome"
+          ],
+          "additionalProperties": false
+        },
+        "EpisodeQuery": {
+          "type": "object",
+          "properties": {
+            "ProjectID": {
+              "$ref": "#/$defs/ProjectID"
+            },
+            "TargetRef": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "ProjectID"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "interface": {
+        "name": "EpisodeAccess",
+        "layer": "resourceaccess",
+        "operations": [
+          {
+            "name": "AppendEpisode",
+            "params": [
+              {
+                "name": "projectID",
+                "schema": {
+                  "$ref": "#/$defs/ProjectID"
+                }
+              },
+              {
+                "name": "record",
+                "schema": {
+                  "$ref": "#/$defs/EpisodeRecord"
+                }
+              }
+            ],
+            "error": true
+          },
+          {
+            "name": "ListEpisodes",
+            "params": [
+              {
+                "name": "query",
+                "schema": {
+                  "$ref": "#/$defs/EpisodeQuery"
+                }
+              }
+            ],
+            "result": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/EpisodeRecord"
+              }
+            },
+            "error": true
+          },
+          {
+            "name": "ReadTraceEvents",
+            "params": [
+              {
+                "name": "projectID",
+                "schema": {
+                  "$ref": "#/$defs/ProjectID"
+                }
+              },
+              {
+                "name": "episodeID",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            ],
+            "result": {
+              "type": "array",
+              "items": {
+                "type": [
+                  "null"
+                ],
+                "x-go-import": "encoding/json",
+                "x-go-type": "json.RawMessage"
               }
             },
             "error": true
