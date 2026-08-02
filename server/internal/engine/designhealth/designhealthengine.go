@@ -905,7 +905,8 @@ func (cc ccContext) ucLoc() string {
 	return "useCase " + cc.uc.ID
 }
 
-// ccFinding builds a finding at the family's shared PoC severity.
+// ccFinding builds a finding at the family's shared gate severity (Error since the
+// Task 12 severity flip, 2026-08-01).
 func ccFinding(id methodcheck.RuleID, ordinal int, section, format string, args ...any) methodcheck.Finding {
 	return finding(id, ccLiveSeverity, ordinal, section, fmt.Sprintf(format, args...))
 }
