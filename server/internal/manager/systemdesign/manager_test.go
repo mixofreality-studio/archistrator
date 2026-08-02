@@ -1604,19 +1604,29 @@ func newWorkflows() *workflows {
 // capability opt-in needed.
 // fakeEpisodes is the episodeAccess test double: it RECORDS every appended record and
 // counts every attempt, so a test can assert both what was written and how many times the
-// append was retried. failAlways fails every attempt (the ledger-is-down case).
+// append was retried. failAlways fails every attempt (the ledger-is-down case); failN
+// fails only the first N (the transient-stumble case the bounded retry exists for).
+//
+// It HONOURS the call context. The production LocalFS/NoOp realisations happen to ignore
+// it, but a double that ignores it too would silently bless an append handed an
+// already-cancelled context — exactly the bug the answer-watch's fresh append budget
+// exists to prevent, and one no test could otherwise see.
 type fakeEpisodes struct {
 	mu         sync.Mutex
 	appended   []episode.EpisodeRecord
 	attempts   int
+	failN      int
 	failAlways bool
 }
 
-func (f *fakeEpisodes) AppendEpisode(_ fwra.Context, _ episode.ProjectID, record episode.EpisodeRecord) error {
+func (f *fakeEpisodes) AppendEpisode(rc fwra.Context, _ episode.ProjectID, record episode.EpisodeRecord) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.attempts++
-	if f.failAlways {
+	if rc.Context != nil && rc.Err() != nil {
+		return fwra.New(fwra.Infrastructure, "append called with a dead context: "+rc.Err().Error())
+	}
+	if f.failAlways || f.attempts <= f.failN {
 		return fwra.New(fwra.Infrastructure, "episode ledger unavailable")
 	}
 	f.appended = append(f.appended, record)
@@ -9656,7 +9666,9 @@ func Test_CoAuthor_EpisodeAppendFailure_DoesNotFailBusinessFlow(t *testing.T) {
 
 	env.RegisterDelayedCallback(func() {
 		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
-	}, 30*time.Minute)
+		// Well past appendEpisodeRetryWindow (2m), so the append has exhausted its whole
+		// envelope and been dropped before the session is asked to finish.
+	}, 10*time.Minute)
 	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
 
 	if !env.IsWorkflowCompleted() {
@@ -9744,6 +9756,11 @@ func Test_AnswerEpisodeWatch_PersistsAnswerEpisode(t *testing.T) {
 
 // A job that never terminates inside the watch window is recorded as an explicit gap,
 // never left silent and never watched forever by a leaked goroutine.
+//
+// This is ALSO the regression test for the deadline-path context bug: the watch's observe
+// loop returns precisely BECAUSE its window expired, so an append that rode that same
+// context would be handed an already-cancelled one — and fakeEpisodes fails any such call.
+// The gap record landing here is the proof the append gets its own fresh budget.
 func Test_AnswerEpisodeWatch_DeadlineRecordsGap(t *testing.T) {
 	pipe := &watchPipeline{script: []agenticjob.PipelineObservation{{Phase: agenticjob.PhaseRunning}}}
 	eps := &fakeEpisodes{}
@@ -9760,5 +9777,63 @@ func Test_AnswerEpisodeWatch_DeadlineRecordsGap(t *testing.T) {
 	}
 	if got[0].GapReason == nil || !strings.Contains(*got[0].GapReason, "watch window") {
 		t.Fatalf("GapReason must name the watch window, got %v", got[0].GapReason)
+	}
+}
+
+// The watch is spawned from an AskQuestions REQUEST context that is cancelled the moment
+// that call returns — long before the job it dispatched finishes. The episode must still
+// reach the ledger: the append is detached from the caller's cancellation, not merely from
+// the watch window.
+func Test_AnswerEpisodeWatch_CancelledCallerContext_StillRecords(t *testing.T) {
+	pipe := &watchPipeline{script: []agenticjob.PipelineObservation{
+		{Phase: agenticjob.PhaseSucceeded, Episode: captureSeamSummary("ep-answer")},
+	}}
+	eps := &fakeEpisodes{}
+	w := answerEpisodeWatch{pipeline: pipe, episodes: eps, poll: time.Millisecond, window: time.Second, log: watchTestLogger()}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // the request has already returned
+
+	w.run(ctx, "proj-1", artifactKindString(KindMission), "local:answer-1")
+
+	if got := eps.records(); len(got) != 1 || got[0].EpisodeID != "ep-answer" {
+		t.Fatalf("a cancelled caller context must not lose the episode, got %+v", got)
+	}
+}
+
+// This path has no Temporal retry envelope behind it, so it carries its own small bounded
+// one: a transient store stumble must not lose the episode outright.
+func Test_AnswerEpisodeWatch_TransientAppendFailure_Retries(t *testing.T) {
+	pipe := &watchPipeline{script: []agenticjob.PipelineObservation{
+		{Phase: agenticjob.PhaseSucceeded, Episode: captureSeamSummary("ep-answer")},
+	}}
+	eps := &fakeEpisodes{failN: 2} // the first two attempts stumble, the third lands
+	w := answerEpisodeWatch{pipeline: pipe, episodes: eps, poll: time.Millisecond, window: time.Second, log: watchTestLogger()}
+
+	w.run(context.Background(), "proj-1", artifactKindString(KindMission), "local:answer-1")
+
+	if got := eps.records(); len(got) != 1 || got[0].EpisodeID != "ep-answer" {
+		t.Fatalf("the bounded retry must ride out a transient fault, got %+v", got)
+	}
+	if eps.attemptCount() != 3 {
+		t.Fatalf("want 3 attempts (the bounded retry), got %d", eps.attemptCount())
+	}
+}
+
+// A permanently-failing ledger gives up after the bounded retry — it never spins.
+func Test_AnswerEpisodeWatch_PermanentAppendFailure_GivesUpBounded(t *testing.T) {
+	pipe := &watchPipeline{script: []agenticjob.PipelineObservation{
+		{Phase: agenticjob.PhaseSucceeded, Episode: captureSeamSummary("ep-answer")},
+	}}
+	eps := &fakeEpisodes{failAlways: true}
+	w := answerEpisodeWatch{pipeline: pipe, episodes: eps, poll: time.Millisecond, window: time.Second, log: watchTestLogger()}
+
+	w.run(context.Background(), "proj-1", artifactKindString(KindMission), "local:answer-1")
+
+	if n := eps.attemptCount(); n != answerEpisodeAppendAttempts {
+		t.Fatalf("want exactly %d bounded attempts, got %d", answerEpisodeAppendAttempts, n)
+	}
+	if len(eps.records()) != 0 {
+		t.Fatalf("nothing can land in a permanently-failing ledger, got %+v", eps.records())
 	}
 }

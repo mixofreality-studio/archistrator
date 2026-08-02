@@ -2025,6 +2025,8 @@ func registerGenDesignSessionRead(env *testsuite.TestWorkflowEnvironment, ps *fa
 // fakeEpisodes is the episodeAccess test double: it RECORDS every appended record and
 // counts every attempt, so a test can assert both what was written and how many times the
 // append was retried. failN>0 fails the first failN attempts; failAlways fails every one.
+// It also HONOURS the call context, so an append handed an already-cancelled context is
+// caught by the test rather than silently blessed (the production realisations ignore it).
 type fakeEpisodes struct {
 	mu         sync.Mutex
 	appended   []episode.EpisodeRecord
@@ -2033,10 +2035,13 @@ type fakeEpisodes struct {
 	failAlways bool
 }
 
-func (f *fakeEpisodes) AppendEpisode(_ fwra.Context, _ episode.ProjectID, record episode.EpisodeRecord) error {
+func (f *fakeEpisodes) AppendEpisode(rc fwra.Context, _ episode.ProjectID, record episode.EpisodeRecord) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.attempts++
+	if rc.Context != nil && rc.Err() != nil {
+		return fwra.New(fwra.Infrastructure, "append called with a dead context: "+rc.Err().Error())
+	}
 	if f.failAlways || f.attempts <= f.failN {
 		return fwra.New(fwra.Infrastructure, "episode ledger unavailable")
 	}

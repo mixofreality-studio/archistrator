@@ -1138,12 +1138,13 @@ func recordActivityOptions() workflow.ActivityOptions {
 }
 
 // appendEpisodeRetryWindow is the HARD wall-clock bound on the episode-append's own
-// retry envelope. The append retries without an attempt cap inside it (bookkeeping the
-// ledger must not lose to a transient store fault), but it cannot retry FOREVER: the
-// workflow waits on it, so an unbounded envelope would let a permanently-broken ledger
-// wedge construction. Ten minutes is far past any real store fault and far short of any
-// business timeout.
-const appendEpisodeRetryWindow = 10 * time.Minute
+// retry envelope. Attempts are UNCAPPED inside it (bookkeeping must not lose to a
+// transient store fault) but they cannot run forever, because the workflow WAITS on this
+// activity.
+//
+// bounded-latency ruling 2026-08-02: local sidecar append failing >2m is not transient;
+// business outcome must not stall on telemetry.
+const appendEpisodeRetryWindow = 2 * time.Minute
 
 // appendEpisodeActivityOptions is the episode-append preset — DELIBERATELY its own
 // envelope, independent of every business preset (§capture-seam): a generous

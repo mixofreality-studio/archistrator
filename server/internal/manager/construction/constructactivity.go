@@ -258,6 +258,11 @@ func (wf *workflows) captureEpisode(ctx workflow.Context, in constructActivityIn
 	if obs.Episode == nil && !agentic {
 		return
 	}
+	// The cancel-race grace is worth waiting for ONLY on a dispatch that could have mined
+	// an episode at all: a non-agentic job has nothing in flight to wait for.
+	if agentic {
+		obs = wf.awaitLateEpisode(ctx, handle, obs)
+	}
 	rec := episodeRecordFor(ctx, obs, episodeIDSeed(handle, in), string(in.ActivityID))
 	if err := wf.Acts.EpisodesAppendEpisode(ctx, episode.ProjectID(in.ProjectID), rec); err != nil {
 		// Swallowed BY DESIGN — see the "never fails the business flow" discipline above.
@@ -1559,7 +1564,10 @@ func (wf *workflows) runMergePipeline(ctx workflow.Context, in constructActivity
 			// agentic=false: the merge job merges a branch, it never spawns an agent, so a
 			// missing summary here is not a loss and must not be recorded as a gap. The
 			// capture stays wired so a merge job that ever DOES mine one is not dropped.
-			wf.captureEpisode(ctx, in, h, wf.awaitLateEpisode(ctx, h, obs), false)
+			// NOTE the late-episode grace is deliberately NOT taken here — it lives inside
+			// captureEpisode, gated on agentic, so a cancelled merge never spends 20s
+			// waiting for a summary a merge can by construction never produce.
+			wf.captureEpisode(ctx, in, h, obs, false)
 			return obs, nil
 		}
 		_ = workflow.Sleep(ctx, pipelinePollInterval)

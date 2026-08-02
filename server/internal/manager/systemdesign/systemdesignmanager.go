@@ -2067,6 +2067,14 @@ const (
 	// answerEpisodeWatchWindow is the hard deadline on the watch. Past it the episode is
 	// recorded as an explicit GAP rather than watched forever by a leaked goroutine.
 	answerEpisodeWatchWindow = 30 * time.Minute
+	// answerEpisodeAppendWindow bounds the ledger append that follows the watch. It is a
+	// SEPARATE budget from answerEpisodeWatchWindow on purpose — see run().
+	answerEpisodeAppendWindow = 30 * time.Second
+	// answerEpisodeAppendAttempts / answerEpisodeAppendBackoff are this path's stand-in
+	// for the Temporal retry envelope the workflow-side append rides. Small and bounded:
+	// a local sidecar append that fails three times in a row is not transient.
+	answerEpisodeAppendAttempts = 3
+	answerEpisodeAppendBackoff  = 250 * time.Millisecond
 )
 
 // watchAnswerEpisode spawns the bounded manager-side watch for one dispatched answer job.
@@ -2101,20 +2109,58 @@ func (w answerEpisodeWatch) run(ctx context.Context, projectID ProjectID, target
 	if w.pipeline == nil || w.episodes == nil {
 		return
 	}
-	ctx, cancel := context.WithTimeout(ctx, w.window)
-	defer cancel()
+	watchCtx, cancelWatch := context.WithTimeout(ctx, w.window)
+	defer cancelWatch()
 
-	obs, terminal := w.observeToTerminal(ctx, handle)
+	obs, terminal := w.observeToTerminal(watchCtx, handle)
 	if terminal && episodeVenueIsRemote(obs.RunURL) {
 		// Remote venue mines no episode in v1 — nothing was lost, so record nothing.
 		return
 	}
 	rec := w.answerRecord(obs, terminal, targetRef, handle)
+
+	// THE APPEND MUST NOT RIDE watchCtx. On the DEADLINE path observeToTerminal returned
+	// precisely BECAUSE watchCtx expired, so appending under it would hand the ledger an
+	// already-cancelled context — making the gap record the deadline exists to write the
+	// one write guaranteed to fail. Derive a fresh, cancellation-free budget from the
+	// caller's context instead. (Today's AppendEpisode realisations ignore the context
+	// entirely, so this is latent rather than live; a store that honours it would turn the
+	// never-silent guarantee into a silent loss on exactly the path that needs it most.)
+	appendCtx, cancelAppend := context.WithTimeout(context.WithoutCancel(ctx), answerEpisodeAppendWindow)
+	defer cancelAppend()
+	w.appendRecord(appendCtx, projectID, rec, handle)
+}
+
+// appendRecord writes the record with a small BOUNDED retry. The workflow-side capture
+// gets Temporal's retry envelope for free; this path has none, so without it a single
+// transient store stumble would lose the episode outright.
+func (w answerEpisodeWatch) appendRecord(ctx context.Context, projectID ProjectID, rec episode.EpisodeRecord, handle agenticjob.PipelineHandle) {
 	key := fwra.IdempotencyKey("answerEpisode:" + string(handle))
-	if err := w.episodes.AppendEpisode(fwra.Context{Context: ctx, IdempotencyKey: key},
-		episode.ProjectID(projectID), rec); err != nil {
-		w.log.Error("answer-job episode NOT recorded: ledger append failed",
-			"episodeId", rec.EpisodeID, "err", err.Error())
+	var err error
+	for attempt := 1; attempt <= answerEpisodeAppendAttempts; attempt++ {
+		err = w.episodes.AppendEpisode(fwra.Context{Context: ctx, IdempotencyKey: key},
+			episode.ProjectID(projectID), rec)
+		if err == nil {
+			return
+		}
+		if attempt == answerEpisodeAppendAttempts ||
+			!waitOrDone(ctx, time.Duration(attempt)*answerEpisodeAppendBackoff) {
+			break
+		}
+	}
+	w.log.Error("answer-job episode NOT recorded: ledger append failed after its bounded retry",
+		"episodeId", rec.EpisodeID, "attempts", answerEpisodeAppendAttempts, "err", err.Error())
+}
+
+// waitOrDone sleeps for d, returning false the moment ctx is done instead.
+func waitOrDone(ctx context.Context, d time.Duration) bool {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-t.C:
+		return true
 	}
 }
 
@@ -2133,10 +2179,8 @@ func (w answerEpisodeWatch) observeToTerminal(ctx context.Context, handle agenti
 		if terminal, done := w.classify(obs, &cancelGrace); done {
 			return obs, terminal
 		}
-		select {
-		case <-ctx.Done():
+		if !waitOrDone(ctx, w.poll) {
 			return last, false
-		case <-time.After(w.poll):
 		}
 	}
 }
@@ -3731,12 +3775,21 @@ const (
 // auto-retries via this RetryPolicy; a terminal RA fault (ContractMisuse / Auth /
 // QuotaExhausted) is non-retryable and surfaces to the workflow body. A PhaseFailed is NOT
 // a dispatch error — it is a successful observation of a failed job (§0d.4).
-// appendEpisodeRetryWindow is the HARD wall-clock bound on the episode-append's own
-// retry envelope. The append retries without an attempt cap inside it (bookkeeping the
-// ledger must not lose to a transient store fault), but it cannot retry FOREVER: the
-// workflow waits on it, so an unbounded envelope would let a permanently-broken ledger
-// wedge a co-author session.
-const appendEpisodeRetryWindow = 10 * time.Minute
+func dispatchActivityOptions() workflow.ActivityOptions {
+	return fwmanager.ActivityPreset{
+		Timeout:     30 * time.Second,
+		MaxAttempts: 5,
+		TerminalRA:  []fwra.Kind{fwra.ContractMisuse, fwra.Auth, fwra.QuotaExhausted},
+	}.Options()
+}
+
+// appendEpisodeRetryWindow is the HARD wall-clock bound on the episode-append's own retry
+// envelope. Attempts are UNCAPPED inside it (bookkeeping must not lose to a transient
+// store fault) but they cannot run forever, because the workflow WAITS on this activity.
+//
+// bounded-latency ruling 2026-08-02: local sidecar append failing >2m is not transient;
+// business outcome must not stall on telemetry.
+const appendEpisodeRetryWindow = 2 * time.Minute
 
 // appendEpisodeActivityOptions is the episode-append preset — DELIBERATELY its own
 // envelope, independent of every business preset (§capture-seam): a generous per-attempt
@@ -3750,14 +3803,6 @@ func appendEpisodeActivityOptions() workflow.ActivityOptions {
 	}.Options()
 	o.ScheduleToCloseTimeout = appendEpisodeRetryWindow
 	return o
-}
-
-func dispatchActivityOptions() workflow.ActivityOptions {
-	return fwmanager.ActivityPreset{
-		Timeout:     30 * time.Second,
-		MaxAttempts: 5,
-		TerminalRA:  []fwra.Kind{fwra.ContractMisuse, fwra.Auth, fwra.QuotaExhausted},
-	}.Options()
 }
 
 // observeActivityOptions is the option preset for the generated
