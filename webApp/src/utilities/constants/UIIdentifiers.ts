@@ -92,6 +92,16 @@ export const UI_IDENTIFIERS = {
     // The you-are-here map's CURRENT step node (the ringed node). Exactly one is
     // present in walkthrough mode; its identity changes as the reader advances.
     WALKTHROUGH_CURRENT_NODE: 'walkthrough-current-node',
+    // Per-use-case realization roll-up chip ("N/M steps realized"), rendered next
+    // to the CORE/NON-CORE chip — the carousel-level summary of the walkthrough's
+    // per-step badges (Task 11).
+    REALIZATION_CHIP: 'usecase-realization-chip',
+    // The current walkthrough step's realization badge on the focus card — one of
+    // "✓ realized" / "✗ <ruleId>" / "— no realization".
+    STEP_BADGE: 'usecase-step-badge',
+    // The current step's compact mono call list + "View call chain" join, shown
+    // below the focus card's title whenever the step is realized.
+    STEP_CALLS: 'usecase-step-calls',
   },
   DesignExperience: {
     ROOT: 'design-experience',
@@ -232,6 +242,14 @@ export const UI_IDENTIFIERS = {
     // Dynamic step-through Prev/Next controls (F-QA2-51 testability).
     DYNAMIC_STEP_PREV: 'arch-dynamic-step-prev',
     DYNAMIC_STEP_NEXT: 'arch-dynamic-step-next',
+    // The owning use case's WALKTHROUGH, rendered beside the call chain in the
+    // dynamic lens: the stepper that drives it (founder QA round 2). Absent when
+    // the view links no use case with a diagram (the chain then runs full-width
+    // and pages itself with DYNAMIC_STEP_PREV/NEXT).
+    DYNAMIC_ACTIVITY_TRACE: 'arch-dynamic-activity-trace',
+    // The call-chain caption in fragment mode: the calls the walkthrough's
+    // current step realizes, or "No realization for this step".
+    DYNAMIC_FRAGMENT: 'arch-dynamic-fragment',
     // The anti-functional-decomposition badge on a C4 node (a Manager/Engine/
     // ResourceAccess encapsulating no identified volatility), keyed by component id.
     noVolatility: (componentId: string) => `arch-no-volatility-${componentId}`,
@@ -242,6 +260,16 @@ export const UI_IDENTIFIERS = {
     findingEdge: (from: string, to: string) => `arch-finding-edge-${from}-${to}`,
     findingNode: (componentId: string) => `arch-finding-node-${componentId}`,
     FINDING_COUNT: 'arch-finding-count',
+    // Task 6 (call-chain rollout): the per-view CC verdict roll-up (viewVerdict),
+    // rendered beside DYNAMIC_PICKER — "15/15 realized · CC clean" / "0/7
+    // realized · pending" / "N CC findings" / "N/M realized".
+    VIEW_VERDICT: 'arch-view-verdict',
+    // The FragmentBar CC-checks chip ("CC checks · passing" / "CC checks · N
+    // findings here" — "here" qualifies the step-scoped count against
+    // VIEW_VERDICT's view-scoped one, fix round 1 FINDING 2) — a real
+    // StepLink into the Design Health step, present only when findings
+    // context is loaded (statusBySeq defined).
+    CC_CHECKS_CHIP: 'arch-cc-checks-chip',
   },
   Deployment: {
     PROFILE_SWITCH: 'deploy-profile-switch',

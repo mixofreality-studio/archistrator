@@ -6,14 +6,25 @@
  *   Dynamic         → DynamicViewFlow  (one call chain per use case, via a picker)
  *   Component focus → PerspectiveFlow  (one component + its inbound/outbound edges)
  *
+ * The Dynamic lens is a walkthrough-DRIVEN trace, not just a chain: the owning
+ * use case's WALKTHROUGH leads (left, 40% — the same focus card, Next / branch
+ * buttons, Back / Restart, breadcrumb and you-are-here map as the use-cases
+ * screen), and the call chain follows (right, 60%) in fragment mode, lighting
+ * every call the current step realizes and muting everything else. The reader
+ * makes the decisions; the architecture answers. Narrow containers stack
+ * WALKTHROUGH-first (founder QA round 2, 2026-07-31 — reversing the earlier
+ * chain-first ruling). When the view links no use case with a diagram, the chain
+ * renders full-width and pages itself exactly as before.
+ *
  * Dynamic / perspective each surface a MUI Select picker (dynamic views by title;
  * components grouped by layer). Defaults: first dynamic view; first Manager (else
  * first component) for the perspective. All three reuse the shared flow chrome and
  * preserve comment anchoring through C4Node.
  */
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useRouter, type RegisteredRouter } from '@tanstack/react-router';
 import Box from '@mui/material/Box';
+import Chip from '@mui/material/Chip';
 import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import Select from '@mui/material/Select';
@@ -21,25 +32,49 @@ import MenuItem from '@mui/material/MenuItem';
 import ListSubheader from '@mui/material/ListSubheader';
 import FormControl from '@mui/material/FormControl';
 import Typography from '@mui/material/Typography';
-import { listDynamicViews, toC4View, toDynamicView } from '../../contracts/adapters';
+import {
+  listDynamicViews,
+  toC4View,
+  toCoreUseCasesView,
+  toDynamicView,
+  dynamicViewUseCaseId,
+} from '../../contracts/adapters';
 import type {
   ArtifactModelEnvelope,
+  Finding,
   ServiceContract,
   ServiceContracts,
+  System,
 } from '../../contracts/types';
+import { realizationByNode } from '../../contracts/realization';
 import { useStructureFindings } from './StructureFindingsContext';
+import { statusBySeqFromFindings } from './callStatus';
+import { visitedSeqsForPath } from './callTrail';
+import { findingsForStep } from './useCaseFindings';
+import { viewVerdict } from './viewVerdict';
+import { isEligibleForRealization, toneColor } from '../usecase/useCaseChip';
 import { resolveContractComponentId } from '../../contracts/contractComponentId';
 import { useTokens } from '../../utilities/theme/ThemeContext';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 import { ArchitectureFlow } from './ArchitectureFlow';
 import { DynamicViewFlow } from './DynamicViewFlow';
+import { resolveDecider } from './deciderResolution';
 import { PerspectiveFlow } from './PerspectiveFlow';
+import { UseCaseWalkthrough } from '../usecase/UseCaseWalkthrough';
+import { walkthroughPathTo, walkthroughRoots } from '../usecase/walkthroughRoots';
 import { ServiceContractView } from '../construction/ServiceContractView';
 import { type Layer, LAYER_ORDER, LAYER_LABEL } from './flowLayout';
-import { useComments, dynamicEdgeAnchor } from '../comments/CommentContext';
+import { useComments, dynamicEdgeAnchor, CommentProvider } from '../comments/CommentContext';
 import { resolveDeepLinkView } from './architectureDeepLink';
 
 type ViewMode = 'static' | 'dynamic' | 'perspective';
+
+/** Viewport-relative canvas height for the walkthrough-driven trace's two-up
+ *  layout ONLY (fix 2, founder QA round 5) — never the full-width fallback,
+ *  Static, or Component-focus, which keep their caller-supplied numeric
+ *  height. Clamped so the canvas stays legible on a short viewport (360px
+ *  floor) without growing unboundedly tall on a big one (560px ceiling). */
+const TRACE_CANVAS_HEIGHT = 'clamp(360px, 45vh, 560px)';
 
 /**
  * Module-level memory of the last-picked lens + selections. The design experience
@@ -52,6 +87,11 @@ type ViewMode = 'static' | 'dynamic' | 'perspective';
 const viewMemory: {
   mode: ViewMode;
   dynamicKey: string;
+  /** The 1-based step last consumed off a ?view=&step= deep link, mirrored like
+   *  `dynamicKey` — 0 means "no step deep-linked" (the walk opens on its first
+   *  step, same as always). There is no picker for this value (unlike
+   *  dynamicKey's Select), so it is only ever written by deep-link consumption. */
+  dynamicStep: number;
   componentId: string;
   /** The history location key at which a ?view= deep link was last consumed —
    *  lets a fresh NAVIGATION win over memory while a background-refetch remount
@@ -60,6 +100,7 @@ const viewMemory: {
 } = {
   mode: 'static',
   dynamicKey: '',
+  dynamicStep: 0,
   componentId: '',
   consumedLocationKey: '',
 };
@@ -117,9 +158,15 @@ export function ArchitectureView({
   const location = router?.state.location;
   const rawViewParam = (location?.search as { view?: unknown } | undefined)?.view;
   const viewParam = typeof rawViewParam === 'string' ? rawViewParam : '';
+  const rawStepParam = (location?.search as { step?: unknown } | undefined)?.step;
+  const stepParam =
+    typeof rawStepParam === 'number' || typeof rawStepParam === 'string'
+      ? String(rawStepParam)
+      : '';
   const locationKey = location?.state.key ?? location?.state.__TSR_key ?? '';
   const deepLink = resolveDeepLinkView({
     viewParam,
+    stepParam,
     locationKey,
     consumedLocationKey: viewMemory.consumedLocationKey,
     availableKeys: dynamicViews.map((v) => v.key),
@@ -138,9 +185,15 @@ export function ArchitectureView({
   const [storedComponentId, setStoredComponentId] = useState(
     viewMemory.componentId || defaultComponentId
   );
+  // The step consumed off a ?view=&step= deep link (1-based; 0 = none), mirrored
+  // into module memory the same way dynamicKey is — see viewMemory.dynamicStep.
+  const [storedDynamicStep, setStoredDynamicStep] = useState(
+    deepLink.apply && deepLink.step !== undefined ? deepLink.step : viewMemory.dynamicStep
+  );
   const mode = storedMode;
   const dynamicKey = storedDynamicKey;
   const componentId = storedComponentId;
+  const consumedStep = storedDynamicStep;
   const setMode = (m: ViewMode): void => {
     viewMemory.mode = m;
     setStoredMode(m);
@@ -152,6 +205,10 @@ export function ArchitectureView({
   const setComponentId = (id: string): void => {
     viewMemory.componentId = id;
     setStoredComponentId(id);
+  };
+  const setDynamicStep = (s: number): void => {
+    viewMemory.dynamicStep = s;
+    setStoredDynamicStep(s);
   };
 
   // Consume the deep link (at most once per mount): mirror it into module memory
@@ -167,6 +224,7 @@ export function ArchitectureView({
     viewMemory.consumedLocationKey = locationKey;
     setMode('dynamic');
     setDynamicKey(deepLink.key);
+    setDynamicStep(deepLink.step ?? 0);
   });
 
   const activeDynamicKey = dynamicViews.some((v) => v.key === dynamicKey)
@@ -176,10 +234,230 @@ export function ArchitectureView({
     ? componentId
     : defaultComponentId;
   const focusedContract = contractByComponentId.get(activeComponentId);
+  // The use-cases envelope carries the linked use case's activity graph (which
+  // orders the steps and names them) and its actors (the person participants), so
+  // it is passed through whenever the caller has it.
   const dynamicModel = useMemo(
-    () => toDynamicView(envelope, activeDynamicKey),
-    [envelope, activeDynamicKey]
+    () => toDynamicView(envelope, activeDynamicKey, useCasesEnvelope),
+    [envelope, activeDynamicKey, useCasesEnvelope]
   );
+
+  // Task 6 (call-chain rollout): a dynamic view that resolves to literally
+  // nothing to draw (`toDynamicView`'s EMPTY_DYNAMIC_VIEW, or a real view that
+  // simply authors no calls) is EITHER a genuinely unknown/synthetic view OR a
+  // real, known use case whose call chain just hasn't been realized yet — the
+  // two read very differently to a founder and get distinct copy in
+  // DynamicViewFlow's empty guard (see its own doc comment).
+  const isKnownDynamicView = dynamicViews.some((v) => v.key === activeDynamicKey);
+  const dynamicViewPending =
+    isKnownDynamicView &&
+    dynamicModel.participants.length === 0 &&
+    dynamicModel.persons.length === 0;
+
+  // Per-call CC tint: red where the owning step carries a Design-Health finding,
+  // green where the step is realized and clean. With NO findings loaded there is
+  // nothing to report — an all-green chain would falsely claim it had been
+  // checked — so no map is passed and the step-through keeps its neutral look.
+  const dynamicStatusBySeq = useMemo(
+    () =>
+      structureFindings.length === 0
+        ? undefined
+        : statusBySeqFromFindings(dynamicModel, structureFindings, activeDynamicKey),
+    [dynamicModel, structureFindings, activeDynamicKey]
+  );
+
+  // ── The walkthrough-driven trace ───────────────────────────────────────────
+  // The use case this view realizes, plus its position in the committed slot
+  // order (the walkthrough's comment anchors are keyed by that index). Undefined
+  // — and the chain then renders full-width and self-paged, exactly as before —
+  // when the view links no use case (a synthetic view), the use cases aren't
+  // loaded, or the linked use case owns no activity diagram (e.g. a variation,
+  // which shares its parent's; the carousel does not substitute it either).
+  const tracedUseCase = useMemo(() => {
+    const useCaseId = dynamicViewUseCaseId(envelope, activeDynamicKey);
+    if (useCaseId === undefined) return undefined;
+    const { useCases } = toCoreUseCasesView(useCasesEnvelope);
+    const index = useCases.findIndex((u) => u.id === useCaseId);
+    const uc = useCases[index];
+    if (uc === undefined || uc.nodes.length === 0) return undefined;
+    return { uc, index };
+  }, [envelope, useCasesEnvelope, activeDynamicKey]);
+
+  // The walkthrough's per-step data, built exactly as the use-cases carousel
+  // builds it (realization badges + per-step Design-Health findings) so the two
+  // surfaces say the same thing about the same step.
+  const systemModel =
+    envelope?.kind === 'system' ? (envelope.model as System | undefined) : undefined;
+  const realization = useMemo(
+    () => realizationByNode(systemModel, tracedUseCase?.uc.id ?? ''),
+    [systemModel, tracedUseCase]
+  );
+  const stepFindings = useCallback(
+    (nodeId: string): Finding[] => findingsForStep(structureFindings, activeDynamicKey, nodeId),
+    [structureFindings, activeDynamicKey]
+  );
+  // Task 6 (call-chain rollout): the per-view CC verdict roll-up beside the
+  // dynamic picker (viewVerdict) — same eligibility rule as the carousel's
+  // realizationChip (action/timeEvent/acceptEvent only, isEligibleForRealization),
+  // so the two roll-ups can never disagree about what a use case's chain was
+  // REQUIRED to realize. Undefined outside the traced branch — a full-width
+  // fallback view (no resolved use case) has no eligible-node count to report.
+  const eligibleNodeIds = useMemo(
+    () =>
+      tracedUseCase !== undefined
+        ? tracedUseCase.uc.nodes.filter((n) => isEligibleForRealization(n.kind)).map((n) => n.id)
+        : [],
+    [tracedUseCase]
+  );
+  const realizedStepCount = useMemo(
+    () => eligibleNodeIds.filter((id) => realization.has(id)).length,
+    [eligibleNodeIds, realization]
+  );
+  const eligibleNodeCount = eligibleNodeIds.length;
+  const dynamicRollup = useMemo(
+    () =>
+      tracedUseCase !== undefined
+        ? viewVerdict(structureFindings, activeDynamicKey, realizedStepCount, eligibleNodeCount)
+        : undefined,
+    [tracedUseCase, structureFindings, activeDynamicKey, realizedStepCount, eligibleNodeCount]
+  );
+  const firstSeqOfNode = useCallback(
+    (nodeId: string): number | undefined =>
+      dynamicModel.edges.find((e) => e.stepNodeId === nodeId)?.seq,
+    [dynamicModel]
+  );
+
+  // A `?view=&step=` deep link lands on ONE call; the walkthrough steps by
+  // activity node, so the seq resolves to its owning step and then to the route
+  // a reader would have walked to reach it (BFS, deterministic). No such route
+  // (or no deep link) → the walkthrough opens at its own natural beginning.
+  const seedPath = useMemo(() => {
+    if (tracedUseCase === undefined || consumedStep <= 0) return undefined;
+    const stepNodeId = dynamicModel.edges.find((e) => e.seq === consumedStep)?.stepNodeId;
+    if (stepNodeId === undefined || stepNodeId.length === 0) return undefined;
+    return walkthroughPathTo(tracedUseCase.uc.nodes, tracedUseCase.uc.edges, stepNodeId);
+  }, [tracedUseCase, dynamicModel, consumedStep]);
+
+  // Where the chain looks BEFORE the walkthrough's first publish: the same node
+  // the walkthrough itself will open on (its seed, else its single root — a
+  // multi-root diagram opens on the entry chooser, which focuses nothing).
+  // Computing it here rather than waiting for the mount effect keeps the first
+  // painted frame correct instead of flashing "no realization".
+  const initialWalkNodeId = useMemo(() => {
+    if (tracedUseCase === undefined) return '';
+    if (seedPath !== undefined) return seedPath[seedPath.length - 1] ?? '';
+    const roots = walkthroughRoots(tracedUseCase.uc.nodes, tracedUseCase.uc.edges);
+    return roots.length === 1 ? (roots[0] ?? '') : '';
+  }, [tracedUseCase, seedPath]);
+
+  // The walkthrough owns the position and publishes it here (the activity node
+  // it stands on, tagged with the view it belongs to). Tagging matters: the view
+  // key changes a render before the walkthrough remounts and re-publishes, and
+  // node ids repeat across use cases — an untagged position would light the
+  // WRONG fragment for a frame. A mismatched tag falls back to the opening node.
+  const [walkPos, setWalkPos] = useState<{ key: string; nodeId: string }>({ key: '', nodeId: '' });
+  const handleCurrentNodeChange = useCallback(
+    (nodeId: string): void => {
+      setWalkPos({ key: activeDynamicKey, nodeId });
+    },
+    [activeDynamicKey]
+  );
+  const focusStepNodeId = walkPos.key === activeDynamicKey ? walkPos.nodeId : initialWalkNodeId;
+
+  // Task 6 (call-chain rollout): the CC finding count for the CURRENT fragment
+  // step, fed to FragmentBar's CC-checks chip. Sourced from the SAME
+  // `stepFindings` join `dynamicStatusBySeq` used to decide this step's
+  // red/green tint, so the chip's count and its colour can never disagree.
+  // Undefined whenever no findings context is loaded (mirrors
+  // `dynamicStatusBySeq`'s own gate below).
+  const ccFindingsCount = useMemo(
+    () => (dynamicStatusBySeq !== undefined ? stepFindings(focusStepNodeId).length : undefined),
+    [dynamicStatusBySeq, stepFindings, focusStepNodeId]
+  );
+
+  // THE VISITED TRAIL (founder QA round 4). The walkthrough also publishes the
+  // whole ROUTE it has walked; every call authored on a node the reader has
+  // already LEFT stays lit at a mid tint, so the chain accretes instead of
+  // re-lighting one lonely fragment per step. Tagged with the view key for the
+  // same reason the position is — a key change lands a render before the
+  // walkthrough remounts, and a stale route would light another use case's
+  // calls. Before the first publish the deep link's seed route stands in, so the
+  // opening frame already shows the trail the reader "arrived through".
+  const [walkPath, setWalkPath] = useState<{ key: string; path: readonly string[] }>({
+    key: '',
+    path: [],
+  });
+  const handlePathChange = useCallback(
+    (nodeIds: string[]): void => {
+      setWalkPath({ key: activeDynamicKey, path: nodeIds });
+    },
+    [activeDynamicKey]
+  );
+  const visitedSeqs = useMemo(
+    () =>
+      visitedSeqsForPath(
+        dynamicModel.edges,
+        walkPath.key === activeDynamicKey ? walkPath.path : (seedPath ?? [])
+      ),
+    [dynamicModel, walkPath, activeDynamicKey, seedPath]
+  );
+  // The current node itself (undefined off the entry chooser or when no use
+  // case is traced) — source for both its ActivityNodeKind and, for a
+  // decision/switch node, its swim-lane (change 3 below).
+  const focusStepNode = tracedUseCase?.uc.nodes.find((n) => n.id === focusStepNodeId);
+  // DynamicViewFlow needs the kind only to tell a real realization gap (an
+  // action/timeEvent/acceptEvent node authoring no calls) apart from a
+  // by-design control-flow step (merge/fork/join/start/end/…) when the
+  // current fragment authors no calls at all (founder QA round 3). Blank on
+  // the multi-root entry chooser and when no use case is traced — the caption
+  // helper treats both an unknown kind and the blank id conservatively.
+  const focusStepKind = focusStepNode?.kind;
+  // CHANGE 3 (founder QA round 3 addendum — "if it's a decision shouldn't the
+  // person or engine responsible for making that decision be highlighted?"):
+  // a decision/switch node with no realized step highlights its DECIDER
+  // instead of muting the whole diagram — an explicit authored `decidedBy`
+  // first (call-chain rollout Task 5), else the actor whose swim-lane role
+  // matches the node's lane, else the use case's entry Manager. Every other
+  // call-less kind (and a decision/switch node that DOES author calls)
+  // ignores this prop entirely — DynamicViewFlow only consults it when the
+  // fragment it's driving is actually empty.
+  const focusDecider = useMemo(() => {
+    if (focusStepNode === undefined) return undefined;
+    if (focusStepNode.kind !== 'decision' && focusStepNode.kind !== 'switch') return undefined;
+    return resolveDecider(
+      focusStepNode.decidedBy,
+      focusStepNode.lane,
+      tracedUseCase?.uc.actors ?? [],
+      dynamicModel.participants,
+      dynamicModel.edges
+    );
+  }, [focusStepNode, tracedUseCase, dynamicModel]);
+
+  // Container-aware split: MUI viewport breakpoints can't see that this view can
+  // sit inside a narrow design-experience column, where a 40/60 split would
+  // squeeze both diagrams into unreadable strips. Measure our OWN width and
+  // stack the two panes when the row can't seat them (the UseCaseWalkthrough
+  // idiom). Observed on the always-mounted root so the lens switch never leaves
+  // the observer unattached.
+  //
+  // 900px, not 1100 (fix 1, founder QA round 5): measured at 1440x900 with the
+  // comment rail open, the container was 996px — comfortably readable at a
+  // 40/60 split, but the old 1100 threshold stacked it vertically anyway,
+  // pushing the call-chain pane entirely below the fold.
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [sideBySide, setSideBySide] = useState(true);
+  useEffect(() => {
+    const el = rootRef.current;
+    if (el === null) return undefined;
+    const ro = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry !== undefined) setSideBySide(entry.contentRect.width >= 900);
+    });
+    ro.observe(el);
+    return (): void => {
+      ro.disconnect();
+    };
+  }, []);
 
   // Components grouped by layer for the perspective picker.
   const grouped = useMemo(() => {
@@ -189,8 +467,52 @@ export function ArchitectureView({
     })).filter((g) => g.items.length > 0);
   }, [c4]);
 
+  // The call chain itself, built once so the two-up trace layout and the
+  // full-width fallback render the SAME element (only its frame differs). With a
+  // walkthrough beside it the chain runs in FRAGMENT mode (it follows); without
+  // one it keeps its own Prev/Next step-through.
+  //
+  // Viewport-relative height, traced two-up layout ONLY (fix 2, founder QA
+  // round 5): a fixed numeric height (the caller's `height` prop, historically
+  // 600) is what pushed the chain below the fold at real viewport sizes — a
+  // clamp keeps both panes' canvases at least partially on-screen from 900px
+  // side-by-side up through very tall screens, without letting either shrink
+  // illegibly. The full-width fallback (no traced use case), Static, and
+  // Component-focus all keep the caller's numeric `height` unchanged.
+  const dynamicChainHeight = tracedUseCase !== undefined ? TRACE_CANVAS_HEIGHT : height;
+  const dynamicFlow =
+    mode === 'dynamic' ? (
+      <DynamicViewFlow
+        dv={dynamicModel}
+        height={dynamicChainHeight}
+        initialStep={consumedStep - 1}
+        resetKey={`${activeDynamicKey}#${String(consumedStep)}`}
+        {...(tracedUseCase !== undefined ? { focusStepNodeId, visitedSeqs } : {})}
+        {...(focusStepKind !== undefined ? { focusStepKind } : {})}
+        {...(focusDecider !== undefined ? { focusDecider } : {})}
+        {...(dynamicStatusBySeq !== undefined ? { statusBySeq: dynamicStatusBySeq } : {})}
+        {...(ccFindingsCount !== undefined ? { ccFindingsCount } : {})}
+        pendingRealization={dynamicViewPending}
+        onCommentStep={
+          enabled
+            ? (edge): void => {
+                const nameOf = new Map(dynamicModel.participants.map((c) => [c.id, c.name]));
+                const from = nameOf.get(edge.from) ?? edge.from;
+                const to = nameOf.get(edge.to) ?? edge.to;
+                setAnchor({
+                  kind: 'node',
+                  label: `${String(edge.seq)}. ${edge.label} (${from} → ${to})`,
+                  source: `${dynamicModel.title} · step`,
+                  jsonPath: dynamicEdgeAnchor(activeDynamicKey, edge.seq),
+                });
+              }
+            : undefined
+        }
+      />
+    ) : null;
+
   return (
-    <Box>
+    <Box ref={rootRef}>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1.5, flexWrap: 'wrap' }}>
         <ToggleButtonGroup
           exclusive
@@ -230,6 +552,10 @@ export function ArchitectureView({
               value={activeDynamicKey}
               onChange={(e) => {
                 setDynamicKey(e.target.value);
+                // A manually picked view is a fresh choice, not a continuation of
+                // wherever a stale deep-linked step left off — clear it so the
+                // newly selected view opens on its own first step.
+                setDynamicStep(0);
               }}
             >
               {dynamicViews.map((v) => (
@@ -239,6 +565,27 @@ export function ArchitectureView({
               ))}
             </Select>
           </FormControl>
+        )}
+
+        {/* Task 6 (call-chain rollout): the per-view CC verdict roll-up —
+            "N/M realized" plus the same finding-vs-realization tone rule the
+            carousel's realizationChip already uses, so the two roll-ups can
+            never read as disagreeing about the same use case. Undefined
+            outside the traced branch (the full-width fallback has no
+            resolved use case to count eligible nodes against). */}
+        {mode === 'dynamic' && dynamicRollup !== undefined && (
+          <Chip
+            data-testid={UI_IDENTIFIERS.Architecture.VIEW_VERDICT}
+            label={dynamicRollup.label}
+            size="small"
+            sx={{
+              bgcolor: 'transparent',
+              fontFamily: t.mono,
+              fontWeight: 700,
+              color: toneColor(dynamicRollup.tone, t),
+              border: `1.5px solid ${toneColor(dynamicRollup.tone, t)}`,
+            }}
+          />
         )}
 
         {mode === 'perspective' && c4.components.length > 0 && (
@@ -273,28 +620,69 @@ export function ArchitectureView({
       {mode === 'static' && (
         <ArchitectureFlow envelope={envelope} findings={structureFindings} height={height} />
       )}
-      {mode === 'dynamic' && (
-        <DynamicViewFlow
-          dv={dynamicModel}
-          height={height}
-          resetKey={activeDynamicKey}
-          onCommentStep={
-            enabled
-              ? (edge): void => {
-                  const nameOf = new Map(dynamicModel.participants.map((c) => [c.id, c.name]));
-                  const from = nameOf.get(edge.from) ?? edge.from;
-                  const to = nameOf.get(edge.to) ?? edge.to;
-                  setAnchor({
-                    kind: 'node',
-                    label: `${String(edge.seq)}. ${edge.label} (${from} → ${to})`,
-                    source: `${dynamicModel.title} · step`,
-                    jsonPath: dynamicEdgeAnchor(activeDynamicKey, edge.seq),
-                  });
-                }
-              : undefined
-          }
-        />
-      )}
+      {mode === 'dynamic' &&
+        (tracedUseCase !== undefined ? (
+          <Box
+            sx={{
+              display: 'flex',
+              flexDirection: sideBySide ? 'row' : 'column',
+              alignItems: 'stretch',
+              gap: 2,
+            }}
+          >
+            {/* The WALKTHROUGH leads — in both directions (founder QA round 2).
+                It owns the controls the reader drives (Next, the branch buttons
+                that make the decisions, Back / Restart), so ordering it first
+                keeps DOM order == visual order == tab order at every width and
+                the narrow layout stacks the activity on TOP (no `order`
+                overrides, no focus-order mismatch).
+
+                Comment-inert: this pane belongs to the CORE USE CASES artifact,
+                and its node anchors ($.decisions[i]…) address that model — arming
+                one while reviewing the System artifact would file the comment
+                against the wrong slot. Feedback on a step belongs on the use-case
+                screen; here the walkthrough is a control, not a review surface.
+
+                Remounted (key) whenever the view or the deep-linked step changes,
+                so a fresh `?step=` seeds a fresh route rather than leaving the
+                reader wherever the previous walk stood. */}
+            <Box
+              aria-label={`Walkthrough of ${tracedUseCase.uc.name}`}
+              data-testid={UI_IDENTIFIERS.Architecture.DYNAMIC_ACTIVITY_TRACE}
+              role="group"
+              sx={{ flex: sideBySide ? '0 0 40%' : '1 1 auto', minWidth: 0 }}
+            >
+              <PaneLabel>{`Activity — ${tracedUseCase.uc.name}`}</PaneLabel>
+              <CommentProvider enabled={false}>
+                <UseCaseWalkthrough
+                  compactCalls
+                  hideCallChainLink
+                  hideMap
+                  callChainKey={activeDynamicKey}
+                  firstSeqOfNode={firstSeqOfNode}
+                  height={TRACE_CANVAS_HEIGHT}
+                  key={`${activeDynamicKey}#${String(consumedStep)}`}
+                  realization={realization}
+                  stepFindings={stepFindings}
+                  uc={tracedUseCase.uc}
+                  useCaseIndex={tracedUseCase.index}
+                  {...(seedPath !== undefined ? { initialPath: seedPath } : {})}
+                  onCurrentNodeChange={handleCurrentNodeChange}
+                  onPathChange={handlePathChange}
+                />
+              </CommentProvider>
+            </Box>
+            {/* The driven pane: the call chain, lighting the fragment the
+                walkthrough's current step realizes. Its caption rail is the live
+                region that reports where the chain now stands. */}
+            <Box sx={{ flex: sideBySide ? '1 1 60%' : '1 1 auto', minWidth: 0 }}>
+              <PaneLabel>Call chain</PaneLabel>
+              {dynamicFlow}
+            </Box>
+          </Box>
+        ) : (
+          dynamicFlow
+        ))}
       {mode === 'perspective' && (
         <>
           <PerspectiveFlow
@@ -327,5 +715,30 @@ export function ArchitectureView({
         </>
       )}
     </Box>
+  );
+}
+
+/**
+ * The small overline naming one pane of the dynamic lens' two-up trace layout
+ * ("ACTIVITY — <use case>" / "CALL CHAIN"). Each canvas already carries its own
+ * frame (ActivityFlow / FlowCanvas draw the border), so the pane adds a label
+ * rather than a second box around a box.
+ */
+function PaneLabel({ children }: { children: ReactNode }): ReactNode {
+  const t = useTokens();
+  return (
+    <Typography
+      sx={{
+        fontFamily: t.mono,
+        fontWeight: 700,
+        fontSize: 10,
+        letterSpacing: '0.1em',
+        textTransform: 'uppercase',
+        color: t.muted,
+        mb: 0.75,
+      }}
+    >
+      {children}
+    </Typography>
   );
 }

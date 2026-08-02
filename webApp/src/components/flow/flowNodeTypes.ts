@@ -5,10 +5,12 @@
  */
 import type { EdgeTypes, NodeTypes } from '@xyflow/react';
 import { C4Node } from './C4Node';
+import { PersonNode } from './PersonNode';
 import { LayeredStepEdge, RowLabelNode, UtilityFrameNode } from './flowDecor';
 
 export const nodeTypes: NodeTypes = {
   c4: C4Node,
+  person: PersonNode,
   rowLabel: RowLabelNode,
   utilityFrame: UtilityFrameNode,
 };

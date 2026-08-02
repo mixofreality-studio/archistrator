@@ -1,8 +1,9 @@
 /**
  * A React-Flow node for the activity diagrams. Renders a real UML shape per kind:
- * start = filled dot, end = ringed final node, action/loop/goto/interruptEdge =
- * rounded card, decision/switch = diamond, merge = smaller diamond, fork/join =
- * synchronization bar, note = sticky note. Lane-colored. Selecting a node reveals
+ * start = filled dot, end = ringed final node, action/loop/goto/interruptEdge/
+ * acceptEvent = rounded card (acceptEvent notched into a flag), decision/switch =
+ * diamond, merge = smaller diamond, fork/join = synchronization bar, note =
+ * sticky note, timeEvent = hourglass. Lane-colored. Selecting a node reveals
  * a toolbar that arms an activity-node comment anchor
  * (`$.decisions[uc].useCase.activity.nodes[id=…]`).
  */
@@ -184,6 +185,79 @@ function Card(t: Tokens, d: ActivityNodeData, selected: boolean): ReactNode {
   );
 }
 
+/**
+ * Both event-node shapes below are drawn with `clipPath`, which cuts away most
+ * of a plain box's border sides — Hourglass's waist leaves only ~6px slivers
+ * of the rectangle's left/right edges, and Pentagon's notch removes the
+ * middle ~70% of the left edge. A `border`/`borderLeft` lane accent (the
+ * technique `Card` uses) is therefore invisible or badly broken on both. The
+ * fix, matching how `Diamond` gets a working accent on a transformed shape
+ * (by construction, not by border sides): stack same-shaped, same-clipPath
+ * boxes and let insets reveal rings of color — a lane-colored ring shows
+ * between the full-size lane-fill layer and the inset surface layer, and (when
+ * selected) an accent-colored ring shows between an outer, negatively-inset
+ * layer and the lane-fill layer. Every ring survives the clip because it's
+ * painted, not bordered.
+ */
+
+function Hourglass(t: Tokens, d: ActivityNodeData, selected: boolean): ReactNode {
+  const dim = NODE_DIMS.timeEvent;
+  // Two stacked triangles meeting at the waist — the UML time-event glyph.
+  const clip = 'polygon(0 0, 100% 0, 50% 50%, 100% 100%, 0 100%, 50% 50%)';
+  return (
+    <Box sx={{ position: 'relative', width: dim.w, height: dim.h }}>
+      {selected ? (
+        <Box sx={{ position: 'absolute', inset: -3, bgcolor: t.accent, clipPath: clip }} />
+      ) : null}
+      <Box sx={{ position: 'absolute', inset: 0, bgcolor: d.color, clipPath: clip }} />
+      <Box sx={{ position: 'absolute', inset: 3, bgcolor: t.paperAlt, clipPath: clip }} />
+    </Box>
+  );
+}
+
+function Pentagon(t: Tokens, d: ActivityNodeData, selected: boolean): ReactNode {
+  const dim = NODE_DIMS.acceptEvent;
+  // Concave "flag" left edge — a notch pointing in at mid-height.
+  const clip = 'polygon(0 0, 100% 0, 100% 100%, 0 100%, 18px 50%)';
+  return (
+    <Box sx={{ position: 'relative' }}>
+      {selected ? (
+        <Box sx={{ position: 'absolute', inset: -3, bgcolor: t.accent, clipPath: clip }} />
+      ) : null}
+      <Box sx={{ position: 'absolute', inset: 0, bgcolor: d.color, clipPath: clip }} />
+      {/* The label layer is in-flow (not absolutely inset like the accent
+          rings above) so it still sizes to fit wrapped text, same as Card —
+          the two ring layers behind it then resolve their insets against
+          whatever height this content ends up giving the wrapper. */}
+      <Box
+        sx={{
+          position: 'relative',
+          m: '3px',
+          width: dim.w - 6,
+          minHeight: dim.h - 6,
+          pl: '26px',
+          pr: 1.75,
+          py: 1.1,
+          display: 'flex',
+          alignItems: 'center',
+          bgcolor: t.paperAlt,
+          color: t.ink,
+          clipPath: clip,
+        }}
+      >
+        <Box sx={{ minWidth: 0 }}>
+          <Typography sx={{ fontFamily: t.body, fontWeight: 600, fontSize: 13, lineHeight: 1.25 }}>
+            {d.label}
+          </Typography>
+          <Typography sx={{ fontFamily: t.mono, fontSize: 9.5, color: t.muted, opacity: 0.85 }}>
+            {d.lane}
+          </Typography>
+        </Box>
+      </Box>
+    </Box>
+  );
+}
+
 function Note(t: Tokens, d: ActivityNodeData, selected: boolean): ReactNode {
   return (
     <Box
@@ -259,6 +333,12 @@ export function ActivityNode({ data, selected }: NodeProps): ReactNode {
       break;
     case 'note':
       shape = Note(t, d, isSelected);
+      break;
+    case 'timeEvent':
+      shape = Hourglass(t, d, isSelected);
+      break;
+    case 'acceptEvent':
+      shape = Pentagon(t, d, isSelected);
       break;
     case 'action':
     case 'loop':

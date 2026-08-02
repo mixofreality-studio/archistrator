@@ -67,11 +67,17 @@ func engineImpls() map[string]any {
 // lie. This map is the authoritative "executes vs unavailable" ledger for the RA
 // surface (Engines + projectStateAccess reads are the in-substrate set; everything
 // listed here is out-of-substrate).
+//
+// The former durableExecutionAccess entry is GONE, not renamed: internaltoolsgen
+// emits raw tools only for ResourceAccess and Engine contracts, so the messageBus
+// Utility mints none — which is the right answer twice over. A restricted,
+// Manager-only signal/schedule surface has no business on the agent rail, so
+// "unavailable in this substrate" was never the honest verdict for it; "not exposed
+// at all" is.
 var unavailableDeps = map[string]string{
 	"sourceControlAccess":       "a GitHub App client (installation credentials)",
 	"artifactAccess":            "a GitHub blob store + auth resolver",
 	"agenticJobAccess":          "a GitHub Actions App installation",
-	"durableExecutionAccess":    "a Temporal client",
 	"usageAccess":               "a Postgres connection pool",
 	"operatedSystemStateAccess": "a Postgres connection pool",
 	"operatedRuntimeAccess":     "an operated-runtime profile/infrastructure",

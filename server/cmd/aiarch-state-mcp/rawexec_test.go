@@ -68,7 +68,7 @@ func TestExecuteEngineTool_SurfacesDomainError(t *testing.T) {
 // documented unavailable-in-substrate error (naming the missing dependency) instead
 // of an I/O failure or a stub success.
 func TestExecuteRawTool_UnavailableInSubstrate(t *testing.T) {
-	for _, component := range []string{"sourceControlAccess", "durableExecutionAccess", "merchantGatewayAccess", "usageAccess"} {
+	for _, component := range []string{"sourceControlAccess", "artifactAccess", "merchantGatewayAccess", "usageAccess"} {
 		tool := toolByComponent(t, component)
 		_, err := executeRawTool(context.Background(), nil, tool, nil)
 		if err == nil {

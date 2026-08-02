@@ -306,6 +306,10 @@ components:
         ModelActivityNode:
             additionalProperties: false
             properties:
+                decidedBy:
+                    type:
+                        - "null"
+                        - string
                 id:
                     type: string
                 kind:
@@ -323,14 +327,12 @@ components:
                         - switch
                         - goto
                         - interruptEdge
+                        - timeEvent
+                        - acceptEvent
                     type: string
                 label:
                     type: string
                 linkedActorId:
-                    type:
-                        - "null"
-                        - string
-                linkedCompId:
                     type:
                         - "null"
                         - string
@@ -342,7 +344,6 @@ components:
                 - label
                 - roleName
                 - linkedActorId
-                - linkedCompId
             type: object
         ModelActor:
             additionalProperties: false
@@ -354,6 +355,21 @@ components:
             required:
                 - id
                 - role
+            type: object
+        ModelCallStep:
+            additionalProperties: false
+            properties:
+                activityNodeId:
+                    type: string
+                calls:
+                    items:
+                        $ref: '#/components/schemas/ModelTraceCall'
+                    type:
+                        - "null"
+                        - array
+            required:
+                - activityNodeId
+                - calls
             type: object
         ModelCheckItem:
             additionalProperties: false
@@ -639,17 +655,11 @@ components:
         ModelDynamicView:
             additionalProperties: false
             properties:
-                edges:
-                    items:
-                        $ref: '#/components/schemas/ModelRelationship'
-                    type:
-                        - "null"
-                        - array
                 key:
                     type: string
-                participants:
+                steps:
                     items:
-                        type: string
+                        $ref: '#/components/schemas/ModelCallStep'
                     type:
                         - "null"
                         - array
@@ -661,8 +671,7 @@ components:
                 - useCaseId
                 - key
                 - title
-                - participants
-                - edges
+                - steps
             type: object
         ModelGlossary:
             additionalProperties: false
@@ -1292,6 +1301,31 @@ components:
                 - components
                 - relationships
                 - dynamicViews
+            type: object
+        ModelTraceCall:
+            additionalProperties: false
+            properties:
+                alt:
+                    type:
+                        - "null"
+                        - string
+                from:
+                    type: string
+                label:
+                    type: string
+                mode:
+                    enum:
+                        - sync
+                        - queued
+                        - eventPubSub
+                    type: string
+                to:
+                    type: string
+            required:
+                - from
+                - to
+                - mode
+                - label
             type: object
         ModelTrustSummaries:
             additionalProperties: false

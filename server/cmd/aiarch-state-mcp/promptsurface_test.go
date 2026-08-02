@@ -67,8 +67,12 @@ func registryToolNames() map[string]bool {
 var promptSurfaceIgnore = map[string]string{
 	"getX":                 "property-operation placeholder in senior-developer.md contract doctrine",
 	"setX":                 "property-operation placeholder in senior-developer.md contract doctrine",
-	"getDesignHealth":      "render-on-read Design Health VIEW op on the webClient/customer surface, not an aiarch-state agent tool; named in doctrine describing where the live tier runs",
-	"submitReviewDecision": "example Client resume-call verb in the-method-architecture SKILL.md dynamic-view doctrine",
+	"getDesignHealth": "render-on-read Design Health VIEW op on the webClient/customer surface, not an aiarch-state agent tool; named in doctrine describing where the live tier runs",
+	// "submitReviewDecision" was dropped 2026-08-01 with the step-keyed realization
+	// doctrine: the-method-architecture's suspend/resume paragraph no longer names an
+	// example Client resume-call verb (the resuming fragment is identified by the
+	// activity node it sits on, not by a sample op name), so the entry went stale and
+	// this gate's ignore-list-curation check caught it. Working as designed.
 }
 
 var (

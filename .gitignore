@@ -30,3 +30,7 @@ server/cmd/server/webappdist/
 /.claude/skills/the-method*/
 /.claude/method-assets/
 /.claude/.method-assets-manifest.json
+
+# Scratch/brainstorm output from the superpowers skill set — working notes, not
+# committed artifacts (nearly swept into a commit once).
+.superpowers/brainstorm/

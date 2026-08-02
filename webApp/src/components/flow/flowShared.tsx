@@ -107,7 +107,11 @@ export function FlowCanvas({
 }: {
   nodes: Node[];
   edges: Edge[];
-  height: number;
+  /** A fixed pixel height (the historical default) or a CSS length — the
+   *  walkthrough-driven trace passes a viewport-relative `clamp(...)` so the
+   *  two-up layout fits above the fold instead of a tall fixed canvas pushing
+   *  the fold below both panes (founder QA round 5). */
+  height: number | string;
   t: Tokens;
   nodeTypes?: NodeTypes;
   onNodeMouseEnter?: NodeMouseHandler;
@@ -190,7 +194,20 @@ export function FocusNodes({ nodeIds, dep }: { nodeIds: string[]; dep: string })
   return null;
 }
 
-/** Shared "nothing to render" placeholder used by every flow. */
-export function FlowEmpty({ label, t }: { label: string; t: Tokens }): ReactNode {
-  return <Box sx={{ py: 6, textAlign: 'center', color: t.muted, fontFamily: t.mono }}>{label}</Box>;
+/** Shared "nothing to render" placeholder used by every flow. `tone` defaults
+ *  to the plain muted placeholder every existing caller keeps; 'pending' (Task
+ *  6, call-chain rollout) recolors it amber for DynamicViewFlow's honest
+ *  "not yet realized — part of the pending realization amendment" case, so
+ *  that state reads distinctly from a genuinely broken/synthetic empty view. */
+export function FlowEmpty({
+  label,
+  t,
+  tone = 'muted',
+}: {
+  label: string;
+  t: Tokens;
+  tone?: 'muted' | 'pending';
+}): ReactNode {
+  const color = tone === 'pending' ? t.awaitingFg : t.muted;
+  return <Box sx={{ py: 6, textAlign: 'center', color, fontFamily: t.mono }}>{label}</Box>;
 }

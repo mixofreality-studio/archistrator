@@ -12,8 +12,8 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import type { System, UseCaseDecision } from './types';
-import { toUseCaseView, viewKeyForUseCase } from './useCaseViews.ts';
+import type { ActivityNode, System, UseCaseDecision } from './types';
+import { ownerUseCaseId, toUseCaseView, viewKeyForUseCase } from './useCaseViews.ts';
 
 function decision(
   id: string,
@@ -69,15 +69,59 @@ void test('rejectionReason keeps mapping alongside the new field', () => {
   assert.equal(uc.essenceRationale, '');
 });
 
+// ── decidedBy mapping (call-chain rollout Task 5) ───────────────────────────
+
+function decisionWithNodes(nodes: ActivityNode[]): UseCaseDecision {
+  return {
+    rejectionReason: '',
+    useCase: {
+      id: 'uc-1',
+      name: 'Place Order',
+      classification: 'core',
+      trigger: 'clientAction',
+      actors: [],
+      activity: { nodes, edges: [] },
+      variationOf: null,
+    },
+  };
+}
+
+function activityNode(decidedBy?: string | null): ActivityNode {
+  return {
+    id: 'd1',
+    kind: 'decision',
+    label: 'Check',
+    linkedActorId: null,
+    roleName: '',
+    ...(decidedBy !== undefined ? { decidedBy } : {}),
+  };
+}
+
+void test('a node with a decidedBy id maps it onto the ActivityNodeView verbatim', () => {
+  const uc = toUseCaseView(decisionWithNodes([activityNode('architect-user')]));
+  assert.equal(uc.nodes[0]?.decidedBy, 'architect-user');
+});
+
+void test('a node with no decidedBy, or an explicit null, maps to no decidedBy key at all', () => {
+  const uc = toUseCaseView(decisionWithNodes([activityNode(), activityNode(null)]));
+  assert.equal('decidedBy' in (uc.nodes[0] ?? {}), false);
+  assert.equal('decidedBy' in (uc.nodes[1] ?? {}), false);
+});
+
+void test('a node with a blank decidedBy string maps to no decidedBy key', () => {
+  const uc = toUseCaseView(decisionWithNodes([activityNode('')]));
+  assert.equal('decidedBy' in (uc.nodes[0] ?? {}), false);
+});
+
 // ── viewKeyForUseCase resolution ────────────────────────────────────────────
 
 const SYSTEM: System = {
   components: null,
   relationships: null,
   dynamicViews: [
-    { key: 'dv-order', title: 'Place Order', useCaseId: 'uc-1', participants: null, edges: null },
-    { key: '', title: 'Broken', useCaseId: 'uc-2', participants: null, edges: null },
-    { key: 'dv-track', title: 'Track', useCaseId: 'uc-2', participants: null, edges: null },
+    { key: 'dv-order', title: 'Place Order', useCaseId: 'uc-1', steps: null },
+    { key: '', title: 'Broken', useCaseId: 'uc-2', steps: null },
+    { key: 'dv-track', title: 'Track', useCaseId: 'uc-2', steps: null },
   ],
 };
 
@@ -101,4 +145,26 @@ void test('returns undefined for an absent model or a blank id', () => {
 void test('tolerates null dynamicViews', () => {
   const bare: System = { components: null, relationships: null, dynamicViews: null };
   assert.equal(viewKeyForUseCase(bare, 'uc-1'), undefined);
+});
+
+// ── ownerUseCaseId resolution (the inverse join) ───────────────────────────
+
+void test('resolves the use case a keyed dynamic view realizes', () => {
+  assert.equal(ownerUseCaseId(SYSTEM, 'dv-order'), 'uc-1');
+  assert.equal(ownerUseCaseId(SYSTEM, 'dv-track'), 'uc-2');
+});
+
+void test('returns undefined for an unknown, blank or absent key/model', () => {
+  assert.equal(ownerUseCaseId(SYSTEM, 'dv-none'), undefined);
+  assert.equal(ownerUseCaseId(SYSTEM, '  '), undefined);
+  assert.equal(ownerUseCaseId(undefined, 'dv-order'), undefined);
+});
+
+void test('a view with no use-case back-link resolves to undefined', () => {
+  const synthetic: System = {
+    components: null,
+    relationships: null,
+    dynamicViews: [{ key: 'dv-synth', title: 'Synthetic', useCaseId: '', steps: null }],
+  };
+  assert.equal(ownerUseCaseId(synthetic, 'dv-synth'), undefined);
 });

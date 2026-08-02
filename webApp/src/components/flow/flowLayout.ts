@@ -16,6 +16,14 @@ import { maxSeverity } from './findingOverlays';
 
 export type { Layer };
 
+/**
+ * A lane in the layered layout: a Method layer, or the synthetic `person` lane.
+ * People (use-case actors) are NOT System components — they hold no volatility
+ * and sit outside the architecture — but they DO participate in a realized call
+ * chain, so the dynamic lens places them in their own row above the Clients.
+ */
+export type FlowLayer = Layer | 'person';
+
 /** Full Method layer stack, top-to-bottom (utility is drawn as a side bar, not a row). */
 export const LAYER_ORDER: readonly Layer[] = [
   'client',
@@ -26,10 +34,16 @@ export const LAYER_ORDER: readonly Layer[] = [
   'utility',
 ];
 
-/** The layers that occupy horizontal rows (top→down). Utility is excluded — it is
+/** Every lane the layout can place, in render order: the people who drive the
+ *  system sit above the Method stack. Drives the visual reading (tab) order. */
+export const FLOW_LAYER_ORDER: readonly FlowLayer[] = ['person', ...LAYER_ORDER];
+
+/** The lanes that occupy horizontal rows (top→down). Utility is excluded — it is
  *  rendered as a vertical bar on the right that spans all rows (Righting Software
- *  Fig 3-4). */
-export const LAYER_ROWS: readonly Layer[] = [
+ *  Fig 3-4). A row with no members is skipped, so the person lane costs nothing
+ *  in the views (static / perspective) that place no people. */
+export const LAYER_ROWS: readonly FlowLayer[] = [
+  'person',
   'client',
   'manager',
   'engine',
@@ -46,8 +60,12 @@ export const LAYER_LABEL: Record<Layer, string> = {
   utility: 'Utility',
 };
 
-export function layerColors(t: Tokens): Record<Layer, string> {
+export function layerColors(t: Tokens): Record<FlowLayer, string> {
   return {
+    // People are not a Method layer, so the person lane deliberately takes the
+    // neutral ink tone rather than a sixth accent: it must never read as one of
+    // the five layer colours (and t.muted is already Resource / Utility).
+    person: t.ink,
     client: t.accent,
     manager: t.accent2,
     engine: t.committedDot,
@@ -56,6 +74,25 @@ export function layerColors(t: Tokens): Record<Layer, string> {
     utility: t.muted,
   };
 }
+
+/**
+ * The opacity a MUTED (out-of-focus) participant fades to. One token, shared by
+ * every flow that mutes — nodes and edges alike: the static graph's hover
+ * neighbourhood (ArchitectureFlow), the dynamic lens' focused call/fragment
+ * (DynamicViewFlow), and flowEdge's muted variant must all read as the SAME
+ * treatment — that identity is the point (founder QA round 2).
+ */
+export const MUTED_OPACITY = 0.12;
+
+/**
+ * The opacity of the VISITED tier — the calls (and their endpoints) the reader
+ * has already walked past in the Dynamic lens' fragment mode (founder QA round
+ * 4's trail accretion). Deliberately a mid tint: it must read as "already
+ * walked" at a glance, sitting clearly ABOVE the never-walked ghosts at
+ * MUTED_OPACITY and clearly BELOW the current fragment at full strength.
+ * One token for nodes and edges alike, so the trail reads as one thing.
+ */
+export const VISITED_OPACITY = 0.55;
 
 /** Theme colour for a Design-Health finding severity (edge strokes + badges). */
 export function severityColor(t: Tokens, severity: Severity): string {
@@ -85,10 +122,10 @@ const UTIL_PAD = 16;
 
 // --- layered layout engine ------------------------------------------------
 
-/** Minimal shape the layout needs from a component. */
+/** Minimal shape the layout needs from a placed participant (component or person). */
 export interface LayoutComponent {
   id: string;
-  layer: Layer;
+  layer: FlowLayer;
 }
 /** Minimal shape the layout needs from a relationship (direction: from → to). */
 export interface LayoutEdge {
@@ -100,7 +137,7 @@ export interface Layout {
   /** Absolute position per component id. */
   pos: Map<string, { x: number; y: number }>;
   /** The present non-utility rows, in top→down order, with their y. */
-  rows: { layer: Layer; y: number }[];
+  rows: { layer: FlowLayer; y: number }[];
   /** Utility component ids, stacked top→down in the side bar. */
   utilityIds: string[];
   /** X of the Utilities bar column. */
@@ -163,8 +200,10 @@ export function computeLayout(components: LayoutComponent[], relationships: Layo
 
 /** Row-gutter label text: the Method component-layer name for each row (matches
  *  the legend). Utilities are labeled by their own side-bar frame, not a gutter row. */
-function rowLabelText(layer: Layer): string | null {
+function rowLabelText(layer: FlowLayer): string | null {
   switch (layer) {
+    case 'person':
+      return 'People';
     case 'client':
       return 'Clients';
     case 'manager':
@@ -223,8 +262,8 @@ export function decorativeNodes(layout: Layout): Node[] {
 
 /**
  * Returns a COPY of `components` ordered by the computed layout's visual reading
- * order — layer row top→down (Utilities side bar last), then left→right within a
- * row (top→down within the bar). React-Flow renders nodes in array order, so the
+ * order — lane row top→down (People first, Utilities side bar last), then
+ * left→right within a row (top→down within the bar). React-Flow renders nodes in array order, so the
  * DOM/tab order of the focusable C4 nodes follows the visual top-down layout
  * instead of the model's drafted order (F-QA2-51). Ids/keys are untouched — only
  * the emission order changes, so React-Flow keys stay stable.
@@ -234,7 +273,7 @@ export function sortByLayoutPosition<T extends LayoutComponent>(
   layout: Layout
 ): T[] {
   return [...components].sort((a, b) => {
-    const rowDelta = LAYER_ORDER.indexOf(a.layer) - LAYER_ORDER.indexOf(b.layer);
+    const rowDelta = FLOW_LAYER_ORDER.indexOf(a.layer) - FLOW_LAYER_ORDER.indexOf(b.layer);
     if (rowDelta !== 0) return rowDelta;
     const pa = layout.pos.get(a.id) ?? { x: 0, y: 0 };
     const pb = layout.pos.get(b.id) ?? { x: 0, y: 0 };
@@ -288,7 +327,31 @@ export function c4Node(
         : {}),
     },
     draggable: false,
-    ...(opts.dimmed === true ? { style: { opacity: 0.12 } } : {}),
+    ...(opts.dimmed === true ? { style: { opacity: MUTED_OPACITY } } : {}),
+  };
+}
+
+/** Builds a `person`-type React-Flow node for one use-case actor participating in
+ *  a realized call chain (PersonNode renders the stick-figure glyph + role). Not a
+ *  component: no layer tag, no volatility, no comment anchor — an actor is outside
+ *  the system boundary. */
+export function personNode(
+  person: { id: string; role: string },
+  position: { x: number; y: number },
+  color: string,
+  opts: {
+    /** Fade this actor out — the same mute a non-neighbour component takes when
+     *  the diagram has a focus (c4Node's `dimmed`; MUTED_OPACITY). */
+    dimmed?: boolean;
+  } = {}
+): Node {
+  return {
+    id: person.id,
+    type: 'person',
+    position,
+    data: { personId: person.id, role: person.role, color },
+    draggable: false,
+    ...(opts.dimmed === true ? { style: { opacity: MUTED_OPACITY } } : {}),
   };
 }
 
@@ -315,6 +378,18 @@ export interface EdgeOpts {
    *  takes the severity colour and LayeredStepEdge renders a midpoint badge
    *  carrying "ruleId — message" (tooltip + aria). */
   findings?: Finding[];
+  /** Founder QA round 4 (canvas↔caption correspondence): the call's GLOBAL
+   *  sequence number, drawn as a small high-contrast chip at the edge's
+   *  midpoint. Set ONLY on the current fragment's calls — the chip is what ties
+   *  a numbered caption line to a specific wire on the canvas, so numbering
+   *  everything would defeat it. A string when the call carries an
+   *  alt-group display label ("1a", "1b", … — call-chain rollout Task 5)
+   *  instead of the plain global number. */
+  seqChip?: number | string;
+  /** Founder QA round 4 (parallel-strand separation): this edge's slot among the
+   *  strands sharing its (source, target) pair — see parallelEdges.ts. Absent
+   *  (or count 1) leaves the path exactly where it has always been drawn. */
+  parallel?: { index: number; count: number };
 }
 
 /** A directed, arrow-headed smoothstep edge in the shared visual language. */
@@ -338,7 +413,16 @@ export function flowEdge(
       : variant === 'focus'
         ? t.ink
         : t.muted);
-  const opacity = opts.opacity ?? (variant === 'muted' ? 0.12 : 1);
+  const opacity = opts.opacity ?? (variant === 'muted' ? MUTED_OPACITY : 1);
+  // Only spread a `parallel` slot the renderer would act on: a lone strand must
+  // leave the drawn path byte-identical to what every other view already emits.
+  const parallel =
+    opts.parallel !== undefined && opts.parallel.count > 1 ? opts.parallel : undefined;
+  const hasData =
+    opts.comment !== undefined ||
+    findings !== undefined ||
+    opts.seqChip !== undefined ||
+    parallel !== undefined;
   return {
     id,
     source,
@@ -348,11 +432,13 @@ export function flowEdge(
     label: opts.showLabel === true ? label : undefined,
     hidden: opts.hidden === true,
     selectable: opts.comment !== undefined,
-    ...(opts.comment !== undefined || findings !== undefined
+    ...(hasData
       ? {
           data: {
             ...(opts.comment !== undefined ? { comment: opts.comment } : {}),
             ...(findings !== undefined ? { findings } : {}),
+            ...(opts.seqChip !== undefined ? { seqChip: opts.seqChip } : {}),
+            ...(parallel !== undefined ? { parallel } : {}),
           },
         }
       : {}),

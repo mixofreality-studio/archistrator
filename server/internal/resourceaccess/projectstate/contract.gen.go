@@ -85,6 +85,8 @@ const (
 	NodeSwitch        ActivityNodeKind = 10
 	NodeGoto          ActivityNodeKind = 11
 	NodeInterruptEdge ActivityNodeKind = 12
+	NodeTimeEvent     ActivityNodeKind = 13
+	NodeAcceptEvent   ActivityNodeKind = 14
 )
 
 type ActivityOutcome int
@@ -178,6 +180,11 @@ const (
 	CallQueued      CallMode = 1
 	CallEventPubSub CallMode = 2
 )
+
+type CallStep struct {
+	ActivityNodeID string      `json:"activityNodeId"`
+	Calls          []TraceCall `json:"calls"`
+}
 
 type CheckItem struct {
 	Section       string      `json:"section"`
@@ -335,11 +342,10 @@ type DocOutlineRecord struct {
 }
 
 type DynamicView struct {
-	UseCaseID    string         `json:"useCaseId"`
-	Key          string         `json:"key"`
-	Title        string         `json:"title"`
-	Participants []string       `json:"participants"`
-	Edges        []Relationship `json:"edges"`
+	UseCaseID string     `json:"useCaseId"`
+	Key       string     `json:"key"`
+	Title     string     `json:"title"`
+	Steps     []CallStep `json:"steps"`
 }
 
 type EdgeKind int
@@ -549,6 +555,7 @@ type ProjectSummary struct {
 	CommittedCount int        `json:"CommittedCount"`
 	TotalCount     int        `json:"TotalCount"`
 	UpdatedAt      time.Time  `json:"UpdatedAt"`
+	OperatorPaused *bool      `json:"OperatorPaused,omitempty"`
 }
 
 type ProvisioningSpecRecord struct {
@@ -748,6 +755,14 @@ const (
 	TestVariantSystemTest TestingVariant = 3
 	TestVariantQAProcess  TestingVariant = 4
 )
+
+type TraceCall struct {
+	From  string   `json:"from"`
+	To    string   `json:"to"`
+	Mode  CallMode `json:"mode"`
+	Label string   `json:"label"`
+	Alt   *string  `json:"alt,omitempty"`
+}
 
 type Trigger int
 

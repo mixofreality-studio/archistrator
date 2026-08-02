@@ -19,4 +19,6 @@ export const NODE_DIMS: Record<ActivityNodeKind, { w: number; h: number }> = {
   join: { w: 176, h: 14 },
   note: { w: 200, h: 72 },
   swimLane: { w: 200, h: 60 },
+  timeEvent: { w: 56, h: 64 },
+  acceptEvent: { w: 200, h: 60 },
 };

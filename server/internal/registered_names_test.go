@@ -95,6 +95,7 @@ var registeredTemporalNamesGolden = []string{
 	"constructionConstructActivity",
 	"constructionProjectSupervision",
 	"constructionPumpNextActivity",
+	"constructionPumpSweep",
 	"constructionReplanSweep",
 	"constructionTransitionAccess.recordActivityExited",
 	"constructionTransitionAccess.recordActivityFailed",
@@ -129,14 +130,6 @@ var registeredTemporalNamesGolden = []string{
 	"designSessionAccess.withdrawArtifactOnBranch",
 	"designSessionAccess.withdrawArtifactOnBranch",
 	"designSessionAccess.withdrawArtifactOnBranch",
-	"durableExecutionAccess.deliverSignal",
-	"durableExecutionAccess.deliverSignal",
-	"durableExecutionAccess.queryExecutionState",
-	"durableExecutionAccess.queryExecutionState",
-	"durableExecutionAccess.registerSchedule",
-	"durableExecutionAccess.registerSchedule",
-	"durableExecutionAccess.startOrSignalExecution",
-	"durableExecutionAccess.startOrSignalExecution",
 	"gitActivityStatusAccess.recordActivityArchApproved",
 	"gitActivityStatusAccess.recordActivityBranchOpened",
 	"gitActivityStatusAccess.recordActivityCIObserved",
@@ -145,6 +138,12 @@ var registeredTemporalNamesGolden = []string{
 	"gitActivityStatusAccess.recordActivityStarted",
 	"merchantGatewayAccess.chargeCustomer",
 	"merchantGatewayAccess.validateStoredInstrument",
+	"messageBus.deliverSignal",
+	"messageBus.deliverSignal",
+	"messageBus.deliverSignal",
+	"messageBus.registerSchedule",
+	"messageBus.registerSchedule",
+	"messageBus.registerSchedule",
 	"operatedRuntimeAccess.getApplicationHealth",
 	"operatedRuntimeAccess.getSloStatus",
 	"operatedRuntimeAccess.publishDesiredState",
@@ -253,7 +252,7 @@ func mustRegisteredNames(t *testing.T) []string {
 	billingMgr := billing.NewBillingManager(nil, nil, nil, nil, nil, nil, nil, nil)
 	billing.RegisterManagerWorker(&reg, billingMgr)
 
-	constructionMgr := construction.NewConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
+	constructionMgr := construction.NewConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
 	construction.RegisterManagerWorker(&reg, constructionMgr)
 
 	operationsMgr := operations.NewOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)

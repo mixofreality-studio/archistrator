@@ -7,11 +7,7 @@ import Select from '@mui/material/Select';
 import MenuItem from '@mui/material/MenuItem';
 import { UI_IDENTIFIERS } from '../../../utilities/constants/UIIdentifiers';
 import type { TestCaseView, TestScenarioView } from '../../../contracts/types';
-import type {
-  C4Component,
-  DynamicViewModel,
-  SequencedRelationship,
-} from '../../../contracts/adapters';
+import type { C4Component, DynamicViewModel, SequencedCall } from '../../../contracts/adapters';
 import type { Tokens } from '../../../utilities/theme/themes';
 import { DynamicViewFlow, type StepDetail, type StepStatus } from '../../flow/DynamicViewFlow';
 import { useComments, testScenarioStepAnchor } from '../../comments/CommentContext';
@@ -67,12 +63,22 @@ function caseToDynamic(
       });
     }
   }
-  const edges: SequencedRelationship[] = steps.map((st) => ({
+  // A test case is not a realized use-case chain: it has no activity diagram and
+  // no CallStep, so each call is its own synthetic single-call "step" keyed by the
+  // case + seq, captioned with the case title.
+  const edges: SequencedCall[] = steps.map((st) => ({
     from: 'test-harness',
     to: st.component,
     mode: 'sync',
     label: `${st.operation}()`,
     seq: st.seq,
+    // Synthetic id (case::seq) — intentionally matches no activity node, since
+    // this case has no activity diagram. Must never be passed through
+    // findingsForStep (there is no CC-* realization to join against).
+    stepNodeId: `${c.id}::${String(st.seq)}`,
+    stepLabel: c.title,
+    callInStep: 1,
+    callsInStep: 1,
   }));
   const statusBySeq = new Map<number, StepStatus>(
     steps.map((st) => [st.seq, mode === 'run' && st.status === 'green' ? 'green' : 'red'])
@@ -89,7 +95,12 @@ function caseToDynamic(
       },
     ])
   );
-  return { dv: { title: c.title, participants, edges }, statusBySeq, detailBySeq };
+  // No people and nothing unresolved: every endpoint is a synthesized participant.
+  return {
+    dv: { title: c.title, participants, persons: [], edges, unresolved: [] },
+    statusBySeq,
+    detailBySeq,
+  };
 }
 
 /**
@@ -124,7 +135,7 @@ export function ScenarioBrowser({
   // so the operator can attach feedback to a specific call in the plan/run.
   const onCommentStep =
     activeCase !== undefined
-      ? (edge: SequencedRelationship): void => {
+      ? (edge: SequencedCall): void => {
           setAnchor({
             kind: 'node',
             label: `${edge.label} (step ${String(edge.seq)})`,

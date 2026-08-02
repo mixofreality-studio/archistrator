@@ -28,6 +28,7 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	projectstatefake "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate/fake"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
+	"github.com/mixofreality-studio/archistrator/server/internal/utility/messagebus"
 )
 
 // ---------------------------------------------------------------------------
@@ -56,7 +57,7 @@ func (f *fakeTemporalClient) SignalWorkflow(_ context.Context, workflowID string
 // constructionManager (all other deps nil — only used for pre-Temporal checks
 // and signal dispatch tests).
 func newTestConstructionManager(c client.Client) *constructionManager {
-	return newConstructionManager(c, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
+	return newConstructionManager(c, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
 }
 
 // testCtx returns a minimal fwmanager.Context backed by context.Background.
@@ -81,7 +82,7 @@ func asConstructionError(t *testing.T, err error) *fwmanager.Error {
 // ---- ExecuteNextActivity (op 2.1) ------------------------------------------
 
 func Test_ExecuteNextActivity_EmptyProjectID(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
 	_, err := m.ExecuteNextActivity(fwmanager.Context{Context: context.Background()}, ProjectID(""), "tick-1")
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -89,7 +90,7 @@ func Test_ExecuteNextActivity_EmptyProjectID(t *testing.T) {
 }
 
 func Test_ExecuteNextActivity_EmptyTickID(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
 	_, err := m.ExecuteNextActivity(fwmanager.Context{Context: context.Background()}, ProjectID(uuid.NewString()), "")
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -99,7 +100,7 @@ func Test_ExecuteNextActivity_EmptyTickID(t *testing.T) {
 // ---- RunReplanSweep (op 2.2) ------------------------------------------------
 
 func Test_RunReplanSweep_EmptyTickID(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
 	_, err := m.RunReplanSweep(fwmanager.Context{Context: context.Background()}, nil, "")
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -107,7 +108,7 @@ func Test_RunReplanSweep_EmptyTickID(t *testing.T) {
 }
 
 func Test_RunReplanSweep_EmptyProjectID(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
 	nilID := ProjectID("")
 	_, err := m.RunReplanSweep(fwmanager.Context{Context: context.Background()}, &nilID, "tick-1")
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
@@ -118,7 +119,7 @@ func Test_RunReplanSweep_EmptyProjectID(t *testing.T) {
 // ---- PauseProject (op 2.3) --------------------------------------------------
 
 func Test_PauseProject_EmptyProjectID(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
 	err := m.PauseProject(fwmanager.Context{Context: context.Background()}, ProjectID(""), "reason")
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -126,7 +127,7 @@ func Test_PauseProject_EmptyProjectID(t *testing.T) {
 }
 
 func Test_PauseProject_EmptyReason(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
 	err := m.PauseProject(fwmanager.Context{Context: context.Background()}, ProjectID(uuid.NewString()), "")
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse for an empty pause reason, got %s", got)
@@ -136,7 +137,7 @@ func Test_PauseProject_EmptyReason(t *testing.T) {
 // ---- OverrideActivity (op 2.4) ----------------------------------------------
 
 func Test_OverrideActivity_EmptyProjectID(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
 	err := m.OverrideActivity(fwmanager.Context{Context: context.Background()}, ProjectID(""), "C-1", ActivityOverride{Kind: OverrideRetry})
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -144,7 +145,7 @@ func Test_OverrideActivity_EmptyProjectID(t *testing.T) {
 }
 
 func Test_OverrideActivity_EmptyActivityID(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
 	err := m.OverrideActivity(fwmanager.Context{Context: context.Background()}, ProjectID(uuid.NewString()), "", ActivityOverride{Kind: OverrideRetry})
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse for an empty activityId, got %s", got)
@@ -152,7 +153,7 @@ func Test_OverrideActivity_EmptyActivityID(t *testing.T) {
 }
 
 func Test_OverrideActivity_UnknownOverrideKind(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
 	err := m.OverrideActivity(fwmanager.Context{Context: context.Background()}, ProjectID(uuid.NewString()), "C-1", ActivityOverride{Kind: OverrideUnknown})
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse for an unknown override kind, got %s", got)
@@ -162,7 +163,7 @@ func Test_OverrideActivity_UnknownOverrideKind(t *testing.T) {
 // ---- GetSessionState (op 2.5) -----------------------------------------------
 
 func Test_GetSessionState_EmptyProjectID(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
 	_, err := m.GetSessionState(fwmanager.Context{Context: context.Background()}, ProjectID(""), nil)
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -170,7 +171,7 @@ func Test_GetSessionState_EmptyProjectID(t *testing.T) {
 }
 
 func Test_GetSessionState_EmptyActivityID(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
 	empty := ActivityID("")
 	_, err := m.GetSessionState(fwmanager.Context{Context: context.Background()}, ProjectID(uuid.NewString()), &empty)
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
@@ -480,7 +481,7 @@ func TestUpdateReviewPolicy(t *testing.T) {
 			return projectstate.Project{Version: 7}, nil
 		},
 	}
-	m := newConstructionManager(nil, ps, nil, nil, nil, nil, nil, fake, nil, nil, 0, "", nil)
+	m := newConstructionManager(nil, ps, nil, nil, nil, nil, nil, fake, nil, nil, nil, 0, "", nil)
 
 	err := m.UpdateReviewPolicy(testCtx(), "proj-1", ReviewPolicyInput{
 		GatedPhasesByType: map[string][]string{
@@ -2045,6 +2046,31 @@ func registerReplanSweep(env *testsuite.TestWorkflowEnvironment, wf *workflows, 
 	registerGenDesignSessionRead(env, ps)
 }
 
+// fakeProjectLister widens fakeFullProjectState with a SCRIPTED ListProjects — the
+// one surface PumpSweepWorkflow's enumeration depends on. Every other method falls
+// through to fakeFullProjectState's stubs (never exercised by the sweep itself).
+type fakeProjectLister struct {
+	fakeFullProjectState
+	summaries []projectstate.ProjectSummary
+}
+
+func (f fakeProjectLister) ListProjects(fwra.Context, projectstate.OwnerScope) ([]projectstate.ProjectSummary, error) {
+	return f.summaries, nil
+}
+
+var _ projectstate.ProjectStateAccess = fakeProjectLister{}
+
+// registerPumpSweep registers PumpSweepWorkflow + projectStateAccess.listProjects
+// (backed by lister) alongside everything PumpNextActivityWorkflow needs for its
+// per-project child dispatch (registerPump's own set) — the sweep starts that exact
+// workflow as an ABANDON-policy child per eligible project.
+func registerPumpSweep(env *testsuite.TestWorkflowEnvironment, wf *workflows, lister fakeProjectLister, ps *fakeProjectState, pipe agenticjob.AgenticJobAccess) {
+	env.RegisterWorkflowWithOptions(wf.PumpSweepWorkflow, workflow.RegisterOptions{Name: executionKindPumpSweep})
+	acts := &genActivities{ProjectState: lister}
+	env.RegisterActivityWithOptions(acts.ProjectStateListProjects, activity.RegisterOptions{Name: "projectStateAccess.listProjects"})
+	registerPump(env, wf, ps, pipe)
+}
+
 func sampleActivity() constructionActivity {
 	return constructionActivity{
 		ActivityID:  "C-XYZ",
@@ -2705,6 +2731,292 @@ func Test_ReplanSweep_QuietSweep_EmptyResult(t *testing.T) {
 	}
 }
 
+// ---- Tests: pump sweep (PumpSweepWorkflow, Task 7c) -------------------------
+
+// No projects on the platform ⇒ an empty, quiet sweep.
+func Test_PumpSweep_NoProjects_EmptyResult(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	ps := &fakeProjectState{project: projectstate.Project{Version: 1, Phase: 2}}
+	lister := fakeProjectLister{fakeFullProjectState: fakeFullProjectState{ps}}
+	wf := newWorkflows(wfDeps{Intervention: &fakeIntervention{}, Review: &fakeReview{}})
+	registerPumpSweep(env, wf, lister, ps, &fakePipeline{phase: PipelineSucceeded})
+
+	env.ExecuteWorkflow(executionKindPumpSweep, pumpSweepInput{})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("pump sweep error: %v", err)
+	}
+	var res pumpSweepResult
+	if err := env.GetWorkflowResult(&res); err != nil {
+		t.Fatalf("decode pump sweep result: %v", err)
+	}
+	if len(res.PumpedProjects) != 0 {
+		t.Fatalf("want an empty sweep with no projects, got %v", res.PumpedProjects)
+	}
+}
+
+// Only construction-phase projects are pumped; system-design/project-design-phase
+// projects are skipped WITHOUT starting a child pump for them (the eligibility
+// filter mirrors nextEligibleActivity's own Phase gate).
+func Test_PumpSweep_FiltersToConstructionPhaseOnly(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	constructionProjectID := projectstate.ProjectID(uuid.NewString())
+	ps := &fakeProjectState{project: projectstate.Project{Version: 1, Phase: 2}}
+	lister := fakeProjectLister{
+		fakeFullProjectState: fakeFullProjectState{ps},
+		summaries: []projectstate.ProjectSummary{
+			{ProjectID: projectstate.ProjectID(uuid.NewString()), Phase: projectstate.PhaseSystemDesign},
+			{ProjectID: projectstate.ProjectID(uuid.NewString()), Phase: projectstate.PhaseProjectDesign},
+			{ProjectID: constructionProjectID, Phase: projectstate.PhaseConstruction},
+		},
+	}
+	wf := newWorkflows(wfDeps{Intervention: &fakeIntervention{}, Review: &fakeReview{}})
+	registerPumpSweep(env, wf, lister, ps, &fakePipeline{phase: PipelineSucceeded})
+
+	env.ExecuteWorkflow(executionKindPumpSweep, pumpSweepInput{})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("pump sweep error: %v", err)
+	}
+	var res pumpSweepResult
+	if err := env.GetWorkflowResult(&res); err != nil {
+		t.Fatalf("decode pump sweep result: %v", err)
+	}
+	if len(res.PumpedProjects) != 1 || res.PumpedProjects[0] != ProjectID(constructionProjectID) {
+		t.Fatalf("want exactly the one construction-phase project pumped, got %v", res.PumpedProjects)
+	}
+}
+
+// boolPtr is a tiny test helper — ProjectSummary.OperatorPaused is *bool
+// (generated, omitempty).
+func boolPtr(b bool) *bool { return &b }
+
+// Fix round 1 (Task 7c live-firing review), FINDING 2: a paused project is
+// EXCLUDED from the fan-out even though it is otherwise eligible
+// (construction-phase); an unpaused construction-phase project alongside it is
+// still pumped — the pause check must not over- or under-fire.
+func Test_PumpSweep_ExcludesPausedProject_IncludesUnpaused(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	pausedID := projectstate.ProjectID(uuid.NewString())
+	activeID := projectstate.ProjectID(uuid.NewString())
+	ps := &fakeProjectState{project: projectstate.Project{Version: 1, Phase: 2}}
+	lister := fakeProjectLister{
+		fakeFullProjectState: fakeFullProjectState{ps},
+		summaries: []projectstate.ProjectSummary{
+			{ProjectID: pausedID, Phase: projectstate.PhaseConstruction, OperatorPaused: boolPtr(true)},
+			{ProjectID: activeID, Phase: projectstate.PhaseConstruction, OperatorPaused: boolPtr(false)},
+		},
+	}
+	wf := newWorkflows(wfDeps{Intervention: &fakeIntervention{}, Review: &fakeReview{}})
+	registerPumpSweep(env, wf, lister, ps, &fakePipeline{phase: PipelineSucceeded})
+
+	env.ExecuteWorkflow(executionKindPumpSweep, pumpSweepInput{})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("pump sweep error: %v", err)
+	}
+	var res pumpSweepResult
+	if err := env.GetWorkflowResult(&res); err != nil {
+		t.Fatalf("decode pump sweep result: %v", err)
+	}
+	if len(res.PumpedProjects) != 1 || res.PumpedProjects[0] != ProjectID(activeID) {
+		t.Fatalf("want only the unpaused project pumped (paused excluded), got %v", res.PumpedProjects)
+	}
+}
+
+// A nil OperatorPaused (the zero value ListProjects reports for a
+// never-paused project, per its own omitempty convention) must NOT be
+// mistaken for "paused" — it means "not paused", same as an explicit false.
+func Test_PumpSweep_NilOperatorPaused_TreatedAsNotPaused(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	pid := projectstate.ProjectID(uuid.NewString())
+	ps := &fakeProjectState{project: projectstate.Project{ID: pid, Version: 1, Phase: 2}}
+	lister := fakeProjectLister{
+		fakeFullProjectState: fakeFullProjectState{ps},
+		summaries:            []projectstate.ProjectSummary{{ProjectID: pid, Phase: projectstate.PhaseConstruction, OperatorPaused: nil}},
+	}
+	wf := newWorkflows(wfDeps{Intervention: &fakeIntervention{}, Review: &fakeReview{}})
+	registerPumpSweep(env, wf, lister, ps, &fakePipeline{phase: PipelineSucceeded})
+
+	env.ExecuteWorkflow(executionKindPumpSweep, pumpSweepInput{})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("pump sweep error: %v", err)
+	}
+	var res pumpSweepResult
+	if err := env.GetWorkflowResult(&res); err != nil {
+		t.Fatalf("decode pump sweep result: %v", err)
+	}
+	if len(res.PumpedProjects) != 1 || res.PumpedProjects[0] != ProjectID(pid) {
+		t.Fatalf("want the nil-OperatorPaused project pumped (nil != paused), got %v", res.PumpedProjects)
+	}
+}
+
+// An eligible construction-phase project gets a per-project child pump started
+// (PumpNextActivityWorkflow, unchanged) — this test proves the fan-out actually
+// reaches and runs that workflow (a quiet tick: no eligible activity wired), not
+// just that the sweep enumerates.
+func Test_PumpSweep_ConstructionPhaseProject_StartsChildPump(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	pid := projectstate.ProjectID(uuid.NewString())
+	ps := &fakeProjectState{project: projectstate.Project{ID: pid, Version: 1, Phase: 2}}
+	lister := fakeProjectLister{
+		fakeFullProjectState: fakeFullProjectState{ps},
+		summaries:            []projectstate.ProjectSummary{{ProjectID: pid, Phase: projectstate.PhaseConstruction}},
+	}
+	wf := newWorkflows(wfDeps{
+		Intervention:         &fakeIntervention{},
+		Review:               &fakeReview{},
+		NextEligibleActivity: nil, // every started child pump goes quiet immediately
+	})
+	registerPumpSweep(env, wf, lister, ps, &fakePipeline{phase: PipelineSucceeded})
+
+	env.ExecuteWorkflow(executionKindPumpSweep, pumpSweepInput{})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("pump sweep error: %v", err)
+	}
+	var res pumpSweepResult
+	if err := env.GetWorkflowResult(&res); err != nil {
+		t.Fatalf("decode pump sweep result: %v", err)
+	}
+	if len(res.PumpedProjects) != 1 || res.PumpedProjects[0] != ProjectID(pid) {
+		t.Fatalf("want the one construction-phase project pumped, got %v", res.PumpedProjects)
+	}
+}
+
+// pumpSweepChildWorkflowID must be a DIFFERENT shape from pumpWorkflowID's
+// client-driven id (which always carries a non-empty tickId segment) — the two id
+// spaces must never collide.
+func Test_PumpSweepChildWorkflowID_DiffersFromClientDrivenPumpWorkflowID(t *testing.T) {
+	pid := ProjectID(uuid.NewString())
+	sweepID := pumpSweepChildWorkflowID(pid)
+	for _, tick := range []string{"t1", "2026-08-01T00:00:00Z"} {
+		if clientID := pumpWorkflowID(pid, tick); clientID == sweepID {
+			t.Fatalf("pumpSweepChildWorkflowID(%q) == pumpWorkflowID(%q, %q) — id spaces must never collide", pid, pid, tick)
+		}
+	}
+}
+
+// Fix round 1 (Task 7c live-firing review), FINDING 6: the "prior tick still
+// cascading → collapse, not fail" branch (temporal.
+// IsWorkflowExecutionAlreadyStartedError in PumpSweepWorkflow) IS reachable in
+// the mocked TestWorkflowEnvironment — the SDK's test env tracks running child
+// workflows by ID and rejects a second start against a STILL-RUNNING one with
+// a real ChildWorkflowExecutionAlreadyStartedError, exactly like the real
+// server (internal_workflow_testsuite.go checks runningWorkflows on start).
+// §10d of the earlier report was WRONG to call this untestable — the cheap
+// trigger is simply two ProjectSummary entries sharing one ProjectID in the
+// SAME tick: the first starts the child; by the time the loop reaches the
+// second (same stable pumpSweepChildWorkflowID, since it depends only on
+// ProjectID), that child has not yet completed, so the second start collides
+// for real and the collapse branch runs.
+func Test_PumpSweep_DuplicateProjectIDInOneTick_SecondCollapsesOntoFirst(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	pid := projectstate.ProjectID(uuid.NewString())
+	ps := &fakeProjectState{project: projectstate.Project{ID: pid, Version: 1, Phase: 2}}
+	lister := fakeProjectLister{
+		fakeFullProjectState: fakeFullProjectState{ps},
+		summaries: []projectstate.ProjectSummary{
+			{ProjectID: pid, Phase: projectstate.PhaseConstruction},
+			{ProjectID: pid, Phase: projectstate.PhaseConstruction}, // duplicate — same stable child id
+		},
+	}
+	wf := newWorkflows(wfDeps{Intervention: &fakeIntervention{}, Review: &fakeReview{}})
+	registerPumpSweep(env, wf, lister, ps, &fakePipeline{phase: PipelineSucceeded})
+
+	env.ExecuteWorkflow(executionKindPumpSweep, pumpSweepInput{})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("pump sweep error: %v — the collapse branch must not propagate the already-started error", err)
+	}
+	var res pumpSweepResult
+	if err := env.GetWorkflowResult(&res); err != nil {
+		t.Fatalf("decode pump sweep result: %v", err)
+	}
+	// The duplicate collapses onto the first (not appended twice, not failed) —
+	// per pumpSweepResult.PumpedProjects's doc: a collapsed entry never appears.
+	if len(res.PumpedProjects) != 1 || res.PumpedProjects[0] != ProjectID(pid) {
+		t.Fatalf("want exactly one pump for the duplicate id (the second collapses onto the first), got %v", res.PumpedProjects)
+	}
+}
+
+// ---- Tests: RegisterSchedules (Task 7c) -------------------------------------
+
+// fakeScheduleBus records every RegisterSchedule call. Satisfies messagebus.MessageBus.
+type fakeScheduleBus struct {
+	mu    sync.Mutex
+	specs []messagebus.ScheduleSpec
+	ids   []messagebus.ScheduleID
+}
+
+func (b *fakeScheduleBus) DeliverSignal(fwra.Context, messagebus.ExecutionID, messagebus.SignalName, messagebus.ExecutionPayload) error {
+	return nil
+}
+
+func (b *fakeScheduleBus) RegisterSchedule(_ fwra.Context, scheduleID messagebus.ScheduleID, spec messagebus.ScheduleSpec) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.ids = append(b.ids, scheduleID)
+	b.specs = append(b.specs, spec)
+	return nil
+}
+
+var _ messagebus.MessageBus = (*fakeScheduleBus)(nil)
+
+// RegisterSchedules must register exactly the two platform-wide Schedules — the
+// pump sweep (30s, targeting PumpSweepWorkflow) and the replan sweep (5m, targeting
+// ReplanSweepWorkflow) — with the right ids/workflow-types/intervals.
+func Test_RegisterSchedules_RegistersPumpSweepAndReplanSweep(t *testing.T) {
+	bus := &fakeScheduleBus{}
+
+	if err := RegisterSchedules(context.Background(), bus); err != nil {
+		t.Fatalf("RegisterSchedules: %v", err)
+	}
+
+	if len(bus.ids) != 2 {
+		t.Fatalf("want 2 Schedules registered, got %d: %v", len(bus.ids), bus.ids)
+	}
+	byID := make(map[messagebus.ScheduleID]messagebus.ScheduleSpec, len(bus.ids))
+	for i, id := range bus.ids {
+		byID[id] = bus.specs[i]
+	}
+
+	pumpSpec, ok := byID[messagebus.ScheduleID(scheduleIDPumpSweep)]
+	if !ok {
+		t.Fatalf("missing pump-sweep Schedule %q; got ids %v", scheduleIDPumpSweep, bus.ids)
+	}
+	if string(pumpSpec.ExecutionKind) != executionKindPumpSweep {
+		t.Fatalf("pump-sweep ExecutionKind = %q, want %q", pumpSpec.ExecutionKind, executionKindPumpSweep)
+	}
+	if pumpSpec.Cadence.Every != pumpSweepIntervalSecs*time.Second {
+		t.Fatalf("pump-sweep interval = %v, want %ds", pumpSpec.Cadence.Every, pumpSweepIntervalSecs)
+	}
+
+	replanSpec, ok := byID[messagebus.ScheduleID(scheduleIDReplanSweep)]
+	if !ok {
+		t.Fatalf("missing replan-sweep Schedule %q; got ids %v", scheduleIDReplanSweep, bus.ids)
+	}
+	if string(replanSpec.ExecutionKind) != executionKindReplanSweep {
+		t.Fatalf("replan-sweep ExecutionKind = %q, want %q", replanSpec.ExecutionKind, executionKindReplanSweep)
+	}
+	if replanSpec.Cadence.Every != replanSweepIntervalSecs*time.Second {
+		t.Fatalf("replan-sweep interval = %v, want %ds", replanSpec.Cadence.Every, replanSweepIntervalSecs)
+	}
+}
+
 // ---- Tests: conditional per-phase approval gate (Task 6) --------------------
 
 // newFakeProjectStateWithPolicy builds a fakeProjectState whose served project
@@ -3288,7 +3600,7 @@ func Test_Construct_LocalMerge_ConflictRoutesToIntervention(t *testing.T) {
 // setReviewPolicyManager wires a constructionManager over the generated
 // FakeConstructionTransitionAccess for the preset write-path tests.
 func setReviewPolicyManager(ps projectstate.ProjectStateAccess, ct projectstate.ConstructionTransitionAccess) *constructionManager {
-	return newConstructionManager(nil, ps, nil, nil, nil, nil, nil, ct, nil, nil, 0, "", nil)
+	return newConstructionManager(nil, ps, nil, nil, nil, nil, nil, ct, nil, nil, nil, 0, "", nil)
 }
 
 func Test_SetReviewPolicy_EmptyProjectID(t *testing.T) {

@@ -12,8 +12,8 @@
 // passed down to each head-state RA write. Temporal lives ONLY in this component;
 // the downstream Engines (interventionEngine, autoscalerEngine,
 // operationEstimationEngine — pure, in-workflow, by value) and ResourceAccess ports
-// (operatedSystemStateAccess, operatedRuntimeAccess, usageAccess, artifactAccess,
-// durableExecutionAccess) import no Temporal.
+// (operatedSystemStateAccess, operatedRuntimeAccess, usageAccess, artifactAccess)
+// and the messageBus Utility import no Temporal.
 //
 // The FIVE frozen public ops (operationsManager.md §2):
 //   - DeployAfterConstruction — Workflow (entry; operator deploy / scale / policy)
@@ -53,10 +53,10 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/operationestimation"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/durableexecution"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedruntime"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedsystemstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usage"
+	"github.com/mixofreality-studio/archistrator/server/internal/utility/messagebus"
 )
 
 // OperationsManager is the operationsManager port — the public use-case surface of
@@ -100,7 +100,7 @@ type operationsManager struct {
 	operatedRuntime     operatedruntime.OperatedRuntimeAccess
 	usage               usage.UsageAccess
 	artifact            artifact.ArtifactAccess
-	durableExecution    durableexecution.DurableExecutionAccess
+	messageBus          messagebus.MessageBus
 	intervention        intervention.InterventionEngine
 	autoscaler          autoscaler.AutoscalerEngine
 	operationEstimation operationestimation.OperationEstimationEngine
@@ -142,7 +142,7 @@ func newOperationsManager(
 	operatedRuntime operatedruntime.OperatedRuntimeAccess,
 	usage usage.UsageAccess,
 	art artifact.ArtifactAccess,
-	durableExecution durableexecution.DurableExecutionAccess,
+	messageBus messagebus.MessageBus,
 	interventionEng intervention.InterventionEngine,
 	autoscalerEng autoscaler.AutoscalerEngine,
 	operationEstimation operationestimation.OperationEstimationEngine,
@@ -153,7 +153,7 @@ func newOperationsManager(
 		operatedRuntime:     operatedRuntime,
 		usage:               usage,
 		artifact:            art,
-		durableExecution:    durableExecution,
+		messageBus:          messageBus,
 		intervention:        interventionEng,
 		autoscaler:          autoscalerEng,
 		operationEstimation: operationEstimation,
@@ -492,10 +492,10 @@ func newError(kind fwmgr.Kind, detail string) *fwmgr.Error {
 //     has RetrieveConstructionOutput). Consumed here via a NARROW seam interface
 //     mirroring the frozen verb; the composition root adapts the concrete *artifact.Store
 //     once that verb lands (escalation E-1 in C-MOP.md).
-//   - DurableExecutionAccess — exists as internal/resourceaccess/durableexecution;
+//   - messageBus — exists as internal/utility/messagebus;
 //     only RegisterSchedule is a contract op this Manager calls (at startup). The
 //     in-workflow primitives (awaitSignal / startTimer) are the Manager's OWN
-//     workflow code (D-DA category A), NOT RA methods — they live in workflow.go /
+//     workflow code (D-DA category A), NOT bus verbs — they live in workflow.go /
 //     operationsmanager.go.
 //
 // operatedSystemStateAccess, operatedRuntimeAccess, and usageAccess are reached ONLY
@@ -544,24 +544,24 @@ func newError(kind fwmgr.Kind, detail string) *fwmgr.Error {
 // ===========================================================================
 
 // ===========================================================================
-// durableExecutionAccess — EXISTS (internal/resourceaccess/durableexecution). Only
+// messageBusSeam — EXISTS (internal/utility/messagebus). Only
 // RegisterSchedule is a contract op this Manager calls (at startup). Consumed via a
 // narrow seam interface so the composition root adapts the concrete
-// *durableexecution.Runtime (whose RegisterSchedule signature is
+// published messagebus.MessageBus port (whose RegisterSchedule signature is
 // RegisterSchedule(ctx, ScheduleID, ScheduleSpec)). The in-workflow primitives
 // (awaitSignal / startTimer) are the Manager's OWN workflow code (D-DA category A),
-// NOT RA methods.
+// NOT bus verbs.
 // ===========================================================================
 
-// durableExecutionAccess is the Manager's consumer view: the one startup op.
+// messageBusSeam is the Manager's consumer view: the one startup op.
 // UNEXPORTED seam; the folded adapter bridges the published
-// durableexecution.DurableExecutionAccess to it.
-type durableExecutionAccess interface {
+// messagebus.MessageBus to it.
+type messageBusSeam interface {
 	RegisterSchedule(ctx context.Context, spec scheduleSpec) error
 }
 
-// scheduleSpec mirrors durableexecution.ScheduleSpec for the one startup op (the
-// operatedStateReconcile Schedule). The composition root adapts the concrete RA.
+// scheduleSpec mirrors messagebus.ScheduleSpec for the one startup op (the
+// operatedStateReconcile Schedule). The composition root adapts the concrete utility.
 type scheduleSpec struct {
 	ID           string
 	WorkflowType string
@@ -791,24 +791,24 @@ func runtimeStatusFromRuntime(s operatedruntime.RuntimeStatus) operatedsystemsta
 }
 
 // ===========================================================================
-// durableExecutionAccess adapter — over durableexecution.DurableExecutionAccess. Only
+// messageBusSeam adapter — over messagebus.MessageBus. Only
 // the startup RegisterSchedule verb is consumed (the published ScheduleSpec resolves
 // the task queue via its KindBinding table, so the seam's TaskQueue is not threaded).
 // ===========================================================================
 
-type durableAdapter struct {
-	inner durableexecution.DurableExecutionAccess
+type messageBusAdapter struct {
+	inner messagebus.MessageBus
 }
 
-var _ durableExecutionAccess = durableAdapter{}
+var _ messageBusSeam = messageBusAdapter{}
 
-func (a durableAdapter) RegisterSchedule(ctx context.Context, spec scheduleSpec) error {
+func (a messageBusAdapter) RegisterSchedule(ctx context.Context, spec scheduleSpec) error {
 	return a.inner.RegisterSchedule(
 		fwra.Context{Context: ctx},
-		durableexecution.ScheduleID(spec.ID),
-		durableexecution.ScheduleSpec{
-			ExecutionKind: durableexecution.ExecutionKind(spec.WorkflowType),
-			Cadence:       durableexecution.Cadence{Every: time.Duration(spec.IntervalSecs) * time.Second},
+		messagebus.ScheduleID(spec.ID),
+		messagebus.ScheduleSpec{
+			ExecutionKind: messagebus.ExecutionKind(spec.WorkflowType),
+			Cadence:       messagebus.Cadence{Every: time.Duration(spec.IntervalSecs) * time.Second},
 		},
 	)
 }
@@ -1116,11 +1116,11 @@ func activityOptions() func(activityName string) (workflow.ActivityOptions, bool
 // (hand-written) activities, the per-activity option-preset hook, and the
 // genActivities threaded from the impl's stored published deps.
 //
-// durableExecutionAccess is threaded nil: the Manager never calls its generated
+// messageBus is threaded nil: the Manager never calls its generated
 // activities from any workflow (the in-workflow primitives — awaitSignal — are the
 // Manager's own code, and the startup Schedule is registered directly via
 // RegisterSchedules, not through an Activity). This matches the retired hand code,
-// which never wired durableExecution into the Workflows struct.
+// which never wired messageBus into the Workflows struct.
 func (m *operationsManager) WorkerManifest() genWorkerManifest {
 	optsHook := activityOptions()
 	wf := newWorkflows(wfDeps{
@@ -1158,7 +1158,7 @@ func (m *operationsManager) WorkerManifest() genWorkerManifest {
 			OperatedRuntime:     m.operatedRuntime,
 			Usage:               m.usage,
 			Artifact:            m.artifact,
-			DurableExecution:    nil,
+			MessageBus:          nil,
 		},
 	}
 }
@@ -1177,10 +1177,10 @@ func RegisterManagerWorker(w worker.Worker, m OperationsManager) {
 }
 
 // RegisterSchedules registers (idempotently) the operatedStateReconcile (30s) Temporal
-// Schedule at startup via durableExecutionAccess (operationsManager.md §6.1; C-MOP-3).
+// Schedule at startup via the messageBus utility (operationsManager.md §6.1; C-MOP-3).
 // Called once at process start. The cadence is the single tunable knob.
-func RegisterSchedules(ctx context.Context, durable durableexecution.DurableExecutionAccess) error {
-	return durableAdapter{inner: durable}.RegisterSchedule(ctx, scheduleSpec{
+func RegisterSchedules(ctx context.Context, bus messagebus.MessageBus) error {
+	return messageBusAdapter{inner: bus}.RegisterSchedule(ctx, scheduleSpec{
 		ID:           scheduleIDReconcile,
 		WorkflowType: executionKindReconcile,
 		TaskQueue:    TaskQueue,

@@ -11,7 +11,7 @@ import (
 	fwmgr "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/billingstate"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/durableexecution"
+	"github.com/mixofreality-studio/archistrator/server/internal/utility/messagebus"
 )
 
 // ===========================================================================
@@ -103,15 +103,15 @@ func (wf *workflows) bindGatewayLive(ctx workflow.Context, customerID customerID
 	})
 }
 
-// registerCloseSchedule invokes durableExecutionAccess.registerSchedule for the
+// registerCloseSchedule invokes messageBus.registerSchedule for the
 // per-customer closeBillingCycle:<customerId> Schedule (idempotent by id; op 2.1). The
 // KindBinding table resolves the task queue, so it is not threaded.
 func (wf *workflows) registerCloseSchedule(ctx workflow.Context, customerID customerID) error {
-	return wf.Acts.DurableExecutionRegisterSchedule(ctx,
-		durableexecution.ScheduleID(fmt.Sprintf("%s:%s", scheduleIDCloseCyclePrefix, customerID)),
-		durableexecution.ScheduleSpec{
-			ExecutionKind: durableexecution.ExecutionKind(executionKindClose),
-			Cadence:       durableexecution.Cadence{Every: time.Duration(closeCycleDefaultIntervalSecs) * time.Second},
+	return wf.Acts.MessageBusRegisterSchedule(ctx,
+		messagebus.ScheduleID(fmt.Sprintf("%s:%s", scheduleIDCloseCyclePrefix, customerID)),
+		messagebus.ScheduleSpec{
+			ExecutionKind: messagebus.ExecutionKind(executionKindClose),
+			Cadence:       messagebus.Cadence{Every: time.Duration(closeCycleDefaultIntervalSecs) * time.Second},
 		})
 }
 

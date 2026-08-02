@@ -111,11 +111,14 @@ import (
 	github "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github"
 	keycloak "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-keycloak"
 	llm "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-llm"
+	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 	"github.com/mixofreality-studio/archistrator-platform/framework-go/utilities/security"
 	tlog "go.temporal.io/sdk/log"
 
 	"github.com/mixofreality-studio/archistrator/server/internal/client/web"
+	managerbilling "github.com/mixofreality-studio/archistrator/server/internal/manager/billing"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/construction"
+	"github.com/mixofreality-studio/archistrator/server/internal/manager/operations"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/projectdesign"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/systemdesign"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/agenticjob"
@@ -127,6 +130,7 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usage"
+	"github.com/mixofreality-studio/archistrator/server/internal/utility/messagebus"
 )
 
 // appHooks implements the generated Hooks interface. Built once by newAppHooks.
@@ -709,6 +713,109 @@ func (h *appHooks) FinalizeDesignSessionAccess(_ *Config, v projectstate.DesignS
 // the charge-only R-013 rationale); no composition-root policy applies.
 func (h *appHooks) FinalizeRevenueLedgerAccess(_ *Config, v billingstate.RevenueLedgerAccess) billingstate.RevenueLedgerAccess {
 	return v
+}
+
+// MessageBusTemporalArgs supplies messageBus's ONE constructor argument the
+// deployment model cannot express (Task 7c): the ExecutionKind -> KindBinding
+// table messagebus.NewTemporalMessageBus's registry resolves every
+// RegisterSchedule call against (both the three managers' STARTUP schedules
+// below and any future workflow-invoked registerSchedule call, e.g. billing's
+// per-customer closeBillingCycle:<id>). composegen threads the dialed `tc` as
+// a separate positional arg ahead of this hook call — see the generated
+// main.gen.go call site — so this hook supplies ONLY the table.
+//
+// NOT compiler-linked to the managers' own private executionKind* constants
+// (they are unexported; a cross-package reference is impossible) — this table
+// is the single hand-maintained source of truth pairing each logical
+// ExecutionKind string with its registered Temporal workflow-type name (always
+// identical today, since every RegisterSchedule caller passes its own
+// executionKind* constant as both) and the owning Manager's TaskQueue. A
+// rename of any of these constants must be mirrored here; nothing else
+// enforces it.
+func (h *appHooks) MessageBusTemporalArgs(_ *Config) map[messagebus.ExecutionKind]messagebus.KindBinding {
+	return map[messagebus.ExecutionKind]messagebus.KindBinding{
+		// billing: the startup shortfallSweep Schedule (billingmanager.go's
+		// executionKindShortfallSweep) + the per-customer closeBillingCycle:<id>
+		// Schedule registered at onboarding (executionKindClose).
+		"billingShortfallSweep": {WorkflowType: "billingShortfallSweep", TaskQueue: managerbilling.TaskQueue},
+		"billingCloseCycle":     {WorkflowType: "billingCloseCycle", TaskQueue: managerbilling.TaskQueue},
+		// operations: the startup operatedStateReconcile Schedule
+		// (operationsmanager.go's executionKindReconcile).
+		"operationsReconcile": {WorkflowType: "operationsReconcile", TaskQueue: operations.TaskQueue},
+		// construction: the two startup Schedules (Task 7c;
+		// constructionmanager.go's executionKindPumpSweep/executionKindReplanSweep).
+		"constructionPumpSweep":   {WorkflowType: "constructionPumpSweep", TaskQueue: construction.TaskQueue},
+		"constructionReplanSweep": {WorkflowType: "constructionReplanSweep", TaskQueue: construction.TaskQueue},
+	}
+}
+
+// FinalizeMessageBus is identity, EXCEPT when CONSTRUCTION_DRYRUN=true: it then
+// wraps messageBus so the two platform-wide construction Schedules (pump sweep
+// 30s / replan sweep 5m — registered via construction.RegisterSchedules at the
+// generated main's RegisterConstructionManagerWorker gate, Task 7c) are never
+// actually created against the runtime. A dry-run boot's construction pipeline
+// is already the in-memory stub (FinalizeAgenticJobAccess above), so there is
+// nothing real for the sweeps to drive — a live Schedule ticking every 30s
+// against a dry-run/dev/demo boot is pure noise and, on a shared dev Temporal
+// namespace, a needless collision risk with a real deployment's identical
+// schedule ids. billing/operations RegisterSchedule, and every DeliverSignal
+// call from ANY Manager (construction's queued M→M edges included), pass
+// through unchanged — see dryRunConstructionScheduleGate. The generated
+// main.gen.go call sites (RegisterSchedules for all three managers, plus every
+// workflow-invoked MessageBusRegisterSchedule/DeliverSignal Activity) are never
+// hand-edited; this hook is the one seam FinalizeMessageBus already gives the
+// composition root to intercept what the shared messageBus instance does.
+func (h *appHooks) FinalizeMessageBus(cfg *Config, v messagebus.MessageBus) messagebus.MessageBus {
+	if !cfg.ConstructionDryRun {
+		return v
+	}
+	return dryRunConstructionScheduleGate{inner: v, kinds: h.constructionExecutionKinds(cfg), logger: h.logger}
+}
+
+// constructionExecutionKinds returns the ExecutionKinds bound to construction's
+// own TaskQueue in MessageBusTemporalArgs's table above — the SAME table the
+// composition root feeds messagebus.NewTemporalMessageBus — so
+// dryRunConstructionScheduleGate can never drift from "which kinds are
+// construction's" as that table evolves; a future construction Schedule added
+// there is picked up automatically.
+func (h *appHooks) constructionExecutionKinds(cfg *Config) map[messagebus.ExecutionKind]bool {
+	kinds := make(map[messagebus.ExecutionKind]bool)
+	for kind, binding := range h.MessageBusTemporalArgs(cfg) {
+		if binding.TaskQueue == construction.TaskQueue {
+			kinds[kind] = true
+		}
+	}
+	return kinds
+}
+
+// dryRunConstructionScheduleGate wraps messageBus so a RegisterSchedule call
+// naming one of construction's own ExecutionKinds is skipped (logged, not
+// forwarded) while every other call — billing/operations RegisterSchedule, and
+// DeliverSignal for any Manager — passes straight through to inner. Built only
+// by FinalizeMessageBus above, only when CONSTRUCTION_DRYRUN=true.
+type dryRunConstructionScheduleGate struct {
+	inner  messagebus.MessageBus
+	kinds  map[messagebus.ExecutionKind]bool
+	logger *slog.Logger
+}
+
+var _ messagebus.MessageBus = dryRunConstructionScheduleGate{}
+
+// DeliverSignal always passes through — the gate only intercepts Schedule
+// registration.
+func (g dryRunConstructionScheduleGate) DeliverSignal(rc fwra.Context, targetExecutionID messagebus.ExecutionID, signalName messagebus.SignalName, payload messagebus.ExecutionPayload) error {
+	return g.inner.DeliverSignal(rc, targetExecutionID, signalName, payload)
+}
+
+// RegisterSchedule skips (returns nil, no runtime call) when spec.ExecutionKind
+// is one of construction's own kinds; every other kind (billing/operations)
+// delegates to inner unchanged.
+func (g dryRunConstructionScheduleGate) RegisterSchedule(rc fwra.Context, scheduleID messagebus.ScheduleID, spec messagebus.ScheduleSpec) error {
+	if g.kinds[spec.ExecutionKind] {
+		g.logger.Info("messageBus.RegisterSchedule skipped — CONSTRUCTION_DRYRUN=true", "scheduleID", scheduleID, "executionKind", spec.ExecutionKind)
+		return nil
+	}
+	return g.inner.RegisterSchedule(rc, scheduleID, spec)
 }
 
 // registerConstruction is the construction Worker gate (run()'s selectConstructionDeps):

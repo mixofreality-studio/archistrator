@@ -6,7 +6,14 @@
  * don't resolve there); adapters.toCoreUseCasesView / dynamicViewKeyForUseCase
  * delegate here.
  */
-import type { ActivityNodeKind, Classification, EdgeKind, System, UseCaseDecision } from './types';
+import type {
+  Actor,
+  ActivityNodeKind,
+  Classification,
+  EdgeKind,
+  System,
+  UseCaseDecision,
+} from './types';
 
 export interface ActivityNodeView {
   id: string;
@@ -14,6 +21,17 @@ export interface ActivityNodeView {
   label: string;
   /** The swim-lane (role) this node sits in. */
   lane: string;
+  /**
+   * The explicit decider id (an actor id or a component id) the node was
+   * authored with (call-chain rollout Task 5) — takes precedence over the
+   * lane/entry-Manager inference chain in the Architecture dynamic lens'
+   * `resolveDecider`, PROVIDED it resolves to a person or component actually
+   * placed (a call endpoint) in the rendered view; an unplaced or unresolvable
+   * id falls through to that inference chain instead. Undefined when the node
+   * carries no explicit decidedBy (the wire field is optional/nullable, and
+   * absent for every node authored before it existed).
+   */
+  decidedBy?: string;
 }
 
 export interface ActivityEdgeView {
@@ -40,6 +58,12 @@ export interface UseCaseView {
   lanes: string[];
   nodes: ActivityNodeView[];
   edges: ActivityEdgeView[];
+  /** The use case's actors (id + role), verbatim off the wire model. Consumed
+   *  by the Architecture dynamic lens' decider resolution (founder QA round
+   *  3): an actor-lane decision/switch node with no realized step highlights
+   *  whichever of these has a `role` matching the node's lane. Empty for a
+   *  use case authored before actors existed on the wire, or with none. */
+  actors: Actor[];
 }
 
 /** Maps one typed UseCaseDecision into its render-ready activity view. */
@@ -55,6 +79,7 @@ export function toUseCaseView(decision: UseCaseDecision): UseCaseView {
       kind: n.kind,
       label: n.label,
       lane: n.roleName.length > 0 ? n.roleName : 'Machine',
+      ...(n.decidedBy != null && n.decidedBy.length > 0 ? { decidedBy: n.decidedBy } : {}),
     })
   );
   const edges = rawEdges.map(
@@ -76,6 +101,7 @@ export function toUseCaseView(decision: UseCaseDecision): UseCaseView {
     lanes,
     nodes,
     edges,
+    actors: uc.actors ?? [],
   };
 }
 
@@ -94,4 +120,22 @@ export function viewKeyForUseCase(
   const id = useCaseId.trim();
   if (id.length === 0) return undefined;
   return (model.dynamicViews ?? []).find((v) => v.useCaseId === id && v.key.length > 0)?.key;
+}
+
+/**
+ * The inverse join: the use case a given dynamic view realizes. Used by the
+ * Architecture step's dynamic lens to render that use case's activity diagram
+ * beside the call chain. Undefined when the model is absent, the key is blank /
+ * unknown, or the view carries no back-link (a synthetic view) — the lens then
+ * renders the chain alone.
+ *
+ * (Named for the OWNER rather than `useCaseIdFor…`: a `use`-prefixed export
+ * reads as a React hook to the rules-of-hooks lint at every call site.)
+ */
+export function ownerUseCaseId(model: System | undefined, key: string): string | undefined {
+  if (model === undefined) return undefined;
+  const k = key.trim();
+  if (k.length === 0) return undefined;
+  const id = (model.dynamicViews ?? []).find((v) => v.key === k)?.useCaseId ?? '';
+  return id.length > 0 ? id : undefined;
 }

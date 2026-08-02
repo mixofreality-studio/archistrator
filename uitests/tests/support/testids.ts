@@ -135,6 +135,14 @@ export const TESTID = {
   archPerspectivePicker: UI_IDENTIFIERS.Architecture.PERSPECTIVE_PICKER,
   archDynamicStepPrev: UI_IDENTIFIERS.Architecture.DYNAMIC_STEP_PREV,
   archDynamicStepNext: UI_IDENTIFIERS.Architecture.DYNAMIC_STEP_NEXT,
+  // The dynamic lens' walkthrough-driven trace: the walkthrough pane that steers
+  // it, and the call-chain caption listing the current step's fragment.
+  archDynamicActivityTrace: UI_IDENTIFIERS.Architecture.DYNAMIC_ACTIVITY_TRACE,
+  archDynamicFragment: UI_IDENTIFIERS.Architecture.DYNAMIC_FRAGMENT,
+  // Per-view CC verdict roll-up beside the dynamic picker, and the FragmentBar's
+  // named CC-checks click-through chip (Task 6, call-chain rollout).
+  archViewVerdict: UI_IDENTIFIERS.Architecture.VIEW_VERDICT,
+  archCcChecksChip: UI_IDENTIFIERS.Architecture.CC_CHECKS_CHIP,
 
   // Core Use Cases artifact — the grouped (Core / Variations) use-case picker.
   useCasePicker: UI_IDENTIFIERS.UseCaseCarousel.PICKER,
@@ -148,6 +156,11 @@ export const TESTID = {
   walkthroughBranch: UI_IDENTIFIERS.UseCaseCarousel.walkthroughBranch,
   walkthroughPathStep: UI_IDENTIFIERS.UseCaseCarousel.walkthroughPathStep,
   walkthroughCurrentNode: UI_IDENTIFIERS.UseCaseCarousel.WALKTHROUGH_CURRENT_NODE,
+  // Per-use-case realization roll-up chip, per-step badge, and the current
+  // step's compact call list + call-chain join (Task 11).
+  useCaseRealizationChip: UI_IDENTIFIERS.UseCaseCarousel.REALIZATION_CHIP,
+  useCaseStepBadge: UI_IDENTIFIERS.UseCaseCarousel.STEP_BADGE,
+  useCaseStepCalls: UI_IDENTIFIERS.UseCaseCarousel.STEP_CALLS,
 
   // Deployment (operationalConcepts artifact) profile switcher — the switch
   // VALUES ('cloud'/'local'/'test') are this package's own concern (no

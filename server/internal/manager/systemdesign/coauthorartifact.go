@@ -3,7 +3,6 @@ package systemdesign
 import (
 	"errors"
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
@@ -1603,12 +1602,14 @@ func (s *coAuthorState) view() (SessionStateView, error) {
 // diagram is missing or structurally empty, for the CoreUseCases artifact ONLY
 // (nil for every other kind and for a nil/absent draft). The founder ruling
 // (2026-07-05) requires EVERY use case — core AND supporting — to carry a
-// non-empty activity diagram (a start node plus at least one action step). The
-// Action's CI validate check does NOT enforce this (the committed gtdapp
-// CoreUseCases shipped core use cases with "activity": null), so this read-back
-// check is the app-side surface that flags a diagram-less use case at the review
-// panel. It classifies the defect only — full UML well-formedness stays the
-// Action's CI concern.
+// non-empty activity diagram with an ENTRY (a start node, or a timeEvent/
+// acceptEvent node with no incoming edge — tier parity with methodcheck's
+// activityHasEntryAndAction, framework-go/methodcheck/rules_statevalidation.go,
+// ratified 2026-07-30) plus at least one action step. The Action's CI validate
+// check does NOT enforce this (the committed gtdapp CoreUseCases shipped core
+// use cases with "activity": null), so this read-back check is the app-side
+// surface that flags a diagram-less use case at the review panel. It classifies
+// the defect only — full UML well-formedness stays the Action's CI concern.
 func useCaseActivityFindings(kind ArtifactKind, draft projectstate.ArtifactModel) []Finding {
 	if kind != KindCoreUseCases {
 		return nil
@@ -1631,7 +1632,7 @@ func useCaseActivityFindings(kind ArtifactKind, draft projectstate.ArtifactModel
 		out = append(out, Finding{
 			RuleID:   "USECASE-ACTIVITY-MISSING",
 			Severity: SeverityError,
-			Message:  fmt.Sprintf("Use case %q %s; every use case (core AND supporting) must carry a non-empty activity diagram with a start node and at least one action step.", label, reason),
+			Message:  fmt.Sprintf("Use case %q %s; every use case (core AND supporting) must carry a non-empty activity diagram with an entry (a start node, or an edge-less timeEvent/acceptEvent) and at least one action step.", label, reason),
 			Location: &Location{Ordinal: int64(i), Section: "use case " + label},
 		})
 	}
@@ -1684,11 +1685,13 @@ func useCaseDynamicFindings(kind ArtifactKind, draft projectstate.ArtifactModel,
 }
 
 // activityDefect classifies why a use case's activity diagram fails the founder's
-// non-empty floor, or "" when it is acceptable (present, with a start node AND at
-// least one action node). It deliberately does NOT re-validate full UML
-// well-formedness (decision/merge, fork/join, guards) — that is the Action's CI
-// check; this only enforces "the diagram exists and carries the minimum
-// meaningful nodes".
+// non-empty floor, or "" when it is acceptable (present, with an ENTRY — a start
+// node, or a timeEvent/acceptEvent node with no incoming edge (tier parity with
+// methodcheck's activityHasEntryAndAction, framework-go/methodcheck/
+// rules_statevalidation.go, ratified 2026-07-30) — AND at least one action node).
+// It deliberately does NOT re-validate full UML well-formedness (decision/merge,
+// fork/join, guards) — that is the Action's CI check; this only enforces "the
+// diagram exists and carries the minimum meaningful nodes".
 func activityDefect(a *projectstate.ActivityDiagram) string {
 	if a == nil {
 		return "has no activity diagram (activity is null)"
@@ -1696,23 +1699,30 @@ func activityDefect(a *projectstate.ActivityDiagram) string {
 	if len(a.Nodes) == 0 {
 		return "has an empty activity diagram (no nodes)"
 	}
-	var hasStart, hasAction bool
+	incoming := make(map[string]int, len(a.Nodes))
+	for _, e := range a.Edges {
+		incoming[e.To]++
+	}
+	var hasEntry, hasAction bool
 	for _, n := range a.Nodes {
-		// Only the start + action node kinds matter to the founder's floor; every other
+		// Only the entry + action node kinds matter to the founder's floor; every other
 		// node kind is irrelevant here (plain comparisons, not a switch, so the exhaustive
 		// linter is not drawn into the full ActivityNodeKind set).
 		if n.Kind == projectstate.NodeStart {
-			hasStart = true
+			hasEntry = true
+		}
+		if (n.Kind == projectstate.NodeTimeEvent || n.Kind == projectstate.NodeAcceptEvent) && incoming[n.ID] == 0 {
+			hasEntry = true
 		}
 		if n.Kind == projectstate.NodeAction {
 			hasAction = true
 		}
 	}
 	switch {
-	case !hasStart && !hasAction:
-		return "has an activity diagram with no start node and no action step"
-	case !hasStart:
-		return "has an activity diagram with no start node"
+	case !hasEntry && !hasAction:
+		return "has an activity diagram with no entry (no start node, and no edge-less timeEvent/acceptEvent) and no action step"
+	case !hasEntry:
+		return "has an activity diagram with no entry (no start node, and no edge-less timeEvent/acceptEvent)"
 	case !hasAction:
 		return "has an activity diagram with no action step"
 	}
@@ -3319,10 +3329,14 @@ func (c *critique) Validate() error {
 // view() appends. Each takes the drafted artifact's kind + model and returns nil for a
 // non-matching kind, so the whole set can be applied unconditionally.
 var stateValidationFindingGenerators = []func(ArtifactKind, projectstate.ArtifactModel) []Finding{
-	raOrphanFindings,      // SYS-RA-ORPHAN
-	encapsulatesFindings,  // SYS-ENCAPSULATES
-	relDupFindings,        // SYS-REL-DUP
-	dvChainFindings,       // DV-CHAIN-CONNECTED
+	raOrphanFindings,     // SYS-RA-ORPHAN
+	encapsulatesFindings, // SYS-ENCAPSULATES
+	relDupFindings,       // SYS-REL-DUP
+	// DV-CHAIN-CONNECTED (dvChainFindings) RETIRED 2026-07-30 (callchain-realization
+	// Task 6): it demanded a Client-rooted chain and duplicated — and, under the
+	// step-keyed DynamicView shape, CONTRADICTED — platform methodcheck's
+	// CC-PATH-CONNECTED, which also blesses actor-rooted chains. The rule now lives
+	// solely as CC-PATH-CONNECTED in framework-go/methodcheck.
 	dvTitleFindings,       // DV-TITLE-EMPTY (F10)
 	variationRefFindings,  // UC-VARIATION-REF
 	glossaryFourQFindings, // GLOSS-FOURQ
@@ -3651,85 +3665,6 @@ func relDupFindings(kind ArtifactKind, draft projectstate.ArtifactModel) []Findi
 	return out
 }
 
-// dvChainFindings — DV-CHAIN-CONNECTED (warning). Each dynamic view's edges should form a
-// connected chain rooted at a Client participant: every participant must be reachable by
-// following the directed edges out of some Client-kind participant. An unrooted or
-// disconnected call chain is a modeling smell (a participant nothing calls).
-func dvChainFindings(kind ArtifactKind, draft projectstate.ArtifactModel) []Finding {
-	if kind != KindSystem {
-		return nil
-	}
-	sys, ok := draft.(*projectstate.System)
-	if !ok || sys == nil {
-		return nil
-	}
-	kindByID := make(map[string]projectstate.ComponentKind, len(sys.Components))
-	for _, c := range sys.Components {
-		kindByID[c.ID] = c.Kind
-	}
-	var out []Finding
-	for i, dv := range sys.DynamicViews {
-		if len(dv.Participants) <= 1 {
-			continue
-		}
-		adj := map[string][]string{}
-		for _, e := range dv.Edges {
-			adj[e.From] = append(adj[e.From], e.To)
-		}
-		roots := []string{}
-		for _, pid := range dv.Participants {
-			if kindByID[pid] == projectstate.CompClient {
-				roots = append(roots, pid)
-			}
-		}
-		label := dvLabel(dv, i)
-		if len(roots) == 0 {
-			out = append(out, Finding{
-				RuleID:   "DV-CHAIN-CONNECTED",
-				Severity: SeverityWarning,
-				Message:  fmt.Sprintf("dynamic view %q has no Client participant to root its call chain; a use-case call chain should originate at a Client.", label),
-				Location: &Location{Ordinal: int64(i), Section: "dynamic view " + label},
-			})
-			continue
-		}
-		unreached := dvUnreachedParticipants(dv.Participants, adj, roots)
-		if len(unreached) > 0 {
-			out = append(out, Finding{
-				RuleID:   "DV-CHAIN-CONNECTED",
-				Severity: SeverityWarning,
-				Message:  fmt.Sprintf("dynamic view %q is not a connected chain from its Client root(s): %s unreachable via its edges.", label, strings.Join(unreached, ", ")),
-				Location: &Location{Ordinal: int64(i), Section: "dynamic view " + label},
-			})
-		}
-	}
-	return out
-}
-
-// dvUnreachedParticipants walks the directed edges (adj) depth-first from the Client
-// roots and returns the participants no root reaches, sorted for a deterministic
-// finding message. Pure — deterministic over its inputs.
-func dvUnreachedParticipants(participants []string, adj map[string][]string, roots []string) []string {
-	seen := map[string]bool{}
-	stack := append([]string{}, roots...)
-	for len(stack) > 0 {
-		n := stack[len(stack)-1]
-		stack = stack[:len(stack)-1]
-		if seen[n] {
-			continue
-		}
-		seen[n] = true
-		stack = append(stack, adj[n]...)
-	}
-	var unreached []string
-	for _, pid := range participants {
-		if !seen[pid] {
-			unreached = append(unreached, pid)
-		}
-	}
-	sort.Strings(unreached)
-	return unreached
-}
-
 // variationRefFindings — UC-VARIATION-REF (error). variationOf, when set, must resolve to
 // an existing use-case id whose target is CORE. A nonCore use case must carry a non-empty
 // rejectionReason. A core use case must NOT carry a variationOf (it is the base, not a
@@ -3902,19 +3837,6 @@ func componentDisplayLabel(c projectstate.Component, i int) string {
 		return c.ID
 	}
 	return fmt.Sprintf("component %d", i+1)
-}
-
-func dvLabel(dv projectstate.DynamicView, i int) string {
-	if strings.TrimSpace(dv.Title) != "" {
-		return dv.Title
-	}
-	if strings.TrimSpace(dv.Key) != "" {
-		return dv.Key
-	}
-	if strings.TrimSpace(dv.UseCaseID) != "" {
-		return dv.UseCaseID
-	}
-	return fmt.Sprintf("dynamic view %d", i+1)
 }
 
 func modeWire(m projectstate.CallMode) string {

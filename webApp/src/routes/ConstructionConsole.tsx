@@ -193,9 +193,8 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   const constructionRows = project?.constructionRows;
   const activeInConstructionId = useMemo(() => {
     if (constructionRows === undefined) return undefined;
-    return Object.values(constructionRows).find(
-      (r): boolean => r.status === 'in-construction'
-    )?.activityId;
+    return Object.values(constructionRows).find((r): boolean => r.status === 'in-construction')
+      ?.activityId;
   }, [constructionRows]);
 
   const phaseGateSessionQuery = useConstructionSession(projectId, activeInConstructionId);

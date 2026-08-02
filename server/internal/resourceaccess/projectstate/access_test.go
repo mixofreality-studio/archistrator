@@ -2733,6 +2733,37 @@ func TestGitStore_ListProjects_ReturnsStoredOwner(t *testing.T) {
 	}
 }
 
+// TestGitStore_ListProjects_SurfacesOperatorPaused (fix round 1, Task 7c
+// live-firing review, FINDING 2): ListProjects must surface OperatorPaused —
+// PumpSweepWorkflow's eligibility filter skips a paused project reading
+// exactly this field, at zero extra I/O cost (the per-project N+1 read
+// ListProjects already performs, readProjectForList, already has the full
+// Project in hand). nil (omitted) before any pause, a true pointer after.
+func TestGitStore_ListProjects_SurfacesOperatorPaused(t *testing.T) {
+	store, id, v, cred := newConstructionStore(t)
+	ctx := context.Background()
+
+	before, err := store.ListProjects(ctx, "alice", cred)
+	if err != nil {
+		t.Fatalf("ListProjects (before pause): %v", err)
+	}
+	if len(before) != 1 || before[0].OperatorPaused != nil {
+		t.Fatalf("want nil OperatorPaused before any pause, got %+v", before)
+	}
+
+	if _, err := store.RecordOperatorPaused(fwra.Context{Context: ctx}, id, v, "operator pause", cred, fwra.IdempotencyKey("wf:paused")); err != nil {
+		t.Fatalf("RecordOperatorPaused: %v", err)
+	}
+
+	after, err := store.ListProjects(ctx, "alice", cred)
+	if err != nil {
+		t.Fatalf("ListProjects (after pause): %v", err)
+	}
+	if len(after) != 1 || after[0].OperatorPaused == nil || !*after[0].OperatorPaused {
+		t.Fatalf("want OperatorPaused=true after RecordOperatorPaused, got %+v", after)
+	}
+}
+
 // TestGitStore_StageCommitRoundTrip — stage a typed model, commit it, read it back
 // with its review status (a model round-trips through git JSON).
 // TestGitStore_SetResearchInput_WritesFilesAndPointer proves the F42 files-not-JSON model
@@ -4295,6 +4326,62 @@ func TestRequireModelFields_ValidSystem(t *testing.T) {
 	}
 }
 
+// ---- TraceCall.Alt (rollout rulings 2026-07-31): tolerant-decode on requireDynamicViewSteps ----
+
+func TestRequireModelFields_DynamicViewStep_NoAlt_Passes(t *testing.T) {
+	// A step-keyed dynamic view whose call omits "alt" entirely — the shape every
+	// committed view predates the field with. Absence must be fine.
+	j := `{
+      "components": [
+        {"id":"c","name":"WebClient","kind":"client","layer":"client","encapsulates":"","atomicBusinessVerbs":[]}
+      ],
+      "relationships": [],
+      "dynamicViews": [
+        {"useCaseId":"uc1","key":"uc1-k","title":"UC1","steps":[
+          {"activityNodeId":"n1","calls":[{"from":"c","to":"c","mode":"sync","label":"x"}]}
+        ]}
+      ]
+    }`
+	if err := RequireModelFields(KindSystem, []byte(j)); err != nil {
+		t.Fatalf("a step call omitting alt should pass, got: %v", err)
+	}
+}
+
+func TestRequireModelFields_DynamicViewStep_AltString_Passes(t *testing.T) {
+	j := `{
+      "components": [
+        {"id":"c","name":"WebClient","kind":"client","layer":"client","encapsulates":"","atomicBusinessVerbs":[]}
+      ],
+      "relationships": [],
+      "dynamicViews": [
+        {"useCaseId":"uc1","key":"uc1-k","title":"UC1","steps":[
+          {"activityNodeId":"n1","calls":[{"from":"c","to":"c","mode":"sync","label":"x","alt":"g1"}]}
+        ]}
+      ]
+    }`
+	if err := RequireModelFields(KindSystem, []byte(j)); err != nil {
+		t.Fatalf("a step call with a string alt should pass, got: %v", err)
+	}
+}
+
+func TestRequireModelFields_DynamicViewStep_AltWrongType_Rejected(t *testing.T) {
+	j := `{
+      "components": [
+        {"id":"c","name":"WebClient","kind":"client","layer":"client","encapsulates":"","atomicBusinessVerbs":[]}
+      ],
+      "relationships": [],
+      "dynamicViews": [
+        {"useCaseId":"uc1","key":"uc1-k","title":"UC1","steps":[
+          {"activityNodeId":"n1","calls":[{"from":"c","to":"c","mode":"sync","label":"x","alt":42}]}
+        ]}
+      ]
+    }`
+	err := RequireModelFields(KindSystem, []byte(j))
+	if err == nil || !strings.Contains(err.Error(), "alt") {
+		t.Fatalf("a non-string alt must be rejected naming alt, got: %v", err)
+	}
+}
+
 func TestRequireModelFields_MissingLayer(t *testing.T) {
 	// The live F81 case: a manager component that omits "layer". The strict struct decode
 	// would silently default it to LayerClient; the presence+consistency check must reject.
@@ -4409,6 +4496,59 @@ func TestRequireModelFields_CoreUseCases(t *testing.T) {
 	}
 }
 
+// ---- ActivityNode.DecidedBy (rollout rulings 2026-07-31): tolerant-decode on requireActivityNodes ----
+
+func TestRequireModelFields_ActivityNode_NoDecidedBy_Passes(t *testing.T) {
+	// An activity node omitting "decidedBy" entirely — the shape every committed use
+	// case predates the field with. Absence must be fine.
+	j := `{
+      "decisions": [
+        {"useCase":{"id":"uc1","name":"Place order","actors":[],"trigger":"clientAction","classification":"core",
+          "activity":{"nodes":[{"id":"s","kind":"start","label":""},{"id":"a","kind":"action","label":"do"}],
+                      "edges":[{"from":"s","to":"a","kind":"controlFlow","guard":""}]}},
+         "rejectionReason":""}
+      ]
+    }`
+	if err := RequireModelFields(KindCoreUseCases, []byte(j)); err != nil {
+		t.Fatalf("an activity node omitting decidedBy should pass, got: %v", err)
+	}
+}
+
+func TestRequireModelFields_ActivityNode_DecidedByString_Passes(t *testing.T) {
+	j := `{
+      "decisions": [
+        {"useCase":{"id":"uc1","name":"Place order","actors":[],"trigger":"clientAction","classification":"core",
+          "activity":{"nodes":[{"id":"s","kind":"start","label":""},
+                                {"id":"d","kind":"decision","label":"route","decidedBy":"order-mgr"},
+                                {"id":"a","kind":"action","label":"do"}],
+                      "edges":[{"from":"s","to":"d","kind":"controlFlow","guard":""},
+                               {"from":"d","to":"a","kind":"guardedFlow","guard":"g"}]}},
+         "rejectionReason":""}
+      ]
+    }`
+	if err := RequireModelFields(KindCoreUseCases, []byte(j)); err != nil {
+		t.Fatalf("a decision node with a string decidedBy should pass, got: %v", err)
+	}
+}
+
+func TestRequireModelFields_ActivityNode_DecidedByWrongType_Rejected(t *testing.T) {
+	j := `{
+      "decisions": [
+        {"useCase":{"id":"uc1","name":"Place order","actors":[],"trigger":"clientAction","classification":"core",
+          "activity":{"nodes":[{"id":"s","kind":"start","label":""},
+                                {"id":"d","kind":"decision","label":"route","decidedBy":42},
+                                {"id":"a","kind":"action","label":"do"}],
+                      "edges":[{"from":"s","to":"d","kind":"controlFlow","guard":""},
+                               {"from":"d","to":"a","kind":"guardedFlow","guard":"g"}]}},
+         "rejectionReason":""}
+      ]
+    }`
+	err := RequireModelFields(KindCoreUseCases, []byte(j))
+	if err == nil || !strings.Contains(err.Error(), "decidedBy") {
+		t.Fatalf("a non-string decidedBy must be rejected naming decidedBy, got: %v", err)
+	}
+}
+
 // ---- SYS-ENCAPSULATES (raw twin): M/E/RA must name a non-empty volatility; a client may be empty ----
 
 func TestRequireModelFields_Encapsulates_ManagerMustBeNonEmpty(t *testing.T) {
@@ -4476,6 +4616,48 @@ func TestRequireModelFields_ActivityPresent_NoActionRejected(t *testing.T) {
 	err := RequireModelFields(KindCoreUseCases, []byte(j))
 	if err == nil || !strings.Contains(err.Error(), "structurally empty") {
 		t.Fatalf("a start-only activity must be rejected as structurally empty, got: %v", err)
+	}
+}
+
+// ---- UC-ACT-PRESENT tier parity (2026-07-30 callchain-realization): an ENTRY is a start
+// node OR an edge-less timeEvent/acceptEvent node — mirrors methodcheck's
+// activityHasEntryAndAction (framework-go/methodcheck/rules_statevalidation.go). ----
+
+func TestRequireModelFields_ActivityPresent_EventEntryOnly_Passes(t *testing.T) {
+	// No start node at all: the diagram's only entry is an edge-less timeEvent — the
+	// standard ingress for a scheduled use case. Must be accepted.
+	j := `{
+      "decisions": [
+        {"useCase":{"id":"uc1","name":"Nightly sweep","actors":[],"trigger":"timer","classification":"core",
+          "activity":{"nodes":[{"id":"t","kind":"timeEvent","label":"midnight"},
+                                {"id":"a","kind":"action","label":"do"},
+                                {"id":"e","kind":"end","label":""}],
+                      "edges":[{"from":"t","to":"a","kind":"controlFlow","guard":""},
+                               {"from":"a","to":"e","kind":"controlFlow","guard":""}]}},
+         "rejectionReason":""}
+      ]
+    }`
+	if err := RequireModelFields(KindCoreUseCases, []byte(j)); err != nil {
+		t.Fatalf("an edge-less timeEvent entry (no start node) must be accepted as an entry, got: %v", err)
+	}
+}
+
+func TestRequireModelFields_ActivityPresent_EventWithIncomingEdge_Rejected(t *testing.T) {
+	// The diagram's only event node HAS an incoming edge — it is not an entry — and
+	// there is no start node, so the diagram must still be rejected as structurally
+	// empty (an event node mid-flow does not satisfy UC-ACT-PRESENT).
+	j := `{
+      "decisions": [
+        {"useCase":{"id":"uc1","name":"Nightly sweep","actors":[],"trigger":"timer","classification":"core",
+          "activity":{"nodes":[{"id":"a","kind":"action","label":"do"},
+                                {"id":"t","kind":"timeEvent","label":"midnight"}],
+                      "edges":[{"from":"a","to":"t","kind":"controlFlow","guard":""}]}},
+         "rejectionReason":""}
+      ]
+    }`
+	err := RequireModelFields(KindCoreUseCases, []byte(j))
+	if err == nil || !strings.Contains(err.Error(), "structurally empty") {
+		t.Fatalf("a timeEvent node with an incoming edge is not an entry; must be rejected as structurally empty, got: %v", err)
 	}
 }
 
@@ -4816,11 +4998,13 @@ func TestSystem_StringEnums_CamelCase(t *testing.T) {
 		}},
 		Relationships: []Relationship{{From: cid, To: cid, Mode: CallQueued, Label: "x"}},
 		DynamicViews: []DynamicView{{
-			UseCaseID:    ucid,
-			Key:          "uc1",
-			Title:        "Co-author",
-			Participants: []ComponentID{cid},
-			Edges:        []Relationship{{From: cid, To: cid, Mode: CallSync, Label: "y"}},
+			UseCaseID: ucid,
+			Key:       "uc1",
+			Title:     "Co-author",
+			Steps: []CallStep{{
+				ActivityNodeID: "step1",
+				Calls:          []TraceCall{{From: cid, To: cid, Mode: CallSync, Label: "y"}},
+			}},
 		}},
 	}
 	data, err := json.Marshal(s)
@@ -4853,6 +5037,315 @@ func TestSystem_StringEnums_CamelCase(t *testing.T) {
 	}
 	if !reflect.DeepEqual(s, back) {
 		t.Fatalf("round-trip mismatch:\n got %+v\nwant %+v", back, s)
+	}
+}
+
+// decodeCommittedProject reads and decodes THIS repo's own committed
+// .aiarch/state/project.json — shared by the tolerant-decode regressions below, each
+// of which needs the same live fixture (16 dynamic views, 16 realized — finally
+// simply true as of the Task-10 batch-3 landing (2026-08-01); the Task-8
+// batch-1 design amendment (2026-08-01) put explicit TraceCall.Alt values on 12
+// of the calls across uc2/uc4's both-surface entry steps, the Task-9 batch-2
+// design amendment (2026-08-01) grew that to 52, and the Task-10 batch-3
+// design amendment (2026-08-01) grew that to 100 — see wantAltTally below; the
+// Task-7 design amendment (2026-08-01) put explicit ActivityNode.DecidedBy
+// values on 24 of the 37 decision nodes — see
+// TestCommittedProjectJSON_ActivityNodes_DecidedBySplit).
+func decodeCommittedProject(t *testing.T) Project {
+	t.Helper()
+	root := findRepoRootFromCwd(t)
+	raw, err := os.ReadFile(filepath.Join(root, ".aiarch", "state", "project.json"))
+	if err != nil {
+		t.Fatalf("read project.json: %v", err)
+	}
+	proj, ok, err := DecodeProjectJSON(raw, "")
+	if err != nil {
+		t.Fatalf("DecodeProjectJSON: %v", err)
+	}
+	if !ok {
+		t.Fatal("DecodeProjectJSON reported not-ok for the committed project.json")
+	}
+	return proj
+}
+
+// altCallKey identifies one TraceCall within one dynamic-view step by its
+// (view, step, from, to). The true invariant is uniqueness among
+// ALT-CARRYING calls only: every (view, step, from, to) that appears as a key
+// in wantAltTally below is unique, which is all wantAltTally's lookup needs.
+// It is NOT true that no step repeats a (from,to) pair outside an alt group —
+// nine committed steps legitimately do (uc1-drive-system-design's new
+// `decision` step reads then rejects on the same sdm->psa edge;
+// uc2-commit-project-option's `commit-option`; uc3-execute-construction-
+// activity's `activity-eligible`, `dispatch-job`, and `record-review-merge`;
+// var-manage-projects' new `adopt-repo`, which adopts then seats the repo on
+// the same sdm->sca edge; batch-3's var-ask-review-question
+// `dispatch-answer-job`, which dispatches then observes the same sdm->aja
+// edge; and the Task-11 align-up's two rail-before-dispatch steps —
+// uc1-drive-system-design's `dispatch-draft-job` (getInstallationToken then
+// openBranch, same sdm->sca edge) and var-replan-scope-change's `reenter`
+// (the same pair on pdm->sca)) — none of those repeated pairs carries an alt
+// tag, so they never collide in wantAltTally.
+type altCallKey struct {
+	view, step, from, to string
+}
+
+// wantAltTally is the Task-8 architect spec's §2a/§2c alt-group authoring
+// (batch 1: uc2-commit-project-option await-decision/review-options,
+// uc4-operate-delivered-system publish-trigger — 12 entries), extended by the
+// Task-9 architect spec's §3a/§3b/§3c/§4 batch-2 authoring (uc1's
+// read-prior-models + human-gate retrofit, uc2's revoke patch (Ruling A1),
+// uc3's escalate-operator patch (Ruling A3), and the four newly realized
+// views' both-surface entry steps — +40 entries, 52 total), further extended
+// by the Task-10 architect spec's §4 batch-3 authoring (the final seven
+// views' both-surface entry steps, R-1/R-2 — +48 entries, 100 total),
+// value-keyed exactly like wantDecidedByTally below: every both-surface
+// entry step pairs the actor->Client leg ("s1") with the Client->Manager leg ("s2") per the
+// Task-5 alt-group contract. Every other committed call carries no alt tag.
+var wantAltTally = map[altCallKey]string{
+	{"uc2-commit-project-option", "await-decision", "architect-user", "web-client"}:                  "s1",
+	{"uc2-commit-project-option", "await-decision", "architect-user", "mcp-client"}:                  "s1",
+	{"uc2-commit-project-option", "await-decision", "web-client", "project-design-manager"}:          "s2",
+	{"uc2-commit-project-option", "await-decision", "mcp-client", "project-design-manager"}:          "s2",
+	{"uc2-commit-project-option", "review-options", "architect-user", "web-client"}:                  "s1",
+	{"uc2-commit-project-option", "review-options", "architect-user", "mcp-client"}:                  "s1",
+	{"uc2-commit-project-option", "review-options", "web-client", "project-design-manager"}:          "s2",
+	{"uc2-commit-project-option", "review-options", "mcp-client", "project-design-manager"}:          "s2",
+	{"uc4-operate-delivered-system", "publish-trigger", "operator", "web-client"}:                    "s1",
+	{"uc4-operate-delivered-system", "publish-trigger", "operator", "mcp-client"}:                    "s1",
+	{"uc4-operate-delivered-system", "publish-trigger", "web-client", "operations-manager"}:          "s2",
+	{"uc4-operate-delivered-system", "publish-trigger", "mcp-client", "operations-manager"}:          "s2",
+	{"uc1-drive-system-design", "read-prior-models", "architect-user", "web-client"}:                 "s1",
+	{"uc1-drive-system-design", "read-prior-models", "architect-user", "mcp-client"}:                 "s1",
+	{"uc1-drive-system-design", "read-prior-models", "web-client", "system-design-manager"}:          "s2",
+	{"uc1-drive-system-design", "read-prior-models", "mcp-client", "system-design-manager"}:          "s2",
+	{"uc1-drive-system-design", "human-gate", "architect-user", "web-client"}:                        "s1",
+	{"uc1-drive-system-design", "human-gate", "architect-user", "mcp-client"}:                        "s1",
+	{"uc1-drive-system-design", "human-gate", "web-client", "system-design-manager"}:                 "s2",
+	{"uc1-drive-system-design", "human-gate", "mcp-client", "system-design-manager"}:                 "s2",
+	{"uc2-commit-project-option", "revoke", "architect-user", "web-client"}:                          "s1",
+	{"uc2-commit-project-option", "revoke", "architect-user", "mcp-client"}:                          "s1",
+	{"uc2-commit-project-option", "revoke", "web-client", "project-design-manager"}:                  "s2",
+	{"uc2-commit-project-option", "revoke", "mcp-client", "project-design-manager"}:                  "s2",
+	{"uc3-execute-construction-activity", "escalate-operator", "operator", "web-client"}:             "s1",
+	{"uc3-execute-construction-activity", "escalate-operator", "operator", "mcp-client"}:             "s1",
+	{"uc3-execute-construction-activity", "escalate-operator", "web-client", "construction-manager"}: "s2",
+	{"uc3-execute-construction-activity", "escalate-operator", "mcp-client", "construction-manager"}: "s2",
+	{"var-manage-projects", "prepare-repo", "architect-user", "web-client"}:                          "s1",
+	{"var-manage-projects", "prepare-repo", "architect-user", "mcp-client"}:                          "s1",
+	{"var-manage-projects", "submit-create", "web-client", "system-design-manager"}:                  "s2",
+	{"var-manage-projects", "submit-create", "mcp-client", "system-design-manager"}:                  "s2",
+	{"var-manage-projects", "catalog-open", "architect-user", "web-client"}:                          "s1",
+	{"var-manage-projects", "catalog-open", "architect-user", "mcp-client"}:                          "s1",
+	{"var-manage-projects", "catalog-open", "web-client", "system-design-manager"}:                   "s2",
+	{"var-manage-projects", "catalog-open", "mcp-client", "system-design-manager"}:                   "s2",
+	{"var-manage-projects", "capture-research", "architect-user", "web-client"}:                      "s1",
+	{"var-manage-projects", "capture-research", "architect-user", "mcp-client"}:                      "s1",
+	{"var-manage-projects", "capture-research", "web-client", "system-design-manager"}:               "s2",
+	{"var-manage-projects", "capture-research", "mcp-client", "system-design-manager"}:               "s2",
+	{"var-track-weekly-progress", "week-elapses", "architect-user", "web-client"}:                    "s1",
+	{"var-track-weekly-progress", "week-elapses", "architect-user", "mcp-client"}:                    "s1",
+	{"var-track-weekly-progress", "week-elapses", "web-client", "system-design-manager"}:             "s2",
+	{"var-track-weekly-progress", "week-elapses", "mcp-client", "system-design-manager"}:             "s2",
+	{"var-replan-scope-change", "present", "architect-user", "web-client"}:                           "s1",
+	{"var-replan-scope-change", "present", "architect-user", "mcp-client"}:                           "s1",
+	{"var-replan-scope-change", "present", "web-client", "project-design-manager"}:                   "s2",
+	{"var-replan-scope-change", "present", "mcp-client", "project-design-manager"}:                   "s2",
+	{"var-replan-scope-change", "mgmt", "architect-user", "web-client"}:                              "s1",
+	{"var-replan-scope-change", "mgmt", "architect-user", "mcp-client"}:                              "s1",
+	{"var-replan-scope-change", "mgmt", "web-client", "project-design-manager"}:                      "s2",
+	{"var-replan-scope-change", "mgmt", "mcp-client", "project-design-manager"}:                      "s2",
+	// Task-10 batch-3 additions (2026-08-01, §4 of the batch-3 architect spec):
+	// the final seven views' both-surface entry steps (48 entries, all s1/s2
+	// pairs). onboard 8 (resolve-app 4, validate-instrument 4), add-use-case 10
+	// (capture-uc 2, revalidate 2, reopen-slot 2, redraft-review 4), view-log
+	// 4, download 4, cost-projection 8 (open-console 4, request-projection 4),
+	// ask 4, send-back 10 (anchor-comments 2, send-back 2, re-review 4,
+	// close-comments 2) — 52 + 48 = 100 total.
+	{"var-onboard-new-customer", "resolve-app", "architect-user", "web-client"}:            "s1",
+	{"var-onboard-new-customer", "resolve-app", "architect-user", "mcp-client"}:            "s1",
+	{"var-onboard-new-customer", "resolve-app", "web-client", "billing-manager"}:           "s2",
+	{"var-onboard-new-customer", "resolve-app", "mcp-client", "billing-manager"}:           "s2",
+	{"var-onboard-new-customer", "validate-instrument", "architect-user", "web-client"}:    "s1",
+	{"var-onboard-new-customer", "validate-instrument", "architect-user", "mcp-client"}:    "s1",
+	{"var-onboard-new-customer", "validate-instrument", "web-client", "billing-manager"}:   "s2",
+	{"var-onboard-new-customer", "validate-instrument", "mcp-client", "billing-manager"}:   "s2",
+	{"var-add-use-case", "capture-uc", "architect-user", "web-client"}:                     "s1",
+	{"var-add-use-case", "capture-uc", "architect-user", "mcp-client"}:                     "s1",
+	{"var-add-use-case", "revalidate", "web-client", "system-design-manager"}:              "s2",
+	{"var-add-use-case", "revalidate", "mcp-client", "system-design-manager"}:              "s2",
+	{"var-add-use-case", "reopen-slot", "web-client", "system-design-manager"}:             "s2",
+	{"var-add-use-case", "reopen-slot", "mcp-client", "system-design-manager"}:             "s2",
+	{"var-add-use-case", "redraft-review", "architect-user", "web-client"}:                 "s1",
+	{"var-add-use-case", "redraft-review", "architect-user", "mcp-client"}:                 "s1",
+	{"var-add-use-case", "redraft-review", "web-client", "system-design-manager"}:          "s2",
+	{"var-add-use-case", "redraft-review", "mcp-client", "system-design-manager"}:          "s2",
+	{"var-view-state-log", "open-history", "operator", "web-client"}:                       "s1",
+	{"var-view-state-log", "open-history", "operator", "mcp-client"}:                       "s1",
+	{"var-view-state-log", "open-history", "web-client", "system-design-manager"}:          "s2",
+	{"var-view-state-log", "open-history", "mcp-client", "system-design-manager"}:          "s2",
+	{"var-download-source", "open-repo", "architect-user", "web-client"}:                   "s1",
+	{"var-download-source", "open-repo", "architect-user", "mcp-client"}:                   "s1",
+	{"var-download-source", "open-repo", "web-client", "construction-manager"}:             "s2",
+	{"var-download-source", "open-repo", "mcp-client", "construction-manager"}:             "s2",
+	{"var-view-cost-projection", "open-console", "operator", "web-client"}:                 "s1",
+	{"var-view-cost-projection", "open-console", "operator", "mcp-client"}:                 "s1",
+	{"var-view-cost-projection", "open-console", "web-client", "operations-manager"}:       "s2",
+	{"var-view-cost-projection", "open-console", "mcp-client", "operations-manager"}:       "s2",
+	{"var-view-cost-projection", "request-projection", "operator", "web-client"}:           "s1",
+	{"var-view-cost-projection", "request-projection", "operator", "mcp-client"}:           "s1",
+	{"var-view-cost-projection", "request-projection", "web-client", "operations-manager"}: "s2",
+	{"var-view-cost-projection", "request-projection", "mcp-client", "operations-manager"}: "s2",
+	{"var-ask-review-question", "write-questions", "architect-user", "web-client"}:         "s1",
+	{"var-ask-review-question", "write-questions", "architect-user", "mcp-client"}:         "s1",
+	{"var-ask-review-question", "write-questions", "web-client", "system-design-manager"}:  "s2",
+	{"var-ask-review-question", "write-questions", "mcp-client", "system-design-manager"}:  "s2",
+	{"var-send-back-redraft", "anchor-comments", "architect-user", "web-client"}:           "s1",
+	{"var-send-back-redraft", "anchor-comments", "architect-user", "mcp-client"}:           "s1",
+	{"var-send-back-redraft", "send-back", "web-client", "system-design-manager"}:          "s2",
+	{"var-send-back-redraft", "send-back", "mcp-client", "system-design-manager"}:          "s2",
+	{"var-send-back-redraft", "re-review", "architect-user", "web-client"}:                 "s1",
+	{"var-send-back-redraft", "re-review", "architect-user", "mcp-client"}:                 "s1",
+	{"var-send-back-redraft", "re-review", "web-client", "system-design-manager"}:          "s2",
+	{"var-send-back-redraft", "re-review", "mcp-client", "system-design-manager"}:          "s2",
+	{"var-send-back-redraft", "close-comments", "web-client", "system-design-manager"}:     "s2",
+	{"var-send-back-redraft", "close-comments", "mcp-client", "system-design-manager"}:     "s2",
+}
+
+// TestCommittedProjectJSON_DynamicViewCalls_Alt is the tolerant-decode regression
+// for TraceCall.Alt (rollout rulings 2026-07-31), extended by Task 8 (2026-08-01)
+// to pin the VALUES batch-1 actually authored, by Task 9 (2026-08-01) to
+// extend the pin over batch-2's additions, and by Task 10 (2026-08-01) to
+// extend the pin over batch-3's additions (the final seven views — all 16
+// dynamic views now realized), rather than only asserting absence: a call
+// that never mentions "alt" must decode EXACTLY as it did before the field
+// existed (Alt reads back nil, not a zero-value string standing in for
+// absence), and a call that IS one of wantAltTally's 100 entries must decode
+// to exactly its authored group value.
+func TestCommittedProjectJSON_DynamicViewCalls_Alt(t *testing.T) {
+	proj := decodeCommittedProject(t)
+
+	sys, ok := proj.SystemDesign.Model.(*System)
+	if !ok || sys == nil {
+		t.Fatal("SystemDesign slot did not decode to a non-nil *System")
+	}
+	if len(sys.DynamicViews) == 0 {
+		t.Fatal("committed System has no dynamic views — fixture assumption (16 realized views) no longer holds")
+	}
+	callCount := 0
+	seen := map[altCallKey]bool{}
+	for _, dv := range sys.DynamicViews {
+		for _, step := range dv.Steps {
+			for _, call := range step.Calls {
+				callCount++
+				key := altCallKey{dv.Key, step.ActivityNodeID, call.From, call.To}
+				want, isAltGroup := wantAltTally[key]
+				if !isAltGroup {
+					if call.Alt != nil {
+						t.Fatalf("dynamic view %q step %q: call %+v decoded a non-nil Alt outside "+
+							"the authored alt groups — tolerant decode or authoring regressed",
+							dv.Key, step.ActivityNodeID, call)
+					}
+					continue
+				}
+				seen[key] = true
+				if call.Alt == nil {
+					t.Errorf("dynamic view %q step %q: call %s->%s want alt %q, got nil",
+						dv.Key, step.ActivityNodeID, call.From, call.To, want)
+				} else if *call.Alt != want {
+					t.Errorf("dynamic view %q step %q: call %s->%s want alt %q, got %q",
+						dv.Key, step.ActivityNodeID, call.From, call.To, want, *call.Alt)
+				}
+			}
+		}
+	}
+	if callCount == 0 {
+		t.Fatal("committed dynamic views have zero calls across all steps — fixture assumption no longer holds")
+	}
+	for key := range wantAltTally {
+		if !seen[key] {
+			t.Errorf("wantAltTally entry %+v was not found among the committed calls — the alt-group authoring or this pin has drifted", key)
+		}
+	}
+}
+
+// wantDecidedByTally is the Task-7 architect spec's D-table explicit-value
+// tally (8 distinct deciders across the 24 explicit rows). Pinning the VALUES,
+// not just the count, is load-bearing: Task 7b renamed the "design-health"
+// component to "design-health-engine" and had to atomically retarget uc1's
+// ci-check.decidedBy (spec FLAG-6) — a rename that forgot the slot-4 retarget
+// would still decode 24 nodes of the right kinds and so stay green against a
+// count-only pin. It did its job: this pin failed until the retarget landed
+// (fix-round-1 FINDING 5), and it stays value-keyed for the next rename.
+var wantDecidedByTally = map[string]int{
+	"architect-user":       10,
+	"intervention-engine":  5,
+	"merchant-gateway":     2,
+	"estimation-engine":    2,
+	"operator":             2,
+	"design-health-engine": 1,
+	"review-engine":        1,
+	"autoscaler-engine":    1,
+}
+
+// TestCommittedProjectJSON_ActivityNodes_DecidedBySplit is the tolerant-decode
+// regression for ActivityNode.DecidedBy (rollout rulings 2026-07-31; authored
+// 2026-08-01 by the Task-7 design amendment). It replaces the earlier
+// "_NoDecidedBy" pin — that one asserted the field was universally absent, which
+// was only ever a point-in-time fact (no committed node used the field yet); the
+// Task-7 amendment legitimately adds explicit values on 24 of the committed
+// design's 37 decision nodes (the D-table in the Task-7 architect spec), so this
+// version pins the AMENDED reality instead: every activity node decodes without
+// error, exactly 24 nodes across the 16 use cases carry a non-nil DecidedBy, every
+// one of those 24 sits on a decision or switch node (DecidedBy is illegal on any
+// other kind — CC-DECIDED-BY's placement rule), the field is still nil everywhere
+// it isn't explicitly authored (tolerant decode: no zero-value string stands in
+// for absence), and the VALUES tally exactly against wantDecidedByTally (not
+// merely the count — see its doc comment).
+func TestCommittedProjectJSON_ActivityNodes_DecidedBySplit(t *testing.T) {
+	proj := decodeCommittedProject(t)
+
+	cuc, ok := proj.CoreUseCases.Model.(*CoreUseCases)
+	if !ok || cuc == nil {
+		t.Fatal("CoreUseCases slot did not decode to a non-nil *CoreUseCases")
+	}
+	if len(cuc.Decisions) == 0 {
+		t.Fatal("committed CoreUseCases has no decisions — fixture assumption no longer holds")
+	}
+	nodeCount, decidedByCount := 0, 0
+	gotTally := map[string]int{}
+	for _, d := range cuc.Decisions {
+		if d.UseCase.Activity == nil {
+			continue
+		}
+		for _, node := range d.UseCase.Activity.Nodes {
+			nodeCount++
+			if node.DecidedBy == nil {
+				continue
+			}
+			decidedByCount++
+			if node.Kind != NodeDecision && node.Kind != NodeSwitch {
+				t.Fatalf("use case %q activity node %q (kind %v) carries a DecidedBy but is not a "+
+					"decision/switch node — CC-DECIDED-BY placement violation on the committed state",
+					d.UseCase.ID, node.ID, node.Kind)
+			}
+			if *node.DecidedBy == "" {
+				t.Fatalf("use case %q activity node %q decoded an empty-string DecidedBy — "+
+					"the field should be omitted, not empty, when there is no decider", d.UseCase.ID, node.ID)
+			}
+			gotTally[*node.DecidedBy]++
+		}
+	}
+	if nodeCount == 0 {
+		t.Fatal("committed use cases have zero activity nodes across all decisions — fixture assumption no longer holds")
+	}
+	if decidedByCount != 24 {
+		t.Fatalf("committed activity nodes carry DecidedBy on %d nodes, want 24 (the Task-7 "+
+			"architect spec's D-table explicit rows) — investigate drift, don't just re-pin", decidedByCount)
+	}
+	if !reflect.DeepEqual(gotTally, wantDecidedByTally) {
+		t.Fatalf("committed DecidedBy value tally = %v, want %v (a value drifted — e.g. a rename "+
+			"that forgot to retarget a slot-4 decidedBy — even though the count still matches)",
+			gotTally, wantDecidedByTally)
 	}
 }
 

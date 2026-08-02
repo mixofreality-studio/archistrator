@@ -1,8 +1,12 @@
 package internal_test
 
 import (
+	"slices"
+	"sort"
 	"strings"
 	"testing"
+
+	"golang.org/x/tools/go/packages"
 
 	"github.com/mixofreality-studio/archistrator-platform/framework-go/arch"
 )
@@ -53,6 +57,138 @@ func TestFileLayout(t *testing.T) {
 	arch.CheckFileLayout(t, appArchSpec())
 }
 
+// TestMessageBusManagersOnly enforces the ch. 5 RESTRICTED-UTILITY ruling
+// (founder R-F, 2026-08-01): the message-bus utility may be imported ONLY by
+// Manager-layer packages (its own subtree — the generated fake — aside).
+//
+// Unlike Security / Logging / Diagnostics, which any layer may call, this utility
+// has a restricted clientele, and the reason is layer doctrine rather than taste:
+// Engines are pure computation and do no messaging I/O; each ResourceAccess fronts
+// exactly one resource, and a cross-execution signal is not it; Clients enter the
+// system at a Manager. The composition root (cmd/server, outside internal/)
+// constructs and injects it and is therefore out of the scan. The slot-5 edge set
+// MIRRORS this rule — every inbound message-bus relationship originates at a
+// Manager — so the model and the code cannot drift on who may call the bus.
+//
+// arch.Check cannot express this (its rules are per-layer, not per-package), so it
+// lives here as an app-local test with the same packages.Load posture
+// (Tests:false, ./internal/...). EARMARK: a reusable
+// arch.CheckRestrictedImport(t, spec, target, allowedDirPrefixes) belongs in
+// framework-go; note it in the release notes rather than blocking on it.
+func TestMessageBusManagersOnly(t *testing.T) {
+	const busPkg = modulePrefix + "utility/messagebus"
+	cfg := &packages.Config{
+		Mode:  packages.NeedName | packages.NeedImports,
+		Dir:   "..",
+		Tests: false,
+	}
+	pkgs, err := packages.Load(cfg, "./internal/...")
+	if err != nil {
+		t.Fatalf("packages.Load: %v", err)
+	}
+	if n := packages.PrintErrors(pkgs); n > 0 {
+		t.Fatalf("%d package load error(s); fix the build before checking the clientele", n)
+	}
+	// Guard against a vacuous pass: if nothing loaded, or nothing imports the bus
+	// at all, the rule is checking air.
+	if len(pkgs) == 0 {
+		t.Fatal("patterns matched no packages; this test would pass vacuously")
+	}
+	paths := make(map[string][]string, len(pkgs))
+	for _, pkg := range pkgs {
+		for ip := range pkg.Imports {
+			paths[pkg.PkgPath] = append(paths[pkg.PkgPath], ip)
+		}
+	}
+	violations, importers := restrictedImportViolations(paths, busPkg, messageBusAllowedDirs)
+	if importers == 0 {
+		t.Error("no package imports the message-bus utility; the restricted-clientele rule is checking air")
+	}
+	for _, v := range violations {
+		t.Errorf("arch: %s imports the message-bus utility; only Manager-layer packages may (ch. 5 restricted clientele)", v)
+	}
+}
+
+// messageBusAllowedDirs are the ModulePrefix-relative DIRECTORIES allowed to
+// import the bus: the Manager layer, plus the component's own subtree (its
+// generated fake). Written without trailing slashes — restrictedImportViolations
+// matches them as directories, not as raw string prefixes.
+var messageBusAllowedDirs = []string{"manager", "utility/messagebus"}
+
+// restrictedImportViolations is the pure core of TestMessageBusManagersOnly:
+// given each package's import list, it returns the importing package paths that
+// no allowed directory prefix covers, plus the TOTAL number of importers found
+// (the vacuity guard's input). Separated from packages.Load so the rule itself is
+// unit-testable against a synthetic package set — see
+// TestRestrictedImportViolations.
+func restrictedImportViolations(imports map[string][]string, target string, allowedDirs []string) (violations []string, importers int) {
+	for pkgPath, ips := range imports {
+		rel := strings.TrimPrefix(pkgPath, modulePrefix)
+		for _, ip := range ips {
+			if !underDir(ip, target) {
+				continue
+			}
+			importers++
+			allowed := false
+			for _, dir := range allowedDirs {
+				if underDir(rel, dir) {
+					allowed = true
+					break
+				}
+			}
+			if !allowed {
+				violations = append(violations, pkgPath)
+			}
+			break // one verdict per importing package
+		}
+	}
+	sort.Strings(violations)
+	return violations, importers
+}
+
+// underDir reports whether an import path or ModulePrefix-relative package path
+// IS dir or lives beneath it. It matches on the path SEPARATOR, never on the raw
+// string, so a sibling whose name merely starts with dir — utility/messagebusfoo
+// against utility/messagebus, or managerial against manager — is correctly
+// excluded. A trailing slash on dir is tolerated so callers may write either form.
+func underDir(p, dir string) bool {
+	dir = strings.TrimSuffix(dir, "/")
+	return p == dir || strings.HasPrefix(p, dir+"/")
+}
+
+// TestRestrictedImportViolations is the NEGATIVE proof that
+// TestMessageBusManagersOnly would actually fail: a synthetic package set where an
+// Engine and a ResourceAccess import the bus must produce exactly those two
+// violations, while the Manager importer and the component's own generated fake
+// must not. Without this, a bug in the rule would make the gate silently green.
+func TestRestrictedImportViolations(t *testing.T) {
+	const bus = modulePrefix + "utility/messagebus"
+	got, importers := restrictedImportViolations(map[string][]string{
+		modulePrefix + "manager/billing":         {bus, modulePrefix + "resourceaccess/usage"},
+		modulePrefix + "utility/messagebus/fake": {bus},
+		modulePrefix + "engine/designhealth":     {bus},
+		modulePrefix + "resourceaccess/usage":    {bus},
+		modulePrefix + "client/web":              {modulePrefix + "manager/billing"},
+		// Name-prefix impostors: neither is inside an allowed DIRECTORY, so a raw
+		// strings.HasPrefix over the allow list would wrongly exempt both.
+		modulePrefix + "utility/messagebusfoo": {bus},
+		modulePrefix + "managerial":            {bus},
+	}, bus, messageBusAllowedDirs)
+
+	want := []string{
+		modulePrefix + "engine/designhealth",
+		modulePrefix + "managerial",
+		modulePrefix + "resourceaccess/usage",
+		modulePrefix + "utility/messagebusfoo",
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("violations = %v, want %v", got, want)
+	}
+	if importers != 6 {
+		t.Errorf("importers = %d, want 6 (manager + fake + engine + RA + 2 impostors)", importers)
+	}
+}
+
 // appArchSpec is the app's Method layer model — the SINGLE source of truth shared by
 // the standalone layer/encapsulation tests here AND the full methodcheck.Check gate
 // in method_design_test.go (so the app validates its architecture ONE way, not two
@@ -85,20 +221,25 @@ func appArchSpec() arch.Spec {
 	// Test-only deps (testcontainers, the Gitea SDK) are NOT scanned — Check loads
 	// with Tests:false — so they need no entry.
 	// Temporal-isolation exemption — the single architecturally-sanctioned
-	// exception to "Temporal lives only in the Manager layer". durableExecutionAccess
-	// is the ResourceAccess whose fronted Resource IS the durable-execution substrate
-	// (Temporal) itself — "the architecturally hardest case in the corpus"
-	// (durableExecutionAccess.md §1). Its concrete adapter (temporal.go) MUST speak
-	// the Temporal control-plane SDK, exactly as projectstate's adapter speaks pgx
-	// and artifact's speaks go-git. The exemption relaxes ONLY the Temporal-isolation
-	// rule for this one package; it remains subject to classification, downward-only
-	// imports, no-sideways, the Access port + error returns, and the dependency
-	// allowlist. The CONTRACT surface (the DurableExecutionAccess port + value types
-	// in durableexecution.go) stays Temporal-free by the component's own design and
-	// review — the Temporal SDK is confined to temporal.go. This list is the one and
-	// only place the exception is granted; any OTHER RA/Engine/Utility importing
-	// Temporal still fails the build.
-	spec.TemporalExemptPackages = []string{"resourceaccess/durableexecution"}
+	// exception to "Temporal lives only in the Manager layer". messageBus is the
+	// component whose fronted substrate IS the durable-execution runtime (Temporal)
+	// itself — "the architecturally hardest case in the corpus". Its concrete
+	// implementation MUST speak the Temporal control-plane SDK, exactly as
+	// projectstate's adapter speaks pgx and artifact's speaks go-git. The exemption
+	// is PATH-SCOPED and LAYER-AGNOSTIC — it survived the component's
+	// ResourceAccess → Utility reclassification unchanged, because what earns it is
+	// the fronted substrate, not the layer. It relaxes ONLY the Temporal-isolation
+	// rule for this one package; the package remains subject to classification,
+	// downward-only imports, no-sideways, error returns, the dependency allowlist,
+	// and (uniquely) the Managers-only clientele rule below. The CONTRACT surface
+	// (the MessageBus port + value types) stays Temporal-free by the component's own
+	// design and review. This list is the one and only place the exception is
+	// granted; any OTHER RA/Engine/Utility importing Temporal still fails the build.
+	//
+	// The generated sibling utility/messagebus/fake is NOT covered by this prefix
+	// (the match is exact-or-"/"-suffixed, not a directory prefix) and needs no
+	// coverage: a generated fake imports only its contract package.
+	spec.TemporalExemptPackages = []string{"utility/messagebus"}
 
 	spec.AllowedImportPrefixes = []string{
 		"github.com/mixofreality-studio/",        // archistrator-platform framework family + this app's own module
@@ -145,8 +286,11 @@ var encapsulationAllowlistData = map[string][]string{
 	// workflow/activity methods, every *Input/*Args/*Signal payload struct, the consumer-mirror
 	// seam/enum types, the workflow/signal name consts) was UNEXPORTED — only these registration
 	// entrypoints cross the package boundary.
+	// RegisterSchedules registers the two platform-wide construction Schedules at
+	// startup (Task 7c): the pump sweep (30s) and the replan sweep (5m).
 	"internal/manager/construction": {
 		"RegisterManagerWorker",
+		"RegisterSchedules",
 		"RegisterWorker",
 		"TaskQueue",
 	},
@@ -230,15 +374,12 @@ var encapsulationAllowlistData = map[string][]string{
 		"RepoTargetIsZero",
 		"StepOutcomeString",
 	},
-	// FREE-FUNCTION BEHAVIOUR over the ExecutionHandle/ExecutionStatus value types
-	// (String/Parse/Equal/IsZero) + the package Error alias.
-	"internal/resourceaccess/durableexecution": {
+	// The package Error alias, and nothing else: the ExecutionHandle/ExecutionStatus
+	// free-function behaviour died with the two ops the 2026-08-01 fold dropped
+	// (a restricted utility carries no unused verbs). KindBinding is a generated-impl
+	// construction input, not a flagged hand-written public type.
+	"internal/utility/messagebus": {
 		"Error",
-		"ExecutionHandleEqual",
-		"ExecutionHandleIsZero",
-		"ExecutionHandleString",
-		"ExecutionStatusString",
-		"ParseExecutionHandle",
 	},
 	// TYPED METHOD-MODEL CORPUS + GIT INFRASTRUCTURE. projectstate is the OWNER of the shared,
 	// hand-written typed Method models (Glossary, System, Network, Solution, ...); its schema

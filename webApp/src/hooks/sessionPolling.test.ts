@@ -129,7 +129,11 @@ void test('F-QA2-28: a transient error with NO data polls DEGRADED (bootstrap re
 
 void test('an error with a REST last-known stage still stops polling', () => {
   for (const stage of ['committed', 'withdrawn'] as const) {
-    assert.equal(sessionPollIntervalMs({ stage }, new ApiError(500, 'internal', 'boom')), false, stage);
+    assert.equal(
+      sessionPollIntervalMs({ stage }, new ApiError(500, 'internal', 'boom')),
+      false,
+      stage
+    );
     assert.equal(
       sessionPollIntervalMs({ stage }, new ApiError(404, 'not_found', 'gone')),
       false,

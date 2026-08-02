@@ -13,9 +13,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/billingstate"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/durableexecution"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/merchantgateway"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usage"
+	"github.com/mixofreality-studio/archistrator/server/internal/utility/messagebus"
 )
 
 // genInvokers is the workflow-side typed call surface: one method per
@@ -124,30 +124,16 @@ func (i genInvokers) MerchantGatewayValidateStoredInstrument(ctx workflow.Contex
 	return err
 }
 
-// DurableExecutionDeliverSignal invokes activity "durableExecutionAccess.deliverSignal".
-func (i genInvokers) DurableExecutionDeliverSignal(ctx workflow.Context, targetExecutionID durableexecution.ExecutionID, signalName durableexecution.SignalName, payload durableexecution.ExecutionPayload) error {
-	err := workflow.ExecuteActivity(i.options(ctx, "durableExecutionAccess.deliverSignal"), "durableExecutionAccess.deliverSignal", targetExecutionID, signalName, payload).Get(ctx, nil)
+// MessageBusDeliverSignal invokes activity "messageBus.deliverSignal".
+func (i genInvokers) MessageBusDeliverSignal(ctx workflow.Context, targetExecutionID messagebus.ExecutionID, signalName messagebus.SignalName, payload messagebus.ExecutionPayload) error {
+	err := workflow.ExecuteActivity(i.options(ctx, "messageBus.deliverSignal"), "messageBus.deliverSignal", targetExecutionID, signalName, payload).Get(ctx, nil)
 	return err
 }
 
-// DurableExecutionQueryExecutionState invokes activity "durableExecutionAccess.queryExecutionState".
-func (i genInvokers) DurableExecutionQueryExecutionState(ctx workflow.Context, executionID durableexecution.ExecutionID, queryName durableexecution.QueryName, args durableexecution.ExecutionPayload) (durableexecution.ExecutionStateView, error) {
-	var out durableexecution.ExecutionStateView
-	err := workflow.ExecuteActivity(i.options(ctx, "durableExecutionAccess.queryExecutionState"), "durableExecutionAccess.queryExecutionState", executionID, queryName, args).Get(ctx, &out)
-	return out, err
-}
-
-// DurableExecutionRegisterSchedule invokes activity "durableExecutionAccess.registerSchedule".
-func (i genInvokers) DurableExecutionRegisterSchedule(ctx workflow.Context, scheduleID durableexecution.ScheduleID, spec durableexecution.ScheduleSpec) error {
-	err := workflow.ExecuteActivity(i.options(ctx, "durableExecutionAccess.registerSchedule"), "durableExecutionAccess.registerSchedule", scheduleID, spec).Get(ctx, nil)
+// MessageBusRegisterSchedule invokes activity "messageBus.registerSchedule".
+func (i genInvokers) MessageBusRegisterSchedule(ctx workflow.Context, scheduleID messagebus.ScheduleID, spec messagebus.ScheduleSpec) error {
+	err := workflow.ExecuteActivity(i.options(ctx, "messageBus.registerSchedule"), "messageBus.registerSchedule", scheduleID, spec).Get(ctx, nil)
 	return err
-}
-
-// DurableExecutionStartOrSignalExecution invokes activity "durableExecutionAccess.startOrSignalExecution".
-func (i genInvokers) DurableExecutionStartOrSignalExecution(ctx workflow.Context, executionKind durableexecution.ExecutionKind, executionID durableexecution.ExecutionID, signalName durableexecution.SignalName, payload durableexecution.ExecutionPayload) (durableexecution.ExecutionHandle, error) {
-	var out durableexecution.ExecutionHandle
-	err := workflow.ExecuteActivity(i.options(ctx, "durableExecutionAccess.startOrSignalExecution"), "durableExecutionAccess.startOrSignalExecution", executionKind, executionID, signalName, payload).Get(ctx, &out)
-	return out, err
 }
 
 // RevenueLedgerReadRange invokes activity "revenueLedgerAccess.readRange".

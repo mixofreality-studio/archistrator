@@ -67,9 +67,9 @@ import (
 	billingengine "github.com/mixofreality-studio/archistrator/server/internal/engine/billing"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/billingstate"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/durableexecution"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/merchantgateway"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usage"
+	"github.com/mixofreality-studio/archistrator/server/internal/utility/messagebus"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/testsuite"
 	"go.temporal.io/sdk/workflow"
@@ -235,7 +235,7 @@ func Test_GatewayIdempotencyKey(t *testing.T) {
 // (testsuite.WorkflowTestSuite). Post-temporalgen migration: the ResourceAccess layer is
 // reached through the GENERATED activities (activities.gen.go) + invokers
 // (invokers.gen.go). ALL FIVE contract-backed RA ports (billingState/usage/
-// merchantGateway/durableExecution/revenueLedger — B7 folded the revenue-ledger fake in
+// merchantGateway/messageBus/revenueLedger — B7 folded the revenue-ledger fake in
 // alongside the rest) are constructed as CONTRACT-interface test doubles, wired into
 // genActivities and registered under the generated activity names. The two Engines are
 // direct-in-workflow fakes over their PUBLISHED contracts (billingengine.BillingEngine /
@@ -422,16 +422,16 @@ func (g *fakeGateway) ValidateStoredInstrument(_ fwra.Context, _ uuid.UUID, _ st
 
 var _ merchantgateway.MerchantGatewayAccess = (*fakeGateway)(nil)
 
-// fakeDurable records delivered signals (decoded from the JSON payload) + registered
-// schedules. Satisfies durableexecution.DurableExecutionAccess.
-type fakeDurable struct {
+// fakeMessageBus records delivered signals (decoded from the JSON payload) + registered
+// schedules. Satisfies messagebus.MessageBus.
+type fakeMessageBus struct {
 	mu sync.Mutex
 
 	signals   []deliverSignalPayload
 	schedules []string
 }
 
-func (d *fakeDurable) DeliverSignal(_ fwra.Context, _ durableexecution.ExecutionID, _ durableexecution.SignalName, payload durableexecution.ExecutionPayload) error {
+func (d *fakeMessageBus) DeliverSignal(_ fwra.Context, _ messagebus.ExecutionID, _ messagebus.SignalName, payload messagebus.ExecutionPayload) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	var p deliverSignalPayload
@@ -440,22 +440,14 @@ func (d *fakeDurable) DeliverSignal(_ fwra.Context, _ durableexecution.Execution
 	return nil
 }
 
-func (d *fakeDurable) RegisterSchedule(_ fwra.Context, scheduleID durableexecution.ScheduleID, _ durableexecution.ScheduleSpec) error {
+func (d *fakeMessageBus) RegisterSchedule(_ fwra.Context, scheduleID messagebus.ScheduleID, _ messagebus.ScheduleSpec) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.schedules = append(d.schedules, string(scheduleID))
 	return nil
 }
 
-func (d *fakeDurable) QueryExecutionState(_ fwra.Context, _ durableexecution.ExecutionID, _ durableexecution.QueryName, _ durableexecution.ExecutionPayload) (durableexecution.ExecutionStateView, error) {
-	return durableexecution.ExecutionStateView{}, nil
-}
-
-func (d *fakeDurable) StartOrSignalExecution(_ fwra.Context, _ durableexecution.ExecutionKind, _ durableexecution.ExecutionID, _ durableexecution.SignalName, _ durableexecution.ExecutionPayload) (durableexecution.ExecutionHandle, error) {
-	return durableexecution.ExecutionHandle(""), nil
-}
-
-var _ durableexecution.DurableExecutionAccess = (*fakeDurable)(nil)
+var _ messagebus.MessageBus = (*fakeMessageBus)(nil)
 
 // fakeBillingEngine returns a scripted BillingResult for compute + recompute.
 // Satisfies the published billingengine.BillingEngine contract directly (no seam).
@@ -509,24 +501,24 @@ var _ intervention.InterventionEngine = (*fakeIntervention)(nil)
 // ---- helpers ----------------------------------------------------------------
 
 type fakes struct {
-	state   *fakeBillingState
-	ledger  *fakeRevenueLedger
-	usage   *fakeUsage
-	gateway *fakeGateway
-	durable *fakeDurable
-	engine  *fakeBillingEngine
-	interv  *fakeIntervention
+	state      *fakeBillingState
+	ledger     *fakeRevenueLedger
+	usage      *fakeUsage
+	gateway    *fakeGateway
+	messageBus *fakeMessageBus
+	engine     *fakeBillingEngine
+	interv     *fakeIntervention
 }
 
 func baseDeps() (wfDeps, *fakes) {
 	f := &fakes{
-		state:   &fakeBillingState{},
-		ledger:  &fakeRevenueLedger{},
-		usage:   &fakeUsage{},
-		gateway: &fakeGateway{},
-		durable: &fakeDurable{},
-		engine:  &fakeBillingEngine{},
-		interv:  &fakeIntervention{directive: intervention.SettlementRetry},
+		state:      &fakeBillingState{},
+		ledger:     &fakeRevenueLedger{},
+		usage:      &fakeUsage{},
+		gateway:    &fakeGateway{},
+		messageBus: &fakeMessageBus{},
+		engine:     &fakeBillingEngine{},
+		interv:     &fakeIntervention{directive: intervention.SettlementRetry},
 	}
 	return wfDeps{
 		Billing:      f.engine,
@@ -542,11 +534,11 @@ func baseDeps() (wfDeps, *fakes) {
 // dispatched) and keeps the per-workflow register helpers uniform.
 func registerActs(env *testsuite.TestWorkflowEnvironment, f *fakes) {
 	acts := &genActivities{
-		BillingState:     f.state,
-		Usage:            f.usage,
-		MerchantGateway:  f.gateway,
-		DurableExecution: f.durable,
-		RevenueLedger:    f.ledger,
+		BillingState:    f.state,
+		Usage:           f.usage,
+		MerchantGateway: f.gateway,
+		MessageBus:      f.messageBus,
+		RevenueLedger:   f.ledger,
 	}
 	reg := func(fn any, name string) {
 		env.RegisterActivityWithOptions(fn, activity.RegisterOptions{Name: name})
@@ -560,8 +552,8 @@ func registerActs(env *testsuite.TestWorkflowEnvironment, f *fakes) {
 	reg(acts.UsageReadRange, "usageAccess.readRange")
 	reg(acts.MerchantGatewayChargeCustomer, "merchantGatewayAccess.chargeCustomer")
 	reg(acts.MerchantGatewayValidateStoredInstrument, "merchantGatewayAccess.validateStoredInstrument")
-	reg(acts.DurableExecutionDeliverSignal, "durableExecutionAccess.deliverSignal")
-	reg(acts.DurableExecutionRegisterSchedule, "durableExecutionAccess.registerSchedule")
+	reg(acts.MessageBusDeliverSignal, "messageBus.deliverSignal")
+	reg(acts.MessageBusRegisterSchedule, "messageBus.registerSchedule")
 	reg(acts.RevenueLedgerReadRange, "revenueLedgerAccess.readRange")
 	reg(acts.RevenueLedgerRecordInboundRevenue, "revenueLedgerAccess.recordInboundRevenue")
 	reg(acts.RevenueLedgerRecordReversal, "revenueLedgerAccess.recordReversal")
@@ -629,8 +621,8 @@ func Test_Onboard_HappyPath(t *testing.T) {
 	if len(f.state.bound) != 1 {
 		t.Fatalf("want one bindGatewayLive, got %d", len(f.state.bound))
 	}
-	if len(f.durable.schedules) != 1 {
-		t.Fatalf("want one registered cycle Schedule, got %d", len(f.durable.schedules))
+	if len(f.messageBus.schedules) != 1 {
+		t.Fatalf("want one registered cycle Schedule, got %d", len(f.messageBus.schedules))
 	}
 }
 
@@ -988,12 +980,12 @@ func Test_Sweep_SignalsEachDelinquentCustomer(t *testing.T) {
 	if len(res.SignalledCustomers) != 2 {
 		t.Fatalf("want two signalled customers, got %v", res.SignalledCustomers)
 	}
-	if len(f.durable.signals) != 2 {
-		t.Fatalf("want two queued delinquency signals, got %d", len(f.durable.signals))
+	if len(f.messageBus.signals) != 2 {
+		t.Fatalf("want two queued delinquency signals, got %d", len(f.messageBus.signals))
 	}
 	// The BillingTerms-derived enforcement shape is carried on the signal.
-	if !f.durable.signals[0].PauseNotWithdraw || f.durable.signals[1].PauseNotWithdraw {
-		t.Fatalf("want pause-vs-withdraw carried per customer, got %+v", f.durable.signals)
+	if !f.messageBus.signals[0].PauseNotWithdraw || f.messageBus.signals[1].PauseNotWithdraw {
+		t.Fatalf("want pause-vs-withdraw carried per customer, got %+v", f.messageBus.signals)
 	}
 }
 
@@ -1017,8 +1009,57 @@ func Test_Sweep_QuietSweep_NoSignals(t *testing.T) {
 	if len(res.SignalledCustomers) != 0 {
 		t.Fatalf("a quiet sweep must signal nobody, got %v", res.SignalledCustomers)
 	}
-	if len(f.durable.signals) != 0 {
-		t.Fatalf("a quiet sweep must deliver no signals, got %d", len(f.durable.signals))
+	if len(f.messageBus.signals) != 0 {
+		t.Fatalf("a quiet sweep must deliver no signals, got %d", len(f.messageBus.signals))
+	}
+}
+
+// G3 (fix round 1, Task 7c live-firing review): billingStateAccess is an
+// arm-less REQUIRED binding today (no deployment perProfile arm) — this test
+// backs the Activity with the REAL generated stub (billingstate.
+// NewBillingStateAccess(), NOT a scripted fake) to reproduce exactly what fired
+// live: every op returns fwra.Unknown("not implemented"). The sweep must
+// complete CLEANLY (no workflow error, an empty result) instead of failing.
+func Test_Sweep_UnimplementedBillingState_QuietNoOpTick(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	wf := newWorkflows(wfDeps{Acts: genInvokers{Opts: activityOptions()}})
+	env.RegisterWorkflowWithOptions(wf.ShortfallSweepWorkflow, workflow.RegisterOptions{Name: executionKindShortfallSweep})
+	stubActs := &genActivities{BillingState: billingstate.NewBillingStateAccess()}
+	env.RegisterActivityWithOptions(stubActs.BillingStateReadPersistentlyDelinquentCustomers,
+		activity.RegisterOptions{Name: "billingStateAccess.readPersistentlyDelinquentCustomers"})
+
+	env.ExecuteWorkflow(executionKindShortfallSweep, shortfallSweepInput{})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("want a quiet no-op tick against the unimplemented stub RA, got workflow error: %v", err)
+	}
+	var res ShortfallSweepResult
+	if err := env.GetWorkflowResult(&res); err != nil {
+		t.Fatalf("decode result: %v", err)
+	}
+	if len(res.SignalledCustomers) != 0 {
+		t.Fatalf("want an empty result on the tolerant tick, got %v", res.SignalledCustomers)
+	}
+}
+
+// G4: isRAUnimplemented is the EXACT condition gating the tolerant tick's WARN
+// log (shortfallsweep.go) — the TestWorkflowEnvironment exposes no hook to
+// assert on log TEXT, so this proves the gate itself fires correctly against
+// the REAL stub's REAL (fwmgr-mapped) error, run outside any workflow: the
+// same stubBillingStateAccess.ReadPersistentlyDelinquentCustomers call
+// Test_Sweep_UnimplementedBillingState_QuietNoOpTick exercises through the
+// Activity boundary, mapped exactly as that boundary maps it.
+func Test_IsRAUnimplemented_RealStubError(t *testing.T) {
+	stub := billingstate.NewBillingStateAccess()
+	_, err := stub.ReadPersistentlyDelinquentCustomers(fwra.Context{Context: t.Context()}, billingstate.DelinquencyScope{})
+	if err == nil {
+		t.Fatal("want the arm-less stub to return an error")
+	}
+	mapped := fwmgr.MapError(err)
+	if !isRAUnimplemented(mapped) {
+		t.Fatalf("want isRAUnimplemented(true) for the stub's mapped error, got false (mapped: %v)", mapped)
 	}
 }
 

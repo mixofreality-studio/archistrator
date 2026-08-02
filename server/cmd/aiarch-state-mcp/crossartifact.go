@@ -57,8 +57,8 @@ import (
 	"strings"
 
 	"github.com/mixofreality-studio/archistrator-platform/framework-go/methodcheck"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/designhealth"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
-	"github.com/mixofreality-studio/archistrator/server/internal/utility/designhealth"
 )
 
 // appendAppSideCrossArtifactFindings appends the app-side cross-artifact findings for
@@ -66,7 +66,7 @@ import (
 // framework's cross-artifact rules): an absent / uncommitted counterpart slot means
 // there is nothing to join yet, never a violation.
 //
-// It also appends the LIVE design-health tier (internal/utility/designhealth, Wave-2
+// It also appends the LIVE design-health tier (internal/engine/designhealth, Wave-2
 // reshape-3): the pure DH-* rule layer over the re-encoded document. Re-encoding
 // proj yields the same bytes methodcheck.ValidateProjectJSON validated at this seam,
 // so the live tier sees exactly the drafted state. DH-* findings then flow through

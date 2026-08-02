@@ -107,10 +107,19 @@ log (session scratchpads; summarized in the final QA report).
   (no server/internal/resourceaccess/workitem package) yet the UC2/UC3 call chains
   traverse them — decide at the NEXT slot-5 redraft: build the RA or re-route the
   work-item steps (earmark also carried on the work-item-tracker encapsulates).
-- dogfood DV-REL-COVERAGE residue (warnings, accepted): ProjectDesignManager→
-  {ConstructionPipelineAccess, SourceControlAccess} appear in no call chain (Phase-2
-  draft dispatch has no dedicated use case — fold into a uc2 preamble edge or accept),
-  plus the 13 utility edges (convention: utilities carry no dynamic-view lines).
+- dogfood DV-REL-COVERAGE residue: RETIRED for the pdm→sca gap (the callchain-realization
+  rollout's Task 11 symmetry align-up gave replan-under-scope-change its own sca rail calls —
+  ProjectDesignManager→SourceControlAccess is realized now, not residue; uc1's align-up calls
+  are SystemDesignManager→SourceControlAccess, a different relationship).
+  What remains is a formal, gate-level exemption, not an accepted warning: every
+  utility-targeted relationship (15 of the System's 16; the 16th is exercised) is exempt
+  from DV-REL-COVERAGE's every-relationship-exercised requirement by construction
+  (framework-go/methodcheck/rules_dynamic.go checkRelationshipCoverage's utility-target
+  exemption, Task 12) — utilities are ambient dependency, never expected to carry a
+  dynamic-view line. The exemption is not silent: it surfaces as a single DV-REL-UTILITY-
+  EXEMPT Info finding naming every exempted relationship, and that Info line is
+  load-bearing (Task 12 fix round 1) — it is how a reviewer confirms the gate exempted
+  the right 15 rather than quietly swallowing a real gap.
 
 ## Platform (release-coordination gated)
 - ClassifyStatus: split rate-limit 403 from permission 403 (bit approve twice today);

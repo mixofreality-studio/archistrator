@@ -634,6 +634,15 @@ func (s *GitStore) ListProjects(ctx context.Context, owner OwnerScope, cred Repo
 				summary.UpdatedAt = docUpdatedAt
 			}
 			summary.CommittedCount, summary.TotalCount = phaseProgress(p)
+			// OperatorPaused (fix round 1, Task 7c): surfaces the SAME head-state flag
+			// PumpSweepWorkflow's eligibility filter reads, at zero extra I/O cost — p
+			// is already the full per-project read this N+1 pass performs. Omitted
+			// (nil) rather than always-set-false, mirroring the doc field's own
+			// "omitted when false" convention (Project.OperatorPaused).
+			if p.OperatorPaused {
+				paused := true
+				summary.OperatorPaused = &paused
+			}
 		} else if !isNotFound(perr) {
 			// A real read fault (auth/transient/infra) on a discovered repo is surfaced;
 			// a NotFound (repo provisioned, project.json not yet committed) is tolerated —
@@ -2290,7 +2299,7 @@ func (p ProjectID) String() string { return string(p) }
 // human-readable Name, carried as a JSONPath/React-key-safe SLUG string. The
 // server assigns ComponentID = Slug(Component.Name) in the LLM-draft finalize
 // pass (systemdesign.finalize*); the LLM never emits an id. Cross-references
-// (Relationship.From/To, DynamicView.Participants/UseCaseID,
+// (Relationship.From/To, a DynamicView step's call endpoints,
 // DeployContainer.Components) carry this same slug. It is a plain string
 // alias — validators use it as an opaque map key and format it directly; the
 // persisted/served `id` field and the webApp JSONPath anchors ($.components[id=…])
@@ -3938,14 +3947,23 @@ func canonicalLayer(k ComponentKind) Layer {
 
 // destination-layer vocabulary (STRUCTURIZR-CONVENTIONS "Edge-label conventions")
 
-// DynamicView is one call chain per use case (ch. 4): the participating components
-// and the sync/queued edges among them. Maps 1:1 to a Structurizr dynamic view on
-// render via artifactRenderingAccess. (projectStateAccess.md §3.3)
+// DynamicView is one call-chain realization per use case (ch. 4): STEP-KEYED, one
+// CallStep per realized activity node (Grammar B ActivityNode.ID), each step naming
+// the Relationship calls dispatched at that node. Participants are DERIVED from the
+// steps' call endpoints — there is no separate participants list; each endpoint
+// resolves to either a Component.ID or an Actor.ID owned by the view's use case.
+// Maps 1:1 to a Structurizr dynamic view on render via artifactRenderingAccess.
+// (projectStateAccess.md §3.3)
 
 // links to a UseCase (Grammar B)
 // stable view key, e.g. "uc1-coauthor-method-artifact"
 
-// Mode ∈ {CallSync, CallQueued}; ordered
+// CallStep.ActivityNodeID; CallStep.Calls Mode ∈ {CallSync, CallQueued}; ordered
+
+// ParticipantIDs (the derived-participants helper over Steps/Calls) was RETIRED
+// 2026-07-30 (callchain-realization Task 6) along with its sole caller,
+// systemdesign's dvChainFindings (DV-CHAIN-CONNECTED) — the rule moved to platform
+// methodcheck as CC-PATH-CONNECTED, which derives participants itself.
 
 // System is the canonical typed static-architecture model (Grammar A, ch. 3/4).
 // The .dsl/Structurizr text is a rendering produced by artifactRenderingAccess from
@@ -4014,10 +4032,15 @@ func NewSystem(components []Component, relationships []Relationship, dynamicView
 // UML-general
 // UML-general
 // UML-general
+// UML-general, a UML time event (an elapsed-timer entry point)
+// UML-general, a UML accept-event action (a bus/queue-message entry point)
 
 // BookEnumerated reports whether a node kind is in the book's closed set (vs UML-general).
 // WARNING: the iota ordering is load-bearing — book-enumerated node kinds must be
-// declared before NodeNote; do not insert non-book nodes before it.
+// declared before NodeNote; do not insert non-book nodes before it. NodeTimeEvent and
+// NodeAcceptEvent are appended AFTER NodeInterruptEdge and are, like it, UML-general
+// (NOT book-enumerated); k <= NodeNote already excludes them, so no change to the
+// comparison itself is needed.
 // (projectStateAccess.md §3.4)
 func (k ActivityNodeKind) BookEnumerated() bool { return k <= NodeNote }
 
@@ -4025,18 +4048,25 @@ func (k ActivityNodeKind) BookEnumerated() bool { return k <= NodeNote }
 //
 // NAME-AS-IDENTITY (2026-06-04): ID is a server-assigned SLUG of the node Label
 // (or a positional fallback for unlabeled structural nodes), NOT a UUID and NOT
-// LLM-authored. ActivityEdge.From/To carry this same slug. LinkedActorID /
-// LinkedCompID are NAME-slug references (the linked Actor's role-slug / the linked
-// Component's id) resolved server-side from the names the LLM emitted.
+// LLM-authored. ActivityEdge.From/To carry this same slug. LinkedActorID is a
+// NAME-slug reference (the linked Actor's role-slug) resolved server-side from
+// the name the LLM emitted.
 // (projectStateAccess.md §3.4)
+//
+// DecidedBy (rollout rulings 2026-07-31): optional, legal ONLY on decision/switch
+// kinds — who resolves the branch. Resolves endpoint-style, like a call endpoint:
+// a Component.ID or the owning use case's Actor.ID. Illegal placement (any other
+// kind) or a value resolving to neither is CC-DECIDED-BY (methodcheck/designhealth,
+// not enforced by this write-path shape validator — see requireActivityNodes).
 type ActivityNode struct {
 	ID    string           `json:"id"`
 	Kind  ActivityNodeKind `json:"kind"`
 	Label string           `json:"label"`
-	// For NodeSwimLane: the role name and an optional link to an actor or Component.
-	RoleName      string       `json:"roleName"`
-	LinkedActorID *string      `json:"linkedActorId"`
-	LinkedCompID  *ComponentID `json:"linkedCompId"`
+	// For NodeSwimLane: the role name and an optional link to an actor.
+	RoleName      string  `json:"roleName"`
+	LinkedActorID *string `json:"linkedActorId"`
+	// DecidedBy: see doc comment above.
+	DecidedBy *string `json:"decidedBy,omitempty"`
 }
 
 // EdgeKind is the closed set of activity-edge kinds. (projectStateAccess.md §3.4)
@@ -4984,11 +5014,12 @@ func RequireModelFields(kind ArtifactKind, raw []byte) error {
 
 // requireSystemFields enforces the presence + consistency of the System model's
 // closed-enum / identity fields: every component's id/name/kind/layer, every
-// relationship's from/to/mode, and every dynamic view's useCaseId (and its edges'
-// from/to/mode). The load-bearing check is layer==canonicalLayer(kind): it catches the
-// live F81 case (kind present, layer omitted→client) as a mismatch. The both-omitted
-// case (kind AND layer absent → both client → self-consistent) is caught by the presence
-// checks below and, at the whole-system level, by the SYSTEM-LAYER-DEGENERATE rule.
+// relationship's from/to/mode, and every dynamic view's useCaseId (and each of its
+// steps' activityNodeId + its calls' from/to/mode). The load-bearing check is
+// layer==canonicalLayer(kind): it catches the live F81 case (kind present, layer
+// omitted→client) as a mismatch. The both-omitted case (kind AND layer absent → both
+// client → self-consistent) is caught by the presence checks below and, at the
+// whole-system level, by the SYSTEM-LAYER-DEGENERATE rule.
 // requireComponentFields enforces one component's identity + closed-enum + encapsulates
 // surface (extracted from requireSystemFields to keep each function's cognitive
 // complexity within the linter's floor).
@@ -5074,15 +5105,64 @@ func requireSystemFields(raw []byte) error {
 		if err := requireNonEmptyString(obj, "useCaseId", label); err != nil {
 			return err
 		}
-		if edges, ok := obj["edges"]; ok && !isJSONNull(edges) {
-			var edgeRaws []json.RawMessage
-			if err := json.Unmarshal(edges, &edgeRaws); err != nil {
-				return fmt.Errorf("%s edges is not a JSON array: %w", label, err)
+		if err := requireDynamicViewSteps(obj, label); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// requireDynamicViewSteps enforces the step-keyed shape introduced by the
+// call-chain realization model: every dynamic view step must carry a
+// non-empty activityNodeId, and every call on a step must satisfy the same
+// from/to/mode contract as a top-level relationship. Split out of
+// requireSystemFields to keep that function's cyclomatic complexity within
+// the project's gocyclo gate.
+func requireDynamicViewSteps(obj map[string]json.RawMessage, label string) error {
+	steps, ok := obj["steps"]
+	if !ok || isJSONNull(steps) {
+		return nil
+	}
+	var stepRaws []json.RawMessage
+	if err := json.Unmarshal(steps, &stepRaws); err != nil {
+		return fmt.Errorf("%s steps is not a JSON array: %w", label, err)
+	}
+	for j, sRaw := range stepRaws {
+		sObj, err := rawObject(sRaw)
+		if err != nil {
+			return fmt.Errorf("%s step %d is not a JSON object: %w", label, j+1, err)
+		}
+		stepLabel := fmt.Sprintf("%s step %d", label, j+1)
+		if err := requireNonEmptyString(sObj, "activityNodeId", stepLabel); err != nil {
+			return err
+		}
+		calls, ok := sObj["calls"]
+		if !ok || isJSONNull(calls) {
+			continue
+		}
+		var callRaws []json.RawMessage
+		if err := json.Unmarshal(calls, &callRaws); err != nil {
+			return fmt.Errorf("%s calls is not a JSON array: %w", stepLabel, err)
+		}
+		for k, cRaw := range callRaws {
+			callLabel := fmt.Sprintf("%s call %d", stepLabel, k+1)
+			// Parsed once (requireActivityNodes' idiom: rawObject up front, every
+			// subsequent check reads the same obj) rather than letting
+			// requireRelationshipFields re-parse cRaw for its own from/to/mode
+			// checks.
+			cObj, err := rawObject(cRaw)
+			if err != nil {
+				return fmt.Errorf("%s is not a JSON object: %w", callLabel, err)
 			}
-			for j, eRaw := range edgeRaws {
-				if err := requireRelationshipFields(eRaw, fmt.Sprintf("%s edge %d", label, j+1)); err != nil {
-					return err
-				}
+			if err := requireRelationshipFieldsObj(cObj, callLabel); err != nil {
+				return err
+			}
+			// TraceCall.Alt (rollout rulings 2026-07-31): optional alt-group tag, not on
+			// the shared Relationship shape, so checked here rather than inside
+			// requireRelationshipFieldsObj (which also validates top-level relationships
+			// that have no alt field). Tolerant: absent is fine; wrong type is an error.
+			if err := requireOptionalStringField(cObj, "alt", callLabel); err != nil {
+				return err
 			}
 		}
 	}
@@ -5091,12 +5171,23 @@ func requireSystemFields(raw []byte) error {
 
 // requireRelationshipFields enforces from/to/mode on one Relationship (a top-level edge
 // or a dynamic-view edge). mode is the CallMode closed enum whose zero value (CallSync)
-// would silently absorb an omitted field.
+// would silently absorb an omitted field. Parses raw once and delegates to
+// requireRelationshipFieldsObj; callers that already hold the parsed object (e.g. a
+// dynamic-view call that also needs its optional alt field) should call that directly
+// instead of re-parsing.
 func requireRelationshipFields(raw json.RawMessage, label string) error {
 	obj, err := rawObject(raw)
 	if err != nil {
 		return fmt.Errorf("%s is not a JSON object: %w", label, err)
 	}
+	return requireRelationshipFieldsObj(obj, label)
+}
+
+// requireRelationshipFieldsObj is requireRelationshipFields' check body, split out so a
+// caller that already parsed the relationship object (requireDynamicViewSteps, which
+// also reads the call's optional alt field) does the from/to/mode checks without a
+// second rawObject parse of the same bytes.
+func requireRelationshipFieldsObj(obj map[string]json.RawMessage, label string) error {
 	if err := requireNonEmptyString(obj, "from", label); err != nil {
 		return err
 	}
@@ -5155,10 +5246,13 @@ func requireCoreUseCasesFields(raw []byte) error {
 		// read-back finding to a WRITE-PATH block). The strict codec previously SKIPPED a
 		// null activity here, letting a diagram-less use case commit. Every use case — core
 		// AND nonCore variation — must now carry a non-null activity diagram with at least
-		// one start node and one action step; requireActivityFields enforces the floor.
+		// one ENTRY (a start node, or a timeEvent/acceptEvent node with no incoming edge —
+		// tier parity with methodcheck's activityHasEntryAndAction, framework-go/methodcheck/
+		// rules_statevalidation.go, ratified 2026-07-30) and one action step;
+		// requireActivityFields enforces the floor.
 		act, ok := uc["activity"]
 		if !ok || isJSONNull(act) {
-			return fmt.Errorf("%s is missing its required activity diagram (activity is null); every use case must carry a non-empty activity diagram with a start node and at least one action step", label)
+			return fmt.Errorf("%s is missing its required activity diagram (activity is null); every use case must carry a non-empty activity diagram with an entry (a start node, or an edge-less timeEvent/acceptEvent) and at least one action step", label)
 		}
 		if err := requireActivityFields(act, label); err != nil {
 			return err
@@ -5175,22 +5269,27 @@ func requireActivityFields(raw json.RawMessage, ucLabel string) error {
 	if err != nil {
 		return fmt.Errorf("%s activity is not a JSON object: %w", ucLabel, err)
 	}
-	hasStart, hasAction, err := requireActivityNodes(act, ucLabel)
+	hasEntry, hasAction, err := requireActivityNodes(act, ucLabel)
 	if err != nil {
 		return err
 	}
-	// UC-ACT-PRESENT floor: a non-empty activity diagram carries at least a start node
-	// and one action step (App C 1c). The write-path twin of the read-back activityDefect
-	// classifier in the systemdesign Manager.
-	if !hasStart || !hasAction {
-		return fmt.Errorf("%s activity diagram is structurally empty: it must contain at least one start node and at least one action step", ucLabel)
+	// UC-ACT-PRESENT floor: a non-empty activity diagram carries at least one ENTRY — a
+	// start node, OR a timeEvent/acceptEvent node with no incoming edge (tier parity with
+	// methodcheck's activityHasEntryAndAction, framework-go/methodcheck/
+	// rules_statevalidation.go, ratified 2026-07-30) — and one action step (App C 1c). The
+	// write-path twin of the read-back activityDefect classifier in the systemdesign
+	// Manager.
+	if !hasEntry || !hasAction {
+		return fmt.Errorf("%s activity diagram is structurally empty: it must contain at least one entry — a start node or an edge-less timeEvent/acceptEvent — and at least one action step", ucLabel)
 	}
 	return requireActivityEdges(act, ucLabel)
 }
 
 // requireActivityNodes validates every node's kind enum and reports whether the diagram
-// carries a start node and an action node (the UC-ACT-PRESENT floor inputs).
-func requireActivityNodes(act map[string]json.RawMessage, ucLabel string) (hasStart, hasAction bool, err error) {
+// carries an ENTRY (a start node, or a timeEvent/acceptEvent node with no incoming edge —
+// see activityIncomingEdgeCounts) and an action node (the UC-ACT-PRESENT floor inputs).
+func requireActivityNodes(act map[string]json.RawMessage, ucLabel string) (hasEntry, hasAction bool, err error) {
+	incoming := activityIncomingEdgeCounts(act)
 	var nodeRaws []json.RawMessage
 	if nodes, ok := act["nodes"]; ok && !isJSONNull(nodes) {
 		if e := json.Unmarshal(nodes, &nodeRaws); e != nil {
@@ -5211,13 +5310,59 @@ func requireActivityNodes(act map[string]json.RawMessage, ucLabel string) (hasSt
 			return false, false, fmt.Errorf("%s has an unrecognized kind: %w", label, e)
 		}
 		if nk == NodeStart {
-			hasStart = true
+			hasEntry = true
+		}
+		if nk == NodeTimeEvent || nk == NodeAcceptEvent {
+			var id string
+			_ = json.Unmarshal(obj["id"], &id)
+			if incoming[id] == 0 {
+				hasEntry = true
+			}
 		}
 		if nk == NodeAction {
 			hasAction = true
 		}
+		// ActivityNode.DecidedBy (rollout rulings 2026-07-31): optional endpoint-resolving
+		// string. Tolerant: absent is fine (old committed nodes have no decidedBy); wrong
+		// type is an error. Legality (decision/switch-only, resolves to a real endpoint) is
+		// CC-DECIDED-BY (methodcheck/designhealth), not this write-path shape validator.
+		if e := requireOptionalStringField(obj, "decidedBy", label); e != nil {
+			return false, false, e
+		}
 	}
-	return hasStart, hasAction, nil
+	return hasEntry, hasAction, nil
+}
+
+// activityIncomingEdgeCounts returns, for each node ID targeted by an edge's "to", the
+// number of edges pointing at it — used only to detect an edge-less UML event node (the
+// entry alternative to a literal start node; tier parity with methodcheck's
+// activityHasEntryAndAction, framework-go/methodcheck/rules_statevalidation.go, ratified
+// 2026-07-30). Tolerant of a missing, null, or malformed edges array: the authoritative
+// edge SHAPE validation is requireActivityEdges, called after the structural
+// (entry+action) check succeeds, so a malformed edges array still surfaces its own error
+// there.
+func activityIncomingEdgeCounts(act map[string]json.RawMessage) map[string]int {
+	incoming := map[string]int{}
+	edges, ok := act["edges"]
+	if !ok || isJSONNull(edges) {
+		return incoming
+	}
+	var edgeRaws []json.RawMessage
+	if err := json.Unmarshal(edges, &edgeRaws); err != nil {
+		return incoming
+	}
+	for _, eRaw := range edgeRaws {
+		obj, err := rawObject(eRaw)
+		if err != nil {
+			continue
+		}
+		var to string
+		if err := json.Unmarshal(obj["to"], &to); err != nil {
+			continue
+		}
+		incoming[to]++
+	}
+	return incoming
 }
 
 // requireActivityEdges validates every edge's kind enum and enforces UC-GUARD-LABEL (a
@@ -5372,6 +5517,25 @@ func requireNonEmptyString(obj map[string]json.RawMessage, key, label string) er
 	}
 	if strings.TrimSpace(s) == "" {
 		return fmt.Errorf("%s field %q must not be empty", label, key)
+	}
+	return nil
+}
+
+// requireOptionalStringField asserts that IF key is present and non-null, its value
+// decodes as a JSON string. Absent or null is tolerant (the field is optional on the
+// wire — old committed data without it must decode unchanged); only a wrong TYPE is
+// an error. Used for the call-chain realization's optional endpoint-resolving fields
+// (TraceCall.Alt, ActivityNode.DecidedBy) — neither has a real zero value to silently
+// absorb an omission, so unlike requirePresent's fields there is nothing to enforce
+// here beyond shape.
+func requireOptionalStringField(obj map[string]json.RawMessage, key, label string) error {
+	v, ok := obj[key]
+	if !ok || isJSONNull(v) {
+		return nil
+	}
+	var s string
+	if err := json.Unmarshal(v, &s); err != nil {
+		return fmt.Errorf("%s field %q must be a string: %w", label, key, err)
 	}
 	return nil
 }
@@ -5981,6 +6145,8 @@ var activityNodeKindNames = map[ActivityNodeKind]string{
 	NodeSwitch:        "switch",
 	NodeGoto:          "goto",
 	NodeInterruptEdge: "interruptEdge",
+	NodeTimeEvent:     "timeEvent",
+	NodeAcceptEvent:   "acceptEvent",
 }
 var activityNodeKindByName = invert(activityNodeKindNames)
 

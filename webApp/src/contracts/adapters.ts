@@ -45,7 +45,8 @@ import type {
 import { METHOD_METADATA, PHASE1_ORDER, PHASE2_ORDER } from './methodMetadata';
 import { ARTIFACT_STAGE_APP_STRINGS } from './enums.gen';
 import { dynamicViewLabel, indexUseCaseNames } from './dynamicViewLabels';
-import { toUseCaseView, viewKeyForUseCase, type UseCaseView } from './useCaseViews';
+import { ownerUseCaseId, toUseCaseView, viewKeyForUseCase, type UseCaseView } from './useCaseViews';
+import { linearizeSteps, personParticipants } from './realization';
 import { assertNever } from './exhaustive';
 
 // ---------------------------------------------------------------------------
@@ -315,17 +316,51 @@ export function toC4View(envelope: ArtifactModelEnvelope | undefined): C4View {
 // System → dynamic view (one call-chain per use case).
 // ---------------------------------------------------------------------------
 
-/** A C4 relationship carrying its 1-based position in an ordered call chain. */
-export type SequencedRelationship = C4Relationship & { seq: number };
+/** A person (use-case actor) participant, alongside the System's components. */
+export interface PersonView {
+  id: string;
+  role: string;
+}
+
+/**
+ * A C4 relationship linearized into its global position in a DFS call-chain walk,
+ * plus the owning activity-node "step" it belongs to (see toDynamicView).
+ */
+export type SequencedCall = C4Relationship & {
+  /** Global 1-based position across the whole linearization. */
+  seq: number;
+  /** The activity node whose CallStep authored this call. */
+  stepNodeId: string;
+  /** That node's activity-diagram label ('' / the node id when no diagram is linked). */
+  stepLabel: string;
+  /** 1-based position of this call within its own step. */
+  callInStep: number;
+  /** Total calls authored on this step. */
+  callsInStep: number;
+  /** Alternative-group display label ("1a", "1b", …) — see realization.ts'
+   *  linearizeSteps/altLabelsForStep. Undefined for a step with no `alt`
+   *  calls at all; callers display `altLabel ?? String(seq)`. */
+  altLabel?: string;
+};
 
 /** A single dynamic call-chain view: ordered participants + sequenced edges. */
 export interface DynamicViewModel {
   title: string;
   participants: C4Component[];
-  edges: SequencedRelationship[];
+  persons: PersonView[];
+  edges: SequencedCall[];
+  /** Call endpoints resolving to neither a component nor a use-case actor, in
+   *  first-appearance order — surfaced rather than silently dropped. */
+  unresolved: string[];
 }
 
-const EMPTY_DYNAMIC_VIEW: DynamicViewModel = { title: '', participants: [], edges: [] };
+const EMPTY_DYNAMIC_VIEW: DynamicViewModel = {
+  title: '',
+  participants: [],
+  persons: [],
+  edges: [],
+  unresolved: [],
+};
 
 /** A pickable dynamic-view reference: its stable key + display title. */
 export interface DynamicViewRef {
@@ -352,11 +387,26 @@ export function listDynamicViews(
   }));
 }
 
+/** True when some call in the view's steps names componentId as an endpoint
+ *  (the step-keyed model carries no separate flat participant list — Task 8). */
+function viewCallsComponent(
+  view: NonNullable<System['dynamicViews']>[number],
+  componentId: string
+): boolean {
+  for (const step of view.steps ?? []) {
+    for (const call of step.calls ?? []) {
+      if (call.from === componentId || call.to === componentId) return true;
+    }
+  }
+  return false;
+}
+
 /**
- * Returns the subset of the System's dynamic views whose participant list includes
- * the given componentId (kebab-case, e.g. "web-client"). Empty when absent or when
- * no view includes the component. Labels carry the same blank-title fallback chain
- * as listDynamicViews (positional placeholders keep the view's ORIGINAL index).
+ * Returns the subset of the System's dynamic views whose calls reference the
+ * given componentId (kebab-case, e.g. "web-client") as an endpoint. Empty when
+ * absent or when no view includes the component. Labels carry the same
+ * blank-title fallback chain as listDynamicViews (positional placeholders keep
+ * the view's ORIGINAL index).
  */
 export function listDynamicViewsForComponent(
   envelope: ArtifactModelEnvelope | undefined,
@@ -368,7 +418,7 @@ export function listDynamicViewsForComponent(
   const nameById = indexUseCaseNames(narrow(useCasesEnvelope, 'coreUseCases'));
   return (model.dynamicViews ?? [])
     .map((v, i) => ({ v, i }))
-    .filter(({ v }) => (v.participants ?? []).includes(componentId))
+    .filter(({ v }) => viewCallsComponent(v, componentId))
     .map(({ v, i }) => ({ key: v.key, title: dynamicViewLabel(v, i, nameById) }));
 }
 
@@ -387,14 +437,38 @@ export function dynamicViewKeyForUseCase(
 }
 
 /**
- * Maps one named DynamicView of the System model into render-ready participants +
- * ordered, sequence-numbered edges. Participants are looked up against the full
- * component set (unknown ids are dropped); edges are numbered 1..n in declared
- * order. Absent system / missing key → an empty view.
+ * The inverse of dynamicViewKeyForUseCase: the id of the use case whose call
+ * chain the given dynamic view realizes — the join the Architecture step's
+ * dynamic lens uses to pair the chain with its activity diagram. Undefined when
+ * the system model is absent, the key is blank/unknown, or the view carries no
+ * back-link (a synthetic view); the lens then renders the chain alone.
+ */
+export function dynamicViewUseCaseId(
+  envelope: ArtifactModelEnvelope | undefined,
+  key: string
+): string | undefined {
+  return ownerUseCaseId(narrow(envelope, 'system'), key);
+}
+
+/**
+ * Maps one named DynamicView of the System model into a render-ready sequence:
+ * its calls linearized by DFS over the linked use case's activity graph (see
+ * realization.ts' linearizeSteps — kept in that leaf module, with its own unit
+ * tests, since it is the most complex logic here and adapters.ts' extensionless
+ * imports don't resolve under `node --test`), globally sequence-numbered here;
+ * participants are the System components referenced as a call endpoint
+ * (first-appearance order); persons are the use case's actors that appear as
+ * an endpoint (personParticipants); an endpoint resolving to NEITHER is never
+ * silently dropped — it is listed in `unresolved` (first-appearance order)
+ * instead. `useCasesEnvelope` supplies the activity graph + actors for the
+ * view's linked use case (absent → every step still renders, linearized in
+ * authored order, with no persons). Absent system / missing key → an empty
+ * view.
  */
 export function toDynamicView(
   envelope: ArtifactModelEnvelope | undefined,
-  key: string
+  key: string,
+  useCasesEnvelope?: ArtifactModelEnvelope
 ): DynamicViewModel {
   const model = narrow(envelope, 'system');
   if (model === undefined) return EMPTY_DYNAMIC_VIEW;
@@ -406,21 +480,42 @@ export function toDynamicView(
     byId.set(c.id, toC4Component(c));
   }
 
-  const participants = (view.participants ?? [])
-    .map((id) => byId.get(id))
-    .filter((c): c is C4Component => c !== undefined);
+  const decisions = narrow(useCasesEnvelope, 'coreUseCases')?.decisions ?? [];
+  const uc = decisions.find((d) => d.useCase.id === view.useCaseId)?.useCase;
 
-  const edges = (view.edges ?? []).map(
-    (r, i): SequencedRelationship => ({
-      from: r.from,
-      to: r.to,
-      mode: r.mode,
-      label: r.label,
-      seq: i + 1,
-    })
-  );
+  const linearized = linearizeSteps(view.steps, uc?.activity);
 
-  return { title: view.title, participants, edges };
+  const persons = personParticipants(model, uc);
+  const personIds = new Set(persons.map((p) => p.id));
+
+  const participants: C4Component[] = [];
+  const seenComponent = new Set<string>();
+  const unresolved: string[] = [];
+  const seenUnresolved = new Set<string>();
+
+  function noteEndpoint(id: string): void {
+    if (personIds.has(id)) return;
+    const comp = byId.get(id);
+    if (comp !== undefined) {
+      if (!seenComponent.has(id)) {
+        seenComponent.add(id);
+        participants.push(comp);
+      }
+      return;
+    }
+    if (!seenUnresolved.has(id)) {
+      seenUnresolved.add(id);
+      unresolved.push(id);
+    }
+  }
+
+  const edges = linearized.map((c, i): SequencedCall => {
+    noteEndpoint(c.from);
+    noteEndpoint(c.to);
+    return { ...c, seq: i + 1 };
+  });
+
+  return { title: view.title, participants, persons, edges, unresolved };
 }
 
 // ---------------------------------------------------------------------------

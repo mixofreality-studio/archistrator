@@ -4,15 +4,29 @@
 // designs/aiarch/implementation/contracts/constructionManager.md (C-MCN).
 //
 // This is the MANAGER layer. It OWNS Temporal: its public ops map to Temporal
-// primitives (Workflow / Signal / Query), it registers the nextActivity (30s) and
-// replanSweep (5m) Schedules at startup, defines one Activity per ResourceAccess
-// call, owns the Signal/Query handlers and the in-workflow primitives
-// (awaitSignal / startTimer / executeChild), and derives the idempotency key
+// primitives (Workflow / Signal / Query), it exposes RegisterSchedules — the
+// platform-wide pump-sweep (30s) and replanSweep (5m) Temporal Schedules,
+// registered via the messageBus Utility's registerSchedule verb, for the
+// composition root to call once at process start (Task 7c;
+// constructionManager.md §6.1) — defines one Activity per ResourceAccess call,
+// owns the Signal/Query handlers and the in-workflow primitives (awaitSignal /
+// startTimer / executeChild), and derives the idempotency key
 // "${workflowId}:${activityId}" passed down to each RA verb. Temporal lives ONLY
 // in this component; the downstream Engines (interventionEngine,
-// reviewEngine — pure, in-workflow, by value) and ResourceAccess ports
-// (projectStateAccess, artifactAccess, workerAccess, agenticJobAccess,
-// durableExecutionAccess) import no Temporal.
+// reviewEngine — pure, in-workflow, by value), the ResourceAccess ports
+// (projectStateAccess, artifactAccess, workerAccess, agenticJobAccess) and the
+// messageBus Utility import no Temporal.
+//
+// The pump-sweep Schedule targets PumpSweepWorkflow (pumpsweep.go), NOT
+// PumpNextActivityWorkflow directly: a Temporal Schedule's action carries a FIXED
+// workflow type + FIXED args on every firing (messagebus.go's RegisterSchedule),
+// so it cannot itself vary pumpInput.ProjectID per tick the way ExecuteNextActivity's
+// client-driven call does. PumpSweepWorkflow is the thin, platform-wide fan-out this
+// forces: it enumerates every construction-phase project (projectStateAccess.
+// listProjects) and starts (or, if a prior tick is still cascading, leaves alone)
+// that project's own PumpNextActivityWorkflow — which keeps every one of its
+// existing single-project semantics (self-cascade, pause gate, dispatch query)
+// unchanged.
 //
 // The FIVE frozen public ops (constructionManager.md §2):
 //   - ExecuteNextActivity — Workflow (entry; scheduler-triggered pump; per-activity child)
@@ -64,6 +78,7 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
+	"github.com/mixofreality-studio/archistrator/server/internal/utility/messagebus"
 )
 
 // constructionManager is the constructionManager façade — the concrete
@@ -105,6 +120,17 @@ type constructionManager struct {
 	// wfDeps.Repo (WorkerManifest).
 	repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool)
 
+	// messageBus (7b) is the generated messageBus Utility dep — the restricted
+	// Manager-only signal/schedule surface. Threaded into genActivities so the
+	// workflows can reach registerSchedule/deliverSignal through the generated
+	// invokers. Task 7c (landed 2026-08-01) added this Manager's RegisterSchedules
+	// (the pump tick and the replan sweep) plus the startup wiring — the
+	// composition root now threads the real messageBus.MessageBus here, exactly as
+	// it does for billing/operations (main.gen.go; CONSTRUCTION_DRYRUN gates only
+	// which Schedules that shared bus actually registers, via hooks.go's
+	// FinalizeMessageBus/dryRunConstructionScheduleGate).
+	messageBus messagebus.MessageBus
+
 	// designSession (B6) is the generated designSessionAccess dep. Since the B8
 	// follow-up it is CONSUMED by the workflows: the pump's whole-aggregate read rides
 	// the generated designSessionAccess.readProjectOnBranch invoker with branch ""
@@ -133,6 +159,7 @@ func newConstructionManager(
 	constructionTransition projectstate.ConstructionTransitionAccess,
 	gitActivityStatus projectstate.GitActivityStatusAccess,
 	designSession projectstate.DesignSessionAccess,
+	messageBus messagebus.MessageBus,
 	escalationWaitTimeout time.Duration,
 	interventionMode string,
 	repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool),
@@ -148,6 +175,7 @@ func newConstructionManager(
 		constructionTransition: constructionTransition,
 		gitActivityStatus:      gitActivityStatus,
 		designSession:          designSession,
+		messageBus:             messageBus,
 		escalationWaitTimeout:  escalationWaitTimeout,
 		interventionMode:       interventionMode,
 		repo:                   repo,
@@ -1244,6 +1272,26 @@ const (
 	// executionKindProjectSupervision is the long-lived project-level supervision
 	// workflow that hosts the operator-pause branch + project-level session Query.
 	executionKindProjectSupervision = "constructionProjectSupervision"
+	// executionKindPumpSweep is the Schedule-triggered, platform-wide fan-out
+	// (the 30s pump sweep; pumpsweep.go) — the actual Schedule target, since a
+	// Schedule cannot itself vary executionKindPump's ProjectID per firing.
+	executionKindPumpSweep = "constructionPumpSweep"
+)
+
+// Schedule ids + cadences (constructionManager.md §6.1; Task 7c). Namespaced with
+// the manager's own name (mirroring operations' "operations:operatedStateReconcile"
+// over billing's bare "shortfallSweep") since Schedule ids are namespace-global —
+// a manager-scoped prefix keeps two managers from ever colliding on one.
+const (
+	// scheduleIDPumpSweep is the platform-wide pump-sweep Schedule id.
+	scheduleIDPumpSweep = "construction:pumpSweep"
+	// pumpSweepIntervalSecs is the pump-sweep cadence — the single tunable knob.
+	pumpSweepIntervalSecs = 30
+
+	// scheduleIDReplanSweep is the platform-wide replan-sweep Schedule id.
+	scheduleIDReplanSweep = "construction:replanSweep"
+	// replanSweepIntervalSecs is the replan-sweep cadence (5m) — the single tunable knob.
+	replanSweepIntervalSecs = 5 * 60
 )
 
 // activityOptions returns the option-preset hook the generated invokers consult for the
@@ -1332,6 +1380,7 @@ func (m *constructionManager) WorkerManifest() genWorkerManifest {
 			{Name: executionKindConstructActivity, Fn: wf.ConstructActivityWorkflow},
 			{Name: executionKindReplanSweep, Fn: wf.ReplanSweepWorkflow},
 			{Name: executionKindProjectSupervision, Fn: wf.ProjectSupervisionWorkflow},
+			{Name: executionKindPumpSweep, Fn: wf.PumpSweepWorkflow},
 		},
 		ActivityOptions: optsHook,
 		Activities: genActivities{
@@ -1342,6 +1391,7 @@ func (m *constructionManager) WorkerManifest() genWorkerManifest {
 			ConstructionTransition: m.constructionTransition,
 			GitStatus:              m.gitActivityStatus,
 			DesignSession:          m.designSession,
+			MessageBus:             m.messageBus,
 		},
 	}
 }
@@ -1357,4 +1407,78 @@ func RegisterManagerWorker(w worker.Worker, m ConstructionManager) {
 		panic("construction: RegisterManagerWorker requires a *constructionManager from NewConstructionManager")
 	}
 	RegisterWorker(w, impl.WorkerManifest())
+}
+
+// ===========================================================================
+// messageBusSeam — mirrors billingManager's/operationsManager's narrow startup
+// seam (internal/utility/messagebus). ONLY the startup RegisterSchedule verb is
+// consumed here; the workflow-invoked category-B verbs (registerSchedule /
+// deliverSignal, reached through the generated invokers per Acts.MessageBus*)
+// already speak the real messagebus.MessageBus contract types directly and need
+// no adapter. The in-workflow primitives (awaitSignal / startTimer / executeChild)
+// are the Manager's OWN workflow code (D-DA category A), NOT bus verbs.
+// ===========================================================================
+
+// messageBusSeam is the Manager's consumer view for the STARTUP Schedule
+// registration only. UNEXPORTED; the folded adapter below bridges the published
+// messagebus.MessageBus to it.
+type messageBusSeam interface {
+	// RegisterSchedule registers (idempotently, by id) a recurring Schedule.
+	RegisterSchedule(ctx context.Context, spec scheduleSpec) error
+}
+
+// scheduleSpec mirrors messagebus.ScheduleSpec for the two Schedules this Manager
+// registers at startup. The composition root adapts the concrete utility.
+type scheduleSpec struct {
+	ID           string
+	WorkflowType string
+	TaskQueue    string
+	IntervalSecs int
+}
+
+// messageBusAdapter adapts the published messagebus.MessageBus onto messageBusSeam.
+// Only the startup RegisterSchedule verb is consumed (the published ScheduleSpec
+// resolves the task queue via its KindBinding table, so the seam's TaskQueue is not
+// threaded).
+type messageBusAdapter struct {
+	inner messagebus.MessageBus
+}
+
+var _ messageBusSeam = messageBusAdapter{}
+
+func (a messageBusAdapter) RegisterSchedule(ctx context.Context, spec scheduleSpec) error {
+	return a.inner.RegisterSchedule(
+		fwra.Context{Context: ctx},
+		messagebus.ScheduleID(spec.ID),
+		messagebus.ScheduleSpec{
+			ExecutionKind: messagebus.ExecutionKind(spec.WorkflowType),
+			Cadence:       messagebus.Cadence{Every: time.Duration(spec.IntervalSecs) * time.Second},
+		},
+	)
+}
+
+// RegisterSchedules registers (idempotently) the TWO platform-wide construction
+// Temporal Schedules at startup via the messageBus utility (constructionManager.md
+// §6.1; Task 7c): the pump sweep (30s — targets PumpSweepWorkflow, which fans out to
+// every construction-phase project's own PumpNextActivityWorkflow; see this file's
+// header + pumpsweep.go) and the replan sweep (5m — targets ReplanSweepWorkflow with
+// no ProjectID, its existing "sweep all in-flight projects" scope). Called once at
+// process start; a re-registration with the same id+spec is a harmless no-op
+// (last-writer-wins Update, messagebus.go).
+func RegisterSchedules(ctx context.Context, bus messagebus.MessageBus) error {
+	adapter := messageBusAdapter{inner: bus}
+	if err := adapter.RegisterSchedule(ctx, scheduleSpec{
+		ID:           scheduleIDPumpSweep,
+		WorkflowType: executionKindPumpSweep,
+		TaskQueue:    TaskQueue,
+		IntervalSecs: pumpSweepIntervalSecs,
+	}); err != nil {
+		return err
+	}
+	return adapter.RegisterSchedule(ctx, scheduleSpec{
+		ID:           scheduleIDReplanSweep,
+		WorkflowType: executionKindReplanSweep,
+		TaskQueue:    TaskQueue,
+		IntervalSecs: replanSweepIntervalSecs,
+	})
 }

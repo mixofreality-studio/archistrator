@@ -3590,6 +3590,37 @@ func wellFormedActivity() *projectstate.ActivityDiagram {
 	}
 }
 
+// eventEntryActivity has NO start node; its only entry is an edge-less timeEvent node
+// (tier parity with methodcheck's activityHasEntryAndAction, 2026-07-30
+// callchain-realization) -> action -> end. Acceptable.
+func eventEntryActivity() *projectstate.ActivityDiagram {
+	return &projectstate.ActivityDiagram{
+		Nodes: []projectstate.ActivityNode{
+			{ID: "n1", Kind: projectstate.NodeTimeEvent, Label: "midnight"},
+			{ID: "n2", Kind: projectstate.NodeAction, Label: "Do the thing"},
+			{ID: "n3", Kind: projectstate.NodeEnd},
+		},
+		Edges: []projectstate.ActivityEdge{
+			{From: "n1", To: "n2"},
+			{From: "n2", To: "n3"},
+		},
+	}
+}
+
+// eventNodeWithIncomingEdgeActivity has NO start node, and its only event node HAS an
+// incoming edge — it is mid-flow, not an entry — so it must NOT satisfy UC-ACT-PRESENT.
+func eventNodeWithIncomingEdgeActivity() *projectstate.ActivityDiagram {
+	return &projectstate.ActivityDiagram{
+		Nodes: []projectstate.ActivityNode{
+			{ID: "n1", Kind: projectstate.NodeAction, Label: "Do the thing"},
+			{ID: "n2", Kind: projectstate.NodeAcceptEvent, Label: "await message"},
+		},
+		Edges: []projectstate.ActivityEdge{
+			{From: "n1", To: "n2"},
+		},
+	}
+}
+
 // A use case with a null or structurally-empty activity produces exactly one ERROR
 // finding; a use case with a start + action diagram produces none.
 func Test_useCaseActivityFindings_FlagsMissingAndEmptyDiagrams(t *testing.T) {
@@ -3652,6 +3683,36 @@ func Test_useCaseActivityFindings_ScopedToCoreUseCasesKind(t *testing.T) {
 	ok := &projectstate.CoreUseCases{Decisions: []projectstate.UseCaseDecision{ucd("Capture", wellFormedActivity())}}
 	if got := useCaseActivityFindings(KindCoreUseCases, ok); got != nil {
 		t.Errorf("all-diagrammed draft must yield no findings, got %+v", got)
+	}
+}
+
+// Tier parity (2026-07-30 callchain-realization): an ENTRY is a start node OR an
+// edge-less timeEvent/acceptEvent node — mirrors methodcheck's
+// activityHasEntryAndAction (framework-go/methodcheck/rules_statevalidation.go).
+func Test_useCaseActivityFindings_EventEntryTierParity(t *testing.T) {
+	draft := &projectstate.CoreUseCases{Decisions: []projectstate.UseCaseDecision{
+		ucd("NightlySweep", eventEntryActivity()),                // event-only entry — acceptable
+		ucd("AwaitMessage", eventNodeWithIncomingEdgeActivity()), // event node HAS incoming edge — not an entry
+		ucd("Capture", wellFormedActivity()),                     // start-rooted — stays green
+	}}
+
+	findings := useCaseActivityFindings(KindCoreUseCases, draft)
+	if len(findings) != 1 {
+		t.Fatalf("expected exactly 1 ERROR finding (AwaitMessage's event node is not an entry), got %d: %+v", len(findings), findings)
+	}
+	f := findings[0]
+	if !strings.Contains(f.Message, "AwaitMessage") {
+		t.Errorf("finding must name use case AwaitMessage, got %q", f.Message)
+	}
+	if !strings.Contains(f.Message, "no entry") {
+		t.Errorf("finding must name the entry rule honestly, got %q", f.Message)
+	}
+	// findings has exactly 1 element (asserted above), already bound to f —
+	// no need to loop over findings again to check what it doesn't mention.
+	for _, name := range []string{"NightlySweep", "Capture"} {
+		if strings.Contains(f.Message, name) {
+			t.Errorf("use case %q must not be flagged; got %q", name, f.Message)
+		}
 	}
 }
 
@@ -8936,59 +8997,11 @@ func Test_relDup_LabelSplitWarning(t *testing.T) {
 	}
 }
 
-// ---- DV-CHAIN-CONNECTED ----
-
-func Test_dvChain_ConnectedClean(t *testing.T) {
-	sys := &projectstate.System{
-		Components: []projectstate.Component{
-			compE("web", "WebClient", projectstate.CompClient, projectstate.LayerClient, ""),
-			compE("mgr", "OrderManager", projectstate.CompManager, projectstate.LayerManager, "wf"),
-		},
-		DynamicViews: []projectstate.DynamicView{{
-			UseCaseID:    "uc1",
-			Participants: []string{"web", "mgr"},
-			Edges:        []projectstate.Relationship{rel("web", "mgr", projectstate.CallSync, "")},
-		}},
-	}
-	if f := dvChainFindings(KindSystem, sys); len(f) != 0 {
-		t.Fatalf("a connected client-rooted chain is clean, got: %+v", f)
-	}
-}
-
-func Test_dvChain_DisconnectedWarning(t *testing.T) {
-	sys := &projectstate.System{
-		Components: []projectstate.Component{
-			compE("web", "WebClient", projectstate.CompClient, projectstate.LayerClient, ""),
-			compE("mgr", "OrderManager", projectstate.CompManager, projectstate.LayerManager, "wf"),
-			compE("ra", "OrderAccess", projectstate.CompResourceAccess, projectstate.LayerResourceAccess, "store"),
-		},
-		DynamicViews: []projectstate.DynamicView{{
-			UseCaseID:    "uc1",
-			Participants: []string{"web", "mgr", "ra"},
-			Edges:        []projectstate.Relationship{rel("web", "mgr", projectstate.CallSync, "")},
-		}},
-	}
-	if !hasRule(dvChainFindings(KindSystem, sys), "DV-CHAIN-CONNECTED", SeverityWarning) {
-		t.Fatal("an unreachable participant must warn DV-CHAIN-CONNECTED")
-	}
-}
-
-func Test_dvChain_NoClientRootWarning(t *testing.T) {
-	sys := &projectstate.System{
-		Components: []projectstate.Component{
-			compE("mgr", "OrderManager", projectstate.CompManager, projectstate.LayerManager, "wf"),
-			compE("ra", "OrderAccess", projectstate.CompResourceAccess, projectstate.LayerResourceAccess, "store"),
-		},
-		DynamicViews: []projectstate.DynamicView{{
-			UseCaseID:    "uc1",
-			Participants: []string{"mgr", "ra"},
-			Edges:        []projectstate.Relationship{rel("mgr", "ra", projectstate.CallSync, "")},
-		}},
-	}
-	if !hasRule(dvChainFindings(KindSystem, sys), "DV-CHAIN-CONNECTED", SeverityWarning) {
-		t.Fatal("a chain with no client root must warn DV-CHAIN-CONNECTED")
-	}
-}
+// DV-CHAIN-CONNECTED and its tests (dvChainFindings) were RETIRED 2026-07-30
+// (callchain-realization Task 6): the rule duplicated — and, under the step-keyed
+// DynamicView shape, CONTRADICTED — platform methodcheck's CC-PATH-CONNECTED, which
+// also blesses actor-rooted (not just Client-rooted) chains. See
+// framework-go/methodcheck/rules_callchain.go.
 
 // ---- DV-TITLE-EMPTY (F10 gate lint) ----
 

@@ -46,6 +46,7 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usage"
+	"github.com/mixofreality-studio/archistrator/server/internal/utility/messagebus"
 	otelhttp "go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.temporal.io/sdk/client"
 	temporalotel "go.temporal.io/sdk/contrib/opentelemetry"
@@ -149,6 +150,12 @@ type Hooks interface {
 	// generated variant constructor call.
 	GitActivityStatusAccessGitLocalArgs(cfg *Config) string
 
+	// MessageBusTemporalArgs supplies the messageBus Temporal variant's constructor
+	// arguments the deployment model cannot express (composition-root ports /
+	// typed values). Read from cfg; the returned tuple is spread into the
+	// generated variant constructor call.
+	MessageBusTemporalArgs(cfg *Config) map[messagebus.ExecutionKind]messagebus.KindBinding
+
 	// ProjectStateAccessGitHubArgs supplies the projectStateAccess GitHub variant's constructor
 	// arguments the deployment model cannot express (composition-root ports /
 	// typed values). Read from cfg; the returned tuple is spread into the
@@ -208,6 +215,12 @@ type Hooks interface {
 	// composition policy needs to swap or wrap it (e.g. a construction
 	// dry-run stub swap-in) — the identity implementation is always correct.
 	FinalizeMerchantGatewayAccess(cfg *Config, v merchantgateway.MerchantGatewayAccess) merchantgateway.MerchantGatewayAccess
+
+	// FinalizeMessageBus is called immediately after messageBus's construction
+	// (presence required). Return v unchanged unless
+	// composition policy needs to swap or wrap it (e.g. a construction
+	// dry-run stub swap-in) — the identity implementation is always correct.
+	FinalizeMessageBus(cfg *Config, v messagebus.MessageBus) messagebus.MessageBus
 
 	// FinalizeOperatedRuntimeAccess is called immediately after operatedRuntimeAccess's construction
 	// (presence required). Return v unchanged unless
@@ -448,6 +461,18 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 	merchantGatewayAccess := merchantgateway.NewMerchantGatewayAccess()
 	logger.Info("merchantGatewayAccess (stub) ready")
 	merchantGatewayAccess = hooks.FinalizeMerchantGatewayAccess(cfg, merchantGatewayAccess)
+	var messageBus messagebus.MessageBus
+	switch profile {
+	case "cloud":
+		messageBus = messagebus.NewTemporalMessageBus(tc, hooks.MessageBusTemporalArgs(cfg))
+		logger.Info("messageBus (Temporal) ready")
+	case "local":
+		messageBus = messagebus.NewTemporalMessageBus(tc, hooks.MessageBusTemporalArgs(cfg))
+		logger.Info("messageBus (Temporal) ready")
+	default:
+		return errors.New("messageBus: no Utility variant for the active profile")
+	}
+	messageBus = hooks.FinalizeMessageBus(cfg, messageBus)
 	var operatedRuntimeAccess operatedruntime.OperatedRuntimeAccess
 	switch profile {
 	case "cloud":
@@ -535,7 +560,7 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 	reviewEngine := review.NewReviewEngine()
 
 	// Managers — generated DI constructors + one embedded Worker each.
-	billingManager := managerbilling.NewBillingManager(tc, billingStateAccess, usageAccess, merchantGatewayAccess, nil, billingEngine, interventionEngine, revenueLedgerAccess)
+	billingManager := managerbilling.NewBillingManager(tc, billingStateAccess, usageAccess, merchantGatewayAccess, messageBus, billingEngine, interventionEngine, revenueLedgerAccess)
 	wBillingManager := worker.New(tc, managerbilling.TaskQueue, worker.Options{})
 	managerbilling.RegisterManagerWorker(wBillingManager, billingManager)
 	if err := wBillingManager.Start(); err != nil {
@@ -543,7 +568,11 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 	}
 	defer wBillingManager.Stop()
 	logger.Info("embedded temporal worker started", "taskQueue", managerbilling.TaskQueue)
-	constructionManager := construction.NewConstructionManager(tc, projectStateAccess, artifactAccess, interventionEngine, reviewEngine, agenticJobAccess, sourceControlAccess, constructionTransitionAccess, gitActivityStatusAccess, designSessionAccess, hooks.ConstructionManagerEscalationWaitTimeout(), hooks.ConstructionManagerInterventionMode(), hooks.ConstructionManagerRepo())
+	if err := managerbilling.RegisterSchedules(ctx, messageBus); err != nil {
+		return err
+	}
+	logger.Info("billingManager Temporal Schedules registered")
+	constructionManager := construction.NewConstructionManager(tc, projectStateAccess, artifactAccess, interventionEngine, reviewEngine, agenticJobAccess, sourceControlAccess, constructionTransitionAccess, gitActivityStatusAccess, designSessionAccess, messageBus, hooks.ConstructionManagerEscalationWaitTimeout(), hooks.ConstructionManagerInterventionMode(), hooks.ConstructionManagerRepo())
 	if hooks.RegisterConstructionManagerWorker(cfg) {
 		wConstructionManager := worker.New(tc, construction.TaskQueue, worker.Options{})
 		construction.RegisterManagerWorker(wConstructionManager, constructionManager)
@@ -552,10 +581,14 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 		}
 		defer wConstructionManager.Stop()
 		logger.Info("embedded temporal worker started", "taskQueue", construction.TaskQueue)
+		if err := construction.RegisterSchedules(ctx, messageBus); err != nil {
+			return err
+		}
+		logger.Info("constructionManager Temporal Schedules registered")
 	} else {
 		logger.Warn("constructionManager Worker NOT registered — optional-dormant dependencies absent (RegisterConstructionManagerWorker gate returned false)")
 	}
-	operationsManager := operations.NewOperationsManager(tc, operatedSystemStateAccess, operatedRuntimeAccess, usageAccess, artifactAccess, nil, interventionEngine, autoscalerEngine, operationEstimationEngine)
+	operationsManager := operations.NewOperationsManager(tc, operatedSystemStateAccess, operatedRuntimeAccess, usageAccess, artifactAccess, messageBus, interventionEngine, autoscalerEngine, operationEstimationEngine)
 	if hooks.RegisterOperationsManagerWorker(cfg) {
 		wOperationsManager := worker.New(tc, operations.TaskQueue, worker.Options{})
 		operations.RegisterManagerWorker(wOperationsManager, operationsManager)
@@ -564,6 +597,10 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 		}
 		defer wOperationsManager.Stop()
 		logger.Info("embedded temporal worker started", "taskQueue", operations.TaskQueue)
+		if err := operations.RegisterSchedules(ctx, messageBus); err != nil {
+			return err
+		}
+		logger.Info("operationsManager Temporal Schedules registered")
 	} else {
 		logger.Warn("operationsManager Worker NOT registered — optional-dormant dependencies absent (RegisterOperationsManagerWorker gate returned false)")
 	}

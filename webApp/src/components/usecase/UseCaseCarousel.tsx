@@ -23,12 +23,20 @@ import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline';
-import { dynamicViewKeyForUseCase, toCoreUseCasesView } from '../../contracts/adapters';
-import type { ArtifactModelEnvelope } from '../../contracts/types';
+import {
+  dynamicViewKeyForUseCase,
+  toCoreUseCasesView,
+  toDynamicView,
+} from '../../contracts/adapters';
+import type { ArtifactModelEnvelope, Finding, System } from '../../contracts/types';
+import { realizationByNode } from '../../contracts/realization';
+import { findingsForUseCase, findingsForStep } from '../flow/useCaseFindings';
+import { useStructureFindings } from '../flow/StructureFindingsContext';
 import { StepLink } from '../shared/StepLink';
 import { ActivityFlow } from './ActivityFlow';
 import { UseCaseWalkthrough } from './UseCaseWalkthrough';
 import { coreBand } from './coreBand';
+import { realizationChip, isEligibleForRealization, toneColor } from './useCaseChip';
 import { laneColors } from './laneColors';
 
 // Diagram-view mode survives the design-experience remount that would otherwise
@@ -55,6 +63,10 @@ export function UseCaseCarousel({
 }): ReactNode {
   const t = useTokens();
   const { setAnchor, enabled } = useComments();
+  // Design-Health findings for the realization badges/chip — [] with no provider
+  // mounted or the health read unresolved, same defensive-empty contract every
+  // other StructureFindingsContext consumer relies on.
+  const structureFindings = useStructureFindings();
   const [i, setI] = useState(0);
   const [mode, setMode] = useState<UcViewMode>(viewMemory.mode);
   const useCases = toCoreUseCasesView(envelope).useCases;
@@ -78,6 +90,25 @@ export function UseCaseCarousel({
   // The use-case → architecture navigable join: the System dynamic view that
   // renders THIS use case's call chain, when one exists (undefined → no link).
   const callChainKey = dynamicViewKeyForUseCase(systemEnvelope, uc.id);
+  // Local narrow to the System model (adapters.ts' own `narrow` is private to
+  // that module) — same cast idiom, scoped to just the 'system' kind this needs.
+  const systemModel =
+    systemEnvelope?.kind === 'system' ? (systemEnvelope.model as System | undefined) : undefined;
+  // This use case's realized calls, keyed by activity node id — the walkthrough
+  // badges' and the roll-up chip's shared data source.
+  const realization = realizationByNode(systemModel, uc.id);
+  // Nodes a dynamic view is REQUIRED to realize — the chip's denominator.
+  const eligibleNodeIds = uc.nodes.filter((n) => isEligibleForRealization(n.kind)).map((n) => n.id);
+  const useCaseFindings = findingsForUseCase(structureFindings, uc.id, callChainKey);
+  const realizationSummary = realizationChip(realization, eligibleNodeIds, useCaseFindings);
+  const stepFindings = (nodeId: string): Finding[] =>
+    findingsForStep(structureFindings, callChainKey ?? '', nodeId);
+  // The linearized call chain, for the walkthrough's per-step "View call chain"
+  // join's 1-based global seq — only built when a call chain actually exists.
+  const dynamicModel =
+    callChainKey !== undefined ? toDynamicView(systemEnvelope, callChainKey, envelope) : undefined;
+  const firstSeqOfNode = (nodeId: string): number | undefined =>
+    dynamicModel?.edges.find((e) => e.stepNodeId === nodeId)?.seq;
   // A variation shares its parent's activity diagram; resolve the parent so the
   // no-diagram surface can name it and offer a jump instead of a generic blank.
   // Committed data carries the parent NAME (not the slug id), so match id OR exact
@@ -244,80 +275,97 @@ export function UseCaseCarousel({
         {/* meta sidebar — hidden in full-diagram mode (its facts move to the compact
             header strip so the canvas gets the whole row). */}
         {!fullDiagram && (
-        <Box
-          sx={{
-            width: { xs: '100%', md: 300 },
-            flexShrink: 0,
-            p: 3,
-            borderRight: { md: `1.5px solid ${t.line}` },
-            bgcolor: t.paperAlt,
-          }}
-        >
-          <Typography sx={{ color: t.muted }} variant="overline">
-            {isCore ? 'Core Use Case' : 'Variation'}
-          </Typography>
-          <Typography sx={{ color: t.ink, lineHeight: 1.1, mt: 0.5, mb: 1.5 }} variant="h4">
-            {uc.name}
-          </Typography>
-          <Chip
-            label={isCore ? 'CORE' : 'NON-CORE'}
-            size="small"
+          <Box
             sx={{
-              bgcolor: isCore ? t.committedBg : t.awaitingBg,
-              color: isCore ? t.committedFg : t.awaitingFg,
-              mb: 2,
+              width: { xs: '100%', md: 300 },
+              flexShrink: 0,
+              p: 3,
+              borderRight: { md: `1.5px solid ${t.line}` },
+              bgcolor: t.paperAlt,
             }}
-          />
-          {/* WHY this is core — the essence-of-the-business argument, symmetric to
-              the nonCore rejectionReason below. Absent on older states → no chrome. */}
-          {isCore && uc.essenceRationale.length > 0 ? (
-            <Typography
-              data-testid={UI_IDENTIFIERS.UseCaseCarousel.ESSENCE_RATIONALE}
-              sx={{ color: t.muted, fontSize: 13, lineHeight: 1.6, mb: 3 }}
-            >
-              {uc.essenceRationale}
+          >
+            <Typography sx={{ color: t.muted }} variant="overline">
+              {isCore ? 'Core Use Case' : 'Variation'}
             </Typography>
-          ) : null}
-          {!isCore && uc.rejectionReason.length > 0 && (
-            <Typography sx={{ color: t.muted, fontSize: 13, lineHeight: 1.6, mb: 3 }}>
-              {uc.rejectionReason}
+            <Typography sx={{ color: t.ink, lineHeight: 1.1, mt: 0.5, mb: 1.5 }} variant="h4">
+              {uc.name}
             </Typography>
-          )}
-          {/* Navigable join → this use case's call chain (the Architecture step's
-              Dynamic lens, preselected via ?view=). No dynamic view → no link. */}
-          {callChainKey !== undefined && (
-            <Box sx={{ mb: 2.5 }}>
-              <StepLink
-                kind="system"
-                label={`${uc.name} call chain`}
-                search={{ view: callChainKey }}
-                sx={{ fontFamily: t.mono, fontSize: 12 }}
-                testId={UI_IDENTIFIERS.UseCaseCarousel.CALL_CHAIN_LINK}
-              >
-                View call chain →
-              </StepLink>
-            </Box>
-          )}
-          <Typography sx={{ color: t.muted, mb: 1 }} variant="subtitle2">
-            SWIMLANES
-          </Typography>
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
-            {uc.lanes.map((l) => (
-              <Box key={l} sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-                <Box
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2, flexWrap: 'wrap' }}>
+              <Chip
+                label={isCore ? 'CORE' : 'NON-CORE'}
+                size="small"
+                sx={{
+                  bgcolor: isCore ? t.committedBg : t.awaitingBg,
+                  color: isCore ? t.committedFg : t.awaitingFg,
+                }}
+              />
+              {/* Realization roll-up ("N/M steps realized") — only meaningful once
+                  this use case owns a diagram to realize steps of. */}
+              {hasDiagram ? (
+                <Chip
+                  data-testid={UI_IDENTIFIERS.UseCaseCarousel.REALIZATION_CHIP}
+                  label={realizationSummary.label}
+                  size="small"
                   sx={{
-                    width: 11,
-                    height: 11,
-                    bgcolor: colors[l],
-                    border: `1.5px solid ${t.line}`,
-                    flexShrink: 0,
+                    bgcolor: 'transparent',
+                    color: toneColor(realizationSummary.tone, t),
+                    border: `1.5px solid ${toneColor(realizationSummary.tone, t)}`,
                   }}
                 />
-                <Typography sx={{ fontFamily: t.mono, fontSize: 12, color: t.ink }}>{l}</Typography>
+              ) : null}
+            </Box>
+            {/* WHY this is core — the essence-of-the-business argument, symmetric to
+              the nonCore rejectionReason below. Absent on older states → no chrome. */}
+            {isCore && uc.essenceRationale.length > 0 ? (
+              <Typography
+                data-testid={UI_IDENTIFIERS.UseCaseCarousel.ESSENCE_RATIONALE}
+                sx={{ color: t.muted, fontSize: 13, lineHeight: 1.6, mb: 3 }}
+              >
+                {uc.essenceRationale}
+              </Typography>
+            ) : null}
+            {!isCore && uc.rejectionReason.length > 0 && (
+              <Typography sx={{ color: t.muted, fontSize: 13, lineHeight: 1.6, mb: 3 }}>
+                {uc.rejectionReason}
+              </Typography>
+            )}
+            {/* Navigable join → this use case's call chain (the Architecture step's
+              Dynamic lens, preselected via ?view=). No dynamic view → no link. */}
+            {callChainKey !== undefined && (
+              <Box sx={{ mb: 2.5 }}>
+                <StepLink
+                  kind="system"
+                  label={`${uc.name} call chain`}
+                  search={{ view: callChainKey }}
+                  sx={{ fontFamily: t.mono, fontSize: 12 }}
+                  testId={UI_IDENTIFIERS.UseCaseCarousel.CALL_CHAIN_LINK}
+                >
+                  View call chain →
+                </StepLink>
               </Box>
-            ))}
+            )}
+            <Typography sx={{ color: t.muted, mb: 1 }} variant="subtitle2">
+              SWIMLANES
+            </Typography>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+              {uc.lanes.map((l) => (
+                <Box key={l} sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                  <Box
+                    sx={{
+                      width: 11,
+                      height: 11,
+                      bgcolor: colors[l],
+                      border: `1.5px solid ${t.line}`,
+                      flexShrink: 0,
+                    }}
+                  />
+                  <Typography sx={{ fontFamily: t.mono, fontSize: 12, color: t.ink }}>
+                    {l}
+                  </Typography>
+                </Box>
+              ))}
+            </Box>
           </Box>
-        </Box>
         )}
 
         {/* hero: walkthrough (choose-your-path) or the full diagram. When this use
@@ -379,10 +427,7 @@ export function UseCaseCarousel({
                       }}
                     >
                       {uc.lanes.map((l) => (
-                        <Box
-                          key={l}
-                          sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}
-                        >
+                        <Box key={l} sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                           <Box
                             sx={{
                               width: 10,
@@ -392,9 +437,7 @@ export function UseCaseCarousel({
                               flexShrink: 0,
                             }}
                           />
-                          <Typography
-                            sx={{ fontFamily: t.mono, fontSize: 11, color: t.muted }}
-                          >
+                          <Typography sx={{ fontFamily: t.mono, fontSize: 11, color: t.muted }}>
                             {l}
                           </Typography>
                         </Box>
@@ -445,7 +488,16 @@ export function UseCaseCarousel({
                 </ToggleButtonGroup>
               </Box>
               {mode === 'walkthrough' ? (
-                <UseCaseWalkthrough height={560} key={uc.id} uc={uc} useCaseIndex={active} />
+                <UseCaseWalkthrough
+                  callChainKey={callChainKey}
+                  firstSeqOfNode={firstSeqOfNode}
+                  height={560}
+                  key={uc.id}
+                  realization={realization}
+                  stepFindings={stepFindings}
+                  uc={uc}
+                  useCaseIndex={active}
+                />
               ) : (
                 <ActivityFlow height={580} uc={uc} useCaseIndex={active} />
               )}
