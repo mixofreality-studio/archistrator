@@ -7,6 +7,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+
+	"github.com/mixofreality-studio/archistrator/server/internal/manager/construction"
+	"github.com/mixofreality-studio/archistrator/server/internal/utility/messagebus"
 )
 
 // ---------------------------------------------------------------------------
@@ -299,5 +304,116 @@ func TestNewAppHooks_NoGithubAppCreds_DoesNotFirePartialWarning(t *testing.T) {
 	}
 	if !strings.Contains(got, "NOT configured") {
 		t.Fatalf("expected the repo-less \"NOT configured\" warning; got: %s", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// FinalizeMessageBus / dryRunConstructionScheduleGate — CONSTRUCTION_DRYRUN=true
+// must skip registering construction's own platform-wide Schedules (pump sweep /
+// replan sweep) while leaving billing/operations Schedule registration and every
+// DeliverSignal call unaffected.
+// ---------------------------------------------------------------------------
+
+// fakeMessageBus records every RegisterSchedule/DeliverSignal call it receives.
+// Satisfies messagebus.MessageBus.
+type fakeMessageBus struct {
+	scheduleCalls []messagebus.ScheduleSpec
+	signalCalls   int
+}
+
+func (b *fakeMessageBus) DeliverSignal(fwra.Context, messagebus.ExecutionID, messagebus.SignalName, messagebus.ExecutionPayload) error {
+	b.signalCalls++
+	return nil
+}
+
+func (b *fakeMessageBus) RegisterSchedule(_ fwra.Context, _ messagebus.ScheduleID, spec messagebus.ScheduleSpec) error {
+	b.scheduleCalls = append(b.scheduleCalls, spec)
+	return nil
+}
+
+var _ messagebus.MessageBus = (*fakeMessageBus)(nil)
+
+func TestFinalizeMessageBus_DryRun_SkipsConstructionSchedules(t *testing.T) {
+	cfg := &Config{ConstructionDryRun: true}
+	inner := &fakeMessageBus{}
+	h := &appHooks{logger: slog.New(slog.DiscardHandler)}
+
+	wrapped := h.FinalizeMessageBus(cfg, inner)
+
+	// The two construction kinds must be skipped (no delegation to inner).
+	if err := wrapped.RegisterSchedule(fwra.Context{}, "construction:pumpSweep", messagebus.ScheduleSpec{ExecutionKind: "constructionPumpSweep"}); err != nil {
+		t.Fatalf("RegisterSchedule(pumpSweep): %v", err)
+	}
+	if err := wrapped.RegisterSchedule(fwra.Context{}, "construction:replanSweep", messagebus.ScheduleSpec{ExecutionKind: "constructionReplanSweep"}); err != nil {
+		t.Fatalf("RegisterSchedule(replanSweep): %v", err)
+	}
+	if len(inner.scheduleCalls) != 0 {
+		t.Fatalf("expected construction schedules NOT registered under DRYRUN=true, got %d calls: %v", len(inner.scheduleCalls), inner.scheduleCalls)
+	}
+
+	// billing/operations kinds must still pass through.
+	if err := wrapped.RegisterSchedule(fwra.Context{}, "billing:shortfallSweep", messagebus.ScheduleSpec{ExecutionKind: "billingShortfallSweep"}); err != nil {
+		t.Fatalf("RegisterSchedule(billing): %v", err)
+	}
+	if err := wrapped.RegisterSchedule(fwra.Context{}, "operations:reconcile", messagebus.ScheduleSpec{ExecutionKind: "operationsReconcile"}); err != nil {
+		t.Fatalf("RegisterSchedule(operations): %v", err)
+	}
+	if len(inner.scheduleCalls) != 2 {
+		t.Fatalf("expected billing+operations schedules to register unaffected, got %d calls: %v", len(inner.scheduleCalls), inner.scheduleCalls)
+	}
+
+	// DeliverSignal must always pass through, regardless of dry-run.
+	if err := wrapped.DeliverSignal(fwra.Context{}, "wf-1", "sig", messagebus.ExecutionPayload{}); err != nil {
+		t.Fatalf("DeliverSignal: %v", err)
+	}
+	if inner.signalCalls != 1 {
+		t.Fatalf("expected DeliverSignal to pass through unaffected, got %d calls", inner.signalCalls)
+	}
+}
+
+func TestFinalizeMessageBus_NotDryRun_RegistersConstructionSchedules(t *testing.T) {
+	cfg := &Config{ConstructionDryRun: false}
+	inner := &fakeMessageBus{}
+	h := &appHooks{logger: slog.New(slog.DiscardHandler)}
+
+	wrapped := h.FinalizeMessageBus(cfg, inner)
+
+	// Identity: the raw inner value comes back, so construction schedules
+	// register normally.
+	if err := wrapped.RegisterSchedule(fwra.Context{}, "construction:pumpSweep", messagebus.ScheduleSpec{ExecutionKind: "constructionPumpSweep"}); err != nil {
+		t.Fatalf("RegisterSchedule(pumpSweep): %v", err)
+	}
+	if len(inner.scheduleCalls) != 1 {
+		t.Fatalf("expected construction schedules to register under DRYRUN=false, got %d calls", len(inner.scheduleCalls))
+	}
+}
+
+// constructionExecutionKinds must resolve to exactly the two kinds bound to
+// construction.TaskQueue in MessageBusTemporalArgs's table, staying in sync
+// automatically as that table evolves.
+func TestConstructionExecutionKinds_MatchesConstructionTaskQueue(t *testing.T) {
+	h := &appHooks{}
+	kinds := h.constructionExecutionKinds(&Config{})
+
+	want := map[messagebus.ExecutionKind]bool{
+		"constructionPumpSweep":   true,
+		"constructionReplanSweep": true,
+	}
+	if len(kinds) != len(want) {
+		t.Fatalf("got %d construction kinds, want %d: %v", len(kinds), len(want), kinds)
+	}
+	for k := range want {
+		if !kinds[k] {
+			t.Fatalf("expected construction kind %q in the set, got %v", k, kinds)
+		}
+	}
+
+	// Sanity: every kind resolved really does map to construction.TaskQueue in
+	// the underlying table (guards against the filter drifting from its intent).
+	table := h.MessageBusTemporalArgs(&Config{})
+	for k := range kinds {
+		if table[k].TaskQueue != construction.TaskQueue {
+			t.Fatalf("kind %q resolved with TaskQueue %q, want %q", k, table[k].TaskQueue, construction.TaskQueue)
+		}
 	}
 }

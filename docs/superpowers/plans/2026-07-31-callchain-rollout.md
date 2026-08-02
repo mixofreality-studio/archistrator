@@ -144,7 +144,7 @@ Wire `RegisterSchedules` (billing, operations, construction) at startup so the S
 
 **Procedure per batch (binding):** (1) system-architect agent authors the step→calls tables against activity nodes + static relationships (spec §6a sampled walks are the precedent; every component→component call must match a static `(from,to,mode)`; both-surface entries get alt groups; timer/busMessage entries root per CC-PATH-CONNECTED; no static-model surgery — an undrawable chain STOPS the task for founder escalation per the composable-design caution). (2) Implementer lands the JSON. (3) Gate loop; success criteria: ZERO CC findings for every realized view in the batch; designhealth green-fixture pins updated by computed delta (CC-COVERAGE count drops by the batch's eligible-node count; document the arithmetic). (4) Founder spot-check on the live QA stack is INVITED (stack stays up) but not blocking. Commit per batch: `systemDesign: realize <n> views — batch k/3 (design amendment)`.
 
-- [ ] Task 8 steps 1–4 as above. - [ ] Task 9 steps 1–4. - [ ] Task 10 steps 1–4 (after this: CC-COVERAGE pins reach ZERO; `TestGreenFixtureAdvisoriesFire` now asserts NO CC advisories at all).
+- [ ] Task 8 steps 1–4 as above. - [ ] Task 9 steps 1–4. - [ ] Task 10 steps 1–4 (after this: CC-COVERAGE pins reach ZERO; `TestGreenFixtureAdvisoriesFire` now asserts NO CC advisories at all). - [ ] EXIT: cross-Manager symmetry review (architect; book ch.3 "same call patterns across Managers"; report feeds the Task 11 founder gate).
 
 ---
 

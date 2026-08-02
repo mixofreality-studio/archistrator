@@ -123,9 +123,12 @@ type constructionManager struct {
 	// messageBus (7b) is the generated messageBus Utility dep — the restricted
 	// Manager-only signal/schedule surface. Threaded into genActivities so the
 	// workflows can reach registerSchedule/deliverSignal through the generated
-	// invokers. Task 7c adds this Manager's RegisterSchedules (the pump tick and the
-	// replan sweep) and the startup wiring; until then the composition root threads
-	// nil, exactly as it did for billing/operations before their schedules landed.
+	// invokers. Task 7c (landed 2026-08-01) added this Manager's RegisterSchedules
+	// (the pump tick and the replan sweep) plus the startup wiring — the
+	// composition root now threads the real messageBus.MessageBus here, exactly as
+	// it does for billing/operations (main.gen.go; CONSTRUCTION_DRYRUN gates only
+	// which Schedules that shared bus actually registers, via hooks.go's
+	// FinalizeMessageBus/dryRunConstructionScheduleGate).
 	messageBus messagebus.MessageBus
 
 	// designSession (B6) is the generated designSessionAccess dep. Since the B8

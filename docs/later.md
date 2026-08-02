@@ -108,8 +108,9 @@ log (session scratchpads; summarized in the final QA report).
   traverse them — decide at the NEXT slot-5 redraft: build the RA or re-route the
   work-item steps (earmark also carried on the work-item-tracker encapsulates).
 - dogfood DV-REL-COVERAGE residue: RETIRED for the pdm→sca gap (the callchain-realization
-  rollout's Task 11 symmetry align-up gave uc1 + replan-under-scope-change their own sca
-  rail calls — ProjectDesignManager→SourceControlAccess is realized now, not residue).
+  rollout's Task 11 symmetry align-up gave replan-under-scope-change its own sca rail calls —
+  ProjectDesignManager→SourceControlAccess is realized now, not residue; uc1's align-up calls
+  are SystemDesignManager→SourceControlAccess, a different relationship).
   What remains is a formal, gate-level exemption, not an accepted warning: every
   utility-targeted relationship (15 of the System's 16; the 16th is exercised) is exempt
   from DV-REL-COVERAGE's every-relationship-exercised requirement by construction
