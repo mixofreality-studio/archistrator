@@ -862,4 +862,15 @@ var encapsulationAllowlistData = map[string][]string{
 	"internal/resourceaccess/operatedsystemstate": {
 		"NewNoOpOperatedSystemStateAccess",
 	},
+	// SP1 capture-seam Task 3: episodeAccess's contract carries no `infra` binding, so
+	// both its variants are hand-written VARIANT CONSTRUCTORS (same category as
+	// agenticjob's NewLocalExecAgenticJobAccess / usage's NewNoOpUsageAccess above).
+	// NewLocalFSEpisodeAccess is the local-profile filesystem-backed sidecar store
+	// (<repoRoot>/.aiarch/traces/episodes.jsonl); NewNoOpEpisodeAccess is the permanent
+	// no-op fallback (episode capture is best-effort observability, not a contract the
+	// Manager's happy path depends on).
+	"internal/resourceaccess/episode": {
+		"NewLocalFSEpisodeAccess",
+		"NewNoOpEpisodeAccess",
+	},
 }

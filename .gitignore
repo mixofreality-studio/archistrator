@@ -34,3 +34,9 @@ server/cmd/server/webappdist/
 # Scratch/brainstorm output from the superpowers skill set — working notes, not
 # committed artifacts (nearly swept into a commit once).
 .superpowers/brainstorm/
+
+# SP1 capture-seam episodeAccess sidecar store (server/internal/resourceaccess/
+# episode/episodeaccess.go). The store directory writes its own self-ignoring
+# .aiarch/traces/.gitignore ("*\n") in every OPERATED repo, so this dogfood
+# entry is only needed here, in archistrator's own repo.
+/.aiarch/traces/
