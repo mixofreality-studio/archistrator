@@ -5947,25 +5947,29 @@
                     "from": "architect-user",
                     "to": "web-client",
                     "mode": "sync",
-                    "label": "opens the design experience"
+                    "label": "opens the design experience",
+                    "alt": "s1"
                   },
                   {
                     "from": "architect-user",
                     "to": "mcp-client",
                     "mode": "sync",
-                    "label": "drives design via the MCP surface (R4 cross-surface equivalence)"
+                    "label": "drives design via the MCP surface (R4 cross-surface equivalence)",
+                    "alt": "s1"
                   },
                   {
                     "from": "web-client",
                     "to": "system-design-manager",
                     "mode": "sync",
-                    "label": "startSystemDesign(projectId)"
+                    "label": "startSystemDesign(projectId)",
+                    "alt": "s2"
                   },
                   {
                     "from": "mcp-client",
                     "to": "system-design-manager",
                     "mode": "sync",
-                    "label": "startSystemDesign(projectId) — MCP surface, same Manager entry (R4 cross-surface equivalence)"
+                    "label": "startSystemDesign(projectId) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
+                    "alt": "s2"
                   },
                   {
                     "from": "system-design-manager",
@@ -6059,13 +6063,46 @@
                     "from": "architect-user",
                     "to": "web-client",
                     "mode": "sync",
-                    "label": "reviews the staged artifact; submits a review action"
+                    "label": "reviews the staged artifact; submits a review action",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "architect-user",
+                    "to": "mcp-client",
+                    "mode": "sync",
+                    "label": "reviews and submits the review action via the MCP surface (R4 cross-surface equivalence)",
+                    "alt": "s1"
                   },
                   {
                     "from": "web-client",
                     "to": "system-design-manager",
                     "mode": "sync",
-                    "label": "submitReviewDecision(projectId, artifactKind, decision, feedback?)"
+                    "label": "submitReviewDecision(projectId, artifactKind, decision, feedback?)",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "mcp-client",
+                    "to": "system-design-manager",
+                    "mode": "sync",
+                    "label": "submitReviewDecision(projectId, artifactKind, decision, feedback?) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
+                    "alt": "s2"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "decision",
+                "calls": [
+                  {
+                    "from": "system-design-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "readProjectOnBranch(projectId, sessionBranch) → staged draft + review thread (routing basis for the review action)"
+                  },
+                  {
+                    "from": "system-design-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "rejectArtifactOnBranchWithComments(projectId, kind, comments) — [send back change requests] arm: rejection recorded with feedback retained on the session branch"
                   }
                 ]
               },
@@ -6284,13 +6321,29 @@
                     "from": "architect-user",
                     "to": "web-client",
                     "mode": "sync",
-                    "label": "revokes the commitment within the grace window"
+                    "label": "revokes the commitment within the grace window",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "architect-user",
+                    "to": "mcp-client",
+                    "mode": "sync",
+                    "label": "revokes via the MCP surface (R4 cross-surface equivalence)",
+                    "alt": "s1"
                   },
                   {
                     "from": "web-client",
                     "to": "project-design-manager",
                     "mode": "sync",
-                    "label": "submitSDPDecision(revoke) — grace-window revocation"
+                    "label": "submitSDPDecision(revoke) — grace-window revocation",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "mcp-client",
+                    "to": "project-design-manager",
+                    "mode": "sync",
+                    "label": "submitSDPDecision(revoke) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
+                    "alt": "s2"
                   },
                   {
                     "from": "project-design-manager",
@@ -6428,13 +6481,29 @@
                     "from": "operator",
                     "to": "web-client",
                     "mode": "sync",
-                    "label": "picks up the escalated activity"
+                    "label": "picks up the escalated activity",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "operator",
+                    "to": "mcp-client",
+                    "mode": "sync",
+                    "label": "picks up the escalated activity via the MCP surface (R4 cross-surface equivalence)",
+                    "alt": "s1"
                   },
                   {
                     "from": "web-client",
                     "to": "construction-manager",
                     "mode": "sync",
-                    "label": "overrideActivity(activityId, resolution) — operator resolves or takes over"
+                    "label": "overrideActivity(activityId, resolution) — operator resolves or takes over",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "mcp-client",
+                    "to": "construction-manager",
+                    "mode": "sync",
+                    "label": "overrideActivity(activityId, resolution) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
+                    "alt": "s2"
                   }
                 ]
               },
@@ -6867,13 +6936,272 @@
             "useCaseId": "manage-projects",
             "key": "var-manage-projects",
             "title": "Manage Projects",
-            "steps": []
+            "steps": [
+              {
+                "activityNodeId": "prepare-repo",
+                "calls": [
+                  {
+                    "from": "architect-user",
+                    "to": "web-client",
+                    "mode": "sync",
+                    "label": "follows the onboarding ladder out of band (creates the repo with the project topic; installs the required GitHub Apps); opens Create Project",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "architect-user",
+                    "to": "mcp-client",
+                    "mode": "sync",
+                    "label": "prepares the repo and opens project creation via the MCP surface (R4 cross-surface equivalence)",
+                    "alt": "s1"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "submit-create",
+                "calls": [
+                  {
+                    "from": "web-client",
+                    "to": "system-design-manager",
+                    "mode": "sync",
+                    "label": "createProject(name, repo, operatingModel)",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "mcp-client",
+                    "to": "system-design-manager",
+                    "mode": "sync",
+                    "label": "createProject(name, repo, operatingModel) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
+                    "alt": "s2"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "adopt-repo",
+                "calls": [
+                  {
+                    "from": "system-design-manager",
+                    "to": "source-control-access",
+                    "mode": "sync",
+                    "label": "adoptProjectRepo(repo) → RepoRef — name-as-identity"
+                  },
+                  {
+                    "from": "system-design-manager",
+                    "to": "source-control-access",
+                    "mode": "sync",
+                    "label": "commitManagedFiles / syncManagedScaffold — seat the managed design workflow"
+                  },
+                  {
+                    "from": "source-control-access",
+                    "to": "github",
+                    "mode": "sync",
+                    "label": "adopt the per-project repo via the GitHub App installation; commit the managed workflow files"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "create-head-state",
+                "calls": [
+                  {
+                    "from": "system-design-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "createProject(projectId, adoptedRepo) → project head state"
+                  },
+                  {
+                    "from": "project-state-access",
+                    "to": "project-git-repo",
+                    "mode": "sync",
+                    "label": "commit guarded by git ref compare-and-swap"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "record-operated",
+                "calls": [
+                  {
+                    "from": "system-design-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "setOperatingModel(archistratorOperated) — record the platform-palette-only constraint"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "catalog-open",
+                "calls": [
+                  {
+                    "from": "architect-user",
+                    "to": "web-client",
+                    "mode": "sync",
+                    "label": "opens the project from the catalog",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "architect-user",
+                    "to": "mcp-client",
+                    "mode": "sync",
+                    "label": "opens the project via the MCP surface (R4 cross-surface equivalence)",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "web-client",
+                    "to": "system-design-manager",
+                    "mode": "sync",
+                    "label": "getProject(projectId) → cross-phase state — catalog listing via listProjects",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "mcp-client",
+                    "to": "system-design-manager",
+                    "mode": "sync",
+                    "label": "getProject(projectId) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "system-design-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "readProject / listProjects → catalog + cross-phase head state"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "capture-research",
+                "calls": [
+                  {
+                    "from": "architect-user",
+                    "to": "web-client",
+                    "mode": "sync",
+                    "label": "captures the research input as system design begins",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "architect-user",
+                    "to": "mcp-client",
+                    "mode": "sync",
+                    "label": "captures the research input via the MCP surface (R4 cross-surface equivalence)",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "web-client",
+                    "to": "system-design-manager",
+                    "mode": "sync",
+                    "label": "setResearchInput(projectId, researchInput)",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "mcp-client",
+                    "to": "system-design-manager",
+                    "mode": "sync",
+                    "label": "setResearchInput(projectId, researchInput) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "system-design-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "setResearchInput(projectId, researchInput) — persisted into head state"
+                  }
+                ]
+              }
+            ]
           },
           {
             "useCaseId": "retry-a-declined-service-invoice",
             "key": "var-retry-declined-invoice",
             "title": "Retry a Declined Service Invoice",
-            "steps": []
+            "steps": [
+              {
+                "activityNodeId": "charge-declined",
+                "calls": [
+                  {
+                    "from": "scheduler-client",
+                    "to": "billing-manager",
+                    "mode": "sync",
+                    "label": "runShortfallSweep — the cycle's settlement charge stands declined"
+                  },
+                  {
+                    "from": "billing-manager",
+                    "to": "billing-state-access",
+                    "mode": "sync",
+                    "label": "readPersistentlyDelinquentCustomers / readBilling → declined cycles awaiting retry"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "consult-policy",
+                "calls": [
+                  {
+                    "from": "billing-manager",
+                    "to": "intervention-engine",
+                    "mode": "sync",
+                    "label": "DecideOnBillingFailure(declinedCharge, retryHistory) → {Retry | Escalate | Delay}"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "recharge",
+                "calls": [
+                  {
+                    "from": "billing-manager",
+                    "to": "merchant-gateway-access",
+                    "mode": "sync",
+                    "label": "chargeCustomer(cycleCharge) — same settlement idempotency key settle:{customerId}:{cycleId}"
+                  },
+                  {
+                    "from": "merchant-gateway-access",
+                    "to": "merchant-gateway",
+                    "mode": "sync",
+                    "label": "charge (idempotent retry — same Stripe Idempotency-Key)"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "record-settled",
+                "calls": [
+                  {
+                    "from": "billing-manager",
+                    "to": "billing-state-access",
+                    "mode": "sync",
+                    "label": "resettleCycle(customerId, cycleId, chargeAmount, outcome=paid) — the declined cycle closes settled"
+                  },
+                  {
+                    "from": "billing-state-access",
+                    "to": "billing-state",
+                    "mode": "sync",
+                    "label": "guarded in-place update (version + applied_mutation dedup)"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "delay-sweep",
+                "calls": [
+                  {
+                    "from": "billing-manager",
+                    "to": "billing-state-access",
+                    "mode": "sync",
+                    "label": "record the sweep outcome — shortfall left for the next scheduled sweep (within tolerance)"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "escalate-delinquent",
+                "calls": [
+                  {
+                    "from": "billing-manager",
+                    "to": "billing-state-access",
+                    "mode": "sync",
+                    "label": "record persistent delinquency; escalate to a human (flag surfaces on the operations and billing views)"
+                  },
+                  {
+                    "from": "billing-manager",
+                    "to": "operations-manager",
+                    "mode": "queued",
+                    "label": "delivers applyDelinquencyPolicy (queued)"
+                  }
+                ]
+              }
+            ]
           },
           {
             "useCaseId": "onboard-a-new-customer",
@@ -6891,13 +7219,315 @@
             "useCaseId": "replan-under-scope-change",
             "key": "var-replan-scope-change",
             "title": "Replan Under Scope Change",
-            "steps": []
+            "steps": [
+              {
+                "activityNodeId": "replan-triggered",
+                "calls": [
+                  {
+                    "from": "construction-manager",
+                    "to": "project-design-manager",
+                    "mode": "queued",
+                    "label": "variance detected → trigger replan sweep (queued)"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "capture-trigger",
+                "calls": [
+                  {
+                    "from": "project-design-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "record the scope trigger (captured — never answered in the room)"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "snapshot",
+                "calls": [
+                  {
+                    "from": "project-design-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "readProject → activity exits, float consumed (construction continues against the current network)"
+                  },
+                  {
+                    "from": "project-design-manager",
+                    "to": "estimation-engine",
+                    "mode": "sync",
+                    "label": "ComputeEarnedValue → snapshot the earned-value trend at replan entry"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "back-to-design",
+                "calls": [
+                  {
+                    "from": "project-design-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "record the routing: not a scope change — returned to system design (architecture-change path)"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "reenter",
+                "calls": [
+                  {
+                    "from": "project-design-manager",
+                    "to": "agentic-job-access",
+                    "mode": "sync",
+                    "label": "re-dispatch the Phase-2 draft job at the affected step (assumptions | activities | network)"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "rebuild-options",
+                "calls": [
+                  {
+                    "from": "project-design-manager",
+                    "to": "estimation-engine",
+                    "mode": "sync",
+                    "label": "EstimateForOption(each rebuilt option) → {duration, buildCost, risk} — normal · decompressed · subcritical · compressed"
+                  },
+                  {
+                    "from": "project-design-manager",
+                    "to": "operation-estimation-engine",
+                    "mode": "sync",
+                    "label": "EstimateForOption(option, declaredUsageAssumptions, infrastructureKind) → {usageCostCurve}"
+                  },
+                  {
+                    "from": "project-design-manager",
+                    "to": "billing-engine",
+                    "mode": "sync",
+                    "label": "ProjectCommitTimeChargeAndComputeCost(option, terms) → revised commit-time projection"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "present",
+                "calls": [
+                  {
+                    "from": "architect-user",
+                    "to": "web-client",
+                    "mode": "sync",
+                    "label": "reviews the new SDP revision with deltas against the committed baseline",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "architect-user",
+                    "to": "mcp-client",
+                    "mode": "sync",
+                    "label": "reviews the SDP revision via the MCP surface (R4 cross-surface equivalence)",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "web-client",
+                    "to": "project-design-manager",
+                    "mode": "sync",
+                    "label": "requestSDPCommit(projectId) → revised SDP review with deltas",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "mcp-client",
+                    "to": "project-design-manager",
+                    "mode": "sync",
+                    "label": "requestSDPCommit(projectId) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "project-design-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "stage the revised SDP review (options + deltas) for the management decision"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "mgmt",
+                "calls": [
+                  {
+                    "from": "architect-user",
+                    "to": "web-client",
+                    "mode": "sync",
+                    "label": "submits the revision decision",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "architect-user",
+                    "to": "mcp-client",
+                    "mode": "sync",
+                    "label": "submits the revision decision via the MCP surface (R4 cross-surface equivalence)",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "web-client",
+                    "to": "project-design-manager",
+                    "mode": "sync",
+                    "label": "submitSDPDecision(projectId, revisionDecision: accept | reject | defer)",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "mcp-client",
+                    "to": "project-design-manager",
+                    "mode": "sync",
+                    "label": "submitSDPDecision(projectId, revisionDecision) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
+                    "alt": "s2"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "adopt",
+                "calls": [
+                  {
+                    "from": "project-design-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "commitOption(revisedOptionId) · recordSdpReviewOutcome(committed — revision adopted; planned earned-value curve reset)"
+                  },
+                  {
+                    "from": "project-state-access",
+                    "to": "project-git-repo",
+                    "mode": "sync",
+                    "label": "commit guarded by git ref compare-and-swap"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "record-reject",
+                "calls": [
+                  {
+                    "from": "project-design-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "recordSdpReviewOutcome(rejected) — the current commitment stands"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "flag-risk",
+                "calls": [
+                  {
+                    "from": "project-design-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "recordSdpReviewOutcome(deferred, decisionDate) — project flagged at-risk while deferred"
+                  }
+                ]
+              }
+            ]
           },
           {
             "useCaseId": "track-weekly-project-progress",
             "key": "var-track-weekly-progress",
             "title": "Track Weekly Project Progress",
-            "steps": []
+            "steps": [
+              {
+                "activityNodeId": "week-elapses",
+                "calls": [
+                  {
+                    "from": "architect-user",
+                    "to": "web-client",
+                    "mode": "sync",
+                    "label": "tracking week comes due; opens the weekly tracking view",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "architect-user",
+                    "to": "mcp-client",
+                    "mode": "sync",
+                    "label": "opens the weekly tracking view via the MCP surface (R4 cross-surface equivalence)",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "web-client",
+                    "to": "system-design-manager",
+                    "mode": "sync",
+                    "label": "getProject(projectId) → weekly tracking read model",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "mcp-client",
+                    "to": "system-design-manager",
+                    "mode": "sync",
+                    "label": "getProject(projectId) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
+                    "alt": "s2"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "read-exits",
+                "calls": [
+                  {
+                    "from": "system-design-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "readProject → binary activity exits + phase transitions (activityConstruction ledger)"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "compute-ev",
+                "calls": [
+                  {
+                    "from": "system-design-manager",
+                    "to": "estimation-engine",
+                    "mode": "sync",
+                    "label": "ComputeEarnedValue(exits, committedNetwork) → the week's earned-value point (compute-at-read)"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "project-eac",
+                "calls": [
+                  {
+                    "from": "system-design-manager",
+                    "to": "estimation-engine",
+                    "mode": "sync",
+                    "label": "ComputeEarnedValue → estimate-at-completion + schedule trend (four or more recorded points)"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "no-trend",
+                "calls": [
+                  {
+                    "from": "system-design-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "record the week's point without a trend (fewer than four points — no EAC projected)"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "record-point",
+                "calls": [
+                  {
+                    "from": "system-design-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "append the tracking point (EV, EAC, trend) to the durable progress record"
+                  },
+                  {
+                    "from": "project-state-access",
+                    "to": "project-git-repo",
+                    "mode": "sync",
+                    "label": "commit guarded by git ref compare-and-swap"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "corrective",
+                "calls": [
+                  {
+                    "from": "system-design-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "record corrective action / scope-change replan trigger (picked up by the construction replan sweep)"
+                  }
+                ]
+              }
+            ]
           },
           {
             "useCaseId": "view-the-project-state-log",

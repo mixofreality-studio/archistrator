@@ -5042,11 +5042,12 @@ func TestSystem_StringEnums_CamelCase(t *testing.T) {
 
 // decodeCommittedProject reads and decodes THIS repo's own committed
 // .aiarch/state/project.json — shared by the tolerant-decode regressions below, each
-// of which needs the same live fixture (16 realized/reshaped dynamic views; the
-// Task-8 batch-1 design amendment (2026-08-01) put explicit TraceCall.Alt values
-// on 12 of the calls across uc2/uc4's both-surface entry steps — see
-// wantAltTally below; the Task-7 design amendment (2026-08-01) put explicit
-// ActivityNode.DecidedBy values on 24 of the 37 decision nodes — see
+// of which needs the same live fixture (16 realized dynamic views; the Task-8
+// batch-1 design amendment (2026-08-01) put explicit TraceCall.Alt values on 12
+// of the calls across uc2/uc4's both-surface entry steps, and the Task-9 batch-2
+// design amendment (2026-08-01) grew that to 52 — see wantAltTally below; the
+// Task-7 design amendment (2026-08-01) put explicit ActivityNode.DecidedBy
+// values on 24 of the 37 decision nodes — see
 // TestCommittedProjectJSON_ActivityNodes_DecidedBySplit).
 func decodeCommittedProject(t *testing.T) Project {
 	t.Helper()
@@ -5066,39 +5067,93 @@ func decodeCommittedProject(t *testing.T) Project {
 }
 
 // altCallKey identifies one TraceCall within one dynamic-view step by its
-// (view, step, from, to) — unique within every step authored so far, batch-1
-// included (no step repeats a (from,to) pair).
+// (view, step, from, to). The true invariant is uniqueness among
+// ALT-CARRYING calls only: every (view, step, from, to) that appears as a key
+// in wantAltTally below is unique, which is all wantAltTally's lookup needs.
+// It is NOT true that no step repeats a (from,to) pair outside an alt group —
+// six committed steps legitimately do (uc1-drive-system-design's new
+// `decision` step reads then rejects on the same sdm->psa edge;
+// uc2-commit-project-option's `commit-option`; uc3-execute-construction-
+// activity's `activity-eligible`, `dispatch-job`, and `record-review-merge`;
+// var-manage-projects' new `adopt-repo`, which adopts then seats the repo on
+// the same sdm->sca edge) — none of those repeated pairs carries an alt tag,
+// so they never collide in wantAltTally.
 type altCallKey struct {
 	view, step, from, to string
 }
 
-// wantAltTally is the Task-8 architect spec's §2a/§2c alt-group authoring,
-// value-keyed exactly like wantDecidedByTally below: the both-surface entry
-// steps of uc2-commit-project-option (await-decision, review-options) and
-// uc4-operate-delivered-system (publish-trigger) pair the actor->Client leg
-// ("s1") with the Client->Manager leg ("s2") per the Task-5 alt-group
-// contract. Every other committed call carries no alt tag.
+// wantAltTally is the Task-8 architect spec's §2a/§2c alt-group authoring
+// (batch 1: uc2-commit-project-option await-decision/review-options,
+// uc4-operate-delivered-system publish-trigger — 12 entries), extended by the
+// Task-9 architect spec's §3a/§3b/§3c/§4 batch-2 authoring (uc1's
+// read-prior-models + human-gate retrofit, uc2's revoke patch (Ruling A1),
+// uc3's escalate-operator patch (Ruling A3), and the four newly realized
+// views' both-surface entry steps — +40 entries, 52 total), value-keyed
+// exactly like wantDecidedByTally below: every both-surface entry step pairs
+// the actor->Client leg ("s1") with the Client->Manager leg ("s2") per the
+// Task-5 alt-group contract. Every other committed call carries no alt tag.
 var wantAltTally = map[altCallKey]string{
-	{"uc2-commit-project-option", "await-decision", "architect-user", "web-client"}:         "s1",
-	{"uc2-commit-project-option", "await-decision", "architect-user", "mcp-client"}:         "s1",
-	{"uc2-commit-project-option", "await-decision", "web-client", "project-design-manager"}: "s2",
-	{"uc2-commit-project-option", "await-decision", "mcp-client", "project-design-manager"}: "s2",
-	{"uc2-commit-project-option", "review-options", "architect-user", "web-client"}:         "s1",
-	{"uc2-commit-project-option", "review-options", "architect-user", "mcp-client"}:         "s1",
-	{"uc2-commit-project-option", "review-options", "web-client", "project-design-manager"}: "s2",
-	{"uc2-commit-project-option", "review-options", "mcp-client", "project-design-manager"}: "s2",
-	{"uc4-operate-delivered-system", "publish-trigger", "operator", "web-client"}:           "s1",
-	{"uc4-operate-delivered-system", "publish-trigger", "operator", "mcp-client"}:           "s1",
-	{"uc4-operate-delivered-system", "publish-trigger", "web-client", "operations-manager"}: "s2",
-	{"uc4-operate-delivered-system", "publish-trigger", "mcp-client", "operations-manager"}: "s2",
+	{"uc2-commit-project-option", "await-decision", "architect-user", "web-client"}:                  "s1",
+	{"uc2-commit-project-option", "await-decision", "architect-user", "mcp-client"}:                  "s1",
+	{"uc2-commit-project-option", "await-decision", "web-client", "project-design-manager"}:          "s2",
+	{"uc2-commit-project-option", "await-decision", "mcp-client", "project-design-manager"}:          "s2",
+	{"uc2-commit-project-option", "review-options", "architect-user", "web-client"}:                  "s1",
+	{"uc2-commit-project-option", "review-options", "architect-user", "mcp-client"}:                  "s1",
+	{"uc2-commit-project-option", "review-options", "web-client", "project-design-manager"}:          "s2",
+	{"uc2-commit-project-option", "review-options", "mcp-client", "project-design-manager"}:          "s2",
+	{"uc4-operate-delivered-system", "publish-trigger", "operator", "web-client"}:                    "s1",
+	{"uc4-operate-delivered-system", "publish-trigger", "operator", "mcp-client"}:                    "s1",
+	{"uc4-operate-delivered-system", "publish-trigger", "web-client", "operations-manager"}:          "s2",
+	{"uc4-operate-delivered-system", "publish-trigger", "mcp-client", "operations-manager"}:          "s2",
+	{"uc1-drive-system-design", "read-prior-models", "architect-user", "web-client"}:                 "s1",
+	{"uc1-drive-system-design", "read-prior-models", "architect-user", "mcp-client"}:                 "s1",
+	{"uc1-drive-system-design", "read-prior-models", "web-client", "system-design-manager"}:          "s2",
+	{"uc1-drive-system-design", "read-prior-models", "mcp-client", "system-design-manager"}:          "s2",
+	{"uc1-drive-system-design", "human-gate", "architect-user", "web-client"}:                        "s1",
+	{"uc1-drive-system-design", "human-gate", "architect-user", "mcp-client"}:                        "s1",
+	{"uc1-drive-system-design", "human-gate", "web-client", "system-design-manager"}:                 "s2",
+	{"uc1-drive-system-design", "human-gate", "mcp-client", "system-design-manager"}:                 "s2",
+	{"uc2-commit-project-option", "revoke", "architect-user", "web-client"}:                          "s1",
+	{"uc2-commit-project-option", "revoke", "architect-user", "mcp-client"}:                          "s1",
+	{"uc2-commit-project-option", "revoke", "web-client", "project-design-manager"}:                  "s2",
+	{"uc2-commit-project-option", "revoke", "mcp-client", "project-design-manager"}:                  "s2",
+	{"uc3-execute-construction-activity", "escalate-operator", "operator", "web-client"}:             "s1",
+	{"uc3-execute-construction-activity", "escalate-operator", "operator", "mcp-client"}:             "s1",
+	{"uc3-execute-construction-activity", "escalate-operator", "web-client", "construction-manager"}: "s2",
+	{"uc3-execute-construction-activity", "escalate-operator", "mcp-client", "construction-manager"}: "s2",
+	{"var-manage-projects", "prepare-repo", "architect-user", "web-client"}:                          "s1",
+	{"var-manage-projects", "prepare-repo", "architect-user", "mcp-client"}:                          "s1",
+	{"var-manage-projects", "submit-create", "web-client", "system-design-manager"}:                  "s2",
+	{"var-manage-projects", "submit-create", "mcp-client", "system-design-manager"}:                  "s2",
+	{"var-manage-projects", "catalog-open", "architect-user", "web-client"}:                          "s1",
+	{"var-manage-projects", "catalog-open", "architect-user", "mcp-client"}:                          "s1",
+	{"var-manage-projects", "catalog-open", "web-client", "system-design-manager"}:                   "s2",
+	{"var-manage-projects", "catalog-open", "mcp-client", "system-design-manager"}:                   "s2",
+	{"var-manage-projects", "capture-research", "architect-user", "web-client"}:                      "s1",
+	{"var-manage-projects", "capture-research", "architect-user", "mcp-client"}:                      "s1",
+	{"var-manage-projects", "capture-research", "web-client", "system-design-manager"}:               "s2",
+	{"var-manage-projects", "capture-research", "mcp-client", "system-design-manager"}:               "s2",
+	{"var-track-weekly-progress", "week-elapses", "architect-user", "web-client"}:                    "s1",
+	{"var-track-weekly-progress", "week-elapses", "architect-user", "mcp-client"}:                    "s1",
+	{"var-track-weekly-progress", "week-elapses", "web-client", "system-design-manager"}:             "s2",
+	{"var-track-weekly-progress", "week-elapses", "mcp-client", "system-design-manager"}:             "s2",
+	{"var-replan-scope-change", "present", "architect-user", "web-client"}:                           "s1",
+	{"var-replan-scope-change", "present", "architect-user", "mcp-client"}:                           "s1",
+	{"var-replan-scope-change", "present", "web-client", "project-design-manager"}:                   "s2",
+	{"var-replan-scope-change", "present", "mcp-client", "project-design-manager"}:                   "s2",
+	{"var-replan-scope-change", "mgmt", "architect-user", "web-client"}:                              "s1",
+	{"var-replan-scope-change", "mgmt", "architect-user", "mcp-client"}:                              "s1",
+	{"var-replan-scope-change", "mgmt", "web-client", "project-design-manager"}:                      "s2",
+	{"var-replan-scope-change", "mgmt", "mcp-client", "project-design-manager"}:                      "s2",
 }
 
 // TestCommittedProjectJSON_DynamicViewCalls_Alt is the tolerant-decode regression
 // for TraceCall.Alt (rollout rulings 2026-07-31), extended by Task 8 (2026-08-01)
-// to pin the VALUES batch-1 actually authored rather than only asserting absence:
-// a call that never mentions "alt" must decode EXACTLY as it did before the field
-// existed (Alt reads back nil, not a zero-value string standing in for absence),
-// and a call that IS one of wantAltTally's 12 batch-1 entries must decode to
+// to pin the VALUES batch-1 actually authored, and by Task 9 (2026-08-01) to
+// extend the pin over batch-2's additions, rather than only asserting absence:
+// a call that never mentions "alt" must decode EXACTLY as it did before the
+// field existed (Alt reads back nil, not a zero-value string standing in for
+// absence), and a call that IS one of wantAltTally's 52 entries must decode to
 // exactly its authored group value.
 func TestCommittedProjectJSON_DynamicViewCalls_Alt(t *testing.T) {
 	proj := decodeCommittedProject(t)
@@ -5121,7 +5176,7 @@ func TestCommittedProjectJSON_DynamicViewCalls_Alt(t *testing.T) {
 				if !isAltGroup {
 					if call.Alt != nil {
 						t.Fatalf("dynamic view %q step %q: call %+v decoded a non-nil Alt outside "+
-							"the authored batch-1 alt groups — tolerant decode or authoring regressed",
+							"the authored alt groups — tolerant decode or authoring regressed",
 							dv.Key, step.ActivityNodeID, call)
 					}
 					continue
