@@ -14,6 +14,7 @@ require (
 	go.temporal.io/api v1.62.12
 	go.temporal.io/sdk v1.44.0
 	go.temporal.io/sdk/contrib/opentelemetry v0.7.0
+	golang.org/x/tools v0.43.0
 )
 
 require (
@@ -111,7 +112,6 @@ require (
 	golang.org/x/crypto v0.50.0 // indirect
 	golang.org/x/mod v0.34.0 // indirect
 	golang.org/x/oauth2 v0.35.0 // indirect
-	golang.org/x/tools v0.43.0 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 )
 
@@ -158,3 +158,11 @@ replace github.com/mixofreality-studio/archistrator-platform/framework-go => ../
 // signatures and NO Temporal implementation. The post-QA rollout releases
 // framework-go-app-generator and swaps this for a version pin.
 replace github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator => ../../archistrator-platform/framework-go-app-generator
+
+// PoC-TEMPORARY (callchain-realization): materialize the step-keyed realization
+// doctrine into .claude before method-assets is released. `make claude-assets`
+// renders the prompt surface from this module, so the pinned v0.1.8 would seat
+// the pre-rollout doctrine (flat edge lists, back-populate linkedComp, "exactly
+// one start node"). The post-QA rollout releases method-assets and swaps this
+// for a version pin.
+replace github.com/mixofreality-studio/archistrator-platform/method-assets => ../../archistrator-platform/method-assets
