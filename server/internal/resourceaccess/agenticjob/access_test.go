@@ -45,6 +45,7 @@ package agenticjob
 //     U19 dedupToken determinism; mapPhase table; handle round-trip.
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -886,28 +887,37 @@ func TestDedupTokenDeterminism(t *testing.T) {
 // test fixtures: a real throwaway bare git repo + a `claude` PATH shim.
 // ---------------------------------------------------------------------------
 
-// newBareRepo creates a real bare git repo seeded with one empty commit on
-// "main" — the local-executor's clone SOURCE, mirroring
+// newBareRepo creates the real throwaway SHARED repo the local executor operates
+// `git worktree` on, seeded with one empty commit on "main". Mirrors
 // systemtests/internal/harness/localgit.go's StartLocalGitRepo but reimplemented
 // here (this test lives in the server module; the harness module is a sibling
 // the RA layer must not import).
-func newBareRepo(t *testing.T) (bareDir, url string) {
+//
+// NON-BARE, deliberately (SP1 capture seam, Task 5): the per-episode trace sink
+// is <repoPath>/.aiarch/traces, and THE TRUST RULE
+// (assertTraceSinkOutsideGitDir) refuses to dispatch when that falls inside the
+// agent-writable gitDir — which is exactly what a BARE shared repo produces
+// (gitDir == repoPath). A non-bare checkout puts gitDir at <repoPath>/.git, so
+// the sink sits outside it. The genuinely-bare configuration keeps its own
+// fixture (newBareOnlyRepo) and its own refusal proof (TR4).
+//
+// HEAD is left DETACHED so no branch is checked out in the shared repo: the seed
+// helpers below clone it and push main / activity branches back, and git refuses
+// to update a branch that some working tree has checked out.
+func newBareRepo(t *testing.T) (repoDir, url string) {
 	t.Helper()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not on PATH; skipping local-executor proof")
 	}
 	root := t.TempDir()
-	bare := filepath.Join(root, "remote.git")
-	testGit(t, "", "init", "--bare", "--initial-branch=main", bare)
+	shared := filepath.Join(root, "shared")
+	testGit(t, "", "init", "--initial-branch=main", shared)
+	testGit(t, shared, "config", "user.email", "seed@aiarch.local")
+	testGit(t, shared, "config", "user.name", "seed")
+	testGit(t, shared, "commit", "--allow-empty", "-m", "seed")
+	testGit(t, shared, "checkout", "--detach")
 
-	seed := filepath.Join(root, "seed")
-	testGit(t, "", "clone", bare, seed)
-	testGit(t, seed, "config", "user.email", "seed@aiarch.local")
-	testGit(t, seed, "config", "user.name", "seed")
-	testGit(t, seed, "commit", "--allow-empty", "-m", "seed")
-	testGit(t, seed, "push", "origin", "main")
-
-	return bare, "file://" + bare
+	return shared, "file://" + shared
 }
 
 // remoteBranchExists reports whether branch exists on the bare repo.
@@ -1357,7 +1367,7 @@ func TestLocalExecSubmit_HappyPath_SpawnsClaudeWithCorrectShapeAndPushesCommit(t
 	// dir AND the shared repo's git dir (worktree commits write .git/worktrees
 	// metadata + shared objects/refs — the founder-accepted isolation tradeoff).
 	sandboxCfg := assertSandboxSettingsEnvelope(t, capture, 0)
-	assertSandboxFilesystemAllowWrite(t, sandboxCfg, pwd, bareDir)
+	assertSandboxFilesystemAllowWrite(t, sandboxCfg, pwd, filepath.Join(bareDir, ".git"))
 
 	// Env allowlist (Fix-subagent Task 6 + USER/LOGNAME for claude subscription auth):
 	// EXACTLY PATH/HOME/TERM/USER/LOGNAME + the six AIARCH_* rig vars cross into the
@@ -1447,7 +1457,10 @@ func assertClaudeArgsShape(t *testing.T, args, promptLine string) {
 		"--settings",
 		"--mcp-config",
 		"--strict-mcp-config",
-		"--output-format\njson",
+		// SP1 capture seam (Task 5): the EVENT STREAM, not the single-object
+		// result. --verbose is required alongside it in headless (-p) mode.
+		"--output-format\nstream-json",
+		"--verbose",
 		promptLine,
 	} {
 		if !strings.Contains(args, want) {
@@ -1539,12 +1552,17 @@ func assertSandboxFilesystemAllowWrite(t *testing.T, s sandboxConfigJSON, worktr
 	if s.Filesystem == nil || len(s.Filesystem.AllowWrite) == 0 {
 		t.Fatalf("sandbox settings: missing filesystem.allowWrite (worktree mode needs the worktree dir + the shared repo's git dir writable): %+v", s)
 	}
+	// Compared by the last TWO path elements ("<repoDirName>/.git"): macOS spells
+	// the same temp dir /var/… and /private/var/…, so a full-string comparison
+	// would fail on spelling alone, while a bare ".git" basename would match any
+	// git dir at all.
+	wantGitDirSuffix := filepath.Join(filepath.Base(filepath.Dir(repoGitDir)), filepath.Base(repoGitDir))
 	var haveWorktree, haveGitDir bool
 	for _, p := range s.Filesystem.AllowWrite {
 		if filepath.Base(p) == filepath.Base(worktreePWD) {
 			haveWorktree = true
 		}
-		if strings.HasSuffix(p, filepath.Base(repoGitDir)) {
+		if strings.HasSuffix(p, wantGitDirSuffix) {
 			haveGitDir = true
 		}
 	}
@@ -1552,7 +1570,7 @@ func assertSandboxFilesystemAllowWrite(t *testing.T, s sandboxConfigJSON, worktr
 		t.Fatalf("sandbox filesystem.allowWrite %v missing the worktree dir (basename %q)", s.Filesystem.AllowWrite, filepath.Base(worktreePWD))
 	}
 	if !haveGitDir {
-		t.Fatalf("sandbox filesystem.allowWrite %v missing the shared repo's git dir (suffix %q)", s.Filesystem.AllowWrite, filepath.Base(repoGitDir))
+		t.Fatalf("sandbox filesystem.allowWrite %v missing the shared repo's git dir (suffix %q)", s.Filesystem.AllowWrite, wantGitDirSuffix)
 	}
 }
 
@@ -1976,18 +1994,22 @@ func TestLocalExecObserve_NoCommit_NonJSONStdoutFallsBackToRawTail(t *testing.T)
 	}
 }
 
-// LX-OBS3 — the bounded clause is lossy BY DESIGN, so the full output must land
-// somewhere durable: a log dir that survives the run's own temp-dir cleanup.
+// LX-OBS3 (+ TR6) — the bounded clause is lossy BY DESIGN, so the full output
+// must land somewhere durable that survives the run's own temp-dir cleanup.
+// Since the SP1 capture seam the full stdout lives in the per-episode TRACE file
+// under the shared repo, so the log dir records its PATH rather than duplicating
+// it; stderr is still kept verbatim there.
 func TestLocalExecFailedRun_WritesDurableOutputLogThatSurvivesCleanup(t *testing.T) {
 	tmp := isolatedTempDir(t)
-	bareDir, url := newBareRepo(t)
+	repoDir, url := newBareRepo(t)
 	installClaudeShim(t, "#!/bin/sh\n"+
 		`echo '{"type":"result","subtype":"success","is_error":false,"result":"POSTMORTEM-STDOUT-MARKER"}'`+"\n"+
 		"echo 'POSTMORTEM-STDERR-MARKER' >&2\n"+
 		"exit 0\n")
 	a := newLocalExecForTest(t, url, 10*time.Second)
 
-	handle, err := a.SubmitAgenticJob(subRC(context.Background(), "obs-log-key"),
+	const key fwra.IdempotencyKey = "obs-log-key"
+	handle, err := a.SubmitAgenticJob(subRC(context.Background(), key),
 		localSpec("C-OBSLOG", "someComponent", "service-construction"))
 	if err != nil {
 		t.Fatalf("Submit: %v", err)
@@ -2000,11 +2022,17 @@ func TestLocalExecFailedRun_WritesDurableOutputLogThatSurvivesCleanup(t *testing
 	if len(dirs) != 1 {
 		t.Fatalf("found %d durable log dirs, want exactly 1 (%v)", len(dirs), dirs)
 	}
-	assertFileContains(t, filepath.Join(dirs[0], "stdout.json"), "POSTMORTEM-STDOUT-MARKER")
+	wantTrace := filepath.Join(repoDir, ".aiarch", "traces", dedupToken(key)+".jsonl")
+	assertFileContains(t, filepath.Join(dirs[0], localExecTracePathFile), wantTrace)
 	assertFileContains(t, filepath.Join(dirs[0], "stderr.log"), "POSTMORTEM-STDERR-MARKER")
+	// The pointed-at trace really holds what the old verbatim stdout copy did.
+	assertFileContains(t, wantTrace, "POSTMORTEM-STDOUT-MARKER")
+	if _, err := os.Stat(filepath.Join(dirs[0], "stdout.json")); err == nil {
+		t.Fatal("durable log still duplicates the full stdout as stdout.json")
+	}
 	// The worktree cleanup still ran — the durable log is SEPARATE from the run's
 	// own temp dirs, not a suppression of their removal.
-	assertNoLingeringWorktrees(t, bareDir)
+	assertNoLingeringWorktrees(t, repoDir)
 }
 
 // LX-OBS4 — the success path is unchanged: no diagnostic, and NO log litter
@@ -2631,7 +2659,7 @@ func TestLocalExecSubmit_DesignJob_FirstOfSession_CreatesBranchOffMain_AllModes(
 			// Tier-2 sandbox posture unchanged (THE INVARIANT), and the filesystem scope
 			// covers the worktree + the shared git dir — identical to the construct arm.
 			sandboxCfg := assertSandboxSettingsEnvelope(t, capture, 0)
-			assertSandboxFilesystemAllowWrite(t, sandboxCfg, pwd, bareDir)
+			assertSandboxFilesystemAllowWrite(t, sandboxCfg, pwd, filepath.Join(bareDir, ".git"))
 		})
 	}
 }
@@ -2844,5 +2872,270 @@ func TestLocalExecSubmit_SeatsClaudePromptSurfaceBeforeSpawn(t *testing.T) {
 	// SAME dir the marker landed in that the shim then read — so it equals claude's cwd.
 	if dest == bareDir {
 		t.Fatalf("seat-assets --dest = %q, want the throwaway worktree, not the shared repo", dest)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TR1-TR6 — SP1 capture seam (Task 5): stream-json + the trace tee + the
+// bounded in-memory tail + the trace-sink trust rule.
+//
+//	TR1 tailBuffer keeps the SUFFIX of an oversized stream and never grows past
+//	    tailBufferCap — the terminal `result` event (the LAST line) must survive,
+//	    because that is the only part every existing stdout consumer reads.
+//	TR2 claudeArgv asks for --output-format stream-json + --verbose (the event
+//	    stream), never the single-object `json` format.
+//	TR3 the trust rule: the resolved trace sink must sit OUTSIDE the agent-
+//	    writable git dir (the sandbox allowWrite list is [workDir, gitDir]).
+//	TR4 a BARE shared repo (gitDir == repoPath, so the sink WOULD be agent-
+//	    writable) fails the dispatch loudly instead of tee-ing into it.
+//	TR5 a dispatched run tees claude's WHOLE stdout to
+//	    <repoPath>/.aiarch/traces/<episodeId>.jsonl (episodeId == the submit
+//	    dedup token), alongside the self-ignoring .gitignore.
+//	TR6 the durable failure log points AT the trace file instead of duplicating
+//	    the full stdout; stderr is still kept verbatim.
+// ---------------------------------------------------------------------------
+
+func TestTailBufferKeepsSuffix(t *testing.T) {
+	var tb tailBuffer
+	big := bytes.Repeat([]byte("x"), 600*1024)
+	if _, err := tb.Write(big); err != nil {
+		t.Fatalf("Write(big): %v", err)
+	}
+	if _, err := tb.Write([]byte("TERMINAL")); err != nil {
+		t.Fatalf("Write(terminal): %v", err)
+	}
+	s := tb.String()
+	if len(s) > tailBufferCap {
+		t.Fatalf("tail length = %d, want <= %d", len(s), tailBufferCap)
+	}
+	if !strings.HasSuffix(s, "TERMINAL") {
+		t.Fatalf("tail does not end with the last write (len=%d)", len(s))
+	}
+	if !bytes.HasSuffix(tb.Bytes(), []byte("TERMINAL")) {
+		t.Fatal("Bytes() does not end with the last write")
+	}
+}
+
+func TestTailBufferUnderCapKeepsEverything(t *testing.T) {
+	var tb tailBuffer
+	if _, err := tb.Write([]byte("alpha\n")); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	if _, err := tb.Write([]byte("omega")); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	if got := tb.String(); got != "alpha\nomega" {
+		t.Fatalf("String() = %q, want the whole stream", got)
+	}
+}
+
+// A SINGLE write larger than the cap is the pathological case (one giant tool
+// result): the suffix must still be kept, not the prefix.
+func TestTailBufferSingleOversizedWriteKeepsSuffix(t *testing.T) {
+	var tb tailBuffer
+	if _, err := tb.Write(append(bytes.Repeat([]byte("y"), tailBufferCap+4096), []byte("END")...)); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	s := tb.String()
+	if len(s) != tailBufferCap {
+		t.Fatalf("tail length = %d, want exactly %d", len(s), tailBufferCap)
+	}
+	if !strings.HasSuffix(s, "END") {
+		t.Fatal("oversized single write kept the prefix, not the suffix")
+	}
+}
+
+// TR2 — the format switch. --verbose is REQUIRED alongside stream-json in
+// headless (-p) mode; without it claude refuses the combination.
+func TestClaudeArgv_AsksForStreamJSONEventStream(t *testing.T) {
+	args := claudeArgv("/service-construction c a", "/tmp/mcp.json", "/tmp/sandbox.json")
+	mustContainAdjacentPair(t, args, "--output-format", "stream-json")
+	mustContainArg(t, args, "--verbose")
+	if containsArg(args, "json") {
+		t.Fatalf("argv still asks for the single-object `json` output format: %v", args)
+	}
+}
+
+// TR3 — the trust rule, as a pure unit over the two paths dispatch already has
+// in hand (a.repoPath and addWorktree's gitDir).
+func TestTraceSinkTrustRule(t *testing.T) {
+	repo := t.TempDir()
+
+	if err := assertTraceSinkOutsideGitDir(repo, filepath.Join(repo, ".git")); err != nil {
+		t.Fatalf("non-bare repo rejected: %v", err)
+	}
+	if err := assertTraceSinkOutsideGitDir(repo, repo); err == nil {
+		t.Fatal("bare repo (gitDir == repoPath) accepted; the trace sink would be agent-writable")
+	}
+	// A gitDir that CONTAINS the sink by any other route is rejected too (a
+	// $GIT_DIR pointed at the checkout root, a worktree-style .git file target).
+	if err := assertTraceSinkOutsideGitDir(repo, filepath.Join(repo, ".aiarch")); err == nil {
+		t.Fatal("gitDir containing the trace sink accepted")
+	}
+}
+
+// newBareOnlyRepo creates a genuinely BARE shared repo — the configuration the
+// trust rule refuses (gitDir == repoPath, so <repoPath>/.aiarch/traces sits
+// inside the agent-writable sandbox scope).
+func newBareOnlyRepo(t *testing.T) (bareDir, url string) {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH; skipping local-executor proof")
+	}
+	root := t.TempDir()
+	bare := filepath.Join(root, "remote.git")
+	testGit(t, "", "init", "--bare", "--initial-branch=main", bare)
+	seed := filepath.Join(root, "seed")
+	testGit(t, "", "clone", bare, seed)
+	testGit(t, seed, "config", "user.email", "seed@aiarch.local")
+	testGit(t, seed, "config", "user.name", "seed")
+	testGit(t, seed, "commit", "--allow-empty", "-m", "seed")
+	testGit(t, seed, "push", "origin", "main")
+	return bare, "file://" + bare
+}
+
+// TR4 — the loud failure. A bare shared repo is refused PRE-SPAWN: Submit
+// errors, no claude process runs, and no run record is left behind (so a retry
+// against a fixed configuration converges cleanly).
+func TestLocalExecSubmit_BareSharedRepo_RefusesToDispatch(t *testing.T) {
+	_, url := newBareOnlyRepo(t)
+	installClaudeShim(t, "#!/bin/sh\ntouch \"$AIARCH_SHIM_RAN_MARKER\" 2>/dev/null\nexit 0\n")
+	a := newLocalExecForTest(t, url, 10*time.Second)
+
+	_, err := a.SubmitAgenticJob(subRC(context.Background(), "bare-repo-key"),
+		localSpec("C-BARE", "someComponent", "service-construction"))
+	if err == nil {
+		t.Fatal("Submit succeeded against a BARE shared repo; the trace sink would be agent-writable")
+	}
+	if !strings.Contains(err.Error(), "trace") {
+		t.Fatalf("Submit error = %q, want it to name the trace sink", err.Error())
+	}
+	a.mu.Lock()
+	n := len(a.runs)
+	a.mu.Unlock()
+	if n != 0 {
+		t.Fatalf("a pre-spawn refusal left %d run record(s); a retry must start clean", n)
+	}
+}
+
+// TR5 — the tee. claude's WHOLE stream-json stdout lands in the per-episode
+// trace file under the shared repo, keyed by the SAME dedup token the handle is
+// (no second identity), next to a self-ignoring .gitignore.
+func TestLocalExecRun_TeesWholeStdoutToPerEpisodeTraceFile(t *testing.T) {
+	repoDir, url := newBareRepo(t)
+	installClaudeShim(t, "#!/bin/sh\n"+
+		"set -e\n"+
+		"git config user.email shim@aiarch.local\n"+
+		"git config user.name shim\n"+
+		`echo '{"type":"system","subtype":"init","session_id":"s1"}'`+"\n"+
+		`echo '{"type":"assistant","message":{"content":[{"type":"text","text":"MIDDLE-EVENT"}]}}'`+"\n"+
+		"echo work >> WORK.txt\n"+
+		"git add -A\n"+
+		"git commit -m 'shim work' >/dev/null\n"+
+		`echo '{"type":"result","subtype":"success","is_error":false,"result":"done"}'`+"\n"+
+		"exit 0\n")
+	a := newLocalExecForTest(t, url, 10*time.Second)
+
+	const key fwra.IdempotencyKey = "trace-tee-key"
+	handle, err := a.SubmitAgenticJob(subRC(context.Background(), key),
+		localSpec("C-TRACE", "someComponent", "service-construction"))
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	if obs := waitForTerminal(t, a, handle, 10*time.Second); obs.Phase != PhaseSucceeded {
+		t.Fatalf("Phase = %v, want PhaseSucceeded (diagnostic: %q)", obs.Phase, obs.Diagnostic)
+	}
+
+	tracesDir := filepath.Join(repoDir, ".aiarch", "traces")
+	tracePath := filepath.Join(tracesDir, dedupToken(key)+".jsonl")
+	raw, err := os.ReadFile(tracePath) //nolint:gosec // test-owned temp path
+	if err != nil {
+		t.Fatalf("read per-episode trace: %v", err)
+	}
+	for _, want := range []string{`"subtype":"init"`, "MIDDLE-EVENT", `"type":"result"`} {
+		if !strings.Contains(string(raw), want) {
+			t.Fatalf("trace file missing %q; got:\n%s", want, raw)
+		}
+	}
+	// The terminal result event is the LAST line — the invariant every stdout
+	// consumer (envelopeDetail's end-scan) and Task 6's miner depend on.
+	lines := strings.Split(strings.TrimRight(string(raw), "\n"), "\n")
+	if !strings.Contains(lines[len(lines)-1], `"type":"result"`) {
+		t.Fatalf("last trace line is not the result event: %q", lines[len(lines)-1])
+	}
+	// Self-ignoring, so an operated repo needs no scaffold change.
+	assertFileContains(t, filepath.Join(tracesDir, ".gitignore"), "*")
+}
+
+// TR6 is folded into LX-OBS3 above (the durable-log test): the log dir now
+// RECORDS WHERE the trace is instead of duplicating the full stdout.
+
+// TR7 — the format switch against REAL captured output (Task 1 fixtures,
+// testdata/streamjson/*.jsonl: genuine `claude --output-format stream-json
+// --verbose -p ...` runs). The terminal `result` event is the LAST line and
+// still carries subtype/is_error/result, so envelopeDetail's end-of-text scan
+// finds it unchanged — AND still finds it after the stream has overflowed the
+// bounded tail, which is the whole reason the tail keeps the SUFFIX.
+func TestClaudeOutputDetail_RealStreamJSONFixtures(t *testing.T) {
+	for _, tc := range []struct {
+		fixture string
+		want    string
+	}{
+		{"failure.jsonl", "no-such-model"},
+		{"success_with_tools.jsonl", "hello.t"},
+		{"success_with_subagent.jsonl", "success"},
+	} {
+		t.Run(tc.fixture, func(t *testing.T) {
+			raw, err := os.ReadFile(filepath.Join("testdata", "streamjson", tc.fixture)) //nolint:gosec // fixed test fixture path
+			if err != nil {
+				t.Fatalf("read fixture: %v", err)
+			}
+			got := claudeOutputDetail(string(raw), "")
+			if !strings.Contains(got, tc.want) {
+				t.Fatalf("claudeOutputDetail = %q, want it to mention %q (the terminal result event)", got, tc.want)
+			}
+
+			// Same fixture, but preceded by enough noise to overflow the tail.
+			var tb tailBuffer
+			if _, err := tb.Write(bytes.Repeat([]byte("{\"type\":\"assistant\",\"pad\":\"noise\"}\n"), 40000)); err != nil {
+				t.Fatalf("Write(pad): %v", err)
+			}
+			if _, err := tb.Write(raw); err != nil {
+				t.Fatalf("Write(fixture): %v", err)
+			}
+			if len(tb.String()) != tailBufferCap {
+				t.Fatalf("tail length = %d, want the stream to have overflowed to exactly %d", len(tb.String()), tailBufferCap)
+			}
+			if got := claudeOutputDetail(tb.String(), ""); !strings.Contains(got, tc.want) {
+				t.Fatalf("after tail overflow claudeOutputDetail = %q, want it to still mention %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// TR8 — a trace-file write fault must never wedge the dispatch: os/exec's
+// stdout copier stops on the first Write error, which would block claude on a
+// full pipe until the run timeout. traceSink absorbs the fault (logged, never
+// returned) so the pipe keeps draining and the run reaches its real outcome.
+func TestTraceSinkAbsorbsWriteFaults(t *testing.T) {
+	f, err := os.CreateTemp(t.TempDir(), "trace-*.jsonl")
+	if err != nil {
+		t.Fatalf("create temp trace: %v", err)
+	}
+	path := f.Name()
+	if err := f.Close(); err != nil { // every later write now fails
+		t.Fatalf("close: %v", err)
+	}
+	s := &traceSink{file: f, path: path}
+	n, err := s.Write([]byte("first\n"))
+	if err != nil || n != len("first\n") {
+		t.Fatalf("Write = (%d, %v), want (%d, nil) — a fault must not reach the copier", n, err, len("first\n"))
+	}
+	if s.err == nil {
+		t.Fatal("traceSink did not record the underlying write fault")
+	}
+	n, err = s.Write([]byte("second\n"))
+	if err != nil || n != len("second\n") {
+		t.Fatalf("Write after fault = (%d, %v), want (%d, nil)", n, err, len("second\n"))
 	}
 }

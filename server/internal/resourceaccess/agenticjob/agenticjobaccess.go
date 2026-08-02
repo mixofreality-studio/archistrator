@@ -61,6 +61,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"maps"
 	"net/url"
@@ -1360,7 +1361,12 @@ func (a *localExecAccess) submitClaudeRun(rc fwra.Context, plan localDispatchPla
 	a.runs[token] = run
 	a.mu.Unlock()
 
-	if err := a.dispatch(run, plan); err != nil {
+	// THE EPISODE ID IS THE DEDUP TOKEN — deliberately no second identity and no
+	// new randomness. token is already a filename-safe 32-hex sha256 digest of the
+	// caller's idempotencyKey (dedupToken), so it is deterministic across retries:
+	// the same activity re-dispatched writes the SAME <episodeId>.jsonl (truncated,
+	// see openEpisodeTrace) and the handle the caller already holds names it.
+	if err := a.dispatch(run, plan, token); err != nil {
 		a.mu.Lock()
 		delete(a.runs, token)
 		a.mu.Unlock()
@@ -1491,8 +1497,9 @@ const (
 // goroutine. Any failure here is a genuine, pre-spawn submit failure. It is the SHARED
 // core of both the construct arm and the design arm — everything arm-specific (branch,
 // create-off-main policy, AIARCH_* rig, prompt) arrives in the plan; this function is
-// arm-agnostic.
-func (a *localExecAccess) dispatch(run *localRun, plan localDispatchPlan) error {
+// arm-agnostic. episodeID is the submit dedup token (see submitClaudeRun): it names
+// the per-episode trace file this dispatch tees claude's whole stdout stream into.
+func (a *localExecAccess) dispatch(run *localRun, plan localDispatchPlan, episodeID string) error {
 	branch := plan.branch
 
 	// The worktree lives under a throwaway parent temp dir (NEVER inside the
@@ -1579,6 +1586,23 @@ func (a *localExecAccess) dispatch(run *localRun, plan localDispatchPlan) error 
 		return err
 	}
 
+	// The per-episode trace sink, opened AFTER gitDir is known because THE TRUST
+	// RULE is stated against it (see the SP1 CAPTURE SEAM block): the sink must sit
+	// outside the write allowlist just handed to the sandbox. A refusal here is a
+	// genuine pre-spawn dispatch failure like every other step above — no run
+	// record survives it, so a retry against a fixed configuration starts clean.
+	tracePath, traceFile, err := a.openEpisodeTrace(episodeID, gitDir)
+	if err != nil {
+		return err
+	}
+	ownTrace := true
+	defer func() {
+		if ownTrace {
+			_ = traceFile.Close()
+			_ = os.Remove(tracePath) // a run that never spawned leaves no empty trace behind
+		}
+	}()
+
 	runCtx, runCancel := context.WithTimeout(context.Background(), a.runTimeout)
 	cmd := exec.CommandContext(runCtx, "claude", claudeArgv(plan.prompt, mcpConfigPath, sandboxSettingsPath)...) //nolint:gosec // fixed trusted binary name + internal-only args, mirrors claudecli.go
 	cmd.Dir = workDir
@@ -1588,8 +1612,13 @@ func (a *localExecAccess) dispatch(run *localRun, plan localDispatchPlan) error 
 	// subprocess — reused here per the task's explicit precedent guidance.
 	cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
 	cmd.WaitDelay = localExecWaitDelay
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
+	// THE TEE: the whole stream-json event stream goes to the durable trace file,
+	// and only a BOUNDED tail is retained in memory for the diagnostic path (see
+	// the SP1 CAPTURE SEAM block). stderr stays a plain unbounded buffer — claude's
+	// diagnostic stream is small and is already surfaced verbatim.
+	var tail tailBuffer
+	var stderr bytes.Buffer
+	cmd.Stdout = io.MultiWriter(&traceSink{file: traceFile, path: tracePath}, &tail)
 	cmd.Stderr = &stderr
 
 	if err := cmd.Start(); err != nil {
@@ -1601,10 +1630,12 @@ func (a *localExecAccess) dispatch(run *localRun, plan localDispatchPlan) error 
 	run.cancel = runCancel
 	run.mu.Unlock()
 
-	// Ownership of parentDir (the worktree) / mcpConfigDir passes to awaitCompletion.
+	// Ownership of parentDir (the worktree) / mcpConfigDir / the trace file passes
+	// to awaitCompletion.
 	ownWorkDir = false
 	ownMCPDir = false
-	go a.awaitCompletion(runCtx, run, cmd, runCancel, branch, beforeSHA, parentDir, workDir, mcpConfigDir, &stdout, &stderr)
+	ownTrace = false
+	go a.awaitCompletion(runCtx, run, cmd, runCancel, branch, beforeSHA, parentDir, workDir, mcpConfigDir, traceFile, tracePath, &tail, &stderr)
 	return nil
 }
 
@@ -1649,6 +1680,230 @@ func seatAssetsEnv() []string {
 	return out
 }
 
+// ---------------------------------------------------------------------------
+// SP1 CAPTURE SEAM — the per-episode trace sink + the bounded in-memory tail.
+//
+// claudeArgv now asks for --output-format stream-json, so the subprocess emits
+// one JSON event per line for the WHOLE episode instead of a single closing
+// object. That stream is the raw material every later capture step reads, and
+// it is unbounded (a long construction run emits megabytes of tool_result
+// events), so the spawn site splits it in two:
+//
+//   - the WHOLE stream is tee'd, verbatim and unbounded, to a per-episode file
+//     under the shared repo (<repoPath>/.aiarch/traces/<episodeId>.jsonl) — the
+//     durable artifact episodeAccess (internal/resourceaccess/episode) reads
+//     back and the trace UI renders;
+//   - a BOUNDED tail (tailBufferCap) is kept in memory for the existing
+//     diagnostic path. Every in-process consumer of the old unbounded stdout
+//     buffer only ever needed the LAST JSON line (the terminal `result` event —
+//     see envelopeDetail's end-of-text scan), which the tail preserves by
+//     construction.
+//
+// THE TRUST RULE (assertTraceSinkOutsideGitDir): the agent's Tier-2 sandbox
+// write allowlist is exactly [workDir, gitDir] (writeSandboxSettings, in
+// dispatch). A trace the observed agent can rewrite is not evidence, so the
+// resolved sink must sit OUTSIDE gitDir. On a NON-bare shared repo it does
+// (gitDir is <repoPath>/.git; the sink is <repoPath>/.aiarch/traces). On a BARE
+// shared repo gitDir IS repoPath, the sink falls inside the agent-writable
+// scope, and there is no other in-repo location that does not — so the dispatch
+// is REFUSED, loudly and pre-spawn, rather than silently degraded.
+// ---------------------------------------------------------------------------
+
+// tailBufferCap bounds the in-memory copy of claude's stdout kept for the
+// failure diagnostic. 512KB comfortably spans the terminal `result` event plus
+// the events around it, while a whole episode's stream (unbounded) lives only
+// in the trace file.
+const tailBufferCap = 512 * 1024
+
+// tailBuffer is an io.Writer that retains only the LAST tailBufferCap bytes
+// written to it — the drop-in replacement for the unbounded bytes.Buffer this
+// package used to hand exec.Cmd as cmd.Stdout.
+//
+// SUFFIX, not prefix: the one thing the diagnostic path needs is the stream's
+// FINAL JSON line (the terminal `result` event), so an overflowing stream must
+// discard from the FRONT. Overflow is trimmed by copying the retained suffix
+// down in place, which keeps the backing array bounded rather than re-slicing
+// forward forever.
+//
+// No mutex: exec.Cmd writes from its own copying goroutine and cmd.Wait()
+// establishes the happens-before edge before any reader runs — the same
+// discipline the bytes.Buffer it replaces relied on.
+type tailBuffer struct {
+	buf []byte
+}
+
+var _ io.Writer = (*tailBuffer)(nil)
+
+func (b *tailBuffer) Write(p []byte) (int, error) {
+	n := len(p)
+	if n >= tailBufferCap {
+		// A single write larger than the cap: keep only its own suffix.
+		b.buf = append(b.buf[:0], p[n-tailBufferCap:]...)
+		return n, nil
+	}
+	b.buf = append(b.buf, p...)
+	if excess := len(b.buf) - tailBufferCap; excess > 0 {
+		b.buf = b.buf[:copy(b.buf, b.buf[excess:])]
+	}
+	return n, nil
+}
+
+// String returns the retained tail. Callers treat it exactly as they treated
+// bytes.Buffer.String() — see this block's header for why the tail suffices.
+func (b *tailBuffer) String() string { return string(b.buf) }
+
+// Bytes returns the retained tail. The slice aliases the buffer, matching
+// bytes.Buffer.Bytes()'s contract; callers here only read it.
+func (b *tailBuffer) Bytes() []byte { return b.buf }
+
+// episodeTracesDir is the per-repo trace directory. It is the SAME path
+// episodeAccess resolves (internal/resourceaccess/episode/episodeaccess.go's
+// NewLocalFSEpisodeAccess) — one repo per server config, name-as-identity —
+// duplicated rather than shared because the two RAs must not import each other
+// (NoSideways).
+func episodeTracesDir(repoPath string) string {
+	return filepath.Join(repoPath, ".aiarch", "traces")
+}
+
+// assertTraceSinkOutsideGitDir enforces THE TRUST RULE (see this block's
+// header): the per-episode trace sink must not fall inside gitDir, the one
+// agent-writable path outside the throwaway worktree. Both paths are resolved
+// through symlinks first (macOS spells the same temp dir /var/… and
+// /private/var/…, and git's --absolute-git-dir returns the resolved form), so
+// containment is decided on real paths rather than on spelling.
+func assertTraceSinkOutsideGitDir(repoPath, gitDir string) error {
+	sink := resolvePath(episodeTracesDir(repoPath))
+	git := resolvePath(gitDir)
+	if sink == git || strings.HasPrefix(sink, git+string(os.PathSeparator)) {
+		return fwra.New(fwra.Infrastructure,
+			"localexec: refusing to dispatch — the per-episode trace sink "+sink+
+				" is INSIDE the agent-writable git dir "+git+
+				" (a BARE shared repo makes gitDir == repoPath), so the agent could rewrite its own trace; "+
+				"point the local rail at a NON-bare working checkout")
+	}
+	return nil
+}
+
+// resolvePath renders a path in its canonical, symlink-free absolute form,
+// degrading to the cleaned absolute path when a component does not exist yet
+// (the traces dir is resolved BEFORE it is created) or cannot be resolved.
+func resolvePath(p string) string {
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		abs = filepath.Clean(p)
+	}
+	// EvalSymlinks fails on a not-yet-existing leaf, so resolve the deepest
+	// EXISTING ancestor and re-attach the remainder.
+	rest := ""
+	for cur := abs; ; {
+		if resolved, err := filepath.EvalSymlinks(cur); err == nil {
+			return filepath.Join(resolved, rest)
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			return abs
+		}
+		rest = filepath.Join(filepath.Base(cur), rest)
+		cur = parent
+	}
+}
+
+// openEpisodeTrace enforces the trust rule, materialises the traces directory
+// (with the self-ignoring .gitignore, so an operated repo needs no scaffold
+// change — the SAME convention episodeAccess writes), and opens the episode's
+// trace file for writing.
+//
+// O_TRUNC, deliberately: the episode id is the submit dedup token, which is
+// derived from the caller's idempotency key and is therefore REUSED by a retry
+// of the same activity. Truncating guarantees a retry's stream replaces the
+// previous attempt's rather than interleaving with it — a half-and-half file
+// would be unparseable evidence.
+func (a *localExecAccess) openEpisodeTrace(episodeID, gitDir string) (string, *os.File, error) {
+	if err := assertTraceSinkOutsideGitDir(a.repoPath, gitDir); err != nil {
+		slog.Error("localexec: per-episode trace sink is inside the agent-writable git dir; dispatch refused",
+			"repoPath", a.repoPath, "gitDir", gitDir, "episodeId", episodeID)
+		return "", nil, err
+	}
+	dir := episodeTracesDir(a.repoPath)
+	if err := ensureTracesDir(dir); err != nil {
+		return "", nil, fwra.Wrap(fwra.Infrastructure, err, "localexec: create traces dir")
+	}
+	path := filepath.Join(dir, episodeID+".jsonl")
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600) // #nosec G304 -- episodeID is a 32-hex dedupToken digest under a fixed dir
+	if err != nil {
+		return "", nil, fwra.Wrap(fwra.Infrastructure, err, "localexec: open episode trace file")
+	}
+	return path, f, nil
+}
+
+// ensureTracesDir creates the traces directory and writes the self-ignoring
+// ".gitignore" ("*\n") on first use. Mirrors episodeAccess's
+// ensureTracesDirLocked — the two RAs write into the SAME directory and must
+// agree on this convention, but must not import each other.
+func ensureTracesDir(dir string) error {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return err
+	}
+	f, err := os.OpenFile(filepath.Join(dir, ".gitignore"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600) // #nosec G304 -- fixed literal filename under dir
+	if err != nil {
+		if os.IsExist(err) {
+			return nil
+		}
+		return err
+	}
+	defer func() { _ = f.Close() }()
+	_, err = f.WriteString("*\n")
+	return err
+}
+
+// traceSink wraps the per-episode trace file for the tee so a mid-run write
+// fault (a full disk, a vanished mount) cannot WEDGE the dispatch.
+//
+// WHY THIS EXISTS: cmd.Stdout is an io.MultiWriter, and os/exec's stdout-copying
+// goroutine STOPS on the first Write error — which would leave claude blocked on
+// a full stdout pipe until the run timeout fires. A truncated trace is a lost
+// artifact; a wedged construction run is a lost RUN. So the first fault is
+// recorded and logged at ERROR (the truncation is never silent), and every write
+// after it is dropped while still reporting success, keeping the pipe draining.
+// The bytes.Buffer this tee replaced could never fail, so this preserves the
+// pre-existing "stdout capture cannot break the run" property.
+type traceSink struct {
+	file *os.File
+	path string
+	err  error
+}
+
+var _ io.Writer = (*traceSink)(nil)
+
+func (s *traceSink) Write(p []byte) (int, error) {
+	if s.err != nil {
+		return len(p), nil
+	}
+	if _, err := s.file.Write(p); err != nil {
+		s.err = err
+		slog.Error("localexec: per-episode trace write failed; the trace is TRUNCATED (the run itself continues)",
+			"tracePath", s.path, "cause", err.Error())
+	}
+	return len(p), nil
+}
+
+// closeEpisodeTrace flushes the trace to durable storage and closes it. Called
+// by awaitCompletion the moment cmd.Wait() returns — BEFORE anything reads or
+// mines the output — so the file on disk is complete and no reader ever sees a
+// partially-flushed stream. A flush/close fault is logged, never fatal: the run's
+// own outcome does not depend on the trace.
+func closeEpisodeTrace(traceFile *os.File, tracePath string) {
+	if traceFile == nil {
+		return
+	}
+	if err := traceFile.Sync(); err != nil {
+		slog.Warn("localexec: could not fsync the episode trace", "tracePath", tracePath, "cause", err.Error())
+	}
+	if err := traceFile.Close(); err != nil {
+		slog.Warn("localexec: could not close the episode trace", "tracePath", tracePath, "cause", err.Error())
+	}
+}
+
 // awaitCompletion blocks on the claude subprocess, verifies its commits advanced
 // the activity branch ref in the SHARED repo (worktree commits land there
 // directly — no push; partial progress on a failed run is already durable),
@@ -1669,10 +1924,19 @@ func (a *localExecAccess) awaitCompletion(
 	runCancel context.CancelFunc,
 	branch, beforeSHA string,
 	parentDir, workDir, mcpConfigDir string,
-	stdout, stderr *bytes.Buffer,
+	traceFile *os.File,
+	tracePath string,
+	stdout *tailBuffer,
+	stderr *bytes.Buffer,
 ) {
 	waitErr := cmd.Wait()
 	runCancel()
+
+	// cmd.Wait() has already joined the stdout-copying goroutine, so every byte
+	// claude wrote has reached the tee. Flush + close the trace HERE, before any
+	// step below reads the tail or (Task 6) mines the stream: the file on disk is
+	// complete from this point on, and no reader ever races the writer.
+	closeEpisodeTrace(traceFile, tracePath)
 
 	a.gitMu.Lock()
 	afterSHA, revErr := revParseBranch(a.repoPath, branch)
@@ -1711,7 +1975,7 @@ func (a *localExecAccess) awaitCompletion(
 		if detail := claudeOutputDetail(stdout.String(), stderrForDetail); detail != "" {
 			diagnostic += localExecDetailSeparator + detail
 		}
-		logFailedRun(branch, diagnostic, stdout.Bytes(), stderr.Bytes())
+		logFailedRun(branch, diagnostic, tracePath, stderr.Bytes())
 	}
 
 	run.mu.Lock()
@@ -1938,13 +2202,19 @@ func outputHead(s string, n int) string {
 // decided there was nothing to do. Those demand completely different operator
 // responses, and the ONE artifact that tells them apart was being thrown away.
 //
-// claudeArgv passes --output-format json, so stdout is a machine-readable result
-// envelope. The helpers below mine it along two complementary channels:
+// claudeArgv passes --output-format stream-json, so stdout is a machine-readable
+// stream of JSON events whose LAST line is the terminal `result` envelope (the
+// same subtype/is_error/result fields the former single-object format carried).
+// The helpers below mine it along two complementary channels:
 //
 //   - the DIAGNOSTIC gets a hard-bounded, single-line clause (this string is
-//     rendered in the web UI's failure panel, so it must stay presentable);
-//   - a DURABLE LOG DIR gets the full, untruncated stdout+stderr for post-mortem,
-//     because the bounded clause is by construction lossy.
+//     rendered in the web UI's failure panel, so it must stay presentable).
+//     It reads the BOUNDED TAIL of stdout (tailBuffer), which is sufficient
+//     precisely because envelopeDetail scans from the END for that last line;
+//   - a DURABLE LOG DIR gets stderr plus a POINTER to the run's per-episode
+//     trace file (which already holds the full, untruncated stdout stream —
+//     see the SP1 CAPTURE SEAM block), because the bounded clause is by
+//     construction lossy.
 //
 // Scope discipline: this is OBSERVABILITY ONLY. Nothing here changes claudeArgv,
 // the sandbox settings, the env allowlist, or the escape hatch (see the SECURITY
@@ -2101,8 +2371,14 @@ func singleLine(s string) string { return strings.Join(strings.Fields(s), " ") }
 // glob under the OS temp dir.
 const localExecLogDirPattern = "aiarch-localexec-logs-*"
 
-// persistFailedRunOutput writes the claude subprocess's FULL stdout+stderr to a
-// fresh temp dir that deliberately OUTLIVES the run.
+// localExecTracePathFile names the one-line pointer file the durable log dir
+// carries INSTEAD of a verbatim stdout copy: the absolute path of the run's
+// per-episode trace (see the SP1 CAPTURE SEAM block).
+const localExecTracePathFile = "trace_path.txt"
+
+// persistFailedRunOutput writes the claude subprocess's stderr — and a POINTER
+// to its per-episode trace file — to a fresh temp dir that deliberately
+// OUTLIVES the run.
 //
 // LIFECYCLE — and why this is not simply the run's own parent temp dir: that dir
 // hosts the git worktree and is removed on EVERY path (keeping it would strand a
@@ -2115,15 +2391,18 @@ const localExecLogDirPattern = "aiarch-localexec-logs-*"
 //
 // A partially-written dir is still returned (with the error) so the caller can
 // point the operator at whatever DID land.
-func persistFailedRunOutput(stdout, stderr []byte) (string, error) {
+func persistFailedRunOutput(tracePath string, stderr []byte) (string, error) {
 	dir, err := os.MkdirTemp("", localExecLogDirPattern)
 	if err != nil {
 		return "", err
 	}
-	// stdout is the --output-format json result envelope; stderr is claude's own
-	// diagnostic stream. Both verbatim — this is the un-truncated counterpart to
-	// the bounded diagnostic clause.
-	if err := os.WriteFile(filepath.Join(dir, "stdout.json"), stdout, 0o600); err != nil {
+	// stdout is NO LONGER duplicated here: since the SP1 capture seam the whole
+	// stream-json event stream is already durable, verbatim and untruncated, in the
+	// per-episode trace file under the shared repo — a second full copy in the OS
+	// temp dir would be a stale, unbounded duplicate of it. What the post-mortem
+	// dir needs is the WAY IN, so it records the trace's path. stderr is claude's
+	// own diagnostic stream, not part of that trace, so it is still kept verbatim.
+	if err := os.WriteFile(filepath.Join(dir, localExecTracePathFile), []byte(tracePath+"\n"), 0o600); err != nil {
 		return dir, err
 	}
 	if err := os.WriteFile(filepath.Join(dir, "stderr.log"), stderr, 0o600); err != nil {
@@ -2144,18 +2423,18 @@ func persistFailedRunOutput(stdout, stderr []byte) (string, error) {
 //
 // NOTHING from the run's environment is logged: not the AIARCH_* rig, not the
 // process env allowlist, not the sandbox settings — only claude's own output.
-func logFailedRun(branch, diagnostic string, stdout, stderr []byte) {
-	logDir, err := persistFailedRunOutput(stdout, stderr)
+func logFailedRun(branch, diagnostic, tracePath string, stderr []byte) {
+	logDir, err := persistFailedRunOutput(tracePath, stderr)
 	switch {
 	case err != nil && logDir == "":
 		slog.Error("localexec: construction run failed; the durable output log could NOT be written",
-			"branch", branch, "diagnostic", diagnostic, "cause", err.Error())
+			"branch", branch, "diagnostic", diagnostic, "tracePath", tracePath, "cause", err.Error())
 	case err != nil:
 		slog.Error("localexec: construction run failed; the durable output log is INCOMPLETE",
-			"branch", branch, "diagnostic", diagnostic, "outputLog", logDir, "cause", err.Error())
+			"branch", branch, "diagnostic", diagnostic, "outputLog", logDir, "tracePath", tracePath, "cause", err.Error())
 	default:
 		slog.Error("localexec: construction run failed; full claude output kept for post-mortem",
-			"branch", branch, "diagnostic", diagnostic, "outputLog", logDir)
+			"branch", branch, "diagnostic", diagnostic, "outputLog", logDir, "tracePath", tracePath)
 	}
 }
 
@@ -2304,7 +2583,18 @@ func claudeArgv(prompt, mcpConfigPath, sandboxSettingsPath string) []string {
 	return append(args,
 		"--mcp-config", mcpConfigPath,
 		"--strict-mcp-config", // Tier 1: ignore ambient user/project MCP config; attach ONLY mcpConfigPath.
-		"--output-format", "json",
+		// SP1 CAPTURE SEAM: the EVENT STREAM, not the single-object result.
+		// stream-json emits one JSON object per line for the whole episode
+		// (system init, every assistant turn, every tool_use/tool_result, the
+		// terminal `result`), which is what the per-episode trace file captures.
+		// --verbose is REQUIRED alongside stream-json in headless (-p) mode —
+		// claude refuses the combination without it. The terminal `result` line
+		// carries the SAME subtype/is_error/result fields the old single-object
+		// format did and is the LAST line, so every existing stdout consumer
+		// (claudeOutputDetail → envelopeDetail's end-of-text scan) keeps working
+		// unchanged, and keeps working against the bounded tail.
+		"--output-format", "stream-json",
+		"--verbose",
 		"-p", prompt,
 	)
 }
