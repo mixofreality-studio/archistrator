@@ -299,6 +299,12 @@
       "model": {
         "dependencies": [
           {
+            "activity": "C-AA",
+            "dependsOn": [
+              "N-SCHEMA"
+            ]
+          },
+          {
             "activity": "C-AE",
             "dependsOn": [
               "N-CI"
@@ -387,6 +393,12 @@
             ]
           },
           {
+            "activity": "C-DH",
+            "dependsOn": [
+              "N-CI"
+            ]
+          },
+          {
             "activity": "C-EE",
             "dependsOn": [
               "N-CI"
@@ -462,6 +474,7 @@
               "C-CP",
               "C-DA",
               "C-DG",
+              "C-DH",
               "C-EE",
               "C-LG",
               "C-PA",
@@ -557,6 +570,7 @@
           {
             "activity": "I-UC3",
             "dependsOn": [
+              "C-AA",
               "C-CP",
               "C-DA",
               "C-HE",
@@ -868,7 +882,8 @@
               "C-HE",
               "C-IE",
               "C-AE",
-              "C-RE"
+              "C-RE",
+              "C-DH"
             ]
           },
           {
@@ -914,6 +929,18 @@
           "anchor": "",
           "anchorText": "",
           "text": "Reviewed — unaffected: Slot-5 system amendment (rev 2) reviewed against this artifact: call chains added for every nonCore variation, duplicate source-control edges consolidated, encapsulates prose filled on all components. No basis change affects this artifact — unaffected.",
+          "authorRole": "architect",
+          "round": 1,
+          "status": "addressed",
+          "response": "",
+          "type": "staleAck",
+          "addressee": ""
+        },
+        {
+          "id": "r1c2",
+          "anchor": "",
+          "anchorText": "",
+          "text": "Reviewed — unaffected: call-chain realization amendment (steps model, all 16 views realized)",
           "authorRole": "architect",
           "round": 1,
           "status": "addressed",
@@ -984,6 +1011,18 @@
           "response": "",
           "type": "staleAck",
           "addressee": ""
+        },
+        {
+          "id": "r1c2",
+          "anchor": "",
+          "anchorText": "",
+          "text": "Reviewed — unaffected: call-chain realization amendment (steps model, all 16 views realized)",
+          "authorRole": "architect",
+          "round": 1,
+          "status": "addressed",
+          "response": "",
+          "type": "staleAck",
+          "addressee": ""
         }
       ],
       "revisions": 1,
@@ -1042,6 +1081,18 @@
           "anchor": "",
           "anchorText": "",
           "text": "Reviewed — unaffected: Slot-5 system amendment (rev 2) reviewed against this artifact: call chains added for every nonCore variation, duplicate source-control edges consolidated, encapsulates prose filled on all components. No basis change affects this artifact — unaffected.",
+          "authorRole": "architect",
+          "round": 1,
+          "status": "addressed",
+          "response": "",
+          "type": "staleAck",
+          "addressee": ""
+        },
+        {
+          "id": "r1c2",
+          "anchor": "",
+          "anchorText": "",
+          "text": "Reviewed — unaffected: call-chain realization amendment (steps model, all 16 views realized)",
           "authorRole": "architect",
           "round": 1,
           "status": "addressed",
@@ -1112,6 +1163,18 @@
           "response": "",
           "type": "staleAck",
           "addressee": ""
+        },
+        {
+          "id": "r1c2",
+          "anchor": "",
+          "anchorText": "",
+          "text": "Reviewed — unaffected: call-chain realization amendment (steps model, all 16 views realized)",
+          "authorRole": "architect",
+          "round": 1,
+          "status": "addressed",
+          "response": "",
+          "type": "staleAck",
+          "addressee": ""
         }
       ],
       "revisions": 1,
@@ -1170,6 +1233,18 @@
           "anchor": "",
           "anchorText": "",
           "text": "Reviewed — unaffected: Slot-5 system amendment (rev 2) reviewed against this artifact: call chains added for every nonCore variation, duplicate source-control edges consolidated, encapsulates prose filled on all components. No basis change affects this artifact — unaffected.",
+          "authorRole": "architect",
+          "round": 1,
+          "status": "addressed",
+          "response": "",
+          "type": "staleAck",
+          "addressee": ""
+        },
+        {
+          "id": "r1c2",
+          "anchor": "",
+          "anchorText": "",
+          "text": "Reviewed — unaffected: call-chain realization amendment (steps model, all 16 views realized)",
           "authorRole": "architect",
           "round": 1,
           "status": "addressed",
@@ -1253,6 +1328,18 @@
           "anchor": "",
           "anchorText": "",
           "text": "Reviewed — unaffected: Slot-5 system amendment (rev 2) reviewed against this artifact: call chains added for every nonCore variation, duplicate source-control edges consolidated, encapsulates prose filled on all components. No basis change affects this artifact — unaffected.",
+          "authorRole": "architect",
+          "round": 1,
+          "status": "addressed",
+          "response": "",
+          "type": "staleAck",
+          "addressee": ""
+        },
+        {
+          "id": "r1c2",
+          "anchor": "",
+          "anchorText": "",
+          "text": "Reviewed — unaffected: call-chain realization amendment (steps model, all 16 views realized)",
           "authorRole": "architect",
           "round": 1,
           "status": "addressed",
@@ -1358,6 +1445,18 @@
           "anchor": "",
           "anchorText": "",
           "text": "Reviewed — unaffected: Slot-5 system amendment (rev 2) reviewed against this artifact: call chains added for every nonCore variation, duplicate source-control edges consolidated, encapsulates prose filled on all components. No basis change affects this artifact — unaffected.",
+          "authorRole": "architect",
+          "round": 1,
+          "status": "addressed",
+          "response": "",
+          "type": "staleAck",
+          "addressee": ""
+        },
+        {
+          "id": "r1c2",
+          "anchor": "",
+          "anchorText": "",
+          "text": "Reviewed — unaffected: call-chain realization amendment (steps model, all 16 views realized)",
           "authorRole": "architect",
           "round": 1,
           "status": "addressed",
@@ -1692,7 +1791,7 @@
           },
           {
             "name": "Workflow Execution Substrate",
-            "rationale": "Which durable-execution substrate sequences Manager workflow code. Temporal today; other durable executors later — the platform may migrate substrate over its lifetime, and the same Manager code must run unchanged. The executeWorkflow/signal/query/timer/schedule verbs are stable while the runtime behind them varies. Encapsulated by durableExecutionAccess for cross-execution control-plane verbs; a Manager's own in-workflow primitives are execution substrate per the operational-concepts decision. The embedded test executor is an implementation profile, not a customer-facing axis.",
+            "rationale": "Which durable-execution substrate sequences Manager workflow code. Temporal today; other durable executors later — the platform may migrate substrate over its lifetime, and the same Manager code must run unchanged. The executeWorkflow/signal/query/timer/schedule verbs are stable while the runtime behind them varies. Encapsulated by the message-bus utility (deliverSignal + registerSchedule) for cross-Manager control-plane verbs — reworded 2026-08-01 (Task 11 design amendment): durableExecutionAccess was reclassified from a ResourceAccess to this Manager-only Utility at the Task 7b reconciliation (founder ruling R-F); a Manager's own in-workflow primitives are execution substrate per the operational-concepts decision. The embedded test executor is an implementation profile, not a customer-facing axis.",
             "axis": "sameCustomerOverTime",
             "traces": [
               "B-14"
@@ -5745,13 +5844,13 @@
             "from": "system-design-manager",
             "to": "source-control-access",
             "mode": "sync",
-            "label": "getInstallationToken(repo) → RepoCredential"
+            "label": "getInstallationToken(repo) → RepoCredential | openBranch(repo, sessionBranch, cred) → BranchRef"
           },
           {
             "from": "project-design-manager",
             "to": "source-control-access",
             "mode": "sync",
-            "label": "getInstallationToken(repo) → RepoCredential"
+            "label": "getInstallationToken(repo) → RepoCredential | openBranch(repo, sessionBranch, cred) → BranchRef"
           },
           {
             "from": "construction-manager",
@@ -5982,6 +6081,24 @@
               {
                 "activityNodeId": "dispatch-draft-job",
                 "calls": [
+                  {
+                    "from": "system-design-manager",
+                    "to": "source-control-access",
+                    "mode": "sync",
+                    "label": "getInstallationToken(repo) → RepoCredential"
+                  },
+                  {
+                    "from": "system-design-manager",
+                    "to": "source-control-access",
+                    "mode": "sync",
+                    "label": "openBranch(repo, sessionBranch, cred) → BranchRef — open the design session branch"
+                  },
+                  {
+                    "from": "source-control-access",
+                    "to": "github",
+                    "mode": "sync",
+                    "label": "branch operations against the per-project repo via the GitHub App installation token (design session branch)"
+                  },
                   {
                     "from": "system-design-manager",
                     "to": "agentic-job-access",
@@ -7571,6 +7688,24 @@
                 "calls": [
                   {
                     "from": "project-design-manager",
+                    "to": "source-control-access",
+                    "mode": "sync",
+                    "label": "getInstallationToken(repo) → RepoCredential"
+                  },
+                  {
+                    "from": "project-design-manager",
+                    "to": "source-control-access",
+                    "mode": "sync",
+                    "label": "openBranch(repo, sessionBranch, cred) → BranchRef — open the Phase-2 amendment session branch"
+                  },
+                  {
+                    "from": "source-control-access",
+                    "to": "github",
+                    "mode": "sync",
+                    "label": "branch operations against the per-project repo via the GitHub App installation token (Phase-2 session branch)"
+                  },
+                  {
+                    "from": "project-design-manager",
                     "to": "agentic-job-access",
                     "mode": "sync",
                     "label": "re-dispatch the Phase-2 draft job at the affected step (assumptions | activities | network)"
@@ -8359,61 +8494,61 @@
             "section": "Prime Directive",
             "guideline": "Never design against requirements; design against volatility.",
             "status": "pass",
-            "justification": "Attested 2026-07-22: decomposition follows the 19-item volatilities slot; no component is named after a feature, use case, or domain noun; every component blurb cites its volatility."
+            "justification": "Attested 2026-07-22: decomposition follows the 19-item volatilities slot; no component is named after a feature, use case, or domain noun; every component blurb cites its volatility. Re-staged 2026-08-01 (Task 11 design amendment — call-chain realization, steps model, coverage reconciliation, align-up rail calls): unaffected."
           },
           {
             "section": "Directive 1",
             "guideline": "Avoid functional decomposition — no container or component named after a feature.",
             "status": "pass",
-            "justification": "Attested 2026-07-22: component roster contains no feature-named containers (no *Processing, *Reporting, per-use-case services)."
+            "justification": "Attested 2026-07-22: component roster contains no feature-named containers (no *Processing, *Reporting, per-use-case services). Re-staged 2026-08-01 (Task 11 design amendment — call-chain realization, steps model, coverage reconciliation, align-up rail calls): unaffected."
           },
           {
             "section": "Directive 2",
             "guideline": "Decompose based on volatility — every component cites a volatilities entry.",
             "status": "pass",
-            "justification": "Refreshed 2026-07-22 (reconciliation): every Manager, Engine, and ResourceAccess carries an encapsulates citation into the 19-item volatilities slot; Customer Interaction Channel is bound by the three Client components and Customer App Infrastructure is owned by OperatedRuntimeAccess (recorded in both the volatility rationale and the component blurb)."
+            "justification": "Refreshed 2026-07-22 (reconciliation): every Manager, Engine, and ResourceAccess carries an encapsulates citation into the 19-item volatilities slot; Customer Interaction Channel is bound by the three Client components and Customer App Infrastructure is owned by OperatedRuntimeAccess (recorded in both the volatility rationale and the component blurb). Re-staged 2026-08-01 (Task 11 design amendment — call-chain realization, steps model, coverage reconciliation, align-up rail calls): unaffected."
           },
           {
             "section": "Directive 3",
             "guideline": "Composable design — non-core use cases trace through existing components without modification.",
             "status": "pass",
-            "justification": "Attested 2026-07-22: all 11 non-core variations trace through existing components without modification — each carries its own dynamic view in the committed System (the founder's total-coverage extension), none required a new component. Smallest-set (ch. 4) extension, attested 2026-07-30: at 37 components the roster still exceeds the book's dozen-or-two guidance, but the smallest-set discipline was applied directly in the 2026-07-22 reconciliation that consolidated 43→37 (HandOffEngine cut; the four facet ResourceAccess folded into ProjectStateAccess; RevenueLedgerAccess folded into BillingStateAccess) — each cut a diminishing-returns judgment that a separate component encapsulated no distinct volatility. The residual size is consciously carried by the §2d ratio waiver, and further shrink awaits subsystem partitioning."
+            "justification": "Attested 2026-07-22: all 11 non-core variations trace through existing components without modification — each carries its own step-keyed dynamic-view realization in the committed System (the founder's total-coverage extension), none required a new component. Smallest-set (ch. 4) extension, attested 2026-07-30: at 37 components the roster still exceeds the book's dozen-or-two guidance, but the smallest-set discipline was applied directly in the 2026-07-22 reconciliation that consolidated 43→37 (HandOffEngine cut; the four facet ResourceAccess folded into ProjectStateAccess; RevenueLedgerAccess folded into BillingStateAccess) — each cut a diminishing-returns judgment that a separate component encapsulated no distinct volatility. The residual size is consciously carried by the §2d ratio waiver, and further shrink awaits subsystem partitioning. Re-staged 2026-08-01 (Task 11 design amendment): wording updated to step-keyed realization language — all 16 dynamic views (core + variation) now carry realized step tables, none required a new component."
           },
           {
             "section": "Directive 4",
             "guideline": "Features as integration, not implementation — no Manager named for a feature.",
             "status": "pass",
-            "justification": "Attested 2026-07-22: the 5 Managers are named for phase workflow families, not features; features arrive as integration (new call chains), not new components."
+            "justification": "Attested 2026-07-22: the 5 Managers are named for phase workflow families, not features; features arrive as integration (new step-keyed realizations), not new components. Re-staged 2026-08-01 (Task 11 design amendment): wording updated to step-keyed realization language — the coverage reconciliation's two retroactive activities (C-AA, C-DH) and the align-up rail calls are both integration onto existing components, not new ones."
           },
           {
             "section": "Directive 5",
             "guideline": "Design iteratively, build incrementally.",
             "status": "pass",
-            "justification": "Attested 2026-07-22 (Phase-1 half): design IS iterative here — the draft→critique→review→amend loop with staleness propagation is the mechanism; the build-incrementally half is Phase-3's."
+            "justification": "Attested 2026-07-22 (Phase-1 half): design IS iterative here — the draft→critique→review→amend loop with staleness propagation is the mechanism; the build-incrementally half is Phase-3's. Re-staged 2026-08-01 (Task 11 design amendment — call-chain realization, steps model, coverage reconciliation, align-up rail calls): unaffected."
           },
           {
             "section": "§3a",
             "guideline": "Volatility decreases top-down through the layers.",
             "status": "pass",
-            "justification": "Attested 2026-07-22: volatility decreases top-down — Managers encapsulate workflow choreography (most volatile), Engines policies/models, ResourceAccess substrate mechanics, Resources/Utilities the most stable."
+            "justification": "Attested 2026-07-22: volatility decreases top-down — Managers encapsulate workflow choreography (most volatile), Engines policies/models, ResourceAccess substrate mechanics, Resources/Utilities the most stable. Re-staged 2026-08-01 (Task 11 design amendment — call-chain realization, steps model, coverage reconciliation, align-up rail calls): unaffected."
           },
           {
             "section": "§3b",
             "guideline": "Reuse increases top-down — Utilities most reusable, Managers single-purpose.",
             "status": "pass",
-            "justification": "Attested 2026-07-22: reuse increases top-down — Utilities serve any system, RAs serve multiple Managers (durableExecution 4, projectState 3), Managers are single-purpose."
+            "justification": "Attested 2026-07-22: reuse increases top-down — Utilities serve any system, RAs serve multiple Managers (projectState 3, sourceControlAccess 3), Managers are single-purpose. Re-staged 2026-08-01 (Task 11 design amendment): the earlier \"durableExecution 4\" RA multi-service example is stale — durableExecutionAccess was reclassified to the message-bus Utility at the Task 7b reconciliation (founder ruling R-F) and no longer sits in the ResourceAccess layer; replaced with the two live RA examples the align-up batch itself just confirmed exercised by 3 Managers apiece (projectStateAccess: system-design-manager, project-design-manager, construction-manager; sourceControlAccess: the same three, post align-up)."
           },
           {
             "section": "§3c",
             "guideline": "Do not encapsulate nature-of-business changes.",
             "status": "pass",
-            "justification": "Attested 2026-07-22: no nature-of-business change is encapsulated — the rejected ledger records Work Tracking as descoped rather than encapsulating an external-tracker business we are not in."
+            "justification": "Attested 2026-07-22: no nature-of-business change is encapsulated — the rejected ledger records Work Tracking as descoped rather than encapsulating an external-tracker business we are not in. Re-staged 2026-08-01 (Task 11 design amendment — call-chain realization, steps model, coverage reconciliation, align-up rail calls): unaffected."
           },
           {
             "section": "§3d",
             "guideline": "Managers should be almost expendable — all Engines, RA, Resources, and Utilities survive a Manager rewrite.",
             "status": "pass",
-            "justification": "Attested 2026-07-22: Managers are almost expendable — every Engine, RA, Resource, and Utility survives any single Manager rewrite (zero Engine/RA edges point at Managers)."
+            "justification": "Attested 2026-07-22: Managers are almost expendable — every Engine, RA, Resource, and Utility survives any single Manager rewrite (zero Engine/RA edges point at Managers). Re-staged 2026-08-01 (Task 11 design amendment — call-chain realization, steps model, coverage reconciliation, align-up rail calls): unaffected."
           }
         ]
       },
@@ -9295,6 +9430,18 @@
           "response": "",
           "type": "staleAck",
           "addressee": ""
+        },
+        {
+          "id": "r1c2",
+          "anchor": "",
+          "anchorText": "",
+          "text": "Reviewed — unaffected: call-chain realization amendment (steps model, all 16 views realized)",
+          "authorRole": "architect",
+          "round": 1,
+          "status": "addressed",
+          "response": "",
+          "type": "staleAck",
+          "addressee": ""
         }
       ],
       "revisions": 3,
@@ -9408,6 +9555,18 @@
           "anchor": "",
           "anchorText": "",
           "text": "Reviewed — unaffected: Slot-5 system amendment (rev 2) reviewed against this artifact: call chains added for every nonCore variation, duplicate source-control edges consolidated, encapsulates prose filled on all components. No basis change affects this artifact — unaffected.",
+          "authorRole": "architect",
+          "round": 1,
+          "status": "addressed",
+          "response": "",
+          "type": "staleAck",
+          "addressee": ""
+        },
+        {
+          "id": "r1c2",
+          "anchor": "",
+          "anchorText": "",
+          "text": "Reviewed — unaffected: call-chain realization amendment (steps model, all 16 views realized)",
           "authorRole": "architect",
           "round": 1,
           "status": "addressed",
@@ -9612,12 +9771,28 @@
             "title": "Build Review Engine (encapsulates ReviewPolicy)"
           },
           {
+            "name": "C-DH",
+            "effortDays": 15,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 3,
+            "title": "Build Design Health Engine (Method-rule evaluation over the typed project state; adopted from the platform methodcheck extension — retroactive reconciliation, actuals-derived)"
+          },
+          {
             "name": "C-PA",
             "effortDays": 35,
             "workerClass": "junior-developer",
             "coding": true,
             "riskBucket": 8,
             "title": "Build Project State Access (git-as-DB head-state + construction-output stage)"
+          },
+          {
+            "name": "C-AA",
+            "effortDays": 10,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 3,
+            "title": "Build Artifact Access (content-addressed construction outputs in the customer repo; carved out of Project State Access — retroactive reconciliation, actuals-derived)"
           },
           {
             "name": "C-OSA",
@@ -9649,7 +9824,7 @@
             "workerClass": "junior-developer",
             "coding": true,
             "riskBucket": 5,
-            "title": "Build Construction Pipeline Access (GitHub Actions rail)"
+            "title": "Build Agentic Job Access (venue-neutral agentic job rail — CI venue + local; formerly Build Construction Pipeline Access)"
           },
           {
             "name": "C-OR",
@@ -9673,7 +9848,7 @@
             "workerClass": "junior-developer",
             "coding": true,
             "riskBucket": 3,
-            "title": "Build Billing Gateway Access"
+            "title": "Build Merchant Gateway Access (charge-only Stripe Connect settlement gateway; formerly Build Billing Gateway Access)"
           },
           {
             "name": "C-SC",
@@ -9689,7 +9864,7 @@
             "workerClass": "junior-developer",
             "coding": true,
             "riskBucket": 8,
-            "title": "Build Durable Execution Access"
+            "title": "Build Message Bus (Manager→Manager deliverSignal + registerSchedule utility; formerly Build Durable Execution Access)"
           },
           {
             "name": "C-SE",
@@ -9969,6 +10144,18 @@
           "response": "",
           "type": "staleAck",
           "addressee": ""
+        },
+        {
+          "id": "r1c2",
+          "anchor": "",
+          "anchorText": "",
+          "text": "Reviewed — unaffected: call-chain realization amendment (steps model, all 16 views realized)",
+          "authorRole": "architect",
+          "round": 1,
+          "status": "addressed",
+          "response": "",
+          "type": "staleAck",
+          "addressee": ""
         }
       ],
       "revisions": 1,
@@ -9979,6 +10166,27 @@
     }
   },
   "activityConstruction": {
+    "C-AA": {
+      "activityID": "C-AA",
+      "phase": 2,
+      "buildStatus": 2,
+      "produced": [
+        {
+          "Kind": "service-contract",
+          "Title": "artifactAccess — service contract",
+          "Source": "implementation/contracts/artifactAccess.md",
+          "Produced": true,
+          "Note": "Frozen App-B service contract (carved out of projectStateAccess at the R-014 facet re-cut)."
+        },
+        {
+          "Kind": "code",
+          "Title": "artifactAccess — built component",
+          "Source": "implementation/log",
+          "Produced": true,
+          "Note": "Retroactive reconciliation record: built under the C-PA scope before the artifact-access carve-out; code at server/internal/resourceaccess/artifact."
+        }
+      ]
+    },
     "C-AE": {
       "activityID": "C-AE",
       "phase": 2,
@@ -10182,6 +10390,20 @@
           "Source": "go.mod",
           "Produced": true,
           "Note": "satisfied by framework-go-infrastructure-otel adoption (go.mod) wired app-wide; no bespoke utility component per Method utility rules"
+        }
+      ]
+    },
+    "C-DH": {
+      "activityID": "C-DH",
+      "phase": 2,
+      "buildStatus": 2,
+      "produced": [
+        {
+          "Kind": "code",
+          "Title": "designHealthEngine — built component",
+          "Source": "implementation/log",
+          "Produced": true,
+          "Note": "Retroactive reconciliation record: reclassified from the design-health utility (founder ruling R-F, Task 7b); code at server/internal/engine/designhealth. No service contract yet (contractKey null — contract lands with the earmarked platform methodcheck upstreaming)."
         }
       ]
     },

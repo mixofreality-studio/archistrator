@@ -5073,15 +5073,18 @@ func decodeCommittedProject(t *testing.T) Project {
 // ALT-CARRYING calls only: every (view, step, from, to) that appears as a key
 // in wantAltTally below is unique, which is all wantAltTally's lookup needs.
 // It is NOT true that no step repeats a (from,to) pair outside an alt group —
-// seven committed steps legitimately do (uc1-drive-system-design's new
+// nine committed steps legitimately do (uc1-drive-system-design's new
 // `decision` step reads then rejects on the same sdm->psa edge;
 // uc2-commit-project-option's `commit-option`; uc3-execute-construction-
 // activity's `activity-eligible`, `dispatch-job`, and `record-review-merge`;
 // var-manage-projects' new `adopt-repo`, which adopts then seats the repo on
-// the same sdm->sca edge; and batch-3's var-ask-review-question
+// the same sdm->sca edge; batch-3's var-ask-review-question
 // `dispatch-answer-job`, which dispatches then observes the same sdm->aja
-// edge) — none of those repeated pairs carries an alt tag, so they never
-// collide in wantAltTally.
+// edge; and the Task-11 align-up's two rail-before-dispatch steps —
+// uc1-drive-system-design's `dispatch-draft-job` (getInstallationToken then
+// openBranch, same sdm->sca edge) and var-replan-scope-change's `reenter`
+// (the same pair on pdm->sca)) — none of those repeated pairs carries an alt
+// tag, so they never collide in wantAltTally.
 type altCallKey struct {
 	view, step, from, to string
 }
