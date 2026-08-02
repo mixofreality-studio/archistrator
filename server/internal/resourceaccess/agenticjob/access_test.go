@@ -884,10 +884,10 @@ func TestDedupTokenDeterminism(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// test fixtures: a real throwaway bare git repo + a `claude` PATH shim.
+// test fixtures: a real throwaway shared git repo + a `claude` PATH shim.
 // ---------------------------------------------------------------------------
 
-// newBareRepo creates the real throwaway SHARED repo the local executor operates
+// newSharedRepo creates the real throwaway SHARED repo the local executor operates
 // `git worktree` on, seeded with one empty commit on "main". Mirrors
 // systemtests/internal/harness/localgit.go's StartLocalGitRepo but reimplemented
 // here (this test lives in the server module; the harness module is a sibling
@@ -904,7 +904,7 @@ func TestDedupTokenDeterminism(t *testing.T) {
 // HEAD is left DETACHED so no branch is checked out in the shared repo: the seed
 // helpers below clone it and push main / activity branches back, and git refuses
 // to update a branch that some working tree has checked out.
-func newBareRepo(t *testing.T) (repoDir, url string) {
+func newSharedRepo(t *testing.T) (repoDir, url string) {
 	t.Helper()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not on PATH; skipping local-executor proof")
@@ -920,17 +920,17 @@ func newBareRepo(t *testing.T) (repoDir, url string) {
 	return shared, "file://" + shared
 }
 
-// remoteBranchExists reports whether branch exists on the bare repo.
-func remoteBranchExists(t *testing.T, bareDir, branch string) bool {
+// remoteBranchExists reports whether branch exists on the shared repo.
+func remoteBranchExists(t *testing.T, sharedDir, branch string) bool {
 	t.Helper()
-	cmd := exec.Command("git", "-C", bareDir, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch)
+	cmd := exec.Command("git", "-C", sharedDir, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch)
 	return cmd.Run() == nil
 }
 
-// remoteCommitCount returns the commit count on branch in the bare repo.
-func remoteCommitCount(t *testing.T, bareDir, branch string) int {
+// remoteCommitCount returns the commit count on branch in the shared repo.
+func remoteCommitCount(t *testing.T, sharedDir, branch string) int {
 	t.Helper()
-	out := testGitOut(t, bareDir, "rev-list", "--count", branch)
+	out := testGitOut(t, sharedDir, "rev-list", "--count", branch)
 	var n int
 	if _, err := fscanInt(strings.TrimSpace(out), &n); err != nil {
 		t.Fatalf("parse commit count %q: %v", out, err)
@@ -1091,14 +1091,14 @@ func TestNewLocalExec_RejectsNonLocalRepoURL(t *testing.T) {
 // executor is constructed, so a later dispatch for the same activity branch is
 // not blocked by a phantom "already checked out" registration.
 func TestNewLocalExec_PrunesStaleWorktreesOnStartup(t *testing.T) {
-	bareDir, url := newBareRepo(t)
+	sharedDir, url := newSharedRepo(t)
 	stale := filepath.Join(t.TempDir(), "stale-wt")
-	testGit(t, bareDir, "worktree", "add", "-b", "activity/C-STALE", stale, "main")
+	testGit(t, sharedDir, "worktree", "add", "-b", "activity/C-STALE", stale, "main")
 	if err := os.RemoveAll(stale); err != nil {
 		t.Fatalf("remove stale worktree dir: %v", err)
 	}
 	newLocalExecForTest(t, url, 0)
-	assertNoLingeringWorktrees(t, bareDir)
+	assertNoLingeringWorktrees(t, sharedDir)
 }
 
 // assertNoLingeringWorktrees asserts the shared repo carries NO linked-worktree
@@ -1148,7 +1148,7 @@ func newLocalExecForTest(t *testing.T, repoURL string, runTimeout time.Duration)
 }
 
 func TestLocalExecSubmit_ContractMisuse(t *testing.T) {
-	_, url := newBareRepo(t)
+	_, url := newSharedRepo(t)
 	a := newLocalExecForTest(t, url, 0)
 	ctx := context.Background()
 
@@ -1186,7 +1186,7 @@ func TestLocalExecSubmit_ContractMisuse(t *testing.T) {
 }
 
 func TestLocalExecObserveCancel_HandleMisuse(t *testing.T) {
-	_, url := newBareRepo(t)
+	_, url := newSharedRepo(t)
 	a := newLocalExecForTest(t, url, 0)
 	ctx := obsRC(context.Background())
 
@@ -1207,7 +1207,7 @@ func TestLocalExecObserveCancel_HandleMisuse(t *testing.T) {
 // NOT a still-running phase — routing the Manager to the StageDraftFailed human gate
 // instead of looping to the maxObservePolls ceiling.
 func TestLocalExecObserve_RestartLostHandle_TerminalFailed(t *testing.T) {
-	_, url := newBareRepo(t)
+	_, url := newSharedRepo(t)
 	a := newLocalExecForTest(t, url, 0)
 	obs, err := a.ObserveAgenticJob(obsRC(context.Background()), "local:deadbeef")
 	if err != nil {
@@ -1231,7 +1231,7 @@ func TestLocalExecObserve_RestartLostHandle_TerminalFailed(t *testing.T) {
 // must not swallow a legitimately in-flight run). A never-terminating shim keeps the run
 // in localRunRunning while we observe it.
 func TestLocalExecObserve_KnownRunning_StillRunning(t *testing.T) {
-	_, url := newBareRepo(t)
+	_, url := newSharedRepo(t)
 	installClaudeShim(t, "#!/bin/sh\nexec sleep 30\n")
 	a := newLocalExecForTest(t, url, 20*time.Second)
 
@@ -1257,7 +1257,7 @@ func TestLocalExecObserve_KnownRunning_StillRunning(t *testing.T) {
 }
 
 func TestLocalExecCancel_UnknownHandle_NoopSuccess(t *testing.T) {
-	_, url := newBareRepo(t)
+	_, url := newSharedRepo(t)
 	a := newLocalExecForTest(t, url, 0)
 	if err := a.CancelAgenticJob(obsRC(context.Background()), "local:deadbeef"); err != nil {
 		t.Fatalf("Cancel(unknown): unexpected error: %v", err)
@@ -1300,7 +1300,7 @@ func waitForTerminal(t *testing.T, a *localExecAccess, handle PipelineHandle, ti
 }
 
 func TestLocalExecSubmit_HappyPath_SpawnsClaudeWithCorrectShapeAndPushesCommit(t *testing.T) {
-	bareDir, url := newBareRepo(t)
+	sharedDir, url := newSharedRepo(t)
 	capture := filepath.Join(t.TempDir(), "capture")
 	commitShim(t, capture)
 	// Deterministic env-allowlist proof: TERM/USER/LOGNAME are forced present (so the
@@ -1333,24 +1333,24 @@ func TestLocalExecSubmit_HappyPath_SpawnsClaudeWithCorrectShapeAndPushesCommit(t
 	// The branch exists in the SHARED repo with the shim's commit — the worktree
 	// commit advanced the ref directly, no push involved (seed + shim commit = 2).
 	branch := "activity/C-BILLENG"
-	if !remoteBranchExists(t, bareDir, branch) {
+	if !remoteBranchExists(t, sharedDir, branch) {
 		t.Fatalf("branch %s does not exist in the shared repo", branch)
 	}
-	if got := remoteCommitCount(t, bareDir, branch); got != 2 {
+	if got := remoteCommitCount(t, sharedDir, branch); got != 2 {
 		t.Fatalf("commit count on %s = %d, want 2 (seed + shim commit)", branch, got)
 	}
 
 	// LH2 — the worktree was removed after completion: no lingering registration.
-	assertNoLingeringWorktrees(t, bareDir)
+	assertNoLingeringWorktrees(t, sharedDir)
 
 	// Dispatch shape: exactly one invocation captured.
 	args := readCapturedArgs(t, capture, 0)
 	assertClaudeArgsShape(t, args, "-p\n/service-construction billingGatewayAccess C-BILLENG")
 
-	// cwd was a throwaway worktree (a temp dir, distinct from the bare repo path).
+	// cwd was a throwaway worktree (a temp dir, distinct from the shared repo path).
 	pwd := readCapturedPWD(t, capture, 0)
-	if pwd == "" || pwd == bareDir {
-		t.Fatalf("claude cwd = %q, want a throwaway worktree directory distinct from the bare repo", pwd)
+	if pwd == "" || pwd == sharedDir {
+		t.Fatalf("claude cwd = %q, want a throwaway worktree directory distinct from the shared repo", pwd)
 	}
 
 	// --mcp-config envelope: exact AIARCH_* shape.
@@ -1367,7 +1367,7 @@ func TestLocalExecSubmit_HappyPath_SpawnsClaudeWithCorrectShapeAndPushesCommit(t
 	// dir AND the shared repo's git dir (worktree commits write .git/worktrees
 	// metadata + shared objects/refs — the founder-accepted isolation tradeoff).
 	sandboxCfg := assertSandboxSettingsEnvelope(t, capture, 0)
-	assertSandboxFilesystemAllowWrite(t, sandboxCfg, pwd, filepath.Join(bareDir, ".git"))
+	assertSandboxFilesystemAllowWrite(t, sandboxCfg, pwd, filepath.Join(sharedDir, ".git"))
 
 	// Env allowlist (Fix-subagent Task 6 + USER/LOGNAME for claude subscription auth):
 	// EXACTLY PATH/HOME/TERM/USER/LOGNAME + the six AIARCH_* rig vars cross into the
@@ -1597,7 +1597,7 @@ func readCapturedEnv(t *testing.T, captureDir string, n int) map[string]string {
 }
 
 func TestLocalExecSubmit_SecondPhase_ReattachesToExistingActivityBranch(t *testing.T) {
-	bareDir, url := newBareRepo(t)
+	sharedDir, url := newSharedRepo(t)
 	capture := filepath.Join(t.TempDir(), "capture")
 	commitShim(t, capture)
 	a := newLocalExecForTest(t, url, 10*time.Second)
@@ -1623,7 +1623,7 @@ func TestLocalExecSubmit_SecondPhase_ReattachesToExistingActivityBranch(t *testi
 	// BOTH phases' commits landed on the SAME branch (seed + phase1 + phase2 = 3):
 	// nothing was reset/lost between the two dispatches.
 	branch := "activity/C-BILLENG"
-	if got := remoteCommitCount(t, bareDir, branch); got != 3 {
+	if got := remoteCommitCount(t, sharedDir, branch); got != 3 {
 		t.Fatalf("commit count on %s = %d, want 3 (seed + 2 phase commits)", branch, got)
 	}
 }
@@ -1633,7 +1633,7 @@ func TestLocalExecSubmit_SecondPhase_ReattachesToExistingActivityBranch(t *testi
 // ---------------------------------------------------------------------------
 
 func TestLocalExecSubmit_DuplicateKey_ConvergesWithoutRedispatch(t *testing.T) {
-	bareDir, url := newBareRepo(t)
+	sharedDir, url := newSharedRepo(t)
 	capture := filepath.Join(t.TempDir(), "capture")
 	commitShim(t, capture)
 	a := newLocalExecForTest(t, url, 10*time.Second)
@@ -1658,7 +1658,7 @@ func TestLocalExecSubmit_DuplicateKey_ConvergesWithoutRedispatch(t *testing.T) {
 		t.Fatalf("expected exactly one claude invocation, found a second (call-1.args exists, stat err=%v)", err)
 	}
 	branch := "activity/C-BILLENG"
-	if got := remoteCommitCount(t, bareDir, branch); got != 2 {
+	if got := remoteCommitCount(t, sharedDir, branch); got != 2 {
 		t.Fatalf("commit count on %s = %d, want 2 (seed + ONE shim commit)", branch, got)
 	}
 }
@@ -1668,7 +1668,7 @@ func TestLocalExecSubmit_DuplicateKey_ConvergesWithoutRedispatch(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestLocalExecObserve_NonZeroExit_Failed(t *testing.T) {
-	_, url := newBareRepo(t)
+	_, url := newSharedRepo(t)
 	installClaudeShim(t, "#!/bin/sh\necho 'boom: contract violation' >&2\nexit 3\n")
 	a := newLocalExecForTest(t, url, 10*time.Second)
 
@@ -1690,7 +1690,7 @@ func TestLocalExecObserve_NonZeroExit_Failed(t *testing.T) {
 }
 
 func TestLocalExecObserve_Timeout_FailedWithTimeoutDiagnostic(t *testing.T) {
-	_, url := newBareRepo(t)
+	_, url := newSharedRepo(t)
 	// A well-behaved subprocess that honors SIGTERM promptly (mirrors the Cancel
 	// test's shim) — this proves the ctx-deadline → Cancel(SIGTERM) → "timed out"
 	// classification path, not the separate WaitDelay-forced-kill edge case a
@@ -1720,7 +1720,7 @@ func TestLocalExecObserve_Timeout_FailedWithTimeoutDiagnostic(t *testing.T) {
 // branch ref: never a fake success (the durable post-condition — work landed on
 // the activity branch — does not hold), and the worktree is still cleaned up.
 func TestLocalExecObserve_CleanExitNoCommit_Failed(t *testing.T) {
-	bareDir, url := newBareRepo(t)
+	sharedDir, url := newSharedRepo(t)
 	installClaudeShim(t, "#!/bin/sh\nexit 0\n")
 	a := newLocalExecForTest(t, url, 10*time.Second)
 
@@ -1736,7 +1736,7 @@ func TestLocalExecObserve_CleanExitNoCommit_Failed(t *testing.T) {
 	if !strings.Contains(obs.Diagnostic, "no commits") {
 		t.Fatalf("Diagnostic = %q, want it to say the run produced no commits", obs.Diagnostic)
 	}
-	assertNoLingeringWorktrees(t, bareDir)
+	assertNoLingeringWorktrees(t, sharedDir)
 }
 
 // ---------------------------------------------------------------------------
@@ -1744,7 +1744,7 @@ func TestLocalExecObserve_CleanExitNoCommit_Failed(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestLocalExecCancel_Running_ConvergesToCancelledNeverFailed(t *testing.T) {
-	bareDir, url := newBareRepo(t)
+	sharedDir, url := newSharedRepo(t)
 	installClaudeShim(t, "#!/bin/sh\nexec sleep 30\n")
 	a := newLocalExecForTest(t, url, 20*time.Second)
 
@@ -1768,11 +1768,11 @@ func TestLocalExecCancel_Running_ConvergesToCancelledNeverFailed(t *testing.T) {
 	// terminal status IMMEDIATELY while awaitCompletion (which does the removal
 	// after cmd.Wait returns) is still unwinding the SIGTERM'd subprocess, so
 	// poll briefly rather than asserting instantaneously.
-	waitForNoLingeringWorktrees(t, bareDir, 10*time.Second)
+	waitForNoLingeringWorktrees(t, sharedDir, 10*time.Second)
 }
 
 func TestLocalExecCancel_AlreadyTerminal_NoopSuccess(t *testing.T) {
-	_, url := newBareRepo(t)
+	_, url := newSharedRepo(t)
 	// commitShim (not a bare exit-0 shim): a clean exit must ADVANCE the activity
 	// branch ref to count as PhaseSucceeded under the worktree rework (LF3).
 	commitShim(t, filepath.Join(t.TempDir(), "capture"))
@@ -1950,7 +1950,7 @@ func TestClaudeOutputDetail_BoundedAndSingleLine(t *testing.T) {
 // ITSELF: the leading sentence is preserved verbatim (downstream consumers match
 // on its vocabulary) and claude's own envelope is appended after the separator.
 func TestLocalExecObserve_NoCommit_EnrichesDiagnosticFromJSONEnvelope(t *testing.T) {
-	_, url := newBareRepo(t)
+	_, url := newSharedRepo(t)
 	installClaudeShim(t, "#!/bin/sh\n"+
 		`echo '{"type":"result","subtype":"error_during_execution","is_error":true,"result":"MCP server aiarch-state failed to start"}'`+"\n"+
 		"exit 0\n")
@@ -1979,7 +1979,7 @@ func TestLocalExecObserve_NoCommit_EnrichesDiagnosticFromJSONEnvelope(t *testing
 // LX-OBS2 — claude died before emitting JSON: the raw tail still reaches the
 // operator rather than being swallowed.
 func TestLocalExecObserve_NoCommit_NonJSONStdoutFallsBackToRawTail(t *testing.T) {
-	_, url := newBareRepo(t)
+	_, url := newSharedRepo(t)
 	installClaudeShim(t, "#!/bin/sh\necho 'Invalid API key · Please run /login'\nexit 0\n")
 	a := newLocalExecForTest(t, url, 10*time.Second)
 
@@ -2001,7 +2001,7 @@ func TestLocalExecObserve_NoCommit_NonJSONStdoutFallsBackToRawTail(t *testing.T)
 // it; stderr is still kept verbatim there.
 func TestLocalExecFailedRun_WritesDurableOutputLogThatSurvivesCleanup(t *testing.T) {
 	tmp := isolatedTempDir(t)
-	repoDir, url := newBareRepo(t)
+	repoDir, url := newSharedRepo(t)
 	installClaudeShim(t, "#!/bin/sh\n"+
 		`echo '{"type":"result","subtype":"success","is_error":false,"result":"POSTMORTEM-STDOUT-MARKER"}'`+"\n"+
 		"echo 'POSTMORTEM-STDERR-MARKER' >&2\n"+
@@ -2039,7 +2039,7 @@ func TestLocalExecFailedRun_WritesDurableOutputLogThatSurvivesCleanup(t *testing
 // accumulating in the operator's temp dir during normal operation.
 func TestLocalExecSuccessfulRun_NoDiagnosticAndNoLogLitter(t *testing.T) {
 	tmp := isolatedTempDir(t)
-	_, url := newBareRepo(t)
+	_, url := newSharedRepo(t)
 	commitShim(t, filepath.Join(t.TempDir(), "capture"))
 	a := newLocalExecForTest(t, url, 10*time.Second)
 
@@ -2284,7 +2284,7 @@ func TestWriteSandboxSettings_FilesystemAllowWrite(t *testing.T) {
 // real dispatch with the escape hatch set spawns claude WITHOUT --settings
 // and still succeeds (--dangerously-skip-permissions remains).
 func TestLocalExecSubmit_AllowUnsandboxedEscapeHatch_EndToEnd(t *testing.T) {
-	_, url := newBareRepo(t)
+	_, url := newSharedRepo(t)
 	capture := filepath.Join(t.TempDir(), "capture")
 	commitShim(t, capture)
 	t.Setenv(localExecAllowUnsandboxedEnv, "true")
@@ -2336,10 +2336,10 @@ func mergeJobSpec(activityID string) PipelineSpec {
 // seedActivityBranch creates activity/<id> off main in the shared repo with one
 // commit writing path=content — the state a completed construction run leaves
 // behind for the merge job to land.
-func seedActivityBranch(t *testing.T, bareDir, activityID, path, content string) {
+func seedActivityBranch(t *testing.T, sharedDir, activityID, path, content string) {
 	t.Helper()
 	work := filepath.Join(t.TempDir(), "seed-branch")
-	testGit(t, "", "clone", bareDir, work)
+	testGit(t, "", "clone", sharedDir, work)
 	testGit(t, work, "config", "user.email", "seed@aiarch.local")
 	testGit(t, work, "config", "user.name", "seed")
 	testGit(t, work, "checkout", "-b", "activity/"+activityID, "main")
@@ -2353,10 +2353,10 @@ func seedActivityBranch(t *testing.T, bareDir, activityID, path, content string)
 
 // commitFileOnMain lands one commit on main in the shared repo writing
 // path=content — used to force divergence (and conflicts) against a branch.
-func commitFileOnMain(t *testing.T, bareDir, path, content string) {
+func commitFileOnMain(t *testing.T, sharedDir, path, content string) {
 	t.Helper()
 	work := filepath.Join(t.TempDir(), "main-edit")
-	testGit(t, "", "clone", "--branch", "main", bareDir, work)
+	testGit(t, "", "clone", "--branch", "main", sharedDir, work)
 	testGit(t, work, "config", "user.email", "seed@aiarch.local")
 	testGit(t, work, "config", "user.name", "seed")
 	if err := os.WriteFile(filepath.Join(work, path), []byte(content), 0o644); err != nil {
@@ -2370,8 +2370,8 @@ func commitFileOnMain(t *testing.T, bareDir, path, content string) {
 // LM1 — happy path: a real --no-ff merge commit lands on main, the branch is
 // deleted, Observe reports Succeeded.
 func TestLocalExecMergeJob_MergesNoFFAndDeletesBranch(t *testing.T) {
-	bare, url := newBareRepo(t)
-	seedActivityBranch(t, bare, "C-M1", "work.txt", "branch content\n")
+	sharedDir, url := newSharedRepo(t)
+	seedActivityBranch(t, sharedDir, "C-M1", "work.txt", "branch content\n")
 	a := newLocalExecForTest(t, url, 0)
 
 	handle, err := a.SubmitAgenticJob(subRC(context.Background(), "merge-key-1"), mergeJobSpec("C-M1"))
@@ -2386,15 +2386,15 @@ func TestLocalExecMergeJob_MergesNoFFAndDeletesBranch(t *testing.T) {
 		t.Fatalf("Phase = %v, want PhaseSucceeded (diagnostic: %q)", obs.Phase, obs.Diagnostic)
 	}
 	// The tip of main is a REAL --no-ff merge commit (two parents).
-	parents := strings.Fields(strings.TrimSpace(testGitOut(t, bare, "log", "-1", "--format=%P", "main")))
+	parents := strings.Fields(strings.TrimSpace(testGitOut(t, sharedDir, "log", "-1", "--format=%P", "main")))
 	if len(parents) != 2 {
 		t.Fatalf("main tip has %d parents, want 2 (a --no-ff merge commit)", len(parents))
 	}
 	// The branch's work is reachable from main.
-	if got := testGitOut(t, bare, "cat-file", "-p", "main:work.txt"); !strings.Contains(got, "branch content") {
+	if got := testGitOut(t, sharedDir, "cat-file", "-p", "main:work.txt"); !strings.Contains(got, "branch content") {
 		t.Fatalf("main:work.txt = %q, want the branch's content", got)
 	}
-	if remoteBranchExists(t, bare, "activity/C-M1") {
+	if remoteBranchExists(t, sharedDir, "activity/C-M1") {
 		t.Fatal("activity branch must be deleted after the merge")
 	}
 }
@@ -2402,10 +2402,10 @@ func TestLocalExecMergeJob_MergesNoFFAndDeletesBranch(t *testing.T) {
 // LM2 — a merge conflict is a FAILED run with a "merge conflict" diagnostic and
 // leaves the shared repo untouched: main unmoved, the branch still present.
 func TestLocalExecMergeJob_ConflictFailsCleanly(t *testing.T) {
-	bare, url := newBareRepo(t)
-	seedActivityBranch(t, bare, "C-M2", "conflict.txt", "branch side\n")
-	commitFileOnMain(t, bare, "conflict.txt", "main side\n")
-	mainBefore := strings.TrimSpace(testGitOut(t, bare, "rev-parse", "main"))
+	sharedDir, url := newSharedRepo(t)
+	seedActivityBranch(t, sharedDir, "C-M2", "conflict.txt", "branch side\n")
+	commitFileOnMain(t, sharedDir, "conflict.txt", "main side\n")
+	mainBefore := strings.TrimSpace(testGitOut(t, sharedDir, "rev-parse", "main"))
 	a := newLocalExecForTest(t, url, 0)
 
 	handle, err := a.SubmitAgenticJob(subRC(context.Background(), "merge-key-2"), mergeJobSpec("C-M2"))
@@ -2422,10 +2422,10 @@ func TestLocalExecMergeJob_ConflictFailsCleanly(t *testing.T) {
 	if !containsFold(obs.Diagnostic, "merge conflict") {
 		t.Fatalf("diagnostic %q must name the merge conflict", obs.Diagnostic)
 	}
-	if got := strings.TrimSpace(testGitOut(t, bare, "rev-parse", "main")); got != mainBefore {
+	if got := strings.TrimSpace(testGitOut(t, sharedDir, "rev-parse", "main")); got != mainBefore {
 		t.Fatalf("main moved on a conflicted merge: %s -> %s (partial merge left behind)", mainBefore, got)
 	}
-	if !remoteBranchExists(t, bare, "activity/C-M2") {
+	if !remoteBranchExists(t, sharedDir, "activity/C-M2") {
 		t.Fatal("activity branch must survive a conflicted merge")
 	}
 }
@@ -2434,16 +2434,16 @@ func TestLocalExecMergeJob_ConflictFailsCleanly(t *testing.T) {
 // ancestor of main (merged, not yet deleted) → no second merge commit, the
 // delete completes, Succeeded.
 func TestLocalExecMergeJob_AlreadyMergedDeletesBranchOnly(t *testing.T) {
-	bare, url := newBareRepo(t)
-	seedActivityBranch(t, bare, "C-M3", "work.txt", "branch content\n")
+	sharedDir, url := newSharedRepo(t)
+	seedActivityBranch(t, sharedDir, "C-M3", "work.txt", "branch content\n")
 	// Simulate the prior attempt's landed merge (without the branch delete).
 	work := filepath.Join(t.TempDir(), "prior-merge")
-	testGit(t, "", "clone", "--branch", "main", bare, work)
+	testGit(t, "", "clone", "--branch", "main", sharedDir, work)
 	testGit(t, work, "config", "user.email", "seed@aiarch.local")
 	testGit(t, work, "config", "user.name", "seed")
 	testGit(t, work, "merge", "--no-ff", "-m", "prior merge", "origin/activity/C-M3")
 	testGit(t, work, "push", "origin", "main")
-	mainBefore := strings.TrimSpace(testGitOut(t, bare, "rev-parse", "main"))
+	mainBefore := strings.TrimSpace(testGitOut(t, sharedDir, "rev-parse", "main"))
 	a := newLocalExecForTest(t, url, 0)
 
 	handle, err := a.SubmitAgenticJob(subRC(context.Background(), "merge-key-3"), mergeJobSpec("C-M3"))
@@ -2457,10 +2457,10 @@ func TestLocalExecMergeJob_AlreadyMergedDeletesBranchOnly(t *testing.T) {
 	if obs.Phase != PhaseSucceeded {
 		t.Fatalf("Phase = %v, want PhaseSucceeded (diagnostic: %q)", obs.Phase, obs.Diagnostic)
 	}
-	if got := strings.TrimSpace(testGitOut(t, bare, "rev-parse", "main")); got != mainBefore {
+	if got := strings.TrimSpace(testGitOut(t, sharedDir, "rev-parse", "main")); got != mainBefore {
 		t.Fatalf("already-merged path must not add a second merge commit: %s -> %s", mainBefore, got)
 	}
-	if remoteBranchExists(t, bare, "activity/C-M3") {
+	if remoteBranchExists(t, sharedDir, "activity/C-M3") {
 		t.Fatal("activity branch must be deleted on the already-merged path")
 	}
 }
@@ -2468,7 +2468,7 @@ func TestLocalExecMergeJob_AlreadyMergedDeletesBranchOnly(t *testing.T) {
 // LM4 — a merge job for a branch that does not exist is an honest failure
 // naming the branch.
 func TestLocalExecMergeJob_MissingBranchFails(t *testing.T) {
-	_, url := newBareRepo(t)
+	_, url := newSharedRepo(t)
 	a := newLocalExecForTest(t, url, 0)
 
 	handle, err := a.SubmitAgenticJob(subRC(context.Background(), "merge-key-4"), mergeJobSpec("C-NOPE"))
@@ -2490,8 +2490,8 @@ func TestLocalExecMergeJob_MissingBranchFails(t *testing.T) {
 // LM5 — same idempotencyKey converges on the same handle/run: exactly one merge
 // commit on main.
 func TestLocalExecMergeJob_IdempotencyConvergence(t *testing.T) {
-	bare, url := newBareRepo(t)
-	seedActivityBranch(t, bare, "C-M5", "work.txt", "branch content\n")
+	sharedDir, url := newSharedRepo(t)
+	seedActivityBranch(t, sharedDir, "C-M5", "work.txt", "branch content\n")
 	a := newLocalExecForTest(t, url, 0)
 
 	h1, err := a.SubmitAgenticJob(subRC(context.Background(), "merge-key-5"), mergeJobSpec("C-M5"))
@@ -2506,7 +2506,7 @@ func TestLocalExecMergeJob_IdempotencyConvergence(t *testing.T) {
 		t.Fatalf("same key returned different handles: %q vs %q", h1, h2)
 	}
 	// Exactly one merge commit: seed + branch commit + one merge = 3 on main.
-	if n := remoteCommitCount(t, bare, "main"); n != 3 {
+	if n := remoteCommitCount(t, sharedDir, "main"); n != 3 {
 		t.Fatalf("main has %d commits, want 3 (seed + branch work + ONE merge)", n)
 	}
 }
@@ -2540,10 +2540,10 @@ func designSpec(command, targetBranch, artifactKind, jobMode string) PipelineSpe
 // redraft to re-attach to (the local branch-staging rail is dormant, so this stands in
 // for a branch a PRIOR executor run created; a FIRST-of-session job has no such branch
 // and the executor creates it off main).
-func seedDesignBranch(t *testing.T, bareDir, branch string) {
+func seedDesignBranch(t *testing.T, sharedDir, branch string) {
 	t.Helper()
 	work := filepath.Join(t.TempDir(), "seed-design-branch")
-	testGit(t, "", "clone", bareDir, work)
+	testGit(t, "", "clone", sharedDir, work)
 	testGit(t, work, "config", "user.email", "seed@aiarch.local")
 	testGit(t, work, "config", "user.name", "seed")
 	testGit(t, work, "checkout", "-b", branch, "main")
@@ -2554,9 +2554,9 @@ func seedDesignBranch(t *testing.T, bareDir, branch string) {
 // assertBranchForkedOffMain asserts main's tip is an ancestor of branch — i.e. the
 // branch was created off main (the local stand-in for the cloud's OpenBranch), so the
 // worktree checked out a tree carrying main's committed state.
-func assertBranchForkedOffMain(t *testing.T, bareDir, branch string) {
+func assertBranchForkedOffMain(t *testing.T, sharedDir, branch string) {
 	t.Helper()
-	cmd := exec.Command("git", "-C", bareDir, "merge-base", "--is-ancestor", localMainBranch, branch)
+	cmd := exec.Command("git", "-C", sharedDir, "merge-base", "--is-ancestor", localMainBranch, branch)
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("branch %s is not a descendant of %s — expected it created off main: %v", branch, localMainBranch, err)
 	}
@@ -2572,11 +2572,11 @@ func assertBranchForkedOffMain(t *testing.T, bareDir, branch string) {
 func TestLocalExecSubmit_DesignJob_FirstOfSession_CreatesBranchOffMain_AllModes(t *testing.T) {
 	for _, mode := range []string{"draft", "critique", "answer"} {
 		t.Run(mode, func(t *testing.T) {
-			bareDir, url := newBareRepo(t)
+			sharedDir, url := newSharedRepo(t)
 			branch := "aiarch-design/mission/session-" + mode
 			// Deliberately NOT seeded: this is the first job of the session, so nothing has
 			// staged the branch — the executor must create it off main.
-			if remoteBranchExists(t, bareDir, branch) {
+			if remoteBranchExists(t, sharedDir, branch) {
 				t.Fatalf("precondition: session branch %s must not exist before the first job", branch)
 			}
 			capture := filepath.Join(t.TempDir(), "capture")
@@ -2602,14 +2602,14 @@ func TestLocalExecSubmit_DesignJob_FirstOfSession_CreatesBranchOffMain_AllModes(
 			// The executor created the session branch off main (the local stand-in for the
 			// cloud's OpenBranch), so the worktree saw main's committed state, and the drafted
 			// commit advanced the branch directly (no push): main's seed + the drafted commit = 2.
-			if !remoteBranchExists(t, bareDir, branch) {
+			if !remoteBranchExists(t, sharedDir, branch) {
 				t.Fatalf("session branch %s was not created by the design arm", branch)
 			}
-			assertBranchForkedOffMain(t, bareDir, branch)
-			if got := remoteCommitCount(t, bareDir, branch); got != 2 {
+			assertBranchForkedOffMain(t, sharedDir, branch)
+			if got := remoteCommitCount(t, sharedDir, branch); got != 2 {
 				t.Fatalf("commit count on %s = %d, want 2 (main seed + drafted commit)", branch, got)
 			}
-			assertNoLingeringWorktrees(t, bareDir)
+			assertNoLingeringWorktrees(t, sharedDir)
 
 			// Prompt is EXACTLY "/<command>" — no component/activity args (design shape).
 			args := readCapturedArgs(t, capture, 0)
@@ -2619,8 +2619,8 @@ func TestLocalExecSubmit_DesignJob_FirstOfSession_CreatesBranchOffMain_AllModes(
 			}
 
 			pwd := readCapturedPWD(t, capture, 0)
-			if pwd == "" || pwd == bareDir {
-				t.Fatalf("[%s] claude cwd = %q, want a throwaway worktree distinct from the bare repo", mode, pwd)
+			if pwd == "" || pwd == sharedDir {
+				t.Fatalf("[%s] claude cwd = %q, want a throwaway worktree distinct from the shared repo", mode, pwd)
 			}
 
 			// --mcp-config envelope: the EXACT aiarch-design.yml set (assertMCPConfigEnvelope
@@ -2659,7 +2659,7 @@ func TestLocalExecSubmit_DesignJob_FirstOfSession_CreatesBranchOffMain_AllModes(
 			// Tier-2 sandbox posture unchanged (THE INVARIANT), and the filesystem scope
 			// covers the worktree + the shared git dir — identical to the construct arm.
 			sandboxCfg := assertSandboxSettingsEnvelope(t, capture, 0)
-			assertSandboxFilesystemAllowWrite(t, sandboxCfg, pwd, filepath.Join(bareDir, ".git"))
+			assertSandboxFilesystemAllowWrite(t, sandboxCfg, pwd, filepath.Join(sharedDir, ".git"))
 		})
 	}
 }
@@ -2667,7 +2667,7 @@ func TestLocalExecSubmit_DesignJob_FirstOfSession_CreatesBranchOffMain_AllModes(
 // LD2 — a design-job submit missing the command dispatch input is ContractMisuse
 // (exactly as the construct arm rejects a missing command), BEFORE any worktree/spawn.
 func TestLocalExecSubmit_DesignJob_MissingCommand_ContractMisuse(t *testing.T) {
-	_, url := newBareRepo(t)
+	_, url := newSharedRepo(t)
 	a := newLocalExecForTest(t, url, 0)
 	spec := designSpec("", "design/mission/s1", "Mission", "draft")
 	_, err := a.SubmitAgenticJob(subRC(context.Background(), "d-nocommand"), spec)
@@ -2678,7 +2678,7 @@ func TestLocalExecSubmit_DesignJob_MissingCommand_ContractMisuse(t *testing.T) {
 
 // LD3 — a design-job submit missing the target_branch dispatch input is ContractMisuse.
 func TestLocalExecSubmit_DesignJob_MissingTargetBranch_ContractMisuse(t *testing.T) {
-	_, url := newBareRepo(t)
+	_, url := newSharedRepo(t)
 	a := newLocalExecForTest(t, url, 0)
 	spec := designSpec("mission-draft", "", "Mission", "draft")
 	_, err := a.SubmitAgenticJob(subRC(context.Background(), "d-nobranch"), spec)
@@ -2692,10 +2692,10 @@ func TestLocalExecSubmit_DesignJob_MissingTargetBranch_ContractMisuse(t *testing
 // recreated/reset, the prior session commits are preserved, and the drafted commit lands
 // on top. This is the counterpart of LD1's first-of-session create-off-main path.
 func TestLocalExecSubmit_DesignJob_ExistingSessionBranch_ReattachesToTip(t *testing.T) {
-	bareDir, url := newBareRepo(t)
+	sharedDir, url := newSharedRepo(t)
 	branch := "aiarch-design/mission/session-redraft"
-	seedDesignBranch(t, bareDir, branch) // a prior job's session branch (main seed + a session-base commit)
-	priorTip := strings.TrimSpace(testGitOut(t, bareDir, "rev-parse", branch))
+	seedDesignBranch(t, sharedDir, branch) // a prior job's session branch (main seed + a session-base commit)
+	priorTip := strings.TrimSpace(testGitOut(t, sharedDir, "rev-parse", branch))
 	capture := filepath.Join(t.TempDir(), "capture")
 	commitShim(t, capture)
 	a := newLocalExecForTest(t, url, 10*time.Second)
@@ -2713,11 +2713,11 @@ func TestLocalExecSubmit_DesignJob_ExistingSessionBranch_ReattachesToTip(t *test
 	// Re-attached to the existing tip, not recreated: the drafted commit is a DESCENDANT
 	// of the prior tip (prior session commits preserved), and the count is main seed +
 	// session base + drafted = 3.
-	cmd := exec.Command("git", "-C", bareDir, "merge-base", "--is-ancestor", priorTip, branch)
+	cmd := exec.Command("git", "-C", sharedDir, "merge-base", "--is-ancestor", priorTip, branch)
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("prior session tip %s is not an ancestor of %s — the branch was reset, not re-attached: %v", priorTip, branch, err)
 	}
-	if got := remoteCommitCount(t, bareDir, branch); got != 3 {
+	if got := remoteCommitCount(t, sharedDir, branch); got != 3 {
 		t.Fatalf("commit count on %s = %d, want 3 (main seed + session base + drafted commit)", branch, got)
 	}
 }
@@ -2726,7 +2726,7 @@ func TestLocalExecSubmit_DesignJob_ExistingSessionBranch_ReattachesToTip(t *test
 // spawn claude exactly ONCE (the in-memory run-record short-circuit, same as construct).
 // First-of-session (unseeded), so the arm also creates the branch off main exactly once.
 func TestLocalExecSubmit_DesignJob_DuplicateKey_ConvergesWithoutRedispatch(t *testing.T) {
-	bareDir, url := newBareRepo(t)
+	sharedDir, url := newSharedRepo(t)
 	branch := "aiarch-design/glossary/session-1"
 	capture := filepath.Join(t.TempDir(), "capture")
 	commitShim(t, capture)
@@ -2749,7 +2749,7 @@ func TestLocalExecSubmit_DesignJob_DuplicateKey_ConvergesWithoutRedispatch(t *te
 	if _, err := os.Stat(filepath.Join(capture, "call-1.args")); !os.IsNotExist(err) {
 		t.Fatalf("expected exactly one claude invocation, found a second (call-1.args exists, stat err=%v)", err)
 	}
-	if got := remoteCommitCount(t, bareDir, branch); got != 2 {
+	if got := remoteCommitCount(t, sharedDir, branch); got != 2 {
 		t.Fatalf("commit count on %s = %d, want 2 (main seed + ONE drafted commit)", branch, got)
 	}
 }
@@ -2815,7 +2815,7 @@ func readSeatArgs(t *testing.T, captureDir string) []string {
 // So PhaseSucceeded ⟺ seat-assets ran BEFORE claude in claude's OWN worktree, and the
 // recorded argv proves the exact `seat-assets --dest <workDir>` invocation shape.
 func TestLocalExecSubmit_SeatsClaudePromptSurfaceBeforeSpawn(t *testing.T) {
-	bareDir, url := newBareRepo(t)
+	sharedDir, url := newSharedRepo(t)
 	seatCapture := filepath.Join(t.TempDir(), "seat")
 	stateMCPBin := recordingStateMCPBin(t, seatCapture)
 
@@ -2868,9 +2868,9 @@ func TestLocalExecSubmit_SeatsClaudePromptSurfaceBeforeSpawn(t *testing.T) {
 	if dest == "" {
 		t.Fatalf("seat-assets argv missing a non-empty --dest: %v", seatArgs)
 	}
-	// --dest is the worktree (a throwaway dir distinct from the bare repo), and it is the
+	// --dest is the worktree (a throwaway dir distinct from the shared repo), and it is the
 	// SAME dir the marker landed in that the shim then read — so it equals claude's cwd.
-	if dest == bareDir {
+	if dest == sharedDir {
 		t.Fatalf("seat-assets --dest = %q, want the throwaway worktree, not the shared repo", dest)
 	}
 }
@@ -3007,8 +3007,13 @@ func TestLocalExecSubmit_BareSharedRepo_RefusesToDispatch(t *testing.T) {
 	if err == nil {
 		t.Fatal("Submit succeeded against a BARE shared repo; the trace sink would be agent-writable")
 	}
-	if !strings.Contains(err.Error(), "trace") {
-		t.Fatalf("Submit error = %q, want it to name the trace sink", err.Error())
+	// The message must be self-service: name the sink, and name BOTH halves of
+	// the remedy — a non-bare checkout, plus the receive.denyCurrentBranch
+	// setting that checkout needs before anything can push its checked-out branch.
+	for _, want := range []string{"trace", "NON-bare working checkout", "receive.denyCurrentBranch updateInstead"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("Submit error = %q, want it to mention %q", err.Error(), want)
+		}
 	}
 	a.mu.Lock()
 	n := len(a.runs)
@@ -3022,7 +3027,7 @@ func TestLocalExecSubmit_BareSharedRepo_RefusesToDispatch(t *testing.T) {
 // trace file under the shared repo, keyed by the SAME dedup token the handle is
 // (no second identity), next to a self-ignoring .gitignore.
 func TestLocalExecRun_TeesWholeStdoutToPerEpisodeTraceFile(t *testing.T) {
-	repoDir, url := newBareRepo(t)
+	repoDir, url := newSharedRepo(t)
 	installClaudeShim(t, "#!/bin/sh\n"+
 		"set -e\n"+
 		"git config user.email shim@aiarch.local\n"+
@@ -3113,9 +3118,10 @@ func TestClaudeOutputDetail_RealStreamJSONFixtures(t *testing.T) {
 	}
 }
 
-// TR8 — a trace-file write fault must never wedge the dispatch: os/exec's
-// stdout copier stops on the first Write error, which would block claude on a
-// full pipe until the run timeout. traceSink absorbs the fault (logged, never
+// TR8 — a trace-file write fault must never reach os/exec's stdout copier. That
+// copier is `io.Copy(w, pr); pr.Close()`, so a returned error would close the
+// read end and claude would take EPIPE on its next write and DIE part-way
+// through the run. traceSink absorbs the fault (recorded + logged, never
 // returned) so the pipe keeps draining and the run reaches its real outcome.
 func TestTraceSinkAbsorbsWriteFaults(t *testing.T) {
 	f, err := os.CreateTemp(t.TempDir(), "trace-*.jsonl")
@@ -3137,5 +3143,103 @@ func TestTraceSinkAbsorbsWriteFaults(t *testing.T) {
 	n, err = s.Write([]byte("second\n"))
 	if err != nil || n != len("second\n") {
 		t.Fatalf("Write after fault = (%d, %v), want (%d, nil)", n, err, len("second\n"))
+	}
+}
+
+// failingTraceFile is a traceWriteCloser whose every Write fails — the
+// injectable stand-in for a full disk. Injected through
+// localExecAccess.openTrace, the package's test-only trace-open seam, because a
+// mid-run write fault cannot be provoked portably against a real file (an
+// already-open fd stays writable through chmod).
+type failingTraceFile struct{}
+
+func (failingTraceFile) Write([]byte) (int, error) {
+	return 0, errors.New("no space left on device (simulated)")
+}
+func (failingTraceFile) Sync() error  { return nil }
+func (failingTraceFile) Close() error { return nil }
+
+// TR9 — a trace that could not be written in full must not be silently passed
+// off as complete. The run still reaches its real terminal outcome (the write
+// fault never reaches os/exec's copier, so claude is not killed by EPIPE), AND
+// the incompleteness is recorded on the run record — where Task 6 reads it —
+// rather than living only in a log line, because trace_path.txt and the episode
+// summary both point at that file as if it were whole.
+func TestLocalExecRun_TraceWriteFault_RunCompletesAndTruncationIsRecorded(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		installShim func(t *testing.T)
+		key         fwra.IdempotencyKey
+		activityID  string
+		wantPhase   PipelinePhase
+		wantNotice  bool
+	}{
+		{
+			// The success path is the dangerous one: nothing else would ever
+			// record the truncation, since no diagnostic is produced at all.
+			name:        "successful run",
+			installShim: func(t *testing.T) { commitShim(t, filepath.Join(t.TempDir(), "capture")) },
+			key:         "trace-fault-ok-key",
+			activityID:  "C-TRFAULTOK",
+			wantPhase:   PhaseSucceeded,
+			wantNotice:  false,
+		},
+		{
+			name: "failing run",
+			installShim: func(t *testing.T) {
+				installClaudeShim(t, "#!/bin/sh\n"+
+					`echo '{"type":"result","subtype":"success","is_error":false,"result":"nothing to do"}'`+"\n"+
+					"exit 0\n")
+			},
+			key:        "trace-fault-fail-key",
+			activityID: "C-TRFAULTFAIL",
+			wantPhase:  PhaseFailed,
+			wantNotice: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, url := newSharedRepo(t)
+			tc.installShim(t)
+			a := newLocalExecForTest(t, url, 10*time.Second)
+			a.openTrace = func(string) (traceWriteCloser, error) { return failingTraceFile{}, nil }
+
+			handle, err := a.SubmitAgenticJob(subRC(context.Background(), tc.key),
+				localSpec(tc.activityID, "someComponent", "service-construction"))
+			if err != nil {
+				t.Fatalf("Submit: %v", err)
+			}
+			obs := waitForTerminal(t, a, handle, 10*time.Second)
+
+			// The run reached its REAL outcome — the trace fault did not kill it.
+			if obs.Phase != tc.wantPhase {
+				t.Fatalf("Phase = %v, want %v (diagnostic: %q)", obs.Phase, tc.wantPhase, obs.Diagnostic)
+			}
+
+			a.mu.Lock()
+			run := a.runs[dedupToken(tc.key)]
+			a.mu.Unlock()
+			if run == nil {
+				t.Fatal("no run record for the dispatched episode")
+			}
+			run.mu.Lock()
+			truncated, reason := run.traceTruncated, run.traceTruncationReason
+			run.mu.Unlock()
+
+			if !truncated {
+				t.Fatal("run record does not mark the trace as truncated; a partial trace would read as complete")
+			}
+			if !strings.Contains(reason, "no space left on device") {
+				t.Fatalf("traceTruncationReason = %q, want the underlying write fault", reason)
+			}
+
+			// The failure panel says so too; a successful run keeps an empty
+			// diagnostic (the run-record flag carries the fact there).
+			if got := strings.Contains(obs.Diagnostic, localExecTraceTruncatedNotice); got != tc.wantNotice {
+				t.Fatalf("diagnostic carries the truncation notice = %v, want %v (diagnostic: %q)", got, tc.wantNotice, obs.Diagnostic)
+			}
+			if !tc.wantNotice && obs.Diagnostic != "" {
+				t.Fatalf("Diagnostic = %q, want empty on the success path", obs.Diagnostic)
+			}
+		})
 	}
 }

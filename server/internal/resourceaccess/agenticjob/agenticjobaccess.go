@@ -1163,6 +1163,17 @@ type localRun struct {
 	status     localRunStatus
 	diagnostic string
 	cancel     context.CancelFunc // cancels the claude subprocess's bounded run context
+
+	// traceTruncated records that this run's per-episode trace file is
+	// INCOMPLETE — a write to it failed part-way through (see traceSink), so the
+	// artifact trace_path.txt points at, and that the episode summary is mined
+	// from, is missing an unknown suffix of claude's output. Kept on the run
+	// record rather than left to a single log line because every downstream
+	// reader treats the trace as authoritative: without this flag a truncated
+	// trace is indistinguishable from a complete one. traceTruncationReason is
+	// the underlying write fault. Both are set once, by awaitCompletion, under mu.
+	traceTruncated        bool
+	traceTruncationReason string
 }
 
 // localExecAccess is the concrete local-executor AgenticJobAccess. It
@@ -1185,6 +1196,15 @@ type localExecAccess struct {
 
 	mu   sync.Mutex
 	runs map[string]*localRun // keyed by dedupToken(idempotencyKey)
+
+	// openTrace, when non-nil, REPLACES the per-episode trace file open
+	// (openEpisodeTrace). It exists for THIS PACKAGE'S OWN TESTS only — a
+	// mid-run write fault is the one traceSink behaviour no portable filesystem
+	// manipulation can provoke reliably (an already-open fd stays writable
+	// through chmod, unmount races are not portable, and a FIFO turns the open
+	// itself into a rendezvous). Production NEVER sets it: the constructor
+	// leaves it nil and openEpisodeTrace falls through to openTraceFileOnDisk.
+	openTrace func(path string) (traceWriteCloser, error)
 }
 
 var _ AgenticJobAccess = (*localExecAccess)(nil)
@@ -1616,9 +1636,12 @@ func (a *localExecAccess) dispatch(run *localRun, plan localDispatchPlan, episod
 	// and only a BOUNDED tail is retained in memory for the diagnostic path (see
 	// the SP1 CAPTURE SEAM block). stderr stays a plain unbounded buffer — claude's
 	// diagnostic stream is small and is already surfaced verbatim.
+	// The sink is a NAMED local, not an inline literal: awaitCompletion reads its
+	// .err after the run to decide whether the trace it just wrote is complete.
+	sink := &traceSink{file: traceFile, path: tracePath}
 	var tail tailBuffer
 	var stderr bytes.Buffer
-	cmd.Stdout = io.MultiWriter(&traceSink{file: traceFile, path: tracePath}, &tail)
+	cmd.Stdout = io.MultiWriter(sink, &tail)
 	cmd.Stderr = &stderr
 
 	if err := cmd.Start(); err != nil {
@@ -1635,7 +1658,7 @@ func (a *localExecAccess) dispatch(run *localRun, plan localDispatchPlan, episod
 	ownWorkDir = false
 	ownMCPDir = false
 	ownTrace = false
-	go a.awaitCompletion(runCtx, run, cmd, runCancel, branch, beforeSHA, parentDir, workDir, mcpConfigDir, traceFile, tracePath, &tail, &stderr)
+	go a.awaitCompletion(runCtx, run, cmd, runCancel, branch, beforeSHA, parentDir, workDir, mcpConfigDir, sink, &tail, &stderr)
 	return nil
 }
 
@@ -1779,7 +1802,9 @@ func assertTraceSinkOutsideGitDir(repoPath, gitDir string) error {
 			"localexec: refusing to dispatch — the per-episode trace sink "+sink+
 				" is INSIDE the agent-writable git dir "+git+
 				" (a BARE shared repo makes gitDir == repoPath), so the agent could rewrite its own trace; "+
-				"point the local rail at a NON-bare working checkout")
+				"point the local rail at a NON-bare working checkout, and run "+
+				"`git config receive.denyCurrentBranch updateInstead` in it so pushes to its "+
+				"checked-out branch still land")
 	}
 	return nil
 }
@@ -1818,7 +1843,7 @@ func resolvePath(p string) string {
 // of the same activity. Truncating guarantees a retry's stream replaces the
 // previous attempt's rather than interleaving with it — a half-and-half file
 // would be unparseable evidence.
-func (a *localExecAccess) openEpisodeTrace(episodeID, gitDir string) (string, *os.File, error) {
+func (a *localExecAccess) openEpisodeTrace(episodeID, gitDir string) (string, traceWriteCloser, error) {
 	if err := assertTraceSinkOutsideGitDir(a.repoPath, gitDir); err != nil {
 		slog.Error("localexec: per-episode trace sink is inside the agent-writable git dir; dispatch refused",
 			"repoPath", a.repoPath, "gitDir", gitDir, "episodeId", episodeID)
@@ -1829,11 +1854,29 @@ func (a *localExecAccess) openEpisodeTrace(episodeID, gitDir string) (string, *o
 		return "", nil, fwra.Wrap(fwra.Infrastructure, err, "localexec: create traces dir")
 	}
 	path := filepath.Join(dir, episodeID+".jsonl")
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600) // #nosec G304 -- episodeID is a 32-hex dedupToken digest under a fixed dir
+	open := a.openTrace // nil in production — see the field's doc comment
+	if open == nil {
+		open = openTraceFileOnDisk
+	}
+	f, err := open(path)
 	if err != nil {
 		return "", nil, fwra.Wrap(fwra.Infrastructure, err, "localexec: open episode trace file")
 	}
 	return path, f, nil
+}
+
+// traceWriteCloser is the trace file's surface as the tee and the close path use
+// it: write the stream, flush it, close it. Narrow on purpose — it is what makes
+// localExecAccess.openTrace substitutable in this package's own tests.
+type traceWriteCloser interface {
+	io.Writer
+	Sync() error
+	Close() error
+}
+
+// openTraceFileOnDisk is the production trace-file open: truncating, owner-only.
+func openTraceFileOnDisk(path string) (traceWriteCloser, error) {
+	return os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600) // #nosec G304 -- episodeID is a 32-hex dedupToken digest under a fixed dir
 }
 
 // ensureTracesDir creates the traces directory and writes the self-ignoring
@@ -1857,18 +1900,27 @@ func ensureTracesDir(dir string) error {
 }
 
 // traceSink wraps the per-episode trace file for the tee so a mid-run write
-// fault (a full disk, a vanished mount) cannot WEDGE the dispatch.
+// fault (a full disk, a vanished mount) cannot KILL the run it is observing.
 //
-// WHY THIS EXISTS: cmd.Stdout is an io.MultiWriter, and os/exec's stdout-copying
-// goroutine STOPS on the first Write error — which would leave claude blocked on
-// a full stdout pipe until the run timeout fires. A truncated trace is a lost
-// artifact; a wedged construction run is a lost RUN. So the first fault is
-// recorded and logged at ERROR (the truncation is never silent), and every write
-// after it is dropped while still reporting success, keeping the pipe draining.
-// The bytes.Buffer this tee replaced could never fail, so this preserves the
-// pre-existing "stdout capture cannot break the run" property.
+// WHY THIS EXISTS — the exact mechanism, because it is not obvious: cmd.Stdout
+// here is an io.MultiWriter, not an *os.File, so os/exec gives the child a PIPE
+// and copies from it on a goroutine whose whole body is
+// `_, err := io.Copy(w, pr); pr.Close(); return err` (go1.26.4,
+// exec.Cmd.writerDescriptor). A Write error therefore ends the copy AND CLOSES
+// THE READ END IMMEDIATELY. claude does not block — its next write to stdout
+// takes EPIPE and it dies part-way through the run, having half-committed
+// whatever it was doing. A full disk while teeing would kill a live construction
+// run, which is a far worse outcome than the lost tail of a log.
+//
+// So the first fault is recorded on the sink and logged at ERROR (the truncation
+// is never silent), and every write after it is dropped while still reporting
+// success, keeping the pipe draining to the end. awaitCompletion then reads
+// s.err and marks the run record (localRun.traceTruncated) so the incompleteness
+// travels with the run rather than living only in a log line. The bytes.Buffer
+// this tee replaced could never fail, so this preserves the pre-existing
+// "capturing stdout cannot break the run" property.
 type traceSink struct {
-	file *os.File
+	file traceWriteCloser
 	path string
 	err  error
 }
@@ -1892,7 +1944,7 @@ func (s *traceSink) Write(p []byte) (int, error) {
 // mines the output — so the file on disk is complete and no reader ever sees a
 // partially-flushed stream. A flush/close fault is logged, never fatal: the run's
 // own outcome does not depend on the trace.
-func closeEpisodeTrace(traceFile *os.File, tracePath string) {
+func closeEpisodeTrace(traceFile traceWriteCloser, tracePath string) {
 	if traceFile == nil {
 		return
 	}
@@ -1924,19 +1976,22 @@ func (a *localExecAccess) awaitCompletion(
 	runCancel context.CancelFunc,
 	branch, beforeSHA string,
 	parentDir, workDir, mcpConfigDir string,
-	traceFile *os.File,
-	tracePath string,
+	sink *traceSink,
 	stdout *tailBuffer,
 	stderr *bytes.Buffer,
 ) {
+	tracePath := sink.path
+
 	waitErr := cmd.Wait()
 	runCancel()
 
 	// cmd.Wait() has already joined the stdout-copying goroutine, so every byte
-	// claude wrote has reached the tee. Flush + close the trace HERE, before any
-	// step below reads the tail or (Task 6) mines the stream: the file on disk is
-	// complete from this point on, and no reader ever races the writer.
-	closeEpisodeTrace(traceFile, tracePath)
+	// claude wrote has reached the tee AND sink.err is stable. Flush + close the
+	// trace HERE, before any step below reads the tail or (Task 6) mines the
+	// stream: the file on disk is complete from this point on, and no reader ever
+	// races the writer.
+	closeEpisodeTrace(sink.file, tracePath)
+	traceTruncation := sink.err
 
 	a.gitMu.Lock()
 	afterSHA, revErr := revParseBranch(a.repoPath, branch)
@@ -1952,7 +2007,16 @@ func (a *localExecAccess) awaitCompletion(
 	// diagnostic or a log artifact. Re-checked under the final lock (a cancel
 	// landing DURING the window below must still win) — this peek only avoids
 	// doing the work, it is not the authority on the outcome.
+	//
+	// The TRACE-INTEGRITY marker is recorded in this same acquisition and BEFORE
+	// the short-circuit: whether the captured artifact is complete is a fact about
+	// the trace, true no matter how the run itself ended, and a cancelled run's
+	// partial trace is read by exactly the same consumers.
 	run.mu.Lock()
+	if traceTruncation != nil {
+		run.traceTruncated = true
+		run.traceTruncationReason = traceTruncation.Error()
+	}
 	alreadyCancelled := run.status == localRunCancelled
 	run.mu.Unlock()
 	if alreadyCancelled {
@@ -1974,6 +2038,16 @@ func (a *localExecAccess) awaitCompletion(
 		}
 		if detail := claudeOutputDetail(stdout.String(), stderrForDetail); detail != "" {
 			diagnostic += localExecDetailSeparator + detail
+		}
+		// A truncated trace is stated on the diagnostic too, LAST, so an operator
+		// reading the failure panel knows the artifact trace_path.txt points at is
+		// missing a suffix — the detail above came from the in-memory tail, which
+		// the write fault never touched, so the two are independent facts. Only on
+		// the failing path: a SUCCESSFUL run must keep an empty diagnostic (nothing
+		// downstream expects prose there), and the run record's traceTruncated flag
+		// carries the same fact for that case.
+		if traceTruncation != nil {
+			diagnostic += localExecTraceTruncatedNotice + traceTruncation.Error()
 		}
 		logFailedRun(branch, diagnostic, tracePath, stderr.Bytes())
 	}
@@ -2242,6 +2316,13 @@ const (
 	// localExecSubtypeMaxBytes bounds the envelope's subtype label so a
 	// pathological value can never crowd out the message it labels.
 	localExecSubtypeMaxBytes = 64
+	// localExecTraceTruncatedNotice introduces the trace-integrity clause
+	// awaitCompletion appends when the per-episode trace could not be written in
+	// full. Deliberately worded so it cannot be mistaken for something claude
+	// said, and deliberately free of the vocabulary construction's
+	// deriveFailureReason matches on ("timed out") — see the KNOWN INTERACTION
+	// note in this block's header.
+	localExecTraceTruncatedNotice = " — WARNING: the per-episode trace is INCOMPLETE, writing it failed: "
 )
 
 // claudeResultEnvelope is the SUBSET of claude's `--output-format json` result
