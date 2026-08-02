@@ -84,28 +84,66 @@ their own trail) and its committed-trace tier stays cut. Its calibration advisor
 
 The only archistrator-side work.
 
-**Capture.** `agenticjob` switches local invocations to
-`claude --output-format stream-json --verbose` and tees the raw stream to
-`.aiarch/traces/<episodeId>.jsonl` — **gitignored** (per the audit ruling: per-branch committed
-trace files are the wrong shape; the bench archive is the forever store). On episode completion
-(success and failure) the supervisor parses the terminal `result` event and the streamed
-`tool_use`/`tool_result`/per-turn `usage` events, appending an **episode summary** to an episode
-ledger:
+**Capture — report/store split (system-architect amendment, 2026-08-02).** Observation and
+storage are separate volatilities (audit spec §4); `agenticjob` observes, a new RA stores:
+
+- **`agenticjob` (observe only).** Switches local invocations to
+  `claude --output-format stream-json --verbose`, tees the raw stream to
+  `.aiarch/traces/<episodeId>.jsonl` (to file with a bounded in-memory tail — never
+  full-stream buffering for multi-hour episodes), parses the terminal `result` event and the
+  streamed per-turn `usage` / `tool_use` / `tool_result` content blocks, and **reports** the
+  parsed `EpisodeSummary` on the terminal `PipelineObservation` (generated-contract field
+  addition). It stores nothing beyond the tee it uniquely owns. The RA mints `episodeId` at
+  submit, deterministic against retries via the idempotency key it already receives.
+- **`episodeAccess` (new RA, owns the store).** 3 ops: `appendEpisode` (gap and cancelled
+  entries included via outcome), `listEpisodes`, `readTraceEvents`. Two substrate profiles per
+  audit spec §5.5 shape: local gitignored sidecar now, deployed profile deferred.
+- **The dispatching Manager persists.** The Manager workflow that already polls the job maps
+  the reported summary into `episodeAccess.appendEpisode` through the generated activity rail —
+  where Temporal durability is native, lineage comes from `workflow.GetInfo` (not parsed out of
+  idempotency-key strings), and a run lost to a server restart still surfaces as a terminal
+  observation the Manager persists as an explicit **gap episode**.
 
 ```
 EpisodeSummary {
   episodeId, kind (design-artifact | construction | review | rework | ...),
   targetRef (artifactKind | activityId),
-  lineage { workflowId, runId, activityId },
+  lineage? { workflowId, runId, activityId },   // optional: answer-job episodes are
+                                                // fire-and-forget, non-workflow → no lineage
   workerClass, model,
   usage { in, out, cacheRead, cacheCreate }, costUsd, numTurns,
-  toolCallCounts (by tool), subagentInvocations (count + per-call spans from Task tool_use),
-  startedAt, endedAt, outcome, tracePath
+  toolCallCounts (by tool), subagentInvocations (count + per-call spans via parent_tool_use_id),
+  startedAt, endedAt,
+  outcome (succeeded | failed | cancelled | gap),  // cancel path MUST write its entry too
+  tracePath
 }
 ```
 
-**Trust rule (inherited):** the write path is supervisor-side in `agenticjob`; there is no MCP
-verb an agent could call to write or suppress its own trail.
+**Ledger location (founder question, ruled):** the episode ledger lives in the **gitignored
+`.aiarch/traces/` sidecar** (ledger + raw traces together), **never in `project.json`** — not
+even tracePath pointers. Four independent reasons: (1) *trust rule* — `project.json` is tracked
+in the agent's worktree and legitimately agent-committed, so a ledger slot there is an
+agent-writable path to its own trail; the sidecar in the main checkout is physically outside
+the agent worktree and its sandbox allowlist; (2) *merge behavior* — append-only arrays in
+`project.json` conflict on every session-branch merge and evaporate on reject-on-branch;
+untracked files are branch-independent; (3) *head-state size* — an unbounded ledger bloats the
+64KB-capped dispatch aggregate; (4) *bench harvest* — the harness snapshots the working tree,
+so one copy of `.aiarch/traces/` grabs ledger and traces together. Work items: gitignore
+entries in archistrator's own `.gitignore` **and** the method-assets scaffold template. The GH
+venue has no local checkout to hold a sidecar — that storage-substrate gap (not just artifact
+pull) is why GH stays off the AC critical path.
+
+**Trust rule (inherited):** episode writes are supervisor/Manager-side only; there is no MCP
+verb an agent could call to write or suppress its own trail, and the export surface is
+read-only behind the generated auth middleware.
+
+**Placement: archistrator-local, deliberately.** The capture seam observes archistrator's own
+agent dispatch; apps archistrator builds have no `agenticjob` RA and dispatch no agents, so
+there is nothing for them to inherit — the audit spec's platform-placement constraint applies
+to its generated emitters, not this seam. The stream parser stays package-internal to
+`agenticjob`; its externally visible product is the generated-contract `EpisodeSummary` /
+observation shape, which the later `auditEngine` can consume without re-homing a parser. No
+platform release needed — only standard modelgen/clientgen regeneration.
 
 **GH venue (in scope if trivial, else seam-noted).** The workflow adds one
 `actions/upload-artifact` step uploading the action's `execution_file` output (named by episode
@@ -123,12 +161,22 @@ construction-activity page:
   subagent spans).
 - **Timeline viewer** — expansion of an episode: LLM turns with per-turn tokens, tool calls
   with metadata-only arguments, subagent spans, ordered and filterable by event type.
-- **Export** — button + REST endpoint; **JSON** (full events) and **CSV** (flattened event
-  rows) for one episode, one target, or the whole project.
+- **Export** — button + REST endpoint for one episode, one target, or the whole project. The
+  REST op serves **typed JSON only** (the clientgen rail is 100% generated JSON handlers);
+  **CSV flattening happens client-side in the SPA** from the JSON export — no hand-written
+  handler, no waiver.
 
-Reads flow through a manager read op + trace-reading ResourceAccess + generated client op
-(existing `clientgen` rail). The panel/timeline components are deliberately the same surface
-shape as audit-spec §5.8 so the later audit spine reuses them.
+Reads flow through a new thin **`episodeManager`** (3 ops: `listEpisodesForTarget`,
+`getEpisodeTimeline`, `exportEpisodes`) over `episodeAccess`, via the existing generated
+`clientgen` rail. It reads the **capture store only**; the future `auditManager` remains the
+evidence surface over `auditAccess` — two thin managers over two stores, sharing SPA
+components, per the audit spec's volatility split. Manager cardinality goes 5 → 6 (7 with the
+future auditManager) — under the Appendix-C failure line, but recorded as a waiver-with-
+justification so the next manager proposal meets resistance. The shared panel/timeline
+components take the `EpisodeSummary` event shape plus an **optional badges slot**
+(assurance/completeness), so the audit spine later adds badges without forking the component;
+`EpisodeSummary` stays free of OCSF/audit fields. Gap-entry shape stays aligned with the audit
+spec's gap records.
 
 ## 6. SP2 — Bench repo (`archistrator-bench`)
 
@@ -268,7 +316,11 @@ Built following the dataviz skill.
    venue (vibes autogate coverage) will be discovered in the SP2 hardening pass; each gets
    fixed or explicitly stubbed for bench runs.
 2. **Subagent span fidelity** — how much per-subagent token/duration detail the stream-json
-   exposes for Task tool calls; capture what the supervisor can observe, no agent self-report.
+   exposes for Task tool calls (sidechain events carry `parent_tool_use_id`); capture what the
+   supervisor can observe, no agent self-report. Known discrepancy: the terminal
+   `result.usage` has historically not equaled the sum of streamed per-turn usage once
+   subagents are involved (cost is total; usage is main-loop) — the parser tallies from
+   streamed events and records **both** totals, treating divergence explicitly.
 3. **Rubric stability** — the soft LLM judge should be pinned (model + prompt version) per
    epoch so soft scores are at least internally comparable.
 4. **GH artifact wiring** — in scope if it stays a few workflow lines + one download call;
