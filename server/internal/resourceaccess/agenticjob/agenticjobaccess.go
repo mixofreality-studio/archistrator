@@ -1856,6 +1856,79 @@ func assertTraceSinkOutsideGitDir(repoPath, gitDir string) error {
 	return nil
 }
 
+// trackedTracesPathspec is the ONE pathspec both the guard below and its
+// diagnostic speak, kept as a literal (forward slashes) because git's pathspec
+// grammar is platform-independent — unlike filepath.Join's separator.
+const trackedTracesPathspec = ".aiarch/traces"
+
+// maxNamedTrackedTraces bounds how many offending paths the refusal names. A
+// merged ledger can carry hundreds; the operator needs enough to recognise the
+// shape and the count to know the scale, not the whole list in one error string.
+const maxNamedTrackedTraces = 5
+
+// assertNoTrackedTraceFiles is the cheap guard for the SECOND agent-reachable
+// limit of the local profile's episode evidence, recorded in the 2026-08-02
+// final-review amendment to the self-improvement spec's §5 trust rule.
+//
+// THE HOLE IT PLUGS: assertTraceSinkOutsideGitDir keeps the sink out of the
+// agent's write allowlist, so an agent cannot rewrite the LIVE trace file. It
+// cannot, however, stop an agent from creating .aiarch/traces/** INSIDE its own
+// throwaway worktree and committing them onto its activity branch — that is
+// ordinary, allowed work inside the sandbox. Once such a branch merges, a fresh
+// clone of the shared repo MATERIALISES agent-authored ledger files that are
+// indistinguishable, on disk, from captured evidence. Live capture in an
+// existing checkout is unaffected (the untracked working-tree sidecar wins), but
+// the repo has stopped being a trustworthy evidence source, so further dispatch
+// is refused rather than quietly appending real episodes beside forged ones.
+//
+// ONE `git ls-files` at the shared checkout, deliberately: it detects the state
+// that actually poisons a clone (tracked on the checked-out branch). It does not
+// scan every unmerged branch, and it is not meant to — HARD assurance against a
+// self-authored trail is the deployed profile / audit-spine's job; the local
+// profile is explicitly the lower-assurance tier.
+//
+// A git failure REFUSES rather than passes: this runs mid-dispatch, after the
+// worktree for this run was already created from the same repo, so git working
+// is a settled fact by now — an evaluation that cannot be made is not evidence
+// that the repo is clean. (The constructor's boot-time probe keeps its
+// best-effort posture; that one runs before any repo may exist.)
+func assertNoTrackedTraceFiles(repoPath string) error {
+	// -z: NUL-delimited, so a path containing a newline cannot smuggle itself
+	// past the split — the adversary here is an agent choosing filenames.
+	out, err := runGit(repoPath, "ls-files", "-z", "--", trackedTracesPathspec)
+	if err != nil {
+		return fwra.Wrap(fwra.Infrastructure, err,
+			"localexec: refusing to dispatch — could not check whether "+trackedTracesPathspec+
+				" is tracked in the shared repo "+repoPath+
+				" (the episode ledger must stay UNTRACKED to be evidence)")
+	}
+	tracked := make([]string, 0, maxNamedTrackedTraces)
+	total := 0
+	for _, p := range strings.Split(out, "\x00") {
+		if p == "" {
+			continue
+		}
+		total++
+		if len(tracked) < maxNamedTrackedTraces {
+			tracked = append(tracked, p)
+		}
+	}
+	if total == 0 {
+		return nil
+	}
+	named := strings.Join(tracked, ", ")
+	if total > len(tracked) {
+		named += ", … (" + strconv.Itoa(total) + " total)"
+	}
+	return fwra.New(fwra.Infrastructure,
+		"localexec: refusing to dispatch — the episode ledger path "+trackedTracesPathspec+
+			" has TRACKED files in the shared repo "+repoPath+": "+named+
+			". The ledger is the supervisor's evidence and must stay UNTRACKED: an agent can commit "+
+			"these from inside its own worktree, so tracked entries may be agent-authored rather than captured. "+
+			"Remove them from version control (`git rm -r --cached "+trackedTracesPathspec+
+			"`, commit on the shared repo's checked-out branch) and keep the `.aiarch/traces/` gitignore entry in place")
+}
+
 // resolvePath renders a path in its canonical, symlink-free absolute form,
 // degrading to the cleaned absolute path when a component does not exist yet
 // (the traces dir is resolved BEFORE it is created) or cannot be resolved.
@@ -1894,6 +1967,15 @@ func (a *localExecAccess) openEpisodeTrace(episodeID, gitDir string) (string, tr
 	if err := assertTraceSinkOutsideGitDir(a.repoPath, gitDir); err != nil {
 		slog.Error("localexec: per-episode trace sink is inside the agent-writable git dir; dispatch refused",
 			"repoPath", a.repoPath, "gitDir", gitDir, "episodeId", episodeID)
+		return "", nil, err
+	}
+	// The trust rule's second half (see assertNoTrackedTraceFiles): the sink
+	// being outside the write allowlist is not enough if the ledger has been
+	// committed into the repo, because then a fresh clone hands out
+	// agent-authored files as evidence.
+	if err := assertNoTrackedTraceFiles(a.repoPath); err != nil {
+		slog.Error("localexec: episode ledger paths are tracked in the shared repo; dispatch refused",
+			"repoPath", a.repoPath, "episodeId", episodeID)
 		return "", nil, err
 	}
 	dir := episodeTracesDir(a.repoPath)

@@ -137,6 +137,34 @@ pull) is why GH stays off the AC critical path.
 verb an agent could call to write or suppress its own trail, and the export surface is
 read-only behind the generated auth middleware.
 
+**Trust rule — known limits of the LOCAL profile (2026-08-02, final-review amendment).** The
+statement above is true of the *episode write path*; it is not a claim that a local-venue
+episode ledger is tamper-proof. Two agent-reachable limits are known and accepted, and are
+recorded here so nothing downstream reads local episode evidence as hard assurance:
+(1) **the sandbox allowlist necessarily includes the shared repo's `gitDir`** — a worktree's
+own `git commit` writes `.git/worktrees/<id>` metadata, shared objects, and the activity
+branch ref, all outside the worktree cwd, so the Tier-2 write allowlist is
+`[workDir, gitDir]` by construction. An agent that writes `.git/hooks/*`, or points
+`core.hooksPath` via `.git/config`, therefore gets **unsandboxed code executed by the
+supervisor's next `git` subprocess** — i.e. reach over the sidecar itself, outside the
+sandbox. `assertTraceSinkOutsideGitDir` keeps the *sink* out of that scope; it cannot keep
+the *executor* out. (2) **nothing prevents an agent from committing `.aiarch/traces/**`
+inside its own worktree onto its branch** — that is ordinary allowed work in the sandbox.
+Live capture is unaffected (the untracked working-tree sidecar wins over anything tracked),
+but once such a branch merges, a **fresh clone materialises agent-authored ledger files that
+are indistinguishable on disk from captured evidence**. A cheap dispatch-time guard now
+refuses to dispatch when `git ls-files -- .aiarch/traces` at the shared checkout is non-empty,
+naming the offending paths (`agenticjob`'s `assertNoTrackedTraceFiles`, alongside the existing
+sink check); it detects the state that actually poisons a clone, and deliberately does not
+scan unmerged branches.
+
+Neither limit is closable at this tier. **Hard assurance is the deployed profile / audit
+spine's job**: the deployed venue does not hand an agent a shared checkout at all, and the
+audit spine's emitters sit outside anything an observed agent can reach. Local = same
+features, **lower assurance** — exactly the assurance-tier split the audit spec already
+ratifies (deployed = compliance-grade, local = same features at lower assurance). Bench and
+self-improvement analysis run on local traces knowingly under that tier.
+
 **Placement: archistrator-local, deliberately.** The capture seam observes archistrator's own
 agent dispatch; apps archistrator builds have no `agenticjob` RA and dispatch no agents, so
 there is nothing for them to inherit — the audit spec's platform-placement constraint applies

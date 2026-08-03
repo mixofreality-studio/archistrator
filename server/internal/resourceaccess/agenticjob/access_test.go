@@ -3029,6 +3029,58 @@ func TestNewLocalExecAgenticJobAccess_BareSharedRepo_RefusesAtConstruction(t *te
 	}
 }
 
+// TR10 — the TRACKED-LEDGER guard (2026-08-02 final-review amendment to the
+// self-improvement spec's §5 trust rule, limit (2)). The sidecar's evidentiary
+// value rests on it being UNTRACKED: nothing stops an agent from committing
+// .aiarch/traces/** inside its own worktree onto its branch, and once that
+// branch merges, a fresh clone materialises AGENT-AUTHORED ledger files that
+// read as captured evidence. Live capture is unaffected (the untracked
+// working-tree sidecar wins), but the repo is no longer trustworthy as a source
+// of episode evidence — so dispatch is REFUSED, pre-spawn, naming the offending
+// tracked paths so the operator can excise them.
+//
+// Cheap by design: one `git ls-files -- .aiarch/traces` at the shared checkout.
+// It catches the state that actually poisons a clone (tracked on the checked-out
+// branch); hard assurance against a self-authored trail is the deployed
+// profile / audit spine's job, not this guard's.
+func TestLocalExecSubmit_TrackedTraceFiles_RefusesDispatch(t *testing.T) {
+	sharedDir, url := newSharedRepo(t)
+	capture := filepath.Join(t.TempDir(), "capture")
+	commitShim(t, capture)
+
+	// Exactly what a merged agent-authored ledger leaves behind in the shared
+	// checkout. `add -f` because a repo that has already dispatched once carries
+	// the traces dir's self-ignoring .gitignore — the guard must hold against an
+	// agent that forced past it, not merely against an honest one.
+	tracked := filepath.Join(sharedDir, ".aiarch", "traces", "ep-forged.jsonl")
+	if err := os.MkdirAll(filepath.Dir(tracked), 0o755); err != nil {
+		t.Fatalf("mkdir traces dir: %v", err)
+	}
+	if err := os.WriteFile(tracked, []byte(`{"type":"result","subtype":"success"}`+"\n"), 0o600); err != nil {
+		t.Fatalf("write forged trace: %v", err)
+	}
+	testGit(t, sharedDir, "add", "-f", ".aiarch/traces/ep-forged.jsonl")
+	testGit(t, sharedDir, "commit", "-m", "agent-authored ledger onto the checked-out branch")
+
+	a := newLocalExecForTest(t, url, 10*time.Second)
+	_, err := a.SubmitAgenticJob(subRC(context.Background(), "tracked-ledger-key"),
+		localSpec("C-TRACKEDLEDGER", "someComponent", "service-construction"))
+	if err == nil {
+		t.Fatal("Submit succeeded against a repo with TRACKED .aiarch/traces files; the ledger is agent-authorable")
+	}
+	// Actionable: name the offending path, not just the rule.
+	for _, want := range []string{".aiarch/traces/ep-forged.jsonl", "tracked"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("Submit error = %q, want it to mention %q", err.Error(), want)
+		}
+	}
+	// PRE-SPAWN: claude never ran, so no agent observed the refusal and no
+	// partial episode exists to reconcile.
+	if _, statErr := os.Stat(filepath.Join(capture, "call-0.args")); statErr == nil {
+		t.Fatal("claude was spawned despite the tracked-ledger refusal")
+	}
+}
+
 // TR5 — the tee. claude's WHOLE stream-json stdout lands in the per-episode
 // trace file under the shared repo, keyed by the SAME dedup token the handle is
 // (no second identity), next to a self-ignoring .gitignore.
