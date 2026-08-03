@@ -49,6 +49,7 @@ tests/landing.spec.ts       catalog: first-login empty state → create project 
 tests/homebase.spec.ts      home base: phase card + artifact TOC + "Resume design" → design experience
 tests/design-experience.spec.ts  spine + steps (pure UI); request-draft → generating → render → gate (LIVE)
 tests/artifact-affordances.spec.ts  coreUseCases (LIVE): keyboard comment-arming on the review diagram; committed-paint chip not banner; Core/Variations picker grouping
+tests/episodes-panel.spec.ts  SP1 capture-seam episodes panel on a design artifact (DOGFOOD-SEEDED state + episode ledger): rows, timeline tool events, GAP chip + reason, JSON/CSV export
 tests/close-and-no-render.spec.ts  ✕ returns home; network log has NO /render request
 tests/support/testids.ts    data-testid contract, imported from the SPA's own UI_IDENTIFIERS (no component/behavior import)
 tests/support/gating.ts     infra gating — serverReachable / liveDrafting (the UI requireStack)
@@ -167,6 +168,41 @@ To point the managed SPA's `/api` proxy at a server on a DIFFERENT port
 `ARCHISTRATOR_API_PROXY_TARGET=http://localhost:<port>` alongside
 `UITESTS_SPA_URL=http://localhost:<a-free-port>` when invoking `npm test` — see
 [Environment variables](#environment-variables).
+
+### 1b. (episodes-panel only) seed the episode ledger
+
+`tests/episodes-panel.spec.ts` asserts against REAL captured episode-ledger
+content on the well-known `archistrator` dogfood project, so it needs the
+**dogfood-seeded** project-state repo (same requirement as
+`artifact-systemtest.spec.ts` — see `skipUnlessConstructionArtifacts`), PLUS an
+episode ledger under `<repoRoot>/.aiarch/traces/`. Without both it self-skips.
+
+```bash
+# a) a repo seeded from THIS checkout's committed project.json
+REPO=/tmp/uitests-episodes-repo
+git init --initial-branch=main "$REPO"
+git -C "$REPO" config receive.denyCurrentBranch updateInstead
+mkdir -p "$REPO/.aiarch/state"
+cp .aiarch/state/project.json "$REPO/.aiarch/state/project.json"
+git -C "$REPO" add -A && git -C "$REPO" commit -m "seed: dogfood project state"
+
+# b) the episode ledger, written through the real episodeAccess RA and derived
+#    from the committed capture fixtures (see the tool's own doc comment for
+#    why this is seeded rather than produced by a live dispatch)
+cd ../server && GOWORK=off go run ./cmd/gen-uitests-episodes -repo "$REPO"
+```
+
+Then point the server at that repo
+(`ARCHISTRATOR_PROJECT_STATE_GIT_REPO_URL=file:///tmp/uitests-episodes-repo`).
+
+> **The two project-state configurations are mutually exclusive** — a
+> long-standing property of this harness, not new. The project-CREATION specs
+> (`landing`, `homebase`, `close-and-no-render`, `design-experience`'s
+> `structure` block, `gate-sendback-fault`) require the FRESH EMPTY repo CI
+> provisions; `artifact-systemtest`, `episodes-panel` and the
+> `meta/use-case-coverage` check require the dogfood-seeded one. Whichever half
+> is not configured self-skips. See `.github/workflows/uitests.yml`'s "Project
+> state" note.
 
 ### 2. Run the UI tests
 

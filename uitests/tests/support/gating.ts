@@ -154,6 +154,76 @@ export async function skipUnlessConstructionArtifacts(
   );
 }
 
+/**
+ * The two episodes episodes-panel.spec.ts drives, resolved OFF THE WIRE rather
+ * than hardcoded: whichever captured episode on the target artifact has a
+ * readable trace, and whichever one is a GAP. Reading them from the server (a)
+ * keeps the spec independent of the seeding tool's own id constants, and (b)
+ * lets the spec run unchanged against episodes produced by a REAL agentic
+ * dispatch instead of the seeder.
+ */
+export interface DesignEpisodes {
+  /** An episode with outcome `succeeded` that carries a trace to expand. */
+  succeededId: string;
+  /** An episode with outcome `gap` — the "badges are the point" acceptance. */
+  gapId: string;
+  /** That gap episode's own reason string, as the server reports it. */
+  gapReason: string;
+}
+
+/** The bits of the episode list wire shape this file reads. */
+interface EpisodeListEntry {
+  episodeId?: string;
+  outcome?: number;
+  gapReason?: string;
+  tracePath?: string;
+}
+
+/**
+ * fetchDesignEpisodes reads the captured episodes recorded against the
+ * `mission` artifact of the SAME well-known "archistrator" dogfood project
+ * gating.ts already reads above (constructionArtifactsAvailable / fetchCoreUseCases).
+ *
+ * `artifactKind=0` is the wire ORDINAL for `mission` (SystemDesignArtifactKind);
+ * this file already hardcodes REST paths for the same project, and the ordinal
+ * is the same published wire contract the SPA's own artifactKindToOrdinal
+ * resolves — the spec itself never touches it, it drives the real UI.
+ *
+ * Returns `undefined` unless BOTH a traced succeeded episode and a gap episode
+ * are present, so the spec self-skips (rather than half-failing) on a stack
+ * whose episode ledger was never provisioned — the same posture as
+ * skipUnlessConstructionArtifacts.
+ */
+export async function fetchDesignEpisodes(
+  request: APIRequestContext,
+  baseURL: string,
+): Promise<DesignEpisodes | undefined> {
+  try {
+    const res = await request.get(
+      `${baseURL}/api/v1/system-design/list-episodes-for-artifact/archistrator?artifactKind=0`,
+      { headers: { Accept: 'application/json' }, timeout: 5_000 },
+    );
+    if (res.status() !== 200) return undefined;
+    const records = (await res.json()) as EpisodeListEntry[];
+    if (!Array.isArray(records)) return undefined;
+
+    // Wire ordinals (episode.EpisodeOutcome): 0 succeeded, 1 failed, 2 cancelled, 3 gap.
+    const succeeded = records.find(
+      (r) => r.outcome === 0 && r.episodeId !== undefined && (r.tracePath ?? '').length > 0,
+    );
+    const gap = records.find((r) => r.outcome === 3 && r.episodeId !== undefined);
+    if (succeeded?.episodeId === undefined || gap?.episodeId === undefined) return undefined;
+
+    return {
+      succeededId: succeeded.episodeId,
+      gapId: gap.episodeId,
+      gapReason: gap.gapReason ?? '',
+    };
+  } catch {
+    return undefined;
+  }
+}
+
 /** A CORE-classified use case from the committed `coreUseCases` slot. */
 export interface CoreUseCase {
   id: string;

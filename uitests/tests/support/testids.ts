@@ -219,6 +219,19 @@ export const TESTID = {
   operationsTabStatus: UI_IDENTIFIERS.Operations.TAB_STATUS,
   operationsAwaiting: UI_IDENTIFIERS.Operations.AWAITING,
 
+  // SP1 capture-seam episodes panel — mounted below the artifact renderer on
+  // every design-artifact page (Phase 1 + Phase 2) and inside the construction
+  // activity-lifecycle drawer. Per-row ids append the episode id.
+  episodesPanel: UI_IDENTIFIERS.Episodes.PANEL,
+  episodesRow: UI_IDENTIFIERS.Episodes.episodeRow,
+  episodeTimeline: UI_IDENTIFIERS.Episodes.TIMELINE,
+  episodeLineageTree: UI_IDENTIFIERS.Episodes.LINEAGE_TREE,
+  episodesExportMenu: UI_IDENTIFIERS.Episodes.EXPORT_MENU_BUTTON,
+  episodeExportJson: UI_IDENTIFIERS.Episodes.EXPORT_JSON,
+  episodeExportCsv: UI_IDENTIFIERS.Episodes.EXPORT_CSV,
+  episodeOutcomeChip: UI_IDENTIFIERS.Episodes.outcomeChip,
+  episodeTimelineFilter: UI_IDENTIFIERS.Episodes.TIMELINE_FILTER,
+
   // Billing (route `/project/$projectId/billing`).
   billingRoot: UI_IDENTIFIERS.Billing.ROOT,
   billingPendingState: UI_IDENTIFIERS.Billing.PENDING_STATE,
