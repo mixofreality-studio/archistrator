@@ -101,7 +101,21 @@ export function GatePanel({
   };
 
   return (
-    <Paper data-testid={UI_IDENTIFIERS.GatePanel.ROOT} sx={{ p: 0, overflow: 'hidden' }}>
+    // flexShrink:0 is load-bearing, not cosmetic: this Paper is a DIRECT flex
+    // child of the design-experience scroll column (SystemDesignView's
+    // overflowY:auto flex column), and it clips its own overflow. Left
+    // shrinkable, a column whose content exceeds the viewport compresses the
+    // gate panel instead of scrolling — and because of `overflow: hidden` the
+    // compression silently CLIPS the decision row rather than revealing it, so
+    // Approve / Send back stay "visible" to a11y + Playwright while being
+    // unhittable. Adding the episodes panel below the renderer (SP1) pushed that
+    // compression to a full collapse (clientHeight 0) on the fill-mode glossary
+    // step, which is what broke gate-sendback-fault.spec. The column scrolls;
+    // this panel does not shrink.
+    <Paper
+      data-testid={UI_IDENTIFIERS.GatePanel.ROOT}
+      sx={{ p: 0, overflow: 'hidden', flexShrink: 0 }}
+    >
       {/* A real <button> (not a click-only Box) so the disclosure is keyboard
           operable and announces its expanded state to assistive tech. */}
       <Box
