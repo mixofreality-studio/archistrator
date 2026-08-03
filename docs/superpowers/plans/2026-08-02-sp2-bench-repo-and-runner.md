@@ -12,7 +12,7 @@
 
 - **This is a NEW sibling repo** `archistrator-bench` (founder ruling), NOT inside the archistrator repo. Create it at `/Users/davidmarne/mixofrealitystudio/archistrator-bench` (sibling of `archistrator`). All paths below are relative to that repo root unless prefixed `archistrator/`.
 - **Configuration identity = the archistrator commit SHA** that built the run. Recorded in `run.json`; every metric/comparison keys on it.
-- **Operator skew = zero.** The runner is deterministic. The three caller-driven decision points use fixed ruled policies (below), never an LLM: SDP option = the assembled review's `.Recommendation`; construction escalation (`StageAwaitingTakeover`) = override `retry` once, then `skip`; risk-floor approval (`StageAwaitingApproval`) = approve. Every policy application is logged to `run.json.operatorActions[]` with the input state, so a policy firing is auditable and never silent.
+- **Operator skew = zero.** The runner is deterministic. The caller-driven decision points use fixed ruled policies (Task 3), never an LLM: SDP option = the assembled review's `.Recommendation`; held design gate (`StageAwaitingReview` unchanged under vibes) = waive open change-requests then approve; failed design draft (`StageDraftFailed`) = re-request once then gap; construction escalation (`StageAwaitingTakeover`) = override `retry` once then `skip`; risk-floor approval (`StageAwaitingApproval`) = approve. Every policy application is logged to `run.json.operatorActions[]` with the input state digest, so a policy firing is auditable and never silent.
 - **Immutability:** nothing under `runs/**` is ever modified or deleted after a run seals. Enforced by a CI check (Task 9). Failed runs are archived too, marked `outcome: failed`.
 - **Frozen acceptance suites** are versioned; a suite change starts a new comparability epoch recorded in `run.json.epoch`. The runner never edits a suite mid-run.
 - **One project per local state repo; one `archistrator serve` per port** (recon §4). Each run gets a fresh scratch state repo.
@@ -32,19 +32,25 @@ constructionSetReviewPolicy(pid, "vibes")            # already default; explicit
 systemDesignSetResearchInput(pid, {sources:[{title,content}]})   # HARD precondition
 systemDesignStartSystemDesign(pid)                   # runs all 8 Phase-1 steps + seal
 systemDesignGetProject(pid)                          # whole-project state probe (Phase, ActivityConstruction)
+systemDesignGetSessionState(pid, kind)               # per-Phase-1-kind session (reachable while the parent runs)
+systemDesignSetReviewCommentStatus(pid, kind, commentID, status)   # waive open change-requests (int status)
+systemDesignSubmitReviewDecision(pid, kind, decision, feedback)    # approve a held gate (int decision)
 projectDesignRequestArtifactDraft(pid, kind)         # per Phase-2 kind
-projectDesignGetSessionState(pid, kind)              # poll Stage==Committed(4)
+projectDesignGetSessionState(pid, kind)              # poll Stage==Committed(5)
+projectDesignSetReviewCommentStatus / projectDesignSubmitReviewDecision   # Phase-2 twins
 projectDesignRequestSDPCommit(pid)                   # assemble 4 options + risk model
 projectDesignGetSessionState(pid, 16)                # read .Draft for optionIDs + .Recommendation
-projectDesignSubmitSDPDecision(pid, SDPCommit, optionID)   # UNAVOIDABLE ratification
-projectDesignAdvanceToConstruction(pid, acknowledgeStale=true)
-constructionExecuteNextActivity(pid, tickID)         # pump self-cascades
+projectDesignSubmitSDPDecision(pid, SDPCommit, optionID)   # UNAVOIDABLE ratification (async commit)
+projectDesignAdvanceToConstruction(pid, acknowledgeStale=true)    # assert result.Advanced==true
+constructionExecuteNextActivity(pid, tickID)         # pump self-cascades; re-tickable with fresh UUID
 constructionGetSessionState(pid, activityID|"")      # per-activity / whole-network stage
-constructionSubmitPhaseDecision(pid, activityID, phase, "approve", feedback)  # risk-floor gate
-constructionOverrideActivity(pid, activityID, {kind, notes, comments})        # escalation
+constructionSubmitPhaseDecision(pid, activityID, phase, approve=1, feedback)  # risk-floor gate (int)
+constructionOverrideActivity(pid, activityID, {kind, notes, comments})        # escalation (kind int)
 ```
 
-Stage enums: Phase-2 SessionStage `Committed=4`; ConstructionStage `{1 dispatching,2 pipelineRunning,3 reviewing,4 awaitingTakeover,5 paused,6 exited,7 awaitingApproval}`. Built app = `git log main` in the state repo (activity branches `--no-ff` merged under vibes). **Do NOT call AskQuestions** (keeps the review ledger clean so the vibes autogate never holds).
+**Wire enums are ALL integers** (same as ArtifactKind): Phase-2 `SessionStage {1 drafting, 2 assemblingSDP, 3 awaitingReview, 4 redrafting, 5 committed, 6 withdrawn, 7 refused, 8 draftFailed}` — **committed is 5** (4 is redrafting; polling for 4 exits on a mid-redraft session and the next kind's predecessor gate then fails). `ReviewDecision {1 approve, 2 reject, 3 withdraw}`. Construction `PhaseDecision {1 approve, 2 sendBack}`. `OverrideKind {1 takeover, 2 retry, 3 skip, 4 reassign}`. `ConstructionStage {1 dispatching, 2 pipelineRunning, 3 reviewing, 4 awaitingTakeover, 5 paused, 6 exited, 7 awaitingApproval}`. Built app = `git log main` in the state repo (activity branches `--no-ff` merged under vibes).
+
+**Do NOT call AskQuestions** — but that alone does NOT keep the ledger clean: **critique-revise feedback is seeded into the durable review ledger as open change-request comments** on the five critiqued Phase-1 kinds (mission/glossary/scrubbedRequirements/coreUseCases via PM critique, system via architect self-critique) before the redraft dispatch, and they only auto-clear if the redrafting agent commits a non-empty response per comment. An open comment holds the vibes autogate and hard-blocks approve. This is probabilistic (LLM behavior) and is the drive's main stall risk — cleared deterministically by ruled policy #4 (Task 3), no archistrator change needed.
 
 ---
 
@@ -56,7 +62,7 @@ Stage enums: Phase-2 SessionStage `Committed=4`; ConstructionStage `{1 dispatchi
 - Create: `archistrator-bench/runs/.gitkeep`
 
 **Interfaces:**
-- Produces: the repo skeleton and the two JSON Schemas that every archived `run.json` / `metrics.json` validates against (later tasks import these). `RunRecord` fields: `runId, benchmark, archistratorCommit, archistratorDirty (bool), operatorPolicyVersion, epoch, suiteVersion, startedAt, endedAt, outcome (succeeded|failed), learningConsent, operatorActions[], gaps[], stackConfig`. `Metrics` is SP3's concern — here define only the envelope (`runId, benchmark, schemaVersion`) so the archive validates; SP3 fills the body.
+- Produces: the repo skeleton and the two JSON Schemas that every archived `run.json` / `metrics.json` validates against (later tasks import these). `RunRecord` fields: `runId, benchmark, archistratorCommit, archistratorDirty ("true"|"false"|"unknown" — "unknown" when --archistrator is a bare binary with no repo to inspect), operatorPolicyVersion, epoch, suiteVersion, startedAt, endedAt, outcome (succeeded|failed), learningConsent, operatorActions[], gaps[], stackConfig, modelIds`. `modelIds` = a **worker-model + toolchain reproducibility snapshot** (recon: an Anthropic-side model change silently shifts results at a fixed archistrator SHA): `{ claudeCliVersion (from `claude --version`), workerModelRoster (any ARCHISTRATOR_* model env the server ran with, else "ambient-subscription"), temporalCliVersion }`. `Metrics` is SP3's concern — here define only the envelope (`runId, benchmark, schemaVersion`) so the archive validates; SP3 fills the body.
 
 - [ ] **Step 1:** `cd /Users/davidmarne/mixofrealitystudio && mkdir archistrator-bench && cd archistrator-bench && git init && git config receive.denyCurrentBranch updateInstead` (the bench repo itself; the SCRATCH state repos are separate, created per-run in Task 4).
 - [ ] **Step 2:** Write `package.json` (type: module; scripts: `test` → vitest, `bench` → the runner CLI entry from Task 8, `lint` → eslint, `typecheck` → tsc --noEmit), `tsconfig.json` (strict, NodeNext), `.nvmrc` (node 22), `.gitignore` (`node_modules/`, `dist/`, `.scratch/`, `*.log`).
@@ -75,7 +81,7 @@ Stage enums: Phase-2 SessionStage `Committed=4`; ConstructionStage `{1 dispatchi
 
 **Interfaces:**
 - Consumes: `@modelcontextprotocol/sdk` streamable-HTTP client.
-- Produces: `class ArchistratorMcp` wrapping the SDK client — `connect(mcpUrl)`, `call(tool, args): Promise<result>`, `close()`. Plus `ops.ts`: thin typed wrappers for exactly the tools in the drive surface above (e.g. `createProject(owner, name)`, `setResearchInput(pid, sources)`, `startSystemDesign(pid)`, `getProject(pid)`, `requestPhase2Draft(pid, kind)`, `getPhase2Session(pid, kind)`, `requestSdpCommit(pid)`, `submitSdpDecision(pid, optionId)`, `advanceToConstruction(pid)`, `executeNextActivity(pid, tickId)`, `getConstructionSession(pid, activityId)`, `submitPhaseDecision(...)`, `overrideActivity(...)`). Each returns the parsed tool result; ArtifactKind passed as integer.
+- Produces: `class ArchistratorMcp` wrapping the SDK client — `connect(mcpUrl)`, `call(tool, args): Promise<result>`, `close()`. Plus `ops.ts`: thin typed wrappers for exactly the tools in the drive surface above (e.g. `createProject(owner, name)`, `setResearchInput(pid, sources)`, `startSystemDesign(pid)`, `getProject(pid)`, `getP1Session(pid, kind)`, `setReviewCommentStatus(pid, kind, commentId, status)`, `submitReviewDecision(pid, kind, decision, feedback)`, `requestPhase2Draft(pid, kind)`, `getPhase2Session(pid, kind)`, `requestSdpCommit(pid)`, `submitSdpDecision(pid, optionId)`, `advanceToConstruction(pid)`, `executeNextActivity(pid, tickId)`, `getConstructionSession(pid, activityId)`, `submitPhaseDecision(...)`, `overrideActivity(...)`). Each returns the parsed tool result. **All enum args are integers on the wire** — ArtifactKind, ReviewDecision (approve=1), PhaseDecision (approve=1), OverrideKind (retry=2, skip=3), review-comment status (waived/addressed per the projectstate enum — read it from the OAS). ops.ts owns the string-name→integer mapping so callers pass symbolic constants.
 
 - [ ] **Step 1: Failing test** `mcp-ops.test.ts`: against a stub MCP server (a tiny in-test `http.Server` speaking the streamable-HTTP tool-call protocol, or the SDK's in-memory transport if available), assert `createProject` sends tool name `systemDesignCreateProject` with `{owner, name}` and returns the parsed pid; assert `requestPhase2Draft(pid, 8)` sends integer kind `8`. (If a faithful stub is too heavy, assert the request envelopes via a mock transport that records calls.)
 - [ ] **Step 2:** Implement `client.ts` (SDK connect with `Mcp-Session-Id` handling, no auth header — dev mode) and `ops.ts` typed wrappers.
@@ -90,13 +96,15 @@ Stage enums: Phase-2 SessionStage `Committed=4`; ConstructionStage `{1 dispatchi
 - Test: `archistrator-bench/test/policies.test.ts`
 
 **Interfaces:**
-- Produces: pure functions, no I/O, so they are trivially testable and carry zero skew:
-  - `chooseSdpOption(sdpDraft): { optionId: string, basis: 'recommendation' }` — returns the `.Recommendation`'s optionId; throws `NoRecommendation` if absent (a real archistrator defect, must surface, not guess).
-  - `decideEscalation(activityState, priorOverrides): { kind: 'retry' | 'skip', notes: string }` — `retry` if this activity has not yet been retried by policy, else `skip`; notes name the rule.
-  - `decideApproval(activityState): { decision: 'approve', feedback: {} }` — always approve (bench autonomy).
-  - Each returns a serializable `OperatorAction` record `{ point, input (state digest), output, ruleId, at }` for `run.json.operatorActions[]`.
+- Produces: pure functions, no I/O, so they are trivially testable and carry zero skew. All enum outputs are the integer wire values (Task 2's constants):
+  - `chooseSdpOption(sdpDraft): { optionId, basis: 'recommendation' }` — returns the `.Recommendation`'s optionId; throws `NoRecommendation` if absent (recon confirms an out-of-band fallback always populates it, so absence is a real archistrator defect — surface, don't guess).
+  - **`decideDesignGateUnblock(sessionView): { waives: commentId[], thenApprove: true }`** (ruled policy #4 — the BLOCKER fix). Given a design session (either manager) stuck at `StageAwaitingReview(3)` under vibes: return the ids of every OPEN change-request comment in `sessionView.ReviewThread` to waive (status→waived), then approve. Approve is hard-blocked while any comment is open, so the caller waives first, then submits ReviewDecision approve. Empty open-set + still-awaiting is itself a signal (a contained approve/merge fault fell through to the human selector) → approve directly.
+  - **`decideDraftFailedRetry(kind, priorRetries): { action: 'redraft' | 'gap' }`** (ruled policy #5) — on `StageDraftFailed(8)`, `redraft` (re-`RequestArtifactDraft`, the documented revival path) if this kind hasn't been policy-retried, else `gap`.
+  - `decideEscalation(activityState, priorOverrides): { kind: 2|3, notes }` — override `retry`(2) on first policy encounter of an activityId, else `skip`(3).
+  - `decideApproval(activityState): { decision: 1, feedback: {} }` — always approve (bench autonomy).
+  - Each returns a serializable `OperatorAction` `{ point, input (state digest), output, ruleId, at }` for `run.json.operatorActions[]`.
 
-- [ ] **Step 1: Failing tests:** `chooseSdpOption` returns the recommended option from a fixture SDP draft; throws on a draft with no recommendation. `decideEscalation` returns retry on first encounter of an activityId, skip on the second (given priorOverrides). `decideApproval` always approves. Each emits an OperatorAction with a stable ruleId.
+- [ ] **Step 1: Failing tests:** `chooseSdpOption` returns the recommended option; throws on no-recommendation. `decideDesignGateUnblock` returns all open change-request ids from a fixture ReviewThread then approve; returns approve-directly on an empty open-set. `decideDraftFailedRetry` redrafts first, gaps second. `decideEscalation` retry(2) then skip(3). `decideApproval` approves(1). Each emits an OperatorAction with a stable ruleId.
 - [ ] **Step 2:** Implement. **Commit** (`feat(operator): deterministic ruled-policy decisions`).
 
 ---
@@ -108,16 +116,17 @@ Stage enums: Phase-2 SessionStage `Committed=4`; ConstructionStage `{1 dispatchi
 - Test: `archistrator-bench/test/provision.test.ts` (unit-level: repo prep + env assembly; the full boot is exercised in Task 8's smoke)
 
 **Interfaces:**
-- Consumes: a path to a built archistrator (`archistrator serve` binary or the archistrator repo to `go build`); Postgres/Temporal are NOT needed on the `local` profile (recon §4 — local requires nothing beyond the file state repo).
-- Produces: `provisionStack({ archistratorBin, benchmark, runId, scratchRoot }): Promise<StackHandle>` where `StackHandle = { mcpUrl, statRepoPath, serveProc, port, teardown() }`. Steps it performs:
-  1. `mkdir <scratchRoot>/<runId>/state-repo`; `git init`; `git config receive.denyCurrentBranch updateInstead`; write `.gitignore` containing `.aiarch/traces/`; initial commit on `main` (non-bare, has a working tree).
-  2. Run `archistrator init` in that dir (creates empty `.aiarch/state/`, `.mcp.json`, applies the git config idempotently).
+- Consumes: a path to a built archistrator (`archistrator serve` binary or the archistrator repo to `go build`). **Prerequisites on PATH: `git`, `claude` (authenticated), the `temporal` CLI, `aiarch-state-mcp`** (recon §4 corrected: `archistrator serve` spawns `temporal server start-dev` and hard-errors without the CLI; Postgres is genuinely not needed on the local profile).
+- Produces: `provisionStack({ archistratorBin, benchmark, runId, scratchRoot, dryRun }): Promise<StackHandle>` where `StackHandle = { mcpUrl, stateRepoPath, serveProc, port, projectName, teardown() }`. Steps:
+  1. `mkdir <scratchRoot>/<runId>/state-repo`; `git init`; write `.gitignore` containing `.aiarch/traces/`; initial commit on `main` (non-bare, has a working tree).
+  2. Run `archistrator init` in that dir (creates empty `.aiarch/state/`, `.mcp.json`, sets `receive.denyCurrentBranch updateInstead` idempotently).
   3. Pick a free port (`ports.ts`, OS-assigned then released).
-  4. Spawn the server child directly (bypass the `serve` wrapper's Temporal auto-spawn only if a Temporal is already provided; otherwise use `archistrator serve --port <p> --skip-auth-check` and let it manage Temporal) with env: `ARCHISTRATOR_PROJECT_STATE_GIT_LOCAL=true`, `ARCHISTRATOR_PROJECT_STATE_GIT_REPO_URL=file://<state-repo>`, `ARCHISTRATOR_CONSTRUCTION_DRYRUN=<dryRun>`, `ARCHISTRATOR_AUTH_DEV_MODE=true`, and NO `ARCHISTRATOR_CONSTRUCTION_REPO_OWNER/_NAME`.
-  5. Poll `GET http://127.0.0.1:<p>/healthz` until ready or timeout.
-  6. Return the handle; `teardown()` SIGTERMs the process group and leaves the state repo for harvest.
+  4. Spawn **`archistrator serve --port <p>`** with **cwd = the state repo** (recon §4b: `serve` uses its CWD as the state repo and FORCES `GIT_LOCAL=true` + `file://<cwd>` onto the child, overriding any runner-set repo env — so cwd is the control surface, not env). Pass through env: `ARCHISTRATOR_CONSTRUCTION_DRYRUN=<dryRun>` and `ARCHISTRATOR_AUTH_DEV_MODE=true`; ensure NO `ARCHISTRATOR_CONSTRUCTION_REPO_OWNER/_NAME` (else the GH pipeline wins over local). Add `--skip-auth-check` **only when dryRun** (a real run wants the boot-time `claude -p` auth probe to fail fast). `serve` manages its own Temporal (machine-wide dev server).
+  5. `projectName = <benchmark>-<runId>` (recon §4c: the dev Temporal is machine-wide + persistent with projectID-keyed workflow ids under USE_EXISTING policies — a constant name could adopt a prior run's open workflow against the wrong state repo; a per-run name gives each run a fresh workflow-id space).
+  6. Poll `GET http://127.0.0.1:<p>/healthz` until ready or timeout.
+  7. Return the handle; `teardown()` SIGTERMs the process group and leaves the state repo for harvest.
 
-- [ ] **Step 1: Failing test** on the pure parts: repo-prep writes the `.aiarch/traces/` gitignore and sets the git config (assert via `git check-ignore` and `git config --get`); env assembly includes all six real-construction requirements and omits GH creds; a network state URL is rejected before spawn.
+- [ ] **Step 1: Failing test** on the pure parts: repo-prep writes the `.aiarch/traces/` gitignore (assert via `git check-ignore`); the spawn spec sets cwd=state-repo, adds `--skip-auth-check` iff dryRun, omits GH creds, sets DRYRUN + AUTH_DEV_MODE; projectName == `<benchmark>-<runId>`; a missing `temporal`/`claude`/`aiarch-state-mcp` on PATH is a pre-spawn error naming the missing tool.
 - [ ] **Step 2:** Implement; the spawn/health-poll path is integration-covered in Task 8 (guarded behind an env flag so unit `npm test` doesn't require a real archistrator).
 - [ ] **Step 3:** typecheck + unit tests green. **Commit** (`feat(stack): scratch local-profile provisioner`).
 
@@ -133,13 +142,13 @@ Stage enums: Phase-2 SessionStage `Committed=4`; ConstructionStage `{1 dispatchi
 - Consumes: `ArchistratorMcp` (Task 2), the ruled policies (Task 3).
 - Produces: `driveToBuiltApp(mcp, { pid, owner, researchSources, policies, log }): Promise<DriveResult>` implementing the recon call script exactly:
   1. createProject → setReviewPolicy("vibes") → setResearchInput.
-  2. startSystemDesign; poll `getProject(pid)` until `Phase` advances to project-design (bounded, with a max-wait + a `gap` record on timeout).
-  3. Phase-2 loop over kinds `[8,9,10,11,14,12,13,15]`: requestPhase2Draft(kind) → poll getPhase2Session(kind) until `Stage==4`; respect the `Drafting/Redrafting` concurrency guard (poll before the next request).
-  4. requestSdpCommit → getPhase2Session(16) → `chooseSdpOption(.Draft)` → submitSdpDecision(optionId) → advanceToConstruction(acknowledgeStale=true).
-  5. executeNextActivity(pid, uuid); then poll `getProject(pid).ActivityConstruction` until every activity is terminal (completed/failed). On `StageAwaitingApproval` → `decideApproval` → submitPhaseDecision. On `StageAwaitingTakeover` → `decideEscalation` → overrideActivity, **inside the 30m escalation window** (poll cadence must react well under 30m; use ~10s). Record every policy firing.
+  2. startSystemDesign; poll `getProject(pid)` until `Phase` advances to project-design (bounded, gap on timeout). **During this poll, also watch each Phase-1 kind's session via `getP1Session(pid, kind)`**: on `StageAwaitingReview(3)` held > 60s under vibes → `decideDesignGateUnblock` → waive open change-request ids then submitReviewDecision(approve); on `StageDraftFailed(8)` → `decideDraftFailedRetry` → re-request once then gap. These are the ruled-policy #4/#5 stall clears — the critique-revise held-gate is the main real-world stall.
+  3. Phase-2 loop over kinds `[8,9,10,11,14,12,13,15]`: requestPhase2Draft(kind) → poll getPhase2Session(kind) until **`Stage==5` (committed; 4 is redrafting — do not exit on 4)**; apply the same held-gate/draft-failed policies against the Phase-2 session; respect the in-flight concurrency guard (poll before the next request).
+  4. requestSdpCommit → getPhase2Session(16) → `chooseSdpOption(.Draft)` → submitSdpDecision(optionId) → **poll getPhase2Session(16) until Stage==5** (the SDP commit is async: signal → re-run engines → re-stage → commit) → advanceToConstruction(acknowledgeStale=true) → **assert `result.Advanced==true`** (a gated advance returns `{Advanced:false, MissingArtifacts}` as a normal RESULT, not an error; on false, re-poll and retry once, then gap).
+  5. executeNextActivity(pid, uuid); poll `getProject(pid).ActivityConstruction` until every activity is terminal. On `StageAwaitingApproval(7)` → `decideApproval` → submitPhaseDecision(approve=1). On `StageAwaitingTakeover(4)` → `decideEscalation` → overrideActivity(retry=2/skip=3), **inside the 30m escalation window** (~10s poll cadence). **Quiescence guard:** if no activity is in-flight AND non-terminal activities remain, re-tick `executeNextActivity` with a fresh UUID (each tick is its own pump workflow keyed by tickID — safe and idempotent, and recovers a cascade that died on a terminally-failed activity stranding dependents); if a re-tick reports nothing dispatched and work still remains, fail the run immediately rather than waiting out the poll budget. Record every policy firing.
   6. Return `{ outcome, operatorActions, gaps, activitySummary }`.
 
-- [ ] **Step 1: Failing tests** with a scripted fake MCP: happy path drives all steps and returns succeeded; a Phase-2 kind that never commits → drive times out with a gap record (not a hang); an `awaitingApproval` state triggers exactly one submitPhaseDecision; an `awaitingTakeover` triggers retry-then-skip across two encounters; a missing SDP recommendation surfaces `NoRecommendation` as a run failure (not a crash).
+- [ ] **Step 1: Failing tests** with a scripted fake MCP: happy path drives all steps and returns succeeded; a Phase-2 kind stuck at Stage 4 (redrafting) is NOT treated as committed; a kind that never reaches 5 → gap (not a hang); a held `AwaitingReview(3)` session with open change-request comments → waive-all-then-approve fires; a `StageDraftFailed(8)` → one redraft then gap; `advanceToConstruction` returning `Advanced:false` → retry-once-then-gap (not silent success); `awaitingApproval` → one submitPhaseDecision(1); `awaitingTakeover` → retry(2)-then-skip(3) across two encounters; a stranded cascade (in-flight empty, work remains) → re-tick then fail; missing SDP recommendation → `NoRecommendation` run failure.
 - [ ] **Step 2:** Implement with explicit bounded polls (every wait has a max + gap-on-timeout — never an unbounded loop). **Commit** (`feat(runner): deterministic end-to-end drive sequence`).
 
 ---
@@ -156,7 +165,8 @@ Stage enums: Phase-2 SessionStage `Committed=4`; ConstructionStage `{1 dispatchi
   - `app/` — the built-app snapshot: `git archive main` from the state repo (working tree at head of main, EXCLUDING `.aiarch/`), extracted here. (Never a live `.git` — a static snapshot.)
   - `project.json` — copied from `<stateRepo>/.aiarch/state/project.json`.
   - `traces/` — copied from `<stateRepo>/.aiarch/traces/` (the gitignored sidecar: `episodes.jsonl` + per-episode jsonl).
-  - `run.json` — the RunRecord (validates against Task 1's schema): commit SHA, `archistratorDirty` (from `git -C archistrator status --porcelain`), operatorPolicyVersion, epoch, suiteVersion, timestamps, outcome, operatorActions, gaps, stackConfig.
+  - `run.json` — the RunRecord (validates against Task 1's schema): commit SHA, `archistratorDirty` (from `git -C <repo> status --porcelain`; `"unknown"` when `--archistrator` is a bare binary with no repo), `modelIds` (claude CLI version, worker model roster, temporal CLI version), operatorPolicyVersion, epoch, suiteVersion, timestamps, outcome, operatorActions, gaps, stackConfig.
+  - `app/` note: `git archive main` cannot exclude `.aiarch/` by naive pathspec — implement as **archive-then-strip** (extract, then `rm -rf app/.aiarch`) or export-ignore attributes.
   - `run.log` — the full runner log.
   - After writing, the directory is treated as sealed (Task 9's CI enforces it; the harvester itself just writes once and never rewrites).
 
@@ -191,11 +201,13 @@ Stage enums: Phase-2 SessionStage `Committed=4`; ConstructionStage `{1 dispatchi
 - Test: `archistrator-bench/test/cli.test.ts` (arg parsing + orchestration with fakes); plus a **gated integration smoke** `test/integration/full-run.test.ts` (runs only when `BENCH_ARCHISTRATOR_BIN` is set)
 
 **Interfaces:**
-- Produces: `bench run todomvc --archistrator <bin-or-repo> [--dry-run] [--out runs/]` orchestrating: resolve archistrator commit SHA (`git -C <repo> rev-parse HEAD`) → provisionStack → connect MCP → driveToBuiltApp(pinned corpus) → seal stack → harvest → loadBenchmark.runAcceptance(app snapshot) → write acceptance/ + fold pass/fail into run.json outcome → teardown. `--dry-run` sets `CONSTRUCTION_DRYRUN=true` for a fast plumbing smoke (design rail also stubs — documents that a dry-run produces no real app, only validates the drive/harvest wiring).
+- Produces: `bench run todomvc --archistrator <bin-or-repo> [--dry-run] [--out runs/]` orchestrating: resolve archistrator commit SHA (`git -C <repo> rev-parse HEAD`) + modelIds → provisionStack → connect MCP → driveToBuiltApp(pinned corpus) → seal stack → harvest → loadBenchmark.runAcceptance(app snapshot) → write acceptance/ + fold pass/fail into run.json outcome → teardown. `--dry-run` sets `CONSTRUCTION_DRYRUN=true`.
 
-- [ ] **Step 1: Failing test** (`cli.test.ts`): arg parsing; orchestration order with all deps faked (provision→drive→harvest→accept called in sequence; a drive failure still harvests a `failed` run — failures are data).
+  **Honest dry-run scope (recon §4e):** the DRYRUN stub fake-succeeds *without committing any draft*, and it backs the DESIGN dispatches too — so a dry-run wedges at Phase-1 step 1 (mission read-back finds nothing). A `--dry-run` run therefore validates ONLY: provision + MCP connect + createProject/setResearchInput/startSystemDesign + the bounded-poll/gap machinery + failed-run harvest. It does NOT exercise Phase-2/SDP/construction against a real archistrator. That is expected: real end-to-end hardening lands in **AC iteration 0**, which spec §9 explicitly designates as the harness-hardening run. Everything past Phase-1 step 1 is covered here only against the scripted-fake MCP (Task 5).
+
+- [ ] **Step 1: Failing test** (`cli.test.ts`): arg parsing; orchestration order with all deps faked (provision→drive→harvest→accept in sequence; a drive failure still harvests a `failed` run — failures are data); modelIds captured into run.json.
 - [ ] **Step 2:** Implement the orchestration.
-- [ ] **Step 3: Gated integration smoke** (`full-run.test.ts`, skipped unless `BENCH_ARCHISTRATOR_BIN` present): a **`--dry-run` full run** against a real archistrator build — proves provision + MCP connect + the full drive sequence + harvest wiring end-to-end without waiting on real construction. Assert a sealed `runs/todomvc/<runId>/` with a schema-valid run.json (outcome may be a dry-run gap for the app itself; the point is the plumbing).
+- [ ] **Step 3: Gated integration smoke** (`full-run.test.ts`, skipped unless `BENCH_ARCHISTRATOR_BIN` present): a `--dry-run` run against a real archistrator build — proves provision + MCP connect + the Phase-1-entry drive + gap handling + failed-run harvest (per the honest scope above), landing a sealed `runs/todomvc/<runId>/` with a schema-valid run.json. Optionally, a `BENCH_REAL_SMOKE=1` variant that lets a single REAL Phase-1 draft (mission) actually commit — the cheapest real-dispatch probe — if a `claude`-authed box is available.
 - [ ] **Step 4:** Run `bench run todomvc --dry-run` against the local archistrator build; capture the result in the report. **Commit** (`feat(runner): bench-run CLI orchestration`).
 
 ---
@@ -210,7 +222,7 @@ Stage enums: Phase-2 SessionStage `Committed=4`; ConstructionStage `{1 dispatchi
 **Interfaces:**
 - Produces: a CI gate that fails any PR whose diff **modifies or deletes** an existing path under `runs/**` (additions of new run dirs are allowed; touching a sealed one is not). Plus the two additional benchmark definitions per spec §6, shipped but not executed (their acceptance suites may be stubs marked `suiteVersion: "draft"`).
 
-- [ ] **Step 1:** `check-runs-immutable.mjs`: `git diff --name-status <base>..<head>` — fail on any `M`/`D`/`R` under `runs/`; pass on `A`. Test it locally against a synthetic diff.
+- [ ] **Step 1:** `check-runs-immutable.mjs`: `git diff --name-status <base>..<head>` — fail on any `M`/`D`/`R`/`C` status under `runs/`; pass on `A` (additions of new run dirs). Note in the README that the gate guards PRs only — a direct push to `main` bypasses it (accepted residual). Test it locally against a synthetic diff.
 - [ ] **Step 2:** `ci.yml`: node setup → `npm ci` → typecheck → lint → vitest → run the immutability script against the PR base.
 - [ ] **Step 3:** gtd benchmark: pinned corpus derived from `archistrator/../software/products/gtd` docs (capture/clarify/organize/reflect/tickler/horizons per gtdinfo.txt) — research files + benchmark.json, acceptance suite stubbed (`draft`). archistrator benchmark: corpus = archistrator's own mission/requirements, stubbed suite. Both marked `unrun: true` in benchmark.json.
 - [ ] **Step 4:** **Commit** (`ci: runs immutability gate + gtd/archistrator benchmark definitions`).
@@ -221,8 +233,8 @@ Stage enums: Phase-2 SessionStage `Committed=4`; ConstructionStage `{1 dispatchi
 
 - [ ] **Step 1:** Full bench-repo gates: `npm run typecheck`, `npm run lint`, `npm test`, the immutability script against `main`.
 - [ ] **Step 2:** Run `bench run todomvc --dry-run --archistrator <local archistrator build>` once more end-to-end; confirm a sealed, schema-valid archive directory. (The REAL, non-dry todomvc x3 iterations are SP5/AC, not this plan — SP2 delivers the machine that can do it, validated in dry-run.)
-- [ ] **Step 3:** Update the spec §6 status: SP2 implemented; record the deviation ratified by the founder (operator = deterministic driver + ruled policies, no LLM operator / no Playwright — the recon proved the fallback list empty and the drive near-deterministic; skew-minimization was the deciding factor) as a dated amendment.
-- [ ] **Step 4: Commit** (`chore: SP2 bench repo + runner complete`).
+- [ ] **Step 3:** Update the spec §6 status: SP2 implemented; record the founder-ratified deviation (operator = deterministic driver + ruled policies, no LLM operator / no Playwright — recon proved the fallback list empty and the drive near-deterministic; skew-minimization decided it) + the five ruled policies incl. #4's held-gate clear, as a dated amendment. **This edits the archistrator repo (the spec lives there), the one sanctioned exception to this plan's "archistrator is NOT modified" constraint — a docs-only commit, no code.** Commit the spec amendment in the ARCHISTRATOR repo (with the Co-Authored-By trailer); everything else in this plan is bench-repo-only.
+- [ ] **Step 4: Commit** the bench repo (`chore: SP2 bench repo + runner complete`).
 
 ---
 
