@@ -13,11 +13,19 @@
  * early cancellation) gets an honest "no events recorded" notice instead of a
  * fabricated gap reason.
  *
- * All raw-payload parsing (`raw` is `unknown` on the wire — see
- * contracts/types.ts / contracts/wire.ts, and 2026-08-02 review finding C1:
- * it is an embedded JSON OBJECT, never a string) lives in
- * utilities/episodeRawEvent.ts, fixture-tested there against real captured
- * trace lines — this component only renders what it returns.
+ * All raw-payload parsing AND per-event-type summary derivation (`raw` is
+ * `unknown` on the wire — see contracts/types.ts / contracts/wire.ts, and
+ * 2026-08-02 review finding C1: it is an embedded JSON OBJECT, never a
+ * string) lives in utilities/episodeRawEvent.ts, fixture-tested there against
+ * real captured trace lines — this component only renders what it returns.
+ * Non-tool_use rows (2026-08-02 founder UI review) get a descriptive one-line
+ * summary from `summarizeEvent` instead of a bare event-type chip: system
+ * events show their subtype in the chip itself (`eventChipLabel`) plus, for
+ * `init`/`task_notification`, extra fields; rate_limit_event surfaces its
+ * status/type/overage; user tool_result rows show ok/error + char count;
+ * assistant text-only turns show a truncated excerpt; the terminal `result`
+ * event's duration/subtype/is_error ride alongside the existing turn-total
+ * usage readout.
  */
 import { useMemo, useState, type ReactNode } from 'react';
 import Box from '@mui/material/Box';
@@ -33,9 +41,11 @@ import Tooltip from '@mui/material/Tooltip';
 import type { EpisodeTimeline as EpisodeTimelineModel, TimelineEvent } from '../../contracts/types';
 import {
   argsSummary,
+  eventChipLabel,
   eventUsage,
   parentToolUseId,
   parseRawEvent,
+  summarizeEvent,
   toolUseBlocks,
 } from '../../utilities/episodeRawEvent';
 import { useTokens } from '../../utilities/theme/ThemeContext';
@@ -184,6 +194,14 @@ function TimelineRow({ event, t }: { event: TimelineEvent; t: Tokens }): ReactNo
   const tools = toolUseBlocks(parsed);
   const usage = eventUsage(parsed);
   const parentId = parentToolUseId(parsed);
+  const chipLabel = eventChipLabel(event.eventType, parsed);
+  // The terminal `result` event's summary (subtype/duration/is_error) rides
+  // the existing turn-totals line instead of a separate row (2026-08-02
+  // founder UI review: "add duration + subtype + is_error to the existing
+  // turn totals"); every other event type gets its own summary line below
+  // the header.
+  const isResultEvent = event.eventType === 'result';
+  const summary = summarizeEvent(event.eventType, parsed);
 
   return (
     <Box
@@ -203,7 +221,7 @@ function TimelineRow({ event, t }: { event: TimelineEvent; t: Tokens }): ReactNo
           #{event.seq}
         </Typography>
         <Chip
-          label={event.eventType}
+          label={chipLabel}
           size="small"
           sx={{
             height: 16,
@@ -231,10 +249,24 @@ function TimelineRow({ event, t }: { event: TimelineEvent; t: Tokens }): ReactNo
             <Typography sx={{ fontFamily: t.mono, fontSize: 9.5, color: t.muted }}>
               turn total: in {String(usage.input_tokens ?? 0)} · out{' '}
               {String(usage.output_tokens ?? 0)}
+              {isResultEvent && summary !== undefined ? ` · ${summary}` : ''}
             </Typography>
           </Tooltip>
         )}
       </Box>
+      {!isResultEvent && summary !== undefined ? (
+        <Typography
+          sx={{
+            fontFamily: t.mono,
+            fontSize: 10,
+            color: t.muted,
+            pl: 3.5,
+            wordBreak: 'break-word',
+          }}
+        >
+          {summary}
+        </Typography>
+      ) : null}
       {tools.map((tool, i) => (
         <Box key={`${String(event.seq)}-${String(i)}`} sx={{ pl: 3.5 }}>
           <Typography sx={{ fontFamily: t.mono, fontSize: 10.5, fontWeight: 700, color: t.ink }}>
