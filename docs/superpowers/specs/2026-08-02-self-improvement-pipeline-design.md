@@ -316,6 +316,52 @@ archistrator-bench/
 - **Known risk:** a fully autonomous zero-gate end-to-end build has never been exercised;
   SP2 includes a hardening pass on that path (expected to be the real debugging cost of the AC).
 
+### 6.1 SP2 implementation closeout (2026-08-03)
+
+SP2 implemented in the new sibling repo `archistrator-bench` (its own git; 10 tasks; all
+task + fix-round reviews clean). Full gates green (119 tests, typecheck, lint) and the gated
+dry-run integration smoke passed against a real local archistrator build (provision → MCP
+connect → drive machinery → the expected Phase-1 dry-run wedge → a sealed, schema-valid
+`run.json` with `outcome: failed` + gaps — failures are data, not a crash).
+
+- **Operator refinement (founder-ratified 2026-08-02, supersedes §3/§6's "operator agent"
+  shape).** A recon of archistrator's headless-drive surface found **43↔43 MCP/REST parity
+  (the Playwright-fallback list is empty)** and that the drive is **near-deterministic**: the
+  research corpus is pinned data set via `setResearchInput`, `startSystemDesign` auto-runs all
+  8 Phase-1 steps + the seal under vibes, and only three points need a caller — the Phase-2
+  per-kind draft loop (a fixed sequence), the unavoidable `submitSDPDecision` ratification, and
+  construction escalation/approval. So the operator is a **deterministic driver + ruled
+  policies — no LLM operator, no browser** (zero operator-LLM skew, the cleanest answer to the
+  skew concern): SDP option = the assembled review's `.Recommendation`; held design gate = waive
+  open change-request comments then approve; failed draft = re-request once then gap; escalation
+  = retry-once-then-skip; risk-floor approval = approve. Every policy firing is logged to
+  `run.json.operatorActions[]`. The `operator/` transcript dir and operator-prompt-hash fields
+  in §6 are moot under this refinement; a real LLM operator is reserved for a future benchmark
+  that needs interactive judgment.
+- **Load-bearing drive facts pinned during implementation** (verified against archistrator
+  source, several correcting the plan/recon): Phase-1 and Phase-2 `SessionStage` enums are
+  **differently numbered** (P1 committed=4, P2 committed=5 — 4 is redrafting); all decision args
+  are **integer** wire enums; `submitSdpDecision` commits **asynchronously** (poll to committed +
+  assert `advanceToConstruction.Advanced==true`); the vibes autogate is held by critique-revise
+  change-request comments even with zero questions (cleared by the waive-then-approve policy via
+  existing MCP verbs — no archistrator change); `archistrator serve` controls the state repo via
+  **cwd**, forces `GIT_LOCAL`, and requires the `temporal` CLI; `aiarch-state-mcp` is discovered
+  as a **sibling** of the archistrator binary (not just PATH).
+- **Runner shape:** deterministic CLI (`bench run <benchmark> --archistrator <bin-or-repo>
+  [--dry-run]`) wiring provision → MCP drive → **atomic** harvest (build-in-temp + rename, so a
+  mid-run failure never bricks a runId) → acceptance-before-seal (folded into the one sealed
+  write). `run.json` keys on the archistrator commit SHA + dirty flag + `modelIds` (claude CLI
+  version, worker roster, temporal CLI version — an Anthropic-side model change shifts results at
+  a fixed SHA). Immutability CI gate catches modify/delete AND rename-out-of-`runs/`.
+- **Benchmarks:** todomvc has pinned inputs + a frozen v1 Playwright acceptance suite; gtd
+  (grounded in the real GTD product docs) and archistrator (its own `.aiarch` research corpus)
+  ship **defined, `unrun: true`, stub acceptance**.
+- **Deferred to AC iteration 0 (spec §9's designated harness-hardening run):** the built-app
+  shape detection in the acceptance harness is inference (no real archistrator-built app exists
+  yet); the honest dry-run smoke covers only up to the Phase-1 wedge; the real todomvc x3
+  iterations are AC, after SP3 + SP4. Live-run spot-check earmark: `CurrentPhase != ""` at the
+  first construction `AwaitingApproval`.
+
 ## 7. SP3 — Analysis engine (approach A: LLM proposes, math disposes)
 
 Four CLI stages in `analysis/`, all outputs committed to the bench repo. Python + scipy/numpy:
