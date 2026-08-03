@@ -39,6 +39,7 @@ import { CommittedSlotsProvider } from '../components/CommittedSlotsContext';
 import { StructureFindingsProvider } from '../components/flow/StructureFindingsContext';
 import { gateDecisionErrorMessage } from '../components/design/gateFaultLogic';
 import { useComments } from '../components/comments/CommentContext';
+import { EpisodesPanelContainer } from './EpisodesPanelContainer';
 
 const PHASE1_KINDS = PHASE1_ORDER as readonly ArtifactKind[];
 
@@ -378,6 +379,13 @@ export function SystemDesignContainer({
           chatOpen={chatOpen}
           commentSurface={{ enabled: commentsEnabled, commentCount: comments.length, setAnchor }}
           decisionPending={submitReview.isPending}
+          episodesSlot={
+            <EpisodesPanelContainer
+              manager="systemDesign"
+              projectId={projectId}
+              targetRef={activeKind}
+            />
+          }
           gateError={gateError}
           needsResearch={needsResearch}
           project={project}

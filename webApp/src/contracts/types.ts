@@ -13,7 +13,13 @@
  * `models.ts` mirror is deleted. Consumers keep importing model types from here.
  */
 import type { components } from './schema';
-import type { ActiveRole, ActiveStep, ARTIFACT_STAGE_GO_VARNAMES } from './enums.gen';
+import type {
+  ActiveRole,
+  ActiveStep,
+  ARTIFACT_STAGE_GO_VARNAMES,
+  EpisodeKind,
+  EpisodeOutcome,
+} from './enums.gen';
 
 type S = components['schemas'];
 
@@ -637,6 +643,81 @@ export interface ConstructionProgress {
   supervisionCap: number;
   ev: EvCurves;
   points?: EvPoint[];
+}
+
+// ---------------------------------------------------------------------------
+// Episodes — the capture-seam read model (SP1). One episode is one auditable
+// AI-worker operation (design draft, construction dispatch, review, rework,
+// answer). ConstructionEpisodeRecordView / ProjectDesignEpisodeRecordView /
+// SystemDesignEpisodeRecordView are byte-identical on the wire (see wire.ts's
+// mapEpisodeRecordView) — this is the ONE app-facing shape all three map onto.
+// ---------------------------------------------------------------------------
+
+/** EpisodeKind / EpisodeOutcome app strings, sourced mechanically from
+ *  enums.gen.ts (unverified — new/unwired enum, no hand table to check
+ *  against). Re-exported here so episode-domain consumers pull one import. */
+export type { EpisodeKind, EpisodeOutcome } from './enums.gen';
+
+export interface EpisodeUsage {
+  in: number;
+  out: number;
+  cacheRead: number;
+  cacheCreate: number;
+}
+
+/** workflow -> activity -> episode lineage (the first three levels of the
+ *  lineage tree; subagentSpans on EpisodeRecordView carry the fourth). */
+export interface EpisodeLineage {
+  workflowId: string;
+  runId: string;
+  activityId?: string;
+}
+
+/** One subagent dispatch ("Agent" tool) span within the episode. */
+export interface SubagentSpan {
+  toolUseId: string;
+  startedAt?: string;
+  endedAt?: string;
+}
+
+export interface EpisodeRecordView {
+  episodeId: string;
+  kind: EpisodeKind;
+  /** The activityId (construction) or artifact-kind slug (design) this episode acted on. */
+  targetRef: string;
+  lineage?: EpisodeLineage;
+  outcome: EpisodeOutcome;
+  /** Only meaningful when outcome === 'gap' — why no episode ran. */
+  gapReason?: string;
+  model?: string;
+  workerClass?: string;
+  /** Terminal usage — MAIN-LOOP turns only; subagent tokens appear in neither
+   *  this nor streamedUsage (fixture-proven, ledgered — see useEpisodes.ts). */
+  usage: EpisodeUsage;
+  streamedUsage?: EpisodeUsage;
+  /** Per-tool call counts, already excluding subagent-parented calls. The
+   *  subagent dispatch tool itself is named "Agent". */
+  toolCallCounts?: Record<string, number>;
+  subagentSpans?: SubagentSpan[];
+  numTurns?: number;
+  costUsd?: number;
+  startedAt: string;
+  endedAt: string;
+  tracePath?: string;
+}
+
+export interface TimelineEvent {
+  seq: number;
+  eventType: string;
+  /** json.RawMessage on the wire (the OAS represents it as `null`-typed since Go's
+   *  custom RawMessage has no OAS shape) — null-check before JSON.parse; see
+   *  wire.ts's rawEventPayload boundary cast. */
+  raw?: string | null;
+}
+
+export interface EpisodeTimeline {
+  record: EpisodeRecordView;
+  events: TimelineEvent[];
 }
 
 // ---------------------------------------------------------------------------

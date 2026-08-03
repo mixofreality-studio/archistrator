@@ -71,6 +71,7 @@ import { StaleBasisHeaderChip } from '../components/design/StaleBasisChip';
 import { StageChip } from '../components/StageChip';
 import { ProjectArtifactRenderer } from '../components/project/ProjectArtifactRenderer';
 import { CommentProvider, useComments } from '../components/comments/CommentContext';
+import { EpisodesPanelContainer } from '../containers/EpisodesPanelContainer';
 
 import { useTokens } from '../utilities/theme/ThemeContext';
 import type { Tokens } from '../utilities/theme/themes';
@@ -571,6 +572,17 @@ function ProjectDesignBody({
           onSendBack={sendBack}
           onWithdraw={withdraw}
         />
+
+        {/* SP1 capture-seam episodes panel — below the artifact renderer. This
+            route file IS the Phase-2 "container" (no separate pure view to
+            thread a slot prop through, unlike Phase 1's SystemDesignView). */}
+        <Box sx={{ mt: 2 }}>
+          <EpisodesPanelContainer
+            manager="projectDesign"
+            projectId={projectId}
+            targetRef={activeKind}
+          />
+        </Box>
       </Box>
     </ExperienceChrome>
   );

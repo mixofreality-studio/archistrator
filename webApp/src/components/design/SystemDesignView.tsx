@@ -172,6 +172,14 @@ export interface SystemDesignViewProps {
   commentSurface?: CommentSurfaceProps;
   /** Reserved for Task 9's MCP two-call (arm, then submit) comment flow. */
   onSubmitSelectionComment?: (anchor: Anchor, text: string) => void;
+  /**
+   * The SP1 capture-seam episodes panel for the active artifact (Task 10) —
+   * an opaque, pre-built ReactNode (`<EpisodesPanelContainer targetRef={activeKind} .../>`),
+   * wired by the container (this is a pure components-layer file: it may not
+   * import hooks/containers itself — eslint.platform.config.js:53). Rendered
+   * below the artifact renderer.
+   */
+  episodesSlot?: ReactNode;
 }
 
 export function SystemDesignView({
@@ -202,6 +210,7 @@ export function SystemDesignView({
   chatOpen,
   onOpenChat,
   commentSurface,
+  episodesSlot,
 }: SystemDesignViewProps): ReactNode {
   const t = useTokens();
 
@@ -415,6 +424,9 @@ export function SystemDesignView({
             onSubmitReview('withdraw');
           }}
         />
+
+        {/* SP1 capture-seam episodes panel — below the artifact renderer. */}
+        {episodesSlot !== undefined && <Box sx={{ mt: 2, flexShrink: 0 }}>{episodesSlot}</Box>}
       </Box>
     </ExperienceChrome>
   );

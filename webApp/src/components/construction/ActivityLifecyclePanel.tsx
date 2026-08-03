@@ -48,6 +48,13 @@ export interface ActivityLifecyclePanelProps {
   derivedStatus: BuildStatus;
   git: GitRow | undefined;
   onClose: () => void;
+  /**
+   * The SP1 capture-seam episodes panel for this activity (Task 10) — an
+   * opaque, pre-built ReactNode (`<EpisodesPanelContainer targetRef={activityId} .../>`),
+   * wired by the route (this is a pure components-layer file: it may not
+   * import hooks/containers itself — eslint.platform.config.js:53).
+   */
+  episodesSlot?: ReactNode | undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -62,6 +69,7 @@ export function ActivityLifecyclePanel({
   derivedStatus,
   git,
   onClose,
+  episodesSlot,
 }: ActivityLifecyclePanelProps): ReactNode {
   const t = useTokens();
 
@@ -108,6 +116,9 @@ export function ActivityLifecyclePanel({
                 t={t}
               />
             )}
+
+            {/* SP1 capture-seam episodes panel — below the lifecycle content. */}
+            {episodesSlot !== undefined && <Box sx={{ mt: 2 }}>{episodesSlot}</Box>}
           </Box>
         </Box>
       )}

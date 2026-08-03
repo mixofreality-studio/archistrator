@@ -485,4 +485,19 @@ export const UI_IDENTIFIERS = {
     ERROR_ALERT: 'error-alert',
     LOADING: 'loading-indicator',
   },
+  // The SP1 capture-seam episodes panel (Task 10) — mounted per design-artifact
+  // page (Phase 1 + Phase 2) and per construction activity. Base ids match the
+  // task brief exactly; per-row/per-episode ids append the id, following the
+  // repo's row-testid convention (artifactRow / trackerNode / roleCard, ...).
+  Episodes: {
+    PANEL: 'episodes-panel',
+    episodeRow: (episodeId: string) => `episodes-row-${episodeId}`,
+    TIMELINE: 'episode-timeline',
+    LINEAGE_TREE: 'episode-lineage-tree',
+    EXPORT_MENU_BUTTON: 'episodes-export-menu',
+    EXPORT_JSON: 'episode-export-json',
+    EXPORT_CSV: 'episode-export-csv',
+    outcomeChip: (episodeId: string) => `episode-outcome-chip-${episodeId}`,
+    TIMELINE_FILTER: 'episode-timeline-filter',
+  },
 } as const;

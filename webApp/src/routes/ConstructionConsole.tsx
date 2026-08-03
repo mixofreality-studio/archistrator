@@ -65,6 +65,7 @@ import { ArtifactsTab } from '../components/construction/ArtifactsTab';
 import { ActivityLifecyclePanel } from '../components/construction/ActivityLifecyclePanel';
 import { PhaseGatePanel } from '../components/construction/PhaseGatePanel';
 import { CommentProvider, useComments } from '../components/comments/CommentContext';
+import { EpisodesPanelContainer } from '../containers/EpisodesPanelContainer';
 
 import { useTokens } from '../utilities/theme/ThemeContext';
 import type { Tokens } from '../utilities/theme/themes';
@@ -537,6 +538,15 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
           selectedActivityId !== null
             ? (statusMap.get(selectedActivityId) ?? 'not-started')
             : 'not-started'
+        }
+        episodesSlot={
+          selectedActivityId !== null ? (
+            <EpisodesPanelContainer
+              manager="construction"
+              projectId={projectId}
+              targetRef={selectedActivityId}
+            />
+          ) : undefined
         }
         git={selectedActivityId !== null ? gitForActivity(selectedActivityId) : undefined}
         node={

@@ -35,6 +35,10 @@ import {
   AUTOSCALE_ACTION_ORDINAL_TO_APP,
   CONSTRUCTION_STAGE_ORDINAL_TO_APP,
   DESIRED_STATE_REASON_APP_TO_ORDINAL,
+  EPISODE_KIND_ORDINAL_TO_APP,
+  type EpisodeKind,
+  EPISODE_OUTCOME_ORDINAL_TO_APP,
+  type EpisodeOutcome,
   OVERRIDE_KIND_APP_TO_ORDINAL,
   PATCH_KIND_APP_TO_ORDINAL,
   PHASE_DECISION_APP_TO_ORDINAL,
@@ -62,6 +66,10 @@ import type {
   ConstructionSessionState,
   ConstructionStage,
   DesignHealth,
+  EpisodeLineage,
+  EpisodeRecordView,
+  EpisodeTimeline,
+  EpisodeUsage,
   EvPoint,
   Finding,
   GitRow,
@@ -88,6 +96,8 @@ import type {
   ServiceContracts,
   SessionStateResponse,
   ConstructionRows,
+  SubagentSpan,
+  TimelineEvent,
 } from './types';
 import type { ArtifactModelEnvelope, Money, ProjectArtifactModelEnvelope } from './types';
 import type { CostProjection, OperationsView } from './operationsTypes';
@@ -666,6 +676,123 @@ export function mapCostProjection(
       projectedMonthlyCost: mapMoney(p.ProjectedMonthlyCost),
     })),
   };
+}
+
+// --- episodes (SP1 capture seam) --------------------------------------------
+//
+// ConstructionEpisodeRecordView / ProjectDesignEpisodeRecordView /
+// SystemDesignEpisodeRecordView (and their Usage/Lineage/SubagentSpan/
+// TimelineEvent/Timeline siblings) are byte-identical across the three manager
+// namespaces (verified against the OAS at Task 10 authorship time) — one set of
+// mappers serves all three via a union parameter, same pattern as mapFinding /
+// mapReviewComment above.
+
+function episodeKindFromOrdinal(ordinal: number): EpisodeKind {
+  return EPISODE_KIND_ORDINAL_TO_APP[ordinal] ?? 'design';
+}
+
+function episodeOutcomeFromOrdinal(ordinal: number): EpisodeOutcome {
+  return EPISODE_OUTCOME_ORDINAL_TO_APP[ordinal] ?? 'gap';
+}
+
+function mapEpisodeUsage(
+  w:
+    | Schemas['ConstructionEpisodeUsage']
+    | Schemas['ProjectDesignEpisodeUsage']
+    | Schemas['SystemDesignEpisodeUsage']
+): EpisodeUsage {
+  return { in: w.in, out: w.out, cacheRead: w.cacheRead, cacheCreate: w.cacheCreate };
+}
+
+function mapEpisodeLineage(
+  w:
+    | Schemas['ConstructionEpisodeLineage']
+    | Schemas['ProjectDesignEpisodeLineage']
+    | Schemas['SystemDesignEpisodeLineage']
+): EpisodeLineage {
+  return {
+    workflowId: w.workflowId,
+    runId: w.runId,
+    ...(w.activityId !== undefined ? { activityId: w.activityId } : {}),
+  };
+}
+
+function mapSubagentSpan(
+  w:
+    | Schemas['ConstructionSubagentSpan']
+    | Schemas['ProjectDesignSubagentSpan']
+    | Schemas['SystemDesignSubagentSpan']
+): SubagentSpan {
+  return {
+    toolUseId: w.toolUseId,
+    ...(w.startedAt !== undefined ? { startedAt: w.startedAt } : {}),
+    ...(w.endedAt !== undefined ? { endedAt: w.endedAt } : {}),
+  };
+}
+
+export function mapEpisodeRecordView(
+  w:
+    | Schemas['ConstructionEpisodeRecordView']
+    | Schemas['ProjectDesignEpisodeRecordView']
+    | Schemas['SystemDesignEpisodeRecordView']
+): EpisodeRecordView {
+  return {
+    episodeId: w.episodeId,
+    kind: episodeKindFromOrdinal(w.kind),
+    targetRef: w.targetRef,
+    outcome: episodeOutcomeFromOrdinal(w.outcome),
+    usage: mapEpisodeUsage(w.usage),
+    startedAt: w.startedAt,
+    endedAt: w.endedAt,
+    ...(w.lineage !== undefined ? { lineage: mapEpisodeLineage(w.lineage) } : {}),
+    ...(w.gapReason !== undefined ? { gapReason: w.gapReason } : {}),
+    ...(w.model !== undefined ? { model: w.model } : {}),
+    ...(w.workerClass !== undefined ? { workerClass: w.workerClass } : {}),
+    ...(w.streamedUsage !== undefined ? { streamedUsage: mapEpisodeUsage(w.streamedUsage) } : {}),
+    ...(w.toolCallCounts !== undefined ? { toolCallCounts: w.toolCallCounts } : {}),
+    ...(w.subagentSpans !== undefined
+      ? { subagentSpans: w.subagentSpans.map(mapSubagentSpan) }
+      : {}),
+    ...(w.numTurns !== undefined ? { numTurns: w.numTurns } : {}),
+    ...(w.costUsd !== undefined ? { costUsd: w.costUsd } : {}),
+    ...(w.tracePath !== undefined ? { tracePath: w.tracePath } : {}),
+  };
+}
+
+/**
+ * TimelineEvent.raw is server-typed as `json.RawMessage` (Go), which has no OAS
+ * shape — the generator emits `type: null` for it, so schema.ts's `raw` field is
+ * typed `null` only. In practice it is a JSON string whenever the event carries a
+ * payload (omitempty — absent, not null, when there is none). This is the one
+ * honest boundary cast for that gap; every consumer still null-checks before
+ * JSON.parse.
+ */
+function rawEventPayload(raw: null | undefined): string | null | undefined {
+  // The declared return type is the honest boundary widening (see the doc
+  // comment above): schema.ts types `raw` as `null` only (json.RawMessage has
+  // no OAS shape), but it is a JSON string at runtime whenever present. No
+  // assertion is needed here — the function's own return-type annotation is
+  // what widens `raw`'s static type for every caller.
+  return raw;
+}
+
+function mapTimelineEvent(
+  w:
+    | Schemas['ConstructionTimelineEvent']
+    | Schemas['ProjectDesignTimelineEvent']
+    | Schemas['SystemDesignTimelineEvent']
+): TimelineEvent {
+  const raw = rawEventPayload(w.raw);
+  return { seq: w.seq, eventType: w.eventType, ...(raw !== undefined ? { raw } : {}) };
+}
+
+export function mapEpisodeTimeline(
+  w:
+    | Schemas['ConstructionEpisodeTimeline']
+    | Schemas['ProjectDesignEpisodeTimeline']
+    | Schemas['SystemDesignEpisodeTimeline']
+): EpisodeTimeline {
+  return { record: mapEpisodeRecordView(w.record), events: w.events.map(mapTimelineEvent) };
 }
 
 // --- app → wire ------------------------------------------------------------
