@@ -1280,6 +1280,26 @@ func NewLocalExecAgenticJobAccess(repoURL, projectID, stateMCPBin string, runTim
 		projectID = "local"
 	}
 	_, _ = runGit(repoPath, "worktree", "prune") // best-effort startup hygiene, see doc comment
+
+	// Task 8 earmark: hoist THE TRUST RULE (assertTraceSinkOutsideGitDir, defined
+	// below with the trace-sink block it guards) to construction time too, so a
+	// BARE shared repo fails loudly at boot rather than on the first dispatch. This
+	// checks repoPath's OWN git dir rather than a per-activity worktree's (no
+	// worktree exists yet at boot) — that is sufficient because bareness is a fixed
+	// property of the shared repo: `git rev-parse --absolute-git-dir` reports
+	// repoPath itself for EVERY worktree of a bare repo, and repoPath/.git for
+	// every worktree of a non-bare one, so checking repoPath directly predicts what
+	// every future worktree's own check would find. A rev-parse failure here (repo
+	// not cloned yet, or not a repo at all) is tolerated, NOT a constructor error —
+	// same best-effort posture as the prune call above; that failure mode surfaces
+	// with its own diagnostic on first dispatch. openEpisodeTrace's per-dispatch
+	// check stays in place regardless (defense in depth).
+	if out, gerr := runGit(repoPath, "rev-parse", "--absolute-git-dir"); gerr == nil {
+		if terr := assertTraceSinkOutsideGitDir(repoPath, strings.TrimSpace(out)); terr != nil {
+			return nil, terr
+		}
+	}
+
 	return &localExecAccess{
 		repoURL:     repoURL,
 		repoPath:    repoPath,

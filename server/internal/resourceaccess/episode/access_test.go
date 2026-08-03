@@ -43,14 +43,15 @@ func rc() fwra.Context { return fwra.Context{Context: context.Background()} }
 
 // newTestAccess wires a LocalFS episodeAccess over a fresh t.TempDir() repo
 // root, returning both the access and the root so tests can assert directly
-// on-disk (ledger contents, .gitignore, raw trace files).
+// on-disk (ledger contents, .gitignore, raw trace files). NewLocalFSEpisodeAccess
+// is single-return (Task 8: composegen's generated main threads it as a plain
+// `episodeAccess = episode.NewLocalFSEpisodeAccess(repoURL)` assignment, no
+// `v, err :=` — the contract declares no `infra` binding) — a valid repoURL never
+// panics, so there is nothing to check here.
 func newTestAccess(t *testing.T) (EpisodeAccess, string) {
 	t.Helper()
 	root := t.TempDir()
-	a, err := NewLocalFSEpisodeAccess("file://" + root)
-	if err != nil {
-		t.Fatalf("NewLocalFSEpisodeAccess: %v", err)
-	}
+	a := NewLocalFSEpisodeAccess("file://" + root)
 	return a, root
 }
 
@@ -88,9 +89,17 @@ func assertKind(t *testing.T, err error, want fwra.Kind) {
 // U1-U5: pre-condition / contract-misuse.
 // ---------------------------------------------------------------------------
 
+// TestNewLocalFSEpisodeAccessRejectsNonLocalRepoURL: single-return construction
+// (Task 8) turns a bad repoURL into a panic-on-construct rather than a returned
+// error — the same posture as the composegen precedent this constructor mirrors
+// (NewGitLocalConstructionTransitionAccess in projectstateaccess.go).
 func TestNewLocalFSEpisodeAccessRejectsNonLocalRepoURL(t *testing.T) {
-	_, err := NewLocalFSEpisodeAccess("https://example.com/repo.git")
-	assertKind(t, err, fwra.ContractMisuse)
+	defer func() {
+		if recover() == nil {
+			t.Fatal("expected NewLocalFSEpisodeAccess to panic on a non-local repoURL")
+		}
+	}()
+	NewLocalFSEpisodeAccess("https://example.com/repo.git")
 }
 
 func TestAppendRejectsEmptyProjectID(t *testing.T) {

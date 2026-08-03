@@ -3002,29 +3002,30 @@ func newBareOnlyRepo(t *testing.T) (bareDir, url string) {
 // TR4 — the loud failure. A bare shared repo is refused PRE-SPAWN: Submit
 // errors, no claude process runs, and no run record is left behind (so a retry
 // against a fixed configuration converges cleanly).
-func TestLocalExecSubmit_BareSharedRepo_RefusesToDispatch(t *testing.T) {
+// TestNewLocalExecAgenticJobAccess_BareSharedRepo_RefusesAtConstruction: the trust
+// rule (assertTraceSinkOutsideGitDir, TR3) is HOISTED to construction time (SP1
+// capture-seam Task 8 earmark) — NewLocalExecAgenticJobAccess itself checks the
+// shared repo's OWN git dir (no worktree exists yet) and refuses a bare repo right
+// there, so a misconfigured local rail fails loudly at boot rather than on the
+// first dispatch. No localExecAccess is ever built, so there is nothing to Submit
+// against and no run record can exist. The per-dispatch call (openEpisodeTrace,
+// exercised end-to-end by other tests in this file) stays in place as defense in
+// depth — see TestTraceSinkTrustRule (TR3) for the pure-function proof both call
+// sites share.
+func TestNewLocalExecAgenticJobAccess_BareSharedRepo_RefusesAtConstruction(t *testing.T) {
 	_, url := newBareOnlyRepo(t)
-	installClaudeShim(t, "#!/bin/sh\ntouch \"$AIARCH_SHIM_RAN_MARKER\" 2>/dev/null\nexit 0\n")
-	a := newLocalExecForTest(t, url, 10*time.Second)
 
-	_, err := a.SubmitAgenticJob(subRC(context.Background(), "bare-repo-key"),
-		localSpec("C-BARE", "someComponent", "service-construction"))
+	_, err := NewLocalExecAgenticJobAccess(url, "test-project", fakeStateMCPBin(t), 10*time.Second)
 	if err == nil {
-		t.Fatal("Submit succeeded against a BARE shared repo; the trace sink would be agent-writable")
+		t.Fatal("construction succeeded against a BARE shared repo; the trace sink would be agent-writable")
 	}
 	// The message must be self-service: name the sink, and name BOTH halves of
 	// the remedy — a non-bare checkout, plus the receive.denyCurrentBranch
 	// setting that checkout needs before anything can push its checked-out branch.
 	for _, want := range []string{"trace", "NON-bare working checkout", "receive.denyCurrentBranch updateInstead"} {
 		if !strings.Contains(err.Error(), want) {
-			t.Fatalf("Submit error = %q, want it to mention %q", err.Error(), want)
+			t.Fatalf("construction error = %q, want it to mention %q", err.Error(), want)
 		}
-	}
-	a.mu.Lock()
-	n := len(a.runs)
-	a.mu.Unlock()
-	if n != 0 {
-		t.Fatalf("a pre-spawn refusal left %d run record(s); a retry must start clean", n)
 	}
 }
 

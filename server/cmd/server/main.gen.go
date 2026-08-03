@@ -139,6 +139,12 @@ type Hooks interface {
 	// generated variant constructor call.
 	DesignSessionAccessGitLocalArgs(cfg *Config) string
 
+	// EpisodeAccessLocalFSArgs supplies the episodeAccess LocalFS variant's constructor
+	// arguments the deployment model cannot express (composition-root ports /
+	// typed values). Read from cfg; the returned tuple is spread into the
+	// generated variant constructor call.
+	EpisodeAccessLocalFSArgs(cfg *Config) string
+
 	// GitActivityStatusAccessGitHubArgs supplies the gitActivityStatusAccess GitHub variant's constructor
 	// arguments the deployment model cannot express (composition-root ports /
 	// typed values). Read from cfg; the returned tuple is spread into the
@@ -455,7 +461,7 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 		episodeAccess = episode.NewNoOpEpisodeAccess()
 		logger.Info("episodeAccess (NoOp) ready")
 	case "local":
-		episodeAccess = episode.NewLocalFSEpisodeAccess()
+		episodeAccess = episode.NewLocalFSEpisodeAccess(hooks.EpisodeAccessLocalFSArgs(cfg))
 		logger.Info("episodeAccess (LocalFS) ready")
 	default:
 		return errors.New("episodeAccess: no ResourceAccess variant for the active profile")

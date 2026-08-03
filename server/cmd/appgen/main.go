@@ -195,6 +195,15 @@ func generateMain(m *projectmodel.Model) {
 			"designSessionAccess/GitLocal": {
 				{GoType: "string"}, // repoURL
 			},
+			// episodeAccess/LocalFS (Task 8) reuses the SAME shared-repo repoURL
+			// setting (cfg.ProjectStateGitRepoURL) the constructionTransitionAccess/
+			// GitActivityStatusAccess/DesignSessionAccess GitLocal arms above already
+			// hook-arg through — one repo per server config, name-as-identity — purely
+			// to avoid a duplicate env var for the same value. The cloud profile builds
+			// the NoOp variant (no infra, no hook arg needed).
+			"episodeAccess/LocalFS": {
+				{GoType: "string"}, // repoURL
+			},
 			"designSessionAccess/GitHub": {
 				{GoType: "string"}, // webHost
 				{GoType: "string"}, // account

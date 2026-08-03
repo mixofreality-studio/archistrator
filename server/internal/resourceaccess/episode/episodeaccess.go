@@ -80,16 +80,28 @@ var _ EpisodeAccess = (*localFSEpisodeAccess)(nil)
 // to its path, a plain path is used as-is, and anything with a non-file
 // scheme is a configuration error (duplicated here rather than shared
 // because the two RAs must not import each other — NoSideways).
-func NewLocalFSEpisodeAccess(repoURL string) (EpisodeAccess, error) {
+//
+// SINGLE-RETURN, no error: this component's contract declares no `infra`
+// binding, so composegen's generated main only ever calls this constructor as
+// `episodeAccess = episode.NewLocalFSEpisodeAccess(repoURL)` — a plain
+// single-value assignment, never `v, err :=` (there is no inverse escape
+// hatch; see NewGitLocalConstructionTransitionAccess in
+// projectstateaccess.go, the composegen precedent this mirrors). A
+// misconfigured repoURL is therefore a panic-on-construct, same posture as
+// that precedent's own unreachable-invariant panic — the same repoURL is
+// already validated by the projectStateAccess GitLocal arm that boots
+// alongside this one, so reaching here with a bad value means that earlier
+// validation was itself broken.
+func NewLocalFSEpisodeAccess(repoURL string) EpisodeAccess {
 	const op = "episode.NewLocalFSEpisodeAccess"
 	repoPath, err := localRepoPath(repoURL)
 	if err != nil {
-		return nil, err
+		panic(op + ": " + err.Error())
 	}
 	if strings.TrimSpace(repoPath) == "" {
-		return nil, fwra.New(fwra.ContractMisuse, op+": empty repoURL")
+		panic(op + ": empty repoURL")
 	}
-	return &localFSEpisodeAccess{tracesDir: filepath.Join(repoPath, ".aiarch", "traces")}, nil
+	return &localFSEpisodeAccess{tracesDir: filepath.Join(repoPath, ".aiarch", "traces")}
 }
 
 // localRepoPath derives the shared repo's local filesystem path from the

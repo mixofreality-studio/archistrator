@@ -81,8 +81,12 @@ func newIRADeltaHarness(t *testing.T) *iraDeltaHarness {
 	stateAdapter := ps.NewGitLocalProjectStateAccess(projRepo.URL)
 
 	// --- REAL Manager over both real RAs. nil estimator: this harness exercises
-	// project birth (CreateProject), not the GetProject compute-at-read path. ---
-	mgr := systemdesign.NewSystemDesignManager(nil, stateAdapter, nil, scAccess, nil, nil, nil, "")
+	// project birth (CreateProject), not the GetProject compute-at-read path. nil
+	// episodeAccess: this harness proves adopt/seat/create wiring, not episode
+	// capture — same "harness doesn't need it" posture as the other nil deps
+	// (SP1 capture-seam Task 7 added the episodeAccess param; this call site was
+	// missed until Task 8's `go vet ./...` pass surfaced it as a build break). ---
+	mgr := systemdesign.NewSystemDesignManager(nil, stateAdapter, nil, scAccess, nil, nil, nil, nil, "")
 
 	return &iraDeltaHarness{mgr: mgr, fakeGH: fake, gitRepo: rawRepo, ctx: context.Background()}
 }

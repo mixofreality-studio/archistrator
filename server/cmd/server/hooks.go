@@ -580,6 +580,14 @@ func (h *appHooks) SourceControlAccessGitLocalArgs(cfg *Config) string {
 	return cfg.ProjectStateGitRepoURL
 }
 
+// EpisodeAccessLocalFSArgs (Task 8) supplies the LocalFS episodeAccess variant's
+// repoURL — the SAME shared repo the GitLocal hooks above and the local construction
+// executor already bind to (reusing the existing binding-scoped setting rather than
+// declaring a duplicate one for the same env var).
+func (h *appHooks) EpisodeAccessLocalFSArgs(cfg *Config) string {
+	return cfg.ProjectStateGitRepoURL
+}
+
 // SourceControlAccessGitHubArgs supplies the shared AppClient + the App identity the
 // sourcecontrol RA is built over.
 func (h *appHooks) SourceControlAccessGitHubArgs(cfg *Config) (*github.AppClient, string, string, bool) {
