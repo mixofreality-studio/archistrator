@@ -65,9 +65,11 @@ var episodeIDPattern = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 // every other variant-constructor RA in this codebase). mu serialises every
 // store access: AppendEpisode's dedupe check is scan-then-write, which must
 // be atomic against concurrent callers in this process.
+//
+// repoURL is stored VERBATIM, unvalidated — see NewLocalFSEpisodeAccess.
 type localFSEpisodeAccess struct {
-	tracesDir string
-	mu        sync.Mutex
+	repoURL string
+	mu      sync.Mutex
 }
 
 var _ EpisodeAccess = (*localFSEpisodeAccess)(nil)
@@ -75,46 +77,63 @@ var _ EpisodeAccess = (*localFSEpisodeAccess)(nil)
 // NewLocalFSEpisodeAccess builds the local-profile episodeAccess over
 // repoURL, the SAME shared repo the local rail's other components bind to
 // (NewGitLocalProjectStateAccess et al.) — one repo per server config,
-// name-as-identity. repoURL is translated to a filesystem path exactly like
-// agenticjob.localRepoPath (agenticjobaccess.go): a file:// URL is stripped
-// to its path, a plain path is used as-is, and anything with a non-file
-// scheme is a configuration error (duplicated here rather than shared
-// because the two RAs must not import each other — NoSideways).
+// name-as-identity.
 //
 // SINGLE-RETURN, no error: this component's contract declares no `infra`
 // binding, so composegen's generated main only ever calls this constructor as
 // `episodeAccess = episode.NewLocalFSEpisodeAccess(repoURL)` — a plain
 // single-value assignment, never `v, err :=` (there is no inverse escape
 // hatch; see NewGitLocalConstructionTransitionAccess in
-// projectstateaccess.go, the composegen precedent this mirrors). A
-// misconfigured repoURL is therefore a panic-on-construct, same posture as
-// that precedent's own unreachable-invariant panic — the same repoURL is
-// already validated by the projectStateAccess GitLocal arm that boots
-// alongside this one, so reaching here with a bad value means that earlier
-// validation was itself broken.
+// projectstateaccess.go, the composegen precedent this mirrors).
+//
+// TRUE fidelity to that precedent means more than matching its arity: like
+// NewGitLocalProjectStateAccess (via its gitRepoLocator closure), this
+// constructor performs NO reachable validation — it stores repoURL as given
+// and never fails. repoURL is translated to a filesystem path (a file:// URL
+// stripped to its path, a plain path used as-is, anything else a
+// configuration error) LAZILY, at first use in each of AppendEpisode /
+// ListEpisodes / ReadTraceEvents (resolveTracesDir below) — exactly like
+// agenticjob.localRepoPath's sibling validation in
+// agenticjob.NewLocalExecAgenticJobAccess runs at ITS call time, not
+// deferred, except here the caller with an error-return channel to use is
+// the OP, not the constructor. A malformed
+// ARCHISTRATOR_PROJECT_STATE_GIT_REPO_URL therefore surfaces as a clean typed
+// fwra.ContractMisuse error from the first op that runs, not an unrecovered
+// panic at boot (cmd/server installs no recover()).
 func NewLocalFSEpisodeAccess(repoURL string) EpisodeAccess {
-	const op = "episode.NewLocalFSEpisodeAccess"
-	repoPath, err := localRepoPath(repoURL)
+	return &localFSEpisodeAccess{repoURL: repoURL}
+}
+
+// resolveTracesDir lazily derives the traces directory from a.repoURL,
+// duplicating the SAME translation NewLocalFSEpisodeAccess used to run
+// eagerly (see that constructor's doc comment for why it moved here): a
+// file:// URL is stripped to its path, a plain path is used as-is, and an
+// empty or non-file-scheme repoURL is a ContractMisuse error tagged with the
+// calling op.
+func (a *localFSEpisodeAccess) resolveTracesDir(op string) (string, error) {
+	repoPath, err := localRepoPath(op, a.repoURL)
 	if err != nil {
-		panic(op + ": " + err.Error())
+		return "", err
 	}
 	if strings.TrimSpace(repoPath) == "" {
-		panic(op + ": empty repoURL")
+		return "", fwra.New(fwra.ContractMisuse, op+": empty repoURL")
 	}
-	return &localFSEpisodeAccess{tracesDir: filepath.Join(repoPath, ".aiarch", "traces")}
+	return filepath.Join(repoPath, ".aiarch", "traces"), nil
 }
 
 // localRepoPath derives the shared repo's local filesystem path from the
-// configured repoURL. Copied from agenticjob.localRepoPath
-// (agenticjobaccess.go:1249) — see that function's doc comment for the full
-// rationale; duplicated rather than shared because the two RAs must not
-// import each other (NoSideways).
-func localRepoPath(repoURL string) (string, error) {
+// configured repoURL, tagging any error with op (the calling public verb —
+// resolution now runs lazily at first use, see resolveTracesDir, so the
+// caller is AppendEpisode/ListEpisodes/ReadTraceEvents, not the constructor).
+// Copied from agenticjob.localRepoPath (agenticjobaccess.go:1249) — see that
+// function's doc comment for the full rationale; duplicated rather than
+// shared because the two RAs must not import each other (NoSideways).
+func localRepoPath(op, repoURL string) (string, error) {
 	if p, ok := strings.CutPrefix(repoURL, "file://"); ok && p != "" {
 		return p, nil
 	}
 	if strings.Contains(repoURL, "://") {
-		return "", fwra.New(fwra.ContractMisuse, "episode.NewLocalFSEpisodeAccess: local FS episode store requires a local file:// or plain-path repoURL, got "+repoURL)
+		return "", fwra.New(fwra.ContractMisuse, op+": local FS episode store requires a local file:// or plain-path repoURL, got "+repoURL)
 	}
 	return repoURL, nil
 }
@@ -129,8 +148,8 @@ type storedEpisode struct {
 	Record    EpisodeRecord `json:"Record"`
 }
 
-func (a *localFSEpisodeAccess) ledgerPath() string {
-	return filepath.Join(a.tracesDir, "episodes.jsonl")
+func ledgerPath(tracesDir string) string {
+	return filepath.Join(tracesDir, "episodes.jsonl")
 }
 
 // AppendEpisode appends one EpisodeRecord to the ledger, fsync'd. A
@@ -148,14 +167,19 @@ func (a *localFSEpisodeAccess) AppendEpisode(_ fwra.Context, projectID ProjectID
 		return fwra.New(fwra.ContractMisuse, op+": EpisodeID contains characters outside [A-Za-z0-9._-]")
 	}
 
+	dir, err := a.resolveTracesDir(op)
+	if err != nil {
+		return err
+	}
+
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	if err := a.ensureTracesDirLocked(); err != nil {
+	if err := ensureTracesDirLocked(dir); err != nil {
 		return fwra.Wrap(fwra.Infrastructure, err, op+": ensure traces dir")
 	}
 
-	entries, err := a.readLedgerLocked()
+	entries, err := readLedgerLocked(dir)
 	if err != nil {
 		return fwra.Wrap(fwra.Infrastructure, err, op+": dedupe scan")
 	}
@@ -170,7 +194,7 @@ func (a *localFSEpisodeAccess) AppendEpisode(_ fwra.Context, projectID ProjectID
 	// skipping the line on read), a plain O_APPEND write would glue this
 	// new record onto the torn tail and corrupt IT too. Lead with a
 	// newline in that case so the new record always starts its own line.
-	needsLeadingNL, err := ledgerTailNeedsNewline(a.ledgerPath())
+	needsLeadingNL, err := ledgerTailNeedsNewline(ledgerPath(dir))
 	if err != nil {
 		return fwra.Wrap(fwra.Infrastructure, err, op+": check ledger tail")
 	}
@@ -184,7 +208,7 @@ func (a *localFSEpisodeAccess) AppendEpisode(_ fwra.Context, projectID ProjectID
 	}
 	line = append(line, '\n')
 
-	f, err := os.OpenFile(a.ledgerPath(), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	f, err := os.OpenFile(ledgerPath(dir), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return fwra.Wrap(fwra.Infrastructure, err, op+": open ledger")
 	}
@@ -210,10 +234,15 @@ func (a *localFSEpisodeAccess) ListEpisodes(_ fwra.Context, query EpisodeQuery) 
 		return nil, fwra.New(fwra.ContractMisuse, op+": empty ProjectID")
 	}
 
+	dir, err := a.resolveTracesDir(op)
+	if err != nil {
+		return nil, err
+	}
+
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	entries, err := a.readLedgerLocked()
+	entries, err := readLedgerLocked(dir)
 	if err != nil {
 		return nil, fwra.Wrap(fwra.Infrastructure, err, op+": read ledger")
 	}
@@ -264,9 +293,14 @@ func (a *localFSEpisodeAccess) ReadTraceEvents(_ fwra.Context, projectID Project
 		return nil, fwra.New(fwra.ContractMisuse, op+": episodeID contains characters outside [A-Za-z0-9._-]")
 	}
 
+	dir, err := a.resolveTracesDir(op)
+	if err != nil {
+		return nil, err
+	}
+
 	// episodeID is validated against episodeIDPattern above (no "/" or ".."), so
-	// path stays confined to a.tracesDir — the traversal guard gosec is asking for.
-	path := filepath.Join(a.tracesDir, episodeID+".jsonl")
+	// path stays confined to dir — the traversal guard gosec is asking for.
+	path := filepath.Join(dir, episodeID+".jsonl")
 	data, err := os.ReadFile(path) // #nosec G304 -- episodeID traversal-guarded above
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -290,11 +324,11 @@ func (a *localFSEpisodeAccess) ReadTraceEvents(_ fwra.Context, projectID Project
 // ensureTracesDirLocked creates the traces directory if absent and writes
 // the self-ignoring .gitignore ("*\n") on first use, iff it does not already
 // exist. Caller must hold a.mu.
-func (a *localFSEpisodeAccess) ensureTracesDirLocked() error {
-	if err := os.MkdirAll(a.tracesDir, 0o750); err != nil {
+func ensureTracesDirLocked(tracesDir string) error {
+	if err := os.MkdirAll(tracesDir, 0o750); err != nil {
 		return err
 	}
-	gi := filepath.Join(a.tracesDir, ".gitignore")
+	gi := filepath.Join(tracesDir, ".gitignore")
 	f, err := os.OpenFile(gi, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600) // #nosec G304 -- fixed literal filename under tracesDir
 	if err != nil {
 		if os.IsExist(err) {
@@ -319,8 +353,9 @@ func (a *localFSEpisodeAccess) ensureTracesDirLocked() error {
 // skip is logged (non-fatal) with its 1-based line number so corruption is
 // still observable without taking ListEpisodes or AppendEpisode's dedupe
 // scan down. Caller must hold a.mu.
-func (a *localFSEpisodeAccess) readLedgerLocked() ([]storedEpisode, error) {
-	data, err := os.ReadFile(a.ledgerPath())
+func readLedgerLocked(tracesDir string) ([]storedEpisode, error) {
+	path := ledgerPath(tracesDir)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -337,14 +372,14 @@ func (a *localFSEpisodeAccess) readLedgerLocked() ([]storedEpisode, error) {
 		if err := json.Unmarshal(l, &e); err != nil {
 			skipped++
 			slog.Warn("episode ledger: skipping unparseable line (tolerant scan)",
-				"path", a.ledgerPath(), "line", i+1, "error", err)
+				"path", path, "line", i+1, "error", err)
 			continue
 		}
 		out = append(out, e)
 	}
 	if skipped > 0 {
 		slog.Warn("episode ledger: scan completed with skipped line(s)",
-			"path", a.ledgerPath(), "skipped", skipped, "kept", len(out))
+			"path", path, "skipped", skipped, "kept", len(out))
 	}
 	return out, nil
 }

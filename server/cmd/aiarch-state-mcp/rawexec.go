@@ -98,6 +98,7 @@ var unavailableDeps = map[string]string{
 	// billingstate.NewRevenueLedgerAccess never persists), same category as
 	// billingStateAccess above.
 	"revenueLedgerAccess": "the revenue-ledger store (a permanent no-op stub, not a real substrate impl)",
+	"episodeAccess":       "the gitignored episode-ledger sidecar (deliberately outside the git substrate — the raw MCP rail must never let an agent read or write its own audit trail; Managers own episode capture as a terminal-observation side effect)",
 }
 
 // executeRawTool is the entry point registerRawTool binds each raw tool's handler

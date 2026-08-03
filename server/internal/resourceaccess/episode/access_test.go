@@ -6,7 +6,10 @@ package episode
 // filesystem. NO live git, NO BDD.
 //
 //   PRE-CONDITION / CONTRACT-MISUSE:
-//     U1  NewLocalFSEpisodeAccess rejects a non-local (non file://) repoURL
+//     U1  A non-local (non file://) repoURL is rejected LAZILY, at first use
+//         (AppendEpisode/ListEpisodes), not at NewLocalFSEpisodeAccess construction —
+//         Task 8 fix-review: the constructor performs no reachable validation,
+//         matching NewGitLocalProjectStateAccess's lazy posture exactly.
 //     U2  AppendEpisode rejects an empty projectID
 //     U3  AppendEpisode rejects an empty EpisodeID
 //     U4  ListEpisodes rejects an empty ProjectID
@@ -46,8 +49,9 @@ func rc() fwra.Context { return fwra.Context{Context: context.Background()} }
 // on-disk (ledger contents, .gitignore, raw trace files). NewLocalFSEpisodeAccess
 // is single-return (Task 8: composegen's generated main threads it as a plain
 // `episodeAccess = episode.NewLocalFSEpisodeAccess(repoURL)` assignment, no
-// `v, err :=` — the contract declares no `infra` binding) — a valid repoURL never
-// panics, so there is nothing to check here.
+// `v, err :=` — the contract declares no `infra` binding) and never fails at
+// construction (Task 8 fix-review: repoURL is stored and resolved lazily at
+// first use — see TestNewLocalFSEpisodeAccessRejectsNonLocalRepoURL below).
 func newTestAccess(t *testing.T) (EpisodeAccess, string) {
 	t.Helper()
 	root := t.TempDir()
@@ -90,16 +94,23 @@ func assertKind(t *testing.T, err error, want fwra.Kind) {
 // ---------------------------------------------------------------------------
 
 // TestNewLocalFSEpisodeAccessRejectsNonLocalRepoURL: single-return construction
-// (Task 8) turns a bad repoURL into a panic-on-construct rather than a returned
-// error — the same posture as the composegen precedent this constructor mirrors
-// (NewGitLocalConstructionTransitionAccess in projectstateaccess.go).
+// (Task 8) never fails — NewLocalFSEpisodeAccess stores repoURL verbatim with NO
+// reachable validation, TRUE fidelity to the composegen precedent this constructor
+// mirrors (NewGitLocalProjectStateAccess: no eager validation, only an
+// unreachable-invariant panic deep inside). A non-local repoURL is therefore a
+// normal fwra.ContractMisuse error surfaced by the FIRST op that resolves it
+// (resolveTracesDir), not a construct-time panic — cmd/server installs no
+// recover(), so panicking here would turn a malformed
+// ARCHISTRATOR_PROJECT_STATE_GIT_REPO_URL into an unrecovered process crash.
 func TestNewLocalFSEpisodeAccessRejectsNonLocalRepoURL(t *testing.T) {
-	defer func() {
-		if recover() == nil {
-			t.Fatal("expected NewLocalFSEpisodeAccess to panic on a non-local repoURL")
-		}
-	}()
-	NewLocalFSEpisodeAccess("https://example.com/repo.git")
+	a := NewLocalFSEpisodeAccess("https://example.com/repo.git")
+
+	err := a.AppendEpisode(rc(), "p1", testRecord("ep-1", EpisodeSucceeded))
+	assertKind(t, err, fwra.ContractMisuse)
+
+	// Every op resolves lazily, independently — not just the first one called.
+	_, err = a.ListEpisodes(rc(), EpisodeQuery{ProjectID: "p1"})
+	assertKind(t, err, fwra.ContractMisuse)
 }
 
 func TestAppendRejectsEmptyProjectID(t *testing.T) {
