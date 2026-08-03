@@ -584,7 +584,7 @@ type SystemDesignManager interface {
 	SetReviewCommentStatus(rc fwm.Context, projectID ProjectID, kind ArtifactKind, commentID string, status string) error
 	StartSystemDesign(rc fwm.Context, projectID ProjectID) (SessionRef, error)
 	SubmitReviewDecision(rc fwm.Context, projectID ProjectID, kind ArtifactKind, decision ReviewDecision, feedback *ReviewFeedback) error
-	ListEpisodesForArtifact(rc fwm.Context, projectID ProjectID, artifactKind string) ([]EpisodeRecordView, error)
+	ListEpisodesForArtifact(rc fwm.Context, projectID ProjectID, artifactKind ArtifactKind) ([]EpisodeRecordView, error)
 	GetEpisodeTimeline(rc fwm.Context, projectID ProjectID, episodeID string) (EpisodeTimeline, error)
 }
 

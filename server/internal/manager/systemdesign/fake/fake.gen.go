@@ -25,7 +25,7 @@ type FakeSystemDesignManager struct {
 	SetReviewCommentStatusFn  func(rc fwm.Context, projectID systemdesign.ProjectID, kind systemdesign.ArtifactKind, commentID string, status string) error
 	StartSystemDesignFn       func(rc fwm.Context, projectID systemdesign.ProjectID) (systemdesign.SessionRef, error)
 	SubmitReviewDecisionFn    func(rc fwm.Context, projectID systemdesign.ProjectID, kind systemdesign.ArtifactKind, decision systemdesign.ReviewDecision, feedback *systemdesign.ReviewFeedback) error
-	ListEpisodesForArtifactFn func(rc fwm.Context, projectID systemdesign.ProjectID, artifactKind string) ([]systemdesign.EpisodeRecordView, error)
+	ListEpisodesForArtifactFn func(rc fwm.Context, projectID systemdesign.ProjectID, artifactKind systemdesign.ArtifactKind) ([]systemdesign.EpisodeRecordView, error)
 	GetEpisodeTimelineFn      func(rc fwm.Context, projectID systemdesign.ProjectID, episodeID string) (systemdesign.EpisodeTimeline, error)
 }
 
@@ -127,7 +127,7 @@ func (f *FakeSystemDesignManager) SubmitReviewDecision(rc fwm.Context, projectID
 	return f.SubmitReviewDecisionFn(rc, projectID, kind, decision, feedback)
 }
 
-func (f *FakeSystemDesignManager) ListEpisodesForArtifact(rc fwm.Context, projectID systemdesign.ProjectID, artifactKind string) ([]systemdesign.EpisodeRecordView, error) {
+func (f *FakeSystemDesignManager) ListEpisodesForArtifact(rc fwm.Context, projectID systemdesign.ProjectID, artifactKind systemdesign.ArtifactKind) ([]systemdesign.EpisodeRecordView, error) {
 	if f.ListEpisodesForArtifactFn == nil {
 		panic("FakeSystemDesignManager.ListEpisodesForArtifactFn not set")
 	}

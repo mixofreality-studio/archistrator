@@ -116,12 +116,12 @@ func (c *MCPClient) ProjectDesignSubmitSDPDecision(ctx context.Context, projectI
 
 // ProjectDesignListEpisodesForArtifactInput is the MCP tool-call argument object for projectDesignListEpisodesForArtifact.
 type ProjectDesignListEpisodesForArtifactInput struct {
-	ProjectID    ProjectID `json:"projectID"`
-	ArtifactKind string    `json:"artifactKind"`
+	ProjectID    ProjectID    `json:"projectID"`
+	ArtifactKind ArtifactKind `json:"artifactKind"`
 }
 
 // ProjectDesignListEpisodesForArtifact calls the projectDesignListEpisodesForArtifact tool on the ProjectDesign manager over MCP.
-func (c *MCPClient) ProjectDesignListEpisodesForArtifact(ctx context.Context, projectID ProjectID, artifactKind string) ([]EpisodeRecordView, error) {
+func (c *MCPClient) ProjectDesignListEpisodesForArtifact(ctx context.Context, projectID ProjectID, artifactKind ArtifactKind) ([]EpisodeRecordView, error) {
 	return mcpCallResult[[]EpisodeRecordView](c, ctx, "projectDesignListEpisodesForArtifact", ProjectDesignListEpisodesForArtifactInput{ProjectID: projectID, ArtifactKind: artifactKind})
 }
 

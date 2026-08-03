@@ -81,7 +81,7 @@ func (m loggingSystemDesignManager) GetSessionState(rc fwmanager.Context, projec
 	return v, logInfraError(m.log, "SystemDesign.GetSessionState", string(projectID), err)
 }
 
-func (m loggingSystemDesignManager) ListEpisodesForArtifact(rc fwmanager.Context, projectID systemdesign.ProjectID, artifactKind string) ([]systemdesign.EpisodeRecordView, error) {
+func (m loggingSystemDesignManager) ListEpisodesForArtifact(rc fwmanager.Context, projectID systemdesign.ProjectID, artifactKind systemdesign.ArtifactKind) ([]systemdesign.EpisodeRecordView, error) {
 	v, err := m.inner.ListEpisodesForArtifact(rc, projectID, artifactKind)
 	return v, logInfraError(m.log, "SystemDesign.ListEpisodesForArtifact", string(projectID), err)
 }
@@ -150,7 +150,7 @@ func (m loggingProjectDesignManager) GetSessionState(rc fwmanager.Context, proje
 	return v, logInfraError(m.log, "ProjectDesign.GetSessionState", string(projectID), err)
 }
 
-func (m loggingProjectDesignManager) ListEpisodesForArtifact(rc fwmanager.Context, projectID projectdesign.ProjectID, artifactKind string) ([]projectdesign.EpisodeRecordView, error) {
+func (m loggingProjectDesignManager) ListEpisodesForArtifact(rc fwmanager.Context, projectID projectdesign.ProjectID, artifactKind projectdesign.ArtifactKind) ([]projectdesign.EpisodeRecordView, error) {
 	v, err := m.inner.ListEpisodesForArtifact(rc, projectID, artifactKind)
 	return v, logInfraError(m.log, "ProjectDesign.ListEpisodesForArtifact", string(projectID), err)
 }

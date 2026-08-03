@@ -20,7 +20,7 @@ type FakeProjectDesignManager struct {
 	SetReviewCommentStatusFn  func(rc fwm.Context, projectID projectdesign.ProjectID, kind projectdesign.ArtifactKind, commentID string, status string) error
 	SubmitReviewDecisionFn    func(rc fwm.Context, projectID projectdesign.ProjectID, kind projectdesign.ArtifactKind, decision projectdesign.ReviewDecision, feedback *projectdesign.ReviewFeedback) error
 	SubmitSDPDecisionFn       func(rc fwm.Context, projectID projectdesign.ProjectID, decision projectdesign.SDPDecision, optionID *projectdesign.OptionID, feedback *projectdesign.ReviewFeedback) error
-	ListEpisodesForArtifactFn func(rc fwm.Context, projectID projectdesign.ProjectID, artifactKind string) ([]projectdesign.EpisodeRecordView, error)
+	ListEpisodesForArtifactFn func(rc fwm.Context, projectID projectdesign.ProjectID, artifactKind projectdesign.ArtifactKind) ([]projectdesign.EpisodeRecordView, error)
 	GetEpisodeTimelineFn      func(rc fwm.Context, projectID projectdesign.ProjectID, episodeID string) (projectdesign.EpisodeTimeline, error)
 }
 
@@ -87,7 +87,7 @@ func (f *FakeProjectDesignManager) SubmitSDPDecision(rc fwm.Context, projectID p
 	return f.SubmitSDPDecisionFn(rc, projectID, decision, optionID, feedback)
 }
 
-func (f *FakeProjectDesignManager) ListEpisodesForArtifact(rc fwm.Context, projectID projectdesign.ProjectID, artifactKind string) ([]projectdesign.EpisodeRecordView, error) {
+func (f *FakeProjectDesignManager) ListEpisodesForArtifact(rc fwm.Context, projectID projectdesign.ProjectID, artifactKind projectdesign.ArtifactKind) ([]projectdesign.EpisodeRecordView, error) {
 	if f.ListEpisodesForArtifactFn == nil {
 		panic("FakeProjectDesignManager.ListEpisodesForArtifactFn not set")
 	}

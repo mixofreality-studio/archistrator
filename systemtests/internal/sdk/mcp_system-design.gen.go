@@ -166,12 +166,12 @@ func (c *MCPClient) SystemDesignSubmitReviewDecision(ctx context.Context, projec
 
 // SystemDesignListEpisodesForArtifactInput is the MCP tool-call argument object for systemDesignListEpisodesForArtifact.
 type SystemDesignListEpisodesForArtifactInput struct {
-	ProjectID    ProjectID `json:"projectID"`
-	ArtifactKind string    `json:"artifactKind"`
+	ProjectID    ProjectID    `json:"projectID"`
+	ArtifactKind ArtifactKind `json:"artifactKind"`
 }
 
 // SystemDesignListEpisodesForArtifact calls the systemDesignListEpisodesForArtifact tool on the SystemDesign manager over MCP.
-func (c *MCPClient) SystemDesignListEpisodesForArtifact(ctx context.Context, projectID ProjectID, artifactKind string) ([]EpisodeRecordView, error) {
+func (c *MCPClient) SystemDesignListEpisodesForArtifact(ctx context.Context, projectID ProjectID, artifactKind ArtifactKind) ([]EpisodeRecordView, error) {
 	return mcpCallResult[[]EpisodeRecordView](c, ctx, "systemDesignListEpisodesForArtifact", SystemDesignListEpisodesForArtifactInput{ProjectID: projectID, ArtifactKind: artifactKind})
 }
 

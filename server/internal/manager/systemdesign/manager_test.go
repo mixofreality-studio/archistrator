@@ -9988,40 +9988,74 @@ func assertSampleEpisodeRecordOutcome(t *testing.T, got EpisodeRecordView, id st
 }
 
 // ---- ListEpisodesForArtifact -------------------------------------------------
+//
+// artifactKind is typed as the contract's own ArtifactKind enum (review fix,
+// F1): the ledger's TargetRef is the PascalCase artifactKindString(kind) form
+// (episodeRecordFromSummary/captureEpisode, coauthorartifact.go) — NOT the
+// camelCase WireName the SPA holds. Taking a bare string here would let a
+// caller pass the wire name straight through and silently match nothing.
 
 func Test_ListEpisodesForArtifact_MapsRecordsWithTargetRef(t *testing.T) {
+	targetRef := artifactKindString(KindMission)
 	eps := &fakeEpisodes{listRecords: []episode.EpisodeRecord{
-		sampleEpisodeRecord("ep-1", "mission"),
+		sampleEpisodeRecord("ep-1", targetRef),
 	}}
 	m := episodeMgr(eps)
 
-	got, err := m.ListEpisodesForArtifact(bgRC(), ProjectID("proj-1"), "mission")
+	got, err := m.ListEpisodesForArtifact(bgRC(), ProjectID("proj-1"), KindMission)
 	if err != nil {
 		t.Fatalf("ListEpisodesForArtifact: unexpected error: %v", err)
 	}
 	if eps.lastQuery.ProjectID != episode.ProjectID("proj-1") {
 		t.Fatalf("ListEpisodes query ProjectID = %q, want proj-1", eps.lastQuery.ProjectID)
 	}
-	if eps.lastQuery.TargetRef == nil || *eps.lastQuery.TargetRef != "mission" {
-		t.Fatalf("ListEpisodes query TargetRef = %v, want *\"mission\" (scoped by artifactKind)", eps.lastQuery.TargetRef)
+	if eps.lastQuery.TargetRef == nil || *eps.lastQuery.TargetRef != targetRef {
+		t.Fatalf("ListEpisodes query TargetRef = %v, want *%q (the write path's PascalCase form, not the wire name)", eps.lastQuery.TargetRef, targetRef)
+	}
+	if targetRef != "Mission" {
+		t.Fatalf("sanity: artifactKindString(KindMission) = %q, want the PascalCase %q", targetRef, "Mission")
 	}
 	if len(got) != 1 {
 		t.Fatalf("ListEpisodesForArtifact: got %d records, want 1", len(got))
 	}
-	assertSampleEpisodeRecordView(t, got[0], "ep-1", "mission")
+	assertSampleEpisodeRecordView(t, got[0], "ep-1", targetRef)
+}
+
+// Test_ListEpisodesForArtifact_RoundTripsWritePathTargetRefForm proves the read
+// side's TargetRef form matches the REAL write path's, not just a test fixture's
+// assumption: it builds the ledger record through the actual write-path helper
+// (episodeRecordFromSummary, the same one captureEpisode calls in
+// coauthorartifact.go) and asserts the read op's outgoing query TargetRef is
+// byte-identical to what that helper stamped.
+func Test_ListEpisodesForArtifact_RoundTripsWritePathTargetRefForm(t *testing.T) {
+	writeTargetRef := artifactKindString(KindGlossary)
+	summary := agenticjob.EpisodeSummary{
+		EpisodeID: "ep-real-write-path",
+		Usage:     agenticjob.EpisodeUsage{In: 10, Out: 5},
+		StartedAt: time.Now().UTC(),
+		EndedAt:   time.Now().UTC(),
+		Outcome:   agenticjob.EpisodeSucceeded,
+	}
+	rec := episodeRecordFromSummary(summary, episode.EpisodeKindDesign, writeTargetRef, nil, "")
+
+	eps := &fakeEpisodes{listRecords: []episode.EpisodeRecord{rec}}
+	m := episodeMgr(eps)
+
+	got, err := m.ListEpisodesForArtifact(bgRC(), ProjectID("proj-1"), KindGlossary)
+	if err != nil {
+		t.Fatalf("ListEpisodesForArtifact: unexpected error: %v", err)
+	}
+	if eps.lastQuery.TargetRef == nil || *eps.lastQuery.TargetRef != rec.TargetRef {
+		t.Fatalf("query TargetRef = %v, want %q (the write-path record's own TargetRef)", eps.lastQuery.TargetRef, rec.TargetRef)
+	}
+	if len(got) != 1 || got[0].EpisodeID != "ep-real-write-path" {
+		t.Fatalf("ListEpisodesForArtifact: got %+v, want the write-path record to be found", got)
+	}
 }
 
 func Test_ListEpisodesForArtifact_EmptyProjectID_ContractMisuse(t *testing.T) {
 	m := episodeMgr(&fakeEpisodes{})
-	_, err := m.ListEpisodesForArtifact(bgRC(), ProjectID(""), "mission")
-	if got := asSystemDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
-		t.Fatalf("want ContractMisuse, got %d", got)
-	}
-}
-
-func Test_ListEpisodesForArtifact_EmptyArtifactKind_ContractMisuse(t *testing.T) {
-	m := episodeMgr(&fakeEpisodes{})
-	_, err := m.ListEpisodesForArtifact(bgRC(), ProjectID("proj-1"), "")
+	_, err := m.ListEpisodesForArtifact(bgRC(), ProjectID(""), KindMission)
 	if got := asSystemDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %d", got)
 	}
@@ -10030,7 +10064,7 @@ func Test_ListEpisodesForArtifact_EmptyArtifactKind_ContractMisuse(t *testing.T)
 func Test_ListEpisodesForArtifact_RAError_MapsInfrastructure(t *testing.T) {
 	eps := &fakeEpisodes{listErr: fwra.New(fwra.Infrastructure, "ledger unavailable")}
 	m := episodeMgr(eps)
-	_, err := m.ListEpisodesForArtifact(bgRC(), ProjectID("proj-1"), "mission")
+	_, err := m.ListEpisodesForArtifact(bgRC(), ProjectID("proj-1"), KindMission)
 	if got := asSystemDesignError(t, err).Kind; got != fwmanager.Infrastructure {
 		t.Fatalf("want Infrastructure, got %d", got)
 	}
@@ -10091,6 +10125,58 @@ func Test_GetEpisodeTimeline_UnknownEpisodeID_NotFound(t *testing.T) {
 	}
 	if eps.lastTraceEpisodeID != "" {
 		t.Fatalf("ReadTraceEvents must not be called when the episode is unresolved, got episodeID=%q", eps.lastTraceEpisodeID)
+	}
+}
+
+// Test_GetEpisodeTimeline_GapRecord_ReturnsEmptyTimeline is the review-round F3
+// fix: a gap record (built through the REAL write-path helper episodeGapRecord —
+// captureEpisode's own gap-construction call, coauthorartifact.go) has no trace
+// file (TracePath stays nil). Before this fix GetEpisodeTimeline unconditionally
+// called ReadTraceEvents, which fails NotFound for a gap — indistinguishable
+// from an unknown episodeID. The never-silent gap doctrine says a gap is a
+// PRESENT outcome: the record must resolve, with an empty (not nil, not
+// erroring) timeline.
+func Test_GetEpisodeTimeline_GapRecord_ReturnsEmptyTimeline(t *testing.T) {
+	gap := episodeGapRecord(episode.EpisodeKindDesign, "mission", nil, "gap-ep-1", "the run reported a gap episode", time.Now().UTC())
+	if gap.TracePath != nil {
+		t.Fatalf("sanity: episodeGapRecord must leave TracePath nil, got %v", gap.TracePath)
+	}
+	eps := &fakeEpisodes{listRecords: []episode.EpisodeRecord{gap}}
+	m := episodeMgr(eps)
+
+	got, err := m.GetEpisodeTimeline(bgRC(), ProjectID("proj-1"), "gap-ep-1")
+	if err != nil {
+		t.Fatalf("GetEpisodeTimeline: unexpected error for a gap record: %v", err)
+	}
+	if got.Record.EpisodeID != "gap-ep-1" || got.Record.Outcome != EpisodeGap {
+		t.Fatalf("Record = %+v, want the gap record itself", got.Record)
+	}
+	if len(got.Events) != 0 {
+		t.Fatalf("Events = %+v, want empty (no trace file for a gap)", got.Events)
+	}
+	if eps.lastTraceEpisodeID != "" {
+		t.Fatalf("ReadTraceEvents must not be called when TracePath is nil, got episodeID=%q", eps.lastTraceEpisodeID)
+	}
+}
+
+// Test_GetEpisodeTimeline_TraceFileNotFound_ReturnsEmptyTimeline covers the
+// sibling case: TracePath IS set (a non-gap record) but the RA can no longer
+// resolve it (e.g. a pruned local trace file) — ReadTraceEvents returns
+// fwra.NotFound. Same empty-timeline treatment, not an error.
+func Test_GetEpisodeTimeline_TraceFileNotFound_ReturnsEmptyTimeline(t *testing.T) {
+	rec := sampleEpisodeRecord("ep-1", "mission")
+	eps := &fakeEpisodes{
+		listRecords: []episode.EpisodeRecord{rec},
+		traceErr:    fwra.New(fwra.NotFound, "no trace file for episode ep-1"),
+	}
+	m := episodeMgr(eps)
+
+	got, err := m.GetEpisodeTimeline(bgRC(), ProjectID("proj-1"), "ep-1")
+	if err != nil {
+		t.Fatalf("GetEpisodeTimeline: unexpected error when the trace file is gone: %v", err)
+	}
+	if len(got.Events) != 0 {
+		t.Fatalf("Events = %+v, want empty (trace file unresolvable)", got.Events)
 	}
 }
 

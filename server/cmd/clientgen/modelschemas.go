@@ -508,13 +508,24 @@ func modelVariantRefs() ([]any, error) {
 }
 
 // isOpaqueModelField reports whether a decoded schema property is the manager
-// contracts' opaque raw-message draft pattern:
+// contracts' opaque raw-message DRAFT-MODEL pattern:
 //
-//	{type: ["null"], x-go-type: json.RawMessage, x-go-import: encoding/json}
+//	"model": {type: ["null"], x-go-type: json.RawMessage, x-go-import: encoding/json}
 //
-// Detected by shape (not by hard-coded field name) so a newly-added opaque draft
-// field is typed automatically — the caller asserts the resulting count.
-func isOpaqueModelField(v any) bool {
+// The marker is the PROPERTY NAME ("model" — DraftModel.model / ArtifactSlotModel.model,
+// the one place a manager contract holds "whichever of the 14 slot models this is"), not
+// the shape alone. The shape by itself is NOT unique to draft models: Task 9's episode
+// TimelineEvent.raw uses the identical json.RawMessage encoding for a raw trace-event
+// line (an opaque byte blob with no relationship to the 14 slot models whatsoever), and
+// shape-only detection silently repointed it onto the 14-variant oneOf too (review
+// finding, SP1 capture-seam Task 9 fix round) — the OAS declared TimelineEvent.raw to be
+// ModelGlossary|ModelMission|…, and openapi-typescript would hand every downstream
+// consumer that garbage union. propName lets the caller narrow to the one property this
+// pattern actually means "the slot's opaque model" for.
+func isOpaqueModelField(propName string, v any) bool {
+	if propName != "model" {
+		return false
+	}
 	m, ok := v.(map[string]any)
 	if !ok {
 		return false
@@ -567,7 +578,7 @@ func spliceModelSchemas(schemas map[string]any) ([]string, error) {
 			continue
 		}
 		for propName, propVal := range props {
-			if !isOpaqueModelField(propVal) {
+			if !isOpaqueModelField(propName, propVal) {
 				continue
 			}
 			// Fresh slice per field so decoders never alias one another.

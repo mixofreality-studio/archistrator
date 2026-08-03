@@ -322,7 +322,12 @@ func (h *Handler) handleSubmitSDPDecision(w http.ResponseWriter, r *http.Request
 // handleListEpisodesForArtifact binds GET /api/v1/project-design/list-episodes-for-artifact/{projectID} -> mgr.ListEpisodesForArtifact.
 func (h *Handler) handleListEpisodesForArtifact(w http.ResponseWriter, r *http.Request) {
 	projectID := mgr.ProjectID(r.PathValue("projectID"))
-	artifactKind := r.URL.Query().Get("artifactKind")
+	artifactKindInt, err := strconv.Atoi(r.URL.Query().Get("artifactKind"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid artifactKind: "+err.Error())
+		return
+	}
+	artifactKind := mgr.ArtifactKind(artifactKindInt)
 	principal, ok := security.PrincipalFrom(r.Context())
 	if !ok {
 		writeError(w, http.StatusUnauthorized, "unauthenticated", "authentication required")

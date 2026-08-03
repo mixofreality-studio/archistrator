@@ -18690,7 +18690,7 @@
               {
                 "name": "artifactKind",
                 "schema": {
-                  "type": "string"
+                  "$ref": "#/$defs/ArtifactKind"
                 }
               }
             ],
@@ -24789,7 +24789,7 @@
               {
                 "name": "artifactKind",
                 "schema": {
-                  "type": "string"
+                  "$ref": "#/$defs/ArtifactKind"
                 }
               }
             ],

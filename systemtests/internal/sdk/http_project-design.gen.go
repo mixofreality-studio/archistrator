@@ -123,7 +123,7 @@ func (c *HTTPClient) ProjectDesignSubmitSDPDecision(ctx context.Context, project
 }
 
 // ProjectDesignListEpisodesForArtifact calls the ListEpisodesForArtifact operation on the ProjectDesign manager over HTTP.
-func (c *HTTPClient) ProjectDesignListEpisodesForArtifact(ctx context.Context, projectID ProjectID, artifactKind string) ([]EpisodeRecordView, error) {
+func (c *HTTPClient) ProjectDesignListEpisodesForArtifact(ctx context.Context, projectID ProjectID, artifactKind ArtifactKind) ([]EpisodeRecordView, error) {
 	path := fmt.Sprintf("/api/v1/project-design/list-episodes-for-artifact/%s", projectID)
 	q := url.Values{}
 	q.Set("artifactKind", fmt.Sprint(artifactKind))

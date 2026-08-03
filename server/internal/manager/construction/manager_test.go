@@ -4314,6 +4314,58 @@ func Test_GetEpisodeTimeline_UnknownEpisodeID_NotFound(t *testing.T) {
 	}
 }
 
+// Test_GetEpisodeTimeline_GapRecord_ReturnsEmptyTimeline is the review-round F3
+// fix: a gap record (built through the REAL write-path helper episodeGapRecord —
+// captureEpisode's own gap-construction call, constructactivity.go) has no
+// trace file (TracePath stays nil). Before this fix GetEpisodeTimeline
+// unconditionally called ReadTraceEvents, which fails NotFound for a gap —
+// indistinguishable from an unknown episodeID. The never-silent gap doctrine
+// says a gap is a PRESENT outcome: the record must resolve, with an empty (not
+// nil, not erroring) timeline.
+func Test_GetEpisodeTimeline_GapRecord_ReturnsEmptyTimeline(t *testing.T) {
+	gap := episodeGapRecord(episode.EpisodeKindConstruction, "C-Orders", nil, "gap-ep-1", "the run reported a gap episode", time.Now().UTC())
+	if gap.TracePath != nil {
+		t.Fatalf("sanity: episodeGapRecord must leave TracePath nil, got %v", gap.TracePath)
+	}
+	eps := &fakeEpisodes{listRecords: []episode.EpisodeRecord{gap}}
+	m := episodeMgr(eps)
+
+	got, err := m.GetEpisodeTimeline(testCtx(), ProjectID("proj-1"), "gap-ep-1")
+	if err != nil {
+		t.Fatalf("GetEpisodeTimeline: unexpected error for a gap record: %v", err)
+	}
+	if got.Record.EpisodeID != "gap-ep-1" || got.Record.Outcome != EpisodeGap {
+		t.Fatalf("Record = %+v, want the gap record itself", got.Record)
+	}
+	if len(got.Events) != 0 {
+		t.Fatalf("Events = %+v, want empty (no trace file for a gap)", got.Events)
+	}
+	if eps.lastTraceEpisodeID != "" {
+		t.Fatalf("ReadTraceEvents must not be called when TracePath is nil, got episodeID=%q", eps.lastTraceEpisodeID)
+	}
+}
+
+// Test_GetEpisodeTimeline_TraceFileNotFound_ReturnsEmptyTimeline covers the
+// sibling case: TracePath IS set (a non-gap record) but the RA can no longer
+// resolve it (e.g. a pruned local trace file) — ReadTraceEvents returns
+// fwra.NotFound. Same empty-timeline treatment, not an error.
+func Test_GetEpisodeTimeline_TraceFileNotFound_ReturnsEmptyTimeline(t *testing.T) {
+	rec := sampleEpisodeRecord("ep-1", "C-Orders")
+	eps := &fakeEpisodes{
+		listRecords: []episode.EpisodeRecord{rec},
+		traceErr:    fwra.New(fwra.NotFound, "no trace file for episode ep-1"),
+	}
+	m := episodeMgr(eps)
+
+	got, err := m.GetEpisodeTimeline(testCtx(), ProjectID("proj-1"), "ep-1")
+	if err != nil {
+		t.Fatalf("GetEpisodeTimeline: unexpected error when the trace file is gone: %v", err)
+	}
+	if len(got.Events) != 0 {
+		t.Fatalf("Events = %+v, want empty (trace file unresolvable)", got.Events)
+	}
+}
+
 func Test_GetEpisodeTimeline_EmptyProjectID_ContractMisuse(t *testing.T) {
 	m := episodeMgr(&fakeEpisodes{})
 	_, err := m.GetEpisodeTimeline(testCtx(), ProjectID(""), "ep-1")

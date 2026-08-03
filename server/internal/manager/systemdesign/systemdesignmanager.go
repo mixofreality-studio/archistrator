@@ -4284,17 +4284,20 @@ func RegisterManagerWorker(w worker.Worker, m SystemDesignManager) {
 // or gaps) captured against one System-Design artifact, in episodeAccess's own
 // (append) order. A pass-through over episodeAccess.ListEpisodes scoped by
 // TargetRef=artifactKind, mapped to the contract EpisodeRecordView.
-func (m *systemDesignManager) ListEpisodesForArtifact(rc fwmanager.Context, projectID ProjectID, artifactKind string) ([]EpisodeRecordView, error) {
+func (m *systemDesignManager) ListEpisodesForArtifact(rc fwmanager.Context, projectID ProjectID, artifactKind ArtifactKind) ([]EpisodeRecordView, error) {
 	ctx := rc.Context
 	if projectID == "" {
 		return nil, newError(fwmanager.ContractMisuse, "empty projectId")
 	}
-	if artifactKind == "" {
-		return nil, newError(fwmanager.ContractMisuse, "empty artifactKind")
-	}
+	// TargetRef on the ledger is the PascalCase artifactKindString(kind) form —
+	// exactly what the capture-seam write path (episodeRecordFromSummary via
+	// dispatchAndObserve) stamps as TargetRef, NOT the wire-name form. artifactKind
+	// is typed as the contract's own ArtifactKind enum (not a bare string) so this
+	// conversion cannot be skipped by a caller that only has the wire name.
+	targetRef := artifactKindString(artifactKind)
 	records, err := m.episodes.ListEpisodes(fwra.Context{Context: ctx}, episode.EpisodeQuery{
 		ProjectID: episode.ProjectID(projectID),
-		TargetRef: &artifactKind,
+		TargetRef: &targetRef,
 	})
 	if err != nil {
 		return nil, mapRAError(err, "episodeAccess.ListEpisodes")
@@ -4325,14 +4328,39 @@ func (m *systemDesignManager) GetEpisodeTimeline(rc fwmanager.Context, projectID
 	if !ok {
 		return EpisodeTimeline{}, newError(fwmanager.NotFound, fmt.Sprintf("episode %q not found", episodeID))
 	}
+	// A GAP record (episode.EpisodeGap — the dispatch that produced no summary at
+	// all) has no trace file: TracePath is nil on the ledger record. The
+	// never-silent gap doctrine (Task 2/7) treats a gap as a PRESENT, first-class
+	// outcome, not an absence — the record itself must always resolve; only its
+	// timeline is empty. Skip the RA round-trip entirely when TracePath says
+	// there is nothing to read, and treat a NotFound FROM ReadTraceEvents (e.g. a
+	// TracePath that no longer resolves) the same way, rather than erroring the
+	// whole timeline — either would otherwise be indistinguishable from an
+	// unknown episodeID.
+	if rec.TracePath == nil || *rec.TracePath == "" {
+		return EpisodeTimeline{Record: episodeRecordToView(rec), Events: episodeTimelineEvents(nil)}, nil
+	}
 	raw, err := m.episodes.ReadTraceEvents(fwra.Context{Context: ctx}, episode.ProjectID(projectID), episodeID)
 	if err != nil {
+		if isEpisodeTraceNotFound(err) {
+			return EpisodeTimeline{Record: episodeRecordToView(rec), Events: episodeTimelineEvents(nil)}, nil
+		}
 		return EpisodeTimeline{}, mapRAError(err, "episodeAccess.ReadTraceEvents")
 	}
 	return EpisodeTimeline{
 		Record: episodeRecordToView(rec),
 		Events: episodeTimelineEvents(raw),
 	}, nil
+}
+
+// isEpisodeTraceNotFound reports whether err is episodeAccess.ReadTraceEvents's
+// fwra.NotFound ("no trace file for episode ...") — the signal that a record
+// with a stamped TracePath still has nothing to read (a gap's trace was never
+// written, or a local trace file was pruned). Distinct from mapRAError's general
+// NotFound handling: here it is NOT an error at all, it means "empty timeline".
+func isEpisodeTraceNotFound(err error) bool {
+	var raErr *fwra.Error
+	return errors.As(err, &raErr) && raErr.Kind == fwra.NotFound
 }
 
 // findEpisodeRecord returns the record whose EpisodeID matches id, if any.

@@ -178,7 +178,7 @@ func (c *HTTPClient) SystemDesignSubmitReviewDecision(ctx context.Context, proje
 }
 
 // SystemDesignListEpisodesForArtifact calls the ListEpisodesForArtifact operation on the SystemDesign manager over HTTP.
-func (c *HTTPClient) SystemDesignListEpisodesForArtifact(ctx context.Context, projectID ProjectID, artifactKind string) ([]EpisodeRecordView, error) {
+func (c *HTTPClient) SystemDesignListEpisodesForArtifact(ctx context.Context, projectID ProjectID, artifactKind ArtifactKind) ([]EpisodeRecordView, error) {
 	path := fmt.Sprintf("/api/v1/system-design/list-episodes-for-artifact/%s", projectID)
 	q := url.Values{}
 	q.Set("artifactKind", fmt.Sprint(artifactKind))

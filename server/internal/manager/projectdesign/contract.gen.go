@@ -243,7 +243,7 @@ type ProjectDesignManager interface {
 	SetReviewCommentStatus(rc fwm.Context, projectID ProjectID, kind ArtifactKind, commentID string, status string) error
 	SubmitReviewDecision(rc fwm.Context, projectID ProjectID, kind ArtifactKind, decision ReviewDecision, feedback *ReviewFeedback) error
 	SubmitSDPDecision(rc fwm.Context, projectID ProjectID, decision SDPDecision, optionID *OptionID, feedback *ReviewFeedback) error
-	ListEpisodesForArtifact(rc fwm.Context, projectID ProjectID, artifactKind string) ([]EpisodeRecordView, error)
+	ListEpisodesForArtifact(rc fwm.Context, projectID ProjectID, artifactKind ArtifactKind) ([]EpisodeRecordView, error)
 	GetEpisodeTimeline(rc fwm.Context, projectID ProjectID, episodeID string) (EpisodeTimeline, error)
 }
 

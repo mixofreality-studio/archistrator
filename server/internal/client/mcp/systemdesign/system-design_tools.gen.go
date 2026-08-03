@@ -169,8 +169,8 @@ type submitReviewDecisionInput struct {
 type submitReviewDecisionOutput struct{}
 
 type listEpisodesForArtifactInput struct {
-	ProjectID    mgr.ProjectID `json:"projectID"`
-	ArtifactKind string        `json:"artifactKind"`
+	ProjectID    mgr.ProjectID    `json:"projectID"`
+	ArtifactKind mgr.ArtifactKind `json:"artifactKind"`
 }
 
 type listEpisodesForArtifactOutput struct {
@@ -340,6 +340,7 @@ func listEpisodesForArtifactInputSchema() *jsonschema.Schema {
 	relaxRawJSON(s)
 	allowNullMaps(s)
 	s.Required = []string{"projectID", "artifactKind"}
+	s.Properties["artifactKind"] = enumSchemaArtifactKind()
 	return s
 }
 
