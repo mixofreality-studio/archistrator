@@ -53,11 +53,15 @@ export function EpisodesPanelContainer({
   const timeline = useEpisodeTimeline(target, selectedEpisodeId ?? undefined);
   const fetchTimelines = useFetchEpisodeTimelines(target);
   const [exportPending, setExportPending] = useState(false);
+  // A failed Export assembly (2026-08-02 review finding I2) — surfaced instead
+  // of silent nothing + an unhandled promise rejection.
+  const [exportError, setExportError] = useState<string | undefined>(undefined);
 
   const episodes = list.data ?? [];
 
   const buildExport = async (): Promise<EpisodeExport> => {
     setExportPending(true);
+    setExportError(undefined);
     try {
       const traces = await fetchTimelines(episodes.map((e) => e.episodeId));
       return { records: episodes, traces };
@@ -67,23 +71,31 @@ export function EpisodesPanelContainer({
   };
 
   const onExportJson = (): void => {
-    void buildExport().then((exp) => {
-      downloadTextFile(
-        `${exportFilenameBase({ projectId, manager, targetRef })}.json`,
-        JSON.stringify(exp, null, 2),
-        'application/json'
-      );
-    });
+    void buildExport()
+      .then((exp) => {
+        downloadTextFile(
+          `${exportFilenameBase({ projectId, manager, targetRef })}.json`,
+          JSON.stringify(exp, null, 2),
+          'application/json'
+        );
+      })
+      .catch((err: unknown) => {
+        setExportError(err instanceof Error ? err.message : 'export failed');
+      });
   };
 
   const onExportCsv = (): void => {
-    void buildExport().then((exp) => {
-      downloadTextFile(
-        `${exportFilenameBase({ projectId, manager, targetRef })}.csv`,
-        flattenEpisodesToCsv(exp),
-        'text/csv'
-      );
-    });
+    void buildExport()
+      .then((exp) => {
+        downloadTextFile(
+          `${exportFilenameBase({ projectId, manager, targetRef })}.csv`,
+          flattenEpisodesToCsv(exp),
+          'text/csv'
+        );
+      })
+      .catch((err: unknown) => {
+        setExportError(err instanceof Error ? err.message : 'export failed');
+      });
   };
 
   return (
@@ -91,10 +103,12 @@ export function EpisodesPanelContainer({
       badges={badges}
       episodes={episodes}
       error={list.error?.message}
+      exportError={exportError}
       exportPending={exportPending}
       isLoading={list.isLoading}
       selectedEpisodeId={selectedEpisodeId}
       timeline={timeline.data}
+      timelineError={timeline.error?.message}
       timelineLoading={timeline.isLoading}
       onExportCsv={onExportCsv}
       onExportJson={onExportJson}

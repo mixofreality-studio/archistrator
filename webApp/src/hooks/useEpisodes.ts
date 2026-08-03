@@ -17,6 +17,7 @@ import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { useOpsClient } from '../api/opsContext';
 import type { OpId } from '../api/ops.gen';
 import { artifactKindToOrdinal, mapEpisodeRecordView, mapEpisodeTimeline } from '../contracts/wire';
+import { ARTIFACT_KIND_APP_TO_ORDINAL } from '../contracts/enums.gen';
 import type { components } from '../contracts/schema';
 import type {
   ArtifactKindFull,
@@ -57,9 +58,35 @@ const TIMELINE_OP: Record<EpisodesManager, OpId> = {
   projectDesign: 'projectDesignGetEpisodeTimeline',
 };
 
+// The full valid ArtifactKindFull domain (both phases share one ordinal range —
+// see contracts/wire.ts's artifactKindToOrdinal doc comment), used to validate
+// a design target's `targetRef` before trusting it as an ArtifactKindFull
+// (2026-08-02 review minor (c): the cast below used to be unchecked).
+const VALID_ARTIFACT_KINDS = new Set<string>(Object.keys(ARTIFACT_KIND_APP_TO_ORDINAL));
+
+function isArtifactKindFull(value: string): value is ArtifactKindFull {
+  return VALID_ARTIFACT_KINDS.has(value);
+}
+
+/** Whether a target is well-formed enough to fire a query for — gates `enabled`
+ *  on both hooks below so an invalid design targetRef never reaches the wire. */
+function isValidTarget(target: EpisodesTarget): boolean {
+  if (target.projectId.length === 0 || target.targetRef.length === 0) return false;
+  return target.manager === 'construction' || isArtifactKindFull(target.targetRef);
+}
+
 function listQuery(target: EpisodesTarget): Record<string, unknown> {
   if (target.manager === 'construction') return { activityID: target.targetRef };
-  return { artifactKind: artifactKindToOrdinal(target.targetRef as ArtifactKindFull) };
+  if (!isArtifactKindFull(target.targetRef)) {
+    // Should be unreachable — `enabled: isValidTarget(target)` on the query
+    // already keeps this from firing — but warn loudly rather than silently
+    // querying ordinal 0 ("mission") for an unrecognized kind if it ever does.
+    console.warn(
+      `useEpisodes: unknown artifact kind "${target.targetRef}" for manager "${target.manager}" — episode list query skipped.`
+    );
+    return { artifactKind: 0 };
+  }
+  return { artifactKind: artifactKindToOrdinal(target.targetRef) };
 }
 
 export function episodesListKey(target: EpisodesTarget): readonly unknown[] {
@@ -78,7 +105,7 @@ export function useEpisodesList(target: EpisodesTarget): UseQueryResult<EpisodeR
       });
       return data.map(mapEpisodeRecordView);
     },
-    enabled: target.projectId.length > 0 && target.targetRef.length > 0,
+    enabled: isValidTarget(target),
   });
 }
 

@@ -760,30 +760,43 @@ export function mapEpisodeRecordView(
 }
 
 /**
- * TimelineEvent.raw is server-typed as `json.RawMessage` (Go), which has no OAS
- * shape — the generator emits `type: null` for it, so schema.ts's `raw` field is
- * typed `null` only. In practice it is a JSON string whenever the event carries a
- * payload (omitempty — absent, not null, when there is none). This is the one
- * honest boundary cast for that gap; every consumer still null-checks before
- * JSON.parse.
+ * TimelineEvent.raw is server-typed as `*json.RawMessage` (Go) — `json.RawMessage`
+ * has no OAS shape, so the generator emits `type: null` for it and schema.ts's
+ * `raw` field is typed `null` only. CORRECTED 2026-08-02 review (C1): the field is
+ * NOT a JSON-encoded string at runtime. `*json.RawMessage.MarshalJSON` writes its
+ * bytes VERBATIM into the parent JSON, so when the server's own encoding/json
+ * marshals a TimelineEvent, `raw` embeds as a nested JSON OBJECT —
+ * `{"seq":1,"eventType":"assistant","raw":{"type":"assistant","message":{...}}}` —
+ * never as an escaped string. `omitempty` on the pointer means the key is simply
+ * ABSENT (not present-as-null) when there is no payload. See
+ * server/internal/manager/construction/constructionmanager.go's
+ * `episodeTimelineEvents` (Raw: &raw[i], one full stream-json trace line per
+ * event) and contract.gen.go's `Raw *json.RawMessage \`json:"raw,omitempty"\`` for
+ * the server-side ground truth, and utilities/episodeRawEvent.ts's
+ * `parseRawEvent` (which accepts EITHER an object or, defensively, a string) for
+ * the consumer side.
+ *
+ * The app type widens `raw` to `unknown` (no assumed shape at all — see
+ * contracts/types.ts) rather than encoding a specific runtime type here, since
+ * the honest wire type is "whatever JSON value the pointer held", not a string.
  */
-function rawEventPayload(raw: null | undefined): string | null | undefined {
-  // The declared return type is the honest boundary widening (see the doc
-  // comment above): schema.ts types `raw` as `null` only (json.RawMessage has
-  // no OAS shape), but it is a JSON string at runtime whenever present. No
-  // assertion is needed here — the function's own return-type annotation is
-  // what widens `raw`'s static type for every caller.
-  return raw;
-}
-
 function mapTimelineEvent(
   w:
     | Schemas['ConstructionTimelineEvent']
     | Schemas['ProjectDesignTimelineEvent']
     | Schemas['SystemDesignTimelineEvent']
 ): TimelineEvent {
-  const raw = rawEventPayload(w.raw);
-  return { seq: w.seq, eventType: w.eventType, ...(raw !== undefined ? { raw } : {}) };
+  // `w.raw`'s STATIC type is `null | undefined` (schema.ts's placeholder for the
+  // unrepresentable json.RawMessage — see the doc comment above), but its REAL
+  // runtime value is an arbitrary JSON value whenever present. Explicitly
+  // annotating the local as `unknown` erases that too-narrow static type for
+  // every downstream read, rather than lying with a same-shape `as` cast.
+  const raw: unknown = w.raw;
+  return {
+    seq: w.seq,
+    eventType: w.eventType,
+    ...(raw !== undefined && raw !== null ? { raw } : {}),
+  };
 }
 
 export function mapEpisodeTimeline(

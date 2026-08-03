@@ -37,6 +37,7 @@ import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined';
 
 import type {
+  EpisodeKind,
   EpisodeOutcome,
   EpisodeRecordView,
   EpisodeTimeline as EpisodeTimelineModel,
@@ -65,6 +66,16 @@ function outcomeFill(t: Tokens, outcome: EpisodeOutcome): { fg: string; bg: stri
       return assertNever(outcome);
   }
 }
+
+/** Display label per episode kind — same "raw union → presentable label"
+ *  treatment as the outcome chip (2026-08-02 review minor (e)). */
+const EPISODE_KIND_LABEL: Record<EpisodeKind, string> = {
+  design: 'Design',
+  construction: 'Construction',
+  review: 'Review',
+  rework: 'Rework',
+  answer: 'Answer',
+};
 
 function OutcomeChip({
   t,
@@ -175,6 +186,7 @@ function EpisodeRow({
   expanded,
   timeline,
   timelineLoading,
+  timelineError,
   badges,
   onToggle,
 }: {
@@ -183,6 +195,7 @@ function EpisodeRow({
   expanded: boolean;
   timeline: EpisodeTimelineModel | undefined;
   timelineLoading: boolean;
+  timelineError?: string | undefined;
   badges?: ((episode: EpisodeRecordView) => ReactNode) | undefined;
   onToggle: () => void;
 }): ReactNode {
@@ -213,12 +226,17 @@ function EpisodeRow({
         tabIndex={0}
         onClick={onToggle}
         onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') onToggle();
+          if (e.key !== 'Enter' && e.key !== ' ') return;
+          // Space's default action is page-scroll on a focused, non-native
+          // button-like element (role="button" div) — suppress it (2026-08-02
+          // review minor (f)).
+          e.preventDefault();
+          onToggle();
         }}
       >
         <OutcomeChip episodeId={episode.episodeId} outcome={episode.outcome} t={t} />
         <Typography sx={{ fontFamily: t.mono, fontSize: 11, color: t.muted }}>
-          {episode.kind}
+          {EPISODE_KIND_LABEL[episode.kind]}
         </Typography>
         <Typography sx={{ fontFamily: t.mono, fontSize: 11, fontWeight: 700, color: t.ink }}>
           {formatDuration(episode.startedAt, episode.endedAt)}
@@ -281,7 +299,7 @@ function EpisodeRow({
       {expanded ? (
         <Box sx={{ px: 1.25, pb: 1.25, display: 'flex', flexDirection: 'column', gap: 1 }}>
           <LineageTree episode={episode} t={t} />
-          <EpisodeTimeline loading={timelineLoading} timeline={timeline} />
+          <EpisodeTimeline error={timelineError} loading={timelineLoading} timeline={timeline} />
         </Box>
       ) : null}
     </Box>
@@ -300,9 +318,16 @@ export interface EpisodesPanelProps {
   onSelectEpisode: (episodeId: string | null) => void;
   timeline: EpisodeTimelineModel | undefined;
   timelineLoading: boolean;
+  /** A failed getEpisodeTimeline fetch for the expanded row (2026-08-02 review
+   *  finding I1) — surfaced instead of an indistinguishable-from-success empty
+   *  timeline. */
+  timelineError?: string | undefined;
   onExportJson: () => void;
   onExportCsv: () => void;
   exportPending?: boolean | undefined;
+  /** A failed Export assembly (2026-08-02 review finding I2) — surfaced instead
+   *  of silent nothing. */
+  exportError?: string | undefined;
   /** Render-prop slot for future badges (assurance/completeness — audit spine
    *  workstream). Renders nothing when omitted. */
   badges?: ((episode: EpisodeRecordView) => ReactNode) | undefined;
@@ -316,9 +341,11 @@ export function EpisodesPanel({
   onSelectEpisode,
   timeline,
   timelineLoading,
+  timelineError,
   onExportJson,
   onExportCsv,
   exportPending = false,
+  exportError,
   badges,
 }: EpisodesPanelProps): ReactNode {
   const t = useTokens();
@@ -410,6 +437,15 @@ export function EpisodesPanel({
 
       {open ? (
         <Box sx={{ p: 1.5, display: 'flex', flexDirection: 'column', gap: 1 }}>
+          {exportError !== undefined ? (
+            <Alert
+              data-testid={UI_IDENTIFIERS.Common.ERROR_ALERT}
+              severity="error"
+              sx={{ fontFamily: t.mono, fontSize: 12 }}
+            >
+              Export failed: {exportError}
+            </Alert>
+          ) : null}
           {error !== undefined ? (
             <Alert
               data-testid={UI_IDENTIFIERS.Common.ERROR_ALERT}
@@ -438,6 +474,7 @@ export function EpisodesPanel({
                 key={episode.episodeId}
                 t={t}
                 timeline={timeline}
+                timelineError={timelineError}
                 timelineLoading={timelineLoading}
                 onToggle={() => {
                   onSelectEpisode(

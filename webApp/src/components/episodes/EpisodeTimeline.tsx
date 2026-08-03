@@ -13,12 +13,11 @@
  * early cancellation) gets an honest "no events recorded" notice instead of a
  * fabricated gap reason.
  *
- * `raw` is `json.RawMessage` on the wire, represented as `raw?: string | null`
- * on the app TimelineEvent (see contracts/types.ts / contracts/wire.ts) — every
- * read here null-checks before JSON.parse and never throws on malformed JSON
- * (the CLI's stream-json shape is TOLERANT by design; the miner comment in
- * server/internal/resourceaccess/agenticjob/agenticjobaccess.go documents the
- * exact event shape this parses).
+ * All raw-payload parsing (`raw` is `unknown` on the wire — see
+ * contracts/types.ts / contracts/wire.ts, and 2026-08-02 review finding C1:
+ * it is an embedded JSON OBJECT, never a string) lives in
+ * utilities/episodeRawEvent.ts, fixture-tested there against real captured
+ * trace lines — this component only renders what it returns.
  */
 import { useMemo, useState, type ReactNode } from 'react';
 import Box from '@mui/material/Box';
@@ -29,88 +28,21 @@ import FormControl from '@mui/material/FormControl';
 import Select from '@mui/material/Select';
 import MenuItem from '@mui/material/MenuItem';
 import CircularProgress from '@mui/material/CircularProgress';
+import Alert from '@mui/material/Alert';
+import Tooltip from '@mui/material/Tooltip';
 import type { EpisodeTimeline as EpisodeTimelineModel, TimelineEvent } from '../../contracts/types';
+import {
+  argsSummary,
+  eventUsage,
+  parentToolUseId,
+  parseRawEvent,
+  toolUseBlocks,
+} from '../../utilities/episodeRawEvent';
 import { useTokens } from '../../utilities/theme/ThemeContext';
 import type { Tokens } from '../../utilities/theme/themes';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 
 const ALL_EVENT_TYPES = '__all__';
-const MAX_ARG_SUMMARY_CHARS = 160;
-
-// ---------------------------------------------------------------------------
-// stream-json raw-event parsing (tolerant — see file header)
-// ---------------------------------------------------------------------------
-
-interface StreamContentBlock {
-  type?: string;
-  name?: string;
-  input?: unknown;
-  text?: string;
-}
-
-interface StreamUsage {
-  input_tokens?: number;
-  output_tokens?: number;
-  cache_read_input_tokens?: number;
-  cache_creation_input_tokens?: number;
-}
-
-interface StreamMessage {
-  usage?: StreamUsage;
-  content?: StreamContentBlock[] | string;
-}
-
-interface StreamEvent {
-  parent_tool_use_id?: string;
-  message?: StreamMessage;
-  usage?: StreamUsage;
-}
-
-function parseRaw(raw: string | null | undefined): StreamEvent | undefined {
-  if (raw === null || raw === undefined || raw.length === 0) return undefined;
-  try {
-    // JSON.parse is `any`-typed; every downstream read is optional-chained, so
-    // an unexpected shape (or a bare primitive) degrades to "no fields found"
-    // rather than a crash — this cast is the one honest boundary trust here.
-    return JSON.parse(raw) as StreamEvent;
-  } catch {
-    return undefined;
-  }
-}
-
-function toolUseBlocks(parsed: StreamEvent | undefined): StreamContentBlock[] {
-  const content = parsed?.message?.content;
-  if (!Array.isArray(content)) return [];
-  return content.filter((b) => b.type === 'tool_use');
-}
-
-function eventUsage(parsed: StreamEvent | undefined): StreamUsage | undefined {
-  return parsed?.message?.usage ?? parsed?.usage;
-}
-
-function truncate(value: string, max: number): string {
-  return value.length > max ? `${value.slice(0, max)}…` : value;
-}
-
-/** A metadata-only summary of a tool_use block's input — key names + short
- *  scalar previews, truncated. Never the full args object (which can carry
- *  full file contents for Write/Edit). */
-function argsSummary(input: unknown): string {
-  if (input === undefined || input === null) return '';
-  if (typeof input === 'string') return truncate(input, MAX_ARG_SUMMARY_CHARS);
-  if (typeof input === 'number' || typeof input === 'boolean') {
-    return truncate(String(input), MAX_ARG_SUMMARY_CHARS);
-  }
-  if (typeof input !== 'object') return typeof input;
-  const entries = Object.entries(input as Record<string, unknown>);
-  const summary = entries
-    .map(([k, v]) => {
-      const preview = typeof v === 'string' ? truncate(v, 40) : typeof v;
-      return `${k}=${preview}`;
-    })
-    .join(', ');
-  return truncate(summary, MAX_ARG_SUMMARY_CHARS);
-}
 
 // ---------------------------------------------------------------------------
 // Component
@@ -119,9 +51,12 @@ function argsSummary(input: unknown): string {
 export interface EpisodeTimelineProps {
   timeline: EpisodeTimelineModel | undefined;
   loading: boolean;
+  /** A failed getEpisodeTimeline fetch — surfaced explicitly (2026-08-02 review
+   *  finding I1) rather than rendering indistinguishable-from-success emptiness. */
+  error?: string | undefined;
 }
 
-export function EpisodeTimeline({ timeline, loading }: EpisodeTimelineProps): ReactNode {
+export function EpisodeTimeline({ timeline, loading, error }: EpisodeTimelineProps): ReactNode {
   const t = useTokens();
   const [filter, setFilter] = useState<string>(ALL_EVENT_TYPES);
 
@@ -132,6 +67,18 @@ export function EpisodeTimeline({ timeline, loading }: EpisodeTimelineProps): Re
   );
   const filtered =
     filter === ALL_EVENT_TYPES ? events : events.filter((e) => e.eventType === filter);
+
+  if (error !== undefined) {
+    return (
+      <Alert
+        data-testid={UI_IDENTIFIERS.Common.ERROR_ALERT}
+        severity="error"
+        sx={{ fontFamily: t.mono, fontSize: 12 }}
+      >
+        {error}
+      </Alert>
+    );
+  }
 
   if (loading) {
     return (
@@ -233,10 +180,10 @@ export function EpisodeTimeline({ timeline, loading }: EpisodeTimelineProps): Re
 // ---------------------------------------------------------------------------
 
 function TimelineRow({ event, t }: { event: TimelineEvent; t: Tokens }): ReactNode {
-  const parsed = parseRaw(event.raw);
+  const parsed = parseRawEvent(event.raw);
   const tools = toolUseBlocks(parsed);
   const usage = eventUsage(parsed);
-  const parentToolUseId = parsed?.parent_tool_use_id;
+  const parentId = parentToolUseId(parsed);
 
   return (
     <Box
@@ -266,7 +213,7 @@ function TimelineRow({ event, t }: { event: TimelineEvent; t: Tokens }): ReactNo
             color: t.chatArchitectFg,
           }}
         />
-        {parentToolUseId !== undefined && parentToolUseId.length > 0 && (
+        {parentId !== undefined && (
           <Chip
             label="subagent span"
             size="small"
@@ -280,9 +227,12 @@ function TimelineRow({ event, t }: { event: TimelineEvent; t: Tokens }): ReactNo
           />
         )}
         {usage !== undefined && (
-          <Typography sx={{ fontFamily: t.mono, fontSize: 9.5, color: t.muted }}>
-            in {String(usage.input_tokens ?? 0)} · out {String(usage.output_tokens ?? 0)}
-          </Typography>
+          <Tooltip title="cumulative per turn — several events can share one turn and repeat this same total, not a per-event delta">
+            <Typography sx={{ fontFamily: t.mono, fontSize: 9.5, color: t.muted }}>
+              turn total: in {String(usage.input_tokens ?? 0)} · out{' '}
+              {String(usage.output_tokens ?? 0)}
+            </Typography>
+          </Tooltip>
         )}
       </Box>
       {tools.map((tool, i) => (

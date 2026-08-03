@@ -709,10 +709,18 @@ export interface EpisodeRecordView {
 export interface TimelineEvent {
   seq: number;
   eventType: string;
-  /** json.RawMessage on the wire (the OAS represents it as `null`-typed since Go's
-   *  custom RawMessage has no OAS shape) — null-check before JSON.parse; see
-   *  wire.ts's rawEventPayload boundary cast. */
-  raw?: string | null;
+  /**
+   * `*json.RawMessage` on the wire (the OAS represents it as `null`-typed since
+   * Go's custom RawMessage has no OAS shape). CORRECTED 2026-08-02 review (C1):
+   * this is a JSON OBJECT embedded verbatim in the parent JSON when present —
+   * e.g. `{"seq":1,"eventType":"assistant","raw":{"type":"assistant",...}}` —
+   * NEVER a JSON-encoded string; `omitempty` means it is simply absent when
+   * there is no payload. Typed `unknown` (no assumed shape) rather than
+   * `string | null`; see contracts/wire.ts's `mapTimelineEvent` doc comment and
+   * utilities/episodeRawEvent.ts's `parseRawEvent`, which accepts either an
+   * object (the real wire shape) or, defensively, a string.
+   */
+  raw?: unknown;
 }
 
 export interface EpisodeTimeline {

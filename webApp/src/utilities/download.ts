@@ -15,5 +15,11 @@ export function downloadTextFile(filename: string, content: string, mimeType: st
   document.body.appendChild(anchor);
   anchor.click();
   document.body.removeChild(anchor);
-  URL.revokeObjectURL(url);
+  // Revoking synchronously (same tick as .click()) can abort the download in
+  // Safari/Firefox, which start the save asynchronously (2026-08-02 review
+  // minor (b)) — defer to the next tick so the browser has already grabbed
+  // the blob before the URL is invalidated.
+  setTimeout(() => {
+    URL.revokeObjectURL(url);
+  }, 0);
 }
