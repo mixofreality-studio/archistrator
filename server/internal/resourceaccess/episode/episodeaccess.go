@@ -355,7 +355,7 @@ func ensureTracesDirLocked(tracesDir string) error {
 // scan down. Caller must hold a.mu.
 func readLedgerLocked(tracesDir string) ([]storedEpisode, error) {
 	path := ledgerPath(tracesDir)
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- fixed literal filename under tracesDir
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil

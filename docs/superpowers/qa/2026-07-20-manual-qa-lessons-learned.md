@@ -11,10 +11,15 @@ QA passes) reapply them instead of rediscovering. Add a lesson the moment it is 
 
 - Server: `GOWORK=off go build` from `server/`, binary nohup'd from scratchpad
   (`boot-server.sh` sources `server/.env`, overrides `ARCHISTRATOR_PROJECT_STATE_GIT_LOCAL=true`,
-  `ARCHISTRATOR_PROJECT_STATE_GIT_REPO_URL=file://<scratch>/state-bare.git`,
+  `ARCHISTRATOR_PROJECT_STATE_GIT_REPO_URL=file://<scratch>/state-repo`,
   `ARCHISTRATOR_CONSTRUCTION_DRYRUN=true`, `ARCHISTRATOR_AUTH_DEV_MODE=true`). Listens :8888.
-- State: bare mirror of working-repo `main` at `<scratch>/state-bare.git`. Type-1 changes
-  (app comment system) land as commits there → fetch back into the working repo when done.
+- State: **non-bare working checkout** of `main` at `<scratch>/state-repo`, with
+  `git config receive.denyCurrentBranch updateInstead` set on it (2026-08-02: the local rail
+  now REFUSES a bare state repo — the episode-trace sidecar lives under `.aiarch/traces/` in
+  the checkout's working tree, and the capture-seam trust rule requires that path to physically
+  exist outside the agent sandbox's write allowlist, which a bare repo cannot provide). Type-1
+  changes (app comment system) land as commits there → fetch back into the working repo when
+  done.
 - SPA: pre-existing vite on :5199 (this checkout's webApp, `--strictPort`), proxies /api → :8888.
 - Type-1 change = comment through the app (design/state changes). Type-2 change = direct
   repo change by subagents (app bugs, UX, method-fidelity fixes). Founder approves every

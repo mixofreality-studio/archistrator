@@ -46,6 +46,7 @@ var allowedCmd = map[string]bool{
 	"clientgen":            true,
 	"gen-systemtests":      true,
 	"gen-uiprofiles":       true,
+	"gen-uitests-episodes": true,
 	"gen-uitests-fixtures": true,
 	"internaltoolsgen":     true,
 	"modelgen":             true,

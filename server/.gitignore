@@ -10,6 +10,7 @@ test-artifacts/
 /server
 /gen-uiprofiles
 /gen-uitests-fixtures
+/gen-uitests-episodes
 
 # Compiled local-first CLI binaries (local-first-init-funnel Task 5,
 # `go build ./cmd/archistrator` / `./cmd/server` with no -o land here).

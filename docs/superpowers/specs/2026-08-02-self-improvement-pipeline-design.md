@@ -195,6 +195,33 @@ forking; `EpisodeSummary` stays free of OCSF/audit fields; gap-entry shape stays
 the audit spec's gap records. Only the per-page containers differ in which manager's generated
 ops they call.
 
+### 5.1 SP1 implementation closeout (2026-08-02)
+
+- SP1 implemented on branch `sp1-capture-seam` (commit range `0f4d961..HEAD`).
+- Deviations ratified during implementation:
+  - Fixture capture via `--allowedTools` (not `--dangerously-skip-permissions` — classifier-blocked).
+  - Self-ignoring `.aiarch/traces/.gitignore` instead of a method-assets scaffold change (system-architect endorsed).
+  - `NewLocalFSEpisodeAccess` single-return with lazy first-use validation (composegen no-infra constraint; precedent-faithful).
+  - NoOp cloud variant binding (never a nil RA under an unbounded-retry activity).
+  - Episode reads as facet ops per founder ruling (already amended above).
+  - Episode append retry window bounded to 2m (bounded-latency ruling).
+  - Answer-job episodes captured via a non-durable manager-side watcher (both design managers).
+- Known limits/earmarks:
+  - Venue detection via `RunURL` presence — dry-run and URL-less GH runs write gap records; the clean fix is a venue field on the `agenticJob` contract.
+  - `WorkerClass` unset on records (unavailable at dispatch); SP3's extractor joins it from `project.json` via `activityID`.
+  - Subagent tokens appear in NEITHER usage total — terminal usage is main-loop only; the UI labels accordingly.
+  - Terminal-usage-vs-streamed divergence is recorded as both fields (`Usage`, `StreamedUsage`), not reconciled.
+  - The `episodes-panel` uitest self-skips in CI until a dogfood-seeded job is added.
+  - The two `uitests` project-state configs (fresh-empty vs. dogfood-seeded) are mutually exclusive.
+  - `APPC-SVC-AVOID-12` cannot see contract op counts drop — `systemDesignManager` sits at 16 ops unflagged (waived pending the DesignManager merge).
+  - Helper triplication across the three dispatching managers is parked pending the ratified DesignManager merge.
+
+**RELEASE NOTE:** **DRAIN in-flight construction/coauthor workflows before deploying** — this
+release inserts a new episode-append activity command into existing workflow bodies, with no
+`GetVersion` guard (drain ruling, same standing convention as the callchain and layer-layout
+releases). In-flight executions replaying against the old command sequence must be allowed to
+finish before the new binary is deployed.
+
 ## 6. SP2 — Bench repo (`archistrator-bench`)
 
 ```
