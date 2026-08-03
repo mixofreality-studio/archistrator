@@ -5893,6 +5893,12 @@
             "label": "appendEpisode / listEpisodes / readTraceEvents (episode capture + trace facet reads)"
           },
           {
+            "from": "episode-access",
+            "to": "project-git-repo",
+            "mode": "sync",
+            "label": "append-only ledger write + raw trace read (local-FS store, same shared repo checkout as ProjectGitRepo; self-ignored, never committed)"
+          },
+          {
             "from": "project-state-access",
             "to": "project-git-repo",
             "mode": "sync",
@@ -6149,6 +6155,12 @@
                     "to": "agentic-job-access",
                     "mode": "sync",
                     "label": "observe the job; read the drafted slot back from git"
+                  },
+                  {
+                    "from": "system-design-manager",
+                    "to": "episode-access",
+                    "mode": "sync",
+                    "label": "appendEpisode (terminal-observation episode record)"
                   }
                 ]
               },
@@ -6605,6 +6617,18 @@
                     "to": "project-git-repo",
                     "mode": "sync",
                     "label": "store Phase-3 construction output (content-addressed commit)"
+                  },
+                  {
+                    "from": "construction-manager",
+                    "to": "episode-access",
+                    "mode": "sync",
+                    "label": "appendEpisode (terminal-observation episode record)"
+                  },
+                  {
+                    "from": "episode-access",
+                    "to": "project-git-repo",
+                    "mode": "sync",
+                    "label": "append-only ledger write (local-FS store, same shared repo checkout)"
                   }
                 ]
               },
@@ -7743,6 +7767,12 @@
                     "to": "agentic-job-access",
                     "mode": "sync",
                     "label": "re-dispatch the Phase-2 draft job at the affected step (assumptions | activities | network)"
+                  },
+                  {
+                    "from": "project-design-manager",
+                    "to": "episode-access",
+                    "mode": "sync",
+                    "label": "appendEpisode (terminal-observation episode record)"
                   }
                 ]
               },
