@@ -69,6 +69,14 @@ const OUTPUT_NAMES = {
   OperationsDesiredStateReason: 'DesiredStateReason',
   OperationsPatchKind: 'PatchKind',
   OperationsRuntimeStatusSeam: 'RuntimeStatusSeam',
+  // episode capture-seam enums (byte-identical across all three managers —
+  // see DEDUPE_GROUPS); new/unwired, no hand table to verify against.
+  ConstructionEpisodeKind: 'EpisodeKind',
+  ProjectDesignEpisodeKind: 'EpisodeKind',
+  SystemDesignEpisodeKind: 'EpisodeKind',
+  ConstructionEpisodeOutcome: 'EpisodeOutcome',
+  ProjectDesignEpisodeOutcome: 'EpisodeOutcome',
+  SystemDesignEpisodeOutcome: 'EpisodeOutcome',
 };
 
 /** Groups of OAS schema names known (verified by one-off comparison against
@@ -82,6 +90,8 @@ const DEDUPE_GROUPS = [
   ['SystemDesignSeverity', 'ProjectDesignSeverity'],
   ['SystemDesignActiveRole', 'ProjectDesignActiveRole'],
   ['SystemDesignActiveStep', 'ProjectDesignActiveStep'],
+  ['ConstructionEpisodeKind', 'ProjectDesignEpisodeKind', 'SystemDesignEpisodeKind'],
+  ['ConstructionEpisodeOutcome', 'ProjectDesignEpisodeOutcome', 'SystemDesignEpisodeOutcome'],
 ];
 
 /** Logical output names for which the mechanical derivation does NOT
@@ -129,6 +139,8 @@ const UNVERIFIED_MECHANICAL = new Set([
   'ActivityConstructionPhase',
   'DesiredStateReason',
   'PatchKind',
+  'EpisodeKind',
+  'EpisodeOutcome',
 ]);
 
 function splitWords(name) {

@@ -27,10 +27,20 @@ export const OP_BINDINGS = {
     path: '/api/v1/construction/execute-next-activity/{projectID}',
     tool: 'constructionExecuteNextActivity',
   },
+  constructionGetEpisodeTimeline: {
+    method: 'GET',
+    path: '/api/v1/construction/get-episode-timeline/{projectID}',
+    tool: 'constructionGetEpisodeTimeline',
+  },
   constructionGetSessionState: {
     method: 'GET',
     path: '/api/v1/construction/get-session-state/{projectID}/{activityID}',
     tool: 'constructionGetSessionState',
+  },
+  constructionListEpisodesForActivity: {
+    method: 'GET',
+    path: '/api/v1/construction/list-episodes-for-activity/{projectID}',
+    tool: 'constructionListEpisodesForActivity',
   },
   constructionOverrideActivity: {
     method: 'POST',
@@ -107,10 +117,20 @@ export const OP_BINDINGS = {
     path: '/api/v1/project-design/ask-questions/{projectID}',
     tool: 'projectDesignAskQuestions',
   },
+  projectDesignGetEpisodeTimeline: {
+    method: 'GET',
+    path: '/api/v1/project-design/get-episode-timeline/{projectID}',
+    tool: 'projectDesignGetEpisodeTimeline',
+  },
   projectDesignGetSessionState: {
     method: 'GET',
     path: '/api/v1/project-design/get-session-state/{projectID}',
     tool: 'projectDesignGetSessionState',
+  },
+  projectDesignListEpisodesForArtifact: {
+    method: 'GET',
+    path: '/api/v1/project-design/list-episodes-for-artifact/{projectID}',
+    tool: 'projectDesignListEpisodesForArtifact',
   },
   projectDesignRequestArtifactDraft: {
     method: 'POST',
@@ -162,6 +182,11 @@ export const OP_BINDINGS = {
     path: '/api/v1/system-design/get-design-health/{projectID}',
     tool: 'systemDesignGetDesignHealth',
   },
+  systemDesignGetEpisodeTimeline: {
+    method: 'GET',
+    path: '/api/v1/system-design/get-episode-timeline/{projectID}',
+    tool: 'systemDesignGetEpisodeTimeline',
+  },
   systemDesignGetProject: {
     method: 'GET',
     path: '/api/v1/system-design/get-project/{projectID}',
@@ -171,6 +196,11 @@ export const OP_BINDINGS = {
     method: 'GET',
     path: '/api/v1/system-design/get-session-state/{projectID}',
     tool: 'systemDesignGetSessionState',
+  },
+  systemDesignListEpisodesForArtifact: {
+    method: 'GET',
+    path: '/api/v1/system-design/list-episodes-for-artifact/{projectID}',
+    tool: 'systemDesignListEpisodesForArtifact',
   },
   systemDesignListProjects: {
     method: 'GET',

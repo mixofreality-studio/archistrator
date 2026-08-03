@@ -397,6 +397,69 @@ export const DESIRED_STATE_REASON_APP_TO_ORDINAL: Readonly<Record<DesiredStateRe
   autoscale: 3,
   delinquency: 4,
 };
+// --- EpisodeKind ---------------------------------------------------------
+// Sources: ConstructionEpisodeKind, ProjectDesignEpisodeKind, SystemDesignEpisodeKind (identical; folded)
+export const EPISODE_KIND_GO_VARNAMES = [
+  'EpisodeKindDesign',
+  'EpisodeKindConstruction',
+  'EpisodeKindReview',
+  'EpisodeKindRework',
+  'EpisodeKindAnswer',
+] as const;
+
+export type EpisodeKindGoVarname = (typeof EPISODE_KIND_GO_VARNAMES)[number];
+
+export const EPISODE_KIND_ORDINAL_TO_GO_VARNAME: readonly EpisodeKindGoVarname[] =
+  EPISODE_KIND_GO_VARNAMES;
+
+// NOTE: no existing hand-authored app-string table to verify against (unwired/new enum) — derived mechanically, unverified.
+export const EPISODE_KIND_APP_STRINGS = [
+  'design',
+  'construction',
+  'review',
+  'rework',
+  'answer',
+] as const;
+
+export type EpisodeKind = (typeof EPISODE_KIND_APP_STRINGS)[number];
+
+export const EPISODE_KIND_ORDINAL_TO_APP: readonly EpisodeKind[] = EPISODE_KIND_APP_STRINGS;
+
+export const EPISODE_KIND_APP_TO_ORDINAL: Readonly<Record<EpisodeKind, number>> = {
+  design: 0,
+  construction: 1,
+  review: 2,
+  rework: 3,
+  answer: 4,
+};
+// --- EpisodeOutcome ------------------------------------------------------
+// Sources: ConstructionEpisodeOutcome, ProjectDesignEpisodeOutcome, SystemDesignEpisodeOutcome (identical; folded)
+export const EPISODE_OUTCOME_GO_VARNAMES = [
+  'EpisodeSucceeded',
+  'EpisodeFailed',
+  'EpisodeCancelled',
+  'EpisodeGap',
+] as const;
+
+export type EpisodeOutcomeGoVarname = (typeof EPISODE_OUTCOME_GO_VARNAMES)[number];
+
+export const EPISODE_OUTCOME_ORDINAL_TO_GO_VARNAME: readonly EpisodeOutcomeGoVarname[] =
+  EPISODE_OUTCOME_GO_VARNAMES;
+
+// NOTE: no existing hand-authored app-string table to verify against (unwired/new enum) — derived mechanically, unverified.
+export const EPISODE_OUTCOME_APP_STRINGS = ['succeeded', 'failed', 'cancelled', 'gap'] as const;
+
+export type EpisodeOutcome = (typeof EPISODE_OUTCOME_APP_STRINGS)[number];
+
+export const EPISODE_OUTCOME_ORDINAL_TO_APP: readonly EpisodeOutcome[] =
+  EPISODE_OUTCOME_APP_STRINGS;
+
+export const EPISODE_OUTCOME_APP_TO_ORDINAL: Readonly<Record<EpisodeOutcome, number>> = {
+  succeeded: 0,
+  failed: 1,
+  cancelled: 2,
+  gap: 3,
+};
 // --- FailureReason -------------------------------------------------------
 // Sources: SystemDesignFailureReason
 export const FAILURE_REASON_GO_VARNAMES = [

@@ -20,6 +20,22 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/v1/construction/get-episode-timeline/{projectID}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['GetEpisodeTimeline'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/v1/construction/get-session-state/{projectID}/{activityID}': {
     parameters: {
       query?: never;
@@ -28,6 +44,22 @@ export interface paths {
       cookie?: never;
     };
     get: operations['GetSessionState'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/construction/list-episodes-for-activity/{projectID}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['ListEpisodesForActivity'];
     put?: never;
     post?: never;
     delete?: never;
@@ -276,6 +308,22 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/v1/project-design/get-episode-timeline/{projectID}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['GetEpisodeTimeline_2'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/v1/project-design/get-session-state/{projectID}': {
     parameters: {
       query?: never;
@@ -284,6 +332,22 @@ export interface paths {
       cookie?: never;
     };
     get: operations['GetSessionState_2'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/project-design/list-episodes-for-artifact/{projectID}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['ListEpisodesForArtifact'];
     put?: never;
     post?: never;
     delete?: never;
@@ -452,6 +516,22 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/v1/system-design/get-episode-timeline/{projectID}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['GetEpisodeTimeline_3'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/v1/system-design/get-project/{projectID}': {
     parameters: {
       query?: never;
@@ -476,6 +556,22 @@ export interface paths {
       cookie?: never;
     };
     get: operations['GetSessionState_3'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/system-design/list-episodes-for-artifact/{projectID}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['ListEpisodesForArtifact_2'];
     put?: never;
     post?: never;
     delete?: never;
@@ -620,6 +716,48 @@ export interface components {
     };
     /** @enum {integer} */
     ConstructionConstructionStage: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
+    /** @enum {integer} */
+    ConstructionEpisodeKind: 0 | 1 | 2 | 3 | 4;
+    ConstructionEpisodeLineage: {
+      activityId?: string;
+      runId: string;
+      workflowId: string;
+    };
+    /** @enum {integer} */
+    ConstructionEpisodeOutcome: 0 | 1 | 2 | 3;
+    ConstructionEpisodeRecordView: {
+      costUsd?: number;
+      /** Format: date-time */
+      endedAt: string;
+      episodeId: string;
+      gapReason?: string;
+      kind: components['schemas']['ConstructionEpisodeKind'];
+      lineage?: components['schemas']['ConstructionEpisodeLineage'];
+      model?: string;
+      numTurns?: number;
+      outcome: components['schemas']['ConstructionEpisodeOutcome'];
+      /** Format: date-time */
+      startedAt: string;
+      streamedUsage?: components['schemas']['ConstructionEpisodeUsage'];
+      subagentSpans?: components['schemas']['ConstructionSubagentSpan'][];
+      targetRef: string;
+      toolCallCounts?: {
+        [key: string]: number;
+      };
+      tracePath?: string;
+      usage: components['schemas']['ConstructionEpisodeUsage'];
+      workerClass?: string;
+    };
+    ConstructionEpisodeTimeline: {
+      events: components['schemas']['ConstructionTimelineEvent'][];
+      record: components['schemas']['ConstructionEpisodeRecordView'];
+    };
+    ConstructionEpisodeUsage: {
+      cacheCreate: number;
+      cacheRead: number;
+      in: number;
+      out: number;
+    };
     ConstructionErrorResponse: {
       code: string;
       error: string;
@@ -660,6 +798,18 @@ export interface components {
       perspective: string;
       referenceArtifact?: null | string;
       role: string;
+    };
+    ConstructionSubagentSpan: {
+      /** Format: date-time */
+      endedAt?: string;
+      /** Format: date-time */
+      startedAt?: string;
+      toolUseId: string;
+    };
+    ConstructionTimelineEvent: {
+      eventType: string;
+      raw?: null;
+      seq: number;
     };
     ModelActivityDiagram: {
       edges: null | components['schemas']['ModelActivityEdge'][];
@@ -1239,6 +1389,48 @@ export interface components {
         | components['schemas']['ModelSystem']
         | components['schemas']['ModelVolatilities'];
     };
+    /** @enum {integer} */
+    ProjectDesignEpisodeKind: 0 | 1 | 2 | 3 | 4;
+    ProjectDesignEpisodeLineage: {
+      activityId?: string;
+      runId: string;
+      workflowId: string;
+    };
+    /** @enum {integer} */
+    ProjectDesignEpisodeOutcome: 0 | 1 | 2 | 3;
+    ProjectDesignEpisodeRecordView: {
+      costUsd?: number;
+      /** Format: date-time */
+      endedAt: string;
+      episodeId: string;
+      gapReason?: string;
+      kind: components['schemas']['ProjectDesignEpisodeKind'];
+      lineage?: components['schemas']['ProjectDesignEpisodeLineage'];
+      model?: string;
+      numTurns?: number;
+      outcome: components['schemas']['ProjectDesignEpisodeOutcome'];
+      /** Format: date-time */
+      startedAt: string;
+      streamedUsage?: components['schemas']['ProjectDesignEpisodeUsage'];
+      subagentSpans?: components['schemas']['ProjectDesignSubagentSpan'][];
+      targetRef: string;
+      toolCallCounts?: {
+        [key: string]: number;
+      };
+      tracePath?: string;
+      usage: components['schemas']['ProjectDesignEpisodeUsage'];
+      workerClass?: string;
+    };
+    ProjectDesignEpisodeTimeline: {
+      events: components['schemas']['ProjectDesignTimelineEvent'][];
+      record: components['schemas']['ProjectDesignEpisodeRecordView'];
+    };
+    ProjectDesignEpisodeUsage: {
+      cacheCreate: number;
+      cacheRead: number;
+      in: number;
+      out: number;
+    };
     ProjectDesignErrorResponse: {
       code: string;
       error: string;
@@ -1298,6 +1490,18 @@ export interface components {
     };
     /** @enum {string} */
     ProjectDesignSeverity: 'info' | 'warning' | 'error';
+    ProjectDesignSubagentSpan: {
+      /** Format: date-time */
+      endedAt?: string;
+      /** Format: date-time */
+      startedAt?: string;
+      toolUseId: string;
+    };
+    ProjectDesignTimelineEvent: {
+      eventType: string;
+      raw?: null;
+      seq: number;
+    };
     /** @enum {integer} */
     SystemDesignActiveRole: 0 | 1 | 2;
     /** @enum {integer} */
@@ -1477,6 +1681,48 @@ export interface components {
       spi: number;
       weeks: null | number[];
     };
+    /** @enum {integer} */
+    SystemDesignEpisodeKind: 0 | 1 | 2 | 3 | 4;
+    SystemDesignEpisodeLineage: {
+      activityId?: string;
+      runId: string;
+      workflowId: string;
+    };
+    /** @enum {integer} */
+    SystemDesignEpisodeOutcome: 0 | 1 | 2 | 3;
+    SystemDesignEpisodeRecordView: {
+      costUsd?: number;
+      /** Format: date-time */
+      endedAt: string;
+      episodeId: string;
+      gapReason?: string;
+      kind: components['schemas']['SystemDesignEpisodeKind'];
+      lineage?: components['schemas']['SystemDesignEpisodeLineage'];
+      model?: string;
+      numTurns?: number;
+      outcome: components['schemas']['SystemDesignEpisodeOutcome'];
+      /** Format: date-time */
+      startedAt: string;
+      streamedUsage?: components['schemas']['SystemDesignEpisodeUsage'];
+      subagentSpans?: components['schemas']['SystemDesignSubagentSpan'][];
+      targetRef: string;
+      toolCallCounts?: {
+        [key: string]: number;
+      };
+      tracePath?: string;
+      usage: components['schemas']['SystemDesignEpisodeUsage'];
+      workerClass?: string;
+    };
+    SystemDesignEpisodeTimeline: {
+      events: components['schemas']['SystemDesignTimelineEvent'][];
+      record: components['schemas']['SystemDesignEpisodeRecordView'];
+    };
+    SystemDesignEpisodeUsage: {
+      cacheCreate: number;
+      cacheRead: number;
+      in: number;
+      out: number;
+    };
     SystemDesignErrorResponse: {
       code: string;
       error: string;
@@ -1633,6 +1879,13 @@ export interface components {
     };
     /** @enum {string} */
     SystemDesignSeverity: 'info' | 'warning' | 'error';
+    SystemDesignSubagentSpan: {
+      /** Format: date-time */
+      endedAt?: string;
+      /** Format: date-time */
+      startedAt?: string;
+      toolUseId: string;
+    };
     SystemDesignSystemTestPlanView: {
       scenarios: null | components['schemas']['SystemDesignTestScenarioView'][];
     };
@@ -1683,6 +1936,11 @@ export interface components {
     };
     /** @enum {integer} */
     SystemDesignTestingVariant: 0 | 1 | 2 | 3 | 4;
+    SystemDesignTimelineEvent: {
+      eventType: string;
+      raw?: null;
+      seq: number;
+    };
     SystemDesignVersion: number;
   };
   responses: never;
@@ -1784,6 +2042,93 @@ export interface operations {
       };
     };
   };
+  GetEpisodeTimeline: {
+    parameters: {
+      query: {
+        episodeID: string;
+      };
+      header?: never;
+      path: {
+        projectID: components['schemas']['ConstructionProjectID'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ConstructionEpisodeTimeline'];
+        };
+      };
+      /** @description contract misuse */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ConstructionErrorResponse'];
+        };
+      };
+      /** @description unauthenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ConstructionErrorResponse'];
+        };
+      };
+      /** @description forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ConstructionErrorResponse'];
+        };
+      };
+      /** @description not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ConstructionErrorResponse'];
+        };
+      };
+      /** @description failed precondition */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ConstructionErrorResponse'];
+        };
+      };
+      /** @description internal error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ConstructionErrorResponse'];
+        };
+      };
+      /** @description infrastructure unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ConstructionErrorResponse'];
+        };
+      };
+    };
+  };
   GetSessionState: {
     parameters: {
       query?: never;
@@ -1803,6 +2148,93 @@ export interface operations {
         };
         content: {
           'application/json': components['schemas']['ConstructionConstructionSessionView'];
+        };
+      };
+      /** @description contract misuse */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ConstructionErrorResponse'];
+        };
+      };
+      /** @description unauthenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ConstructionErrorResponse'];
+        };
+      };
+      /** @description forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ConstructionErrorResponse'];
+        };
+      };
+      /** @description not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ConstructionErrorResponse'];
+        };
+      };
+      /** @description failed precondition */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ConstructionErrorResponse'];
+        };
+      };
+      /** @description internal error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ConstructionErrorResponse'];
+        };
+      };
+      /** @description infrastructure unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ConstructionErrorResponse'];
+        };
+      };
+    };
+  };
+  ListEpisodesForActivity: {
+    parameters: {
+      query: {
+        activityID: string;
+      };
+      header?: never;
+      path: {
+        projectID: components['schemas']['ConstructionProjectID'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ConstructionEpisodeRecordView'][];
         };
       };
       /** @description contract misuse */
@@ -3223,6 +3655,93 @@ export interface operations {
       };
     };
   };
+  GetEpisodeTimeline_2: {
+    parameters: {
+      query: {
+        episodeID: string;
+      };
+      header?: never;
+      path: {
+        projectID: components['schemas']['ProjectDesignProjectID'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ProjectDesignEpisodeTimeline'];
+        };
+      };
+      /** @description contract misuse */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ProjectDesignErrorResponse'];
+        };
+      };
+      /** @description unauthenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ProjectDesignErrorResponse'];
+        };
+      };
+      /** @description forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ProjectDesignErrorResponse'];
+        };
+      };
+      /** @description not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ProjectDesignErrorResponse'];
+        };
+      };
+      /** @description failed precondition */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ProjectDesignErrorResponse'];
+        };
+      };
+      /** @description internal error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ProjectDesignErrorResponse'];
+        };
+      };
+      /** @description infrastructure unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ProjectDesignErrorResponse'];
+        };
+      };
+    };
+  };
   GetSessionState_2: {
     parameters: {
       query: {
@@ -3243,6 +3762,93 @@ export interface operations {
         };
         content: {
           'application/json': components['schemas']['ProjectDesignSessionStateView'];
+        };
+      };
+      /** @description contract misuse */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ProjectDesignErrorResponse'];
+        };
+      };
+      /** @description unauthenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ProjectDesignErrorResponse'];
+        };
+      };
+      /** @description forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ProjectDesignErrorResponse'];
+        };
+      };
+      /** @description not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ProjectDesignErrorResponse'];
+        };
+      };
+      /** @description failed precondition */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ProjectDesignErrorResponse'];
+        };
+      };
+      /** @description internal error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ProjectDesignErrorResponse'];
+        };
+      };
+      /** @description infrastructure unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ProjectDesignErrorResponse'];
+        };
+      };
+    };
+  };
+  ListEpisodesForArtifact: {
+    parameters: {
+      query: {
+        artifactKind: components['schemas']['ProjectDesignArtifactKind'];
+      };
+      header?: never;
+      path: {
+        projectID: components['schemas']['ProjectDesignProjectID'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ProjectDesignEpisodeRecordView'][];
         };
       };
       /** @description contract misuse */
@@ -4207,6 +4813,93 @@ export interface operations {
       };
     };
   };
+  GetEpisodeTimeline_3: {
+    parameters: {
+      query: {
+        episodeID: string;
+      };
+      header?: never;
+      path: {
+        projectID: components['schemas']['SystemDesignProjectID'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SystemDesignEpisodeTimeline'];
+        };
+      };
+      /** @description contract misuse */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SystemDesignErrorResponse'];
+        };
+      };
+      /** @description unauthenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SystemDesignErrorResponse'];
+        };
+      };
+      /** @description forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SystemDesignErrorResponse'];
+        };
+      };
+      /** @description not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SystemDesignErrorResponse'];
+        };
+      };
+      /** @description failed precondition */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SystemDesignErrorResponse'];
+        };
+      };
+      /** @description internal error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SystemDesignErrorResponse'];
+        };
+      };
+      /** @description infrastructure unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SystemDesignErrorResponse'];
+        };
+      };
+    };
+  };
   GetProject: {
     parameters: {
       query?: never;
@@ -4312,6 +5005,93 @@ export interface operations {
         };
         content: {
           'application/json': components['schemas']['SystemDesignSessionStateView'];
+        };
+      };
+      /** @description contract misuse */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SystemDesignErrorResponse'];
+        };
+      };
+      /** @description unauthenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SystemDesignErrorResponse'];
+        };
+      };
+      /** @description forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SystemDesignErrorResponse'];
+        };
+      };
+      /** @description not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SystemDesignErrorResponse'];
+        };
+      };
+      /** @description failed precondition */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SystemDesignErrorResponse'];
+        };
+      };
+      /** @description internal error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SystemDesignErrorResponse'];
+        };
+      };
+      /** @description infrastructure unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SystemDesignErrorResponse'];
+        };
+      };
+    };
+  };
+  ListEpisodesForArtifact_2: {
+    parameters: {
+      query: {
+        artifactKind: components['schemas']['SystemDesignArtifactKind'];
+      };
+      header?: never;
+      path: {
+        projectID: components['schemas']['SystemDesignProjectID'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SystemDesignEpisodeRecordView'][];
         };
       };
       /** @description contract misuse */
