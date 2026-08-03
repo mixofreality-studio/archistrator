@@ -231,6 +231,63 @@ type EVCurve struct {
 	SPI     float64   `json:"spi"`
 }
 
+type EpisodeKind int
+
+const (
+	EpisodeKindDesign       EpisodeKind = 0
+	EpisodeKindConstruction EpisodeKind = 1
+	EpisodeKindReview       EpisodeKind = 2
+	EpisodeKindRework       EpisodeKind = 3
+	EpisodeKindAnswer       EpisodeKind = 4
+)
+
+type EpisodeLineage struct {
+	WorkflowID string  `json:"workflowId"`
+	RunID      string  `json:"runId"`
+	ActivityID *string `json:"activityId,omitempty"`
+}
+
+type EpisodeOutcome int
+
+const (
+	EpisodeSucceeded EpisodeOutcome = 0
+	EpisodeFailed    EpisodeOutcome = 1
+	EpisodeCancelled EpisodeOutcome = 2
+	EpisodeGap       EpisodeOutcome = 3
+)
+
+type EpisodeRecordView struct {
+	EpisodeID      string           `json:"episodeId"`
+	Kind           EpisodeKind      `json:"kind"`
+	TargetRef      string           `json:"targetRef"`
+	Lineage        *EpisodeLineage  `json:"lineage,omitempty"`
+	WorkerClass    *string          `json:"workerClass,omitempty"`
+	Model          *string          `json:"model,omitempty"`
+	Usage          EpisodeUsage     `json:"usage"`
+	StreamedUsage  *EpisodeUsage    `json:"streamedUsage,omitempty"`
+	CostUSD        *float64         `json:"costUsd,omitempty"`
+	NumTurns       *int64           `json:"numTurns,omitempty"`
+	ToolCallCounts map[string]int64 `json:"toolCallCounts,omitempty"`
+	SubagentSpans  []SubagentSpan   `json:"subagentSpans,omitempty"`
+	StartedAt      time.Time        `json:"startedAt"`
+	EndedAt        time.Time        `json:"endedAt"`
+	Outcome        EpisodeOutcome   `json:"outcome"`
+	GapReason      *string          `json:"gapReason,omitempty"`
+	TracePath      *string          `json:"tracePath,omitempty"`
+}
+
+type EpisodeTimeline struct {
+	Record EpisodeRecordView `json:"record"`
+	Events []TimelineEvent   `json:"events"`
+}
+
+type EpisodeUsage struct {
+	In          int64 `json:"in"`
+	Out         int64 `json:"out"`
+	CacheRead   int64 `json:"cacheRead"`
+	CacheCreate int64 `json:"cacheCreate"`
+}
+
 type EvPoint struct {
 	Week       int64    `json:"week"`
 	EarnedPct  float64  `json:"earnedPct"`
@@ -431,6 +488,12 @@ const (
 	SeverityError   Severity = "error"
 )
 
+type SubagentSpan struct {
+	ToolUseID string     `json:"toolUseId"`
+	StartedAt *time.Time `json:"startedAt,omitempty"`
+	EndedAt   *time.Time `json:"endedAt,omitempty"`
+}
+
 type SystemTestPlanView struct {
 	Scenarios []TestScenarioView `json:"scenarios"`
 }
@@ -497,6 +560,12 @@ const (
 	TestVariantQAProcess  TestingVariant = 4
 )
 
+type TimelineEvent struct {
+	Seq       int64            `json:"seq"`
+	EventType string           `json:"eventType"`
+	Raw       *json.RawMessage `json:"raw,omitempty"`
+}
+
 type Version int64
 
 // SystemDesignManager is the generated service-contract interface for this component.
@@ -515,6 +584,8 @@ type SystemDesignManager interface {
 	SetReviewCommentStatus(rc fwm.Context, projectID ProjectID, kind ArtifactKind, commentID string, status string) error
 	StartSystemDesign(rc fwm.Context, projectID ProjectID) (SessionRef, error)
 	SubmitReviewDecision(rc fwm.Context, projectID ProjectID, kind ArtifactKind, decision ReviewDecision, feedback *ReviewFeedback) error
+	ListEpisodesForArtifact(rc fwm.Context, projectID ProjectID, artifactKind string) ([]EpisodeRecordView, error)
+	GetEpisodeTimeline(rc fwm.Context, projectID ProjectID, episodeID string) (EpisodeTimeline, error)
 }
 
 // NewSystemDesignManager constructs the SystemDesignManager, delegating to the hand-written, unexported

@@ -33,6 +33,8 @@ func (h *Handler) Register(srv *mcp.Server) {
 	mcp.AddTool(srv, &mcp.Tool{Name: "constructionSetReviewPolicy", Description: "Set the project's construction review-policy preset: vibes (auto-approve everything short of the deploy/spend/schema risk floor), checkpoints (approval at the contract commit + construction dispatch + merge), or full (approval at every step). Any other preset value is rejected.", InputSchema: setReviewPolicyInputSchema(), OutputSchema: setReviewPolicyOutputSchema()}, h.handleSetReviewPolicy)
 	mcp.AddTool(srv, &mcp.Tool{Name: "constructionSubmitPhaseDecision", Description: "Record a review verdict (approve or send-back) for one construction phase of an activity. Send-back should carry feedback; approve advances the activity's lifecycle.", InputSchema: submitPhaseDecisionInputSchema(), OutputSchema: submitPhaseDecisionOutputSchema()}, h.handleSubmitPhaseDecision)
 	mcp.AddTool(srv, &mcp.Tool{Name: "constructionUpdateReviewPolicy", Description: "Replace the construction review-routing policy (which reviewers gate which produced artifacts) for a project.", InputSchema: updateReviewPolicyInputSchema(), OutputSchema: updateReviewPolicyOutputSchema()}, h.handleUpdateReviewPolicy)
+	mcp.AddTool(srv, &mcp.Tool{Name: "constructionListEpisodesForActivity", Description: "List the agentic episode records (dispatch runs, or gaps) captured against one construction activity. Read-only.", InputSchema: listEpisodesForActivityInputSchema(), OutputSchema: listEpisodesForActivityOutputSchema()}, h.handleListEpisodesForActivity)
+	mcp.AddTool(srv, &mcp.Tool{Name: "constructionGetEpisodeTimeline", Description: "Return one agentic episode's full timeline: its record (usage, cost, outcome, lineage) plus the sequenced trace events mined from its run. Read-only.", InputSchema: getEpisodeTimelineInputSchema(), OutputSchema: getEpisodeTimelineOutputSchema()}, h.handleGetEpisodeTimeline)
 }
 
 type executeNextActivityInput struct {
@@ -100,6 +102,24 @@ type updateReviewPolicyInput struct {
 }
 
 type updateReviewPolicyOutput struct{}
+
+type listEpisodesForActivityInput struct {
+	ProjectID  mgr.ProjectID `json:"projectID"`
+	ActivityID string        `json:"activityID"`
+}
+
+type listEpisodesForActivityOutput struct {
+	Result []mgr.EpisodeRecordView `json:"result"`
+}
+
+type getEpisodeTimelineInput struct {
+	ProjectID mgr.ProjectID `json:"projectID"`
+	EpisodeID string        `json:"episodeID"`
+}
+
+type getEpisodeTimelineOutput struct {
+	Result mgr.EpisodeTimeline `json:"result"`
+}
 
 // executeNextActivityInputSchema is the explicit MCP input schema for the ExecuteNextActivity operation.
 func executeNextActivityInputSchema() *jsonschema.Schema {
@@ -182,6 +202,26 @@ func updateReviewPolicyInputSchema() *jsonschema.Schema {
 	return s
 }
 
+// listEpisodesForActivityInputSchema is the explicit MCP input schema for the ListEpisodesForActivity operation.
+func listEpisodesForActivityInputSchema() *jsonschema.Schema {
+	s := objectSchema[listEpisodesForActivityInput]()
+	fixUUIDStrings(s)
+	relaxRawJSON(s)
+	allowNullMaps(s)
+	s.Required = []string{"projectID", "activityID"}
+	return s
+}
+
+// getEpisodeTimelineInputSchema is the explicit MCP input schema for the GetEpisodeTimeline operation.
+func getEpisodeTimelineInputSchema() *jsonschema.Schema {
+	s := objectSchema[getEpisodeTimelineInput]()
+	fixUUIDStrings(s)
+	relaxRawJSON(s)
+	allowNullMaps(s)
+	s.Required = []string{"projectID", "episodeID"}
+	return s
+}
+
 // executeNextActivityOutputSchema is the explicit MCP output schema for the ExecuteNextActivity operation.
 func executeNextActivityOutputSchema() *jsonschema.Schema {
 	s := objectSchema[executeNextActivityOutput]()
@@ -248,6 +288,24 @@ func submitPhaseDecisionOutputSchema() *jsonschema.Schema {
 // updateReviewPolicyOutputSchema is the explicit MCP output schema for the UpdateReviewPolicy operation.
 func updateReviewPolicyOutputSchema() *jsonschema.Schema {
 	s := objectSchema[updateReviewPolicyOutput]()
+	fixUUIDStrings(s)
+	relaxRawJSON(s)
+	allowNullMaps(s)
+	return s
+}
+
+// listEpisodesForActivityOutputSchema is the explicit MCP output schema for the ListEpisodesForActivity operation.
+func listEpisodesForActivityOutputSchema() *jsonschema.Schema {
+	s := objectSchema[listEpisodesForActivityOutput]()
+	fixUUIDStrings(s)
+	relaxRawJSON(s)
+	allowNullMaps(s)
+	return s
+}
+
+// getEpisodeTimelineOutputSchema is the explicit MCP output schema for the GetEpisodeTimeline operation.
+func getEpisodeTimelineOutputSchema() *jsonschema.Schema {
+	s := objectSchema[getEpisodeTimelineOutput]()
 	fixUUIDStrings(s)
 	relaxRawJSON(s)
 	allowNullMaps(s)
@@ -354,6 +412,32 @@ func (h *Handler) handleUpdateReviewPolicy(ctx context.Context, _ *mcp.CallToolR
 	if err := h.Manager.UpdateReviewPolicy(rc, in.ProjectID, in.Policy); err != nil {
 		return nil, out, mapManagerError(err)
 	}
+	return nil, out, nil
+}
+
+// handleListEpisodesForActivity is the MCP tool handler for the ListEpisodesForActivity operation.
+func (h *Handler) handleListEpisodesForActivity(ctx context.Context, _ *mcp.CallToolRequest, in listEpisodesForActivityInput) (*mcp.CallToolResult, listEpisodesForActivityOutput, error) {
+	var out listEpisodesForActivityOutput
+	principal, _ := security.PrincipalFrom(ctx)
+	rc := fwmanager.Context{Context: ctx, Principal: principal}
+	result, err := h.Manager.ListEpisodesForActivity(rc, in.ProjectID, in.ActivityID)
+	if err != nil {
+		return nil, out, mapManagerError(err)
+	}
+	out.Result = result
+	return nil, out, nil
+}
+
+// handleGetEpisodeTimeline is the MCP tool handler for the GetEpisodeTimeline operation.
+func (h *Handler) handleGetEpisodeTimeline(ctx context.Context, _ *mcp.CallToolRequest, in getEpisodeTimelineInput) (*mcp.CallToolResult, getEpisodeTimelineOutput, error) {
+	var out getEpisodeTimelineOutput
+	principal, _ := security.PrincipalFrom(ctx)
+	rc := fwmanager.Context{Context: ctx, Principal: principal}
+	result, err := h.Manager.GetEpisodeTimeline(rc, in.ProjectID, in.EpisodeID)
+	if err != nil {
+		return nil, out, mapManagerError(err)
+	}
+	out.Result = result
 	return nil, out, nil
 }
 

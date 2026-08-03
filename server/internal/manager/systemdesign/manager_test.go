@@ -1617,6 +1617,20 @@ type fakeEpisodes struct {
 	attempts   int
 	failN      int
 	failAlways bool
+
+	// listRecords/listErr back ListEpisodes (Task 9 facet reads); lastQuery
+	// captures the query the manager actually issued, for TargetRef-semantics
+	// assertions.
+	listRecords []episode.EpisodeRecord
+	listErr     error
+	lastQuery   episode.EpisodeQuery
+
+	// traceEvents/traceErr back ReadTraceEvents; lastTrace* captures the args
+	// the manager actually issued.
+	traceEvents        []json.RawMessage
+	traceErr           error
+	lastTraceProjectID episode.ProjectID
+	lastTraceEpisodeID string
 }
 
 func (f *fakeEpisodes) AppendEpisode(rc fwra.Context, _ episode.ProjectID, record episode.EpisodeRecord) error {
@@ -1633,12 +1647,25 @@ func (f *fakeEpisodes) AppendEpisode(rc fwra.Context, _ episode.ProjectID, recor
 	return nil
 }
 
-func (f *fakeEpisodes) ListEpisodes(fwra.Context, episode.EpisodeQuery) ([]episode.EpisodeRecord, error) {
-	return nil, nil
+func (f *fakeEpisodes) ListEpisodes(_ fwra.Context, query episode.EpisodeQuery) ([]episode.EpisodeRecord, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.lastQuery = query
+	if f.listErr != nil {
+		return nil, f.listErr
+	}
+	return f.listRecords, nil
 }
 
-func (f *fakeEpisodes) ReadTraceEvents(fwra.Context, episode.ProjectID, string) ([]json.RawMessage, error) {
-	return nil, nil
+func (f *fakeEpisodes) ReadTraceEvents(_ fwra.Context, projectID episode.ProjectID, episodeID string) ([]json.RawMessage, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.lastTraceProjectID = projectID
+	f.lastTraceEpisodeID = episodeID
+	if f.traceErr != nil {
+		return nil, f.traceErr
+	}
+	return f.traceEvents, nil
 }
 
 func (f *fakeEpisodes) records() []episode.EpisodeRecord {
@@ -9835,5 +9862,271 @@ func Test_AnswerEpisodeWatch_PermanentAppendFailure_GivesUpBounded(t *testing.T)
 	}
 	if len(eps.records()) != 0 {
 		t.Fatalf("nothing can land in a permanently-failing ledger, got %+v", eps.records())
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Episode facet read ops (SP1 capture-seam, Task 9): ListEpisodesForArtifact +
+// GetEpisodeTimeline. Plain methods — no Temporal env needed, same style as the
+// ListProjects/GetProject tests above.
+// ---------------------------------------------------------------------------
+
+// episodeMgr builds a systemDesignManager exercising ONLY the episode facet read
+// ops (Task 9): every other dep stays nil since those ops touch only episodes.
+func episodeMgr(eps episode.EpisodeAccess) SystemDesignManager {
+	return NewSystemDesignManager(nil, nil, nil, nil, nil, nil, nil, eps, "")
+}
+
+// sampleEpisodeRecord returns a fully-populated ledger record (every optional
+// field set) so the view mapping can be checked field-by-field.
+func sampleEpisodeRecord(id, targetRef string) episode.EpisodeRecord {
+	started := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
+	ended := started.Add(90 * time.Second)
+	workerClass := "senior-developer"
+	model := "claude-sonnet-5"
+	costUSD := 0.42
+	numTurns := int64(7)
+	gapReason := "the run reported a gap episode"
+	tracePath := ".aiarch/state/episodes/traces/" + id + ".jsonl"
+	streamed := episode.EpisodeUsage{In: 100, Out: 50, CacheRead: 10, CacheCreate: 5}
+	return episode.EpisodeRecord{
+		EpisodeID: id,
+		Kind:      episode.EpisodeKindReview,
+		TargetRef: targetRef,
+		Lineage: &episode.EpisodeLineage{
+			WorkflowID: "wf-1",
+			RunID:      "run-1",
+			ActivityID: strPtr("C-XYZ"),
+		},
+		WorkerClass:    &workerClass,
+		Model:          &model,
+		Usage:          episode.EpisodeUsage{In: 1000, Out: 500, CacheRead: 100, CacheCreate: 50},
+		StreamedUsage:  &streamed,
+		CostUSD:        &costUSD,
+		NumTurns:       &numTurns,
+		ToolCallCounts: map[string]int64{"Read": 3, "Edit": 2},
+		SubagentSpans: []episode.SubagentSpan{
+			{ToolUseID: "toolu_1", StartedAt: timePtr(started.Add(time.Second)), EndedAt: timePtr(started.Add(2 * time.Second))},
+		},
+		StartedAt: started,
+		EndedAt:   ended,
+		Outcome:   episode.EpisodeGap,
+		GapReason: &gapReason,
+		TracePath: &tracePath,
+	}
+}
+
+func strPtr(s string) *string        { return &s }
+func timePtr(t time.Time) *time.Time { return &t }
+
+// assertSampleEpisodeRecordView asserts got is sampleEpisodeRecord(id, targetRef)
+// mapped field-for-field onto this contract's own EpisodeRecordView. Split into
+// three helpers (identity/usage/outcome) purely to keep each under the gocyclo
+// budget — together they are one assertion.
+func assertSampleEpisodeRecordView(t *testing.T, got EpisodeRecordView, id, targetRef string) {
+	t.Helper()
+	assertSampleEpisodeRecordIdentity(t, got, id, targetRef)
+	assertSampleEpisodeRecordUsage(t, got)
+	assertSampleEpisodeRecordOutcome(t, got, id)
+}
+
+func assertSampleEpisodeRecordIdentity(t *testing.T, got EpisodeRecordView, id, targetRef string) {
+	t.Helper()
+	if got.EpisodeID != id {
+		t.Fatalf("EpisodeID = %q, want %q", got.EpisodeID, id)
+	}
+	if got.Kind != EpisodeKindReview {
+		t.Fatalf("Kind = %v, want EpisodeKindReview", got.Kind)
+	}
+	if got.TargetRef != targetRef {
+		t.Fatalf("TargetRef = %q, want %q", got.TargetRef, targetRef)
+	}
+	if got.Lineage == nil || got.Lineage.WorkflowID != "wf-1" || got.Lineage.RunID != "run-1" || got.Lineage.ActivityID == nil || *got.Lineage.ActivityID != "C-XYZ" {
+		t.Fatalf("Lineage = %+v, want {wf-1 run-1 C-XYZ}", got.Lineage)
+	}
+	if got.WorkerClass == nil || *got.WorkerClass != "senior-developer" {
+		t.Fatalf("WorkerClass = %v", got.WorkerClass)
+	}
+	if got.Model == nil || *got.Model != "claude-sonnet-5" {
+		t.Fatalf("Model = %v", got.Model)
+	}
+}
+
+func assertSampleEpisodeRecordUsage(t *testing.T, got EpisodeRecordView) {
+	t.Helper()
+	if got.Usage != (EpisodeUsage{In: 1000, Out: 500, CacheRead: 100, CacheCreate: 50}) {
+		t.Fatalf("Usage = %+v", got.Usage)
+	}
+	if got.StreamedUsage == nil || *got.StreamedUsage != (EpisodeUsage{In: 100, Out: 50, CacheRead: 10, CacheCreate: 5}) {
+		t.Fatalf("StreamedUsage = %v", got.StreamedUsage)
+	}
+	if got.CostUSD == nil || *got.CostUSD != 0.42 {
+		t.Fatalf("CostUSD = %v", got.CostUSD)
+	}
+	if got.NumTurns == nil || *got.NumTurns != 7 {
+		t.Fatalf("NumTurns = %v", got.NumTurns)
+	}
+	if got.ToolCallCounts["Read"] != 3 || got.ToolCallCounts["Edit"] != 2 {
+		t.Fatalf("ToolCallCounts = %v", got.ToolCallCounts)
+	}
+	if len(got.SubagentSpans) != 1 || got.SubagentSpans[0].ToolUseID != "toolu_1" {
+		t.Fatalf("SubagentSpans = %+v", got.SubagentSpans)
+	}
+}
+
+func assertSampleEpisodeRecordOutcome(t *testing.T, got EpisodeRecordView, id string) {
+	t.Helper()
+	if got.Outcome != EpisodeGap {
+		t.Fatalf("Outcome = %v, want EpisodeGap", got.Outcome)
+	}
+	if got.GapReason == nil || *got.GapReason != "the run reported a gap episode" {
+		t.Fatalf("GapReason = %v", got.GapReason)
+	}
+	if got.TracePath == nil || *got.TracePath != ".aiarch/state/episodes/traces/"+id+".jsonl" {
+		t.Fatalf("TracePath = %v", got.TracePath)
+	}
+}
+
+// ---- ListEpisodesForArtifact -------------------------------------------------
+
+func Test_ListEpisodesForArtifact_MapsRecordsWithTargetRef(t *testing.T) {
+	eps := &fakeEpisodes{listRecords: []episode.EpisodeRecord{
+		sampleEpisodeRecord("ep-1", "mission"),
+	}}
+	m := episodeMgr(eps)
+
+	got, err := m.ListEpisodesForArtifact(bgRC(), ProjectID("proj-1"), "mission")
+	if err != nil {
+		t.Fatalf("ListEpisodesForArtifact: unexpected error: %v", err)
+	}
+	if eps.lastQuery.ProjectID != episode.ProjectID("proj-1") {
+		t.Fatalf("ListEpisodes query ProjectID = %q, want proj-1", eps.lastQuery.ProjectID)
+	}
+	if eps.lastQuery.TargetRef == nil || *eps.lastQuery.TargetRef != "mission" {
+		t.Fatalf("ListEpisodes query TargetRef = %v, want *\"mission\" (scoped by artifactKind)", eps.lastQuery.TargetRef)
+	}
+	if len(got) != 1 {
+		t.Fatalf("ListEpisodesForArtifact: got %d records, want 1", len(got))
+	}
+	assertSampleEpisodeRecordView(t, got[0], "ep-1", "mission")
+}
+
+func Test_ListEpisodesForArtifact_EmptyProjectID_ContractMisuse(t *testing.T) {
+	m := episodeMgr(&fakeEpisodes{})
+	_, err := m.ListEpisodesForArtifact(bgRC(), ProjectID(""), "mission")
+	if got := asSystemDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
+		t.Fatalf("want ContractMisuse, got %d", got)
+	}
+}
+
+func Test_ListEpisodesForArtifact_EmptyArtifactKind_ContractMisuse(t *testing.T) {
+	m := episodeMgr(&fakeEpisodes{})
+	_, err := m.ListEpisodesForArtifact(bgRC(), ProjectID("proj-1"), "")
+	if got := asSystemDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
+		t.Fatalf("want ContractMisuse, got %d", got)
+	}
+}
+
+func Test_ListEpisodesForArtifact_RAError_MapsInfrastructure(t *testing.T) {
+	eps := &fakeEpisodes{listErr: fwra.New(fwra.Infrastructure, "ledger unavailable")}
+	m := episodeMgr(eps)
+	_, err := m.ListEpisodesForArtifact(bgRC(), ProjectID("proj-1"), "mission")
+	if got := asSystemDesignError(t, err).Kind; got != fwmanager.Infrastructure {
+		t.Fatalf("want Infrastructure, got %d", got)
+	}
+}
+
+// ---- GetEpisodeTimeline ------------------------------------------------------
+
+func Test_GetEpisodeTimeline_StitchesSequentialEventsWithTypes(t *testing.T) {
+	eps := &fakeEpisodes{
+		listRecords: []episode.EpisodeRecord{sampleEpisodeRecord("ep-1", "mission")},
+		traceEvents: []json.RawMessage{
+			json.RawMessage(`{"type":"system","subtype":"init"}`),
+			json.RawMessage(`{"type":"assistant"}`),
+			json.RawMessage(`not-json`),
+		},
+	}
+	m := episodeMgr(eps)
+
+	got, err := m.GetEpisodeTimeline(bgRC(), ProjectID("proj-1"), "ep-1")
+	if err != nil {
+		t.Fatalf("GetEpisodeTimeline: unexpected error: %v", err)
+	}
+	// GetEpisodeTimeline resolves the record by scanning EVERY target on the
+	// project (episodeAccess has no by-id lookup) — the query must carry no
+	// TargetRef.
+	if eps.lastQuery.TargetRef != nil {
+		t.Fatalf("ListEpisodes query TargetRef = %v, want nil (whole-project scan)", eps.lastQuery.TargetRef)
+	}
+	assertSampleEpisodeRecordView(t, got.Record, "ep-1", "mission")
+
+	if eps.lastTraceProjectID != episode.ProjectID("proj-1") || eps.lastTraceEpisodeID != "ep-1" {
+		t.Fatalf("ReadTraceEvents args = (%q, %q), want (proj-1, ep-1)", eps.lastTraceProjectID, eps.lastTraceEpisodeID)
+	}
+	if len(got.Events) != 3 {
+		t.Fatalf("Events: got %d, want 3", len(got.Events))
+	}
+	wantTypes := []string{"system", "assistant", "unknown"}
+	for i, ev := range got.Events {
+		if ev.Seq != int64(i+1) {
+			t.Fatalf("Events[%d].Seq = %d, want %d (1-based sequential)", i, ev.Seq, i+1)
+		}
+		if ev.EventType != wantTypes[i] {
+			t.Fatalf("Events[%d].EventType = %q, want %q", i, ev.EventType, wantTypes[i])
+		}
+		if ev.Raw == nil || string(*ev.Raw) != string(eps.traceEvents[i]) {
+			t.Fatalf("Events[%d].Raw = %v, want %s (carried verbatim)", i, ev.Raw, eps.traceEvents[i])
+		}
+	}
+}
+
+func Test_GetEpisodeTimeline_UnknownEpisodeID_NotFound(t *testing.T) {
+	eps := &fakeEpisodes{listRecords: []episode.EpisodeRecord{sampleEpisodeRecord("ep-1", "mission")}}
+	m := episodeMgr(eps)
+
+	_, err := m.GetEpisodeTimeline(bgRC(), ProjectID("proj-1"), "ep-does-not-exist")
+	if got := asSystemDesignError(t, err).Kind; got != fwmanager.NotFound {
+		t.Fatalf("want NotFound, got %d", got)
+	}
+	if eps.lastTraceEpisodeID != "" {
+		t.Fatalf("ReadTraceEvents must not be called when the episode is unresolved, got episodeID=%q", eps.lastTraceEpisodeID)
+	}
+}
+
+func Test_GetEpisodeTimeline_EmptyProjectID_ContractMisuse(t *testing.T) {
+	m := episodeMgr(&fakeEpisodes{})
+	_, err := m.GetEpisodeTimeline(bgRC(), ProjectID(""), "ep-1")
+	if got := asSystemDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
+		t.Fatalf("want ContractMisuse, got %d", got)
+	}
+}
+
+func Test_GetEpisodeTimeline_EmptyEpisodeID_ContractMisuse(t *testing.T) {
+	m := episodeMgr(&fakeEpisodes{})
+	_, err := m.GetEpisodeTimeline(bgRC(), ProjectID("proj-1"), "")
+	if got := asSystemDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
+		t.Fatalf("want ContractMisuse, got %d", got)
+	}
+}
+
+func Test_GetEpisodeTimeline_ListError_MapsInfrastructure(t *testing.T) {
+	eps := &fakeEpisodes{listErr: fwra.New(fwra.Infrastructure, "ledger unavailable")}
+	m := episodeMgr(eps)
+	_, err := m.GetEpisodeTimeline(bgRC(), ProjectID("proj-1"), "ep-1")
+	if got := asSystemDesignError(t, err).Kind; got != fwmanager.Infrastructure {
+		t.Fatalf("want Infrastructure, got %d", got)
+	}
+}
+
+func Test_GetEpisodeTimeline_TraceReadError_MapsInfrastructure(t *testing.T) {
+	eps := &fakeEpisodes{
+		listRecords: []episode.EpisodeRecord{sampleEpisodeRecord("ep-1", "mission")},
+		traceErr:    fwra.New(fwra.Infrastructure, "trace file unavailable"),
+	}
+	m := episodeMgr(eps)
+	_, err := m.GetEpisodeTimeline(bgRC(), ProjectID("proj-1"), "ep-1")
+	if got := asSystemDesignError(t, err).Kind; got != fwmanager.Infrastructure {
+		t.Fatalf("want Infrastructure, got %d", got)
 	}
 }

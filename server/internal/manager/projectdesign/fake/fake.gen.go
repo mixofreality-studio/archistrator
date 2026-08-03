@@ -11,15 +11,17 @@ import (
 // FakeProjectDesignManager is a generated test double for projectdesign.ProjectDesignManager: set the Fn field(s)
 // a test needs; calling a method whose Fn is unset panics.
 type FakeProjectDesignManager struct {
-	AdvanceToConstructionFn  func(rc fwm.Context, projectID projectdesign.ProjectID, acknowledgeStale bool) (projectdesign.PhaseAdvanceResult, error)
-	GetSessionStateFn        func(rc fwm.Context, projectID projectdesign.ProjectID, kind projectdesign.ArtifactKind) (projectdesign.SessionStateView, error)
-	RequestArtifactDraftFn   func(rc fwm.Context, projectID projectdesign.ProjectID, kind projectdesign.ArtifactKind, feedback *projectdesign.ReviewFeedback) (projectdesign.SessionRef, error)
-	RequestSDPCommitFn       func(rc fwm.Context, projectID projectdesign.ProjectID) (projectdesign.SessionRef, error)
-	AskQuestionsFn           func(rc fwm.Context, projectID projectdesign.ProjectID, kind projectdesign.ArtifactKind, addressee string, questions []projectdesign.AnchoredComment) error
-	AcknowledgeStaleBasisFn  func(rc fwm.Context, projectID projectdesign.ProjectID, kind projectdesign.ArtifactKind, note string) error
-	SetReviewCommentStatusFn func(rc fwm.Context, projectID projectdesign.ProjectID, kind projectdesign.ArtifactKind, commentID string, status string) error
-	SubmitReviewDecisionFn   func(rc fwm.Context, projectID projectdesign.ProjectID, kind projectdesign.ArtifactKind, decision projectdesign.ReviewDecision, feedback *projectdesign.ReviewFeedback) error
-	SubmitSDPDecisionFn      func(rc fwm.Context, projectID projectdesign.ProjectID, decision projectdesign.SDPDecision, optionID *projectdesign.OptionID, feedback *projectdesign.ReviewFeedback) error
+	AdvanceToConstructionFn   func(rc fwm.Context, projectID projectdesign.ProjectID, acknowledgeStale bool) (projectdesign.PhaseAdvanceResult, error)
+	GetSessionStateFn         func(rc fwm.Context, projectID projectdesign.ProjectID, kind projectdesign.ArtifactKind) (projectdesign.SessionStateView, error)
+	RequestArtifactDraftFn    func(rc fwm.Context, projectID projectdesign.ProjectID, kind projectdesign.ArtifactKind, feedback *projectdesign.ReviewFeedback) (projectdesign.SessionRef, error)
+	RequestSDPCommitFn        func(rc fwm.Context, projectID projectdesign.ProjectID) (projectdesign.SessionRef, error)
+	AskQuestionsFn            func(rc fwm.Context, projectID projectdesign.ProjectID, kind projectdesign.ArtifactKind, addressee string, questions []projectdesign.AnchoredComment) error
+	AcknowledgeStaleBasisFn   func(rc fwm.Context, projectID projectdesign.ProjectID, kind projectdesign.ArtifactKind, note string) error
+	SetReviewCommentStatusFn  func(rc fwm.Context, projectID projectdesign.ProjectID, kind projectdesign.ArtifactKind, commentID string, status string) error
+	SubmitReviewDecisionFn    func(rc fwm.Context, projectID projectdesign.ProjectID, kind projectdesign.ArtifactKind, decision projectdesign.ReviewDecision, feedback *projectdesign.ReviewFeedback) error
+	SubmitSDPDecisionFn       func(rc fwm.Context, projectID projectdesign.ProjectID, decision projectdesign.SDPDecision, optionID *projectdesign.OptionID, feedback *projectdesign.ReviewFeedback) error
+	ListEpisodesForArtifactFn func(rc fwm.Context, projectID projectdesign.ProjectID, artifactKind string) ([]projectdesign.EpisodeRecordView, error)
+	GetEpisodeTimelineFn      func(rc fwm.Context, projectID projectdesign.ProjectID, episodeID string) (projectdesign.EpisodeTimeline, error)
 }
 
 func (f *FakeProjectDesignManager) AdvanceToConstruction(rc fwm.Context, projectID projectdesign.ProjectID, acknowledgeStale bool) (projectdesign.PhaseAdvanceResult, error) {
@@ -83,6 +85,20 @@ func (f *FakeProjectDesignManager) SubmitSDPDecision(rc fwm.Context, projectID p
 		panic("FakeProjectDesignManager.SubmitSDPDecisionFn not set")
 	}
 	return f.SubmitSDPDecisionFn(rc, projectID, decision, optionID, feedback)
+}
+
+func (f *FakeProjectDesignManager) ListEpisodesForArtifact(rc fwm.Context, projectID projectdesign.ProjectID, artifactKind string) ([]projectdesign.EpisodeRecordView, error) {
+	if f.ListEpisodesForArtifactFn == nil {
+		panic("FakeProjectDesignManager.ListEpisodesForArtifactFn not set")
+	}
+	return f.ListEpisodesForArtifactFn(rc, projectID, artifactKind)
+}
+
+func (f *FakeProjectDesignManager) GetEpisodeTimeline(rc fwm.Context, projectID projectdesign.ProjectID, episodeID string) (projectdesign.EpisodeTimeline, error) {
+	if f.GetEpisodeTimelineFn == nil {
+		panic("FakeProjectDesignManager.GetEpisodeTimelineFn not set")
+	}
+	return f.GetEpisodeTimelineFn(rc, projectID, episodeID)
 }
 
 var _ projectdesign.ProjectDesignManager = (*FakeProjectDesignManager)(nil)

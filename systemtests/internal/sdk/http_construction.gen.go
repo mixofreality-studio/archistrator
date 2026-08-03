@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 )
 
 // ConstructionExecuteNextActivityRequest is the JSON request body for ConstructionExecuteNextActivity.
@@ -97,4 +98,26 @@ type ConstructionUpdateReviewPolicyRequest struct {
 func (c *HTTPClient) ConstructionUpdateReviewPolicy(ctx context.Context, projectID ProjectID, policy ReviewPolicyInput) error {
 	path := fmt.Sprintf("/api/v1/construction/update-review-policy/%s", projectID)
 	return c.doRequest(ctx, http.MethodPost, path, ConstructionUpdateReviewPolicyRequest{Policy: policy}, nil, http.StatusNoContent)
+}
+
+// ConstructionListEpisodesForActivity calls the ListEpisodesForActivity operation on the Construction manager over HTTP.
+func (c *HTTPClient) ConstructionListEpisodesForActivity(ctx context.Context, projectID ProjectID, activityID string) ([]EpisodeRecordView, error) {
+	path := fmt.Sprintf("/api/v1/construction/list-episodes-for-activity/%s", projectID)
+	q := url.Values{}
+	q.Set("activityID", fmt.Sprint(activityID))
+	path += "?" + q.Encode()
+	var out []EpisodeRecordView
+	err := c.doRequest(ctx, http.MethodGet, path, nil, &out, http.StatusOK)
+	return out, err
+}
+
+// ConstructionGetEpisodeTimeline calls the GetEpisodeTimeline operation on the Construction manager over HTTP.
+func (c *HTTPClient) ConstructionGetEpisodeTimeline(ctx context.Context, projectID ProjectID, episodeID string) (EpisodeTimeline, error) {
+	path := fmt.Sprintf("/api/v1/construction/get-episode-timeline/%s", projectID)
+	q := url.Values{}
+	q.Set("episodeID", fmt.Sprint(episodeID))
+	path += "?" + q.Encode()
+	var out EpisodeTimeline
+	err := c.doRequest(ctx, http.MethodGet, path, nil, &out, http.StatusOK)
+	return out, err
 }

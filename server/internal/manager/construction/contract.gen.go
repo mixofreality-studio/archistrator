@@ -4,6 +4,7 @@
 package construction
 
 import (
+	"encoding/json"
 	fwm "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/review"
@@ -51,6 +52,63 @@ const (
 	StageExited              ConstructionStage = 6
 	StageAwaitingApproval    ConstructionStage = 7
 )
+
+type EpisodeKind int
+
+const (
+	EpisodeKindDesign       EpisodeKind = 0
+	EpisodeKindConstruction EpisodeKind = 1
+	EpisodeKindReview       EpisodeKind = 2
+	EpisodeKindRework       EpisodeKind = 3
+	EpisodeKindAnswer       EpisodeKind = 4
+)
+
+type EpisodeLineage struct {
+	WorkflowID string  `json:"workflowId"`
+	RunID      string  `json:"runId"`
+	ActivityID *string `json:"activityId,omitempty"`
+}
+
+type EpisodeOutcome int
+
+const (
+	EpisodeSucceeded EpisodeOutcome = 0
+	EpisodeFailed    EpisodeOutcome = 1
+	EpisodeCancelled EpisodeOutcome = 2
+	EpisodeGap       EpisodeOutcome = 3
+)
+
+type EpisodeRecordView struct {
+	EpisodeID      string           `json:"episodeId"`
+	Kind           EpisodeKind      `json:"kind"`
+	TargetRef      string           `json:"targetRef"`
+	Lineage        *EpisodeLineage  `json:"lineage,omitempty"`
+	WorkerClass    *string          `json:"workerClass,omitempty"`
+	Model          *string          `json:"model,omitempty"`
+	Usage          EpisodeUsage     `json:"usage"`
+	StreamedUsage  *EpisodeUsage    `json:"streamedUsage,omitempty"`
+	CostUSD        *float64         `json:"costUsd,omitempty"`
+	NumTurns       *int64           `json:"numTurns,omitempty"`
+	ToolCallCounts map[string]int64 `json:"toolCallCounts,omitempty"`
+	SubagentSpans  []SubagentSpan   `json:"subagentSpans,omitempty"`
+	StartedAt      time.Time        `json:"startedAt"`
+	EndedAt        time.Time        `json:"endedAt"`
+	Outcome        EpisodeOutcome   `json:"outcome"`
+	GapReason      *string          `json:"gapReason,omitempty"`
+	TracePath      *string          `json:"tracePath,omitempty"`
+}
+
+type EpisodeTimeline struct {
+	Record EpisodeRecordView `json:"record"`
+	Events []TimelineEvent   `json:"events"`
+}
+
+type EpisodeUsage struct {
+	In          int64 `json:"in"`
+	Out         int64 `json:"out"`
+	CacheRead   int64 `json:"cacheRead"`
+	CacheCreate int64 `json:"cacheCreate"`
+}
 
 type FlaggedVariance struct {
 	ProjectID  ProjectID  `json:"projectId"`
@@ -118,6 +176,18 @@ type Reviewer struct {
 	MayAmend          bool    `json:"mayAmend"`
 }
 
+type SubagentSpan struct {
+	ToolUseID string     `json:"toolUseId"`
+	StartedAt *time.Time `json:"startedAt,omitempty"`
+	EndedAt   *time.Time `json:"endedAt,omitempty"`
+}
+
+type TimelineEvent struct {
+	Seq       int64            `json:"seq"`
+	EventType string           `json:"eventType"`
+	Raw       *json.RawMessage `json:"raw,omitempty"`
+}
+
 // ConstructionManager is the generated service-contract interface for this component.
 type ConstructionManager interface {
 	ExecuteNextActivity(rc fwm.Context, projectID ProjectID, tickID string) (PumpResult, error)
@@ -128,6 +198,8 @@ type ConstructionManager interface {
 	SetReviewPolicy(rc fwm.Context, projectID ProjectID, preset string) error
 	SubmitPhaseDecision(rc fwm.Context, projectID ProjectID, activityID ActivityID, phase string, decision PhaseDecision, feedback *ReviewFeedback) error
 	UpdateReviewPolicy(rc fwm.Context, projectID ProjectID, policy ReviewPolicyInput) error
+	ListEpisodesForActivity(rc fwm.Context, projectID ProjectID, activityID string) ([]EpisodeRecordView, error)
+	GetEpisodeTimeline(rc fwm.Context, projectID ProjectID, episodeID string) (EpisodeTimeline, error)
 }
 
 // NewConstructionManager constructs the ConstructionManager, delegating to the hand-written, unexported

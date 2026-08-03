@@ -4,6 +4,7 @@ package sdk
 
 import (
 	"encoding/json"
+	"time"
 )
 
 type ActiveRole int
@@ -48,6 +49,63 @@ const (
 type DraftModel struct {
 	Kind  string           `json:"kind"`
 	Model *json.RawMessage `json:"model,omitempty"`
+}
+
+type EpisodeKind int
+
+const (
+	EpisodeKindDesign       EpisodeKind = 0
+	EpisodeKindConstruction EpisodeKind = 1
+	EpisodeKindReview       EpisodeKind = 2
+	EpisodeKindRework       EpisodeKind = 3
+	EpisodeKindAnswer       EpisodeKind = 4
+)
+
+type EpisodeLineage struct {
+	WorkflowID string  `json:"workflowId"`
+	RunID      string  `json:"runId"`
+	ActivityID *string `json:"activityId,omitempty"`
+}
+
+type EpisodeOutcome int
+
+const (
+	EpisodeSucceeded EpisodeOutcome = 0
+	EpisodeFailed    EpisodeOutcome = 1
+	EpisodeCancelled EpisodeOutcome = 2
+	EpisodeGap       EpisodeOutcome = 3
+)
+
+type EpisodeRecordView struct {
+	EpisodeID      string           `json:"episodeId"`
+	Kind           EpisodeKind      `json:"kind"`
+	TargetRef      string           `json:"targetRef"`
+	Lineage        *EpisodeLineage  `json:"lineage,omitempty"`
+	WorkerClass    *string          `json:"workerClass,omitempty"`
+	Model          *string          `json:"model,omitempty"`
+	Usage          EpisodeUsage     `json:"usage"`
+	StreamedUsage  *EpisodeUsage    `json:"streamedUsage,omitempty"`
+	CostUSD        *float64         `json:"costUsd,omitempty"`
+	NumTurns       *int64           `json:"numTurns,omitempty"`
+	ToolCallCounts map[string]int64 `json:"toolCallCounts,omitempty"`
+	SubagentSpans  []SubagentSpan   `json:"subagentSpans,omitempty"`
+	StartedAt      time.Time        `json:"startedAt"`
+	EndedAt        time.Time        `json:"endedAt"`
+	Outcome        EpisodeOutcome   `json:"outcome"`
+	GapReason      *string          `json:"gapReason,omitempty"`
+	TracePath      *string          `json:"tracePath,omitempty"`
+}
+
+type EpisodeTimeline struct {
+	Record EpisodeRecordView `json:"record"`
+	Events []TimelineEvent   `json:"events"`
+}
+
+type EpisodeUsage struct {
+	In          int64 `json:"in"`
+	Out         int64 `json:"out"`
+	CacheRead   int64 `json:"cacheRead"`
+	CacheCreate int64 `json:"cacheCreate"`
 }
 
 type Finding struct {
@@ -102,6 +160,18 @@ const (
 	SeverityWarning Severity = "warning"
 	SeverityError   Severity = "error"
 )
+
+type SubagentSpan struct {
+	ToolUseID string     `json:"toolUseId"`
+	StartedAt *time.Time `json:"startedAt,omitempty"`
+	EndedAt   *time.Time `json:"endedAt,omitempty"`
+}
+
+type TimelineEvent struct {
+	Seq       int64            `json:"seq"`
+	EventType string           `json:"eventType"`
+	Raw       *json.RawMessage `json:"raw,omitempty"`
+}
 
 // ActiveRoleName returns the declared varname of a ActiveRole value.
 func ActiveRoleName(v ActiveRole) string {
@@ -170,6 +240,40 @@ func ArtifactKindName(v ArtifactKind) string {
 		return "KindRiskModel"
 	case KindSdpReview:
 		return "KindSdpReview"
+	default:
+		return ""
+	}
+}
+
+// EpisodeKindName returns the declared varname of a EpisodeKind value.
+func EpisodeKindName(v EpisodeKind) string {
+	switch v {
+	case EpisodeKindDesign:
+		return "EpisodeKindDesign"
+	case EpisodeKindConstruction:
+		return "EpisodeKindConstruction"
+	case EpisodeKindReview:
+		return "EpisodeKindReview"
+	case EpisodeKindRework:
+		return "EpisodeKindRework"
+	case EpisodeKindAnswer:
+		return "EpisodeKindAnswer"
+	default:
+		return ""
+	}
+}
+
+// EpisodeOutcomeName returns the declared varname of a EpisodeOutcome value.
+func EpisodeOutcomeName(v EpisodeOutcome) string {
+	switch v {
+	case EpisodeSucceeded:
+		return "EpisodeSucceeded"
+	case EpisodeFailed:
+		return "EpisodeFailed"
+	case EpisodeCancelled:
+		return "EpisodeCancelled"
+	case EpisodeGap:
+		return "EpisodeGap"
 	default:
 		return ""
 	}

@@ -121,3 +121,25 @@ func (c *HTTPClient) ProjectDesignSubmitSDPDecision(ctx context.Context, project
 	path := fmt.Sprintf("/api/v1/project-design/submit-sdp-decision/%s/%s", projectID, optionID)
 	return c.doRequest(ctx, http.MethodPost, path, ProjectDesignSubmitSDPDecisionRequest{Decision: decision, Feedback: feedback}, nil, http.StatusNoContent)
 }
+
+// ProjectDesignListEpisodesForArtifact calls the ListEpisodesForArtifact operation on the ProjectDesign manager over HTTP.
+func (c *HTTPClient) ProjectDesignListEpisodesForArtifact(ctx context.Context, projectID ProjectID, artifactKind string) ([]EpisodeRecordView, error) {
+	path := fmt.Sprintf("/api/v1/project-design/list-episodes-for-artifact/%s", projectID)
+	q := url.Values{}
+	q.Set("artifactKind", fmt.Sprint(artifactKind))
+	path += "?" + q.Encode()
+	var out []EpisodeRecordView
+	err := c.doRequest(ctx, http.MethodGet, path, nil, &out, http.StatusOK)
+	return out, err
+}
+
+// ProjectDesignGetEpisodeTimeline calls the GetEpisodeTimeline operation on the ProjectDesign manager over HTTP.
+func (c *HTTPClient) ProjectDesignGetEpisodeTimeline(ctx context.Context, projectID ProjectID, episodeID string) (EpisodeTimeline, error) {
+	path := fmt.Sprintf("/api/v1/project-design/get-episode-timeline/%s", projectID)
+	q := url.Values{}
+	q.Set("episodeID", fmt.Sprint(episodeID))
+	path += "?" + q.Encode()
+	var out EpisodeTimeline
+	err := c.doRequest(ctx, http.MethodGet, path, nil, &out, http.StatusOK)
+	return out, err
+}

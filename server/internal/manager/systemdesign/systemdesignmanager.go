@@ -4270,3 +4270,200 @@ func RegisterManagerWorker(w worker.Worker, m SystemDesignManager) {
 	}
 	RegisterWorker(w, impl.WorkerManifest())
 }
+
+// ---------------------------------------------------------------------------
+// Episode facet read ops (SP1 capture-seam, Task 9 — founder ruling 2026-08-02:
+// episode observability is a facet of the existing use cases, not a new
+// episodeManager). Both ops are PLAIN METHODS that consult episodeAccess directly
+// — no Temporal — the same shape as ListProjects/GetProject above. The whole-
+// project exportEpisodes op is cut from v1 (per-target export is client-side,
+// Task 10).
+// ---------------------------------------------------------------------------
+
+// ListEpisodesForArtifact returns every episode record (design/review/rework runs,
+// or gaps) captured against one System-Design artifact, in episodeAccess's own
+// (append) order. A pass-through over episodeAccess.ListEpisodes scoped by
+// TargetRef=artifactKind, mapped to the contract EpisodeRecordView.
+func (m *systemDesignManager) ListEpisodesForArtifact(rc fwmanager.Context, projectID ProjectID, artifactKind string) ([]EpisodeRecordView, error) {
+	ctx := rc.Context
+	if projectID == "" {
+		return nil, newError(fwmanager.ContractMisuse, "empty projectId")
+	}
+	if artifactKind == "" {
+		return nil, newError(fwmanager.ContractMisuse, "empty artifactKind")
+	}
+	records, err := m.episodes.ListEpisodes(fwra.Context{Context: ctx}, episode.EpisodeQuery{
+		ProjectID: episode.ProjectID(projectID),
+		TargetRef: &artifactKind,
+	})
+	if err != nil {
+		return nil, mapRAError(err, "episodeAccess.ListEpisodes")
+	}
+	return episodeRecordViews(records), nil
+}
+
+// GetEpisodeTimeline returns one episode's full timeline: its ledger record plus
+// the sequenced trace events mined from its run. NotFound if episodeID does not
+// name a record on this project.
+func (m *systemDesignManager) GetEpisodeTimeline(rc fwmanager.Context, projectID ProjectID, episodeID string) (EpisodeTimeline, error) {
+	ctx := rc.Context
+	if projectID == "" {
+		return EpisodeTimeline{}, newError(fwmanager.ContractMisuse, "empty projectId")
+	}
+	if episodeID == "" {
+		return EpisodeTimeline{}, newError(fwmanager.ContractMisuse, "empty episodeId")
+	}
+	// ListEpisodes has no by-id lookup (episodeAccess.md — the ledger is append-
+	// scanned by TargetRef); querying with no TargetRef and finding the one record
+	// whose EpisodeID matches is the only way to resolve one episode across every
+	// target on the project.
+	records, err := m.episodes.ListEpisodes(fwra.Context{Context: ctx}, episode.EpisodeQuery{ProjectID: episode.ProjectID(projectID)})
+	if err != nil {
+		return EpisodeTimeline{}, mapRAError(err, "episodeAccess.ListEpisodes")
+	}
+	rec, ok := findEpisodeRecord(records, episodeID)
+	if !ok {
+		return EpisodeTimeline{}, newError(fwmanager.NotFound, fmt.Sprintf("episode %q not found", episodeID))
+	}
+	raw, err := m.episodes.ReadTraceEvents(fwra.Context{Context: ctx}, episode.ProjectID(projectID), episodeID)
+	if err != nil {
+		return EpisodeTimeline{}, mapRAError(err, "episodeAccess.ReadTraceEvents")
+	}
+	return EpisodeTimeline{
+		Record: episodeRecordToView(rec),
+		Events: episodeTimelineEvents(raw),
+	}, nil
+}
+
+// findEpisodeRecord returns the record whose EpisodeID matches id, if any.
+func findEpisodeRecord(records []episode.EpisodeRecord, id string) (episode.EpisodeRecord, bool) {
+	for _, r := range records {
+		if r.EpisodeID == id {
+			return r, true
+		}
+	}
+	return episode.EpisodeRecord{}, false
+}
+
+// episodeRecordViews maps a slice of ledger records onto the contract view type.
+func episodeRecordViews(records []episode.EpisodeRecord) []EpisodeRecordView {
+	out := make([]EpisodeRecordView, 0, len(records))
+	for _, r := range records {
+		out = append(out, episodeRecordToView(r))
+	}
+	return out
+}
+
+// episodeRecordToView maps one episodeAccess ledger record onto this contract's
+// OWN copy of the view shape (EpisodeRecordView mirrors episodeAccess.EpisodeRecord
+// field-for-field; contracts are self-contained, so this is an intentional
+// duplicate of the mapping episodeAccess itself owns, not a shared function).
+func episodeRecordToView(r episode.EpisodeRecord) EpisodeRecordView {
+	v := EpisodeRecordView{
+		EpisodeID:      r.EpisodeID,
+		Kind:           episodeViewKind(r.Kind),
+		TargetRef:      r.TargetRef,
+		WorkerClass:    r.WorkerClass,
+		Model:          r.Model,
+		Usage:          EpisodeUsage(r.Usage),
+		CostUSD:        r.CostUSD,
+		NumTurns:       r.NumTurns,
+		ToolCallCounts: r.ToolCallCounts,
+		StartedAt:      r.StartedAt,
+		EndedAt:        r.EndedAt,
+		Outcome:        episodeViewOutcome(r.Outcome),
+		GapReason:      r.GapReason,
+		TracePath:      r.TracePath,
+	}
+	if r.Lineage != nil {
+		l := EpisodeLineage(*r.Lineage)
+		v.Lineage = &l
+	}
+	if r.StreamedUsage != nil {
+		u := EpisodeUsage(*r.StreamedUsage)
+		v.StreamedUsage = &u
+	}
+	if len(r.SubagentSpans) > 0 {
+		spans := make([]SubagentSpan, 0, len(r.SubagentSpans))
+		for _, s := range r.SubagentSpans {
+			spans = append(spans, SubagentSpan(s))
+		}
+		v.SubagentSpans = spans
+	}
+	return v
+}
+
+// episodeViewKind maps the episodeAccess RA's Kind onto this contract's own copy
+// of the enum. Written as a TOTAL switch rather than a numeric cast so a future
+// divergence between the two independently-versioned contracts is a compile-time
+// conversation, not silent drift (mirrors episodeOutcomeFrom above).
+func episodeViewKind(k episode.EpisodeKind) EpisodeKind {
+	switch k {
+	case episode.EpisodeKindDesign:
+		return EpisodeKindDesign
+	case episode.EpisodeKindConstruction:
+		return EpisodeKindConstruction
+	case episode.EpisodeKindReview:
+		return EpisodeKindReview
+	case episode.EpisodeKindRework:
+		return EpisodeKindRework
+	case episode.EpisodeKindAnswer:
+		return EpisodeKindAnswer
+	default:
+		// Unreachable for the five defined episode.EpisodeKind values above (the
+		// exhaustive linter enforces that every real variant has its own case);
+		// kept as a defensive fallback for an out-of-range ordinal.
+		return EpisodeKindDesign
+	}
+}
+
+// episodeViewOutcome maps the episodeAccess RA's Outcome onto this contract's own
+// copy of the enum. Same total-switch rationale as episodeViewKind.
+func episodeViewOutcome(o episode.EpisodeOutcome) EpisodeOutcome {
+	switch o {
+	case episode.EpisodeSucceeded:
+		return EpisodeSucceeded
+	case episode.EpisodeFailed:
+		return EpisodeFailed
+	case episode.EpisodeCancelled:
+		return EpisodeCancelled
+	case episode.EpisodeGap:
+		return EpisodeGap
+	default:
+		// Unreachable for the four defined episode.EpisodeOutcome values above;
+		// defensive fallback for an out-of-range ordinal (mirrors episodeOutcomeFrom's
+		// own default, which also lands on the "gap" reading — the safe direction).
+		return EpisodeGap
+	}
+}
+
+// episodeTimelineEvents stitches the raw trace lines mined from episodeAccess into
+// sequenced TimelineEvents: seq is 1-based and positional (the ledger's own
+// ordering — trace files are append-only), eventType is lifted from each line's
+// top-level "type" field (the same field streamEvent.Type reads off the CLI's
+// stream-json protocol), and raw is carried through verbatim for the UI.
+func episodeTimelineEvents(raw []json.RawMessage) []TimelineEvent {
+	events := make([]TimelineEvent, 0, len(raw))
+	for i := range raw {
+		events = append(events, TimelineEvent{
+			Seq:       int64(i + 1),
+			EventType: episodeTraceEventType(raw[i]),
+			Raw:       &raw[i],
+		})
+	}
+	return events
+}
+
+// episodeTraceEventType extracts the "type" field from one raw trace event line.
+// A line that fails to decode, or decodes with no "type", maps to "unknown"
+// rather than failing the whole timeline — a partially-corrupt trace still owes
+// every OTHER event its identity.
+func episodeTraceEventType(raw json.RawMessage) string {
+	var probe struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(raw, &probe); err != nil || probe.Type == "" {
+		return "unknown"
+	}
+	return probe.Type
+}

@@ -34,6 +34,8 @@ func (h *Handler) Register(srv *mcp.Server) {
 	mcp.AddTool(srv, &mcp.Tool{Name: "projectDesignSetReviewCommentStatus", Description: "Change the status of one durable review-ledger comment on a Project-Design artifact (selected by kind): waive an open comment to dismiss it, or reopen an addressed comment to send it back. Approve is blocked while any comment is still open.", InputSchema: setReviewCommentStatusInputSchema(), OutputSchema: setReviewCommentStatusOutputSchema()}, h.handleSetReviewCommentStatus)
 	mcp.AddTool(srv, &mcp.Tool{Name: "projectDesignSubmitReviewDecision", Description: "Record a review verdict (approve / reject / withdraw) on the current draft of a Project-Design artifact (selected by kind). Reject and withdraw should carry feedback; approve commits the artifact.", InputSchema: submitReviewDecisionInputSchema(), OutputSchema: submitReviewDecisionOutputSchema()}, h.handleSubmitReviewDecision)
 	mcp.AddTool(srv, &mcp.Tool{Name: "projectDesignSubmitSDPDecision", Description: "Record management's decision on the SDP Review: commit one solution option (pass its optionID) or reject all options. Pass feedback to record the rationale.", InputSchema: submitSDPDecisionInputSchema(), OutputSchema: submitSDPDecisionOutputSchema()}, h.handleSubmitSDPDecision)
+	mcp.AddTool(srv, &mcp.Tool{Name: "projectDesignListEpisodesForArtifact", Description: "List the agentic episode records (draft/critique/rework runs, or gaps) captured against one Project-Design artifact (selected by kind). Read-only.", InputSchema: listEpisodesForArtifactInputSchema(), OutputSchema: listEpisodesForArtifactOutputSchema()}, h.handleListEpisodesForArtifact)
+	mcp.AddTool(srv, &mcp.Tool{Name: "projectDesignGetEpisodeTimeline", Description: "Return one agentic episode's full timeline: its record (usage, cost, outcome, lineage) plus the sequenced trace events mined from its run. Read-only.", InputSchema: getEpisodeTimelineInputSchema(), OutputSchema: getEpisodeTimelineOutputSchema()}, h.handleGetEpisodeTimeline)
 }
 
 type advanceToConstructionInput struct {
@@ -115,6 +117,24 @@ type submitSDPDecisionInput struct {
 }
 
 type submitSDPDecisionOutput struct{}
+
+type listEpisodesForArtifactInput struct {
+	ProjectID    mgr.ProjectID `json:"projectID"`
+	ArtifactKind string        `json:"artifactKind"`
+}
+
+type listEpisodesForArtifactOutput struct {
+	Result []mgr.EpisodeRecordView `json:"result"`
+}
+
+type getEpisodeTimelineInput struct {
+	ProjectID mgr.ProjectID `json:"projectID"`
+	EpisodeID string        `json:"episodeID"`
+}
+
+type getEpisodeTimelineOutput struct {
+	Result mgr.EpisodeTimeline `json:"result"`
+}
 
 // advanceToConstructionInputSchema is the explicit MCP input schema for the AdvanceToConstruction operation.
 func advanceToConstructionInputSchema() *jsonschema.Schema {
@@ -214,6 +234,26 @@ func submitSDPDecisionInputSchema() *jsonschema.Schema {
 	return s
 }
 
+// listEpisodesForArtifactInputSchema is the explicit MCP input schema for the ListEpisodesForArtifact operation.
+func listEpisodesForArtifactInputSchema() *jsonschema.Schema {
+	s := objectSchema[listEpisodesForArtifactInput]()
+	fixUUIDStrings(s)
+	relaxRawJSON(s)
+	allowNullMaps(s)
+	s.Required = []string{"projectID", "artifactKind"}
+	return s
+}
+
+// getEpisodeTimelineInputSchema is the explicit MCP input schema for the GetEpisodeTimeline operation.
+func getEpisodeTimelineInputSchema() *jsonschema.Schema {
+	s := objectSchema[getEpisodeTimelineInput]()
+	fixUUIDStrings(s)
+	relaxRawJSON(s)
+	allowNullMaps(s)
+	s.Required = []string{"projectID", "episodeID"}
+	return s
+}
+
 // advanceToConstructionOutputSchema is the explicit MCP output schema for the AdvanceToConstruction operation.
 func advanceToConstructionOutputSchema() *jsonschema.Schema {
 	s := objectSchema[advanceToConstructionOutput]()
@@ -289,6 +329,24 @@ func submitReviewDecisionOutputSchema() *jsonschema.Schema {
 // submitSDPDecisionOutputSchema is the explicit MCP output schema for the SubmitSDPDecision operation.
 func submitSDPDecisionOutputSchema() *jsonschema.Schema {
 	s := objectSchema[submitSDPDecisionOutput]()
+	fixUUIDStrings(s)
+	relaxRawJSON(s)
+	allowNullMaps(s)
+	return s
+}
+
+// listEpisodesForArtifactOutputSchema is the explicit MCP output schema for the ListEpisodesForArtifact operation.
+func listEpisodesForArtifactOutputSchema() *jsonschema.Schema {
+	s := objectSchema[listEpisodesForArtifactOutput]()
+	fixUUIDStrings(s)
+	relaxRawJSON(s)
+	allowNullMaps(s)
+	return s
+}
+
+// getEpisodeTimelineOutputSchema is the explicit MCP output schema for the GetEpisodeTimeline operation.
+func getEpisodeTimelineOutputSchema() *jsonschema.Schema {
+	s := objectSchema[getEpisodeTimelineOutput]()
 	fixUUIDStrings(s)
 	relaxRawJSON(s)
 	allowNullMaps(s)
@@ -426,6 +484,32 @@ func (h *Handler) handleSubmitSDPDecision(ctx context.Context, _ *mcp.CallToolRe
 	if err := h.Manager.SubmitSDPDecision(rc, in.ProjectID, in.Decision, in.OptionID, in.Feedback); err != nil {
 		return nil, out, mapManagerError(err)
 	}
+	return nil, out, nil
+}
+
+// handleListEpisodesForArtifact is the MCP tool handler for the ListEpisodesForArtifact operation.
+func (h *Handler) handleListEpisodesForArtifact(ctx context.Context, _ *mcp.CallToolRequest, in listEpisodesForArtifactInput) (*mcp.CallToolResult, listEpisodesForArtifactOutput, error) {
+	var out listEpisodesForArtifactOutput
+	principal, _ := security.PrincipalFrom(ctx)
+	rc := fwmanager.Context{Context: ctx, Principal: principal}
+	result, err := h.Manager.ListEpisodesForArtifact(rc, in.ProjectID, in.ArtifactKind)
+	if err != nil {
+		return nil, out, mapManagerError(err)
+	}
+	out.Result = result
+	return nil, out, nil
+}
+
+// handleGetEpisodeTimeline is the MCP tool handler for the GetEpisodeTimeline operation.
+func (h *Handler) handleGetEpisodeTimeline(ctx context.Context, _ *mcp.CallToolRequest, in getEpisodeTimelineInput) (*mcp.CallToolResult, getEpisodeTimelineOutput, error) {
+	var out getEpisodeTimelineOutput
+	principal, _ := security.PrincipalFrom(ctx)
+	rc := fwmanager.Context{Context: ctx, Principal: principal}
+	result, err := h.Manager.GetEpisodeTimeline(rc, in.ProjectID, in.EpisodeID)
+	if err != nil {
+		return nil, out, mapManagerError(err)
+	}
+	out.Result = result
 	return nil, out, nil
 }
 

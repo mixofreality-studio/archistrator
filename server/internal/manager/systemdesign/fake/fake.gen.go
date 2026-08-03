@@ -11,20 +11,22 @@ import (
 // FakeSystemDesignManager is a generated test double for systemdesign.SystemDesignManager: set the Fn field(s)
 // a test needs; calling a method whose Fn is unset panics.
 type FakeSystemDesignManager struct {
-	AdvancePhaseFn           func(rc fwm.Context, projectID systemdesign.ProjectID, acknowledgeStale bool) (systemdesign.PhaseAdvanceResult, error)
-	CreateProjectFn          func(rc fwm.Context, owner systemdesign.OwnerScope, name string) (systemdesign.ProjectID, error)
-	GetProjectFn             func(rc fwm.Context, projectID systemdesign.ProjectID) (systemdesign.ProjectState, error)
-	GetSessionStateFn        func(rc fwm.Context, projectID systemdesign.ProjectID, kind systemdesign.ArtifactKind) (systemdesign.SessionStateView, error)
-	GetDesignHealthFn        func(rc fwm.Context, projectID systemdesign.ProjectID) (systemdesign.DesignHealth, error)
-	ListProjectsFn           func(rc fwm.Context, owner systemdesign.OwnerScope) ([]systemdesign.ProjectSummary, error)
-	RequestArtifactDraftFn   func(rc fwm.Context, projectID systemdesign.ProjectID, kind systemdesign.ArtifactKind, feedback *systemdesign.ReviewFeedback) (systemdesign.SessionRef, error)
-	SetOperatingModelFn      func(rc fwm.Context, projectID systemdesign.ProjectID, model systemdesign.OperatingModel) (systemdesign.Version, error)
-	SetResearchInputFn       func(rc fwm.Context, projectID systemdesign.ProjectID, research systemdesign.ResearchInput) (systemdesign.Version, error)
-	AskQuestionsFn           func(rc fwm.Context, projectID systemdesign.ProjectID, kind systemdesign.ArtifactKind, addressee string, questions []systemdesign.AnchoredComment) error
-	AcknowledgeStaleBasisFn  func(rc fwm.Context, projectID systemdesign.ProjectID, kind systemdesign.ArtifactKind, note string) error
-	SetReviewCommentStatusFn func(rc fwm.Context, projectID systemdesign.ProjectID, kind systemdesign.ArtifactKind, commentID string, status string) error
-	StartSystemDesignFn      func(rc fwm.Context, projectID systemdesign.ProjectID) (systemdesign.SessionRef, error)
-	SubmitReviewDecisionFn   func(rc fwm.Context, projectID systemdesign.ProjectID, kind systemdesign.ArtifactKind, decision systemdesign.ReviewDecision, feedback *systemdesign.ReviewFeedback) error
+	AdvancePhaseFn            func(rc fwm.Context, projectID systemdesign.ProjectID, acknowledgeStale bool) (systemdesign.PhaseAdvanceResult, error)
+	CreateProjectFn           func(rc fwm.Context, owner systemdesign.OwnerScope, name string) (systemdesign.ProjectID, error)
+	GetProjectFn              func(rc fwm.Context, projectID systemdesign.ProjectID) (systemdesign.ProjectState, error)
+	GetSessionStateFn         func(rc fwm.Context, projectID systemdesign.ProjectID, kind systemdesign.ArtifactKind) (systemdesign.SessionStateView, error)
+	GetDesignHealthFn         func(rc fwm.Context, projectID systemdesign.ProjectID) (systemdesign.DesignHealth, error)
+	ListProjectsFn            func(rc fwm.Context, owner systemdesign.OwnerScope) ([]systemdesign.ProjectSummary, error)
+	RequestArtifactDraftFn    func(rc fwm.Context, projectID systemdesign.ProjectID, kind systemdesign.ArtifactKind, feedback *systemdesign.ReviewFeedback) (systemdesign.SessionRef, error)
+	SetOperatingModelFn       func(rc fwm.Context, projectID systemdesign.ProjectID, model systemdesign.OperatingModel) (systemdesign.Version, error)
+	SetResearchInputFn        func(rc fwm.Context, projectID systemdesign.ProjectID, research systemdesign.ResearchInput) (systemdesign.Version, error)
+	AskQuestionsFn            func(rc fwm.Context, projectID systemdesign.ProjectID, kind systemdesign.ArtifactKind, addressee string, questions []systemdesign.AnchoredComment) error
+	AcknowledgeStaleBasisFn   func(rc fwm.Context, projectID systemdesign.ProjectID, kind systemdesign.ArtifactKind, note string) error
+	SetReviewCommentStatusFn  func(rc fwm.Context, projectID systemdesign.ProjectID, kind systemdesign.ArtifactKind, commentID string, status string) error
+	StartSystemDesignFn       func(rc fwm.Context, projectID systemdesign.ProjectID) (systemdesign.SessionRef, error)
+	SubmitReviewDecisionFn    func(rc fwm.Context, projectID systemdesign.ProjectID, kind systemdesign.ArtifactKind, decision systemdesign.ReviewDecision, feedback *systemdesign.ReviewFeedback) error
+	ListEpisodesForArtifactFn func(rc fwm.Context, projectID systemdesign.ProjectID, artifactKind string) ([]systemdesign.EpisodeRecordView, error)
+	GetEpisodeTimelineFn      func(rc fwm.Context, projectID systemdesign.ProjectID, episodeID string) (systemdesign.EpisodeTimeline, error)
 }
 
 func (f *FakeSystemDesignManager) AdvancePhase(rc fwm.Context, projectID systemdesign.ProjectID, acknowledgeStale bool) (systemdesign.PhaseAdvanceResult, error) {
@@ -123,6 +125,20 @@ func (f *FakeSystemDesignManager) SubmitReviewDecision(rc fwm.Context, projectID
 		panic("FakeSystemDesignManager.SubmitReviewDecisionFn not set")
 	}
 	return f.SubmitReviewDecisionFn(rc, projectID, kind, decision, feedback)
+}
+
+func (f *FakeSystemDesignManager) ListEpisodesForArtifact(rc fwm.Context, projectID systemdesign.ProjectID, artifactKind string) ([]systemdesign.EpisodeRecordView, error) {
+	if f.ListEpisodesForArtifactFn == nil {
+		panic("FakeSystemDesignManager.ListEpisodesForArtifactFn not set")
+	}
+	return f.ListEpisodesForArtifactFn(rc, projectID, artifactKind)
+}
+
+func (f *FakeSystemDesignManager) GetEpisodeTimeline(rc fwm.Context, projectID systemdesign.ProjectID, episodeID string) (systemdesign.EpisodeTimeline, error) {
+	if f.GetEpisodeTimelineFn == nil {
+		panic("FakeSystemDesignManager.GetEpisodeTimelineFn not set")
+	}
+	return f.GetEpisodeTimelineFn(rc, projectID, episodeID)
 }
 
 var _ systemdesign.SystemDesignManager = (*FakeSystemDesignManager)(nil)

@@ -71,9 +71,19 @@ func (m loggingSystemDesignManager) GetDesignHealth(rc fwmanager.Context, projec
 	return v, logInfraError(m.log, "SystemDesign.GetDesignHealth", string(projectID), err)
 }
 
+func (m loggingSystemDesignManager) GetEpisodeTimeline(rc fwmanager.Context, projectID systemdesign.ProjectID, episodeID string) (systemdesign.EpisodeTimeline, error) {
+	v, err := m.inner.GetEpisodeTimeline(rc, projectID, episodeID)
+	return v, logInfraError(m.log, "SystemDesign.GetEpisodeTimeline", string(projectID), err)
+}
+
 func (m loggingSystemDesignManager) GetSessionState(rc fwmanager.Context, projectID systemdesign.ProjectID, kind systemdesign.ArtifactKind) (systemdesign.SessionStateView, error) {
 	v, err := m.inner.GetSessionState(rc, projectID, kind)
 	return v, logInfraError(m.log, "SystemDesign.GetSessionState", string(projectID), err)
+}
+
+func (m loggingSystemDesignManager) ListEpisodesForArtifact(rc fwmanager.Context, projectID systemdesign.ProjectID, artifactKind string) ([]systemdesign.EpisodeRecordView, error) {
+	v, err := m.inner.ListEpisodesForArtifact(rc, projectID, artifactKind)
+	return v, logInfraError(m.log, "SystemDesign.ListEpisodesForArtifact", string(projectID), err)
 }
 
 func (m loggingSystemDesignManager) ListProjects(rc fwmanager.Context, owner systemdesign.OwnerScope) ([]systemdesign.ProjectSummary, error) {
@@ -130,9 +140,19 @@ func (m loggingProjectDesignManager) AdvanceToConstruction(rc fwmanager.Context,
 	return v, logInfraError(m.log, "ProjectDesign.AdvanceToConstruction", string(projectID), err)
 }
 
+func (m loggingProjectDesignManager) GetEpisodeTimeline(rc fwmanager.Context, projectID projectdesign.ProjectID, episodeID string) (projectdesign.EpisodeTimeline, error) {
+	v, err := m.inner.GetEpisodeTimeline(rc, projectID, episodeID)
+	return v, logInfraError(m.log, "ProjectDesign.GetEpisodeTimeline", string(projectID), err)
+}
+
 func (m loggingProjectDesignManager) GetSessionState(rc fwmanager.Context, projectID projectdesign.ProjectID, kind projectdesign.ArtifactKind) (projectdesign.SessionStateView, error) {
 	v, err := m.inner.GetSessionState(rc, projectID, kind)
 	return v, logInfraError(m.log, "ProjectDesign.GetSessionState", string(projectID), err)
+}
+
+func (m loggingProjectDesignManager) ListEpisodesForArtifact(rc fwmanager.Context, projectID projectdesign.ProjectID, artifactKind string) ([]projectdesign.EpisodeRecordView, error) {
+	v, err := m.inner.ListEpisodesForArtifact(rc, projectID, artifactKind)
+	return v, logInfraError(m.log, "ProjectDesign.ListEpisodesForArtifact", string(projectID), err)
 }
 
 func (m loggingProjectDesignManager) RequestArtifactDraft(rc fwmanager.Context, projectID projectdesign.ProjectID, kind projectdesign.ArtifactKind, feedback *projectdesign.ReviewFeedback) (projectdesign.SessionRef, error) {
@@ -177,9 +197,19 @@ func (m loggingConstructionManager) ExecuteNextActivity(rc fwmanager.Context, pr
 	return v, logInfraError(m.log, "Construction.ExecuteNextActivity", string(projectID), err)
 }
 
+func (m loggingConstructionManager) GetEpisodeTimeline(rc fwmanager.Context, projectID construction.ProjectID, episodeID string) (construction.EpisodeTimeline, error) {
+	v, err := m.inner.GetEpisodeTimeline(rc, projectID, episodeID)
+	return v, logInfraError(m.log, "Construction.GetEpisodeTimeline", string(projectID), err)
+}
+
 func (m loggingConstructionManager) GetSessionState(rc fwmanager.Context, projectID construction.ProjectID, activityID *construction.ActivityID) (construction.ConstructionSessionView, error) {
 	v, err := m.inner.GetSessionState(rc, projectID, activityID)
 	return v, logInfraError(m.log, "Construction.GetSessionState", string(projectID), err)
+}
+
+func (m loggingConstructionManager) ListEpisodesForActivity(rc fwmanager.Context, projectID construction.ProjectID, activityID string) ([]construction.EpisodeRecordView, error) {
+	v, err := m.inner.ListEpisodesForActivity(rc, projectID, activityID)
+	return v, logInfraError(m.log, "Construction.ListEpisodesForActivity", string(projectID), err)
 }
 
 func (m loggingConstructionManager) OverrideActivity(rc fwmanager.Context, projectID construction.ProjectID, activityID construction.ActivityID, override construction.ActivityOverride) error {

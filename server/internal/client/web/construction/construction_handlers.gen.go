@@ -29,6 +29,8 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/construction/set-review-policy/{projectID}", h.handleSetReviewPolicy)
 	mux.HandleFunc("POST /api/v1/construction/submit-phase-decision/{projectID}/{activityID}", h.handleSubmitPhaseDecision)
 	mux.HandleFunc("POST /api/v1/construction/update-review-policy/{projectID}", h.handleUpdateReviewPolicy)
+	mux.HandleFunc("GET /api/v1/construction/list-episodes-for-activity/{projectID}", h.handleListEpisodesForActivity)
+	mux.HandleFunc("GET /api/v1/construction/get-episode-timeline/{projectID}", h.handleGetEpisodeTimeline)
 }
 
 type executeNextActivityRequest struct {
@@ -279,6 +281,56 @@ func (h *Handler) handleUpdateReviewPolicy(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleListEpisodesForActivity binds GET /api/v1/construction/list-episodes-for-activity/{projectID} -> mgr.ListEpisodesForActivity.
+func (h *Handler) handleListEpisodesForActivity(w http.ResponseWriter, r *http.Request) {
+	projectID := mgr.ProjectID(r.PathValue("projectID"))
+	activityID := r.URL.Query().Get("activityID")
+	principal, ok := security.PrincipalFrom(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthenticated", "authentication required")
+		return
+	}
+	decision, err := h.Security.Authorize(r.Context(), principal,
+		security.Action{Verb: "list-episodes-for-activity"},
+		security.ResourceRef{Kind: "project", ID: string(projectID)})
+	if err != nil || !decision.Permit {
+		writeError(w, http.StatusForbidden, "forbidden", "not permitted")
+		return
+	}
+	rc := fwmanager.Context{Context: r.Context(), Principal: principal}
+	result, err := h.Manager.ListEpisodesForActivity(rc, projectID, activityID)
+	if err != nil {
+		writeManagerError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+// handleGetEpisodeTimeline binds GET /api/v1/construction/get-episode-timeline/{projectID} -> mgr.GetEpisodeTimeline.
+func (h *Handler) handleGetEpisodeTimeline(w http.ResponseWriter, r *http.Request) {
+	projectID := mgr.ProjectID(r.PathValue("projectID"))
+	episodeID := r.URL.Query().Get("episodeID")
+	principal, ok := security.PrincipalFrom(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthenticated", "authentication required")
+		return
+	}
+	decision, err := h.Security.Authorize(r.Context(), principal,
+		security.Action{Verb: "get-episode-timeline"},
+		security.ResourceRef{Kind: "project", ID: string(projectID)})
+	if err != nil || !decision.Permit {
+		writeError(w, http.StatusForbidden, "forbidden", "not permitted")
+		return
+	}
+	rc := fwmanager.Context{Context: r.Context(), Principal: principal}
+	result, err := h.Manager.GetEpisodeTimeline(rc, projectID, episodeID)
+	if err != nil {
+		writeManagerError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 // --- response helpers ------------------------------------------------------

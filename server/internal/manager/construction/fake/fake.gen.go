@@ -11,14 +11,16 @@ import (
 // FakeConstructionManager is a generated test double for construction.ConstructionManager: set the Fn field(s)
 // a test needs; calling a method whose Fn is unset panics.
 type FakeConstructionManager struct {
-	ExecuteNextActivityFn func(rc fwm.Context, projectID construction.ProjectID, tickID string) (construction.PumpResult, error)
-	GetSessionStateFn     func(rc fwm.Context, projectID construction.ProjectID, activityID *construction.ActivityID) (construction.ConstructionSessionView, error)
-	OverrideActivityFn    func(rc fwm.Context, projectID construction.ProjectID, activityID construction.ActivityID, override construction.ActivityOverride) error
-	PauseProjectFn        func(rc fwm.Context, projectID construction.ProjectID, reason string) error
-	RunReplanSweepFn      func(rc fwm.Context, projectID *construction.ProjectID, tickID string) (construction.ReplanSweepResult, error)
-	SetReviewPolicyFn     func(rc fwm.Context, projectID construction.ProjectID, preset string) error
-	SubmitPhaseDecisionFn func(rc fwm.Context, projectID construction.ProjectID, activityID construction.ActivityID, phase string, decision construction.PhaseDecision, feedback *construction.ReviewFeedback) error
-	UpdateReviewPolicyFn  func(rc fwm.Context, projectID construction.ProjectID, policy construction.ReviewPolicyInput) error
+	ExecuteNextActivityFn     func(rc fwm.Context, projectID construction.ProjectID, tickID string) (construction.PumpResult, error)
+	GetSessionStateFn         func(rc fwm.Context, projectID construction.ProjectID, activityID *construction.ActivityID) (construction.ConstructionSessionView, error)
+	OverrideActivityFn        func(rc fwm.Context, projectID construction.ProjectID, activityID construction.ActivityID, override construction.ActivityOverride) error
+	PauseProjectFn            func(rc fwm.Context, projectID construction.ProjectID, reason string) error
+	RunReplanSweepFn          func(rc fwm.Context, projectID *construction.ProjectID, tickID string) (construction.ReplanSweepResult, error)
+	SetReviewPolicyFn         func(rc fwm.Context, projectID construction.ProjectID, preset string) error
+	SubmitPhaseDecisionFn     func(rc fwm.Context, projectID construction.ProjectID, activityID construction.ActivityID, phase string, decision construction.PhaseDecision, feedback *construction.ReviewFeedback) error
+	UpdateReviewPolicyFn      func(rc fwm.Context, projectID construction.ProjectID, policy construction.ReviewPolicyInput) error
+	ListEpisodesForActivityFn func(rc fwm.Context, projectID construction.ProjectID, activityID string) ([]construction.EpisodeRecordView, error)
+	GetEpisodeTimelineFn      func(rc fwm.Context, projectID construction.ProjectID, episodeID string) (construction.EpisodeTimeline, error)
 }
 
 func (f *FakeConstructionManager) ExecuteNextActivity(rc fwm.Context, projectID construction.ProjectID, tickID string) (construction.PumpResult, error) {
@@ -75,6 +77,20 @@ func (f *FakeConstructionManager) UpdateReviewPolicy(rc fwm.Context, projectID c
 		panic("FakeConstructionManager.UpdateReviewPolicyFn not set")
 	}
 	return f.UpdateReviewPolicyFn(rc, projectID, policy)
+}
+
+func (f *FakeConstructionManager) ListEpisodesForActivity(rc fwm.Context, projectID construction.ProjectID, activityID string) ([]construction.EpisodeRecordView, error) {
+	if f.ListEpisodesForActivityFn == nil {
+		panic("FakeConstructionManager.ListEpisodesForActivityFn not set")
+	}
+	return f.ListEpisodesForActivityFn(rc, projectID, activityID)
+}
+
+func (f *FakeConstructionManager) GetEpisodeTimeline(rc fwm.Context, projectID construction.ProjectID, episodeID string) (construction.EpisodeTimeline, error) {
+	if f.GetEpisodeTimelineFn == nil {
+		panic("FakeConstructionManager.GetEpisodeTimelineFn not set")
+	}
+	return f.GetEpisodeTimelineFn(rc, projectID, episodeID)
 }
 
 var _ construction.ConstructionManager = (*FakeConstructionManager)(nil)

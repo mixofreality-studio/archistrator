@@ -113,3 +113,25 @@ type ProjectDesignSubmitSDPDecisionInput struct {
 func (c *MCPClient) ProjectDesignSubmitSDPDecision(ctx context.Context, projectID ProjectID, decision SDPDecision, optionID OptionID, feedback *ProjectDesignReviewFeedback) error {
 	return c.callTool(ctx, "projectDesignSubmitSDPDecision", ProjectDesignSubmitSDPDecisionInput{ProjectID: projectID, Decision: decision, OptionID: optionID, Feedback: feedback}, nil)
 }
+
+// ProjectDesignListEpisodesForArtifactInput is the MCP tool-call argument object for projectDesignListEpisodesForArtifact.
+type ProjectDesignListEpisodesForArtifactInput struct {
+	ProjectID    ProjectID `json:"projectID"`
+	ArtifactKind string    `json:"artifactKind"`
+}
+
+// ProjectDesignListEpisodesForArtifact calls the projectDesignListEpisodesForArtifact tool on the ProjectDesign manager over MCP.
+func (c *MCPClient) ProjectDesignListEpisodesForArtifact(ctx context.Context, projectID ProjectID, artifactKind string) ([]EpisodeRecordView, error) {
+	return mcpCallResult[[]EpisodeRecordView](c, ctx, "projectDesignListEpisodesForArtifact", ProjectDesignListEpisodesForArtifactInput{ProjectID: projectID, ArtifactKind: artifactKind})
+}
+
+// ProjectDesignGetEpisodeTimelineInput is the MCP tool-call argument object for projectDesignGetEpisodeTimeline.
+type ProjectDesignGetEpisodeTimelineInput struct {
+	ProjectID ProjectID `json:"projectID"`
+	EpisodeID string    `json:"episodeID"`
+}
+
+// ProjectDesignGetEpisodeTimeline calls the projectDesignGetEpisodeTimeline tool on the ProjectDesign manager over MCP.
+func (c *MCPClient) ProjectDesignGetEpisodeTimeline(ctx context.Context, projectID ProjectID, episodeID string) (EpisodeTimeline, error) {
+	return mcpCallResult[EpisodeTimeline](c, ctx, "projectDesignGetEpisodeTimeline", ProjectDesignGetEpisodeTimelineInput{ProjectID: projectID, EpisodeID: episodeID})
+}

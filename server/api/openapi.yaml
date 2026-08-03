@@ -81,6 +81,138 @@ components:
                 - StageExited
                 - StageAwaitingApproval
             x-go-base: int
+        ConstructionEpisodeKind:
+            enum:
+                - 0
+                - 1
+                - 2
+                - 3
+                - 4
+            type: integer
+            x-enum-varnames:
+                - EpisodeKindDesign
+                - EpisodeKindConstruction
+                - EpisodeKindReview
+                - EpisodeKindRework
+                - EpisodeKindAnswer
+            x-go-base: int
+        ConstructionEpisodeLineage:
+            additionalProperties: false
+            properties:
+                activityId:
+                    type: string
+                    x-go-name: ActivityID
+                runId:
+                    type: string
+                    x-go-name: RunID
+                workflowId:
+                    type: string
+                    x-go-name: WorkflowID
+            required:
+                - workflowId
+                - runId
+            type: object
+        ConstructionEpisodeOutcome:
+            enum:
+                - 0
+                - 1
+                - 2
+                - 3
+            type: integer
+            x-enum-varnames:
+                - EpisodeSucceeded
+                - EpisodeFailed
+                - EpisodeCancelled
+                - EpisodeGap
+            x-go-base: int
+        ConstructionEpisodeRecordView:
+            additionalProperties: false
+            properties:
+                costUsd:
+                    type: number
+                    x-go-name: CostUSD
+                endedAt:
+                    format: date-time
+                    type: string
+                    x-go-import: time
+                    x-go-type: time.Time
+                episodeId:
+                    type: string
+                    x-go-name: EpisodeID
+                gapReason:
+                    type: string
+                kind:
+                    $ref: '#/components/schemas/ConstructionEpisodeKind'
+                lineage:
+                    $ref: '#/components/schemas/ConstructionEpisodeLineage'
+                model:
+                    type: string
+                numTurns:
+                    type: integer
+                outcome:
+                    $ref: '#/components/schemas/ConstructionEpisodeOutcome'
+                startedAt:
+                    format: date-time
+                    type: string
+                    x-go-import: time
+                    x-go-type: time.Time
+                streamedUsage:
+                    $ref: '#/components/schemas/ConstructionEpisodeUsage'
+                subagentSpans:
+                    items:
+                        $ref: '#/components/schemas/ConstructionSubagentSpan'
+                    type: array
+                targetRef:
+                    type: string
+                toolCallCounts:
+                    additionalProperties:
+                        type: integer
+                    type: object
+                tracePath:
+                    type: string
+                usage:
+                    $ref: '#/components/schemas/ConstructionEpisodeUsage'
+                workerClass:
+                    type: string
+            required:
+                - episodeId
+                - kind
+                - targetRef
+                - usage
+                - startedAt
+                - endedAt
+                - outcome
+            type: object
+        ConstructionEpisodeTimeline:
+            additionalProperties: false
+            properties:
+                events:
+                    items:
+                        $ref: '#/components/schemas/ConstructionTimelineEvent'
+                    type: array
+                record:
+                    $ref: '#/components/schemas/ConstructionEpisodeRecordView'
+            required:
+                - record
+                - events
+            type: object
+        ConstructionEpisodeUsage:
+            additionalProperties: false
+            properties:
+                cacheCreate:
+                    type: integer
+                cacheRead:
+                    type: integer
+                in:
+                    type: integer
+                out:
+                    type: integer
+            required:
+                - in
+                - out
+                - cacheRead
+                - cacheCreate
+            type: object
         ConstructionErrorResponse:
             additionalProperties: false
             properties:
@@ -229,6 +361,52 @@ components:
                 - role
                 - perspective
                 - mayAmend
+            type: object
+        ConstructionSubagentSpan:
+            additionalProperties: false
+            properties:
+                endedAt:
+                    format: date-time
+                    type: string
+                    x-go-import: time
+                    x-go-type: time.Time
+                startedAt:
+                    format: date-time
+                    type: string
+                    x-go-import: time
+                    x-go-type: time.Time
+                toolUseId:
+                    type: string
+                    x-go-name: ToolUseID
+            required:
+                - toolUseId
+            type: object
+        ConstructionTimelineEvent:
+            additionalProperties: false
+            properties:
+                eventType:
+                    type: string
+                raw:
+                    oneOf:
+                        - $ref: '#/components/schemas/ModelActivityList'
+                        - $ref: '#/components/schemas/ModelCoreUseCases'
+                        - $ref: '#/components/schemas/ModelDeploymentOperationsModel'
+                        - $ref: '#/components/schemas/ModelGlossary'
+                        - $ref: '#/components/schemas/ModelMissionStatement'
+                        - $ref: '#/components/schemas/ModelNetwork'
+                        - $ref: '#/components/schemas/ModelPlanningAssumptions'
+                        - $ref: '#/components/schemas/ModelRiskModel'
+                        - $ref: '#/components/schemas/ModelScrubbedRequirements'
+                        - $ref: '#/components/schemas/ModelSdpReview'
+                        - $ref: '#/components/schemas/ModelSolution'
+                        - $ref: '#/components/schemas/ModelStandardCheck'
+                        - $ref: '#/components/schemas/ModelSystem'
+                        - $ref: '#/components/schemas/ModelVolatilities'
+                seq:
+                    type: integer
+            required:
+                - seq
+                - eventType
             type: object
         ModelActivityDiagram:
             additionalProperties: false
@@ -1931,6 +2109,138 @@ components:
             required:
                 - kind
             type: object
+        ProjectDesignEpisodeKind:
+            enum:
+                - 0
+                - 1
+                - 2
+                - 3
+                - 4
+            type: integer
+            x-enum-varnames:
+                - EpisodeKindDesign
+                - EpisodeKindConstruction
+                - EpisodeKindReview
+                - EpisodeKindRework
+                - EpisodeKindAnswer
+            x-go-base: int
+        ProjectDesignEpisodeLineage:
+            additionalProperties: false
+            properties:
+                activityId:
+                    type: string
+                    x-go-name: ActivityID
+                runId:
+                    type: string
+                    x-go-name: RunID
+                workflowId:
+                    type: string
+                    x-go-name: WorkflowID
+            required:
+                - workflowId
+                - runId
+            type: object
+        ProjectDesignEpisodeOutcome:
+            enum:
+                - 0
+                - 1
+                - 2
+                - 3
+            type: integer
+            x-enum-varnames:
+                - EpisodeSucceeded
+                - EpisodeFailed
+                - EpisodeCancelled
+                - EpisodeGap
+            x-go-base: int
+        ProjectDesignEpisodeRecordView:
+            additionalProperties: false
+            properties:
+                costUsd:
+                    type: number
+                    x-go-name: CostUSD
+                endedAt:
+                    format: date-time
+                    type: string
+                    x-go-import: time
+                    x-go-type: time.Time
+                episodeId:
+                    type: string
+                    x-go-name: EpisodeID
+                gapReason:
+                    type: string
+                kind:
+                    $ref: '#/components/schemas/ProjectDesignEpisodeKind'
+                lineage:
+                    $ref: '#/components/schemas/ProjectDesignEpisodeLineage'
+                model:
+                    type: string
+                numTurns:
+                    type: integer
+                outcome:
+                    $ref: '#/components/schemas/ProjectDesignEpisodeOutcome'
+                startedAt:
+                    format: date-time
+                    type: string
+                    x-go-import: time
+                    x-go-type: time.Time
+                streamedUsage:
+                    $ref: '#/components/schemas/ProjectDesignEpisodeUsage'
+                subagentSpans:
+                    items:
+                        $ref: '#/components/schemas/ProjectDesignSubagentSpan'
+                    type: array
+                targetRef:
+                    type: string
+                toolCallCounts:
+                    additionalProperties:
+                        type: integer
+                    type: object
+                tracePath:
+                    type: string
+                usage:
+                    $ref: '#/components/schemas/ProjectDesignEpisodeUsage'
+                workerClass:
+                    type: string
+            required:
+                - episodeId
+                - kind
+                - targetRef
+                - usage
+                - startedAt
+                - endedAt
+                - outcome
+            type: object
+        ProjectDesignEpisodeTimeline:
+            additionalProperties: false
+            properties:
+                events:
+                    items:
+                        $ref: '#/components/schemas/ProjectDesignTimelineEvent'
+                    type: array
+                record:
+                    $ref: '#/components/schemas/ProjectDesignEpisodeRecordView'
+            required:
+                - record
+                - events
+            type: object
+        ProjectDesignEpisodeUsage:
+            additionalProperties: false
+            properties:
+                cacheCreate:
+                    type: integer
+                cacheRead:
+                    type: integer
+                in:
+                    type: integer
+                out:
+                    type: integer
+            required:
+                - in
+                - out
+                - cacheRead
+                - cacheCreate
+            type: object
         ProjectDesignErrorResponse:
             additionalProperties: false
             properties:
@@ -2151,6 +2461,52 @@ components:
                 - SeverityWarning
                 - SeverityError
             x-go-base: string
+        ProjectDesignSubagentSpan:
+            additionalProperties: false
+            properties:
+                endedAt:
+                    format: date-time
+                    type: string
+                    x-go-import: time
+                    x-go-type: time.Time
+                startedAt:
+                    format: date-time
+                    type: string
+                    x-go-import: time
+                    x-go-type: time.Time
+                toolUseId:
+                    type: string
+                    x-go-name: ToolUseID
+            required:
+                - toolUseId
+            type: object
+        ProjectDesignTimelineEvent:
+            additionalProperties: false
+            properties:
+                eventType:
+                    type: string
+                raw:
+                    oneOf:
+                        - $ref: '#/components/schemas/ModelActivityList'
+                        - $ref: '#/components/schemas/ModelCoreUseCases'
+                        - $ref: '#/components/schemas/ModelDeploymentOperationsModel'
+                        - $ref: '#/components/schemas/ModelGlossary'
+                        - $ref: '#/components/schemas/ModelMissionStatement'
+                        - $ref: '#/components/schemas/ModelNetwork'
+                        - $ref: '#/components/schemas/ModelPlanningAssumptions'
+                        - $ref: '#/components/schemas/ModelRiskModel'
+                        - $ref: '#/components/schemas/ModelScrubbedRequirements'
+                        - $ref: '#/components/schemas/ModelSdpReview'
+                        - $ref: '#/components/schemas/ModelSolution'
+                        - $ref: '#/components/schemas/ModelStandardCheck'
+                        - $ref: '#/components/schemas/ModelSystem'
+                        - $ref: '#/components/schemas/ModelVolatilities'
+                seq:
+                    type: integer
+            required:
+                - seq
+                - eventType
+            type: object
         SystemDesignActiveRole:
             enum:
                 - 0
@@ -2691,6 +3047,138 @@ components:
                 - planned
                 - spi
             type: object
+        SystemDesignEpisodeKind:
+            enum:
+                - 0
+                - 1
+                - 2
+                - 3
+                - 4
+            type: integer
+            x-enum-varnames:
+                - EpisodeKindDesign
+                - EpisodeKindConstruction
+                - EpisodeKindReview
+                - EpisodeKindRework
+                - EpisodeKindAnswer
+            x-go-base: int
+        SystemDesignEpisodeLineage:
+            additionalProperties: false
+            properties:
+                activityId:
+                    type: string
+                    x-go-name: ActivityID
+                runId:
+                    type: string
+                    x-go-name: RunID
+                workflowId:
+                    type: string
+                    x-go-name: WorkflowID
+            required:
+                - workflowId
+                - runId
+            type: object
+        SystemDesignEpisodeOutcome:
+            enum:
+                - 0
+                - 1
+                - 2
+                - 3
+            type: integer
+            x-enum-varnames:
+                - EpisodeSucceeded
+                - EpisodeFailed
+                - EpisodeCancelled
+                - EpisodeGap
+            x-go-base: int
+        SystemDesignEpisodeRecordView:
+            additionalProperties: false
+            properties:
+                costUsd:
+                    type: number
+                    x-go-name: CostUSD
+                endedAt:
+                    format: date-time
+                    type: string
+                    x-go-import: time
+                    x-go-type: time.Time
+                episodeId:
+                    type: string
+                    x-go-name: EpisodeID
+                gapReason:
+                    type: string
+                kind:
+                    $ref: '#/components/schemas/SystemDesignEpisodeKind'
+                lineage:
+                    $ref: '#/components/schemas/SystemDesignEpisodeLineage'
+                model:
+                    type: string
+                numTurns:
+                    type: integer
+                outcome:
+                    $ref: '#/components/schemas/SystemDesignEpisodeOutcome'
+                startedAt:
+                    format: date-time
+                    type: string
+                    x-go-import: time
+                    x-go-type: time.Time
+                streamedUsage:
+                    $ref: '#/components/schemas/SystemDesignEpisodeUsage'
+                subagentSpans:
+                    items:
+                        $ref: '#/components/schemas/SystemDesignSubagentSpan'
+                    type: array
+                targetRef:
+                    type: string
+                toolCallCounts:
+                    additionalProperties:
+                        type: integer
+                    type: object
+                tracePath:
+                    type: string
+                usage:
+                    $ref: '#/components/schemas/SystemDesignEpisodeUsage'
+                workerClass:
+                    type: string
+            required:
+                - episodeId
+                - kind
+                - targetRef
+                - usage
+                - startedAt
+                - endedAt
+                - outcome
+            type: object
+        SystemDesignEpisodeTimeline:
+            additionalProperties: false
+            properties:
+                events:
+                    items:
+                        $ref: '#/components/schemas/SystemDesignTimelineEvent'
+                    type: array
+                record:
+                    $ref: '#/components/schemas/SystemDesignEpisodeRecordView'
+            required:
+                - record
+                - events
+            type: object
+        SystemDesignEpisodeUsage:
+            additionalProperties: false
+            properties:
+                cacheCreate:
+                    type: integer
+                cacheRead:
+                    type: integer
+                in:
+                    type: integer
+                out:
+                    type: integer
+            required:
+                - in
+                - out
+                - cacheRead
+                - cacheCreate
+            type: object
         SystemDesignErrorResponse:
             additionalProperties: false
             properties:
@@ -3218,6 +3706,25 @@ components:
                 - SeverityWarning
                 - SeverityError
             x-go-base: string
+        SystemDesignSubagentSpan:
+            additionalProperties: false
+            properties:
+                endedAt:
+                    format: date-time
+                    type: string
+                    x-go-import: time
+                    x-go-type: time.Time
+                startedAt:
+                    format: date-time
+                    type: string
+                    x-go-import: time
+                    x-go-type: time.Time
+                toolUseId:
+                    type: string
+                    x-go-name: ToolUseID
+            required:
+                - toolUseId
+            type: object
         SystemDesignSystemTestPlanView:
             additionalProperties: false
             properties:
@@ -3392,6 +3899,33 @@ components:
                 - TestVariantSystemTest
                 - TestVariantQAProcess
             x-go-base: int
+        SystemDesignTimelineEvent:
+            additionalProperties: false
+            properties:
+                eventType:
+                    type: string
+                raw:
+                    oneOf:
+                        - $ref: '#/components/schemas/ModelActivityList'
+                        - $ref: '#/components/schemas/ModelCoreUseCases'
+                        - $ref: '#/components/schemas/ModelDeploymentOperationsModel'
+                        - $ref: '#/components/schemas/ModelGlossary'
+                        - $ref: '#/components/schemas/ModelMissionStatement'
+                        - $ref: '#/components/schemas/ModelNetwork'
+                        - $ref: '#/components/schemas/ModelPlanningAssumptions'
+                        - $ref: '#/components/schemas/ModelRiskModel'
+                        - $ref: '#/components/schemas/ModelScrubbedRequirements'
+                        - $ref: '#/components/schemas/ModelSdpReview'
+                        - $ref: '#/components/schemas/ModelSolution'
+                        - $ref: '#/components/schemas/ModelStandardCheck'
+                        - $ref: '#/components/schemas/ModelSystem'
+                        - $ref: '#/components/schemas/ModelVolatilities'
+                seq:
+                    type: integer
+            required:
+                - seq
+                - eventType
+            type: object
         SystemDesignVersion:
             type: integer
 info:
@@ -3470,6 +4004,71 @@ paths:
                     description: infrastructure unavailable
             security:
                 - bearerAuth: []
+    /api/v1/construction/get-episode-timeline/{projectID}:
+        get:
+            operationId: GetEpisodeTimeline
+            parameters:
+                - in: path
+                  name: projectID
+                  required: true
+                  schema:
+                    $ref: '#/components/schemas/ConstructionProjectID'
+                - in: query
+                  name: episodeID
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionEpisodeTimeline'
+                    description: success
+                "400":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: contract misuse
+                "401":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: unauthenticated
+                "403":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: forbidden
+                "404":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: not found
+                "409":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: failed precondition
+                "500":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: internal error
+                "503":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: infrastructure unavailable
+            security:
+                - bearerAuth: []
     /api/v1/construction/get-session-state/{projectID}/{activityID}:
         get:
             operationId: GetSessionState
@@ -3490,6 +4089,73 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/ConstructionConstructionSessionView'
+                    description: success
+                "400":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: contract misuse
+                "401":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: unauthenticated
+                "403":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: forbidden
+                "404":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: not found
+                "409":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: failed precondition
+                "500":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: internal error
+                "503":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: infrastructure unavailable
+            security:
+                - bearerAuth: []
+    /api/v1/construction/list-episodes-for-activity/{projectID}:
+        get:
+            operationId: ListEpisodesForActivity
+            parameters:
+                - in: path
+                  name: projectID
+                  required: true
+                  schema:
+                    $ref: '#/components/schemas/ConstructionProjectID'
+                - in: query
+                  name: activityID
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                items:
+                                    $ref: '#/components/schemas/ConstructionEpisodeRecordView'
+                                type: array
                     description: success
                 "400":
                     content:
@@ -4604,6 +5270,71 @@ paths:
                     description: infrastructure unavailable
             security:
                 - bearerAuth: []
+    /api/v1/project-design/get-episode-timeline/{projectID}:
+        get:
+            operationId: GetEpisodeTimeline
+            parameters:
+                - in: path
+                  name: projectID
+                  required: true
+                  schema:
+                    $ref: '#/components/schemas/ProjectDesignProjectID'
+                - in: query
+                  name: episodeID
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignEpisodeTimeline'
+                    description: success
+                "400":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: contract misuse
+                "401":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: unauthenticated
+                "403":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: forbidden
+                "404":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: not found
+                "409":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: failed precondition
+                "500":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: internal error
+                "503":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: infrastructure unavailable
+            security:
+                - bearerAuth: []
     /api/v1/project-design/get-session-state/{projectID}:
         get:
             operationId: GetSessionState
@@ -4624,6 +5355,73 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/ProjectDesignSessionStateView'
+                    description: success
+                "400":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: contract misuse
+                "401":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: unauthenticated
+                "403":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: forbidden
+                "404":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: not found
+                "409":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: failed precondition
+                "500":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: internal error
+                "503":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: infrastructure unavailable
+            security:
+                - bearerAuth: []
+    /api/v1/project-design/list-episodes-for-artifact/{projectID}:
+        get:
+            operationId: ListEpisodesForArtifact
+            parameters:
+                - in: path
+                  name: projectID
+                  required: true
+                  schema:
+                    $ref: '#/components/schemas/ProjectDesignProjectID'
+                - in: query
+                  name: artifactKind
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                items:
+                                    $ref: '#/components/schemas/ProjectDesignEpisodeRecordView'
+                                type: array
                     description: success
                 "400":
                     content:
@@ -5365,6 +6163,71 @@ paths:
                     description: infrastructure unavailable
             security:
                 - bearerAuth: []
+    /api/v1/system-design/get-episode-timeline/{projectID}:
+        get:
+            operationId: GetEpisodeTimeline
+            parameters:
+                - in: path
+                  name: projectID
+                  required: true
+                  schema:
+                    $ref: '#/components/schemas/SystemDesignProjectID'
+                - in: query
+                  name: episodeID
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignEpisodeTimeline'
+                    description: success
+                "400":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: contract misuse
+                "401":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: unauthenticated
+                "403":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: forbidden
+                "404":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: not found
+                "409":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: failed precondition
+                "500":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: internal error
+                "503":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: infrastructure unavailable
+            security:
+                - bearerAuth: []
     /api/v1/system-design/get-project/{projectID}:
         get:
             operationId: GetProject
@@ -5445,6 +6308,73 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/SystemDesignSessionStateView'
+                    description: success
+                "400":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: contract misuse
+                "401":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: unauthenticated
+                "403":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: forbidden
+                "404":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: not found
+                "409":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: failed precondition
+                "500":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: internal error
+                "503":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: infrastructure unavailable
+            security:
+                - bearerAuth: []
+    /api/v1/system-design/list-episodes-for-artifact/{projectID}:
+        get:
+            operationId: ListEpisodesForArtifact
+            parameters:
+                - in: path
+                  name: projectID
+                  required: true
+                  schema:
+                    $ref: '#/components/schemas/SystemDesignProjectID'
+                - in: query
+                  name: artifactKind
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                items:
+                                    $ref: '#/components/schemas/SystemDesignEpisodeRecordView'
+                                type: array
                     description: success
                 "400":
                     content:

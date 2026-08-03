@@ -12884,6 +12884,185 @@
           ],
           "x-go-base": "int"
         },
+        "EpisodeKind": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2,
+            3,
+            4
+          ],
+          "x-enum-varnames": [
+            "EpisodeKindDesign",
+            "EpisodeKindConstruction",
+            "EpisodeKindReview",
+            "EpisodeKindRework",
+            "EpisodeKindAnswer"
+          ],
+          "x-go-base": "int"
+        },
+        "EpisodeLineage": {
+          "type": "object",
+          "properties": {
+            "workflowId": {
+              "type": "string",
+              "x-go-name": "WorkflowID"
+            },
+            "runId": {
+              "type": "string",
+              "x-go-name": "RunID"
+            },
+            "activityId": {
+              "type": "string",
+              "x-go-name": "ActivityID"
+            }
+          },
+          "required": [
+            "workflowId",
+            "runId"
+          ],
+          "additionalProperties": false
+        },
+        "EpisodeOutcome": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "x-enum-varnames": [
+            "EpisodeSucceeded",
+            "EpisodeFailed",
+            "EpisodeCancelled",
+            "EpisodeGap"
+          ],
+          "x-go-base": "int"
+        },
+        "EpisodeRecordView": {
+          "type": "object",
+          "properties": {
+            "episodeId": {
+              "type": "string",
+              "x-go-name": "EpisodeID"
+            },
+            "kind": {
+              "$ref": "#/$defs/EpisodeKind"
+            },
+            "targetRef": {
+              "type": "string"
+            },
+            "lineage": {
+              "$ref": "#/$defs/EpisodeLineage"
+            },
+            "workerClass": {
+              "type": "string"
+            },
+            "model": {
+              "type": "string"
+            },
+            "usage": {
+              "$ref": "#/$defs/EpisodeUsage"
+            },
+            "streamedUsage": {
+              "$ref": "#/$defs/EpisodeUsage"
+            },
+            "costUsd": {
+              "type": "number",
+              "x-go-name": "CostUSD"
+            },
+            "numTurns": {
+              "type": "integer"
+            },
+            "toolCallCounts": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "integer"
+              }
+            },
+            "subagentSpans": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/SubagentSpan"
+              }
+            },
+            "startedAt": {
+              "type": "string",
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time"
+            },
+            "endedAt": {
+              "type": "string",
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time"
+            },
+            "outcome": {
+              "$ref": "#/$defs/EpisodeOutcome"
+            },
+            "gapReason": {
+              "type": "string"
+            },
+            "tracePath": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "episodeId",
+            "kind",
+            "targetRef",
+            "usage",
+            "startedAt",
+            "endedAt",
+            "outcome"
+          ],
+          "additionalProperties": false
+        },
+        "EpisodeTimeline": {
+          "type": "object",
+          "properties": {
+            "record": {
+              "$ref": "#/$defs/EpisodeRecordView"
+            },
+            "events": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/TimelineEvent"
+              }
+            }
+          },
+          "required": [
+            "record",
+            "events"
+          ],
+          "additionalProperties": false
+        },
+        "EpisodeUsage": {
+          "type": "object",
+          "properties": {
+            "in": {
+              "type": "integer"
+            },
+            "out": {
+              "type": "integer"
+            },
+            "cacheRead": {
+              "type": "integer"
+            },
+            "cacheCreate": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "in",
+            "out",
+            "cacheRead",
+            "cacheCreate"
+          ],
+          "additionalProperties": false
+        },
         "FlaggedVariance": {
           "type": "object",
           "properties": {
@@ -13074,6 +13253,54 @@
             "mayAmend"
           ],
           "additionalProperties": false
+        },
+        "SubagentSpan": {
+          "type": "object",
+          "properties": {
+            "toolUseId": {
+              "type": "string",
+              "x-go-name": "ToolUseID"
+            },
+            "startedAt": {
+              "type": "string",
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time"
+            },
+            "endedAt": {
+              "type": "string",
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time"
+            }
+          },
+          "required": [
+            "toolUseId"
+          ],
+          "additionalProperties": false
+        },
+        "TimelineEvent": {
+          "type": "object",
+          "properties": {
+            "seq": {
+              "type": "integer"
+            },
+            "eventType": {
+              "type": "string"
+            },
+            "raw": {
+              "type": [
+                "null"
+              ],
+              "x-go-import": "encoding/json",
+              "x-go-type": "json.RawMessage"
+            }
+          },
+          "required": [
+            "seq",
+            "eventType"
+          ],
+          "additionalProperties": false
         }
       },
       "interface": {
@@ -13258,6 +13485,51 @@
                 }
               }
             ],
+            "error": true
+          },
+          {
+            "name": "ListEpisodesForActivity",
+            "params": [
+              {
+                "name": "projectID",
+                "schema": {
+                  "$ref": "#/$defs/ProjectID"
+                }
+              },
+              {
+                "name": "activityID",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            ],
+            "result": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/EpisodeRecordView"
+              }
+            },
+            "error": true
+          },
+          {
+            "name": "GetEpisodeTimeline",
+            "params": [
+              {
+                "name": "projectID",
+                "schema": {
+                  "$ref": "#/$defs/ProjectID"
+                }
+              },
+              {
+                "name": "episodeID",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/EpisodeTimeline"
+            },
             "error": true
           }
         ]
@@ -17655,6 +17927,185 @@
           ],
           "additionalProperties": false
         },
+        "EpisodeKind": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2,
+            3,
+            4
+          ],
+          "x-enum-varnames": [
+            "EpisodeKindDesign",
+            "EpisodeKindConstruction",
+            "EpisodeKindReview",
+            "EpisodeKindRework",
+            "EpisodeKindAnswer"
+          ],
+          "x-go-base": "int"
+        },
+        "EpisodeLineage": {
+          "type": "object",
+          "properties": {
+            "workflowId": {
+              "type": "string",
+              "x-go-name": "WorkflowID"
+            },
+            "runId": {
+              "type": "string",
+              "x-go-name": "RunID"
+            },
+            "activityId": {
+              "type": "string",
+              "x-go-name": "ActivityID"
+            }
+          },
+          "required": [
+            "workflowId",
+            "runId"
+          ],
+          "additionalProperties": false
+        },
+        "EpisodeOutcome": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "x-enum-varnames": [
+            "EpisodeSucceeded",
+            "EpisodeFailed",
+            "EpisodeCancelled",
+            "EpisodeGap"
+          ],
+          "x-go-base": "int"
+        },
+        "EpisodeRecordView": {
+          "type": "object",
+          "properties": {
+            "episodeId": {
+              "type": "string",
+              "x-go-name": "EpisodeID"
+            },
+            "kind": {
+              "$ref": "#/$defs/EpisodeKind"
+            },
+            "targetRef": {
+              "type": "string"
+            },
+            "lineage": {
+              "$ref": "#/$defs/EpisodeLineage"
+            },
+            "workerClass": {
+              "type": "string"
+            },
+            "model": {
+              "type": "string"
+            },
+            "usage": {
+              "$ref": "#/$defs/EpisodeUsage"
+            },
+            "streamedUsage": {
+              "$ref": "#/$defs/EpisodeUsage"
+            },
+            "costUsd": {
+              "type": "number",
+              "x-go-name": "CostUSD"
+            },
+            "numTurns": {
+              "type": "integer"
+            },
+            "toolCallCounts": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "integer"
+              }
+            },
+            "subagentSpans": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/SubagentSpan"
+              }
+            },
+            "startedAt": {
+              "type": "string",
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time"
+            },
+            "endedAt": {
+              "type": "string",
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time"
+            },
+            "outcome": {
+              "$ref": "#/$defs/EpisodeOutcome"
+            },
+            "gapReason": {
+              "type": "string"
+            },
+            "tracePath": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "episodeId",
+            "kind",
+            "targetRef",
+            "usage",
+            "startedAt",
+            "endedAt",
+            "outcome"
+          ],
+          "additionalProperties": false
+        },
+        "EpisodeTimeline": {
+          "type": "object",
+          "properties": {
+            "record": {
+              "$ref": "#/$defs/EpisodeRecordView"
+            },
+            "events": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/TimelineEvent"
+              }
+            }
+          },
+          "required": [
+            "record",
+            "events"
+          ],
+          "additionalProperties": false
+        },
+        "EpisodeUsage": {
+          "type": "object",
+          "properties": {
+            "in": {
+              "type": "integer"
+            },
+            "out": {
+              "type": "integer"
+            },
+            "cacheRead": {
+              "type": "integer"
+            },
+            "cacheCreate": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "in",
+            "out",
+            "cacheRead",
+            "cacheCreate"
+          ],
+          "additionalProperties": false
+        },
         "Finding": {
           "type": "object",
           "properties": {
@@ -17938,6 +18389,54 @@
             "SeverityError"
           ],
           "x-go-base": "string"
+        },
+        "SubagentSpan": {
+          "type": "object",
+          "properties": {
+            "toolUseId": {
+              "type": "string",
+              "x-go-name": "ToolUseID"
+            },
+            "startedAt": {
+              "type": "string",
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time"
+            },
+            "endedAt": {
+              "type": "string",
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time"
+            }
+          },
+          "required": [
+            "toolUseId"
+          ],
+          "additionalProperties": false
+        },
+        "TimelineEvent": {
+          "type": "object",
+          "properties": {
+            "seq": {
+              "type": "integer"
+            },
+            "eventType": {
+              "type": "string"
+            },
+            "raw": {
+              "type": [
+                "null"
+              ],
+              "x-go-import": "encoding/json",
+              "x-go-type": "json.RawMessage"
+            }
+          },
+          "required": [
+            "seq",
+            "eventType"
+          ],
+          "additionalProperties": false
         }
       },
       "interface": {
@@ -18177,6 +18676,51 @@
                 }
               }
             ],
+            "error": true
+          },
+          {
+            "name": "ListEpisodesForArtifact",
+            "params": [
+              {
+                "name": "projectID",
+                "schema": {
+                  "$ref": "#/$defs/ProjectID"
+                }
+              },
+              {
+                "name": "artifactKind",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            ],
+            "result": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/EpisodeRecordView"
+              }
+            },
+            "error": true
+          },
+          {
+            "name": "GetEpisodeTimeline",
+            "params": [
+              {
+                "name": "projectID",
+                "schema": {
+                  "$ref": "#/$defs/ProjectID"
+                }
+              },
+              {
+                "name": "episodeID",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/EpisodeTimeline"
+            },
             "error": true
           }
         ]
@@ -22720,6 +23264,185 @@
           ],
           "additionalProperties": false
         },
+        "EpisodeKind": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2,
+            3,
+            4
+          ],
+          "x-enum-varnames": [
+            "EpisodeKindDesign",
+            "EpisodeKindConstruction",
+            "EpisodeKindReview",
+            "EpisodeKindRework",
+            "EpisodeKindAnswer"
+          ],
+          "x-go-base": "int"
+        },
+        "EpisodeLineage": {
+          "type": "object",
+          "properties": {
+            "workflowId": {
+              "type": "string",
+              "x-go-name": "WorkflowID"
+            },
+            "runId": {
+              "type": "string",
+              "x-go-name": "RunID"
+            },
+            "activityId": {
+              "type": "string",
+              "x-go-name": "ActivityID"
+            }
+          },
+          "required": [
+            "workflowId",
+            "runId"
+          ],
+          "additionalProperties": false
+        },
+        "EpisodeOutcome": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "x-enum-varnames": [
+            "EpisodeSucceeded",
+            "EpisodeFailed",
+            "EpisodeCancelled",
+            "EpisodeGap"
+          ],
+          "x-go-base": "int"
+        },
+        "EpisodeRecordView": {
+          "type": "object",
+          "properties": {
+            "episodeId": {
+              "type": "string",
+              "x-go-name": "EpisodeID"
+            },
+            "kind": {
+              "$ref": "#/$defs/EpisodeKind"
+            },
+            "targetRef": {
+              "type": "string"
+            },
+            "lineage": {
+              "$ref": "#/$defs/EpisodeLineage"
+            },
+            "workerClass": {
+              "type": "string"
+            },
+            "model": {
+              "type": "string"
+            },
+            "usage": {
+              "$ref": "#/$defs/EpisodeUsage"
+            },
+            "streamedUsage": {
+              "$ref": "#/$defs/EpisodeUsage"
+            },
+            "costUsd": {
+              "type": "number",
+              "x-go-name": "CostUSD"
+            },
+            "numTurns": {
+              "type": "integer"
+            },
+            "toolCallCounts": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "integer"
+              }
+            },
+            "subagentSpans": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/SubagentSpan"
+              }
+            },
+            "startedAt": {
+              "type": "string",
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time"
+            },
+            "endedAt": {
+              "type": "string",
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time"
+            },
+            "outcome": {
+              "$ref": "#/$defs/EpisodeOutcome"
+            },
+            "gapReason": {
+              "type": "string"
+            },
+            "tracePath": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "episodeId",
+            "kind",
+            "targetRef",
+            "usage",
+            "startedAt",
+            "endedAt",
+            "outcome"
+          ],
+          "additionalProperties": false
+        },
+        "EpisodeTimeline": {
+          "type": "object",
+          "properties": {
+            "record": {
+              "$ref": "#/$defs/EpisodeRecordView"
+            },
+            "events": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/TimelineEvent"
+              }
+            }
+          },
+          "required": [
+            "record",
+            "events"
+          ],
+          "additionalProperties": false
+        },
+        "EpisodeUsage": {
+          "type": "object",
+          "properties": {
+            "in": {
+              "type": "integer"
+            },
+            "out": {
+              "type": "integer"
+            },
+            "cacheRead": {
+              "type": "integer"
+            },
+            "cacheCreate": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "in",
+            "out",
+            "cacheRead",
+            "cacheCreate"
+          ],
+          "additionalProperties": false
+        },
         "EvPoint": {
           "type": "object",
           "properties": {
@@ -23433,6 +24156,31 @@
           ],
           "x-go-base": "string"
         },
+        "SubagentSpan": {
+          "type": "object",
+          "properties": {
+            "toolUseId": {
+              "type": "string",
+              "x-go-name": "ToolUseID"
+            },
+            "startedAt": {
+              "type": "string",
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time"
+            },
+            "endedAt": {
+              "type": "string",
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time"
+            }
+          },
+          "required": [
+            "toolUseId"
+          ],
+          "additionalProperties": false
+        },
         "SystemTestPlanView": {
           "type": "object",
           "properties": {
@@ -23677,6 +24425,29 @@
             "TestVariantQAProcess"
           ],
           "x-go-base": "int"
+        },
+        "TimelineEvent": {
+          "type": "object",
+          "properties": {
+            "seq": {
+              "type": "integer"
+            },
+            "eventType": {
+              "type": "string"
+            },
+            "raw": {
+              "type": [
+                "null"
+              ],
+              "x-go-import": "encoding/json",
+              "x-go-type": "json.RawMessage"
+            }
+          },
+          "required": [
+            "seq",
+            "eventType"
+          ],
+          "additionalProperties": false
         },
         "Version": {
           "type": "integer"
@@ -24004,6 +24775,51 @@
                 }
               }
             ],
+            "error": true
+          },
+          {
+            "name": "ListEpisodesForArtifact",
+            "params": [
+              {
+                "name": "projectID",
+                "schema": {
+                  "$ref": "#/$defs/ProjectID"
+                }
+              },
+              {
+                "name": "artifactKind",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            ],
+            "result": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/EpisodeRecordView"
+              }
+            },
+            "error": true
+          },
+          {
+            "name": "GetEpisodeTimeline",
+            "params": [
+              {
+                "name": "projectID",
+                "schema": {
+                  "$ref": "#/$defs/ProjectID"
+                }
+              },
+              {
+                "name": "episodeID",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/EpisodeTimeline"
+            },
             "error": true
           }
         ]

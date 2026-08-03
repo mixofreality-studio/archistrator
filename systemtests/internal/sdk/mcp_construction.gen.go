@@ -97,3 +97,25 @@ type ConstructionUpdateReviewPolicyInput struct {
 func (c *MCPClient) ConstructionUpdateReviewPolicy(ctx context.Context, projectID ProjectID, policy ReviewPolicyInput) error {
 	return c.callTool(ctx, "constructionUpdateReviewPolicy", ConstructionUpdateReviewPolicyInput{ProjectID: projectID, Policy: policy}, nil)
 }
+
+// ConstructionListEpisodesForActivityInput is the MCP tool-call argument object for constructionListEpisodesForActivity.
+type ConstructionListEpisodesForActivityInput struct {
+	ProjectID  ProjectID `json:"projectID"`
+	ActivityID string    `json:"activityID"`
+}
+
+// ConstructionListEpisodesForActivity calls the constructionListEpisodesForActivity tool on the Construction manager over MCP.
+func (c *MCPClient) ConstructionListEpisodesForActivity(ctx context.Context, projectID ProjectID, activityID string) ([]EpisodeRecordView, error) {
+	return mcpCallResult[[]EpisodeRecordView](c, ctx, "constructionListEpisodesForActivity", ConstructionListEpisodesForActivityInput{ProjectID: projectID, ActivityID: activityID})
+}
+
+// ConstructionGetEpisodeTimelineInput is the MCP tool-call argument object for constructionGetEpisodeTimeline.
+type ConstructionGetEpisodeTimelineInput struct {
+	ProjectID ProjectID `json:"projectID"`
+	EpisodeID string    `json:"episodeID"`
+}
+
+// ConstructionGetEpisodeTimeline calls the constructionGetEpisodeTimeline tool on the Construction manager over MCP.
+func (c *MCPClient) ConstructionGetEpisodeTimeline(ctx context.Context, projectID ProjectID, episodeID string) (EpisodeTimeline, error) {
+	return mcpCallResult[EpisodeTimeline](c, ctx, "constructionGetEpisodeTimeline", ConstructionGetEpisodeTimelineInput{ProjectID: projectID, EpisodeID: episodeID})
+}
