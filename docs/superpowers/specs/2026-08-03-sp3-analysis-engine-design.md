@@ -277,3 +277,46 @@ of this design doc isn't surprised by the code):
   a real tokenizer — deterministic and dependency-free, the same "no external tokenizer" posture
   `src/stats/` takes toward scipy (rigor pinned via fixtures, not a runtime dependency). Open
   question 1 above ("refine when real traces exist") still applies.
+
+### Final-review fix wave (2026-08-03)
+
+Four small findings from a whole-repo review; all fixed except F5/F6, which are earmarked (see
+their own notes). F1-F3 landed on `archistrator-bench` main in one commit, `npm
+test`/`typecheck`/`lint` green.
+
+- **F1 (fixed).** `verdictExperiment` conflated "not significant" with "refuted": the exact
+  Wilcoxon's minimum achievable two-sided p at `m` nonzero paired differences is `2/2^m`, so at
+  small `m` (e.g. the v1 `MIN_PAIRS=3` floor, where the floor is 0.25) `p<alpha` is structurally
+  unreachable — every underpowered experiment was reported "refuted" regardless of data, dressing
+  up insufficient n as a result. Fixed to a three-way outcome: `inconclusive` (reason
+  "underpowered...") when `m < MIN_PAIRS` or `minAchievableP > alpha`; `supported` when
+  significant AND the movement meets `minEffect` in the frozen direction; `refuted` only when
+  adequately powered (`minAchievableP <= alpha`) AND not supported — a genuine negative result.
+  `schema/verdict.schema.json`'s `outcome` description updated to match.
+- **F2 (fixed).** `extractRun` never honored `run.json.learningConsent` (§11: "the one-line filter
+  is the whole opt-in seam"). Fixed: `learningConsent === false` now writes a minimal
+  consent-withheld `metrics.json` stub (envelope + one `coverage` entry) instead of computing the
+  full body. Bench runs are always `true`, so the happy path is unchanged.
+- **F3 (fixed).** The written `metrics.json` failed `schema/metrics.schema.json` (the envelope
+  requires `runId`/`benchmark`/`schemaVersion`; `extractRun` wrote body-only). Fixed: `extractRun`
+  now writes all three envelope fields (`schemaVersion: "v1"`) alongside the body, so the same
+  document validates against both `metrics.schema.json` and `metrics-body.schema.json`.
+- **F4 (already true, now documented).** `findings.json` (`detect.ts`) and `hypotheses.json`
+  (`hypothesize.ts`) each carry a `generatedAt` wall-clock stamp (`new Date().toISOString()`), so
+  those two outputs are NOT byte-identical on re-run even over identical inputs — deliberate,
+  already noted inline at `detect.ts`'s `generatedAt` field ("byte-identical CIs (only
+  `generatedAt`'s timestamp differs)"). `extract` and `verdictExperiment` remain deterministic
+  (`verdictExperiment`'s `ranAt` is derived from the collected runs' own `endedAt`, never
+  `Date.now()` — see `experiment.ts`'s module doc). No code change; recorded here so a future
+  reader doesn't mistake the two timestamped outputs for a determinism bug.
+- **F5 (earmarked, not built).** §9's `--epoch` flag was never implemented in
+  `parseDetectArgs`/`cli.ts` — `detect`'s ambiguous-epoch refusal message ("scope detect to a
+  single epoch to compare them") names a remedy the CLI does not yet expose. Earmark: add
+  `--epoch` to `bench detect`, or reword the refusal message to point at an actionable remedy.
+- **F6 (earmarked, folds into parked experiment-run hardening for AC iteration 0).** `bench
+  experiment run` (`parseExperimentRunArgs` / `runExperiment`) does not cross-check the supplied
+  `--baseline-archistrator`/`--treatment-archistrator` checkouts' actual commits against the
+  frozen `preregistration.json`'s `baselineCommit`/`treatmentCommit` — a caller could point either
+  flag at a checkout on the wrong commit and `runExperiment` would silently drive it anyway. Folds
+  into the parked experiment-run hardening already deferred to AC iteration 0 (§10: "First real
+  end-to-end ... validated at AC iteration 0").
