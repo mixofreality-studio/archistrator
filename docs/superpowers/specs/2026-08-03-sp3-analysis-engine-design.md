@@ -2,7 +2,9 @@
 
 - **Date:** 2026-08-03
 - **Author:** Claude (driven), founder (ratified)
-- **Status:** Approved design — ready for implementation planning
+- **Status:** Implemented (2026-08-03, `archistrator-bench` main — Tasks 1-8 of
+  `docs/superpowers/plans/2026-08-03-sp3-analysis-engine.md`). See §13 for deviations discovered
+  during implementation.
 - **Repo:** `archistrator-bench` (the sibling bench repo; TS/ESM)
 - **Supersedes:** refines §7 of `2026-08-02-self-improvement-pipeline-design.md` against the
   real SP1+SP2 data shapes and two founder rulings (2026-08-03): TS-native stats, all three goals.
@@ -224,4 +226,54 @@ bench experiment verdict <expId>                   # → verdict.json (declared 
 2. **Epoch auto-detection vs explicit** — `--epoch auto` groups by `(suiteVersion,
    operatorPolicyVersion)`; confirm the grouping key once real runs accumulate.
 3. **Experiment `run` orchestration** — whether `bench experiment run` shells the SP2 `bench run`
-   twice or shares process; a plan-time detail.
+   twice or shares process; a plan-time detail. **Resolved (Task 7):** `bench experiment run`
+   drives SP2's real `runBenchmark` in-process against two already-resolved archistrator
+   checkouts (`--baseline-archistrator`/`--treatment-archistrator`) — in-process
+   commit-switching within one checkout was ruled out of scope for v1.
+
+## 13. Implementation status & deviations (2026-08-03)
+
+All 8 plan tasks landed on `archistrator-bench` main (277 tests, `npm test`/`typecheck`/`lint`
+green), closed out by Task 8's hermetic end-to-end synthesized-pipeline smoke
+(`test/integration/analysis-pipeline.test.ts`): 4 synthesized runs across 2 commits driven through
+`extract` → `detect` → `hypothesize` (fake `claude`) → `experiment register`+`verdict`, landing a
+coherent `analysis/` tree while `runs/**` stays byte-for-byte untouched — verified both by a
+structural before/after snapshot and by running the real CI immutability classifier
+(`classifyRunsChanges`) over a real `git diff` of the whole sequence (zero offenses). Real
+end-to-end analysis against genuine archived runs remains deferred to AC iteration 0, per §11 —
+unchanged.
+
+Deviations found and ruled during implementation (none blocking; recorded here so a future reader
+of this design doc isn't surprised by the code):
+
+- **`episodes.jsonl` lives under `traces/`, not the run dir's top level.** §5 (and this doc's
+  original tree sketch) didn't spell out the exact path; the real SP2 `harvest.ts` copies the
+  gitignored `.aiarch/traces/` sidecar wholesale into `<runDir>/traces/`, so the episode ledger
+  (`traces/episodes.jsonl`) sits alongside the per-episode raw traces
+  (`traces/<episodeId>.jsonl`) as siblings, not at the run archive's root. A Task 6 cross-task
+  bug (the reader and the test fixture both agreed on the wrong top-level path, so tests passed
+  while a real run would have read zero episodes) was caught and fixed in both
+  `readEpisodeLedger` and `test/support/synth-archive.ts` together — see `episode-record.ts`'s
+  header for the full account.
+- **The "gate" concentration dimension uses `featureChecklist` ids, not §5's
+  "episode `Outcome=Failed` grouped by target" grouping.** That episode-level grouping was never
+  built into the extractor (Tasks 3-4 only computed rework via `Kind ∈ {Review, Rework}` and
+  repeat-target counts, not a Failed-outcome-by-target rollup) — `detect.ts`'s concentration
+  finding instead pools acceptance-suite checklist failures. This is a real coverage gap for
+  construction-time gate failures specifically (construction is Outcome-blind until a real run
+  populates the ledger); the design-artifact signal (`slots.revisions > 1`) IS captured
+  separately via extract's rework metrics. Triaged as accept-for-v1 rather than block: the
+  featureChecklist dimension is genuinely useful on its own, and the deeper grouping needs real
+  construction-run data to validate against anyway.
+- **`MIN_PAIRS = 3`** is a fixed v1 constant in `experiment.ts` (below which `verdictExperiment`
+  returns `inconclusive` rather than computing the declared test) — it is not itself part of the
+  frozen `preregistration.json`. Documented as a v1 simplification, not pre-registered per-run.
+- **CUSUM's target is a baseline-window mean (the first half of the chronologically-ordered
+  series), not the whole series' mean**, which §6 left unspecified. Using the full series' mean
+  would self-contaminate: a real sustained shift pulls the mean toward itself, dampening the
+  alarm on the shifted points while risking a spurious alarm on the actually-stable baseline
+  points. Ruled an improvement over the naive reading, not a deviation to walk back.
+- **`hypothesize`'s trace-excerpt token budget (`excerptBudget`) is a character-count proxy**, not
+  a real tokenizer — deterministic and dependency-free, the same "no external tokenizer" posture
+  `src/stats/` takes toward scipy (rigor pinned via fixtures, not a runtime dependency). Open
+  question 1 above ("refine when real traces exist") still applies.
