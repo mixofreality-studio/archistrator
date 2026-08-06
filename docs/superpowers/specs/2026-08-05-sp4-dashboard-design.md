@@ -2,7 +2,9 @@
 
 - **Date:** 2026-08-05
 - **Author:** Claude (driven), founder (ratified)
-- **Status:** Approved design — ready for implementation planning
+- **Status:** Implemented (2026-08-05, `archistrator-bench` main — Tasks 1-8 of
+  `docs/superpowers/plans/2026-08-05-sp4-dashboard.md`). See §10 for deviations discovered
+  during implementation.
 - **Repo:** `archistrator-bench` (the sibling bench repo)
 - **Refines:** §8 of `2026-08-02-self-improvement-pipeline-design.md`, grounded in the real
   SP2 (`runs/`) + SP3 (`analysis/`) output shapes (recon 2026-08-05).
@@ -162,3 +164,38 @@ number.
    to ever publish it (e.g. an artifact) is a later question; the founder opens it locally for AC.
 3. **`data.json` git status** — a build output; gitignore it (regenerable from committed
    `runs/`+`analysis/`), consistent with `dist/`. Confirm at plan time.
+
+## 10. Implementation status & deviations (2026-08-05)
+
+All 8 plan tasks landed on `archistrator-bench` main (355 tests across the `node` + `dashboard`
+vitest projects, `npm test`/`typecheck`/`lint`/`dashboard:build` all green), closed out by Task 8:
+`App.tsx`'s router wired to the five real views (RunList/RunDetail/RunDiff/Trends/ScienceLedger)
+with `useState`-only selection state (`activeView`/`selectedRunId`/`selectedBenchmark`, no router
+library — open question 2's "opens it locally" posture didn't call for one), an end-to-end RTL
+integration test (`dashboard/src/App.integration.test.tsx`) over a REAL `buildSynthPipeline` +
+`aggregate()` bundle proving run-list → run-detail → diff → trends → science-ledger navigation and
+every honest-surfacing badge (synthetic, insufficientN, consent-withheld, inconclusive), and a
+build smoke: `bench dashboard build` over a synthesized tree writes a schema-valid `data.json`
+(already covered by `test/dashboard-aggregate.test.ts`'s `main(["dashboard","build",...])` suite,
+re-verified manually for this closeout), and `npm run dashboard:build` (tsc + `vite build`) emits
+`dashboard/dist/` (`index.html` + a single ~711 kB / ~206 kB gzip JS bundle — Recharts pulls in the
+bulk of it; open question 1's bundle-size concern is about `data.json` growth, not this asset
+bundle, and remains unaddressed by design, v1 scope).
+
+Deviations found and ruled during implementation (none blocking):
+
+- **Open question 3 resolved: `dashboard/public/data.json` is gitignored**, consistent with
+  `dashboard/dist/` — both are regenerable build outputs (`bench dashboard build` / `vite build`
+  respectively), never committed.
+- **Open question 2 resolved as scoped: no hosting was added.** `npm run dashboard:dev` (live dev
+  server) and `npm run dashboard:build` + `npm run dashboard:preview` (production build + static
+  preview) are the only supported ways to view it, per §8's non-goals — the README's new
+  "Dashboard (SP4)" section documents both paths.
+- **No gated Playwright test was added.** The brief for the closeout task allowed this
+  explicitly as optional ("do not add it unless trivial"); the RTL integration test over a real
+  aggregated bundle already exercises the full view graph + badge wiring, so a second,
+  slower browser-level smoke was judged non-essential for v1 and skipped.
+- **The benchmark selector (`<select data-testid="benchmark-select">`) only renders on the
+  Trends/Science-Ledger views**, not globally in the shell nav — those are the only two views
+  that take a `benchmark` prop (RunList/RunDiff are cross-benchmark by design, RunDetail is
+  per-run); showing it elsewhere would imply it does something it doesn't.
