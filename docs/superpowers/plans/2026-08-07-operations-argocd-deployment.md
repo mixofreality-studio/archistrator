@@ -526,7 +526,7 @@ func testDesiredState() RuntimeDesiredState {
 		},
 		WebApp: Workload{
 			ModelKey: "cloud-infra-static-assets",
-			Image:    "ghcr.io/mixofreality-studio/archistrator-webapp:0.6.61",
+			Image:    "ghcr.io/mixofreality-studio/archistrator-webapp:0.6.14",
 			Replicas: 1,
 		},
 		Postgres: PostgresSpec{
