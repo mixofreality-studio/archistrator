@@ -63,7 +63,7 @@ spec:
         runAsUser: 65532
       containers:
       - name: archistrator-server
-        image: "ghcr.io/mixofreality-studio/archistrator-server:latest"
+        image: "ghcr.io/mixofreality-studio/archistrator-server:0.8.16"
         imagePullPolicy: Always
         securityContext:
           allowPrivilegeEscalation: false

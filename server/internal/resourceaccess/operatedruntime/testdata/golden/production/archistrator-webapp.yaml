@@ -58,7 +58,7 @@ spec:
               topologyKey: kubernetes.io/hostname
       containers:
       - name: webapp
-        image: "ghcr.io/mixofreality-studio/archistrator-webapp:latest"
+        image: "ghcr.io/mixofreality-studio/archistrator-webapp:0.6.14"
         imagePullPolicy: Always
         ports:
         - name: http
