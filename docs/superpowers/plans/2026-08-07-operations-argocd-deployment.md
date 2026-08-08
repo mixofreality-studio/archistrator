@@ -276,7 +276,9 @@ Replaces the opaque `{Bytes, ContentType}` blob with the struct the renderer nee
 
 **Interfaces:**
 - Consumes: `projectstate.ReadProject(rc fwra.Context, projectID ProjectID) (Project, error)`; `artifact.RetrieveConstructionOutput`; `operatedsystemstate.OperatedSystem`.
-- Produces: `operatedruntime.RuntimeDesiredState` with fields `AppName, Namespace, Host, ModelKey string`, `Server, WebApp Workload`, `Postgres PostgresSpec`, `OIDC OIDCSpec`, `SelfManaged bool`; `Workload{ModelKey, Image string, Replicas int64}`; `PostgresSpec{ModelKey string, Enabled bool, Instances int64, StorageClass string}`; `OIDCSpec{Issuer, ClientID, ClientSecretRef string}`.
+- Produces: `operatedruntime.RuntimeDesiredState` with fields `AppName, Namespace, Host, ModelKey string`, `Server, WebApp Workload`, `Postgres PostgresSpec`, `OIDC OIDCSpec`, `SelfManaged bool`; `Workload{ModelKey, Image string, Replicas int64}`; `PostgresSpec{ModelKeys []string, Enabled bool, Instances int64, StorageClass string}`; `OIDCSpec{ModelKey, Issuer, ClientID, ClientSecretRef string}`.
+
+> **`PostgresSpec.ModelKeys` is a slice, not a single key.** Three `database` nodes collapse to one rendered `Cluster`, but all three are real diagram nodes and all three must colour from that one resource's health. The keys are sorted, because the renderer must be byte-deterministic.
 - Produces: `func assembleDesiredState(proj projectstate.Project, bundle deployableBundle, op operatedsystemstate.OperatedSystem) (operatedruntime.RuntimeDesiredState, error)`.
 
 - [ ] **Step 1: Replace the `RuntimeDesiredState` `$def`**
@@ -302,17 +304,18 @@ defs['Workload'] = obj([
 ], ['ModelKey', 'Image', 'Replicas'])
 
 defs['PostgresSpec'] = obj([
-    ('ModelKey', {'type': 'string'}),
+    ('ModelKeys', {'type': 'array', 'items': {'type': 'string'}}),
     ('Enabled', {'type': 'boolean'}),
     ('Instances', {'type': 'integer'}),
     ('StorageClass', {'type': 'string'}),
-], ['ModelKey', 'Enabled', 'Instances', 'StorageClass'])
+], ['ModelKeys', 'Enabled', 'Instances', 'StorageClass'])
 
 defs['OIDCSpec'] = obj([
+    ('ModelKey', {'type': 'string'}),
     ('Issuer', {'type': 'string'}),
     ('ClientID', {'type': 'string'}),
     ('ClientSecretRef', {'type': 'string'}),
-], ['Issuer', 'ClientID', 'ClientSecretRef'])
+], ['ModelKey', 'Issuer', 'ClientID', 'ClientSecretRef'])
 
 defs['RuntimeDesiredState'] = obj([
     ('AppName', {'type': 'string'}),
@@ -499,7 +502,9 @@ git commit -m "test(operatedruntime): capture production chart output as render 
 
 **Interfaces:**
 - Consumes: `RuntimeDesiredState` (Task 2).
-- Produces: `type Manifest struct { ModelKey, Kind, Name, Namespace string; YAML string }` and `func render(d RuntimeDesiredState) ([]Manifest, error)` — returns manifests in a deterministic order (sorted by `Kind` then `Name`).
+- Produces: `type Manifest struct { ModelKeys []string; Kind, Name, Namespace, YAML string }` and `func render(d RuntimeDesiredState) ([]Manifest, error)` — returns manifests in a deterministic order (sorted by `Kind` then `Name`).
+
+> **`ModelKeys` is a slice because the mapping is not one-to-one.** Most manifests answer to exactly one diagram node, but the Postgres `Cluster` answers to all three `database` nodes (`operatedsystemstate`, `billingstate`, `usagelog`) — production runs one cluster serving all three logical stores, and all three nodes must colour from its health. Keep the slice sorted so the render stays byte-deterministic.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -520,12 +525,22 @@ func testDesiredState() RuntimeDesiredState {
 			Replicas: 1,
 		},
 		WebApp: Workload{
-			ModelKey: "cloud-node-webapp-deployment",
+			ModelKey: "cloud-infra-static-assets",
 			Image:    "ghcr.io/mixofreality-studio/archistrator-webapp:0.6.61",
 			Replicas: 1,
 		},
-		Postgres:    PostgresSpec{ModelKey: "cloud-node-postgres", Enabled: true, Instances: 1, StorageClass: "do-block-storage"},
-		OIDC:        OIDCSpec{Issuer: "https://keycloak.capture-gtd.com/realms/archistrator", ClientID: "archistrator-webapp", ClientSecretRef: "archistrator-oidc-client-secret"},
+		Postgres: PostgresSpec{
+			ModelKeys:    []string{"cloud-infra-billingstate", "cloud-infra-operatedsystemstate", "cloud-infra-usagelog"},
+			Enabled:      true,
+			Instances:    1,
+			StorageClass: "do-block-storage",
+		},
+		OIDC: OIDCSpec{
+			ModelKey:        "cloud-infra-keycloak",
+			Issuer:          "https://keycloak.capture-gtd.com/realms/archistrator",
+			ClientID:        "archistrator-webapp",
+			ClientSecretRef: "archistrator-oidc-client-secret",
+		},
 		SelfManaged: true,
 	}
 }
@@ -544,8 +559,8 @@ func TestRender_EmitsServerDeploymentWithModelKey(t *testing.T) {
 	if found == nil {
 		t.Fatal("no Deployment/archistrator-server in rendered output")
 	}
-	if found.ModelKey != "cloud-node-server-deployment" {
-		t.Errorf("ModelKey = %q, want cloud-node-server-deployment", found.ModelKey)
+	if len(found.ModelKeys) != 1 || found.ModelKeys[0] != "cloud-node-server-deployment" {
+		t.Errorf("ModelKeys = %v, want [cloud-node-server-deployment]", found.ModelKeys)
 	}
 	if found.Namespace != "archistrator" {
 		t.Errorf("Namespace = %q, want archistrator", found.Namespace)
@@ -597,7 +612,11 @@ import (
 // came from. ModelKey is what lets the health overlay attribute a live resource
 // back to a diagram node without storing a mapping table.
 type Manifest struct {
-	ModelKey  string
+	// ModelKeys are the deployment-model nodes this object answers to. Usually one;
+	// the Postgres Cluster answers to all three database nodes, since production runs
+	// one cluster serving all three logical stores and every one of those diagram
+	// nodes must colour from its health. Kept sorted so the render is deterministic.
+	ModelKeys []string
 	Kind      string
 	Name      string
 	Namespace string
@@ -668,7 +687,7 @@ func render(d RuntimeDesiredState) ([]Manifest, error) {
 			return nil, err
 		}
 		out = append(out, Manifest{
-			ModelKey: w.wl.ModelKey, Kind: "Deployment",
+			ModelKeys: []string{w.wl.ModelKey}, Kind: "Deployment",
 			Name: name, Namespace: d.Namespace, YAML: y,
 		})
 	}
@@ -814,7 +833,7 @@ spec:
 `))
 ```
 
-Emit it in `render` with `ModelKey: d.ModelKey`, `Kind: "Application"`, `Name: d.AppName`, `Namespace: "argocd"`.
+Emit it in `render` with `ModelKeys: []string{d.ModelKey}`, `Kind: "Application"`, `Name: d.AppName`, `Namespace: "argocd"`.
 
 - [ ] **Step 4: Run and watch both pass**
 
@@ -838,7 +857,7 @@ The `SecurityPolicy` references the OIDC client secret by name (`d.OIDC.ClientSe
 
 - [ ] **Step 6b: Add the Keycloak realm/client CR (spec D12)**
 
-Emit a Keycloak CR provisioning the app's realm and its confidential OIDC client, carrying `ModelKey` = the `identityProvider` infra node's key (`cloud-infra-keycloak`).
+Emit a Keycloak CR provisioning the app's realm and its confidential OIDC client, carrying `ModelKeys: []string{d.OIDC.ModelKey}` — the `identityProvider` infra node's key (`cloud-infra-keycloak`).
 
 **This object is the highest-risk thing in the render and has no golden diff.** Production's realm and client are hand-managed in the admin console — the `KeycloakRealmImport` was deliberately removed once — so nothing in `testdata/golden/production/` constrains it. A wrong realm or client breaks login for the entire app, and archistrator's own front door is on that path.
 
@@ -916,8 +935,11 @@ func TestRender_EveryManifestCarriesAModelKey(t *testing.T) {
 		t.Fatalf("render: %v", err)
 	}
 	for _, m := range ms {
-		if m.ModelKey == "" {
-			t.Errorf("%s/%s has no ModelKey; it cannot be attributed to a diagram node", m.Kind, m.Name)
+		if len(m.ModelKeys) == 0 {
+			t.Errorf("%s/%s has no ModelKeys; it cannot be attributed to a diagram node", m.Kind, m.Name)
+		}
+		if !sort.StringsAreSorted(m.ModelKeys) {
+			t.Errorf("%s/%s ModelKeys not sorted: %v (render must be deterministic)", m.Kind, m.Name, m.ModelKeys)
 		}
 	}
 }
@@ -1245,7 +1267,7 @@ func TestQueryDeploymentHealth_NeutralForUnrenderedNodes(t *testing.T) {
 	// architect's laptop, their browser, the temporal and gtd namespaces. None of
 	// these may ever be coloured — a naive join would paint them unhealthy.
 	got := joinHealth(
-		[]Manifest{{ModelKey: "cloud-node-server-deployment", Kind: "Deployment", Name: "archistrator-server"}},
+		[]Manifest{{ModelKeys: []string{"cloud-node-server-deployment"}, Kind: "Deployment", Name: "archistrator-server"}},
 		[]ResourceHealth{{Kind: "Deployment", Name: "archistrator-server", Health: "Healthy"}},
 		[]string{"cloud-node-server-deployment", "cloud-node-browser", "cloud-node-ns-gtd"},
 	)
@@ -1267,7 +1289,7 @@ func TestQueryDeploymentHealth_NeutralForUnrenderedNodes(t *testing.T) {
 
 func TestQueryDeploymentHealth_UnhealthyWhenResourceDegraded(t *testing.T) {
 	got := joinHealth(
-		[]Manifest{{ModelKey: "cloud-node-server-deployment", Kind: "Deployment", Name: "archistrator-server"}},
+		[]Manifest{{ModelKeys: []string{"cloud-node-server-deployment"}, Kind: "Deployment", Name: "archistrator-server"}},
 		[]ResourceHealth{{Kind: "Deployment", Name: "archistrator-server", Health: "Degraded"}},
 		[]string{"cloud-node-server-deployment"},
 	)
