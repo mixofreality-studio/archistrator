@@ -50,6 +50,7 @@ import { useComments, deploymentAnchor } from '../comments/CommentContext';
 import { FlowCanvas, FlowEmpty } from './flowShared';
 import { flowEdge, layerColors, MUTED_OPACITY, NODE_W } from './flowLayout';
 import { PersonNode } from './PersonNode';
+import { environmentIsObservable, type HealthState } from './deploymentHealth';
 import {
   DeployGroupNode,
   DeployContainerNode,
@@ -516,11 +517,23 @@ export function DeploymentFlow({
   opEnvelope,
   systemEnvelope,
   profile,
+  healthByKey,
   height = 520,
 }: {
   opEnvelope: ArtifactModelEnvelope | undefined;
   systemEnvelope: ArtifactModelEnvelope | undefined;
   profile: DeploymentProfile;
+  /**
+   * The live health overlay, modelKey -> HealthState (Task 12, spec D10). The
+   * CALLER owns the fetch (useDeploymentHealth) and the capability gate
+   * (useCapabilities().operations, D9) — this component stays a pure
+   * components-layer file with no hooks import, per the layer DAG
+   * (eslint.platform.config.js). Undefined/empty renders the diagram exactly as
+   * it does today. Only ever consulted for the `cloud` profile — `test` and
+   * `local` ignore it even if the caller passed one, so a caller never needs to
+   * re-derive which profile is active before supplying this.
+   */
+  healthByKey?: Record<string, HealthState>;
   height?: number;
 }): ReactNode {
   const t = useTokens();
@@ -528,6 +541,13 @@ export function DeploymentFlow({
   const env = useMemo(
     () => toDeploymentView(opEnvelope, systemEnvelope, profile),
     [opEnvelope, systemEnvelope, profile]
+  );
+
+  // D10: only the `cloud` environment is ever coloured — `test`/`local` render
+  // unchanged even if the caller supplied a populated healthByKey.
+  const observableHealth = useMemo<Record<string, HealthState>>(
+    () => (environmentIsObservable(profile) ? (healthByKey ?? {}) : {}),
+    [profile, healthByKey]
   );
 
   // Hover wins while active; a click PINS an element so keyboard and touch reach
@@ -550,9 +570,15 @@ export function DeploymentFlow({
       // Group nodes are PLACES — a namespace does not dim just because the focus
       // sits outside it, or the boxes inside would float without their frame.
       const dimmed = near !== null && node.type !== 'deployGroup' && !near.has(key);
-      return dimmed ? { ...node, style: { opacity: MUTED_OPACITY } } : node;
+      // Absent from observableHealth (never observed, a node archistrator doesn't
+      // deploy, or a non-cloud profile) leaves `health` undefined —
+      // DeploymentNodes' renderers already treat that as "no colour, render as
+      // always."
+      const health = observableHealth[key];
+      const withHealth = health === undefined ? node : { ...node, data: { ...node.data, health } };
+      return dimmed ? { ...withHealth, style: { opacity: MUTED_OPACITY } } : withHealth;
     });
-  }, [built, env, activeKey]);
+  }, [built, env, activeKey, observableHealth]);
 
   const edges = useMemo(
     () =>

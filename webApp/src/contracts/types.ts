@@ -146,6 +146,17 @@ export type NetworkDependency = S['ModelNetworkDependency'];
  *  `NetworkNodeCompute.band` (typed `string`) and is narrowed to FloatBand at the one
  *  view-building site in projectAdapters. */
 export type FloatBand = 'critical' | 'red' | 'yellow' | 'green';
+/**
+ * The deployment diagram's live health overlay states (operations-argocd-
+ * deployment Task 12, spec D10) — the two-state colourable domain the server
+ * (QueryDeploymentHealth) has already collapsed OperationsHealthState down to;
+ * Neutral is dropped before a wire response ever becomes this type (see
+ * useDeploymentHealth.ts). Hand-pinned here, not derived from `S`, because both
+ * the hooks layer (useDeploymentHealth.ts) and the components layer
+ * (components/flow/deploymentHealth.ts) need it and the import boundary DAG lets
+ * each reach `contracts` but not each other.
+ */
+export type HealthState = 'Healthy' | 'Unhealthy';
 export type NetworkNodeCompute = S['ModelNetworkNodeCompute'];
 export type NetworkSummary = S['ModelNetworkSummary'];
 export type NetworkMilestone = S['ModelNetworkMilestone'];

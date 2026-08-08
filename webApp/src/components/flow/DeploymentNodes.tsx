@@ -21,6 +21,7 @@ import Typography from '@mui/material/Typography';
 import { useTokens } from '../../utilities/theme/ThemeContext';
 import { useComments, deploymentAnchor } from '../comments/CommentContext';
 import { layerColors, type Layer } from './flowLayout';
+import { healthColor, type HealthState } from './deploymentHealth';
 
 // Deployment-topology nodes are commentable AND keyboard-operable: a pointer click
 // arms a deployment anchor (handled by DeploymentFlow's onNodeClick, which reads
@@ -118,6 +119,10 @@ export interface DeployGroupData {
   description: string;
   instances: number;
   profile: string;
+  /** Live health of this DeploymentNode's model key — undefined outside the cloud
+   *  environment, or when the server has no opinion (a node archistrator doesn't
+   *  deploy). Never re-derived here; only coloured. */
+  health?: HealthState;
   [key: string]: unknown;
 }
 
@@ -146,6 +151,9 @@ export interface DeployInfraData {
   /** What the element does — `other` when unclassified. */
   role: string;
   profile: string;
+  /** Live health of this InfrastructureNode's model key — same rules as
+   *  {@link DeployGroupData.health}. */
+  health?: HealthState;
   [key: string]: unknown;
 }
 
@@ -223,7 +231,9 @@ export function DeployGroupNode({ data, width, height }: NodeProps): ReactNode {
         width,
         height,
         bgcolor: t.paper,
-        border: `1.5px dashed ${t.line}`,
+        // Undefined outside the cloud environment / when the server has no
+        // opinion — the exact same dashed t.line border this box has always had.
+        border: `1.5px dashed ${d.health === undefined ? t.line : healthColor(d.health, t)}`,
         borderRadius: t.radius / 8 + 0.5,
         cursor: 'pointer',
         outline: 'none',
@@ -449,7 +459,9 @@ export function DeployInfraNode({ data, width, height }: NodeProps): ReactNode {
         py: 0.75,
         bgcolor: t.paperAlt,
         color: t.ink,
-        border: `1.5px solid ${t.muted}`,
+        // Undefined outside the cloud environment / when the server has no
+        // opinion — the exact same solid t.muted border this box has always had.
+        border: `1.5px solid ${d.health === undefined ? t.muted : healthColor(d.health, t)}`,
         borderRadius: 2,
         overflow: 'hidden',
         cursor: 'pointer',
