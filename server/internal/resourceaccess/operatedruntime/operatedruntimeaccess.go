@@ -6,7 +6,12 @@ package operatedruntime
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
+	"net/url"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 	"text/template"
@@ -30,12 +35,15 @@ import (
 //     invents NO usage facts (empty RuntimeEventID ⇒ the Manager appends nothing). This
 //     mirrors the construction DRYRUN profile (cmd/server/construction_dryrun.go).
 //
-//   - REAL (RuntimeProfileReal): the production impl over the real GitOps/kubernetes +
-//     observability backend. That backend is NOT yet built (it pairs with the N-DEP Argo
-//     deployment work), so every verb currently returns an EXPLICIT fwra.Unknown naming
-//     the follow-up and the dry-run escape hatch — NOT a silent generated stub. The seam
-//     is here so the real bodies swap in one file when the kubernetes backend lands; the
-//     public surface (constructor + interface) does not change.
+//   - REAL (RuntimeProfileReal): the production impl. PublishDesiredState and Withdraw are
+//     now functional (Task 7): they render the desired state (below) and commit it to the
+//     GitOps repository ArgoCD watches, via a clone → mutate → commit-if-changed → push
+//     sequence where git itself — `git diff --cached --quiet`, never a hand-rolled string
+//     comparison — decides whether anything changed. The observability half of this RA
+//     (GetApplicationHealth, GetSloStatus, ReadComputeAttribution) and WirePaymentConfig
+//     still have no backend (N-DEP Argo/kubernetes-observability follow-up) and return an
+//     EXPLICIT fwra.Unknown naming that follow-up and the dry-run escape hatch — NOT a
+//     silent generated stub.
 //
 // The package imports NO Temporal (layer rule): the idempotency key arrives as an
 // ordinary parameter on each write.
@@ -60,9 +68,24 @@ const (
 type RuntimeConfig struct {
 	// GitOpsRepoURL is the GitOps repository the real profile commits rendered desired
 	// state to (ArgoCD watches it). Empty ⇒ unconfigured; the real verbs surface that in
-	// their diagnostic. The seam is here so the real impl validates it once the
-	// kubernetes backend lands.
+	// their diagnostic.
 	GitOpsRepoURL string
+	// GitOpsToken authenticates pushes to GitOpsRepoURL when it is an http(s) remote (a
+	// GitHub App installation token in production). Empty ⇒ the push is attempted
+	// unauthenticated, which is fine for the file:// remotes tests use and fails loudly
+	// against a real remote. No credential is wired to this field yet — that is a
+	// composition-root follow-up outside this task's scope (see the file doc); the field
+	// exists so wiring one later needs no further code change.
+	GitOpsToken string
+	// SelfManagedAppID identifies the one operated app Withdraw must refuse to delete —
+	// archistrator's own control plane (D8's third guard; see Withdraw's doc). Withdraw's
+	// generated signature (contract.gen.go) carries only an appID, not a
+	// RuntimeDesiredState, so there is no SelfManaged flag to read at the call site; this
+	// config-injected identity is how the determination is made instead, mirroring
+	// GitOpsRepoURL/GitOpsToken above rather than widening the interface. The zero value
+	// (uuid.Nil) disables the guard, which is what every non-self-managed deployment and
+	// every existing test that does not set it wants.
+	SelfManagedAppID uuid.UUID
 }
 
 // newProfiledOperatedRuntimeAccess is the hand-written builder behind the generated
@@ -126,15 +149,15 @@ func (dryRunOperatedRuntime) ReadComputeAttribution(_ fwra.Context, _ uuid.UUID,
 }
 
 // ---------------------------------------------------------------------------
-// REAL profile — production skeleton (kubernetes/GitOps backend is the N-DEP follow-up).
+// REAL profile — GitOps commit path live (Task 7); observability backend still N-DEP.
 // ---------------------------------------------------------------------------
 
-// realOperatedRuntime is the production impl over the real GitOps/kubernetes +
-// observability backend. That backend is not yet built, so every verb returns an
-// explicit, diagnosable fwra.Unknown (fail-fast, non-retryable — preserving the wire
-// behaviour the operationsManager façade maps to a 503) naming the N-DEP follow-up and
-// the dry-run escape hatch. When the kubernetes backend lands, the real bodies replace
-// these returns in place; the struct already holds the config they will need.
+// realOperatedRuntime is the production impl. PublishDesiredState and Withdraw commit to
+// the real GitOps repository (below). GetApplicationHealth, GetSloStatus,
+// ReadComputeAttribution, and WirePaymentConfig still have no observability/payment
+// backend, so they return an explicit, diagnosable fwra.Unknown (fail-fast, non-retryable
+// — preserving the wire behaviour the operationsManager façade maps to a 503) naming the
+// N-DEP follow-up and the dry-run escape hatch.
 type realOperatedRuntime struct {
 	config RuntimeConfig
 }
@@ -154,12 +177,52 @@ func (r realOperatedRuntime) notImplemented(verb string) error {
 	return fwra.New(fwra.Unknown, msg)
 }
 
-func (r realOperatedRuntime) PublishDesiredState(_ fwra.Context, _ uuid.UUID, _ RuntimeDesiredState, _ fwra.IdempotencyKey) error {
-	return r.notImplemented("publishDesiredState")
+// PublishDesiredState renders d and commits it to the GitOps repo (see the GitOps commit
+// path section below). Content-idempotent: republishing identical desired state produces
+// no new commit, because gitOpsCommit stages the write and lets `git diff --cached
+// --quiet` decide whether anything changed.
+func (r realOperatedRuntime) PublishDesiredState(_ fwra.Context, appID uuid.UUID, d RuntimeDesiredState, idempotencyKey fwra.IdempotencyKey) error {
+	if d.AppName == "" {
+		return fwra.New(fwra.ContractMisuse, "operatedruntime real profile: publishDesiredState: empty RuntimeDesiredState.AppName")
+	}
+	msg := fmt.Sprintf("operatedruntime: publish %s (appId=%s, idempotencyKey=%s)", d.AppName, appID, idempotencyKey)
+	return r.gitOpsCommit(msg, gitOpsPublish(appID, d))
 }
 
-func (r realOperatedRuntime) Withdraw(_ fwra.Context, _ uuid.UUID, _ fwra.IdempotencyKey) error {
-	return r.notImplemented("withdraw")
+// Withdraw refuses the self-managed app outright — the third of three paths to deleting
+// archistrator's own control plane, and the only one left open by prune:false and the
+// omitted Argo finalizer (renderApplication). Withdraw deletes the Application object
+// itself; an operator clicking Withdraw on archistrator, in archistrator's own console,
+// would take down the thing servicing the click, with no archistrator left to undo it.
+// Tearing archistrator down is a deliberate kubectl operation by a human who means it, not
+// a button — see RuntimeConfig.SelfManagedAppID for how this verb (whose generated
+// signature carries only an appID) determines the target without a RuntimeDesiredState.
+//
+// Otherwise, Withdraw resolves appID to the AppName it was last published under (via the
+// GitOps repo's own bookkeeping, see gitOpsFindAppByID) and removes that app's rendered
+// tree, Application, and marker. An appID with no match — never published, or already
+// withdrawn — is success: nothing is staged, so gitOpsCommit commits nothing, matching the
+// contract's NotFound⇒success withdraw semantics.
+func (r realOperatedRuntime) Withdraw(_ fwra.Context, appID uuid.UUID, idempotencyKey fwra.IdempotencyKey) error {
+	if r.config.SelfManagedAppID != uuid.Nil && appID == r.config.SelfManagedAppID {
+		return fwra.New(fwra.ContractMisuse,
+			"operatedruntime real profile: withdraw refused for "+appID.String()+
+				" — it is the self-managed app (archistrator's own control plane); deleting its "+
+				"Argo Application would take down the thing that would have to undo the deletion; "+
+				"tear it down with a deliberate kubectl operation instead")
+	}
+
+	msg := fmt.Sprintf("operatedruntime: withdraw %s (idempotencyKey=%s)", appID, idempotencyKey)
+	return r.gitOpsCommit(msg, func(workdir string) error {
+		appName, found, err := gitOpsFindAppByID(workdir, appID)
+		if err != nil {
+			return err
+		}
+		if !found {
+			return nil
+		}
+		return gitOpsWithdraw(appName)(workdir)
+	})
 }
 
 func (r realOperatedRuntime) WirePaymentConfig(_ fwra.Context, _ uuid.UUID, _ GatewayBinding, _ fwra.IdempotencyKey) error {
@@ -176,6 +239,306 @@ func (r realOperatedRuntime) GetSloStatus(_ fwra.Context, _ uuid.UUID) (SloStatu
 
 func (r realOperatedRuntime) ReadComputeAttribution(_ fwra.Context, _ uuid.UUID, _ AttributionWindow) (ComputeAttribution, error) {
 	return ComputeAttribution{}, r.notImplemented("readComputeAttribution")
+}
+
+// ---------------------------------------------------------------------------
+// GitOps commit path — PublishDesiredState / Withdraw's real backend (Task 7,
+// docs/superpowers/specs/2026-08-07-operations-argocd-deployment-design.md).
+//
+// Both verbs clone config.GitOpsRepoURL to a scratch directory, mutate the working tree,
+// stage everything, and commit ONLY IF `git diff --cached --quiet` reports a change. That
+// is the entire content-idempotency mechanism: git decides whether the rendered bytes
+// differ from what is already committed — never a hand-rolled comparison of rendered
+// strings against file contents, which would drift from what git itself considers a
+// change. This is load-bearing: the operationsManager reconcile loop calls
+// PublishDesiredState on a fixed schedule regardless of whether anything changed, so a
+// non-idempotent implementation would produce a commit every tick, forever.
+//
+// Every rendered object except the Application lands under k8s/argocd/apps/<app>/ — the
+// directory Argo's own Application.source.path points at (platformGitOpsAppPath, see
+// renderApplication). The Application itself, which GOVERNS that directory, is committed
+// one level up at k8s/argocd/applications/<app>.yaml, so pruning/removing an app's own
+// tree can never touch the object that governs it.
+//
+// SEAM, flagged rather than silently absorbed: Withdraw's generated signature
+// (contract.gen.go) takes only an appID — no RuntimeDesiredState, no AppName. Two facts
+// therefore have to come from somewhere other than the call arguments, and both are
+// resolved here without widening that generated interface:
+//
+//  1. WHICH APP TO REMOVE. PublishDesiredState is the only place AppName and appID are
+//     ever seen together, so it writes a small sidecar marker —
+//     k8s/argocd/applications/<app>.appid, containing the appID — alongside the
+//     Application file. The marker is deliberately NOT part of render()'s output: render
+//     stays pure and golden-tested (Task 4-6), and this bookkeeping belongs to the commit
+//     path alone. Withdraw reads the applications directory, finds the marker whose
+//     contents equal its appID, and recovers AppName from the marker's filename. No
+//     match is exactly the NotFound⇒success case: nothing is staged, so gitOpsCommit
+//     commits nothing.
+//  2. WHETHER THE TARGET IS THE SELF-MANAGED APP. RuntimeConfig.SelfManagedAppID is set
+//     once by the composition root, mirroring how GitOpsRepoURL/GitOpsToken are already
+//     config-injected rather than threaded through every call. Withdraw compares its
+//     appID argument against it BEFORE touching git at all — cheap, fails fast, and means
+//     the guard cannot be bypassed by a repo that has no marker file yet (e.g. a stale or
+//     hand-edited repo state).
+// ---------------------------------------------------------------------------
+
+const (
+	// gitOpsApplicationsPath is the directory the Application object for every app lives
+	// in — one level above the directory it governs (gitOpsAppDir), so deleting or
+	// pruning an app's own tree can never touch the object that governs it.
+	gitOpsApplicationsPath = "k8s/argocd/applications/"
+	// gitOpsMarkerSuffix names the sidecar file PublishDesiredState writes next to each
+	// Application, recording the appID that produced it — see SEAM note 1 above.
+	gitOpsMarkerSuffix = ".appid"
+)
+
+// authenticatedGitOpsURL injects token as HTTP basic-auth into repoURL when both are
+// non-empty and repoURL is http(s) — the shape a GitHub App installation token is
+// presented in. file:// and other local/ssh transports carry no token and pass through
+// unchanged. No credential is wired to RuntimeConfig.GitOpsToken yet (composition-root
+// follow-up, out of this task's scope — see RuntimeConfig's doc), so this branch is
+// exercised only once one is; until then GitOpsToken is empty and this is a no-op.
+func authenticatedGitOpsURL(repoURL, token string) string {
+	if token == "" {
+		return repoURL
+	}
+	u, err := url.Parse(repoURL)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
+		return repoURL
+	}
+	u.User = url.UserPassword("x-access-token", token)
+	return u.String()
+}
+
+// runGit runs `git <args...>` with the given working directory (ignored when empty — used
+// for the initial clone, which has no working dir of its own yet) and wraps combined
+// output into the error on failure, for a debuggable diagnostic. Mirrors
+// agenticjob.runGit / sourcecontrol.gitLocalRun.
+func runGit(dir string, args ...string) (string, error) {
+	cmd := exec.Command("git", args...) //nolint:gosec // fixed trusted binary, internally-derived args (repo URL/branch names)
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return string(out), fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+	}
+	return string(out), nil
+}
+
+// gitOpsHasStagedChanges reports whether dir's index differs from HEAD, via `git diff
+// --cached --quiet`'s exit code (0 ⇒ no difference, 1 ⇒ difference, anything else ⇒ a real
+// error). This check — not a comparison of rendered strings against file contents — is
+// the entire content-idempotency mechanism described in the section doc above.
+func gitOpsHasStagedChanges(dir string) (bool, error) {
+	cmd := exec.Command("git", "diff", "--cached", "--quiet") //nolint:gosec // fixed trusted binary, fixed args
+	cmd.Dir = dir
+	err := cmd.Run()
+	if err == nil {
+		return false, nil
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+		return true, nil
+	}
+	return false, fmt.Errorf("git diff --cached --quiet: %w", err)
+}
+
+// gitOpsAppDir is the directory every rendered Manifest except the Application lands in.
+func gitOpsAppDir(workdir, appName string) string {
+	return filepath.Join(workdir, platformGitOpsAppPath, appName)
+}
+
+// gitOpsApplicationFile is where the Application object for appName is committed — one
+// level above gitOpsAppDir, see the section doc.
+func gitOpsApplicationFile(workdir, appName string) string {
+	return filepath.Join(workdir, gitOpsApplicationsPath, appName+".yaml")
+}
+
+// gitOpsMarkerFile is the sidecar PublishDesiredState writes recording which appID
+// produced appName's Application — see SEAM note 1 above.
+func gitOpsMarkerFile(workdir, appName string) string {
+	return filepath.Join(workdir, gitOpsApplicationsPath, appName+gitOpsMarkerSuffix)
+}
+
+// gitOpsManifestFileName derives a stable, collision-free filename for a rendered
+// Manifest. Kind is part of the name because a workload's Deployment and Service share a
+// Name.
+func gitOpsManifestFileName(m Manifest) string {
+	return strings.ToLower(m.Kind) + "-" + m.Name + ".yaml"
+}
+
+// gitOpsCommit is the shared clone → mutate → stage → commit-if-changed → push sequence
+// both PublishDesiredState and Withdraw run. mutate receives the clone's working-tree
+// root and makes whatever filesystem changes the caller wants committed; gitOpsCommit
+// owns everything else, including the content-idempotency check.
+func (r realOperatedRuntime) gitOpsCommit(commitMessage string, mutate func(workdir string) error) error {
+	if r.config.GitOpsRepoURL == "" {
+		return fwra.New(fwra.Unknown,
+			"operatedruntime real profile: GitOps commit requires ARCHISTRATOR_OPERATED_RUNTIME_GITOPS_REPO_URL; "+
+				"set ARCHISTRATOR_OPERATIONS_DRYRUN=true for the deterministic local profile")
+	}
+
+	workdir, err := os.MkdirTemp("", "archistrator-gitops-*")
+	if err != nil {
+		return fwra.Wrap(fwra.Infrastructure, err, "operatedruntime.gitops: create scratch clone dir")
+	}
+	defer func() { _ = os.RemoveAll(workdir) }()
+
+	remote := authenticatedGitOpsURL(r.config.GitOpsRepoURL, r.config.GitOpsToken)
+	if _, cerr := runGit("", "clone", remote, workdir); cerr != nil {
+		return fwra.Wrap(fwra.Infrastructure, cerr, "operatedruntime.gitops: clone")
+	}
+	// Local to this scratch clone only — never touches the caller's global git config,
+	// and the clone carries none of its own (identity config lives in .git/config, which
+	// clone does not copy from the remote).
+	if _, cerr := runGit(workdir, "config", "user.email", "archistrator-operations@archistrator.dev"); cerr != nil {
+		return fwra.Wrap(fwra.Infrastructure, cerr, "operatedruntime.gitops: config user.email")
+	}
+	if _, cerr := runGit(workdir, "config", "user.name", "archistrator-operations"); cerr != nil {
+		return fwra.Wrap(fwra.Infrastructure, cerr, "operatedruntime.gitops: config user.name")
+	}
+
+	if err := mutate(workdir); err != nil {
+		return err
+	}
+
+	if _, aerr := runGit(workdir, "add", "-A"); aerr != nil {
+		return fwra.Wrap(fwra.Infrastructure, aerr, "operatedruntime.gitops: add")
+	}
+	changed, derr := gitOpsHasStagedChanges(workdir)
+	if derr != nil {
+		return fwra.Wrap(fwra.Infrastructure, derr, "operatedruntime.gitops: diff --cached")
+	}
+	if !changed {
+		// Identical content: no commit, no push. This — git's own verdict, not a
+		// hand-rolled string comparison — is the content-idempotency guarantee.
+		return nil
+	}
+	if _, cerr := runGit(workdir, "commit", "-m", commitMessage); cerr != nil {
+		return fwra.Wrap(fwra.Infrastructure, cerr, "operatedruntime.gitops: commit")
+	}
+
+	pushArgs := []string{"push"}
+	if strings.HasPrefix(r.config.GitOpsRepoURL, "file://") {
+		// Test-only escape hatch: t.TempDir() scratch repos are ordinary (non-bare)
+		// working copies with a branch checked out, and git refuses by default to push
+		// into a non-bare repo's checked-out branch. Real GitOps remotes are bare
+		// (GitHub), where that restriction never applies and this flag is never sent.
+		// updateInstead also refreshes the scratch repo's working tree in place, which is
+		// what lets tests assert on files directly under t.TempDir() after publish.
+		pushArgs = append(pushArgs, "--receive-pack=git -c receive.denyCurrentBranch=updateInstead receive-pack")
+	}
+	pushArgs = append(pushArgs, "origin", "HEAD:main")
+	if _, perr := runGit(workdir, pushArgs...); perr != nil {
+		return fwra.Wrap(fwra.Infrastructure, perr, "operatedruntime.gitops: push")
+	}
+	return nil
+}
+
+// gitOpsPublish is PublishDesiredState's mutate closure. It renders d and replaces
+// gitOpsAppDir / gitOpsApplicationFile / gitOpsMarkerFile wholesale, so a manifest render()
+// no longer emits (e.g. Postgres disabled after being enabled) is removed too, not just
+// the objects that changed.
+func gitOpsPublish(appID uuid.UUID, d RuntimeDesiredState) func(string) error {
+	return func(workdir string) error {
+		manifests, err := render(d)
+		if err != nil {
+			return err
+		}
+
+		appDir := gitOpsAppDir(workdir, d.AppName)
+		if err := os.RemoveAll(appDir); err != nil {
+			return fwra.Wrap(fwra.Infrastructure, err, "operatedruntime.gitops: reset "+appDir)
+		}
+		if err := os.MkdirAll(appDir, 0o750); err != nil {
+			return fwra.Wrap(fwra.Infrastructure, err, "operatedruntime.gitops: create "+appDir)
+		}
+
+		var application *Manifest
+		for i := range manifests {
+			m := &manifests[i]
+			if m.Kind == "Application" {
+				application = m
+				continue
+			}
+			path := filepath.Join(appDir, gitOpsManifestFileName(*m))
+			if err := os.WriteFile(path, []byte(m.YAML), 0o600); err != nil {
+				return fwra.Wrap(fwra.Infrastructure, err, "operatedruntime.gitops: write "+path)
+			}
+		}
+		if application == nil {
+			// Can't happen — renderApplication always contributes exactly one — but
+			// asserted explicitly rather than silently committing a runtime tree with no
+			// governing Application.
+			return fwra.New(fwra.ContractMisuse, "operatedruntime.gitops: render produced no Application manifest for "+d.AppName)
+		}
+
+		applicationsDir := filepath.Join(workdir, gitOpsApplicationsPath)
+		if err := os.MkdirAll(applicationsDir, 0o750); err != nil {
+			return fwra.Wrap(fwra.Infrastructure, err, "operatedruntime.gitops: create "+applicationsDir)
+		}
+		appFile := gitOpsApplicationFile(workdir, d.AppName)
+		if err := os.WriteFile(appFile, []byte(application.YAML), 0o600); err != nil {
+			return fwra.Wrap(fwra.Infrastructure, err, "operatedruntime.gitops: write "+appFile)
+		}
+		markerFile := gitOpsMarkerFile(workdir, d.AppName)
+		if err := os.WriteFile(markerFile, []byte(appID.String()+"\n"), 0o600); err != nil {
+			return fwra.Wrap(fwra.Infrastructure, err, "operatedruntime.gitops: write "+markerFile)
+		}
+		return nil
+	}
+}
+
+// gitOpsFindAppByID resolves appID to the AppName PublishDesiredState last published it
+// under, by reading the .appid markers under gitOpsApplicationsPath (SEAM note 1 above).
+// found is false — not an error — when no marker matches, which is what lets Withdraw
+// implement the contract's NotFound⇒success semantics as an ordinary no-op mutation
+// (nothing staged ⇒ gitOpsCommit commits nothing).
+func gitOpsFindAppByID(workdir string, appID uuid.UUID) (appName string, found bool, err error) {
+	dir := filepath.Join(workdir, gitOpsApplicationsPath)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", false, nil
+		}
+		return "", false, fwra.Wrap(fwra.Infrastructure, err, "operatedruntime.gitops: list "+dir)
+	}
+	want := appID.String()
+	for _, e := range entries {
+		name, ok := strings.CutSuffix(e.Name(), gitOpsMarkerSuffix)
+		if e.IsDir() || !ok {
+			continue
+		}
+		raw, rerr := os.ReadFile(filepath.Join(dir, e.Name())) // #nosec G304 -- e.Name() comes from os.ReadDir's own listing of dir, not external input
+		if rerr != nil {
+			return "", false, fwra.Wrap(fwra.Infrastructure, rerr, "operatedruntime.gitops: read "+e.Name())
+		}
+		if strings.TrimSpace(string(raw)) == want {
+			return name, true, nil
+		}
+	}
+	return "", false, nil
+}
+
+// gitOpsWithdraw is Withdraw's mutate closure for an app that WAS found: it removes
+// appName's rendered tree, its Application, and its marker. Removing a path that is
+// already gone is not an error (os.RemoveAll is idempotent that way already; os.Remove is
+// made so explicitly below) — matching the contract's NotFound⇒success semantics all the
+// way through, not just at the gitOpsFindAppByID lookup.
+func gitOpsWithdraw(appName string) func(string) error {
+	return func(workdir string) error {
+		if err := os.RemoveAll(gitOpsAppDir(workdir, appName)); err != nil {
+			return fwra.Wrap(fwra.Infrastructure, err, "operatedruntime.gitops: remove app dir")
+		}
+		if err := os.Remove(gitOpsApplicationFile(workdir, appName)); err != nil && !os.IsNotExist(err) {
+			return fwra.Wrap(fwra.Infrastructure, err, "operatedruntime.gitops: remove application file")
+		}
+		if err := os.Remove(gitOpsMarkerFile(workdir, appName)); err != nil && !os.IsNotExist(err) {
+			return fwra.Wrap(fwra.Infrastructure, err, "operatedruntime.gitops: remove marker file")
+		}
+		return nil
+	}
 }
 
 // variant.go holds the deployment-profile VARIANT CONSTRUCTORS for

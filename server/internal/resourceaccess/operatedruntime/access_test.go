@@ -12,6 +12,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"sort"
@@ -71,9 +72,12 @@ func TestLocalProfileDeterministic(t *testing.T) {
 	}
 }
 
-// TestRealProfileExplicitNotImplemented: the REAL profile constructs (server still boots)
-// but every verb returns an explicit, diagnosable error naming the follow-up — NOT a
-// silent generated stub, and it preserves the non-retryable wire behaviour.
+// TestRealProfileExplicitNotImplemented: the REAL profile constructs (server still boots).
+// Its observability/payment verbs (still no backend — N-DEP follow-up) return an explicit,
+// diagnosable, non-retryable error naming that follow-up — NOT a silent generated stub.
+// PublishDesiredState/Withdraw (Task 7) have their own, different explicit diagnostic when
+// unconfigured (no GitOpsRepoURL) — exercised separately below — but must be equally
+// non-retryable.
 func TestRealProfileExplicitNotImplemented(t *testing.T) {
 	rt, err := NewProfiledOperatedRuntimeAccess(RuntimeProfileReal, RuntimeConfig{})
 	if err != nil {
@@ -81,7 +85,9 @@ func TestRealProfileExplicitNotImplemented(t *testing.T) {
 	}
 	app := uuid.New()
 
-	perr := rt.PublishDesiredState(rc(), app, RuntimeDesiredState{}, "k")
+	// Unconfigured GitOps repo: PublishDesiredState must still fail loudly and
+	// non-retryably, not attempt a git operation against an empty URL.
+	perr := rt.PublishDesiredState(rc(), app, RuntimeDesiredState{AppName: "example"}, "k")
 	var e *fwra.Error
 	if !errors.As(perr, &e) {
 		t.Fatalf("real publish: want *fwra.Error, got %T %v", perr, perr)
@@ -1176,5 +1182,239 @@ func TestRender_MatchesProductionGoldens(t *testing.T) {
 	if len(rendered) != len(covered)+len(noProductionCounterpart) {
 		t.Errorf("rendered %d manifests, but golden-covered (%d) + no-production-counterpart (%d) = %d — counts should add up",
 			len(rendered), len(covered), len(noProductionCounterpart), len(covered)+len(noProductionCounterpart))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// GitOps commit-path tests — Task 7 of the 2026-08-07 operations/ArgoCD plan.
+//
+// HARD SAFETY BOUNDARY: every test below operates on a scratch repo created
+// under t.TempDir() with a file:// remote. NONE of them may point at, clone,
+// commit to, or push to the real GitOps repository
+// (https://github.com/davidmarne/aiarchmultiplatform.git, checked out locally
+// at /Users/davidmarne/mixofrealitystudio/software) or any other real remote
+// — see the task brief's HARD SAFETY BOUNDARY section.
+// ---------------------------------------------------------------------------
+
+// mustRun runs a command in dir, failing the test immediately on error. Test-only
+// scratch-repo setup — never used against anything but a t.TempDir() fixture.
+func mustRun(t *testing.T, dir string, name string, args ...string) {
+	t.Helper()
+	cmd := exec.Command(name, args...) //nolint:gosec // fixed trusted binary, test-only fixed args, never user input
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("%s %s: %v: %s", name, strings.Join(args, " "), err, out)
+	}
+}
+
+// headCommit returns repo's current HEAD commit SHA, failing the test if repo has no
+// commits — a before/after comparison is meaningless without that guarantee.
+func headCommit(t *testing.T, repo string) string {
+	t.Helper()
+	cmd := exec.Command("git", "rev-parse", "HEAD") //nolint:gosec // fixed trusted binary, fixed args
+	cmd.Dir = repo
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git rev-parse HEAD in %s: %v: %s", repo, err, out)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// repoHasNoCommits reports whether repo has never been committed to (an unborn HEAD) —
+// the state a NotFound⇒success withdraw that touches nothing must leave it in.
+func repoHasNoCommits(t *testing.T, repo string) bool {
+	t.Helper()
+	cmd := exec.Command("git", "rev-parse", "HEAD") //nolint:gosec // fixed trusted binary, fixed args
+	cmd.Dir = repo
+	return cmd.Run() != nil
+}
+
+// testCtx builds the fwra.Context the GitOps commit-path tests call the real profile
+// with. A plain background context — none of these tests exercise cancellation.
+func testCtx(t *testing.T) fwra.Context {
+	t.Helper()
+	return fwra.Context{Context: context.Background()}
+}
+
+// newScratchRepo creates a fresh, empty (no commits) git repo under t.TempDir(), the
+// ONLY kind of repo any test in this file may operate on (see the HARD SAFETY BOUNDARY
+// above). Returns the repo's filesystem path.
+func newScratchRepo(t *testing.T) string {
+	t.Helper()
+	repo := t.TempDir()
+	mustRun(t, repo, "git", "init", "--initial-branch=main")
+	mustRun(t, repo, "git", "config", "user.email", "test@example.com")
+	mustRun(t, repo, "git", "config", "user.name", "test")
+	return repo
+}
+
+func TestPublishDesiredState_WritesManifestsAndIsContentIdempotent(t *testing.T) {
+	repo := newScratchRepo(t)
+
+	rt := realOperatedRuntime{config: RuntimeConfig{GitOpsRepoURL: "file://" + repo}}
+	appID := uuid.New()
+
+	if err := rt.PublishDesiredState(testCtx(t), appID, testDesiredState(), "idem-1"); err != nil {
+		t.Fatalf("first publish: %v", err)
+	}
+	first := headCommit(t, repo)
+
+	appPath := filepath.Join(repo, "k8s", "argocd", "apps", "archistrator")
+	if _, err := os.Stat(appPath); err != nil {
+		t.Fatalf("expected rendered manifests at %s: %v", appPath, err)
+	}
+
+	// Identical content must NOT produce a second commit.
+	if err := rt.PublishDesiredState(testCtx(t), appID, testDesiredState(), "idem-2"); err != nil {
+		t.Fatalf("republish: %v", err)
+	}
+	if headCommit(t, repo) != first {
+		t.Error("republishing identical content created a new commit; publish must be content-idempotent")
+	}
+}
+
+// TestPublishDesiredState_ChangedContentCreatesNewCommit is the necessary flip side of
+// the idempotency test above: without it, an implementation that never commits ANYTHING
+// would trivially pass "republishing produces no new commit". A real content change must
+// still land.
+func TestPublishDesiredState_ChangedContentCreatesNewCommit(t *testing.T) {
+	repo := newScratchRepo(t)
+	rt := realOperatedRuntime{config: RuntimeConfig{GitOpsRepoURL: "file://" + repo}}
+	appID := uuid.New()
+
+	if err := rt.PublishDesiredState(testCtx(t), appID, testDesiredState(), "idem-1"); err != nil {
+		t.Fatalf("first publish: %v", err)
+	}
+	first := headCommit(t, repo)
+
+	changed := testDesiredState()
+	changed.Server.Replicas = 3
+	if err := rt.PublishDesiredState(testCtx(t), appID, changed, "idem-2"); err != nil {
+		t.Fatalf("second publish: %v", err)
+	}
+	if second := headCommit(t, repo); second == first {
+		t.Error("a genuinely changed desired state did not produce a new commit")
+	}
+}
+
+func TestWithdraw_RemovesTheAppDirectory(t *testing.T) {
+	repo := newScratchRepo(t)
+	rt := realOperatedRuntime{config: RuntimeConfig{GitOpsRepoURL: "file://" + repo}}
+	appID := uuid.New()
+
+	if err := rt.PublishDesiredState(testCtx(t), appID, testDesiredState(), "idem-1"); err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+	if err := rt.Withdraw(testCtx(t), appID, "idem-2"); err != nil {
+		t.Fatalf("withdraw: %v", err)
+	}
+
+	appPath := filepath.Join(repo, "k8s", "argocd", "apps", "archistrator")
+	if _, err := os.Stat(appPath); !os.IsNotExist(err) {
+		t.Errorf("withdraw left %s behind", appPath)
+	}
+}
+
+// TestWithdraw_RemovesApplicationFileAndMarker rounds out the removal test above: the
+// governing Application object and the appID⇒AppName marker (gitOpsFindAppByID's whole
+// mechanism) must go too, or a re-publish/re-withdraw cycle would leave stale bookkeeping
+// behind in the GitOps repo.
+func TestWithdraw_RemovesApplicationFileAndMarker(t *testing.T) {
+	repo := newScratchRepo(t)
+	rt := realOperatedRuntime{config: RuntimeConfig{GitOpsRepoURL: "file://" + repo}}
+	appID := uuid.New()
+
+	if err := rt.PublishDesiredState(testCtx(t), appID, testDesiredState(), "idem-1"); err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+	if err := rt.Withdraw(testCtx(t), appID, "idem-2"); err != nil {
+		t.Fatalf("withdraw: %v", err)
+	}
+
+	for _, p := range []string{
+		filepath.Join(repo, "k8s", "argocd", "applications", "archistrator.yaml"),
+		filepath.Join(repo, "k8s", "argocd", "applications", "archistrator.appid"),
+	} {
+		if _, err := os.Stat(p); !os.IsNotExist(err) {
+			t.Errorf("withdraw left %s behind", p)
+		}
+	}
+}
+
+// TestWithdraw_OfUnknownAppIsSuccessAndCreatesNoCommit: withdrawing an app that was never
+// published (or already withdrawn) is success — matching the contract's NotFound⇒success
+// withdraw semantics — and must not create an empty/no-op commit either: nothing is
+// staged, so gitOpsCommit's content-idempotency check must skip the commit entirely.
+func TestWithdraw_OfUnknownAppIsSuccessAndCreatesNoCommit(t *testing.T) {
+	repo := newScratchRepo(t)
+	rt := realOperatedRuntime{config: RuntimeConfig{GitOpsRepoURL: "file://" + repo}}
+
+	if err := rt.Withdraw(testCtx(t), uuid.New(), "idem-1"); err != nil {
+		t.Fatalf("withdraw of an unknown app: want success, got %v", err)
+	}
+	if !repoHasNoCommits(t, repo) {
+		t.Error("withdraw of an unknown app created a commit; NotFound must be a true no-op")
+	}
+}
+
+// TestWithdraw_RefusesTheSelfManagedApp closes the third of three paths to deleting
+// archistrator's own control plane — prune:false and the omitted Argo finalizer
+// (renderApplication) close the other two. The guard must fire terminally and BEFORE any
+// git operation: the already-published app directory must be untouched and no commit may
+// be created, because there is nothing recoverable about this outcome if it fires wrong.
+func TestWithdraw_RefusesTheSelfManagedApp(t *testing.T) {
+	repo := newScratchRepo(t)
+	selfManagedID := uuid.New()
+	rt := realOperatedRuntime{config: RuntimeConfig{GitOpsRepoURL: "file://" + repo, SelfManagedAppID: selfManagedID}}
+
+	if err := rt.PublishDesiredState(testCtx(t), selfManagedID, testDesiredState(), "idem-1"); err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+	before := headCommit(t, repo)
+
+	err := rt.Withdraw(testCtx(t), selfManagedID, "idem-2")
+	var e *fwra.Error
+	if !errors.As(err, &e) || e.Kind != fwra.ContractMisuse {
+		t.Fatalf("withdraw of the self-managed app: want ContractMisuse, got %v", err)
+	}
+	if e.Retryable {
+		t.Fatalf("self-managed withdraw guard must be non-retryable (terminal), got retryable")
+	}
+	if !strings.Contains(e.Detail, selfManagedID.String()) {
+		t.Errorf("guard error should name the app: %q does not mention %s", e.Detail, selfManagedID.String())
+	}
+
+	appPath := filepath.Join(repo, "k8s", "argocd", "apps", "archistrator")
+	if _, statErr := os.Stat(appPath); statErr != nil {
+		t.Fatalf("guard must refuse BEFORE touching git — app directory should be untouched: %v", statErr)
+	}
+	if headCommit(t, repo) != before {
+		t.Error("self-managed withdraw guard must not create a commit")
+	}
+}
+
+// TestWithdraw_SelfManagedGuardDoesNotBlockOtherApps: SelfManagedAppID must be a
+// per-appID guard, not a global "no withdraw" switch — withdrawing a DIFFERENT app while
+// a self-managed one is configured must still work normally.
+func TestWithdraw_SelfManagedGuardDoesNotBlockOtherApps(t *testing.T) {
+	repo := newScratchRepo(t)
+	selfManagedID := uuid.New()
+	tenantID := uuid.New()
+	rt := realOperatedRuntime{config: RuntimeConfig{GitOpsRepoURL: "file://" + repo, SelfManagedAppID: selfManagedID}}
+
+	tenant := testDesiredState()
+	tenant.AppName = "tenant-app"
+	tenant.SelfManaged = false
+
+	if err := rt.PublishDesiredState(testCtx(t), tenantID, tenant, "idem-1"); err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+	if err := rt.Withdraw(testCtx(t), tenantID, "idem-2"); err != nil {
+		t.Fatalf("withdraw of a non-self-managed app: want success, got %v", err)
+	}
+
+	appPath := filepath.Join(repo, "k8s", "argocd", "apps", "tenant-app")
+	if _, err := os.Stat(appPath); !os.IsNotExist(err) {
+		t.Errorf("withdraw left %s behind", appPath)
 	}
 }
