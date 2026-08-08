@@ -1017,8 +1017,14 @@ func renderGateway(d RuntimeDesiredState) ([]Manifest, error) {
 		}
 	}
 
+	// An app with no OIDC client is not an app with optional authentication —
+	// it is an app whose front door would be published with authentication
+	// REMOVED. Returning the routes without the SecurityPolicy would render
+	// exactly that, and it would look like a complete manifest set. Fail like
+	// every other guard here instead.
 	if d.OIDC.ClientID == "" {
-		return out, nil
+		return nil, fwra.New(fwra.ContractMisuse,
+			"operatedruntime.render: OIDC.ClientID is empty — rendering the routes without the SecurityPolicy would publish the app's front door with authentication removed")
 	}
 	sort.Strings(browserFacing)
 	sp := securityPolicyData{
@@ -1155,8 +1161,11 @@ spec:
 //     therefore has to exist in Keycloak's namespace as well as in the app's
 //     (where the edge SecurityPolicy reads it).
 func renderKeycloakRealm(d RuntimeDesiredState) ([]Manifest, error) {
+	// Same reasoning as renderGateway's guard: no client means no realm and no
+	// edge policy, which is an unauthenticated app, not a simpler one.
 	if d.OIDC.ClientID == "" {
-		return nil, nil
+		return nil, fwra.New(fwra.ContractMisuse,
+			"operatedruntime.render: OIDC.ClientID is empty — there is no client to provision a realm for, and the app's front door would be published unauthenticated")
 	}
 	if d.OIDC.ModelKey == "" {
 		return nil, fwra.New(fwra.ContractMisuse,
@@ -1264,6 +1273,14 @@ type applicationData struct {
 // Gateway API / Envoy CRDs all carry controller-owned defaults and status).
 // Without it those objects report false OutOfSync — which matters most in the
 // self-managed case, where a human is reading that diff before clicking Sync.
+//
+// The resources-finalizer is emitted for TENANT apps only. On a tenant app,
+// cascading delete is the point: withdrawing an app should take its resources
+// with it. On the SELF-MANAGED app it is a second route to the same disaster
+// prune: false exists to prevent — deleting or renaming the Application object
+// would cascade-delete every resource archistrator runs on, and there would be
+// no archistrator left to repair it. Both routes have to be closed for the
+// guard to mean anything.
 var applicationTmpl = template.Must(template.New("application").Parse(`apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -1271,8 +1288,10 @@ metadata:
   namespace: argocd
   annotations:
     argocd.argoproj.io/compare-options: ServerSideDiff=true
+{{- if not .SelfManaged }}
   finalizers:
   - resources-finalizer.argocd.argoproj.io
+{{- end }}
 spec:
   project: default
   source:
@@ -1364,9 +1383,20 @@ func render(d RuntimeDesiredState) ([]Manifest, error) {
 		out = append(out, ms...)
 	}
 
-	sort.Slice(out, func(i, j int) bool {
+	// (Kind, Namespace, Name) is the full identity of a Kubernetes object, and
+	// SliceStable keeps emission order as the last tiebreak. Sorting on
+	// (Kind, Name) alone with an UNstable sort is deterministic only for as
+	// long as no two objects share a Kind and Name — true of today's set by
+	// luck, not by construction, and a cross-namespace collision (the Keycloak
+	// CR already renders outside the app's namespace) would silently reorder
+	// the output between renders. That would break both the content-idempotent
+	// publish and the health overlay's re-derived model-key map.
+	sort.SliceStable(out, func(i, j int) bool {
 		if out[i].Kind != out[j].Kind {
 			return out[i].Kind < out[j].Kind
+		}
+		if out[i].Namespace != out[j].Namespace {
+			return out[i].Namespace < out[j].Namespace
 		}
 		return out[i].Name < out[j].Name
 	})

@@ -372,6 +372,48 @@ func TestRender_TenantApplicationEnablesAutomatedSync(t *testing.T) {
 	t.Fatal("no Argo Application rendered")
 }
 
+// TestRender_SelfManagedApplicationOmitsTheResourcesFinalizer closes the second
+// route to self-destruction. prune: false stops a RENDERER bug from deleting
+// archistrator's control plane; the resources-finalizer would let deleting or
+// renaming the Application OBJECT cascade-delete every resource it manages —
+// with no archistrator left to repair the outcome. Tenant apps keep it, because
+// there cascading delete on withdrawal is the desired behaviour.
+func TestRender_SelfManagedApplicationOmitsTheResourcesFinalizer(t *testing.T) {
+	const finalizer = "resources-finalizer.argocd.argoproj.io"
+
+	selfManaged := testDesiredState() // SelfManaged: true
+	tenant := testDesiredState()
+	tenant.SelfManaged = false
+	tenant.AppName = "gtdapp"
+	tenant.Namespace = "gtdapp"
+
+	for _, tc := range []struct {
+		name string
+		in   RuntimeDesiredState
+		want bool
+	}{
+		{"self-managed", selfManaged, false},
+		{"tenant", tenant, true},
+	} {
+		ms, err := render(tc.in)
+		if err != nil {
+			t.Fatalf("%s: render: %v", tc.name, err)
+		}
+		var app *Manifest
+		for i := range ms {
+			if ms[i].Kind == "Application" {
+				app = &ms[i]
+			}
+		}
+		if app == nil {
+			t.Fatalf("%s: no Argo Application rendered", tc.name)
+		}
+		if got := strings.Contains(app.YAML, finalizer); got != tc.want {
+			t.Errorf("%s: finalizer present = %v, want %v\n%s", tc.name, got, tc.want, app.YAML)
+		}
+	}
+}
+
 // TestRender_ApplicationDestinationIsTheAppsOwnNamespace pins the spec §5.3
 // invariant that every destination.namespace equals the app's own namespace.
 func TestRender_ApplicationDestinationIsTheAppsOwnNamespace(t *testing.T) {
@@ -722,6 +764,29 @@ func TestRender_KeycloakClientSecretIsReferencedNotInlined(t *testing.T) {
 		return
 	}
 	t.Fatal("no KeycloakRealmImport rendered")
+}
+
+// TestRender_MissingOIDCClientFailsLoudly: the auth path must fail CLOSED. An
+// empty ClientID once yielded routes with no SecurityPolicy and no realm — a
+// complete-looking manifest set that publishes the app's front door with
+// authentication removed. Unreachable from today's assembly (ClientID is
+// derived), which is exactly the assumption that stops holding later.
+func TestRender_MissingOIDCClientFailsLoudly(t *testing.T) {
+	d := testDesiredState()
+	d.OIDC.ClientID = ""
+
+	ms, err := render(d)
+	if err == nil {
+		var kinds []string
+		for _, m := range ms {
+			kinds = append(kinds, m.Kind+"/"+m.Name)
+		}
+		t.Fatalf("render with no OIDC client should fail, not publish an unauthenticated front door; got %v", kinds)
+	}
+	var e *fwra.Error
+	if !errors.As(err, &e) || e.Kind != fwra.ContractMisuse {
+		t.Errorf("want ContractMisuse like its neighbouring guards, got %v", err)
+	}
 }
 
 // TestRender_KeycloakAndSecurityPolicyAgree is the cross-object check that no
