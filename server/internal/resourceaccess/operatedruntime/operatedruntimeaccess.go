@@ -194,17 +194,28 @@ func (r realOperatedRuntime) PublishDesiredState(_ fwra.Context, appID uuid.UUID
 // composition root could simply forget to set — a check that quietly does nothing on its
 // zero value is not a guard. This version determines it by resolving appID to the
 // Application object it actually governs and reading that object's OWN committed
-// syncPolicy shape (gitOpsResolveAppByID / gitOpsApplicationDoc.selfManaged — see the
-// GitOps commit path section below): the same signal applicationTmpl branches on, not a
-// second, independently-settable copy of it that could drift or be left unset. If that
-// determination cannot be made at all — no Application anywhere carries a matching
-// archistrator.dev/app-id annotation and parses cleanly — Withdraw refuses rather than
-// guess (see gitOpsResolveAppByID's doc for exactly which failures are which).
+// syncPolicy shape (gitOpsResolveAppByID / gitOpsSelfManaged — see the GitOps commit path
+// section below): the same signal applicationTmpl branches on, not a second,
+// independently-settable copy of it that could drift or be left unset. If an Application
+// IS found for appID but its self-managed status cannot be read off it (an unrecognizable
+// syncPolicy shape), Withdraw refuses rather than guess (gitOpsResolveAppByID's doc has
+// exactly which shapes those are).
 //
 // Otherwise, Withdraw removes that app's rendered tree and its Application. An appID with
-// no match at all — never published, or already withdrawn — is success: nothing is
-// staged, so gitOpsCommit commits nothing, matching the contract's NotFound⇒success
-// withdraw semantics.
+// no match at all is success: nothing is staged, so gitOpsCommit commits nothing, matching
+// the contract's NotFound⇒success withdraw semantics. KNOWN LIMITATION, not fixed here:
+// "no match" covers both "never published" and "a hand-edit stripped the annotation from
+// an app this system DID publish" — this guard can only find apps it published itself
+// (publish always annotates, and hard-errors if it cannot, see gitOpsPublish), so an
+// unannotated-but-real Application reads as already-withdrawn rather than as an error.
+// That is the destructively-safe direction (nothing gets deleted) and it is what the
+// contract's NotFound⇒success already promises, but it is a genuine operational surprise
+// — a stray hand-edit silently makes an app un-withdrawable through this path — and is
+// recorded here rather than left implicit. A stricter rule ("any unannotated Application
+// ⇒ ambiguous ⇒ refuse") was considered and rejected: the real GitOps repo legitimately
+// carries many hand-written Applications this system never published and will never
+// annotate (aiarch-*, temporal, cedar-playground, …), and that rule would refuse every
+// withdraw forever, not just the one hand-edited case it was meant to catch.
 func (r realOperatedRuntime) Withdraw(_ fwra.Context, appID uuid.UUID, idempotencyKey fwra.IdempotencyKey) error {
 	msg := fmt.Sprintf("operatedruntime: withdraw %s (idempotencyKey=%s)", appID, idempotencyKey)
 	return r.gitOpsCommit(msg, func(workdir string) error {
@@ -277,22 +288,29 @@ func (r realOperatedRuntime) ReadComputeAttribution(_ fwra.Context, _ uuid.UUID,
 //     gitOpsApplicationsPath for the Application carrying a matching annotation and
 //     recovers AppName from THAT FILE's own name (gitOpsApplicationFile's convention,
 //     appName+".yaml") — see gitOpsResolveAppByID. No match anywhere is exactly the
-//     NotFound⇒success case: nothing is staged, so gitOpsCommit commits nothing.
+//     NotFound⇒success case: nothing is staged, so gitOpsCommit commits nothing — but see
+//     the KNOWN LIMITATION on Withdraw's own doc comment for what "no match" actually
+//     covers (it is not only "never published").
 //  2. WHETHER THE TARGET IS THE SELF-MANAGED APP — the load-bearing one. An earlier
 //     version of this file decided this from a RuntimeConfig field the composition root
 //     could simply never set, so the guard silently did nothing everywhere it was never
 //     wired — the same failure-open bug class as the auth check Task 5 rejected. Reading
-//     no config field cannot have that failure mode, so gitOpsApplicationDoc.selfManaged
-//     derives it from the SAME Application object located in (1)'s own committed
-//     spec.syncPolicy shape: applicationTmpl emits spec.syncPolicy.automated for every
-//     TENANT app and omits it — and only it — for the self-managed one (see
-//     applicationTmpl below), so this reads the exact signal Argo itself acts on, not an
-//     independent copy of it that could drift or be forgotten. FAIL CLOSED: an Application
-//     whose syncPolicy does not even resemble something render() could have produced
-//     refuses the determination outright (ContractMisuse) rather than guess, and a
-//     directory entry that cannot be parsed as YAML at all aborts the whole scan
-//     (Infrastructure) rather than being silently skipped — a skip could be the very
-//     object Withdraw is looking for.
+//     no config field cannot have that failure mode, so gitOpsSelfManaged derives it from
+//     the SAME Application object located in (1)'s own committed spec.syncPolicy shape:
+//     applicationTmpl emits spec.syncPolicy.automated for every TENANT app and omits it —
+//     and only it — for the self-managed one (see applicationTmpl below), so this reads
+//     the exact signal Argo itself acts on, not an independent copy of it that could drift
+//     or be forgotten. gitOpsSelfManaged is a plain string scan of the raw committed text,
+//     not a YAML parse — this package carries no YAML dependency, see its own doc comment
+//     for why. What "fail closed" actually covers here, precisely: an entry that does not
+//     carry a matching annotation at all (garbage, unrelated, or simply a different app)
+//     is silently skipped and the scan moves on to the next candidate — it is NOT treated
+//     as an error, because with a plain text scan there is nothing to fail to parse.
+//     Fail-closed applies ONLY once a match IS found: an Application whose syncPolicy does
+//     not resemble either shape render() ever produces, or whose text contains more than
+//     one Application document (multi-doc input — see gitOpsSelfManaged), refuses the
+//     determination outright (ContractMisuse) rather than guess which document's
+//     syncPolicy governs the matched annotation.
 // ---------------------------------------------------------------------------
 
 const (
@@ -408,7 +426,19 @@ func gitOpsAppIDAnnotationValue(raw string) (value string, ok bool) {
 // since that is the dangerous direction to get wrong. ok is false — refuse, don't guess —
 // when neither exact shape is found; that is the fail-closed half of the guard, not
 // merely a parse nicety.
+//
+// Multi-document input is refused outright, for the same reason: anchoring on the FIRST
+// "  syncPolicy:" block found is only safe when raw is a single document. In a
+// hand-edited file holding more than one, that first block could belong to a tenant
+// document while the archistrator.dev/app-id annotation gitOpsResolveAppByID matched
+// belongs to a self-managed document further down — the last remaining way a
+// self-managed Application could misread as a tenant. Impossible from this renderer
+// (render() emits one Application Manifest, and gitOpsPublish writes one Application per
+// file) but cheap to close outright — see gitOpsHasMultipleDocuments.
 func gitOpsSelfManaged(raw string) (selfManaged bool, ok bool) {
+	if gitOpsHasMultipleDocuments(raw) {
+		return false, false
+	}
 	const marker = "\n  syncPolicy:\n"
 	i := strings.Index(raw, marker)
 	if i < 0 {
@@ -429,6 +459,28 @@ func gitOpsSelfManaged(raw string) (selfManaged bool, ok bool) {
 		}
 	}
 	return false, false
+}
+
+// gitOpsHasMultipleDocuments reports whether raw looks like more than one YAML document:
+// a "---" document-separator line, or more than one top-level "kind: Application" line.
+// Either signal alone is sufficient and deliberately generous (a false positive only ever
+// costs an extra refusal, never a wrong deletion) — see gitOpsSelfManaged's doc for why
+// this check exists.
+func gitOpsHasMultipleDocuments(raw string) bool {
+	applications := 0
+	for _, line := range strings.Split(raw, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "---") {
+			return true
+		}
+		if trimmed == "kind: Application" {
+			applications++
+			if applications > 1 {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // withAppIDAnnotation splices an archistrator.dev/app-id annotation into applicationYAML

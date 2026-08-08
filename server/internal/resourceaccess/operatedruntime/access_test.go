@@ -1579,6 +1579,17 @@ func TestGitOpsSelfManaged_MatchesByPositionNotSubstring(t *testing.T) {
 	if _, ok := gitOpsSelfManaged("kind: Application\nmetadata:\n  name: x\n"); ok {
 		t.Error("a document with no syncPolicy at all must not report ok=true")
 	}
+
+	// Multi-document input must never anchor on the first document's syncPolicy: a
+	// hand-edited file with a tenant document first and a self-managed document second is
+	// the last remaining way a self-managed Application could misread as a tenant if this
+	// weren't rejected outright (see gitOpsHasMultipleDocuments).
+	if _, ok := gitOpsSelfManaged(tenantYAML + "---\n" + selfManagedYAML); ok {
+		t.Error("multi-document input (--- separator) must report ok=false, not silently resolve off the first document")
+	}
+	if _, ok := gitOpsSelfManaged(tenantYAML + selfManagedYAML); ok {
+		t.Error("multi-document input (two kind: Application lines, no --- separator) must report ok=false")
+	}
 }
 
 // TestWithdraw_FailsClosedWhenSelfManagedStatusCannotBeDetermined: an Application that
@@ -1611,6 +1622,59 @@ func TestWithdraw_FailsClosedWhenSelfManagedStatusCannotBeDetermined(t *testing.
 	}
 	if e.Retryable {
 		t.Fatalf("an undeterminable self-managed status must fail closed non-retryably, got retryable")
+	}
+	if headCommit(t, repo) != before {
+		t.Error("a failed determination must not still push a commit")
+	}
+}
+
+// TestWithdraw_FailsClosedOnMultiDocumentApplicationFile is the end-to-end version of the
+// last case in TestGitOpsSelfManaged_MatchesByPositionNotSubstring: a hand-edited file
+// holding a TENANT document (carrying the matching annotation, automated: present) first
+// and a SELF-MANAGED document second. Anchoring on the first document's syncPolicy would
+// read this as safe to delete — the last remaining way a self-managed Application could
+// misread as a tenant. Withdraw must refuse instead.
+func TestWithdraw_FailsClosedOnMultiDocumentApplicationFile(t *testing.T) {
+	repo := newScratchRepo(t)
+	appID := uuid.New()
+
+	tenantDoc := "apiVersion: argoproj.io/v1alpha1\n" +
+		"kind: Application\n" +
+		"metadata:\n" +
+		"  name: mystery\n" +
+		"  namespace: argocd\n" +
+		"  annotations:\n" +
+		"    " + gitOpsAppIDAnnotation + ": " + appID.String() + "\n" +
+		"spec:\n" +
+		"  project: default\n" +
+		"  syncPolicy:\n" +
+		"    automated:\n" +
+		"      prune: true\n" +
+		"      selfHeal: true\n" +
+		"    syncOptions:\n" +
+		"    - CreateNamespace=true\n"
+	selfManagedDoc := "apiVersion: argoproj.io/v1alpha1\n" +
+		"kind: Application\n" +
+		"metadata:\n" +
+		"  name: mystery\n" +
+		"  namespace: argocd\n" +
+		"spec:\n" +
+		"  project: default\n" +
+		"  syncPolicy:\n" +
+		"    syncOptions:\n" +
+		"    - CreateNamespace=true\n"
+	seedBareRepo(t, repo, "k8s/argocd/applications/mystery.yaml", tenantDoc+"---\n"+selfManagedDoc)
+
+	rt := realOperatedRuntime{config: RuntimeConfig{GitOpsRepoURL: "file://" + repo}}
+	before := headCommit(t, repo)
+
+	err := rt.Withdraw(testCtx(t), appID, "idem-1")
+	var e *fwra.Error
+	if !errors.As(err, &e) || e.Kind != fwra.ContractMisuse {
+		t.Fatalf("withdraw of a multi-document Application file: want ContractMisuse (refuse), got %v — a tenant-first read would have allowed a self-managed delete", err)
+	}
+	if e.Retryable {
+		t.Fatalf("multi-document refusal must be non-retryable, got retryable")
 	}
 	if headCommit(t, repo) != before {
 		t.Error("a failed determination must not still push a commit")
