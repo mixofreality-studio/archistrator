@@ -3581,7 +3581,11 @@ func (c *CoreUseCases) isArtifactModel() {}
 
 // System Component NAMES
 
-// ContainerInstance instances a declared DeployContainer inside a node.
+// ContainerInstance instances a declared DeployContainer inside a node. Its Key
+// is the INSTANCE's identity, distinct from ContainerKey (which container is
+// instanced): one container may legitimately be instanced in more than one node
+// — a single-page application is both delivered by the web server and executed
+// in the browser — and those two instances are distinct edge endpoints.
 
 // InfrastructureNode is a C4 deployment infrastructure node (e.g. a load balancer,
 // firewall, or managed service) that does not itself host a DeployContainer.
@@ -3589,8 +3593,44 @@ func (c *CoreUseCases) isArtifactModel() {}
 // SoftwareSystemInstance is a C4 external software system instance placed inside a
 // deployment node (e.g. a third-party SaaS dependency).
 
+// ContainerSurface values — how a container is CONSUMED. The three human-facing
+// surfaces plus AgentHarness are the "frontend" set DEP-FRONTEND-PRESENT
+// requires; SurfaceService is the back-end default, which is what a document
+// authored before the field existed decodes to.
+const (
+	SurfaceSPA          ContainerSurface = "spa"
+	SurfaceMobile       ContainerSurface = "mobile"
+	SurfaceAgentHarness ContainerSurface = "agentHarness"
+	SurfaceCLI          ContainerSurface = "cli"
+	SurfaceService      ContainerSurface = "service"
+)
+
+// ElementRole values — what an infrastructure node or external software system
+// DOES. Typed so the deployment rules can find the edge gateway and the identity
+// provider structurally rather than by string-matching whatever name the drafting
+// agent chose. RoleOther is the default.
+const (
+	RoleGateway          ElementRole = "gateway"
+	RoleIdentityProvider ElementRole = "identityProvider"
+	RoleDatabase         ElementRole = "database"
+	RoleObjectStore      ElementRole = "objectStore"
+	RoleMessaging        ElementRole = "messaging"
+	RoleObservability    ElementRole = "observability"
+	RoleAgentHarness     ElementRole = "agentHarness"
+	RoleSourceControl    ElementRole = "sourceControl"
+	RolePaymentGateway   ElementRole = "paymentGateway"
+	RoleOther            ElementRole = "other"
+)
+
 // DeploymentNode is nestable: cluster → namespace → instance.
+//
+// Key is the node's identity within its environment — the handle a
+// DeploymentRelationship addresses. Every deployment element carries one; the
+// node's is declared here rather than in the schema because DeploymentNode is
+// self-referential (Children []DeploymentNode) and so is hand-held rather than
+// emitted by modelgen.
 type DeploymentNode struct {
+	Key                     string                   `json:"key"`
 	Name                    string                   `json:"name"`
 	Technology              string                   `json:"technology"`
 	Description             string                   `json:"description"`
@@ -6022,6 +6062,11 @@ var componentKindNames = map[ComponentKind]string{
 }
 var componentKindByName = invert(componentKindNames)
 
+// String returns the ComponentKind's camelCase wire name — the same name the
+// JSON encoding uses, so callers mapping this aggregate onto the platform's
+// string-typed model do not re-derive the vocabulary.
+func (k ComponentKind) String() string { return enumName(componentKindNames, k) }
+
 // MarshalJSON encodes the ComponentKind as its camelCase wire name.
 func (k ComponentKind) MarshalJSON() ([]byte, error) {
 	return marshalEnum(k, componentKindNames, "ComponentKind")
@@ -6070,6 +6115,9 @@ var callModeNames = map[CallMode]string{
 	CallEventPubSub: "eventPubSub",
 }
 var callModeByName = invert(callModeNames)
+
+// String returns the CallMode's camelCase wire name.
+func (m CallMode) String() string { return enumName(callModeNames, m) }
 
 // MarshalJSON encodes the CallMode as its camelCase wire name.
 func (m CallMode) MarshalJSON() ([]byte, error) { return marshalEnum(m, callModeNames, "CallMode") }
@@ -6174,6 +6222,9 @@ var deliveryStyleNames = map[DeliveryStyle]string{
 }
 var deliveryStyleByName = invert(deliveryStyleNames)
 
+// String returns the DeliveryStyle's camelCase wire name.
+func (s DeliveryStyle) String() string { return enumName(deliveryStyleNames, s) }
+
 // MarshalJSON encodes the DeliveryStyle as its camelCase wire name.
 func (s DeliveryStyle) MarshalJSON() ([]byte, error) {
 	return marshalEnum(s, deliveryStyleNames, "DeliveryStyle")
@@ -6197,6 +6248,9 @@ var deploymentProfileNames = map[DeploymentProfile]string{
 	ProfileTest:  "test",
 }
 var deploymentProfileByName = invert(deploymentProfileNames)
+
+// String returns the DeploymentProfile's camelCase wire name.
+func (p DeploymentProfile) String() string { return enumName(deploymentProfileNames, p) }
 
 // MarshalJSON encodes the DeploymentProfile as its camelCase wire name.
 func (p DeploymentProfile) MarshalJSON() ([]byte, error) {

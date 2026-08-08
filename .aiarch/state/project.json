@@ -8698,7 +8698,7 @@
               "key": "archistrator-server",
               "name": "archistrator-server",
               "technology": "Go · distroless",
-              "description": "Archistrator Go server: HTTP API + embedded Temporal worker + all Managers/Engines/ResourceAccess seams",
+              "description": "Archistrator Go server: HTTP API + /mcp tool surface + embedded Temporal worker + all Managers/Engines/ResourceAccess seams",
               "components": [
                 "MCPClient",
                 "SchedulerClient",
@@ -8727,16 +8727,18 @@
                 "Diagnostics",
                 "Logging",
                 "Security"
-              ]
+              ],
+              "surface": "service"
             },
             {
               "key": "archistrator-webapp",
-              "name": "archistrator-webapp",
-              "technology": "nginx · React SPA",
-              "description": "Static React SPA bundle served by nginx",
+              "name": "archistrator SPA",
+              "technology": "TypeScript · React",
+              "description": "The design experience the architect uses in their browser. Delivered as static assets and executed client-side.",
               "components": [
                 "WebClient"
-              ]
+              ],
+              "surface": "spa"
             }
           ],
           "environments": [
@@ -8745,6 +8747,48 @@
               "title": "Cloud (Mixofreality K8s cluster)",
               "nodes": [
                 {
+                  "key": "cloud-node-architect-machine",
+                  "name": "Architect's computer",
+                  "technology": "macOS, Windows or Linux",
+                  "description": "",
+                  "instances": 1,
+                  "tags": [],
+                  "children": [
+                    {
+                      "key": "cloud-node-browser",
+                      "name": "Web browser",
+                      "technology": "Chrome, Firefox, Safari or Edge",
+                      "description": "",
+                      "instances": 1,
+                      "tags": [],
+                      "children": [],
+                      "infrastructureNodes": [],
+                      "containerInstances": [
+                        {
+                          "key": "cloud-ci-spa-browser",
+                          "containerKey": "archistrator-webapp",
+                          "note": "the SPA, executing in the architect's browser",
+                          "tags": []
+                        }
+                      ],
+                      "softwareSystemInstances": []
+                    }
+                  ],
+                  "infrastructureNodes": [],
+                  "containerInstances": [],
+                  "softwareSystemInstances": [
+                    {
+                      "key": "cloud-ext-agent-harness",
+                      "name": "Claude Code",
+                      "technology": "Anthropic CLI · MCP client",
+                      "description": "The agent surface: the same API reached as generated MCP tools rather than through the browser.",
+                      "role": "agentHarness",
+                      "tags": []
+                    }
+                  ]
+                },
+                {
+                  "key": "cloud-node-cluster",
                   "name": "Mixofreality Kubernetes Cluster",
                   "technology": "k8s",
                   "description": "",
@@ -8752,24 +8796,7 @@
                   "tags": [],
                   "children": [
                     {
-                      "name": "gtd namespace",
-                      "technology": "k8s-namespace",
-                      "description": "example operated-system namespace — a customer app deployed and operated by the platform",
-                      "instances": 0,
-                      "tags": [],
-                      "children": [],
-                      "infrastructureNodes": [
-                        {
-                          "name": "Envoy Gateway",
-                          "technology": "Envoy Gateway / Gateway API",
-                          "description": "Edge: TLS via cert-manager + Keycloak OIDC at the edge",
-                          "tags": []
-                        }
-                      ],
-                      "containerInstances": [],
-                      "softwareSystemInstances": []
-                    },
-                    {
+                      "key": "cloud-node-ns-archistrator",
                       "name": "archistrator namespace",
                       "technology": "k8s-namespace",
                       "description": "",
@@ -8777,8 +8804,9 @@
                       "tags": [],
                       "children": [
                         {
+                          "key": "cloud-node-server-deployment",
                           "name": "server Deployment",
-                          "technology": "",
+                          "technology": "Kubernetes Deployment",
                           "description": "",
                           "instances": 2,
                           "tags": [],
@@ -8786,48 +8814,62 @@
                           "infrastructureNodes": [],
                           "containerInstances": [
                             {
+                              "key": "cloud-ci-server",
                               "containerKey": "archistrator-server",
                               "note": "",
                               "tags": []
                             }
                           ],
                           "softwareSystemInstances": []
-                        },
-                        {
-                          "name": "webapp Deployment",
-                          "technology": "",
-                          "description": "",
-                          "instances": 2,
-                          "tags": [],
-                          "children": [],
-                          "infrastructureNodes": [],
-                          "containerInstances": [
-                            {
-                              "containerKey": "archistrator-webapp",
-                              "note": "",
-                              "tags": []
-                            }
-                          ],
-                          "softwareSystemInstances": []
                         }
                       ],
                       "infrastructureNodes": [
                         {
+                          "key": "cloud-infra-gateway",
+                          "name": "Envoy Gateway",
+                          "technology": "Envoy Gateway / Gateway API",
+                          "description": "The front door: TLS via cert-manager, then OIDC authentication at the edge before anything reaches the server.",
+                          "role": "gateway",
+                          "tags": []
+                        },
+                        {
+                          "key": "cloud-infra-keycloak",
+                          "name": "Keycloak",
+                          "technology": "OIDC",
+                          "description": "Issues and validates the tokens the gateway checks.",
+                          "role": "identityProvider",
+                          "tags": []
+                        },
+                        {
+                          "key": "cloud-infra-static-assets",
+                          "name": "Static asset server",
+                          "technology": "nginx",
+                          "description": "Serves the built SPA bundle to the architect's browser. Holds no application code of its own.",
+                          "role": "other",
+                          "tags": []
+                        },
+                        {
+                          "key": "cloud-infra-operatedsystemstate",
                           "name": "OperatedSystemState",
                           "technology": "CloudNativePG · Postgres 16",
                           "description": "operated-system rows on the shared archistrator-postgres cluster",
+                          "role": "database",
                           "tags": []
                         },
                         {
+                          "key": "cloud-infra-billingstate",
                           "name": "BillingState",
                           "technology": "CloudNativePG · Postgres 16",
                           "description": "billing head-state rows on the shared archistrator-postgres cluster",
+                          "role": "database",
                           "tags": []
                         },
                         {
+                          "key": "cloud-infra-usagelog",
                           "name": "UsageLog",
                           "technology": "CloudNativePG · Postgres 16",
-                          "description": "The append-only record of exactly what a running app consumed — the only thing the customer is billed on, readable by them at any time (engineer tier: CloudNativePG Postgres on the shared cluster)",
+                          "description": "The append-only record of exactly what a running app consumed — the only thing the customer is billed on, readable by them at any time (engineer tier: CloudNativePG Postgres on the shared cluster).",
+                          "role": "database",
                           "tags": []
                         }
                       ],
@@ -8835,17 +8877,20 @@
                       "softwareSystemInstances": []
                     },
                     {
+                      "key": "cloud-node-ns-temporal",
                       "name": "temporal namespace",
                       "technology": "k8s-namespace",
-                      "description": "shared",
+                      "description": "shared platform Temporal",
                       "instances": 0,
                       "tags": [],
                       "children": [],
                       "infrastructureNodes": [
                         {
+                          "key": "cloud-infra-temporal",
                           "name": "DurableExecutionRuntime",
                           "technology": "Temporal (Postgres-backed)",
-                          "description": "Temporal Cluster in the shared temporal namespace; durable execution",
+                          "description": "The durable-execution substrate every Manager runs on.",
+                          "role": "other",
                           "tags": []
                         }
                       ],
@@ -8853,9 +8898,10 @@
                       "softwareSystemInstances": []
                     },
                     {
-                      "name": "operated tenants",
-                      "technology": "k8s",
-                      "description": "Operated tenant workloads — the customer apps the platform hosts (present only under the deployed-operated scenario); the gtd namespace above is one example",
+                      "key": "cloud-node-ns-gtd",
+                      "name": "gtd namespace",
+                      "technology": "k8s-namespace",
+                      "description": "example operated-system namespace — a customer app deployed and operated by the platform",
                       "instances": 0,
                       "tags": [],
                       "children": [],
@@ -8863,9 +8909,11 @@
                       "containerInstances": [],
                       "softwareSystemInstances": [
                         {
+                          "key": "cloud-ext-operatedruntime",
                           "name": "OperatedRuntime",
-                          "technology": "per-tenant",
-                          "description": "Operated tenant runtime — the deployed customer app",
+                          "technology": "per-tenant workload",
+                          "description": "The product the platform hosts: a delivered customer system, running and operated.",
+                          "role": "other",
                           "tags": []
                         }
                       ]
@@ -8876,9 +8924,10 @@
                   "softwareSystemInstances": []
                 },
                 {
+                  "key": "cloud-node-external",
                   "name": "External services",
                   "technology": "",
-                  "description": "",
+                  "description": "third parties outside the platform's cluster",
                   "instances": 0,
                   "tags": [],
                   "children": [],
@@ -8886,36 +8935,103 @@
                   "containerInstances": [],
                   "softwareSystemInstances": [
                     {
+                      "key": "cloud-ext-github",
                       "name": "GitHub",
-                      "technology": "GitHub",
-                      "description": "User's GitHub — GitHub App installation, account-level APIs",
+                      "technology": "GitHub App",
+                      "description": "App install, repo provisioning and authorization.",
+                      "role": "sourceControl",
                       "tags": []
                     },
                     {
+                      "key": "cloud-ext-projectgitrepo",
                       "name": "ProjectGitRepo",
                       "technology": "GitHub",
-                      "description": "Per-project state repo aiarch-<id> on the user's GitHub (git-as-DB)",
+                      "description": "The customer's own repository — the sole store of their project state and source.",
+                      "role": "sourceControl",
                       "tags": []
                     },
                     {
+                      "key": "cloud-ext-pipeline",
                       "name": "ConstructionPipelineRuntime",
                       "technology": "GitHub Actions",
-                      "description": "Actions construction runners on the user's GitHub",
+                      "description": "The construction venue: the customer's CI, on their own account.",
+                      "role": "other",
                       "tags": []
                     },
                     {
+                      "key": "cloud-ext-merchantgateway",
                       "name": "MerchantGateway",
                       "technology": "Stripe",
-                      "description": "Stripe — merchant gateway (direct charges against the customer's stored instrument; charge-only)",
-                      "tags": []
-                    },
-                    {
-                      "name": "Keycloak",
-                      "technology": "OIDC",
-                      "description": "Realm archistrator (edge auth)",
+                      "description": "Charges the metered cycle amount.",
+                      "role": "paymentGateway",
                       "tags": []
                     }
                   ]
+                }
+              ],
+              "persons": [
+                {
+                  "key": "cloud-person-architect",
+                  "name": "Architect",
+                  "description": "The customer's architect: designs the system in the browser, or drives it through the agent surface."
+                }
+              ],
+              "relationships": [
+                {
+                  "from": "cloud-person-architect",
+                  "to": "cloud-ci-spa-browser",
+                  "label": "Uses",
+                  "technology": "",
+                  "mode": "sync"
+                },
+                {
+                  "from": "cloud-person-architect",
+                  "to": "cloud-ext-agent-harness",
+                  "label": "Drives",
+                  "technology": "",
+                  "mode": "sync"
+                },
+                {
+                  "from": "cloud-infra-static-assets",
+                  "to": "cloud-ci-spa-browser",
+                  "label": "Delivers the SPA to the architect's browser",
+                  "technology": "HTTPS",
+                  "mode": "sync"
+                },
+                {
+                  "from": "cloud-ci-spa-browser",
+                  "to": "cloud-infra-gateway",
+                  "label": "Makes API calls to",
+                  "technology": "JSON/HTTPS",
+                  "mode": "sync"
+                },
+                {
+                  "from": "cloud-ext-agent-harness",
+                  "to": "cloud-infra-gateway",
+                  "label": "Makes tool calls to",
+                  "technology": "MCP/HTTPS",
+                  "mode": "sync"
+                },
+                {
+                  "from": "cloud-infra-gateway",
+                  "to": "cloud-infra-keycloak",
+                  "label": "Authenticates the request against",
+                  "technology": "OIDC",
+                  "mode": "sync"
+                },
+                {
+                  "from": "cloud-infra-gateway",
+                  "to": "cloud-ci-server",
+                  "label": "Forwards the authenticated request to",
+                  "technology": "HTTP",
+                  "mode": "sync"
+                },
+                {
+                  "from": "cloud-ci-server",
+                  "to": "cloud-infra-temporal",
+                  "label": "Starts and resumes Manager workflows on",
+                  "technology": "gRPC",
+                  "mode": "sync"
                 }
               ]
             },
@@ -8924,82 +9040,113 @@
               "title": "Test (in-process, ephemeral)",
               "nodes": [
                 {
+                  "key": "test-node-process",
                   "name": "test process",
                   "technology": "in-process",
                   "description": "",
-                  "instances": 0,
+                  "instances": 1,
                   "tags": [],
                   "children": [],
                   "infrastructureNodes": [
                     {
+                      "key": "test-infra-operatedsystemstate",
                       "name": "OperatedSystemState",
                       "technology": "ephemeral",
-                      "description": "sqlite/postgres (docker) stub — operated-system rows",
+                      "description": "",
+                      "role": "database",
                       "tags": []
                     },
                     {
+                      "key": "test-infra-billingstate",
                       "name": "BillingState",
                       "technology": "ephemeral",
-                      "description": "sqlite/postgres (docker) stub — billing head-state rows",
+                      "description": "",
+                      "role": "database",
                       "tags": []
                     },
                     {
+                      "key": "test-infra-usagelog",
                       "name": "UsageLog",
                       "technology": "ephemeral",
-                      "description": "sqlite/postgres (docker) stub — usage entries",
+                      "description": "",
+                      "role": "database",
                       "tags": []
                     },
                     {
+                      "key": "test-infra-temporal",
                       "name": "DurableExecutionRuntime",
-                      "technology": "test",
-                      "description": "in-memory Temporal test server",
+                      "technology": "test environment",
+                      "description": "",
+                      "role": "other",
                       "tags": []
                     },
                     {
+                      "key": "test-infra-projectgitrepo",
                       "name": "ProjectGitRepo",
                       "technology": "ephemeral",
-                      "description": "local temporary git repository (git-as-DB under test)",
+                      "description": "",
+                      "role": "sourceControl",
                       "tags": []
                     },
                     {
+                      "key": "test-infra-pipeline",
                       "name": "ConstructionPipelineRuntime",
                       "technology": "stub",
-                      "description": "dry-run construction pipeline stub (CONSTRUCTION_DRYRUN)",
+                      "description": "",
+                      "role": "other",
                       "tags": []
                     },
                     {
+                      "key": "test-infra-operatedruntime",
                       "name": "OperatedRuntime",
                       "technology": "stub",
-                      "description": "fake tenant runtime",
+                      "description": "",
+                      "role": "other",
                       "tags": []
                     }
                   ],
                   "containerInstances": [
                     {
+                      "key": "test-ci-server",
                       "containerKey": "archistrator-server",
-                      "note": "embedded test server + worker",
+                      "note": "",
                       "tags": []
                     },
                     {
+                      "key": "test-ci-spa",
                       "containerKey": "archistrator-webapp",
-                      "note": "built SPA bundle",
+                      "note": "driven headlessly by the UI test harness",
                       "tags": []
                     }
                   ],
                   "softwareSystemInstances": [
                     {
+                      "key": "test-ext-github",
                       "name": "GitHub",
                       "technology": "stub",
-                      "description": "stubbed GitHub API",
+                      "description": "",
+                      "role": "sourceControl",
                       "tags": []
                     },
                     {
+                      "key": "test-ext-merchantgateway",
                       "name": "MerchantGateway",
                       "technology": "stub",
-                      "description": "stubbed Stripe",
+                      "description": "",
+                      "role": "paymentGateway",
                       "tags": []
                     }
                   ]
+                }
+              ],
+              "persons": [],
+              "relationships": [
+                {
+                  "from": "test-ci-server",
+                  "to": "test-infra-temporal",
+                  "label": "Starts and resumes Manager workflows on",
+                  "technology": "in-process test environment",
+                  "mode": "sync"
                 }
               ]
             },
@@ -9008,52 +9155,128 @@
               "title": "Local (developer laptop, archistrator init)",
               "nodes": [
                 {
+                  "key": "local-node-laptop",
                   "name": "Developer laptop",
                   "technology": "single Go binary",
-                  "description": "archistrator init: server + embedded Temporal dev-server + embedded SPA on 127.0.0.1. Project state = on-disk git (.aiarch). All LLM work = headless claude CLI subprocesses on the user's own Claude subscription (driver=Claude Code interactive via /mcp; worker=claude -p). No Postgres, no Keycloak, no GitHub App, no Anthropic key held by archistrator. — NOT present in local: Postgres, Keycloak, GitHub App, any platform-held LLM key; local designs and constructs but does not operate or bill",
+                  "description": "",
                   "instances": 1,
                   "tags": [],
                   "children": [
                     {
-                      "name": "archistrator-server (child process)",
-                      "technology": "Go · 127.0.0.1:8877",
-                      "description": "HTTP API + /mcp streamable mount + the embedded React SPA (daemon prints the SPA URL)",
+                      "key": "local-node-browser",
+                      "name": "Web browser",
+                      "technology": "Chrome, Firefox, Safari or Edge",
+                      "description": "",
                       "instances": 1,
                       "tags": [],
                       "children": [],
                       "infrastructureNodes": [],
-                      "containerInstances": [],
+                      "containerInstances": [
+                        {
+                          "key": "local-ci-spa-browser",
+                          "containerKey": "archistrator-webapp",
+                          "note": "the SPA, served from the binary's embedded assets",
+                          "tags": []
+                        }
+                      ],
+                      "softwareSystemInstances": []
+                    },
+                    {
+                      "key": "local-node-server-process",
+                      "name": "archistrator-server (child process)",
+                      "technology": "Go · 127.0.0.1:8877",
+                      "description": "binds loopback directly — no gateway and no identity provider are present locally",
+                      "instances": 1,
+                      "tags": [],
+                      "children": [],
+                      "infrastructureNodes": [
+                        {
+                          "key": "local-infra-static-assets",
+                          "name": "Embedded SPA assets",
+                          "technology": "go:embed",
+                          "description": "The SPA bundle compiled into the binary and served on the same port.",
+                          "role": "other",
+                          "tags": []
+                        }
+                      ],
+                      "containerInstances": [
+                        {
+                          "key": "local-ci-server",
+                          "containerKey": "archistrator-server",
+                          "note": "",
+                          "tags": []
+                        }
+                      ],
                       "softwareSystemInstances": []
                     }
                   ],
                   "infrastructureNodes": [
                     {
+                      "key": "local-infra-temporal",
                       "name": "Embedded Temporal dev-server",
                       "technology": "temporal start-dev",
-                      "description": "resolved or spawned by `archistrator serve` — the LOCAL workflow-execution substrate",
+                      "description": "The local durable-execution runtime, started as a child of the CLI.",
+                      "role": "other",
                       "tags": []
                     },
                     {
-                      "name": "ProjectGitRepo (.aiarch)",
-                      "technology": "on-disk git",
-                      "description": "git-as-DB on the developer's disk (GitLocal; receive.denyCurrentBranch=updateInstead); first design session seeds review preset 'vibes'",
+                      "key": "local-infra-projectgitrepo",
+                      "name": "ProjectGitRepo",
+                      "technology": "on-disk git (.aiarch)",
+                      "description": "The local project store: the first design session seeds project.json and the default vibes preset.",
+                      "role": "sourceControl",
                       "tags": []
                     },
                     {
+                      "key": "local-infra-agentic-runner",
                       "name": "Local agentic runner",
                       "technology": "claude -p subprocesses",
-                      "description": "headless agent jobs on the user's own subscription (driver = interactive via /mcp)",
+                      "description": "Construction runs on the architect's own subscription. Not present in cloud, where the venue is the customer's CI.",
+                      "role": "other",
                       "tags": []
-                    }
-                  ],
-                  "containerInstances": [
+                    },
                     {
-                      "containerKey": "archistrator-server",
-                      "note": "usageAccess=no-op; operatedSystemState=no-op; billing absent; construction executor=local headless claude",
+                      "key": "local-infra-absent",
+                      "name": "Not present locally",
+                      "technology": "no Postgres · no Keycloak · no GitHub App · no platform-held LLM key",
+                      "description": "The local profile designs and constructs; it does not operate or bill, so the operate/bill stores and the identity provider are deliberately absent.",
+                      "role": "other",
                       "tags": []
                     }
                   ],
+                  "containerInstances": [],
                   "softwareSystemInstances": []
+                }
+              ],
+              "persons": [],
+              "relationships": [
+                {
+                  "from": "local-infra-static-assets",
+                  "to": "local-ci-spa-browser",
+                  "label": "Serves the SPA to the developer's browser",
+                  "technology": "HTTP · 127.0.0.1:8877",
+                  "mode": "sync"
+                },
+                {
+                  "from": "local-ci-server",
+                  "to": "local-infra-temporal",
+                  "label": "Starts and resumes Manager workflows on",
+                  "technology": "gRPC",
+                  "mode": "sync"
+                },
+                {
+                  "from": "local-ci-server",
+                  "to": "local-infra-agentic-runner",
+                  "label": "Launches construction episodes as",
+                  "technology": "subprocess",
+                  "mode": "sync"
+                },
+                {
+                  "from": "local-node-laptop",
+                  "to": "local-infra-absent",
+                  "label": "Deliberately omits",
+                  "technology": "",
+                  "mode": "sync"
                 }
               ]
             }
@@ -9360,11 +9583,15 @@
               "perProfile": {
                 "local": {
                   "variant": "Temporal",
-                  "infra": ["temporal"]
+                  "infra": [
+                    "temporal"
+                  ]
                 },
                 "cloud": {
                   "variant": "Temporal",
-                  "infra": ["temporal"]
+                  "infra": [
+                    "temporal"
+                  ]
                 }
               }
             }
@@ -19399,6 +19626,9 @@
         "ContainerInstance": {
           "type": "object",
           "properties": {
+            "key": {
+              "type": "string"
+            },
             "containerKey": {
               "type": "string"
             },
@@ -19416,6 +19646,7 @@
             }
           },
           "required": [
+            "key",
             "containerKey",
             "note",
             "tags"
@@ -19527,6 +19758,9 @@
               "items": {
                 "type": "string"
               }
+            },
+            "surface": {
+              "$ref": "#/$defs/ContainerSurface"
             }
           },
           "required": [
@@ -19534,7 +19768,8 @@
             "name",
             "technology",
             "description",
-            "components"
+            "components",
+            "surface"
           ],
           "additionalProperties": false
         },
@@ -19580,12 +19815,35 @@
               "items": {
                 "x-go-type": "DeploymentNode"
               }
+            },
+            "persons": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/DeploymentPerson"
+              }
+            },
+            "relationships": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/DeploymentRelationship"
+              }
+            },
+            "computed": {
+              "$ref": "#/$defs/DeploymentEnvironmentComputed"
             }
           },
           "required": [
             "profile",
             "title",
-            "nodes"
+            "nodes",
+            "persons",
+            "relationships"
           ],
           "additionalProperties": false
         },
@@ -19832,6 +20090,9 @@
         "InfrastructureNode": {
           "type": "object",
           "properties": {
+            "key": {
+              "type": "string"
+            },
             "name": {
               "type": "string"
             },
@@ -19849,13 +20110,18 @@
               "items": {
                 "type": "string"
               }
+            },
+            "role": {
+              "$ref": "#/$defs/ElementRole"
             }
           },
           "required": [
+            "key",
             "name",
             "technology",
             "description",
-            "tags"
+            "tags",
+            "role"
           ],
           "additionalProperties": false
         },
@@ -20941,6 +21207,9 @@
         "SoftwareSystemInstance": {
           "type": "object",
           "properties": {
+            "key": {
+              "type": "string"
+            },
             "name": {
               "type": "string"
             },
@@ -20958,13 +21227,18 @@
               "items": {
                 "type": "string"
               }
+            },
+            "role": {
+              "$ref": "#/$defs/ElementRole"
             }
           },
           "required": [
+            "key",
             "name",
             "technology",
             "description",
-            "tags"
+            "tags",
+            "role"
           ],
           "additionalProperties": false
         },
@@ -21526,6 +21800,97 @@
             "reviewPolicyRef",
             "trustSummaries",
             "deployment"
+          ],
+          "additionalProperties": false
+        },
+        "ContainerSurface": {
+          "type": "string",
+          "enum": [
+            "spa",
+            "mobile",
+            "agentHarness",
+            "cli",
+            "service"
+          ]
+        },
+        "ElementRole": {
+          "type": "string",
+          "enum": [
+            "gateway",
+            "identityProvider",
+            "database",
+            "objectStore",
+            "messaging",
+            "observability",
+            "agentHarness",
+            "sourceControl",
+            "paymentGateway",
+            "other"
+          ]
+        },
+        "DeploymentRelationship": {
+          "type": "object",
+          "properties": {
+            "from": {
+              "type": "string"
+            },
+            "to": {
+              "type": "string"
+            },
+            "label": {
+              "type": "string"
+            },
+            "technology": {
+              "type": "string"
+            },
+            "mode": {
+              "$ref": "#/$defs/CallMode"
+            }
+          },
+          "required": [
+            "from",
+            "to",
+            "label",
+            "technology",
+            "mode"
+          ],
+          "additionalProperties": false
+        },
+        "DeploymentPerson": {
+          "type": "object",
+          "properties": {
+            "key": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "description": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "key",
+            "name",
+            "description"
+          ],
+          "additionalProperties": false
+        },
+        "DeploymentEnvironmentComputed": {
+          "type": "object",
+          "properties": {
+            "derivedRelationships": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/DeploymentRelationship"
+              }
+            }
+          },
+          "required": [
+            "derivedRelationships"
           ],
           "additionalProperties": false
         }

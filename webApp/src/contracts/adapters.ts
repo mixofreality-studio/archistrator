@@ -26,10 +26,12 @@ import type {
   CheckItem,
   ComponentKind,
   ContainerInstance,
+  ContainerSurface,
   CoreUseCases,
   DeployContainer,
   DeploymentNode,
   DeploymentProfile,
+  ElementRole,
   Glossary,
   GlossaryItem,
   Layer,
@@ -42,6 +44,7 @@ import type {
   System,
   Volatilities,
 } from './types';
+import { toDeploymentEdges, type DeploymentEdgeView } from './deploymentEdges';
 import { METHOD_METADATA, PHASE1_ORDER, PHASE2_ORDER } from './methodMetadata';
 import { ARTIFACT_STAGE_APP_STRINGS } from './enums.gen';
 import { dynamicViewLabel, indexUseCaseNames } from './dynamicViewLabels';
@@ -553,28 +556,45 @@ export interface ComponentRef {
 
 /** A container instance placed in a deployment node, resolved to its packaged components. */
 export interface ContainerInstanceView {
+  /** The INSTANCE's element key — what a relationship endpoint names. Distinct
+   *  from containerKey: one container may be instanced in more than one node. */
+  elementKey: string;
   key: string;
   name: string;
   technology: string;
   description: string;
   note: string;
+  /** How the container is consumed — drives the frontend styling (spa / mobile / cli / agentHarness). */
+  surface: ContainerSurface;
   components: ComponentRef[]; // packaged System components (resolved), for the hover/expand list
 }
 
 export interface InfraView {
+  elementKey: string;
   name: string;
   technology: string;
   description: string;
+  role: ElementRole;
 }
 
 export interface ExternalView {
+  elementKey: string;
   name: string;
   technology: string;
+  description: string;
+  role: ElementRole;
+}
+
+/** A person the environment's frontend surfaces serve — drawn outside the infrastructure. */
+export interface DeploymentPersonView {
+  elementKey: string;
+  name: string;
   description: string;
 }
 
 /** A nested deployment node: child nodes + the container instances / infra / externals it hosts. */
 export interface DeploymentNodeView {
+  elementKey: string;
   name: string;
   technology: string;
   description: string;
@@ -583,6 +603,16 @@ export interface DeploymentNodeView {
   containers: ContainerInstanceView[];
   infrastructure: InfraView[];
   externals: ExternalView[];
+}
+
+/**
+ * One deployment environment as the view draws it: the node forest, the people
+ * it serves, and the edges between them (authored ∪ server-derived).
+ */
+export interface DeploymentEnvironmentView {
+  roots: DeploymentNodeView[];
+  persons: DeploymentPersonView[];
+  edges: DeploymentEdgeView[];
 }
 
 /** A pickable deployment-environment reference: its profile + display title. */
@@ -603,17 +633,23 @@ export function listDeploymentProfiles(
 }
 
 /**
- * Builds the nested deployment topology for one profile, resolving each
- * ContainerInstance to its DeployContainer definition and packaged System
- * components (name + layer, for colouring), plus infrastructure and external
- * software-system nodes. Absent deployment / missing profile environment →
- * undefined, so the caller renders nothing.
+ * Builds one profile's deployment environment: the nested topology (each
+ * ContainerInstance resolved to its DeployContainer definition and packaged
+ * System components, for colouring), the people it serves, and the edges between
+ * them. Absent deployment / missing profile environment → undefined, so the
+ * caller renders nothing.
+ *
+ * The edge set is the union of what the architect AUTHORED on the environment and
+ * what the server DERIVED from the committed System model at read time. The view
+ * does no deriving of its own: the derivation that feeds the picture is the same
+ * one the DEP-EDGE-* rules judge, so the diagram cannot show edges the gate does
+ * not count.
  */
 export function toDeploymentView(
   opEnvelope: ArtifactModelEnvelope | undefined,
   systemEnvelope: ArtifactModelEnvelope | undefined,
   profile: DeploymentProfile
-): DeploymentNodeView[] | undefined {
+): DeploymentEnvironmentView | undefined {
   const op = narrow(opEnvelope, 'operationalConcepts');
   const topo = op?.deployment;
   const env = (topo?.environments ?? []).find((e) => e.profile === profile);
@@ -629,11 +665,13 @@ export function toDeploymentView(
   const resolveContainer = (ci: ContainerInstance): ContainerInstanceView => {
     const c = containersByKey.get(ci.containerKey);
     return {
+      elementKey: ci.key,
       key: ci.containerKey,
       name: c?.name ?? ci.containerKey,
       technology: c?.technology ?? '',
       description: c?.description ?? '',
       note: ci.note,
+      surface: c?.surface ?? 'service',
       components: (c?.components ?? []).map((n) => ({
         name: n,
         layer: byName.get(n) ?? 'utility',
@@ -642,6 +680,7 @@ export function toDeploymentView(
   };
 
   const mapNode = (node: DeploymentNode): DeploymentNodeView => ({
+    elementKey: node.key,
     name: node.name,
     technology: node.technology,
     description: node.description,
@@ -649,18 +688,30 @@ export function toDeploymentView(
     children: (node.children ?? []).map(mapNode),
     containers: (node.containerInstances ?? []).map(resolveContainer),
     infrastructure: (node.infrastructureNodes ?? []).map((n) => ({
+      elementKey: n.key,
       name: n.name,
       technology: n.technology,
       description: n.description,
+      role: n.role,
     })),
     externals: (node.softwareSystemInstances ?? []).map((n) => ({
+      elementKey: n.key,
       name: n.name,
       technology: n.technology,
       description: n.description,
+      role: n.role,
     })),
   });
 
-  return (env.nodes ?? []).map(mapNode);
+  return {
+    roots: (env.nodes ?? []).map(mapNode),
+    persons: (env.persons ?? []).map((p) => ({
+      elementKey: p.key,
+      name: p.name,
+      description: p.description,
+    })),
+    edges: toDeploymentEdges(env.relationships ?? [], env.computed?.derivedRelationships ?? []),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -792,6 +843,13 @@ export function toScrubbedRequirementsView(
 // leaf module (directly unit-testable under node --test); re-exported here so callers
 // keep importing the to* adapters from one place.
 export { toDeploymentOperationsView, type DeploymentOperationsView } from './deploymentOpsLogic';
+
+// The deployment edge join/collapse is likewise pure and leaf-module-hosted.
+export {
+  toDeploymentEdges,
+  connectedElementKeys,
+  type DeploymentEdgeView,
+} from './deploymentEdges';
 
 /** The typed standard-check rows, safe-empty. */
 export function toStandardCheckView(envelope: ArtifactModelEnvelope | undefined): CheckItem[] {

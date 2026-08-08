@@ -892,6 +892,7 @@ export interface components {
     };
     ModelContainerInstance: {
       containerKey: string;
+      key: string;
       note: string;
       tags: null | string[];
     };
@@ -903,13 +904,20 @@ export interface components {
       description: string;
       key: string;
       name: string;
+      surface: string;
       technology: string;
     };
     ModelDeploymentEnvironment: {
+      computed?: components['schemas']['ModelDeploymentEnvironmentComputed'];
       nodes: null | components['schemas']['ModelDeploymentNode'][];
+      persons: null | components['schemas']['ModelDeploymentPerson'][];
       /** @enum {string} */
       profile: 'cloud' | 'local' | 'test';
+      relationships: null | components['schemas']['ModelDeploymentRelationship'][];
       title: string;
+    };
+    ModelDeploymentEnvironmentComputed: {
+      derivedRelationships: null | components['schemas']['ModelDeploymentRelationship'][];
     };
     ModelDeploymentNode: {
       children: null | components['schemas']['ModelDeploymentNode'][];
@@ -917,6 +925,7 @@ export interface components {
       description: string;
       infrastructureNodes: null | components['schemas']['ModelInfrastructureNode'][];
       instances: number;
+      key: string;
       name: string;
       softwareSystemInstances: null | components['schemas']['ModelSoftwareSystemInstance'][];
       tags: null | string[];
@@ -933,6 +942,19 @@ export interface components {
       reviewPolicyRef: string;
       scalingPolicy?: unknown;
       trustSummaries: components['schemas']['ModelTrustSummaries'];
+    };
+    ModelDeploymentPerson: {
+      description: string;
+      key: string;
+      name: string;
+    };
+    ModelDeploymentRelationship: {
+      from: string;
+      label: string;
+      /** @enum {string} */
+      mode: 'sync' | 'queued' | 'eventPubSub';
+      technology: string;
+      to: string;
     };
     ModelDeploymentTopology: {
       containers: null | components['schemas']['ModelDeployContainer'][];
@@ -961,7 +983,9 @@ export interface components {
     };
     ModelInfrastructureNode: {
       description: string;
+      key: string;
       name: string;
+      role: string;
       tags: null | string[];
       technology: string;
     };
@@ -1147,7 +1171,9 @@ export interface components {
     };
     ModelSoftwareSystemInstance: {
       description: string;
+      key: string;
       name: string;
+      role: string;
       tags: null | string[];
       technology: string;
     };

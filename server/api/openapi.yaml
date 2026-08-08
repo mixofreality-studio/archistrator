@@ -635,6 +635,8 @@ components:
             properties:
                 containerKey:
                     type: string
+                key:
+                    type: string
                 note:
                     type: string
                 tags:
@@ -644,6 +646,7 @@ components:
                         - "null"
                         - array
             required:
+                - key
                 - containerKey
                 - note
                 - tags
@@ -675,6 +678,8 @@ components:
                     type: string
                 name:
                     type: string
+                surface:
+                    type: string
                 technology:
                     type: string
             required:
@@ -683,13 +688,24 @@ components:
                 - technology
                 - description
                 - components
+                - surface
             type: object
         ModelDeploymentEnvironment:
             additionalProperties: false
             properties:
+                computed:
+                    $ref: '#/components/schemas/ModelDeploymentEnvironmentComputed'
+                    type:
+                        - "null"
                 nodes:
                     items:
                         $ref: '#/components/schemas/ModelDeploymentNode'
+                    type:
+                        - "null"
+                        - array
+                persons:
+                    items:
+                        $ref: '#/components/schemas/ModelDeploymentPerson'
                     type:
                         - "null"
                         - array
@@ -699,12 +715,32 @@ components:
                         - local
                         - test
                     type: string
+                relationships:
+                    items:
+                        $ref: '#/components/schemas/ModelDeploymentRelationship'
+                    type:
+                        - "null"
+                        - array
                 title:
                     type: string
             required:
                 - profile
                 - title
                 - nodes
+                - persons
+                - relationships
+            type: object
+        ModelDeploymentEnvironmentComputed:
+            additionalProperties: false
+            properties:
+                derivedRelationships:
+                    items:
+                        $ref: '#/components/schemas/ModelDeploymentRelationship'
+                    type:
+                        - "null"
+                        - array
+            required:
+                - derivedRelationships
             type: object
         ModelDeploymentNode:
             additionalProperties: false
@@ -731,6 +767,8 @@ components:
                         - array
                 instances:
                     type: integer
+                key:
+                    type: string
                 name:
                     type: string
                 softwareSystemInstances:
@@ -748,6 +786,7 @@ components:
                 technology:
                     type: string
             required:
+                - key
                 - name
                 - technology
                 - description
@@ -792,6 +831,44 @@ components:
                 - reviewPolicyRef
                 - trustSummaries
                 - deployment
+            type: object
+        ModelDeploymentPerson:
+            additionalProperties: false
+            properties:
+                description:
+                    type: string
+                key:
+                    type: string
+                name:
+                    type: string
+            required:
+                - key
+                - name
+                - description
+            type: object
+        ModelDeploymentRelationship:
+            additionalProperties: false
+            properties:
+                from:
+                    type: string
+                label:
+                    type: string
+                mode:
+                    enum:
+                        - sync
+                        - queued
+                        - eventPubSub
+                    type: string
+                technology:
+                    type: string
+                to:
+                    type: string
+            required:
+                - from
+                - to
+                - label
+                - technology
+                - mode
             type: object
         ModelDeploymentTopology:
             additionalProperties: false
@@ -885,7 +962,11 @@ components:
             properties:
                 description:
                     type: string
+                key:
+                    type: string
                 name:
+                    type: string
+                role:
                     type: string
                 tags:
                     items:
@@ -896,10 +977,12 @@ components:
                 technology:
                     type: string
             required:
+                - key
                 - name
                 - technology
                 - description
                 - tags
+                - role
             type: object
         ModelMissionStatement:
             additionalProperties: false
@@ -1360,7 +1443,11 @@ components:
             properties:
                 description:
                     type: string
+                key:
+                    type: string
                 name:
+                    type: string
+                role:
                     type: string
                 tags:
                     items:
@@ -1371,10 +1458,12 @@ components:
                 technology:
                     type: string
             required:
+                - key
                 - name
                 - technology
                 - description
                 - tags
+                - role
             type: object
         ModelSolution:
             additionalProperties: false

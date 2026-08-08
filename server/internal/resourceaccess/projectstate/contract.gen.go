@@ -254,10 +254,13 @@ type ConstructionVenue struct {
 }
 
 type ContainerInstance struct {
+	Key          string   `json:"key"`
 	ContainerKey string   `json:"containerKey"`
 	Note         string   `json:"note"`
 	Tags         []string `json:"tags"`
 }
+
+type ContainerSurface string
 
 type ContractInterface struct {
 	Name       string              `json:"name"`
@@ -285,11 +288,12 @@ const (
 )
 
 type DeployContainer struct {
-	Key         string   `json:"key"`
-	Name        string   `json:"name"`
-	Technology  string   `json:"technology"`
-	Description string   `json:"description"`
-	Components  []string `json:"components"`
+	Key         string           `json:"key"`
+	Name        string           `json:"name"`
+	Technology  string           `json:"technology"`
+	Description string           `json:"description"`
+	Components  []string         `json:"components"`
+	Surface     ContainerSurface `json:"surface"`
 }
 
 type DeployNoteRecord struct {
@@ -299,9 +303,16 @@ type DeployNoteRecord struct {
 }
 
 type DeploymentEnvironment struct {
-	Profile DeploymentProfile `json:"profile"`
-	Title   string            `json:"title"`
-	Nodes   []DeploymentNode  `json:"nodes"`
+	Profile       DeploymentProfile              `json:"profile"`
+	Title         string                         `json:"title"`
+	Nodes         []DeploymentNode               `json:"nodes"`
+	Persons       []DeploymentPerson             `json:"persons"`
+	Relationships []DeploymentRelationship       `json:"relationships"`
+	Computed      *DeploymentEnvironmentComputed `json:"computed,omitempty"`
+}
+
+type DeploymentEnvironmentComputed struct {
+	DerivedRelationships []DeploymentRelationship `json:"derivedRelationships"`
 }
 
 type DeploymentOperationsModel struct {
@@ -315,6 +326,12 @@ type DeploymentOperationsModel struct {
 	Deployment          DeploymentTopology `json:"deployment"`
 }
 
+type DeploymentPerson struct {
+	Key         string `json:"key"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
 type DeploymentProfile int
 
 const (
@@ -322,6 +339,14 @@ const (
 	ProfileLocal DeploymentProfile = 1
 	ProfileTest  DeploymentProfile = 2
 )
+
+type DeploymentRelationship struct {
+	From       string   `json:"from"`
+	To         string   `json:"to"`
+	Label      string   `json:"label"`
+	Technology string   `json:"technology"`
+	Mode       CallMode `json:"mode"`
+}
 
 type DeploymentTopology struct {
 	DeliveryStyle DeliveryStyle           `json:"deliveryStyle"`
@@ -354,6 +379,8 @@ const (
 	EdgeControlFlow EdgeKind = 0
 	EdgeGuardedFlow EdgeKind = 1
 )
+
+type ElementRole string
 
 type EvPoint struct {
 	Week       int      `json:"week"`
@@ -398,10 +425,12 @@ const (
 )
 
 type InfrastructureNode struct {
-	Name        string   `json:"name"`
-	Technology  string   `json:"technology"`
-	Description string   `json:"description"`
-	Tags        []string `json:"tags"`
+	Key         string      `json:"key"`
+	Name        string      `json:"name"`
+	Technology  string      `json:"technology"`
+	Description string      `json:"description"`
+	Tags        []string    `json:"tags"`
+	Role        ElementRole `json:"role"`
 }
 
 type IntegrationNoteRecord struct {
@@ -713,10 +742,12 @@ type SettlementTerms struct {
 }
 
 type SoftwareSystemInstance struct {
-	Name        string   `json:"name"`
-	Technology  string   `json:"technology"`
-	Description string   `json:"description"`
-	Tags        []string `json:"tags"`
+	Key         string      `json:"key"`
+	Name        string      `json:"name"`
+	Technology  string      `json:"technology"`
+	Description string      `json:"description"`
+	Tags        []string    `json:"tags"`
+	Role        ElementRole `json:"role"`
 }
 
 type Solution struct {

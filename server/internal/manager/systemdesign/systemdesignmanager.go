@@ -2506,6 +2506,7 @@ func (m *systemDesignManager) GetProject(rc fwmanager.Context, projectID Project
 		return ProjectState{}, mapRAError(err, "projectStateAccess.ReadProject")
 	}
 	m.computeNetworkAtRead(&proj)
+	m.computeDeploymentEdgesAtRead(&proj)
 	return m.projectStateToContract(proj), nil
 }
 
@@ -2663,6 +2664,155 @@ func mapRAError(err error, label string) error {
 	// A non-fwra error (e.g. ManagedScaffoldFiles scaffold assembly) still carries
 	// its cause for the server log while keeping the client Detail opaque (label).
 	return fwmanager.Wrap(fwmanager.Infrastructure, err, label)
+}
+
+// computeDeploymentEdgesAtRead populates each deployment environment's
+// COMPUTE-AT-READ block with the relationships derived from the committed System
+// model. NO-OP when either slot is absent — a project that has not reached its
+// architecture yet has nothing to derive from, and the authored edges (if any)
+// still serve on their own.
+func (m *systemDesignManager) computeDeploymentEdgesAtRead(p *projectstate.Project) {
+	if m.designHealth == nil {
+		return
+	}
+	op, ok := p.OperationalConcepts.Model.(*projectstate.DeploymentOperationsModel)
+	if !ok || op == nil || len(op.Deployment.Environments) == 0 {
+		return
+	}
+	sys, ok := p.SystemDesign.Model.(*projectstate.System)
+	if !ok || sys == nil {
+		return
+	}
+
+	derived, err := m.designHealth.DeriveDeploymentEdges(
+		fweng.Context{Context: context.Background()},
+		toMethodcheckSystem(*sys),
+		toMethodcheckTopology(op.Deployment),
+	)
+	if err != nil {
+		return // degenerate input guard — serve the authored edges unenriched
+	}
+
+	for i := range op.Deployment.Environments {
+		env := &op.Deployment.Environments[i]
+		edges, has := derived[env.Profile.String()]
+		if !has {
+			env.Computed = nil
+			continue
+		}
+		env.Computed = &projectstate.DeploymentEnvironmentComputed{
+			DerivedRelationships: fromMethodcheckRelationships(edges),
+		}
+	}
+}
+
+// toMethodcheckSystem maps the committed System onto the platform's string-typed
+// model. Only the fields derivation reads are carried: it joins components to
+// containers by NAME and to infrastructure by name slug, and needs each
+// component's kind to exempt the utilities.
+func toMethodcheckSystem(s projectstate.System) methodcheck.System {
+	out := methodcheck.System{
+		Components:    make([]methodcheck.Component, 0, len(s.Components)),
+		Relationships: make([]methodcheck.Relationship, 0, len(s.Relationships)),
+	}
+	for _, c := range s.Components {
+		out.Components = append(out.Components, methodcheck.Component{
+			ID: c.ID, Name: c.Name, Kind: c.Kind.String(),
+		})
+	}
+	for _, r := range s.Relationships {
+		out.Relationships = append(out.Relationships, methodcheck.Relationship{
+			From: r.From, To: r.To, Mode: r.Mode.String(), Label: r.Label,
+		})
+	}
+	return out
+}
+
+// toMethodcheckTopology maps the committed deployment topology onto the
+// platform's model. The AUTHORED relationships are deliberately NOT carried:
+// derivation must not see them, or a re-read would fold its own previous output
+// back into its input.
+func toMethodcheckTopology(t projectstate.DeploymentTopology) methodcheck.DeploymentTopology {
+	out := methodcheck.DeploymentTopology{
+		DeliveryStyle: t.DeliveryStyle.String(),
+		Containers:    make([]methodcheck.DeployContainer, 0, len(t.Containers)),
+		Environments:  make([]methodcheck.DeploymentEnvironment, 0, len(t.Environments)),
+	}
+	for _, c := range t.Containers {
+		out.Containers = append(out.Containers, methodcheck.DeployContainer{
+			Key: c.Key, Name: c.Name, Technology: c.Technology,
+			Description: c.Description, Components: c.Components,
+			Surface: string(c.Surface),
+		})
+	}
+	for _, env := range t.Environments {
+		out.Environments = append(out.Environments, methodcheck.DeploymentEnvironment{
+			Profile: env.Profile.String(),
+			Title:   env.Title,
+			Nodes:   toMethodcheckNodes(env.Nodes),
+		})
+	}
+	return out
+}
+
+func toMethodcheckNodes(nodes []projectstate.DeploymentNode) []methodcheck.DeploymentNode {
+	if len(nodes) == 0 {
+		return nil
+	}
+	out := make([]methodcheck.DeploymentNode, 0, len(nodes))
+	for _, n := range nodes {
+		mapped := methodcheck.DeploymentNode{
+			Key: n.Key, Name: n.Name, Technology: n.Technology,
+			Description: n.Description, Instances: n.Instances,
+			Children: toMethodcheckNodes(n.Children),
+		}
+		for _, ci := range n.ContainerInstances {
+			mapped.ContainerInstances = append(mapped.ContainerInstances, methodcheck.ContainerInstance{
+				Key: ci.Key, ContainerKey: ci.ContainerKey, Note: ci.Note,
+			})
+		}
+		for _, in := range n.InfrastructureNodes {
+			mapped.InfrastructureNodes = append(mapped.InfrastructureNodes, methodcheck.InfrastructureNode{
+				Key: in.Key, Name: in.Name, Technology: in.Technology,
+				Description: in.Description, Role: string(in.Role),
+			})
+		}
+		for _, ss := range n.SoftwareSystemInstances {
+			mapped.SoftwareSystemInstances = append(mapped.SoftwareSystemInstances, methodcheck.SoftwareSystemInstance{
+				Key: ss.Key, Name: ss.Name, Technology: ss.Technology,
+				Description: ss.Description, Role: string(ss.Role),
+			})
+		}
+		out = append(out, mapped)
+	}
+	return out
+}
+
+// fromMethodcheckRelationships maps the derived edges back onto the served model.
+// The mode round-trips through the wire name so the served edge carries the same
+// sync/queued vocabulary the System relationship did.
+func fromMethodcheckRelationships(edges []methodcheck.DeploymentRelationship) []projectstate.DeploymentRelationship {
+	out := make([]projectstate.DeploymentRelationship, 0, len(edges))
+	for _, e := range edges {
+		out = append(out, projectstate.DeploymentRelationship{
+			From: e.From, To: e.To, Label: e.Label, Technology: e.Technology,
+			Mode: callModeFromWireName(e.Mode),
+		})
+	}
+	return out
+}
+
+// callModeFromWireName resolves the platform model's camelCase mode name back to
+// the typed CallMode, defaulting to sync for a name this build does not know.
+func callModeFromWireName(name string) projectstate.CallMode {
+	switch name {
+	case "queued":
+		return projectstate.CallQueued
+	case "eventPubSub":
+		return projectstate.CallEventPubSub
+	default:
+		return projectstate.CallSync
+	}
 }
 
 // ---------------------------------------------------------------------------

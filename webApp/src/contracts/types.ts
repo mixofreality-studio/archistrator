@@ -93,6 +93,12 @@ export type SoftwareSystemInstance = S['ModelSoftwareSystemInstance'];
 export type DeploymentNode = S['ModelDeploymentNode'];
 export type DeploymentEnvironment = S['ModelDeploymentEnvironment'];
 export type DeploymentTopology = S['ModelDeploymentTopology'];
+export type DeploymentPerson = S['ModelDeploymentPerson'];
+export type DeploymentRelationship = S['ModelDeploymentRelationship'];
+/** How a container is consumed. `spa`/`mobile`/`cli` and `agentHarness` are the frontend set. */
+export type ContainerSurface = S['ModelDeployContainer']['surface'];
+/** What an infrastructure node or external system does — `gateway`, `identityProvider`, … */
+export type ElementRole = S['ModelInfrastructureNode']['role'];
 export type ConstructionVenue = S['ModelConstructionVenue'];
 export type InfraBlock = S['ModelInfraBlock'];
 export type TrustSummaries = S['ModelTrustSummaries'];

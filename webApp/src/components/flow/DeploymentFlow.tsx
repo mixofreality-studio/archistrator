@@ -8,11 +8,25 @@
  * inside the container box, not separate boxes). Nested child DeploymentNodes are
  * stacked below that grid. A bottom-up pass sizes every group to fit its wrapped
  * grid + nested children, then a top-down pass places them; fit-to-view in canvas.
+ *
+ * The people the environment serves are drawn in a column to the LEFT of the
+ * infrastructure — the C4 reading order, and the reason the topology's own node
+ * order matters: a model that lists the client device first gets the reference
+ * layout (person → device → browser → cluster) for free.
+ *
+ * RELATIONSHIPS are the point of a deployment view, and they arrive already
+ * joined: the architect's AUTHORED edges (the person, the browser, the gateway,
+ * the identity provider — endpoints no derivation could know) unioned with the
+ * ones the SERVER derived from the committed System model. Because the layout
+ * knows where every box ended up, it also picks which side of each box an edge
+ * leaves and enters, so lines run the short way round instead of all stacking on
+ * one face.
  */
 import { useMemo, type ReactNode } from 'react';
-import type { Node } from '@xyflow/react';
+import { MarkerType, type Edge, type Node } from '@xyflow/react';
 import {
   toDeploymentView,
+  type DeploymentEdgeView,
   type DeploymentNodeView,
   type ContainerInstanceView,
   type InfraView,
@@ -20,6 +34,7 @@ import {
 } from '../../contracts/adapters';
 import type { ArtifactModelEnvelope, DeploymentProfile } from '../../contracts/types';
 import { useTokens } from '../../utilities/theme/ThemeContext';
+import type { Tokens } from '../../utilities/theme/themes';
 import { useComments, deploymentAnchor } from '../comments/CommentContext';
 import { FlowCanvas, FlowEmpty } from './flowShared';
 import {
@@ -27,6 +42,7 @@ import {
   DeployContainerNode,
   DeployInfraNode,
   DeployExternalNode,
+  DeployPersonNode,
 } from './DeploymentNodes';
 
 const nodeTypes = {
@@ -34,6 +50,7 @@ const nodeTypes = {
   deployContainer: DeployContainerNode,
   deployInfra: DeployInfraNode,
   deployExternal: DeployExternalNode,
+  deployPerson: DeployPersonNode,
 };
 
 const HEADER_H = 38; // group header band (label + technology)
@@ -48,6 +65,10 @@ const INFRA_W = 176;
 const INFRA_H = 84;
 const EXTERNAL_W = 176;
 const EXTERNAL_H = 84;
+const PERSON_W = 150;
+const PERSON_H = 96;
+/** Gap between the person column and the first root node. */
+const PERSON_GUTTER = 48;
 
 /** Wrap a row of boxes after roughly this many px before starting a new one. */
 const MAX_ROW_W = 3 * CONTAINER_W + 2 * GAP;
@@ -156,17 +177,35 @@ function measure(node: DeploymentNodeView): Sized {
   };
 }
 
-/** Top-down: emit a parent group node then its wrapped grid + nested child groups.
- *  Every rendered node carries the active `profile` so its Comment affordance can
- *  anchor into the committed topology by profile + name. */
+/** Where an element ended up on the canvas, in ABSOLUTE coordinates. Edges are
+ *  routed from this, which is why the layout — not the edge renderer — decides
+ *  which face of a box a line attaches to. */
+interface Box {
+  id: string;
+  cx: number;
+  cy: number;
+}
+
+/**
+ * Top-down: emit a parent group node then its wrapped grid + nested child groups.
+ * Every rendered node carries the active `profile` so its Comment affordance can
+ * anchor into the committed topology by profile + name, and records its absolute
+ * centre in `boxes` keyed by ELEMENT key so the edge pass can find it.
+ *
+ * React Flow positions a child relative to its parent, so `position` stays
+ * relative while `absX`/`absY` accumulate down the tree.
+ */
 function emit(
   sized: Sized,
   parentId: string | undefined,
   idPath: string,
   x: number,
   y: number,
+  absX: number,
+  absY: number,
   profile: string,
-  out: Node[]
+  out: Node[],
+  boxes: Map<string, Box>
 ): void {
   out.push({
     id: idPath,
@@ -185,12 +224,21 @@ function emit(
     selectable: true,
     ...(parentId !== undefined ? { parentId, extent: 'parent' as const } : {}),
   });
+  if (sized.node.elementKey.length > 0) {
+    boxes.set(sized.node.elementKey, {
+      id: idPath,
+      cx: absX + sized.w / 2,
+      cy: absY + sized.h / 2,
+    });
+  }
 
   sized.items.forEach((item, i) => {
-    const position = { x: PAD + item.x, y: sized.headerH + PAD + item.y };
+    const relX = PAD + item.x;
+    const relY = sized.headerH + PAD + item.y;
+    const id = `${idPath}/item-${String(i)}`;
     const base = {
-      id: `${idPath}/item-${String(i)}`,
-      position,
+      id,
+      position: { x: relX, y: relY },
       width: item.w,
       height: item.h,
       parentId: idPath,
@@ -209,6 +257,7 @@ function emit(
             description: item.view.description,
             note: item.view.note,
             components: item.view.components,
+            surface: item.view.surface,
             profile,
           },
         });
@@ -221,6 +270,7 @@ function emit(
             name: item.view.name,
             technology: item.view.technology,
             description: item.view.description,
+            role: item.view.role,
             profile,
           },
         });
@@ -233,10 +283,18 @@ function emit(
             name: item.view.name,
             technology: item.view.technology,
             description: item.view.description,
+            role: item.view.role,
             profile,
           },
         });
         break;
+    }
+    if (item.view.elementKey.length > 0) {
+      boxes.set(item.view.elementKey, {
+        id,
+        cx: absX + relX + item.w / 2,
+        cy: absY + relY + item.h / 2,
+      });
     }
   });
 
@@ -244,20 +302,113 @@ function emit(
   if (sized.gridH > 0 && sized.children.length > 0) cursorY += GAP;
 
   sized.children.forEach((child, i) => {
-    emit(child, idPath, `${idPath}/g-${String(i)}`, PAD, cursorY, profile, out);
+    emit(
+      child,
+      idPath,
+      `${idPath}/g-${String(i)}`,
+      PAD,
+      cursorY,
+      absX + PAD,
+      absY + cursorY,
+      profile,
+      out,
+      boxes
+    );
     cursorY += child.h + GAP;
   });
 }
 
-function build(roots: DeploymentNodeView[], profile: string): Node[] {
+/**
+ * Picks the pair of border handles an edge should use, from where its two boxes
+ * actually sit: the dominant axis of the offset between their centres wins, so a
+ * line between side-by-side boxes runs left↔right and one between stacked boxes
+ * runs top↔bottom. Without this every edge would leave the same face and the
+ * diagram would read as a bundle rather than a graph.
+ */
+function pickHandles(from: Box, to: Box): { sourceHandle: string; targetHandle: string } {
+  const dx = to.cx - from.cx;
+  const dy = to.cy - from.cy;
+  if (Math.abs(dx) >= Math.abs(dy)) {
+    return dx >= 0
+      ? { sourceHandle: 's-right', targetHandle: 't-left' }
+      : { sourceHandle: 's-left', targetHandle: 't-right' };
+  }
+  return dy >= 0
+    ? { sourceHandle: 's-bottom', targetHandle: 't-top' }
+    : { sourceHandle: 's-top', targetHandle: 't-bottom' };
+}
+
+/** The Structurizr-style caption: the label over its `[technology]` line. */
+function edgeLabel(edge: DeploymentEdgeView): string {
+  if (edge.technology.length === 0) return edge.label;
+  return `${edge.label}\n[${edge.technology}]`;
+}
+
+/**
+ * Builds the drawn edges from the joined relationship set, dropping any whose
+ * endpoints did not make it onto the canvas. A dangling endpoint is the server
+ * gate's finding (DEP-EDGE-REF), not something to render as a stray line.
+ */
+function buildEdges(edges: DeploymentEdgeView[], boxes: Map<string, Box>, t: Tokens): Edge[] {
+  const out: Edge[] = [];
+  for (const edge of edges) {
+    const from = boxes.get(edge.from);
+    const to = boxes.get(edge.to);
+    if (from === undefined || to === undefined) continue;
+    out.push({
+      id: edge.id,
+      source: from.id,
+      target: to.id,
+      ...pickHandles(from, to),
+      type: 'smoothstep',
+      label: edgeLabel(edge),
+      labelShowBg: true,
+      labelBgPadding: [6, 3],
+      labelBgBorderRadius: 3,
+      labelBgStyle: { fill: t.paper, fillOpacity: 0.92 },
+      labelStyle: { fontFamily: t.mono, fontSize: 9.5, fill: t.muted },
+      markerEnd: { type: MarkerType.ArrowClosed, width: 14, height: 14, color: t.muted },
+      style: { stroke: t.muted, strokeWidth: 1.4, strokeDasharray: '5 4' },
+      zIndex: 1000,
+      data: { title: edge.details.join(' · ') },
+    });
+  }
+  return out;
+}
+
+/** Lays the person column left of the roots, then the roots left to right. */
+function build(
+  roots: DeploymentNodeView[],
+  persons: { elementKey: string; name: string; description: string }[],
+  profile: string
+): { nodes: Node[]; boxes: Map<string, Box> } {
   const out: Node[] = [];
-  let x = 0;
+  const boxes = new Map<string, Box>();
+
+  const personColumnW = persons.length > 0 ? PERSON_W + PERSON_GUTTER : 0;
+  persons.forEach((person, i) => {
+    const y = i * (PERSON_H + GAP);
+    const id = `person-${String(i)}`;
+    out.push({
+      id,
+      type: 'deployPerson',
+      position: { x: 0, y },
+      width: PERSON_W,
+      height: PERSON_H,
+      data: { name: person.name, description: person.description, profile },
+      draggable: false,
+      selectable: true,
+    });
+    boxes.set(person.elementKey, { id, cx: PERSON_W / 2, cy: y + PERSON_H / 2 });
+  });
+
+  let x = personColumnW;
   roots.forEach((root, i) => {
     const sized = measure(root);
-    emit(sized, undefined, `root-${String(i)}`, x, 0, profile, out);
+    emit(sized, undefined, `root-${String(i)}`, x, 0, x, 0, profile, out, boxes);
     x += sized.w + GAP * 2;
   });
-  return out;
+  return { nodes: out, boxes };
 }
 
 export function DeploymentFlow({
@@ -273,19 +424,23 @@ export function DeploymentFlow({
 }): ReactNode {
   const t = useTokens();
   const { setAnchor } = useComments();
-  const roots = useMemo(
+  const env = useMemo(
     () => toDeploymentView(opEnvelope, systemEnvelope, profile),
     [opEnvelope, systemEnvelope, profile]
   );
-  const nodes = useMemo(() => (roots !== undefined ? build(roots, profile) : []), [roots, profile]);
+  const { nodes, edges } = useMemo(() => {
+    if (env === undefined) return { nodes: [], edges: [] };
+    const built = build(env.roots, env.persons, profile);
+    return { nodes: built.nodes, edges: buildEdges(env.edges, built.boxes, t) };
+  }, [env, profile, t]);
 
-  if (roots === undefined || nodes.length === 0) {
+  if (env === undefined || nodes.length === 0) {
     return <FlowEmpty label="No deployment topology for this profile." t={t} />;
   }
 
   return (
     <FlowCanvas
-      edges={[]}
+      edges={edges}
       height={height}
       nodeTypes={nodeTypes}
       nodes={nodes}

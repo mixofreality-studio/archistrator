@@ -14,7 +14,7 @@
  * (the expand/collapse of its packaged-components list).
  */
 import { useState, type KeyboardEvent, type ReactNode } from 'react';
-import type { NodeProps } from '@xyflow/react';
+import { Handle, Position, type NodeProps } from '@xyflow/react';
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import Typography from '@mui/material/Typography';
@@ -67,6 +67,118 @@ function useDeployNodeA11y(
   };
 }
 
+/**
+ * The four border handles every deployment element carries, each usable as both
+ * an edge source and an edge target.
+ *
+ * A deployment graph has no single flow direction — a browser reaches right into
+ * a gateway, a server reaches down into its database, a static-asset server
+ * reaches back left to the browser it delivers to. Rather than guess, each box
+ * exposes all four sides and the LAYOUT picks the pair, having already computed
+ * where both elements sit (see pickHandles in DeploymentFlow). The handles are
+ * invisible: they are attachment geometry, not a connection affordance — this
+ * graph is read-only.
+ */
+function EdgeHandles(): ReactNode {
+  const hidden = { opacity: 0, width: 1, height: 1, minWidth: 1, minHeight: 1, border: 'none' };
+  return (
+    <>
+      {(
+        [
+          ['top', Position.Top],
+          ['bottom', Position.Bottom],
+          ['left', Position.Left],
+          ['right', Position.Right],
+        ] as const
+      ).map(([id, position]) => (
+        <Box component="span" key={id}>
+          <Handle
+            id={`s-${id}`}
+            isConnectable={false}
+            position={position}
+            style={hidden}
+            type="source"
+          />
+          <Handle
+            id={`t-${id}`}
+            isConnectable={false}
+            position={position}
+            style={hidden}
+            type="target"
+          />
+        </Box>
+      ))}
+    </>
+  );
+}
+
+export interface DeployPersonData {
+  name: string;
+  description: string;
+  profile: string;
+  [key: string]: unknown;
+}
+
+/**
+ * A person the environment's frontend surfaces serve. Drawn in the C4 person
+ * idiom — a rounded "head and shoulders" card outside the infrastructure — so the
+ * diagram answers "who reaches this system?" before it answers "what runs where?".
+ */
+export function DeployPersonNode({ data, width, height }: NodeProps): ReactNode {
+  const t = useTokens();
+  const d = data as DeployPersonData;
+  const a11y = useDeployNodeA11y(d.name, d.profile);
+  return (
+    <Box
+      {...a11y}
+      sx={{
+        width,
+        height,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 0.5,
+        px: 1,
+        bgcolor: t.paperAlt,
+        border: `1.5px solid ${t.line}`,
+        borderRadius: 999,
+        cursor: 'pointer',
+        outline: 'none',
+        '&:focus-visible': { outline: `2px solid ${t.accent}`, outlineOffset: 2 },
+      }}
+    >
+      <EdgeHandles />
+      <Box
+        sx={{
+          width: 18,
+          height: 18,
+          borderRadius: '50%',
+          border: `1.5px solid ${t.muted}`,
+        }}
+      />
+      <Typography
+        sx={{
+          fontFamily: t.mono,
+          fontWeight: 700,
+          fontSize: 11,
+          color: t.ink,
+          textAlign: 'center',
+        }}
+      >
+        {d.name}
+      </Typography>
+      {d.description.length > 0 && (
+        <Typography
+          sx={{ fontFamily: t.body, fontSize: 9, color: t.muted, textAlign: 'center', ...clamp2 }}
+        >
+          {d.description}
+        </Typography>
+      )}
+    </Box>
+  );
+}
+
 export interface DeployGroupData {
   label: string;
   technology: string;
@@ -88,6 +200,8 @@ export interface DeployContainerData {
   description: string;
   note: string;
   components: DeployComponentRef[];
+  /** How the container is consumed — `service` for the back-end default. */
+  surface: string;
   profile: string;
   [key: string]: unknown;
 }
@@ -96,6 +210,8 @@ export interface DeployInfraData {
   name: string;
   technology: string;
   description: string;
+  /** What the element does — `other` when unclassified. */
+  role: string;
   profile: string;
   [key: string]: unknown;
 }
@@ -104,8 +220,55 @@ export interface DeployExternalData {
   name: string;
   technology: string;
   description: string;
+  /** What the element does — `other` when unclassified. */
+  role: string;
   profile: string;
   [key: string]: unknown;
+}
+
+/**
+ * Human labels for the classifications worth calling out on the face of a box.
+ * A back-end `service` and an unclassified `other` get no chip — the chip is for
+ * the elements whose ROLE in the picture is the thing to notice: who the users
+ * reach, and what stands at the front door.
+ */
+const CLASSIFICATION_LABEL: Record<string, string> = {
+  spa: 'SPA',
+  mobile: 'MOBILE APP',
+  cli: 'CLI',
+  agentHarness: 'AGENT HARNESS',
+  gateway: 'GATEWAY',
+  identityProvider: 'IDENTITY',
+};
+
+/** The small uppercase chip naming a container surface or an element role. */
+function ClassificationChip({ value }: { value: string }): ReactNode {
+  const t = useTokens();
+  const label = CLASSIFICATION_LABEL[value];
+  if (label === undefined) return null;
+  return (
+    <Box
+      sx={{
+        alignSelf: 'flex-start',
+        px: 0.6,
+        py: 0.05,
+        borderRadius: 1,
+        border: `1px solid ${t.accent}`,
+      }}
+    >
+      <Typography
+        sx={{
+          fontFamily: t.mono,
+          fontWeight: 700,
+          fontSize: 8,
+          letterSpacing: '0.1em',
+          color: t.accent,
+        }}
+      >
+        {label}
+      </Typography>
+    </Box>
+  );
 }
 
 /** Two-line clamp used to keep boxes a uniform height. */
@@ -134,6 +297,7 @@ export function DeployGroupNode({ data, width, height }: NodeProps): ReactNode {
         '&:focus-visible': { outline: `2px solid ${t.accent}`, outlineOffset: 2 },
       }}
     >
+      <EdgeHandles />
       <Box sx={{ px: 1, py: 0.5, borderBottom: `1px solid ${t.line}`, bgcolor: t.paperAlt }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
           <Typography
@@ -215,6 +379,7 @@ export function DeployContainerNode({ data, width, height }: NodeProps): ReactNo
         setOpen(false);
       }}
     >
+      <EdgeHandles />
       <Box
         sx={{
           width: '100%',
@@ -243,6 +408,7 @@ export function DeployContainerNode({ data, width, height }: NodeProps): ReactNo
         >
           {d.name}
         </Typography>
+        <ClassificationChip value={d.surface} />
         {d.technology.length > 0 && (
           <Typography
             sx={{
@@ -358,6 +524,7 @@ export function DeployInfraNode({ data, width, height }: NodeProps): ReactNode {
         '&:focus-visible': { outline: `2px solid ${t.accent}`, outlineOffset: 2 },
       }}
     >
+      <EdgeHandles />
       <Typography
         sx={{
           fontFamily: t.mono,
@@ -370,6 +537,7 @@ export function DeployInfraNode({ data, width, height }: NodeProps): ReactNode {
       >
         {d.name}
       </Typography>
+      <ClassificationChip value={d.role} />
       {d.technology.length > 0 && (
         <Typography
           sx={{
@@ -424,6 +592,7 @@ export function DeployExternalNode({ data, width, height }: NodeProps): ReactNod
         '&:focus-visible': { outline: `2px solid ${t.accent}`, outlineOffset: 2 },
       }}
     >
+      <EdgeHandles />
       <Typography
         sx={{
           fontFamily: t.mono,
@@ -437,6 +606,7 @@ export function DeployExternalNode({ data, width, height }: NodeProps): ReactNod
       >
         {d.name}
       </Typography>
+      <ClassificationChip value={d.role} />
       {d.technology.length > 0 && (
         <Typography
           sx={{

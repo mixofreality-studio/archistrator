@@ -204,8 +204,25 @@ func Evaluate(in Input) []methodcheck.Finding {
 // STRUCTURAL failure owned by the framework gate, which runs on the same bytes at
 // every seam — this engine stays silent rather than double-reporting it, and
 // returns no findings.
+// DeriveDeploymentEdges is the engine's second operation: the deployment view's
+// DERIVED relationships, keyed by deployment-profile wire name.
+//
+// A deployment view's application edges — the SPA calling the server, the server
+// reading its database — are already stated in the committed System model as
+// component relationships. Restating them in the deployment slot would be
+// duplication that drifts, so they are derived by mapping each System
+// relationship through container membership onto the elements that host its
+// endpoints. Only the edges whose endpoints are NOT System components (the
+// person, the browser, the gateway, the identity provider) stay authored.
+//
+// This is deliberately the SAME computation the DEP-EDGE-* rules judge, reached
+// through the same platform function: an edge rule that ignored derived edges
+// would force every server-to-database relationship to be hand-authored purely
+// to satisfy it, and a picture computed separately from the gate would show
+// edges the gate does not count.
 type DesignHealthEngine interface {
 	EvaluateDesignHealth(rc fweng.Context, raw []byte) ([]methodcheck.Finding, error)
+	DeriveDeploymentEdges(rc fweng.Context, system methodcheck.System, topology methodcheck.DeploymentTopology) (map[string][]methodcheck.DeploymentRelationship, error)
 }
 
 // designHealthEngine is the concrete engine. Engines are pure, so it carries no
@@ -223,6 +240,24 @@ var _ DesignHealthEngine = designHealthEngine{}
 // computation needs.
 func (designHealthEngine) EvaluateDesignHealth(_ fweng.Context, raw []byte) ([]methodcheck.Finding, error) {
 	return EvaluateRaw(raw), nil
+}
+
+// DeriveDeploymentEdges implements the port over the platform's derivation, one
+// environment at a time, keyed by profile. Like EvaluateDesignHealth it is pure
+// computation with no failure mode of its own, so the error is always nil; it is
+// present for Engine calling-convention uniformity.
+//
+// An environment that derives no edges is returned as an ABSENT key rather than
+// an empty slice, so a caller writing the result into a served model does not
+// stamp an empty computed block onto profiles that have nothing computed.
+func (designHealthEngine) DeriveDeploymentEdges(_ fweng.Context, system methodcheck.System, topology methodcheck.DeploymentTopology) (map[string][]methodcheck.DeploymentRelationship, error) {
+	out := make(map[string][]methodcheck.DeploymentRelationship, len(topology.Environments))
+	for _, env := range topology.Environments {
+		if derived := methodcheck.DeriveDeploymentRelationships(env, topology.Containers, system); len(derived) > 0 {
+			out[env.Profile] = derived
+		}
+	}
+	return out, nil
 }
 
 // EvaluateRaw is the single evaluation entry point every call site funnels
