@@ -10,8 +10,8 @@
  */
 import createClient from 'openapi-fetch';
 import type { paths } from '../contracts/schema';
-import { config } from '../utilities/config';
-import type { Capabilities } from '../utilities/capabilities';
+import { config } from '../utilities/config.ts';
+import type { Capabilities } from '../utilities/capabilities.ts';
 
 export const apiClient = createClient<paths>({ baseUrl: config.apiBaseUrl });
 

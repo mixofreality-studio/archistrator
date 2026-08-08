@@ -3,9 +3,10 @@
  * deployment Task 11, spec D9). The fetch itself lives in the api layer
  * (src/api/client.ts's fetchCapabilities — a composition-root-only route with
  * no .serviceContracts entry, so it isn't in the generated typed apiClient);
- * re-exported here so routes/router.tsx's operations-route `beforeLoad` guard
- * can reuse the SAME call without importing the api layer directly (the
- * layer DAG only lets `hooks` reach `api` — see eslint.platform.config.js).
+ * re-exported here so routes/operationsGuard.ts's operations-route
+ * `beforeLoad` guard can reuse the SAME call without importing the api layer
+ * directly (the layer DAG only lets `hooks` reach `api` — see
+ * eslint.platform.config.js).
  *
  * Returns `data` directly (not the full UseQueryResult): while loading or on
  * any fetch error, TanStack Query's `data` is `undefined`, which is exactly
@@ -13,8 +14,8 @@
  * loading/error branch for callers to get wrong.
  */
 import { useQuery } from '@tanstack/react-query';
-import { fetchCapabilities } from '../api/client';
-import type { Capabilities } from '../utilities/capabilities';
+import { fetchCapabilities } from '../api/client.ts';
+import type { Capabilities } from '../utilities/capabilities.ts';
 
 export { fetchCapabilities };
 

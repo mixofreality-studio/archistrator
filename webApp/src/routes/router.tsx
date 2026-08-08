@@ -18,13 +18,7 @@
  * Each route component is a self-contained screen export (no local component
  * definitions here) so fast-refresh stays happy alongside the `router` export.
  */
-import {
-  createRootRoute,
-  createRoute,
-  createRouter,
-  redirect,
-  Outlet,
-} from '@tanstack/react-router';
+import { createRootRoute, createRoute, createRouter, Outlet } from '@tanstack/react-router';
 import { ProjectsLanding } from './ProjectsLanding';
 import { HomeBase } from './HomeBase';
 import { SystemDesignScreen, ProjectDesignScreen } from './DesignExperience';
@@ -34,8 +28,8 @@ import { ChangeRequestsScreen } from './ChangeRequests';
 import { SubprojectFlowScreen } from './SubprojectFlow';
 import { BillingScreen } from './Billing';
 import { TeamScreen } from './TeamView';
+import { operationsBeforeLoad } from './operationsGuard';
 import { fetchCapabilities } from '../hooks/useCapabilities';
-import { operationsEnabled } from '../utilities/capabilities';
 
 const rootRoute = createRootRoute({ component: Outlet });
 
@@ -94,22 +88,13 @@ const operationsRoute = createRoute({
   // deployment credential and must not surface operations at all — not a
   // disabled console, not a simulated one. Confirmed fresh from the server on
   // every navigation (GET /api/v1/capabilities, never trusted from a stale
-  // client cache) BEFORE the console mounts, so a direct hit on this URL in
-  // the local profile never renders OperationsConsoleScreen at all — it
-  // silently returns to the catalog, the same outcome as an unmounted route.
-  // Any read failure (network error, non-2xx, server unreachable) is treated
-  // the same as "disabled": operationsEnabled(undefined) is false, the SAFE
-  // direction — never fail open into rendering a console against operations
-  // routes the server may not even have mounted (see hooks.go's ExtraMounts).
-  beforeLoad: async () => {
-    const capabilities = await fetchCapabilities().catch(() => undefined);
-    if (!operationsEnabled(capabilities)) {
-      // redirect({ throw: true }) throws internally — see @tanstack/router-core's
-      // redirect(): Redirect extends Response, not Error, so an explicit `throw
-      // redirect(...)` here would trip @typescript-eslint/only-throw-error.
-      redirect({ to: '/', throw: true });
-    }
-  },
+  // client cache) BEFORE the console mounts: {operations:false} redirects
+  // home (local always answers successfully, so this IS the D9 case); a
+  // genuinely unreachable capabilities check does NOT redirect — it hands
+  // OperationsConsoleScreen an explicit error state via context instead, so a
+  // cloud operator mid-incident sees why, not a silent bounce to the catalog.
+  // See operationsGuard.ts.
+  beforeLoad: () => operationsBeforeLoad(fetchCapabilities),
 });
 
 const changeRequestsRoute = createRoute({

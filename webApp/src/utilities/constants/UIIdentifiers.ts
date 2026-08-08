@@ -432,6 +432,8 @@ export const UI_IDENTIFIERS = {
     AUTOSCALER_POLICY_BUTTON: 'operations-autoscaler-policy',
     WITHDRAW_BUTTON: 'operations-withdraw',
     BILLING_LINK: 'operations-billing-link',
+    CAPABILITIES_UNREACHABLE: 'operations-capabilities-unreachable',
+    CAPABILITIES_RETRY: 'operations-capabilities-retry',
   },
   ChangeRequests: {
     ROOT: 'change-requests-screen',

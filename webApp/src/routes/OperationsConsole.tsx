@@ -27,10 +27,12 @@ import CircularProgress from '@mui/material/CircularProgress';
 import Tooltip from '@mui/material/Tooltip';
 import Tabs from '@mui/material/Tabs';
 import Tab from '@mui/material/Tab';
+import Button from '@mui/material/Button';
 import MonitorHeartOutlinedIcon from '@mui/icons-material/MonitorHeartOutlined';
 import RocketLaunchOutlinedIcon from '@mui/icons-material/RocketLaunchOutlined';
 import TrendingUpOutlinedIcon from '@mui/icons-material/TrendingUpOutlined';
 import BoltOutlinedIcon from '@mui/icons-material/BoltOutlined';
+import RefreshIcon from '@mui/icons-material/Refresh';
 import { getRouteApi, useNavigate, Link as RouterLink } from '@tanstack/react-router';
 
 import { ApiError } from '../contracts/errors';
@@ -39,6 +41,7 @@ import { sloSummary } from '../contracts/operationsAdapters';
 
 import { ExperienceChrome } from '../components/design/ExperienceChrome';
 import { CommentProvider } from '../components/comments/CommentContext';
+import { ErrorAlert } from '../components/shared/ErrorAlert';
 import { StatusTab } from '../components/operations/StatusTab';
 import { DeploymentsTab } from '../components/operations/DeploymentsTab';
 import { ScalingCostTab } from '../components/operations/ScalingCostTab';
@@ -93,10 +96,63 @@ const TABS: readonly [TabMeta, ...TabMeta[]] = [
 
 export function OperationsConsoleScreen(): ReactNode {
   const { operatedAppId } = routeApi.useParams();
+  const { capabilitiesUnreachable } = routeApi.useRouteContext();
+
+  // routes/operationsGuard.ts's beforeLoad already redirected home for the
+  // real D9 case ({operations:false}) — reaching this component at all means
+  // either operations is enabled, or the capabilities check itself failed
+  // after retrying. The latter renders an honest error instead of the
+  // console, rather than pretending nothing is wrong.
+  if (capabilitiesUnreachable) {
+    return <CapabilitiesUnreachablePanel />;
+  }
+
   return (
     <CommentProvider>
       <OperationsConsoleBody operatedAppId={operatedAppId} />
     </CommentProvider>
+  );
+}
+
+/**
+ * Rendered in place of the console when routes/operationsGuard.ts could not
+ * confirm capabilities after retrying — a genuine server/network failure, NOT
+ * "operations is disabled" (D9's local-hides-operations case always answers
+ * successfully, since local IS the process serving this SPA). A cloud
+ * operator mid-incident needs to know THIS failed, not be silently bounced to
+ * the catalog with no explanation.
+ */
+function CapabilitiesUnreachablePanel(): ReactNode {
+  const t = useTokens();
+  return (
+    <Box
+      data-testid={UI_IDENTIFIERS.Operations.CAPABILITIES_UNREACHABLE}
+      sx={{ display: 'flex', justifyContent: 'center', px: 2, py: 10 }}
+    >
+      <Box sx={{ maxWidth: 520 }}>
+        <Typography sx={{ color: t.ink, mb: 1 }} variant="h5">
+          Couldn&rsquo;t confirm Operations is available
+        </Typography>
+        <ErrorAlert
+          error={
+            new Error(
+              'The capabilities check to the server failed after several attempts. This does NOT mean operations is disabled — it means the server could not be confirmed reachable. Check your connection and retry.'
+            )
+          }
+        />
+        <Button
+          data-testid={UI_IDENTIFIERS.Operations.CAPABILITIES_RETRY}
+          startIcon={<RefreshIcon />}
+          sx={{ mt: 1.5 }}
+          variant="outlined"
+          onClick={() => {
+            window.location.reload();
+          }}
+        >
+          Retry
+        </Button>
+      </Box>
+    </Box>
   );
 }
 
