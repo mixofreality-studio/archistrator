@@ -1,0 +1,230 @@
+---
+# Source: archistrator-server/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: archistrator-server
+  namespace: archistrator
+  labels:
+    helm.sh/chart: archistrator-server-0.7.1
+    app.kubernetes.io/name: archistrator-server
+    app.kubernetes.io/instance: archistrator-server
+    app.kubernetes.io/version: "0.6.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: archistrator-server
+    app.kubernetes.io/instance: archistrator-server
+---
+# Source: archistrator-server/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: archistrator-server
+  namespace: archistrator
+  labels:
+    helm.sh/chart: archistrator-server-0.7.1
+    app.kubernetes.io/name: archistrator-server
+    app.kubernetes.io/instance: archistrator-server
+    app.kubernetes.io/version: "0.6.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: archistrator-server
+      app.kubernetes.io/instance: archistrator-server
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: archistrator-server
+        app.kubernetes.io/instance: archistrator-server
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: archistrator-server
+                  app.kubernetes.io/instance: archistrator-server
+              topologyKey: kubernetes.io/hostname
+      securityContext:
+        fsGroup: 65532
+        runAsGroup: 65532
+        runAsNonRoot: true
+        runAsUser: 65532
+      containers:
+      - name: archistrator-server
+        image: "ghcr.io/mixofreality-studio/archistrator-server:latest"
+        imagePullPolicy: Always
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+        ports:
+        - name: http
+          containerPort: 8080
+          protocol: TCP
+        env:
+        # --- HTTP (cmd/server/config.go) ------------------------------------
+        - name: ARCHISTRATOR_LISTEN_ADDR
+          value: ":8080"
+        - name: ARCHISTRATOR_SHUTDOWN_TIMEOUT
+          value: "20s"
+        # --- Postgres (REQUIRED) --------------------------------------------
+        # Credentials come from the CloudNativePG-managed {cluster}-app secret;
+        # they are referenced (never rendered) and interpolated into the pgx URL
+        # by the kubelet's $(VAR) expansion — no shell needed (distroless image).
+        - name: DATABASE_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: archistrator-postgres-app
+              key: username
+        - name: DATABASE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: archistrator-postgres-app
+              key: password
+        - name: ARCHISTRATOR_POSTGRES_URL
+          value: "postgres://$(DATABASE_USERNAME):$(DATABASE_PASSWORD)@archistrator-postgres-rw.archistrator.svc:5432/archistrator?sslmode=disable"
+        # --- Temporal -------------------------------------------------------
+        - name: ARCHISTRATOR_TEMPORAL_HOSTPORT
+          value: "temporal-frontend.temporal.svc:7233"
+        - name: ARCHISTRATOR_TEMPORAL_NAMESPACE
+          value: "archistrator"
+        # --- Artifact git store (artifactAccess construction outputs) -------
+        # 2026-06-09 git-only pivot: Gitea removed. The artifact store IS the
+        # per-project construction git repo (the user's GitHub construction repo
+        # in cloud; a file:// on-disk repo in the local/embedded profile). Auth
+        # is the GitHub App installation token minted INTERNALLY (shared identity
+        # with constructionPipeline below) — no credential env here. config.go
+        # constructs the store only when ARTIFACT_REPO_URL is set; empty == no
+        # staging (acceptable for the empty-session runtime state).
+        # --- GitHub App identity (shared by constructionPipeline + artifact ---
+        # store; the 2026-06-09 git-forward model). The numeric App id +
+        # (optional) API base URL + (optional) pre-resolved installation id are
+        # NON-SECRET and rendered from values; the RSA private key PEM is a
+        # secret created out-of-band (kubectl create secret generic
+        # archistrator-github-app-secret) in the archistrator namespace —
+        # referenced (never rendered). optional:true so the pod still starts
+        # before the secret exists.
+        - name: ARCHISTRATOR_GITHUB_APP_ID
+          value: "4029529"
+        # sourceControlAccess (I-RA project-birth repo provisioning) + the
+        # projectStateAccess CLOUD git substrate (I-GIT-DESIGN design-artifact
+        # commits) both key off the GitHub *account* (org login). config.go
+        # defaults ARCHISTRATOR_GITHUB_ACCOUNT to ARCHISTRATOR_CONSTRUCTION_REPO_OWNER,
+        # but we render it explicitly when set so the wiring is self-documenting and
+        # works even if construction.repoOwner is left empty. The App slug is only
+        # the PR-rail branch-protection actor (off the provision path); harmless when
+        # empty.
+        - name: ARCHISTRATOR_GITHUB_ACCOUNT
+          value: "davidmarne"
+        - name: ARCHISTRATOR_GITHUB_APP_PRIVATE_KEY_PEM
+          valueFrom:
+            secretKeyRef:
+              name: archistrator-github-app-secret
+              key: privateKey
+              optional: true
+        # --- projectStateAccess git substrate (I-GIT-DESIGN) ------------------
+        # The UC1/UC2/catalog design managers persist design artifacts as JSON in
+        # git (under .aiarch/state/), NOT Postgres. config.go selects the substrate
+        # in this order (buildDesignProjectState): LOCAL git (file://; gated on
+        # projectState.git.local=true + the file:// repo URL) → CLOUD git (whenever
+        # the GitHub App identity + account above are configured; per-project repos
+        # aiarch-<projectID>, auth = GitHub App installation token minted in-seam) →
+        # Postgres fallback (WARN). The project CATALOG is discovered by enumerating
+        # the account's aiarch-project repos (founder ruling 2026-06-14 — no registry
+        # index repo). All values here are NON-secret; the cloud auth credential is
+        # derived from the GitHub App private-key Secret already referenced above — no
+        # extra secret needed. Empty/false ⇒ the env is absent and the server falls
+        # back to Postgres (graceful degradation — empty GitHub config does NOT break
+        # the pod).
+        - name: ARCHISTRATOR_PROJECT_STATE_GIT_LOCAL
+          value: "false"
+        # --- Construction (UC3 constructionPipelineAccess → user's GitHub -----
+        # Actions; the 2026-06-09 pivot, C-CP-R rework). The RA dispatches the
+        # aiarch construction workflow file in the user's repo via the GitHub App
+        # identity above. workflowFile / ref have config.go defaults
+        # (aiarch-construct.yml / main); repoOwner + repoName name the user's
+        # construction repo. taskQueue is the construction Manager's Temporal
+        # task queue.
+        # --- GitHub webhook (PREMATURE — consumed once C-BM/C-BG wire billing
+        #     + the webhook receiver land; config.go does NOT read this key yet.
+        #     Forward wiring only; optional:true so the pod starts before the
+        #     secret exists. Do NOT delete.) -------------------------------------
+        - name: ARCHISTRATOR_GITHUB_WEBHOOK_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: archistrator-github-app-secret
+              key: webhookSecret
+              optional: true
+        # --- Stripe (PREMATURE — consumed once C-BM/C-BG wire billing) -------
+        # The billing engine exists but is NOT yet wired into main.go and
+        # config.go does NOT read ARCHISTRATOR_STRIPE_* yet. This is FORWARD
+        # wiring only; do NOT delete. Restricted API key + webhook signing secret
+        # come from a secret created out-of-band (kubectl create secret generic
+        # archistrator-stripe-secret) in the archistrator namespace — referenced
+        # (never rendered), optional:true so the pod starts before the secret
+        # exists. Gated on stripe.enabled (default false) so nothing renders until
+        # C-BG lands.
+        # --- Auth (dev mode OFF behind Envoy; the server validates the bearer
+        #     access token itself against Keycloak's JWKS — GTD parity) --------
+        - name: ARCHISTRATOR_KEYCLOAK_JWKS_URL
+          value: "http://keycloak-service.keycloak.svc.cluster.local:8080/realms/archistrator/protocol/openid-connect/certs"
+        - name: ARCHISTRATOR_KEYCLOAK_ISSUER
+          value: "https://keycloak.capture-gtd.com/realms/archistrator"
+        - name: ARCHISTRATOR_AUTH_DEV_MODE
+          value: "false"
+        - name: ARCHISTRATOR_DEV_SUBJECT
+          value: "dev-architect"
+        - name: ARCHISTRATOR_DEV_ROLES
+          value: "drive-phase approve-artifact"
+        # --- OpenTelemetry (STANDARD OTEL_* env, read by the OTel SDK directly;
+        #     NOT ARCHISTRATOR_* — the framework-go-infrastructure-otel satellite's
+        #     OTLP exporters + resource.Default() consume these). OTEL_SERVICE_NAME is
+        #     always set; the OTLP endpoint is gated on otel.enabled (absent ⇒ the
+        #     satellite returns a no-op Provider and telemetry.Install wires inert
+        #     globals). The in-cluster collector speaks plaintext gRPC, so
+        #     insecure=true / protocol=grpc. ------------------------------------
+        - name: OTEL_SERVICE_NAME
+          value: "archistrator-server"
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: "otel-collector-traces-collector.observability.svc.cluster.local:4317"
+        - name: OTEL_EXPORTER_OTLP_PROTOCOL
+          value: "grpc"
+        - name: OTEL_EXPORTER_OTLP_INSECURE
+          value: "true"
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: http
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: http
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3

@@ -1,0 +1,198 @@
+---
+# Source: archistrator-gateway-routes/templates/backendtrafficpolicy.yaml
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: archistrator-api-route-policy
+  namespace: archistrator
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: archistrator-api-route
+  loadBalancer:
+    type: RoundRobin
+---
+# Source: archistrator-gateway-routes/templates/backendtrafficpolicy.yaml
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: archistrator-healthz-route-policy
+  namespace: archistrator
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: archistrator-healthz-route
+  loadBalancer:
+    type: RoundRobin
+---
+# Source: archistrator-gateway-routes/templates/backendtrafficpolicy.yaml
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: archistrator-readyz-route-policy
+  namespace: archistrator
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: archistrator-readyz-route
+  loadBalancer:
+    type: RoundRobin
+---
+# Source: archistrator-gateway-routes/templates/backendtrafficpolicy.yaml
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: archistrator-webapp-route-policy
+  namespace: archistrator
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: archistrator-webapp-route
+  loadBalancer:
+    type: RoundRobin
+---
+# Source: archistrator-gateway-routes/templates/httproute.yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: archistrator-api-route
+  namespace: archistrator
+spec:
+  hostnames:
+  - archistrator.capture-gtd.com
+  parentRefs:
+  - name: gateway
+    namespace: gtd
+    sectionName: https-archistrator
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /api
+    backendRefs:
+    - name: archistrator-server
+      port: 8080
+---
+# Source: archistrator-gateway-routes/templates/httproute.yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: archistrator-healthz-route
+  namespace: archistrator
+spec:
+  hostnames:
+  - archistrator.capture-gtd.com
+  parentRefs:
+  - name: gateway
+    namespace: gtd
+    sectionName: https-archistrator
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /healthz
+    backendRefs:
+    - name: archistrator-server
+      port: 8080
+---
+# Source: archistrator-gateway-routes/templates/httproute.yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: archistrator-readyz-route
+  namespace: archistrator
+spec:
+  hostnames:
+  - archistrator.capture-gtd.com
+  parentRefs:
+  - name: gateway
+    namespace: gtd
+    sectionName: https-archistrator
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /readyz
+    backendRefs:
+    - name: archistrator-server
+      port: 8080
+---
+# Source: archistrator-gateway-routes/templates/httproute.yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: archistrator-webapp-route
+  namespace: archistrator
+spec:
+  hostnames:
+  - archistrator.capture-gtd.com
+  parentRefs:
+  - name: gateway
+    namespace: gtd
+    sectionName: https-archistrator
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /
+    backendRefs:
+    - name: archistrator-webapp
+      port: 80
+---
+# Source: archistrator-gateway-routes/templates/securitypolicy.yaml
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: archistrator-oidc-policy
+  namespace: archistrator
+spec:
+  targetRefs:
+    # Only browser-facing routes get the OIDC redirect + JWT validation:
+    #   * webapp route — browser SPA, full authorization-code redirect login.
+    #   * api  route   — validates the Keycloak JWT at the edge (defense in depth)
+    #                    and forwards the Authorization header unchanged
+    #                    (oidc.passThroughAuthHeader); the Go server independently
+    #                    validates that same bearer access token (GTD parity).
+    # /healthz and /readyz routes are intentionally NOT targeted, so they stay
+    # unauthenticated (health endpoints must answer probes without a session).
+    # The /oauth2/callback path is captured by the webapp route above: the OIDC
+    # filter installed on that route intercepts the callback to complete login.
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: archistrator-api-route
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: archistrator-webapp-route
+  jwt:
+    providers:
+      - name: keycloak-archistrator
+        issuer: "https://keycloak.capture-gtd.com/realms/archistrator"
+        remoteJWKS:
+          uri: "https://keycloak.capture-gtd.com/realms/archistrator/protocol/openid-connect/certs"
+        # No claimToHeaders projection: the Go server validates the forwarded
+        # bearer access token itself and maps claims to its principal, so the edge
+        # does not project claims into x-aiarch-claim-* headers anymore.
+  oidc:
+    provider:
+      issuer: "https://keycloak.capture-gtd.com/realms/archistrator"
+    clientID: "archistrator-webapp"
+    clientSecret:
+      name: archistrator-oidc-client-secret
+    redirectURL: "https://archistrator.capture-gtd.com/oauth2/callback"
+    logoutPath: "/logout"
+    forwardAccessToken: true
+    passThroughAuthHeader: true
+    cookieNames:
+      idToken: ArchistratorIdToken
+    scopes:
+      - "openid"
+      - "email"
+      - "profile"
+    denyRedirect:
+      headers:
+        - name: "Accept"
+          value: "application/json"
