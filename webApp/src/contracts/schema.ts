@@ -212,6 +212,22 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/v1/operations/query-deployment-health/{operatedAppID}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['QueryDeploymentHealth'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/v1/operations/query-operated-system-view/{operatedAppID}': {
     parameters: {
       query?: never;
@@ -1309,6 +1325,9 @@ export interface components {
       published: boolean;
       revision?: null | string;
     };
+    OperationsDeploymentHealth: {
+      Nodes: null | components['schemas']['OperationsNodeHealth'][];
+    };
     OperationsDesiredStateChange: {
       changeId: string;
       patchKind: components['schemas']['OperationsPatchKind'];
@@ -1325,9 +1344,15 @@ export interface components {
       Phase: components['schemas']['OperationsRuntimeStatusSeam'];
       SloMet: boolean;
     };
+    /** @enum {integer} */
+    OperationsHealthState: 0 | 1 | 2;
     OperationsMoney: {
       Currency: string;
       MinorUnits: number;
+    };
+    OperationsNodeHealth: {
+      Health: components['schemas']['OperationsHealthState'];
+      ModelKey: string;
     };
     OperationsOperatedSystemView: {
       Autoscaler: components['schemas']['OperationsAutoscalerView'];
@@ -3089,6 +3114,91 @@ export interface operations {
         };
         content: {
           'application/json': components['schemas']['OperationsCostProjectionSeam'];
+        };
+      };
+      /** @description contract misuse */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['OperationsErrorResponse'];
+        };
+      };
+      /** @description unauthenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['OperationsErrorResponse'];
+        };
+      };
+      /** @description forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['OperationsErrorResponse'];
+        };
+      };
+      /** @description not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['OperationsErrorResponse'];
+        };
+      };
+      /** @description failed precondition */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['OperationsErrorResponse'];
+        };
+      };
+      /** @description internal error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['OperationsErrorResponse'];
+        };
+      };
+      /** @description infrastructure unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['OperationsErrorResponse'];
+        };
+      };
+    };
+  };
+  QueryDeploymentHealth: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        operatedAppID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['OperationsDeploymentHealth'];
         };
       };
       /** @description contract misuse */

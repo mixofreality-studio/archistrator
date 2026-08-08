@@ -16404,6 +16404,22 @@
           ],
           "additionalProperties": false
         },
+        "ModelKeyHealth": {
+          "type": "object",
+          "properties": {
+            "ModelKey": {
+              "type": "string"
+            },
+            "Status": {
+              "$ref": "#/$defs/RuntimeStatus"
+            }
+          },
+          "required": [
+            "ModelKey",
+            "Status"
+          ],
+          "additionalProperties": false
+        },
         "RuntimeDesiredState": {
           "type": "object",
           "properties": {
@@ -16577,6 +16593,33 @@
             ],
             "result": {
               "$ref": "#/$defs/RuntimeStatus"
+            },
+            "error": true
+          },
+          {
+            "name": "GetDeploymentResourceHealth",
+            "params": [
+              {
+                "name": "appID",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid",
+                  "x-go-import": "github.com/google/uuid",
+                  "x-go-type": "uuid.UUID"
+                }
+              },
+              {
+                "name": "desired",
+                "schema": {
+                  "$ref": "#/$defs/RuntimeDesiredState"
+                }
+              }
+            ],
+            "result": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ModelKeyHealth"
+              }
             },
             "error": true
           },
@@ -17725,6 +17768,24 @@
           ],
           "x-go-base": "int"
         },
+        "DeploymentHealth": {
+          "type": "object",
+          "properties": {
+            "Nodes": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/NodeHealth"
+              }
+            }
+          },
+          "required": [
+            "Nodes"
+          ],
+          "additionalProperties": false
+        },
         "HealthSnapshotView": {
           "type": "object",
           "properties": {
@@ -17745,6 +17806,20 @@
           ],
           "additionalProperties": false
         },
+        "HealthState": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2
+          ],
+          "x-enum-varnames": [
+            "HealthStateNeutral",
+            "HealthStateHealthy",
+            "HealthStateUnhealthy"
+          ],
+          "x-go-base": "int"
+        },
         "Money": {
           "type": "object",
           "properties": {
@@ -17758,6 +17833,22 @@
           "required": [
             "MinorUnits",
             "Currency"
+          ],
+          "additionalProperties": false
+        },
+        "NodeHealth": {
+          "type": "object",
+          "properties": {
+            "ModelKey": {
+              "type": "string"
+            },
+            "Health": {
+              "$ref": "#/$defs/HealthState"
+            }
+          },
+          "required": [
+            "ModelKey",
+            "Health"
           ],
           "additionalProperties": false
         },
@@ -18107,6 +18198,24 @@
             ],
             "result": {
               "$ref": "#/$defs/CostProjectionSeam"
+            },
+            "error": true
+          },
+          {
+            "name": "QueryDeploymentHealth",
+            "params": [
+              {
+                "name": "operatedAppID",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid",
+                  "x-go-import": "github.com/google/uuid",
+                  "x-go-type": "uuid.UUID"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/DeploymentHealth"
             },
             "error": true
           },

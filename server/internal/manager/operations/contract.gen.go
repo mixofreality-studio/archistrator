@@ -64,6 +64,10 @@ type DeployResult struct {
 	Revision  *string `json:"revision,omitempty"`
 }
 
+type DeploymentHealth struct {
+	Nodes []NodeHealth `json:"Nodes"`
+}
+
 type DesiredStateChange struct {
 	Reason    DesiredStateReason `json:"reason"`
 	PatchKind PatchKind          `json:"patchKind"`
@@ -86,9 +90,22 @@ type HealthSnapshotView struct {
 	Phase  RuntimeStatusSeam `json:"Phase"`
 }
 
+type HealthState int
+
+const (
+	HealthStateNeutral   HealthState = 0
+	HealthStateHealthy   HealthState = 1
+	HealthStateUnhealthy HealthState = 2
+)
+
 type Money struct {
 	MinorUnits int64  `json:"MinorUnits"`
 	Currency   string `json:"Currency"`
+}
+
+type NodeHealth struct {
+	ModelKey string      `json:"ModelKey"`
+	Health   HealthState `json:"Health"`
 }
 
 type OperatedSystemView struct {
@@ -177,6 +194,7 @@ type OperationsManager interface {
 	ApplyDelinquencyPolicy(rc fwm.Context, customerID uuid.UUID, delinquencyContext DelinquencyContext) error
 	DeployAfterConstruction(rc fwm.Context, operatedAppID uuid.UUID, change DesiredStateChange) (DeployResult, error)
 	QueryCostProjection(rc fwm.Context, operatedAppID uuid.UUID, requestID string, points *ScaleWhatIfPoints) (CostProjectionSeam, error)
+	QueryDeploymentHealth(rc fwm.Context, operatedAppID uuid.UUID) (DeploymentHealth, error)
 	QueryOperatedSystemView(rc fwm.Context, operatedAppID uuid.UUID, requestID string) (OperatedSystemView, error)
 	ReconcileOperatedState(rc fwm.Context, tickID string, scope *ReconcileScope) (ReconcileResult, error)
 	RegisterOperatedApp(rc fwm.Context, operatedAppID uuid.UUID, customerID uuid.UUID, projectRef string, deployableBundleRef string) (Version, error)

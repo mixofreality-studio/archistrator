@@ -47,6 +47,14 @@ func (c *HTTPClient) OperationsQueryCostProjection(ctx context.Context, operated
 	return out, err
 }
 
+// OperationsQueryDeploymentHealth calls the QueryDeploymentHealth operation on the Operations manager over HTTP.
+func (c *HTTPClient) OperationsQueryDeploymentHealth(ctx context.Context, operatedAppID string) (DeploymentHealth, error) {
+	path := fmt.Sprintf("/api/v1/operations/query-deployment-health/%s", operatedAppID)
+	var out DeploymentHealth
+	err := c.doRequest(ctx, http.MethodGet, path, nil, &out, http.StatusOK)
+	return out, err
+}
+
 // OperationsQueryOperatedSystemView calls the QueryOperatedSystemView operation on the Operations manager over HTTP.
 func (c *HTTPClient) OperationsQueryOperatedSystemView(ctx context.Context, operatedAppID string, requestID string) (OperatedSystemView, error) {
 	path := fmt.Sprintf("/api/v1/operations/query-operated-system-view/%s", operatedAppID)

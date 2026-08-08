@@ -28,6 +28,11 @@ type GatewayBinding struct {
 	ConnectedAccountID string `json:"ConnectedAccountID"`
 }
 
+type ModelKeyHealth struct {
+	ModelKey string        `json:"ModelKey"`
+	Status   RuntimeStatus `json:"Status"`
+}
+
 type OIDCSpec struct {
 	ModelKey        string `json:"ModelKey"`
 	Issuer          string `json:"Issuer"`
@@ -79,6 +84,7 @@ type Workload struct {
 // OperatedRuntimeAccess is the generated service-contract interface for this component.
 type OperatedRuntimeAccess interface {
 	GetApplicationHealth(rc fwra.Context, appID uuid.UUID) (RuntimeStatus, error)
+	GetDeploymentResourceHealth(rc fwra.Context, appID uuid.UUID, desired RuntimeDesiredState) ([]ModelKeyHealth, error)
 	GetSloStatus(rc fwra.Context, appID uuid.UUID) (SloStatus, error)
 	PublishDesiredState(rc fwra.Context, appID uuid.UUID, desired RuntimeDesiredState, idempotencyKey fwra.IdempotencyKey) error
 	ReadComputeAttribution(rc fwra.Context, appID uuid.UUID, window AttributionWindow) (ComputeAttribution, error)

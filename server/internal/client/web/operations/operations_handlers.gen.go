@@ -26,6 +26,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/operations/apply-delinquency-policy/{customerID}", h.handleApplyDelinquencyPolicy)
 	mux.HandleFunc("POST /api/v1/operations/deploy-after-construction/{operatedAppID}", h.handleDeployAfterConstruction)
 	mux.HandleFunc("POST /api/v1/operations/query-cost-projection/{operatedAppID}", h.handleQueryCostProjection)
+	mux.HandleFunc("GET /api/v1/operations/query-deployment-health/{operatedAppID}", h.handleQueryDeploymentHealth)
 	mux.HandleFunc("GET /api/v1/operations/query-operated-system-view/{operatedAppID}", h.handleQueryOperatedSystemView)
 	mux.HandleFunc("POST /api/v1/operations/reconcile-operated-state", h.handleReconcileOperatedState)
 	mux.HandleFunc("POST /api/v1/operations/register-operated-app/{operatedAppID}/{customerID}", h.handleRegisterOperatedApp)
@@ -148,6 +149,34 @@ func (h *Handler) handleQueryCostProjection(w http.ResponseWriter, r *http.Reque
 	}
 	rc := fwmanager.Context{Context: r.Context(), Principal: principal}
 	result, err := h.Manager.QueryCostProjection(rc, operatedAppID, req.RequestID, req.Points)
+	if err != nil {
+		writeManagerError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+// handleQueryDeploymentHealth binds GET /api/v1/operations/query-deployment-health/{operatedAppID} -> mgr.QueryDeploymentHealth.
+func (h *Handler) handleQueryDeploymentHealth(w http.ResponseWriter, r *http.Request) {
+	operatedAppID, err := uuid.Parse(r.PathValue("operatedAppID"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid operatedAppID: "+err.Error())
+		return
+	}
+	principal, ok := security.PrincipalFrom(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthenticated", "authentication required")
+		return
+	}
+	decision, err := h.Security.Authorize(r.Context(), principal,
+		security.Action{Verb: "query-deployment-health"},
+		security.ResourceRef{Kind: "operatedapp", ID: operatedAppID.String()})
+	if err != nil || !decision.Permit {
+		writeError(w, http.StatusForbidden, "forbidden", "not permitted")
+		return
+	}
+	rc := fwmanager.Context{Context: r.Context(), Principal: principal}
+	result, err := h.Manager.QueryDeploymentHealth(rc, operatedAppID)
 	if err != nil {
 		writeManagerError(w, err)
 		return

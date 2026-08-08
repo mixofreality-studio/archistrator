@@ -26,6 +26,11 @@
 // onboarding seed). Reaches operatedSystemStateAccess.RegisterOperatedSystem, the ONLY
 // way to create the head-state row a first DeployAfterConstruction requires. Also
 // post-freeze: QueryOperatedSystemView — Workflow (entry; short-lived read-only op 2.7).
+// Also post-freeze (Task 10, 2026-08-07 operations/ArgoCD plan): QueryDeploymentHealth —
+// Workflow (entry; short-lived read-only op 2.9). Joins the operated app's rendered
+// deployment model against operatedRuntimeAccess.GetDeploymentResourceHealth's live
+// per-resource read so the deployment diagram can colour each node
+// (querydeploymenthealth.go).
 //
 // File layout (mirrors internal/manager/construction):
 //   - operationsmanager.go : the Manager that translates public ops into Temporal client calls (§6.2)
@@ -411,6 +416,40 @@ func (m *operationsManager) QueryOperatedSystemView(rc fwmgr.Context, operatedAp
 	return result, nil
 }
 
+// QueryDeploymentHealth — op 2.9 (read). Short-lived read-only Temporal Workflow
+// (StartWorkflow, id {operatedAppId}:deploymentHealth:{a fresh uuid}). Joins the
+// operated app's rendered deployment model against the live per-resource health the
+// operatedRuntimeAccess GitOps/ArgoCD backend reports (QueryDeploymentHealthWorkflow,
+// querydeploymenthealth.go), so the deployment diagram can colour each node. MUTATES
+// NO STATE. SYNC, side-effect-free. Unlike QueryCostProjection/QueryOperatedSystemView
+// this op takes no caller-supplied requestId: every call is safe to run fresh (no
+// idempotency to preserve across retries — a stale read is simply re-read), so the
+// workflow id's second component is minted here instead of carried by the caller.
+func (m *operationsManager) QueryDeploymentHealth(rc fwmgr.Context, operatedAppID operatedAppID) (DeploymentHealth, error) {
+	ctx := rc.Context
+	if operatedAppID == uuid.Nil {
+		return DeploymentHealth{}, newError(fwmgr.ContractMisuse, "empty operatedAppId")
+	}
+
+	wfID := deploymentHealthWorkflowID(operatedAppID)
+	opts := client.StartWorkflowOptions{
+		ID:                       wfID,
+		TaskQueue:                TaskQueue,
+		WorkflowIDConflictPolicy: enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
+	}
+	we, err := m.client.ExecuteWorkflow(ctx, opts, executionKindDeploymentHealth, queryDeploymentHealthInput{
+		OperatedAppID: operatedAppID,
+	})
+	if err != nil {
+		return DeploymentHealth{}, mapStartError(err)
+	}
+	var result DeploymentHealth
+	if err := we.Get(ctx, &result); err != nil {
+		return DeploymentHealth{}, newError(fwmgr.Infrastructure, err.Error())
+	}
+	return result, nil
+}
+
 // ApplyDelinquencyPolicy — op 2.5. Temporal Signal (applyDelinquencyPolicy, queued,
 // cross-Manager). Delivered by settlementManager. The Manager resumes (or starts +
 // resumes via signal-with-start) the delinquency-enforcement workflow for the
@@ -472,6 +511,16 @@ func registerWorkflowID(operatedAppID operatedAppID) string {
 // operator-view continuity token; operationsRead-ruling.md §A).
 func viewWorkflowID(operatedAppID operatedAppID, requestID string) string {
 	return fmt.Sprintf("%s:view:%s", operatedAppID, requestID)
+}
+
+// deploymentHealthWorkflowID derives {operatedAppId}:deploymentHealth:{a fresh uuid} —
+// this op (op 2.9) carries no caller-supplied requestId (QueryDeploymentHealth's doc),
+// so the discriminator is minted here. A fresh id per call means
+// WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING never actually collides with a prior
+// invocation — every call runs its own short-lived execution, which is correct for a
+// read with nothing to deduplicate.
+func deploymentHealthWorkflowID(operatedAppID operatedAppID) string {
+	return fmt.Sprintf("%s:deploymentHealth:%s", operatedAppID, uuid.NewString())
 }
 
 // delinquencyWorkflowID derives the customer's delinquency-enforcement workflow id
@@ -1092,6 +1141,9 @@ const (
 	executionKindCostProjection = "operationsCostProjection"
 	// executionKindOperatedSystemView is the short-lived read-only operator-view workflow.
 	executionKindOperatedSystemView = "operationsOperatedSystemView"
+	// executionKindDeploymentHealth is the short-lived read-only deployment-diagram
+	// health-overlay workflow (op 2.9).
+	executionKindDeploymentHealth = "operationsDeploymentHealth"
 	// executionKindDelinquency is the queued delinquency-enforcement workflow.
 	executionKindDelinquency = "operationsDelinquencyEnforcement"
 	// executionKindRegister is the short-lived onboarding-seed workflow.
@@ -1174,6 +1226,7 @@ func activityOptions() func(activityName string) (workflow.ActivityOptions, bool
 		"operatedRuntimeAccess.publishDesiredState":           publishOpts,
 		"operatedRuntimeAccess.withdraw":                      publishOpts,
 		"operatedRuntimeAccess.getApplicationHealth":          runtimeReadOpts,
+		"operatedRuntimeAccess.getDeploymentResourceHealth":   runtimeReadOpts,
 		"operatedRuntimeAccess.getSloStatus":                  runtimeReadOpts,
 		"operatedRuntimeAccess.readComputeAttribution":        runtimeReadOpts,
 		"artifactAccess.retrieveConstructionOutput":           artifactReadOpts,
@@ -1226,6 +1279,7 @@ func (m *operationsManager) WorkerManifest() genWorkerManifest {
 			{Name: executionKindWithdraw, Fn: wf.WithdrawWorkflow},
 			{Name: executionKindCostProjection, Fn: wf.CostProjectionWorkflow},
 			{Name: executionKindOperatedSystemView, Fn: wf.ViewWorkflow},
+			{Name: executionKindDeploymentHealth, Fn: wf.QueryDeploymentHealthWorkflow},
 			{Name: executionKindDelinquency, Fn: wf.DelinquencyEnforcementWorkflow},
 			{Name: executionKindRegister, Fn: wf.RegisterWorkflow},
 		},

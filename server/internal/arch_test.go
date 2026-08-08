@@ -780,27 +780,20 @@ var encapsulationAllowlistData = map[string][]string{
 	// RuntimeConfig params are structurally reachable from the generated surface, so
 	// only these two new free functions need listing.
 	//
-	// RENDERER OUTPUT TYPE (2026-08-07 operations/ArgoCD plan, Task 4): Manifest is
-	// the unexported render() func's return type — one rendered Kubernetes object
-	// plus the deployment-model ModelKeys it answers to (see the type's doc comment
-	// in operatedruntimeaccess.go). It is not part of the generated contract surface
-	// because rendering is a same-package pure function, not a service-contract
-	// operation. Task-4 brief fixes its shape (capital M, exported) because the
-	// health-overlay work later in this same plan (Task 9) re-derives the model-key
-	// -> (kind, name, namespace) map by re-rendering, and needs this exact struct
-	// shape as the seam — exporting it now avoids a breaking rename then.
-	//
-	// PER-RESOURCE HEALTH READ TYPE (Task 9): ResourceHealth is parseResourceHealth's
-	// return element — one entry of the Argo Application CR's status.resources[]. Also
-	// not generated contract surface (GetApplicationHealth returns only the app-level
-	// RuntimeStatus rollup); exported because the deployment-diagram health-overlay
-	// task (Task 10, spec §6) joins this same-package-parsed slice against the
-	// re-derived model-key map from the manager layer.
+	// Task 10 (2026-08-07 operations/ArgoCD plan): Manifest and ResourceHealth — the
+	// two entries this comment used to document here — are UNEXPORTED again
+	// (manifest, resourceHealth). The health-overlay join they were exported FOR
+	// (Task 9's plan) turned out to belong in this same package, not the Manager
+	// (Task 9's review: a Manager-side join would have reintroduced the exact
+	// Kubernetes-vocabulary leak decision D11 removed). parseModelKeyHealth /
+	// joinModelKeyHealth (operatedruntimeaccess.go) now do that join internally, so
+	// neither type needs to leave the package — the allowlist shrinks back to the
+	// two deployment-profile constructors below, which is the evidence the boundary
+	// is right: an architecture change that leaves its old exceptions behind hasn't
+	// really landed.
 	"internal/resourceaccess/operatedruntime": {
-		"Manifest",
 		"NewLocalOperatedRuntimeAccess",
 		"NewRealOperatedRuntimeAccess",
-		"ResourceHealth",
 	},
 	// FREE-FUNCTION BEHAVIOUR over the repo/ref/handle scalars
 	// (String/FromString/Equal/IsZero/OwnerRepo) + the MANAGED-REPO SCAFFOLD CONTRACT

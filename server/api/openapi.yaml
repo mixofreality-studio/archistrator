@@ -1825,6 +1825,18 @@ components:
             required:
                 - published
             type: object
+        OperationsDeploymentHealth:
+            additionalProperties: false
+            properties:
+                Nodes:
+                    items:
+                        $ref: '#/components/schemas/OperationsNodeHealth'
+                    type:
+                        - "null"
+                        - array
+            required:
+                - Nodes
+            type: object
         OperationsDesiredStateChange:
             additionalProperties: false
             properties:
@@ -1880,6 +1892,17 @@ components:
                 - Detail
                 - Phase
             type: object
+        OperationsHealthState:
+            enum:
+                - 0
+                - 1
+                - 2
+            type: integer
+            x-enum-varnames:
+                - HealthStateNeutral
+                - HealthStateHealthy
+                - HealthStateUnhealthy
+            x-go-base: int
         OperationsMoney:
             additionalProperties: false
             properties:
@@ -1890,6 +1913,17 @@ components:
             required:
                 - MinorUnits
                 - Currency
+            type: object
+        OperationsNodeHealth:
+            additionalProperties: false
+            properties:
+                Health:
+                    $ref: '#/components/schemas/OperationsHealthState'
+                ModelKey:
+                    type: string
+            required:
+                - ModelKey
+                - Health
             type: object
         OperationsOperatedSystemView:
             additionalProperties: false
@@ -4852,6 +4886,69 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/OperationsCostProjectionSeam'
+                    description: success
+                "400":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OperationsErrorResponse'
+                    description: contract misuse
+                "401":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OperationsErrorResponse'
+                    description: unauthenticated
+                "403":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OperationsErrorResponse'
+                    description: forbidden
+                "404":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OperationsErrorResponse'
+                    description: not found
+                "409":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OperationsErrorResponse'
+                    description: failed precondition
+                "500":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OperationsErrorResponse'
+                    description: internal error
+                "503":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OperationsErrorResponse'
+                    description: infrastructure unavailable
+            security:
+                - bearerAuth: []
+    /api/v1/operations/query-deployment-health/{operatedAppID}:
+        get:
+            operationId: QueryDeploymentHealth
+            parameters:
+                - in: path
+                  name: operatedAppID
+                  required: true
+                  schema:
+                    format: uuid
+                    type: string
+                    x-go-import: github.com/google/uuid
+                    x-go-type: uuid.UUID
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OperationsDeploymentHealth'
                     description: success
                 "400":
                     content:

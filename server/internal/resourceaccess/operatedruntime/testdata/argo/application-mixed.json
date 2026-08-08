@@ -1,0 +1,107 @@
+{
+  "apiVersion": "argoproj.io/v1alpha1",
+  "kind": "Application",
+  "metadata": {
+    "name": "archistrator",
+    "namespace": "argocd",
+    "annotations": {
+      "argocd.argoproj.io/compare-options": "ServerSideDiff=true",
+      "archistrator.dev/app-id": "3f3e6e0a-7d3c-4f5a-9b1e-8c2a1d4f9a11"
+    },
+    "finalizers": [
+      "resources-finalizer.argocd.argoproj.io"
+    ]
+  },
+  "spec": {
+    "project": "default",
+    "source": {
+      "repoURL": "https://github.com/davidmarne/aiarchmultiplatform.git",
+      "targetRevision": "main",
+      "path": "k8s/argocd/apps/archistrator",
+      "directory": {
+        "recurse": true
+      }
+    },
+    "destination": {
+      "server": "https://kubernetes.default.svc",
+      "namespace": "archistrator"
+    },
+    "syncPolicy": {
+      "automated": {
+        "prune": true,
+        "selfHeal": true
+      },
+      "syncOptions": [
+        "CreateNamespace=true",
+        "ServerSideApply=true"
+      ]
+    }
+  },
+  "status": {
+    "health": {
+      "status": "Degraded"
+    },
+    "sync": {
+      "status": "Synced",
+      "revision": "9c1d2e3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e"
+    },
+    "resources": [
+      {
+        "group": "apps",
+        "version": "v1",
+        "kind": "Deployment",
+        "namespace": "archistrator",
+        "name": "archistrator-server",
+        "status": "Synced",
+        "health": {
+          "status": "Healthy"
+        }
+      },
+      {
+        "group": "",
+        "version": "v1",
+        "kind": "Service",
+        "namespace": "archistrator",
+        "name": "archistrator-server",
+        "status": "Synced",
+        "health": {
+          "status": "Healthy"
+        }
+      },
+      {
+        "group": "apps",
+        "version": "v1",
+        "kind": "Deployment",
+        "namespace": "archistrator",
+        "name": "archistrator-webapp",
+        "status": "Synced",
+        "health": {
+          "status": "Healthy"
+        }
+      },
+      {
+        "group": "",
+        "version": "v1",
+        "kind": "Service",
+        "namespace": "archistrator",
+        "name": "archistrator-webapp",
+        "status": "Synced",
+        "health": {
+          "status": "Healthy"
+        }
+      },
+      {
+        "group": "postgresql.cnpg.io",
+        "version": "v1",
+        "kind": "Cluster",
+        "namespace": "archistrator",
+        "name": "archistrator-postgres",
+        "status": "Synced",
+        "health": {
+          "status": "Degraded",
+          "message": "Cluster is not healthy: 0/1 instances up"
+        }
+      }
+    ]
+  }
+}

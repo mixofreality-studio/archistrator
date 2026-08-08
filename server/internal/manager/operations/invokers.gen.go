@@ -107,6 +107,13 @@ func (i genInvokers) OperatedRuntimeGetApplicationHealth(ctx workflow.Context, a
 	return out, err
 }
 
+// OperatedRuntimeGetDeploymentResourceHealth invokes activity "operatedRuntimeAccess.getDeploymentResourceHealth".
+func (i genInvokers) OperatedRuntimeGetDeploymentResourceHealth(ctx workflow.Context, appID uuid.UUID, desired operatedruntime.RuntimeDesiredState) ([]operatedruntime.ModelKeyHealth, error) {
+	var out []operatedruntime.ModelKeyHealth
+	err := workflow.ExecuteActivity(i.options(ctx, "operatedRuntimeAccess.getDeploymentResourceHealth"), "operatedRuntimeAccess.getDeploymentResourceHealth", appID, desired).Get(ctx, &out)
+	return out, err
+}
+
 // OperatedRuntimeGetSloStatus invokes activity "operatedRuntimeAccess.getSloStatus".
 func (i genInvokers) OperatedRuntimeGetSloStatus(ctx workflow.Context, appID uuid.UUID) (operatedruntime.SloStatus, error) {
 	var out operatedruntime.SloStatus

@@ -40,6 +40,16 @@ func (c *MCPClient) OperationsQueryCostProjection(ctx context.Context, operatedA
 	return mcpCallResult[CostProjectionSeam](c, ctx, "operationsQueryCostProjection", OperationsQueryCostProjectionInput{OperatedAppID: operatedAppID, RequestID: requestID, Points: points})
 }
 
+// OperationsQueryDeploymentHealthInput is the MCP tool-call argument object for operationsQueryDeploymentHealth.
+type OperationsQueryDeploymentHealthInput struct {
+	OperatedAppID string `json:"operatedAppID"`
+}
+
+// OperationsQueryDeploymentHealth calls the operationsQueryDeploymentHealth tool on the Operations manager over MCP.
+func (c *MCPClient) OperationsQueryDeploymentHealth(ctx context.Context, operatedAppID string) (DeploymentHealth, error) {
+	return mcpCallResult[DeploymentHealth](c, ctx, "operationsQueryDeploymentHealth", OperationsQueryDeploymentHealthInput{OperatedAppID: operatedAppID})
+}
+
 // OperationsQueryOperatedSystemViewInput is the MCP tool-call argument object for operationsQueryOperatedSystemView.
 type OperationsQueryOperatedSystemViewInput struct {
 	OperatedAppID string `json:"operatedAppID"`

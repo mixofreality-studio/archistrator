@@ -66,6 +66,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -221,6 +222,16 @@ func Test_View_EmptyRequestID(t *testing.T) {
 	}
 }
 
+// ---- A8c: QueryDeploymentHealth (op 2.9) ------------------------------------
+
+func Test_QueryDeploymentHealth_EmptyOperatedAppID(t *testing.T) {
+	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	_, err := m.QueryDeploymentHealth(bgCtx(), uuid.Nil)
+	if got := asOperationsError(t, err).Kind; got != fwmgr.ContractMisuse {
+		t.Fatalf("want ContractMisuse, got %s", got)
+	}
+}
+
 // ---- A9: ApplyDelinquencyPolicy ---------------------------------------------
 
 func Test_Delinquency_EmptyCustomerID(t *testing.T) {
@@ -290,6 +301,17 @@ func Test_WorkflowIDDerivation(t *testing.T) {
 	}
 	if got := registerWorkflowID(pid); got != pid.String()+":register" {
 		t.Fatalf("register id: %q", got)
+	}
+	// deploymentHealthWorkflowID mints a fresh discriminator per call (op 2.9 takes no
+	// caller-supplied requestId) — assert the fixed prefix/shape and that two calls
+	// never collide, rather than pinning an exact string.
+	a, b := deploymentHealthWorkflowID(pid), deploymentHealthWorkflowID(pid)
+	wantPrefix := pid.String() + ":deploymentHealth:"
+	if !strings.HasPrefix(a, wantPrefix) || !strings.HasPrefix(b, wantPrefix) {
+		t.Fatalf("deployment health id prefix: %q / %q, want prefix %q", a, b, wantPrefix)
+	}
+	if a == b {
+		t.Fatalf("deployment health id must be fresh per call, got the same id twice: %q", a)
 	}
 }
 
@@ -459,9 +481,11 @@ var _ operatedsystemstate.OperatedSystemStateAccess = (*fakeOperatedState)(nil)
 type fakeRuntime struct {
 	mu sync.Mutex
 
-	health      operatedruntime.RuntimeStatus
-	slo         operatedruntime.SloStatus
-	attribution operatedruntime.ComputeAttribution
+	health              operatedruntime.RuntimeStatus
+	slo                 operatedruntime.SloStatus
+	attribution         operatedruntime.ComputeAttribution
+	deploymentHealth    []operatedruntime.ModelKeyHealth
+	deploymentHealthErr error
 
 	publishes []uuid.UUID
 	published []operatedruntime.RuntimeDesiredState // review finding 1: the PAYLOAD each publish carried, not just the count
@@ -485,6 +509,13 @@ func (r *fakeRuntime) Withdraw(_ fwra.Context, appID uuid.UUID, _ fwra.Idempoten
 
 func (r *fakeRuntime) GetApplicationHealth(_ fwra.Context, _ uuid.UUID) (operatedruntime.RuntimeStatus, error) {
 	return r.health, nil
+}
+
+func (r *fakeRuntime) GetDeploymentResourceHealth(_ fwra.Context, _ uuid.UUID, _ operatedruntime.RuntimeDesiredState) ([]operatedruntime.ModelKeyHealth, error) {
+	if r.deploymentHealthErr != nil {
+		return nil, r.deploymentHealthErr
+	}
+	return r.deploymentHealth, nil
 }
 
 func (r *fakeRuntime) GetSloStatus(_ fwra.Context, _ uuid.UUID) (operatedruntime.SloStatus, error) {
@@ -664,6 +695,7 @@ func registerActs(env *testsuite.TestWorkflowEnvironment, os *fakeOperatedState,
 	reg(acts.OperatedRuntimePublishDesiredState, "operatedRuntimeAccess.publishDesiredState")
 	reg(acts.OperatedRuntimeWithdraw, "operatedRuntimeAccess.withdraw")
 	reg(acts.OperatedRuntimeGetApplicationHealth, "operatedRuntimeAccess.getApplicationHealth")
+	reg(acts.OperatedRuntimeGetDeploymentResourceHealth, "operatedRuntimeAccess.getDeploymentResourceHealth")
 	reg(acts.OperatedRuntimeGetSloStatus, "operatedRuntimeAccess.getSloStatus")
 	reg(acts.OperatedRuntimeReadComputeAttribution, "operatedRuntimeAccess.readComputeAttribution")
 	reg(acts.UsageRecordComputeUsage, "usageAccess.recordComputeUsage")
@@ -694,6 +726,11 @@ func registerCostProjection(env *testsuite.TestWorkflowEnvironment, wf *workflow
 
 func registerView(env *testsuite.TestWorkflowEnvironment, wf *workflows, os *fakeOperatedState, rt *fakeRuntime, us *fakeUsage, ar *fakeArtifacts) {
 	env.RegisterWorkflowWithOptions(wf.ViewWorkflow, workflow.RegisterOptions{Name: executionKindOperatedSystemView})
+	registerActs(env, os, rt, us, ar)
+}
+
+func registerQueryDeploymentHealth(env *testsuite.TestWorkflowEnvironment, wf *workflows, os *fakeOperatedState, rt *fakeRuntime, us *fakeUsage, ar *fakeArtifacts) {
+	env.RegisterWorkflowWithOptions(wf.QueryDeploymentHealthWorkflow, workflow.RegisterOptions{Name: executionKindDeploymentHealth})
 	registerActs(env, os, rt, us, ar)
 }
 
@@ -1194,6 +1231,152 @@ func Test_View_UnconfiguredAutoscaler_ReportsUnknown(t *testing.T) {
 	}
 	if view.Autoscaler.Mode != AutoscalerModeUnknown {
 		t.Fatalf("autoscaler mode = %v, want Unknown for an unconfigured policy", view.Autoscaler.Mode)
+	}
+}
+
+// ============================ I. QueryDeploymentHealthWorkflow (op 2.9) =====
+
+// I1: happy path — reads head-state + the committed project, assembles the desired
+// state (the same fold DeployWorkflow's full-bundle branch uses), calls the RA verb,
+// and applies the diagram collapse/neutrality rules over the FULL cloud-environment
+// key set — not just the keys the RA happened to return.
+func Test_QueryDeploymentHealth_ComposesRAHealthAndAppliesNeutrality(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	deps, os, rt, us, ar := baseDeps()
+	appID := uuid.New()
+	os.system = operatedsystemstate.OperatedSystem{ID: appID, Version: 1, DeployableBundleRef: "addr-1"}
+	rt.deploymentHealth = []operatedruntime.ModelKeyHealth{
+		{ModelKey: "cloud-node-server-deployment", Status: operatedruntime.RuntimeStatusHealthy},
+		{ModelKey: "cloud-infra-billingstate", Status: operatedruntime.RuntimeStatusDegraded},
+	}
+	wf := newWorkflows(deps)
+	registerQueryDeploymentHealth(env, wf, os, rt, us, ar)
+
+	env.ExecuteWorkflow(executionKindDeploymentHealth, queryDeploymentHealthInput{OperatedAppID: appID})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	var got DeploymentHealth
+	if err := env.GetWorkflowResult(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	byKey := map[string]HealthState{}
+	for _, n := range got.Nodes {
+		byKey[n.ModelKey] = n.Health
+	}
+	if byKey["cloud-node-server-deployment"] != HealthStateHealthy {
+		t.Errorf("server = %v, want Healthy", byKey["cloud-node-server-deployment"])
+	}
+	if byKey["cloud-infra-billingstate"] != HealthStateUnhealthy {
+		t.Errorf("billingstate = %v, want Unhealthy (Degraded collapses to Unhealthy)", byKey["cloud-infra-billingstate"])
+	}
+	// Diagram nodes the RA never mentioned at all — the architect's own laptop and
+	// browser, the shared gateway — must read Neutral, never Unhealthy. This is the
+	// trap spec §6 names explicitly: a naive join paints the founder's own laptop red.
+	for _, k := range []string{"cloud-node-browser", "cloud-node-architect-machine", "cloud-infra-gateway"} {
+		if byKey[k] != HealthStateNeutral {
+			t.Errorf("%s = %v, want Neutral — the RA returned no opinion about it", k, byKey[k])
+		}
+	}
+}
+
+// I2: no deployableBundleRef (nothing has ever been deployed) → FailedPrecondition,
+// mirroring Deploy's own B2. No RA call, nothing published.
+func Test_QueryDeploymentHealth_NoBundleRef_FailedPrecondition(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	deps, os, rt, us, ar := baseDeps()
+	appID := uuid.New()
+	os.system = operatedsystemstate.OperatedSystem{ID: appID, Version: 1, DeployableBundleRef: ""}
+	wf := newWorkflows(deps)
+	registerQueryDeploymentHealth(env, wf, os, rt, us, ar)
+
+	env.ExecuteWorkflow(executionKindDeploymentHealth, queryDeploymentHealthInput{OperatedAppID: appID})
+
+	if env.GetWorkflowError() == nil {
+		t.Fatal("want a FailedPrecondition error for a missing deployableBundleRef")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// applyDiagramHealth / allDeploymentDiagramKeys — pure functions (querydeploymenthealth.go).
+// ---------------------------------------------------------------------------
+
+// TestQueryDeploymentHealth_NeutralForNodesWeDoNotDeploy is the trap from spec §6: a
+// naive join paints the architect's own laptop, their browser, and another app's
+// namespace red. Only the ONE key the RA actually reported may collapse to
+// Healthy/Unhealthy; every other diagram key must read Neutral.
+func TestQueryDeploymentHealth_NeutralForNodesWeDoNotDeploy(t *testing.T) {
+	got := applyDiagramHealth(
+		[]operatedruntime.ModelKeyHealth{{ModelKey: "cloud-node-server-deployment", Status: operatedruntime.RuntimeStatusHealthy}},
+		[]string{"cloud-node-server-deployment", "cloud-node-browser", "cloud-node-ns-gtd", "cloud-node-architect-machine"},
+	)
+	byKey := map[string]HealthState{}
+	for _, n := range got.Nodes {
+		byKey[n.ModelKey] = n.Health
+	}
+	if byKey["cloud-node-server-deployment"] != HealthStateHealthy {
+		t.Errorf("server = %v, want Healthy", byKey["cloud-node-server-deployment"])
+	}
+	for _, k := range []string{"cloud-node-browser", "cloud-node-ns-gtd", "cloud-node-architect-machine"} {
+		if byKey[k] != HealthStateNeutral {
+			t.Errorf("%s = %v, want Neutral — we do not deploy it", k, byKey[k])
+		}
+	}
+}
+
+// TestApplyDiagramHealth_NonHealthyCollapsesToUnhealthy: every RuntimeStatus other than
+// Healthy — Degraded, Pending, Unknown, Withdrawn — collapses to HealthStateUnhealthy.
+// D10's "only Healthy is green" rule, expressed here over RuntimeStatus.
+func TestApplyDiagramHealth_NonHealthyCollapsesToUnhealthy(t *testing.T) {
+	for _, status := range []operatedruntime.RuntimeStatus{
+		operatedruntime.RuntimeStatusDegraded,
+		operatedruntime.RuntimeStatusPending,
+		operatedruntime.RuntimeStatusUnknown,
+		operatedruntime.RuntimeStatusWithdrawn,
+	} {
+		got := applyDiagramHealth(
+			[]operatedruntime.ModelKeyHealth{{ModelKey: "k1", Status: status}},
+			[]string{"k1"},
+		)
+		if len(got.Nodes) != 1 || got.Nodes[0].Health != HealthStateUnhealthy {
+			t.Errorf("status %v: nodes = %+v, want one Unhealthy node", status, got.Nodes)
+		}
+	}
+}
+
+// TestAllDeploymentDiagramKeys_WalksNodesAndInfrastructureNodesRecursively pins the
+// key set applyDiagramHealth's neutrality rule is computed over: every DeploymentNode
+// key AND every InfrastructureNode key nested anywhere in the tree, including subtrees
+// (the architect's machine/browser) archistrator never deploys to.
+func TestAllDeploymentDiagramKeys_WalksNodesAndInfrastructureNodesRecursively(t *testing.T) {
+	env, ok := findCloudEnvironment(projectFixture().OperationalConcepts.Model.(*projectstate.DeploymentOperationsModel).Deployment.Environments)
+	if !ok {
+		t.Fatal("projectFixture has no cloud environment")
+	}
+	keys := allDeploymentDiagramKeys(env.Nodes)
+	want := []string{
+		"cloud-node-browser",
+		"cloud-node-architect-machine",
+		"cloud-node-cluster",
+		"cloud-node-ns-archistrator",
+		"cloud-node-server-deployment",
+		"cloud-infra-gateway",
+		"cloud-infra-keycloak",
+		"cloud-infra-static-assets",
+		"cloud-infra-operatedsystemstate",
+		"cloud-infra-billingstate",
+		"cloud-infra-usagelog",
+		"cloud-infra-temporal",
+	}
+	for _, w := range want {
+		if !slices.Contains(keys, w) {
+			t.Errorf("allDeploymentDiagramKeys missing %q; got %v", w, keys)
+		}
 	}
 }
 

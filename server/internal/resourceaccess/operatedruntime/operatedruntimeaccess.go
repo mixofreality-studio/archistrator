@@ -6,6 +6,7 @@ package operatedruntime
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
@@ -140,6 +141,24 @@ func (dryRunOperatedRuntime) GetApplicationHealth(_ fwra.Context, _ uuid.UUID) (
 	return RuntimeStatusHealthy, nil
 }
 
+// GetDeploymentResourceHealth reports every model key desired declares as Healthy — the
+// same "a freshly published dry-run app converges instantly" fiction GetApplicationHealth
+// keeps, extended per-resource: render(desired) rather than a live cluster is the only
+// source of model keys in this profile, so there is nothing to fail closed against.
+func (dryRunOperatedRuntime) GetDeploymentResourceHealth(_ fwra.Context, _ uuid.UUID, desired RuntimeDesiredState) ([]ModelKeyHealth, error) {
+	manifests, err := render(desired)
+	if err != nil {
+		return nil, err
+	}
+	var out []ModelKeyHealth
+	for _, m := range manifests {
+		for _, key := range m.ModelKeys {
+			out = append(out, ModelKeyHealth{ModelKey: key, Status: RuntimeStatusHealthy})
+		}
+	}
+	return out, nil
+}
+
 func (dryRunOperatedRuntime) GetSloStatus(_ fwra.Context, _ uuid.UUID) (SloStatus, error) {
 	return SloStatus{SloMet: true, Detail: "dry-run: SLO met"}, nil
 }
@@ -265,8 +284,8 @@ func (r realOperatedRuntime) WirePaymentConfig(_ fwra.Context, _ uuid.UUID, _ Ga
 // error. It never falls through to reporting Healthy: that is the fail-open pattern this
 // plan already rejected twice (a renderer that skipped auth on a blank client ID; a
 // delete-guard that disarmed on unset config) — unknown must mean unknown here too.
-func (r realOperatedRuntime) GetApplicationHealth(_ fwra.Context, appID uuid.UUID) (RuntimeStatus, error) {
-	app, found, err := argoFindApplicationByAppID(appID)
+func (r realOperatedRuntime) GetApplicationHealth(rc fwra.Context, appID uuid.UUID) (RuntimeStatus, error) {
+	app, _, found, err := argoFindApplicationByAppID(rc.Context, appID)
 	if err != nil {
 		return RuntimeStatusUnknown, err
 	}
@@ -274,6 +293,35 @@ func (r realOperatedRuntime) GetApplicationHealth(_ fwra.Context, appID uuid.UUI
 		return RuntimeStatusPending, nil
 	}
 	return mapArgoHealth(app.Status.Health.Status), nil
+}
+
+// GetDeploymentResourceHealth resolves appID to its Application the same way
+// GetApplicationHealth does (argoFindApplicationByAppID), then joins its
+// status.resources[] against desired's own re-rendered manifest set
+// (parseModelKeyHealth/joinModelKeyHealth, below) to report a RuntimeStatus PER MODEL
+// KEY rather than one app-level rollup. A CR that has genuinely never synced (found is
+// false, not an error) has no live resources for anything render() would emit, so it
+// degrades every rendered manifest the SAME way a partially-synced app would —
+// joinModelKeyHealth's own no-match rule, never a special-cased Healthy or Pending
+// here. Every other failure — unreachable API, missing/unreadable ServiceAccount
+// credential, unparseable response — propagates as a non-nil error and a nil result,
+// never a silently reported Healthy (the fail-open pattern this plan has rejected
+// three times over: a renderer skipping auth on a blank client ID, a delete-guard
+// disarming on unset config, and app-level health defaulting to Healthy on read
+// failure — task-10-brief).
+func (r realOperatedRuntime) GetDeploymentResourceHealth(rc fwra.Context, appID uuid.UUID, desired RuntimeDesiredState) ([]ModelKeyHealth, error) {
+	_, raw, found, err := argoFindApplicationByAppID(rc.Context, appID)
+	if err != nil {
+		return nil, err
+	}
+	if !found {
+		manifests, rerr := render(desired)
+		if rerr != nil {
+			return nil, rerr
+		}
+		return joinModelKeyHealth(manifests, nil), nil
+	}
+	return parseModelKeyHealth(raw, desired)
 }
 
 // GetSloStatus is DELIBERATELY inert (spec D7) — this is not a stub waiting to be filled
@@ -425,7 +473,7 @@ func gitOpsHasStagedChanges(dir string) (bool, error) {
 	return false, fmt.Errorf("git diff --cached --quiet: %w", err)
 }
 
-// gitOpsAppDir is the directory every rendered Manifest except the Application lands in.
+// gitOpsAppDir is the directory every rendered manifest except the Application lands in.
 func gitOpsAppDir(workdir, appName string) string {
 	return filepath.Join(workdir, platformGitOpsAppPath, appName)
 }
@@ -437,9 +485,9 @@ func gitOpsApplicationFile(workdir, appName string) string {
 }
 
 // gitOpsManifestFileName derives a stable, collision-free filename for a rendered
-// Manifest. Kind is part of the name because a workload's Deployment and Service share a
+// manifest. Kind is part of the name because a workload's Deployment and Service share a
 // Name.
-func gitOpsManifestFileName(m Manifest) string {
+func gitOpsManifestFileName(m manifest) string {
 	return strings.ToLower(m.Kind) + "-" + m.Name + ".yaml"
 }
 
@@ -482,7 +530,7 @@ func gitOpsAppIDAnnotationValue(raw string) (value string, ok bool) {
 // document while the archistrator.dev/app-id annotation gitOpsResolveAppByID matched
 // belongs to a self-managed document further down — the last remaining way a
 // self-managed Application could misread as a tenant. Impossible from this renderer
-// (render() emits one Application Manifest, and gitOpsPublish writes one Application per
+// (render() emits one Application manifest, and gitOpsPublish writes one Application per
 // file) but cheap to close outright — see gitOpsHasMultipleDocuments.
 func gitOpsSelfManaged(raw string) (selfManaged bool, ok bool) {
 	if gitOpsHasMultipleDocuments(raw) {
@@ -636,7 +684,7 @@ func gitOpsPublish(appID uuid.UUID, d RuntimeDesiredState) func(string) error {
 			return fwra.Wrap(fwra.Infrastructure, err, "operatedruntime.gitops: create "+appDir)
 		}
 
-		var application *Manifest
+		var application *manifest
 		for i := range manifests {
 			m := &manifests[i]
 			if m.Kind == "Application" {
@@ -886,10 +934,18 @@ const (
 // Go has no const slices) and never mutated, so the render stays deterministic.
 var oidcScopes = []string{"openid", "email", "profile"}
 
-// Manifest is one rendered Kubernetes object plus the deployment-model node(s)
+// manifest is one rendered Kubernetes object plus the deployment-model node(s)
 // it came from. ModelKeys is what lets the health overlay attribute a live
 // resource back to a diagram node without storing a separate mapping table.
-type Manifest struct {
+//
+// UNEXPORTED (Task 10): an earlier draft of this plan exported manifest and
+// resourceHealth so the Manager layer could join them itself. Task 9's review
+// rejected that — a Manager-side join would have reintroduced the exact
+// Kubernetes-vocabulary leak decision D11 removed. The join now lives here,
+// in parseModelKeyHealth below, where both inputs already are; the Manager
+// only ever sees the substrate-neutral ModelKeyHealth/RuntimeStatus the
+// GetDeploymentResourceHealth verb returns.
+type manifest struct {
 	// ModelKeys are the deployment-model nodes this object answers to. Usually
 	// one; the Postgres Cluster (Task 5) answers to all three database nodes,
 	// since production runs one cluster serving all three logical stores and
@@ -1164,7 +1220,7 @@ func serverEnv(d RuntimeDesiredState, serverName string) []envVar {
 }
 
 // renderServerWorkload builds the server's Deployment + Service manifests.
-func renderServerWorkload(d RuntimeDesiredState) ([]Manifest, error) {
+func renderServerWorkload(d RuntimeDesiredState) ([]manifest, error) {
 	name := d.AppName + "-server"
 	wd := workloadData{
 		Name:                  name,
@@ -1196,7 +1252,7 @@ func renderServerWorkload(d RuntimeDesiredState) ([]Manifest, error) {
 // exactly on those points. Its container name is "webapp", not the Deployment
 // name — the golden chart names it that way and downstream tooling (e.g.
 // `kubectl logs deploy/archistrator-webapp -c webapp`) depends on it.
-func renderWebAppWorkload(d RuntimeDesiredState) ([]Manifest, error) {
+func renderWebAppWorkload(d RuntimeDesiredState) ([]manifest, error) {
 	name := d.AppName + "-webapp"
 	wd := workloadData{
 		Name:              name,
@@ -1220,7 +1276,7 @@ func renderWebAppWorkload(d RuntimeDesiredState) ([]Manifest, error) {
 // renderWorkloadManifests executes the Deployment and Service templates over
 // wd and wraps the results as Manifests carrying modelKeys. Shared by both
 // workloads so the Kind/Name/Namespace bookkeeping lives in exactly one place.
-func renderWorkloadManifests(wd workloadData, modelKeys []string) ([]Manifest, error) {
+func renderWorkloadManifests(wd workloadData, modelKeys []string) ([]manifest, error) {
 	depYAML, err := renderTemplate(deploymentTmpl, wd)
 	if err != nil {
 		return nil, err
@@ -1229,7 +1285,7 @@ func renderWorkloadManifests(wd workloadData, modelKeys []string) ([]Manifest, e
 	if err != nil {
 		return nil, err
 	}
-	return []Manifest{
+	return []manifest{
 		{ModelKeys: modelKeys, Kind: "Deployment", Name: wd.Name, Namespace: wd.Namespace, YAML: depYAML},
 		{ModelKeys: modelKeys, Kind: "Service", Name: wd.Name, Namespace: wd.Namespace, YAML: svcYAML},
 	}, nil
@@ -1318,7 +1374,7 @@ spec:
 // its own node on the deployment diagram, so all of them must colour from this
 // single resource's health (spec §5.1a). Keys are sorted so the render stays
 // byte-deterministic regardless of the order assembly produced them in.
-func renderPostgres(d RuntimeDesiredState) ([]Manifest, error) {
+func renderPostgres(d RuntimeDesiredState) ([]manifest, error) {
 	if !d.Postgres.Enabled {
 		return nil, nil
 	}
@@ -1355,7 +1411,7 @@ func renderPostgres(d RuntimeDesiredState) ([]Manifest, error) {
 	if err != nil {
 		return nil, err
 	}
-	return []Manifest{{ModelKeys: keys, Kind: "Cluster", Name: cd.Name, Namespace: cd.Namespace, YAML: yaml}}, nil
+	return []manifest{{ModelKeys: keys, Kind: "Cluster", Name: cd.Name, Namespace: cd.Namespace, YAML: yaml}}, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -1550,14 +1606,14 @@ spec:
 // report, but the routes and policies the app contributes to it are. Stamping
 // them with the namespace key would leave the gateway node permanently
 // uncoloured and would misattribute route health to the namespace.
-func renderGateway(d RuntimeDesiredState) ([]Manifest, error) {
+func renderGateway(d RuntimeDesiredState) ([]manifest, error) {
 	keys := sortedModelKeys([]string{d.GatewayModelKey})
 	if len(keys) == 0 || keys[0] == "" {
 		return nil, fwra.New(fwra.ContractMisuse,
 			"operatedruntime.render: RuntimeDesiredState.GatewayModelKey is empty — the routes and Envoy policies would be unattributable to the gateway node, which could then never show health")
 	}
 
-	var out []Manifest
+	var out []manifest
 	var browserFacing []string
 	for _, r := range gatewayRoutes(d) {
 		routeYAML, err := renderTemplate(httpRouteTmpl, r)
@@ -1569,8 +1625,8 @@ func renderGateway(d RuntimeDesiredState) ([]Manifest, error) {
 			return nil, err
 		}
 		out = append(out,
-			Manifest{ModelKeys: keys, Kind: "HTTPRoute", Name: r.Name, Namespace: r.Namespace, YAML: routeYAML},
-			Manifest{ModelKeys: keys, Kind: "BackendTrafficPolicy", Name: r.Name + "-policy", Namespace: r.Namespace, YAML: policyYAML},
+			manifest{ModelKeys: keys, Kind: "HTTPRoute", Name: r.Name, Namespace: r.Namespace, YAML: routeYAML},
+			manifest{ModelKeys: keys, Kind: "BackendTrafficPolicy", Name: r.Name + "-policy", Namespace: r.Namespace, YAML: policyYAML},
 		)
 		if r.BrowserFacing {
 			browserFacing = append(browserFacing, r.Name)
@@ -1605,7 +1661,7 @@ func renderGateway(d RuntimeDesiredState) ([]Manifest, error) {
 	if err != nil {
 		return nil, err
 	}
-	out = append(out, Manifest{ModelKeys: keys, Kind: "SecurityPolicy", Name: sp.Name, Namespace: sp.Namespace, YAML: yaml})
+	out = append(out, manifest{ModelKeys: keys, Kind: "SecurityPolicy", Name: sp.Name, Namespace: sp.Namespace, YAML: yaml})
 	return out, nil
 }
 
@@ -1720,7 +1776,7 @@ spec:
 //     the Keycloak CR's namespace. The app's OIDC client-secret Secret
 //     therefore has to exist in Keycloak's namespace as well as in the app's
 //     (where the edge SecurityPolicy reads it).
-func renderKeycloakRealm(d RuntimeDesiredState) ([]Manifest, error) {
+func renderKeycloakRealm(d RuntimeDesiredState) ([]manifest, error) {
 	// Same reasoning as renderGateway's guard: no client means no realm and no
 	// edge policy, which is an unauthenticated app, not a simpler one.
 	if d.OIDC.ClientID == "" {
@@ -1761,7 +1817,7 @@ func renderKeycloakRealm(d RuntimeDesiredState) ([]Manifest, error) {
 	if err != nil {
 		return nil, err
 	}
-	return []Manifest{{
+	return []manifest{{
 		ModelKeys: []string{d.OIDC.ModelKey},
 		Kind:      "KeycloakRealmImport",
 		Name:      rd.Name,
@@ -1886,7 +1942,7 @@ spec:
 // This one keeps the app's namespace-node key, unlike the gateway objects: the
 // Application governs the WHOLE app, not any single piece of infrastructure in
 // it, so the namespace node is the honest owner of its health.
-func renderApplication(d RuntimeDesiredState) ([]Manifest, error) {
+func renderApplication(d RuntimeDesiredState) ([]manifest, error) {
 	keys := sortedModelKeys([]string{d.ModelKey})
 	if len(keys) == 0 || keys[0] == "" {
 		return nil, fwra.New(fwra.ContractMisuse,
@@ -1905,7 +1961,7 @@ func renderApplication(d RuntimeDesiredState) ([]Manifest, error) {
 	}
 	// The Application object itself lives in argocd; its DESTINATION is the
 	// app's own namespace (spec §5.3 invariant).
-	return []Manifest{{ModelKeys: keys, Kind: "Application", Name: d.AppName, Namespace: "argocd", YAML: yaml}}, nil
+	return []manifest{{ModelKeys: keys, Kind: "Application", Name: d.AppName, Namespace: "argocd", YAML: yaml}}, nil
 }
 
 // sortedModelKeys returns a sorted COPY of keys — a copy because sorting the
@@ -1925,10 +1981,10 @@ func sortedModelKeys(keys []string) []string {
 // commit (Task 7) and the health overlay's on-demand model-key re-derivation
 // (spec §6) depend on re-rendering the same input producing byte-identical
 // output. Nothing below may iterate a map in an output path.
-func render(d RuntimeDesiredState) ([]Manifest, error) {
-	var out []Manifest
+func render(d RuntimeDesiredState) ([]manifest, error) {
+	var out []manifest
 
-	for _, section := range []func(RuntimeDesiredState) ([]Manifest, error){
+	for _, section := range []func(RuntimeDesiredState) ([]manifest, error){
 		renderServerWorkload,
 		renderWebAppWorkload,
 		renderPostgres,
@@ -2039,21 +2095,46 @@ type argoApplication struct {
 	} `json:"status"`
 }
 
-// argoApplicationList is the LIST envelope the Kubernetes API wraps a collection of
-// Application items in.
-type argoApplicationList struct {
-	Items []argoApplication `json:"items"`
+// argoApplicationListEnvelope is the LIST envelope the Kubernetes API wraps a collection
+// of Application items in. Items are kept as raw JSON (json.RawMessage), not
+// fully-decoded structs: argoFindApplicationByAppID needs both the matched item's
+// DECODED form (GetApplicationHealth's app-level rollup) and its own RAW bytes
+// (GetDeploymentResourceHealth's per-resource join, parseModelKeyHealth, which re-parses
+// status.resources[] from exactly what the cluster returned) — one LIST body, one decode
+// pass, two consumers.
+type argoApplicationListEnvelope struct {
+	Kind  string            `json:"kind"`
+	Items []json.RawMessage `json:"items"`
 }
 
-// ResourceHealth is one entry of an Argo Application's status.resources[] — PER-RESOURCE
-// health, as opposed to the app-level rollup mapArgoHealth folds. A later task (the
-// deployment-diagram health overlay, spec §6) joins this against the model-key map
-// re-derived by re-rendering; this RA parses the CR faithfully but does not itself decide
-// what colour a diagram node gets — that mapping (healthStateFor in manager/operations) is
-// deliberately DIFFERENT from mapArgoHealth: it has no Progressing/Pending distinction and
-// D10's app-level "Progressing is Degraded" asymmetry is a head-state concern, not a
-// diagram-node concern.
-type ResourceHealth struct {
+// parseApplicationListEnvelope decodes body and asserts it is actually the LIST envelope
+// (kind: ApplicationList) the Kubernetes API returns for a successful LIST call — the
+// Task 10 fold-in of a Task 9 Minor finding. Before this check, a 200 response carrying
+// valid-but-unexpected JSON (no top-level "items" key at all, say) unmarshaled silently
+// into a zero-Items envelope, which argoFindApplicationByAppID could not then distinguish
+// from a genuine "no Application has synced yet" — an unexpected payload reading as the
+// same benign RuntimeStatusPending a never-synced app reports. Asserting the envelope's
+// own kind makes that distinction explicit: only a confirmed ApplicationList reaches the
+// annotation search below; anything else is a real, diagnosable error.
+func parseApplicationListEnvelope(body []byte) (argoApplicationListEnvelope, error) {
+	var envelope argoApplicationListEnvelope
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		return argoApplicationListEnvelope{}, fwra.Wrap(fwra.Infrastructure, err, "operatedruntime: parse Argo Application list response")
+	}
+	if envelope.Kind != "ApplicationList" {
+		return argoApplicationListEnvelope{}, fwra.New(fwra.Infrastructure,
+			fmt.Sprintf("operatedruntime: parse Argo Application list response: unexpected shape (kind=%q, want ApplicationList)", envelope.Kind))
+	}
+	return envelope, nil
+}
+
+// resourceHealth is one entry of an Argo Application's status.resources[] — PER-RESOURCE
+// health, as opposed to the app-level rollup mapArgoHealth folds. joinModelKeyHealth
+// (below) joins this against the model-key map re-derived by re-rendering, reusing
+// mapArgoHealth's own OBSERVED/absent-status distinction for the per-resource fold too —
+// there is no separate Progressing/Pending-aware mapping for resources: an individual
+// resource mid-rollout is exactly as unsafe to report Healthy as the whole app is (D10).
+type resourceHealth struct {
 	Kind      string
 	Name      string
 	Namespace string
@@ -2084,16 +2165,67 @@ func mapArgoHealth(status string) RuntimeStatus {
 // document (testdata/argo/*.json fixtures are exactly this shape). Used both by this
 // file's own tests and, per spec §6, by the later deployment-diagram health-overlay task
 // that joins the result against the re-derived model-key map.
-func parseResourceHealth(raw []byte) ([]ResourceHealth, error) {
+func parseResourceHealth(raw []byte) ([]resourceHealth, error) {
 	var app argoApplication
 	if err := json.Unmarshal(raw, &app); err != nil {
 		return nil, fwra.Wrap(fwra.Infrastructure, err, "operatedruntime: parse Argo Application status.resources")
 	}
-	out := make([]ResourceHealth, 0, len(app.Status.Resources))
+	out := make([]resourceHealth, 0, len(app.Status.Resources))
 	for _, r := range app.Status.Resources {
-		out = append(out, ResourceHealth{Kind: r.Kind, Name: r.Name, Namespace: r.Namespace, Health: r.Health.Status})
+		out = append(out, resourceHealth{Kind: r.Kind, Name: r.Name, Namespace: r.Namespace, Health: r.Health.Status})
 	}
 	return out, nil
+}
+
+// joinModelKeyHealth is the health-overlay join itself (task-10-brief Step 4/spec §6):
+// match each of manifests' (Kind, Name, Namespace) against resources, and emit one
+// ModelKeyHealth per ModelKey a manifest carries — fanning out where a manifest carries
+// several (the Postgres Cluster carries all three database-role model keys, spec §5.1a).
+//
+// FAIL-CLOSED, the load-bearing rule this task adds: a manifest render() emits with NO
+// matching entry in resources reports RuntimeStatusDegraded, never RuntimeStatusHealthy
+// and never a silently dropped ModelKeyHealth. It should exist on the cluster and does
+// not — that absence is exactly what red is for, not something to paper over as
+// "nothing to report." resources being nil/empty (the never-synced case,
+// GetDeploymentResourceHealth above) degrades every manifest the same way, by the same
+// rule — there is no separate branch for it.
+func joinModelKeyHealth(manifests []manifest, resources []resourceHealth) []ModelKeyHealth {
+	type identity struct{ Kind, Name, Namespace string }
+	byIdentity := make(map[identity]string, len(resources))
+	for _, r := range resources {
+		byIdentity[identity{Kind: r.Kind, Name: r.Name, Namespace: r.Namespace}] = r.Health
+	}
+
+	var out []ModelKeyHealth
+	for _, m := range manifests {
+		status := RuntimeStatusDegraded // fail-closed default: rendered, but no live match.
+		if h, ok := byIdentity[identity{Kind: m.Kind, Name: m.Name, Namespace: m.Namespace}]; ok {
+			status = mapArgoHealth(h)
+		}
+		for _, key := range m.ModelKeys {
+			out = append(out, ModelKeyHealth{ModelKey: key, Status: status})
+		}
+	}
+	return out
+}
+
+// parseModelKeyHealth re-renders desired — render's purity is what makes this safe (spec
+// §6): re-deriving the model-key -> (kind, name, namespace) map on demand, rather than
+// persisting one that could drift from the renderer — and joins the result against raw
+// (an Argo Application CR's JSON body, the same shape parseResourceHealth reads) via
+// joinModelKeyHealth. The RA-verb boundary function GetDeploymentResourceHealth calls
+// this directly when the CR was found; it is exported to this file's tests as the
+// pure, HTTP-free join to exercise (task-10-brief Step 2/4).
+func parseModelKeyHealth(raw []byte, desired RuntimeDesiredState) ([]ModelKeyHealth, error) {
+	manifests, err := render(desired)
+	if err != nil {
+		return nil, err
+	}
+	resources, err := parseResourceHealth(raw)
+	if err != nil {
+		return nil, err
+	}
+	return joinModelKeyHealth(manifests, resources), nil
 }
 
 // inClusterHTTPClient builds an *http.Client trusting the cluster's own CA and returns the
@@ -2139,50 +2271,65 @@ func inClusterHTTPClient() (client *http.Client, apiServer, token string, err er
 // cluster API and returns the one whose archistrator.dev/app-id annotation matches appID —
 // the in-cluster counterpart of gitOpsResolveAppByID's own annotation match (see the
 // section doc above for why this reads the cluster rather than the GitOps repo). found is
-// false — not an error — only when the LIST itself succeeded and genuinely no Application
+// false — not an error — only when the LIST itself succeeded, was confirmed to be a
+// well-formed ApplicationList (parseApplicationListEnvelope), and genuinely no Application
 // carries a matching annotation: that is "this app has never synced," the one case
 // GetApplicationHealth maps to RuntimeStatusPending rather than an error. Any failure to
 // reach the API, read its response, or parse the body is a real error and is never
 // conflated with "not found."
-func argoFindApplicationByAppID(appID uuid.UUID) (app argoApplication, found bool, err error) {
+//
+// raw is the matched item's OWN raw JSON bytes (nil when found is false) — kept alongside
+// the decoded app so GetDeploymentResourceHealth's per-resource join (parseModelKeyHealth)
+// re-parses status.resources[] from exactly what the cluster returned, the same shape
+// parseResourceHealth's own fixtures use, rather than a re-marshaled copy of app that could
+// silently diverge from it.
+//
+// ctx propagates the caller's fwra.Context.Context (Task 10 fold-in of a Task 9 Minor
+// finding: this request used to be built with the context-less http.NewRequest, which
+// meant an activity deadline or cancellation was never honoured by the outbound call).
+func argoFindApplicationByAppID(ctx context.Context, appID uuid.UUID) (app argoApplication, raw []byte, found bool, err error) {
 	client, apiServer, token, cerr := inClusterHTTPClient()
 	if cerr != nil {
-		return argoApplication{}, false, cerr
+		return argoApplication{}, nil, false, cerr
 	}
 
 	listURL := apiServer + "/apis/argoproj.io/v1alpha1/namespaces/" + argoNamespace + "/applications"
-	req, rerr := http.NewRequest(http.MethodGet, listURL, nil)
+	req, rerr := http.NewRequestWithContext(ctx, http.MethodGet, listURL, nil)
 	if rerr != nil {
-		return argoApplication{}, false, fwra.Wrap(fwra.Infrastructure, rerr, "operatedruntime: build Argo Application list request")
+		return argoApplication{}, nil, false, fwra.Wrap(fwra.Infrastructure, rerr, "operatedruntime: build Argo Application list request")
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "application/json")
 
 	resp, derr := client.Do(req)
 	if derr != nil {
-		return argoApplication{}, false, fwra.Wrap(fwra.Infrastructure, derr, "operatedruntime: list Argo Applications")
+		return argoApplication{}, nil, false, fwra.Wrap(fwra.Infrastructure, derr, "operatedruntime: list Argo Applications")
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	body, berr := io.ReadAll(resp.Body)
 	if berr != nil {
-		return argoApplication{}, false, fwra.Wrap(fwra.Infrastructure, berr, "operatedruntime: read Argo Application list response")
+		return argoApplication{}, nil, false, fwra.Wrap(fwra.Infrastructure, berr, "operatedruntime: read Argo Application list response")
 	}
 	if resp.StatusCode != http.StatusOK {
-		return argoApplication{}, false, fwra.New(fwra.Infrastructure,
+		return argoApplication{}, nil, false, fwra.New(fwra.Infrastructure,
 			fmt.Sprintf("operatedruntime: list Argo Applications: unexpected status %d: %s", resp.StatusCode, strings.TrimSpace(string(body))))
 	}
 
-	var list argoApplicationList
-	if uerr := json.Unmarshal(body, &list); uerr != nil {
-		return argoApplication{}, false, fwra.Wrap(fwra.Infrastructure, uerr, "operatedruntime: parse Argo Application list response")
+	envelope, perr := parseApplicationListEnvelope(body)
+	if perr != nil {
+		return argoApplication{}, nil, false, perr
 	}
 
 	want := appID.String()
-	for _, item := range list.Items {
-		if item.Metadata.Annotations[gitOpsAppIDAnnotation] == want {
-			return item, true, nil
+	for _, item := range envelope.Items {
+		var a argoApplication
+		if uerr := json.Unmarshal(item, &a); uerr != nil {
+			return argoApplication{}, nil, false, fwra.Wrap(fwra.Infrastructure, uerr, "operatedruntime: parse Argo Application list item")
+		}
+		if a.Metadata.Annotations[gitOpsAppIDAnnotation] == want {
+			return a, []byte(item), true, nil
 		}
 	}
-	return argoApplication{}, false, nil
+	return argoApplication{}, nil, false, nil
 }

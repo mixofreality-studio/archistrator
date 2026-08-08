@@ -1,6 +1,6 @@
 // package operatedruntime (internal test package, not operatedruntime_test):
 // the render tests below call the unexported render() func and construct
-// Manifest values directly. TestFileLayout is zero-waiver on file COUNT, not
+// manifest values directly. TestFileLayout is zero-waiver on file COUNT, not
 // package clause, so every test in this component — the profile-selection
 // tests migrated from the former external test package, plus the renderer
 // tests — lives in this one access_test.go.
@@ -205,6 +205,123 @@ func TestParseResourceHealth(t *testing.T) {
 	}
 }
 
+// loadArgoFixture reads a fixture under testdata/argo/, failing the test on error.
+func loadArgoFixture(t *testing.T, name string) []byte {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("testdata", "argo", name))
+	if err != nil {
+		t.Fatalf("read fixture %s: %v", name, err)
+	}
+	return raw
+}
+
+// ---------------------------------------------------------------------------
+// parseModelKeyHealth — the health-overlay join (Task 10, task-10-brief Step 2/4).
+// ---------------------------------------------------------------------------
+
+// TestGetDeploymentResourceHealth_MapsPerResourceHealthToModelKeys: a Healthy
+// Deployment and a Degraded Cluster, matching what render() emits for
+// testDesiredState(), map onto their model keys — and the Postgres Cluster's
+// Degraded status fans out onto all three database-role model keys it answers
+// for (spec §5.1a).
+func TestGetDeploymentResourceHealth_MapsPerResourceHealthToModelKeys(t *testing.T) {
+	got, err := parseModelKeyHealth(loadArgoFixture(t, "application-mixed.json"), testDesiredState())
+	if err != nil {
+		t.Fatalf("parseModelKeyHealth: %v", err)
+	}
+	byKey := map[string]RuntimeStatus{}
+	for _, h := range got {
+		byKey[h.ModelKey] = h.Status
+	}
+	if byKey["cloud-node-server-deployment"] != RuntimeStatusHealthy {
+		t.Errorf("server = %v, want Healthy", byKey["cloud-node-server-deployment"])
+	}
+	// All three database model keys collapse onto the one Cluster resource and
+	// must therefore all report its health.
+	for _, k := range []string{"cloud-infra-operatedsystemstate", "cloud-infra-billingstate", "cloud-infra-usagelog"} {
+		if byKey[k] != RuntimeStatusDegraded {
+			t.Errorf("%s = %v, want Degraded (all three share one Cluster)", k, byKey[k])
+		}
+	}
+}
+
+// TestGetDeploymentResourceHealth_RenderedButAbsentFromClusterIsDegraded: a manifest
+// the renderer emits but the cluster does not report (here, the Postgres Cluster is
+// entirely absent from status.resources[]) must read Degraded, not Healthy and not
+// silently dropped — task-10-brief Step 4's fail-closed rule.
+func TestGetDeploymentResourceHealth_RenderedButAbsentFromClusterIsDegraded(t *testing.T) {
+	got, err := parseModelKeyHealth(loadArgoFixture(t, "application-missing-cluster.json"), testDesiredState())
+	if err != nil {
+		t.Fatalf("parseModelKeyHealth: %v", err)
+	}
+	byKey := map[string]RuntimeStatus{}
+	for _, h := range got {
+		byKey[h.ModelKey] = h.Status
+	}
+	for _, h := range got {
+		if h.ModelKey == "cloud-infra-billingstate" && h.Status == RuntimeStatusHealthy {
+			t.Error("a resource missing from the cluster must not report Healthy")
+		}
+	}
+	if byKey["cloud-infra-billingstate"] != RuntimeStatusDegraded {
+		t.Errorf("cloud-infra-billingstate = %v, want Degraded (rendered but not reported)", byKey["cloud-infra-billingstate"])
+	}
+}
+
+// TestJoinModelKeyHealth_NoLiveResourcesDegradesEveryManifest: the never-synced path
+// (argoFindApplicationByAppID found == false) hands joinModelKeyHealth a nil resources
+// slice directly, with no raw JSON to round-trip. Every model key render() would emit
+// must still come back Degraded — never Healthy, never simply absent from the result.
+func TestJoinModelKeyHealth_NoLiveResourcesDegradesEveryManifest(t *testing.T) {
+	manifests, err := render(testDesiredState())
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	got := joinModelKeyHealth(manifests, nil)
+	if len(got) == 0 {
+		t.Fatal("expected one ModelKeyHealth per rendered manifest ModelKey, got none")
+	}
+	for _, h := range got {
+		if h.Status != RuntimeStatusDegraded {
+			t.Errorf("%s = %v, want Degraded (no live resources at all)", h.ModelKey, h.Status)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// parseApplicationListEnvelope — Task 10 fold-in of a Task 9 Minor finding: an
+// unexpected-shape LIST response must be a diagnosable error, not a benign-looking
+// "nothing found" that reads identically to a genuine never-synced app.
+// ---------------------------------------------------------------------------
+
+func TestParseApplicationListEnvelope_AcceptsWellFormedList(t *testing.T) {
+	body := []byte(`{"kind":"ApplicationList","items":[{"metadata":{"annotations":{"archistrator.dev/app-id":"x"}}}]}`)
+	envelope, err := parseApplicationListEnvelope(body)
+	if err != nil {
+		t.Fatalf("parseApplicationListEnvelope: %v", err)
+	}
+	if len(envelope.Items) != 1 {
+		t.Errorf("Items = %d, want 1", len(envelope.Items))
+	}
+}
+
+func TestParseApplicationListEnvelope_RejectsMissingKind(t *testing.T) {
+	// Valid JSON, but not the ApplicationList envelope — no "kind" key at all.
+	// Before this check this unmarshaled into a zero-Items envelope, which read
+	// identically to a genuine "no Application has synced yet".
+	body := []byte(`{"items":[]}`)
+	if _, err := parseApplicationListEnvelope(body); err == nil {
+		t.Fatal("want an explicit error for a response missing kind=ApplicationList, got nil")
+	}
+}
+
+func TestParseApplicationListEnvelope_RejectsWrongKind(t *testing.T) {
+	body := []byte(`{"kind":"Status","items":[]}`)
+	if _, err := parseApplicationListEnvelope(body); err == nil {
+		t.Fatal("want an explicit error for the wrong kind, got nil")
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Renderer tests — Task 4 of the 2026-08-07 operations/ArgoCD plan.
 // ---------------------------------------------------------------------------
@@ -255,7 +372,7 @@ func TestRender_EmitsServerDeploymentWithModelKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
-	var found *Manifest
+	var found *manifest
 	for i := range ms {
 		if ms[i].Kind == "Deployment" && ms[i].Name == "archistrator-server" {
 			found = &ms[i]
@@ -271,7 +388,7 @@ func TestRender_EmitsServerDeploymentWithModelKey(t *testing.T) {
 		t.Errorf("Namespace = %q, want archistrator", found.Namespace)
 	}
 
-	var svc *Manifest
+	var svc *manifest
 	for i := range ms {
 		if ms[i].Kind == "Service" && ms[i].Name == "archistrator-server" {
 			svc = &ms[i]
@@ -291,7 +408,7 @@ func TestRender_EmitsWebAppDeploymentAndServiceWithModelKey(t *testing.T) {
 		t.Fatalf("render: %v", err)
 	}
 	for _, kind := range []string{"Deployment", "Service"} {
-		var found *Manifest
+		var found *manifest
 		for i := range ms {
 			if ms[i].Kind == kind && ms[i].Name == "archistrator-webapp" {
 				found = &ms[i]
@@ -322,7 +439,7 @@ func TestRender_IsDeterministic(t *testing.T) {
 		t.Fatalf("manifest count differs: %d vs %d", len(a), len(b))
 	}
 	for i := range a {
-		// Manifest carries a []string (ModelKeys), so it is not comparable with
+		// manifest carries a []string (ModelKeys), so it is not comparable with
 		// == — reflect.DeepEqual is the right tool, not a manual field walk,
 		// since a future field addition must not silently fall out of this check.
 		if !reflect.DeepEqual(a[i], b[i]) {
@@ -378,7 +495,7 @@ func TestRender_OutputIsSortedByKindThenName(t *testing.T) {
 // assertion can: a template whose indentation is subtly wrong still contains
 // every expected string but parses as a different document — or not at all —
 // and only fails once ArgoCD tries to apply it. Also pins each object's
-// apiVersion/kind/metadata against the Manifest's own Kind/Name/Namespace, so
+// apiVersion/kind/metadata against the manifest's own Kind/Name/Namespace, so
 // the health overlay's index can never disagree with the YAML it indexes.
 func TestRender_EveryManifestIsValidYAML(t *testing.T) {
 	ms, err := render(testDesiredState())
@@ -408,7 +525,7 @@ func TestRender_EveryManifestIsValidYAML(t *testing.T) {
 			t.Errorf("%s/%s: YAML metadata.name = %q", m.Kind, m.Name, obj.Metadata.Name)
 		}
 		if obj.Metadata.Namespace != m.Namespace {
-			t.Errorf("%s/%s: YAML metadata.namespace = %q, Manifest.Namespace = %q", m.Kind, m.Name, obj.Metadata.Namespace, m.Namespace)
+			t.Errorf("%s/%s: YAML metadata.namespace = %q, manifest.Namespace = %q", m.Kind, m.Name, obj.Metadata.Namespace, m.Namespace)
 		}
 	}
 }
@@ -450,7 +567,7 @@ func TestRender_SelfManagedApplicationDisablesPrune(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
-	var app *Manifest
+	var app *manifest
 	for i := range ms {
 		if ms[i].Kind == "Application" {
 			app = &ms[i]
@@ -519,7 +636,7 @@ func TestRender_SelfManagedApplicationOmitsTheResourcesFinalizer(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: render: %v", tc.name, err)
 		}
-		var app *Manifest
+		var app *manifest
 		for i := range ms {
 			if ms[i].Kind == "Application" {
 				app = &ms[i]
@@ -629,8 +746,8 @@ func TestRender_GatewayRoutesMatchProduction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
-	routes := map[string]*Manifest{}
-	policies := map[string]*Manifest{}
+	routes := map[string]*manifest{}
+	policies := map[string]*manifest{}
 	for i := range ms {
 		switch ms[i].Kind {
 		case "HTTPRoute":
@@ -802,7 +919,7 @@ func TestRender_KeycloakRealmImportRealmClientAndRedirectURIs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
-	var cr *Manifest
+	var cr *manifest
 	for i := range ms {
 		if ms[i].Kind == "KeycloakRealmImport" {
 			cr = &ms[i]
@@ -927,7 +1044,7 @@ func TestRender_KeycloakAndSecurityPolicyAgree(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
-	var policy, cr *Manifest
+	var policy, cr *manifest
 	for i := range ms {
 		switch ms[i].Kind {
 		case "SecurityPolicy":
@@ -963,7 +1080,7 @@ func TestRender_ServerEnvMatchesProductionVariableNames(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
-	var server *Manifest
+	var server *manifest
 	for i := range ms {
 		if ms[i].Kind == "Deployment" && ms[i].Name == "archistrator-server" {
 			server = &ms[i]
@@ -1161,7 +1278,7 @@ func parseYAMLDocuments(t *testing.T, data []byte) []map[string]interface{} {
 	return out
 }
 
-// objKey is a (kind, name) pair — enough to match a rendered Manifest to its
+// objKey is a (kind, name) pair — enough to match a rendered manifest to its
 // golden document within one golden file, since no golden file here mixes
 // two objects of the same kind and name.
 type objKey struct{ kind, name string }
@@ -1196,7 +1313,7 @@ func TestRender_MatchesProductionGoldens(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
-	rendered := map[objKey]Manifest{}
+	rendered := map[objKey]manifest{}
 	for _, m := range ms {
 		rendered[objKey{m.Kind, m.Name}] = m
 	}

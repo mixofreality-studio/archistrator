@@ -51,6 +51,10 @@ type DeployResult struct {
 	Revision  *string `json:"revision,omitempty"`
 }
 
+type DeploymentHealth struct {
+	Nodes []NodeHealth `json:"Nodes"`
+}
+
 type DesiredStateChange struct {
 	Reason    DesiredStateReason `json:"reason"`
 	PatchKind PatchKind          `json:"patchKind"`
@@ -71,6 +75,19 @@ type HealthSnapshotView struct {
 	SloMet bool              `json:"SloMet"`
 	Detail string            `json:"Detail"`
 	Phase  RuntimeStatusSeam `json:"Phase"`
+}
+
+type HealthState int
+
+const (
+	HealthStateNeutral   HealthState = 0
+	HealthStateHealthy   HealthState = 1
+	HealthStateUnhealthy HealthState = 2
+)
+
+type NodeHealth struct {
+	ModelKey string      `json:"ModelKey"`
+	Health   HealthState `json:"Health"`
 }
 
 type OperatedSystemView struct {
@@ -204,6 +221,20 @@ func DesiredStateReasonName(v DesiredStateReason) string {
 		return "ReasonAutoscale"
 	case ReasonDelinquency:
 		return "ReasonDelinquency"
+	default:
+		return ""
+	}
+}
+
+// HealthStateName returns the declared varname of a HealthState value.
+func HealthStateName(v HealthState) string {
+	switch v {
+	case HealthStateNeutral:
+		return "HealthStateNeutral"
+	case HealthStateHealthy:
+		return "HealthStateHealthy"
+	case HealthStateUnhealthy:
+		return "HealthStateUnhealthy"
 	default:
 		return ""
 	}

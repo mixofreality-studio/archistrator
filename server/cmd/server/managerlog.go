@@ -268,6 +268,11 @@ func (m loggingOperationsManager) QueryOperatedSystemView(rc fwmanager.Context, 
 	return v, logInfraError(m.log, "Operations.QueryOperatedSystemView", operatedAppID.String(), err)
 }
 
+func (m loggingOperationsManager) QueryDeploymentHealth(rc fwmanager.Context, operatedAppID uuid.UUID) (operations.DeploymentHealth, error) {
+	v, err := m.inner.QueryDeploymentHealth(rc, operatedAppID)
+	return v, logInfraError(m.log, "Operations.QueryDeploymentHealth", operatedAppID.String(), err)
+}
+
 func (m loggingOperationsManager) ReconcileOperatedState(rc fwmanager.Context, tickID string, scope *operations.ReconcileScope) (operations.ReconcileResult, error) {
 	// A reconcile tick addresses no single operated app.
 	v, err := m.inner.ReconcileOperatedState(rc, tickID, scope)

@@ -98,6 +98,13 @@ func (a *genActivities) OperatedRuntimeGetApplicationHealth(ctx context.Context,
 	return v, fwmanager.MapError(err)
 }
 
+// OperatedRuntimeGetDeploymentResourceHealth wraps operatedRuntimeAccess.getDeploymentResourceHealth.
+// Registered as "operatedRuntimeAccess.getDeploymentResourceHealth".
+func (a *genActivities) OperatedRuntimeGetDeploymentResourceHealth(ctx context.Context, appID uuid.UUID, desired operatedruntime.RuntimeDesiredState) ([]operatedruntime.ModelKeyHealth, error) {
+	v, err := a.OperatedRuntime.GetDeploymentResourceHealth(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, appID, desired)
+	return v, fwmanager.MapError(err)
+}
+
 // OperatedRuntimeGetSloStatus wraps operatedRuntimeAccess.getSloStatus.
 // Registered as "operatedRuntimeAccess.getSloStatus".
 func (a *genActivities) OperatedRuntimeGetSloStatus(ctx context.Context, appID uuid.UUID) (operatedruntime.SloStatus, error) {

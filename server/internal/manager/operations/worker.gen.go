@@ -40,6 +40,7 @@ func RegisterWorker(w worker.Worker, mf genWorkerManifest) {
 	w.RegisterActivityWithOptions(acts.MessageBusDeliverSignal, activity.RegisterOptions{Name: "messageBus.deliverSignal"})
 	w.RegisterActivityWithOptions(acts.MessageBusRegisterSchedule, activity.RegisterOptions{Name: "messageBus.registerSchedule"})
 	w.RegisterActivityWithOptions(acts.OperatedRuntimeGetApplicationHealth, activity.RegisterOptions{Name: "operatedRuntimeAccess.getApplicationHealth"})
+	w.RegisterActivityWithOptions(acts.OperatedRuntimeGetDeploymentResourceHealth, activity.RegisterOptions{Name: "operatedRuntimeAccess.getDeploymentResourceHealth"})
 	w.RegisterActivityWithOptions(acts.OperatedRuntimeGetSloStatus, activity.RegisterOptions{Name: "operatedRuntimeAccess.getSloStatus"})
 	w.RegisterActivityWithOptions(acts.OperatedRuntimePublishDesiredState, activity.RegisterOptions{Name: "operatedRuntimeAccess.publishDesiredState"})
 	w.RegisterActivityWithOptions(acts.OperatedRuntimeReadComputeAttribution, activity.RegisterOptions{Name: "operatedRuntimeAccess.readComputeAttribution"})

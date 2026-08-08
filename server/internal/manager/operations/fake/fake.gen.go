@@ -15,6 +15,7 @@ type FakeOperationsManager struct {
 	ApplyDelinquencyPolicyFn  func(rc fwm.Context, customerID uuid.UUID, delinquencyContext operations.DelinquencyContext) error
 	DeployAfterConstructionFn func(rc fwm.Context, operatedAppID uuid.UUID, change operations.DesiredStateChange) (operations.DeployResult, error)
 	QueryCostProjectionFn     func(rc fwm.Context, operatedAppID uuid.UUID, requestID string, points *operations.ScaleWhatIfPoints) (operations.CostProjectionSeam, error)
+	QueryDeploymentHealthFn   func(rc fwm.Context, operatedAppID uuid.UUID) (operations.DeploymentHealth, error)
 	QueryOperatedSystemViewFn func(rc fwm.Context, operatedAppID uuid.UUID, requestID string) (operations.OperatedSystemView, error)
 	ReconcileOperatedStateFn  func(rc fwm.Context, tickID string, scope *operations.ReconcileScope) (operations.ReconcileResult, error)
 	RegisterOperatedAppFn     func(rc fwm.Context, operatedAppID uuid.UUID, customerID uuid.UUID, projectRef string, deployableBundleRef string) (operations.Version, error)
@@ -40,6 +41,13 @@ func (f *FakeOperationsManager) QueryCostProjection(rc fwm.Context, operatedAppI
 		panic("FakeOperationsManager.QueryCostProjectionFn not set")
 	}
 	return f.QueryCostProjectionFn(rc, operatedAppID, requestID, points)
+}
+
+func (f *FakeOperationsManager) QueryDeploymentHealth(rc fwm.Context, operatedAppID uuid.UUID) (operations.DeploymentHealth, error) {
+	if f.QueryDeploymentHealthFn == nil {
+		panic("FakeOperationsManager.QueryDeploymentHealthFn not set")
+	}
+	return f.QueryDeploymentHealthFn(rc, operatedAppID)
 }
 
 func (f *FakeOperationsManager) QueryOperatedSystemView(rc fwm.Context, operatedAppID uuid.UUID, requestID string) (operations.OperatedSystemView, error) {

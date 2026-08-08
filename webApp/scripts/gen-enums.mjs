@@ -67,6 +67,7 @@ const OUTPUT_NAMES = {
   OperationsAutoscaleAction: 'AutoscaleAction',
   OperationsAutoscalerMode: 'AutoscalerMode',
   OperationsDesiredStateReason: 'DesiredStateReason',
+  OperationsHealthState: 'HealthState',
   OperationsPatchKind: 'PatchKind',
   OperationsRuntimeStatusSeam: 'RuntimeStatusSeam',
   // episode capture-seam enums (byte-identical across all three managers —
@@ -138,6 +139,7 @@ const UNVERIFIED_MECHANICAL = new Set([
   'FailureReason',
   'ActivityConstructionPhase',
   'DesiredStateReason',
+  'HealthState',
   'PatchKind',
   'EpisodeKind',
   'EpisodeOutcome',
