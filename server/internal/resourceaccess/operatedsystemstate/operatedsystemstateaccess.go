@@ -163,6 +163,45 @@ VALUES ($1, 1, $2, true, $3, $4, $5, $6)
 ON CONFLICT (operated_app_id) DO NOTHING
 RETURNING version`
 
+const insertRegisterOperatedSystemSQL = `
+INSERT INTO operated_system
+    (operated_app_id, version, status, in_flight, deployable_bundle_ref, customer_id, project_ref)
+VALUES ($1, 1, $2, false, $3, $4, $5)
+ON CONFLICT (operated_app_id) DO NOTHING
+RETURNING version`
+
+// RegisterOperatedSystem seeds the head-state row for a newly operated app (§2). It is
+// the writer for deployable_bundle_ref, customer_id, and project_ref — the onboarding
+// columns the frozen desired-state verbs above have no way to set. The row is created at
+// version 1, status Unknown, not yet in-flight (PublishDesiredState is what puts it
+// in-flight). Dedup-first, like every other write verb: a replayed key collapses to the
+// recorded resulting version. A second registration under a DIFFERENT key against an
+// already-registered app is not an overwrite — it is a terminal fwra.Conflict, matching
+// the head-state discipline the other verbs follow.
+func (s *postgresOperatedSystemStateAccess) RegisterOperatedSystem(
+	rc fwra.Context,
+	operatedAppID uuid.UUID,
+	customerID uuid.UUID,
+	projectRef string,
+	deployableBundleRef string,
+	idempotencyKey fwra.IdempotencyKey,
+) (Version, error) {
+	const op = "operatedsystemstate.RegisterOperatedSystem"
+	return s.mutate(rc, op, operatedAppID, idempotencyKey, func(ctx context.Context, tx pgx.Tx) (Version, error) {
+		var v uint64
+		err := tx.QueryRow(ctx, insertRegisterOperatedSystemSQL,
+			operatedAppID, int(RuntimeStatusUnknown), deployableBundleRef, customerID, projectRef).Scan(&v)
+		if errors.Is(err, pgx.ErrNoRows) {
+			// A row already exists: not an overwrite.
+			return 0, fwra.New(fwra.Conflict, op+": operated app already registered")
+		}
+		if err != nil {
+			return 0, fwpg.MapError(err, op+": insert")
+		}
+		return Version(v), nil
+	})
+}
+
 // PublishDesiredState records the head-state desired-state transition (§2). With
 // expectedVersion 0 it CREATES the head-state row (version 1, status Pending, in-flight)
 // — the create seam a version-0 caller uses; with a positive expectedVersion it applies a
@@ -369,6 +408,15 @@ func (noopOperatedSystemStateAccess) ReadInFlightOperatedApps(_ fwra.Context, sc
 		return nil, fwra.New(fwra.ContractMisuse, op+": CustomerID set but zero (use nil for all in-flight apps)")
 	}
 	return []OperatedSystemSummary{}, nil
+}
+
+// RegisterOperatedSystem trivially "succeeds" (local no-op); nothing is persisted, so a
+// subsequent ReadOperatedSystem for the same app still reports NotFound.
+func (noopOperatedSystemStateAccess) RegisterOperatedSystem(_ fwra.Context, operatedAppID uuid.UUID, _ uuid.UUID, _ string, _ string, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	if err := checkMutateMisuse("operatedsystemstate.RegisterOperatedSystem", operatedAppID, idempotencyKey); err != nil {
+		return 0, err
+	}
+	return noopPlaceholderVersion, nil
 }
 
 // PublishDesiredState trivially "succeeds" (local no-op): nothing is persisted, so a

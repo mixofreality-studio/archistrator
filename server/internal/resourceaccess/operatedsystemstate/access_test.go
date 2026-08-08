@@ -94,6 +94,70 @@ func TestCreateReadUpdate(t *testing.T) {
 	}
 }
 
+// TestRegisterOperatedSystem_CreatesRowAtVersionOne covers the onboarding seeding seam:
+// a fresh RegisterOperatedSystem creates the head-state row at version 1 carrying the
+// bundle ref, customer id, and project ref the frozen write verbs above cannot write.
+func TestRegisterOperatedSystem_CreatesRowAtVersionOne(t *testing.T) {
+	store, _, ctx := newStore(t)
+	appID := uuid.New()
+	custID := uuid.New()
+
+	v, err := store.RegisterOperatedSystem(rc(ctx), appID, custID, "project-abc", "bundle-xyz", "idem-1")
+	if err != nil {
+		t.Fatalf("RegisterOperatedSystem: %v", err)
+	}
+	if v != operatedsystemstate.Version(1) {
+		t.Fatalf("version = %d, want 1", v)
+	}
+
+	got, err := store.ReadOperatedSystem(rc(ctx), appID)
+	if err != nil {
+		t.Fatalf("ReadOperatedSystem: %v", err)
+	}
+	if got.DeployableBundleRef != "bundle-xyz" {
+		t.Errorf("DeployableBundleRef = %q, want %q", got.DeployableBundleRef, "bundle-xyz")
+	}
+	if got.Version != operatedsystemstate.Version(1) {
+		t.Errorf("Version = %d, want 1", got.Version)
+	}
+}
+
+// TestRegisterOperatedSystem_ReplayIsIdempotent covers dedup-first idempotency: a
+// replayed idempotency key collapses to the recorded resulting version.
+func TestRegisterOperatedSystem_ReplayIsIdempotent(t *testing.T) {
+	store, _, ctx := newStore(t)
+	appID := uuid.New()
+	custID := uuid.New()
+
+	first, err := store.RegisterOperatedSystem(rc(ctx), appID, custID, "project-abc", "bundle-xyz", "idem-1")
+	if err != nil {
+		t.Fatalf("first register: %v", err)
+	}
+	second, err := store.RegisterOperatedSystem(rc(ctx), appID, custID, "project-abc", "bundle-xyz", "idem-1")
+	if err != nil {
+		t.Fatalf("replayed register: %v", err)
+	}
+	if first != second {
+		t.Fatalf("replay returned version %d, want %d (idempotent no-op)", second, first)
+	}
+}
+
+// TestRegisterOperatedSystem_AlreadyRegistered_Conflict covers a second registration
+// (different idempotency key) against an already-registered app: not an overwrite, a
+// terminal Conflict, matching the head-state discipline the other verbs follow.
+func TestRegisterOperatedSystem_AlreadyRegistered_Conflict(t *testing.T) {
+	store, _, ctx := newStore(t)
+	appID := uuid.New()
+	custID := uuid.New()
+
+	if _, err := store.RegisterOperatedSystem(rc(ctx), appID, custID, "project-abc", "bundle-xyz", "idem-1"); err != nil {
+		t.Fatalf("first register: %v", err)
+	}
+	if _, err := store.RegisterOperatedSystem(rc(ctx), appID, custID, "project-abc", "bundle-xyz", "idem-2"); true {
+		assertKind(t, err, fwra.Conflict)
+	}
+}
+
 // TestConflictAndNotFound covers stale-version Conflict, create-on-existing Conflict, and
 // NotFound on both a positive-version write and a read of a missing app.
 func TestConflictAndNotFound(t *testing.T) {
@@ -380,6 +444,30 @@ func TestNoOp_RecordDelinquencyAction_TriviallySucceeds(t *testing.T) {
 	if v != 1 {
 		t.Fatalf("expected placeholder Version 1, got %d", v)
 	}
+}
+
+func TestNoOp_RegisterOperatedSystem_TriviallySucceeds_NotPersisted(t *testing.T) {
+	store := operatedsystemstate.NewNoOpOperatedSystemStateAccess()
+	appID := uuid.New()
+
+	v, err := store.RegisterOperatedSystem(rc(context.Background()), appID, uuid.New(),
+		"project-abc", "bundle-xyz", fwra.IdempotencyKey("k1"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if v != 1 {
+		t.Fatalf("expected placeholder Version 1, got %d", v)
+	}
+
+	_, err = store.ReadOperatedSystem(rc(context.Background()), appID)
+	assertKind(t, err, fwra.NotFound)
+}
+
+func TestNoOp_RegisterOperatedSystem_ZeroID_ContractMisuse(t *testing.T) {
+	store := operatedsystemstate.NewNoOpOperatedSystemStateAccess()
+	_, err := store.RegisterOperatedSystem(rc(context.Background()), uuid.Nil, uuid.New(),
+		"project-abc", "bundle-xyz", fwra.IdempotencyKey("k1"))
+	assertKind(t, err, fwra.ContractMisuse)
 }
 
 func TestNoOp_ImplementsInterface(_ *testing.T) {

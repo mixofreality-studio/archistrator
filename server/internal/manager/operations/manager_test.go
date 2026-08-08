@@ -338,6 +338,12 @@ func (f *fakeOperatedState) maybeConflict() error {
 	return nil
 }
 
+func (f *fakeOperatedState) RegisterOperatedSystem(_ fwra.Context, _ uuid.UUID, _ uuid.UUID, _ string, _ string, _ fwra.IdempotencyKey) (operatedsystemstate.Version, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.bump(), nil
+}
+
 func (f *fakeOperatedState) PublishDesiredState(_ fwra.Context, _ uuid.UUID, _ operatedsystemstate.Version, reason operatedsystemstate.DesiredStateReason, _ *operatedsystemstate.AutoscaleDecision, _ fwra.IdempotencyKey) (operatedsystemstate.Version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

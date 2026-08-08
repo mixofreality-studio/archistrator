@@ -77,6 +77,7 @@ type Version uint64
 
 // OperatedSystemStateAccess is the generated service-contract interface for this component.
 type OperatedSystemStateAccess interface {
+	RegisterOperatedSystem(rc fwra.Context, operatedAppID uuid.UUID, customerID uuid.UUID, projectRef string, deployableBundleRef string, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	PublishDesiredState(rc fwra.Context, operatedAppID uuid.UUID, expectedVersion Version, reason DesiredStateReason, decision *AutoscaleDecision, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	ReadInFlightOperatedApps(rc fwra.Context, scope InFlightScope) ([]OperatedSystemSummary, error)
 	ReadOperatedSystem(rc fwra.Context, operatedAppID uuid.UUID) (OperatedSystem, error)

@@ -16781,6 +16781,52 @@
         "layer": "resourceaccess",
         "operations": [
           {
+            "name": "RegisterOperatedSystem",
+            "params": [
+              {
+                "name": "operatedAppID",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid",
+                  "x-go-import": "github.com/google/uuid",
+                  "x-go-type": "uuid.UUID"
+                }
+              },
+              {
+                "name": "customerID",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid",
+                  "x-go-import": "github.com/google/uuid",
+                  "x-go-type": "uuid.UUID"
+                }
+              },
+              {
+                "name": "projectRef",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "name": "deployableBundleRef",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "name": "idempotencyKey",
+                "schema": {
+                  "type": "string",
+                  "x-go-type": "fwra.IdempotencyKey"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/Version"
+            },
+            "error": true
+          },
+          {
             "name": "PublishDesiredState",
             "params": [
               {
