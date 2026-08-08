@@ -106,8 +106,11 @@ func (wf *workflows) reconcileOne(ctx workflow.Context, app operatedsystemstate.
 		switch directive {
 		case intervention.HealthRetry:
 			// EXECUTE Retry: re-publish prior desired state so the runtime self-heals /
-			// re-converges (content-idempotent — a no-op if unchanged).
-			if perr := wf.publishDesiredState(ctx, app.ID, operatedruntime.RuntimeDesiredState{ContentType: "application/desired-state"}); perr != nil {
+			// re-converges (content-idempotent — a no-op if unchanged). Republishes the
+			// zero-value placeholder: there is no cached prior RuntimeDesiredState to
+			// re-derive here (same simplification as DeployWorkflow's non-full-bundle
+			// republish path, deploy.go) until incremental desired-state patching lands.
+			if perr := wf.publishDesiredState(ctx, app.ID, operatedruntime.RuntimeDesiredState{}); perr != nil {
 				return false, false, perr
 			}
 		case intervention.HealthEscalate:
@@ -154,9 +157,10 @@ func (wf *workflows) autoscaleOne(ctx workflow.Context, app operatedsystemstate.
 		return false, nil
 	}
 
-	// Non-NoChange ⇒ render revised manifests → publish → record (reason=autoscale).
-	// Idle-pause (AutoscalePause) renders replicas=0 inside the opaque bytes.
-	if perr := wf.publishDesiredState(ctx, app.ID, operatedruntime.RuntimeDesiredState{ContentType: "application/desired-state"}); perr != nil {
+	// Non-NoChange ⇒ publish → record (reason=autoscale). Republishes the zero-value
+	// placeholder (see the HealthRetry comment above) until autoscale-driven desired
+	// states are threaded through assembleDesiredState.
+	if perr := wf.publishDesiredState(ctx, app.ID, operatedruntime.RuntimeDesiredState{}); perr != nil {
 		return false, perr
 	}
 	dec := decision

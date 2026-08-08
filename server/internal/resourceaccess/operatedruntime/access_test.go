@@ -32,7 +32,7 @@ func TestLocalProfileDeterministic(t *testing.T) {
 	}
 	app := uuid.New()
 
-	if err := rt.PublishDesiredState(rc(), app, operatedruntime.RuntimeDesiredState{Bytes: []byte("x")}, "k1"); err != nil {
+	if err := rt.PublishDesiredState(rc(), app, operatedruntime.RuntimeDesiredState{}, "k1"); err != nil {
 		t.Fatalf("publish: %v", err)
 	}
 	if err := rt.Withdraw(rc(), app, "k2"); err != nil {

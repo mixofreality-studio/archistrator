@@ -613,7 +613,7 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 	} else {
 		logger.Warn("constructionManager Worker NOT registered — optional-dormant dependencies absent (RegisterConstructionManagerWorker gate returned false)")
 	}
-	operationsManager := operations.NewOperationsManager(tc, operatedSystemStateAccess, operatedRuntimeAccess, usageAccess, artifactAccess, messageBus, interventionEngine, autoscalerEngine, operationEstimationEngine)
+	operationsManager := operations.NewOperationsManager(tc, operatedSystemStateAccess, operatedRuntimeAccess, usageAccess, artifactAccess, messageBus, interventionEngine, autoscalerEngine, operationEstimationEngine, projectStateAccess)
 	if hooks.RegisterOperationsManagerWorker(cfg) {
 		wOperationsManager := worker.New(tc, operations.TaskQueue, worker.Options{})
 		operations.RegisterManagerWorker(wOperationsManager, operationsManager)

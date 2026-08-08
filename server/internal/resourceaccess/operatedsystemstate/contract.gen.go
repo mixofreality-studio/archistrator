@@ -51,10 +51,12 @@ type InFlightScope struct {
 
 type OperatedSystem struct {
 	ID                  uuid.UUID     `json:"ID"`
+	CustomerID          uuid.UUID     `json:"CustomerID"`
 	Version             Version       `json:"Version"`
 	Status              RuntimeStatus `json:"Status"`
 	InFlight            bool          `json:"InFlight"`
 	DeployableBundleRef string        `json:"DeployableBundleRef"`
+	ProjectRef          string        `json:"ProjectRef"`
 }
 
 type OperatedSystemSummary struct {

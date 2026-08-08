@@ -55,6 +55,7 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedruntime"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedsystemstate"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usage"
 	"github.com/mixofreality-studio/archistrator/server/internal/utility/messagebus"
 )
@@ -104,6 +105,7 @@ type operationsManager struct {
 	intervention        intervention.InterventionEngine
 	autoscaler          autoscaler.AutoscalerEngine
 	operationEstimation operationestimation.OperationEstimationEngine
+	projectState        projectstate.ProjectStateAccess
 
 	// Policy/config snapshots folded into the Workflows struct by RegisterWorker. They
 	// are construction-time defaults (in production the Manager reads them from
@@ -146,6 +148,7 @@ func newOperationsManager(
 	interventionEng intervention.InterventionEngine,
 	autoscalerEng autoscaler.AutoscalerEngine,
 	operationEstimation operationestimation.OperationEstimationEngine,
+	projectState projectstate.ProjectStateAccess,
 ) *operationsManager {
 	return &operationsManager{
 		client:              c,
@@ -157,6 +160,7 @@ func newOperationsManager(
 		intervention:        interventionEng,
 		autoscaler:          autoscalerEng,
 		operationEstimation: operationEstimation,
+		projectState:        projectState,
 		infrastructureKind:  autoscaler.InfrastructureKindGoTemporalPostgres,
 	}
 }
@@ -1159,6 +1163,7 @@ func (m *operationsManager) WorkerManifest() genWorkerManifest {
 			Usage:               m.usage,
 			Artifact:            m.artifact,
 			MessageBus:          nil,
+			ProjectState:        m.projectState,
 		},
 	}
 }

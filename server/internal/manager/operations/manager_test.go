@@ -51,6 +51,7 @@ package operations
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sync"
 	"testing"
@@ -66,6 +67,8 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedruntime"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedsystemstate"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
+	projectstatefake "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate/fake"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usage"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/testsuite"
@@ -95,7 +98,7 @@ func asOperationsError(t *testing.T, err error) *fwmgr.Error {
 // ---- A1/A2: DeployAfterConstruction id checks -------------------------------
 
 func Test_Deploy_EmptyOperatedAppID(t *testing.T) {
-	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.DeployAfterConstruction(bgCtx(), uuid.Nil,
 		DesiredStateChange{Reason: ReasonDeployAfterConstruction, ChangeID: "c1"})
 	if got := asOperationsError(t, err).Kind; got != fwmgr.ContractMisuse {
@@ -104,7 +107,7 @@ func Test_Deploy_EmptyOperatedAppID(t *testing.T) {
 }
 
 func Test_Deploy_EmptyChangeID(t *testing.T) {
-	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.DeployAfterConstruction(bgCtx(), uuid.New(),
 		DesiredStateChange{Reason: ReasonOperator, ChangeID: ""})
 	if got := asOperationsError(t, err).Kind; got != fwmgr.ContractMisuse {
@@ -115,7 +118,7 @@ func Test_Deploy_EmptyChangeID(t *testing.T) {
 // ---- A3/A4/A5: the reason discriminator rejection (OQ-5) --------------------
 
 func Test_Deploy_RejectsReservedAutoscaleReason(t *testing.T) {
-	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.DeployAfterConstruction(bgCtx(), uuid.New(),
 		DesiredStateChange{Reason: ReasonAutoscale, ChangeID: "c1"})
 	if got := asOperationsError(t, err).Kind; got != fwmgr.ContractMisuse {
@@ -124,7 +127,7 @@ func Test_Deploy_RejectsReservedAutoscaleReason(t *testing.T) {
 }
 
 func Test_Deploy_RejectsReservedDelinquencyReason(t *testing.T) {
-	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.DeployAfterConstruction(bgCtx(), uuid.New(),
 		DesiredStateChange{Reason: ReasonDelinquency, ChangeID: "c1"})
 	if got := asOperationsError(t, err).Kind; got != fwmgr.ContractMisuse {
@@ -133,7 +136,7 @@ func Test_Deploy_RejectsReservedDelinquencyReason(t *testing.T) {
 }
 
 func Test_Deploy_RejectsUnknownReason(t *testing.T) {
-	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.DeployAfterConstruction(bgCtx(), uuid.New(),
 		DesiredStateChange{Reason: ReasonUnknown, ChangeID: "c1"})
 	if got := asOperationsError(t, err).Kind; got != fwmgr.ContractMisuse {
@@ -144,7 +147,7 @@ func Test_Deploy_RejectsUnknownReason(t *testing.T) {
 // ---- A6: ReconcileOperatedState ---------------------------------------------
 
 func Test_Reconcile_EmptyTickID(t *testing.T) {
-	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.ReconcileOperatedState(bgCtx(), "", nil)
 	if got := asOperationsError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -154,7 +157,7 @@ func Test_Reconcile_EmptyTickID(t *testing.T) {
 // ---- A7: WithdrawSystem ------------------------------------------------------
 
 func Test_Withdraw_EmptyOperatedAppID(t *testing.T) {
-	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.WithdrawSystem(bgCtx(), uuid.Nil, "c1", WithdrawReason{})
 	if got := asOperationsError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -162,7 +165,7 @@ func Test_Withdraw_EmptyOperatedAppID(t *testing.T) {
 }
 
 func Test_Withdraw_EmptyChangeID(t *testing.T) {
-	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.WithdrawSystem(bgCtx(), uuid.New(), "", WithdrawReason{})
 	if got := asOperationsError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -172,7 +175,7 @@ func Test_Withdraw_EmptyChangeID(t *testing.T) {
 // ---- A8: QueryCostProjection ------------------------------------------------
 
 func Test_CostProjection_EmptyOperatedAppID(t *testing.T) {
-	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.QueryCostProjection(bgCtx(), uuid.Nil, "r1", nil)
 	if got := asOperationsError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -180,7 +183,7 @@ func Test_CostProjection_EmptyOperatedAppID(t *testing.T) {
 }
 
 func Test_CostProjection_EmptyRequestID(t *testing.T) {
-	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.QueryCostProjection(bgCtx(), uuid.New(), "", nil)
 	if got := asOperationsError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -190,7 +193,7 @@ func Test_CostProjection_EmptyRequestID(t *testing.T) {
 // ---- A8b: QueryOperatedSystemView (op 2.7) ----------------------------------
 
 func Test_View_EmptyOperatedAppID(t *testing.T) {
-	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.QueryOperatedSystemView(bgCtx(), uuid.Nil, "r1")
 	if got := asOperationsError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -198,7 +201,7 @@ func Test_View_EmptyOperatedAppID(t *testing.T) {
 }
 
 func Test_View_EmptyRequestID(t *testing.T) {
-	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.QueryOperatedSystemView(bgCtx(), uuid.New(), "")
 	if got := asOperationsError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -208,7 +211,7 @@ func Test_View_EmptyRequestID(t *testing.T) {
 // ---- A9: ApplyDelinquencyPolicy ---------------------------------------------
 
 func Test_Delinquency_EmptyCustomerID(t *testing.T) {
-	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	err := m.ApplyDelinquencyPolicy(bgCtx(), uuid.Nil, DelinquencyContext{})
 	if got := asOperationsError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -458,11 +461,17 @@ type fakeArtifacts struct {
 	mu        sync.Mutex
 }
 
+// fakeBundleManifestJSON is a valid bundleManifest (assemble.go) payload — the
+// deploy bundle path (B1) now folds this through assembleDesiredState, which
+// requires parseable bundle bytes; content doesn't matter to these tests, only
+// that it parses.
+const fakeBundleManifestJSON = `{"serverImage":"fake/server:test","webAppImage":"fake/webapp:test"}`
+
 func (a *fakeArtifacts) RetrieveConstructionOutput(_ fwra.Context, _ string) (artifact.ConstructionOutput, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.retrieveN++
-	return artifact.ConstructionOutput{}, nil
+	return artifact.ConstructionOutput{Bytes: []byte(fakeBundleManifestJSON), MIMEType: "application/json"}, nil
 }
 
 func (a *fakeArtifacts) RetrieveOutputTree(_ fwra.Context, _ string) (artifact.OutputTree, error) {
@@ -555,10 +564,20 @@ func baseDeps() (wfDeps, *fakeOperatedState, *fakeRuntime, *fakeUsage, *fakeArti
 // call by. Registering the full set each test is harmless (unused ones are never
 // dispatched) and keeps the per-workflow register helpers uniform.
 func registerActs(env *testsuite.TestWorkflowEnvironment, os *fakeOperatedState, rt *fakeRuntime, us *fakeUsage, ar *fakeArtifacts) {
-	acts := &genActivities{OperatedSystemState: os, OperatedRuntime: rt, Usage: us, Artifact: ar}
+	// ps serves the SAME complete "archistrator" project fixture assemble_test.go
+	// exercises directly (projectFixture) — so DeployWorkflow's happy path (B1),
+	// which now folds the deployment model through assembleDesiredState, keeps
+	// succeeding without every test needing to author its own model.
+	ps := &projectstatefake.FakeProjectStateAccess{
+		ReadProjectFn: func(_ fwra.Context, _ projectstate.ProjectID) (projectstate.Project, error) {
+			return projectFixture(), nil
+		},
+	}
+	acts := &genActivities{OperatedSystemState: os, OperatedRuntime: rt, Usage: us, Artifact: ar, ProjectState: ps}
 	reg := func(fn any, name string) {
 		env.RegisterActivityWithOptions(fn, activity.RegisterOptions{Name: name})
 	}
+	reg(acts.ProjectStateReadProject, "projectStateAccess.readProject")
 	reg(acts.OperatedSystemStateReadOperatedSystem, "operatedSystemStateAccess.readOperatedSystem")
 	reg(acts.OperatedSystemStateReadInFlightOperatedApps, "operatedSystemStateAccess.readInFlightOperatedApps")
 	reg(acts.OperatedSystemStatePublishDesiredState, "operatedSystemStateAccess.publishDesiredState")
@@ -1177,5 +1196,216 @@ func Test_Deploy_ConflictOnRecord_ReReadReApply_Succeeds(t *testing.T) {
 	}
 	if len(os.published) != 1 {
 		t.Fatalf("conflict loop must converge to exactly one recorded head-state publish, got %v", os.published)
+	}
+}
+
+// ============================ F. assembleDesiredState (deploy.go) ============
+
+// mustJSON marshals v into a bundleManifest-shaped payload for a deployableBundle
+// fixture, failing the test on a marshal error (never expected for these literals).
+func mustJSON(t *testing.T, v bundleManifest) []byte {
+	t.Helper()
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("mustJSON: %v", err)
+	}
+	return b
+}
+
+// projectFixture builds a complete, self-consistent "archistrator" project with a
+// cloud deployment environment: a k8s cluster node containing the archistrator
+// namespace, which declares the server + webapp workload nodes (each carrying the
+// container instance assembleDesiredState looks for) and one database
+// infrastructure node. It also carries a decoy: an architect-machine/browser
+// subtree OUTSIDE the k8s cluster node whose browser instances the webapp
+// container too (mirroring the real committed model, where the SPA's browser
+// instance is NOT a deployed workload) — proving the k8s-scoped walk does not
+// mistake it for the deployed webapp.
+//
+// testProject (below) is this fixture under the exact name the task brief's given
+// test calls; registerActs (above) shares this SAME builder so the pre-existing
+// DeployWorkflow tests — which now also invoke assembleDesiredState — keep
+// passing without hand-authoring a second fixture.
+func projectFixture() projectstate.Project {
+	browser := projectstate.DeploymentNode{
+		Key:        "cloud-node-browser",
+		Name:       "Web browser",
+		Technology: "Chrome, Firefox, Safari or Edge",
+		ContainerInstances: []projectstate.ContainerInstance{
+			{Key: "cloud-ci-spa-browser", ContainerKey: "archistrator-webapp"},
+		},
+	}
+	architectMachine := projectstate.DeploymentNode{
+		Key:        "cloud-node-architect-machine",
+		Name:       "Architect's computer",
+		Technology: "macOS, Windows or Linux",
+		Children:   []projectstate.DeploymentNode{browser},
+	}
+
+	serverDeployment := projectstate.DeploymentNode{
+		Key:        "cloud-node-server-deployment",
+		Name:       "server Deployment",
+		Technology: "Kubernetes Deployment",
+		Instances:  2,
+		ContainerInstances: []projectstate.ContainerInstance{
+			{Key: "cloud-ci-server", ContainerKey: "archistrator-server"},
+		},
+	}
+	webappDeployment := projectstate.DeploymentNode{
+		Key:        "cloud-node-webapp-deployment",
+		Name:       "webapp Deployment",
+		Technology: "Kubernetes Deployment",
+		Instances:  1,
+		ContainerInstances: []projectstate.ContainerInstance{
+			{Key: "cloud-ci-webapp", ContainerKey: "archistrator-webapp"},
+		},
+	}
+	namespace := projectstate.DeploymentNode{
+		Key:        "cloud-node-ns-archistrator",
+		Name:       "archistrator namespace",
+		Technology: "k8s-namespace",
+		Children:   []projectstate.DeploymentNode{serverDeployment, webappDeployment},
+		InfrastructureNodes: []projectstate.InfrastructureNode{
+			{Key: "cloud-node-postgres", Name: "Postgres", Technology: "CloudNativePG", Role: projectstate.RoleDatabase},
+		},
+	}
+	cluster := projectstate.DeploymentNode{
+		Key:        "cloud-node-cluster",
+		Name:       "Mixofreality Kubernetes Cluster",
+		Technology: "k8s",
+		Children:   []projectstate.DeploymentNode{namespace},
+	}
+
+	model := &projectstate.DeploymentOperationsModel{
+		Deployment: projectstate.DeploymentTopology{
+			Environments: []projectstate.DeploymentEnvironment{
+				{
+					Profile: projectstate.ProfileCloud,
+					Title:   "Cloud",
+					Nodes:   []projectstate.DeploymentNode{architectMachine, cluster},
+				},
+				{
+					Profile: projectstate.ProfileTest,
+					Title:   "Test",
+				},
+			},
+		},
+	}
+
+	return projectstate.Project{
+		ID: "archistrator",
+		OperationalConcepts: projectstate.ArtifactSlot{
+			Model: model,
+		},
+	}
+}
+
+// testProject is the task brief's named fixture: "a trimmed project with a cloud
+// environment". See projectFixture for the node tree it returns.
+func testProject(t *testing.T) projectstate.Project {
+	t.Helper()
+	return projectFixture()
+}
+
+// testProjectLocalOnly is a project whose deployment model carries no cloud
+// environment (only local) — the model assembleDesiredState must reject.
+func testProjectLocalOnly(t *testing.T) projectstate.Project {
+	t.Helper()
+	model := &projectstate.DeploymentOperationsModel{
+		Deployment: projectstate.DeploymentTopology{
+			Environments: []projectstate.DeploymentEnvironment{
+				{Profile: projectstate.ProfileLocal, Title: "Local"},
+				{Profile: projectstate.ProfileTest, Title: "Test"},
+			},
+		},
+	}
+	return projectstate.Project{
+		ID: "archistrator",
+		OperationalConcepts: projectstate.ArtifactSlot{
+			Model: model,
+		},
+	}
+}
+
+func TestAssembleDesiredState_MapsCloudEnvironmentAndBundleImages(t *testing.T) {
+	proj := testProject(t) // fixture: a trimmed project with a cloud environment
+	bundle := deployableBundle{Output: artifact.ConstructionOutput{
+		Bytes:    mustJSON(t, bundleManifest{ServerImage: "ghcr.io/mixofreality-studio/archistrator-server:0.8.16", WebAppImage: "ghcr.io/mixofreality-studio/archistrator-webapp:0.6.61"}),
+		MIMEType: "application/json",
+	}}
+	op := operatedsystemstate.OperatedSystem{ID: uuid.New(), Version: 3}
+
+	got, err := assembleDesiredState(proj, bundle, op)
+	if err != nil {
+		t.Fatalf("assembleDesiredState: %v", err)
+	}
+	if got.Namespace != "archistrator" {
+		t.Errorf("Namespace = %q, want archistrator", got.Namespace)
+	}
+	if got.Host != "archistrator.capture-gtd.com" {
+		t.Errorf("Host = %q, want archistrator.capture-gtd.com", got.Host)
+	}
+	if got.Server.ModelKey != "cloud-node-server-deployment" {
+		t.Errorf("Server.ModelKey = %q, want cloud-node-server-deployment", got.Server.ModelKey)
+	}
+	if !got.SelfManaged {
+		t.Error("archistrator must assemble as SelfManaged")
+	}
+
+	// Additional coverage beyond the brief's given assertions, exercising the rest
+	// of the fold: image threading, replicas-from-model, webapp/postgres node
+	// resolution, and OIDC/ModelKey derivation.
+	if got.Server.Image != "ghcr.io/mixofreality-studio/archistrator-server:0.8.16" {
+		t.Errorf("Server.Image = %q", got.Server.Image)
+	}
+	if got.Server.Replicas != 2 {
+		t.Errorf("Server.Replicas = %d, want 2 (from the model's declared instances)", got.Server.Replicas)
+	}
+	if got.WebApp.ModelKey != "cloud-node-webapp-deployment" {
+		t.Errorf("WebApp.ModelKey = %q, want cloud-node-webapp-deployment", got.WebApp.ModelKey)
+	}
+	if got.WebApp.Image != "ghcr.io/mixofreality-studio/archistrator-webapp:0.6.61" {
+		t.Errorf("WebApp.Image = %q", got.WebApp.Image)
+	}
+	if got.Postgres.ModelKey != "cloud-node-postgres" || !got.Postgres.Enabled {
+		t.Errorf("Postgres = %+v", got.Postgres)
+	}
+	if got.ModelKey != "cloud-node-ns-archistrator" {
+		t.Errorf("ModelKey = %q, want cloud-node-ns-archistrator", got.ModelKey)
+	}
+	if got.OIDC.ClientID != "archistrator-webapp" {
+		t.Errorf("OIDC.ClientID = %q, want archistrator-webapp", got.OIDC.ClientID)
+	}
+}
+
+func TestAssembleDesiredState_RejectsAModelWithNoCloudEnvironment(t *testing.T) {
+	proj := testProjectLocalOnly(t) // fixture with only the local environment
+	_, err := assembleDesiredState(proj, deployableBundle{}, operatedsystemstate.OperatedSystem{})
+	if err == nil {
+		t.Fatal("expected an error when the deployment model has no cloud environment")
+	}
+}
+
+// TestAssembleDesiredState_RejectsAWorkloadNodeWithNoMatchingContainerInstance
+// covers the "fail loudly rather than defaulting" requirement directly: a cloud
+// environment whose namespace carries no matching webapp container instance is a
+// real misconfiguration, not a silently half-rendered deployment.
+func TestAssembleDesiredState_RejectsAWorkloadNodeWithNoMatchingContainerInstance(t *testing.T) {
+	proj := testProject(t)
+	model := proj.OperationalConcepts.Model.(*projectstate.DeploymentOperationsModel)
+	// Drop the webapp workload node from the archistrator namespace's children,
+	// leaving only the server deployment — mirrors the real committed operational-
+	// concepts model, which has no cloud-node-webapp-deployment node yet.
+	cluster := &model.Deployment.Environments[0].Nodes[1]
+	namespace := &cluster.Children[0]
+	namespace.Children = namespace.Children[:1]
+
+	bundle := deployableBundle{Output: artifact.ConstructionOutput{
+		Bytes:    mustJSON(t, bundleManifest{ServerImage: "s:1", WebAppImage: "w:1"}),
+		MIMEType: "application/json",
+	}}
+	_, err := assembleDesiredState(proj, bundle, operatedsystemstate.OperatedSystem{})
+	if err == nil {
+		t.Fatal("expected an error when the model has no webapp workload node")
 	}
 }

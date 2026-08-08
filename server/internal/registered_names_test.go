@@ -164,6 +164,7 @@ var registeredTemporalNamesGolden = []string{
 	"operatedSystemStateAccess.readOperatedSystem",
 	"operatedSystemStateAccess.recordDelinquencyAction",
 	"operatedSystemStateAccess.recordRuntimeStatusChange",
+	"operatedSystemStateAccess.registerOperatedSystem",
 	"operatedSystemStateAccess.withdrawSystem",
 	"operationsCostProjection",
 	"operationsDelinquencyEnforcement",
@@ -177,27 +178,36 @@ var registeredTemporalNamesGolden = []string{
 	"projectStateAccess.acknowledgeStaleBasis",
 	"projectStateAccess.acknowledgeStaleBasis",
 	"projectStateAccess.acknowledgeStaleBasis",
+	"projectStateAccess.acknowledgeStaleBasis",
+	"projectStateAccess.advancePhase",
 	"projectStateAccess.advancePhase",
 	"projectStateAccess.advancePhase",
 	"projectStateAccess.advancePhase",
 	"projectStateAccess.commitArtifact",
 	"projectStateAccess.commitArtifact",
 	"projectStateAccess.commitArtifact",
+	"projectStateAccess.commitArtifact",
+	"projectStateAccess.createProject",
 	"projectStateAccess.createProject",
 	"projectStateAccess.createProject",
 	"projectStateAccess.createProject",
 	"projectStateAccess.listProjects",
 	"projectStateAccess.listProjects",
 	"projectStateAccess.listProjects",
+	"projectStateAccess.listProjects",
+	"projectStateAccess.readProject",
 	"projectStateAccess.readProject",
 	"projectStateAccess.readProject",
 	"projectStateAccess.readProject",
 	"projectStateAccess.readProjectVersion",
 	"projectStateAccess.readProjectVersion",
 	"projectStateAccess.readProjectVersion",
+	"projectStateAccess.readProjectVersion",
 	"projectStateAccess.setOperatingModel",
 	"projectStateAccess.setOperatingModel",
 	"projectStateAccess.setOperatingModel",
+	"projectStateAccess.setOperatingModel",
+	"projectStateAccess.setResearchInput",
 	"projectStateAccess.setResearchInput",
 	"projectStateAccess.setResearchInput",
 	"projectStateAccess.setResearchInput",
@@ -264,7 +274,7 @@ func mustRegisteredNames(t *testing.T) []string {
 	constructionMgr := construction.NewConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
 	construction.RegisterManagerWorker(&reg, constructionMgr)
 
-	operationsMgr := operations.NewOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	operationsMgr := operations.NewOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	operations.RegisterManagerWorker(&reg, operationsMgr)
 
 	projectDesignMgr := projectdesign.NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)

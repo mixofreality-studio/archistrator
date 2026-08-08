@@ -28,9 +28,29 @@ type GatewayBinding struct {
 	ConnectedAccountID string `json:"ConnectedAccountID"`
 }
 
+type OIDCSpec struct {
+	Issuer          string `json:"Issuer"`
+	ClientID        string `json:"ClientID"`
+	ClientSecretRef string `json:"ClientSecretRef"`
+}
+
+type PostgresSpec struct {
+	ModelKey     string `json:"ModelKey"`
+	Enabled      bool   `json:"Enabled"`
+	Instances    int64  `json:"Instances"`
+	StorageClass string `json:"StorageClass"`
+}
+
 type RuntimeDesiredState struct {
-	Bytes       []byte `json:"Bytes"`
-	ContentType string `json:"ContentType"`
+	AppName     string       `json:"AppName"`
+	Namespace   string       `json:"Namespace"`
+	Host        string       `json:"Host"`
+	ModelKey    string       `json:"ModelKey"`
+	Server      Workload     `json:"Server"`
+	WebApp      Workload     `json:"WebApp"`
+	Postgres    PostgresSpec `json:"Postgres"`
+	OIDC        OIDCSpec     `json:"OIDC"`
+	SelfManaged bool         `json:"SelfManaged"`
 }
 
 type RuntimeStatus int
@@ -46,6 +66,12 @@ const (
 type SloStatus struct {
 	SloMet bool   `json:"SloMet"`
 	Detail string `json:"Detail"`
+}
+
+type Workload struct {
+	ModelKey string `json:"ModelKey"`
+	Image    string `json:"Image"`
+	Replicas int64  `json:"Replicas"`
 }
 
 // OperatedRuntimeAccess is the generated service-contract interface for this component.

@@ -2947,6 +2947,84 @@ func SameArtifactModel(a, b ArtifactModel) (bool, error) {
 	return bytes.Equal(ea.Model, eb.Model), nil
 }
 
+// artifactSlotWire is ArtifactSlot's plain-JSON shadow: every field verbatim
+// EXCEPT Model, which is re-typed to ModelEnvelope. ArtifactModel is a sealed sum
+// (Kind() + isArtifactModel()) with no exported concrete type on the wire, so a
+// bare json.Marshal/Unmarshal of ArtifactSlot cannot round-trip a populated Model:
+// Marshal flattens the concrete model's fields with no type discriminator, and
+// Unmarshal then has no way to know which concrete type to allocate for the
+// interface field ("cannot unmarshal object into Go struct field ...Model of
+// type projectstate.ArtifactModel"). The git/postgres substrates never hit this —
+// they carry their OWN equivalent envelope logic (slotJSON, encodeSlotsMap/
+// decodeSlotsMap) and never call plain json.Marshal on a whole Project or
+// ArtifactSlot. The gap is real for any OTHER consumer that does: notably a
+// Temporal activity boundary (the default DataConverter is encoding/json), the
+// first of which is operationsManager's projectStateAccess.readProject invoker
+// (Task 2, operations/deploy.go — assembleDesiredState).
+type artifactSlotWire struct {
+	Status          ArtifactReviewStatus `json:"Status"`
+	Model           ModelEnvelope        `json:"Model"`
+	Notes           string               `json:"Notes"`
+	CritiqueVerdict string               `json:"CritiqueVerdict"`
+	CritiqueNotes   string               `json:"CritiqueNotes"`
+	ReviewThread    []ReviewComment      `json:"reviewThread,omitempty"`
+	Revisions       int64                `json:"Revisions"`
+	StaleBasis      bool                 `json:"StaleBasis"`
+	StaleBasisCause *StaleCause          `json:"StaleBasisCause,omitempty"`
+	Provenance      *Provenance          `json:"Provenance,omitempty"`
+}
+
+// MarshalJSON gives ArtifactSlot a safe, self-contained JSON round-trip (see
+// artifactSlotWire): Model is re-encoded as its {kind, model} ModelEnvelope via
+// EncodeModel — the SAME mechanism the git/postgres substrate codecs use — rather
+// than encoding/json's default interface-flattening behavior, which
+// UnmarshalJSON below could never reconstruct.
+func (s ArtifactSlot) MarshalJSON() ([]byte, error) {
+	env, err := EncodeModel(s.Model)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(artifactSlotWire{
+		Status:          s.Status,
+		Model:           env,
+		Notes:           s.Notes,
+		CritiqueVerdict: s.CritiqueVerdict,
+		CritiqueNotes:   s.CritiqueNotes,
+		ReviewThread:    s.ReviewThread,
+		Revisions:       s.Revisions,
+		StaleBasis:      s.StaleBasis,
+		StaleBasisCause: s.StaleBasisCause,
+		Provenance:      s.Provenance,
+	})
+}
+
+// UnmarshalJSON is MarshalJSON's inverse: decode into the wire shadow, then
+// reconstruct the concrete ArtifactModel from its envelope (ModelEnvelope.Decode,
+// which dispatches on the envelope's own Kind — the same NewModelForKind lookup
+// decodeSlotsMap uses, just driven by the envelope's kind field instead of an
+// out-of-band map key).
+func (s *ArtifactSlot) UnmarshalJSON(data []byte) error {
+	var w artifactSlotWire
+	if err := json.Unmarshal(data, &w); err != nil {
+		return err
+	}
+	model, err := w.Model.Decode()
+	if err != nil {
+		return err
+	}
+	s.Status = w.Status
+	s.Model = model
+	s.Notes = w.Notes
+	s.CritiqueVerdict = w.CritiqueVerdict
+	s.CritiqueNotes = w.CritiqueNotes
+	s.ReviewThread = w.ReviewThread
+	s.Revisions = w.Revisions
+	s.StaleBasis = w.StaleBasis
+	s.StaleBasisCause = w.StaleBasisCause
+	s.Provenance = w.Provenance
+	return nil
+}
+
 // AmendmentNoChangeReason renders the human "why" for the StageDraftFailed screen when
 // an amendment session's draft committed nothing that changed the artifact — the branch
 // read-back is byte-identical to the committed main model, so there is no advancement to

@@ -76,7 +76,10 @@ func (wf *workflows) runDelinquencyBranch(ctx workflow.Context, customerID custo
 		// EXECUTE the BillingTerms-derived enforcement: a pause publishes replicas=0
 		// (via publishDesiredState); a hard withdraw removes the runtime.
 		if dctx.PauseNotWithdraw {
-			if perr := wf.publishDesiredState(ctx, app.ID, operatedruntime.RuntimeDesiredState{ContentType: "application/desired-state"}); perr != nil {
+			// Republishes the zero-value placeholder — same simplification as
+			// DeployWorkflow's non-full-bundle republish path (deploy.go) and
+			// reconcile.go's own republish call sites.
+			if perr := wf.publishDesiredState(ctx, app.ID, operatedruntime.RuntimeDesiredState{}); perr != nil {
 				return perr
 			}
 		} else {

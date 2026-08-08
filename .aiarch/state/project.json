@@ -6071,6 +6071,12 @@
             "to": "design-health-engine",
             "mode": "sync",
             "label": "EvaluateDesignHealth(project, systemModel) → findings"
+          },
+          {
+            "from": "operations-manager",
+            "to": "project-state-access",
+            "mode": "sync",
+            "label": "readProject(projectRef) -> deployment model"
           }
         ],
         "dynamicViews": [
@@ -16401,18 +16407,44 @@
         "RuntimeDesiredState": {
           "type": "object",
           "properties": {
-            "Bytes": {
-              "type": "string",
-              "contentEncoding": "base64",
-              "x-go-type": "[]byte"
-            },
-            "ContentType": {
+            "AppName": {
               "type": "string"
+            },
+            "Namespace": {
+              "type": "string"
+            },
+            "Host": {
+              "type": "string"
+            },
+            "ModelKey": {
+              "type": "string"
+            },
+            "Server": {
+              "$ref": "#/$defs/Workload"
+            },
+            "WebApp": {
+              "$ref": "#/$defs/Workload"
+            },
+            "Postgres": {
+              "$ref": "#/$defs/PostgresSpec"
+            },
+            "OIDC": {
+              "$ref": "#/$defs/OIDCSpec"
+            },
+            "SelfManaged": {
+              "type": "boolean"
             }
           },
           "required": [
-            "Bytes",
-            "ContentType"
+            "AppName",
+            "Namespace",
+            "Host",
+            "ModelKey",
+            "Server",
+            "WebApp",
+            "Postgres",
+            "OIDC",
+            "SelfManaged"
           ],
           "additionalProperties": false
         },
@@ -16447,6 +16479,70 @@
           "required": [
             "SloMet",
             "Detail"
+          ],
+          "additionalProperties": false
+        },
+        "Workload": {
+          "type": "object",
+          "properties": {
+            "ModelKey": {
+              "type": "string"
+            },
+            "Image": {
+              "type": "string"
+            },
+            "Replicas": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "ModelKey",
+            "Image",
+            "Replicas"
+          ],
+          "additionalProperties": false
+        },
+        "PostgresSpec": {
+          "type": "object",
+          "properties": {
+            "ModelKey": {
+              "type": "string"
+            },
+            "Enabled": {
+              "type": "boolean"
+            },
+            "Instances": {
+              "type": "integer"
+            },
+            "StorageClass": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "ModelKey",
+            "Enabled",
+            "Instances",
+            "StorageClass"
+          ],
+          "additionalProperties": false
+        },
+        "OIDCSpec": {
+          "type": "object",
+          "properties": {
+            "Issuer": {
+              "type": "string"
+            },
+            "ClientID": {
+              "type": "string"
+            },
+            "ClientSecretRef": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "Issuer",
+            "ClientID",
+            "ClientSecretRef"
           ],
           "additionalProperties": false
         }
@@ -16708,6 +16804,12 @@
               "x-go-import": "github.com/google/uuid",
               "x-go-type": "uuid.UUID"
             },
+            "CustomerID": {
+              "type": "string",
+              "format": "uuid",
+              "x-go-import": "github.com/google/uuid",
+              "x-go-type": "uuid.UUID"
+            },
             "Version": {
               "$ref": "#/$defs/Version"
             },
@@ -16719,14 +16821,19 @@
             },
             "DeployableBundleRef": {
               "type": "string"
+            },
+            "ProjectRef": {
+              "type": "string"
             }
           },
           "required": [
             "ID",
+            "CustomerID",
             "Version",
             "Status",
             "InFlight",
-            "DeployableBundleRef"
+            "DeployableBundleRef",
+            "ProjectRef"
           ],
           "additionalProperties": false
         },
@@ -17429,6 +17536,10 @@
         {
           "name": "operationEstimation",
           "component": "operationEstimationEngine"
+        },
+        {
+          "name": "projectState",
+          "component": "projectStateAccess"
         }
       ],
       "title": "operations contract",
