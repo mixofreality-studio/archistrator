@@ -11,5 +11,26 @@
 import createClient from 'openapi-fetch';
 import type { paths } from '../contracts/schema';
 import { config } from '../utilities/config';
+import type { Capabilities } from '../utilities/capabilities';
 
 export const apiClient = createClient<paths>({ baseUrl: config.apiBaseUrl });
+
+/**
+ * Raw fetch for GET /api/v1/capabilities (operations-argocd-deployment Task
+ * 11). A composition-root-only route (server/cmd/server/hooks.go's
+ * ExtraMounts), not a generated .serviceContracts op, so it has no entry in
+ * the typed `paths` apiClient above understands — hand-typed against
+ * Capabilities instead. The api layer is the one place a bare fetch is
+ * allowed (spec §8.2); hooks/useCapabilities.ts and routes/router.tsx's
+ * operations-route `beforeLoad` guard both call this rather than reaching for
+ * fetch themselves.
+ */
+export async function fetchCapabilities(): Promise<Capabilities> {
+  const res = await fetch(`${config.apiBaseUrl}/api/v1/capabilities`, {
+    headers: { Accept: 'application/json' },
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to load capabilities: ${String(res.status)} ${res.statusText}`);
+  }
+  return (await res.json()) as Capabilities;
+}

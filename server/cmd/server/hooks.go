@@ -98,6 +98,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -508,7 +509,8 @@ func (h *appHooks) WrapManagers(managers WebManagers) WebManagers {
 }
 
 // ExtraMounts adds the composition-root-only routes behind the same auth boundary:
-// GET /api/userinfo (the SPA session probe — not a manager op) and /mcp (the MCP
+// GET /api/userinfo (the SPA session probe — not a manager op), GET /api/v1/capabilities
+// (the operations-argocd-deployment D9 seam — see below), and /mcp (the MCP
 // transport over the SAME four wrapped managers the REST handlers use, plus the
 // ui://archistrator/shell.html MCP-Apps resource). On the local profile, also
 // mounts the embedded SPA at "/" (local-first-init-funnel Task 4, spa_handler.go)
@@ -516,7 +518,10 @@ func (h *appHooks) WrapManagers(managers WebManagers) WebManagers {
 // construction from the same process that answers /api + /mcp. Gated on BOTH the
 // `localdist` build tag (spaFS, spa_embed.go/spa_stub.go — cloud images never
 // carry the tag) AND the runtime profile, so a hypothetical localdist-tagged
-// binary run with cloud config never mounts the SPA either.
+// binary run with cloud config never mounts the SPA either. The local profile
+// also UNMOUNTS the generated operations routes entirely (D9: local holds no
+// deployment credential and must not appear to operate — not a disabled
+// console, not a simulated one; see the doc comment on that block below).
 //
 // WEBAPP_ORIGIN/WEBAPP_ASSET_VERSION are NOT configgen-owned (configgen emits
 // config.gen.go from project.json's deployment model, which does not yet declare
@@ -542,8 +547,56 @@ func (h *appHooks) ExtraMounts(root *http.ServeMux, cfg *Config, dev web.DevConf
 		managers.SystemDesignManager, managers.ProjectDesignManager, managers.ConstructionManager, managers.OperationsManager,
 		webAppOrigin, assetVersion))
 
+	// GET /api/v1/capabilities — the ONE thing that tells the webApp which
+	// deployment profile it is talking to (operations-argocd-deployment Task 11,
+	// spec D9). Behind the same auth boundary as /api/userinfo: by the time any
+	// route component mounts, UserProvider has already confirmed a session, so
+	// the read rides the same cookie/token. The response's zero value
+	// ({"operations":false}) is the SAFE direction — an unreachable/erroring read
+	// on the client leaves useCapabilities() returning undefined, and
+	// webApp/src/utilities/capabilities.ts's operationsEnabled treats undefined
+	// (and false) as HIDDEN, never shown-by-default.
+	root.Handle("GET /api/v1/capabilities",
+		web.AuthMiddleware(dev, validator)(http.HandlerFunc(h.handleCapabilities(cfg))))
+
 	if resolveProfile(cfg) == "local" {
 		mountSPA(root, h.logger)
+
+		// D9: the local profile holds no deployment credential and must not
+		// APPEAR to operate — not a disabled console, not a simulated one. Hiding
+		// the webApp nav entry is not enough on its own (a curious user could
+		// still hit the URL directly): the generated operations routes
+		// (internal/client/web/operations/operations_handlers.gen.go, all under
+		// /api/v1/operations/) are UNMOUNTED here rather than left live-but-hidden.
+		// This pattern mirrors the /api/v1/ 5xx-logging shadow above: a MORE
+		// SPECIFIC literal pattern registered directly on root wins over both the
+		// broader "/api/v1/" pattern and (on a localdist build) the SPA's
+		// "/{first}/{rest...}" wildcard (spa_handler.go), so every
+		// /api/v1/operations/... request 404s exactly as if the routes were never
+		// registered at all — never falls through to genServer's real handlers.
+		root.Handle("/api/v1/operations/", http.NotFoundHandler())
+	}
+}
+
+// capabilitiesResponse is the wire shape GET /api/v1/capabilities answers —
+// mirrored by hand on the webApp side (webApp/src/utilities/capabilities.ts's
+// Capabilities type) since this composition-root-only route is not generated
+// from a .serviceContracts entry.
+type capabilitiesResponse struct {
+	Operations bool `json:"operations"`
+}
+
+// handleCapabilities reports operations:true ONLY on the cloud profile — the
+// profile whose operatedRuntimeAccess binding actually holds a real deployment
+// credential (operatedRuntimeAccess binds local -> Local (dry-run), cloud ->
+// Real). This is the single source of truth resolveProfile already computes;
+// no separate config flag to drift from it.
+func (h *appHooks) handleCapabilities(cfg *Config) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(capabilitiesResponse{Operations: resolveProfile(cfg) == "cloud"}); err != nil {
+			h.logger.Warn("capabilities: failed writing response", "err", err)
+		}
 	}
 }
 
