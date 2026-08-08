@@ -779,7 +779,18 @@ var encapsulationAllowlistData = map[string][]string{
 	// NewProfiledOperatedRuntimeAccess; the profiled ctor + its RuntimeProfile/
 	// RuntimeConfig params are structurally reachable from the generated surface, so
 	// only these two new free functions need listing.
+	//
+	// RENDERER OUTPUT TYPE (2026-08-07 operations/ArgoCD plan, Task 4): Manifest is
+	// the unexported render() func's return type — one rendered Kubernetes object
+	// plus the deployment-model ModelKeys it answers to (see the type's doc comment
+	// in operatedruntimeaccess.go). It is not part of the generated contract surface
+	// because rendering is a same-package pure function, not a service-contract
+	// operation. Task-4 brief fixes its shape (capital M, exported) because the
+	// health-overlay work later in this same plan (Task 9) re-derives the model-key
+	// -> (kind, name, namespace) map by re-rendering, and needs this exact struct
+	// shape as the seam — exporting it now avoids a breaking rename then.
 	"internal/resourceaccess/operatedruntime": {
+		"Manifest",
 		"NewLocalOperatedRuntimeAccess",
 		"NewRealOperatedRuntimeAccess",
 	},
