@@ -3,6 +3,7 @@ package operations
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"go.temporal.io/sdk/temporal"
@@ -251,6 +252,15 @@ const (
 	// same shape today; there is no per-app sizing input yet.
 	defaultPostgresInstances    = 1
 	defaultPostgresStorageClass = "do-block-storage"
+
+	// defaultWebAppReplicas mirrors the current production webapp chart
+	// (archistrator-webapp/values.yaml: replicaCount: 2). The model has no
+	// per-node instance count for the webapp — it is served by an
+	// InfrastructureNode (nginx, role "other"; D11), and InfrastructureNode
+	// carries no Instances field (only workload DeploymentNodes do) — so this is
+	// a verified platform-wide constant, the same class as the Postgres sizing
+	// above, not an invented one.
+	defaultWebAppReplicas = 2
 )
 
 // bundleManifest is the deployable bundle's structured content: the image
@@ -272,8 +282,18 @@ type bundleManifest struct {
 // (the deployment model's node keys + declared instance counts, the bundle's
 // image refs) or one of the verified platform-wide conventions documented above.
 //
+// SELECTS BY ROLE, NEVER BY TECHNOLOGY (spec D11, founder ruling 2026-08-08). The
+// deployment model's deployable elements are `infrastructureNodes` carrying
+// machine-readable `role` values (gateway/identityProvider/database/other),
+// alongside workload DeploymentNodes matched by their ContainerInstance's
+// ContainerKey. The free-text `technology` field (e.g. "k8s", "k8s-namespace",
+// "Kubernetes Deployment") is never read: it puts Kubernetes vocabulary in the
+// Manager layer and couples assembly to an unconstrained string. Node structure
+// (children/containerInstances/infrastructureNodes) is what's walked; role/
+// relationships are what's SELECTED on.
+//
 // Fails loudly rather than defaulting: a model with no cloud environment, or a
-// workload/database node the model does not declare, is a real deployment
+// required role/workload with no matching node, is a real deployment
 // misconfiguration and must surface as an error the operator can read — never a
 // silently half-rendered deployment.
 func assembleDesiredState(proj projectstate.Project, bundle deployableBundle, _ operatedsystemstate.OperatedSystem) (operatedruntime.RuntimeDesiredState, error) {
@@ -292,25 +312,19 @@ func assembleDesiredState(proj projectstate.Project, bundle deployableBundle, _ 
 		return operatedruntime.RuntimeDesiredState{}, fmt.Errorf("assembleDesiredState: project %q's deployment model has no cloud environment", appName)
 	}
 
-	cluster, ok := findNodeByTechnology(env.Nodes, "k8s")
-	if !ok {
-		return operatedruntime.RuntimeDesiredState{}, fmt.Errorf("assembleDesiredState: project %q's cloud environment has no k8s cluster node", appName)
-	}
-
-	serverKey, webAppKey := appName+"-server", appName+"-webapp"
-
-	serverNode, serverNS, ok := findWorkload(cluster.Children, cluster, serverKey)
+	// Server: the workload DeploymentNode carrying the server ContainerInstance.
+	// Its PARENT is the app's own namespace — found structurally (no "cluster"
+	// pre-filter needed: the search is depth-first over the WHOLE environment, and
+	// the server container instance only legitimately exists once, under
+	// namespace -> workload).
+	serverKey := appName + "-server"
+	serverNode, namespace, ok := findWorkload(env.Nodes, projectstate.DeploymentNode{}, serverKey)
 	if !ok {
 		return operatedruntime.RuntimeDesiredState{}, fmt.Errorf("assembleDesiredState: project %q's cloud environment has no workload node for container %q", appName, serverKey)
 	}
-	webAppNode, webAppNS, ok := findWorkload(cluster.Children, cluster, webAppKey)
-	if !ok {
-		return operatedruntime.RuntimeDesiredState{}, fmt.Errorf("assembleDesiredState: project %q's cloud environment has no workload node for container %q", appName, webAppKey)
+	if serverNode.Instances < 1 {
+		return operatedruntime.RuntimeDesiredState{}, fmt.Errorf("assembleDesiredState: project %q's server workload node %q declares %d instances; want >= 1 (a 0-instance node is a real misconfiguration, not a scale-to-zero request)", appName, serverNode.Key, serverNode.Instances)
 	}
-	if serverNS.Key != webAppNS.Key {
-		return operatedruntime.RuntimeDesiredState{}, fmt.Errorf("assembleDesiredState: project %q's server (%s) and webapp (%s) workloads are declared in different namespaces", appName, serverNS.Key, webAppNS.Key)
-	}
-	namespace := serverNS
 
 	// The k8s namespace STRING is not itself a field anywhere on DeploymentNode —
 	// only the platform's own "ns-<appID>" node-key convention (verified: real
@@ -324,16 +338,47 @@ func assembleDesiredState(proj projectstate.Project, bundle deployableBundle, _ 
 		return operatedruntime.RuntimeDesiredState{}, fmt.Errorf("assembleDesiredState: project %q's resolved namespace node %q does not follow the ns-%s naming convention (server/webapp workloads must live under the app's own namespace)", appName, namespace.Key, appName)
 	}
 
-	pgNode, err := findDatabaseNode(namespace)
+	// WebApp: `archistrator-webapp`'s ContainerInstance legitimately sits on the
+	// architect's browser node (the SPA executes client-side) — that is correct,
+	// not a gap, and is never treated as a workload to deploy. The IN-CLUSTER
+	// thing is the static-asset server (nginx) that DELIVERS it, identified by
+	// its relationship to the webapp's ContainerInstance (D11 trap #1: role
+	// "other" alone is ambiguous — nginx and cloud-infra-temporal share it — so
+	// role is a filter, never the sole selector). The browser's ContainerInstance
+	// is itself the target of MORE than one relationship in the real committed
+	// model (e.g. "the architect uses the SPA") — only the one sourced from an
+	// infrastructure node actually in the app's own namespace is the serving
+	// node; a person or any other non-infra source is not a candidate.
+	webAppKey := appName + "-webapp"
+	webAppCIKey, ok := findContainerInstanceKey(env.Nodes, webAppKey)
+	if !ok {
+		return operatedruntime.RuntimeDesiredState{}, fmt.Errorf("assembleDesiredState: project %q's cloud environment has no containerInstance for %q anywhere (not even the architect's browser, where the SPA legitimately executes)", appName, webAppKey)
+	}
+	webAppNode, err := findServingInfrastructureNode(env.Relationships, namespace, webAppCIKey)
 	if err != nil {
 		return operatedruntime.RuntimeDesiredState{}, fmt.Errorf("assembleDesiredState: project %q: %w", appName, err)
 	}
 
-	if serverNode.Instances < 1 {
-		return operatedruntime.RuntimeDesiredState{}, fmt.Errorf("assembleDesiredState: project %q's server workload node %q declares %d instances; want >= 1 (a 0-instance node is a real misconfiguration, not a scale-to-zero request)", appName, serverNode.Key, serverNode.Instances)
+	// OIDC: the namespace's identityProvider-role node. Required (an app with no
+	// identity provider cannot be assembled), but its key isn't carried forward —
+	// OIDCSpec has no ModelKey field (see the task report's concern about this).
+	if _, err := findInfrastructureNodeByRole(namespace.InfrastructureNodes, projectstate.RoleIdentityProvider); err != nil {
+		return operatedruntime.RuntimeDesiredState{}, fmt.Errorf("assembleDesiredState: project %q: %w", appName, err)
 	}
-	if webAppNode.Instances < 1 {
-		return operatedruntime.RuntimeDesiredState{}, fmt.Errorf("assembleDesiredState: project %q's webapp workload node %q declares %d instances; want >= 1 (a 0-instance node is a real misconfiguration, not a scale-to-zero request)", appName, webAppNode.Key, webAppNode.Instances)
+
+	// Postgres: D11 trap #2 — production runs ONE archistrator-postgres CNPG
+	// cluster serving all three logical stores (operatedSystemState/billingState/
+	// usageLog), each modeled as its OWN database-role diagram node for
+	// independent health coloring. PostgresSpec carries a single ModelKey, so the
+	// three collapse to one: the alphabetically-first key, chosen only for a
+	// deterministic, reproducible pick among otherwise-equal candidates (no node
+	// is more "correct" than another to represent the shared resource). The
+	// renderer/health-overlay tasks (6/7) still need to attribute the ONE rendered
+	// resource's health back to all three diagram nodes — this ModelKey alone
+	// does not carry that fan-out; flagged in the task report.
+	dbNodes, err := findDatabaseNodes(namespace)
+	if err != nil {
+		return operatedruntime.RuntimeDesiredState{}, fmt.Errorf("assembleDesiredState: project %q: %w", appName, err)
 	}
 
 	var manifest bundleManifest
@@ -354,10 +399,10 @@ func assembleDesiredState(proj projectstate.Project, bundle deployableBundle, _ 
 		WebApp: operatedruntime.Workload{
 			ModelKey: webAppNode.Key,
 			Image:    manifest.WebAppImage,
-			Replicas: int64(webAppNode.Instances),
+			Replicas: defaultWebAppReplicas,
 		},
 		Postgres: operatedruntime.PostgresSpec{
-			ModelKey:     pgNode.Key,
+			ModelKey:     dbNodes[0].Key,
 			Enabled:      true,
 			Instances:    defaultPostgresInstances,
 			StorageClass: defaultPostgresStorageClass,
@@ -372,6 +417,9 @@ func assembleDesiredState(proj projectstate.Project, bundle deployableBundle, _ 
 }
 
 // findCloudEnvironment returns the deployment model's cloud-profile environment.
+// Profile is the model's own typed enum (projectstate.DeploymentProfile), not a
+// free-text field — selecting on it is not the D11 violation the retired
+// technology-string selection was.
 func findCloudEnvironment(envs []projectstate.DeploymentEnvironment) (projectstate.DeploymentEnvironment, bool) {
 	for _, e := range envs {
 		if e.Profile == projectstate.ProfileCloud {
@@ -381,27 +429,12 @@ func findCloudEnvironment(envs []projectstate.DeploymentEnvironment) (projectsta
 	return projectstate.DeploymentEnvironment{}, false
 }
 
-// findNodeByTechnology returns the first node (searched depth-first) whose
-// Technology matches tech — used to find the k8s cluster root structurally
-// rather than by a hardcoded node key, so architect-machine/external subtrees
-// (which carry no "k8s" node) are never mistaken for the deployed cluster.
-func findNodeByTechnology(nodes []projectstate.DeploymentNode, tech string) (projectstate.DeploymentNode, bool) {
-	for _, n := range nodes {
-		if n.Technology == tech {
-			return n, true
-		}
-		if found, ok := findNodeByTechnology(n.Children, tech); ok {
-			return found, true
-		}
-	}
-	return projectstate.DeploymentNode{}, false
-}
-
 // findWorkload walks nodes depth-first looking for a ContainerInstance whose
 // ContainerKey matches containerKey. ns is the caller's own node — the nearest
 // enclosing ancestor scanned so far — so the return value's namespace is the
-// direct parent of the matched workload (cluster -> namespace -> workload, the
-// convention every namespace node in the model follows).
+// direct parent of the matched workload (namespace -> workload, the structure
+// every namespace node in the model follows — walked structurally, never
+// filtered by a technology string first).
 func findWorkload(nodes []projectstate.DeploymentNode, ns projectstate.DeploymentNode, containerKey string) (workload, namespace projectstate.DeploymentNode, found bool) {
 	for _, n := range nodes {
 		for _, ci := range n.ContainerInstances {
@@ -416,22 +449,96 @@ func findWorkload(nodes []projectstate.DeploymentNode, ns projectstate.Deploymen
 	return projectstate.DeploymentNode{}, projectstate.DeploymentNode{}, false
 }
 
-// findDatabaseNode returns the namespace's single database-role infrastructure
-// node. Zero or more than one is a real modeling ambiguity (which database backs
-// this app?) — surfaced as an error rather than guessed.
-func findDatabaseNode(namespace projectstate.DeploymentNode) (projectstate.InfrastructureNode, error) {
+// findContainerInstanceKey returns the Key (not the ContainerKey) of the
+// ContainerInstance anywhere in nodes whose ContainerKey matches containerKey —
+// searched over the WHOLE tree, including subtrees that are not deployed
+// workloads (the architect-machine/browser subtree, which is exactly where the
+// webapp's own instance correctly lives).
+func findContainerInstanceKey(nodes []projectstate.DeploymentNode, containerKey string) (string, bool) {
+	for _, n := range nodes {
+		for _, ci := range n.ContainerInstances {
+			if ci.ContainerKey == containerKey {
+				return ci.Key, true
+			}
+		}
+		if key, ok := findContainerInstanceKey(n.Children, containerKey); ok {
+			return key, true
+		}
+	}
+	return "", false
+}
+
+// findServingInfrastructureNode returns the namespace's single infrastructure
+// node that a DeploymentRelationship names as the source ("from") of an edge
+// targeting ("to") toKey. A ContainerInstance can legitimately be the target of
+// MORE than one relationship in the real model (verified: the real committed
+// model's webapp containerInstance is ALSO the target of "the architect uses
+// the SPA", sourced from a DeploymentPerson, not an infrastructure node) — so
+// candidates are filtered to relationship sources that actually resolve to an
+// infrastructure node IN THE APP'S OWN NAMESPACE before counting. Zero or more
+// than one surviving candidate is a real modeling ambiguity, surfaced as an
+// error rather than guessed — the same discipline findInfrastructureNodeByRole
+// and findDatabaseNodes apply to role counts.
+func findServingInfrastructureNode(rels []projectstate.DeploymentRelationship, namespace projectstate.DeploymentNode, toKey string) (projectstate.InfrastructureNode, error) {
+	seen := map[string]bool{}
 	var matches []projectstate.InfrastructureNode
-	for _, in := range namespace.InfrastructureNodes {
-		if in.Role == projectstate.RoleDatabase {
-			matches = append(matches, in)
+	for _, r := range rels {
+		if r.To != toKey || seen[r.From] {
+			continue
+		}
+		for _, n := range namespace.InfrastructureNodes {
+			if n.Key == r.From {
+				matches = append(matches, n)
+				seen[r.From] = true
+				break
+			}
 		}
 	}
 	switch len(matches) {
 	case 1:
 		return matches[0], nil
 	case 0:
-		return projectstate.InfrastructureNode{}, fmt.Errorf("namespace %q declares no database infrastructure node", namespace.Key)
+		return projectstate.InfrastructureNode{}, fmt.Errorf("no relationship delivers %q from an infrastructure node in namespace %q", toKey, namespace.Key)
 	default:
-		return projectstate.InfrastructureNode{}, fmt.Errorf("namespace %q declares %d database infrastructure nodes; expected exactly one", namespace.Key, len(matches))
+		return projectstate.InfrastructureNode{}, fmt.Errorf("%d relationships deliver %q from distinct infrastructure nodes in namespace %q; expected exactly one", len(matches), toKey, namespace.Key)
 	}
+}
+
+// findInfrastructureNodeByRole returns the namespace's single infrastructure
+// node carrying role. Zero or more than one is a real modeling ambiguity,
+// surfaced as an error rather than guessed.
+func findInfrastructureNodeByRole(nodes []projectstate.InfrastructureNode, role projectstate.ElementRole) (projectstate.InfrastructureNode, error) {
+	var matches []projectstate.InfrastructureNode
+	for _, n := range nodes {
+		if n.Role == role {
+			matches = append(matches, n)
+		}
+	}
+	switch len(matches) {
+	case 1:
+		return matches[0], nil
+	case 0:
+		return projectstate.InfrastructureNode{}, fmt.Errorf("no infrastructure node with role %q", role)
+	default:
+		return projectstate.InfrastructureNode{}, fmt.Errorf("%d infrastructure nodes with role %q; expected exactly one", len(matches), role)
+	}
+}
+
+// findDatabaseNodes returns every database-role infrastructure node declared in
+// namespace, sorted by Key for a deterministic pick (D11 trap #2: several
+// diagram nodes can legitimately share one production resource). At least one
+// is required — zero is a real misconfiguration (which database backs this
+// app?).
+func findDatabaseNodes(namespace projectstate.DeploymentNode) ([]projectstate.InfrastructureNode, error) {
+	var matches []projectstate.InfrastructureNode
+	for _, in := range namespace.InfrastructureNodes {
+		if in.Role == projectstate.RoleDatabase {
+			matches = append(matches, in)
+		}
+	}
+	if len(matches) == 0 {
+		return nil, fmt.Errorf("namespace %q declares no database infrastructure node", namespace.Key)
+	}
+	sort.Slice(matches, func(i, j int) bool { return matches[i].Key < matches[j].Key })
+	return matches, nil
 }

@@ -55,6 +55,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -1234,15 +1236,17 @@ func mustJSON(t *testing.T, v bundleManifest) []byte {
 	return b
 }
 
-// projectFixture builds a complete, self-consistent "archistrator" project with a
-// cloud deployment environment: a k8s cluster node containing the archistrator
-// namespace, which declares the server + webapp workload nodes (each carrying the
-// container instance assembleDesiredState looks for) and one database
-// infrastructure node. It also carries a decoy: an architect-machine/browser
-// subtree OUTSIDE the k8s cluster node whose browser instances the webapp
-// container too (mirroring the real committed model, where the SPA's browser
-// instance is NOT a deployed workload) — proving the k8s-scoped walk does not
-// mistake it for the deployed webapp.
+// projectFixture builds a complete, self-consistent "archistrator" project whose
+// cloud deployment environment MIRRORS THE REAL COMMITTED STRUCTURE (verified
+// against .aiarch/state/project.json, founder ruling 2026-08-08 correcting the
+// original round-1 brief): a namespace declaring ONE workload node (the server)
+// plus role-carrying infrastructure nodes — gateway, identityProvider, the
+// webapp's static-asset server (role "other", disambiguated from the decoy
+// cloud-infra-temporal-alike node below by its relationship to the webapp's
+// containerInstance, not by role — D11 trap #1), and three database nodes
+// collapsed to one PostgresSpec (D11 trap #2). The webapp's own containerInstance
+// legitimately sits on the architect's browser (D11 trap #3) — that subtree is
+// NOT a decoy, it is the correct place for it.
 //
 // testProject (below) is this fixture under the exact name the task brief's given
 // test calls; registerActs (above) shares this SAME builder so the pre-existing
@@ -1273,24 +1277,26 @@ func projectFixture() projectstate.Project {
 			{Key: "cloud-ci-server", ContainerKey: "archistrator-server"},
 		},
 	}
-	webappDeployment := projectstate.DeploymentNode{
-		Key:        "cloud-node-webapp-deployment",
-		Name:       "webapp Deployment",
-		Technology: "Kubernetes Deployment",
-		Instances:  1,
-		ContainerInstances: []projectstate.ContainerInstance{
-			{Key: "cloud-ci-webapp", ContainerKey: "archistrator-webapp"},
-		},
-	}
 	namespace := projectstate.DeploymentNode{
 		Key:        "cloud-node-ns-archistrator",
 		Name:       "archistrator namespace",
 		Technology: "k8s-namespace",
-		Children:   []projectstate.DeploymentNode{serverDeployment, webappDeployment},
+		Children:   []projectstate.DeploymentNode{serverDeployment},
 		InfrastructureNodes: []projectstate.InfrastructureNode{
-			{Key: "cloud-node-postgres", Name: "Postgres", Technology: "CloudNativePG", Role: projectstate.RoleDatabase},
+			{Key: "cloud-infra-gateway", Name: "Envoy Gateway", Role: projectstate.RoleGateway},
+			{Key: "cloud-infra-keycloak", Name: "Keycloak", Role: projectstate.RoleIdentityProvider},
+			{Key: "cloud-infra-static-assets", Name: "Static asset server", Role: projectstate.RoleOther},
+			{Key: "cloud-infra-operatedsystemstate", Name: "OperatedSystemState", Role: projectstate.RoleDatabase},
+			{Key: "cloud-infra-billingstate", Name: "BillingState", Role: projectstate.RoleDatabase},
+			{Key: "cloud-infra-usagelog", Name: "UsageLog", Role: projectstate.RoleDatabase},
 		},
 	}
+	// decoyOtherRoleNode: a SECOND role:"other" node in the SAME namespace as the
+	// real static-asset server, with no relationship delivering the webapp
+	// container — proves the D11 trap #1 disambiguation is real (relationship,
+	// not "the only role:other node I happened to find").
+	namespace.InfrastructureNodes = append(namespace.InfrastructureNodes,
+		projectstate.InfrastructureNode{Key: "cloud-infra-temporal", Name: "DurableExecutionRuntime", Role: projectstate.RoleOther})
 	cluster := projectstate.DeploymentNode{
 		Key:        "cloud-node-cluster",
 		Name:       "Mixofreality Kubernetes Cluster",
@@ -1305,6 +1311,11 @@ func projectFixture() projectstate.Project {
 					Profile: projectstate.ProfileCloud,
 					Title:   "Cloud",
 					Nodes:   []projectstate.DeploymentNode{architectMachine, cluster},
+					// The relationship is what identifies the static-asset node as the
+					// webapp's serving node (D11 trap #1) — role alone is ambiguous.
+					Relationships: []projectstate.DeploymentRelationship{
+						{From: "cloud-infra-static-assets", To: "cloud-ci-spa-browser", Label: "Delivers the SPA to the architect's browser", Technology: "HTTPS", Mode: projectstate.CallSync},
+					},
 				},
 				{
 					Profile: projectstate.ProfileTest,
@@ -1376,21 +1387,26 @@ func TestAssembleDesiredState_MapsCloudEnvironmentAndBundleImages(t *testing.T) 
 
 	// Additional coverage beyond the brief's given assertions, exercising the rest
 	// of the fold: image threading, replicas-from-model, webapp/postgres node
-	// resolution, and OIDC/ModelKey derivation.
+	// resolution (D11 role-based selection), and OIDC/ModelKey derivation.
 	if got.Server.Image != "ghcr.io/mixofreality-studio/archistrator-server:0.8.16" {
 		t.Errorf("Server.Image = %q", got.Server.Image)
 	}
 	if got.Server.Replicas != 2 {
 		t.Errorf("Server.Replicas = %d, want 2 (from the model's declared instances)", got.Server.Replicas)
 	}
-	if got.WebApp.ModelKey != "cloud-node-webapp-deployment" {
-		t.Errorf("WebApp.ModelKey = %q, want cloud-node-webapp-deployment", got.WebApp.ModelKey)
+	// WebApp.ModelKey is the STATIC-ASSET node's key (D11 trap #3), never the
+	// browser node's — the browser is where archistrator-webapp's containerInstance
+	// legitimately lives, but it must never be colored by cluster health.
+	if got.WebApp.ModelKey != "cloud-infra-static-assets" {
+		t.Errorf("WebApp.ModelKey = %q, want cloud-infra-static-assets (the serving node, not the browser)", got.WebApp.ModelKey)
 	}
 	if got.WebApp.Image != "ghcr.io/mixofreality-studio/archistrator-webapp:0.6.61" {
 		t.Errorf("WebApp.Image = %q", got.WebApp.Image)
 	}
-	if got.Postgres.ModelKey != "cloud-node-postgres" || !got.Postgres.Enabled {
-		t.Errorf("Postgres = %+v", got.Postgres)
+	// Postgres.ModelKey collapses the three database-role nodes to one,
+	// deterministically the alphabetically-first key (D11 trap #2).
+	if got.Postgres.ModelKey != "cloud-infra-billingstate" || !got.Postgres.Enabled {
+		t.Errorf("Postgres = %+v, want ModelKey=cloud-infra-billingstate (alphabetically first of the 3 database nodes) Enabled=true", got.Postgres)
 	}
 	if got.ModelKey != "cloud-node-ns-archistrator" {
 		t.Errorf("ModelKey = %q, want cloud-node-ns-archistrator", got.ModelKey)
@@ -1408,27 +1424,34 @@ func TestAssembleDesiredState_RejectsAModelWithNoCloudEnvironment(t *testing.T) 
 	}
 }
 
+// namespaceFor is a test helper: the fixture's resolved cluster -> namespace
+// path is the same two hops in every mutation test below.
+func namespaceFor(model *projectstate.DeploymentOperationsModel) *projectstate.DeploymentNode {
+	cluster := &model.Deployment.Environments[0].Nodes[1]
+	return &cluster.Children[0]
+}
+
+func fixtureBundle(t *testing.T) deployableBundle {
+	return deployableBundle{Output: artifact.ConstructionOutput{
+		Bytes:    mustJSON(t, bundleManifest{ServerImage: "s:1", WebAppImage: "w:1"}),
+		MIMEType: "application/json",
+	}}
+}
+
 // TestAssembleDesiredState_RejectsAWorkloadNodeWithNoMatchingContainerInstance
 // covers the "fail loudly rather than defaulting" requirement directly: a cloud
-// environment whose namespace carries no matching webapp container instance is a
+// environment whose namespace carries no matching server container instance is a
 // real misconfiguration, not a silently half-rendered deployment.
 func TestAssembleDesiredState_RejectsAWorkloadNodeWithNoMatchingContainerInstance(t *testing.T) {
 	proj := testProject(t)
 	model := proj.OperationalConcepts.Model.(*projectstate.DeploymentOperationsModel)
-	// Drop the webapp workload node from the archistrator namespace's children,
-	// leaving only the server deployment — mirrors the real committed operational-
-	// concepts model, which has no cloud-node-webapp-deployment node yet.
-	cluster := &model.Deployment.Environments[0].Nodes[1]
-	namespace := &cluster.Children[0]
-	namespace.Children = namespace.Children[:1]
+	// Drop the server workload node entirely, leaving the namespace with only
+	// infrastructure nodes.
+	namespaceFor(model).Children = nil
 
-	bundle := deployableBundle{Output: artifact.ConstructionOutput{
-		Bytes:    mustJSON(t, bundleManifest{ServerImage: "s:1", WebAppImage: "w:1"}),
-		MIMEType: "application/json",
-	}}
-	_, err := assembleDesiredState(proj, bundle, operatedsystemstate.OperatedSystem{})
+	_, err := assembleDesiredState(proj, fixtureBundle(t), operatedsystemstate.OperatedSystem{})
 	if err == nil {
-		t.Fatal("expected an error when the model has no webapp workload node")
+		t.Fatal("expected an error when the model has no server workload node")
 	}
 }
 
@@ -1438,17 +1461,12 @@ func TestAssembleDesiredState_RejectsAWorkloadNodeWithNoMatchingContainerInstanc
 func TestAssembleDesiredState_RejectsANamespaceThatDisagreesWithTheAppID(t *testing.T) {
 	proj := testProject(t)
 	model := proj.OperationalConcepts.Model.(*projectstate.DeploymentOperationsModel)
-	cluster := &model.Deployment.Environments[0].Nodes[1]
 	// Rename the namespace node so it no longer follows the ns-<appID> convention
 	// (e.g. an architect declared a differently-named namespace) — must fail
 	// loudly, not silently deploy to "archistrator" anyway.
-	cluster.Children[0].Key = "cloud-node-ns-foo"
+	namespaceFor(model).Key = "cloud-node-ns-foo"
 
-	bundle := deployableBundle{Output: artifact.ConstructionOutput{
-		Bytes:    mustJSON(t, bundleManifest{ServerImage: "s:1", WebAppImage: "w:1"}),
-		MIMEType: "application/json",
-	}}
-	_, err := assembleDesiredState(proj, bundle, operatedsystemstate.OperatedSystem{})
+	_, err := assembleDesiredState(proj, fixtureBundle(t), operatedsystemstate.OperatedSystem{})
 	if err == nil {
 		t.Fatal("expected an error when the resolved namespace node disagrees with the app id")
 	}
@@ -1460,16 +1478,153 @@ func TestAssembleDesiredState_RejectsANamespaceThatDisagreesWithTheAppID(t *test
 func TestAssembleDesiredState_RejectsAZeroInstanceWorkload(t *testing.T) {
 	proj := testProject(t)
 	model := proj.OperationalConcepts.Model.(*projectstate.DeploymentOperationsModel)
-	cluster := &model.Deployment.Environments[0].Nodes[1]
-	namespace := &cluster.Children[0]
-	namespace.Children[0].Instances = 0 // server workload
+	namespaceFor(model).Children[0].Instances = 0 // server workload
 
-	bundle := deployableBundle{Output: artifact.ConstructionOutput{
-		Bytes:    mustJSON(t, bundleManifest{ServerImage: "s:1", WebAppImage: "w:1"}),
-		MIMEType: "application/json",
-	}}
-	_, err := assembleDesiredState(proj, bundle, operatedsystemstate.OperatedSystem{})
+	_, err := assembleDesiredState(proj, fixtureBundle(t), operatedsystemstate.OperatedSystem{})
 	if err == nil {
 		t.Fatal("expected an error when a workload node declares 0 instances")
+	}
+}
+
+// TestAssembleDesiredState_RejectsMissingIdentityProvider covers D11: an
+// identityProvider-role node is required (an app with no OIDC provider cannot be
+// assembled); its absence must fail loudly, not silently omit OIDC.
+func TestAssembleDesiredState_RejectsMissingIdentityProvider(t *testing.T) {
+	proj := testProject(t)
+	model := proj.OperationalConcepts.Model.(*projectstate.DeploymentOperationsModel)
+	ns := namespaceFor(model)
+	kept := ns.InfrastructureNodes[:0]
+	for _, in := range ns.InfrastructureNodes {
+		if in.Role != projectstate.RoleIdentityProvider {
+			kept = append(kept, in)
+		}
+	}
+	ns.InfrastructureNodes = kept
+
+	_, err := assembleDesiredState(proj, fixtureBundle(t), operatedsystemstate.OperatedSystem{})
+	if err == nil {
+		t.Fatal("expected an error when the namespace has no identityProvider node")
+	}
+}
+
+// TestAssembleDesiredState_RejectsMissingDatabaseNodes covers D11: zero
+// database-role nodes is a real misconfiguration (which database backs this
+// app?), not an omitted-but-tolerated Postgres.
+func TestAssembleDesiredState_RejectsMissingDatabaseNodes(t *testing.T) {
+	proj := testProject(t)
+	model := proj.OperationalConcepts.Model.(*projectstate.DeploymentOperationsModel)
+	ns := namespaceFor(model)
+	kept := ns.InfrastructureNodes[:0]
+	for _, in := range ns.InfrastructureNodes {
+		if in.Role != projectstate.RoleDatabase {
+			kept = append(kept, in)
+		}
+	}
+	ns.InfrastructureNodes = kept
+
+	_, err := assembleDesiredState(proj, fixtureBundle(t), operatedsystemstate.OperatedSystem{})
+	if err == nil {
+		t.Fatal("expected an error when the namespace has no database node")
+	}
+}
+
+// TestAssembleDesiredState_RejectsAWebAppWithNoDeliveringRelationship covers
+// D11 trap #1 directly: role:"other" alone is ambiguous (the fixture's decoy
+// cloud-infra-temporal-alike node shares it) — with the relationship removed,
+// nothing identifies a serving node, and the fold must fail loudly rather than
+// guess between the two role:"other" candidates.
+func TestAssembleDesiredState_RejectsAWebAppWithNoDeliveringRelationship(t *testing.T) {
+	proj := testProject(t)
+	model := proj.OperationalConcepts.Model.(*projectstate.DeploymentOperationsModel)
+	model.Deployment.Environments[0].Relationships = nil
+
+	_, err := assembleDesiredState(proj, fixtureBundle(t), operatedsystemstate.OperatedSystem{})
+	if err == nil {
+		t.Fatal("expected an error when no relationship identifies the webapp's serving node")
+	}
+}
+
+// TestAssembleDesiredState_AgainstTheRealCommittedModel is the round-2 check:
+// assembleDesiredState must SUCCEED against archistrator's own real, committed
+// .aiarch/state/project.json cloud environment — not a hand-authored fixture.
+// The founder's round-1 framing ("the model lacks a webapp/postgres node") was
+// wrong; the model DOES describe the deployment, via infrastructureNodes +
+// role, not containerInstances. This test is the proof.
+func TestAssembleDesiredState_AgainstTheRealCommittedModel(t *testing.T) {
+	proj := realArchistratorProject(t)
+	bundle := deployableBundle{Output: artifact.ConstructionOutput{
+		Bytes:    mustJSON(t, bundleManifest{ServerImage: "ghcr.io/mixofreality-studio/archistrator-server:0.8.16", WebAppImage: "ghcr.io/mixofreality-studio/archistrator-webapp:0.6.61"}),
+		MIMEType: "application/json",
+	}}
+	op := operatedsystemstate.OperatedSystem{ID: uuid.New(), Version: 1}
+
+	got, err := assembleDesiredState(proj, bundle, op)
+	if err != nil {
+		t.Fatalf("assembleDesiredState against the real committed model: %v", err)
+	}
+
+	if got.AppName != "archistrator" || got.Namespace != "archistrator" {
+		t.Errorf("AppName/Namespace = %q/%q, want archistrator/archistrator", got.AppName, got.Namespace)
+	}
+	if got.ModelKey != "cloud-node-ns-archistrator" {
+		t.Errorf("ModelKey = %q, want cloud-node-ns-archistrator", got.ModelKey)
+	}
+	if !got.SelfManaged {
+		t.Error("archistrator's own project must assemble as SelfManaged")
+	}
+	if got.Server.ModelKey != "cloud-node-server-deployment" || got.Server.Replicas != 2 {
+		t.Errorf("Server = %+v, want ModelKey=cloud-node-server-deployment Replicas=2", got.Server)
+	}
+	if got.WebApp.ModelKey != "cloud-infra-static-assets" {
+		t.Errorf("WebApp.ModelKey = %q, want cloud-infra-static-assets", got.WebApp.ModelKey)
+	}
+	wantDBKeys := map[string]bool{"cloud-infra-operatedsystemstate": true, "cloud-infra-billingstate": true, "cloud-infra-usagelog": true}
+	if !wantDBKeys[got.Postgres.ModelKey] || !got.Postgres.Enabled {
+		t.Errorf("Postgres = %+v, want ModelKey in %v Enabled=true", got.Postgres, wantDBKeys)
+	}
+	if got.OIDC.Issuer == "" || got.OIDC.ClientID == "" {
+		t.Errorf("OIDC = %+v, want both Issuer and ClientID populated", got.OIDC)
+	}
+}
+
+// realArchistratorProject reads the real, committed .aiarch/state/project.json
+// straight off disk and decodes just enough of it (the operational-concepts
+// slot) to exercise assembleDesiredState against reality, without pulling in
+// the full projectstate.GitStore machinery (an on-disk git worktree read this
+// test doesn't need). Deliberately narrow: only proj.ID and
+// proj.OperationalConcepts.Model are populated — the two fields
+// assembleDesiredState reads.
+func realArchistratorProject(t *testing.T) projectstate.Project {
+	t.Helper()
+	// server/internal/manager/operations -> server -> repo root -> .aiarch/state/project.json
+	path := filepath.Join("..", "..", "..", "..", ".aiarch", "state", "project.json")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	var doc struct {
+		ID    string `json:"id"`
+		Slots map[string]struct {
+			Model struct {
+				Deployment json.RawMessage `json:"deployment"`
+			} `json:"model"`
+		} `json:"slots"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("unmarshal %s: %v", path, err)
+	}
+	slot6, ok := doc.Slots["6"]
+	if !ok {
+		t.Fatalf("%s has no slot 6 (operational concepts)", path)
+	}
+	var topology projectstate.DeploymentTopology
+	if err := json.Unmarshal(slot6.Model.Deployment, &topology); err != nil {
+		t.Fatalf("unmarshal slot 6 deployment topology: %v", err)
+	}
+	return projectstate.Project{
+		ID: projectstate.ProjectID(doc.ID),
+		OperationalConcepts: projectstate.ArtifactSlot{
+			Model: &projectstate.DeploymentOperationsModel{Deployment: topology},
+		},
 	}
 }
