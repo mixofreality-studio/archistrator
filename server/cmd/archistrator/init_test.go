@@ -83,6 +83,47 @@ func TestRunInit_EmptyDir_ProducesArtifacts(t *testing.T) {
 // requirement: re-running init on an already-scaffolded directory adopts the
 // existing repo and NEVER clobbers a committed project.json or a
 // hand-edited .mcp.json entry for a different server.
+// The must* helpers below carry the "an IO/JSON failure in test SETUP is a fatal,
+// not an assertion" boilerplate that otherwise doubles the length — and the
+// cyclomatic complexity — of every fixture-heavy test in this package.
+
+// mustRead reads a file the test has already created; a failure is setup, not a
+// finding.
+func mustRead(t *testing.T, path string) []byte {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	return b
+}
+
+// mustWrite writes a fixture file.
+func mustWrite(t *testing.T, path string, b []byte) {
+	t.Helper()
+	if err := os.WriteFile(path, b, 0o644); err != nil {
+		t.Fatalf("write %s: %v", path, err)
+	}
+}
+
+// mustUnmarshal decodes JSON the test itself produced or just read back.
+func mustUnmarshal(t *testing.T, b []byte, v any) {
+	t.Helper()
+	if err := json.Unmarshal(b, v); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+}
+
+// mustMarshal encodes a fixture document.
+func mustMarshal(t *testing.T, v any) []byte {
+	t.Helper()
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	return b
+}
+
 func TestRunInit_Idempotent_NeverClobbers(t *testing.T) {
 	requireGit(t)
 	dir := t.TempDir()
@@ -96,28 +137,14 @@ func TestRunInit_Idempotent_NeverClobbers(t *testing.T) {
 	// .aiarch/state/, and hand-add an unrelated MCP server entry.
 	stateFile := filepath.Join(dir, ".aiarch", "state", "project.json")
 	marker := []byte(`{"id":"deadbeef","version":1}`)
-	if err := os.WriteFile(stateFile, marker, 0o644); err != nil {
-		t.Fatalf("seed project.json: %v", err)
-	}
+	mustWrite(t, stateFile, marker)
 
 	mcpPath := filepath.Join(dir, ".mcp.json")
-	raw, err := os.ReadFile(mcpPath)
-	if err != nil {
-		t.Fatalf("read .mcp.json: %v", err)
-	}
 	var doc map[string]any
-	if err := json.Unmarshal(raw, &doc); err != nil {
-		t.Fatalf("unmarshal .mcp.json: %v", err)
-	}
+	mustUnmarshal(t, mustRead(t, mcpPath), &doc)
 	servers, _ := doc["mcpServers"].(map[string]any)
 	servers["other-tool"] = map[string]any{"command": "other-tool", "args": []string{"serve"}}
-	out2, err := json.Marshal(doc)
-	if err != nil {
-		t.Fatalf("marshal .mcp.json: %v", err)
-	}
-	if err := os.WriteFile(mcpPath, out2, 0o644); err != nil {
-		t.Fatalf("rewrite .mcp.json: %v", err)
-	}
+	mustWrite(t, mcpPath, mustMarshal(t, doc))
 
 	// Re-run init.
 	var second bytes.Buffer
@@ -126,25 +153,17 @@ func TestRunInit_Idempotent_NeverClobbers(t *testing.T) {
 	}
 
 	// project.json byte-identical — never clobbered.
-	gotMarker, err := os.ReadFile(stateFile)
-	if err != nil {
-		t.Fatalf("re-read project.json: %v", err)
-	}
+	gotMarker := mustRead(t, stateFile)
 	if !bytes.Equal(gotMarker, marker) {
 		t.Fatalf("project.json was modified by re-running init: got %s, want %s", gotMarker, marker)
 	}
 
 	// .mcp.json still has BOTH entries.
-	raw3, err := os.ReadFile(mcpPath)
-	if err != nil {
-		t.Fatalf("re-read .mcp.json: %v", err)
-	}
+	raw3 := mustRead(t, mcpPath)
 	var doc3 struct {
 		MCPServers map[string]json.RawMessage `json:"mcpServers"`
 	}
-	if err := json.Unmarshal(raw3, &doc3); err != nil {
-		t.Fatalf("unmarshal .mcp.json after re-init: %v", err)
-	}
+	mustUnmarshal(t, raw3, &doc3)
 	if _, ok := doc3.MCPServers["archistrator"]; !ok {
 		t.Fatalf(".mcp.json lost the archistrator entry after re-init: %s", raw3)
 	}

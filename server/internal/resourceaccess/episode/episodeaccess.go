@@ -310,7 +310,7 @@ func (a *localFSEpisodeAccess) ReadTraceEvents(_ fwra.Context, projectID Project
 	}
 
 	var out []json.RawMessage
-	for _, l := range bytes.Split(data, []byte("\n")) {
+	for l := range bytes.SplitSeq(data, []byte("\n")) {
 		if len(bytes.TrimSpace(l)) == 0 {
 			continue
 		}

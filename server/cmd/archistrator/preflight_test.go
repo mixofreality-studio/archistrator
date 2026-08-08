@@ -108,7 +108,7 @@ func TestRunPreflight_AuthProbeFails_NotFatal_ButReported(t *testing.T) {
 
 func mustLookPath(t *testing.T, name string) string {
 	t.Helper()
-	for _, dir := range strings.Split(os.Getenv("PATH"), string(os.PathListSeparator)) {
+	for dir := range strings.SplitSeq(os.Getenv("PATH"), string(os.PathListSeparator)) {
 		p := filepath.Join(dir, name)
 		if info, err := os.Stat(p); err == nil && !info.IsDir() {
 			return p

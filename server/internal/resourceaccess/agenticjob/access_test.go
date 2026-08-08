@@ -55,6 +55,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -1374,13 +1375,25 @@ func TestLocalExecSubmit_HappyPath_SpawnsClaudeWithCorrectShapeAndPushesCommit(t
 	sandboxCfg := assertSandboxSettingsEnvelope(t, capture, 0)
 	assertSandboxFilesystemAllowWrite(t, sandboxCfg, pwd, filepath.Join(sharedDir, ".git"))
 
-	// Env allowlist (Fix-subagent Task 6 + USER/LOGNAME for claude subscription auth):
-	// EXACTLY PATH/HOME/TERM/USER/LOGNAME + the six AIARCH_* rig vars cross into the
-	// child — no other parent var leaks. shellInjectedVars are NOT part of cmd.Env at
-	// all — /bin/sh itself sets PWD/SHLVL/_ on every invocation regardless of the
-	// incoming env (a shim-script artifact of capturing via `env` inside a spawned sh),
-	// so they are excluded from the exact-membership check below rather than asserted on.
-	env := readCapturedEnv(t, capture, 0)
+	assertChildEnvAllowlist(t, capture, 0)
+}
+
+// assertChildEnvAllowlist pins the env allowlist (Fix-subagent Task 6 +
+// USER/LOGNAME for claude subscription auth): EXACTLY PATH/HOME/TERM/USER/LOGNAME
+// plus the six AIARCH_* rig vars cross into the child, and no other parent var
+// leaks.
+//
+// shellInjectedVars are NOT part of cmd.Env at all — /bin/sh itself sets
+// PWD/SHLVL/_ on every invocation regardless of the incoming env (a shim-script
+// artifact of capturing via `env` inside a spawned sh), so they are excluded from
+// the exact-membership check rather than asserted on.
+//
+// Requires the caller to have set the sentinel parent-only vars the leak checks
+// look for (ARCHISTRATOR_TEST_PARENT_ONLY_SECRET, ANTHROPIC_API_KEY): the point is
+// that the allowlist is a CONSTRUCTED list, not a filtered passthrough.
+func assertChildEnvAllowlist(t *testing.T, capture string, index int) {
+	t.Helper()
+	env := readCapturedEnv(t, capture, index)
 	shellInjectedVars := map[string]bool{"PWD": true, "SHLVL": true, "_": true}
 	wantKeys := []string{
 		"PATH", "HOME", "TERM", "USER", "LOGNAME",
@@ -1588,7 +1601,7 @@ func readCapturedEnv(t *testing.T, captureDir string, n int) map[string]string {
 		t.Fatalf("read captured env: %v", err)
 	}
 	out := map[string]string{}
-	for _, line := range strings.Split(strings.TrimRight(string(raw), "\n"), "\n") {
+	for line := range strings.SplitSeq(strings.TrimRight(string(raw), "\n"), "\n") {
 		if line == "" {
 			continue
 		}
@@ -2153,12 +2166,7 @@ func mustContainArg(t *testing.T, args []string, want string) {
 }
 
 func containsArg(args []string, want string) bool {
-	for _, a := range args {
-		if a == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(args, want)
 }
 
 // mustContainAdjacentPair asserts flag immediately precedes value somewhere
@@ -2574,6 +2582,34 @@ func assertBranchForkedOffMain(t *testing.T, sharedDir, branch string) {
 // branch-created-off-main + branch-advance assertions each time; the mechanism is
 // mode-agnostic at this layer (the .claude command decides model vs verdict vs responses —
 // the RA only spawns).
+// assertDesignEnvIsExactlyTheDesignSet proves the design arm did not leak the
+// construct rig: the child carries NO construct-only ambient vars and EXACTLY the
+// five-var aiarch-design.yml AIARCH_* set.
+func assertDesignEnvIsExactlyTheDesignSet(t *testing.T, capture string, index int, mode string) {
+	t.Helper()
+	env := readCapturedEnv(t, capture, index)
+	for _, forbidden := range []string{"AIARCH_COMPONENT_ID", "AIARCH_ACTIVITY_ID"} {
+		if _, present := env[forbidden]; present {
+			t.Fatalf("[%s] design child env leaked construct-only var %s (%v)", mode, forbidden, envKeys(env))
+		}
+	}
+	wantAIARCH := []string{"AIARCH_PROJECT_ID", "AIARCH_ARTIFACT_KIND", "AIARCH_JOB_MODE", "AIARCH_TARGET_BRANCH", "AIARCH_STATE_ROOT"}
+	for _, k := range wantAIARCH {
+		if _, ok := env[k]; !ok {
+			t.Errorf("[%s] design child env missing %s", mode, k)
+		}
+	}
+	gotAIARCH := 0
+	for k := range env {
+		if strings.HasPrefix(k, "AIARCH_") {
+			gotAIARCH++
+		}
+	}
+	if gotAIARCH != len(wantAIARCH) {
+		t.Fatalf("[%s] design child env has %d AIARCH_* vars, want exactly %d %v; got %v", mode, gotAIARCH, len(wantAIARCH), wantAIARCH, envKeys(env))
+	}
+}
+
 func TestLocalExecSubmit_DesignJob_FirstOfSession_CreatesBranchOffMain_AllModes(t *testing.T) {
 	for _, mode := range []string{"draft", "critique", "answer"} {
 		t.Run(mode, func(t *testing.T) {
@@ -2637,29 +2673,7 @@ func TestLocalExecSubmit_DesignJob_FirstOfSession_CreatesBranchOffMain_AllModes(
 				"AIARCH_TARGET_BRANCH": branch,
 			})
 
-			// The design envelope carries NO construct-only ambient vars, and is EXACTLY
-			// the 5-var aiarch-design.yml set — proving the arm did not leak the construct rig.
-			env := readCapturedEnv(t, capture, 0)
-			for _, forbidden := range []string{"AIARCH_COMPONENT_ID", "AIARCH_ACTIVITY_ID"} {
-				if _, present := env[forbidden]; present {
-					t.Fatalf("[%s] design child env leaked construct-only var %s (%v)", mode, forbidden, envKeys(env))
-				}
-			}
-			wantAIARCH := []string{"AIARCH_PROJECT_ID", "AIARCH_ARTIFACT_KIND", "AIARCH_JOB_MODE", "AIARCH_TARGET_BRANCH", "AIARCH_STATE_ROOT"}
-			for _, k := range wantAIARCH {
-				if _, ok := env[k]; !ok {
-					t.Errorf("[%s] design child env missing %s", mode, k)
-				}
-			}
-			gotAIARCH := 0
-			for k := range env {
-				if strings.HasPrefix(k, "AIARCH_") {
-					gotAIARCH++
-				}
-			}
-			if gotAIARCH != len(wantAIARCH) {
-				t.Fatalf("[%s] design child env has %d AIARCH_* vars, want exactly %d %v; got %v", mode, gotAIARCH, len(wantAIARCH), wantAIARCH, envKeys(env))
-			}
+			assertDesignEnvIsExactlyTheDesignSet(t, capture, 0, mode)
 
 			// Tier-2 sandbox posture unchanged (THE INVARIANT), and the filesystem scope
 			// covers the worktree + the shared git dir — identical to the construct arm.
@@ -2806,7 +2820,7 @@ func readSeatArgs(t *testing.T, captureDir string) []string {
 		t.Fatalf("read seat-assets args: %v", err)
 	}
 	var out []string
-	for _, l := range strings.Split(strings.TrimRight(string(raw), "\n"), "\n") {
+	for l := range strings.SplitSeq(strings.TrimRight(string(raw), "\n"), "\n") {
 		if l != "" {
 			out = append(out, l)
 		}

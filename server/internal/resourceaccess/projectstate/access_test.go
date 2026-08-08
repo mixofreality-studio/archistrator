@@ -95,9 +95,28 @@ func TestProjectStateGitAdapter_UC1ArtifactLandsInGit(t *testing.T) {
 		t.Fatalf("CreateProject version = %d, want 1", v1)
 	}
 
-	// Stage the mission typed model (UC1 step 1 — systemDesignManager stages the draft).
-	// The main-branch StageArtifactForReview contract op was retired (Wave-1 fossil prune);
-	// staging now rides the surviving designSession branch verb with an empty branch (== main).
+	v3 := stageAndCommitMission(ctx, t, state, id, v1)
+	assertMissionReadsBackFromGit(ctx, t, state, id, v3)
+
+	// The catalog read (ListProjects) surfaces the project by ENUMERATING the on-disk
+	// project repo (discover-by-enumeration) — no registry index, the repo IS the row.
+	summaries, err := state.ListProjects(fwra.Context{Context: ctx}, "alice")
+	if err != nil {
+		t.Fatalf("ListProjects: %v", err)
+	}
+	if len(summaries) != 1 || summaries[0].ProjectID != id || summaries[0].Name != "Demo" {
+		t.Fatalf("ListProjects = %+v, want one Demo row", summaries)
+	}
+}
+
+// stageAndCommitMission runs UC1's stage → commit pair for the mission slot and
+// returns the post-commit version.
+//
+// The main-branch StageArtifactForReview contract op was retired (Wave-1 fossil
+// prune); staging now rides the surviving designSession branch verb with an empty
+// branch (== main).
+func stageAndCommitMission(ctx context.Context, t *testing.T, state ProjectStateAccess, id ProjectID, v1 Version) Version {
+	t.Helper()
 	mission := &MissionStatement{Vision: "vision-text", Mission: "mission-text"}
 	missionEnv, err := EncodeModel(mission)
 	if err != nil {
@@ -108,20 +127,24 @@ func TestProjectStateGitAdapter_UC1ArtifactLandsInGit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StageArtifactForReviewOnBranch: %v", err)
 	}
-
 	// Commit the mission (architect approved at the review gate).
 	v3, err := state.CommitArtifact(fwra.Context{Context: ctx, IdempotencyKey: "wf:commit-mission"}, id, v2, KindMission)
 	if err != nil {
 		t.Fatalf("CommitArtifact: %v", err)
 	}
+	return v3
+}
 
-	// Re-read through a FRESH clone — proves the JSON is committed to the git repo.
+// assertMissionReadsBackFromGit re-reads through a FRESH clone — which is what
+// proves the JSON is committed to the git repo rather than held in memory.
+func assertMissionReadsBackFromGit(ctx context.Context, t *testing.T, state ProjectStateAccess, id ProjectID, want Version) {
+	t.Helper()
 	proj, err := state.ReadProject(fwra.Context{Context: ctx}, id)
 	if err != nil {
 		t.Fatalf("ReadProject: %v", err)
 	}
-	if proj.Version != v3 {
-		t.Fatalf("ReadProject version = %d, want %d", proj.Version, v3)
+	if proj.Version != want {
+		t.Fatalf("ReadProject version = %d, want %d", proj.Version, want)
 	}
 	if proj.Mission.Status != ReviewCommitted {
 		t.Fatalf("mission status = %v, want Committed", proj.Mission.Status)
@@ -129,16 +152,6 @@ func TestProjectStateGitAdapter_UC1ArtifactLandsInGit(t *testing.T) {
 	got, ok := proj.Mission.Model.(*MissionStatement)
 	if !ok || got.Vision != "vision-text" || got.Mission != "mission-text" {
 		t.Fatalf("mission model round-trip through git failed: %+v", proj.Mission.Model)
-	}
-
-	// The catalog read (ListProjects) surfaces the project by ENUMERATING the on-disk
-	// project repo (discover-by-enumeration) — no registry index, the repo IS the row.
-	summaries, err := state.ListProjects(fwra.Context{Context: ctx}, "alice")
-	if err != nil {
-		t.Fatalf("ListProjects: %v", err)
-	}
-	if len(summaries) != 1 || summaries[0].ProjectID != id || summaries[0].Name != "Demo" {
-		t.Fatalf("ListProjects = %+v, want one Demo row", summaries)
 	}
 }
 

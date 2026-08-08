@@ -156,63 +156,35 @@ func TestGreenFixtureAdvisoriesFire(t *testing.T) {
 	if len(ccCoverageUseCases) != 0 {
 		t.Errorf("CC-COVERAGE fired across %d use cases, want 0 — all 16 committed use cases' dynamic views are realized (drive-system-design; batch 1's commit/execute/operate/bill; batch 2's manage-projects/track-weekly/replan/retry; batch 3's onboard/add-use-case/view-log/download/cost-projection/ask/send-back)", len(ccCoverageUseCases))
 	}
-	if ccCoverageUseCases["useCase drive-system-design"] {
-		t.Error("CC-COVERAGE fired for drive-system-design, whose dynamic view is fully realized by the PoC design amendment — the realization or the rule has drifted")
-	}
-	// Batch 1 named-culprit guards (Task 8, F6): a regression that un-realizes
-	// any of the four batch-1 views, or that the walker stops recognizing as
-	// realized, must name itself here rather than only moving the tally.
-	if ccCoverageUseCases["useCase commit-to-a-project-option"] {
-		t.Error("CC-COVERAGE fired for commit-to-a-project-option, whose dynamic view is fully realized by the batch-1 design amendment — the realization or the rule has drifted")
-	}
-	if ccCoverageUseCases["useCase execute-a-construction-activity"] {
-		t.Error("CC-COVERAGE fired for execute-a-construction-activity, whose dynamic view is fully realized by the batch-1 design amendment — the realization or the rule has drifted")
-	}
-	if ccCoverageUseCases["useCase operate-a-delivered-system"] {
-		t.Error("CC-COVERAGE fired for operate-a-delivered-system, whose dynamic view is fully realized by the batch-1 design amendment — the realization or the rule has drifted")
-	}
-	if ccCoverageUseCases["useCase bill-the-user-for-usage"] {
-		t.Error("CC-COVERAGE fired for bill-the-user-for-usage, whose dynamic view is fully realized by the batch-1 design amendment — the realization or the rule has drifted")
-	}
-	// Batch 2 named-culprit guards (Task 9, F6): a regression that un-realizes
-	// any of the four batch-2 views, or that the walker stops recognizing as
-	// realized, must name itself here rather than only moving the tally.
-	if ccCoverageUseCases["useCase manage-projects"] {
-		t.Error("CC-COVERAGE fired for manage-projects, whose dynamic view is fully realized by the batch-2 design amendment — the realization or the rule has drifted")
-	}
-	if ccCoverageUseCases["useCase track-weekly-project-progress"] {
-		t.Error("CC-COVERAGE fired for track-weekly-project-progress, whose dynamic view is fully realized by the batch-2 design amendment — the realization or the rule has drifted")
-	}
-	if ccCoverageUseCases["useCase replan-under-scope-change"] {
-		t.Error("CC-COVERAGE fired for replan-under-scope-change, whose dynamic view is fully realized by the batch-2 design amendment — the realization or the rule has drifted")
-	}
-	if ccCoverageUseCases["useCase retry-a-declined-service-invoice"] {
-		t.Error("CC-COVERAGE fired for retry-a-declined-service-invoice, whose dynamic view is fully realized by the batch-2 design amendment — the realization or the rule has drifted")
-	}
-	// Batch 3 named-culprit guards (Task 10, F7): with ccCoverageCount pinned
-	// at 0, these guards carry the WHOLE regression duty for the final seven
-	// views — a regression that un-realizes any of them must name itself here
+	// NAMED-CULPRIT GUARDS (PoC + Tasks 8/9/10, F6/F7). With ccCoverageCount pinned
+	// at 0 these carry the WHOLE regression duty: a change that un-realizes one
+	// view, or that the walker stops recognizing as realized, must NAME itself
 	// rather than only moving a tally that would otherwise stay silent at 0.
-	if ccCoverageUseCases["useCase onboard-a-new-customer"] {
-		t.Error("CC-COVERAGE fired for onboard-a-new-customer, whose dynamic view is fully realized by the batch-3 design amendment — the realization or the rule has drifted")
+	//
+	// A table, not sixteen copies of one `if`: adding a use case is a row, and the
+	// message stays identical across every view by construction.
+	realizedViews := []struct{ useCase, amendment string }{
+		{"drive-system-design", "PoC"},
+		{"commit-to-a-project-option", "batch-1"},
+		{"execute-a-construction-activity", "batch-1"},
+		{"operate-a-delivered-system", "batch-1"},
+		{"bill-the-user-for-usage", "batch-1"},
+		{"manage-projects", "batch-2"},
+		{"track-weekly-project-progress", "batch-2"},
+		{"replan-under-scope-change", "batch-2"},
+		{"retry-a-declined-service-invoice", "batch-2"},
+		{"onboard-a-new-customer", "batch-3"},
+		{"add-a-use-case-to-an-in-flight-project", "batch-3"},
+		{"view-the-project-state-log", "batch-3"},
+		{"download-generated-source-code", "batch-3"},
+		{"view-operating-cost-projection", "batch-3"},
+		{"ask-a-clarifying-question-during-review", "batch-3"},
+		{"send-back-change-requests-for-a-redraft", "batch-3"},
 	}
-	if ccCoverageUseCases["useCase add-a-use-case-to-an-in-flight-project"] {
-		t.Error("CC-COVERAGE fired for add-a-use-case-to-an-in-flight-project, whose dynamic view is fully realized by the batch-3 design amendment — the realization or the rule has drifted")
-	}
-	if ccCoverageUseCases["useCase view-the-project-state-log"] {
-		t.Error("CC-COVERAGE fired for view-the-project-state-log, whose dynamic view is fully realized by the batch-3 design amendment — the realization or the rule has drifted")
-	}
-	if ccCoverageUseCases["useCase download-generated-source-code"] {
-		t.Error("CC-COVERAGE fired for download-generated-source-code, whose dynamic view is fully realized by the batch-3 design amendment — the realization or the rule has drifted")
-	}
-	if ccCoverageUseCases["useCase view-operating-cost-projection"] {
-		t.Error("CC-COVERAGE fired for view-operating-cost-projection, whose dynamic view is fully realized by the batch-3 design amendment — the realization or the rule has drifted")
-	}
-	if ccCoverageUseCases["useCase ask-a-clarifying-question-during-review"] {
-		t.Error("CC-COVERAGE fired for ask-a-clarifying-question-during-review, whose dynamic view is fully realized by the batch-3 design amendment — the realization or the rule has drifted")
-	}
-	if ccCoverageUseCases["useCase send-back-change-requests-for-a-redraft"] {
-		t.Error("CC-COVERAGE fired for send-back-change-requests-for-a-redraft, whose dynamic view is fully realized by the batch-3 design amendment — the realization or the rule has drifted")
+	for _, v := range realizedViews {
+		if ccCoverageUseCases["useCase "+v.useCase] {
+			t.Errorf("CC-COVERAGE fired for %s, whose dynamic view is fully realized by the %s design amendment — the realization or the rule has drifted", v.useCase, v.amendment)
+		}
 	}
 	if ccTriggerCount != 0 {
 		t.Errorf("CC-TRIGGER-EVENT fired %d times on the committed state, want 0 (Task 7 gave each of the 5 timer/busMessage use cases a matching event entry)", ccTriggerCount)
@@ -1320,11 +1292,11 @@ func renderFindings(fs []methodcheck.Finding) string {
 	if len(fs) == 0 {
 		return "(none)"
 	}
-	out := ""
+	var out strings.Builder
 	for _, f := range fs {
-		out += "\n  [" + severityWord(f.Severity) + "] " + string(f.RuleID) + ": " + f.Message
+		out.WriteString("\n  [" + severityWord(f.Severity) + "] " + string(f.RuleID) + ": " + f.Message)
 	}
-	return out
+	return out.String()
 }
 
 func severityWord(s methodcheck.Severity) string {
@@ -1625,7 +1597,7 @@ func contractEntryOps(component, layer, goPackage string, ops ...map[string]any)
 // opNames returns n distinct operation names Op0..Op(n-1).
 func opNames(n int) []string {
 	out := make([]string, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		out[i] = "Op" + itoa(i)
 	}
 	return out
@@ -1859,7 +1831,7 @@ func TestPaths_CapBoundaryTruncatesDeterministically(t *testing.T) {
 	n := maxActivityPaths + 8
 	nodes := []activityNode{{ID: "s", Kind: "start"}}
 	edges := make([]activityEdge, 0, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		id := fmt.Sprintf("e%d", i)
 		nodes = append(nodes, activityNode{ID: id, Kind: "end"})
 		edges = append(edges, activityEdge{From: "s", To: id})
@@ -1948,11 +1920,11 @@ func TestPaths_BudgetBoundsNestedForkDecision(t *testing.T) {
 		{ID: "tick", Kind: "timeEvent"}, {ID: "f", Kind: "fork"},
 	}
 	edges := []activityEdge{{From: "s", To: "sa"}, {From: "sa", To: "se"}, {From: "tick", To: "f"}}
-	for b := 0; b < 8; b++ {
+	for b := range 8 {
 		d := fmt.Sprintf("d%d", b)
 		nodes = append(nodes, activityNode{ID: d, Kind: "decision", Label: "branch?"})
 		edges = append(edges, activityEdge{From: "f", To: d})
-		for i := 0; i < 5; i++ {
+		for i := range 5 {
 			leaf := fmt.Sprintf("a%d-%d", b, i)
 			nodes = append(nodes, activityNode{ID: leaf, Kind: "action", Label: leaf})
 			edges = append(edges, activityEdge{From: d, To: leaf, Guard: "[g]"})
@@ -1983,11 +1955,11 @@ func TestPaths_BudgetBoundsNestedForkDecision(t *testing.T) {
 func TestPaths_PureForkOnlyBlowupYieldsEmptyResult(t *testing.T) {
 	nodes := []activityNode{{ID: "tick", Kind: "timeEvent"}, {ID: "f", Kind: "fork"}}
 	edges := []activityEdge{{From: "tick", To: "f"}}
-	for b := 0; b < 8; b++ {
+	for b := range 8 {
 		d := fmt.Sprintf("d%d", b)
 		nodes = append(nodes, activityNode{ID: d, Kind: "decision", Label: "branch?"})
 		edges = append(edges, activityEdge{From: "f", To: d})
-		for i := 0; i < 5; i++ {
+		for i := range 5 {
 			leaf := fmt.Sprintf("a%d-%d", b, i)
 			nodes = append(nodes, activityNode{ID: leaf, Kind: "action", Label: leaf})
 			edges = append(edges, activityEdge{From: d, To: leaf, Guard: "[g]"})
@@ -2013,7 +1985,7 @@ func decisionChainDiagram(stages int) activityDiagram {
 	nodes := []activityNode{{ID: "s", Kind: "start"}}
 	var edges []activityEdge
 	prev := "s"
-	for i := 0; i < stages; i++ {
+	for i := range stages {
 		d, a, b, m := fmt.Sprintf("d%d", i), fmt.Sprintf("a%d", i), fmt.Sprintf("b%d", i), fmt.Sprintf("m%d", i)
 		nodes = append(nodes,
 			activityNode{ID: d, Kind: "decision", Label: "branch?"},
@@ -2117,11 +2089,11 @@ func TestPaths_BudgetTruncationMatchesTheCapPrefix(t *testing.T) {
 func TestPaths_BudgetDoesNotBindOnOrdinaryDiagram(t *testing.T) {
 	nodes := []activityNode{{ID: "s", Kind: "start"}, {ID: "f", Kind: "fork"}}
 	edges := []activityEdge{{From: "s", To: "f"}}
-	for b := 0; b < 3; b++ {
+	for b := range 3 {
 		d := fmt.Sprintf("d%d", b)
 		nodes = append(nodes, activityNode{ID: d, Kind: "decision", Label: "branch?"})
 		edges = append(edges, activityEdge{From: "f", To: d})
-		for i := 0; i < 3; i++ {
+		for i := range 3 {
 			leaf := fmt.Sprintf("a%d-%d", b, i)
 			nodes = append(nodes, activityNode{ID: leaf, Kind: "action", Label: leaf})
 			edges = append(edges, activityEdge{From: d, To: leaf, Guard: "[g]"})

@@ -248,6 +248,31 @@ func Test_UC3_LocalExec_DispatchesRealHeadlessClaude_AttachesStateMCP_ActivityCo
 // source cmd/aiarch-state-mcp binary via --mcp-config, carrying the correct
 // AIARCH_* construct-mode envelope — proving the rig is genuinely attached, not
 // merely asserted from the RA's own internal unit tests.
+// assertLocalExecSandboxPosture reads the captured Tier-2 --settings envelope and
+// proves the REAL local executor (not just the RA's own unit tests) always
+// dispatches with an ACTIVE OS sandbox: enabled + fail-closed + no per-command
+// unsandboxed escape.
+func assertLocalExecSandboxPosture(t *testing.T, captureDir string) {
+	t.Helper()
+	settingsRaw, err := os.ReadFile(filepath.Join(captureDir, "call-0.settings.json"))
+	if err != nil {
+		t.Fatalf("read captured --settings file: %v", err)
+	}
+	var sandboxCfg struct {
+		Sandbox struct {
+			Enabled                  bool `json:"enabled"`
+			FailIfUnavailable        bool `json:"failIfUnavailable"`
+			AllowUnsandboxedCommands bool `json:"allowUnsandboxedCommands"`
+		} `json:"sandbox"`
+	}
+	if err := json.Unmarshal(settingsRaw, &sandboxCfg); err != nil {
+		t.Fatalf("decode captured --settings: %v\n%s", err, settingsRaw)
+	}
+	if !sandboxCfg.Sandbox.Enabled || !sandboxCfg.Sandbox.FailIfUnavailable || sandboxCfg.Sandbox.AllowUnsandboxedCommands {
+		t.Fatalf("unexpected sandbox posture in captured --settings: %+v", sandboxCfg.Sandbox)
+	}
+}
+
 func assertLocalExecClaudeInvocation(t *testing.T, captureDir, wantStateMCPBin, activityID string) {
 	t.Helper()
 	argsRaw, err := os.ReadFile(filepath.Join(captureDir, "call-0.args"))
@@ -267,26 +292,7 @@ func assertLocalExecClaudeInvocation(t *testing.T, captureDir, wantStateMCPBin, 
 		}
 	}
 
-	// Tier-2 sandbox --settings envelope: proves the REAL local executor (not
-	// just the RA's own unit tests) always dispatches with an ACTIVE OS
-	// sandbox — enabled + fail-closed + no per-command unsandboxed escape.
-	settingsRaw, err := os.ReadFile(filepath.Join(captureDir, "call-0.settings.json"))
-	if err != nil {
-		t.Fatalf("read captured --settings file: %v", err)
-	}
-	var sandboxCfg struct {
-		Sandbox struct {
-			Enabled                  bool `json:"enabled"`
-			FailIfUnavailable        bool `json:"failIfUnavailable"`
-			AllowUnsandboxedCommands bool `json:"allowUnsandboxedCommands"`
-		} `json:"sandbox"`
-	}
-	if err := json.Unmarshal(settingsRaw, &sandboxCfg); err != nil {
-		t.Fatalf("decode captured --settings: %v\n%s", err, settingsRaw)
-	}
-	if !sandboxCfg.Sandbox.Enabled || !sandboxCfg.Sandbox.FailIfUnavailable || sandboxCfg.Sandbox.AllowUnsandboxedCommands {
-		t.Fatalf("unexpected sandbox posture in captured --settings: %+v", sandboxCfg.Sandbox)
-	}
+	assertLocalExecSandboxPosture(t, captureDir)
 
 	mcpRaw, err := os.ReadFile(filepath.Join(captureDir, "call-0.mcpconfig.json"))
 	if err != nil {

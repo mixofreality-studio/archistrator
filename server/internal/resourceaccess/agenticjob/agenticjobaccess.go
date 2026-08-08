@@ -1904,7 +1904,7 @@ func assertNoTrackedTraceFiles(repoPath string) error {
 	}
 	tracked := make([]string, 0, maxNamedTrackedTraces)
 	total := 0
-	for _, p := range strings.Split(out, "\x00") {
+	for p := range strings.SplitSeq(out, "\x00") {
 		if p == "" {
 			continue
 		}
