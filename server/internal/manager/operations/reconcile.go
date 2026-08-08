@@ -105,14 +105,18 @@ func (wf *workflows) reconcileOne(ctx workflow.Context, app operatedsystemstate.
 		}
 		switch directive {
 		case intervention.HealthRetry:
-			// EXECUTE Retry: re-publish prior desired state so the runtime self-heals /
-			// re-converges (content-idempotent — a no-op if unchanged). Republishes the
-			// zero-value placeholder: there is no cached prior RuntimeDesiredState to
-			// re-derive here (same simplification as DeployWorkflow's non-full-bundle
-			// republish path, deploy.go) until incremental desired-state patching lands.
-			if perr := wf.publishDesiredState(ctx, app.ID, operatedruntime.RuntimeDesiredState{}); perr != nil {
-				return false, false, perr
-			}
+			// EXECUTE Retry: INTENDED to re-publish prior desired state so the runtime
+			// self-heals / re-converges. Deliberately does NOT call the runtime publish
+			// (review finding 2): this Manager keeps no cached prior RuntimeDesiredState
+			// to re-derive here, and — unlike the old opaque-bytes contract, where a
+			// zero-value payload was inert — an empty RuntimeDesiredState is now exactly
+			// the half-rendered deployment (empty AppName/Namespace/Image, Replicas:0)
+			// the fail-loud constraint on assembleDesiredState exists to prevent. Sending
+			// nothing is the honest choice over sending something wrong. A real self-heal
+			// republish needs a "last published desired state" concept this task does not
+			// add; earmarked as a follow-up. Observability-only for now, same posture as
+			// HealthEscalate below.
+			workflow.GetLogger(ctx).Info("health retry directive: no cached desired state to republish (follow-up)", "operatedAppId", app.ID.String())
 		case intervention.HealthEscalate:
 			// EXECUTE Escalate: surface to the operator (logged; the operator dashboard
 			// reads head-state). No further mutation here.
@@ -157,12 +161,17 @@ func (wf *workflows) autoscaleOne(ctx workflow.Context, app operatedsystemstate.
 		return false, nil
 	}
 
-	// Non-NoChange ⇒ publish → record (reason=autoscale). Republishes the zero-value
-	// placeholder (see the HealthRetry comment above) until autoscale-driven desired
-	// states are threaded through assembleDesiredState.
-	if perr := wf.publishDesiredState(ctx, app.ID, operatedruntime.RuntimeDesiredState{}); perr != nil {
-		return false, perr
-	}
+	// Non-NoChange ⇒ record the autoscale decision in head-state. Deliberately does
+	// NOT call the runtime publish (review finding 2, same reasoning as the
+	// HealthRetry comment above): assembleDesiredState has no replica-override
+	// input yet, so the only state this path COULD publish is either the static
+	// model-declared replica count (silently WRONG for a scale decision — it
+	// would not actually reflect ScaleUp/ScaleDown/Pause) or the empty struct
+	// (the exact half-rendered-deployment hazard the fail-loud fold exists to
+	// prevent). Recording the decision in head-state without a matching runtime
+	// publish is honest about what this task actually wires; real autoscale
+	// republish needs a replica-override extension to assembleDesiredState,
+	// earmarked as a follow-up.
 	dec := decision
 	if _, rerr := wf.recordPublishDesiredState(ctx, app.ID, version, ReasonAutoscale, &dec); rerr != nil {
 		return false, rerr

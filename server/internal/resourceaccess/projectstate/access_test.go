@@ -7482,3 +7482,88 @@ func collectUpperJSONTags(t reflect.Type, seen map[reflect.Type]bool, out map[st
 		collectUpperJSONTags(f.Type, seen, out)
 	}
 }
+
+// TestArtifactSlot_JSONRoundTrip covers ArtifactSlot's custom MarshalJSON/
+// UnmarshalJSON (projectstateaccess.go, added for operationsManager's
+// projectStateAccess.readProject Temporal Activity boundary — the first consumer
+// to pass a full Project through plain encoding/json instead of the git/postgres
+// substrate's own slotJSON codec). Covers both documented states: a populated
+// model (the ArtifactModel envelope round-trips byte-for-byte) and a nil model
+// (the documented "no model yet" zero value).
+func TestArtifactSlot_JSONRoundTrip(t *testing.T) {
+	t.Run("populated model", func(t *testing.T) {
+		want := ArtifactSlot{
+			Status: ReviewCommitted,
+			Model: &DeploymentOperationsModel{
+				DeploymentScenario: ScenarioKind("cloud"),
+				ReviewPolicyRef:    "policy-1",
+				Deployment: DeploymentTopology{
+					Containers: []DeployContainer{{Key: "archistrator-server", Name: "archistrator-server"}},
+				},
+			},
+			Notes:     "some review notes",
+			Revisions: 3,
+		}
+
+		raw, err := json.Marshal(want)
+		if err != nil {
+			t.Fatalf("Marshal: %v", err)
+		}
+
+		var got ArtifactSlot
+		if err := json.Unmarshal(raw, &got); err != nil {
+			t.Fatalf("Unmarshal: %v", err)
+		}
+
+		if got.Status != want.Status || got.Notes != want.Notes || got.Revisions != want.Revisions {
+			t.Fatalf("scalar fields did not round-trip: got %+v, want %+v", got, want)
+		}
+		gotModel, ok := got.Model.(*DeploymentOperationsModel)
+		if !ok {
+			t.Fatalf("Model did not decode back to *DeploymentOperationsModel, got %T", got.Model)
+		}
+		if !reflect.DeepEqual(gotModel, want.Model) {
+			t.Errorf("Model did not round-trip:\ngot  %+v\nwant %+v", gotModel, want.Model)
+		}
+	})
+
+	t.Run("nil model", func(t *testing.T) {
+		want := ArtifactSlot{Status: ReviewNone, Notes: "no model drafted yet"}
+
+		raw, err := json.Marshal(want)
+		if err != nil {
+			t.Fatalf("Marshal: %v", err)
+		}
+
+		var got ArtifactSlot
+		if err := json.Unmarshal(raw, &got); err != nil {
+			t.Fatalf("Unmarshal: %v", err)
+		}
+
+		if got.Model != nil {
+			t.Errorf("Model = %#v, want nil", got.Model)
+		}
+		if got.Status != want.Status || got.Notes != want.Notes {
+			t.Errorf("scalar fields did not round-trip: got %+v, want %+v", got, want)
+		}
+	})
+}
+
+// TestArtifactSlot_UnmarshalJSON_RejectsNonEnvelopeModel covers the review
+// finding this task's ArtifactSlot codec originally missed: a "Model" JSON value
+// that is present but NOT a {"kind":...,"model":...} envelope (e.g. a producer
+// that wrote json.Marshal(concreteModel) directly, bypassing EncodeModel) must
+// fail loudly, not silently decode to a nil model. No such producer exists
+// today; this guards against one ever landing unnoticed.
+func TestArtifactSlot_UnmarshalJSON_RejectsNonEnvelopeModel(t *testing.T) {
+	raw := []byte(`{"Status":1,"Model":{"reviewPolicyRef":"policy-1"},"Notes":""}`)
+
+	var got ArtifactSlot
+	err := json.Unmarshal(raw, &got)
+	if err == nil {
+		t.Fatalf("want an error decoding a non-envelope Model, got nil (Model=%#v)", got.Model)
+	}
+	if !strings.Contains(err.Error(), "kind") {
+		t.Errorf("error should name the missing envelope discriminator, got: %v", err)
+	}
+}

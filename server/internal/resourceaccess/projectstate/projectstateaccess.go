@@ -2962,16 +2962,24 @@ func SameArtifactModel(a, b ArtifactModel) (bool, error) {
 // first of which is operationsManager's projectStateAccess.readProject invoker
 // (Task 2, operations/deploy.go — assembleDesiredState).
 type artifactSlotWire struct {
-	Status          ArtifactReviewStatus `json:"Status"`
-	Model           ModelEnvelope        `json:"Model"`
-	Notes           string               `json:"Notes"`
-	CritiqueVerdict string               `json:"CritiqueVerdict"`
-	CritiqueNotes   string               `json:"CritiqueNotes"`
-	ReviewThread    []ReviewComment      `json:"reviewThread,omitempty"`
-	Revisions       int64                `json:"Revisions"`
-	StaleBasis      bool                 `json:"StaleBasis"`
-	StaleBasisCause *StaleCause          `json:"StaleBasisCause,omitempty"`
-	Provenance      *Provenance          `json:"Provenance,omitempty"`
+	Status ArtifactReviewStatus `json:"Status"`
+	// Model is carried as raw JSON (NOT ModelEnvelope) so UnmarshalJSON below can
+	// distinguish "no model" (absent/null) from a malformed non-envelope shape
+	// (review finding: decoding a flattened {"Model":{...}} with no "kind"
+	// discriminator must not silently drop the model) BEFORE any zero-value
+	// ambiguity creeps in — ArtifactKind's zero value is KindMission, a real,
+	// meaningful kind, so a decoded-but-defaulted Kind is not itself distinguishable
+	// from a genuine Mission-kind envelope; only the RAW shape (does a "kind" key
+	// exist at all?) can tell the two apart.
+	Model           json.RawMessage `json:"Model"`
+	Notes           string          `json:"Notes"`
+	CritiqueVerdict string          `json:"CritiqueVerdict"`
+	CritiqueNotes   string          `json:"CritiqueNotes"`
+	ReviewThread    []ReviewComment `json:"reviewThread,omitempty"`
+	Revisions       int64           `json:"Revisions"`
+	StaleBasis      bool            `json:"StaleBasis"`
+	StaleBasisCause *StaleCause     `json:"StaleBasisCause,omitempty"`
+	Provenance      *Provenance     `json:"Provenance,omitempty"`
 }
 
 // MarshalJSON gives ArtifactSlot a safe, self-contained JSON round-trip (see
@@ -2984,9 +2992,13 @@ func (s ArtifactSlot) MarshalJSON() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	envRaw, err := json.Marshal(env)
+	if err != nil {
+		return nil, fmt.Errorf("encode ArtifactSlot.Model envelope: %w", err)
+	}
 	return json.Marshal(artifactSlotWire{
 		Status:          s.Status,
-		Model:           env,
+		Model:           envRaw,
 		Notes:           s.Notes,
 		CritiqueVerdict: s.CritiqueVerdict,
 		CritiqueNotes:   s.CritiqueNotes,
@@ -2998,17 +3010,47 @@ func (s ArtifactSlot) MarshalJSON() ([]byte, error) {
 	})
 }
 
+// decodeArtifactModelWireField decodes artifactSlotWire.Model's raw bytes into an
+// ArtifactModel, distinguishing three cases: (1) absent/JSON-null — no model yet,
+// (nil, nil); (2) a well-formed {"kind":...,"model":...} envelope — decoded via
+// ModelEnvelope.Decode; (3) anything else (a bare/flattened object with no "kind"
+// discriminator, e.g. a producer that wrote json.Marshal(concreteModel) directly
+// instead of through EncodeModel) — an explicit error rather than silently
+// discarding the model (review finding: silent data loss is the wrong failure
+// mode; no such producer exists today, but decoding must fail loudly if one ever
+// does). Presence of "kind" is checked structurally (a map probe) rather than by
+// the DECODED Kind value, because ArtifactKind's zero value (KindMission) is a
+// real kind — an absent key and a genuine Mission envelope are NOT
+// distinguishable after decoding into ModelEnvelope, only before.
+func decodeArtifactModelWireField(raw json.RawMessage) (ArtifactModel, error) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil, nil //nolint:nilnil // absent/null IS the documented "no model yet" value.
+	}
+	var probe map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &probe); err != nil {
+		return nil, fmt.Errorf("decode ArtifactSlot.Model: %w", err)
+	}
+	if _, hasKind := probe["kind"]; !hasKind {
+		return nil, fmt.Errorf("decode ArtifactSlot.Model: present but not a {kind,model} envelope (no \"kind\" discriminator) — refusing to silently drop it")
+	}
+	var env ModelEnvelope
+	if err := json.Unmarshal(raw, &env); err != nil {
+		return nil, fmt.Errorf("decode ArtifactSlot.Model: %w", err)
+	}
+	return env.Decode()
+}
+
 // UnmarshalJSON is MarshalJSON's inverse: decode into the wire shadow, then
-// reconstruct the concrete ArtifactModel from its envelope (ModelEnvelope.Decode,
-// which dispatches on the envelope's own Kind — the same NewModelForKind lookup
-// decodeSlotsMap uses, just driven by the envelope's kind field instead of an
-// out-of-band map key).
+// reconstruct the concrete ArtifactModel from its raw Model bytes
+// (decodeArtifactModelWireField, which dispatches on the envelope's own Kind —
+// the same NewModelForKind lookup decodeSlotsMap uses, just driven by the
+// envelope's kind field instead of an out-of-band map key).
 func (s *ArtifactSlot) UnmarshalJSON(data []byte) error {
 	var w artifactSlotWire
 	if err := json.Unmarshal(data, &w); err != nil {
 		return err
 	}
-	model, err := w.Model.Decode()
+	model, err := decodeArtifactModelWireField(w.Model)
 	if err != nil {
 		return err
 	}

@@ -28,7 +28,8 @@ package operations
 // C. ReconcileWorkflow (workflow_test.go):
 //   C1  Path B: health transition → recordRuntimeStatusChange + DecideOnHealth(Retry)
 //                                   → re-publish; usage recorded
-//   C2  Path C: autoscaler Pause (idle) → publish replicas=0 + record(autoscale)
+//   C2  Path C: autoscaler Pause (idle) → record(autoscale); no runtime publish yet
+//       (no replica-override input to assembleDesiredState — follow-up)
 //   C3  quiet tick: no transition + NoChange → no transitions, no republishes
 //   C4  multiple in-flight apps counted in ReconcileResult.Observed
 //
@@ -42,7 +43,8 @@ package operations
 //       (asserted by zero head-state writes on the fake)
 //
 // F. DelinquencyEnforcementWorkflow (workflow_test.go):
-//   F1  queued signal resumes branch → pause (replicas=0) publish + recordDelinquencyAction
+//   F1  queued signal resumes branch → pause recordDelinquencyAction; no runtime
+//       publish yet (no replica-override input to assembleDesiredState — follow-up)
 //   F2  withdraw-terms branch → withdraw runtime + recordDelinquencyAction
 //
 // G. §6.5 Conflict discipline (workflow_test.go):
@@ -390,13 +392,15 @@ type fakeRuntime struct {
 	attribution operatedruntime.ComputeAttribution
 
 	publishes []uuid.UUID
+	published []operatedruntime.RuntimeDesiredState // review finding 1: the PAYLOAD each publish carried, not just the count
 	withdraws []uuid.UUID
 }
 
-func (r *fakeRuntime) PublishDesiredState(_ fwra.Context, appID uuid.UUID, _ operatedruntime.RuntimeDesiredState, _ fwra.IdempotencyKey) error {
+func (r *fakeRuntime) PublishDesiredState(_ fwra.Context, appID uuid.UUID, desired operatedruntime.RuntimeDesiredState, _ fwra.IdempotencyKey) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.publishes = append(r.publishes, appID)
+	r.published = append(r.published, desired)
 	return nil
 }
 
@@ -660,6 +664,16 @@ func Test_Deploy_HappyPath_RetrievesBundle_PublishesAndRecords(t *testing.T) {
 	if len(rt.publishes) != 1 {
 		t.Fatalf("want one runtime publish, got %d", len(rt.publishes))
 	}
+	// Review finding 1: assert WHAT was published, not just that a publish
+	// happened — a left-zero-valued `desired` in deploy.go would previously pass
+	// this test undetected.
+	if len(rt.published) != 1 {
+		t.Fatalf("want one recorded published payload, got %d", len(rt.published))
+	}
+	if got := rt.published[0]; got.Namespace != "archistrator" || got.Server.Image != "fake/server:test" {
+		t.Fatalf("published desired state not assembled: got Namespace=%q Server.Image=%q, want Namespace=%q Server.Image=%q",
+			got.Namespace, got.Server.Image, "archistrator", "fake/server:test")
+	}
 	if len(os.published) != 1 || os.published[0] != operatedsystemstate.ReasonDeployAfterConstruction {
 		t.Fatalf("want one head-state publish(deployAfterConstruction), got %v", os.published)
 	}
@@ -751,16 +765,21 @@ func Test_Reconcile_HealthTransition_RecordsStatus_AndRepublishes(t *testing.T) 
 	if us.computeN != 1 {
 		t.Fatalf("want one recordComputeUsage, got %d", us.computeN)
 	}
-	// Retry directive re-publishes prior desired state (runtime publish, no head-state
-	// autoscale record).
-	if len(rt.publishes) != 1 {
-		t.Fatalf("want one re-publish from the Retry directive, got %d", len(rt.publishes))
+	// Review finding 2: the Retry directive no longer calls the runtime publish —
+	// this Manager has no cached prior desired state to re-derive, and publishing
+	// an empty RuntimeDesiredState is a real hazard under the typed contract, not
+	// an inert no-op. Retry is observability-only until a real "last published
+	// state" concept lands (see reconcile.go's HealthRetry comment).
+	if len(rt.publishes) != 0 {
+		t.Fatalf("want zero runtime publishes from the Retry directive (no cached state to republish), got %d", len(rt.publishes))
 	}
 }
 
-// C2: autoscaler Pause (idle) publishes replicas=0 and records the head-state
-// transition (reason=autoscale).
-func Test_Reconcile_AutoscalePause_PublishesAndRecordsAutoscale(t *testing.T) {
+// C2: autoscaler Pause (idle) records the head-state transition (reason=autoscale).
+// Does NOT call the runtime publish (review finding 2): assembleDesiredState has
+// no replica-override input yet, so there is no correct RuntimeDesiredState this
+// path could construct today — see autoscaleOne's comment (reconcile.go).
+func Test_Reconcile_AutoscalePause_RecordsAutoscaleDecision(t *testing.T) {
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
 
@@ -788,8 +807,8 @@ func Test_Reconcile_AutoscalePause_PublishesAndRecordsAutoscale(t *testing.T) {
 	if len(os.published) != 1 || os.published[0] != operatedsystemstate.ReasonAutoscale {
 		t.Fatalf("want one head-state publish(autoscale), got %v", os.published)
 	}
-	if len(rt.publishes) != 1 {
-		t.Fatalf("want one runtime publish for the idle-pause, got %d", len(rt.publishes))
+	if len(rt.publishes) != 0 {
+		t.Fatalf("want zero runtime publishes for the idle-pause (no replica-override path yet), got %d", len(rt.publishes))
 	}
 }
 
@@ -1102,9 +1121,12 @@ func Test_View_UnconfiguredAutoscaler_ReportsUnknown(t *testing.T) {
 
 // ============================ F. DelinquencyEnforcementWorkflow =============
 
-// F1: the queued signal resumes the branch; pause terms publish replicas=0 + record
-// the delinquency action (Paused).
-func Test_Delinquency_PauseTerms_PublishesAndRecordsPaused(t *testing.T) {
+// F1: the queued signal resumes the branch; pause terms record the delinquency
+// action (Paused). No runtime publish yet (review finding 2): a pause needs a
+// real scale-to-zero, which assembleDesiredState cannot construct without a
+// replica-override input — see runDelinquencyBranch's comment
+// (delinquencyenforcement.go).
+func Test_Delinquency_PauseTerms_RecordsPaused(t *testing.T) {
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
 
@@ -1125,8 +1147,8 @@ func Test_Delinquency_PauseTerms_PublishesAndRecordsPaused(t *testing.T) {
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("workflow error: %v", err)
 	}
-	if len(rt.publishes) != 2 {
-		t.Fatalf("want two pause publishes (one per app), got %d", len(rt.publishes))
+	if len(rt.publishes) != 0 {
+		t.Fatalf("want zero runtime publishes for pause terms (no replica-override path yet), got %d", len(rt.publishes))
 	}
 	if len(rt.withdraws) != 0 {
 		t.Fatalf("pause terms must NOT withdraw, got %d", len(rt.withdraws))
@@ -1407,5 +1429,47 @@ func TestAssembleDesiredState_RejectsAWorkloadNodeWithNoMatchingContainerInstanc
 	_, err := assembleDesiredState(proj, bundle, operatedsystemstate.OperatedSystem{})
 	if err == nil {
 		t.Fatal("expected an error when the model has no webapp workload node")
+	}
+}
+
+// TestAssembleDesiredState_RejectsANamespaceThatDisagreesWithTheAppID covers
+// review finding 3: the fold must not silently use appName as Namespace while
+// ignoring what the resolved namespace node's own key actually says.
+func TestAssembleDesiredState_RejectsANamespaceThatDisagreesWithTheAppID(t *testing.T) {
+	proj := testProject(t)
+	model := proj.OperationalConcepts.Model.(*projectstate.DeploymentOperationsModel)
+	cluster := &model.Deployment.Environments[0].Nodes[1]
+	// Rename the namespace node so it no longer follows the ns-<appID> convention
+	// (e.g. an architect declared a differently-named namespace) — must fail
+	// loudly, not silently deploy to "archistrator" anyway.
+	cluster.Children[0].Key = "cloud-node-ns-foo"
+
+	bundle := deployableBundle{Output: artifact.ConstructionOutput{
+		Bytes:    mustJSON(t, bundleManifest{ServerImage: "s:1", WebAppImage: "w:1"}),
+		MIMEType: "application/json",
+	}}
+	_, err := assembleDesiredState(proj, bundle, operatedsystemstate.OperatedSystem{})
+	if err == nil {
+		t.Fatal("expected an error when the resolved namespace node disagrees with the app id")
+	}
+}
+
+// TestAssembleDesiredState_RejectsAZeroInstanceWorkload covers review finding 3:
+// a workload node declaring 0 instances is a real misconfiguration (fail loudly),
+// never a silent scale-to-zero.
+func TestAssembleDesiredState_RejectsAZeroInstanceWorkload(t *testing.T) {
+	proj := testProject(t)
+	model := proj.OperationalConcepts.Model.(*projectstate.DeploymentOperationsModel)
+	cluster := &model.Deployment.Environments[0].Nodes[1]
+	namespace := &cluster.Children[0]
+	namespace.Children[0].Instances = 0 // server workload
+
+	bundle := deployableBundle{Output: artifact.ConstructionOutput{
+		Bytes:    mustJSON(t, bundleManifest{ServerImage: "s:1", WebAppImage: "w:1"}),
+		MIMEType: "application/json",
+	}}
+	_, err := assembleDesiredState(proj, bundle, operatedsystemstate.OperatedSystem{})
+	if err == nil {
+		t.Fatal("expected an error when a workload node declares 0 instances")
 	}
 }

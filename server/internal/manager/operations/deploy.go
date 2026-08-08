@@ -3,6 +3,7 @@ package operations
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
@@ -311,9 +312,28 @@ func assembleDesiredState(proj projectstate.Project, bundle deployableBundle, _ 
 	}
 	namespace := serverNS
 
+	// The k8s namespace STRING is not itself a field anywhere on DeploymentNode —
+	// only the platform's own "ns-<appID>" node-key convention (verified: real
+	// nodes are literally "cloud-node-ns-archistrator", "cloud-node-ns-gtd") names
+	// it. Rather than silently ASSUMING the convention holds and using appName
+	// regardless of what the resolved namespace node actually says, verify the
+	// resolved node's key follows it and fail loudly on disagreement — a model
+	// that declared some other namespace (e.g. "ns-foo") must not silently deploy
+	// to appName instead.
+	if !strings.HasSuffix(namespace.Key, "ns-"+appName) {
+		return operatedruntime.RuntimeDesiredState{}, fmt.Errorf("assembleDesiredState: project %q's resolved namespace node %q does not follow the ns-%s naming convention (server/webapp workloads must live under the app's own namespace)", appName, namespace.Key, appName)
+	}
+
 	pgNode, err := findDatabaseNode(namespace)
 	if err != nil {
 		return operatedruntime.RuntimeDesiredState{}, fmt.Errorf("assembleDesiredState: project %q: %w", appName, err)
+	}
+
+	if serverNode.Instances < 1 {
+		return operatedruntime.RuntimeDesiredState{}, fmt.Errorf("assembleDesiredState: project %q's server workload node %q declares %d instances; want >= 1 (a 0-instance node is a real misconfiguration, not a scale-to-zero request)", appName, serverNode.Key, serverNode.Instances)
+	}
+	if webAppNode.Instances < 1 {
+		return operatedruntime.RuntimeDesiredState{}, fmt.Errorf("assembleDesiredState: project %q's webapp workload node %q declares %d instances; want >= 1 (a 0-instance node is a real misconfiguration, not a scale-to-zero request)", appName, webAppNode.Key, webAppNode.Instances)
 	}
 
 	var manifest bundleManifest
