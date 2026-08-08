@@ -375,7 +375,6 @@ type workloadData struct {
 	Name            string // Deployment/Service name, e.g. "archistrator-server"
 	ContainerName   string // container name — NOT always == Name (webapp's is "webapp", matching the production chart)
 	Namespace       string
-	AppName         string
 	Image           string
 	Replicas        int64
 	Port            int
@@ -417,7 +416,6 @@ metadata:
   labels:
     app.kubernetes.io/name: {{ .Name }}
     app.kubernetes.io/instance: {{ .Name }}
-    app.kubernetes.io/part-of: {{ .AppName }}
     app.kubernetes.io/managed-by: archistrator-operatedRuntimeAccess
 spec:
   replicas: {{ .Replicas }}
@@ -529,7 +527,6 @@ metadata:
   labels:
     app.kubernetes.io/name: {{ .Name }}
     app.kubernetes.io/instance: {{ .Name }}
-    app.kubernetes.io/part-of: {{ .AppName }}
     app.kubernetes.io/managed-by: archistrator-operatedRuntimeAccess
 spec:
   type: ClusterIP
@@ -608,7 +605,6 @@ func renderServerWorkload(d RuntimeDesiredState) ([]Manifest, error) {
 		Name:                  name,
 		ContainerName:         name,
 		Namespace:             d.Namespace,
-		AppName:               d.AppName,
 		Image:                 d.Server.Image,
 		Replicas:              d.Server.Replicas,
 		Port:                  serverContainerPort,
@@ -641,7 +637,6 @@ func renderWebAppWorkload(d RuntimeDesiredState) ([]Manifest, error) {
 		Name:              name,
 		ContainerName:     "webapp",
 		Namespace:         d.Namespace,
-		AppName:           d.AppName,
 		Image:             d.WebApp.Image,
 		Replicas:          d.WebApp.Replicas,
 		Port:              webAppContainerPort,

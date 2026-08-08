@@ -976,20 +976,25 @@ func TestRender_AllManifestsTargetTheCorrectNamespace(t *testing.T) {
 	}
 }
 
-// toolIdentityLabelKeys are label keys whose value necessarily differs
-// between a Helm-templated production deployment and this renderer, because
-// they identify the DEPLOYING TOOL, not the resource itself:
+// toolIdentityLabelKeys are label keys production's Helm charts set that this
+// renderer legitimately cannot: they identify the DEPLOYING TOOL, not the
+// resource, and this renderer isn't a chart, so there is nothing true to put
+// there. Every key here is one-directional — production carries it, the
+// renderer inherently cannot — which is what makes normalizing it away
+// inevitable rather than a choice:
 //
 //   - helm.sh/chart, app.kubernetes.io/version: Helm chart metadata (chart
-//     name+semver, chart appVersion — sourced from Chart.yaml). This renderer
-//     has no chart to version, so there is nothing to put here.
+//     name+semver, chart appVersion — sourced from Chart.yaml).
 //   - app.kubernetes.io/managed-by: production says "Helm"; this renderer
 //     says "archistrator-operatedRuntimeAccess". These are SUPPOSED to
 //     differ — that is the fact the label records — so comparing them would
 //     make every workload manifest fail forever, not catch a real bug.
-//   - app.kubernetes.io/part-of: added by this renderer (deploymentTmpl /
-//     serviceTmpl); production's Helm charts never set it. Additive-only —
-//     nothing reads it away, no selector or ArgoCD behavior depends on it.
+//
+// app.kubernetes.io/part-of was REMOVED from deploymentTmpl/serviceTmpl
+// rather than normalized here: production sets it nowhere, so it was the
+// renderer adding a difference, not Helm creating one the renderer can't
+// close. Normalizing it away would have hidden a real, closable gap instead
+// of an inevitable one — the whole point of keeping this list minimal.
 //
 // app.kubernetes.io/name and app.kubernetes.io/instance — the labels
 // Deployment/Service selectors actually key off — are deliberately NOT in
@@ -999,7 +1004,6 @@ var toolIdentityLabelKeys = []string{
 	"helm.sh/chart",
 	"app.kubernetes.io/version",
 	"app.kubernetes.io/managed-by",
-	"app.kubernetes.io/part-of",
 }
 
 // stripToolIdentityLabels deletes toolIdentityLabelKeys from obj's
