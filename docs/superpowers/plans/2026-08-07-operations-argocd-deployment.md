@@ -409,7 +409,25 @@ Expected: FAIL — `undefined: assembleDesiredState`. The package may also fail 
 
 - [ ] **Step 6: Implement the fold**
 
-In `assemble.go`, read the `cloud` environment from the project's deployment model and walk its nodes to find the namespace node, the workload nodes, and the postgres node — carrying each node's `key` into the matching `ModelKey`. Take images from the bundle, replicas from head-state. `SelfManaged` is true when the operated app's project is archistrator's own.
+Read the `cloud` environment from the project's deployment model and select elements **by `role`, never by the free-text `technology` string** (spec D11). The deployable elements are `infrastructureNodes` carrying roles, alongside workload nodes:
+
+| Model element | `role` | Feeds |
+|---|---|---|
+| `cloud-node-server-deployment` (workload node, `instances: 2`) | — | `Server` workload |
+| `cloud-infra-static-assets` (nginx) | `other` | `WebApp` workload |
+| `cloud-infra-gateway` (Envoy) | `gateway` | route/policy rendering |
+| `cloud-infra-keycloak` (OIDC) | `identityProvider` | `OIDC` spec + the Keycloak CR |
+| `cloud-infra-operatedsystemstate`, `-billingstate`, `-usagelog` | `database` ×3 | one `PostgresSpec` |
+
+Three traps, all of which will silently produce wrong output if missed:
+
+- **`role: other` is ambiguous** — nginx and `cloud-infra-temporal` share it. Identify the static-asset node by its relationship to the webapp container, not by role alone. Do NOT add a new role value to the model; it is a design artifact with its own review rail.
+- **Three `database` nodes → one `PostgresSpec`.** Production runs a single `archistrator-postgres` serving all three logical stores.
+- **`archistrator-webapp` sits on `cloud-node-browser`.** That is correct — the SPA executes in the browser. The in-cluster thing is the nginx serving it, so the `WebApp` workload's `ModelKey` is the static-asset node's key, NOT the browser node's.
+
+Take images from the bundle. Replicas come from the workload node's `Instances` (head-state carries no replica field). `SelfManaged` is true when the operated app's project is archistrator's own.
+
+Fail loudly rather than defaulting: a model with no cloud environment, or a required role with no matching node, is a real misconfiguration and must surface as an error the operator can read — not a silently half-rendered deployment.
 
 Fail loudly rather than defaulting: a model with no cloud environment, or a workload node with no matching container instance, is a real misconfiguration and must surface as an error the operator can read — not a silently half-rendered deployment.
 
@@ -817,6 +835,18 @@ Emit `HTTPRoute` (one per route in the production chart: webapp `/`, api `/api`,
 **Reproduce the production chart's route arrangement exactly**, including the deliberate absence of a dedicated `/oauth2` route. That chart carries a load-bearing comment explaining why: a more-specific `/oauth2` route would steal the OIDC callback away from the policy-attached `/` route, so the Envoy filter would never run and no session would be established. Adding one would break login in a way that is hard to diagnose.
 
 The `SecurityPolicy` references the OIDC client secret by name (`d.OIDC.ClientSecretRef`) and must never inline its value.
+
+- [ ] **Step 6b: Add the Keycloak realm/client CR (spec D12)**
+
+Emit a Keycloak CR provisioning the app's realm and its confidential OIDC client, carrying `ModelKey` = the `identityProvider` infra node's key (`cloud-infra-keycloak`).
+
+**This object is the highest-risk thing in the render and has no golden diff.** Production's realm and client are hand-managed in the admin console — the `KeycloakRealmImport` was deliberately removed once — so nothing in `testdata/golden/production/` constrains it. A wrong realm or client breaks login for the entire app, and archistrator's own front door is on that path.
+
+Consequences for how you write it:
+- Match the CRD version the cluster's Keycloak operator actually serves. Check `k8s/argocd/auth/keycloak-operator.yaml` in the software repo rather than assuming.
+- The client secret is referenced, never rendered (the no-Secret-data gate applies).
+- The rendered client's `clientId` and `redirectUris` must match what the `SecurityPolicy` from Step 6 expects, or the OIDC flow breaks in a way the manifests alone won't reveal.
+- Write an explicit unit test asserting realm name, `clientId`, and redirect URIs, since no golden file will catch a regression here.
 
 - [ ] **Step 7: Run the full renderer suite**
 

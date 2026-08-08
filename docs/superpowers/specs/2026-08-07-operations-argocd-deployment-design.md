@@ -38,6 +38,8 @@ Meanwhile the software repo (`../software`) runs a standard app-of-apps: `root` 
 | D8 | **Approval is the operator clicking Deploy**; the server commits directly to `../software` main. Archistrator's own Application is rendered with `prune: false` and manual sync, so self-modification always requires a human to press Sync in Argo. | *PR-and-merge* rejected: moves approval out of the product into GitHub and makes every deploy two-step. *Full auto with no self-guard* rejected: with `prune: true` a renderer bug that omits a manifest deletes the control plane, leaving no automated way back. |
 | D9 | **The local profile does not surface operations at all** — routes unmounted, console hidden. | *Dry-run console visible locally* rejected by the founder: local must not appear to operate. |
 | D10 | **Deployment diagram health is strict green / red / neutral.** `Healthy` → green; every other observed state (`Progressing`, `Degraded`, `Missing`, `Suspended`, `Unknown`) → red; anything outside the app's resource set → neutral. | *Amber for Progressing* rejected in favour of glance-readability. Accepted cost: the diagram reads red mid-rollout until it settles. |
+| D11 | **The model maps to manifests by `role`, not by technology string.** The deployable elements are `infrastructureNodes` carrying machine-readable `role` values (`gateway`, `identityProvider`, `database`) plus workload nodes. Selection keys off those, never off the free-text `technology` field. | *Selecting by `technology`* rejected: it puts Kubernetes vocabulary in the Manager and couples assembly to an unconstrained free-text string (`"k8s"` vs `"k8s-namespace"` vs `"Kubernetes Deployment"`, none of them validated). |
+| D12 | **The renderer emits a Keycloak realm/client CR per app.** Onboarding an app provisions its realm and OIDC client instead of requiring manual admin-console work. The cluster already runs the Keycloak operator. | *Keeping Keycloak manual* rejected by the founder. Accepted cost: this is the one rendered object with no production counterpart to diff against (§5.2), and it re-introduces a GitOps path that was previously removed. |
 
 ---
 
@@ -129,11 +131,31 @@ New relationship: `operationsManager → projectStateAccess`. Must land in `.sys
 
 **The renderer reads only its typed `RuntimeDesiredState`.** It never reads `project.json` — that would be a ResourceAccess component reaching across to another system's state. The **Manager** reads the deployment model's `cloud` environment (`.slots[6].model.deployment.environments[0]`) and folds namespace, host, container set, and env wiring into the typed struct before the call. This keeps §6's re-derivation honest: the same typed input always produces the same manifests and therefore the same model-key map.
 
-Output per app: `Deployment` + `Service` for server and webapp, CNPG `Cluster`, `HTTPRoute`s, `SecurityPolicy`, `BackendTrafficPolicy`, `ReferenceGrant`, and the Argo `Application` itself.
+Output per app: `Deployment` + `Service` for server and webapp, CNPG `Cluster`, `HTTPRoute`s, `SecurityPolicy`, `BackendTrafficPolicy`, `ReferenceGrant`, the Keycloak realm/client CR (D12), and the Argo `Application` itself.
+
+### 5.1a Model → manifest mapping (D11)
+
+The deployment model is not a loose sketch that happens to resemble the deployment — it carries the deployable elements as `infrastructureNodes` with machine-readable `role` values, alongside workload nodes. The assembly selects on those:
+
+| Model element | `role` | Renders as |
+|---|---|---|
+| `cloud-node-server-deployment` (workload node, `instances: 2`) | — | server `Deployment` + `Service` |
+| `cloud-infra-static-assets` (nginx) | `other` | webapp `Deployment` + `Service` |
+| `cloud-infra-gateway` (Envoy) | `gateway` | `HTTPRoute`s + `SecurityPolicy` + `BackendTrafficPolicy` + `ReferenceGrant` |
+| `cloud-infra-keycloak` (OIDC) | `identityProvider` | Keycloak realm/client CR |
+| `cloud-infra-operatedsystemstate`, `-billingstate`, `-usagelog` | `database` ×3 | one CNPG `Cluster` |
+
+Three properties of this mapping are load-bearing and easy to get wrong:
+
+- **`role: other` is ambiguous.** `cloud-infra-static-assets` (nginx) and `cloud-infra-temporal` share it. The static-asset node is identified by its relationship to the webapp container, not by role alone. Do not invent a new role value to disambiguate — the model is a design artifact with its own review rail.
+- **Three `database` nodes map to one `Cluster`.** Production runs a single `archistrator-postgres` serving all three logical stores. All three diagram nodes therefore colour from that one resource's health.
+- **`archistrator-webapp` sits on `cloud-node-browser` and must stay neutral.** The SPA genuinely executes in the architect's browser; the in-cluster thing is the nginx that serves it. Colouring the browser node from cluster health would be wrong.
 
 ### 5.2 Acceptance criterion — the golden diff
 
 Render archistrator's own `DesiredState` and compare against `helm template` output of the four existing hand-written charts. **Semantic equivalence with what is running in production today is the bar.** This is what makes the dogfood verifiable rather than hopeful: the target is not "plausible YAML", it is "the YAML currently keeping archistrator alive".
+
+**One exemption: the Keycloak CR (D12).** It has no production counterpart — the realm and client are hand-managed in the admin console today. It is therefore the single rendered object with no golden diff to check it, and needs its own test plus a deliberate first apply. Treat it as the highest-risk object in the render, not the easiest: a wrong realm or client CR breaks login for the whole app, and archistrator's own front door is on that path.
 
 ### 5.3 Invariant gates (build-failing tests)
 
