@@ -6837,6 +6837,12 @@
                     "to": "artifact-access",
                     "mode": "sync",
                     "label": "retrieveConstructionOutput(deployableBundleRef) → deployable bundle"
+                  },
+                  {
+                    "from": "operations-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "readProject(projectRef) → deployment model (render inputs: cloud environment namespace, host, workloads, roles)"
                   }
                 ]
               },
