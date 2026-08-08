@@ -28,12 +28,10 @@
 
 | Path | Responsibility |
 |---|---|
-| `server/internal/resourceaccess/operatedruntime/render.go` | Pure renderer: typed `RuntimeDesiredState` → ordered named manifests. No I/O. |
-| `server/internal/resourceaccess/operatedruntime/render_test.go` | Golden-file tests + invariant gates. |
 | `server/internal/resourceaccess/operatedruntime/testdata/golden/*.yaml` | Expected rendered output, and the `helm template` capture of the four production charts. |
-| `server/internal/resourceaccess/operatedruntime/gitops.go` | Real profile's git clone/commit/push against the software repo. |
-| `server/internal/resourceaccess/operatedruntime/argohealth.go` | Argo `Application` CR reader via in-cluster ServiceAccount. |
-| `server/internal/manager/operations/assemble.go` | Manager-side fold of project model + bundle + head-state into `RuntimeDesiredState`. |
+| `server/internal/resourceaccess/operatedruntime/testdata/argo/*.json` | Argo `Application` CR fixtures for the health parser. |
+
+> **The `TestFileLayout` gate forbids new hand-written `.go` files in these packages.** Every ResourceAccess package in this repo has exactly one impl file and one test file (`projectstateaccess.go` runs past 5,800 lines — large single files are the accepted cost of the standard). So the renderer, the GitOps commit path, and the Argo health reader ALL fold into `operatedruntimeaccess.go`, and all their tests into `access_test.go`. Do not create `render.go`, `gitops.go`, `argohealth.go`, or their test files — the gate is zero-waiver and will fail the build.
 
 **Server — modified**
 
@@ -270,8 +268,8 @@ Replaces the opaque `{Bytes, ContentType}` blob with the struct the renderer nee
 
 **Files:**
 - Modify: `.aiarch/state/project.json` (`.serviceContracts.operatedRuntimeAccess`, `.systemDesign` relationships)
-- Create: `server/internal/manager/operations/assemble.go`
-- Create: `server/internal/manager/operations/assemble_test.go`
+- Modify: `server/internal/manager/operations/deploy.go` (assembly folds in here — `TestFileLayout` allows one file per workflow, and this is `DeployWorkflow`'s)
+- Modify: `server/internal/manager/operations/manager_test.go`
 - Modify: `server/internal/manager/operations/deploy.go`
 
 **Interfaces:**
@@ -497,8 +495,8 @@ git commit -m "test(operatedruntime): capture production chart output as render 
 ## Task 4: Renderer — server and webapp workloads
 
 **Files:**
-- Create: `server/internal/resourceaccess/operatedruntime/render.go`
-- Create: `server/internal/resourceaccess/operatedruntime/render_test.go`
+- Modify: `server/internal/resourceaccess/operatedruntime/operatedruntimeaccess.go` (append the renderer — `TestFileLayout` forbids a new `render.go`)
+- Modify: `server/internal/resourceaccess/operatedruntime/access_test.go` (append the tests)
 
 **Interfaces:**
 - Consumes: `RuntimeDesiredState` (Task 2).
@@ -726,8 +724,8 @@ git commit -m "feat(operatedruntime): render server and webapp workloads"
 ## Task 5: Renderer — Postgres, gateway routes, and the Argo Application
 
 **Files:**
-- Modify: `server/internal/resourceaccess/operatedruntime/render.go`
-- Modify: `server/internal/resourceaccess/operatedruntime/render_test.go`
+- Modify: `server/internal/resourceaccess/operatedruntime/operatedruntimeaccess.go`
+- Modify: `server/internal/resourceaccess/operatedruntime/access_test.go`
 
 **Interfaces:**
 - Produces: `render` additionally emits `Cluster` (CNPG), `HTTPRoute`, `SecurityPolicy`, `BackendTrafficPolicy`, `ReferenceGrant`, and `Application`.
@@ -889,7 +887,7 @@ git commit -m "feat(operatedruntime): render postgres, gateway routes, and Argo 
 The gates are the safety net; the golden diff is the acceptance bar.
 
 **Files:**
-- Modify: `server/internal/resourceaccess/operatedruntime/render_test.go`
+- Modify: `server/internal/resourceaccess/operatedruntime/access_test.go`
 
 - [ ] **Step 1: Write the invariant gates**
 
@@ -1025,9 +1023,8 @@ git commit -m "test(operatedruntime): invariant gates and production golden diff
 ## Task 7: GitOps commit path
 
 **Files:**
-- Create: `server/internal/resourceaccess/operatedruntime/gitops.go`
-- Create: `server/internal/resourceaccess/operatedruntime/gitops_test.go`
-- Modify: `server/internal/resourceaccess/operatedruntime/operatedruntimeaccess.go`
+- Modify: `server/internal/resourceaccess/operatedruntime/operatedruntimeaccess.go` (append the commit path — `TestFileLayout` forbids a new `gitops.go`)
+- Modify: `server/internal/resourceaccess/operatedruntime/access_test.go`
 
 **Interfaces:**
 - Consumes: `render` (Task 4–5).
@@ -1168,9 +1165,8 @@ git commit -m "feat(operations): add RegisterOperatedApp; drop client-supplied r
 ## Task 9: Health reads from the Argo Application CR
 
 **Files:**
-- Create: `server/internal/resourceaccess/operatedruntime/argohealth.go`
-- Create: `server/internal/resourceaccess/operatedruntime/argohealth_test.go`
-- Modify: `server/internal/resourceaccess/operatedruntime/operatedruntimeaccess.go`
+- Modify: `server/internal/resourceaccess/operatedruntime/operatedruntimeaccess.go` (append the health reader — `TestFileLayout` forbids a new `argohealth.go`)
+- Modify: `server/internal/resourceaccess/operatedruntime/access_test.go`
 
 **Interfaces:**
 - Produces: `func mapArgoHealth(status string) RuntimeStatus` — `"Healthy"` → `RuntimeStatusHealthy`; everything else observed → `RuntimeStatusDegraded`; unknown/absent → `RuntimeStatusUnknown`. Also `type ResourceHealth struct { Kind, Name, Namespace, Health string }` and a parser from the CR's `status.resources[]`.
@@ -1253,8 +1249,8 @@ Joins the re-derived model-key map against live per-resource health.
 
 **Files:**
 - Modify: `.aiarch/state/project.json` (`.serviceContracts.operationsManager`)
-- Create: `server/internal/manager/operations/health.go`
-- Create: `server/internal/manager/operations/health_test.go`
+- Create: `server/internal/manager/operations/health.go` — permitted ONLY because `TestFileLayout` allows one file per workflow and `QueryDeploymentHealth` is its own workflow. Verify that holds before creating it; if it does not, fold into `view.go`.
+- Modify: `server/internal/manager/operations/manager_test.go`
 
 **Interfaces:**
 - Produces: `QueryDeploymentHealth(rc fwm.Context, operatedAppID uuid.UUID) (DeploymentHealth, error)` where `DeploymentHealth{Nodes []NodeHealth}` and `NodeHealth{ModelKey, Kind, Name string, Health HealthState}`; `HealthState ∈ {HealthStateNeutral, HealthStateHealthy, HealthStateUnhealthy}`.
