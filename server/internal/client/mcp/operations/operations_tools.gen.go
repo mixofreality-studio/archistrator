@@ -32,6 +32,7 @@ func (h *Handler) Register(srv *mcp.Server) {
 	mcp.AddTool(srv, &mcp.Tool{Name: "operationsQueryCostProjection", Description: "Project the operating cost of an operated application, optionally across scale/what-if points. requestID idempotently identifies the query. Read-only.", InputSchema: queryCostProjectionInputSchema(), OutputSchema: queryCostProjectionOutputSchema()}, h.handleQueryCostProjection)
 	mcp.AddTool(srv, &mcp.Tool{Name: "operationsQueryOperatedSystemView", Description: "Return the live operated-system view (runtime status and topology) for an operated application. requestID idempotently identifies the query. Read-only.", InputSchema: queryOperatedSystemViewInputSchema(), OutputSchema: queryOperatedSystemViewOutputSchema()}, h.handleQueryOperatedSystemView)
 	mcp.AddTool(srv, &mcp.Tool{Name: "operationsReconcileOperatedState", Description: "Reconcile the actual operated state toward the desired state across the given scope (or everything when omitted). tickID idempotently identifies the reconcile tick.", InputSchema: reconcileOperatedStateInputSchema(), OutputSchema: reconcileOperatedStateOutputSchema()}, h.handleReconcileOperatedState)
+	mcp.AddTool(srv, &mcp.Tool{Name: "operationsRegisterOperatedApp", Description: "Onboard a new operated application by seeding its head-state row — the customer, project, and deployable-bundle reference it will deploy from. Must run once before the first DeployAfterConstruction. Returns the new head-state version.", InputSchema: registerOperatedAppInputSchema(), OutputSchema: registerOperatedAppOutputSchema()}, h.handleRegisterOperatedApp)
 	mcp.AddTool(srv, &mcp.Tool{Name: "operationsWithdrawSystem", Description: "Withdraw and tear down an operated application (identified by its deploy changeID) for the given reason. Returns the withdrawal outcome.", InputSchema: withdrawSystemInputSchema(), OutputSchema: withdrawSystemOutputSchema()}, h.handleWithdrawSystem)
 }
 
@@ -77,6 +78,17 @@ type reconcileOperatedStateInput struct {
 
 type reconcileOperatedStateOutput struct {
 	Result mgr.ReconcileResult `json:"result"`
+}
+
+type registerOperatedAppInput struct {
+	OperatedAppID       uuid.UUID `json:"operatedAppID"`
+	CustomerID          uuid.UUID `json:"customerID"`
+	ProjectRef          string    `json:"projectRef"`
+	DeployableBundleRef string    `json:"deployableBundleRef"`
+}
+
+type registerOperatedAppOutput struct {
+	Result mgr.Version `json:"result"`
 }
 
 type withdrawSystemInput struct {
@@ -139,6 +151,16 @@ func reconcileOperatedStateInputSchema() *jsonschema.Schema {
 	return s
 }
 
+// registerOperatedAppInputSchema is the explicit MCP input schema for the RegisterOperatedApp operation.
+func registerOperatedAppInputSchema() *jsonschema.Schema {
+	s := objectSchema[registerOperatedAppInput]()
+	fixUUIDStrings(s)
+	relaxRawJSON(s)
+	allowNullMaps(s)
+	s.Required = []string{"operatedAppID", "customerID", "projectRef", "deployableBundleRef"}
+	return s
+}
+
 // withdrawSystemInputSchema is the explicit MCP input schema for the WithdrawSystem operation.
 func withdrawSystemInputSchema() *jsonschema.Schema {
 	s := objectSchema[withdrawSystemInput]()
@@ -188,6 +210,15 @@ func queryOperatedSystemViewOutputSchema() *jsonschema.Schema {
 // reconcileOperatedStateOutputSchema is the explicit MCP output schema for the ReconcileOperatedState operation.
 func reconcileOperatedStateOutputSchema() *jsonschema.Schema {
 	s := objectSchema[reconcileOperatedStateOutput]()
+	fixUUIDStrings(s)
+	relaxRawJSON(s)
+	allowNullMaps(s)
+	return s
+}
+
+// registerOperatedAppOutputSchema is the explicit MCP output schema for the RegisterOperatedApp operation.
+func registerOperatedAppOutputSchema() *jsonschema.Schema {
+	s := objectSchema[registerOperatedAppOutput]()
 	fixUUIDStrings(s)
 	relaxRawJSON(s)
 	allowNullMaps(s)
@@ -259,6 +290,19 @@ func (h *Handler) handleReconcileOperatedState(ctx context.Context, _ *mcp.CallT
 	principal, _ := security.PrincipalFrom(ctx)
 	rc := fwmanager.Context{Context: ctx, Principal: principal}
 	result, err := h.Manager.ReconcileOperatedState(rc, in.TickID, in.Scope)
+	if err != nil {
+		return nil, out, mapManagerError(err)
+	}
+	out.Result = result
+	return nil, out, nil
+}
+
+// handleRegisterOperatedApp is the MCP tool handler for the RegisterOperatedApp operation.
+func (h *Handler) handleRegisterOperatedApp(ctx context.Context, _ *mcp.CallToolRequest, in registerOperatedAppInput) (*mcp.CallToolResult, registerOperatedAppOutput, error) {
+	var out registerOperatedAppOutput
+	principal, _ := security.PrincipalFrom(ctx)
+	rc := fwmanager.Context{Context: ctx, Principal: principal}
+	result, err := h.Manager.RegisterOperatedApp(rc, in.OperatedAppID, in.CustomerID, in.ProjectRef, in.DeployableBundleRef)
 	if err != nil {
 		return nil, out, mapManagerError(err)
 	}

@@ -97,6 +97,11 @@ export const OP_BINDINGS = {
     path: '/api/v1/operations/reconcile-operated-state',
     tool: 'operationsReconcileOperatedState',
   },
+  operationsRegisterOperatedApp: {
+    method: 'POST',
+    path: '/api/v1/operations/register-operated-app/{operatedAppID}/{customerID}',
+    tool: 'operationsRegisterOperatedApp',
+  },
   operationsWithdrawSystem: {
     method: 'POST',
     path: '/api/v1/operations/withdraw-system/{operatedAppID}',

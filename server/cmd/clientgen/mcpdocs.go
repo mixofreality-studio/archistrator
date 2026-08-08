@@ -64,6 +64,7 @@ var mcpOpDocs = map[string]map[string]string{
 		"QueryCostProjection":     "Project the operating cost of an operated application, optionally across scale/what-if points. requestID idempotently identifies the query. Read-only.",
 		"QueryOperatedSystemView": "Return the live operated-system view (runtime status and topology) for an operated application. requestID idempotently identifies the query. Read-only.",
 		"ReconcileOperatedState":  "Reconcile the actual operated state toward the desired state across the given scope (or everything when omitted). tickID idempotently identifies the reconcile tick.",
+		"RegisterOperatedApp":     "Onboard a new operated application by seeding its head-state row — the customer, project, and deployable-bundle reference it will deploy from. Must run once before the first DeployAfterConstruction. Returns the new head-state version.",
 		"WithdrawSystem":          "Withdraw and tear down an operated application (identified by its deploy changeID) for the given reason. Returns the withdrawal outcome.",
 	},
 }

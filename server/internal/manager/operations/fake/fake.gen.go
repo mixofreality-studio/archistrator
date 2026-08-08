@@ -17,6 +17,7 @@ type FakeOperationsManager struct {
 	QueryCostProjectionFn     func(rc fwm.Context, operatedAppID uuid.UUID, requestID string, points *operations.ScaleWhatIfPoints) (operations.CostProjectionSeam, error)
 	QueryOperatedSystemViewFn func(rc fwm.Context, operatedAppID uuid.UUID, requestID string) (operations.OperatedSystemView, error)
 	ReconcileOperatedStateFn  func(rc fwm.Context, tickID string, scope *operations.ReconcileScope) (operations.ReconcileResult, error)
+	RegisterOperatedAppFn     func(rc fwm.Context, operatedAppID uuid.UUID, customerID uuid.UUID, projectRef string, deployableBundleRef string) (operations.Version, error)
 	WithdrawSystemFn          func(rc fwm.Context, operatedAppID uuid.UUID, changeID string, reason operations.WithdrawReason) (operations.WithdrawResult, error)
 }
 
@@ -53,6 +54,13 @@ func (f *FakeOperationsManager) ReconcileOperatedState(rc fwm.Context, tickID st
 		panic("FakeOperationsManager.ReconcileOperatedStateFn not set")
 	}
 	return f.ReconcileOperatedStateFn(rc, tickID, scope)
+}
+
+func (f *FakeOperationsManager) RegisterOperatedApp(rc fwm.Context, operatedAppID uuid.UUID, customerID uuid.UUID, projectRef string, deployableBundleRef string) (operations.Version, error) {
+	if f.RegisterOperatedAppFn == nil {
+		panic("FakeOperationsManager.RegisterOperatedAppFn not set")
+	}
+	return f.RegisterOperatedAppFn(rc, operatedAppID, customerID, projectRef, deployableBundleRef)
 }
 
 func (f *FakeOperationsManager) WithdrawSystem(rc fwm.Context, operatedAppID uuid.UUID, changeID string, reason operations.WithdrawReason) (operations.WithdrawResult, error) {

@@ -326,6 +326,8 @@ type SystemDesignSessionStateView struct {
 	Round         int64                    `json:"round"`
 }
 
+type SystemDesignVersion int64
+
 type SystemTestPlanView struct {
 	Scenarios []TestScenarioView `json:"scenarios"`
 }
@@ -391,8 +393,6 @@ const (
 	TestVariantSystemTest TestingVariant = 3
 	TestVariantQAProcess  TestingVariant = 4
 )
-
-type Version int64
 
 // ActivityBuildStatusName returns the declared varname of a ActivityBuildStatus value.
 func ActivityBuildStatusName(v ActivityBuildStatus) string {

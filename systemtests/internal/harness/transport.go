@@ -64,10 +64,9 @@ type ConstructionSessionState struct {
 // the deploy/republish payload DeployAfterConstruction accepts. Reason and PatchKind
 // are the published ordinal enums (operations_handlers.gen.go / operations contract).
 type DesiredStateChange struct {
-	Reason               string // "deployAfterConstruction" | "operator" | "autoscale" | "delinquency"
-	PatchKind            string // "fullBundle" | "scale" | "policy"
-	ChangeID             string
-	RenderedDesiredState []byte
+	Reason    string // "deployAfterConstruction" | "operator" | "autoscale" | "delinquency"
+	PatchKind string // "fullBundle" | "scale" | "policy"
+	ChangeID  string
 }
 
 // OperatedSystemView is the transport-agnostic projection of QueryOperatedSystemView —

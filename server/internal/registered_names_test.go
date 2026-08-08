@@ -171,6 +171,7 @@ var registeredTemporalNamesGolden = []string{
 	"operationsDeploy",
 	"operationsOperatedSystemView",
 	"operationsReconcile",
+	"operationsRegister",
 	"operationsWithdraw",
 	"projectDesignCoAuthor",
 	"projectDesignPhaseAdvance",

@@ -48,8 +48,9 @@ func (wf *workflows) DeployWorkflow(ctx workflow.Context, in deployInput) (Deplo
 	// scale, autoscale, delinquency) has no fresh bundle to re-derive images from,
 	// so it republishes this placeholder — matching reconcile.go's and
 	// delinquencyenforcement.go's own republish call sites — until incremental
-	// desired-state patching lands (the plan's later removal of
-	// DesiredStateChange.RenderedDesiredState).
+	// desired-state patching lands. (Task 8 removed the caller-supplied
+	// DesiredStateChange.RenderedDesiredState this comment used to forward-reference:
+	// the client never sent it, and the server renders desired state itself, below.)
 	var desired operatedruntime.RuntimeDesiredState
 	if in.Change.Reason == ReasonDeployAfterConstruction && in.Change.PatchKind == PatchFullBundle {
 		if op.DeployableBundleRef == "" {

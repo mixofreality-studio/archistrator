@@ -52,10 +52,9 @@ type DeployResult struct {
 }
 
 type DesiredStateChange struct {
-	Reason               DesiredStateReason `json:"reason"`
-	PatchKind            PatchKind          `json:"patchKind"`
-	ChangeID             string             `json:"changeId"`
-	RenderedDesiredState []byte             `json:"renderedDesiredState,omitempty"`
+	Reason    DesiredStateReason `json:"reason"`
+	PatchKind PatchKind          `json:"patchKind"`
+	ChangeID  string             `json:"changeId"`
 }
 
 type DesiredStateReason int
@@ -89,6 +88,8 @@ type OperationsMoney struct {
 	MinorUnits int64  `json:"MinorUnits"`
 	Currency   string `json:"Currency"`
 }
+
+type OperationsVersion uint64
 
 type PatchKind int
 

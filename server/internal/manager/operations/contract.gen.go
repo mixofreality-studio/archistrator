@@ -65,10 +65,9 @@ type DeployResult struct {
 }
 
 type DesiredStateChange struct {
-	Reason               DesiredStateReason `json:"reason"`
-	PatchKind            PatchKind          `json:"patchKind"`
-	ChangeID             string             `json:"changeId"`
-	RenderedDesiredState []byte             `json:"renderedDesiredState,omitempty"`
+	Reason    DesiredStateReason `json:"reason"`
+	PatchKind PatchKind          `json:"patchKind"`
+	ChangeID  string             `json:"changeId"`
 }
 
 type DesiredStateReason int
@@ -154,6 +153,8 @@ type SloRowView struct {
 	Healthy   bool   `json:"Healthy"`
 }
 
+type Version uint64
+
 type WhatIfCurve struct {
 	Points []WhatIfPoint `json:"Points"`
 }
@@ -178,6 +179,7 @@ type OperationsManager interface {
 	QueryCostProjection(rc fwm.Context, operatedAppID uuid.UUID, requestID string, points *ScaleWhatIfPoints) (CostProjectionSeam, error)
 	QueryOperatedSystemView(rc fwm.Context, operatedAppID uuid.UUID, requestID string) (OperatedSystemView, error)
 	ReconcileOperatedState(rc fwm.Context, tickID string, scope *ReconcileScope) (ReconcileResult, error)
+	RegisterOperatedApp(rc fwm.Context, operatedAppID uuid.UUID, customerID uuid.UUID, projectRef string, deployableBundleRef string) (Version, error)
 	WithdrawSystem(rc fwm.Context, operatedAppID uuid.UUID, changeID string, reason WithdrawReason) (WithdrawResult, error)
 }
 

@@ -94,9 +94,9 @@ type SystemDesignSetOperatingModelRequest struct {
 }
 
 // SystemDesignSetOperatingModel calls the SetOperatingModel operation on the SystemDesign manager over HTTP.
-func (c *HTTPClient) SystemDesignSetOperatingModel(ctx context.Context, projectID ProjectID, model OperatingModel) (Version, error) {
+func (c *HTTPClient) SystemDesignSetOperatingModel(ctx context.Context, projectID ProjectID, model OperatingModel) (SystemDesignVersion, error) {
 	path := fmt.Sprintf("/api/v1/system-design/set-operating-model/%s", projectID)
-	var out Version
+	var out SystemDesignVersion
 	err := c.doRequest(ctx, http.MethodPost, path, SystemDesignSetOperatingModelRequest{Model: model}, &out, http.StatusOK)
 	return out, err
 }
@@ -107,9 +107,9 @@ type SystemDesignSetResearchInputRequest struct {
 }
 
 // SystemDesignSetResearchInput calls the SetResearchInput operation on the SystemDesign manager over HTTP.
-func (c *HTTPClient) SystemDesignSetResearchInput(ctx context.Context, projectID ProjectID, research ResearchInput) (Version, error) {
+func (c *HTTPClient) SystemDesignSetResearchInput(ctx context.Context, projectID ProjectID, research ResearchInput) (SystemDesignVersion, error) {
 	path := fmt.Sprintf("/api/v1/system-design/set-research-input/%s", projectID)
-	var out Version
+	var out SystemDesignVersion
 	err := c.doRequest(ctx, http.MethodPost, path, SystemDesignSetResearchInputRequest{Research: research}, &out, http.StatusOK)
 	return out, err
 }

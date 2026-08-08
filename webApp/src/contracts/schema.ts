@@ -244,6 +244,22 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/v1/operations/register-operated-app/{operatedAppID}/{customerID}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations['RegisterOperatedApp'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/v1/operations/withdraw-system/{operatedAppID}': {
     parameters: {
       query?: never;
@@ -1297,7 +1313,6 @@ export interface components {
       changeId: string;
       patchKind: components['schemas']['OperationsPatchKind'];
       reason: components['schemas']['OperationsDesiredStateReason'];
-      renderedDesiredState?: string;
     };
     /** @enum {integer} */
     OperationsDesiredStateReason: 0 | 1 | 2 | 3 | 4;
@@ -1356,6 +1371,7 @@ export interface components {
       Objective: string;
       SloMet: boolean;
     };
+    OperationsVersion: number;
     OperationsWhatIfCurve: {
       Points: null | components['schemas']['OperationsWhatIfPoint'][];
     };
@@ -3250,6 +3266,99 @@ export interface operations {
         };
         content: {
           'application/json': components['schemas']['OperationsReconcileResult'];
+        };
+      };
+      /** @description contract misuse */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['OperationsErrorResponse'];
+        };
+      };
+      /** @description unauthenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['OperationsErrorResponse'];
+        };
+      };
+      /** @description forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['OperationsErrorResponse'];
+        };
+      };
+      /** @description not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['OperationsErrorResponse'];
+        };
+      };
+      /** @description failed precondition */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['OperationsErrorResponse'];
+        };
+      };
+      /** @description internal error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['OperationsErrorResponse'];
+        };
+      };
+      /** @description infrastructure unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['OperationsErrorResponse'];
+        };
+      };
+    };
+  };
+  RegisterOperatedApp: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        operatedAppID: string;
+        customerID: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': {
+          deployableBundleRef: string;
+          projectRef: string;
+        };
+      };
+    };
+    responses: {
+      /** @description success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['OperationsVersion'];
         };
       };
       /** @description contract misuse */

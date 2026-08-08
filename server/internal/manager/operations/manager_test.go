@@ -19,6 +19,9 @@ package operations
 //   A9  ApplyDelinquencyPolicy rejects empty customerId                → ContractMisuse
 //   A10 Workflow-id derivation tokens are the §6.1 shapes
 //   A11 DesiredStateReason / AutoscaleAction String() coverage
+//   A12 RegisterOperatedApp rejects empty operatedAppId/customerId/projectRef/
+//       deployableBundleRef (each independently, fail loudly — no zero-value skip) →
+//       ContractMisuse
 //
 // B. DeployWorkflow (workflow_test.go):
 //   B1  happy path: read → (bundle) → publish runtime → record head-state(deploy)
@@ -49,6 +52,11 @@ package operations
 //
 // G. §6.5 Conflict discipline (workflow_test.go):
 //   G1  recordPublishDesiredState returns Conflict twice → re-read→re-apply converges
+//
+// H. RegisterWorkflow (op 2.8, onboarding seed):
+//   H1  happy path: registerOperatedSystem called once with the exact params passed in
+//   H2  already-registered (RA Conflict) propagates as the workflow/façade error, NOT
+//       swallowed or retried
 // =============================================================================
 
 import (
@@ -223,6 +231,40 @@ func Test_Delinquency_EmptyCustomerID(t *testing.T) {
 	}
 }
 
+// ---- A12: RegisterOperatedApp — every param fails loudly, never silently skipped ---
+
+func Test_RegisterOperatedApp_EmptyOperatedAppID(t *testing.T) {
+	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	_, err := m.RegisterOperatedApp(bgCtx(), uuid.Nil, uuid.New(), "project-1", "bundle-1")
+	if got := asOperationsError(t, err).Kind; got != fwmgr.ContractMisuse {
+		t.Fatalf("want ContractMisuse, got %s", got)
+	}
+}
+
+func Test_RegisterOperatedApp_EmptyCustomerID(t *testing.T) {
+	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	_, err := m.RegisterOperatedApp(bgCtx(), uuid.New(), uuid.Nil, "project-1", "bundle-1")
+	if got := asOperationsError(t, err).Kind; got != fwmgr.ContractMisuse {
+		t.Fatalf("want ContractMisuse, got %s", got)
+	}
+}
+
+func Test_RegisterOperatedApp_EmptyProjectRef(t *testing.T) {
+	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	_, err := m.RegisterOperatedApp(bgCtx(), uuid.New(), uuid.New(), "", "bundle-1")
+	if got := asOperationsError(t, err).Kind; got != fwmgr.ContractMisuse {
+		t.Fatalf("want ContractMisuse, got %s", got)
+	}
+}
+
+func Test_RegisterOperatedApp_EmptyDeployableBundleRef(t *testing.T) {
+	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	_, err := m.RegisterOperatedApp(bgCtx(), uuid.New(), uuid.New(), "project-1", "")
+	if got := asOperationsError(t, err).Kind; got != fwmgr.ContractMisuse {
+		t.Fatalf("want ContractMisuse, got %s", got)
+	}
+}
+
 // ---- A10: workflow id derivation (§6.1) -------------------------------------
 
 func Test_WorkflowIDDerivation(t *testing.T) {
@@ -245,6 +287,9 @@ func Test_WorkflowIDDerivation(t *testing.T) {
 	}
 	if got := delinquencyWorkflowID(pid); got != pid.String()+":delinquency" {
 		t.Fatalf("delinquency id: %q", got)
+	}
+	if got := registerWorkflowID(pid); got != pid.String()+":register" {
+		t.Fatalf("register id: %q", got)
 	}
 }
 
@@ -308,11 +353,26 @@ type fakeOperatedState struct {
 	// calls before succeeding — drives the §6.5 re-read→re-apply loop.
 	conflictFirst int
 
-	published   []operatedsystemstate.DesiredStateReason
-	statusChges []operatedsystemstate.RuntimeStatus
-	withdrawn   []uuid.UUID
-	delinquency []operatedsystemstate.DelinquencyAction
-	version     operatedsystemstate.Version
+	published     []operatedsystemstate.DesiredStateReason
+	statusChges   []operatedsystemstate.RuntimeStatus
+	withdrawn     []uuid.UUID
+	delinquency   []operatedsystemstate.DelinquencyAction
+	registrations []registerCall
+	version       operatedsystemstate.Version
+
+	// registerErr, when non-nil, is returned by RegisterOperatedSystem instead of
+	// bumping the version — drives the already-registered Conflict path (H2).
+	registerErr error
+}
+
+// registerCall records one RegisterOperatedSystem call verbatim — asserted by the
+// onboarding tests (H) to prove the façade's params reach the RA unmodified, not just
+// that some call happened.
+type registerCall struct {
+	OperatedAppID       uuid.UUID
+	CustomerID          uuid.UUID
+	ProjectRef          string
+	DeployableBundleRef string
 }
 
 func (f *fakeOperatedState) ReadOperatedSystem(_ fwra.Context, _ uuid.UUID) (operatedsystemstate.OperatedSystem, error) {
@@ -346,9 +406,18 @@ func (f *fakeOperatedState) maybeConflict() error {
 	return nil
 }
 
-func (f *fakeOperatedState) RegisterOperatedSystem(_ fwra.Context, _ uuid.UUID, _ uuid.UUID, _ string, _ string, _ fwra.IdempotencyKey) (operatedsystemstate.Version, error) {
+func (f *fakeOperatedState) RegisterOperatedSystem(_ fwra.Context, operatedAppID uuid.UUID, customerID uuid.UUID, projectRef string, deployableBundleRef string, _ fwra.IdempotencyKey) (operatedsystemstate.Version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.registrations = append(f.registrations, registerCall{
+		OperatedAppID:       operatedAppID,
+		CustomerID:          customerID,
+		ProjectRef:          projectRef,
+		DeployableBundleRef: deployableBundleRef,
+	})
+	if f.registerErr != nil {
+		return 0, f.registerErr
+	}
 	return f.bump(), nil
 }
 
@@ -591,6 +660,7 @@ func registerActs(env *testsuite.TestWorkflowEnvironment, os *fakeOperatedState,
 	reg(acts.OperatedSystemStateRecordRuntimeStatusChange, "operatedSystemStateAccess.recordRuntimeStatusChange")
 	reg(acts.OperatedSystemStateWithdrawSystem, "operatedSystemStateAccess.withdrawSystem")
 	reg(acts.OperatedSystemStateRecordDelinquencyAction, "operatedSystemStateAccess.recordDelinquencyAction")
+	reg(acts.OperatedSystemStateRegisterOperatedSystem, "operatedSystemStateAccess.registerOperatedSystem")
 	reg(acts.OperatedRuntimePublishDesiredState, "operatedRuntimeAccess.publishDesiredState")
 	reg(acts.OperatedRuntimeWithdraw, "operatedRuntimeAccess.withdraw")
 	reg(acts.OperatedRuntimeGetApplicationHealth, "operatedRuntimeAccess.getApplicationHealth")
@@ -629,6 +699,11 @@ func registerView(env *testsuite.TestWorkflowEnvironment, wf *workflows, os *fak
 
 func registerDelinquency(env *testsuite.TestWorkflowEnvironment, wf *workflows, os *fakeOperatedState, rt *fakeRuntime, us *fakeUsage, ar *fakeArtifacts) {
 	env.RegisterWorkflowWithOptions(wf.DelinquencyEnforcementWorkflow, workflow.RegisterOptions{Name: executionKindDelinquency})
+	registerActs(env, os, rt, us, ar)
+}
+
+func registerRegister(env *testsuite.TestWorkflowEnvironment, wf *workflows, os *fakeOperatedState, rt *fakeRuntime, us *fakeUsage, ar *fakeArtifacts) {
+	env.RegisterWorkflowWithOptions(wf.RegisterWorkflow, workflow.RegisterOptions{Name: executionKindRegister})
 	registerActs(env, os, rt, us, ar)
 }
 
@@ -1221,6 +1296,73 @@ func Test_Deploy_ConflictOnRecord_ReReadReApply_Succeeds(t *testing.T) {
 	}
 	if len(os.published) != 1 {
 		t.Fatalf("conflict loop must converge to exactly one recorded head-state publish, got %v", os.published)
+	}
+}
+
+// ============================ H. RegisterWorkflow ============================
+
+// H1: the happy path calls registerOperatedSystem exactly once, with the exact params
+// the façade was given (not just "some call happened"), and returns the new version.
+func Test_Register_HappyPath_CallsRegisterOperatedSystemOnce(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	deps, os, rt, us, ar := baseDeps()
+	appID := uuid.New()
+	custID := uuid.New()
+	wf := newWorkflows(deps)
+	registerRegister(env, wf, os, rt, us, ar)
+
+	env.ExecuteWorkflow(executionKindRegister, registerInput{
+		OperatedAppID:       appID,
+		CustomerID:          custID,
+		ProjectRef:          "project-abc",
+		DeployableBundleRef: "bundle-xyz",
+	})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	var res Version
+	if err := env.GetWorkflowResult(&res); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if res != Version(1) {
+		t.Fatalf("version = %d, want 1", res)
+	}
+	if len(os.registrations) != 1 {
+		t.Fatalf("want exactly one registerOperatedSystem call, got %d", len(os.registrations))
+	}
+	want := registerCall{OperatedAppID: appID, CustomerID: custID, ProjectRef: "project-abc", DeployableBundleRef: "bundle-xyz"}
+	if got := os.registrations[0]; got != want {
+		t.Fatalf("registerOperatedSystem call = %+v, want %+v", got, want)
+	}
+}
+
+// H2: an already-registered app (RA Conflict, a different key against an existing row)
+// propagates as the workflow's error — it is NOT swallowed, and NOT retried into a
+// silent success (registration is a one-time event, not a re-read→re-apply race).
+func Test_Register_AlreadyRegistered_ConflictPropagates(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	deps, os, rt, us, ar := baseDeps()
+	os.registerErr = fwra.New(fwra.Conflict, "operated app already registered")
+	wf := newWorkflows(deps)
+	registerRegister(env, wf, os, rt, us, ar)
+
+	env.ExecuteWorkflow(executionKindRegister, registerInput{
+		OperatedAppID:       uuid.New(),
+		CustomerID:          uuid.New(),
+		ProjectRef:          "project-abc",
+		DeployableBundleRef: "bundle-xyz",
+	})
+
+	if env.GetWorkflowError() == nil {
+		t.Fatal("want a Conflict error for an already-registered app")
+	}
+	if len(os.registrations) != 1 {
+		t.Fatalf("want exactly one registerOperatedSystem attempt (no silent retry), got %d", len(os.registrations))
 	}
 }
 

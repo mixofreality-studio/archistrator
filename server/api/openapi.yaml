@@ -1835,10 +1835,6 @@ components:
                     $ref: '#/components/schemas/OperationsPatchKind'
                 reason:
                     $ref: '#/components/schemas/OperationsDesiredStateReason'
-                renderedDesiredState:
-                    contentEncoding: base64
-                    type: string
-                    x-go-type: '[]byte'
             required:
                 - reason
                 - patchKind
@@ -2046,6 +2042,9 @@ components:
                 - SloMet
                 - Healthy
             type: object
+        OperationsVersion:
+            type: integer
+            x-go-type: uint64
         OperationsWhatIfCurve:
             additionalProperties: false
             properties:
@@ -4988,6 +4987,91 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/OperationsReconcileResult'
+                    description: success
+                "400":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OperationsErrorResponse'
+                    description: contract misuse
+                "401":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OperationsErrorResponse'
+                    description: unauthenticated
+                "403":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OperationsErrorResponse'
+                    description: forbidden
+                "404":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OperationsErrorResponse'
+                    description: not found
+                "409":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OperationsErrorResponse'
+                    description: failed precondition
+                "500":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OperationsErrorResponse'
+                    description: internal error
+                "503":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OperationsErrorResponse'
+                    description: infrastructure unavailable
+            security:
+                - bearerAuth: []
+    /api/v1/operations/register-operated-app/{operatedAppID}/{customerID}:
+        post:
+            operationId: RegisterOperatedApp
+            parameters:
+                - in: path
+                  name: operatedAppID
+                  required: true
+                  schema:
+                    format: uuid
+                    type: string
+                    x-go-import: github.com/google/uuid
+                    x-go-type: uuid.UUID
+                - in: path
+                  name: customerID
+                  required: true
+                  schema:
+                    format: uuid
+                    type: string
+                    x-go-import: github.com/google/uuid
+                    x-go-type: uuid.UUID
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            properties:
+                                deployableBundleRef:
+                                    type: string
+                                projectRef:
+                                    type: string
+                            required:
+                                - projectRef
+                                - deployableBundleRef
+                            type: object
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OperationsVersion'
                     description: success
                 "400":
                     content:

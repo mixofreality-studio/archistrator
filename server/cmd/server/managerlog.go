@@ -274,6 +274,11 @@ func (m loggingOperationsManager) ReconcileOperatedState(rc fwmanager.Context, t
 	return v, logInfraError(m.log, "Operations.ReconcileOperatedState", "", err)
 }
 
+func (m loggingOperationsManager) RegisterOperatedApp(rc fwmanager.Context, operatedAppID uuid.UUID, customerID uuid.UUID, projectRef string, deployableBundleRef string) (operations.Version, error) {
+	v, err := m.inner.RegisterOperatedApp(rc, operatedAppID, customerID, projectRef, deployableBundleRef)
+	return v, logInfraError(m.log, "Operations.RegisterOperatedApp", operatedAppID.String(), err)
+}
+
 func (m loggingOperationsManager) WithdrawSystem(rc fwmanager.Context, operatedAppID uuid.UUID, changeID string, reason operations.WithdrawReason) (operations.WithdrawResult, error) {
 	v, err := m.inner.WithdrawSystem(rc, operatedAppID, changeID, reason)
 	return v, logInfraError(m.log, "Operations.WithdrawSystem", operatedAppID.String(), err)

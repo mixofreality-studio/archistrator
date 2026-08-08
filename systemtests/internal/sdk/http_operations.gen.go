@@ -72,6 +72,20 @@ func (c *HTTPClient) OperationsReconcileOperatedState(ctx context.Context, tickI
 	return out, err
 }
 
+// OperationsRegisterOperatedAppRequest is the JSON request body for OperationsRegisterOperatedApp.
+type OperationsRegisterOperatedAppRequest struct {
+	ProjectRef          string `json:"projectRef"`
+	DeployableBundleRef string `json:"deployableBundleRef"`
+}
+
+// OperationsRegisterOperatedApp calls the RegisterOperatedApp operation on the Operations manager over HTTP.
+func (c *HTTPClient) OperationsRegisterOperatedApp(ctx context.Context, operatedAppID string, customerID string, projectRef string, deployableBundleRef string) (OperationsVersion, error) {
+	path := fmt.Sprintf("/api/v1/operations/register-operated-app/%s/%s", operatedAppID, customerID)
+	var out OperationsVersion
+	err := c.doRequest(ctx, http.MethodPost, path, OperationsRegisterOperatedAppRequest{ProjectRef: projectRef, DeployableBundleRef: deployableBundleRef}, &out, http.StatusOK)
+	return out, err
+}
+
 // OperationsWithdrawSystemRequest is the JSON request body for OperationsWithdrawSystem.
 type OperationsWithdrawSystemRequest struct {
 	ChangeID string         `json:"changeID"`

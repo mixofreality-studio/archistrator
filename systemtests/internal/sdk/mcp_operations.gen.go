@@ -62,6 +62,19 @@ func (c *MCPClient) OperationsReconcileOperatedState(ctx context.Context, tickID
 	return mcpCallResult[ReconcileResult](c, ctx, "operationsReconcileOperatedState", OperationsReconcileOperatedStateInput{TickID: tickID, Scope: scope})
 }
 
+// OperationsRegisterOperatedAppInput is the MCP tool-call argument object for operationsRegisterOperatedApp.
+type OperationsRegisterOperatedAppInput struct {
+	OperatedAppID       string `json:"operatedAppID"`
+	CustomerID          string `json:"customerID"`
+	ProjectRef          string `json:"projectRef"`
+	DeployableBundleRef string `json:"deployableBundleRef"`
+}
+
+// OperationsRegisterOperatedApp calls the operationsRegisterOperatedApp tool on the Operations manager over MCP.
+func (c *MCPClient) OperationsRegisterOperatedApp(ctx context.Context, operatedAppID string, customerID string, projectRef string, deployableBundleRef string) (OperationsVersion, error) {
+	return mcpCallResult[OperationsVersion](c, ctx, "operationsRegisterOperatedApp", OperationsRegisterOperatedAppInput{OperatedAppID: operatedAppID, CustomerID: customerID, ProjectRef: projectRef, DeployableBundleRef: deployableBundleRef})
+}
+
 // OperationsWithdrawSystemInput is the MCP tool-call argument object for operationsWithdrawSystem.
 type OperationsWithdrawSystemInput struct {
 	OperatedAppID string         `json:"operatedAppID"`
