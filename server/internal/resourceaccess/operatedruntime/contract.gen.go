@@ -29,16 +29,17 @@ type GatewayBinding struct {
 }
 
 type OIDCSpec struct {
+	ModelKey        string `json:"ModelKey"`
 	Issuer          string `json:"Issuer"`
 	ClientID        string `json:"ClientID"`
 	ClientSecretRef string `json:"ClientSecretRef"`
 }
 
 type PostgresSpec struct {
-	ModelKey     string `json:"ModelKey"`
-	Enabled      bool   `json:"Enabled"`
-	Instances    int64  `json:"Instances"`
-	StorageClass string `json:"StorageClass"`
+	ModelKeys    []string `json:"ModelKeys"`
+	Enabled      bool     `json:"Enabled"`
+	Instances    int64    `json:"Instances"`
+	StorageClass string   `json:"StorageClass"`
 }
 
 type RuntimeDesiredState struct {

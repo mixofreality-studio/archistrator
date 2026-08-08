@@ -360,25 +360,31 @@ func assembleDesiredState(proj projectstate.Project, bundle deployableBundle, _ 
 	}
 
 	// OIDC: the namespace's identityProvider-role node. Required (an app with no
-	// identity provider cannot be assembled), but its key isn't carried forward —
-	// OIDCSpec has no ModelKey field (see the task report's concern about this).
-	if _, err := findInfrastructureNodeByRole(namespace.InfrastructureNodes, projectstate.RoleIdentityProvider); err != nil {
+	// identity provider cannot be assembled). Its key IS carried forward as
+	// OIDC.ModelKey (Task 6 enforces that every rendered manifest — including
+	// Task 5's Keycloak realm/client CR, spec D12 — carries a non-empty ModelKey;
+	// this is what that CR stamps itself with).
+	oidcNode, err := findInfrastructureNodeByRole(namespace.InfrastructureNodes, projectstate.RoleIdentityProvider)
+	if err != nil {
 		return operatedruntime.RuntimeDesiredState{}, fmt.Errorf("assembleDesiredState: project %q: %w", appName, err)
 	}
 
 	// Postgres: D11 trap #2 — production runs ONE archistrator-postgres CNPG
 	// cluster serving all three logical stores (operatedSystemState/billingState/
-	// usageLog), each modeled as its OWN database-role diagram node for
-	// independent health coloring. PostgresSpec carries a single ModelKey, so the
-	// three collapse to one: the alphabetically-first key, chosen only for a
-	// deterministic, reproducible pick among otherwise-equal candidates (no node
-	// is more "correct" than another to represent the shared resource). The
-	// renderer/health-overlay tasks (6/7) still need to attribute the ONE rendered
-	// resource's health back to all three diagram nodes — this ModelKey alone
-	// does not carry that fan-out; flagged in the task report.
+	// usageLog), each modeled as its OWN database-role diagram node so the
+	// deployment diagram can color each independently. The single rendered
+	// Cluster is still correct (matching production's one archistrator-postgres);
+	// only the key-tracking must fan out, so PostgresSpec carries every
+	// database-role node's key (ModelKeys), sorted for Task 4's byte-deterministic
+	// render — not a single collapsed choice that would silently strand two of
+	// the three diagram nodes uncoloured.
 	dbNodes, err := findDatabaseNodes(namespace)
 	if err != nil {
 		return operatedruntime.RuntimeDesiredState{}, fmt.Errorf("assembleDesiredState: project %q: %w", appName, err)
+	}
+	dbKeys := make([]string, len(dbNodes))
+	for i, n := range dbNodes {
+		dbKeys[i] = n.Key
 	}
 
 	var manifest bundleManifest
@@ -402,12 +408,13 @@ func assembleDesiredState(proj projectstate.Project, bundle deployableBundle, _ 
 			Replicas: defaultWebAppReplicas,
 		},
 		Postgres: operatedruntime.PostgresSpec{
-			ModelKey:     dbNodes[0].Key,
+			ModelKeys:    dbKeys,
 			Enabled:      true,
 			Instances:    defaultPostgresInstances,
 			StorageClass: defaultPostgresStorageClass,
 		},
 		OIDC: operatedruntime.OIDCSpec{
+			ModelKey:        oidcNode.Key,
 			Issuer:          "https://keycloak." + platformDomain + "/realms/" + appName,
 			ClientID:        appName + "-webapp",
 			ClientSecretRef: appName + "-oidc-client-secret",

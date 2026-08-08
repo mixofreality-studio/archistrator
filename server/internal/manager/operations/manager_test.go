@@ -57,6 +57,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -1403,13 +1404,18 @@ func TestAssembleDesiredState_MapsCloudEnvironmentAndBundleImages(t *testing.T) 
 	if got.WebApp.Image != "ghcr.io/mixofreality-studio/archistrator-webapp:0.6.61" {
 		t.Errorf("WebApp.Image = %q", got.WebApp.Image)
 	}
-	// Postgres.ModelKey collapses the three database-role nodes to one,
-	// deterministically the alphabetically-first key (D11 trap #2).
-	if got.Postgres.ModelKey != "cloud-infra-billingstate" || !got.Postgres.Enabled {
-		t.Errorf("Postgres = %+v, want ModelKey=cloud-infra-billingstate (alphabetically first of the 3 database nodes) Enabled=true", got.Postgres)
+	// Postgres.ModelKeys carries EVERY database-role node's key (D11 trap #2: one
+	// rendered Cluster still backs all three diagram nodes, but each must colour
+	// independently), sorted for Task 4's byte-deterministic render.
+	wantDBKeys := []string{"cloud-infra-billingstate", "cloud-infra-operatedsystemstate", "cloud-infra-usagelog"}
+	if !slices.Equal(got.Postgres.ModelKeys, wantDBKeys) || !got.Postgres.Enabled {
+		t.Errorf("Postgres = %+v, want ModelKeys=%v (sorted) Enabled=true", got.Postgres, wantDBKeys)
 	}
 	if got.ModelKey != "cloud-node-ns-archistrator" {
 		t.Errorf("ModelKey = %q, want cloud-node-ns-archistrator", got.ModelKey)
+	}
+	if got.OIDC.ModelKey != "cloud-infra-keycloak" {
+		t.Errorf("OIDC.ModelKey = %q, want cloud-infra-keycloak (the identityProvider node's key)", got.OIDC.ModelKey)
 	}
 	if got.OIDC.ClientID != "archistrator-webapp" {
 		t.Errorf("OIDC.ClientID = %q, want archistrator-webapp", got.OIDC.ClientID)
@@ -1578,9 +1584,16 @@ func TestAssembleDesiredState_AgainstTheRealCommittedModel(t *testing.T) {
 	if got.WebApp.ModelKey != "cloud-infra-static-assets" {
 		t.Errorf("WebApp.ModelKey = %q, want cloud-infra-static-assets", got.WebApp.ModelKey)
 	}
-	wantDBKeys := map[string]bool{"cloud-infra-operatedsystemstate": true, "cloud-infra-billingstate": true, "cloud-infra-usagelog": true}
-	if !wantDBKeys[got.Postgres.ModelKey] || !got.Postgres.Enabled {
-		t.Errorf("Postgres = %+v, want ModelKey in %v Enabled=true", got.Postgres, wantDBKeys)
+	// All three real database-role nodes must be present and sorted (D11 trap #2:
+	// one archistrator-postgres Cluster backs all three diagram nodes, and each
+	// must be able to colour independently — a single collapsed key would strand
+	// two of them uncoloured).
+	wantDBKeys := []string{"cloud-infra-billingstate", "cloud-infra-operatedsystemstate", "cloud-infra-usagelog"}
+	if !slices.Equal(got.Postgres.ModelKeys, wantDBKeys) || !got.Postgres.Enabled {
+		t.Errorf("Postgres = %+v, want ModelKeys=%v (sorted) Enabled=true", got.Postgres, wantDBKeys)
+	}
+	if got.OIDC.ModelKey != "cloud-infra-keycloak" {
+		t.Errorf("OIDC.ModelKey = %q, want cloud-infra-keycloak", got.OIDC.ModelKey)
 	}
 	if got.OIDC.Issuer == "" || got.OIDC.ClientID == "" {
 		t.Errorf("OIDC = %+v, want both Issuer and ClientID populated", got.OIDC)

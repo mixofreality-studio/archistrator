@@ -16505,8 +16505,11 @@
         "PostgresSpec": {
           "type": "object",
           "properties": {
-            "ModelKey": {
-              "type": "string"
+            "ModelKeys": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
             },
             "Enabled": {
               "type": "boolean"
@@ -16519,7 +16522,7 @@
             }
           },
           "required": [
-            "ModelKey",
+            "ModelKeys",
             "Enabled",
             "Instances",
             "StorageClass"
@@ -16529,6 +16532,9 @@
         "OIDCSpec": {
           "type": "object",
           "properties": {
+            "ModelKey": {
+              "type": "string"
+            },
             "Issuer": {
               "type": "string"
             },
@@ -16540,6 +16546,7 @@
             }
           },
           "required": [
+            "ModelKey",
             "Issuer",
             "ClientID",
             "ClientSecretRef"
