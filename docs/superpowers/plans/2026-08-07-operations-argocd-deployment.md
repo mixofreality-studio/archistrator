@@ -1249,95 +1249,154 @@ git commit -m "feat(operatedruntime): read health from the Argo Application CR"
 
 ## Task 10: `QueryDeploymentHealth`
 
-Joins the re-derived model-key map against live per-resource health.
+Joins model keys to live per-resource health. **The join lives in ResourceAccess, not the Manager** — see the layering note below, which reverses this plan's original design.
 
 **Files:**
-- Modify: `.aiarch/state/project.json` (`.serviceContracts.operationsManager`)
-- Create: `server/internal/manager/operations/health.go` — permitted ONLY because `TestFileLayout` allows one file per workflow and `QueryDeploymentHealth` is its own workflow. Verify that holds before creating it; if it does not, fold into `view.go`.
+- Modify: `.aiarch/state/project.json` (`.serviceContracts.operatedRuntimeAccess` — new verb; `.serviceContracts.operationsManager` — new public op)
+- Modify: `server/internal/resourceaccess/operatedruntime/operatedruntimeaccess.go`
+- Modify: `server/internal/resourceaccess/operatedruntime/access_test.go`
+- Modify: `server/internal/arch_test.go` (REMOVE two allowlist entries — see below)
+- Create: `server/internal/manager/operations/querydeploymenthealth.go` — permitted only because `TestFileLayout` allows one file per WORKFLOW and this is `QueryDeploymentHealthWorkflow`'s. The required filename is `strings.ToLower(strings.TrimSuffix(entryFunc, "Workflow")) + ".go"`; verify before creating.
 - Modify: `server/internal/manager/operations/manager_test.go`
 
 **Interfaces:**
-- Produces: `QueryDeploymentHealth(rc fwm.Context, operatedAppID uuid.UUID) (DeploymentHealth, error)` where `DeploymentHealth{Nodes []NodeHealth}` and `NodeHealth{ModelKey, Kind, Name string, Health HealthState}`; `HealthState ∈ {HealthStateNeutral, HealthStateHealthy, HealthStateUnhealthy}`.
+- New RA verb: `GetDeploymentResourceHealth(rc fwra.Context, appID uuid.UUID, desired RuntimeDesiredState) ([]ModelKeyHealth, error)` where `ModelKeyHealth{ModelKey string, Status RuntimeStatus}`.
+- New public op: `QueryDeploymentHealth(rc fwm.Context, operatedAppID uuid.UUID) (DeploymentHealth, error)` where `DeploymentHealth{Nodes []NodeHealth}` and `NodeHealth{ModelKey string, Health HealthState}`; `HealthState ∈ {HealthStateNeutral, HealthStateHealthy, HealthStateUnhealthy}`.
 
-- [ ] **Step 1: Write the failing test**
+### Why the join moved into ResourceAccess
+
+This plan originally put `joinHealth(manifests []Manifest, health []ResourceHealth, …)` in the Manager. That was wrong on two counts, both found in Task 9's review:
+
+1. **It reintroduces the exact leak decision D11 removed.** `Manifest{Kind, Name, Namespace, YAML}` and `ResourceHealth{Kind, Name, Namespace, Health}` are Kubernetes vocabulary, and the planned `healthStateFor` switched on the literal Argo string `"Healthy"` inside `manager/operations`. D11 removed a single `"k8s"` literal from the Manager; this would have put a Kubernetes object-identity triple *and* an Argo health enum there. Spec D4 states the rule without exception.
+2. **It could not compile.** The original text says `QueryDeploymentHealth` "re-runs `assembleDesiredState` + `render`" — but `render` is unexported and must stay so. A new RA verb was needed regardless; the only open question was what it returns.
+
+The RA gains no new concept: `ModelKey`/`ModelKeys` are *already* RA contract vocabulary (they sit in `RuntimeDesiredState`, `Workload`, `PostgresSpec`, `OIDCSpec`), and `Manifest.ModelKeys` is precisely the record of where a model key and a Kubernetes identity coexist. Joining there joins where both inputs already live; joining in the Manager means exporting the Kubernetes half upward only to rejoin it.
+
+### The split of responsibilities
+
+| Layer | Answers |
+|---|---|
+| ResourceAccess | "Which model keys does this app actually deploy, and how is each doing?" Returns substrate-neutral `RuntimeStatus`, never an Argo string. |
+| Manager | "Of the keys on this diagram, which are even ours?" Reads the cloud environment's full key list from project.json, marks Neutral every key the RA did not return, and collapses `RuntimeStatus` → the three-state `HealthState`. |
+
+The RA must NOT enumerate the deployment environment — it receives keys as opaque strings and never interprets them. It will not know what `cloud-node-browser` is, and does not need to. Conversely the D10 collapse (only Healthy is green) is a *diagram* concern and belongs in the Manager, expressed over `RuntimeStatus`.
+
+- [ ] **Step 1: Add the RA verb to the contract and regenerate**
+
+Edit `.serviceContracts.operatedRuntimeAccess` in `.aiarch/state/project.json`: add a `ModelKeyHealth` `$def` (`ModelKey` string, `Status` → the existing `RuntimeStatus` enum) and the `GetDeploymentResourceHealth` operation. Repo conventions, already verified: operations use `"result"` + `"error": true` (never `"returns"`), and there is no `IdempotencyKey` `$def` — siblings inline it.
+
+```bash
+cd server && GOWORK=off make gen-models
+```
+
+Expect hand-written fakes and noop implementations elsewhere to break; fix them in this task.
+
+This takes `operatedRuntimeAccess` to 7 ops — inside Appendix B's limit of 12, well clear of the ≥20 reject line.
+
+- [ ] **Step 2: Write the failing RA test**
 
 ```go
-func TestQueryDeploymentHealth_NeutralForUnrenderedNodes(t *testing.T) {
-	// The cloud environment contains nodes archistrator does not deploy: the
-	// architect's laptop, their browser, the temporal and gtd namespaces. None of
-	// these may ever be coloured — a naive join would paint them unhealthy.
-	got := joinHealth(
-		[]Manifest{{ModelKeys: []string{"cloud-node-server-deployment"}, Kind: "Deployment", Name: "archistrator-server"}},
-		[]ResourceHealth{{Kind: "Deployment", Name: "archistrator-server", Health: "Healthy"}},
-		[]string{"cloud-node-server-deployment", "cloud-node-browser", "cloud-node-ns-gtd"},
-	)
+func TestGetDeploymentResourceHealth_MapsPerResourceHealthToModelKeys(t *testing.T) {
+	// Fixture: an Application CR whose status.resources[] carries one Healthy
+	// Deployment and one Degraded Cluster, matching what render() emits for
+	// testDesiredState().
+	got, err := parseModelKeyHealth(loadArgoFixture(t, "application-mixed.json"), testDesiredState())
+	if err != nil {
+		t.Fatalf("parseModelKeyHealth: %v", err)
+	}
+	byKey := map[string]RuntimeStatus{}
+	for _, h := range got {
+		byKey[h.ModelKey] = h.Status
+	}
+	if byKey["cloud-node-server-deployment"] != RuntimeStatusHealthy {
+		t.Errorf("server = %v, want Healthy", byKey["cloud-node-server-deployment"])
+	}
+	// All three database model keys collapse onto the one Cluster resource and
+	// must therefore all report its health.
+	for _, k := range []string{"cloud-infra-operatedsystemstate", "cloud-infra-billingstate", "cloud-infra-usagelog"} {
+		if byKey[k] != RuntimeStatusDegraded {
+			t.Errorf("%s = %v, want Degraded (all three share one Cluster)", k, byKey[k])
+		}
+	}
+}
 
+func TestGetDeploymentResourceHealth_RenderedButAbsentFromClusterIsDegraded(t *testing.T) {
+	// A manifest the renderer emits but the cluster does not report: it should
+	// exist and does not. That is Degraded, never Healthy and never omitted.
+	got, err := parseModelKeyHealth(loadArgoFixture(t, "application-missing-cluster.json"), testDesiredState())
+	if err != nil {
+		t.Fatalf("parseModelKeyHealth: %v", err)
+	}
+	for _, h := range got {
+		if h.ModelKey == "cloud-infra-billingstate" && h.Status == RuntimeStatusHealthy {
+			t.Error("a resource missing from the cluster must not report Healthy")
+		}
+	}
+}
+```
+
+- [ ] **Step 3: Run and watch them fail**
+
+```bash
+cd server && GOWORK=off go test ./internal/resourceaccess/operatedruntime/ -run TestGetDeploymentResourceHealth -v
+```
+
+Expected: FAIL — `undefined: parseModelKeyHealth`.
+
+- [ ] **Step 4: Implement the RA verb**
+
+Internally: `render(desired)` → find the Application by the `archistrator.dev/app-id` annotation → `parseResourceHealth` → match each rendered manifest on `(Kind, Name, Namespace)` → emit one `ModelKeyHealth` per `ModelKey`, fanning out where a manifest carries several (the Postgres `Cluster` carries three).
+
+Fail-closed rules, in keeping with the two fail-open checks this plan has already rejected:
+- A rendered manifest with no matching live resource is **Degraded** — it should exist and does not. Never Healthy, never silently dropped.
+- Any read failure propagates as an error. Never a Healthy default.
+
+- [ ] **Step 5: Un-export `Manifest` and `ResourceHealth`**
+
+Both were exported only so the Manager could join them. With the join inside the RA, neither needs to be. Rename to unexported forms and **remove both entries from `encapsulationAllowlistData` in `server/internal/arch_test.go`**.
+
+This is the strongest signal the boundary is now right: the gate's exception surface shrinks rather than grows. Do not skip it because the tests already pass.
+
+- [ ] **Step 6: Fold in two carried Minor findings from Task 9**
+
+Same file, so close them here rather than in a separate pass:
+- `GetApplicationHealth` discards its `fwra.Context` and builds the request with `http.NewRequest`. Use `http.NewRequestWithContext` so an activity deadline or cancellation actually propagates — today it is lost.
+- A 200 response with valid JSON but no `items` key currently yields `Pending`, conflating "unexpected shape" with "never synced". Distinguish them — assert `kind == "ApplicationList"`, or detect the absent key — so an unexpected payload is an error rather than a benign-looking Pending.
+
+- [ ] **Step 7: Add the public Manager op**
+
+Add `QueryDeploymentHealth` to `.serviceContracts.operationsManager`, regenerate, and implement `QueryDeploymentHealthWorkflow`: read head-state, read the project, assemble the desired state, call the RA verb, then apply the Manager-side rules — every cloud-environment key the RA did not return is `HealthStateNeutral`; returned keys collapse `RuntimeStatusHealthy` → `HealthStateHealthy` and everything else → `HealthStateUnhealthy`.
+
+- [ ] **Step 8: Write the Manager neutrality test**
+
+This is the trap from spec §6 — a naive join paints the architect's own laptop red.
+
+```go
+func TestQueryDeploymentHealth_NeutralForNodesWeDoNotDeploy(t *testing.T) {
+	got := applyDiagramHealth(
+		[]operatedruntime.ModelKeyHealth{{ModelKey: "cloud-node-server-deployment", Status: operatedruntime.RuntimeStatusHealthy}},
+		[]string{"cloud-node-server-deployment", "cloud-node-browser", "cloud-node-ns-gtd", "cloud-node-architect-machine"},
+	)
 	byKey := map[string]HealthState{}
 	for _, n := range got.Nodes {
 		byKey[n.ModelKey] = n.Health
 	}
 	if byKey["cloud-node-server-deployment"] != HealthStateHealthy {
-		t.Errorf("server deployment = %v, want Healthy", byKey["cloud-node-server-deployment"])
+		t.Errorf("server = %v, want Healthy", byKey["cloud-node-server-deployment"])
 	}
-	if byKey["cloud-node-browser"] != HealthStateNeutral {
-		t.Errorf("browser = %v, want Neutral — it is not in the app's resource set", byKey["cloud-node-browser"])
-	}
-	if byKey["cloud-node-ns-gtd"] != HealthStateNeutral {
-		t.Errorf("gtd namespace = %v, want Neutral — it belongs to another app", byKey["cloud-node-ns-gtd"])
-	}
-}
-
-func TestQueryDeploymentHealth_UnhealthyWhenResourceDegraded(t *testing.T) {
-	got := joinHealth(
-		[]Manifest{{ModelKeys: []string{"cloud-node-server-deployment"}, Kind: "Deployment", Name: "archistrator-server"}},
-		[]ResourceHealth{{Kind: "Deployment", Name: "archistrator-server", Health: "Degraded"}},
-		[]string{"cloud-node-server-deployment"},
-	)
-	if got.Nodes[0].Health != HealthStateUnhealthy {
-		t.Errorf("health = %v, want Unhealthy", got.Nodes[0].Health)
+	for _, k := range []string{"cloud-node-browser", "cloud-node-ns-gtd", "cloud-node-architect-machine"} {
+		if byKey[k] != HealthStateNeutral {
+			t.Errorf("%s = %v, want Neutral — we do not deploy it", k, byKey[k])
+		}
 	}
 }
 ```
 
-- [ ] **Step 2: Run and watch them fail**
+- [ ] **Step 9: Full suite, regenerate the client surface, commit**
 
 ```bash
-cd server && GOWORK=off go test ./internal/manager/operations/ -run TestQueryDeploymentHealth -v
-```
-
-Expected: FAIL — `undefined: joinHealth`.
-
-- [ ] **Step 3: Implement**
-
-`joinHealth` takes the rendered manifests, the live resource health, and the full list of model keys in the cloud environment. A key with no rendered manifest is `Neutral`, always — never `Unhealthy`. A key with a manifest but no live resource is `Unhealthy` (it should exist and does not). Otherwise fold the Argo string through:
-
-```go
-// healthStateFor collapses an Argo per-resource health string to the three-state
-// diagram vocabulary (spec D10). Note this is NOT mapArgoHealth: that one answers
-// "what RuntimeStatus is this app in" for head-state; this one answers "what colour
-// is this diagram node". Only "Healthy" is green.
-func healthStateFor(argoHealth string) HealthState {
-	if argoHealth == "Healthy" {
-		return HealthStateHealthy
-	}
-	return HealthStateUnhealthy
-}
-```
-
-`QueryDeploymentHealth` re-runs `assembleDesiredState` + `render` to get the manifests, calls the Argo reader, and joins.
-
-- [ ] **Step 4: Run and watch them pass**
-
-```bash
-cd server && GOWORK=off go test ./internal/manager/operations/ -v
-```
-
-Expected: PASS.
-
-- [ ] **Step 5: Regenerate the client surface and commit**
-
-```bash
-cd server && GOWORK=off make gen-client && cd ../webApp && npm run gen:api
+cd server && GOWORK=off make test && GOWORK=off make gen-client
+cd ../webApp && npm run gen:api && npm run check
 git add .aiarch/state/project.json server/ webApp/src/contracts/ webApp/src/api/
 git commit -m "feat(operations): QueryDeploymentHealth joining model keys to live health"
 ```
@@ -1424,7 +1483,7 @@ git commit -m "feat(operations): hide the operations surface in the local profil
 - Modify: `webApp/src/components/flow/DeploymentNodes.tsx`
 
 **Interfaces:**
-- Consumes: `QueryDeploymentHealth` (Task 10); `useCapabilities` (Task 11).
+- Consumes: `QueryDeploymentHealth` (Task 10) — returns `{Nodes: [{modelKey, health}]}` where health is `Healthy` | `Unhealthy`, and any diagram node absent from the response is Neutral; `useCapabilities` (Task 11).
 - Produces, all in `deploymentHealth.ts`:
   - `type HealthState = 'Healthy' | 'Unhealthy'`
   - `healthColorName(state: HealthState | undefined): 'green' | 'red' | 'neutral'` — pure, no theme dependency, which is what makes it testable under `node --test`
