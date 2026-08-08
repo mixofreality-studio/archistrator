@@ -264,17 +264,20 @@ git commit -m "feat(operatedsystemstate): add RegisterOperatedSystem seeding ver
 
 ---
 
-## Task 2: Typed `RuntimeDesiredState`
+## Task 2: Typed `RuntimeDesiredState` end-to-end
 
-Replaces the opaque `{Bytes, ContentType}` blob with the struct the renderer needs, including the `ModelKey` fields the health overlay joins on.
+Replaces the opaque `{Bytes, ContentType}` blob with the struct the renderer needs, **and** populates it from its three real sources in the same task. These are one task deliberately: a contract change without its assembly would mean writing a knowingly-incomplete literal, and there is no reason to split them — assembly depends only on the typed struct and the `projectStateAccess` edge, not on the renderer.
 
 **Files:**
-- Modify: `.aiarch/state/project.json` (`.serviceContracts.operatedRuntimeAccess`)
-- Modify: `server/internal/resourceaccess/operatedruntime/operatedruntimeaccess.go`
-- Modify: `server/internal/manager/operations/deploy.go:54-58`
+- Modify: `.aiarch/state/project.json` (`.serviceContracts.operatedRuntimeAccess`, `.systemDesign` relationships)
+- Create: `server/internal/manager/operations/assemble.go`
+- Create: `server/internal/manager/operations/assemble_test.go`
+- Modify: `server/internal/manager/operations/deploy.go`
 
 **Interfaces:**
+- Consumes: `projectstate.ReadProject(rc fwra.Context, projectID ProjectID) (Project, error)`; `artifact.RetrieveConstructionOutput`; `operatedsystemstate.OperatedSystem`.
 - Produces: `operatedruntime.RuntimeDesiredState` with fields `AppName, Namespace, Host, ModelKey string`, `Server, WebApp Workload`, `Postgres PostgresSpec`, `OIDC OIDCSpec`, `SelfManaged bool`; `Workload{ModelKey, Image string, Replicas int64}`; `PostgresSpec{ModelKey string, Enabled bool, Instances int64, StorageClass string}`; `OIDCSpec{Issuer, ClientID, ClientSecretRef string}`.
+- Produces: `func assembleDesiredState(proj projectstate.Project, bundle deployableBundle, op operatedsystemstate.OperatedSystem) (operatedruntime.RuntimeDesiredState, error)`.
 
 - [ ] **Step 1: Replace the `RuntimeDesiredState` `$def`**
 
@@ -327,55 +330,107 @@ json.dump(d, open(p, 'w'), indent=2)
 open(p, 'a').write('\n')
 ```
 
-- [ ] **Step 2: Regenerate**
+- [ ] **Step 2: Add the architecture relationship**
+
+The Manager is about to call a ResourceAccess it has never called. Declare it, or the architecture gate rejects the edge.
+
+Inspect the existing shape first — the slot index and relationship fields must match siblings exactly:
 
 ```bash
-cd server && GOWORK=off make gen-models
+python3 -c "
+import json
+d=json.load(open('.aiarch/state/project.json'))
+for k,s in d['slots'].items():
+    if isinstance(s,dict) and s.get('model',{}).get('relationships'):
+        print('slot',k,'->',json.dumps(s['model']['relationships'][0]))
+        break
+"
 ```
 
-- [ ] **Step 3: Build and collect the breakage**
+Then append, in that same shape:
+
+```
+{"from": "operationsManager", "to": "projectStateAccess",
+ "label": "Reads the operated app's deployment model from",
+ "technology": "in-process", "mode": "sync"}
+```
+
+- [ ] **Step 3: Regenerate contracts and activities**
 
 ```bash
-cd server && GOWORK=off go build ./... 2>&1 | head -20
+cd server && GOWORK=off make gen-models && GOWORK=off make gen-temporal
+git diff --stat internal/
 ```
 
-Expected: FAIL at `internal/manager/operations/deploy.go` — it still constructs `RuntimeDesiredState{Bytes: ..., ContentType: ...}`.
+Expected: `operatedruntime/contract.gen.go` carries the new struct; `operations/activities.gen.go` and `invokers.gen.go` gain `ProjectState*` entries.
 
-- [ ] **Step 4: Make the Manager compile against the new type (temporary shim)**
-
-In `deploy.go`, replace the `publishDesiredState` call's literal:
+- [ ] **Step 4: Write the failing tests**
 
 ```go
-	if perr := wf.publishDesiredState(ctx, in.OperatedAppID, operatedruntime.RuntimeDesiredState{
-		AppName:   in.Change.AppName,
-		Namespace: in.Change.Namespace,
-	}); perr != nil {
-		return DeployResult{}, perr
+func TestAssembleDesiredState_MapsCloudEnvironmentAndBundleImages(t *testing.T) {
+	proj := testProject(t)   // fixture: a trimmed project with a cloud environment
+	bundle := deployableBundle{Output: artifact.ConstructionOutput{ /* server+webapp image refs */ }}
+	op := operatedsystemstate.OperatedSystem{ID: uuid.New(), Version: 3}
+
+	got, err := assembleDesiredState(proj, bundle, op)
+	if err != nil {
+		t.Fatalf("assembleDesiredState: %v", err)
 	}
+	if got.Namespace != "archistrator" {
+		t.Errorf("Namespace = %q, want archistrator", got.Namespace)
+	}
+	if got.Host != "archistrator.capture-gtd.com" {
+		t.Errorf("Host = %q, want archistrator.capture-gtd.com", got.Host)
+	}
+	if got.Server.ModelKey != "cloud-node-server-deployment" {
+		t.Errorf("Server.ModelKey = %q, want cloud-node-server-deployment", got.Server.ModelKey)
+	}
+	if !got.SelfManaged {
+		t.Error("archistrator must assemble as SelfManaged")
+	}
+}
+
+func TestAssembleDesiredState_RejectsAModelWithNoCloudEnvironment(t *testing.T) {
+	proj := testProjectLocalOnly(t) // fixture with only the local environment
+	_, err := assembleDesiredState(proj, deployableBundle{}, operatedsystemstate.OperatedSystem{})
+	if err == nil {
+		t.Fatal("expected an error when the deployment model has no cloud environment")
+	}
+}
 ```
 
-This is deliberately incomplete — Task 8 replaces it with the real assembly. Add a comment saying so:
-
-```go
-	// TASK-8: assembled from project model + bundle + head-state in assemble.go.
-	// This partial literal exists only so the tree compiles between tasks.
-```
-
-You will also need to add `AppName` / `Namespace` to `DesiredStateChange` temporarily, or read them from `op` — whichever keeps the diff smallest. Task 8 removes the shim entirely.
-
-- [ ] **Step 5: Build clean**
+- [ ] **Step 5: Run and watch them fail**
 
 ```bash
-cd server && GOWORK=off go build ./... && GOWORK=off go test ./internal/resourceaccess/operatedruntime/ -v
+cd server && GOWORK=off go test ./internal/manager/operations/ -run TestAssemble -v
 ```
 
-Expected: build succeeds; the existing `access_test.go` dry-run tests still pass (the Local profile ignores the payload either way).
+Expected: FAIL — `undefined: assembleDesiredState`. The package may also fail to compile because `deploy.go` still builds the old `{Bytes, ContentType}` literal; that compile failure is part of the red state.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: Implement the fold**
+
+In `assemble.go`, read the `cloud` environment from the project's deployment model and walk its nodes to find the namespace node, the workload nodes, and the postgres node — carrying each node's `key` into the matching `ModelKey`. Take images from the bundle, replicas from head-state. `SelfManaged` is true when the operated app's project is archistrator's own.
+
+Fail loudly rather than defaulting: a model with no cloud environment, or a workload node with no matching container instance, is a real misconfiguration and must surface as an error the operator can read — not a silently half-rendered deployment.
+
+- [ ] **Step 7: Wire it into `deploy.go`**
+
+Replace the old `RuntimeDesiredState{Bytes: ..., ContentType: ...}` literal with a call through `assembleDesiredState`. The bundle comes from `retrieveBundle` — **delete the `_` discard at line 47** and retain the result. The project comes from the newly generated `ProjectStateReadProject` invoker.
+
+- [ ] **Step 8: Run and watch them pass**
 
 ```bash
+cd server && GOWORK=off go test ./internal/manager/operations/ ./internal/resourceaccess/operatedruntime/ -v
+```
+
+Expected: PASS. The Real profile's `publishDesiredState` still returns its unimplemented-backend diagnostic — that is correct and expected until Task 7; the Local/dry-run profile accepts the payload as a no-op.
+
+- [ ] **Step 9: Full suite and commit**
+
+```bash
+cd server && GOWORK=off make test
 git add .aiarch/state/project.json server/internal/
-git commit -m "feat(operatedruntime): typed RuntimeDesiredState replacing opaque bytes"
+git commit -m "feat(operations): typed RuntimeDesiredState assembled from model, bundle, and head-state"
 ```
 
 ---
@@ -1017,116 +1072,7 @@ git commit -m "feat(operatedruntime): GitOps commit path for publish and withdra
 
 ---
 
-## Task 8: Manager assembly
-
-Replaces the Task 2 shim with the real three-source fold, and finally consumes the bundle that `deploy.go:47` discards.
-
-**Files:**
-- Modify: `.aiarch/state/project.json` (`.systemDesign` relationships)
-- Create: `server/internal/manager/operations/assemble.go`
-- Create: `server/internal/manager/operations/assemble_test.go`
-- Modify: `server/internal/manager/operations/deploy.go`
-
-**Interfaces:**
-- Consumes: `projectstate.ReadProject(rc, projectID) (Project, error)`; `artifact.RetrieveConstructionOutput`; `operatedsystemstate.OperatedSystem`.
-- Produces: `func assembleDesiredState(proj projectstate.Project, bundle deployableBundle, op operatedsystemstate.OperatedSystem) (operatedruntime.RuntimeDesiredState, error)`.
-
-- [ ] **Step 1: Add the architecture relationship**
-
-The Manager is about to call a ResourceAccess it has never called. Declare it, or the architecture gate rejects the edge.
-
-```python
-import json, collections
-p = '.aiarch/state/project.json'
-d = json.load(open(p), object_pairs_hook=collections.OrderedDict)
-# Locate the systemDesign slot's relationships list, then append:
-#   {"from": "operationsManager", "to": "projectStateAccess",
-#    "label": "Reads the operated app's deployment model from", "technology": "in-process", "mode": "sync"}
-# Inspect first — the slot index and the exact relationship shape must match siblings:
-sd = [s for s in d['slots'].values() if isinstance(s, dict) and s.get('model', {}).get('relationships')]
-print(len(sd))
-print(json.dumps(sd[0]['model']['relationships'][0], indent=1))
-```
-
-Add the relationship in the same shape as its siblings, then:
-
-```bash
-cd server && GOWORK=off make gen-temporal && git diff --stat internal/manager/operations/
-```
-
-Expected: `activities.gen.go` and `invokers.gen.go` gain `ProjectState*` entries.
-
-- [ ] **Step 2: Write the failing test**
-
-```go
-func TestAssembleDesiredState_MapsCloudEnvironmentAndBundleImages(t *testing.T) {
-	proj := testProject(t)   // fixture: loads a trimmed project.json with a cloud environment
-	bundle := deployableBundle{Output: artifact.ConstructionOutput{ /* server+webapp image refs */ }}
-	op := operatedsystemstate.OperatedSystem{ID: uuid.New(), Version: 3}
-
-	got, err := assembleDesiredState(proj, bundle, op)
-	if err != nil {
-		t.Fatalf("assembleDesiredState: %v", err)
-	}
-	if got.Namespace != "archistrator" {
-		t.Errorf("Namespace = %q, want archistrator", got.Namespace)
-	}
-	if got.Host != "archistrator.capture-gtd.com" {
-		t.Errorf("Host = %q, want archistrator.capture-gtd.com", got.Host)
-	}
-	if got.Server.ModelKey != "cloud-node-server-deployment" {
-		t.Errorf("Server.ModelKey = %q, want cloud-node-server-deployment", got.Server.ModelKey)
-	}
-	if !got.SelfManaged {
-		t.Error("archistrator must assemble as SelfManaged")
-	}
-}
-
-func TestAssembleDesiredState_RejectsAModelWithNoCloudEnvironment(t *testing.T) {
-	proj := testProjectLocalOnly(t) // fixture with only the local environment
-	_, err := assembleDesiredState(proj, deployableBundle{}, operatedsystemstate.OperatedSystem{})
-	if err == nil {
-		t.Fatal("expected an error when the deployment model has no cloud environment")
-	}
-}
-```
-
-- [ ] **Step 3: Run and watch them fail**
-
-```bash
-cd server && GOWORK=off go test ./internal/manager/operations/ -run TestAssemble -v
-```
-
-Expected: FAIL — `undefined: assembleDesiredState`.
-
-- [ ] **Step 4: Implement the fold**
-
-In `assemble.go`, read the `cloud` environment from the project's deployment model and walk its nodes to find the namespace node, the workload nodes, and the postgres node — carrying each node's `key` into the matching `ModelKey`. Take images from the bundle, replicas from head-state. `SelfManaged` is true when the operated app's project is archistrator's own.
-
-Fail loudly rather than defaulting: a model with no cloud environment, or a workload node with no matching container instance, is a real misconfiguration and must surface as an error the operator can read — not a silently half-rendered deployment.
-
-- [ ] **Step 5: Remove the Task 2 shim**
-
-In `deploy.go`, replace the partial `RuntimeDesiredState` literal with a call through `assembleDesiredState`, using the bundle now retained from `retrieveBundle` (delete the `_` discard at line 47) and the project read via the newly generated `ProjectStateReadProject` invoker. Delete the `// TASK-8:` comment.
-
-- [ ] **Step 6: Run and watch them pass**
-
-```bash
-cd server && GOWORK=off go test ./internal/manager/operations/ -v
-```
-
-Expected: PASS.
-
-- [ ] **Step 7: Commit**
-
-```bash
-git add .aiarch/state/project.json server/internal/manager/operations/
-git commit -m "feat(operations): assemble typed desired state from model, bundle, and head-state"
-```
-
----
-
-## Task 9: Public façade — register op and dropping `RenderedDesiredState`
+## Task 8: Public façade — register op and dropping `RenderedDesiredState`
 
 **Files:**
 - Modify: `.aiarch/state/project.json` (`.serviceContracts.operationsManager`)
@@ -1167,7 +1113,7 @@ git commit -m "feat(operations): add RegisterOperatedApp; drop client-supplied r
 
 ---
 
-## Task 10: Health reads from the Argo Application CR
+## Task 9: Health reads from the Argo Application CR
 
 **Files:**
 - Create: `server/internal/resourceaccess/operatedruntime/argohealth.go`
@@ -1249,7 +1195,7 @@ git commit -m "feat(operatedruntime): read health from the Argo Application CR"
 
 ---
 
-## Task 11: `QueryDeploymentHealth`
+## Task 10: `QueryDeploymentHealth`
 
 Joins the re-derived model-key map against live per-resource health.
 
@@ -1346,7 +1292,7 @@ git commit -m "feat(operations): QueryDeploymentHealth joining model keys to liv
 
 ---
 
-## Task 12: Hide operations in the local profile
+## Task 11: Hide operations in the local profile
 
 **Files:**
 - Modify: `server/cmd/server/hooks.go`
@@ -1416,7 +1362,7 @@ git commit -m "feat(operations): hide the operations surface in the local profil
 
 ---
 
-## Task 13: Deployment diagram health overlay
+## Task 12: Deployment diagram health overlay
 
 **Files:**
 - Create: `webApp/src/hooks/useDeploymentHealth.ts`
@@ -1426,7 +1372,7 @@ git commit -m "feat(operations): hide the operations surface in the local profil
 - Modify: `webApp/src/components/flow/DeploymentNodes.tsx`
 
 **Interfaces:**
-- Consumes: `QueryDeploymentHealth` (Task 11); `useCapabilities` (Task 12).
+- Consumes: `QueryDeploymentHealth` (Task 10); `useCapabilities` (Task 11).
 - Produces, all in `deploymentHealth.ts`:
   - `type HealthState = 'Healthy' | 'Unhealthy'`
   - `healthColorName(state: HealthState | undefined): 'green' | 'red' | 'neutral'` — pure, no theme dependency, which is what makes it testable under `node --test`
@@ -1490,7 +1436,7 @@ git commit -m "feat(webapp): live health overlay on the deployment diagram"
 
 ---
 
-## Task 14: Cutover
+## Task 13: Cutover
 
 Not code — a runbook, executed against the real cluster. Each step is reversible.
 
@@ -1522,7 +1468,7 @@ Confirm the console shows healthy, the deployment diagram shows green on the ser
 
 ## Self-Review Notes
 
-**Spec coverage:** D1/D2/D3 → Tasks 4–7. D4 → Task 2 + Task 4. D5 → Task 8. D6 → scope of the whole plan. D7 → Task 10. D8 → Task 5 Step 3 + Task 14. D9 → Task 12. D10 → Tasks 10–13. §4.1–4.3 contract changes → Tasks 1, 2, 9, 11. §4.4 relationship → Task 8 Step 1. §5.2 golden diff → Task 6. §5.3 gates → Task 6. §6 overlay → Tasks 11, 13. §7 security → Task 7 (credential) + Task 12 (profile). §10 cutover → Task 14.
+**Spec coverage:** D1/D2/D3 → Tasks 4–7. D4 → Task 2 + Task 4. D5 → Task 2. D6 → scope of the whole plan. D7 → Task 9. D8 → Task 5 Step 3 + Task 13. D9 → Task 11. D10 → Tasks 9–12. §4.1–4.3 contract changes → Tasks 1, 2, 8, 10. §4.4 relationship → Task 2 Step 2. §5.2 golden diff → Task 6. §5.3 gates → Task 6. §6 overlay → Tasks 10, 12. §7 security → Task 7 (credential) + Task 11 (profile). §10 cutover → Task 13.
 
 **Known gaps, deliberately deferred to §11 of the spec:** built-app onboarding, SLO and cost attribution, tenant namespace guardrails, automated image-tag promotion, fleet re-render.
 
