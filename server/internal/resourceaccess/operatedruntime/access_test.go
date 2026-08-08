@@ -73,11 +73,15 @@ func TestLocalProfileDeterministic(t *testing.T) {
 }
 
 // TestRealProfileExplicitNotImplemented: the REAL profile constructs (server still boots).
-// Its observability/payment verbs (still no backend — N-DEP follow-up) return an explicit,
-// diagnosable, non-retryable error naming that follow-up — NOT a silent generated stub.
+// WirePaymentConfig (still no backend — N-DEP follow-up) returns an explicit, diagnosable,
+// non-retryable error naming that follow-up — NOT a silent generated stub.
 // PublishDesiredState/Withdraw (Task 7) have their own, different explicit diagnostic when
 // unconfigured (no GitOpsRepoURL) — exercised separately below — but must be equally
-// non-retryable.
+// non-retryable. GetApplicationHealth (Task 9) is exercised in the same test running
+// outside a cluster: it must fail loudly, not report a false Healthy — see
+// TestGetApplicationHealth_NotInCluster below for the dedicated, fail-closed assertion.
+// GetSloStatus/ReadComputeAttribution (Task 9, D7) are deliberately inert and must succeed
+// with their fixed, honest values — never error, since the 30s Schedule depends on it.
 func TestRealProfileExplicitNotImplemented(t *testing.T) {
 	rt, err := NewProfiledOperatedRuntimeAccess(RuntimeProfileReal, RuntimeConfig{})
 	if err != nil {
@@ -97,6 +101,107 @@ func TestRealProfileExplicitNotImplemented(t *testing.T) {
 	}
 	if _, herr := rt.GetApplicationHealth(rc(), app); herr == nil {
 		t.Fatalf("real getApplicationHealth: want explicit error, got nil")
+	}
+
+	// D7: deliberately inert, and must never error — the 30s Schedule stays green.
+	slo, serr := rt.GetSloStatus(rc(), app)
+	if serr != nil {
+		t.Fatalf("real getSloStatus must not error (D7 keeps the Schedule green): %v", serr)
+	}
+	if !slo.SloMet || slo.Detail != "SLO monitoring not configured" {
+		t.Fatalf("real getSloStatus = %+v, want {SloMet:true Detail:%q}", slo, "SLO monitoring not configured")
+	}
+	attr, aerr := rt.ReadComputeAttribution(rc(), app, AttributionWindow{})
+	if aerr != nil {
+		t.Fatalf("real readComputeAttribution must not error (D7): %v", aerr)
+	}
+	if attr != (ComputeAttribution{}) {
+		t.Fatalf("real readComputeAttribution fabricated a usage fact: %+v, want zero value", attr)
+	}
+}
+
+// TestGetApplicationHealth_NotInCluster: running outside a cluster (as every test does —
+// KUBERNETES_SERVICE_HOST is unset) must fail closed with a diagnosable, retryable
+// fwra.Infrastructure error, never a silently reported RuntimeStatusHealthy. This is the
+// fail-open pattern this plan already rejected twice elsewhere (an auth check that no-ops
+// on a blank client ID; a delete-guard that disarms on unset config) — unknown must mean
+// unknown here too.
+func TestGetApplicationHealth_NotInCluster(t *testing.T) {
+	rt, err := NewProfiledOperatedRuntimeAccess(RuntimeProfileReal, RuntimeConfig{})
+	if err != nil {
+		t.Fatalf("real build: %v", err)
+	}
+	status, herr := rt.GetApplicationHealth(rc(), uuid.New())
+	if herr == nil {
+		t.Fatal("want explicit error when not running in-cluster, got nil")
+	}
+	if status != RuntimeStatusUnknown {
+		t.Fatalf("status = %v, want RuntimeStatusUnknown on error", status)
+	}
+	var e *fwra.Error
+	if !errors.As(herr, &e) {
+		t.Fatalf("want *fwra.Error, got %T %v", herr, herr)
+	}
+	if e.Kind != fwra.Infrastructure {
+		t.Fatalf("kind = %v, want Infrastructure", e.Kind)
+	}
+	if !e.Retryable {
+		t.Fatal("not-in-cluster error should be retryable by default (Infrastructure kind) — the Schedule keeps polling, cheaply")
+	}
+}
+
+// TestMapArgoHealth: mapArgoHealth's mapping table, including the deliberate D10
+// asymmetry — Progressing maps to Degraded, not Healthy — and the Unknown/absent case.
+func TestMapArgoHealth(t *testing.T) {
+	cases := []struct {
+		in   string
+		want RuntimeStatus
+	}{
+		{"Healthy", RuntimeStatusHealthy},
+		{"Progressing", RuntimeStatusDegraded},
+		{"Degraded", RuntimeStatusDegraded},
+		{"Missing", RuntimeStatusDegraded},
+		{"Suspended", RuntimeStatusDegraded},
+		{"", RuntimeStatusUnknown},
+	}
+	for _, c := range cases {
+		if got := mapArgoHealth(c.in); got != c.want {
+			t.Errorf("mapArgoHealth(%q) = %v, want %v", c.in, got, c.want)
+		}
+	}
+}
+
+// TestParseResourceHealth: parses a real-shaped Argo Application CR fixture and confirms
+// status.resources[] — including both a Healthy and a Degraded entry — comes through.
+func TestParseResourceHealth(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("testdata", "argo", "application-healthy.json"))
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+	rs, err := parseResourceHealth(raw)
+	if err != nil {
+		t.Fatalf("parseResourceHealth: %v", err)
+	}
+	if len(rs) == 0 {
+		t.Fatal("no resources parsed from status.resources[]")
+	}
+	var sawHealthy, sawDegraded bool
+	for _, r := range rs {
+		if r.Kind == "" || r.Name == "" || r.Namespace == "" {
+			t.Errorf("resource missing Kind/Name/Namespace: %+v", r)
+		}
+		switch r.Health {
+		case "Healthy":
+			sawHealthy = true
+		case "Degraded":
+			sawDegraded = true
+		}
+	}
+	if !sawHealthy {
+		t.Error("fixture should contain at least one Healthy resource")
+	}
+	if !sawDegraded {
+		t.Error("fixture should contain at least one Degraded resource")
 	}
 }
 

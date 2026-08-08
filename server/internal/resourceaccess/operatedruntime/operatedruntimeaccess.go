@@ -6,8 +6,14 @@ package operatedruntime
 
 import (
 	"bytes"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net"
+	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
@@ -15,6 +21,7 @@ import (
 	"sort"
 	"strings"
 	"text/template"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -36,14 +43,18 @@ import (
 //     mirrors the construction DRYRUN profile (cmd/server/construction_dryrun.go).
 //
 //   - REAL (RuntimeProfileReal): the production impl. PublishDesiredState and Withdraw are
-//     now functional (Task 7): they render the desired state (below) and commit it to the
+//     functional (Task 7): they render the desired state (below) and commit it to the
 //     GitOps repository ArgoCD watches, via a clone → mutate → commit-if-changed → push
 //     sequence where git itself — `git diff --cached --quiet`, never a hand-rolled string
-//     comparison — decides whether anything changed. The observability half of this RA
-//     (GetApplicationHealth, GetSloStatus, ReadComputeAttribution) and WirePaymentConfig
-//     still have no backend (N-DEP Argo/kubernetes-observability follow-up) and return an
-//     EXPLICIT fwra.Unknown naming that follow-up and the dry-run escape hatch — NOT a
-//     silent generated stub.
+//     comparison — decides whether anything changed. GetApplicationHealth is also
+//     functional (Task 9): it reads the Argo Application CR the cluster is actually
+//     converging, via an in-cluster ServiceAccount — see the "Health reads" section below.
+//     GetSloStatus and ReadComputeAttribution are DELIBERATELY inert (spec D7, see their
+//     own doc comments) — not stubs awaiting a backend, but permanent-until-a-real-backend-
+//     lands behaviour: an SLO/cost backend needs infrastructure (Prometheus, per-app SLO
+//     definitions, a defensible attribution formula) that does not exist yet. WirePaymentConfig
+//     still has no backend (N-DEP follow-up) and returns an EXPLICIT fwra.Unknown naming
+//     that follow-up and the dry-run escape hatch — NOT a silent generated stub.
 //
 // The package imports NO Temporal (layer rule): the idempotency key arrives as an
 // ordinary parameter on each write.
@@ -144,11 +155,13 @@ func (dryRunOperatedRuntime) ReadComputeAttribution(_ fwra.Context, _ uuid.UUID,
 // ---------------------------------------------------------------------------
 
 // realOperatedRuntime is the production impl. PublishDesiredState and Withdraw commit to
-// the real GitOps repository (below). GetApplicationHealth, GetSloStatus,
-// ReadComputeAttribution, and WirePaymentConfig still have no observability/payment
-// backend, so they return an explicit, diagnosable fwra.Unknown (fail-fast, non-retryable
-// — preserving the wire behaviour the operationsManager façade maps to a 503) naming the
-// N-DEP follow-up and the dry-run escape hatch.
+// the real GitOps repository (below); GetApplicationHealth reads the Argo Application CR
+// live (Task 9, see the "Health reads" section below). GetSloStatus and
+// ReadComputeAttribution are deliberately inert (spec D7 — see their own doc comments),
+// not awaiting a backend. WirePaymentConfig still has no backend, so it returns an
+// explicit, diagnosable fwra.Unknown (fail-fast, non-retryable — preserving the wire
+// behaviour the operationsManager façade maps to a 503) naming the N-DEP follow-up and the
+// dry-run escape hatch.
 type realOperatedRuntime struct {
 	config RuntimeConfig
 }
@@ -242,16 +255,52 @@ func (r realOperatedRuntime) WirePaymentConfig(_ fwra.Context, _ uuid.UUID, _ Ga
 	return r.notImplemented("wirePaymentConfig")
 }
 
-func (r realOperatedRuntime) GetApplicationHealth(_ fwra.Context, _ uuid.UUID) (RuntimeStatus, error) {
-	return RuntimeStatusUnknown, r.notImplemented("getApplicationHealth")
+// GetApplicationHealth reads the Argo Application CR that governs appID's deployment (see
+// the "Health reads" section below for how appID resolves to that CR) and folds
+// status.health.status through mapArgoHealth. A CR that genuinely cannot be found — the
+// cluster LIST succeeded, nothing matched — means the app has never synced: that is
+// RuntimeStatusPending, not an error (the one deliberate exception; see the section doc).
+// Every other failure mode — unreachable API, missing/unreadable ServiceAccount
+// credential, unparseable response — returns RuntimeStatusUnknown alongside a non-nil
+// error. It never falls through to reporting Healthy: that is the fail-open pattern this
+// plan already rejected twice (a renderer that skipped auth on a blank client ID; a
+// delete-guard that disarmed on unset config) — unknown must mean unknown here too.
+func (r realOperatedRuntime) GetApplicationHealth(_ fwra.Context, appID uuid.UUID) (RuntimeStatus, error) {
+	app, found, err := argoFindApplicationByAppID(appID)
+	if err != nil {
+		return RuntimeStatusUnknown, err
+	}
+	if !found {
+		return RuntimeStatusPending, nil
+	}
+	return mapArgoHealth(app.Status.Health.Status), nil
 }
 
+// GetSloStatus is DELIBERATELY inert (spec D7) — this is not a stub waiting to be filled
+// in. The existing 30-second Temporal Schedule calls this path on every reconcile tick; a
+// real SLO verdict needs a Prometheus client and per-app SLO definitions that do not exist
+// yet (spec §11 — out of scope), and an error returned here would fail that Schedule every
+// 30 seconds, forever, with no operator action able to clear it. Reporting a fixed "no SLO
+// configured, so none is violated" verdict keeps the Schedule green and is an honest
+// description of reality: no SLO IS configured. Do not "fix" this by wiring up a
+// half-finished SLO read — replace it only alongside a real Prometheus-backed
+// implementation, at which point it becomes a live read like GetApplicationHealth above.
 func (r realOperatedRuntime) GetSloStatus(_ fwra.Context, _ uuid.UUID) (SloStatus, error) {
-	return SloStatus{}, r.notImplemented("getSloStatus")
+	return SloStatus{SloMet: true, Detail: "SLO monitoring not configured"}, nil
 }
 
+// ReadComputeAttribution is DELIBERATELY inert (spec D7) — this is not a stub waiting to
+// be filled in. Its result feeds BILLING: a defensible attribution formula needs real
+// usage data and pricing rules that do not exist yet (spec §11 — out of scope), and
+// inventing a number here would produce a real charge from a fabricated usage fact — worse
+// than an error, because nothing downstream would flag it as wrong. An empty
+// ComputeAttribution (zero RuntimeEventID) is the same "invents nothing" contract the
+// LOCAL/dry-run profile already keeps (dryRunOperatedRuntime.ReadComputeAttribution
+// above): the Manager appends no usage record for a zero RuntimeEventID. Do not "fix" this
+// by wiring up a plausible-looking estimate — replace it only alongside a real attribution
+// formula the business is willing to bill against.
 func (r realOperatedRuntime) ReadComputeAttribution(_ fwra.Context, _ uuid.UUID, _ AttributionWindow) (ComputeAttribution, error) {
-	return ComputeAttribution{}, r.notImplemented("readComputeAttribution")
+	return ComputeAttribution{}, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -1912,4 +1961,228 @@ func render(d RuntimeDesiredState) ([]Manifest, error) {
 		return out[i].Name < out[j].Name
 	})
 	return out, nil
+}
+
+// ---------------------------------------------------------------------------
+// Health reads — Argo Application CR (Task 9, spec D7/D10,
+// docs/superpowers/specs/2026-08-07-operations-argocd-deployment-design.md).
+//
+// GetApplicationHealth (above) is the one REAL-profile observability verb with a live
+// backend today: it reads the Argo Application object straight off the Kubernetes API via
+// the in-cluster ServiceAccount every server pod already carries — no API token to mint or
+// distribute (spec §3). This is a credential entirely separate from RuntimeConfig's
+// GitOpsToken (spec §7): read-only Argo-CR access via the cluster API, not git write
+// access to the GitOps repo. GetSloStatus and ReadComputeAttribution stay deliberately
+// inert (D7, see their own doc comments above) — this section implements ONLY the health
+// half.
+//
+// appID -> Application resolution mirrors Withdraw's own scheme (see the GitOps commit
+// path section's SEAM note 1, above): PublishDesiredState stamps an archistrator.dev/app-id
+// annotation onto the Application it commits (withAppIDAnnotation), and that annotation is
+// ordinary object metadata — it survives Argo's sync onto the live in-cluster object
+// unchanged. argoFindApplicationByAppID therefore does not need, and deliberately avoids
+// depending on, the GitOps repo credential at all: it LISTs every Application in the argocd
+// namespace via the cluster API and matches the annotation client-side — the in-cluster
+// counterpart of gitOpsAppIDAnnotationValue's own text scan of the committed YAML. No match
+// found is exactly the "never synced" case (see GetApplicationHealth's own doc comment),
+// not an error.
+//
+// Fail-closed is the entire point of this section — the same rule Task 5's auth check and
+// Task 7's self-managed guard were both rewritten to satisfy after failing open on a zero
+// value. An unreachable API server, a missing or unreadable ServiceAccount token/CA cert,
+// or a response this code cannot parse must all surface as an explicit, non-nil error —
+// NEVER as a silently reported Healthy. RuntimeStatusUnknown is the return value paired
+// with that error; only a CR that is genuinely, confirmedly absent (the LIST itself
+// succeeded) reports RuntimeStatusPending with a nil error.
+// ---------------------------------------------------------------------------
+
+const (
+	// argoNamespace is where every Application object lives in the cluster — the
+	// in-cluster counterpart of gitOpsApplicationsPath; applicationTmpl always sets
+	// metadata.namespace: argocd.
+	argoNamespace = "argocd"
+	// inClusterTokenPath / inClusterCACertPath are the fixed paths every Kubernetes pod's
+	// projected ServiceAccount mounts to — the same "in-cluster config" convention
+	// client-go's InClusterConfig reads, reimplemented here in stdlib net/http rather than
+	// importing client-go: TestMethodLayering's operator-curated dependency allowlist
+	// (internal/arch_test.go's AllowedImportPrefixes) carries no k8s.io/ entry, and
+	// widening it is reserved to an archistrator operator — this component may not grant
+	// itself a new production dependency just because a real client would be convenient
+	// here (mirrors the no-YAML-library decision on gitOpsAppIDAnnotationValue's doc
+	// comment).
+	inClusterTokenPath  = "/var/run/secrets/kubernetes.io/serviceaccount/token" //nolint:gosec // G101 false positive: a fixed mount PATH, not a credential value
+	inClusterCACertPath = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+)
+
+// argoApplication is the minimal shape this file reads off the Argo Application CR's JSON:
+// metadata.annotations to resolve appID -> Application (see the section doc above), and
+// status.health / status.resources for RuntimeStatus and per-resource health respectively.
+// Every other field on the real object (spec.source, spec.destination, status.sync, …) is
+// intentionally unparsed — this is a read path, not a round-trip, and adding a field here
+// is cheap whenever a later task needs one.
+type argoApplication struct {
+	Metadata struct {
+		Annotations map[string]string `json:"annotations"`
+	} `json:"metadata"`
+	Status struct {
+		Health struct {
+			Status string `json:"status"`
+		} `json:"health"`
+		Resources []struct {
+			Kind      string `json:"kind"`
+			Name      string `json:"name"`
+			Namespace string `json:"namespace"`
+			Health    struct {
+				Status string `json:"status"`
+			} `json:"health"`
+		} `json:"resources"`
+	} `json:"status"`
+}
+
+// argoApplicationList is the LIST envelope the Kubernetes API wraps a collection of
+// Application items in.
+type argoApplicationList struct {
+	Items []argoApplication `json:"items"`
+}
+
+// ResourceHealth is one entry of an Argo Application's status.resources[] — PER-RESOURCE
+// health, as opposed to the app-level rollup mapArgoHealth folds. A later task (the
+// deployment-diagram health overlay, spec §6) joins this against the model-key map
+// re-derived by re-rendering; this RA parses the CR faithfully but does not itself decide
+// what colour a diagram node gets — that mapping (healthStateFor in manager/operations) is
+// deliberately DIFFERENT from mapArgoHealth: it has no Progressing/Pending distinction and
+// D10's app-level "Progressing is Degraded" asymmetry is a head-state concern, not a
+// diagram-node concern.
+type ResourceHealth struct {
+	Kind      string
+	Name      string
+	Namespace string
+	Health    string
+}
+
+// mapArgoHealth folds an Argo Application's status.health.status into RuntimeStatus. Only
+// the literal "Healthy" is green; every other OBSERVED value — "Progressing" included —
+// maps to RuntimeStatusDegraded, never RuntimeStatusHealthy: an app mid-rollout, syncing,
+// missing a resource, or suspended is not safe to report as healthy. Per spec D10 this is
+// a deliberate asymmetry, not a bug — the diagram is meant to read red mid-rollout until it
+// settles, in favour of glance-readability over an amber "maybe fine" state. An EMPTY
+// status is a different fact from an observed-and-bad one — Argo has not evaluated health
+// at all yet — so it maps to RuntimeStatusUnknown, not Degraded: collapsing "no verdict
+// yet" into "bad verdict" would make Unknown unreachable from a live read.
+func mapArgoHealth(status string) RuntimeStatus {
+	switch status {
+	case "":
+		return RuntimeStatusUnknown
+	case "Healthy":
+		return RuntimeStatusHealthy
+	default:
+		return RuntimeStatusDegraded
+	}
+}
+
+// parseResourceHealth extracts status.resources[] from a raw Argo Application JSON
+// document (testdata/argo/*.json fixtures are exactly this shape). Used both by this
+// file's own tests and, per spec §6, by the later deployment-diagram health-overlay task
+// that joins the result against the re-derived model-key map.
+func parseResourceHealth(raw []byte) ([]ResourceHealth, error) {
+	var app argoApplication
+	if err := json.Unmarshal(raw, &app); err != nil {
+		return nil, fwra.Wrap(fwra.Infrastructure, err, "operatedruntime: parse Argo Application status.resources")
+	}
+	out := make([]ResourceHealth, 0, len(app.Status.Resources))
+	for _, r := range app.Status.Resources {
+		out = append(out, ResourceHealth{Kind: r.Kind, Name: r.Name, Namespace: r.Namespace, Health: r.Health.Status})
+	}
+	return out, nil
+}
+
+// inClusterHTTPClient builds an *http.Client trusting the cluster's own CA and returns the
+// API server's base URL plus the ServiceAccount bearer token — the pieces of the standard
+// in-cluster config convention (KUBERNETES_SERVICE_HOST/PORT env vars, the projected token
+// and CA cert files) that client-go's InClusterConfig also reads, reimplemented in stdlib
+// because client-go itself is off the allowlist (see the section doc above). Every failure
+// here is explicit: a pod either has its ServiceAccount projected or it does not, and no
+// amount of waiting changes that without a redeploy — but it is still surfaced as
+// fwra.Infrastructure (retryable=true by default) rather than ever silently reporting
+// health, because "backing infra unavailable" is exactly what it is from the caller's
+// perspective, and the Schedule retrying costs nothing (spec D7).
+func inClusterHTTPClient() (client *http.Client, apiServer, token string, err error) {
+	host := os.Getenv("KUBERNETES_SERVICE_HOST")
+	port := os.Getenv("KUBERNETES_SERVICE_PORT")
+	if host == "" || port == "" {
+		return nil, "", "", fwra.New(fwra.Infrastructure,
+			"operatedruntime: not running in-cluster (KUBERNETES_SERVICE_HOST/KUBERNETES_SERVICE_PORT unset); "+
+				"health reads require the in-cluster ServiceAccount")
+	}
+
+	tokenBytes, terr := os.ReadFile(inClusterTokenPath)
+	if terr != nil {
+		return nil, "", "", fwra.Wrap(fwra.Infrastructure, terr, "operatedruntime: read in-cluster ServiceAccount token")
+	}
+	caBytes, cerr := os.ReadFile(inClusterCACertPath)
+	if cerr != nil {
+		return nil, "", "", fwra.Wrap(fwra.Infrastructure, cerr, "operatedruntime: read in-cluster ServiceAccount CA cert")
+	}
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(caBytes) {
+		return nil, "", "", fwra.New(fwra.Infrastructure, "operatedruntime: in-cluster ServiceAccount CA cert is not valid PEM")
+	}
+
+	client = &http.Client{
+		Timeout:   10 * time.Second,
+		Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}},
+	}
+	return client, "https://" + net.JoinHostPort(host, port), strings.TrimSpace(string(tokenBytes)), nil
+}
+
+// argoFindApplicationByAppID lists every Application in the argocd namespace via the
+// cluster API and returns the one whose archistrator.dev/app-id annotation matches appID —
+// the in-cluster counterpart of gitOpsResolveAppByID's own annotation match (see the
+// section doc above for why this reads the cluster rather than the GitOps repo). found is
+// false — not an error — only when the LIST itself succeeded and genuinely no Application
+// carries a matching annotation: that is "this app has never synced," the one case
+// GetApplicationHealth maps to RuntimeStatusPending rather than an error. Any failure to
+// reach the API, read its response, or parse the body is a real error and is never
+// conflated with "not found."
+func argoFindApplicationByAppID(appID uuid.UUID) (app argoApplication, found bool, err error) {
+	client, apiServer, token, cerr := inClusterHTTPClient()
+	if cerr != nil {
+		return argoApplication{}, false, cerr
+	}
+
+	listURL := apiServer + "/apis/argoproj.io/v1alpha1/namespaces/" + argoNamespace + "/applications"
+	req, rerr := http.NewRequest(http.MethodGet, listURL, nil)
+	if rerr != nil {
+		return argoApplication{}, false, fwra.Wrap(fwra.Infrastructure, rerr, "operatedruntime: build Argo Application list request")
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", "application/json")
+
+	resp, derr := client.Do(req)
+	if derr != nil {
+		return argoApplication{}, false, fwra.Wrap(fwra.Infrastructure, derr, "operatedruntime: list Argo Applications")
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body, berr := io.ReadAll(resp.Body)
+	if berr != nil {
+		return argoApplication{}, false, fwra.Wrap(fwra.Infrastructure, berr, "operatedruntime: read Argo Application list response")
+	}
+	if resp.StatusCode != http.StatusOK {
+		return argoApplication{}, false, fwra.New(fwra.Infrastructure,
+			fmt.Sprintf("operatedruntime: list Argo Applications: unexpected status %d: %s", resp.StatusCode, strings.TrimSpace(string(body))))
+	}
+
+	var list argoApplicationList
+	if uerr := json.Unmarshal(body, &list); uerr != nil {
+		return argoApplication{}, false, fwra.Wrap(fwra.Infrastructure, uerr, "operatedruntime: parse Argo Application list response")
+	}
+
+	want := appID.String()
+	for _, item := range list.Items {
+		if item.Metadata.Annotations[gitOpsAppIDAnnotation] == want {
+			return item, true, nil
+		}
+	}
+	return argoApplication{}, false, nil
 }

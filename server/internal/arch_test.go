@@ -789,10 +789,18 @@ var encapsulationAllowlistData = map[string][]string{
 	// health-overlay work later in this same plan (Task 9) re-derives the model-key
 	// -> (kind, name, namespace) map by re-rendering, and needs this exact struct
 	// shape as the seam — exporting it now avoids a breaking rename then.
+	//
+	// PER-RESOURCE HEALTH READ TYPE (Task 9): ResourceHealth is parseResourceHealth's
+	// return element — one entry of the Argo Application CR's status.resources[]. Also
+	// not generated contract surface (GetApplicationHealth returns only the app-level
+	// RuntimeStatus rollup); exported because the deployment-diagram health-overlay
+	// task (Task 10, spec §6) joins this same-package-parsed slice against the
+	// re-derived model-key map from the manager layer.
 	"internal/resourceaccess/operatedruntime": {
 		"Manifest",
 		"NewLocalOperatedRuntimeAccess",
 		"NewRealOperatedRuntimeAccess",
+		"ResourceHealth",
 	},
 	// FREE-FUNCTION BEHAVIOUR over the repo/ref/handle scalars
 	// (String/FromString/Equal/IsZero/OwnerRepo) + the MANAGED-REPO SCAFFOLD CONTRACT
