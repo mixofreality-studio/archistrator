@@ -77,15 +77,6 @@ type RuntimeConfig struct {
 	// composition-root follow-up outside this task's scope (see the file doc); the field
 	// exists so wiring one later needs no further code change.
 	GitOpsToken string
-	// SelfManagedAppID identifies the one operated app Withdraw must refuse to delete —
-	// archistrator's own control plane (D8's third guard; see Withdraw's doc). Withdraw's
-	// generated signature (contract.gen.go) carries only an appID, not a
-	// RuntimeDesiredState, so there is no SelfManaged flag to read at the call site; this
-	// config-injected identity is how the determination is made instead, mirroring
-	// GitOpsRepoURL/GitOpsToken above rather than widening the interface. The zero value
-	// (uuid.Nil) disables the guard, which is what every non-self-managed deployment and
-	// every existing test that does not set it wants.
-	SelfManagedAppID uuid.UUID
 }
 
 // newProfiledOperatedRuntimeAccess is the hand-written builder behind the generated
@@ -195,32 +186,43 @@ func (r realOperatedRuntime) PublishDesiredState(_ fwra.Context, appID uuid.UUID
 // itself; an operator clicking Withdraw on archistrator, in archistrator's own console,
 // would take down the thing servicing the click, with no archistrator left to undo it.
 // Tearing archistrator down is a deliberate kubectl operation by a human who means it, not
-// a button — see RuntimeConfig.SelfManagedAppID for how this verb (whose generated
-// signature carries only an appID) determines the target without a RuntimeDesiredState.
+// a button.
 //
-// Otherwise, Withdraw resolves appID to the AppName it was last published under (via the
-// GitOps repo's own bookkeeping, see gitOpsFindAppByID) and removes that app's rendered
-// tree, Application, and marker. An appID with no match — never published, or already
-// withdrawn — is success: nothing is staged, so gitOpsCommit commits nothing, matching the
-// contract's NotFound⇒success withdraw semantics.
+// The guard is FAIL-CLOSED and reads no config: Withdraw's generated signature
+// (contract.gen.go) carries only an appID, not a RuntimeDesiredState, so an earlier
+// version of this verb decided self-managed-ness from a RuntimeConfig field that the
+// composition root could simply forget to set — a check that quietly does nothing on its
+// zero value is not a guard. This version determines it by resolving appID to the
+// Application object it actually governs and reading that object's OWN committed
+// syncPolicy shape (gitOpsResolveAppByID / gitOpsApplicationDoc.selfManaged — see the
+// GitOps commit path section below): the same signal applicationTmpl branches on, not a
+// second, independently-settable copy of it that could drift or be left unset. If that
+// determination cannot be made at all — no Application anywhere carries a matching
+// archistrator.dev/app-id annotation and parses cleanly — Withdraw refuses rather than
+// guess (see gitOpsResolveAppByID's doc for exactly which failures are which).
+//
+// Otherwise, Withdraw removes that app's rendered tree and its Application. An appID with
+// no match at all — never published, or already withdrawn — is success: nothing is
+// staged, so gitOpsCommit commits nothing, matching the contract's NotFound⇒success
+// withdraw semantics.
 func (r realOperatedRuntime) Withdraw(_ fwra.Context, appID uuid.UUID, idempotencyKey fwra.IdempotencyKey) error {
-	if r.config.SelfManagedAppID != uuid.Nil && appID == r.config.SelfManagedAppID {
-		return fwra.New(fwra.ContractMisuse,
-			"operatedruntime real profile: withdraw refused for "+appID.String()+
-				" — it is the self-managed app (archistrator's own control plane); deleting its "+
-				"Argo Application would take down the thing that would have to undo the deletion; "+
-				"tear it down with a deliberate kubectl operation instead")
-	}
-
 	msg := fmt.Sprintf("operatedruntime: withdraw %s (idempotencyKey=%s)", appID, idempotencyKey)
 	return r.gitOpsCommit(msg, func(workdir string) error {
-		appName, found, err := gitOpsFindAppByID(workdir, appID)
+		resolved, found, err := gitOpsResolveAppByID(workdir, appID)
 		if err != nil {
 			return err
 		}
 		if !found {
 			return nil
 		}
+		if resolved.SelfManaged {
+			return fwra.New(fwra.ContractMisuse,
+				"operatedruntime real profile: withdraw refused for "+resolved.AppName+" ("+appID.String()+
+					") — its committed Argo Application is self-managed (archistrator's own control plane); "+
+					"deleting it would take down the thing that would have to undo the deletion; "+
+					"tear it down with a deliberate kubectl operation instead")
+		}
+		appName := resolved.AppName
 		return gitOpsWithdraw(appName)(workdir)
 	})
 }
@@ -262,24 +264,35 @@ func (r realOperatedRuntime) ReadComputeAttribution(_ fwra.Context, _ uuid.UUID,
 //
 // SEAM, flagged rather than silently absorbed: Withdraw's generated signature
 // (contract.gen.go) takes only an appID — no RuntimeDesiredState, no AppName. Two facts
-// therefore have to come from somewhere other than the call arguments, and both are
-// resolved here without widening that generated interface:
+// therefore have to come from somewhere other than the call arguments, and BOTH are
+// resolved by reading the ONE committed artifact Withdraw is about to delete — never from
+// config, and never from a state store this component would have to keep in sync itself:
 //
 //  1. WHICH APP TO REMOVE. PublishDesiredState is the only place AppName and appID are
-//     ever seen together, so it writes a small sidecar marker —
-//     k8s/argocd/applications/<app>.appid, containing the appID — alongside the
-//     Application file. The marker is deliberately NOT part of render()'s output: render
-//     stays pure and golden-tested (Task 4-6), and this bookkeeping belongs to the commit
-//     path alone. Withdraw reads the applications directory, finds the marker whose
-//     contents equal its appID, and recovers AppName from the marker's filename. No
-//     match is exactly the NotFound⇒success case: nothing is staged, so gitOpsCommit
-//     commits nothing.
-//  2. WHETHER THE TARGET IS THE SELF-MANAGED APP. RuntimeConfig.SelfManagedAppID is set
-//     once by the composition root, mirroring how GitOpsRepoURL/GitOpsToken are already
-//     config-injected rather than threaded through every call. Withdraw compares its
-//     appID argument against it BEFORE touching git at all — cheap, fails fast, and means
-//     the guard cannot be bypassed by a repo that has no marker file yet (e.g. a stale or
-//     hand-edited repo state).
+//     ever seen together, so it stamps an archistrator.dev/app-id annotation (holding
+//     appID) directly onto the Application object it commits (withAppIDAnnotation) —
+//     no sidecar file. The annotation is added by string-splicing the ALREADY-RENDERED
+//     Application YAML, not by render() itself: render stays pure and golden-tested
+//     (Task 4-6), and this bookkeeping belongs to the commit path alone. Withdraw scans
+//     gitOpsApplicationsPath for the Application carrying a matching annotation and
+//     recovers AppName from THAT FILE's own name (gitOpsApplicationFile's convention,
+//     appName+".yaml") — see gitOpsResolveAppByID. No match anywhere is exactly the
+//     NotFound⇒success case: nothing is staged, so gitOpsCommit commits nothing.
+//  2. WHETHER THE TARGET IS THE SELF-MANAGED APP — the load-bearing one. An earlier
+//     version of this file decided this from a RuntimeConfig field the composition root
+//     could simply never set, so the guard silently did nothing everywhere it was never
+//     wired — the same failure-open bug class as the auth check Task 5 rejected. Reading
+//     no config field cannot have that failure mode, so gitOpsApplicationDoc.selfManaged
+//     derives it from the SAME Application object located in (1)'s own committed
+//     spec.syncPolicy shape: applicationTmpl emits spec.syncPolicy.automated for every
+//     TENANT app and omits it — and only it — for the self-managed one (see
+//     applicationTmpl below), so this reads the exact signal Argo itself acts on, not an
+//     independent copy of it that could drift or be forgotten. FAIL CLOSED: an Application
+//     whose syncPolicy does not even resemble something render() could have produced
+//     refuses the determination outright (ContractMisuse) rather than guess, and a
+//     directory entry that cannot be parsed as YAML at all aborts the whole scan
+//     (Infrastructure) rather than being silently skipped — a skip could be the very
+//     object Withdraw is looking for.
 // ---------------------------------------------------------------------------
 
 const (
@@ -287,9 +300,10 @@ const (
 	// in — one level above the directory it governs (gitOpsAppDir), so deleting or
 	// pruning an app's own tree can never touch the object that governs it.
 	gitOpsApplicationsPath = "k8s/argocd/applications/"
-	// gitOpsMarkerSuffix names the sidecar file PublishDesiredState writes next to each
-	// Application, recording the appID that produced it — see SEAM note 1 above.
-	gitOpsMarkerSuffix = ".appid"
+	// gitOpsAppIDAnnotation is the metadata.annotations key withAppIDAnnotation stamps
+	// onto every committed Application, and gitOpsResolveAppByID matches Withdraw's
+	// appID argument against — see SEAM note 1 above.
+	gitOpsAppIDAnnotation = "archistrator.dev/app-id"
 )
 
 // authenticatedGitOpsURL injects token as HTTP basic-auth into repoURL when both are
@@ -355,17 +369,88 @@ func gitOpsApplicationFile(workdir, appName string) string {
 	return filepath.Join(workdir, gitOpsApplicationsPath, appName+".yaml")
 }
 
-// gitOpsMarkerFile is the sidecar PublishDesiredState writes recording which appID
-// produced appName's Application — see SEAM note 1 above.
-func gitOpsMarkerFile(workdir, appName string) string {
-	return filepath.Join(workdir, gitOpsApplicationsPath, appName+gitOpsMarkerSuffix)
-}
-
 // gitOpsManifestFileName derives a stable, collision-free filename for a rendered
 // Manifest. Kind is part of the name because a workload's Deployment and Service share a
 // Name.
 func gitOpsManifestFileName(m Manifest) string {
 	return strings.ToLower(m.Kind) + "-" + m.Name + ".yaml"
+}
+
+// gitOpsAppIDAnnotationValue extracts the archistrator.dev/app-id annotation's value from
+// a committed Application's raw text, via a direct line scan rather than a general YAML
+// parse. This component carries no YAML library dependency — the app's operator-curated
+// production dependency allowlist (internal/arch_test.go's AllowedImportPrefixes) has none
+// on it, and widening that menu is explicitly reserved to an archistrator operator, not
+// something a component may grant itself just because a YAML parser would be convenient
+// here. The exact indentation matched ("    "+key+": ") is withAppIDAnnotation's own
+// writer, so a round trip through this file always finds what it wrote. ok is false when
+// no line matches that exact shape.
+func gitOpsAppIDAnnotationValue(raw string) (value string, ok bool) {
+	prefix := "    " + gitOpsAppIDAnnotation + ": "
+	for _, line := range strings.Split(raw, "\n") {
+		if v, cut := strings.CutPrefix(line, prefix); cut {
+			return strings.TrimSpace(v), true
+		}
+	}
+	return "", false
+}
+
+// gitOpsSelfManaged reports whether a committed Application's raw text is self-managed,
+// straight from its own committed spec.syncPolicy shape — see SEAM note 2 in the section
+// doc above for why this, not a config flag, is the guard. It is a line scan for the
+// EXACT two shapes applicationTmpl's two branches ever produce (see applicationTmpl
+// above): the first substantive line after "  syncPolicy:" (skipping the self-managed
+// branch's explanatory "    #..." comment lines) is either "    automated:" (tenant — an
+// automated block always precedes syncOptions) or "    syncOptions:" directly (self-
+// managed — no automated block precedes it). Matching by POSITION, not by searching the
+// whole document for the substring "automated:", is deliberate: a coincidental match
+// elsewhere in the file (e.g. inside a comment) must never be read as "not self-managed",
+// since that is the dangerous direction to get wrong. ok is false — refuse, don't guess —
+// when neither exact shape is found; that is the fail-closed half of the guard, not
+// merely a parse nicety.
+func gitOpsSelfManaged(raw string) (selfManaged bool, ok bool) {
+	const marker = "\n  syncPolicy:\n"
+	i := strings.Index(raw, marker)
+	if i < 0 {
+		return false, false
+	}
+	for _, line := range strings.Split(raw[i+len(marker):], "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		switch line {
+		case "    automated:":
+			return false, true
+		case "    syncOptions:":
+			return true, true
+		default:
+			return false, false
+		}
+	}
+	return false, false
+}
+
+// withAppIDAnnotation splices an archistrator.dev/app-id annotation into applicationYAML
+// (applicationTmpl's rendered output) directly under its fixed compare-options
+// annotation line — a targeted string insertion, not a YAML unmarshal/marshal round
+// trip, so the exact hand-authored formatting an operator reads in the Argo UI (spacing,
+// key order, the absence of any reordering) survives untouched apart from this one added
+// line. render() itself never sees appID and stays pure — this runs only in the commit
+// path, after render has already produced the Application manifest.
+func withAppIDAnnotation(applicationYAML string, appID uuid.UUID) (string, error) {
+	const marker = "argocd.argoproj.io/compare-options: ServerSideDiff=true\n"
+	i := strings.Index(applicationYAML, marker)
+	if i < 0 {
+		// Can't happen — applicationTmpl always emits this exact line — but asserted
+		// rather than silently committing an Application with no appID annotation, which
+		// Withdraw could then never resolve back to this app (a permanent, silent
+		// NotFound for an app that is very much still running).
+		return "", fwra.New(fwra.ContractMisuse,
+			"operatedruntime.gitops: rendered Application is missing its compare-options annotation line; cannot attach the app-id annotation")
+	}
+	insertAt := i + len(marker)
+	return applicationYAML[:insertAt] + "    " + gitOpsAppIDAnnotation + ": " + appID.String() + "\n" + applicationYAML[insertAt:], nil
 }
 
 // gitOpsCommit is the shared clone → mutate → stage → commit-if-changed → push sequence
@@ -419,27 +504,22 @@ func (r realOperatedRuntime) gitOpsCommit(commitMessage string, mutate func(work
 		return fwra.Wrap(fwra.Infrastructure, cerr, "operatedruntime.gitops: commit")
 	}
 
-	pushArgs := []string{"push"}
-	if strings.HasPrefix(r.config.GitOpsRepoURL, "file://") {
-		// Test-only escape hatch: t.TempDir() scratch repos are ordinary (non-bare)
-		// working copies with a branch checked out, and git refuses by default to push
-		// into a non-bare repo's checked-out branch. Real GitOps remotes are bare
-		// (GitHub), where that restriction never applies and this flag is never sent.
-		// updateInstead also refreshes the scratch repo's working tree in place, which is
-		// what lets tests assert on files directly under t.TempDir() after publish.
-		pushArgs = append(pushArgs, "--receive-pack=git -c receive.denyCurrentBranch=updateInstead receive-pack")
-	}
-	pushArgs = append(pushArgs, "origin", "HEAD:main")
-	if _, perr := runGit(workdir, pushArgs...); perr != nil {
+	// origin is always bare in every environment this runs against — the real GitOps
+	// remote (GitHub) and every test remote alike (tests use `git init --bare`, see
+	// access_test.go's newScratchRepo) — so a plain push needs no non-bare-repo
+	// workaround. Keeping that concern entirely out of production code was a review
+	// finding on an earlier version of this function.
+	if _, perr := runGit(workdir, "push", "origin", "HEAD:main"); perr != nil {
 		return fwra.Wrap(fwra.Infrastructure, perr, "operatedruntime.gitops: push")
 	}
 	return nil
 }
 
 // gitOpsPublish is PublishDesiredState's mutate closure. It renders d and replaces
-// gitOpsAppDir / gitOpsApplicationFile / gitOpsMarkerFile wholesale, so a manifest render()
-// no longer emits (e.g. Postgres disabled after being enabled) is removed too, not just
-// the objects that changed.
+// gitOpsAppDir / gitOpsApplicationFile wholesale, so a manifest render() no longer emits
+// (e.g. Postgres disabled after being enabled) is removed too, not just the objects that
+// changed. The Application it writes is annotated with appID (withAppIDAnnotation) — the
+// only place this file stamps that mapping; there is no separate sidecar to keep in sync.
 func gitOpsPublish(appID uuid.UUID, d RuntimeDesiredState) func(string) error {
 	return func(workdir string) error {
 		manifests, err := render(d)
@@ -473,59 +553,82 @@ func gitOpsPublish(appID uuid.UUID, d RuntimeDesiredState) func(string) error {
 			// governing Application.
 			return fwra.New(fwra.ContractMisuse, "operatedruntime.gitops: render produced no Application manifest for "+d.AppName)
 		}
+		annotated, aerr := withAppIDAnnotation(application.YAML, appID)
+		if aerr != nil {
+			return aerr
+		}
 
 		applicationsDir := filepath.Join(workdir, gitOpsApplicationsPath)
 		if err := os.MkdirAll(applicationsDir, 0o750); err != nil {
 			return fwra.Wrap(fwra.Infrastructure, err, "operatedruntime.gitops: create "+applicationsDir)
 		}
 		appFile := gitOpsApplicationFile(workdir, d.AppName)
-		if err := os.WriteFile(appFile, []byte(application.YAML), 0o600); err != nil {
+		if err := os.WriteFile(appFile, []byte(annotated), 0o600); err != nil {
 			return fwra.Wrap(fwra.Infrastructure, err, "operatedruntime.gitops: write "+appFile)
-		}
-		markerFile := gitOpsMarkerFile(workdir, d.AppName)
-		if err := os.WriteFile(markerFile, []byte(appID.String()+"\n"), 0o600); err != nil {
-			return fwra.Wrap(fwra.Infrastructure, err, "operatedruntime.gitops: write "+markerFile)
 		}
 		return nil
 	}
 }
 
-// gitOpsFindAppByID resolves appID to the AppName PublishDesiredState last published it
-// under, by reading the .appid markers under gitOpsApplicationsPath (SEAM note 1 above).
-// found is false — not an error — when no marker matches, which is what lets Withdraw
-// implement the contract's NotFound⇒success semantics as an ordinary no-op mutation
-// (nothing staged ⇒ gitOpsCommit commits nothing).
-func gitOpsFindAppByID(workdir string, appID uuid.UUID) (appName string, found bool, err error) {
+// gitOpsResolvedApp is what gitOpsResolveAppByID reports about the Application whose
+// archistrator.dev/app-id annotation matches the appID being withdrawn.
+type gitOpsResolvedApp struct {
+	AppName     string
+	SelfManaged bool
+}
+
+// gitOpsResolveAppByID scans every Application committed under gitOpsApplicationsPath and
+// returns the one annotated archistrator.dev/app-id == appID (gitOpsAppIDAnnotationValue),
+// deriving AppName from that file's own name (gitOpsApplicationFile's convention,
+// appName+".yaml") and SelfManaged directly from that SAME object's committed syncPolicy
+// shape (gitOpsSelfManaged — see SEAM note 2 in the section doc above; this is the
+// fail-closed guard, not a side detail).
+//
+// found is false — not an error — only when no Application anywhere carries a matching
+// annotation, which is what lets Withdraw implement the contract's NotFound⇒success
+// semantics as an ordinary no-op mutation (nothing staged ⇒ gitOpsCommit commits
+// nothing). Once a file DOES match the annotation, though, its self-managed shape must be
+// determinable or the whole call fails loudly (ContractMisuse) rather than defaulting
+// either way — see gitOpsSelfManaged's doc for why that default would be the dangerous
+// direction to get wrong.
+func gitOpsResolveAppByID(workdir string, appID uuid.UUID) (resolved gitOpsResolvedApp, found bool, err error) {
 	dir := filepath.Join(workdir, gitOpsApplicationsPath)
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return "", false, nil
+			return gitOpsResolvedApp{}, false, nil
 		}
-		return "", false, fwra.Wrap(fwra.Infrastructure, err, "operatedruntime.gitops: list "+dir)
+		return gitOpsResolvedApp{}, false, fwra.Wrap(fwra.Infrastructure, err, "operatedruntime.gitops: list "+dir)
 	}
+
 	want := appID.String()
 	for _, e := range entries {
-		name, ok := strings.CutSuffix(e.Name(), gitOpsMarkerSuffix)
-		if e.IsDir() || !ok {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".yaml") {
 			continue
 		}
-		raw, rerr := os.ReadFile(filepath.Join(dir, e.Name())) // #nosec G304 -- e.Name() comes from os.ReadDir's own listing of dir, not external input
+		path := filepath.Join(dir, e.Name())
+		raw, rerr := os.ReadFile(path) // #nosec G304 -- e.Name() comes from os.ReadDir's own listing of dir, not external input
 		if rerr != nil {
-			return "", false, fwra.Wrap(fwra.Infrastructure, rerr, "operatedruntime.gitops: read "+e.Name())
+			return gitOpsResolvedApp{}, false, fwra.Wrap(fwra.Infrastructure, rerr, "operatedruntime.gitops: read "+path)
 		}
-		if strings.TrimSpace(string(raw)) == want {
-			return name, true, nil
+		if v, ok := gitOpsAppIDAnnotationValue(string(raw)); !ok || v != want {
+			continue
 		}
+		selfManaged, ok := gitOpsSelfManaged(string(raw))
+		if !ok {
+			return gitOpsResolvedApp{}, false, fwra.New(fwra.ContractMisuse,
+				"operatedruntime.gitops: "+path+" matches appId "+want+" but its syncPolicy shape is not one render() could have produced; refusing to determine self-managed status")
+		}
+		return gitOpsResolvedApp{AppName: strings.TrimSuffix(e.Name(), ".yaml"), SelfManaged: selfManaged}, true, nil
 	}
-	return "", false, nil
+	return gitOpsResolvedApp{}, false, nil
 }
 
-// gitOpsWithdraw is Withdraw's mutate closure for an app that WAS found: it removes
-// appName's rendered tree, its Application, and its marker. Removing a path that is
-// already gone is not an error (os.RemoveAll is idempotent that way already; os.Remove is
-// made so explicitly below) — matching the contract's NotFound⇒success semantics all the
-// way through, not just at the gitOpsFindAppByID lookup.
+// gitOpsWithdraw is Withdraw's mutate closure for an app that WAS found and confirmed NOT
+// self-managed: it removes appName's rendered tree and its Application. Removing a path
+// that is already gone is not an error (os.RemoveAll is idempotent that way already;
+// os.Remove is made so explicitly below) — matching the contract's NotFound⇒success
+// semantics all the way through, not just at the gitOpsResolveAppByID lookup.
 func gitOpsWithdraw(appName string) func(string) error {
 	return func(workdir string) error {
 		if err := os.RemoveAll(gitOpsAppDir(workdir, appName)); err != nil {
@@ -533,9 +636,6 @@ func gitOpsWithdraw(appName string) func(string) error {
 		}
 		if err := os.Remove(gitOpsApplicationFile(workdir, appName)); err != nil && !os.IsNotExist(err) {
 			return fwra.Wrap(fwra.Infrastructure, err, "operatedruntime.gitops: remove application file")
-		}
-		if err := os.Remove(gitOpsMarkerFile(workdir, appName)); err != nil && !os.IsNotExist(err) {
-			return fwra.Wrap(fwra.Infrastructure, err, "operatedruntime.gitops: remove marker file")
 		}
 		return nil
 	}
@@ -550,12 +650,13 @@ func gitOpsWithdraw(appName string) func(string) error {
 // which the explicit Real/Local selection never produces, so it is panic-guarded
 // as a can't-happen.
 //
-// RESIDUAL (P1): the REAL profile's RuntimeConfig.GitOpsRepoURL
-// (ARCHISTRATOR_OPERATED_RUNTIME_GITOPS_REPO_URL) is DROPPED here — the real
-// GitOps/kubernetes backend is an unbuilt skeleton (follow-up N-DEP), so the
-// empty RuntimeConfig is behavior-identical today (the real verbs surface their
-// unimplemented-backend diagnostic regardless). When N-DEP lands, thread the URL
-// via a VariantHookArgs hook (mirroring the github variants).
+// RESIDUAL (P1), updated for Task 7 — this note previously described an unbuilt
+// backend; that is now stale. PublishDesiredState/Withdraw's GitOps commit path IS
+// implemented (see the GitOps commit path section above), but RuntimeConfig.GitOpsRepoURL
+// / GitOpsToken are STILL DROPPED here — this constructor passes an empty RuntimeConfig,
+// so both real verbs still surface the "unconfigured" diagnostic in production today.
+// Composition-root wiring (an env var → VariantHookArgs, mirroring the github variants)
+// is a separate follow-up, out of Task 7's scope.
 
 // NewRealOperatedRuntimeAccess builds the REAL-profile operatedRuntimeAccess (the
 // production GitOps/kubernetes backend; skeleton until N-DEP). Infra-free at the

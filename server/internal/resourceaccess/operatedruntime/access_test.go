@@ -1208,23 +1208,29 @@ func mustRun(t *testing.T, dir string, name string, args ...string) {
 }
 
 // headCommit returns repo's current HEAD commit SHA, failing the test if repo has no
-// commits — a before/after comparison is meaningless without that guarantee.
+// commits — a before/after comparison is meaningless without that guarantee. Works
+// directly against repo whether it is bare or not. Uses `--verify`: plain `rev-parse
+// HEAD` against a BARE repo with an unborn branch exits 0 and prints the literal string
+// "HEAD" instead of failing (a bare repo has no working tree to fail the "is this a path"
+// check against, unlike a non-bare repo, where the same command correctly exits
+// non-zero) — `--verify` closes that gap and fails consistently in both cases.
 func headCommit(t *testing.T, repo string) string {
 	t.Helper()
-	cmd := exec.Command("git", "rev-parse", "HEAD") //nolint:gosec // fixed trusted binary, fixed args
+	cmd := exec.Command("git", "rev-parse", "--verify", "HEAD") //nolint:gosec // fixed trusted binary, fixed args
 	cmd.Dir = repo
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		t.Fatalf("git rev-parse HEAD in %s: %v: %s", repo, err, out)
+		t.Fatalf("git rev-parse --verify HEAD in %s: %v: %s", repo, err, out)
 	}
 	return strings.TrimSpace(string(out))
 }
 
 // repoHasNoCommits reports whether repo has never been committed to (an unborn HEAD) —
-// the state a NotFound⇒success withdraw that touches nothing must leave it in.
+// the state a NotFound⇒success withdraw that touches nothing must leave it in. See
+// headCommit's doc for why `--verify` is required here, not plain `rev-parse HEAD`.
 func repoHasNoCommits(t *testing.T, repo string) bool {
 	t.Helper()
-	cmd := exec.Command("git", "rev-parse", "HEAD") //nolint:gosec // fixed trusted binary, fixed args
+	cmd := exec.Command("git", "rev-parse", "--verify", "HEAD") //nolint:gosec // fixed trusted binary, fixed args
 	cmd.Dir = repo
 	return cmd.Run() != nil
 }
@@ -1236,16 +1242,53 @@ func testCtx(t *testing.T) fwra.Context {
 	return fwra.Context{Context: context.Background()}
 }
 
-// newScratchRepo creates a fresh, empty (no commits) git repo under t.TempDir(), the
+// newScratchRepo creates a fresh, empty (no commits) BARE git repo under t.TempDir(), the
 // ONLY kind of repo any test in this file may operate on (see the HARD SAFETY BOUNDARY
-// above). Returns the repo's filesystem path.
+// above). Bare, not a plain working copy, so these tests exercise the exact same kind of
+// remote gitOpsCommit talks to in production (GitHub repos are bare) — a non-bare "git
+// refuses to push into its own checked-out branch" workaround has no place in the
+// production code path, and making the test fixture bare is what lets that workaround be
+// deleted entirely rather than kept alive only for tests. Returns the repo's filesystem
+// path; inspect its committed content via inspectClone, never by statting this path
+// directly (a bare repo has no working tree).
 func newScratchRepo(t *testing.T) string {
 	t.Helper()
 	repo := t.TempDir()
-	mustRun(t, repo, "git", "init", "--initial-branch=main")
-	mustRun(t, repo, "git", "config", "user.email", "test@example.com")
-	mustRun(t, repo, "git", "config", "user.name", "test")
+	mustRun(t, repo, "git", "init", "--bare", "--initial-branch=main")
 	return repo
+}
+
+// inspectClone clones repo (a bare scratch "remote" from newScratchRepo) into a fresh,
+// ordinary temp directory so a test can assert on committed file paths/contents with
+// plain os.Stat/os.ReadFile — exactly how ArgoCD's own clone would see the repo. Keeps
+// all "how do I look inside a bare repo" concern in test code, never in gitOpsCommit.
+func inspectClone(t *testing.T, repo string) string {
+	t.Helper()
+	dir := t.TempDir()
+	mustRun(t, "", "git", "clone", "file://"+repo, dir)
+	return dir
+}
+
+// seedBareRepo commits raw content directly into repo at relPath, entirely bypassing
+// PublishDesiredState. Used only to construct Application documents this component did
+// NOT itself write — a hand-edited or pre-existing entry — which is exactly what the
+// fail-closed determination tests below need to exist in order to exercise it.
+func seedBareRepo(t *testing.T, repo, relPath, content string) {
+	t.Helper()
+	clone := t.TempDir()
+	mustRun(t, "", "git", "clone", "file://"+repo, clone)
+	mustRun(t, clone, "git", "config", "user.email", "seed@example.com")
+	mustRun(t, clone, "git", "config", "user.name", "seed")
+	full := filepath.Join(clone, relPath)
+	if err := os.MkdirAll(filepath.Dir(full), 0o750); err != nil {
+		t.Fatalf("seedBareRepo: mkdir: %v", err)
+	}
+	if err := os.WriteFile(full, []byte(content), 0o600); err != nil {
+		t.Fatalf("seedBareRepo: write: %v", err)
+	}
+	mustRun(t, clone, "git", "add", "-A")
+	mustRun(t, clone, "git", "commit", "-m", "seed")
+	mustRun(t, clone, "git", "push", "origin", "HEAD:main")
 }
 
 func TestPublishDesiredState_WritesManifestsAndIsContentIdempotent(t *testing.T) {
@@ -1259,7 +1302,7 @@ func TestPublishDesiredState_WritesManifestsAndIsContentIdempotent(t *testing.T)
 	}
 	first := headCommit(t, repo)
 
-	appPath := filepath.Join(repo, "k8s", "argocd", "apps", "archistrator")
+	appPath := filepath.Join(inspectClone(t, repo), "k8s", "argocd", "apps", "archistrator")
 	if _, err := os.Stat(appPath); err != nil {
 		t.Fatalf("expected rendered manifests at %s: %v", appPath, err)
 	}
@@ -1270,6 +1313,33 @@ func TestPublishDesiredState_WritesManifestsAndIsContentIdempotent(t *testing.T)
 	}
 	if headCommit(t, repo) != first {
 		t.Error("republishing identical content created a new commit; publish must be content-idempotent")
+	}
+}
+
+// TestPublishDesiredState_ApplicationCarriesAppIDAnnotation is the write-side half of the
+// annotation mechanism gitOpsResolveAppByID reads back on Withdraw (SEAM note 1): if the
+// annotation is ever missing or malformed, Withdraw can never find this app again by
+// appID and it would silently keep running forever.
+func TestPublishDesiredState_ApplicationCarriesAppIDAnnotation(t *testing.T) {
+	repo := newScratchRepo(t)
+	rt := realOperatedRuntime{config: RuntimeConfig{GitOpsRepoURL: "file://" + repo}}
+	appID := uuid.New()
+
+	if err := rt.PublishDesiredState(testCtx(t), appID, testDesiredState(), "idem-1"); err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+
+	appFile := filepath.Join(inspectClone(t, repo), "k8s", "argocd", "applications", "archistrator.yaml")
+	raw, err := os.ReadFile(appFile)
+	if err != nil {
+		t.Fatalf("read %s: %v", appFile, err)
+	}
+	got, ok := gitOpsAppIDAnnotationValue(string(raw))
+	if !ok {
+		t.Fatalf("no %s annotation found in %s:\n%s", gitOpsAppIDAnnotation, appFile, raw)
+	}
+	if got != appID.String() {
+		t.Errorf("archistrator.dev/app-id annotation = %q, want %q", got, appID.String())
 	}
 }
 
@@ -1297,47 +1367,54 @@ func TestPublishDesiredState_ChangedContentCreatesNewCommit(t *testing.T) {
 	}
 }
 
+// TestWithdraw_RemovesTheAppDirectory covers the happy removal path for a NON-self-managed
+// app. testDesiredState() defaults to SelfManaged: true (it is archistrator's own
+// fixture), so this test explicitly flips it — withdrawing the self-managed flavor of this
+// exact fixture is covered separately by TestWithdraw_RefusesTheSelfManagedApp, and must
+// NOT succeed (see that test).
 func TestWithdraw_RemovesTheAppDirectory(t *testing.T) {
 	repo := newScratchRepo(t)
 	rt := realOperatedRuntime{config: RuntimeConfig{GitOpsRepoURL: "file://" + repo}}
 	appID := uuid.New()
 
-	if err := rt.PublishDesiredState(testCtx(t), appID, testDesiredState(), "idem-1"); err != nil {
+	tenant := testDesiredState()
+	tenant.SelfManaged = false
+
+	if err := rt.PublishDesiredState(testCtx(t), appID, tenant, "idem-1"); err != nil {
 		t.Fatalf("publish: %v", err)
 	}
 	if err := rt.Withdraw(testCtx(t), appID, "idem-2"); err != nil {
 		t.Fatalf("withdraw: %v", err)
 	}
 
-	appPath := filepath.Join(repo, "k8s", "argocd", "apps", "archistrator")
+	appPath := filepath.Join(inspectClone(t, repo), "k8s", "argocd", "apps", "archistrator")
 	if _, err := os.Stat(appPath); !os.IsNotExist(err) {
 		t.Errorf("withdraw left %s behind", appPath)
 	}
 }
 
-// TestWithdraw_RemovesApplicationFileAndMarker rounds out the removal test above: the
-// governing Application object and the appID⇒AppName marker (gitOpsFindAppByID's whole
-// mechanism) must go too, or a re-publish/re-withdraw cycle would leave stale bookkeeping
-// behind in the GitOps repo.
-func TestWithdraw_RemovesApplicationFileAndMarker(t *testing.T) {
+// TestWithdraw_RemovesApplicationFile rounds out the removal test above: the governing
+// Application object (gitOpsResolveAppByID's whole mechanism lives inside it — no
+// separate sidecar file to also clean up) must go too, or a re-publish/re-withdraw cycle
+// would leave a stale, orphaned Application behind in the GitOps repo.
+func TestWithdraw_RemovesApplicationFile(t *testing.T) {
 	repo := newScratchRepo(t)
 	rt := realOperatedRuntime{config: RuntimeConfig{GitOpsRepoURL: "file://" + repo}}
 	appID := uuid.New()
 
-	if err := rt.PublishDesiredState(testCtx(t), appID, testDesiredState(), "idem-1"); err != nil {
+	tenant := testDesiredState()
+	tenant.SelfManaged = false
+
+	if err := rt.PublishDesiredState(testCtx(t), appID, tenant, "idem-1"); err != nil {
 		t.Fatalf("publish: %v", err)
 	}
 	if err := rt.Withdraw(testCtx(t), appID, "idem-2"); err != nil {
 		t.Fatalf("withdraw: %v", err)
 	}
 
-	for _, p := range []string{
-		filepath.Join(repo, "k8s", "argocd", "applications", "archistrator.yaml"),
-		filepath.Join(repo, "k8s", "argocd", "applications", "archistrator.appid"),
-	} {
-		if _, err := os.Stat(p); !os.IsNotExist(err) {
-			t.Errorf("withdraw left %s behind", p)
-		}
+	appFile := filepath.Join(inspectClone(t, repo), "k8s", "argocd", "applications", "archistrator.yaml")
+	if _, err := os.Stat(appFile); !os.IsNotExist(err) {
+		t.Errorf("withdraw left %s behind", appFile)
 	}
 }
 
@@ -1359,20 +1436,26 @@ func TestWithdraw_OfUnknownAppIsSuccessAndCreatesNoCommit(t *testing.T) {
 
 // TestWithdraw_RefusesTheSelfManagedApp closes the third of three paths to deleting
 // archistrator's own control plane — prune:false and the omitted Argo finalizer
-// (renderApplication) close the other two. The guard must fire terminally and BEFORE any
-// git operation: the already-published app directory must be untouched and no commit may
-// be created, because there is nothing recoverable about this outcome if it fires wrong.
+// (renderApplication) close the other two. The guard reads NO config (there is none to
+// read — RuntimeConfig carries no self-managed identity, on purpose: see Withdraw's doc
+// and the GitOps commit path section doc for why an earlier, config-driven version of
+// this check was rejected as fail-open). It must fire terminally and BEFORE anything is
+// staged: the already-published app directory must be untouched and no commit may be
+// created, because there is nothing recoverable about this outcome if it fires wrong.
 func TestWithdraw_RefusesTheSelfManagedApp(t *testing.T) {
 	repo := newScratchRepo(t)
-	selfManagedID := uuid.New()
-	rt := realOperatedRuntime{config: RuntimeConfig{GitOpsRepoURL: "file://" + repo, SelfManagedAppID: selfManagedID}}
+	rt := realOperatedRuntime{config: RuntimeConfig{GitOpsRepoURL: "file://" + repo}}
+	appID := uuid.New()
 
-	if err := rt.PublishDesiredState(testCtx(t), selfManagedID, testDesiredState(), "idem-1"); err != nil {
+	// testDesiredState() IS the self-managed fixture (SelfManaged: true, AppName
+	// "archistrator") — used as-is, deliberately not overridden, unlike every other test
+	// in this file.
+	if err := rt.PublishDesiredState(testCtx(t), appID, testDesiredState(), "idem-1"); err != nil {
 		t.Fatalf("publish: %v", err)
 	}
 	before := headCommit(t, repo)
 
-	err := rt.Withdraw(testCtx(t), selfManagedID, "idem-2")
+	err := rt.Withdraw(testCtx(t), appID, "idem-2")
 	var e *fwra.Error
 	if !errors.As(err, &e) || e.Kind != fwra.ContractMisuse {
 		t.Fatalf("withdraw of the self-managed app: want ContractMisuse, got %v", err)
@@ -1380,41 +1463,156 @@ func TestWithdraw_RefusesTheSelfManagedApp(t *testing.T) {
 	if e.Retryable {
 		t.Fatalf("self-managed withdraw guard must be non-retryable (terminal), got retryable")
 	}
-	if !strings.Contains(e.Detail, selfManagedID.String()) {
-		t.Errorf("guard error should name the app: %q does not mention %s", e.Detail, selfManagedID.String())
+	if !strings.Contains(e.Detail, "archistrator") {
+		t.Errorf("guard error should name the app: %q does not mention archistrator", e.Detail)
 	}
 
-	appPath := filepath.Join(repo, "k8s", "argocd", "apps", "archistrator")
+	appPath := filepath.Join(inspectClone(t, repo), "k8s", "argocd", "apps", "archistrator")
 	if _, statErr := os.Stat(appPath); statErr != nil {
-		t.Fatalf("guard must refuse BEFORE touching git — app directory should be untouched: %v", statErr)
+		t.Fatalf("guard must refuse before anything is staged — app directory should be untouched: %v", statErr)
 	}
 	if headCommit(t, repo) != before {
 		t.Error("self-managed withdraw guard must not create a commit")
 	}
 }
 
-// TestWithdraw_SelfManagedGuardDoesNotBlockOtherApps: SelfManagedAppID must be a
-// per-appID guard, not a global "no withdraw" switch — withdrawing a DIFFERENT app while
-// a self-managed one is configured must still work normally.
-func TestWithdraw_SelfManagedGuardDoesNotBlockOtherApps(t *testing.T) {
+// TestWithdraw_DoesNotAffectOtherAppsInTheSameRepo: the self-managed determination must be
+// PER-APPLICATION (read from the specific Application gitOpsResolveAppByID matches), not a
+// blanket switch — withdrawing a tenant app must succeed and must leave a self-managed
+// app published alongside it in the very same repo untouched.
+func TestWithdraw_DoesNotAffectOtherAppsInTheSameRepo(t *testing.T) {
 	repo := newScratchRepo(t)
+	rt := realOperatedRuntime{config: RuntimeConfig{GitOpsRepoURL: "file://" + repo}}
 	selfManagedID := uuid.New()
 	tenantID := uuid.New()
-	rt := realOperatedRuntime{config: RuntimeConfig{GitOpsRepoURL: "file://" + repo, SelfManagedAppID: selfManagedID}}
 
+	if err := rt.PublishDesiredState(testCtx(t), selfManagedID, testDesiredState(), "idem-1"); err != nil {
+		t.Fatalf("publish self-managed: %v", err)
+	}
 	tenant := testDesiredState()
 	tenant.AppName = "tenant-app"
 	tenant.SelfManaged = false
-
-	if err := rt.PublishDesiredState(testCtx(t), tenantID, tenant, "idem-1"); err != nil {
-		t.Fatalf("publish: %v", err)
+	if err := rt.PublishDesiredState(testCtx(t), tenantID, tenant, "idem-2"); err != nil {
+		t.Fatalf("publish tenant: %v", err)
 	}
-	if err := rt.Withdraw(testCtx(t), tenantID, "idem-2"); err != nil {
+
+	if err := rt.Withdraw(testCtx(t), tenantID, "idem-3"); err != nil {
 		t.Fatalf("withdraw of a non-self-managed app: want success, got %v", err)
 	}
 
-	appPath := filepath.Join(repo, "k8s", "argocd", "apps", "tenant-app")
+	clone := inspectClone(t, repo)
+	if _, err := os.Stat(filepath.Join(clone, "k8s", "argocd", "apps", "tenant-app")); !os.IsNotExist(err) {
+		t.Errorf("withdraw left the tenant app's directory behind")
+	}
+	if _, err := os.Stat(filepath.Join(clone, "k8s", "argocd", "apps", "archistrator")); err != nil {
+		t.Errorf("withdraw of the tenant app affected the unrelated self-managed app: %v", err)
+	}
+
+	// And the self-managed one, published in this same repo, is still refused.
+	if err := rt.Withdraw(testCtx(t), selfManagedID, "idem-4"); err == nil {
+		t.Error("withdraw of the self-managed app succeeded after an unrelated tenant withdraw")
+	}
+}
+
+// TestWithdraw_SkipsUnrelatedApplicationsAndStillFindsTheRealOne: gitOpsResolveAppByID
+// scans every file under k8s/argocd/applications/, but a file that simply does not carry
+// the annotation being searched for (garbage, hand-authored, or otherwise foreign content)
+// must not stop it from finding the real match elsewhere in the same directory.
+func TestWithdraw_SkipsUnrelatedApplicationsAndStillFindsTheRealOne(t *testing.T) {
+	repo := newScratchRepo(t)
+	seedBareRepo(t, repo, "k8s/argocd/applications/mystery.yaml", "not: [valid: yaml at all {{{\n  - broken\n")
+
+	rt := realOperatedRuntime{config: RuntimeConfig{GitOpsRepoURL: "file://" + repo}}
+	appID := uuid.New()
+	tenant := testDesiredState()
+	tenant.SelfManaged = false
+	if err := rt.PublishDesiredState(testCtx(t), appID, tenant, "idem-1"); err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+
+	if err := rt.Withdraw(testCtx(t), appID, "idem-2"); err != nil {
+		t.Fatalf("withdraw alongside an unrelated foreign Application file: want success, got %v", err)
+	}
+	appPath := filepath.Join(inspectClone(t, repo), "k8s", "argocd", "apps", "archistrator")
 	if _, err := os.Stat(appPath); !os.IsNotExist(err) {
 		t.Errorf("withdraw left %s behind", appPath)
+	}
+}
+
+// TestGitOpsSelfManaged_MatchesByPositionNotSubstring is a direct unit test of the
+// function that closes the Critical review finding: it must key off the FIRST
+// substantive line after "  syncPolicy:", not off searching the whole document for
+// "automated:" anywhere. A decoy "automated:"-looking text earlier in the document (e.g.
+// inside an unrelated comment) must not flip a genuinely self-managed Application to
+// "not self-managed" — that is the dangerous direction to get this wrong, since it is
+// exactly what would let Withdraw delete it.
+func TestGitOpsSelfManaged_MatchesByPositionNotSubstring(t *testing.T) {
+	selfManagedYAML, sErr := renderTemplate(applicationTmpl, applicationData{
+		AppName: "archistrator", Namespace: "archistrator", RepoURL: "https://example.invalid/repo.git",
+		Path: "k8s/argocd/apps/archistrator", SelfManaged: true,
+	})
+	if sErr != nil {
+		t.Fatalf("render self-managed fixture: %v", sErr)
+	}
+	tenantYAML, tErr := renderTemplate(applicationTmpl, applicationData{
+		AppName: "tenant", Namespace: "tenant", RepoURL: "https://example.invalid/repo.git",
+		Path: "k8s/argocd/apps/tenant", SelfManaged: false,
+	})
+	if tErr != nil {
+		t.Fatalf("render tenant fixture: %v", tErr)
+	}
+
+	if got, ok := gitOpsSelfManaged(selfManagedYAML); !ok || !got {
+		t.Errorf("self-managed fixture: got (selfManaged=%v, ok=%v), want (true, true)", got, ok)
+	}
+	if got, ok := gitOpsSelfManaged(tenantYAML); !ok || got {
+		t.Errorf("tenant fixture: got (selfManaged=%v, ok=%v), want (false, true)", got, ok)
+	}
+
+	// The decoy: a comment mentioning "automated:" BEFORE syncPolicy, on an otherwise
+	// genuinely self-managed document. Must still resolve to self-managed=true.
+	decoy := "# this workflow used to be automated:\n" + selfManagedYAML
+	if got, ok := gitOpsSelfManaged(decoy); !ok || !got {
+		t.Errorf("decoyed self-managed fixture: got (selfManaged=%v, ok=%v), want (true, true) — a substring match elsewhere was wrongly used", got, ok)
+	}
+
+	if _, ok := gitOpsSelfManaged("kind: Application\nmetadata:\n  name: x\n"); ok {
+		t.Error("a document with no syncPolicy at all must not report ok=true")
+	}
+}
+
+// TestWithdraw_FailsClosedWhenSelfManagedStatusCannotBeDetermined: an Application that
+// parses fine, and DOES carry the matching appID annotation, but has no spec.syncPolicy at
+// all does not resemble anything applicationTmpl could have rendered. gitOpsResolveAppByID
+// must refuse to guess which way that ambiguity resolves — the whole point of the Critical
+// review finding this closes is that "cannot tell" must never silently mean "safe to
+// delete".
+func TestWithdraw_FailsClosedWhenSelfManagedStatusCannotBeDetermined(t *testing.T) {
+	repo := newScratchRepo(t)
+	appID := uuid.New()
+	noSyncPolicy := "apiVersion: argoproj.io/v1alpha1\n" +
+		"kind: Application\n" +
+		"metadata:\n" +
+		"  name: mystery\n" +
+		"  namespace: argocd\n" +
+		"  annotations:\n" +
+		"    " + gitOpsAppIDAnnotation + ": " + appID.String() + "\n" +
+		"spec:\n" +
+		"  project: default\n"
+	seedBareRepo(t, repo, "k8s/argocd/applications/mystery.yaml", noSyncPolicy)
+
+	rt := realOperatedRuntime{config: RuntimeConfig{GitOpsRepoURL: "file://" + repo}}
+	before := headCommit(t, repo)
+
+	err := rt.Withdraw(testCtx(t), appID, "idem-1")
+	var e *fwra.Error
+	if !errors.As(err, &e) || e.Kind != fwra.ContractMisuse {
+		t.Fatalf("withdraw of an app whose syncPolicy shape is unrecognizable: want ContractMisuse, got %v", err)
+	}
+	if e.Retryable {
+		t.Fatalf("an undeterminable self-managed status must fail closed non-retryably, got retryable")
+	}
+	if headCommit(t, repo) != before {
+		t.Error("a failed determination must not still push a commit")
 	}
 }
