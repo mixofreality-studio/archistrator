@@ -16419,6 +16419,9 @@
             "ModelKey": {
               "type": "string"
             },
+            "GatewayModelKey": {
+              "type": "string"
+            },
             "Server": {
               "$ref": "#/$defs/Workload"
             },
@@ -16440,6 +16443,7 @@
             "Namespace",
             "Host",
             "ModelKey",
+            "GatewayModelKey",
             "Server",
             "WebApp",
             "Postgres",

@@ -43,15 +43,16 @@ type PostgresSpec struct {
 }
 
 type RuntimeDesiredState struct {
-	AppName     string       `json:"AppName"`
-	Namespace   string       `json:"Namespace"`
-	Host        string       `json:"Host"`
-	ModelKey    string       `json:"ModelKey"`
-	Server      Workload     `json:"Server"`
-	WebApp      Workload     `json:"WebApp"`
-	Postgres    PostgresSpec `json:"Postgres"`
-	OIDC        OIDCSpec     `json:"OIDC"`
-	SelfManaged bool         `json:"SelfManaged"`
+	AppName         string       `json:"AppName"`
+	Namespace       string       `json:"Namespace"`
+	Host            string       `json:"Host"`
+	ModelKey        string       `json:"ModelKey"`
+	GatewayModelKey string       `json:"GatewayModelKey"`
+	Server          Workload     `json:"Server"`
+	WebApp          Workload     `json:"WebApp"`
+	Postgres        PostgresSpec `json:"Postgres"`
+	OIDC            OIDCSpec     `json:"OIDC"`
+	SelfManaged     bool         `json:"SelfManaged"`
 }
 
 type RuntimeStatus int

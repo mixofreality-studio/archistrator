@@ -369,6 +369,18 @@ func assembleDesiredState(proj projectstate.Project, bundle deployableBundle, _ 
 		return operatedruntime.RuntimeDesiredState{}, fmt.Errorf("assembleDesiredState: project %q: %w", appName, err)
 	}
 
+	// Gateway: the namespace's gateway-role node. Carried forward as its OWN key
+	// rather than folded into the namespace's, because the HTTPRoutes, Envoy
+	// policies and SecurityPolicy the renderer emits are what make the gateway
+	// node on the deployment diagram show green or red. Stamping them with the
+	// namespace key instead would leave the gateway node permanently uncoloured
+	// AND misattribute route health to the namespace. Required, on the same
+	// fail-loud terms as every other role lookup here.
+	gatewayNode, err := findInfrastructureNodeByRole(namespace.InfrastructureNodes, projectstate.RoleGateway)
+	if err != nil {
+		return operatedruntime.RuntimeDesiredState{}, fmt.Errorf("assembleDesiredState: project %q: %w", appName, err)
+	}
+
 	// Postgres: D11 trap #2 — production runs ONE archistrator-postgres CNPG
 	// cluster serving all three logical stores (operatedSystemState/billingState/
 	// usageLog), each modeled as its OWN database-role diagram node so the
@@ -393,10 +405,11 @@ func assembleDesiredState(proj projectstate.Project, bundle deployableBundle, _ 
 	}
 
 	return operatedruntime.RuntimeDesiredState{
-		AppName:   appName,
-		Namespace: appName,
-		Host:      appName + "." + platformDomain,
-		ModelKey:  namespace.Key,
+		AppName:         appName,
+		Namespace:       appName,
+		Host:            appName + "." + platformDomain,
+		ModelKey:        namespace.Key,
+		GatewayModelKey: gatewayNode.Key,
 		Server: operatedruntime.Workload{
 			ModelKey: serverNode.Key,
 			Image:    manifest.ServerImage,

@@ -1373,52 +1373,46 @@ func TestAssembleDesiredState_MapsCloudEnvironmentAndBundleImages(t *testing.T) 
 	if err != nil {
 		t.Fatalf("assembleDesiredState: %v", err)
 	}
-	if got.Namespace != "archistrator" {
-		t.Errorf("Namespace = %q, want archistrator", got.Namespace)
-	}
-	if got.Host != "archistrator.capture-gtd.com" {
-		t.Errorf("Host = %q, want archistrator.capture-gtd.com", got.Host)
-	}
-	if got.Server.ModelKey != "cloud-node-server-deployment" {
-		t.Errorf("Server.ModelKey = %q, want cloud-node-server-deployment", got.Server.ModelKey)
-	}
-	if !got.SelfManaged {
-		t.Error("archistrator must assemble as SelfManaged")
+	// Every scalar the fold derives, checked in one table. A plain chain of ifs
+	// adds a branch per field and pushes this test past the cyclomatic-
+	// complexity gate every time the contract gains one.
+	for _, tc := range []struct{ field, got, want string }{
+		{"Namespace", got.Namespace, "archistrator"},
+		{"Host", got.Host, "archistrator.capture-gtd.com"},
+		{"Server.Image", got.Server.Image, "ghcr.io/mixofreality-studio/archistrator-server:0.8.16"},
+		{"WebApp.Image", got.WebApp.Image, "ghcr.io/mixofreality-studio/archistrator-webapp:0.6.61"},
+		{"Server.ModelKey", got.Server.ModelKey, "cloud-node-server-deployment"},
+		// WebApp.ModelKey is the STATIC-ASSET node's key (D11 trap #3), never
+		// the browser node's — the browser is where archistrator-webapp's
+		// containerInstance legitimately lives, but it must never be coloured
+		// by cluster health.
+		{"WebApp.ModelKey", got.WebApp.ModelKey, "cloud-infra-static-assets"},
+		{"ModelKey", got.ModelKey, "cloud-node-ns-archistrator"},
+		{"OIDC.ModelKey", got.OIDC.ModelKey, "cloud-infra-keycloak"},
+		// GatewayModelKey is carried SEPARATELY from ModelKey so the routes and
+		// Envoy policies colour the gateway node rather than the namespace node
+		// (which would strand the gateway node uncoloured and misattribute
+		// route health to the namespace).
+		{"GatewayModelKey", got.GatewayModelKey, "cloud-infra-gateway"},
+		{"OIDC.ClientID", got.OIDC.ClientID, "archistrator-webapp"},
+	} {
+		if tc.got != tc.want {
+			t.Errorf("%s = %q, want %q", tc.field, tc.got, tc.want)
+		}
 	}
 
-	// Additional coverage beyond the brief's given assertions, exercising the rest
-	// of the fold: image threading, replicas-from-model, webapp/postgres node
-	// resolution (D11 role-based selection), and OIDC/ModelKey derivation.
-	if got.Server.Image != "ghcr.io/mixofreality-studio/archistrator-server:0.8.16" {
-		t.Errorf("Server.Image = %q", got.Server.Image)
+	if !got.SelfManaged {
+		t.Error("archistrator must assemble as SelfManaged")
 	}
 	if got.Server.Replicas != 2 {
 		t.Errorf("Server.Replicas = %d, want 2 (from the model's declared instances)", got.Server.Replicas)
 	}
-	// WebApp.ModelKey is the STATIC-ASSET node's key (D11 trap #3), never the
-	// browser node's — the browser is where archistrator-webapp's containerInstance
-	// legitimately lives, but it must never be colored by cluster health.
-	if got.WebApp.ModelKey != "cloud-infra-static-assets" {
-		t.Errorf("WebApp.ModelKey = %q, want cloud-infra-static-assets (the serving node, not the browser)", got.WebApp.ModelKey)
-	}
-	if got.WebApp.Image != "ghcr.io/mixofreality-studio/archistrator-webapp:0.6.61" {
-		t.Errorf("WebApp.Image = %q", got.WebApp.Image)
-	}
 	// Postgres.ModelKeys carries EVERY database-role node's key (D11 trap #2: one
 	// rendered Cluster still backs all three diagram nodes, but each must colour
-	// independently), sorted for Task 4's byte-deterministic render.
+	// independently), sorted for the byte-deterministic render.
 	wantDBKeys := []string{"cloud-infra-billingstate", "cloud-infra-operatedsystemstate", "cloud-infra-usagelog"}
 	if !slices.Equal(got.Postgres.ModelKeys, wantDBKeys) || !got.Postgres.Enabled {
 		t.Errorf("Postgres = %+v, want ModelKeys=%v (sorted) Enabled=true", got.Postgres, wantDBKeys)
-	}
-	if got.ModelKey != "cloud-node-ns-archistrator" {
-		t.Errorf("ModelKey = %q, want cloud-node-ns-archistrator", got.ModelKey)
-	}
-	if got.OIDC.ModelKey != "cloud-infra-keycloak" {
-		t.Errorf("OIDC.ModelKey = %q, want cloud-infra-keycloak (the identityProvider node's key)", got.OIDC.ModelKey)
-	}
-	if got.OIDC.ClientID != "archistrator-webapp" {
-		t.Errorf("OIDC.ClientID = %q, want archistrator-webapp", got.OIDC.ClientID)
 	}
 }
 
@@ -1510,6 +1504,28 @@ func TestAssembleDesiredState_RejectsMissingIdentityProvider(t *testing.T) {
 	_, err := assembleDesiredState(proj, fixtureBundle(t), operatedsystemstate.OperatedSystem{})
 	if err == nil {
 		t.Fatal("expected an error when the namespace has no identityProvider node")
+	}
+}
+
+// TestAssembleDesiredState_RejectsMissingGateway: without a gateway node the
+// routes and Envoy policies have nothing to attribute their health to, so the
+// gateway component on the deployment diagram could never show green or red.
+// That is a real modeling gap, surfaced rather than tolerated.
+func TestAssembleDesiredState_RejectsMissingGateway(t *testing.T) {
+	proj := testProject(t)
+	model := proj.OperationalConcepts.Model.(*projectstate.DeploymentOperationsModel)
+	ns := namespaceFor(model)
+	kept := ns.InfrastructureNodes[:0]
+	for _, in := range ns.InfrastructureNodes {
+		if in.Role != projectstate.RoleGateway {
+			kept = append(kept, in)
+		}
+	}
+	ns.InfrastructureNodes = kept
+
+	_, err := assembleDesiredState(proj, fixtureBundle(t), operatedsystemstate.OperatedSystem{})
+	if err == nil {
+		t.Fatal("expected an error when the namespace has no gateway node")
 	}
 }
 

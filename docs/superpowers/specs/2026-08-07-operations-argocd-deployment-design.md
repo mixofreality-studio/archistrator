@@ -39,7 +39,7 @@ Meanwhile the software repo (`../software`) runs a standard app-of-apps: `root` 
 | D9 | **The local profile does not surface operations at all** — routes unmounted, console hidden. | *Dry-run console visible locally* rejected by the founder: local must not appear to operate. |
 | D10 | **Deployment diagram health is strict green / red / neutral.** `Healthy` → green; every other observed state (`Progressing`, `Degraded`, `Missing`, `Suspended`, `Unknown`) → red; anything outside the app's resource set → neutral. | *Amber for Progressing* rejected in favour of glance-readability. Accepted cost: the diagram reads red mid-rollout until it settles. |
 | D11 | **The model maps to manifests by `role`, not by technology string.** The deployable elements are `infrastructureNodes` carrying machine-readable `role` values (`gateway`, `identityProvider`, `database`) plus workload nodes. Selection keys off those, never off the free-text `technology` field. | *Selecting by `technology`* rejected: it puts Kubernetes vocabulary in the Manager and couples assembly to an unconstrained free-text string (`"k8s"` vs `"k8s-namespace"` vs `"Kubernetes Deployment"`, none of them validated). |
-| D12 | **The renderer emits a Keycloak realm/client CR per app.** Onboarding an app provisions its realm and OIDC client instead of requiring manual admin-console work. The cluster already runs the Keycloak operator. | *Keeping Keycloak manual* rejected by the founder. Accepted cost: this is the one rendered object with no production counterpart to diff against (§5.2), and it re-introduces a GitOps path that was previously removed. |
+| D12 | **The renderer emits a Keycloak realm CR per app.** Onboarding an app provisions its realm and OIDC client instead of requiring manual admin-console work. The cluster already runs the Keycloak operator (`keycloak-k8s-resources` 26.4.2, API group `k8s.keycloak.org/v2alpha1`). **Create-only — see §5.5.** | *Keeping Keycloak manual* rejected by the founder. *Reconciling the realm for real* (Admin API or a reconciling controller) rejected as materially larger scope that puts an automated writer on the path to the founder's own login. Accepted cost: this is the one rendered object with no production counterpart to diff against (§5.2). |
 
 ---
 
@@ -131,7 +131,9 @@ New relationship: `operationsManager → projectStateAccess`. Must land in `.sys
 
 **The renderer reads only its typed `RuntimeDesiredState`.** It never reads `project.json` — that would be a ResourceAccess component reaching across to another system's state. The **Manager** reads the deployment model's `cloud` environment (`.slots[6].model.deployment.environments[0]`) and folds namespace, host, container set, and env wiring into the typed struct before the call. This keeps §6's re-derivation honest: the same typed input always produces the same manifests and therefore the same model-key map.
 
-Output per app: `Deployment` + `Service` for server and webapp, CNPG `Cluster`, `HTTPRoute`s, `SecurityPolicy`, `BackendTrafficPolicy`, `ReferenceGrant`, the Keycloak realm/client CR (D12), and the Argo `Application` itself.
+Output per app: `Deployment` + `Service` for server and webapp, CNPG `Cluster`, `HTTPRoute`s, `SecurityPolicy`, `BackendTrafficPolicy`, the Keycloak realm CR (D12), and the Argo `Application` itself.
+
+**No `ReferenceGrant`.** The production chart gates it on a cross-namespace backend, which cannot arise here (backends live in the app's own namespace), and the captured golden contains none. Rendering one would mean emitting a resource production does not have.
 
 ### 5.1a Model → manifest mapping (D11)
 
@@ -141,7 +143,7 @@ The deployment model is not a loose sketch that happens to resemble the deployme
 |---|---|---|
 | `cloud-node-server-deployment` (workload node, `instances: 2`) | — | server `Deployment` + `Service` |
 | `cloud-infra-static-assets` (nginx) | `other` | webapp `Deployment` + `Service` |
-| `cloud-infra-gateway` (Envoy) | `gateway` | `HTTPRoute`s + `SecurityPolicy` + `BackendTrafficPolicy` + `ReferenceGrant` |
+| `cloud-infra-gateway` (Envoy) | `gateway` | `HTTPRoute`s + `SecurityPolicy` + `BackendTrafficPolicy` |
 | `cloud-infra-keycloak` (OIDC) | `identityProvider` | Keycloak realm/client CR |
 | `cloud-infra-operatedsystemstate`, `-billingstate`, `-usagelog` | `database` ×3 | one CNPG `Cluster` |
 
@@ -167,6 +169,26 @@ Render archistrator's own `DesiredState` and compare against `helm template` out
 ### 5.4 Fleet re-render
 
 D3's accepted cost. Because publish is content-idempotent, the reconcile tick can re-render and republish only when content differs — the fleet converges on a renderer change without a separate migration mechanism. Out of scope for this slice (one app), but the property is why D3 is affordable.
+
+### 5.5 What the Keycloak CR does and does not do (D12)
+
+Verified against the operator's own source at the pinned 26.4.2 tag, not against documentation — third-party docs disagree with the shipped code on more than one point (the current docs describe `v2beta1`; 26.4.2 serves `v2alpha1` only, and the placeholder syntax is `${VAR}`, not `$(VAR)`).
+
+**`KeycloakRealmImport` is create-only.** If the realm already exists it is *not* overwritten, and the CR neither updates nor deletes. The practical consequences:
+
+| Case | Effect |
+|---|---|
+| A newly onboarded app | Realm and client are provisioned. This is D12's goal, and it is met. |
+| **archistrator itself** | Its realm is already hand-managed in the admin console, so applying the CR is a **deliberate no-op**. |
+
+So "GitOps owns the realm" is *not* achieved by this mechanism and cannot be. What is achieved is automated provisioning for future apps. The founder ratified this trade-off knowingly (2026-08-08) rather than expanding scope to a reconciling writer on the platform's own login path.
+
+Two further constraints, both real prerequisites rather than footnotes:
+
+- The operator requires `keycloakCRName` to reference a Keycloak CR in the **same namespace**, so the rendered CR lands in `keycloak`, not the app's namespace. The client-secret placeholder Secret must therefore exist in the `keycloak` namespace as well as the app's — a new out-of-band step for the cutover runbook.
+- The rendered realm body is **minimal: no roles, groups, or mappers.** Harmless for archistrator (no-op anyway), but a genuinely new app's users would lack `drive-phase` / `approve-artifact`. That gap belongs to built-app onboarding (§11), not here.
+
+Because this object is exercised for the first time by a future tenant rather than by this dogfood, its unit tests are the only thing standing behind it. Treat a change to it as a change to production login.
 
 ---
 

@@ -728,7 +728,7 @@ git commit -m "feat(operatedruntime): render server and webapp workloads"
 - Modify: `server/internal/resourceaccess/operatedruntime/access_test.go`
 
 **Interfaces:**
-- Produces: `render` additionally emits `Cluster` (CNPG), `HTTPRoute`, `SecurityPolicy`, `BackendTrafficPolicy`, `ReferenceGrant`, and `Application`.
+- Produces: `render` additionally emits `Cluster` (CNPG), 4× `HTTPRoute`, `SecurityPolicy`, 4× `BackendTrafficPolicy`, the Keycloak realm CR, and `Application`. No `ReferenceGrant`.
 
 - [ ] **Step 1: Write the failing test for the self-managed guard**
 
@@ -847,7 +847,7 @@ Emit a `Cluster` (`postgresql.cnpg.io/v1`) when `d.Postgres.Enabled`, with `inst
 
 - [ ] **Step 6: Add gateway routes**
 
-Emit `HTTPRoute` (one per route in the production chart: webapp `/`, api `/api`, healthz `/healthz`, readyz `/readyz`), `SecurityPolicy`, `BackendTrafficPolicy`, and `ReferenceGrant`, mirroring `testdata/golden/production/archistrator-gateway-routes.yaml`.
+Emit `HTTPRoute` (one per route in the production chart: webapp `/`, api `/api`, healthz `/healthz`, readyz `/readyz`), `SecurityPolicy`, and `BackendTrafficPolicy` — 4 of each route/policy, and NO `ReferenceGrant` (the chart gates it on a cross-namespace backend that cannot arise; the golden has none) — mirroring `testdata/golden/production/archistrator-gateway-routes.yaml`.
 
 **Reproduce the production chart's route arrangement exactly**, including the deliberate absence of a dedicated `/oauth2` route. That chart carries a load-bearing comment explaining why: a more-specific `/oauth2` route would steal the OIDC callback away from the policy-attached `/` route, so the Envoy filter would never run and no session would be established. Adding one would break login in a way that is hard to diagnose.
 

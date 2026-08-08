@@ -99,10 +99,11 @@ func TestRealProfileExplicitNotImplemented(t *testing.T) {
 // task-4-brief.md specifies and testdata/golden/production/ was captured from.
 func testDesiredState() RuntimeDesiredState {
 	return RuntimeDesiredState{
-		AppName:   "archistrator",
-		Namespace: "archistrator",
-		Host:      "archistrator.capture-gtd.com",
-		ModelKey:  "cloud-node-ns-archistrator",
+		AppName:         "archistrator",
+		Namespace:       "archistrator",
+		Host:            "archistrator.capture-gtd.com",
+		ModelKey:        "cloud-node-ns-archistrator",
+		GatewayModelKey: "cloud-infra-gateway",
 		Server: Workload{
 			ModelKey: "cloud-node-server-deployment",
 			Image:    "ghcr.io/mixofreality-studio/archistrator-server:0.8.16",
@@ -518,6 +519,49 @@ func TestRender_GatewayRoutesMatchProduction(t *testing.T) {
 				t.Errorf("%s-policy missing %q:\n%s", tc.name, want, p.YAML)
 			}
 		}
+	}
+}
+
+// TestRender_GatewayObjectsCarryTheGatewayNodeKey: the founder's requirement is
+// that EACH Kubernetes component on the deployment diagram shows green or red.
+// The routes and Envoy policies are what the gateway node colours from, so they
+// must carry the gateway node's key — and must NOT carry the namespace node's,
+// which would both strand the gateway node uncoloured and misattribute route
+// health to the namespace. The Argo Application is the deliberate exception:
+// it governs the whole app, so the namespace node is its honest owner.
+func TestRender_GatewayObjectsCarryTheGatewayNodeKey(t *testing.T) {
+	ms, err := render(testDesiredState())
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	gatewayKinds := map[string]bool{"HTTPRoute": true, "BackendTrafficPolicy": true, "SecurityPolicy": true}
+	seen := 0
+	for _, m := range ms {
+		switch {
+		case gatewayKinds[m.Kind]:
+			seen++
+			if !reflect.DeepEqual(m.ModelKeys, []string{"cloud-infra-gateway"}) {
+				t.Errorf("%s/%s ModelKeys = %v, want [cloud-infra-gateway]", m.Kind, m.Name, m.ModelKeys)
+			}
+		case m.Kind == "Application":
+			if !reflect.DeepEqual(m.ModelKeys, []string{"cloud-node-ns-archistrator"}) {
+				t.Errorf("Application ModelKeys = %v, want the namespace node [cloud-node-ns-archistrator]", m.ModelKeys)
+			}
+		}
+	}
+	if seen != 9 {
+		t.Errorf("gateway-owned manifest count = %d, want 9 (4 HTTPRoute + 4 BackendTrafficPolicy + 1 SecurityPolicy)", seen)
+	}
+}
+
+// TestRender_MissingGatewayModelKeyFailsLoudly: an unattributable route set is
+// a real misconfiguration, not something to render anyway.
+func TestRender_MissingGatewayModelKeyFailsLoudly(t *testing.T) {
+	d := testDesiredState()
+	d.GatewayModelKey = ""
+
+	if _, err := render(d); err == nil {
+		t.Fatal("render with an empty GatewayModelKey should fail, not emit unattributable routes")
 	}
 }
 

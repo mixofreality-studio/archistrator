@@ -984,16 +984,17 @@ spec:
 // renderGateway builds the HTTPRoutes, their BackendTrafficPolicies, and the
 // OIDC SecurityPolicy.
 //
-// All of these carry the app's namespace-node model key. The deployment model
-// has no key of its own for these objects: its gateway node is the SHARED Envoy
-// Gateway, which no app owns and whose health is not the app's to report.
-// EARMARK: if a per-app gateway model key is ever added to RuntimeDesiredState,
-// these should move to it.
+// Every one of these carries the GATEWAY node's model key, not the namespace's.
+// These objects are what the gateway node on the deployment diagram shows green
+// or red from — the shared Envoy Gateway's own health is not the app's to
+// report, but the routes and policies the app contributes to it are. Stamping
+// them with the namespace key would leave the gateway node permanently
+// uncoloured and would misattribute route health to the namespace.
 func renderGateway(d RuntimeDesiredState) ([]Manifest, error) {
-	keys := sortedModelKeys([]string{d.ModelKey})
+	keys := sortedModelKeys([]string{d.GatewayModelKey})
 	if len(keys) == 0 || keys[0] == "" {
 		return nil, fwra.New(fwra.ContractMisuse,
-			"operatedruntime.render: RuntimeDesiredState.ModelKey is empty — gateway routes would be unattributable to any deployment-diagram node")
+			"operatedruntime.render: RuntimeDesiredState.GatewayModelKey is empty — the routes and Envoy policies would be unattributable to the gateway node, which could then never show health")
 	}
 
 	var out []Manifest
@@ -1302,6 +1303,10 @@ spec:
 `))
 
 // renderApplication builds the Argo Application for the app.
+//
+// This one keeps the app's namespace-node key, unlike the gateway objects: the
+// Application governs the WHOLE app, not any single piece of infrastructure in
+// it, so the namespace node is the honest owner of its health.
 func renderApplication(d RuntimeDesiredState) ([]Manifest, error) {
 	keys := sortedModelKeys([]string{d.ModelKey})
 	if len(keys) == 0 || keys[0] == "" {
