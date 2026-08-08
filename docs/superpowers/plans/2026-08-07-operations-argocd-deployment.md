@@ -1496,6 +1496,8 @@ Not code — a runbook, executed against the real cluster. Each step is reversib
 
 Run the renderer against archistrator's real project state and diff the output against the four production charts one final time. Commit nothing to the software repo.
 
+**Hand-check the rendered Argo `Application` against the four live ones.** This is the only object the automated golden diff does not cover, because production splits archistrator across four Applications and the renderer emits one — there is no counterpart to compare against. It is also the object that actually drives the cutover: everything else is applied *because* it says so. Five behaviour tests cover its shape (self-managed prune/sync/finalizer, tenant sync), but nothing compares it to what is live. Read it against `k8s/argocd/applications/archistrator-{server,webapp,postgres,gateway-routes}.yaml` and confirm the destination namespace, project, and repo URL match before going further.
+
 - [ ] **Step 2: Register archistrator as an operated app**
 
 Call `RegisterOperatedApp` with archistrator's project id and its current GHCR image tags as the bundle ref. Confirm the head-state row exists with a non-empty `deployable_bundle_ref`.
