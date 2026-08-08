@@ -10,10 +10,12 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 
 	"github.com/google/uuid"
+	"gopkg.in/yaml.v3"
 
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 )
@@ -209,26 +211,517 @@ func TestRender_IsDeterministic(t *testing.T) {
 }
 
 // TestRender_OutputIsSortedByKindThenName pins the ordering contract render()
-// promises: Deployment before Service (alphabetical Kind), and within each
-// Kind, archistrator-server before archistrator-webapp.
+// promises — ascending Kind, then ascending Name — over the complete object
+// set. The full expected list is spelled out rather than merely checked for
+// sortedness so that an accidentally DROPPED or ADDED object fails here: the
+// health overlay re-renders to rebuild its model-key map, and a silently
+// missing manifest would leave a diagram node permanently uncoloured.
 func TestRender_OutputIsSortedByKindThenName(t *testing.T) {
 	ms, err := render(testDesiredState())
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
-	if len(ms) != 4 {
-		t.Fatalf("manifest count = %d, want 4 (server+webapp x Deployment+Service)", len(ms))
-	}
 	want := []struct{ Kind, Name string }{
+		{"Application", "archistrator"},
+		{"BackendTrafficPolicy", "archistrator-api-route-policy"},
+		{"BackendTrafficPolicy", "archistrator-healthz-route-policy"},
+		{"BackendTrafficPolicy", "archistrator-readyz-route-policy"},
+		{"BackendTrafficPolicy", "archistrator-webapp-route-policy"},
+		{"Cluster", "archistrator-postgres"},
 		{"Deployment", "archistrator-server"},
 		{"Deployment", "archistrator-webapp"},
+		{"HTTPRoute", "archistrator-api-route"},
+		{"HTTPRoute", "archistrator-healthz-route"},
+		{"HTTPRoute", "archistrator-readyz-route"},
+		{"HTTPRoute", "archistrator-webapp-route"},
+		{"KeycloakRealmImport", "archistrator-realm"},
+		{"SecurityPolicy", "archistrator-oidc-policy"},
 		{"Service", "archistrator-server"},
 		{"Service", "archistrator-webapp"},
+	}
+	if len(ms) != len(want) {
+		got := make([]string, len(ms))
+		for i, m := range ms {
+			got[i] = m.Kind + "/" + m.Name
+		}
+		t.Fatalf("manifest count = %d, want %d; got %v", len(ms), len(want), got)
 	}
 	for i, w := range want {
 		if ms[i].Kind != w.Kind || ms[i].Name != w.Name {
 			t.Errorf("manifest[%d] = %s/%s, want %s/%s", i, ms[i].Kind, ms[i].Name, w.Kind, w.Name)
 		}
+	}
+}
+
+// TestRender_EveryManifestIsValidYAML catches the failure mode no substring
+// assertion can: a template whose indentation is subtly wrong still contains
+// every expected string but parses as a different document — or not at all —
+// and only fails once ArgoCD tries to apply it. Also pins each object's
+// apiVersion/kind/metadata against the Manifest's own Kind/Name/Namespace, so
+// the health overlay's index can never disagree with the YAML it indexes.
+func TestRender_EveryManifestIsValidYAML(t *testing.T) {
+	ms, err := render(testDesiredState())
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	for _, m := range ms {
+		var obj struct {
+			APIVersion string `yaml:"apiVersion"`
+			Kind       string `yaml:"kind"`
+			Metadata   struct {
+				Name      string `yaml:"name"`
+				Namespace string `yaml:"namespace"`
+			} `yaml:"metadata"`
+		}
+		if err := yaml.Unmarshal([]byte(m.YAML), &obj); err != nil {
+			t.Errorf("%s/%s is not valid YAML: %v\n%s", m.Kind, m.Name, err, m.YAML)
+			continue
+		}
+		if obj.APIVersion == "" {
+			t.Errorf("%s/%s has no apiVersion", m.Kind, m.Name)
+		}
+		if obj.Kind != m.Kind {
+			t.Errorf("%s/%s: YAML kind = %q", m.Kind, m.Name, obj.Kind)
+		}
+		if obj.Metadata.Name != m.Name {
+			t.Errorf("%s/%s: YAML metadata.name = %q", m.Kind, m.Name, obj.Metadata.Name)
+		}
+		if obj.Metadata.Namespace != m.Namespace {
+			t.Errorf("%s/%s: YAML metadata.namespace = %q, Manifest.Namespace = %q", m.Kind, m.Name, obj.Metadata.Namespace, m.Namespace)
+		}
+	}
+}
+
+// TestRender_EveryManifestCarriesSortedModelKeys is the health-overlay
+// precondition: a manifest with no model key can never be attributed back to a
+// diagram node, and unsorted keys would make the render non-deterministic.
+func TestRender_EveryManifestCarriesSortedModelKeys(t *testing.T) {
+	ms, err := render(testDesiredState())
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	for _, m := range ms {
+		if len(m.ModelKeys) == 0 {
+			t.Errorf("%s/%s carries no ModelKeys", m.Kind, m.Name)
+			continue
+		}
+		if !sort.StringsAreSorted(m.ModelKeys) {
+			t.Errorf("%s/%s ModelKeys are unsorted: %v", m.Kind, m.Name, m.ModelKeys)
+		}
+		for _, k := range m.ModelKeys {
+			if k == "" {
+				t.Errorf("%s/%s carries an empty ModelKey: %v", m.Kind, m.Name, m.ModelKeys)
+			}
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Argo Application — the self-managed guard (spec §5.3).
+// ---------------------------------------------------------------------------
+
+// TestRender_SelfManagedApplicationDisablesPrune: archistrator renders the
+// manifests that govern archistrator. A renderer bug must never be able to
+// delete the control plane, so the self-managed Application syncs MANUALLY and
+// never prunes.
+func TestRender_SelfManagedApplicationDisablesPrune(t *testing.T) {
+	ms, err := render(testDesiredState()) // SelfManaged: true
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	var app *Manifest
+	for i := range ms {
+		if ms[i].Kind == "Application" {
+			app = &ms[i]
+		}
+	}
+	if app == nil {
+		t.Fatal("no Argo Application rendered")
+	}
+	if strings.Contains(app.YAML, "prune: true") {
+		t.Error("self-managed Application must not enable prune")
+	}
+	if strings.Contains(app.YAML, "automated:") {
+		t.Error("self-managed Application must not enable automated sync")
+	}
+}
+
+func TestRender_TenantApplicationEnablesAutomatedSync(t *testing.T) {
+	d := testDesiredState()
+	d.SelfManaged = false
+	d.AppName = "gtdapp"
+	d.Namespace = "gtdapp"
+
+	ms, err := render(d)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	for _, m := range ms {
+		if m.Kind != "Application" {
+			continue
+		}
+		if !strings.Contains(m.YAML, "prune: true") {
+			t.Error("tenant Application should enable prune")
+		}
+		if !strings.Contains(m.YAML, "selfHeal: true") {
+			t.Error("tenant Application should enable selfHeal")
+		}
+		return
+	}
+	t.Fatal("no Argo Application rendered")
+}
+
+// TestRender_ApplicationDestinationIsTheAppsOwnNamespace pins the spec §5.3
+// invariant that every destination.namespace equals the app's own namespace.
+func TestRender_ApplicationDestinationIsTheAppsOwnNamespace(t *testing.T) {
+	d := testDesiredState()
+	d.SelfManaged = false
+	d.AppName = "gtdapp"
+	d.Namespace = "gtdapp"
+
+	ms, err := render(d)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	for _, m := range ms {
+		if m.Kind != "Application" {
+			continue
+		}
+		if !strings.Contains(m.YAML, "    namespace: gtdapp\n") {
+			t.Errorf("Application destination.namespace must be the app's own namespace:\n%s", m.YAML)
+		}
+		if m.Namespace != "argocd" {
+			t.Errorf("Application object namespace = %q, want argocd", m.Namespace)
+		}
+		return
+	}
+	t.Fatal("no Argo Application rendered")
+}
+
+// ---------------------------------------------------------------------------
+// CNPG Cluster.
+// ---------------------------------------------------------------------------
+
+// TestRender_PostgresClusterCarriesAllThreeDatabaseModelKeys: production runs
+// ONE cluster serving three logical stores, each its own diagram node, so all
+// three must colour from this one resource's health (spec §5.1a trap #2).
+func TestRender_PostgresClusterCarriesAllThreeDatabaseModelKeys(t *testing.T) {
+	ms, err := render(testDesiredState())
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	for _, m := range ms {
+		if m.Kind != "Cluster" {
+			continue
+		}
+		if m.Name != "archistrator-postgres" || m.Namespace != "archistrator" {
+			t.Errorf("Cluster = %s/%s, want archistrator/archistrator-postgres", m.Namespace, m.Name)
+		}
+		want := []string{"cloud-infra-billingstate", "cloud-infra-operatedsystemstate", "cloud-infra-usagelog"}
+		if !reflect.DeepEqual(m.ModelKeys, want) {
+			t.Errorf("Cluster ModelKeys = %v, want %v (sorted)", m.ModelKeys, want)
+		}
+		for _, want := range []string{
+			"apiVersion: postgresql.cnpg.io/v1",
+			"instances: 1",
+			"storageClass: do-block-storage",
+			"database: archistrator",
+			"owner: app",
+		} {
+			if !strings.Contains(m.YAML, want) {
+				t.Errorf("Cluster YAML missing %q:\n%s", want, m.YAML)
+			}
+		}
+		return
+	}
+	t.Fatal("no CNPG Cluster rendered")
+}
+
+// TestRender_PostgresDisabledEmitsNoCluster: an app that brings its own
+// database must not have one provisioned for it.
+func TestRender_PostgresDisabledEmitsNoCluster(t *testing.T) {
+	d := testDesiredState()
+	d.Postgres.Enabled = false
+
+	ms, err := render(d)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	for _, m := range ms {
+		if m.Kind == "Cluster" {
+			t.Fatalf("Postgres.Enabled == false still rendered a Cluster:\n%s", m.YAML)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Gateway routes and Envoy policies.
+// ---------------------------------------------------------------------------
+
+// TestRender_GatewayRoutesMatchProduction pins the four routes and their four
+// BackendTrafficPolicies against testdata/golden/production/
+// archistrator-gateway-routes.yaml.
+func TestRender_GatewayRoutesMatchProduction(t *testing.T) {
+	ms, err := render(testDesiredState())
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	routes := map[string]*Manifest{}
+	policies := map[string]*Manifest{}
+	for i := range ms {
+		switch ms[i].Kind {
+		case "HTTPRoute":
+			routes[ms[i].Name] = &ms[i]
+		case "BackendTrafficPolicy":
+			policies[ms[i].Name] = &ms[i]
+		}
+	}
+	if len(routes) != 4 {
+		t.Fatalf("HTTPRoute count = %d, want 4 (webapp, api, healthz, readyz)", len(routes))
+	}
+	if len(policies) != 4 {
+		t.Fatalf("BackendTrafficPolicy count = %d, want 4 (one per route)", len(policies))
+	}
+
+	for _, tc := range []struct{ name, path, backend, port string }{
+		{"archistrator-webapp-route", "value: /\n", "name: archistrator-webapp", "port: 80"},
+		{"archistrator-api-route", "value: /api\n", "name: archistrator-server", "port: 8080"},
+		{"archistrator-healthz-route", "value: /healthz\n", "name: archistrator-server", "port: 8080"},
+		{"archistrator-readyz-route", "value: /readyz\n", "name: archistrator-server", "port: 8080"},
+	} {
+		r, ok := routes[tc.name]
+		if !ok {
+			t.Errorf("no HTTPRoute %s", tc.name)
+			continue
+		}
+		for _, want := range []string{
+			"apiVersion: gateway.networking.k8s.io/v1",
+			"hostnames:\n  - archistrator.capture-gtd.com",
+			"  - name: gateway\n    namespace: gtd\n    sectionName: https-archistrator",
+			tc.path, tc.backend, tc.port,
+		} {
+			if !strings.Contains(r.YAML, want) {
+				t.Errorf("%s missing %q:\n%s", tc.name, want, r.YAML)
+			}
+		}
+		p, ok := policies[tc.name+"-policy"]
+		if !ok {
+			t.Errorf("no BackendTrafficPolicy %s-policy", tc.name)
+			continue
+		}
+		for _, want := range []string{
+			"apiVersion: gateway.envoyproxy.io/v1alpha1",
+			"kind: HTTPRoute\n      name: " + tc.name,
+			"loadBalancer:\n    type: RoundRobin",
+		} {
+			if !strings.Contains(p.YAML, want) {
+				t.Errorf("%s-policy missing %q:\n%s", tc.name, want, p.YAML)
+			}
+		}
+	}
+}
+
+// TestRender_HasNoDedicatedOAuth2Route is a load-bearing ABSENCE, not an
+// omission. The Envoy OIDC filter installed by the SecurityPolicy on the `/`
+// (webapp) route intercepts /oauth2/callback itself. A dedicated /oauth2 route
+// would be MORE specific than `/`, so Envoy would match it first and steal the
+// callback away from the policy-attached route — the filter would never run and
+// no session would ever be established. Login would break in a way the
+// manifests alone do not reveal. Do NOT "complete" the route set by adding one.
+func TestRender_HasNoDedicatedOAuth2Route(t *testing.T) {
+	ms, err := render(testDesiredState())
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	for _, m := range ms {
+		if m.Kind != "HTTPRoute" {
+			continue
+		}
+		if strings.Contains(m.YAML, "value: /oauth2") {
+			t.Errorf("HTTPRoute %s declares an /oauth2 path match; the OIDC filter on the webapp route owns the callback:\n%s", m.Name, m.YAML)
+		}
+	}
+}
+
+// TestRender_SecurityPolicyTargetsOnlyBrowserFacingRoutes: /healthz and /readyz
+// must stay unauthenticated so probes answer without a session.
+func TestRender_SecurityPolicyTargetsOnlyBrowserFacingRoutes(t *testing.T) {
+	ms, err := render(testDesiredState())
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	for _, m := range ms {
+		if m.Kind != "SecurityPolicy" {
+			continue
+		}
+		if m.Name != "archistrator-oidc-policy" {
+			t.Errorf("SecurityPolicy name = %q, want archistrator-oidc-policy", m.Name)
+		}
+		for _, want := range []string{
+			"name: archistrator-api-route",
+			"name: archistrator-webapp-route",
+			`issuer: "https://keycloak.capture-gtd.com/realms/archistrator"`,
+			`uri: "https://keycloak.capture-gtd.com/realms/archistrator/protocol/openid-connect/certs"`,
+			`clientID: "archistrator-webapp"`,
+			"clientSecret:\n      name: archistrator-oidc-client-secret",
+			`redirectURL: "https://archistrator.capture-gtd.com/oauth2/callback"`,
+			"passThroughAuthHeader: true",
+			"idToken: ArchistratorIdToken",
+		} {
+			if !strings.Contains(m.YAML, want) {
+				t.Errorf("SecurityPolicy missing %q:\n%s", want, m.YAML)
+			}
+		}
+		for _, unwanted := range []string{"healthz-route", "readyz-route"} {
+			if strings.Contains(m.YAML, "name: archistrator-"+unwanted) {
+				t.Errorf("SecurityPolicy targets %s; health endpoints must stay unauthenticated:\n%s", unwanted, m.YAML)
+			}
+		}
+		return
+	}
+	t.Fatal("no SecurityPolicy rendered")
+}
+
+// ---------------------------------------------------------------------------
+// Keycloak realm/client CR (spec D12).
+//
+// This is the ONE rendered object with no production counterpart to diff
+// against — production's realm and client are hand-managed in the admin
+// console. These assertions ARE the safety net: a wrong realm name, clientId,
+// or redirect URI breaks login for the whole app.
+// ---------------------------------------------------------------------------
+
+func TestRender_KeycloakRealmImportRealmClientAndRedirectURIs(t *testing.T) {
+	ms, err := render(testDesiredState())
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	var cr *Manifest
+	for i := range ms {
+		if ms[i].Kind == "KeycloakRealmImport" {
+			cr = &ms[i]
+		}
+	}
+	if cr == nil {
+		t.Fatal("no KeycloakRealmImport rendered (spec D12)")
+	}
+
+	// The CR must live beside the Keycloak CR it names: the operator resolves
+	// keycloakCRName in the CR's OWN namespace, and placeholder Secrets must be
+	// in that same namespace too.
+	if cr.Namespace != "keycloak" {
+		t.Errorf("KeycloakRealmImport namespace = %q, want keycloak (same namespace as the Keycloak CR)", cr.Namespace)
+	}
+	if len(cr.ModelKeys) != 1 || cr.ModelKeys[0] != "cloud-infra-keycloak" {
+		t.Errorf("KeycloakRealmImport ModelKeys = %v, want [cloud-infra-keycloak]", cr.ModelKeys)
+	}
+
+	// The API group/version the cluster's pinned keycloak-k8s-resources 26.4.2
+	// actually serves. v2alpha1 is the ONLY served version in that release.
+	if !strings.Contains(cr.YAML, "apiVersion: k8s.keycloak.org/v2alpha1") {
+		t.Errorf("wrong API version:\n%s", cr.YAML)
+	}
+	if !strings.Contains(cr.YAML, "keycloakCRName: keycloak") {
+		t.Errorf("keycloakCRName must name the cluster's Keycloak CR:\n%s", cr.YAML)
+	}
+
+	// Realm name — must be the LAST path segment of the OIDC issuer, or the
+	// server's JWKS/issuer checks and the edge's OIDC provider disagree.
+	if !strings.Contains(cr.YAML, "\n    realm: archistrator\n") {
+		t.Errorf("realm must be named archistrator (issuer .../realms/archistrator):\n%s", cr.YAML)
+	}
+
+	// clientId — must equal the SecurityPolicy's clientID exactly.
+	if !strings.Contains(cr.YAML, "clientId: archistrator-webapp") {
+		t.Errorf("clientId must be archistrator-webapp:\n%s", cr.YAML)
+	}
+
+	// Redirect URI — must equal the SecurityPolicy's redirectURL exactly, or
+	// Keycloak rejects the authorization-code redirect and login fails.
+	if !strings.Contains(cr.YAML, "- https://archistrator.capture-gtd.com/oauth2/callback\n") {
+		t.Errorf("redirectUris must contain the OIDC callback:\n%s", cr.YAML)
+	}
+
+	// Confidential client, authorization-code flow only.
+	for _, want := range []string{
+		"publicClient: false",
+		"standardFlowEnabled: true",
+		"implicitFlowEnabled: false",
+		"directAccessGrantsEnabled: false",
+		"serviceAccountsEnabled: false",
+		"clientAuthenticatorType: client-secret",
+	} {
+		if !strings.Contains(cr.YAML, want) {
+			t.Errorf("client must be a confidential authorization-code client, missing %q:\n%s", want, cr.YAML)
+		}
+	}
+}
+
+// TestRender_KeycloakClientSecretIsReferencedNotInlined: the client secret
+// reaches Keycloak through the operator's placeholders stanza (a Secret name +
+// key), never as a literal in the CR.
+func TestRender_KeycloakClientSecretIsReferencedNotInlined(t *testing.T) {
+	ms, err := render(testDesiredState())
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	for _, m := range ms {
+		if m.Kind != "KeycloakRealmImport" {
+			continue
+		}
+		if !strings.Contains(m.YAML, "placeholders:\n    ARCHISTRATOR_OIDC_CLIENT_SECRET:\n      secret:\n        name: archistrator-oidc-client-secret\n        key: client-secret\n") {
+			t.Errorf("client secret must be referenced via the operator's placeholders stanza:\n%s", m.YAML)
+		}
+		if !strings.Contains(m.YAML, `secret: "${ARCHISTRATOR_OIDC_CLIENT_SECRET}"`) {
+			t.Errorf("client.secret must be the placeholder reference, not a value:\n%s", m.YAML)
+		}
+		return
+	}
+	t.Fatal("no KeycloakRealmImport rendered")
+}
+
+// TestRender_KeycloakAndSecurityPolicyAgree is the cross-object check that no
+// single-object test can make: the edge's OIDC config and the realm's client
+// must name the SAME client and the SAME redirect URI. If they drift, the
+// manifests are individually valid and login is still broken.
+func TestRender_KeycloakAndSecurityPolicyAgree(t *testing.T) {
+	d := testDesiredState()
+	d.SelfManaged = false
+	d.AppName = "gtdapp"
+	d.Namespace = "gtdapp"
+	d.Host = "gtdapp.capture-gtd.com"
+	d.OIDC.Issuer = "https://keycloak.capture-gtd.com/realms/gtdapp"
+	d.OIDC.ClientID = "gtdapp-webapp"
+	d.OIDC.ClientSecretRef = "gtdapp-oidc-client-secret"
+
+	ms, err := render(d)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	var policy, cr *Manifest
+	for i := range ms {
+		switch ms[i].Kind {
+		case "SecurityPolicy":
+			policy = &ms[i]
+		case "KeycloakRealmImport":
+			cr = &ms[i]
+		}
+	}
+	if policy == nil || cr == nil {
+		t.Fatal("expected both a SecurityPolicy and a KeycloakRealmImport")
+	}
+	if !strings.Contains(policy.YAML, `clientID: "gtdapp-webapp"`) || !strings.Contains(cr.YAML, "clientId: gtdapp-webapp") {
+		t.Errorf("clientID disagreement between edge policy and realm client:\n%s\n%s", policy.YAML, cr.YAML)
+	}
+	if !strings.Contains(policy.YAML, `redirectURL: "https://gtdapp.capture-gtd.com/oauth2/callback"`) ||
+		!strings.Contains(cr.YAML, "- https://gtdapp.capture-gtd.com/oauth2/callback\n") {
+		t.Errorf("redirect URI disagreement between edge policy and realm client:\n%s\n%s", policy.YAML, cr.YAML)
+	}
+	if !strings.Contains(cr.YAML, "\n    realm: gtdapp\n") {
+		t.Errorf("realm name must track the issuer's realm segment:\n%s", cr.YAML)
+	}
+	if !strings.Contains(cr.YAML, "placeholders:\n    GTDAPP_OIDC_CLIENT_SECRET:") {
+		t.Errorf("placeholder env name must be derived from the app name:\n%s", cr.YAML)
 	}
 }
 
