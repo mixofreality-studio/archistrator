@@ -1,6 +1,7 @@
 # Design: authored `componentId` on the activity list, and a construction pump that fails loudly
 
-**Date:** 2026-08-08 · **Status:** approved (founder), architecture ruled (system-architect)
+**Date:** 2026-08-08 · **Status:** approved (founder) · architecture ruled (system-architect) ·
+book fidelity ruled (product-manager, against `research/rightingsoftware/`)
 **Fixes:** `docs/bugs/construction-dispatch-no-contract-key.md`
 **Drives:** AC iteration 0 of the self-improvement pipeline — a todomvc benchmark run that
 completes construction.
@@ -37,7 +38,8 @@ before it can be trusted.
 
 ## 2. Decisions
 
-Founder-ratified, with one correction from the architecture ruling (§2.5).
+Founder-ratified, with one correction forced by the book itself (§2.5) — which withdrew part of
+the first architecture ruling.
 
 ### 2.1 Component identity is authored, never derived
 
@@ -45,35 +47,62 @@ A component identity is an **authored field on the Phase-2 activity list**, not 
 runtime recovers by string matching. No fuzzy-match fallback ships in product code. The
 existing benchmark state repo that predates the field gets a one-time authored backfill.
 
-### 2.2 It is required for component code, optional elsewhere
+### 2.2 It marks structural coding work, and is self-declaring
 
-Required when the activity is coding work against a single named component. Not required for
-testing, ui-design, documentation, infrastructure, or integration activities.
+`componentId` is present on **structural** coding activities — the ones derived from the
+architecture, one per component in the base list — and absent on everything else. Its presence
+*is* the structural marker; no predicate over other fields, and no name matching, decides it.
 
-### 2.3 A missing or bogus value is rejected at authoring time
+### 2.3 An unclaimed component or a bogus id is rejected at authoring time
 
-The activity list draft is refused, with a message actionable enough that the drafting agent
-fixes it in-loop, rather than the defect surfacing hours later as a stalled pump.
+The activity list draft is refused, with a message actionable enough that the drafting agent fixes
+it in-loop, rather than the defect surfacing hours later as a stalled pump. The forcing rule is
+component *coverage*, not per-activity presence — see §5.
 
 ### 2.4 An undispatchable activity fails loudly
 
 Visible to the operator in the app. Not a warning in a server log — that is precisely how this
 defect consumed an entire benchmark run undetected.
 
-### 2.5 Correction: integration activities are coding but component-less
+### 2.5 Correction: "a coding activity builds one component" is not the book's rule
 
-The rule as first stated — `Coding == true ⇒ componentId required` — rejects archistrator's own
-ratified plan. `I-UC1..I-UC5` carry `coding: true` (integration is coding effort per the book)
-but span components by definition. The predicate is therefore:
+The rule as first stated — `Coding == true ⇒ componentId required` — was checked against the
+book (`research/rightingsoftware/OEBPS/xhtml/`) and is false.
 
-```
-requiresComponent(item) := item.Coding && !isIntegrationActivity(item)
-```
+The book's top-level split is binary, coding / noncoding, stated verbatim in ch.7 §5.3, ch.7
+"Critical Path Analysis", ch.11 "The Mission", and App A "Activity Life Cycle" ("be it a service
+or a noncoding activity"). Where Löwy refines it, he refines the **coding** side. Ch.13 §1:
 
-`isIntegrationActivity` is the deterministic classification already used in
-`cmd/aiarch-state-mcp/crossartifact.go` (`I-*` id family / `integrate-*` name / "integration"
-in the title). This is prefix classification, not fuzzy resolution — the same mechanism
-`DeriveType` and `CommandFor` already depend on.
+> "The team classified the TradeMe activities into three categories: **Structural coding
+> activities / Nonstructural coding activities / Noncoding activities**"
+
+Structural = one per architecture component (Table 13-1). Nonstructural = "coding activities that
+**did not map directly to the architecture**" — Table 13-2 in full: Abstract Manager (30d,
+Developer), System Test Harness (25d, Test Engineer), Regression Test Harness (10d, Developer).
+So the premise is contradicted by the book's own second worked example: Table 13-2 is a table of
+coding activities that build no component.
+
+The first draft of this design proposed a carve-out keyed on `isIntegrationActivity`
+(`crossartifact.go:251` — `I-*` prefix / "integration" in the title). **That is withdrawn.** The
+class of coding activities naming no component is a first-class Method category, not an exception
+to be carved, and a prefix classifier misfires the moment an Abstract-Manager-style base service
+or a coding-classed harness appears with an `I`-free name. Self-declaration replaces it:
+`componentId` present = structural, absent = nonstructural.
+
+`I-UC1..I-UC5` therefore keep `coding: true` and simply author no `componentId`. Nothing in
+archistrator's committed plan is illegal under this rule.
+
+Two further notes from the book reading, both out of scope here and tracked in §10:
+
+- The book's own integration *activity* is not a multi-component span. Ch.11 "Compressing the
+  Clients" splits one client into "a development activity against the simulators, and… an
+  integration activity against the Managers" — the tail half of **one** component's lifecycle,
+  priced at 5 days in ch.13, and present **only in the compressed solution**. Neither
+  normal-solution worked example (ch.11 Table 11-1; ch.13 Tables 13-1/2/3) contains a single
+  integration activity; in the normal plan integration is the 15% Integration *phase* inside every
+  coding activity (App A Table A-1).
+- Under that reading our `the-method-activity-list` skill's "one `I-UC*` per core use case in the
+  base list" mandate is off-book, and the architect owns that defect.
 
 ## 3. Schema
 
@@ -83,9 +112,10 @@ One field on `projectstate.ActivityItem`
 ```go
 // ComponentID names the committed System component (systemDesign Components[].id)
 // this activity builds. AUTHORED at Phase-2 draft time — never derived by matching.
-// REQUIRED (non-empty, resolving) when Coding==true and the activity is not an
-// integration activity; OPTIONAL on noncoding activities (a provisioning activity
-// like R-TRS may name the Resource component it provisions).
+// Its PRESENCE declares the activity STRUCTURAL (ch.13 Table 13-1, one per
+// architecture component); its absence declares it nonstructural (Table 13-2:
+// harnesses, base services) or noncoding. When present it must resolve. A noncoding
+// provisioning activity like R-TRS may name the Resource component it provisions.
 ComponentID string `json:"componentId,omitempty"`
 ```
 
@@ -104,11 +134,19 @@ ComponentID string `json:"componentId,omitempty"`
   twice recreates the drift class F81 exists to kill.
 
 **Cardinality rules.** Several activities may share one `componentId` — `U-SPA-CONSULT`,
-`U-SPA-AMEND` and `U-SPA-EMBED` all build `todo-owner-client`, which is the ratified phase-split
-of one client component. `ACT-COMPONENT-COVERAGE` therefore stays a **≥1** coverage check, never
-`== 1`. The skill's "one coding activity per component" is the base-list default, not a gate
-invariant. A noncoding activity *may* carry a `componentId` (`R-TRS` → `todo-record-store`); when
-present it must resolve.
+`U-SPA-AMEND` and `U-SPA-EMBED` all build `todo-owner-client`, the ratified phase-split of one
+client component. `ACT-COMPONENT-COVERAGE` therefore stays a **≥1** coverage check, never `== 1`.
+The book supports this directly: ch.11's client split produces *two* activities — development
+against simulators, then integration against the Managers — **both belonging to one Client
+component**, and the compressed solution's D-splits add more.
+
+`== 1` is not merely stricter, it is backwards. Consider the family slip where `U-SPA-AMEND` drops
+its `componentId` while `U-SPA-CONSULT` keeps it: `== 1` *passes* that defective plan (one
+claimant) and *rejects* the correct one (three claimants).
+
+The "one coding activity per component" line in the skill is Table 13-1's base-list authoring
+default, not a gate invariant. A noncoding activity *may* carry a `componentId`
+(`R-TRS` → `todo-record-store`); when present it must resolve.
 
 ## 4. The pump
 
@@ -138,8 +176,12 @@ selection now performs makes hydrating it a single line.
 | `verdictBlocked{activityID, reason}` | eligible but undispatchable |
 
 `verdictBlocked` fires on the pump's **defensive** re-check — never trust storage, even
-gate-protected storage: a coding non-integration activity with an empty `ComponentID`, or any
-non-empty `ComponentID` naming no component in the committed `.systemDesign`.
+gate-protected storage — on **one condition only**: a non-empty `ComponentID` naming no component
+in the committed `.systemDesign`.
+
+An empty `ComponentID` on a coding activity is **legal**: it declares the activity nonstructural
+(§2.5), and it dispatches with an empty `component_id` exactly as a noncoding activity does today
+— which every construction slash command already documents as supported.
 
 ### 4.3 Loud failure
 
@@ -152,9 +194,9 @@ non-empty `ComponentID` naming no component in the committed `.systemDesign`.
 2. Reason: a **new closed-enum value** `FailureReasonPlanUnresolvable`, wire name
    `"planUnresolvable"`, added to the six existing values
    (`projectstateaccess.go:6391`, `String()` at :6412).
-3. Detail: names the activity, the defect, and the repair — e.g. *"coding activity C-TLM
-   carries no componentId; amend the committed activityList to name the systemDesign component
-   it builds"*.
+3. Detail: names the activity, the defect, and the repair — e.g. *"activity C-TLM names component
+   'todo-list-managr', which is not in the committed systemDesign; amend the committed
+   activityList"*.
 4. Logs at ERROR, sets `dispatch = {Decided:true, Dispatched:false}`, and returns **without**
    ContinueAsNew.
 
@@ -181,16 +223,39 @@ Three rules in `server/cmd/aiarch-state-mcp/crossartifact.go`, function
 
 | Rule | Severity | Fires when |
 |---|---|---|
-| `ACT-COMPONENT-REQUIRED` (new) | Error | `item.Coding && !isIntegrationActivity(item) && item.ComponentID == ""` |
-| `ACT-UNKNOWN-COMPONENT` (Warning → **Error**) | Error | `item.ComponentID != ""` and no committed System component has that exact id |
-| `ACT-COMPONENT-COVERAGE` (kept) | Error | unchanged semantics, computed over the authored field |
+| `ACT-UNKNOWN-COMPONENT` (Warning → **Error**) | Error | any activity with `ComponentID != ""` and no committed System component has that exact id |
+| `ACT-COMPONENT-COVERAGE` (kept) | Error | a committed System component in a code layer (client / manager / engine / resourceAccess) is claimed by **≥1** coding activity's authored `ComponentID` — the load-bearing rule |
+| `ACT-NONSTRUCTURAL-CODING` (new) | **Info** | enumerates coding activities with an empty `ComponentID`: "declared nonstructural (ch.13 Table 13-2 category) — confirm this is intentional". Never blocks |
 
-`deriveActivityComponent` (:212) and the duplicated `normalizeIdent` in that file are deleted.
+`deriveActivityComponent` (:212), `isIntegrationActivity` (:251) and the duplicated
+`normalizeIdent` are all deleted — the carve-out's only consumer was the coverage skip, which the
+authored field obsoletes.
 
 In `staleness.go`, `ACT-UNKNOWN-COMPONENT` and `ACT-COMPONENT-COVERAGE` stay in
 `systemActivityListJoinRules` — a stale-basis downgrade during a System-amendment reconciliation
-window is correct for join rules. `ACT-COMPONENT-REQUIRED` must **not** be in that map: it is
-single-slot and is never legitimately stale.
+window is correct for join rules. The Info rule needs no policy entry.
+
+### 5.1 What coverage catches, and what it cannot
+
+Coverage is load-bearing because omission is self-punishing: drop `componentId` from `C-TLM` and
+`todo-list-manager` has no claimant, so the draft is rejected with the component named. Every one
+of the five `C-*` activities in the failing run is exactly this case. A typo'd id is caught by
+`ACT-UNKNOWN-COMPONENT`; a claim stolen from a sibling leaves the original unclaimed and coverage
+fires.
+
+Two residuals are **not** machine-closable, and the design accepts them rather than pretending
+otherwise:
+
+- **The referentially-valid swap.** `C-TLM` claims `todo-record-access` and `C-TRA` claims
+  `todo-list-manager`. Every component claimed, every claim resolves, coverage passes, both build
+  the wrong thing. Catching this needs name matching strong enough to be the fuzzy resolver we
+  just deleted wearing a validator costume. It belongs to the artifact review gate — which means
+  the rendered activity table **must display the componentId column** so a reviewer can see it.
+- **The family slip.** `U-SPA-AMEND` drops its `componentId` while `U-SPA-CONSULT` keeps it;
+  coverage is satisfied by CONSULT and AMEND dispatches componentless. This is what the
+  `ACT-NONSTRUCTURAL-CODING` Info rule exists for: the slipped activity appears on an explicit
+  "declared nonstructural" list, where *"U-SPA-AMEND: declared nonstructural"* is visibly absurd
+  to a reviewer. Promoting it to Error would re-outlaw Table 13-2.
 
 **Why this is the hard reject.** `putDraftModel` (`state.go:36`) Gate 2 runs
 `methodcheck.ValidateProjectJSON` + `applyGateSeverityPolicies` (which appends
@@ -225,15 +290,19 @@ load-bearing one:
 
 Required instruction content, stated as a normative rule in the typed-model / Step-1 doctrine:
 
-- Every activity entry carries `componentId` = the **exact `id`** of a component in the committed
-  `.systemDesign` Components — not the display name, not an abbreviation.
-- REQUIRED on every `coding: true` activity except integration (`I-*`). Multiple activities may
-  share one `componentId` only for ratified phase-split shapes (`U-SPA-*`, compression D-splits).
-  OPTIONAL but encouraged on noncoding provisioning activities targeting a named Resource
-  component (`R-*`).
-- State the enforcement plainly: *putDraftModel rejects the draft
-  (`ACT-COMPONENT-REQUIRED` / `ACT-UNKNOWN-COMPONENT`) if a required componentId is missing or
-  resolves to no committed component.*
+- `componentId` = the **exact `id`** of a component in the committed `.systemDesign` Components —
+  not the display name, not an abbreviation.
+- It marks a **structural** coding activity (ch.13 Table 13-1 — the one-per-component base-list
+  default). **Nonstructural** coding activities legitimately omit it: harnesses, base services,
+  and use-case integration slices (ch.13 Table 13-2). Teach the three-category taxonomy explicitly
+  — the skill currently has only coding/noncoding.
+- Multiple activities may share one `componentId` (ratified phase-split shapes: `U-SPA-*`,
+  compression D-splits, the ch.11 client development/integration split). Optional but encouraged
+  on noncoding provisioning activities targeting a named Resource component (`R-*`).
+- State the enforcement plainly: *the coverage gate is what forces every code-layer component to
+  be claimed — `putDraftModel` rejects the draft (`ACT-COMPONENT-COVERAGE` /
+  `ACT-UNKNOWN-COMPONENT`) if a component goes unclaimed or a componentId resolves to no committed
+  component.*
 - Add the column to the Step-1 markdown render table.
 
 `.claude/commands/activity-list-draft.md` needs **no change** — it already defers doctrine to the
@@ -251,8 +320,10 @@ webApp codec regen · authored backfill of the benchmark state repo's 8 coding a
 dry-run validation · benchmark resume mode · the real metrics run.
 
 **Stage 2 — prevent recurrence.**
-The three `ACT-*` Error rules · authored backfill of archistrator's own 68-activity list
-(~44 coding) · the `the-method-activity-list` skill change · method-assets release and pin bumps.
+The two `ACT-*` Error rules and the `ACT-NONSTRUCTURAL-CODING` Info rule · authored backfill of
+archistrator's own 68-activity list (structural coding activities only — `I-UC*` and the harnesses
+stay as authored, per §2.5) · the `the-method-activity-list` skill change · method-assets release
+and pin bumps.
 
 Stage 2's ordering constraint is absolute: **the backfills land with or before the rules.** The
 whole-document CI `validate` runs with no ambient slot, so no slot-scoped downgrade applies, and
@@ -311,8 +382,10 @@ All of it is in scope for the stage that triggers it.
    the hardened-resolver tests (:1084, :1241–1288) reworked to authored-field semantics; any test
    asserting the whole-sweep `(zero, false)` behavior; `hydrateConstructionActivity` call sites
    (signature grows).
-3. **`crossartifact_test.go` / staleness tests** — `deriveActivityComponent` tests deleted, new
-   rule tests, `systemActivityListJoinRules` membership assertions.
+3. **`crossartifact_test.go` / staleness tests** — `deriveActivityComponent` and
+   `isIntegrationActivity` tests deleted; new tests for the reworked coverage rule, the promoted
+   `ACT-UNKNOWN-COMPONENT`, and the `ACT-NONSTRUCTURAL-CODING` Info rule;
+   `systemActivityListJoinRules` membership assertions.
 4. **`FailureReason` exhaustive switches** — the linter demands every switch handle
    `PlanUnresolvable`; the webApp must render the new wire value.
 5. **webApp codec regen** — `ModelActivityItem` (`webApp/src/contracts/schema.ts:825`) lacks
@@ -331,7 +404,38 @@ All of it is in scope for the stage that triggers it.
     The additions are additive JSON, but per standing doctrine: **drain in-flight construction
     workflows before deploying** the changed pump selection logic.
 
-## 10. Out of scope
+## 10. Follow-up workstreams this design uncovered
+
+Both came out of the book reading. Both are ruled **separate workstreams** — neither blocks the
+dispatch fix, which is shape-agnostic: it corrects resolution and gating for whatever plan is
+committed.
+
+**(a) `N-STH` / `N-RTH` are marked `coding: false`.** Ch.13 Table 13-2 files System Test Harness
+(25d, Test Engineer) and Regression Test Harness (10d, Developer) under *nonstructural coding*.
+Our skill's inventory and our committed plan both call them noncoding. This is not inert — `Coding`
+selects the activity's phase profile and construction routing (App A lifecycle vs the noncoding
+profile), so it needs its own ruling on downstream effects plus a skill edit and a state amendment.
+It *may* ride the method-assets release Stage 2 already forces, if ruled in time; that is an
+efficiency, not a default.
+
+**(b) The `I-UC*` base-list shape.** The skill mandates one integration activity per core use
+case in the **base** list. Our network has five, each depending on 9–11 components, all converging
+on `N-IT`, with `I-UC3` on the critical path. Against App C §Integration ("Avoid mass integration
+points. Avoid integration at the end of the project.") and ch.13's stated reason the compressed
+TradeMe was rejected — "The multiple, parallel integrations occurring near the end of the project
+offered no leeway" — this is the anti-pattern, and it is plausibly double-counted against the 15%
+Integration phase already inside every `C-*` estimate. The architect's own read is that these are
+mislabeled **system-test slices** (the book files end-to-end use-case proving under noncoding
+System Testing), not integration activities. Reshaping is a base-list doctrine amendment (skill +
+method-assets) plus a scope-change re-run of Phase 2 on affected plans.
+
+**Sequencing condition on (b), which matters for what the benchmark is for.** The benchmark today
+measures a plan shape the architect no longer endorses. That does not block the fix, but the
+doctrine amendment **should land before benchmark baselines are locked or compared across runs** —
+otherwise the self-improvement loop is calibrated against a network we intend to repudiate, and
+every subsequent delta is polluted by the reshape. Fix first, reshape second, baseline third.
+
+## 11. Out of scope
 
 - Parallel dispatch in the pump (§8).
 - Rate-limit-aware retry in the local executor (§8) — revisited with evidence after the real run.
