@@ -79,13 +79,17 @@ func amendedSystemModel() *projectstate.System {
 // valid against the pre-amendment System and drifted against amendedSystemModel.
 func originalDeployment() projectstate.DeploymentTopology {
 	env := func(profile projectstate.DeploymentProfile, title string) projectstate.DeploymentEnvironment {
+		// Element keys are scoped per environment, so the same container instanced
+		// in cloud and test still holds a key unique within each.
+		p := title + "-"
 		return projectstate.DeploymentEnvironment{
 			Profile: profile,
 			Title:   title,
 			Nodes: []projectstate.DeploymentNode{{
+				Key:                 p + "app-node",
 				Name:                "app-node",
-				ContainerInstances:  []projectstate.ContainerInstance{{ContainerKey: "app"}},
-				InfrastructureNodes: []projectstate.InfrastructureNode{{Name: "TaskDB", Technology: "postgres"}},
+				ContainerInstances:  []projectstate.ContainerInstance{{Key: p + "ci-app", ContainerKey: "app"}},
+				InfrastructureNodes: []projectstate.InfrastructureNode{{Key: p + "infra-taskdb", Name: "TaskDB", Technology: "postgres"}},
 			}},
 		}
 	}
@@ -94,6 +98,11 @@ func originalDeployment() projectstate.DeploymentTopology {
 		Containers: []projectstate.DeployContainer{{
 			Key: "app", Name: "App", Technology: "go",
 			Components: []string{"WebClient", "GtdManager", "TaskAccess"},
+			// The packaged WebClient makes this the environment's frontend surface,
+			// which DEP-FRONTEND-PRESENT requires; the container→TaskDB edge derives
+			// from the System's TaskAccess→TaskDB relationship, so every element is
+			// connected without authoring anything.
+			Surface: projectstate.SurfaceSPA,
 		}},
 		Environments: []projectstate.DeploymentEnvironment{
 			env(projectstate.ProfileCloud, "cloud"),

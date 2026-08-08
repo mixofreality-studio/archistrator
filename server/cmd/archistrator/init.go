@@ -97,24 +97,24 @@ func RunInit(dir string, out io.Writer) error {
 		return fmt.Errorf("git repo: %w", err)
 	}
 	if adopted {
-		fmt.Fprintln(out, "adopted existing git repo:", absDir)
+		say(out, "adopted existing git repo:", absDir)
 	} else {
-		fmt.Fprintln(out, "initialized git repo:", absDir)
+		say(out, "initialized git repo:", absDir)
 	}
 
 	if err := configureReceiveUpdateInstead(absDir); err != nil {
 		return fmt.Errorf("git config receive.denyCurrentBranch: %w", err)
 	}
-	fmt.Fprintln(out, "git config receive.denyCurrentBranch=updateInstead")
+	say(out, "git config receive.denyCurrentBranch=updateInstead")
 
 	stateCreated, err := ensureStateDir(absDir)
 	if err != nil {
 		return fmt.Errorf(".aiarch/state: %w", err)
 	}
 	if stateCreated {
-		fmt.Fprintln(out, "scaffolded .aiarch/state/ (empty — no project.json yet)")
+		say(out, "scaffolded .aiarch/state/ (empty — no project.json yet)")
 	} else {
-		fmt.Fprintln(out, ".aiarch/state/ already present — left untouched")
+		say(out, ".aiarch/state/ already present — left untouched")
 	}
 
 	mcpChanged, err := ensureMCPConfig(absDir)
@@ -122,13 +122,13 @@ func RunInit(dir string, out io.Writer) error {
 		return fmt.Errorf(".mcp.json: %w", err)
 	}
 	if mcpChanged {
-		fmt.Fprintln(out, "registered archistrator in .mcp.json (http: "+defaultServeMCPURL+")")
+		say(out, "registered archistrator in .mcp.json (http: "+defaultServeMCPURL+")")
 	} else {
-		fmt.Fprintln(out, ".mcp.json already registers archistrator — left untouched")
+		say(out, ".mcp.json already registers archistrator — left untouched")
 	}
 
-	fmt.Fprintln(out)
-	fmt.Fprintln(out, finishedMessage)
+	say(out)
+	say(out, finishedMessage)
 	return nil
 }
 

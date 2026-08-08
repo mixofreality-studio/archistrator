@@ -134,7 +134,7 @@ type systemDesignManager struct {
 	// carries no service contract, and an Engine is pure and stateless, so the
 	// builder constructs it directly rather than threading a parameter no
 	// composition root could vary.
-	designHealth designhealth.DesignHealthEngine
+	designHealth designhealth.Engine
 
 	// episodes (SP1 capture-seam) is the generated episodeAccess dep — the agentic-
 	// episode ledger every terminal design dispatch appends to. The WORKFLOW paths reach
@@ -151,7 +151,7 @@ type systemDesignManager struct {
 // pipeline/rail/repo are stored for RegisterWorker (rail may be nil — a dev server
 // with no source-control credentials runs the design spine repo-less).
 func newSystemDesignManager(c client.Client, ps projectstate.ProjectStateAccess, pipeline agenticjob.AgenticJobAccess, rail sourcecontrol.SourceControlAccess, repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool), estimator estimation.EstimationEngine, designSession projectstate.DesignSessionAccess, episodes episode.EpisodeAccess, repoBase string) *systemDesignManager {
-	return &systemDesignManager{client: c, projectState: ps, pipeline: pipeline, rail: rail, repo: repo, estimator: estimator, designSession: designSession, episodes: episodes, repoBase: repoBase, designHealth: designhealth.NewDesignHealthEngine()}
+	return &systemDesignManager{client: c, projectState: ps, pipeline: pipeline, rail: rail, repo: repo, estimator: estimator, designSession: designSession, episodes: episodes, repoBase: repoBase, designHealth: designhealth.NewEngine()}
 }
 
 // StartSystemDesign — op 2.0 (2026-05-29). Temporal Workflow (entry;
@@ -475,25 +475,8 @@ func (m *systemDesignManager) checkPhase1Predecessor(ctx context.Context, projec
 // SubmitReviewDecision is the exported public op.
 func (m *systemDesignManager) SubmitReviewDecision(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind, decision ReviewDecision, feedback *ReviewFeedback) error {
 	ctx := rc.Context
-	if projectID == "" {
-		return newError(fwmanager.ContractMisuse, "empty projectId")
-	}
-	if !artifactKindIsPhase1(kind) {
-		return newError(fwmanager.FailedPrecondition, "artifactKind is not a Phase-1 kind")
-	}
-	switch decision {
-	case ReviewApprove, ReviewWithdraw:
-		// ok
-	case ReviewReject:
-		if feedback == nil || feedback.Notes == "" {
-			return newError(fwmanager.ContractMisuse, "Reject requires feedback")
-		}
-	case ReviewDecisionUnknown:
-		// The zero value: a caller that forgot to set Decision, not a legitimate
-		// review outcome. Reject explicitly rather than falling through silently.
-		return newError(fwmanager.ContractMisuse, "unknown review decision")
-	default:
-		return newError(fwmanager.ContractMisuse, "unknown review decision")
+	if err := validateReviewDecisionArgs(projectID, kind, decision, feedback); err != nil {
+		return err
 	}
 
 	wfID := coAuthorWorkflowID(projectID, kind)
@@ -557,6 +540,35 @@ func (m *systemDesignManager) SubmitReviewDecision(rc fwmanager.Context, project
 		return mapSignalError(err)
 	}
 	return nil
+}
+
+// validateReviewDecisionArgs is SubmitReviewDecision's argument gate: the caller's
+// identifiers are well-formed, the kind belongs to Phase 1, and the decision is one
+// the op can act on — with Reject additionally requiring the feedback it exists to
+// carry. Split out so the op body reads as the review FLOW (inspect the gate, refuse
+// what cannot be honored, signal) rather than opening with its own validation block.
+func validateReviewDecisionArgs(projectID ProjectID, kind ArtifactKind, decision ReviewDecision, feedback *ReviewFeedback) error {
+	if projectID == "" {
+		return newError(fwmanager.ContractMisuse, "empty projectId")
+	}
+	if !artifactKindIsPhase1(kind) {
+		return newError(fwmanager.FailedPrecondition, "artifactKind is not a Phase-1 kind")
+	}
+	switch decision {
+	case ReviewApprove, ReviewWithdraw:
+		return nil
+	case ReviewReject:
+		if feedback == nil || feedback.Notes == "" {
+			return newError(fwmanager.ContractMisuse, "Reject requires feedback")
+		}
+		return nil
+	case ReviewDecisionUnknown:
+		// The zero value: a caller that forgot to set Decision, not a legitimate
+		// review outcome. Reject explicitly rather than falling through silently.
+		return newError(fwmanager.ContractMisuse, "unknown review decision")
+	default:
+		return newError(fwmanager.ContractMisuse, "unknown review decision")
+	}
 }
 
 // deadWithdrawMaxAttempts bounds the sync-path Conflict re-read/re-apply loop for a
@@ -1102,6 +1114,9 @@ func (m *systemDesignManager) abnormalClosedSessionView(ctx context.Context, pro
 	}
 	slot := slotFor(proj, kind)
 	switch slot.Status {
+	// A settled slot still has a model worth showing, even though the session
+	// that produced it died; every other status has nothing to show but the
+	// failure.
 	case projectstate.ReviewCommitted, projectstate.ReviewWithdrawn:
 		view, verr := committedSessionView(projectID, kind, slot)
 		if verr != nil {
@@ -1112,6 +1127,8 @@ func (m *systemDesignManager) abnormalClosedSessionView(ctx context.Context, pro
 			view.FailureReason = &reason
 		}
 		return view, nil
+	case projectstate.ReviewNone, projectstate.ReviewAwaitingReview, projectstate.ReviewRejected:
+		return failedSessionView(projectID, kind, status), nil
 	default:
 		return failedSessionView(projectID, kind, status), nil
 	}
@@ -2595,6 +2612,8 @@ func severityToContract(s methodcheck.Severity) Severity {
 		return SeverityError
 	case methodcheck.SeverityWarning:
 		return SeverityWarning
+	case methodcheck.SeverityInfo:
+		return SeverityInfo
 	default:
 		return SeverityInfo
 	}
@@ -2624,6 +2643,8 @@ func checkStatusToView(s projectstate.CheckStatus) string {
 		return "waived"
 	case projectstate.CheckFail:
 		return "fail"
+	case projectstate.CheckPass:
+		return "pass"
 	default:
 		return "pass"
 	}

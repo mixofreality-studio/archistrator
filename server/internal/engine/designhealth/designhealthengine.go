@@ -187,7 +187,7 @@ func Evaluate(in Input) []methodcheck.Finding {
 	return out
 }
 
-// DesignHealthEngine is this component's Engine port — the one operation a
+// Engine is this component's Engine port — the one operation a
 // Manager calls: judge a project's design against the live Method rule set and
 // return the findings. It is the code that BACKS the modeled
 // SystemDesignManager → DesignHealthEngine relationship
@@ -220,7 +220,7 @@ func Evaluate(in Input) []methodcheck.Finding {
 // would force every server-to-database relationship to be hand-authored purely
 // to satisfy it, and a picture computed separately from the gate would show
 // edges the gate does not count.
-type DesignHealthEngine interface {
+type Engine interface {
 	EvaluateDesignHealth(rc fweng.Context, raw []byte) ([]methodcheck.Finding, error)
 	DeriveDeploymentEdges(rc fweng.Context, system methodcheck.System, topology methodcheck.DeploymentTopology) (map[string][]methodcheck.DeploymentRelationship, error)
 }
@@ -230,10 +230,10 @@ type DesignHealthEngine interface {
 // root's authoring-gate seam also drives directly (cmd is outside the layer scan).
 type designHealthEngine struct{}
 
-// NewDesignHealthEngine returns the production DesignHealthEngine.
-func NewDesignHealthEngine() DesignHealthEngine { return designHealthEngine{} }
+// NewEngine returns the production design-health Engine.
+func NewEngine() Engine { return designHealthEngine{} }
 
-var _ DesignHealthEngine = designHealthEngine{}
+var _ Engine = designHealthEngine{}
 
 // EvaluateDesignHealth implements the port over EvaluateRaw. The call Context is
 // accepted for calling-convention uniformity and carries nothing this pure
@@ -569,11 +569,16 @@ type objectiveLinkRef struct {
 // rawProject is the tolerant top-level slice: the slots map keyed by slot number,
 // each carrying its kind and raw model. Mirrors projectmodel.projectDoc.
 type rawProject struct {
-	Slots map[string]struct {
-		Kind      int             `json:"kind"`
-		Model     json.RawMessage `json:"model"`
-		Revisions json.RawMessage `json:"revisions"`
-	} `json:"slots"`
+	Slots map[string]rawSlot `json:"slots"`
+}
+
+// rawSlot is one slot's tolerant wire shape: its kind discriminator, its still
+// undecoded model, and the sibling revision counter (a scalar beside the model,
+// not inside it).
+type rawSlot struct {
+	Kind      int             `json:"kind"`
+	Model     json.RawMessage `json:"model"`
+	Revisions json.RawMessage `json:"revisions"`
 }
 
 // parseSlots decodes the slot subset the rules need. It is tolerant: a missing or
@@ -587,94 +592,136 @@ func parseSlots(raw []byte) (slotData, error) {
 	}
 	var out slotData
 
+	// One absorb* per slot kind. Each owns the tolerant shape it decodes, so this
+	// stays a flat dispatch rather than one function carrying seven private
+	// struct literals — and a new slot kind is a new function, not another arm
+	// grown onto an already-long switch.
 	for _, slot := range top.Slots {
 		if len(slot.Model) == 0 {
 			continue
 		}
 		switch slot.Kind {
 		case kindBusinessAlignment:
-			var m struct {
-				Objectives []objective `json:"objectives"`
-			}
-			_ = json.Unmarshal(slot.Model, &m)
-			out.Objectives = append(out.Objectives, m.Objectives...)
+			absorbObjectives(slot.Model, &out)
 		case kindRequirements:
-			var m struct {
-				Items []requirement `json:"items"`
-			}
-			_ = json.Unmarshal(slot.Model, &m)
-			out.Requirements = append(out.Requirements, m.Items...)
+			absorbRequirements(slot.Model, &out)
 		case kindVolatilities:
-			var m struct {
-				Items []volatility `json:"items"`
-			}
-			_ = json.Unmarshal(slot.Model, &m)
-			out.Volatilities = append(out.Volatilities, m.Items...)
+			absorbVolatilities(slot.Model, &out)
 		case kindCoreUseCases:
-			var m coreUseCaseSlot
-			_ = json.Unmarshal(slot.Model, &m)
-			for _, d := range m.Decisions {
-				out.CoreUseCases = append(out.CoreUseCases, coreUseCase{
-					ID:               d.UseCase.ID,
-					Classification:   d.UseCase.Classification,
-					EssenceRationale: d.EssenceRationale,
-					Trigger:          d.UseCase.Trigger,
-					Actors:           d.UseCase.Actors,
-					Activity:         d.UseCase.Activity,
-				})
-			}
+			absorbCoreUseCases(slot.Model, &out)
 		case kindSystemDesign:
-			var m struct {
-				Components []struct {
-					ID                       string   `json:"id"`
-					Encapsulates             string   `json:"encapsulates"`
-					EncapsulatesVolatilities []string `json:"encapsulatesVolatilities"`
-				} `json:"components"`
-				DynamicViews []dynamicView `json:"dynamicViews"`
-			}
-			_ = json.Unmarshal(slot.Model, &m)
-			out.DynamicViews = append(out.DynamicViews, m.DynamicViews...)
-			if out.encapsulatesBlurbs == nil {
-				out.encapsulatesBlurbs = map[string]string{}
-			}
-			if out.encapsulatesVolatilities == nil {
-				out.encapsulatesVolatilities = map[string][]string{}
-			}
-			for _, c := range m.Components {
-				if c.Encapsulates != "" {
-					out.encapsulatesBlurbs[c.ID] = c.Encapsulates
-				}
-				if len(c.EncapsulatesVolatilities) > 0 {
-					out.encapsulatesVolatilities[c.ID] = c.EncapsulatesVolatilities
-				}
-			}
-			// revisions is a scalar counter; tolerate absence.
-			var rev int
-			if len(slot.Revisions) > 0 {
-				_ = json.Unmarshal(slot.Revisions, &rev)
-			}
-			out.SystemRevision = rev
+			absorbSystemDesign(slot, &out)
 		case kindOperationalConcepts:
-			var m opConceptsSlot
-			_ = json.Unmarshal(slot.Model, &m)
-			for _, d := range m.Decisions {
-				if d.JustifyingObjective != 0 {
-					out.justifyingObjectives = append(out.justifyingObjectives, d.JustifyingObjective)
-				}
-			}
-			knobs := make([]string, 0, len(m.ObjectiveLinks))
-			for knob := range m.ObjectiveLinks {
-				knobs = append(knobs, knob)
-			}
-			sort.Strings(knobs)
-			for _, knob := range knobs {
-				for _, n := range m.ObjectiveLinks[knob] {
-					out.objectiveLinkRefs = append(out.objectiveLinkRefs, objectiveLinkRef{Knob: knob, Number: int(n)})
-				}
-			}
+			absorbOperationalConcepts(slot.Model, &out)
 		}
 	}
 	return out, nil
+}
+
+// absorbObjectives folds the mission slot's business objectives into out.
+func absorbObjectives(model json.RawMessage, out *slotData) {
+	var m struct {
+		Objectives []objective `json:"objectives"`
+	}
+	_ = json.Unmarshal(model, &m)
+	out.Objectives = append(out.Objectives, m.Objectives...)
+}
+
+// absorbRequirements folds the scrubbed-requirements slot's items into out.
+func absorbRequirements(model json.RawMessage, out *slotData) {
+	var m struct {
+		Items []requirement `json:"items"`
+	}
+	_ = json.Unmarshal(model, &m)
+	out.Requirements = append(out.Requirements, m.Items...)
+}
+
+// absorbVolatilities folds the volatilities slot's items into out.
+func absorbVolatilities(model json.RawMessage, out *slotData) {
+	var m struct {
+		Items []volatility `json:"items"`
+	}
+	_ = json.Unmarshal(model, &m)
+	out.Volatilities = append(out.Volatilities, m.Items...)
+}
+
+// absorbCoreUseCases flattens each use-case DECISION into the use case the rules
+// read, carrying the essence rationale that lives on the decision rather than on
+// the use case itself.
+func absorbCoreUseCases(model json.RawMessage, out *slotData) {
+	var m coreUseCaseSlot
+	_ = json.Unmarshal(model, &m)
+	for _, d := range m.Decisions {
+		out.CoreUseCases = append(out.CoreUseCases, coreUseCase{
+			ID:               d.UseCase.ID,
+			Classification:   d.UseCase.Classification,
+			EssenceRationale: d.EssenceRationale,
+			Trigger:          d.UseCase.Trigger,
+			Actors:           d.UseCase.Actors,
+			Activity:         d.UseCase.Activity,
+		})
+	}
+}
+
+// absorbSystemDesign folds the System slot: the dynamic views, the per-component
+// encapsulation blurbs and volatility claims, and the slot's revision counter.
+// Takes the whole slot (not just its model) because the revision is a sibling of
+// the model, not part of it.
+func absorbSystemDesign(slot rawSlot, out *slotData) {
+	var m struct {
+		Components []struct {
+			ID                       string   `json:"id"`
+			Encapsulates             string   `json:"encapsulates"`
+			EncapsulatesVolatilities []string `json:"encapsulatesVolatilities"`
+		} `json:"components"`
+		DynamicViews []dynamicView `json:"dynamicViews"`
+	}
+	_ = json.Unmarshal(slot.Model, &m)
+	out.DynamicViews = append(out.DynamicViews, m.DynamicViews...)
+	if out.encapsulatesBlurbs == nil {
+		out.encapsulatesBlurbs = map[string]string{}
+	}
+	if out.encapsulatesVolatilities == nil {
+		out.encapsulatesVolatilities = map[string][]string{}
+	}
+	for _, c := range m.Components {
+		if c.Encapsulates != "" {
+			out.encapsulatesBlurbs[c.ID] = c.Encapsulates
+		}
+		if len(c.EncapsulatesVolatilities) > 0 {
+			out.encapsulatesVolatilities[c.ID] = c.EncapsulatesVolatilities
+		}
+	}
+	// revisions is a scalar counter; tolerate absence.
+	var rev int
+	if len(slot.Revisions) > 0 {
+		_ = json.Unmarshal(slot.Revisions, &rev)
+	}
+	out.SystemRevision = rev
+}
+
+// absorbOperationalConcepts folds BOTH objective-reference surfaces the slot can
+// carry: the legacy decisions[].justifyingObjective back-reference and the typed
+// objectiveLinks map. The map is walked in sorted knob order so the findings it
+// feeds come out deterministically.
+func absorbOperationalConcepts(model json.RawMessage, out *slotData) {
+	var m opConceptsSlot
+	_ = json.Unmarshal(model, &m)
+	for _, d := range m.Decisions {
+		if d.JustifyingObjective != 0 {
+			out.justifyingObjectives = append(out.justifyingObjectives, d.JustifyingObjective)
+		}
+	}
+	knobs := make([]string, 0, len(m.ObjectiveLinks))
+	for knob := range m.ObjectiveLinks {
+		knobs = append(knobs, knob)
+	}
+	sort.Strings(knobs)
+	for _, knob := range knobs {
+		for _, n := range m.ObjectiveLinks[knob] {
+			out.objectiveLinkRefs = append(out.objectiveLinkRefs, objectiveLinkRef{Knob: knob, Number: int(n)})
+		}
+	}
 }
 
 // requirementIDs returns the set of requirement ids for the trace-resolution join.
@@ -1785,7 +1832,15 @@ func cardinalityFindings(in Input) []methodcheck.Finding {
 	for _, c := range in.Model.System.Components {
 		counts[c.Kind]++
 	}
+	out := componentCardinalityFindings(counts, len(in.Model.System.Components))
+	return append(out, selectionCardinalityFindings(in)...)
+}
 
+// componentCardinalityFindings walks the per-layer component bounds — ch. 4's
+// smallest-set bands and App-C §2's over-bound alarms. Split from the use-case /
+// volatility counts below because they answer different questions of different
+// artifacts, and together they made one function nobody could scan.
+func componentCardinalityFindings(counts map[string]int, total int) []methodcheck.Finding {
 	var out []methodcheck.Finding
 	// §2a: at most ~5 Managers — more than 5 usually means a missing subsystem cut.
 	if n := counts["manager"]; n > 5 {
@@ -1795,7 +1850,7 @@ func cardinalityFindings(in Input) []methodcheck.Finding {
 	// ch. 4 smallest-set band starts at 2 Managers: a single-Manager system cannot be
 	// validated against the other use cases (there is nothing to swap or compare).
 	// Skipped entirely on a zero-component system — mid-draft, nothing to judge yet.
-	if len(in.Model.System.Components) > 0 && counts["manager"] == 1 {
+	if total > 0 && counts["manager"] == 1 {
 		out = append(out, finding(RuleCardManagersMin, methodcheck.SeverityInfo, 1, "components",
 			"1 Manager component — ch. 4's smallest-set band starts at 2 Managers; a single-Manager system is unvalidatable (no sibling use-case family to validate the decomposition against). Check for a missed family of use cases"))
 	}
@@ -1825,6 +1880,14 @@ func cardinalityFindings(in Input) []methodcheck.Finding {
 		out = append(out, finding(RuleCardUtilities, methodcheck.SeverityInfo, n, "components",
 			fmt.Sprintf("%d Utility components — past ch. 4's half-dozen; informational, but check whether any Utility is really a mislabeled business component or duplicated cross-cutting concern", n)))
 	}
+	return out
+}
+
+// selectionCardinalityFindings walks the counts that come from the SELECTION
+// artifacts rather than the component graph: the core use cases and the
+// identified volatilities.
+func selectionCardinalityFindings(in Input) []methodcheck.Finding {
+	var out []methodcheck.Finding
 	// §2: core use case count in [2,6].
 	core := 0
 	for _, uc := range in.Slots.CoreUseCases {
@@ -2429,43 +2492,55 @@ func graphFindings(in Input) []methodcheck.Finding {
 			// this guard is belt-and-suspenders for a directly-constructed Input.
 			continue
 		}
-		fk, tk := from.Kind, to.Kind
-		section := r.From + "→" + r.To
-
-		// §4c.i — no up-calls. An edge whose target sits at a HIGHER layer than its
-		// source inverts the closed architecture. Utilities exempt.
-		if isDirectional(fk, tk) && kindRank(tk) < kindRank(fk) {
-			out = append(out, finding(RuleGraphUpcall, methodcheck.SeverityError, i, section,
-				fmt.Sprintf("up-call: %s (%s) calls %s (%s) — a higher layer; the closed architecture only calls DOWN the layers", r.From, fk, r.To, tk)))
-		}
-		// §4c.ii / §5d — sideways calls only when queued (M→M is the live case).
-		if isDirectional(fk, tk) && kindRank(tk) == kindRank(fk) && r.Mode != "queued" {
-			out = append(out, finding(RuleGraphSidewaysSync, methodcheck.SeverityError, i, section,
-				fmt.Sprintf("sideways sync call: %s→%s are the same layer (%s) but the call is %q — same-layer calls (e.g. Manager→Manager) are permitted only when queued", r.From, r.To, fk, r.Mode)))
-		}
-		// §4c.iii — a Client may enter only at a Manager (or a cross-cutting utility).
-		if fk == "client" && tk != "manager" && tk != "utility" {
-			out = append(out, finding(RuleGraphClientEntry, methodcheck.SeverityError, i, section,
-				fmt.Sprintf("client %s calls %s (%s) — a Client may enter the system only at a Manager, never at %s directly", r.From, r.To, tk, tk)))
-		}
-		// §6c / §6d — Engines and ResourceAccess receive no QUEUED calls (they are
-		// synchronous, request/response building blocks).
-		if r.Mode == "queued" && (tk == "engine" || tk == "resourceAccess") {
-			out = append(out, finding(RuleGraphQueuedTarget, methodcheck.SeverityError, i, section,
-				fmt.Sprintf("queued call into a %s (%s): Engines and ResourceAccess are synchronous — only Managers receive queued calls", tk, r.To)))
-		}
-		// §5b — Engines do no IO: no Engine→ResourceAccess / Engine→Resource edge
-		// (Managers own all IO orchestration). SeverityWarning: some Method dialects
-		// permit Engine→ResourceAccess, so this is a guideline for the archistrator
-		// "Managers own IO" posture rather than a hard directive.
-		if fk == "engine" && (tk == "resourceAccess" || tk == "resource") {
-			out = append(out, finding(RuleGraphEngineIO, methodcheck.SeverityWarning, i, section,
-				fmt.Sprintf("engine %s calls %s (%s): Engines are pure computation in this architecture — route IO through a Manager", r.From, r.To, tk)))
-		}
+		out = append(out, edgeLayeringFindings(i, r, from.Kind, to.Kind)...)
 	}
 
 	out = append(out, utilityReachabilityFindings(in)...)
 	out = append(out, managerOrchestrationFindings(in)...)
+	return out
+}
+
+// edgeLayeringFindings judges ONE relationship against the closed-layering rules:
+// no up-calls, no unqueued sideways calls, Clients enter only at Managers, no
+// queued call into an Engine or ResourceAccess, and no Engine IO.
+//
+// Carved out of graphFindings' loop so the walk (resolve the endpoints) and the
+// judgement (five independent rules) are separately readable — and so a sixth
+// rule lands here rather than growing the loop again.
+func edgeLayeringFindings(i int, r projectmodel.Relationship, fk, tk string) []methodcheck.Finding {
+	section := r.From + "→" + r.To
+	var out []methodcheck.Finding
+
+	// §4c.i — no up-calls. An edge whose target sits at a HIGHER layer than its
+	// source inverts the closed architecture. Utilities exempt.
+	if isDirectional(fk, tk) && kindRank(tk) < kindRank(fk) {
+		out = append(out, finding(RuleGraphUpcall, methodcheck.SeverityError, i, section,
+			fmt.Sprintf("up-call: %s (%s) calls %s (%s) — a higher layer; the closed architecture only calls DOWN the layers", r.From, fk, r.To, tk)))
+	}
+	// §4c.ii / §5d — sideways calls only when queued (M→M is the live case).
+	if isDirectional(fk, tk) && kindRank(tk) == kindRank(fk) && r.Mode != "queued" {
+		out = append(out, finding(RuleGraphSidewaysSync, methodcheck.SeverityError, i, section,
+			fmt.Sprintf("sideways sync call: %s→%s are the same layer (%s) but the call is %q — same-layer calls (e.g. Manager→Manager) are permitted only when queued", r.From, r.To, fk, r.Mode)))
+	}
+	// §4c.iii — a Client may enter only at a Manager (or a cross-cutting utility).
+	if fk == "client" && tk != "manager" && tk != "utility" {
+		out = append(out, finding(RuleGraphClientEntry, methodcheck.SeverityError, i, section,
+			fmt.Sprintf("client %s calls %s (%s) — a Client may enter the system only at a Manager, never at %s directly", r.From, r.To, tk, tk)))
+	}
+	// §6c / §6d — Engines and ResourceAccess receive no QUEUED calls (they are
+	// synchronous, request/response building blocks).
+	if r.Mode == "queued" && (tk == "engine" || tk == "resourceAccess") {
+		out = append(out, finding(RuleGraphQueuedTarget, methodcheck.SeverityError, i, section,
+			fmt.Sprintf("queued call into a %s (%s): Engines and ResourceAccess are synchronous — only Managers receive queued calls", tk, r.To)))
+	}
+	// §5b — Engines do no IO: no Engine→ResourceAccess / Engine→Resource edge
+	// (Managers own all IO orchestration). SeverityWarning: some Method dialects
+	// permit Engine→ResourceAccess, so this is a guideline for the archistrator
+	// "Managers own IO" posture rather than a hard directive.
+	if fk == "engine" && (tk == "resourceAccess" || tk == "resource") {
+		out = append(out, finding(RuleGraphEngineIO, methodcheck.SeverityWarning, i, section,
+			fmt.Sprintf("engine %s calls %s (%s): Engines are pure computation in this architecture — route IO through a Manager", r.From, r.To, tk)))
+	}
 	return out
 }
 

@@ -1584,7 +1584,7 @@ func (a *localExecAccess) dispatch(run *localRun, plan localDispatchPlan, episod
 	defer func() {
 		if ownWorkDir {
 			a.gitMu.Lock()
-			removeWorktree(a.repoPath, workDir)
+			_ = removeWorktree(a.repoPath, workDir) // best-effort cleanup
 			a.gitMu.Unlock()
 			_ = os.RemoveAll(parentDir)
 		}
@@ -3399,11 +3399,10 @@ func allowUnsandboxedFromEnv() bool {
 // --dangerously-skip-permissions outside this function.
 func claudeArgv(prompt, mcpConfigPath, sandboxSettingsPath string) []string {
 	args := []string{"--dangerously-skip-permissions"}
-	if allowUnsandboxedFromEnv() {
-		// Escape hatch active: THE INVARIANT's pairing is deliberately broken
-		// here, and ONLY here, by explicit operator opt-out — see
-		// localExecAllowUnsandboxedEnv's doc comment.
-	} else {
+	// The sandbox settings are attached UNLESS the operator has explicitly opted
+	// out: that escape hatch is the one place THE INVARIANT's pairing is
+	// deliberately broken — see localExecAllowUnsandboxedEnv's doc comment.
+	if !allowUnsandboxedFromEnv() {
 		args = append(args, "--settings", sandboxSettingsPath)
 	}
 	return append(args,

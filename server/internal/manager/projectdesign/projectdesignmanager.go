@@ -364,6 +364,11 @@ func (m *projectDesignManager) checkDraftRequestReceptive(rc fwmanager.Context, 
 	case StageDrafting, StageRedrafting:
 		return newError(fwmanager.FailedPrecondition,
 			"a draft is already generating for this artifact (currently "+sessionStageLabel(view.Stage)+") — wait for it to finish before requesting another")
+	// Every other stage is a settled (or not-yet-started) session: a new request
+	// is free to start one.
+	case SessionStageUnknown, StageAssemblingSDP, StageAwaitingReview,
+		StageCommitted, StageWithdrawn, StageRefused, StageDraftFailed:
+		return nil
 	default:
 		return nil
 	}
@@ -1011,6 +1016,9 @@ func (m *projectDesignManager) abnormalClosedSessionView(ctx context.Context, pr
 	}
 	slot := slotFor(proj, toPSKind(kind))
 	switch slot.Status {
+	// A settled slot still has a model worth showing, even though the session
+	// that produced it died; every other status has nothing to show but the
+	// failure.
 	case projectstate.ReviewCommitted, projectstate.ReviewWithdrawn:
 		view, verr := committedSessionView(projectID, kind, slot)
 		if verr != nil {
@@ -1021,6 +1029,8 @@ func (m *projectDesignManager) abnormalClosedSessionView(ctx context.Context, pr
 			view.FailureReason = &reason
 		}
 		return view, nil
+	case projectstate.ReviewNone, projectstate.ReviewAwaitingReview, projectstate.ReviewRejected:
+		return failedSessionView(projectID, kind, status), nil
 	default:
 		return failedSessionView(projectID, kind, status), nil
 	}

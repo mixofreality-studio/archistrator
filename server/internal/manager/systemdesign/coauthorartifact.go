@@ -3987,7 +3987,7 @@ func scrubbedIDFindings(kind ArtifactKind, draft projectstate.ArtifactModel) []F
 // blocks, trust summaries) that the schema itself enforces — there is nothing left to
 // nudge. Kept as an inert rule (returns no findings) so the rule registry is unchanged;
 // a typed-model successor is design-health's Wave-2 concern, not this seam.
-func opcTopicFindings(kind ArtifactKind, draft projectstate.ArtifactModel) []Finding {
+func opcTopicFindings(_ ArtifactKind, _ projectstate.ArtifactModel) []Finding {
 	return nil
 }
 

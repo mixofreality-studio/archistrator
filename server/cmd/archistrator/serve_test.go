@@ -77,7 +77,7 @@ func freePort(t *testing.T) int {
 	if err != nil {
 		t.Fatalf("freePort: %v", err)
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 	return l.Addr().(*net.TCPAddr).Port
 }
 
@@ -295,7 +295,7 @@ func TestRunServe_SingletonGuard_RefusesSecondInstance(t *testing.T) {
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 	go func() {
 		for {
 			conn, err := l.Accept()

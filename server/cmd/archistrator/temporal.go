@@ -73,7 +73,7 @@ func ensureTemporal(ctx context.Context, hostport string, logOut io.Writer) (cle
 	temporalBin, lookErr := exec.LookPath("temporal")
 	if lookErr != nil {
 		return noop, fmt.Errorf(
-			"Temporal is not reachable at %s and the `temporal` CLI is not on PATH to start a local dev server "+
+			"cannot reach Temporal at %s, and the `temporal` CLI is not on PATH to start a local dev server "+
 				"(install it — e.g. `brew install temporal` — or point ARCHISTRATOR_TEMPORAL_HOSTPORT at an already-running one): %w",
 			hostport, lookErr)
 	}

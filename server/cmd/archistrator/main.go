@@ -28,6 +28,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -84,7 +85,7 @@ func run(args []string) int {
 }
 
 func printUsage(w *os.File) {
-	fmt.Fprint(w, `archistrator — local-first design + construction
+	sayf(w, "%s", `archistrator — local-first design + construction
 
 Usage:
   archistrator init            Scaffold the current directory for archistrator.
@@ -99,4 +100,24 @@ serve flags:
                          env ARCHISTRATOR_SERVE_PORT).
   --skip-auth-check      Skip the "claude -p" authentication probe at startup.
 `)
+}
+
+// ---------------------------------------------------------------------------
+// Human-facing output.
+// ---------------------------------------------------------------------------
+
+// say writes one progress line to the CLI's own output stream.
+//
+// The write error is deliberately dropped. This is progress text on stdout/stderr,
+// and a failed write to a closed or full pipe is not a reason to fail an `init`
+// that has already created the repo, or a `serve` that has already booted the
+// stack. Every human-facing write in this command goes through say/sayf so that
+// judgement is made in one place instead of at each call site.
+func say(w io.Writer, args ...any) {
+	_, _ = fmt.Fprintln(w, args...)
+}
+
+// sayf is say with a format string, and no trailing newline of its own.
+func sayf(w io.Writer, format string, args ...any) {
+	_, _ = fmt.Fprintf(w, format, args...)
 }

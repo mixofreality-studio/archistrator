@@ -307,43 +307,69 @@ func (wf *workflows) CoAuthorPhase2ArtifactWorkflow(ctx workflow.Context, in coA
 				// merge-window fault contained — fall through to the human gate (no hot-loop).
 			}
 		}
-	gate:
-		for {
-			// REVIEW LEDGER: multiplex the review decision with the SetReviewCommentStatus
-			// signal (waive / reopen). A status signal mutates the durable ledger on the branch
-			// and re-suspends at THIS gate WITHOUT redrafting; a review decision proceeds as before.
-			var sig reviewDecisionSignal
-			var stSig setCommentStatusSignal
-			var gotStatus bool
-			sel := workflow.NewSelector(ctx)
-			sel.AddReceive(workflow.GetSignalChannel(ctx, signalReviewDecision), func(c workflow.ReceiveChannel, _ bool) {
-				c.Receive(ctx, &sig)
-			})
-			sel.AddReceive(workflow.GetSignalChannel(ctx, signalSetCommentStatus), func(c workflow.ReceiveChannel, _ bool) {
-				c.Receive(ctx, &stSig)
-				gotStatus = true
-			})
-			sel.Select(ctx)
+		step, outcome, err = wf.awaitReviewGate(ctx, in, &gf, &headVersion, &redraftCount, &reviewRound, &feedback, state)
+		if err != nil {
+			return coAuthorUnknown, err
+		}
+		if step == coAuthorReturn {
+			return outcome, nil
+		}
+		// coAuthorContinue (reject) — the outer loop redrafts.
+	}
+}
 
-			if gotStatus {
-				wf.applyCommentStatus(ctx, in, gf, &headVersion, stSig, state)
-				continue gate
-			}
+// awaitReviewGate is the workflow's human review gate: it suspends on the decision
+// selector, applies comment-status signals in place (waive / reopen re-suspend at
+// THIS gate without redrafting), and returns once a review DECISION resolves the
+// gate — coAuthorReturn to finish the session, coAuthorContinue to redraft.
+//
+// Behavior-preserving extraction (gocyclo gate): the command sequence, the signal
+// channels and their order are identical to the pre-extraction inline loop. The
+// labelled break/continue became the loop's own control flow plus a return.
+func (wf *workflows) awaitReviewGate(
+	ctx workflow.Context,
+	in coAuthorInput,
+	gf *gitSession,
+	headVersion *projectstate.Version,
+	redraftCount, reviewRound *int,
+	feedback *ReviewFeedback,
+	state *coAuthorState,
+) (coAuthorStep, coAuthorOutcome, error) {
+	for {
+		// REVIEW LEDGER: multiplex the review decision with the SetReviewCommentStatus
+		// signal (waive / reopen). A status signal mutates the durable ledger on the branch
+		// and re-suspends at THIS gate WITHOUT redrafting; a review decision proceeds as before.
+		var sig reviewDecisionSignal
+		var stSig setCommentStatusSignal
+		var gotStatus bool
+		sel := workflow.NewSelector(ctx)
+		sel.AddReceive(workflow.GetSignalChannel(ctx, signalReviewDecision), func(c workflow.ReceiveChannel, _ bool) {
+			c.Receive(ctx, &sig)
+		})
+		sel.AddReceive(workflow.GetSignalChannel(ctx, signalSetCommentStatus), func(c workflow.ReceiveChannel, _ bool) {
+			c.Receive(ctx, &stSig)
+			gotStatus = true
+		})
+		sel.Select(ctx)
 
-			step, outcome, err = wf.coAuthorApplyDecision(ctx, in, sig, &gf, &headVersion, &redraftCount, &reviewRound, &feedback, state)
-			if err != nil {
-				return coAuthorUnknown, err
-			}
-			switch step {
-			case coAuthorReturn:
-				return outcome, nil
-			case coAuthorReAwait:
-				continue gate
-			case coAuthorContinue, coAuthorProceed:
-				// coAuthorContinue (reject) — break to the outer loop which redrafts.
-				// coAuthorProceed cannot arise from the decision phase; grouped defensively.
-				break gate
-			}
+		if gotStatus {
+			wf.applyCommentStatus(ctx, in, *gf, headVersion, stSig, state)
+			continue
+		}
+
+		step, outcome, err := wf.coAuthorApplyDecision(ctx, in, sig, gf, headVersion, redraftCount, reviewRound, feedback, state)
+		if err != nil {
+			return coAuthorProceed, coAuthorUnknown, err
+		}
+		switch step {
+		case coAuthorReturn:
+			return coAuthorReturn, outcome, nil
+		case coAuthorReAwait:
+			continue
+		case coAuthorContinue, coAuthorProceed:
+			// coAuthorContinue (reject) — the caller's outer loop redrafts.
+			// coAuthorProceed cannot arise from the decision phase; grouped defensively.
+			return coAuthorContinue, outcome, nil
 		}
 	}
 }

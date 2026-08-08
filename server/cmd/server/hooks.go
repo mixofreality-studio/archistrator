@@ -198,6 +198,60 @@ type workerGenerateProvider interface {
 	Generate(ctx context.Context, req llm.AnthropicGenerateRequest) (llm.AnthropicGenerateResponse, error)
 }
 
+// configureGithubApp builds the shared GitHub-App satellite — the source-control
+// catalog/access pair and, when the construction repo is configured, the
+// GitHub-Actions agenticJobAccess — onto h.
+//
+// Carved out of newAppHooks so the boot walk reads as a list of steps rather than
+// one long branch, and so the three credential states (complete / partial /
+// absent) are a switch over exactly that question instead of an if-else chain.
+// Fail-fast semantics are unchanged: any construction error returns and main()
+// exits before the boot walk.
+func (h *appHooks) configureGithubApp(cfg *Config, logger *slog.Logger) error {
+	complete := cfg.GithubAppAppID != "" && cfg.GithubAppPrivateKeyPEM != "" && cfg.GithubAppAccount != ""
+	partial := cfg.GithubAppAppID != "" || cfg.GithubAppPrivateKeyPEM != "" || cfg.GithubAppAccount != ""
+
+	switch {
+	case complete:
+		return h.buildGithubApp(cfg, logger)
+	case partial:
+		warnPartialGithubAppCreds(logger, cfg)
+	default:
+		logger.Warn("sourceControlAccess NOT configured — projects are created repo-less (set ARCHISTRATOR_GITHUB_APP_ID + ARCHISTRATOR_GITHUB_APP_PRIVATE_KEY_PEM + ARCHISTRATOR_GITHUB_ACCOUNT for live GitHub repo provisioning)")
+	}
+	return nil
+}
+
+// buildGithubApp is the complete-credentials arm of configureGithubApp.
+func (h *appHooks) buildGithubApp(cfg *Config, logger *slog.Logger) error {
+	app, err := github.NewAppClient(cfg.GithubAppAppID, cfg.GithubAppPrivateKeyPEM, cfg.GithubAppAPIBaseURL)
+	if err != nil {
+		return err
+	}
+	h.appClient = app
+	scCatalog, scAccess, err := sourcecontrol.NewGitHubSourceControl(app, cfg.GithubAppAccount, cfg.GithubAppAppSlug, true /* repoPrivate */)
+	if err != nil {
+		return err
+	}
+	h.scCatalog, h.scAccess = scCatalog, scAccess
+	logger.Info("sourceControlAccess (github) ready", "account", cfg.GithubAppAccount, "apiBaseURL", cfg.GithubAppAPIBaseURL)
+
+	// The github-creds-gated agenticJobAccess the LOCAL profile's binding arm does
+	// not build (FinalizeAgenticJobAccess selects it in local profile). Built ONCE
+	// here so a construction-error fails fast; the CLOUD arm builds its own via the
+	// hook-args, so this is unused in cloud.
+	if cfg.ConstructionRepoOwner == "" || cfg.ConstructionRepoName == "" {
+		return nil
+	}
+	pipeline, err := agenticjob.NewGitHubActionsAgenticJobAccess(
+		app, cfg.ConstructionRepoOwner, cfg.ConstructionRepoName, cfg.ConstructionWorkflowFile, cfg.ConstructionRef, parseInt64(cfg.GithubAppInstallationID))
+	if err != nil {
+		return err
+	}
+	h.realPipeline = pipeline
+	return nil
+}
+
 // resolveWorkerProvider selects and builds the LLM Worker Provider per the
 // local-first deployment thesis (docs/superpowers/plans/2026-07-19-local-first-init-funnel.md,
 // Task 3): an ANTHROPIC_API_KEY in the environment always wins (cloud transport
@@ -251,35 +305,8 @@ func newAppHooks(cfg *Config, logger *slog.Logger) (*appHooks, error) {
 	// identity + account are configured (the CLOUD profile). Nil otherwise: a dev
 	// server with no GitHub creds runs repo-less (design rail dormant), exactly as
 	// the hand run() did.
-	if cfg.GithubAppAppID != "" && cfg.GithubAppPrivateKeyPEM != "" && cfg.GithubAppAccount != "" {
-		app, err := github.NewAppClient(cfg.GithubAppAppID, cfg.GithubAppPrivateKeyPEM, cfg.GithubAppAPIBaseURL)
-		if err != nil {
-			return nil, err
-		}
-		h.appClient = app
-		scCatalog, scAccess, err := sourcecontrol.NewGitHubSourceControl(app, cfg.GithubAppAccount, cfg.GithubAppAppSlug, true /* repoPrivate */)
-		if err != nil {
-			return nil, err
-		}
-		h.scCatalog, h.scAccess = scCatalog, scAccess
-		logger.Info("sourceControlAccess (github) ready", "account", cfg.GithubAppAccount, "apiBaseURL", cfg.GithubAppAPIBaseURL)
-
-		// The github-creds-gated agenticJobAccess the LOCAL profile's binding
-		// arm does not build (FinalizeAgenticJobAccess selects it in local
-		// profile). Built ONCE here so a construction-error fails fast; the CLOUD arm
-		// builds its own via the hook-args, so this is unused in cloud.
-		if cfg.ConstructionRepoOwner != "" && cfg.ConstructionRepoName != "" {
-			pipeline, err := agenticjob.NewGitHubActionsAgenticJobAccess(
-				app, cfg.ConstructionRepoOwner, cfg.ConstructionRepoName, cfg.ConstructionWorkflowFile, cfg.ConstructionRef, parseInt64(cfg.GithubAppInstallationID))
-			if err != nil {
-				return nil, err
-			}
-			h.realPipeline = pipeline
-		}
-	} else if cfg.GithubAppAppID != "" || cfg.GithubAppPrivateKeyPEM != "" || cfg.GithubAppAccount != "" {
-		warnPartialGithubAppCreds(logger, cfg)
-	} else {
-		logger.Warn("sourceControlAccess NOT configured — projects are created repo-less (set ARCHISTRATOR_GITHUB_APP_ID + ARCHISTRATOR_GITHUB_APP_PRIVATE_KEY_PEM + ARCHISTRATOR_GITHUB_ACCOUNT for live GitHub repo provisioning)")
+	if err := h.configureGithubApp(cfg, logger); err != nil {
+		return nil, err
 	}
 
 	// LOCAL profile: build the local construction executor (Task 6) whenever the

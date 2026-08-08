@@ -141,7 +141,7 @@ func RunServe(ctx context.Context, opts serveOptions, logger *slog.Logger) error
 		return fmt.Errorf("%s", preflight.Instructions())
 	}
 	if opts.Stderr != nil {
-		fmt.Fprint(opts.Stderr, preflight.Instructions())
+		sayf(opts.Stderr, "%s", preflight.Instructions())
 	}
 
 	serverBin, err := locateServerBinary(opts.ServerBin)
@@ -157,7 +157,7 @@ func RunServe(ctx context.Context, opts serveOptions, logger *slog.Logger) error
 	if warning := versionSkewWarning(ownBuildIdentity(), childBuildIdentity(serverBin), serverBin); warning != "" {
 		logger.Warn("version skew detected between archistrator and archistrator-server", "warning", warning)
 		if opts.Stderr != nil {
-			fmt.Fprintln(opts.Stderr, warning)
+			say(opts.Stderr, warning)
 		}
 	}
 
@@ -190,7 +190,7 @@ func RunServe(ctx context.Context, opts serveOptions, logger *slog.Logger) error
 	spaURL := "http://" + addr + "/"
 	logger.Info("local stack ready", "httpAddr", addr, "spaURL", spaURL)
 	if opts.Stdout != nil {
-		fmt.Fprintf(opts.Stdout, "archistrator: local stack ready — SPA at %s (MCP at %smcp)\n", spaURL, spaURL)
+		sayf(opts.Stdout, "archistrator: local stack ready — SPA at %s (MCP at %smcp)\n", spaURL, spaURL)
 	}
 
 	<-ctx.Done()

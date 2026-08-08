@@ -382,8 +382,8 @@ func TestNoOp_RecordDelinquencyAction_TriviallySucceeds(t *testing.T) {
 	}
 }
 
-func TestNoOp_ImplementsInterface(t *testing.T) {
-	var _ operatedsystemstate.OperatedSystemStateAccess = operatedsystemstate.NewNoOpOperatedSystemStateAccess()
+func TestNoOp_ImplementsInterface(_ *testing.T) {
+	var _ = operatedsystemstate.NewNoOpOperatedSystemStateAccess()
 }
 
 func containsAll(apps []operatedsystemstate.OperatedSystemSummary, want ...uuid.UUID) bool {

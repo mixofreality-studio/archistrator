@@ -65,8 +65,8 @@ func registryToolNames() map[string]bool {
 // Explicit mcp__aiarch-state__* references are NEVER ignorable. Every entry must
 // still occur in the prompt surface — a stale entry fails the test (keep it curated).
 var promptSurfaceIgnore = map[string]string{
-	"getX":                 "property-operation placeholder in senior-developer.md contract doctrine",
-	"setX":                 "property-operation placeholder in senior-developer.md contract doctrine",
+	"getX":            "property-operation placeholder in senior-developer.md contract doctrine",
+	"setX":            "property-operation placeholder in senior-developer.md contract doctrine",
 	"getDesignHealth": "render-on-read Design Health VIEW op on the webClient/customer surface, not an aiarch-state agent tool; named in doctrine describing where the live tier runs",
 	// "submitReviewDecision" was dropped 2026-08-01 with the step-keyed realization
 	// doctrine: the-method-architecture's suspend/resume paragraph no longer names an
