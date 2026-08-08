@@ -338,10 +338,27 @@ function pickHandles(from: Box, to: Box): { sourceHandle: string; targetHandle: 
     : { sourceHandle: 's-top', targetHandle: 't-bottom' };
 }
 
+/**
+ * How long a DERIVED caption may be before it is clipped.
+ *
+ * An authored label names the deployment-level interaction and is written for
+ * this view ("Makes API calls to"). A derived one is the System relationship's
+ * label — a component-level operation list like "read row / guarded in-place
+ * update (version + applied_mutation dedup)" — which is both the wrong altitude
+ * and long enough to lie across the boxes it passes. Clipped, it still hints at
+ * what the edge carries; the authoritative text stays in the committed System
+ * model, one click away on the Architecture step.
+ */
+const DERIVED_LABEL_MAX = 24;
+
 /** The Structurizr-style caption: the label over its `[technology]` line. */
 function edgeLabel(edge: DeploymentEdgeView): string {
-  if (edge.technology.length === 0) return edge.label;
-  return `${edge.label}\n[${edge.technology}]`;
+  const text =
+    edge.derived && edge.label.length > DERIVED_LABEL_MAX
+      ? `${edge.label.slice(0, DERIVED_LABEL_MAX).trimEnd()}…`
+      : edge.label;
+  if (edge.technology.length === 0) return text;
+  return `${text}\n[${edge.technology}]`;
 }
 
 /**
@@ -365,12 +382,11 @@ function buildEdges(edges: DeploymentEdgeView[], boxes: Map<string, Box>, t: Tok
       labelShowBg: true,
       labelBgPadding: [6, 3],
       labelBgBorderRadius: 3,
-      labelBgStyle: { fill: t.paper, fillOpacity: 0.92 },
+      labelBgStyle: { fill: t.paper, fillOpacity: 1 },
       labelStyle: { fontFamily: t.mono, fontSize: 9.5, fill: t.muted },
       markerEnd: { type: MarkerType.ArrowClosed, width: 14, height: 14, color: t.muted },
       style: { stroke: t.muted, strokeWidth: 1.4, strokeDasharray: '5 4' },
       zIndex: 1000,
-      data: { title: edge.details.join(' · ') },
     });
   }
   return out;

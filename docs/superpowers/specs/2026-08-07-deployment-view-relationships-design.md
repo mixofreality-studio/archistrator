@@ -228,17 +228,24 @@ Two consumers, no second definition:
 2. The `DEP-*` rules read the same baseline for their expectations, so template and gate cannot
    drift apart.
 
-### 6.2 The SPA is instanced twice
+### 6.2 Static delivery is an infrastructure node, not a second SPA instance
 
-In the cloud profile the SPA container is instanced **twice** — once in the nginx pod (delivery)
-and once in the browser node (execution). This is exactly how Structurizr models the reference
-diagram, and it is also what keeps the *set of deployed containers* identical across profiles, so
-the existing `DEP-GRAPH-IDENTITY` invariant continues to hold. The existing
-`flattenContainerKeys` comment already records that multi-instancing is intentionally not flagged.
+**Revised during implementation.** The design first proposed instancing the SPA container twice —
+once in the nginx pod (delivery) and once in the browser (execution) — mirroring the reference
+diagram. Building it showed why that is wrong here: derivation resolves a component to *every*
+instance of its container, so the WebClient→Manager relationships would derive an edge from the
+**nginx pod** to the server, asserting that the static-asset server calls the API. It does not.
 
-Modelling nginx as a separate container was rejected: the local profile embeds the SPA in the
-`archistrator-server` binary with no nginx at all, so a distinct nginx container would break
-cross-profile container identity. The delivery mechanism belongs on the *node*, not on a container.
+Instead the SPA container is instanced **once**, in the browser, and the static delivery mechanism
+is an `InfrastructureNode` on the serving node — `Static asset server (nginx)` in cloud,
+`Embedded SPA assets (go:embed)` in local — with an authored "Delivers the SPA to the architect's
+browser" edge to the browser instance. Derivation then produces exactly one SPA→server edge, from
+the browser where the code actually runs.
+
+This also removes the constraint that motivated the original choice. `DEP-GRAPH-IDENTITY` compares
+the set of **component names** covered per profile, not the set of containers
+(`checkCrossProfileCoverage`), and WebClient is covered in every profile because the SPA container
+is instanced in each. Container identity across profiles holds either way.
 
 ## 7. Renderer
 
