@@ -1100,6 +1100,10 @@ In `gitops.go`: clone to a temp dir, write the manifest set to `k8s/argocd/apps/
 
 Withdraw removes both paths and commits the same way. Removing something that is already gone is a success, matching the contract's `NotFound ⇒ success` withdraw semantics.
 
+**Withdraw must refuse the self-managed app.** This is the other half of the D8 guard, and without it the guard is decorative. `prune: false` stops a *renderer* bug from deleting archistrator's control plane, and Task 5 additionally omits the Argo finalizer when `SelfManaged` — but `Withdraw` deletes the Application outright, which is a third path to the same outcome. An operator clicking Withdraw on archistrator in archistrator's own console would take down the thing servicing the click, with nothing left to undo it.
+
+Hard-guard it: `Withdraw` returns a terminal `fwra.ContractMisuse` (never a retry) naming the app when the target is the self-managed one. Write that test before the implementation. Tearing archistrator down is a deliberate `kubectl` operation by a human who means it, not a button.
+
 - [ ] **Step 4: Replace the Real profile bodies**
 
 In `operatedruntimeaccess.go`, `PublishDesiredState` and `Withdraw` now delegate to the `gitops.go` functions. Leave `WirePaymentConfig` returning `notImplemented` — it is genuinely out of scope. Update the package doc comment: the "N-DEP follow-up" paragraph is now stale for these two verbs.
@@ -1504,13 +1508,19 @@ Deploy from the console. The server commits to `k8s/argocd/apps/archistrator/`. 
 
 In the software repo, delete the four `k8s/argocd/applications/archistrator-*.yaml` files and add the rendered Application. ArgoCD will show the app **OutOfSync and wait** — manual sync is the guard. Read the diff in the Argo UI, then click Sync.
 
+**Prerequisite before this step:** the OIDC client-secret placeholder Secret must exist in the **`keycloak`** namespace as well as the app's namespace. The Keycloak operator requires the referenced Secret to sit alongside the Keycloak CR, and the CR is rendered into `keycloak` (spec §5.5). This is a new out-of-band step that has no equivalent in the current hand-managed setup.
+
+**Expect a CrashLoop on first apply, and do not treat it as a failed cutover.** Production splits archistrator across four Applications carrying `sync-wave` annotations. The rendered form is one recursive Application with no waves, so the server `Deployment` and the CNPG `Cluster` sync together and the server will restart until Postgres accepts connections. It self-heals within a couple of minutes. If it has not settled after that, it is a real failure — go to Step 6.
+
 - [ ] **Step 5: Verify**
 
 Confirm the console shows healthy, the deployment diagram shows green on the server deployment, and archistrator is still reachable at `archistrator.capture-gtd.com`.
 
 - [ ] **Step 6: Rollback if needed**
 
-`git revert` the software repo commit and click Sync. Because `prune: false` is set on archistrator's own Application, a bad render cannot have deleted anything — the worst case is an unapplied change.
+`git revert` the software repo commit and click Sync. Because `prune: false` is set on archistrator's own Application — and Task 5 additionally omits the Argo finalizer when `SelfManaged`, and Task 7 hard-guards `Withdraw` against it — a bad render cannot have deleted anything. The worst case is an unapplied change.
+
+Those three guards exist because they cover three genuinely different paths to the same outcome: a renderer that omits a manifest, a delete or rename of the Application object, and an operator clicking Withdraw. Any one of them alone leaves a hole.
 
 ---
 
