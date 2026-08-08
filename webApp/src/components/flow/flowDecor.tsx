@@ -68,6 +68,7 @@ export function LayeredStepEdge({
   targetPosition,
   style,
   markerEnd,
+  label,
   data,
 }: EdgeProps): ReactNode {
   // A commentable edge (the static architecture graph) carries an anchor in its
@@ -126,7 +127,51 @@ export function LayeredStepEdge({
           />
         </EdgeLabelRenderer>
       ) : null}
+      {typeof label === 'string' && label.length > 0 ? (
+        <EdgeLabelRenderer>
+          <EdgeCaption text={label} x={labelX} y={labelY} />
+        </EdgeLabelRenderer>
+      ) : null}
     </>
+  );
+}
+
+/**
+ * The caption on a FOCUSED edge — "Makes API calls to [JSON/HTTPS]".
+ *
+ * Opt-in per edge (flowEdge's `showLabel`), because captioning every line at
+ * once collapses them into an unreadable band lying across the boxes they pass.
+ * The layered views therefore never ask for one; the deployment view asks only
+ * for the handful of edges incident to whatever the reader is pointing at.
+ *
+ * Pointer-transparent and aria-hidden: the endpoints and the relationship are
+ * already reachable as text, so this is a visual caption, not content.
+ */
+function EdgeCaption({ text, x, y }: { text: string; x: number; y: number }): ReactNode {
+  const t = useTokens();
+  return (
+    <Box
+      aria-hidden="true"
+      sx={{
+        position: 'absolute',
+        transform: `translate(-50%, -50%) translate(${String(x)}px, ${String(y)}px)`,
+        pointerEvents: 'none',
+        maxWidth: 220,
+        px: 0.6,
+        py: 0.2,
+        borderRadius: 0.75,
+        bgcolor: t.paper,
+        border: `1px solid ${t.line}`,
+        fontFamily: t.mono,
+        fontSize: 10,
+        fontWeight: 700,
+        lineHeight: 1.25,
+        color: t.ink,
+        textAlign: 'center',
+      }}
+    >
+      {text}
+    </Box>
   );
 }
 

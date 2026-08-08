@@ -363,6 +363,15 @@ export interface EdgeOpts {
   variant?: 'normal' | 'focus' | 'muted';
   /** Route via the side handles (source Right → target Left) into the Utilities bar. */
   toUtility?: boolean;
+  /** Explicit source/target handle ids, overriding the layered default.
+   *
+   *  The layered views all flow one way (top → down), so a fixed bottom→top pair
+   *  is right for them. A deployment view has no single direction — a browser
+   *  reaches right into a gateway, a server reaches down into its store — so it
+   *  picks the pair per edge from where the two boxes actually sit, and passes
+   *  it here rather than forking the edge factory and losing the shared stroke,
+   *  marker, label and focus/muted treatment. */
+  handles?: { source: string; target: string };
   /** Don't render this edge at all. */
   hidden?: boolean;
   /** Explicit stroke colour, overriding the variant default (e.g. test target/pass). */
@@ -427,8 +436,8 @@ export function flowEdge(
     id,
     source,
     target,
-    sourceHandle: opts.toUtility === true ? 'sr' : 'b',
-    targetHandle: opts.toUtility === true ? 'tl' : 't',
+    sourceHandle: opts.handles?.source ?? (opts.toUtility === true ? 'sr' : 'b'),
+    targetHandle: opts.handles?.target ?? (opts.toUtility === true ? 'tl' : 't'),
     label: opts.showLabel === true ? label : undefined,
     hidden: opts.hidden === true,
     selectable: opts.comment !== undefined,
