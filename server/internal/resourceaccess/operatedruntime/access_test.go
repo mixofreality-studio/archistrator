@@ -7,8 +7,12 @@
 package operatedruntime
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"io"
+	"os"
+	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
@@ -107,12 +111,17 @@ func testDesiredState() RuntimeDesiredState {
 		Server: Workload{
 			ModelKey: "cloud-node-server-deployment",
 			Image:    "ghcr.io/mixofreality-studio/archistrator-server:0.8.16",
-			Replicas: 1,
+			// Production runs 2 replicas of both workloads (verified against
+			// testdata/golden/production/archistrator-{server,webapp}.yaml,
+			// which the Task 6 golden diff caught: the Task 4 fixture had
+			// hardcoded 1). Kept at the real value so the golden diff is a
+			// true parity check, not one with a known-wrong input baked in.
+			Replicas: 2,
 		},
 		WebApp: Workload{
 			ModelKey: "cloud-infra-static-assets",
 			Image:    "ghcr.io/mixofreality-studio/archistrator-webapp:0.6.14",
-			Replicas: 1,
+			Replicas: 2,
 		},
 		Postgres: PostgresSpec{
 			ModelKeys:    []string{"cloud-infra-billingstate", "cloud-infra-operatedsystemstate", "cloud-infra-usagelog"},
@@ -917,5 +926,251 @@ func TestRender_NeverRendersSecretValues(t *testing.T) {
 		if strings.Contains(m.YAML, "\ndata:") || strings.Contains(m.YAML, "\nstringData:") {
 			t.Errorf("manifest %s/%s carries inline secret data", m.Kind, m.Name)
 		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Task 6: invariant gates and the production golden diff.
+//
+// The no-Secret-data gate (TestRender_NeverRendersSecretValues, above) and the
+// every-ModelKey-non-empty-and-sorted gate (TestRender_EveryManifestCarriesSortedModelKeys,
+// above) already cover two of the three gates the task brief sketched; they
+// are not duplicated here. What is missing is a blanket check that every
+// manifest lands in the namespace it is supposed to.
+// ---------------------------------------------------------------------------
+
+// TestRender_AllManifestsTargetTheCorrectNamespace is the general form of the
+// namespace checks scattered across the tests above (Deployment/Service in
+// d.Namespace, Application destination in d.Namespace but the object itself
+// in argocd, KeycloakRealmImport in Keycloak's own namespace): every rendered
+// object's namespace is pinned to exactly one of the three legitimate values,
+// so a copy-paste bug that leaves a NEW manifest kind in the wrong namespace
+// (or with the wrong namespace ENTIRELY, not just a wrong value of the app's
+// namespace) cannot land unnoticed the way a per-kind test alone would allow.
+func TestRender_AllManifestsTargetTheCorrectNamespace(t *testing.T) {
+	d := testDesiredState()
+	ms, err := render(d)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	for _, m := range ms {
+		switch m.Kind {
+		case "Application":
+			// The Application object lives in argocd; its destination (checked
+			// elsewhere) is the app's own namespace.
+			if m.Namespace != "argocd" {
+				t.Errorf("Application namespace = %q, want argocd", m.Namespace)
+			}
+		case "KeycloakRealmImport":
+			// Must live beside the Keycloak CR it names (renderKeycloakRealm's
+			// doc: the operator resolves keycloakCRName, and placeholder
+			// Secrets must live, in the CR's OWN namespace).
+			if m.Namespace != "keycloak" {
+				t.Errorf("KeycloakRealmImport namespace = %q, want keycloak", m.Namespace)
+			}
+		default:
+			if m.Namespace != d.Namespace {
+				t.Errorf("%s/%s namespace = %q, want %q", m.Kind, m.Name, m.Namespace, d.Namespace)
+			}
+		}
+	}
+}
+
+// toolIdentityLabelKeys are label keys whose value necessarily differs
+// between a Helm-templated production deployment and this renderer, because
+// they identify the DEPLOYING TOOL, not the resource itself:
+//
+//   - helm.sh/chart, app.kubernetes.io/version: Helm chart metadata (chart
+//     name+semver, chart appVersion — sourced from Chart.yaml). This renderer
+//     has no chart to version, so there is nothing to put here.
+//   - app.kubernetes.io/managed-by: production says "Helm"; this renderer
+//     says "archistrator-operatedRuntimeAccess". These are SUPPOSED to
+//     differ — that is the fact the label records — so comparing them would
+//     make every workload manifest fail forever, not catch a real bug.
+//   - app.kubernetes.io/part-of: added by this renderer (deploymentTmpl /
+//     serviceTmpl); production's Helm charts never set it. Additive-only —
+//     nothing reads it away, no selector or ArgoCD behavior depends on it.
+//
+// app.kubernetes.io/name and app.kubernetes.io/instance — the labels
+// Deployment/Service selectors actually key off — are deliberately NOT in
+// this list and stay compared exactly. If a future manifest silently dropped
+// or renamed one of those, this test must still fail.
+var toolIdentityLabelKeys = []string{
+	"helm.sh/chart",
+	"app.kubernetes.io/version",
+	"app.kubernetes.io/managed-by",
+	"app.kubernetes.io/part-of",
+}
+
+// stripToolIdentityLabels deletes toolIdentityLabelKeys from obj's
+// metadata.labels, in place. Applied symmetrically to both the rendered and
+// the golden/production object before comparison.
+func stripToolIdentityLabels(obj map[string]interface{}) {
+	metadata, ok := obj["metadata"].(map[string]interface{})
+	if !ok {
+		return
+	}
+	labels, ok := metadata["labels"].(map[string]interface{})
+	if !ok {
+		return
+	}
+	for _, k := range toolIdentityLabelKeys {
+		delete(labels, k)
+	}
+}
+
+// parseYAMLDocuments decodes a (possibly multi-document, "---"-separated)
+// YAML stream into generic objects. Using yaml.Decoder rather than splitting
+// the text on "---" is what makes Helm's document separators and its
+// "# Source: <chart>/templates/<file>" comment lines disappear for free:
+// YAML comments are never part of the parsed structure, so there is nothing
+// to strip by hand, and the comparison below is over structure, not text.
+func parseYAMLDocuments(t *testing.T, data []byte) []map[string]interface{} {
+	t.Helper()
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	var out []map[string]interface{}
+	for {
+		var doc map[string]interface{}
+		err := dec.Decode(&doc)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatalf("parse YAML document: %v", err)
+		}
+		if doc == nil { // a stray leading/trailing "---" decodes as a nil document
+			continue
+		}
+		out = append(out, doc)
+	}
+	return out
+}
+
+// objKey is a (kind, name) pair — enough to match a rendered Manifest to its
+// golden document within one golden file, since no golden file here mixes
+// two objects of the same kind and name.
+type objKey struct{ kind, name string }
+
+func keyOf(obj map[string]interface{}) objKey {
+	k, _ := obj["kind"].(string)
+	var n string
+	if md, ok := obj["metadata"].(map[string]interface{}); ok {
+		n, _ = md["name"].(string)
+	}
+	return objKey{k, n}
+}
+
+// TestRender_MatchesProductionGoldens is the acceptance bar this whole plan
+// exists to automate: for every object production actually runs, the
+// renderer must reproduce it. Objects are matched by (kind, name) and
+// compared as PARSED YAML structure, not raw text — so document ordering,
+// Helm's "---"/"# Source:" artifacts, and differing prose comments cannot
+// masquerade as parity, and the only edits applied before comparing are the
+// small, explicit, commented normalization in stripToolIdentityLabels.
+//
+// Two rendered objects have NO production counterpart and are deliberately
+// excluded here — production's Keycloak realm is hand-managed in the admin
+// console (see renderKeycloakRealm's doc), and production splits archistrator
+// across four separate Argo Applications where this renderer emits one (spec
+// D2/D3/D4). Both are covered by their own dedicated tests elsewhere in this
+// file (TestRender_KeycloakRealmImportRealmClientAndRedirectURIs and the
+// Argo-Application tests above) — excluding them from THIS test is not the
+// same as leaving them untested.
+func TestRender_MatchesProductionGoldens(t *testing.T) {
+	ms, err := render(testDesiredState())
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	rendered := map[objKey]Manifest{}
+	for _, m := range ms {
+		rendered[objKey{m.Kind, m.Name}] = m
+	}
+
+	noProductionCounterpart := map[objKey]bool{
+		{"KeycloakRealmImport", "archistrator-realm"}: true,
+		{"Application", "archistrator"}:               true,
+	}
+
+	goldenObjects := map[string][]objKey{
+		"archistrator-server.yaml": {
+			{"Deployment", "archistrator-server"},
+			{"Service", "archistrator-server"},
+		},
+		"archistrator-webapp.yaml": {
+			{"Deployment", "archistrator-webapp"},
+			{"Service", "archistrator-webapp"},
+		},
+		"archistrator-postgres.yaml": {
+			{"Cluster", "archistrator-postgres"},
+		},
+		"archistrator-gateway-routes.yaml": {
+			{"HTTPRoute", "archistrator-api-route"},
+			{"HTTPRoute", "archistrator-healthz-route"},
+			{"HTTPRoute", "archistrator-readyz-route"},
+			{"HTTPRoute", "archistrator-webapp-route"},
+			{"BackendTrafficPolicy", "archistrator-api-route-policy"},
+			{"BackendTrafficPolicy", "archistrator-healthz-route-policy"},
+			{"BackendTrafficPolicy", "archistrator-readyz-route-policy"},
+			{"BackendTrafficPolicy", "archistrator-webapp-route-policy"},
+			{"SecurityPolicy", "archistrator-oidc-policy"},
+		},
+	}
+
+	covered := map[objKey]bool{}
+	for golden, keys := range goldenObjects {
+		data, err := os.ReadFile(filepath.Join("testdata", "golden", "production", golden))
+		if err != nil {
+			t.Fatalf("read golden %s: %v", golden, err)
+		}
+		goldenDocs := parseYAMLDocuments(t, data)
+		if len(goldenDocs) != len(keys) {
+			t.Errorf("%s: production golden has %d objects, this test expects %d — the golden and the object list below have drifted", golden, len(goldenDocs), len(keys))
+		}
+		goldenByKey := map[objKey]map[string]interface{}{}
+		for _, doc := range goldenDocs {
+			goldenByKey[keyOf(doc)] = doc
+		}
+
+		for _, key := range keys {
+			covered[key] = true
+			m, ok := rendered[key]
+			if !ok {
+				t.Errorf("%s: renderer did not emit %s/%s, which production golden has", golden, key.kind, key.name)
+				continue
+			}
+			gdoc, ok := goldenByKey[key]
+			if !ok {
+				t.Errorf("%s: production golden has no %s/%s", golden, key.kind, key.name)
+				continue
+			}
+			var rdoc map[string]interface{}
+			if err := yaml.Unmarshal([]byte(m.YAML), &rdoc); err != nil {
+				t.Fatalf("%s: parse rendered %s/%s: %v", golden, key.kind, key.name, err)
+			}
+			stripToolIdentityLabels(rdoc)
+			stripToolIdentityLabels(gdoc)
+			if !reflect.DeepEqual(rdoc, gdoc) {
+				rY, _ := yaml.Marshal(rdoc)
+				gY, _ := yaml.Marshal(gdoc)
+				t.Errorf("%s: %s/%s differs from production after normalizing tool-identity labels %v:\n--- rendered ---\n%s\n--- production ---\n%s",
+					golden, key.kind, key.name, toolIdentityLabelKeys, rY, gY)
+			}
+		}
+	}
+
+	// Every rendered manifest must be accounted for: either matched against a
+	// golden document above, or explicitly named as having no production
+	// counterpart. A manifest landing in neither bucket means this test
+	// silently stopped covering an object — usually because a new render*
+	// section was added and nobody updated goldenObjects/noProductionCounterpart
+	// — and that is exactly the kind of drift this task exists to catch.
+	for key := range rendered {
+		if !covered[key] && !noProductionCounterpart[key] {
+			t.Errorf("%s/%s is rendered but neither compared against a production golden nor listed in noProductionCounterpart — this test's coverage has drifted from render()", key.kind, key.name)
+		}
+	}
+	if len(rendered) != len(covered)+len(noProductionCounterpart) {
+		t.Errorf("rendered %d manifests, but golden-covered (%d) + no-production-counterpart (%d) = %d — counts should add up",
+			len(rendered), len(covered), len(noProductionCounterpart), len(covered)+len(noProductionCounterpart))
 	}
 }
