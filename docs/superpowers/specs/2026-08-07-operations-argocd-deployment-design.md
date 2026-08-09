@@ -40,6 +40,7 @@ Meanwhile the software repo (`../software`) runs a standard app-of-apps: `root` 
 | D10 | **Deployment diagram health is strict green / red / neutral.** `Healthy` → green; every other observed state (`Progressing`, `Degraded`, `Missing`, `Suspended`, `Unknown`) → red; anything outside the app's resource set → neutral. | *Amber for Progressing* rejected in favour of glance-readability. Accepted cost: the diagram reads red mid-rollout until it settles. |
 | D11 | **The model maps to manifests by `role`, not by technology string.** The deployable elements are `infrastructureNodes` carrying machine-readable `role` values (`gateway`, `identityProvider`, `database`) plus workload nodes. Selection keys off those, never off the free-text `technology` field. | *Selecting by `technology`* rejected: it puts Kubernetes vocabulary in the Manager and couples assembly to an unconstrained free-text string (`"k8s"` vs `"k8s-namespace"` vs `"Kubernetes Deployment"`, none of them validated). |
 | D12 | **The renderer emits a Keycloak realm CR per app.** Onboarding an app provisions its realm and OIDC client instead of requiring manual admin-console work. The cluster already runs the Keycloak operator (`keycloak-k8s-resources` 26.4.2, API group `k8s.keycloak.org/v2alpha1`). **Create-only — see §5.5.** | *Keeping Keycloak manual* rejected by the founder. *Reconciling the realm for real* (Admin API or a reconciling controller) rejected as materially larger scope that puts an automated writer on the path to the founder's own login. Accepted cost: this is the one rendered object with no production counterpart to diff against (§5.2). |
+| D13 | **`operatedAppId = uuidv5(fixed namespace, projectId)`.** An operated app's id is DERIVED from its project's id — one operated app per project, computed by anyone who knows the project, with no lookup verb, no stored correlation and no new contract surface. Realized once, in `server/cmd/server/hooks.go`'s `OperatedAppIDForProject`; the webApp reads it from `GET /api/v1/projects/{projectID}/operated-app-id` rather than reimplementing UUIDv5 in the browser, and the composition root refuses a `RegisterOperatedApp` whose id is not the derived one. | *Literal equality* (`operatedAppId == projectId`, the ruling's first mechanism) was tried and is type-incompatible: a `ProjectID` is a free-form string (`"archistrator"`), an `operatedAppId` is a `uuid.UUID`, so the overlay 400s on every poll — a guaranteed error loop in place of the dormancy it replaced. The derivation keeps every property the ruling wanted and is type-honest. *A `projectRef → operatedAppId` lookup verb* stays deferred: it would allow several deployments per project, but costs a contract op and a Manager read path. Not a trap to defer — if multiple deployments are ever needed, the lookup gets added then, the first deployment keeps the derived id, and additional ones take fresh ids. |
 
 ---
 
@@ -166,6 +167,14 @@ Render archistrator's own `DesiredState` and compare against `helm template` out
 - `SelfManaged` output carries `prune: false` and manual sync.
 - Rendering is deterministic: identical input yields byte-identical output (required for content-idempotent publish, and for §6's re-derivation).
 
+### 5.3a Refusals on the publish path
+
+Three checks that make a zero value REFUSE rather than SKIP — the failure shape this design has now hit five times (a renderer skipping auth on a blank client id; a delete-guard disarming on unset config; app-level health defaulting to Healthy; a zero-value desired-state publish; an unchecked bundle):
+
+- **The bundle is validated, not merely parsed.** `json.Unmarshal` into the bundle manifest succeeds on `null`, on `{}` and on any unrelated object, so a clean parse proves nothing. Both image references must be non-empty and every assembled replica count ≥ 1 — an empty image renders a literal `image:` into a committed Deployment, and `replicas: 0` is a working manifest for an app that is not running.
+- **The app name is a path segment.** It originates in a user-supplied repository name and reaches `os.RemoveAll` in a repository holding the whole fleet's manifests. It is validated as a DNS-1123 label (which Kubernetes requires of the namespace anyway) at assembly AND again inside the ResourceAccess, before any filesystem call.
+- **A self-managed → tenant downgrade is refused at publish.** D8's three guards (`prune: false`, the omitted finalizer, `Withdraw`'s refusal) all derive from ONE boolean, so a publish arriving with `SelfManaged` false for a path where a self-managed `Application` already sits would rewrite it in tenant shape and disarm all three in a single commit. The previously committed `Application` is already in the clone: if it is self-managed — or its syncPolicy shape cannot be determined — and the incoming desired state is not, publish refuses. This is the fourth guard, and the only one not derived from the same fact as the other three.
+
 ### 5.4 Fleet re-render
 
 D3's accepted cost. Because publish is content-idempotent, the reconcile tick can re-render and republish only when content differs — the fleet converges on a renderer change without a separate migration mechanism. Out of scope for this slice (one app), but the property is why D3 is affordable.
@@ -214,6 +223,13 @@ cloud-node-external              neutral   external services
 A strict binary applied naively would paint the architect's laptop, their browser, and the gtd namespace red. **Only nodes the renderer actually emits resources for may take a colour**; everything else — including the whole `test` and `local` environments — renders neutral.
 
 **States** (D10): `Healthy` → green; `Progressing`/`Degraded`/`Missing`/`Suspended`/`Unknown` → red; not in the resource set → neutral.
+
+**Two things `status.resources[]` does not say, and how each is read.** Both were getting the join wrong in the direction of red:
+
+- **The `Application` never lists itself.** That list is what the Application manages, not what it is, so joining the rendered Application against it hit the fail-closed no-match rule on every read and painted the app's namespace node permanently red. The Application is the thing *reporting*: its model key takes its own app-level `status.health.status` — the same value `getApplicationHealth` returns.
+- **A resource with no `health` field is not an unhealthy resource.** Argo reports health only for kinds it has a checker for; `SecurityPolicy`, `BackendTrafficPolicy` and `KeycloakRealmImport` have none and appear with a sync status and no health at all. Presence in the resource set is the only verdict available for those kinds, and it means they synced. **Absent from the list entirely stays Degraded** — that is the genuinely different fact (the renderer emitted an object the cluster does not have) and remains the fail-closed rule.
+
+**Several resources can answer to one model key** (the gateway node collects four `HTTPRoute`s, four `BackendTrafficPolicy`s and a `SecurityPolicy`), and the worst status wins — never whichever happened to be rendered last.
 
 ---
 
@@ -273,3 +289,4 @@ Each is its own follow-up, not a gap in this design:
 - **Tenant namespace guardrails** — PodSecurity, ResourceQuota, NetworkPolicy, Argo `AppProject` sandbox. Required before any non-archistrator app deploys.
 - **Automated image-tag promotion** — still manual, as the current `archistrator-server.yaml` annotation notes; the renderer now owns the tag, so promotion becomes a question of what feeds it.
 - **Fleet re-render on renderer change** — the mechanism is free (§5.4) but untested with one app.
+- **Operator scale and autoscaler-policy publishes** — both are rejected by name at the operations façade and disabled in the console. Desired state is assembled from the deployment model plus the deployable bundle, and neither patch kind carries either; replicas come from the model, so an operator override needs a real replica-override input threaded through assembly. That is the same missing seam that keeps autoscale-pause and delinquency-pause from publishing anything, and it is one follow-up, not two.

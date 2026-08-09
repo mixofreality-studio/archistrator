@@ -1559,7 +1559,34 @@ Run the renderer against archistrator's real project state and diff the output a
 
 - [ ] **Step 2: Register archistrator as an operated app**
 
-Call `RegisterOperatedApp` with archistrator's project id and its current GHCR image tags as the bundle ref. Confirm the head-state row exists with a non-empty `deployable_bundle_ref`.
+Two inputs are easy to get wrong; both are corrected here from the original draft.
+
+**The operated app id is DERIVED, not chosen** (spec D13). It is `uuidv5(namespace fa098c85-58b6-483e-8506-36045a008da7, projectId)`, realized once in `server/cmd/server/hooks.go`'s `OperatedAppIDForProject`. For `archistrator` that is:
+
+```
+b663aadc-9cc3-5069-b2bb-d360de9c6a10
+```
+
+Read it from the running server rather than trusting this document:
+
+```bash
+curl -s https://archistrator.capture-gtd.com/api/v1/projects/archistrator/operated-app-id
+# {"operatedAppId":"b663aadc-9cc3-5069-b2bb-d360de9c6a10"}
+```
+
+The composition root **refuses** a registration whose id is not the derived one, so a mistyped id fails loudly instead of creating a head-state row nothing can ever address again. This same id is what the Operations console URL takes (`/operations/<operatedAppId>`) and what the deployment diagram's health overlay polls.
+
+**The bundle ref is a content address, not an image tag.** `deployableBundleRef` is passed to `artifactAccess.retrieveConstructionOutput`, which resolves it to the bundle's bytes; those bytes must be a JSON object of exactly the shape assembly reads:
+
+```json
+{"serverImage":"ghcr.io/…/archistrator-server:0.8.16","webAppImage":"ghcr.io/…/archistrator-webapp:0.6.14"}
+```
+
+So Step 2 is really two acts: **store that JSON as a construction output, take the content address it returns, and register THAT**. Registering a bare image tag as the ref leaves the deploy in Step 3 failing at retrieval, and an empty or unrelated payload now fails loudly at assembly (`deployable bundle carries no serverImage`) rather than committing a Deployment with an empty `image:`.
+
+Confirm afterwards that the head-state row exists with a non-empty `deployable_bundle_ref`.
+
+**Scale and Update-autoscaler-policy are not part of this cutover.** Both are rejected by the operations façade and disabled in the console (spec §11) — desired state is assembled from the deployment model plus the bundle, and neither patch carries either. Deploy is the only publish.
 
 - [ ] **Step 3: Parallel publish**
 
@@ -1575,13 +1602,30 @@ In the software repo, delete the four `k8s/argocd/applications/archistrator-*.ya
 
 - [ ] **Step 5: Verify**
 
-Confirm the console shows healthy, the deployment diagram shows green on the server deployment, and archistrator is still reachable at `archistrator.capture-gtd.com`.
+Confirm archistrator is still reachable at `archistrator.capture-gtd.com` and the console shows healthy. Then open the Deployment & Operations Model page on the **cloud** environment and read the overlay against these expectations (the health join was corrected on 2026-08-08; before that fix two of these would have been red on a perfectly healthy cluster):
+
+| Node | Expected once settled | Why |
+|---|---|---|
+| `cloud-node-server-deployment` | green | Deployment + Service, both health-checked by Argo |
+| `cloud-infra-static-assets` | green | the webapp Deployment + Service |
+| `cloud-infra-operatedsystemstate` / `-billingstate` / `-usagelog` | green | all three colour from the ONE CNPG `Cluster` |
+| `cloud-infra-gateway` | green | HTTPRoutes + Envoy policies; several objects answer to this one key and the WORST wins, so any degraded route shows here |
+| `cloud-infra-keycloak` | green | the `KeycloakRealmImport` — Argo has no health check for the kind, so its presence in the resource set is the verdict |
+| `cloud-node-ns-archistrator` | green | the Argo `Application`'s OWN rollup (an Application never lists itself among its resources) |
+| `cloud-node-architect-machine`, `cloud-node-browser`, `cloud-node-ns-temporal`, `cloud-node-ns-gtd`, `cloud-node-external` | neutral | archistrator does not deploy them |
+| every node on the `test` and `local` environments | neutral | not observable at all |
+
+Red on the first read is expected while the rollout settles (D10 has no amber: `Progressing` reads red). Red that persists after a couple of minutes is real — go to Step 6.
+
+A node that is **neutral when the table says green** means the model key the renderer stamps no longer matches the diagram node's key — a rename in the deployment model, not a cluster problem.
 
 - [ ] **Step 6: Rollback if needed**
 
 `git revert` the software repo commit and click Sync. Because `prune: false` is set on archistrator's own Application — and Task 5 additionally omits the Argo finalizer when `SelfManaged`, and Task 7 hard-guards `Withdraw` against it — a bad render cannot have deleted anything. The worst case is an unapplied change.
 
 Those three guards exist because they cover three genuinely different paths to the same outcome: a renderer that omits a manifest, a delete or rename of the Application object, and an operator clicking Withdraw. Any one of them alone leaves a hole.
+
+A **fourth** guard covers the path the other three cannot: all three derive from the single `SelfManaged` boolean, so a publish arriving with it false would rewrite archistrator's own Application in tenant shape — `prune: true`, `selfHeal: true`, finalizer restored — and disarm all three in one commit. `gitOpsPublish` now refuses to overwrite a committed self-managed Application with a tenant-shaped one (or with one whose shape it cannot determine). If you ever see that refusal during cutover, do NOT work around it: it means the desired state being published does not believe archistrator is self-managed, and publishing it would arm the cluster to prune the control plane.
 
 ---
 
