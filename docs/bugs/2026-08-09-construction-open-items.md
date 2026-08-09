@@ -163,11 +163,22 @@ Branch `finish-construction`, 17 tasks, plan `docs/superpowers/specs/2026-08-09-
   exact-matched `ActivityItem.ComponentID` (the construction-dispatch-componentid work). The gate
   and the pump diverged when dispatch moved off the fuzzy join, and a Stage-2 gate rewrite to
   align it with the authored `componentId` is still pending.
+- **`server/aiarch-state-mcp` is a committed binary** — still open. It's built from
+  `cmd/aiarch-state-mcp` and checked into git rather than built on demand or `go install`ed from a
+  pin (the way CI does it — see `.github/workflows/aiarch-construct.yml` /
+  `aiarch-design.yml`); it silently drifts stale whenever a contract type changes (the
+  finish-construction fix wave found it hard-failing to decode the current `project.json` on a
+  `timeEvent` wire name it predated) and gives no signal that it needs a rebuild. Earmarked to
+  either rebuild-and-commit it as a required step whenever the wire schema changes, or better,
+  stop committing it entirely and have local tooling `go build`/`go install` it on demand the way
+  CI already does.
 
 ### Final gate run
 
 Full gate run 2026-08-09 recorded in `.testingState.testRuns`
 (`TR-2026-08-09-FINISH-CONSTRUCTION-FULL-SUITE`): 23 gates across server/webApp/systemtests, all
 green after one fix-forward (systemtests `gen-check` drift — `STP-UC3-H2` and the `STP-UC4`
-`DesiredStateChange` fixture fields, predating this branch, regenerated). Full gate table in
-`.superpowers/sdd/2026-08-09-finish-construction/task-17-report.md`.
+`DesiredStateChange` fixture fields, predating this branch, regenerated). Full gate table lives in
+`.testingState.testRuns` in `project.json` (committed) — the standalone report at
+`.superpowers/sdd/2026-08-09-finish-construction/task-17-report.md` is gitignored/untracked
+scratch, not the source of record.
