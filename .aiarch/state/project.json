@@ -951,9 +951,10 @@
       ],
       "revisions": 1,
       "staleBasisCause": {
-        "upstreamKind": "system",
+        "upstreamKind": "activityList",
         "upstreamRevision": 2
-      }
+      },
+      "staleBasis": true
     },
     "11": {
       "status": 2,
@@ -1027,9 +1028,10 @@
       ],
       "revisions": 1,
       "staleBasisCause": {
-        "upstreamKind": "system",
+        "upstreamKind": "activityList",
         "upstreamRevision": 2
-      }
+      },
+      "staleBasis": true
     },
     "12": {
       "status": 2,
@@ -1103,9 +1105,10 @@
       ],
       "revisions": 1,
       "staleBasisCause": {
-        "upstreamKind": "system",
+        "upstreamKind": "activityList",
         "upstreamRevision": 2
-      }
+      },
+      "staleBasis": true
     },
     "13": {
       "status": 2,
@@ -1179,9 +1182,10 @@
       ],
       "revisions": 1,
       "staleBasisCause": {
-        "upstreamKind": "system",
+        "upstreamKind": "activityList",
         "upstreamRevision": 2
-      }
+      },
+      "staleBasis": true
     },
     "14": {
       "status": 2,
@@ -1255,9 +1259,10 @@
       ],
       "revisions": 1,
       "staleBasisCause": {
-        "upstreamKind": "system",
+        "upstreamKind": "activityList",
         "upstreamRevision": 2
-      }
+      },
+      "staleBasis": true
     },
     "15": {
       "status": 2,
@@ -1350,9 +1355,10 @@
       ],
       "revisions": 1,
       "staleBasisCause": {
-        "upstreamKind": "system",
+        "upstreamKind": "activityList",
         "upstreamRevision": 2
-      }
+      },
+      "staleBasis": true
     },
     "16": {
       "status": 2,
@@ -1467,9 +1473,10 @@
       ],
       "revisions": 1,
       "staleBasisCause": {
-        "upstreamKind": "system",
+        "upstreamKind": "activityList",
         "upstreamRevision": 2
-      }
+      },
+      "staleBasis": true
     },
     "2": {
       "status": 2,
@@ -9904,7 +9911,8 @@
             "workerClass": "junior-developer",
             "coding": true,
             "riskBucket": 5,
-            "title": "Build Web Client (Go client layer — generated REST handlers + OAS; design folded in)"
+            "title": "Build Web Client (Go client layer — generated REST handlers + OAS; design folded in)",
+            "componentId": "web-client"
           },
           {
             "name": "U-SPA-S",
@@ -9912,7 +9920,8 @@
             "workerClass": "junior-developer",
             "coding": true,
             "riskBucket": 3,
-            "title": "SPA scaffold + auth wiring + design system"
+            "title": "SPA scaffold + auth wiring + design system",
+            "componentId": "web-client"
           },
           {
             "name": "U-SPA-1",
@@ -9920,7 +9929,8 @@
             "workerClass": "junior-developer",
             "coding": true,
             "riskBucket": 5,
-            "title": "SPA — Phase-1 system-design screens (architect persona; React-Flow C4 + volatility scatter + activity diagrams + co-author gate)"
+            "title": "SPA — Phase-1 system-design screens (architect persona; React-Flow C4 + volatility scatter + activity diagrams + co-author gate)",
+            "componentId": "web-client"
           },
           {
             "name": "U-SPA-2",
@@ -9928,7 +9938,8 @@
             "workerClass": "junior-developer",
             "coding": true,
             "riskBucket": 5,
-            "title": "SPA — Phase-2 project-design screens (architect persona)"
+            "title": "SPA — Phase-2 project-design screens (architect persona)",
+            "componentId": "web-client"
           },
           {
             "name": "U-SPA-3",
@@ -9936,7 +9947,8 @@
             "workerClass": "junior-developer",
             "coding": true,
             "riskBucket": 5,
-            "title": "SPA — Construction tracking + artifacts console (architect persona)"
+            "title": "SPA — Construction tracking + artifacts console (architect persona)",
+            "componentId": "web-client"
           },
           {
             "name": "U-SPA-4",
@@ -9944,7 +9956,8 @@
             "workerClass": "junior-developer",
             "coding": true,
             "riskBucket": 5,
-            "title": "SPA — Operations console (customer + operator personas)"
+            "title": "SPA — Operations console (customer + operator personas)",
+            "componentId": "web-client"
           },
           {
             "name": "U-SPA-5",
@@ -9952,7 +9965,8 @@
             "workerClass": "junior-developer",
             "coding": true,
             "riskBucket": 3,
-            "title": "SPA — Billing screens (customer + operator personas)"
+            "title": "SPA — Billing screens (customer + operator personas)",
+            "componentId": "web-client"
           },
           {
             "name": "U-SPA-6",
@@ -9960,7 +9974,8 @@
             "workerClass": "junior-developer",
             "coding": true,
             "riskBucket": 3,
-            "title": "SPA — change-request → subproject flow (Method re-entry)"
+            "title": "SPA — change-request → subproject flow (Method re-entry)",
+            "componentId": "web-client"
           },
           {
             "name": "U-SPA-TEAM",
@@ -9968,7 +9983,8 @@
             "workerClass": "junior-developer",
             "coding": true,
             "riskBucket": 2,
-            "title": "SPA — Team / Agents roster view (Method roles, charters + read-only prompts)"
+            "title": "SPA — Team / Agents roster view (Method roles, charters + read-only prompts)",
+            "componentId": "web-client"
           },
           {
             "name": "C-CM",
@@ -9976,7 +9992,8 @@
             "workerClass": "junior-developer",
             "coding": true,
             "riskBucket": 5,
-            "title": "Build MCP Client"
+            "title": "Build MCP Client",
+            "componentId": "mcp-client"
           },
           {
             "name": "C-CS",
@@ -9984,7 +10001,8 @@
             "workerClass": "junior-developer",
             "coding": true,
             "riskBucket": 3,
-            "title": "Build Scheduler Client"
+            "title": "Build Scheduler Client",
+            "componentId": "scheduler-client"
           },
           {
             "name": "C-MSD",
@@ -9992,7 +10010,8 @@
             "workerClass": "junior-developer",
             "coding": true,
             "riskBucket": 8,
-            "title": "Build System Design Manager"
+            "title": "Build System Design Manager",
+            "componentId": "system-design-manager"
           },
           {
             "name": "C-MPD",
@@ -10000,7 +10019,8 @@
             "workerClass": "junior-developer",
             "coding": true,
             "riskBucket": 8,
-            "title": "Build Project Design Manager"
+            "title": "Build Project Design Manager",
+            "componentId": "project-design-manager"
           },
           {
             "name": "C-MCN",
@@ -10008,7 +10028,8 @@
             "workerClass": "junior-developer",
             "coding": true,
             "riskBucket": 8,
-            "title": "Build Construction Manager"
+            "title": "Build Construction Manager",
+            "componentId": "construction-manager"
           },
           {
             "name": "C-MOP",
@@ -10016,7 +10037,8 @@
             "workerClass": "junior-developer",
             "coding": true,
             "riskBucket": 8,
-            "title": "Build Operations Manager"
+            "title": "Build Operations Manager",
+            "componentId": "operations-manager"
           },
           {
             "name": "C-BM",
@@ -10024,7 +10046,8 @@
             "workerClass": "junior-developer",
             "coding": true,
             "riskBucket": 5,
-            "title": "Build Billing Manager"
+            "title": "Build Billing Manager",
+            "componentId": "billing-manager"
           },
           {
             "name": "C-EE",
@@ -10032,7 +10055,8 @@
             "workerClass": "junior-developer",
             "coding": true,
             "riskBucket": 3,
-            "title": "Build Construction Estimation Engine"
+            "title": "Build Construction Estimation Engine",
+            "componentId": "estimation-engine"
           },
           {
             "name": "C-OE",
@@ -10040,7 +10064,8 @@
             "workerClass": "junior-developer",
             "coding": true,
             "riskBucket": 5,
-            "title": "Build Operation Estimation Engine"
+            "title": "Build Operation Estimation Engine",
+            "componentId": "operation-estimation-engine"
           },
           {
             "name": "C-BE",
@@ -10048,7 +10073,8 @@
             "workerClass": "junior-developer",
             "coding": true,
             "riskBucket": 3,
-            "title": "Build Billing Engine"
+            "title": "Build Billing Engine",
+            "componentId": "billing-engine"
           },
           {
             "name": "C-HE",
@@ -10064,7 +10090,8 @@
             "workerClass": "junior-developer",
             "coding": true,
             "riskBucket": 3,
-            "title": "Build Intervention Engine"
+            "title": "Build Intervention Engine",
+            "componentId": "intervention-engine"
           },
           {
             "name": "C-AE",
@@ -10072,7 +10099,8 @@
             "workerClass": "junior-developer",
             "coding": true,
             "riskBucket": 5,
-            "title": "Build Autoscaler Engine"
+            "title": "Build Autoscaler Engine",
+            "componentId": "autoscaler-engine"
           },
           {
             "name": "C-RE",
@@ -10080,7 +10108,8 @@
             "workerClass": "junior-developer",
             "coding": true,
             "riskBucket": 5,
-            "title": "Build Review Engine (encapsulates ReviewPolicy)"
+            "title": "Build Review Engine (encapsulates ReviewPolicy)",
+            "componentId": "review-engine"
           },
           {
             "name": "C-DH",
@@ -10088,7 +10117,8 @@
             "workerClass": "junior-developer",
             "coding": true,
             "riskBucket": 3,
-            "title": "Build Design Health Engine (Method-rule evaluation over the typed project state; adopted from the platform methodcheck extension — retroactive reconciliation, actuals-derived)"
+            "title": "Build Design Health Engine (Method-rule evaluation over the typed project state; adopted from the platform methodcheck extension — retroactive reconciliation, actuals-derived)",
+            "componentId": "design-health-engine"
           },
           {
             "name": "C-PA",
@@ -10096,7 +10126,8 @@
             "workerClass": "junior-developer",
             "coding": true,
             "riskBucket": 8,
-            "title": "Build Project State Access (git-as-DB head-state + construction-output stage)"
+            "title": "Build Project State Access (git-as-DB head-state + construction-output stage)",
+            "componentId": "project-state-access"
           },
           {
             "name": "C-AA",
@@ -10104,7 +10135,8 @@
             "workerClass": "junior-developer",
             "coding": true,
             "riskBucket": 3,
-            "title": "Build Artifact Access (content-addressed construction outputs in the customer repo; carved out of Project State Access — retroactive reconciliation, actuals-derived)"
+            "title": "Build Artifact Access (content-addressed construction outputs in the customer repo; carved out of Project State Access — retroactive reconciliation, actuals-derived)",
+            "componentId": "artifact-access"
           },
           {
             "name": "C-OSA",
@@ -10112,7 +10144,8 @@
             "workerClass": "junior-developer",
             "coding": true,
             "riskBucket": 5,
-            "title": "Build Operated System State Access"
+            "title": "Build Operated System State Access",
+            "componentId": "operated-system-state-access"
           },
           {
             "name": "C-BS",
@@ -10120,7 +10153,8 @@
             "workerClass": "junior-developer",
             "coding": true,
             "riskBucket": 3,
-            "title": "Build Billing State Access"
+            "title": "Build Billing State Access",
+            "componentId": "billing-state-access"
           },
           {
             "name": "C-WIA",
@@ -10136,7 +10170,8 @@
             "workerClass": "junior-developer",
             "coding": true,
             "riskBucket": 5,
-            "title": "Build Agentic Job Access (venue-neutral agentic job rail — CI venue + local; formerly Build Construction Pipeline Access)"
+            "title": "Build Agentic Job Access (venue-neutral agentic job rail — CI venue + local; formerly Build Construction Pipeline Access)",
+            "componentId": "agentic-job-access"
           },
           {
             "name": "C-OR",
@@ -10144,7 +10179,8 @@
             "workerClass": "junior-developer",
             "coding": true,
             "riskBucket": 8,
-            "title": "Build Operated Runtime Access"
+            "title": "Build Operated Runtime Access",
+            "componentId": "operated-runtime-access"
           },
           {
             "name": "C-UA",
@@ -10152,7 +10188,8 @@
             "workerClass": "junior-developer",
             "coding": true,
             "riskBucket": 3,
-            "title": "Build Usage Access"
+            "title": "Build Usage Access",
+            "componentId": "usage-access"
           },
           {
             "name": "C-BG",
@@ -10160,7 +10197,8 @@
             "workerClass": "junior-developer",
             "coding": true,
             "riskBucket": 3,
-            "title": "Build Merchant Gateway Access (charge-only Stripe Connect settlement gateway; formerly Build Billing Gateway Access)"
+            "title": "Build Merchant Gateway Access (charge-only Stripe Connect settlement gateway; formerly Build Billing Gateway Access)",
+            "componentId": "merchant-gateway-access"
           },
           {
             "name": "C-SC",
@@ -10168,7 +10206,8 @@
             "workerClass": "junior-developer",
             "coding": true,
             "riskBucket": 8,
-            "title": "Build Source Control Access (GitHub App; adopt repo + Actions + PR rail)"
+            "title": "Build Source Control Access (GitHub App; adopt repo + Actions + PR rail)",
+            "componentId": "source-control-access"
           },
           {
             "name": "C-DA",
@@ -10176,7 +10215,8 @@
             "workerClass": "junior-developer",
             "coding": true,
             "riskBucket": 8,
-            "title": "Build Message Bus (Manager→Manager deliverSignal + registerSchedule utility; formerly Build Durable Execution Access)"
+            "title": "Build Message Bus (Manager→Manager deliverSignal + registerSchedule utility; formerly Build Durable Execution Access)",
+            "componentId": "message-bus"
           },
           {
             "name": "C-SE",
@@ -10184,7 +10224,8 @@
             "workerClass": "junior-developer",
             "coding": true,
             "riskBucket": 3,
-            "title": "Build Security utility"
+            "title": "Build Security utility",
+            "componentId": "security"
           },
           {
             "name": "C-LG",
@@ -10192,7 +10233,8 @@
             "workerClass": "junior-developer",
             "coding": true,
             "riskBucket": 2,
-            "title": "Build Logging utility"
+            "title": "Build Logging utility",
+            "componentId": "logging"
           },
           {
             "name": "C-DG",
@@ -10200,7 +10242,8 @@
             "workerClass": "junior-developer",
             "coding": true,
             "riskBucket": 2,
-            "title": "Build Diagnostics utility"
+            "title": "Build Diagnostics utility",
+            "componentId": "diagnostics"
           },
           {
             "name": "R-GH",
@@ -10441,6 +10484,15 @@
             "coding": false,
             "riskBucket": 2,
             "title": "Project planning (this phase + downstream)"
+          },
+          {
+            "name": "C-EA",
+            "effortDays": 10,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 3,
+            "title": "Build Episode Access",
+            "componentId": "episode-access"
           }
         ]
       },
@@ -10470,11 +10522,7 @@
           "addressee": ""
         }
       ],
-      "revisions": 1,
-      "staleBasisCause": {
-        "upstreamKind": "system",
-        "upstreamRevision": 2
-      }
+      "revisions": 2
     }
   },
   "activityConstruction": {
