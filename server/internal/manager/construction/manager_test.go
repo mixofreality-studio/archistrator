@@ -2963,9 +2963,10 @@ func Test_Pump_BlockedActivity_RecordsTerminalFailure(t *testing.T) {
 		Intervention: &fakeIntervention{}, Review: &fakeReview{},
 		NextEligibleActivity: func(_ projectstate.Project) pumpSelection {
 			return pumpSelection{
-				Verdict:           verdictBlocked,
-				BlockedActivityID: "C-TLM",
-				BlockedReason:     reason,
+				Verdict:              verdictBlocked,
+				BlockedActivityID:    "C-TLM",
+				BlockedFailureReason: projectstate.ComponentUnresolved,
+				BlockedReason:        reason,
 			}
 		},
 	})
@@ -3014,6 +3015,119 @@ func Test_Pump_BlockedActivity_RecordsTerminalFailure(t *testing.T) {
 	}
 	if d != (pumpDispatch{Decided: true}) {
 		t.Fatalf("want a decided non-dispatch decision, got %+v", d)
+	}
+}
+
+// Test_Pump_DependencyUnresolved_RecordsDistinctFailureReason proves a dangling
+// dependency id records DependencyUnresolved — a DIFFERENT FailureReason ordinal from
+// ComponentUnresolved (Test_Pump_BlockedActivity_RecordsTerminalFailure above) and from
+// DependencyCycle (below) — asserted on the recorded failure record itself, not just a
+// log line. Mirrors Test_Pump_BlockedActivity_RecordsTerminalFailure's shape, wired
+// through nextEligibleActivity's real dependency-defect classification instead of a
+// hand-built pumpSelection, so it also exercises resolveDependencySatisfied end to end.
+func Test_Pump_DependencyUnresolved_RecordsDistinctFailureReason(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	pid := ProjectID(uuid.NewString())
+	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}}
+	wf := newWorkflows(wfDeps{
+		Intervention:         &fakeIntervention{},
+		Review:               &fakeReview{},
+		NextEligibleActivity: nextEligibleActivity,
+	})
+	registerPump(env, wf, ps, &fakePipeline{phase: PipelineSucceeded})
+
+	proj := projectstate.Project{
+		Phase: projectstate.PhaseConstruction,
+		Network: makeCommittedNetworkWithMilestones(
+			[]projectstate.NetworkDependency{
+				{Activity: "N-DOC", DependsOn: []string{"M-GHOST"}},
+			},
+			nil,
+		),
+		ActivityList: makeCommittedActivityList([]projectstate.ActivityItem{
+			{Name: "N-DOC", Coding: false},
+		}),
+		SystemDesign: makeCommittedSystemDesign(nil),
+	}
+	ps.project.Network = proj.Network
+	ps.project.ActivityList = proj.ActivityList
+	ps.project.SystemDesign = proj.SystemDesign
+
+	env.ExecuteWorkflow(executionKindPump, pumpInput{ProjectID: pid})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a blocked activity must not fail the workflow, got %v", err)
+	}
+	if len(ps.failed) != 1 {
+		t.Fatalf("want exactly one failure record, got %v", ps.failed)
+	}
+	got := ps.failed[0]
+	if got.activityID != "N-DOC" {
+		t.Fatalf("want failure recorded against N-DOC, got %+v", got)
+	}
+	if got.reason != projectstate.DependencyUnresolved {
+		t.Fatalf("want DependencyUnresolved, got %v", got.reason)
+	}
+	if !strings.Contains(got.detail, "M-GHOST") {
+		t.Fatalf("failure detail must name the dangling id, got %q", got.detail)
+	}
+}
+
+// Test_Pump_DependencyCycle_RecordsDistinctFailureReason proves a milestone dependency
+// cycle records DependencyCycle — distinct from both ComponentUnresolved and
+// DependencyUnresolved — asserted on the recorded failure record.
+func Test_Pump_DependencyCycle_RecordsDistinctFailureReason(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	pid := ProjectID(uuid.NewString())
+	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}}
+	wf := newWorkflows(wfDeps{
+		Intervention:         &fakeIntervention{},
+		Review:               &fakeReview{},
+		NextEligibleActivity: nextEligibleActivity,
+	})
+	registerPump(env, wf, ps, &fakePipeline{phase: PipelineSucceeded})
+
+	proj := projectstate.Project{
+		Phase: projectstate.PhaseConstruction,
+		Network: makeCommittedNetworkWithMilestones(
+			[]projectstate.NetworkDependency{
+				{Activity: "N-DOC", DependsOn: []string{"M-X"}},
+			},
+			[]projectstate.NetworkMilestone{
+				{ID: "M-X", Name: "M-X", DependsOn: []string{"M-Y"}},
+				{ID: "M-Y", Name: "M-Y", DependsOn: []string{"M-X"}},
+			},
+		),
+		ActivityList: makeCommittedActivityList([]projectstate.ActivityItem{
+			{Name: "N-DOC", Coding: false},
+		}),
+		SystemDesign: makeCommittedSystemDesign(nil),
+	}
+	ps.project.Network = proj.Network
+	ps.project.ActivityList = proj.ActivityList
+	ps.project.SystemDesign = proj.SystemDesign
+
+	env.ExecuteWorkflow(executionKindPump, pumpInput{ProjectID: pid})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a blocked activity must not fail the workflow, got %v", err)
+	}
+	if len(ps.failed) != 1 {
+		t.Fatalf("want exactly one failure record, got %v", ps.failed)
+	}
+	got := ps.failed[0]
+	if got.activityID != "N-DOC" {
+		t.Fatalf("want failure recorded against N-DOC, got %+v", got)
+	}
+	if got.reason != projectstate.DependencyCycle {
+		t.Fatalf("want DependencyCycle, got %v", got.reason)
+	}
+	if !strings.Contains(got.detail, "cycle") {
+		t.Fatalf("failure detail must call out the cycle, got %q", got.detail)
 	}
 }
 

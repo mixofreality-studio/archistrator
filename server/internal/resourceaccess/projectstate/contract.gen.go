@@ -400,6 +400,8 @@ const (
 	VarianceExhausted    FailureReason = 4
 	EscalationTimedOut   FailureReason = 5
 	ComponentUnresolved  FailureReason = 6
+	DependencyUnresolved FailureReason = 7
+	DependencyCycle      FailureReason = 8
 )
 
 type Glossary struct {

@@ -299,13 +299,15 @@ type EvPoint struct {
 type FailureReason int
 
 const (
-	FailureReasonUnknown             FailureReason = 0
-	FailureReasonPipelineFailed      FailureReason = 1
-	FailureReasonPipelineCancelled   FailureReason = 2
-	FailureReasonPipelineTimedOut    FailureReason = 3
-	FailureReasonVarianceExhausted   FailureReason = 4
-	FailureReasonEscalationTimedOut  FailureReason = 5
-	FailureReasonComponentUnresolved FailureReason = 6
+	FailureReasonUnknown              FailureReason = 0
+	FailureReasonPipelineFailed       FailureReason = 1
+	FailureReasonPipelineCancelled    FailureReason = 2
+	FailureReasonPipelineTimedOut     FailureReason = 3
+	FailureReasonVarianceExhausted    FailureReason = 4
+	FailureReasonEscalationTimedOut   FailureReason = 5
+	FailureReasonComponentUnresolved  FailureReason = 6
+	FailureReasonDependencyUnresolved FailureReason = 7
+	FailureReasonDependencyCycle      FailureReason = 8
 )
 
 type Finding struct {

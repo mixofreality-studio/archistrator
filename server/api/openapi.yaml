@@ -3320,6 +3320,8 @@ components:
                 - 4
                 - 5
                 - 6
+                - 7
+                - 8
             type: integer
             x-enum-varnames:
                 - FailureReasonUnknown
@@ -3329,6 +3331,8 @@ components:
                 - FailureReasonVarianceExhausted
                 - FailureReasonEscalationTimedOut
                 - FailureReasonComponentUnresolved
+                - FailureReasonDependencyUnresolved
+                - FailureReasonDependencyCycle
             x-go-base: int
         SystemDesignFinding:
             additionalProperties: false

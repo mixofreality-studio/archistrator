@@ -184,13 +184,15 @@ type EvPoint struct {
 type FailureReason int
 
 const (
-	FailureReasonUnknown             FailureReason = 0
-	FailureReasonPipelineFailed      FailureReason = 1
-	FailureReasonPipelineCancelled   FailureReason = 2
-	FailureReasonPipelineTimedOut    FailureReason = 3
-	FailureReasonVarianceExhausted   FailureReason = 4
-	FailureReasonEscalationTimedOut  FailureReason = 5
-	FailureReasonComponentUnresolved FailureReason = 6
+	FailureReasonUnknown              FailureReason = 0
+	FailureReasonPipelineFailed       FailureReason = 1
+	FailureReasonPipelineCancelled    FailureReason = 2
+	FailureReasonPipelineTimedOut     FailureReason = 3
+	FailureReasonVarianceExhausted    FailureReason = 4
+	FailureReasonEscalationTimedOut   FailureReason = 5
+	FailureReasonComponentUnresolved  FailureReason = 6
+	FailureReasonDependencyUnresolved FailureReason = 7
+	FailureReasonDependencyCycle      FailureReason = 8
 )
 
 type GoField struct {
@@ -494,6 +496,10 @@ func FailureReasonName(v FailureReason) string {
 		return "FailureReasonEscalationTimedOut"
 	case FailureReasonComponentUnresolved:
 		return "FailureReasonComponentUnresolved"
+	case FailureReasonDependencyUnresolved:
+		return "FailureReasonDependencyUnresolved"
+	case FailureReasonDependencyCycle:
+		return "FailureReasonDependencyCycle"
 	default:
 		return ""
 	}

@@ -6670,7 +6670,20 @@ func (p ActivityConstructionPhase) String() string {
 // authored componentId names no component in the committed systemDesign. A plan
 // defect, terminal until a human amends the activity list — deliberately NOT routed
 // through the interventionEngine, which adjudicates variance for work legitimately
-// in flight.
+// in flight. Reserved for the componentId case; a dependency-graph defect on the
+// same activity is DependencyUnresolved or DependencyCycle instead.
+
+// DependencyUnresolved — an eligible activity could not be dispatched because one
+// of its dependency ids names neither an activity in the committed activity list
+// nor a milestone in the committed network. A dangling reference. FailureDetail
+// carries the activity and the dangling id. Repair: fix the id, or author the
+// missing node. Same terminal/non-intervention treatment as ComponentUnresolved.
+
+// DependencyCycle — an eligible activity could not be dispatched because
+// dependency resolution found a cycle through activities/milestones. Every id
+// resolves; the topology is wrong. FailureDetail carries the cycle path. Repair:
+// break the cycle by removing an edge. Same terminal/non-intervention treatment
+// as ComponentUnresolved.
 
 // String returns the canonical wire name for the failure reason.
 func (r FailureReason) String() string {
@@ -6687,10 +6700,14 @@ func (r FailureReason) String() string {
 		return "escalationTimedOut"
 	case ComponentUnresolved:
 		return "componentUnresolved"
+	case DependencyUnresolved:
+		return "dependencyUnresolved"
+	case DependencyCycle:
+		return "dependencyCycle"
 	case FailureReasonUnknown:
 		return "unknown"
 	}
-	// Unreachable for the seven defined FailureReason values above (the exhaustive
+	// Unreachable for the nine defined FailureReason values above (the exhaustive
 	// linter enforces that every real variant has its own case); kept as a
 	// defensive fallback for an out-of-range ordinal.
 	return "unknown"

@@ -85,26 +85,22 @@ func (wf *workflows) PumpNextActivityWorkflow(ctx workflow.Context, in pumpInput
 		// being eliminated — a warning buried in a serve log is how this defect consumed
 		// an entire benchmark run undetected — so the escalation is the HEAD-STATE
 		// record: ActivityConstructionFailed is sticky via CoarsePhaseFor, so the
-		// operator sees a red node carrying ComponentUnresolved and the reason. NOT a
+		// operator sees a red node carrying its FailureReason and the reason. NOT a
 		// returned workflow error: a failed Temporal execution is invisible in the
 		// console. Recording the terminal also takes the activity out of NotStarted, so
 		// the next scheduled tick considers the rest of the network instead of
 		// re-blocking on this one. An empty credential is correct for the local store;
 		// the git adapter mints just-in-time (same as the supervision pause path).
 		//
-		// verdictBlocked now also covers a SIBLING plan defect surfaced by
+		// verdictBlocked also covers two SIBLING plan defects surfaced by
 		// nextEligibleActivity: an authored dependency id (network.dependencies[].dependsOn)
-		// that names neither a known activity nor a known milestone, or a milestone
-		// dependency cycle — see resolveDependencySatisfied in constructionmanager.go.
-		// Both defect classes are recorded through the SAME ComponentUnresolved
-		// FailureReason bucket deliberately: it is the only existing "authored id does
-		// not resolve, terminal until a human amends the plan" ordinal, and minting a
-		// dedicated one requires authoring it in .aiarch/state/project.json (the
-		// enum's source of truth per c59c7b3) plus a cross-repo regen — out of reach
-		// here. sel.BlockedReason (the `detail` field below) always states the TRUE
-		// cause in full, so the operator is never actually misled — only the closed
-		// wire `reason` enum is coarser than ideal. Earmark: a dedicated
-		// DependencyUnresolved ordinal once schema authoring is unblocked.
+		// that names neither a known activity nor a known milestone (DependencyUnresolved),
+		// or a milestone dependency cycle (DependencyCycle) — see resolveDependencySatisfied
+		// in constructionmanager.go. Each defect class is recorded through its OWN
+		// FailureReason variant — sel.BlockedFailureReason, set by nextEligibleActivity at
+		// the point the defect is classified — per the ruling that one FailureReason variant
+		// covers one repair class; FailureDetail (sel.BlockedReason below) discriminates
+		// instances WITHIN a class (which id, which cycle path), never between classes.
 		logger.Error("construction pump: activity cannot be dispatched",
 			"projectId", string(in.ProjectID),
 			"activityId", sel.BlockedActivityID,
@@ -112,7 +108,7 @@ func (wf *workflows) PumpNextActivityWorkflow(ctx workflow.Context, in pumpInput
 		if _, ferr := wf.applyRecovering(ctx, in.ProjectID, proj.Version, func(expected projectstate.Version) (projectstate.Version, error) {
 			return wf.Acts.ConstructionTransitionRecordActivityFailed(
 				ctx, projectstate.ProjectID(in.ProjectID), expected,
-				sel.BlockedActivityID, projectstate.ComponentUnresolved, sel.BlockedReason,
+				sel.BlockedActivityID, sel.BlockedFailureReason, sel.BlockedReason,
 				railCredEnvelope{}.toProjectState())
 		}); ferr != nil {
 			return PumpResult{}, ferr

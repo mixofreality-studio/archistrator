@@ -6135,12 +6135,31 @@ func TestActivityBuildStatus_String(t *testing.T) {
 // pump cannot dispatch an eligible activity because its authored componentId names no
 // component in the committed systemDesign. Its wire name is what the console renders,
 // so it is pinned here alongside the load-bearing ordinals of its predecessors.
+//
+// DependencyUnresolved (ordinal 7) and DependencyCycle (ordinal 8) are the sibling
+// dependency-graph FailureReason variants minted in c2c33ab: a dangling dependency id
+// (names neither an authored activity nor an authored milestone) vs. a dependency
+// cycle (every id resolves; the topology is broken). Pinned here too, alongside every
+// pre-existing ordinal, so a reordering of the whole enum fails loudly — the persisted
+// ordinals are load-bearing: every failure record already on disk decodes through them.
 func TestFailureReason_ComponentUnresolvedWireName(t *testing.T) {
 	if got := ComponentUnresolved.String(); got != "componentUnresolved" {
 		t.Fatalf("want componentUnresolved, got %q", got)
 	}
 	if ComponentUnresolved != 6 {
 		t.Fatalf("ComponentUnresolved must be ordinal 6, got %d", ComponentUnresolved)
+	}
+	if got := DependencyUnresolved.String(); got != "dependencyUnresolved" {
+		t.Fatalf("want dependencyUnresolved, got %q", got)
+	}
+	if DependencyUnresolved != 7 {
+		t.Fatalf("DependencyUnresolved must be ordinal 7, got %d", DependencyUnresolved)
+	}
+	if got := DependencyCycle.String(); got != "dependencyCycle" {
+		t.Fatalf("want dependencyCycle, got %q", got)
+	}
+	if DependencyCycle != 8 {
+		t.Fatalf("DependencyCycle must be ordinal 8, got %d", DependencyCycle)
 	}
 	// The persisted ordinals of the pre-existing variants are load-bearing: every
 	// failure record already on disk decodes through them.

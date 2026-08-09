@@ -743,13 +743,18 @@ const (
 )
 
 // pumpSelection carries the verdict plus whichever payload it implies: the hydrated
-// activity on verdictDispatch, the offending id + operator-facing reason on
-// verdictBlocked, nothing on verdictQuiescent.
+// activity on verdictDispatch, the offending id + operator-facing reason + the
+// discriminating FailureReason on verdictBlocked, nothing on verdictQuiescent.
+// BlockedFailureReason picks the repair CLASS (componentId vs. dangling dependency
+// id vs. dependency cycle); BlockedReason is the human-readable detail WITHIN that
+// class — the governing rule is one variant per repair class, detail discriminates
+// instances, never classes.
 type pumpSelection struct {
-	Activity          constructionActivity
-	Verdict           pumpVerdict
-	BlockedActivityID string
-	BlockedReason     string
+	Activity             constructionActivity
+	Verdict              pumpVerdict
+	BlockedActivityID    string
+	BlockedReason        string
+	BlockedFailureReason projectstate.FailureReason
 }
 
 // nextEligibleActivity resolves the next eligible construction activity for a project
@@ -787,8 +792,8 @@ func nextEligibleActivity(proj projectstate.Project) pumpSelection {
 		activity string
 	}
 	var candidates []candidate
-	// problemActivityID/problemReason capture the FIRST authored-dependency defect
-	// (an id naming neither an activity nor a milestone, or a milestone cycle)
+	// problemActivityID/problemReason/problemKind capture the FIRST authored-dependency
+	// defect (an id naming neither an activity nor a milestone, or a milestone cycle)
 	// encountered while scanning in declaration order — deterministic, since
 	// activityList.Activities is an authored slice, never a map. It is used ONLY as
 	// a fallback explanation when nothing else is eligible this tick (below): a
@@ -797,6 +802,7 @@ func nextEligibleActivity(proj projectstate.Project) pumpSelection {
 	// ordinary quiet tick must not go unreported — that silent-quiescent disguise is
 	// exactly the failure mode this change closes for milestone dependencies.
 	var problemActivityID, problemReason string
+	var problemKind projectstate.FailureReason
 	for i, item := range activityList.Activities {
 		name := item.Name
 		if !isActivityNotStarted(name, proj.ActivityConstruction) {
@@ -805,7 +811,7 @@ func nextEligibleActivity(proj projectstate.Project) pumpSelection {
 		res := allDepsSatisfied(depsByActivity[name], activityNames, proj.ActivityConstruction, milestones)
 		if res.problemReason != "" {
 			if problemReason == "" {
-				problemActivityID, problemReason = name, res.problemReason
+				problemActivityID, problemReason, problemKind = name, res.problemReason, res.problemKind
 			}
 			continue
 		}
@@ -817,8 +823,9 @@ func nextEligibleActivity(proj projectstate.Project) pumpSelection {
 	if len(candidates) == 0 {
 		if problemReason != "" {
 			return pumpSelection{
-				Verdict:           verdictBlocked,
-				BlockedActivityID: problemActivityID,
+				Verdict:              verdictBlocked,
+				BlockedActivityID:    problemActivityID,
+				BlockedFailureReason: problemKind,
 				BlockedReason: fmt.Sprintf(
 					"activity %s: %s — amend the committed network", problemActivityID, problemReason),
 			}
@@ -845,8 +852,9 @@ func nextEligibleActivity(proj projectstate.Project) pumpSelection {
 		comp = lookupComponent(proj, item.ComponentID)
 		if comp == nil {
 			return pumpSelection{
-				Verdict:           verdictBlocked,
-				BlockedActivityID: chosen,
+				Verdict:              verdictBlocked,
+				BlockedActivityID:    chosen,
+				BlockedFailureReason: projectstate.ComponentUnresolved,
 				BlockedReason: fmt.Sprintf(
 					"activity %s names component %q, which is not in the committed systemDesign — amend the committed activityList",
 					chosen, item.ComponentID),
@@ -926,10 +934,14 @@ func milestonesByID(network *projectstate.Network) map[string]projectstate.Netwo
 // (non-empty) the instant resolution meets a genuine plan-authoring defect — an id
 // naming neither an activity nor a milestone, or a milestone dependency cycle — and
 // is propagated unchanged back up through every enclosing recursive frame, so the
-// caller always reports the FIRST defect actually encountered.
+// caller always reports the FIRST defect actually encountered. problemKind
+// discriminates the two defect CLASSES (projectstate.DependencyUnresolved for a
+// dangling id, projectstate.DependencyCycle for a cycle) — the repair-class choice
+// per the FailureReason ruling; problemReason stays free text WITHIN that class.
 type depResolution struct {
 	satisfied     bool
 	problemReason string
+	problemKind   projectstate.FailureReason
 }
 
 // resolveDependencySatisfied resolves whether one dependency id is satisfied.
@@ -944,16 +956,22 @@ type depResolution struct {
 //     recursively, satisfied. A milestone with no DependsOn (the project-start gate)
 //     is satisfied.
 //   - Names NEITHER — a genuine authored-network defect — is surfaced via
-//     problemReason rather than silently folded into "not satisfied"; see the R4-style
-//     ComponentUnresolved precedent this mirrors (constructionmanager.go's
-//     nextEligibleActivity componentId check / pumpnextactivity.go verdictBlocked).
+//     problemReason/problemKind (projectstate.DependencyUnresolved) rather than
+//     silently folded into "not satisfied"; the same loud-terminal treatment as the
+//     R4-style ComponentUnresolved precedent this mirrors (constructionmanager.go's
+//     nextEligibleActivity componentId check / pumpnextactivity.go verdictBlocked),
+//     but its OWN FailureReason variant — dangling reference is a different repair
+//     class from an unresolved componentId, even though both escalate the same way.
 //
 // visiting is the set of milestone ids currently on THIS call's recursion stack.
 // Re-entering an id already in it is a cycle in the authored network — reported as a
-// problem instead of recursing forever: an authored cycle is a real possibility (this
-// is data the pump does not control) and an infinite loop inside a Temporal workflow
-// is far worse than a false negative, so termination is guaranteed unconditionally by
-// this check, independent of any assumption that the network is acyclic.
+// problemKind==projectstate.DependencyCycle problem instead of recursing forever: an
+// authored cycle is a real possibility (this is data the pump does not control) and
+// an infinite loop inside a Temporal workflow is far worse than a false negative, so
+// termination is guaranteed unconditionally by this check, independent of any
+// assumption that the network is acyclic. Every id in a cycle DOES resolve (to a
+// milestone), which is exactly why this is DependencyCycle, not
+// DependencyUnresolved — the topology is broken, not a dangling reference.
 func resolveDependencySatisfied(
 	depID string,
 	activityNames map[string]struct{},
@@ -963,7 +981,7 @@ func resolveDependencySatisfied(
 ) depResolution {
 	if ms, isMilestone := milestones[depID]; isMilestone {
 		if visiting[depID] {
-			return depResolution{problemReason: fmt.Sprintf(
+			return depResolution{problemKind: projectstate.DependencyCycle, problemReason: fmt.Sprintf(
 				"milestone dependency cycle detected: %q depends (directly or transitively) on itself", depID)}
 		}
 		visiting[depID] = true
@@ -986,7 +1004,7 @@ func resolveDependencySatisfied(
 		s, exists := status[depID]
 		return depResolution{satisfied: exists && s.Phase == projectstate.ActivityConstructionDone}
 	}
-	return depResolution{problemReason: fmt.Sprintf(
+	return depResolution{problemKind: projectstate.DependencyUnresolved, problemReason: fmt.Sprintf(
 		"dependency id %q is neither an authored activity (activityList) nor an authored milestone (network.milestones)",
 		depID)}
 }

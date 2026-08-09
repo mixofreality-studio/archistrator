@@ -59,6 +59,8 @@ export const FAILURE_REASON_LABEL: Record<FailureReason, string> = {
   varianceExhausted: 'Variance exhausted',
   escalationTimedOut: 'Escalation timed out',
   componentUnresolved: 'Component unresolved',
+  dependencyUnresolved: 'Dependency unresolved',
+  dependencyCycle: 'Dependency cycle',
 };
 
 /** Human-readable label for the technical construction stage. */
