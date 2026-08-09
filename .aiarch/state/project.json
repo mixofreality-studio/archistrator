@@ -1,6 +1,6 @@
 {
   "id": "archistrator",
-  "version": 593,
+  "version": 594,
   "phase": 2,
   "owner": "dev-architect",
   "name": "Archistrator",
@@ -10108,7 +10108,8 @@
     },
     "C-BG": {
       "activityID": "C-BG",
-      "phase": 0,
+      "phase": 1,
+      "startedAt": "2026-08-09T04:51:42.548779Z",
       "produced": [
         {
           "Kind": "service-contract",
@@ -27493,5 +27494,5 @@
     }
   },
   "reviewPolicy": {},
-  "updatedAt": "2026-08-09T04:51:10.700288Z"
+  "updatedAt": "2026-08-09T04:51:45.335762Z"
 }
