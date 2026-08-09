@@ -1,20 +1,20 @@
 {
   "id": "archistrator",
-  "version": 580,
+  "version": 581,
   "phase": 2,
   "owner": "dev-architect",
   "name": "Archistrator",
   "research": {
-    "Sources": [
+    "sources": [
       {
-        "Title": "Mission",
-        "Path": ".aiarch/state/research/00-mission.txt",
-        "ContentBytes": 4467
+        "title": "Mission",
+        "path": ".aiarch/state/research/00-mission.txt",
+        "contentBytes": 4467
       },
       {
-        "Title": "Founder Brief",
-        "Path": ".aiarch/state/research/01-founder-brief.txt",
-        "ContentBytes": 2812
+        "title": "Founder Brief",
+        "path": ".aiarch/state/research/01-founder-brief.txt",
+        "contentBytes": 2812
       }
     ]
   },
@@ -271,23 +271,23 @@
           },
           {
             "term": "Review Policy",
-            "category": "What",
-            "definition": "The customer's per-project choice of how much human approval the delivery workflow requires: fully automatic ('vibes'), human checkpoints at chosen stages ('checkpoints'), or human approval at every gate ('full'). Changes above a risk threshold always require human review, under any preset."
+            "definition": "The customer's per-project choice of how much human approval the delivery workflow requires: fully automatic ('vibes'), human checkpoints at chosen stages ('checkpoints'), or human approval at every gate ('full'). Changes above a risk threshold always require human review, under any preset.",
+            "category": "What"
           },
           {
             "term": "Review Gate",
-            "category": "How",
-            "definition": "A point in the delivery workflow where a produced artifact or change waits for approval — by a human or automatically, per the project's review policy — before work continues."
+            "definition": "A point in the delivery workflow where a produced artifact or change waits for approval — by a human or automatically, per the project's review policy — before work continues.",
+            "category": "How"
           },
           {
             "term": "Amendment",
-            "category": "How",
-            "definition": "A revision of an already-approved design artifact, driven by reviewer feedback or by changes to the artifacts it was based on; artifacts built on an amended basis are flagged for review."
+            "definition": "A revision of an already-approved design artifact, driven by reviewer feedback or by changes to the artifacts it was based on; artifacts built on an amended basis are flagged for review.",
+            "category": "How"
           },
           {
             "term": "Construction Venue",
-            "category": "Where",
-            "definition": "The environment where a project's drafting and construction jobs execute — the customer's CI on their repository host, or their local machine — chosen per project as configuration."
+            "definition": "The environment where a project's drafting and construction jobs execute — the customer's CI on their repository host, or their local machine — chosen per project as configuration.",
+            "category": "Where"
           }
         ]
       },
@@ -1478,9 +1478,7 @@
         "items": [
           {
             "id": "B-01",
-            "statement": "The platform must carry a customer through the production of a system without that customer assembling tools themselves.",
-            "statedAs": null,
-            "volatilityHint": null
+            "statement": "The platform must carry a customer through the production of a system without that customer assembling tools themselves."
           },
           {
             "id": "B-02",
@@ -1495,7 +1493,6 @@
           {
             "id": "B-03",
             "statement": "The platform must enforce phase ordering and gate progression on artifact validity.",
-            "statedAs": null,
             "volatilityHint": [
               "System Design Phase Workflow",
               "Review Policy"
@@ -1528,8 +1525,7 @@
             "statement": "Which kind of agent fulfills each delivery role (architect, senior, junior) must be allowed to vary.",
             "statedAs": [
               "The construction hand-off model is policy: which kind of worker handles which Method role (architect / senior / junior)."
-            ],
-            "volatilityHint": null
+            ]
           },
           {
             "id": "B-07",
@@ -1568,8 +1564,7 @@
             "statement": "The platform must serve heterogeneous and growing customer types without baking assumptions about customer size, internal team, or sophistication into its design.",
             "statedAs": [
               "Customer types are heterogeneous and will grow; the platform must not bake assumptions about customer size, internal team, or sophistication into the architecture."
-            ],
-            "volatilityHint": null
+            ]
           },
           {
             "id": "B-11",
@@ -1610,7 +1605,6 @@
           {
             "id": "B-14",
             "statement": "The platform must support pause, replay, override, and human takeover of any in-flight construction activity.",
-            "statedAs": null,
             "volatilityHint": [
               "Construction Phase Workflow",
               "Intervention Policy",
@@ -1632,7 +1626,6 @@
           {
             "id": "B-16",
             "statement": "The platform must expose, for any Operated System, the current cost run-rate, projected monthly cost, and a what-if scale curve, so the Operator and the Customer can see how operating cost responds to load.",
-            "statedAs": null,
             "volatilityHint": [
               "Operation Estimation Model",
               "Operational State Store"
@@ -1846,18 +1839,18 @@
         "rejected": [
           {
             "name": "Customer Interaction Transport",
-            "class": "foldedInto",
-            "reason": "Folded into Customer Interaction Channel (2026-07-22): wire mechanics for a fixed caller kind never ripple past the single Client component that owns the channel — each Client owns its own transport stack, so a separate system-level entry added noise. SchedulerClient re-tagged as a Channel binding."
+            "reason": "Folded into Customer Interaction Channel (2026-07-22): wire mechanics for a fixed caller kind never ripple past the single Client component that owns the channel — each Client owns its own transport stack, so a separate system-level entry added noise. SchedulerClient re-tagged as a Channel binding.",
+            "class": "foldedInto"
           },
           {
             "name": "Construction Hand-Off Policy",
-            "class": "foldedInto",
-            "reason": "Folded into Review Policy (2026-07-22): how much work is automated versus human-approved is the same per-customer policy the review presets (vibes/checkpoints/full) configure; a separate volatility and its HandOffEngine encapsulator duplicated ReviewEngine's axis. HandOffEngine retired with it."
+            "reason": "Folded into Review Policy (2026-07-22): how much work is automated versus human-approved is the same per-customer policy the review presets (vibes/checkpoints/full) configure; a separate volatility and its HandOffEngine encapsulator duplicated ReviewEngine's axis. HandOffEngine retired with it.",
+            "class": "foldedInto"
           },
           {
             "name": "Work Tracking",
-            "class": "foldedInto",
-            "reason": "Descoped by founder ruling (2026-07-20): the customer's external work-item tracker is not a platform concern; programmatic extensibility (objective 8 — agents over MCP, apps over the API) is the surface through which external trackers can sync. WorkItemAccess and WorkItemTracker removed with it."
+            "reason": "Descoped by founder ruling (2026-07-20): the customer's external work-item tracker is not a platform concern; programmatic extensibility (objective 8 — agents over MCP, apps over the API) is the surface through which external trackers can sync. WorkItemAccess and WorkItemTracker removed with it.",
+            "class": "foldedInto"
           }
         ],
         "waivers": [
@@ -2334,7 +2327,7 @@
                   {
                     "id": "apply-price",
                     "kind": "action",
-                    "label": "Apply price model -> compute build-cost ceiling",
+                    "label": "Apply price model -\u003e compute build-cost ceiling",
                     "roleName": "",
                     "linkedActorId": null
                   },
@@ -5160,7 +5153,6 @@
         "components": [
           {
             "id": "web-client",
-            "contractKey": "webClient",
             "name": "WebClient",
             "kind": "client",
             "layer": "client",
@@ -5168,11 +5160,11 @@
             "encapsulatesVolatilities": [
               "Customer Interaction Channel"
             ],
-            "atomicBusinessVerbs": []
+            "atomicBusinessVerbs": [],
+            "contractKey": "webClient"
           },
           {
             "id": "mcp-client",
-            "contractKey": "mcpClient",
             "name": "MCPClient",
             "kind": "client",
             "layer": "client",
@@ -5180,7 +5172,8 @@
             "encapsulatesVolatilities": [
               "Customer Interaction Channel"
             ],
-            "atomicBusinessVerbs": []
+            "atomicBusinessVerbs": [],
+            "contractKey": "mcpClient"
           },
           {
             "id": "scheduler-client",
@@ -5196,7 +5189,6 @@
           },
           {
             "id": "system-design-manager",
-            "contractKey": "systemDesignManager",
             "name": "SystemDesignManager",
             "kind": "manager",
             "layer": "manager",
@@ -5204,11 +5196,11 @@
             "encapsulatesVolatilities": [
               "System Design Phase Workflow"
             ],
-            "atomicBusinessVerbs": []
+            "atomicBusinessVerbs": [],
+            "contractKey": "systemDesignManager"
           },
           {
             "id": "project-design-manager",
-            "contractKey": "projectDesignManager",
             "name": "ProjectDesignManager",
             "kind": "manager",
             "layer": "manager",
@@ -5216,11 +5208,11 @@
             "encapsulatesVolatilities": [
               "Project Design Phase Workflow"
             ],
-            "atomicBusinessVerbs": []
+            "atomicBusinessVerbs": [],
+            "contractKey": "projectDesignManager"
           },
           {
             "id": "construction-manager",
-            "contractKey": "constructionManager",
             "name": "ConstructionManager",
             "kind": "manager",
             "layer": "manager",
@@ -5228,11 +5220,11 @@
             "encapsulatesVolatilities": [
               "Construction Phase Workflow"
             ],
-            "atomicBusinessVerbs": []
+            "atomicBusinessVerbs": [],
+            "contractKey": "constructionManager"
           },
           {
             "id": "operations-manager",
-            "contractKey": "operationsManager",
             "name": "OperationsManager",
             "kind": "manager",
             "layer": "manager",
@@ -5240,11 +5232,11 @@
             "encapsulatesVolatilities": [
               "Operation Phase Workflow"
             ],
-            "atomicBusinessVerbs": []
+            "atomicBusinessVerbs": [],
+            "contractKey": "operationsManager"
           },
           {
             "id": "billing-manager",
-            "contractKey": "billingManager",
             "name": "BillingManager",
             "kind": "manager",
             "layer": "manager",
@@ -5252,11 +5244,11 @@
             "encapsulatesVolatilities": [
               "Billing Workflow"
             ],
-            "atomicBusinessVerbs": []
+            "atomicBusinessVerbs": [],
+            "contractKey": "billingManager"
           },
           {
             "id": "estimation-engine",
-            "contractKey": "estimationEngine",
             "name": "EstimationEngine",
             "kind": "engine",
             "layer": "engine",
@@ -5264,11 +5256,11 @@
             "encapsulatesVolatilities": [
               "Construction Estimation Model"
             ],
-            "atomicBusinessVerbs": []
+            "atomicBusinessVerbs": [],
+            "contractKey": "estimationEngine"
           },
           {
             "id": "operation-estimation-engine",
-            "contractKey": "operationEstimationEngine",
             "name": "OperationEstimationEngine",
             "kind": "engine",
             "layer": "engine",
@@ -5276,11 +5268,11 @@
             "encapsulatesVolatilities": [
               "Operation Estimation Model"
             ],
-            "atomicBusinessVerbs": []
+            "atomicBusinessVerbs": [],
+            "contractKey": "operationEstimationEngine"
           },
           {
             "id": "billing-engine",
-            "contractKey": "billingEngine",
             "name": "BillingEngine",
             "kind": "engine",
             "layer": "engine",
@@ -5288,11 +5280,11 @@
             "encapsulatesVolatilities": [
               "Service Pricing"
             ],
-            "atomicBusinessVerbs": []
+            "atomicBusinessVerbs": [],
+            "contractKey": "billingEngine"
           },
           {
             "id": "intervention-engine",
-            "contractKey": "interventionEngine",
             "name": "InterventionEngine",
             "kind": "engine",
             "layer": "engine",
@@ -5300,11 +5292,11 @@
             "encapsulatesVolatilities": [
               "Intervention Policy"
             ],
-            "atomicBusinessVerbs": []
+            "atomicBusinessVerbs": [],
+            "contractKey": "interventionEngine"
           },
           {
             "id": "autoscaler-engine",
-            "contractKey": "autoscalerEngine",
             "name": "AutoscalerEngine",
             "kind": "engine",
             "layer": "engine",
@@ -5312,11 +5304,11 @@
             "encapsulatesVolatilities": [
               "Autoscaling Policy"
             ],
-            "atomicBusinessVerbs": []
+            "atomicBusinessVerbs": [],
+            "contractKey": "autoscalerEngine"
           },
           {
             "id": "review-engine",
-            "contractKey": "reviewEngine",
             "name": "ReviewEngine",
             "kind": "engine",
             "layer": "engine",
@@ -5324,11 +5316,11 @@
             "encapsulatesVolatilities": [
               "Review Policy"
             ],
-            "atomicBusinessVerbs": []
+            "atomicBusinessVerbs": [],
+            "contractKey": "reviewEngine"
           },
           {
             "id": "design-health-engine",
-            "contractKey": null,
             "name": "DesignHealthEngine",
             "kind": "engine",
             "layer": "engine",
@@ -5340,7 +5332,6 @@
           },
           {
             "id": "project-state-access",
-            "contractKey": "projectStateAccess",
             "name": "ProjectStateAccess",
             "kind": "resourceAccess",
             "layer": "resourceAccess",
@@ -5363,11 +5354,11 @@
               "recordChangeReviewed",
               "recordActivityExited",
               "recordOperatorPaused"
-            ]
+            ],
+            "contractKey": "projectStateAccess"
           },
           {
             "id": "operated-system-state-access",
-            "contractKey": "operatedSystemStateAccess",
             "name": "OperatedSystemStateAccess",
             "kind": "resourceAccess",
             "layer": "resourceAccess",
@@ -5382,11 +5373,11 @@
               "recordRuntimeStatusChange",
               "withdrawSystem",
               "recordDelinquencyAction"
-            ]
+            ],
+            "contractKey": "operatedSystemStateAccess"
           },
           {
             "id": "billing-state-access",
-            "contractKey": "billingStateAccess",
             "name": "BillingStateAccess",
             "kind": "resourceAccess",
             "layer": "resourceAccess",
@@ -5401,11 +5392,11 @@
               "settleCycle",
               "resettleCycle",
               "readPersistentlyDelinquentCustomers"
-            ]
+            ],
+            "contractKey": "billingStateAccess"
           },
           {
             "id": "agentic-job-access",
-            "contractKey": "agenticJobAccess",
             "name": "AgenticJobAccess",
             "kind": "resourceAccess",
             "layer": "resourceAccess",
@@ -5417,11 +5408,11 @@
               "submitConstructionPipeline",
               "observeConstructionPipeline",
               "cancelConstructionPipeline"
-            ]
+            ],
+            "contractKey": "agenticJobAccess"
           },
           {
             "id": "operated-runtime-access",
-            "contractKey": "operatedRuntimeAccess",
             "name": "OperatedRuntimeAccess",
             "kind": "resourceAccess",
             "layer": "resourceAccess",
@@ -5436,11 +5427,11 @@
               "getApplicationHealth",
               "getSloStatus",
               "readComputeAttribution"
-            ]
+            ],
+            "contractKey": "operatedRuntimeAccess"
           },
           {
             "id": "usage-access",
-            "contractKey": "usageAccess",
             "name": "UsageAccess",
             "kind": "resourceAccess",
             "layer": "resourceAccess",
@@ -5452,11 +5443,11 @@
               "recordComputeUsage",
               "recordFinalUsage",
               "readRange"
-            ]
+            ],
+            "contractKey": "usageAccess"
           },
           {
             "id": "episode-access",
-            "contractKey": "episodeAccess",
             "name": "EpisodeAccess",
             "kind": "resourceAccess",
             "layer": "resourceAccess",
@@ -5468,11 +5459,11 @@
               "appendEpisode",
               "listEpisodes",
               "readTraceEvents"
-            ]
+            ],
+            "contractKey": "episodeAccess"
           },
           {
             "id": "merchant-gateway-access",
-            "contractKey": "merchantGatewayAccess",
             "name": "MerchantGatewayAccess",
             "kind": "resourceAccess",
             "layer": "resourceAccess",
@@ -5483,11 +5474,11 @@
             "atomicBusinessVerbs": [
               "chargeCustomer",
               "validateStoredInstrument"
-            ]
+            ],
+            "contractKey": "merchantGatewayAccess"
           },
           {
             "id": "source-control-access",
-            "contractKey": "sourceControlAccess",
             "name": "SourceControlAccess",
             "kind": "resourceAccess",
             "layer": "resourceAccess",
@@ -5507,11 +5498,11 @@
               "getPullRequestStatus",
               "postReview",
               "mergePullRequest"
-            ]
+            ],
+            "contractKey": "sourceControlAccess"
           },
           {
             "id": "artifact-access",
-            "contractKey": "artifactAccess",
             "name": "ArtifactAccess",
             "kind": "resourceAccess",
             "layer": "resourceAccess",
@@ -5523,7 +5514,8 @@
               "storeConstructionOutput",
               "retrieveConstructionOutput",
               "retrieveOutputTree"
-            ]
+            ],
+            "contractKey": "artifactAccess"
           },
           {
             "id": "project-git-repo",
@@ -5591,13 +5583,13 @@
           },
           {
             "id": "security",
-            "contractKey": "security",
             "name": "Security",
             "kind": "utility",
             "layer": "utility",
             "encapsulates": "Utility: authentication/authorization for every entry channel (Keycloak-backed AuthN/AuthZ; service identity for timer triggers). Passes the cappuccino-machine test — serves any system, owns no business volatility.",
             "atomicBusinessVerbs": [],
-            "buildStatus": "external"
+            "buildStatus": "external",
+            "contractKey": "security"
           },
           {
             "id": "logging",
@@ -5619,7 +5611,6 @@
           },
           {
             "id": "message-bus",
-            "contractKey": "messageBus",
             "name": "MessageBus",
             "kind": "utility",
             "layer": "utility",
@@ -5630,7 +5621,8 @@
             "atomicBusinessVerbs": [
               "deliverSignal",
               "registerSchedule"
-            ]
+            ],
+            "contractKey": "messageBus"
           }
         ],
         "relationships": [
@@ -6076,7 +6068,7 @@
             "from": "operations-manager",
             "to": "project-state-access",
             "mode": "sync",
-            "label": "readProject(projectRef) -> deployment model"
+            "label": "readProject(projectRef) -\u003e deployment model"
           }
         ],
         "dynamicViews": [
@@ -7526,7 +7518,7 @@
                     "from": "billing-manager",
                     "to": "message-bus",
                     "mode": "sync",
-                    "label": "registerSchedule(closeBillingCycle:<customerId>) — recurring settlement cycle (idempotent by schedule id)"
+                    "label": "registerSchedule(closeBillingCycle:\u003ccustomerId\u003e) — recurring settlement cycle (idempotent by schedule id)"
                   }
                 ]
               }
@@ -8635,13 +8627,19 @@
       "kind": 6,
       "model": {
         "objectiveLinks": {
+          "constructionVenue": [
+            3,
+            6
+          ],
           "deploymentScenario": [
             3,
             10
           ],
-          "constructionVenue": [
-            3,
-            6
+          "infraBuildingBlocks": [
+            2,
+            6,
+            9,
+            10
           ],
           "reviewPolicyRef": [
             7,
@@ -8649,12 +8647,6 @@
           ],
           "scalingPolicy": [
             5,
-            10
-          ],
-          "infraBuildingBlocks": [
-            2,
-            6,
-            9,
             10
           ]
         },
@@ -8666,9 +8658,9 @@
         },
         "reviewPolicyRef": "vibes",
         "scalingPolicy": {
-          "scaleToZero": true,
-          "minInstances": 0,
           "maxInstances": 4,
+          "minInstances": 0,
+          "scaleToZero": true,
           "targetUtilizationPct": 70
         },
         "infraBuildingBlocks": [
@@ -8794,8 +8786,8 @@
                       "name": "Claude Code",
                       "technology": "Anthropic CLI · MCP client",
                       "description": "The agent surface: the same API reached as generated MCP tools rather than through the browser.",
-                      "role": "agentHarness",
-                      "tags": []
+                      "tags": [],
+                      "role": "agentHarness"
                     }
                   ]
                 },
@@ -8841,48 +8833,48 @@
                           "name": "Envoy Gateway",
                           "technology": "Envoy Gateway / Gateway API",
                           "description": "The front door: TLS via cert-manager, then OIDC authentication at the edge before anything reaches the server.",
-                          "role": "gateway",
-                          "tags": []
+                          "tags": [],
+                          "role": "gateway"
                         },
                         {
                           "key": "cloud-infra-keycloak",
                           "name": "Keycloak",
                           "technology": "OIDC",
                           "description": "Issues and validates the tokens the gateway checks.",
-                          "role": "identityProvider",
-                          "tags": []
+                          "tags": [],
+                          "role": "identityProvider"
                         },
                         {
                           "key": "cloud-infra-static-assets",
                           "name": "Static asset server",
                           "technology": "nginx",
                           "description": "Serves the built SPA bundle to the architect's browser. Holds no application code of its own.",
-                          "role": "other",
-                          "tags": []
+                          "tags": [],
+                          "role": "other"
                         },
                         {
                           "key": "cloud-infra-operatedsystemstate",
                           "name": "OperatedSystemState",
                           "technology": "CloudNativePG · Postgres 16",
                           "description": "operated-system rows on the shared archistrator-postgres cluster",
-                          "role": "database",
-                          "tags": []
+                          "tags": [],
+                          "role": "database"
                         },
                         {
                           "key": "cloud-infra-billingstate",
                           "name": "BillingState",
                           "technology": "CloudNativePG · Postgres 16",
                           "description": "billing head-state rows on the shared archistrator-postgres cluster",
-                          "role": "database",
-                          "tags": []
+                          "tags": [],
+                          "role": "database"
                         },
                         {
                           "key": "cloud-infra-usagelog",
                           "name": "UsageLog",
                           "technology": "CloudNativePG · Postgres 16",
                           "description": "The append-only record of exactly what a running app consumed — the only thing the customer is billed on, readable by them at any time (engineer tier: CloudNativePG Postgres on the shared cluster).",
-                          "role": "database",
-                          "tags": []
+                          "tags": [],
+                          "role": "database"
                         }
                       ],
                       "containerInstances": [],
@@ -8902,8 +8894,8 @@
                           "name": "DurableExecutionRuntime",
                           "technology": "Temporal (Postgres-backed)",
                           "description": "The durable-execution substrate every Manager runs on.",
-                          "role": "other",
-                          "tags": []
+                          "tags": [],
+                          "role": "other"
                         }
                       ],
                       "containerInstances": [],
@@ -8925,8 +8917,8 @@
                           "name": "OperatedRuntime",
                           "technology": "per-tenant workload",
                           "description": "The product the platform hosts: a delivered customer system, running and operated.",
-                          "role": "other",
-                          "tags": []
+                          "tags": [],
+                          "role": "other"
                         }
                       ]
                     }
@@ -8951,32 +8943,32 @@
                       "name": "GitHub",
                       "technology": "GitHub App",
                       "description": "App install, repo provisioning and authorization.",
-                      "role": "sourceControl",
-                      "tags": []
+                      "tags": [],
+                      "role": "sourceControl"
                     },
                     {
                       "key": "cloud-ext-projectgitrepo",
                       "name": "ProjectGitRepo",
                       "technology": "GitHub",
                       "description": "The customer's own repository — the sole store of their project state and source.",
-                      "role": "sourceControl",
-                      "tags": []
+                      "tags": [],
+                      "role": "sourceControl"
                     },
                     {
                       "key": "cloud-ext-pipeline",
                       "name": "ConstructionPipelineRuntime",
                       "technology": "GitHub Actions",
                       "description": "The construction venue: the customer's CI, on their own account.",
-                      "role": "other",
-                      "tags": []
+                      "tags": [],
+                      "role": "other"
                     },
                     {
                       "key": "cloud-ext-merchantgateway",
                       "name": "MerchantGateway",
                       "technology": "Stripe",
                       "description": "Charges the metered cycle amount.",
-                      "role": "paymentGateway",
-                      "tags": []
+                      "tags": [],
+                      "role": "paymentGateway"
                     }
                   ]
                 }
@@ -9065,56 +9057,56 @@
                       "name": "OperatedSystemState",
                       "technology": "ephemeral",
                       "description": "",
-                      "role": "database",
-                      "tags": []
+                      "tags": [],
+                      "role": "database"
                     },
                     {
                       "key": "test-infra-billingstate",
                       "name": "BillingState",
                       "technology": "ephemeral",
                       "description": "",
-                      "role": "database",
-                      "tags": []
+                      "tags": [],
+                      "role": "database"
                     },
                     {
                       "key": "test-infra-usagelog",
                       "name": "UsageLog",
                       "technology": "ephemeral",
                       "description": "",
-                      "role": "database",
-                      "tags": []
+                      "tags": [],
+                      "role": "database"
                     },
                     {
                       "key": "test-infra-temporal",
                       "name": "DurableExecutionRuntime",
                       "technology": "test environment",
                       "description": "",
-                      "role": "other",
-                      "tags": []
+                      "tags": [],
+                      "role": "other"
                     },
                     {
                       "key": "test-infra-projectgitrepo",
                       "name": "ProjectGitRepo",
                       "technology": "ephemeral",
                       "description": "",
-                      "role": "sourceControl",
-                      "tags": []
+                      "tags": [],
+                      "role": "sourceControl"
                     },
                     {
                       "key": "test-infra-pipeline",
                       "name": "ConstructionPipelineRuntime",
                       "technology": "stub",
                       "description": "",
-                      "role": "other",
-                      "tags": []
+                      "tags": [],
+                      "role": "other"
                     },
                     {
                       "key": "test-infra-operatedruntime",
                       "name": "OperatedRuntime",
                       "technology": "stub",
                       "description": "",
-                      "role": "other",
-                      "tags": []
+                      "tags": [],
+                      "role": "other"
                     }
                   ],
                   "containerInstances": [
@@ -9137,16 +9129,16 @@
                       "name": "GitHub",
                       "technology": "stub",
                       "description": "",
-                      "role": "sourceControl",
-                      "tags": []
+                      "tags": [],
+                      "role": "sourceControl"
                     },
                     {
                       "key": "test-ext-merchantgateway",
                       "name": "MerchantGateway",
                       "technology": "stub",
                       "description": "",
-                      "role": "paymentGateway",
-                      "tags": []
+                      "tags": [],
+                      "role": "paymentGateway"
                     }
                   ]
                 }
@@ -9207,8 +9199,8 @@
                           "name": "Embedded SPA assets",
                           "technology": "go:embed",
                           "description": "The SPA bundle compiled into the binary and served on the same port.",
-                          "role": "other",
-                          "tags": []
+                          "tags": [],
+                          "role": "other"
                         }
                       ],
                       "containerInstances": [
@@ -9228,32 +9220,32 @@
                       "name": "Embedded Temporal dev-server",
                       "technology": "temporal start-dev",
                       "description": "The local durable-execution runtime, started as a child of the CLI.",
-                      "role": "other",
-                      "tags": []
+                      "tags": [],
+                      "role": "other"
                     },
                     {
                       "key": "local-infra-projectgitrepo",
                       "name": "ProjectGitRepo",
                       "technology": "on-disk git (.aiarch)",
                       "description": "The local project store: the first design session seeds project.json and the default vibes preset.",
-                      "role": "sourceControl",
-                      "tags": []
+                      "tags": [],
+                      "role": "sourceControl"
                     },
                     {
                       "key": "local-infra-agentic-runner",
                       "name": "Local agentic runner",
                       "technology": "claude -p subprocesses",
                       "description": "Construction runs on the architect's own subscription. Not present in cloud, where the venue is the customer's CI.",
-                      "role": "other",
-                      "tags": []
+                      "tags": [],
+                      "role": "other"
                     },
                     {
                       "key": "local-infra-absent",
                       "name": "Not present locally",
                       "technology": "no Postgres · no Keycloak · no GitHub App · no platform-held LLM key",
                       "description": "The local profile designs and constructs; it does not operate or bill, so the operate/bill stores and the identity provider are deliberately absent.",
-                      "role": "other",
-                      "tags": []
+                      "tags": [],
+                      "role": "other"
                     }
                   ],
                   "containerInstances": [],
@@ -9291,449 +9283,6 @@
                   "mode": "sync"
                 }
               ]
-            }
-          ],
-          "infrastructure": [
-            {
-              "key": "postgres",
-              "substrate": "postgres",
-              "profiles": [
-                "cloud"
-              ],
-              "presence": "required",
-              "env": {
-                "URL": "ARCHISTRATOR_POSTGRES_URL"
-              }
-            },
-            {
-              "key": "github-app",
-              "substrate": "github-app",
-              "profiles": [
-                "cloud"
-              ],
-              "presence": "optional",
-              "env": {
-                "APP_ID": "ARCHISTRATOR_GITHUB_APP_ID",
-                "PRIVATE_KEY_PEM": "ARCHISTRATOR_GITHUB_APP_PRIVATE_KEY_PEM",
-                "ACCOUNT": "ARCHISTRATOR_GITHUB_ACCOUNT",
-                "APP_SLUG": "ARCHISTRATOR_GITHUB_APP_SLUG",
-                "INSTALLATION_ID": "ARCHISTRATOR_GITHUB_INSTALLATION_ID",
-                "API_BASE_URL": "ARCHISTRATOR_GITHUB_API_BASE_URL"
-              }
-            },
-            {
-              "key": "keycloak",
-              "substrate": "keycloak",
-              "profiles": [
-                "cloud"
-              ],
-              "presence": "optional",
-              "env": {
-                "JWKS_URL": "ARCHISTRATOR_KEYCLOAK_JWKS_URL",
-                "ISSUER": "ARCHISTRATOR_KEYCLOAK_ISSUER"
-              }
-            },
-            {
-              "key": "otel",
-              "substrate": "otel",
-              "profiles": [
-                "cloud",
-                "test",
-                "local"
-              ],
-              "presence": "optional",
-              "env": {}
-            },
-            {
-              "key": "temporal",
-              "substrate": "temporal",
-              "profiles": [
-                "cloud",
-                "test",
-                "local"
-              ],
-              "presence": "required",
-              "env": {
-                "HOSTPORT": "ARCHISTRATOR_TEMPORAL_HOSTPORT",
-                "NAMESPACE": "ARCHISTRATOR_TEMPORAL_NAMESPACE"
-              }
-            }
-          ],
-          "bindings": [
-            {
-              "component": "projectStateAccess",
-              "presence": "required",
-              "provides": [],
-              "settings": [
-                {
-                  "name": "projectStateGitRepoURL",
-                  "type": "string",
-                  "default": "",
-                  "env": "ARCHISTRATOR_PROJECT_STATE_GIT_REPO_URL",
-                  "description": "projectStateAccess GitLocal on-disk head-state repo URL (file://)."
-                }
-              ],
-              "perProfile": {
-                "local": {
-                  "variant": "GitLocal",
-                  "infra": []
-                },
-                "cloud": {
-                  "variant": "GitHub",
-                  "infra": [
-                    "github-app"
-                  ]
-                }
-              }
-            },
-            {
-              "component": "constructionTransitionAccess",
-              "presence": "required",
-              "provides": [],
-              "settings": [],
-              "perProfile": {
-                "local": {
-                  "variant": "GitLocal",
-                  "infra": []
-                },
-                "cloud": {
-                  "variant": "GitHub",
-                  "infra": [
-                    "github-app"
-                  ]
-                }
-              }
-            },
-            {
-              "component": "gitActivityStatusAccess",
-              "presence": "required",
-              "provides": [],
-              "settings": [],
-              "perProfile": {
-                "local": {
-                  "variant": "GitLocal",
-                  "infra": []
-                },
-                "cloud": {
-                  "variant": "GitHub",
-                  "infra": [
-                    "github-app"
-                  ]
-                }
-              }
-            },
-            {
-              "component": "designSessionAccess",
-              "presence": "required",
-              "provides": [],
-              "settings": [],
-              "perProfile": {
-                "local": {
-                  "variant": "GitLocal",
-                  "infra": []
-                },
-                "cloud": {
-                  "variant": "GitHub",
-                  "infra": [
-                    "github-app"
-                  ]
-                }
-              }
-            },
-            {
-              "component": "artifactAccess",
-              "presence": "optional-dormant",
-              "provides": [],
-              "settings": [
-                {
-                  "name": "artifactRepoURL",
-                  "type": "string",
-                  "default": "",
-                  "env": "ARCHISTRATOR_ARTIFACT_REPO_URL",
-                  "description": "artifactAccess GitLocal on-disk construction-output repo URL (file://)."
-                }
-              ],
-              "perProfile": {
-                "local": {
-                  "variant": "GitLocal",
-                  "infra": []
-                },
-                "cloud": {
-                  "variant": "GitHubCloud",
-                  "infra": [
-                    "github-app"
-                  ]
-                }
-              }
-            },
-            {
-              "component": "agenticJobAccess",
-              "presence": "optional-dormant",
-              "provides": [],
-              "settings": [],
-              "perProfile": {
-                "cloud": {
-                  "variant": "GitHubActions",
-                  "infra": [
-                    "github-app"
-                  ]
-                }
-              }
-            },
-            {
-              "component": "sourceControlAccess",
-              "presence": "optional-dormant",
-              "provides": [],
-              "settings": [],
-              "perProfile": {
-                "local": {
-                  "variant": "GitLocal",
-                  "infra": []
-                },
-                "cloud": {
-                  "variant": "GitHub",
-                  "infra": [
-                    "github-app"
-                  ]
-                }
-              }
-            },
-            {
-              "component": "operatedSystemStateAccess",
-              "presence": "required",
-              "provides": [],
-              "settings": [],
-              "perProfile": {
-                "cloud": {
-                  "variant": "Postgres",
-                  "infra": [
-                    "postgres"
-                  ]
-                },
-                "local": {
-                  "variant": "NoOp",
-                  "infra": []
-                }
-              }
-            },
-            {
-              "component": "usageAccess",
-              "presence": "required",
-              "provides": [],
-              "settings": [],
-              "perProfile": {
-                "cloud": {
-                  "variant": "Postgres",
-                  "infra": [
-                    "postgres"
-                  ]
-                },
-                "local": {
-                  "variant": "NoOp",
-                  "infra": []
-                }
-              }
-            },
-            {
-              "component": "episodeAccess",
-              "presence": "required",
-              "provides": [],
-              "settings": [],
-              "perProfile": {
-                "local": {
-                  "variant": "LocalFS",
-                  "infra": []
-                },
-                "cloud": {
-                  "variant": "NoOp",
-                  "infra": []
-                }
-              }
-            },
-            {
-              "component": "operatedRuntimeAccess",
-              "presence": "required",
-              "provides": [],
-              "settings": [],
-              "perProfile": {
-                "local": {
-                  "variant": "Local",
-                  "infra": []
-                },
-                "cloud": {
-                  "variant": "Real",
-                  "infra": []
-                }
-              }
-            },
-            {
-              "component": "billingStateAccess",
-              "presence": "required",
-              "provides": [],
-              "settings": [],
-              "perProfile": {}
-            },
-            {
-              "component": "revenueLedgerAccess",
-              "presence": "required",
-              "provides": [],
-              "settings": [],
-              "perProfile": {}
-            },
-            {
-              "component": "merchantGatewayAccess",
-              "presence": "required",
-              "provides": [],
-              "settings": [],
-              "perProfile": {}
-            },
-            {
-              "component": "messageBus",
-              "presence": "required",
-              "provides": [],
-              "settings": [],
-              "perProfile": {
-                "local": {
-                  "variant": "Temporal",
-                  "infra": [
-                    "temporal"
-                  ]
-                },
-                "cloud": {
-                  "variant": "Temporal",
-                  "infra": [
-                    "temporal"
-                  ]
-                }
-              }
-            }
-          ],
-          "settings": [
-            {
-              "name": "listenAddr",
-              "type": "string",
-              "default": ":8080",
-              "env": "ARCHISTRATOR_LISTEN_ADDR",
-              "description": "HTTP listen address."
-            },
-            {
-              "name": "shutdownTimeout",
-              "type": "duration",
-              "default": "20s",
-              "env": "ARCHISTRATOR_SHUTDOWN_TIMEOUT",
-              "description": "Graceful HTTP shutdown drain timeout."
-            },
-            {
-              "name": "constructionEscalationTimeout",
-              "type": "duration",
-              "default": "30m",
-              "env": "ARCHISTRATOR_CONSTRUCTION_ESCALATION_TIMEOUT",
-              "description": "How long an escalated construction activity waits for an operator override before it terminally fails. 0 == wait-forever."
-            },
-            {
-              "name": "constructionInterventionMode",
-              "type": "string",
-              "default": "tiered",
-              "env": "ARCHISTRATOR_CONSTRUCTION_INTERVENTION_MODE",
-              "description": "Intervention regime: tiered (autonomous retry then escalate) or escalate-everything (supervised)."
-            },
-            {
-              "name": "constructionRepoOwner",
-              "type": "string",
-              "default": "",
-              "env": "ARCHISTRATOR_CONSTRUCTION_REPO_OWNER",
-              "description": "Construction repo owner (GitHub Actions dispatch target); also the GitHubAccount chained default."
-            },
-            {
-              "name": "constructionRepoName",
-              "type": "string",
-              "default": "",
-              "env": "ARCHISTRATOR_CONSTRUCTION_REPO_NAME",
-              "description": "Construction repo name (GitHub Actions dispatch target)."
-            },
-            {
-              "name": "constructionWorkflowFile",
-              "type": "string",
-              "default": "aiarch-construct.yml",
-              "env": "ARCHISTRATOR_CONSTRUCTION_WORKFLOW_FILE",
-              "description": "Construction workflow file the pipeline RA dispatches."
-            },
-            {
-              "name": "constructionRef",
-              "type": "string",
-              "default": "main",
-              "env": "ARCHISTRATOR_CONSTRUCTION_REF",
-              "description": "Git ref the construction workflow is dispatched against."
-            },
-            {
-              "name": "constructionTaskQueue",
-              "type": "string",
-              "default": "construction",
-              "env": "ARCHISTRATOR_CONSTRUCTION_TASK_QUEUE",
-              "description": "Construction Manager Temporal task queue."
-            },
-            {
-              "name": "constructionDryRun",
-              "type": "bool",
-              "default": "false",
-              "env": "ARCHISTRATOR_CONSTRUCTION_DRYRUN",
-              "description": "Register the construction Worker with in-memory stubs (no GitHub Actions run / LLM call). NEVER a production default."
-            },
-            {
-              "name": "operationsDryRun",
-              "type": "bool",
-              "default": "false",
-              "env": "ARCHISTRATOR_OPERATIONS_DRYRUN",
-              "description": "Select the operatedRuntimeAccess LOCAL/dry-run profile (deterministic, side-effect-free). Default false selects the REAL GitOps/kubernetes profile."
-            },
-            {
-              "name": "operatedRuntimeGitOpsRepoURL",
-              "type": "string",
-              "default": "",
-              "env": "ARCHISTRATOR_OPERATED_RUNTIME_GITOPS_REPO_URL",
-              "description": "REAL operatedRuntime profile GitOps target repo. Empty until the N-DEP backend lands; unused by the dry-run profile."
-            },
-            {
-              "name": "projectStateGitLocal",
-              "type": "bool",
-              "default": "false",
-              "env": "ARCHISTRATOR_PROJECT_STATE_GIT_LOCAL",
-              "description": "Select the file:// on-disk git projectStateAccess substrate (local profile)."
-            },
-            {
-              "name": "projectStateGitRepoURL",
-              "type": "string",
-              "default": "",
-              "env": "ARCHISTRATOR_PROJECT_STATE_GIT_REPO_URL",
-              "description": "Per-project repo file:// URL when projectStateGitLocal is true."
-            },
-            {
-              "name": "artifactRepoURL",
-              "type": "string",
-              "default": "",
-              "env": "ARCHISTRATOR_ARTIFACT_REPO_URL",
-              "description": "artifactAccess construction-output repo clone URL. Constructed only when set (else the slice stages no outputs)."
-            },
-            {
-              "name": "artifactRepoOwner",
-              "type": "string",
-              "default": "",
-              "env": "ARCHISTRATOR_ARTIFACT_REPO_OWNER",
-              "description": "artifactAccess CLOUD repo owner (installation discovery)."
-            },
-            {
-              "name": "artifactRepoLocal",
-              "type": "bool",
-              "default": "false",
-              "env": "ARCHISTRATOR_ARTIFACT_REPO_LOCAL",
-              "description": "Select the file:// on-disk artifactAccess repo (no credential)."
-            },
-            {
-              "name": "authDevMode",
-              "type": "bool",
-              "default": "false",
-              "env": "ARCHISTRATOR_AUTH_DEV_MODE",
-              "description": "Inject a dev principal on every request and skip access-token validation. MUST be off behind an IdP-fronted edge."
             }
           ]
         }
@@ -11110,8 +10659,8 @@
     },
     "G-SPA": {
       "activityID": "G-SPA",
-      "phase": 2,
-      "buildStatus": 2
+      "phase": 1,
+      "startedAt": "2026-08-09T04:11:07.410697Z"
     },
     "I-UC1": {
       "activityID": "I-UC1",
@@ -11506,7 +11055,7 @@
         "week": 1,
         "earnedPct": 90.3,
         "plannedPct": 2,
-        "note": "first tracking point cut at week 1 of 49 (tracking started late; EV reflects cumulative integration to date, 935/1035 effort-days; plannedPct is the compressed-option linear plan basis at nominal week 1 (1/49); no trend until >=4 points)"
+        "note": "first tracking point cut at week 1 of 49 (tracking started late; EV reflects cumulative integration to date, 935/1035 effort-days; plannedPct is the compressed-option linear plan basis at nominal week 1 (1/49); no trend until \u003e=4 points)"
       },
       {
         "week": 1,
@@ -11517,6 +11066,461 @@
     ]
   },
   "serviceContracts": {
+    "agenticJobAccess": {
+      "component": "agenticJobAccess",
+      "layer": "ResourceAccess",
+      "goPackage": "internal/resourceaccess/agenticjob",
+      "infra": [
+        "GitHubActions"
+      ],
+      "title": "agenticjob contract",
+      "$defs": {
+        "ArtifactRef": {
+          "type": "string"
+        },
+        "ConstructionActivityID": {
+          "type": "string"
+        },
+        "EpisodeOutcome": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "x-enum-varnames": [
+            "EpisodeSucceeded",
+            "EpisodeFailed",
+            "EpisodeCancelled",
+            "EpisodeGap"
+          ],
+          "x-go-base": "int"
+        },
+        "EpisodeSummary": {
+          "type": "object",
+          "properties": {
+            "EpisodeID": {
+              "type": "string"
+            },
+            "Model": {
+              "type": "string"
+            },
+            "Usage": {
+              "$ref": "#/$defs/EpisodeUsage"
+            },
+            "StreamedUsage": {
+              "$ref": "#/$defs/EpisodeUsage"
+            },
+            "CostUSD": {
+              "type": "number"
+            },
+            "NumTurns": {
+              "type": "integer"
+            },
+            "ToolCallCounts": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "integer"
+              }
+            },
+            "SubagentSpans": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/SubagentSpan"
+              }
+            },
+            "StartedAt": {
+              "type": "string",
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time"
+            },
+            "EndedAt": {
+              "type": "string",
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time"
+            },
+            "Outcome": {
+              "$ref": "#/$defs/EpisodeOutcome"
+            },
+            "TracePath": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "EpisodeID",
+            "Usage",
+            "StartedAt",
+            "EndedAt",
+            "Outcome"
+          ],
+          "additionalProperties": false
+        },
+        "EpisodeUsage": {
+          "type": "object",
+          "properties": {
+            "In": {
+              "type": "integer"
+            },
+            "Out": {
+              "type": "integer"
+            },
+            "CacheRead": {
+              "type": "integer"
+            },
+            "CacheCreate": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "In",
+            "Out",
+            "CacheRead",
+            "CacheCreate"
+          ],
+          "additionalProperties": false
+        },
+        "PipelineHandle": {
+          "type": "string"
+        },
+        "PipelineObservation": {
+          "type": "object",
+          "properties": {
+            "Handle": {
+              "$ref": "#/$defs/PipelineHandle"
+            },
+            "Phase": {
+              "$ref": "#/$defs/PipelinePhase"
+            },
+            "Steps": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/StepObservation"
+              }
+            },
+            "FailedStep": {
+              "type": "string"
+            },
+            "Diagnostic": {
+              "type": "string"
+            },
+            "RunURL": {
+              "type": "string"
+            },
+            "StartedAt": {
+              "type": "string",
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time"
+            },
+            "FinishedAt": {
+              "type": [
+                "null",
+                "string"
+              ],
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time"
+            },
+            "Episode": {
+              "$ref": "#/$defs/EpisodeSummary"
+            }
+          },
+          "required": [
+            "Handle",
+            "Phase",
+            "Steps",
+            "FailedStep",
+            "Diagnostic",
+            "RunURL",
+            "StartedAt"
+          ],
+          "additionalProperties": false
+        },
+        "PipelinePhase": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2,
+            3,
+            4
+          ],
+          "x-enum-varnames": [
+            "PhasePending",
+            "PhaseRunning",
+            "PhaseSucceeded",
+            "PhaseFailed",
+            "PhaseCancelled"
+          ],
+          "x-go-base": "int"
+        },
+        "PipelineSpec": {
+          "type": "object",
+          "properties": {
+            "ProjectID": {
+              "$ref": "#/$defs/ProjectID"
+            },
+            "ActivityID": {
+              "$ref": "#/$defs/ConstructionActivityID"
+            },
+            "Steps": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/PipelineStep"
+              }
+            },
+            "Edges": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/StepDependency"
+              }
+            },
+            "WorkspaceRef": {
+              "$ref": "#/$defs/ArtifactRef"
+            },
+            "DispatchInputs": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "TargetRepo": {
+              "$ref": "#/$defs/RepoTarget"
+            },
+            "WorkflowFile": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "ProjectID",
+            "ActivityID",
+            "Steps",
+            "Edges",
+            "WorkspaceRef",
+            "DispatchInputs",
+            "TargetRepo",
+            "WorkflowFile"
+          ],
+          "additionalProperties": false
+        },
+        "PipelineStep": {
+          "type": "object",
+          "properties": {
+            "Name": {
+              "type": "string"
+            },
+            "Toolchain": {
+              "$ref": "#/$defs/ToolchainRef"
+            },
+            "Command": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "string"
+              }
+            },
+            "Resources": {
+              "$ref": "#/$defs/ResourceRequest"
+            },
+            "CacheKeys": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "Name",
+            "Toolchain",
+            "Command",
+            "Resources",
+            "CacheKeys"
+          ],
+          "additionalProperties": false
+        },
+        "ProjectID": {
+          "type": "string"
+        },
+        "RepoTarget": {
+          "type": "object",
+          "properties": {
+            "Owner": {
+              "type": "string"
+            },
+            "Name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "Owner",
+            "Name"
+          ],
+          "additionalProperties": false
+        },
+        "ResourceRequest": {
+          "type": "object",
+          "properties": {
+            "CPUMillis": {
+              "type": "integer"
+            },
+            "MemMiB": {
+              "type": "integer"
+            },
+            "GPUs": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "CPUMillis",
+            "MemMiB",
+            "GPUs"
+          ],
+          "additionalProperties": false
+        },
+        "StepDependency": {
+          "type": "object",
+          "properties": {
+            "From": {
+              "type": "string"
+            },
+            "To": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "From",
+            "To"
+          ],
+          "additionalProperties": false
+        },
+        "StepObservation": {
+          "type": "object",
+          "properties": {
+            "Name": {
+              "type": "string"
+            },
+            "Outcome": {
+              "$ref": "#/$defs/StepOutcome"
+            }
+          },
+          "required": [
+            "Name",
+            "Outcome"
+          ],
+          "additionalProperties": false
+        },
+        "StepOutcome": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2,
+            3,
+            4
+          ],
+          "x-enum-varnames": [
+            "StepPending",
+            "StepRunning",
+            "StepSucceeded",
+            "StepFailed",
+            "StepSkipped"
+          ],
+          "x-go-base": "int"
+        },
+        "SubagentSpan": {
+          "type": "object",
+          "properties": {
+            "ToolUseID": {
+              "type": "string"
+            },
+            "StartedAt": {
+              "type": "string",
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time"
+            },
+            "EndedAt": {
+              "type": "string",
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time"
+            }
+          },
+          "required": [
+            "ToolUseID"
+          ],
+          "additionalProperties": false
+        },
+        "ToolchainRef": {
+          "type": "string"
+        }
+      },
+      "interface": {
+        "name": "AgenticJobAccess",
+        "layer": "resourceaccess",
+        "operations": [
+          {
+            "name": "CancelAgenticJob",
+            "params": [
+              {
+                "name": "handle",
+                "schema": {
+                  "$ref": "#/$defs/PipelineHandle"
+                }
+              }
+            ],
+            "error": true
+          },
+          {
+            "name": "ObserveAgenticJob",
+            "params": [
+              {
+                "name": "handle",
+                "schema": {
+                  "$ref": "#/$defs/PipelineHandle"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/PipelineObservation"
+            },
+            "error": true
+          },
+          {
+            "name": "SubmitAgenticJob",
+            "params": [
+              {
+                "name": "spec",
+                "schema": {
+                  "$ref": "#/$defs/PipelineSpec"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/PipelineHandle"
+            },
+            "error": true
+          }
+        ]
+      }
+    },
     "artifactAccess": {
       "component": "artifactAccess",
       "layer": "ResourceAccess",
@@ -13808,34 +13812,26 @@
       "component": "projectStateAccess",
       "layer": "ResourceAccess",
       "goPackage": "internal/resourceaccess/projectstate",
+      "railAuthority": true,
       "title": "constructionTransitionAccess contract",
       "$defs": {
-        "ProjectID": {
-          "type": "string"
-        },
-        "Version": {
-          "type": "integer"
-        },
-        "RepoCredential": {
-          "type": "object",
-          "properties": {
-            "Bytes": {
-              "type": "string",
-              "contentEncoding": "base64",
-              "x-go-type": "[]byte"
-            },
-            "ExpiresAt": {
-              "type": "string",
-              "format": "date-time",
-              "x-go-import": "time",
-              "x-go-type": "time.Time"
-            }
-          },
-          "required": [
-            "Bytes",
-            "ExpiresAt"
+        "ActivityMethodPhase": {
+          "type": "string",
+          "enum": [
+            "requirements",
+            "detailed_design",
+            "test_plan",
+            "construction",
+            "integration"
           ],
-          "additionalProperties": false
+          "x-enum-varnames": [
+            "MethodPhaseRequirements",
+            "MethodPhaseDetailedDesign",
+            "MethodPhaseTestPlan",
+            "MethodPhaseConstruction",
+            "MethodPhaseIntegration"
+          ],
+          "x-go-base": "string"
         },
         "ActivityOutcome": {
           "type": "integer",
@@ -13873,6 +13869,30 @@
           ],
           "x-go-base": "int"
         },
+        "ProjectID": {
+          "type": "string"
+        },
+        "RepoCredential": {
+          "type": "object",
+          "properties": {
+            "Bytes": {
+              "type": "string",
+              "contentEncoding": "base64",
+              "x-go-type": "[]byte"
+            },
+            "ExpiresAt": {
+              "type": "string",
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time"
+            }
+          },
+          "required": [
+            "Bytes",
+            "ExpiresAt"
+          ],
+          "additionalProperties": false
+        },
         "ReviewPolicy": {
           "type": "object",
           "properties": {
@@ -13894,23 +13914,8 @@
           },
           "additionalProperties": false
         },
-        "ActivityMethodPhase": {
-          "type": "string",
-          "enum": [
-            "requirements",
-            "detailed_design",
-            "test_plan",
-            "construction",
-            "integration"
-          ],
-          "x-enum-varnames": [
-            "MethodPhaseRequirements",
-            "MethodPhaseDetailedDesign",
-            "MethodPhaseTestPlan",
-            "MethodPhaseConstruction",
-            "MethodPhaseIntegration"
-          ],
-          "x-go-base": "string"
+        "Version": {
+          "type": "integer"
         }
       },
       "interface": {
@@ -14323,21 +14328,15 @@
             "error": true
           }
         ]
-      },
-      "railAuthority": true
+      }
     },
     "designSessionAccess": {
       "component": "projectStateAccess",
       "layer": "ResourceAccess",
       "goPackage": "internal/resourceaccess/projectstate",
+      "railAuthority": true,
       "title": "designSessionAccess contract",
       "$defs": {
-        "ProjectID": {
-          "type": "string"
-        },
-        "Version": {
-          "type": "integer"
-        },
         "ArtifactKind": {
           "type": "integer",
           "enum": [
@@ -14379,6 +14378,9 @@
             "KindSdpReview"
           ],
           "x-go-base": "int"
+        },
+        "ProjectID": {
+          "type": "string"
         },
         "ReviewComment": {
           "type": "object",
@@ -14429,6 +14431,9 @@
             "addressee"
           ],
           "additionalProperties": false
+        },
+        "Version": {
+          "type": "integer"
         }
       },
       "interface": {
@@ -14786,8 +14791,282 @@
             "error": true
           }
         ]
+      }
+    },
+    "episodeAccess": {
+      "component": "episodeAccess",
+      "layer": "ResourceAccess",
+      "goPackage": "internal/resourceaccess/episode",
+      "title": "episode contract",
+      "$defs": {
+        "EpisodeKind": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2,
+            3,
+            4
+          ],
+          "x-enum-varnames": [
+            "EpisodeKindDesign",
+            "EpisodeKindConstruction",
+            "EpisodeKindReview",
+            "EpisodeKindRework",
+            "EpisodeKindAnswer"
+          ],
+          "x-go-base": "int"
+        },
+        "EpisodeLineage": {
+          "type": "object",
+          "properties": {
+            "WorkflowID": {
+              "type": "string"
+            },
+            "RunID": {
+              "type": "string"
+            },
+            "ActivityID": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "WorkflowID",
+            "RunID"
+          ],
+          "additionalProperties": false
+        },
+        "EpisodeOutcome": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "x-enum-varnames": [
+            "EpisodeSucceeded",
+            "EpisodeFailed",
+            "EpisodeCancelled",
+            "EpisodeGap"
+          ],
+          "x-go-base": "int"
+        },
+        "EpisodeQuery": {
+          "type": "object",
+          "properties": {
+            "ProjectID": {
+              "$ref": "#/$defs/ProjectID"
+            },
+            "TargetRef": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "ProjectID"
+          ],
+          "additionalProperties": false
+        },
+        "EpisodeRecord": {
+          "type": "object",
+          "properties": {
+            "EpisodeID": {
+              "type": "string"
+            },
+            "Kind": {
+              "$ref": "#/$defs/EpisodeKind"
+            },
+            "TargetRef": {
+              "type": "string"
+            },
+            "Lineage": {
+              "$ref": "#/$defs/EpisodeLineage"
+            },
+            "WorkerClass": {
+              "type": "string"
+            },
+            "Model": {
+              "type": "string"
+            },
+            "Usage": {
+              "$ref": "#/$defs/EpisodeUsage"
+            },
+            "StreamedUsage": {
+              "$ref": "#/$defs/EpisodeUsage"
+            },
+            "CostUSD": {
+              "type": "number"
+            },
+            "NumTurns": {
+              "type": "integer"
+            },
+            "ToolCallCounts": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "integer"
+              }
+            },
+            "SubagentSpans": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/SubagentSpan"
+              }
+            },
+            "StartedAt": {
+              "type": "string",
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time"
+            },
+            "EndedAt": {
+              "type": "string",
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time"
+            },
+            "Outcome": {
+              "$ref": "#/$defs/EpisodeOutcome"
+            },
+            "GapReason": {
+              "type": "string"
+            },
+            "TracePath": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "EpisodeID",
+            "Kind",
+            "TargetRef",
+            "Usage",
+            "StartedAt",
+            "EndedAt",
+            "Outcome"
+          ],
+          "additionalProperties": false
+        },
+        "EpisodeUsage": {
+          "type": "object",
+          "properties": {
+            "In": {
+              "type": "integer"
+            },
+            "Out": {
+              "type": "integer"
+            },
+            "CacheRead": {
+              "type": "integer"
+            },
+            "CacheCreate": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "In",
+            "Out",
+            "CacheRead",
+            "CacheCreate"
+          ],
+          "additionalProperties": false
+        },
+        "ProjectID": {
+          "type": "string"
+        },
+        "SubagentSpan": {
+          "type": "object",
+          "properties": {
+            "ToolUseID": {
+              "type": "string"
+            },
+            "StartedAt": {
+              "type": "string",
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time"
+            },
+            "EndedAt": {
+              "type": "string",
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time"
+            }
+          },
+          "required": [
+            "ToolUseID"
+          ],
+          "additionalProperties": false
+        }
       },
-      "railAuthority": true
+      "interface": {
+        "name": "EpisodeAccess",
+        "layer": "resourceaccess",
+        "operations": [
+          {
+            "name": "AppendEpisode",
+            "params": [
+              {
+                "name": "projectID",
+                "schema": {
+                  "$ref": "#/$defs/ProjectID"
+                }
+              },
+              {
+                "name": "record",
+                "schema": {
+                  "$ref": "#/$defs/EpisodeRecord"
+                }
+              }
+            ],
+            "error": true
+          },
+          {
+            "name": "ListEpisodes",
+            "params": [
+              {
+                "name": "query",
+                "schema": {
+                  "$ref": "#/$defs/EpisodeQuery"
+                }
+              }
+            ],
+            "result": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/EpisodeRecord"
+              }
+            },
+            "error": true
+          },
+          {
+            "name": "ReadTraceEvents",
+            "params": [
+              {
+                "name": "projectID",
+                "schema": {
+                  "$ref": "#/$defs/ProjectID"
+                }
+              },
+              {
+                "name": "episodeID",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            ],
+            "result": {
+              "type": "array",
+              "items": {
+                "type": [
+                  "null"
+                ],
+                "x-go-import": "encoding/json",
+                "x-go-type": "json.RawMessage"
+              }
+            },
+            "error": true
+          }
+        ]
+      }
     },
     "estimationEngine": {
       "component": "estimationEngine",
@@ -15343,13 +15622,25 @@
       "component": "projectStateAccess",
       "layer": "ResourceAccess",
       "goPackage": "internal/resourceaccess/projectstate",
+      "railAuthority": true,
       "title": "gitActivityStatusAccess contract",
       "$defs": {
+        "CICheckState": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2
+          ],
+          "x-enum-varnames": [
+            "CICheckPending",
+            "CICheckSuccess",
+            "CICheckFailure"
+          ],
+          "x-go-base": "int"
+        },
         "ProjectID": {
           "type": "string"
-        },
-        "Version": {
-          "type": "integer"
         },
         "RepoCredential": {
           "type": "object",
@@ -15372,19 +15663,8 @@
           ],
           "additionalProperties": false
         },
-        "CICheckState": {
-          "type": "integer",
-          "enum": [
-            0,
-            1,
-            2
-          ],
-          "x-enum-varnames": [
-            "CICheckPending",
-            "CICheckSuccess",
-            "CICheckFailure"
-          ],
-          "x-go-base": "int"
+        "Version": {
+          "type": "integer"
         }
       },
       "interface": {
@@ -15662,8 +15942,7 @@
             "error": true
           }
         ]
-      },
-      "railAuthority": true
+      }
     },
     "interventionEngine": {
       "component": "interventionEngine",
@@ -16426,6 +16705,57 @@
           ],
           "additionalProperties": false
         },
+        "OIDCSpec": {
+          "type": "object",
+          "properties": {
+            "ModelKey": {
+              "type": "string"
+            },
+            "Issuer": {
+              "type": "string"
+            },
+            "ClientID": {
+              "type": "string"
+            },
+            "ClientSecretRef": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "ModelKey",
+            "Issuer",
+            "ClientID",
+            "ClientSecretRef"
+          ],
+          "additionalProperties": false
+        },
+        "PostgresSpec": {
+          "type": "object",
+          "properties": {
+            "ModelKeys": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "Enabled": {
+              "type": "boolean"
+            },
+            "Instances": {
+              "type": "integer"
+            },
+            "StorageClass": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "ModelKeys",
+            "Enabled",
+            "Instances",
+            "StorageClass"
+          ],
+          "additionalProperties": false
+        },
         "RuntimeDesiredState": {
           "type": "object",
           "properties": {
@@ -16525,57 +16855,6 @@
             "ModelKey",
             "Image",
             "Replicas"
-          ],
-          "additionalProperties": false
-        },
-        "PostgresSpec": {
-          "type": "object",
-          "properties": {
-            "ModelKeys": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "Enabled": {
-              "type": "boolean"
-            },
-            "Instances": {
-              "type": "integer"
-            },
-            "StorageClass": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "ModelKeys",
-            "Enabled",
-            "Instances",
-            "StorageClass"
-          ],
-          "additionalProperties": false
-        },
-        "OIDCSpec": {
-          "type": "object",
-          "properties": {
-            "ModelKey": {
-              "type": "string"
-            },
-            "Issuer": {
-              "type": "string"
-            },
-            "ClientID": {
-              "type": "string"
-            },
-            "ClientSecretRef": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "ModelKey",
-            "Issuer",
-            "ClientID",
-            "ClientSecretRef"
           ],
           "additionalProperties": false
         }
@@ -17237,6 +17516,26 @@
           ],
           "additionalProperties": false
         },
+        "CostSensitivityForecast": {
+          "type": "object",
+          "properties": {
+            "SensitivityLow": {
+              "$ref": "#/$defs/Money"
+            },
+            "SensitivityHigh": {
+              "$ref": "#/$defs/Money"
+            },
+            "ExpectedPerCycleCharge": {
+              "$ref": "#/$defs/Money"
+            }
+          },
+          "required": [
+            "ExpectedPerCycleCharge",
+            "SensitivityLow",
+            "SensitivityHigh"
+          ],
+          "additionalProperties": false
+        },
         "InfrastructureKind": {
           "type": "integer",
           "enum": [
@@ -17467,26 +17766,6 @@
           "required": [
             "LoadMultiplier",
             "ProjectedMonthlyCost"
-          ],
-          "additionalProperties": false
-        },
-        "CostSensitivityForecast": {
-          "type": "object",
-          "properties": {
-            "SensitivityLow": {
-              "$ref": "#/$defs/Money"
-            },
-            "SensitivityHigh": {
-              "$ref": "#/$defs/Money"
-            },
-            "ExpectedPerCycleCharge": {
-              "$ref": "#/$defs/Money"
-            }
-          },
-          "required": [
-            "ExpectedPerCycleCharge",
-            "SensitivityLow",
-            "SensitivityHigh"
           ],
           "additionalProperties": false
         }
@@ -17735,6 +18014,24 @@
           ],
           "additionalProperties": false
         },
+        "DeploymentHealth": {
+          "type": "object",
+          "properties": {
+            "Nodes": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/NodeHealth"
+              }
+            }
+          },
+          "required": [
+            "Nodes"
+          ],
+          "additionalProperties": false
+        },
         "DesiredStateChange": {
           "type": "object",
           "properties": {
@@ -17773,24 +18070,6 @@
             "ReasonDelinquency"
           ],
           "x-go-base": "int"
-        },
-        "DeploymentHealth": {
-          "type": "object",
-          "properties": {
-            "Nodes": {
-              "type": [
-                "null",
-                "array"
-              ],
-              "items": {
-                "$ref": "#/$defs/NodeHealth"
-              }
-            }
-          },
-          "required": [
-            "Nodes"
-          ],
-          "additionalProperties": false
         },
         "HealthSnapshotView": {
           "type": "object",
@@ -18064,6 +18343,10 @@
           ],
           "additionalProperties": false
         },
+        "Version": {
+          "type": "integer",
+          "x-go-type": "uint64"
+        },
         "WhatIfCurve": {
           "type": "object",
           "properties": {
@@ -18121,10 +18404,6 @@
             "withdrawn"
           ],
           "additionalProperties": false
-        },
-        "Version": {
-          "type": "integer",
-          "x-go-type": "uint64"
         }
       },
       "interface": {
@@ -19944,6 +20223,24 @@
           ],
           "additionalProperties": false
         },
+        "ConstructionVenue": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "$ref": "#/$defs/VenueKind"
+            },
+            "repositoryHost": {
+              "type": "string"
+            },
+            "note": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false
+        },
         "ContainerInstance": {
           "type": "object",
           "properties": {
@@ -19973,6 +20270,16 @@
             "tags"
           ],
           "additionalProperties": false
+        },
+        "ContainerSurface": {
+          "type": "string",
+          "enum": [
+            "spa",
+            "mobile",
+            "agentHarness",
+            "cli",
+            "service"
+          ]
         },
         "ContractInterface": {
           "type": "object",
@@ -20168,6 +20475,108 @@
           ],
           "additionalProperties": false
         },
+        "DeploymentEnvironmentComputed": {
+          "type": "object",
+          "properties": {
+            "derivedRelationships": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/DeploymentRelationship"
+              }
+            }
+          },
+          "required": [
+            "derivedRelationships"
+          ],
+          "additionalProperties": false
+        },
+        "DeploymentOperationsModel": {
+          "type": "object",
+          "properties": {
+            "objectiveLinks": {
+              "type": [
+                "null",
+                "object"
+              ],
+              "additionalProperties": {
+                "type": "array",
+                "items": {
+                  "type": "integer"
+                }
+              }
+            },
+            "deploymentScenario": {
+              "$ref": "#/$defs/ScenarioKind"
+            },
+            "constructionVenue": {
+              "$ref": "#/$defs/ConstructionVenue"
+            },
+            "reviewPolicyRef": {
+              "type": "string",
+              "enum": [
+                "vibes",
+                "checkpoints",
+                "full"
+              ]
+            },
+            "scalingPolicy": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/$defs/ScalingPolicy"
+                }
+              ]
+            },
+            "infraBuildingBlocks": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/InfraBlock"
+              }
+            },
+            "trustSummaries": {
+              "$ref": "#/$defs/TrustSummaries"
+            },
+            "deployment": {
+              "$ref": "#/$defs/DeploymentTopology"
+            }
+          },
+          "required": [
+            "deploymentScenario",
+            "constructionVenue",
+            "reviewPolicyRef",
+            "trustSummaries",
+            "deployment"
+          ],
+          "additionalProperties": false
+        },
+        "DeploymentPerson": {
+          "type": "object",
+          "properties": {
+            "key": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "description": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "key",
+            "name",
+            "description"
+          ],
+          "additionalProperties": false
+        },
         "DeploymentProfile": {
           "type": "integer",
           "enum": [
@@ -20181,6 +20590,34 @@
             "ProfileTest"
           ],
           "x-go-base": "int"
+        },
+        "DeploymentRelationship": {
+          "type": "object",
+          "properties": {
+            "from": {
+              "type": "string"
+            },
+            "to": {
+              "type": "string"
+            },
+            "label": {
+              "type": "string"
+            },
+            "technology": {
+              "type": "string"
+            },
+            "mode": {
+              "$ref": "#/$defs/CallMode"
+            }
+          },
+          "required": [
+            "from",
+            "to",
+            "label",
+            "technology",
+            "mode"
+          ],
+          "additionalProperties": false
         },
         "DeploymentTopology": {
           "type": "object",
@@ -20307,6 +20744,21 @@
           ],
           "x-go-base": "int"
         },
+        "ElementRole": {
+          "type": "string",
+          "enum": [
+            "gateway",
+            "identityProvider",
+            "database",
+            "objectStore",
+            "messaging",
+            "observability",
+            "agentHarness",
+            "sourceControl",
+            "paymentGateway",
+            "other"
+          ]
+        },
         "EvPoint": {
           "type": "object",
           "properties": {
@@ -20393,6 +20845,30 @@
             "term",
             "definition",
             "category"
+          ],
+          "additionalProperties": false
+        },
+        "InfraBlock": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "category": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "active",
+                "proposed"
+              ]
+            }
+          },
+          "required": [
+            "name",
+            "category",
+            "status"
           ],
           "additionalProperties": false
         },
@@ -21396,6 +21872,37 @@
           ],
           "additionalProperties": false
         },
+        "ScalingPolicy": {
+          "type": "object",
+          "properties": {
+            "scaleToZero": {
+              "type": "boolean"
+            },
+            "minInstances": {
+              "type": "integer"
+            },
+            "maxInstances": {
+              "type": "integer"
+            },
+            "targetUtilizationPct": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "scaleToZero",
+            "minInstances",
+            "maxInstances",
+            "targetUtilizationPct"
+          ],
+          "additionalProperties": false
+        },
+        "ScenarioKind": {
+          "type": "string",
+          "enum": [
+            "deployedNotOperated",
+            "deployedOperated"
+          ]
+        },
         "ScheduleKind": {
           "type": "integer",
           "enum": [
@@ -21757,6 +22264,26 @@
           ],
           "x-go-base": "int"
         },
+        "TrustSummaries": {
+          "type": "object",
+          "properties": {
+            "billing": {
+              "type": "string"
+            },
+            "usageMetering": {
+              "type": "string"
+            },
+            "dataOwnership": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "billing",
+            "usageMetering",
+            "dataOwnership"
+          ],
+          "additionalProperties": false
+        },
         "UIDesignRecord": {
           "type": "object",
           "properties": {
@@ -21850,6 +22377,13 @@
             "rejectionReason"
           ],
           "additionalProperties": false
+        },
+        "VenueKind": {
+          "type": "string",
+          "enum": [
+            "customerCI",
+            "localMachine"
+          ]
         },
         "Version": {
           "type": "integer"
@@ -21957,261 +22491,6 @@
             "modelId",
             "megatokensInPerDay",
             "megatokensOutPerDay"
-          ],
-          "additionalProperties": false
-        },
-        "ScenarioKind": {
-          "type": "string",
-          "enum": [
-            "deployedNotOperated",
-            "deployedOperated"
-          ]
-        },
-        "VenueKind": {
-          "type": "string",
-          "enum": [
-            "customerCI",
-            "localMachine"
-          ]
-        },
-        "ConstructionVenue": {
-          "type": "object",
-          "properties": {
-            "kind": {
-              "$ref": "#/$defs/VenueKind"
-            },
-            "repositoryHost": {
-              "type": "string"
-            },
-            "note": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "kind"
-          ],
-          "additionalProperties": false
-        },
-        "ScalingPolicy": {
-          "type": "object",
-          "properties": {
-            "scaleToZero": {
-              "type": "boolean"
-            },
-            "minInstances": {
-              "type": "integer"
-            },
-            "maxInstances": {
-              "type": "integer"
-            },
-            "targetUtilizationPct": {
-              "type": "integer"
-            }
-          },
-          "required": [
-            "scaleToZero",
-            "minInstances",
-            "maxInstances",
-            "targetUtilizationPct"
-          ],
-          "additionalProperties": false
-        },
-        "InfraBlock": {
-          "type": "object",
-          "properties": {
-            "name": {
-              "type": "string"
-            },
-            "category": {
-              "type": "string"
-            },
-            "status": {
-              "type": "string",
-              "enum": [
-                "active",
-                "proposed"
-              ]
-            }
-          },
-          "required": [
-            "name",
-            "category",
-            "status"
-          ],
-          "additionalProperties": false
-        },
-        "TrustSummaries": {
-          "type": "object",
-          "properties": {
-            "billing": {
-              "type": "string"
-            },
-            "usageMetering": {
-              "type": "string"
-            },
-            "dataOwnership": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "billing",
-            "usageMetering",
-            "dataOwnership"
-          ],
-          "additionalProperties": false
-        },
-        "DeploymentOperationsModel": {
-          "type": "object",
-          "properties": {
-            "objectiveLinks": {
-              "type": [
-                "null",
-                "object"
-              ],
-              "additionalProperties": {
-                "type": "array",
-                "items": {
-                  "type": "integer"
-                }
-              }
-            },
-            "deploymentScenario": {
-              "$ref": "#/$defs/ScenarioKind"
-            },
-            "constructionVenue": {
-              "$ref": "#/$defs/ConstructionVenue"
-            },
-            "reviewPolicyRef": {
-              "type": "string",
-              "enum": [
-                "vibes",
-                "checkpoints",
-                "full"
-              ]
-            },
-            "scalingPolicy": {
-              "oneOf": [
-                {
-                  "type": "null"
-                },
-                {
-                  "$ref": "#/$defs/ScalingPolicy"
-                }
-              ]
-            },
-            "infraBuildingBlocks": {
-              "type": [
-                "null",
-                "array"
-              ],
-              "items": {
-                "$ref": "#/$defs/InfraBlock"
-              }
-            },
-            "trustSummaries": {
-              "$ref": "#/$defs/TrustSummaries"
-            },
-            "deployment": {
-              "$ref": "#/$defs/DeploymentTopology"
-            }
-          },
-          "required": [
-            "deploymentScenario",
-            "constructionVenue",
-            "reviewPolicyRef",
-            "trustSummaries",
-            "deployment"
-          ],
-          "additionalProperties": false
-        },
-        "ContainerSurface": {
-          "type": "string",
-          "enum": [
-            "spa",
-            "mobile",
-            "agentHarness",
-            "cli",
-            "service"
-          ]
-        },
-        "ElementRole": {
-          "type": "string",
-          "enum": [
-            "gateway",
-            "identityProvider",
-            "database",
-            "objectStore",
-            "messaging",
-            "observability",
-            "agentHarness",
-            "sourceControl",
-            "paymentGateway",
-            "other"
-          ]
-        },
-        "DeploymentRelationship": {
-          "type": "object",
-          "properties": {
-            "from": {
-              "type": "string"
-            },
-            "to": {
-              "type": "string"
-            },
-            "label": {
-              "type": "string"
-            },
-            "technology": {
-              "type": "string"
-            },
-            "mode": {
-              "$ref": "#/$defs/CallMode"
-            }
-          },
-          "required": [
-            "from",
-            "to",
-            "label",
-            "technology",
-            "mode"
-          ],
-          "additionalProperties": false
-        },
-        "DeploymentPerson": {
-          "type": "object",
-          "properties": {
-            "key": {
-              "type": "string"
-            },
-            "name": {
-              "type": "string"
-            },
-            "description": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "key",
-            "name",
-            "description"
-          ],
-          "additionalProperties": false
-        },
-        "DeploymentEnvironmentComputed": {
-          "type": "object",
-          "properties": {
-            "derivedRelationships": {
-              "type": [
-                "null",
-                "array"
-              ],
-              "items": {
-                "$ref": "#/$defs/DeploymentRelationship"
-              }
-            }
-          },
-          "required": [
-            "derivedRelationships"
           ],
           "additionalProperties": false
         }
@@ -22449,18 +22728,6 @@
         "EntryRef": {
           "type": "string"
         },
-        "RevenueKind": {
-          "type": "integer",
-          "enum": [
-            0,
-            1
-          ],
-          "x-enum-varnames": [
-            "RevenueKindInbound",
-            "RevenueKindReversal"
-          ],
-          "x-go-base": "int"
-        },
         "Money": {
           "type": "object",
           "properties": {
@@ -22514,6 +22781,18 @@
             "OccurredAt"
           ],
           "additionalProperties": false
+        },
+        "RevenueKind": {
+          "type": "integer",
+          "enum": [
+            0,
+            1
+          ],
+          "x-enum-varnames": [
+            "RevenueKindInbound",
+            "RevenueKindReversal"
+          ],
+          "x-go-base": "int"
         },
         "ReversalEntry": {
           "type": "object",
@@ -25743,281 +26022,6 @@
         ]
       }
     },
-    "episodeAccess": {
-      "component": "episodeAccess",
-      "layer": "ResourceAccess",
-      "goPackage": "internal/resourceaccess/episode",
-      "title": "episode contract",
-      "$defs": {
-        "ProjectID": {
-          "type": "string"
-        },
-        "EpisodeOutcome": {
-          "type": "integer",
-          "enum": [
-            0,
-            1,
-            2,
-            3
-          ],
-          "x-enum-varnames": [
-            "EpisodeSucceeded",
-            "EpisodeFailed",
-            "EpisodeCancelled",
-            "EpisodeGap"
-          ],
-          "x-go-base": "int"
-        },
-        "EpisodeKind": {
-          "type": "integer",
-          "enum": [
-            0,
-            1,
-            2,
-            3,
-            4
-          ],
-          "x-enum-varnames": [
-            "EpisodeKindDesign",
-            "EpisodeKindConstruction",
-            "EpisodeKindReview",
-            "EpisodeKindRework",
-            "EpisodeKindAnswer"
-          ],
-          "x-go-base": "int"
-        },
-        "EpisodeUsage": {
-          "type": "object",
-          "properties": {
-            "In": {
-              "type": "integer"
-            },
-            "Out": {
-              "type": "integer"
-            },
-            "CacheRead": {
-              "type": "integer"
-            },
-            "CacheCreate": {
-              "type": "integer"
-            }
-          },
-          "required": [
-            "In",
-            "Out",
-            "CacheRead",
-            "CacheCreate"
-          ],
-          "additionalProperties": false
-        },
-        "EpisodeLineage": {
-          "type": "object",
-          "properties": {
-            "WorkflowID": {
-              "type": "string"
-            },
-            "RunID": {
-              "type": "string"
-            },
-            "ActivityID": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "WorkflowID",
-            "RunID"
-          ],
-          "additionalProperties": false
-        },
-        "SubagentSpan": {
-          "type": "object",
-          "properties": {
-            "ToolUseID": {
-              "type": "string"
-            },
-            "StartedAt": {
-              "type": "string",
-              "format": "date-time",
-              "x-go-import": "time",
-              "x-go-type": "time.Time"
-            },
-            "EndedAt": {
-              "type": "string",
-              "format": "date-time",
-              "x-go-import": "time",
-              "x-go-type": "time.Time"
-            }
-          },
-          "required": [
-            "ToolUseID"
-          ],
-          "additionalProperties": false
-        },
-        "EpisodeRecord": {
-          "type": "object",
-          "properties": {
-            "EpisodeID": {
-              "type": "string"
-            },
-            "Kind": {
-              "$ref": "#/$defs/EpisodeKind"
-            },
-            "TargetRef": {
-              "type": "string"
-            },
-            "Lineage": {
-              "$ref": "#/$defs/EpisodeLineage"
-            },
-            "WorkerClass": {
-              "type": "string"
-            },
-            "Model": {
-              "type": "string"
-            },
-            "Usage": {
-              "$ref": "#/$defs/EpisodeUsage"
-            },
-            "StreamedUsage": {
-              "$ref": "#/$defs/EpisodeUsage"
-            },
-            "CostUSD": {
-              "type": "number"
-            },
-            "NumTurns": {
-              "type": "integer"
-            },
-            "ToolCallCounts": {
-              "type": "object",
-              "additionalProperties": {
-                "type": "integer"
-              }
-            },
-            "SubagentSpans": {
-              "type": "array",
-              "items": {
-                "$ref": "#/$defs/SubagentSpan"
-              }
-            },
-            "StartedAt": {
-              "type": "string",
-              "format": "date-time",
-              "x-go-import": "time",
-              "x-go-type": "time.Time"
-            },
-            "EndedAt": {
-              "type": "string",
-              "format": "date-time",
-              "x-go-import": "time",
-              "x-go-type": "time.Time"
-            },
-            "Outcome": {
-              "$ref": "#/$defs/EpisodeOutcome"
-            },
-            "GapReason": {
-              "type": "string"
-            },
-            "TracePath": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "EpisodeID",
-            "Kind",
-            "TargetRef",
-            "Usage",
-            "StartedAt",
-            "EndedAt",
-            "Outcome"
-          ],
-          "additionalProperties": false
-        },
-        "EpisodeQuery": {
-          "type": "object",
-          "properties": {
-            "ProjectID": {
-              "$ref": "#/$defs/ProjectID"
-            },
-            "TargetRef": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "ProjectID"
-          ],
-          "additionalProperties": false
-        }
-      },
-      "interface": {
-        "name": "EpisodeAccess",
-        "layer": "resourceaccess",
-        "operations": [
-          {
-            "name": "AppendEpisode",
-            "params": [
-              {
-                "name": "projectID",
-                "schema": {
-                  "$ref": "#/$defs/ProjectID"
-                }
-              },
-              {
-                "name": "record",
-                "schema": {
-                  "$ref": "#/$defs/EpisodeRecord"
-                }
-              }
-            ],
-            "error": true
-          },
-          {
-            "name": "ListEpisodes",
-            "params": [
-              {
-                "name": "query",
-                "schema": {
-                  "$ref": "#/$defs/EpisodeQuery"
-                }
-              }
-            ],
-            "result": {
-              "type": "array",
-              "items": {
-                "$ref": "#/$defs/EpisodeRecord"
-              }
-            },
-            "error": true
-          },
-          {
-            "name": "ReadTraceEvents",
-            "params": [
-              {
-                "name": "projectID",
-                "schema": {
-                  "$ref": "#/$defs/ProjectID"
-                }
-              },
-              {
-                "name": "episodeID",
-                "schema": {
-                  "type": "string"
-                }
-              }
-            ],
-            "result": {
-              "type": "array",
-              "items": {
-                "type": [
-                  "null"
-                ],
-                "x-go-import": "encoding/json",
-                "x-go-type": "json.RawMessage"
-              }
-            },
-            "error": true
-          }
-        ]
-      }
-    },
     "webClient": {
       "component": "webClient",
       "layer": "Client",
@@ -26053,461 +26057,6 @@
           }
         ]
       }
-    },
-    "agenticJobAccess": {
-      "component": "agenticJobAccess",
-      "layer": "ResourceAccess",
-      "goPackage": "internal/resourceaccess/agenticjob",
-      "infra": [
-        "GitHubActions"
-      ],
-      "title": "agenticjob contract",
-      "$defs": {
-        "ArtifactRef": {
-          "type": "string"
-        },
-        "ConstructionActivityID": {
-          "type": "string"
-        },
-        "EpisodeOutcome": {
-          "type": "integer",
-          "enum": [
-            0,
-            1,
-            2,
-            3
-          ],
-          "x-enum-varnames": [
-            "EpisodeSucceeded",
-            "EpisodeFailed",
-            "EpisodeCancelled",
-            "EpisodeGap"
-          ],
-          "x-go-base": "int"
-        },
-        "EpisodeSummary": {
-          "type": "object",
-          "properties": {
-            "EpisodeID": {
-              "type": "string"
-            },
-            "Model": {
-              "type": "string"
-            },
-            "Usage": {
-              "$ref": "#/$defs/EpisodeUsage"
-            },
-            "StreamedUsage": {
-              "$ref": "#/$defs/EpisodeUsage"
-            },
-            "CostUSD": {
-              "type": "number"
-            },
-            "NumTurns": {
-              "type": "integer"
-            },
-            "ToolCallCounts": {
-              "type": "object",
-              "additionalProperties": {
-                "type": "integer"
-              }
-            },
-            "SubagentSpans": {
-              "type": "array",
-              "items": {
-                "$ref": "#/$defs/SubagentSpan"
-              }
-            },
-            "StartedAt": {
-              "type": "string",
-              "format": "date-time",
-              "x-go-import": "time",
-              "x-go-type": "time.Time"
-            },
-            "EndedAt": {
-              "type": "string",
-              "format": "date-time",
-              "x-go-import": "time",
-              "x-go-type": "time.Time"
-            },
-            "Outcome": {
-              "$ref": "#/$defs/EpisodeOutcome"
-            },
-            "TracePath": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "EpisodeID",
-            "Usage",
-            "StartedAt",
-            "EndedAt",
-            "Outcome"
-          ],
-          "additionalProperties": false
-        },
-        "EpisodeUsage": {
-          "type": "object",
-          "properties": {
-            "In": {
-              "type": "integer"
-            },
-            "Out": {
-              "type": "integer"
-            },
-            "CacheRead": {
-              "type": "integer"
-            },
-            "CacheCreate": {
-              "type": "integer"
-            }
-          },
-          "required": [
-            "In",
-            "Out",
-            "CacheRead",
-            "CacheCreate"
-          ],
-          "additionalProperties": false
-        },
-        "PipelineHandle": {
-          "type": "string"
-        },
-        "PipelineObservation": {
-          "type": "object",
-          "properties": {
-            "Handle": {
-              "$ref": "#/$defs/PipelineHandle"
-            },
-            "Phase": {
-              "$ref": "#/$defs/PipelinePhase"
-            },
-            "Steps": {
-              "type": [
-                "null",
-                "array"
-              ],
-              "items": {
-                "$ref": "#/$defs/StepObservation"
-              }
-            },
-            "FailedStep": {
-              "type": "string"
-            },
-            "Diagnostic": {
-              "type": "string"
-            },
-            "RunURL": {
-              "type": "string"
-            },
-            "StartedAt": {
-              "type": "string",
-              "format": "date-time",
-              "x-go-import": "time",
-              "x-go-type": "time.Time"
-            },
-            "FinishedAt": {
-              "type": [
-                "null",
-                "string"
-              ],
-              "format": "date-time",
-              "x-go-import": "time",
-              "x-go-type": "time.Time"
-            },
-            "Episode": {
-              "$ref": "#/$defs/EpisodeSummary"
-            }
-          },
-          "required": [
-            "Handle",
-            "Phase",
-            "Steps",
-            "FailedStep",
-            "Diagnostic",
-            "RunURL",
-            "StartedAt"
-          ],
-          "additionalProperties": false
-        },
-        "PipelinePhase": {
-          "type": "integer",
-          "enum": [
-            0,
-            1,
-            2,
-            3,
-            4
-          ],
-          "x-enum-varnames": [
-            "PhasePending",
-            "PhaseRunning",
-            "PhaseSucceeded",
-            "PhaseFailed",
-            "PhaseCancelled"
-          ],
-          "x-go-base": "int"
-        },
-        "PipelineSpec": {
-          "type": "object",
-          "properties": {
-            "ProjectID": {
-              "$ref": "#/$defs/ProjectID"
-            },
-            "ActivityID": {
-              "$ref": "#/$defs/ConstructionActivityID"
-            },
-            "Steps": {
-              "type": [
-                "null",
-                "array"
-              ],
-              "items": {
-                "$ref": "#/$defs/PipelineStep"
-              }
-            },
-            "Edges": {
-              "type": [
-                "null",
-                "array"
-              ],
-              "items": {
-                "$ref": "#/$defs/StepDependency"
-              }
-            },
-            "WorkspaceRef": {
-              "$ref": "#/$defs/ArtifactRef"
-            },
-            "DispatchInputs": {
-              "type": "object",
-              "additionalProperties": {
-                "type": "string"
-              }
-            },
-            "TargetRepo": {
-              "$ref": "#/$defs/RepoTarget"
-            },
-            "WorkflowFile": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "ProjectID",
-            "ActivityID",
-            "Steps",
-            "Edges",
-            "WorkspaceRef",
-            "DispatchInputs",
-            "TargetRepo",
-            "WorkflowFile"
-          ],
-          "additionalProperties": false
-        },
-        "PipelineStep": {
-          "type": "object",
-          "properties": {
-            "Name": {
-              "type": "string"
-            },
-            "Toolchain": {
-              "$ref": "#/$defs/ToolchainRef"
-            },
-            "Command": {
-              "type": [
-                "null",
-                "array"
-              ],
-              "items": {
-                "type": "string"
-              }
-            },
-            "Resources": {
-              "$ref": "#/$defs/ResourceRequest"
-            },
-            "CacheKeys": {
-              "type": [
-                "null",
-                "array"
-              ],
-              "items": {
-                "type": "string"
-              }
-            }
-          },
-          "required": [
-            "Name",
-            "Toolchain",
-            "Command",
-            "Resources",
-            "CacheKeys"
-          ],
-          "additionalProperties": false
-        },
-        "ProjectID": {
-          "type": "string"
-        },
-        "RepoTarget": {
-          "type": "object",
-          "properties": {
-            "Owner": {
-              "type": "string"
-            },
-            "Name": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "Owner",
-            "Name"
-          ],
-          "additionalProperties": false
-        },
-        "ResourceRequest": {
-          "type": "object",
-          "properties": {
-            "CPUMillis": {
-              "type": "integer"
-            },
-            "MemMiB": {
-              "type": "integer"
-            },
-            "GPUs": {
-              "type": "integer"
-            }
-          },
-          "required": [
-            "CPUMillis",
-            "MemMiB",
-            "GPUs"
-          ],
-          "additionalProperties": false
-        },
-        "StepDependency": {
-          "type": "object",
-          "properties": {
-            "From": {
-              "type": "string"
-            },
-            "To": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "From",
-            "To"
-          ],
-          "additionalProperties": false
-        },
-        "StepObservation": {
-          "type": "object",
-          "properties": {
-            "Name": {
-              "type": "string"
-            },
-            "Outcome": {
-              "$ref": "#/$defs/StepOutcome"
-            }
-          },
-          "required": [
-            "Name",
-            "Outcome"
-          ],
-          "additionalProperties": false
-        },
-        "StepOutcome": {
-          "type": "integer",
-          "enum": [
-            0,
-            1,
-            2,
-            3,
-            4
-          ],
-          "x-enum-varnames": [
-            "StepPending",
-            "StepRunning",
-            "StepSucceeded",
-            "StepFailed",
-            "StepSkipped"
-          ],
-          "x-go-base": "int"
-        },
-        "SubagentSpan": {
-          "type": "object",
-          "properties": {
-            "ToolUseID": {
-              "type": "string"
-            },
-            "StartedAt": {
-              "type": "string",
-              "format": "date-time",
-              "x-go-import": "time",
-              "x-go-type": "time.Time"
-            },
-            "EndedAt": {
-              "type": "string",
-              "format": "date-time",
-              "x-go-import": "time",
-              "x-go-type": "time.Time"
-            }
-          },
-          "required": [
-            "ToolUseID"
-          ],
-          "additionalProperties": false
-        },
-        "ToolchainRef": {
-          "type": "string"
-        }
-      },
-      "interface": {
-        "name": "AgenticJobAccess",
-        "layer": "resourceaccess",
-        "operations": [
-          {
-            "name": "CancelAgenticJob",
-            "params": [
-              {
-                "name": "handle",
-                "schema": {
-                  "$ref": "#/$defs/PipelineHandle"
-                }
-              }
-            ],
-            "error": true
-          },
-          {
-            "name": "ObserveAgenticJob",
-            "params": [
-              {
-                "name": "handle",
-                "schema": {
-                  "$ref": "#/$defs/PipelineHandle"
-                }
-              }
-            ],
-            "result": {
-              "$ref": "#/$defs/PipelineObservation"
-            },
-            "error": true
-          },
-          {
-            "name": "SubmitAgenticJob",
-            "params": [
-              {
-                "name": "spec",
-                "schema": {
-                  "$ref": "#/$defs/PipelineSpec"
-                }
-              }
-            ],
-            "result": {
-              "$ref": "#/$defs/PipelineHandle"
-            },
-            "error": true
-          }
-        ]
-      }
     }
   },
   "testingState": {
@@ -26524,12 +26073,12 @@
           "id": "STP-UC1",
           "useCase": "drive-system-design",
           "title": "Drive System Design (client op: driveDesignPhase)",
-          "description": "Black-box exercise of the Phase-1 design loop at the systemDesignManager surface. Proves the artifact draft->review->commit state machine and the phase-advance gate; breaks it with premature advance, a reject-redraft loop, and an out-of-order draft request.",
+          "description": "Black-box exercise of the Phase-1 design loop at the systemDesignManager surface. Proves the artifact draft-\u003ereview-\u003ecommit state machine and the phase-advance gate; breaks it with premature advance, a reject-redraft loop, and an out-of-order draft request.",
           "cases": [
             {
               "id": "STP-UC1-H1",
               "kind": "happy",
-              "title": "Full artifact loop: create -> research -> draft mission -> approve -> commit; advance once Phase-1 complete",
+              "title": "Full artifact loop: create -\u003e research -\u003e draft mission -\u003e approve -\u003e commit; advance once Phase-1 complete",
               "proves": "The design loop drives an artifact from draft to committed and the phase gate opens only when every Phase-1 slot is committed (Method-conformance objective #2).",
               "expectedOutcome": "Mission reaches StageCommitted; with all Phase-1 kinds 0-7 committed, AdvancePhase returns advanced=true, missingArtifacts=[].",
               "steps": [
@@ -26574,7 +26123,7 @@
                     "result": "1",
                     "errorExpected": false
                   },
-                  "assertion": "Returns an incremented Version (>=1); research is persisted before drafting begins."
+                  "assertion": "Returns an incremented Version (\u003e=1); research is persisted before drafting begins."
                 },
                 {
                   "seq": 3,
@@ -26873,7 +26422,7 @@
                     "errorExpected": true,
                     "errorCode": "PreconditionFailed"
                   },
-                  "assertion": "kind=4 (KindCoreUseCases) requested while kind=3 (KindVolatilities) is uncommitted -> refused. No SessionRef returned."
+                  "assertion": "kind=4 (KindCoreUseCases) requested while kind=3 (KindVolatilities) is uncommitted -\u003e refused. No SessionRef returned."
                 }
               ]
             }
@@ -26889,7 +26438,7 @@
               "id": "STP-UC2-H1",
               "kind": "happy",
               "title": "Commit the normal option, then advance to construction",
-              "proves": "A valid SDPCommit records the chosen option and lets construction open (mirrors uc2 chain: SubmitSDPDecision -> commitOption -> openWorkItem).",
+              "proves": "A valid SDPCommit records the chosen option and lets construction open (mirrors uc2 chain: SubmitSDPDecision -\u003e commitOption -\u003e openWorkItem).",
               "expectedOutcome": "SubmitSDPDecision(commit, \"normal\") succeeds; AdvanceToConstruction returns advanced=true, missingArtifacts=[].",
               "steps": [
                 {
@@ -27205,7 +26754,7 @@
               "id": "STP-UC3-H1",
               "kind": "happy",
               "title": "Pump dispatches the next eligible activity and drives it through the review gate",
-              "proves": "ExecuteNextActivity picks the next eligible activity, and a PhaseApprove advances it toward merge/exit (mirrors uc3 chain: executeNextActivity -> PickWorkerClass -> ... -> ProposeReviews -> mergePullRequest -> recordActivityExited).",
+              "proves": "ExecuteNextActivity picks the next eligible activity, and a PhaseApprove advances it toward merge/exit (mirrors uc3 chain: executeNextActivity -\u003e PickWorkerClass -\u003e ... -\u003e ProposeReviews -\u003e mergePullRequest -\u003e recordActivityExited).",
               "expectedOutcome": "First tick dispatches an activity (dispatched=true); PhaseApprove is accepted; a later tick progresses the activity to exit.",
               "steps": [
                 {
@@ -27313,7 +26862,7 @@
               "id": "STP-UC3-H2",
               "kind": "happy",
               "title": "Escalated activity is resolved by an operator takeover and resumes construction",
-              "proves": "OverrideActivity resolves an operator escalation raised when DecideOnVariance returns VarianceEscalate, and hands the activity back into active construction (mirrors uc3 chain: executeNextActivity -> ... -> DecideOnVariance(Escalate) -> escalate-operator -> OverrideActivity(Takeover) -> resume dispatch). Covers the architecture's operator mid-chain escalation entry chain executeNextActivity -> overrideActivity (closes STP-CHAIN-COVER).",
+              "proves": "OverrideActivity resolves an operator escalation raised when DecideOnVariance returns VarianceEscalate, and hands the activity back into active construction (mirrors uc3 chain: executeNextActivity -\u003e ... -\u003e DecideOnVariance(Escalate) -\u003e escalate-operator -\u003e OverrideActivity(Takeover) -\u003e resume dispatch). Covers the architecture's operator mid-chain escalation entry chain executeNextActivity -\u003e overrideActivity (closes STP-CHAIN-COVER).",
               "expectedOutcome": "First tick dispatches an activity whose agentic job goes on to exhaust its retry budget and escalate (StageAwaitingTakeover); the operator's OverrideActivity(kind=Takeover) is accepted with no error; a subsequent read shows the activity has left StageAwaitingTakeover and resumed at StageDispatching under a changed arrangement.",
               "steps": [
                 {
@@ -27450,7 +26999,7 @@
                     },
                     {
                       "name": "feedback",
-                      "value": "{\"notes\":\"Contract has 22 operations; split the component (reject >=20).\",\"comments\":null}",
+                      "value": "{\"notes\":\"Contract has 22 operations; split the component (reject \u003e=20).\",\"comments\":null}",
                       "schemaRef": "#/$defs/ReviewFeedback"
                     }
                   ],
@@ -27530,7 +27079,7 @@
                     "result": "{\"dispatched\":false}",
                     "errorExpected": false
                   },
-                  "assertion": "Same tickID replayed -> no second dispatch of C-BILLENG; the branch/PR count for the activity is unchanged."
+                  "assertion": "Same tickID replayed -\u003e no second dispatch of C-BILLENG; the branch/PR count for the activity is unchanged."
                 }
               ]
             }
@@ -27540,14 +27089,14 @@
           "id": "STP-UC4",
           "useCase": "operate-a-delivered-system",
           "title": "Operate a Delivered System (client ops: operateDeliveredSystem / readOperatedSystemView)",
-          "description": "Black-box exercise of the operationsManager surface. Proves deploy->reconcile->observe reaches Healthy; breaks it with the delinquency pause path, deploy idempotency on a duplicate changeId, and terminal withdrawal.",
+          "description": "Black-box exercise of the operationsManager surface. Proves deploy-\u003ereconcile-\u003eobserve reaches Healthy; breaks it with the delinquency pause path, deploy idempotency on a duplicate changeId, and terminal withdrawal.",
           "cases": [
             {
               "id": "STP-UC4-H1",
               "kind": "happy",
               "title": "Deploy after construction, reconcile, and observe Healthy",
-              "proves": "A full-bundle deploy publishes desired state and the reconcile loop drives the app to Healthy (mirrors uc4: deployAfterConstruction -> publishDesiredState -> reconcileOperatedState -> getApplicationHealth).",
-              "expectedOutcome": "DeployResult.published=true; ReconcileResult shows a Pending->Healthy transition; QueryOperatedSystemView reports Phase=RuntimeStatusHealthy.",
+              "proves": "A full-bundle deploy publishes desired state and the reconcile loop drives the app to Healthy (mirrors uc4: deployAfterConstruction -\u003e publishDesiredState -\u003e reconcileOperatedState -\u003e getApplicationHealth).",
+              "expectedOutcome": "DeployResult.published=true; ReconcileResult shows a Pending-\u003eHealthy transition; QueryOperatedSystemView reports Phase=RuntimeStatusHealthy.",
               "steps": [
                 {
                   "seq": 1,
@@ -27589,7 +27138,7 @@
                     "result": "{\"observed\":1,\"transitions\":1,\"republished\":0}",
                     "errorExpected": false
                   },
-                  "assertion": "observed>=1 and transitions>=1 - a status transition (Pending->Healthy) is recorded on change only."
+                  "assertion": "observed\u003e=1 and transitions\u003e=1 - a status transition (Pending-\u003eHealthy) is recorded on change only."
                 },
                 {
                   "seq": 3,
@@ -27617,7 +27166,7 @@
               "id": "STP-UC4-N1",
               "kind": "negative",
               "title": "Delinquency policy pauses (not withdraws) the operated system",
-              "proves": "The queued Manager->Manager delinquency signal must PAUSE the system when pauseNotWithdraw=true and must be observable - never silently withdraw or ignore it.",
+              "proves": "The queued Manager-\u003eManager delinquency signal must PAUSE the system when pauseNotWithdraw=true and must be observable - never silently withdraw or ignore it.",
               "expectedOutcome": "After ApplyDelinquencyPolicy, publishDesiredState fires with reason=ReasonDelinquency and the view is NOT RuntimeStatusWithdrawn.",
               "steps": [
                 {
@@ -27779,8 +27328,8 @@
             {
               "id": "STP-UC5-H1",
               "kind": "happy",
-              "title": "Close a billing cycle -> compute net -> route money once",
-              "proves": "Closing a cycle reads revenue + usage, computes the signed net, routes it exactly once, and settles the cycle (mirrors uc5: closeBillingCycle -> readBilling -> readRange x2 -> ComputeNet -> charge|payout -> settleCycle).",
+              "title": "Close a billing cycle -\u003e compute net -\u003e route money once",
+              "proves": "Closing a cycle reads revenue + usage, computes the signed net, routes it exactly once, and settles the cycle (mirrors uc5: closeBillingCycle -\u003e readBilling -\u003e readRange x2 -\u003e ComputeNet -\u003e charge|payout -\u003e settleCycle).",
               "expectedOutcome": "Exactly one settled cycle is recorded for (customer, cycle); the gateway moves money once under Idempotency-Key settle:cust-88:2026-06.",
               "steps": [
                 {
@@ -27901,5 +27450,5 @@
     }
   },
   "reviewPolicy": {},
-  "updatedAt": "2026-07-06T15:13:08.718167Z"
+  "updatedAt": "2026-08-09T04:11:09.691545Z"
 }
