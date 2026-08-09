@@ -152,7 +152,9 @@ function activityRowKindFromOrdinal(
   return ACTIVITY_TYPE_ORDINAL_TO_APP[ordinal] ?? 'service';
 }
 
-/** SystemDesignFailureReason (0 unknown,1 pipelineFailed,…,6 componentUnresolved). */
+/** SystemDesignFailureReason (0 unknown,1 pipelineFailed,2 pipelineCancelled,
+ * 3 pipelineTimedOut,4 varianceExhausted,5 escalationTimedOut,6 componentUnresolved,
+ * 7 dependencyUnresolved,8 dependencyCycle). */
 function failureReasonFromOrdinal(ordinal: number): FailureReason {
   return FAILURE_REASON_ORDINAL_TO_APP[ordinal] ?? 'unknown';
 }

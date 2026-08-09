@@ -759,7 +759,11 @@ type pumpSelection struct {
 
 // nextEligibleActivity resolves the next eligible construction activity for a project
 // from its head-state. An activity is eligible iff it is NotStarted and every dep is
-// Done. Iteration is ActivityList declaration order with a name tie-break.
+// satisfied — an activity dependency requires a Done record, a milestone dependency is
+// satisfied DERIVEDLY (it never has a Done record of its own; see allDepsSatisfied /
+// milestonesByID). Iteration is ActivityList declaration order; the first eligible
+// activity in that order is chosen (the candidate-list name tie-break below is
+// currently unreachable, since declIdx is already unique per activity).
 func nextEligibleActivity(proj projectstate.Project) pumpSelection {
 	// Committed Network+ActivityList alone are not authorization to build: the
 	// Phase-2 seal (AdvanceToConstruction — every slot committed, SDP review binding
@@ -773,11 +777,13 @@ func nextEligibleActivity(proj projectstate.Project) pumpSelection {
 		return pumpSelection{Verdict: verdictQuiescent}
 	}
 
+	// itemByName is both the ActivityItem lookup AND the membership set of authored
+	// activity names (the two ideas share exactly one key set, so one map serves both:
+	// resolveDependencySatisfied/allDepsSatisfied below only ever probe it for
+	// presence via `_, isActivity := itemByName[depID]`).
 	itemByName := make(map[string]projectstate.ActivityItem, len(activityList.Activities))
-	activityNames := make(map[string]struct{}, len(activityList.Activities))
 	for _, item := range activityList.Activities {
 		itemByName[item.Name] = item
-		activityNames[item.Name] = struct{}{}
 	}
 
 	depsByActivity := make(map[string][]string, len(network.Dependencies))
@@ -808,7 +814,7 @@ func nextEligibleActivity(proj projectstate.Project) pumpSelection {
 		if !isActivityNotStarted(name, proj.ActivityConstruction) {
 			continue
 		}
-		res := allDepsSatisfied(depsByActivity[name], activityNames, proj.ActivityConstruction, milestones)
+		res := allDepsSatisfied(depsByActivity[name], itemByName, proj.ActivityConstruction, milestones)
 		if res.problemReason != "" {
 			if problemReason == "" {
 				problemActivityID, problemReason, problemKind = name, res.problemReason, res.problemKind
@@ -827,7 +833,8 @@ func nextEligibleActivity(proj projectstate.Project) pumpSelection {
 				BlockedActivityID:    problemActivityID,
 				BlockedFailureReason: problemKind,
 				BlockedReason: fmt.Sprintf(
-					"activity %s: %s — amend the committed network", problemActivityID, problemReason),
+					"activity %s: %s — terminally failed; amending the committed network alone will NOT restart it (RecordActivityFailed is sticky and there is no reopen/retry path)",
+					problemActivityID, problemReason),
 			}
 		}
 		return pumpSelection{Verdict: verdictQuiescent}
@@ -856,7 +863,7 @@ func nextEligibleActivity(proj projectstate.Project) pumpSelection {
 				BlockedActivityID:    chosen,
 				BlockedFailureReason: projectstate.ComponentUnresolved,
 				BlockedReason: fmt.Sprintf(
-					"activity %s names component %q, which is not in the committed systemDesign — amend the committed activityList",
+					"activity %s names component %q, which is not in the committed systemDesign — terminally failed; amending the committed activityList alone will NOT restart it (RecordActivityFailed is sticky and there is no reopen/retry path)",
 					chosen, item.ComponentID),
 			}
 		}
@@ -946,7 +953,7 @@ type depResolution struct {
 
 // resolveDependencySatisfied resolves whether one dependency id is satisfied.
 //
-//   - Names an ACTIVITY (present in activityNames, the authored ActivityList) —
+//   - Names an ACTIVITY (present in itemByName, the authored ActivityList) —
 //     satisfied iff its ActivityConstruction head-state record exists with
 //     Phase==Done. This is today's meaning, unchanged.
 //   - Names a MILESTONE (present in milestones, the authored Network.Milestones) —
@@ -974,7 +981,7 @@ type depResolution struct {
 // DependencyUnresolved — the topology is broken, not a dangling reference.
 func resolveDependencySatisfied(
 	depID string,
-	activityNames map[string]struct{},
+	itemByName map[string]projectstate.ActivityItem,
 	status map[string]projectstate.ActivityConstructionStatus,
 	milestones map[string]projectstate.NetworkMilestone,
 	visiting map[string]bool,
@@ -987,7 +994,7 @@ func resolveDependencySatisfied(
 		visiting[depID] = true
 		defer delete(visiting, depID)
 		for _, sub := range ms.DependsOn {
-			r := resolveDependencySatisfied(sub, activityNames, status, milestones, visiting)
+			r := resolveDependencySatisfied(sub, itemByName, status, milestones, visiting)
 			if r.problemReason != "" {
 				return r
 			}
@@ -997,7 +1004,7 @@ func resolveDependencySatisfied(
 		}
 		return depResolution{satisfied: true}
 	}
-	if _, isActivity := activityNames[depID]; isActivity {
+	if _, isActivity := itemByName[depID]; isActivity {
 		if status == nil {
 			return depResolution{satisfied: false}
 		}
@@ -1016,12 +1023,12 @@ func resolveDependencySatisfied(
 // each other's cycle detection.
 func allDepsSatisfied(
 	deps []string,
-	activityNames map[string]struct{},
+	itemByName map[string]projectstate.ActivityItem,
 	status map[string]projectstate.ActivityConstructionStatus,
 	milestones map[string]projectstate.NetworkMilestone,
 ) depResolution {
 	for _, dep := range deps {
-		r := resolveDependencySatisfied(dep, activityNames, status, milestones, map[string]bool{})
+		r := resolveDependencySatisfied(dep, itemByName, status, milestones, map[string]bool{})
 		if r.problemReason != "" || !r.satisfied {
 			return r
 		}

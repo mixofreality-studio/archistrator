@@ -333,9 +333,9 @@ func assertIdentityPersistedVerbatimOnDisk(ctx context.Context, t *testing.T, re
 // real: one instance's worker executed the OTHER project's workflow against
 // its OWN repo, silently rewriting that repo's project.json `id` and grafting
 // a foreign activityConstruction entry into an otherwise-intact document.
-// guardProjectIdentity (loadAggregateForMutation, projectstateaccess.go)
-// refuses any mutation whose target projectID doesn't match a non-empty
-// on-disk id, BEFORE anything is decoded or written.
+// guardProjectIdentity (run from applyMutationOnBranchFiles' STEP 0,
+// projectstateaccess.go) refuses any mutation whose target projectID doesn't
+// match a non-empty on-disk id, BEFORE anything is decoded or written.
 // --------------------------------------------------------------------------
 
 // readRawProjectDoc reads project.json straight off the repo through a fresh

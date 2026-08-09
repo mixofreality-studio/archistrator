@@ -166,10 +166,14 @@ func TestValidate_ActCoverageSlotScoping(t *testing.T) {
 	}
 }
 
-// TestDeriveActivityComponent_JoinConvention pins the activity→component join — the
-// validate-time twin of the construction pump's resolveComponentID: normalized
-// longest-key containment over the activity name AND title (title truncated at '('),
-// against component IDs, Names, and ContractKeys.
+// TestDeriveActivityComponent_JoinConvention pins the activity→component join:
+// normalized longest-key containment over the activity name AND title (title
+// truncated at '('), against component IDs, Names, and ContractKeys. This join no
+// longer mirrors the construction pump's dispatch join — dispatch now resolves via
+// the AUTHORED ActivityItem.ComponentID field, exact-matched (constructionmanager.go);
+// resolveComponentID/eligibility.go, the function this once pinned parity with, was
+// deleted by construction-dispatch-componentid. See crossartifact.go's package
+// comment for the full explanation.
 func TestDeriveActivityComponent_JoinConvention(t *testing.T) {
 	contractKey := "billingGatewayAccess"
 	comps := []projectstate.Component{

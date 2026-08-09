@@ -30,8 +30,6 @@ export function statusColor(t: Tokens, s: BuildStatus): string {
       return t.muted;
     case 'failed':
       return t.dangerFg; // terminal failure — the danger tone, not the blocked accent
-    default:
-      return t.muted;
   }
 }
 
@@ -55,8 +53,6 @@ export function statusFill(t: Tokens, s: BuildStatus): { fg: string; bg: string 
     case 'failed':
       // Same pairing episodes/EpisodesPanel outcomeFill uses for a failed episode.
       return { fg: t.dangerFg, bg: t.awaitingBg };
-    default:
-      return { fg: t.muted, bg: 'transparent' };
   }
 }
 

@@ -88,8 +88,9 @@ type BranchRepoLocator interface {
 
 // repoDescriber is an OPTIONAL capability a RepoLocator MAY implement to expose a
 // human-readable identifier (the resolved repo's clone URL / local path) for
-// DIAGNOSTIC TEXT ONLY — the project-identity guard (loadAggregateForMutation)
-// names it in its refused-write error so a human reading the failure can find the
+// DIAGNOSTIC TEXT ONLY — the project-identity guard (guardProjectIdentity, run
+// from applyMutationOnBranchFiles' STEP 0) names it in its refused-write error
+// so a human reading the failure can find the
 // physical repo, not just the logical projectID. This is not a git lexeme (no
 // ref/sha/tree crosses the seam) — the URL/path is already known plumbing detail
 // surfaced back at NewGitLocal*/NewGitHub* construction time.
@@ -525,7 +526,8 @@ func (s *GitStore) CreateProject(ctx context.Context, projectID ProjectID, owner
 	// STAMPS the requested projectID onto whatever it decodes and never compares it to the
 	// on-disk `id` — so a bare ReadProject-based resume probe would report a FABRICATED
 	// SUCCESS (existing.Version, nil) for a foreign projectID against an already-occupied
-	// repo, without ever reaching applyMutation/loadAggregateForMutation's identity guard.
+	// repo, without ever reaching applyMutationOnBranchFiles' STEP 0 identity guard
+	// (guardProjectIdentity).
 	// That is worse than the byte-corruption the guard elsewhere prevents: no bytes are
 	// written, but the caller walks away believing a project was created that never was.
 	// Read the raw snapshot ourselves instead and run the SAME guardProjectIdentity check
@@ -994,7 +996,8 @@ func loadAggregateForMutation(snap fwgithub.GitSnapshot, op string, projectID Pr
 }
 
 // guardProjectIdentity refuses a mutation whose target projectID does not match the
-// `id` already committed in the repo's project.json (STEP 2a above). It peeks the
+// `id` already committed in the repo's project.json (applyMutationOnBranchFiles'
+// STEP 0, before the dedup probe). It peeks the
 // RAW on-disk id directly — deliberately BEFORE decodeProjectFromSnapshot runs,
 // because that decoder stamps the CALLER's projectID onto the result and would
 // otherwise erase the very mismatch this guard exists to catch. A missing
