@@ -1383,12 +1383,12 @@ var toolIdentityLabelKeys = []string{
 // stripToolIdentityLabels deletes toolIdentityLabelKeys from obj's
 // metadata.labels, in place. Applied symmetrically to both the rendered and
 // the golden/production object before comparison.
-func stripToolIdentityLabels(obj map[string]interface{}) {
-	metadata, ok := obj["metadata"].(map[string]interface{})
+func stripToolIdentityLabels(obj map[string]any) {
+	metadata, ok := obj["metadata"].(map[string]any)
 	if !ok {
 		return
 	}
-	labels, ok := metadata["labels"].(map[string]interface{})
+	labels, ok := metadata["labels"].(map[string]any)
 	if !ok {
 		return
 	}
@@ -1403,14 +1403,14 @@ func stripToolIdentityLabels(obj map[string]interface{}) {
 // "# Source: <chart>/templates/<file>" comment lines disappear for free:
 // YAML comments are never part of the parsed structure, so there is nothing
 // to strip by hand, and the comparison below is over structure, not text.
-func parseYAMLDocuments(t *testing.T, data []byte) []map[string]interface{} {
+func parseYAMLDocuments(t *testing.T, data []byte) []map[string]any {
 	t.Helper()
 	dec := yaml.NewDecoder(bytes.NewReader(data))
-	var out []map[string]interface{}
+	var out []map[string]any
 	for {
-		var doc map[string]interface{}
+		var doc map[string]any
 		err := dec.Decode(&doc)
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
@@ -1429,13 +1429,63 @@ func parseYAMLDocuments(t *testing.T, data []byte) []map[string]interface{} {
 // two objects of the same kind and name.
 type objKey struct{ kind, name string }
 
-func keyOf(obj map[string]interface{}) objKey {
+func keyOf(obj map[string]any) objKey {
 	k, _ := obj["kind"].(string)
 	var n string
-	if md, ok := obj["metadata"].(map[string]interface{}); ok {
+	if md, ok := obj["metadata"].(map[string]any); ok {
 		n, _ = md["name"].(string)
 	}
 	return objKey{k, n}
+}
+
+// compareAgainstProductionGolden reads the production golden file named golden,
+// parses it into (kind, name)-keyed documents, and compares each of keys against
+// both rendered and the golden — reporting via t.Errorf/t.Fatalf exactly as
+// TestRender_MatchesProductionGoldens's per-golden-file loop body did before this
+// was pulled out into its own function. Every key checked is marked in covered
+// (whether or not the comparison against it succeeded), which is what the
+// caller's follow-up drift check (every rendered manifest is either covered or
+// listed in noProductionCounterpart) relies on.
+func compareAgainstProductionGolden(t *testing.T, golden string, keys []objKey, rendered map[objKey]manifest, covered map[objKey]bool) {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join("testdata", "golden", "production", golden))
+	if err != nil {
+		t.Fatalf("read golden %s: %v", golden, err)
+	}
+	goldenDocs := parseYAMLDocuments(t, data)
+	if len(goldenDocs) != len(keys) {
+		t.Errorf("%s: production golden has %d objects, this test expects %d — the golden and the object list below have drifted", golden, len(goldenDocs), len(keys))
+	}
+	goldenByKey := map[objKey]map[string]any{}
+	for _, doc := range goldenDocs {
+		goldenByKey[keyOf(doc)] = doc
+	}
+
+	for _, key := range keys {
+		covered[key] = true
+		m, ok := rendered[key]
+		if !ok {
+			t.Errorf("%s: renderer did not emit %s/%s, which production golden has", golden, key.kind, key.name)
+			continue
+		}
+		gdoc, ok := goldenByKey[key]
+		if !ok {
+			t.Errorf("%s: production golden has no %s/%s", golden, key.kind, key.name)
+			continue
+		}
+		var rdoc map[string]any
+		if err := yaml.Unmarshal([]byte(m.YAML), &rdoc); err != nil {
+			t.Fatalf("%s: parse rendered %s/%s: %v", golden, key.kind, key.name, err)
+		}
+		stripToolIdentityLabels(rdoc)
+		stripToolIdentityLabels(gdoc)
+		if !reflect.DeepEqual(rdoc, gdoc) {
+			rY, _ := yaml.Marshal(rdoc)
+			gY, _ := yaml.Marshal(gdoc)
+			t.Errorf("%s: %s/%s differs from production after normalizing tool-identity labels %v:\n--- rendered ---\n%s\n--- production ---\n%s",
+				golden, key.kind, key.name, toolIdentityLabelKeys, rY, gY)
+		}
+	}
 }
 
 // TestRender_MatchesProductionGoldens is the acceptance bar this whole plan
@@ -1496,44 +1546,7 @@ func TestRender_MatchesProductionGoldens(t *testing.T) {
 
 	covered := map[objKey]bool{}
 	for golden, keys := range goldenObjects {
-		data, err := os.ReadFile(filepath.Join("testdata", "golden", "production", golden))
-		if err != nil {
-			t.Fatalf("read golden %s: %v", golden, err)
-		}
-		goldenDocs := parseYAMLDocuments(t, data)
-		if len(goldenDocs) != len(keys) {
-			t.Errorf("%s: production golden has %d objects, this test expects %d — the golden and the object list below have drifted", golden, len(goldenDocs), len(keys))
-		}
-		goldenByKey := map[objKey]map[string]interface{}{}
-		for _, doc := range goldenDocs {
-			goldenByKey[keyOf(doc)] = doc
-		}
-
-		for _, key := range keys {
-			covered[key] = true
-			m, ok := rendered[key]
-			if !ok {
-				t.Errorf("%s: renderer did not emit %s/%s, which production golden has", golden, key.kind, key.name)
-				continue
-			}
-			gdoc, ok := goldenByKey[key]
-			if !ok {
-				t.Errorf("%s: production golden has no %s/%s", golden, key.kind, key.name)
-				continue
-			}
-			var rdoc map[string]interface{}
-			if err := yaml.Unmarshal([]byte(m.YAML), &rdoc); err != nil {
-				t.Fatalf("%s: parse rendered %s/%s: %v", golden, key.kind, key.name, err)
-			}
-			stripToolIdentityLabels(rdoc)
-			stripToolIdentityLabels(gdoc)
-			if !reflect.DeepEqual(rdoc, gdoc) {
-				rY, _ := yaml.Marshal(rdoc)
-				gY, _ := yaml.Marshal(gdoc)
-				t.Errorf("%s: %s/%s differs from production after normalizing tool-identity labels %v:\n--- rendered ---\n%s\n--- production ---\n%s",
-					golden, key.kind, key.name, toolIdentityLabelKeys, rY, gY)
-			}
-		}
+		compareAgainstProductionGolden(t, golden, keys, rendered, covered)
 	}
 
 	// Every rendered manifest must be accounted for: either matched against a
@@ -2199,4 +2212,3 @@ func TestValidAppName_AcceptsRealAppNames(t *testing.T) {
 		t.Error("a 64-character app name must be rejected (DNS-1123 labels stop at 63)")
 	}
 }
-

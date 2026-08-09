@@ -547,7 +547,7 @@ func gitOpsManifestFileName(m manifest) string {
 // no line matches that exact shape.
 func gitOpsAppIDAnnotationValue(raw string) (value string, ok bool) {
 	prefix := "    " + gitOpsAppIDAnnotation + ": "
-	for _, line := range strings.Split(raw, "\n") {
+	for line := range strings.SplitSeq(raw, "\n") {
 		if v, cut := strings.CutPrefix(line, prefix); cut {
 			return strings.TrimSpace(v), true
 		}
@@ -582,11 +582,11 @@ func gitOpsSelfManaged(raw string) (selfManaged bool, ok bool) {
 		return false, false
 	}
 	const marker = "\n  syncPolicy:\n"
-	i := strings.Index(raw, marker)
-	if i < 0 {
+	_, after, ok0 := strings.Cut(raw, marker)
+	if !ok0 {
 		return false, false
 	}
-	for _, line := range strings.Split(raw[i+len(marker):], "\n") {
+	for line := range strings.SplitSeq(after, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
 			continue
@@ -610,7 +610,7 @@ func gitOpsSelfManaged(raw string) (selfManaged bool, ok bool) {
 // this check exists.
 func gitOpsHasMultipleDocuments(raw string) bool {
 	applications := 0
-	for _, line := range strings.Split(raw, "\n") {
+	for line := range strings.SplitSeq(raw, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "---") {
 			return true
@@ -2365,8 +2365,8 @@ func joinModelKeyHealth(manifests []manifest, resources []resourceHealth, applic
 	var out []ModelKeyHealth
 	for _, m := range manifests {
 		status := RuntimeStatusDegraded // fail-closed default: rendered, but no live match.
-		switch {
-		case m.Kind == "Application":
+		switch m.Kind {
+		case "Application":
 			status = applicationStatus
 		default:
 			if r, ok := byIdentity[identity{Kind: m.Kind, Name: m.Name, Namespace: m.Namespace}]; ok {
