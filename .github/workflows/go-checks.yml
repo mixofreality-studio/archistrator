@@ -25,6 +25,15 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-latest
+    # This TEMPLATE assumes a built-app repo layout with go.mod at the repo
+    # root. archistrator's own repo (where this got seated by the
+    # method-assets scaffold sync) keeps its Go module under server/ instead
+    # — server-checks.yml is the real gate here — so every step below would
+    # fail vacuously ("go.mod not found") on a repo this template was never
+    # meant to govern. Guard the whole job on a root go.mod's presence rather
+    # than editing/deleting the template content, so built-app repos (which
+    # do have a root go.mod) are unaffected.
+    if: ${{ hashFiles('go.mod') != '' }}
 
     steps:
       - name: Checkout repository

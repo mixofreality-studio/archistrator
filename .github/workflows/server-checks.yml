@@ -38,6 +38,21 @@ jobs:
           go-version: '1.26'
           cache-dependency-path: server/go.sum
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # newAppHooks' resolveWorkerProvider preflights the claude-local worker
+      # provider with `claude --version` on the local profile with no
+      # ANTHROPIC_API_KEY (server/cmd/server/hooks.go) — TestNewAppHooks_LocalNoCreds_DryRunFalse_BuildsLocalPipeline
+      # exercises that path with the real PATH, so the CLI binary must be
+      # installed here. Only `claude --version` needs to run cleanly — no
+      # login/API key required (framework-go-infrastructure-llm's
+      # PreflightClaudeCLI).
+      - name: Install Claude Code CLI
+        run: npm install -g @anthropic-ai/claude-code
+
       - name: Check formatting
         run: test -z "$(gofmt -l .)" || { gofmt -l .; echo "Run 'gofmt -w .'"; exit 1; }
 

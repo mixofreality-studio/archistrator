@@ -95,6 +95,16 @@ jobs:
         with:
           node-version: '20'
 
+      # The Go server built below boots on the LOCAL profile (dev-mode auth,
+      # no ANTHROPIC_API_KEY), so resolveWorkerProvider's boot-time preflight
+      # runs `claude --version` before the server accepts traffic
+      # (server/cmd/server/hooks.go). Only the binary needs to be on PATH —
+      # no login/API key required (framework-go-infrastructure-llm's
+      # PreflightClaudeCLI) — the tests below use the replay worker provider,
+      # not claude-local, so this is preflight-only.
+      - name: Install Claude Code CLI
+        run: npm install -g @anthropic-ai/claude-code
+
       - name: Install Temporal CLI
         run: |
           curl -sSf https://temporal.download/cli.sh | sh
