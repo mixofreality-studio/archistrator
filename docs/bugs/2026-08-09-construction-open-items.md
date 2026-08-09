@@ -83,9 +83,12 @@ is unaffected (12 nodes, 0 empty keys).
   incident; the identity guard hardened only the consequence.
 - **Bench harness leaks on signal.** Teardown covers throws and normal exits, not SIGINT/SIGTERM —
   Ctrl-C orphans a Temporal dev-server holding a port and a db file.
-- **The SPA computes milestone state from activity records milestones never have**, so a reached
-  milestone renders as not-reached and its dependents read "blocked" instead of "eligible". The
-  view-layer twin of the pump bug fixed in this merge.
+- **RESOLVED 2026-08-09 (finish-construction Task 15, commit `511bae7`).** ~~The SPA computes
+  milestone state from activity records milestones never have~~, so a reached milestone rendered
+  as not-reached and its dependents read "blocked" instead of "eligible". The view-layer twin of
+  the pump bug fixed in this merge. Fixed to mirror the server's `resolveDependencySatisfied`. See
+  the finish-construction wave section below for the earmark this fix surfaced
+  (`computeCpm` milestone-chain fallback gap).
 - **No codegen-time consistency gate** for same-named enum defs sharing a `goPackage`. The drift
   materialized on the first extension and only a manual audit caught it. `systemdesignmanager.go`
   also casts one generated `FailureReason` to another by raw ordinal with nothing checking they
@@ -97,6 +100,74 @@ is unaffected (12 nodes, 0 empty keys).
 
 ## Pre-existing on main, not from this merge
 
-`make gen-temporal-check` fails: `appgen: envnames: infra "postgres": not declared in deployment`.
-All `slots` are byte-identical pre- and post-merge and this branch passed the check at `4d64502`,
-so the cause is main's own content — likely `1017b0b` or the dogfood state churn.
+**RESOLVED 2026-08-09 (finish-construction Task 1/3, commit `7438801`/`a33ce42..e965eb3`, verified
+in Task 17's gate run).** ~~`make gen-temporal-check` fails: `appgen: envnames: infra "postgres":
+not declared in deployment`.~~ All `slots` were byte-identical pre- and post-merge and this branch
+passed the check at `4d64502`, so the cause was main's own content — the codec round-trip drop
+(see below) had silently dropped `DeploymentOperationsModel` infrastructure/bindings/settings,
+including the `postgres` infra declaration, off `.operationalConcepts`. Fixing the round-trip
+restored it; `gen-temporal-check` (and every other `gen-*-check` target) is green as of Task 17's
+full gate run.
+
+## Finish-construction wave (2026-08-09)
+
+Branch `finish-construction`, 17 tasks, plan `docs/superpowers/specs/2026-08-09-finish-construction-design.md`.
+
+### Resolved
+
+- **Slot-9 `ACT-COMPONENT-COVERAGE` blocker.** Fixed by the C-EA (episode-access) activityList
+  amendment (Task 5, commits `fac9ddb`/`492f0f5`) — closes the Error that was blocking every
+  construction phase-artifact write (the C-BG billingStateAccess SRS rejection chain that opened
+  this document). `aiarch-state validate`: 0 Errors.
+- **Codec round-trip drop.** `DeploymentOperationsModel` infrastructure/bindings/settings were
+  silently dropped by the projectStateAccess codec on write. Root-caused and closed: state
+  restored, contract `$defs` extended, `modelgen` regenerated, and a round-trip test added
+  (Task 1/3, commits `7438801`, `a33ce42..e965eb3`). Also the root cause of the
+  `gen-temporal-check` failure noted above.
+- **SPA milestone dependency bug.** See the "Smaller earmarks" entry above (now marked resolved) —
+  Task 15, commit `511bae7`.
+
+### Earmark ledger (carried forward; open except where noted)
+
+- **Reopen/un-fail seam** — still open (see "Smaller earmarks" above: `RecordActivityFailed` is
+  sticky, nothing reopens an activity). Earmarked as deferred product work, homed with the
+  settlement re-plan (finish-construction design §Phase B step 5).
+- **F4 operations bridge** (`DeployAfterConstruction` → `RegisterOperatedApp`) — still open. The
+  construction-complete completion panel deliberately shows no operations link (architect Q5:
+  hand-inserting an `operated_system` row to show RUNNING would fabricate a runtime record —
+  refused; an empty console is worse than no link). `EconomicsStrip`'s "operated net: —" stands as
+  currently honest. Wiring the real bridge is follow-up work.
+- **Slot-5 verb drift** (`bindPaymentInstrument` vs `BindGatewayLive`) — still open, recorded as an
+  explicit open question on the C-BG billingStateAccess SRS (Task 9) rather than resolved by fiat;
+  deferred to the settlement re-plan alongside revenueLedgerAccess facet homing.
+- **billingStateAccess stub retry-waste** — still open. Unlike `merchantGatewayAccess` (which got
+  the honest `notConfiguredMerchantGatewayAccess` wrapper — `fwra.Auth`, in
+  `gatewayActivityOptions().TerminalRA`, no wasted retries), `billingStateAccess`'s ops
+  (`ReadBilling`, `RegisterCustomer`, `BindGatewayLive`, `SettleCycle`, `ResettleCycle`,
+  `ReadPersistentlyDelinquentCustomers`) are still the generated stub returning `fwra.Unknown,
+  "not implemented"` — not in `TerminalRA`, so a caller burns the full retry budget before
+  failing. See `docs/billing-setup.md` §"What's missing to go live" (found in Task 16, corrected
+  in the C-BG reconciliation note in Task 17).
+- **`computeCpm` milestone-chain fallback gap** — still open. The client-side CPM fallback (used
+  when no server-computed critical path is available) drops milestone-chain predecessor edges —
+  pre-existing, surfaced while verifying Task 15's SPA milestone fix, not itself in that task's
+  scope.
+- **`scripts/align-construction-phase.py` stale casing** — still open. The script's field names
+  are stale PascalCase against the live (lowercase, `omitempty`) wire schema — could mislead a
+  future author who copies its pattern (as `scripts/finish-construction-reconcile.py`, Task 11,
+  deliberately did not — it followed the real wire shape instead).
+- **ACT-rule vs componentId unification** — still open. `ACT-COMPONENT-COVERAGE` /
+  `ACT-UNKNOWN-COMPONENT` (`server/cmd/aiarch-state-mcp/crossartifact.go`) still join activities to
+  components via the normalized longest-key-containment match documented under "Stage 2 of the
+  componentId work" above; construction dispatch itself now resolves components via the authored,
+  exact-matched `ActivityItem.ComponentID` (the construction-dispatch-componentid work). The gate
+  and the pump diverged when dispatch moved off the fuzzy join, and a Stage-2 gate rewrite to
+  align it with the authored `componentId` is still pending.
+
+### Final gate run
+
+Full gate run 2026-08-09 recorded in `.testingState.testRuns`
+(`TR-2026-08-09-FINISH-CONSTRUCTION-FULL-SUITE`): 23 gates across server/webApp/systemtests, all
+green after one fix-forward (systemtests `gen-check` drift — `STP-UC3-H2` and the `STP-UC4`
+`DesiredStateChange` fixture fields, predating this branch, regenerated). Full gate table in
+`.superpowers/sdd/2026-08-09-finish-construction/task-17-report.md`.
