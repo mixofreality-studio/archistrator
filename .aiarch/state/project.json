@@ -13862,7 +13862,9 @@
             3,
             4,
             5,
-            6
+            6,
+            7,
+            8
           ],
           "x-enum-varnames": [
             "FailureReasonUnknown",
@@ -13871,7 +13873,9 @@
             "PipelineTimedOut",
             "VarianceExhausted",
             "EscalationTimedOut",
-            "ComponentUnresolved"
+            "ComponentUnresolved",
+            "DependencyUnresolved",
+            "DependencyCycle"
           ],
           "x-go-base": "int"
         },
@@ -20349,7 +20353,9 @@
             3,
             4,
             5,
-            6
+            6,
+            7,
+            8
           ],
           "x-enum-varnames": [
             "FailureReasonUnknown",
@@ -20358,7 +20364,9 @@
             "PipelineTimedOut",
             "VarianceExhausted",
             "EscalationTimedOut",
-            "ComponentUnresolved"
+            "ComponentUnresolved",
+            "DependencyUnresolved",
+            "DependencyCycle"
           ],
           "x-go-base": "int"
         },
@@ -24199,7 +24207,9 @@
             3,
             4,
             5,
-            6
+            6,
+            7,
+            8
           ],
           "x-enum-varnames": [
             "FailureReasonUnknown",
@@ -24208,7 +24218,9 @@
             "FailureReasonPipelineTimedOut",
             "FailureReasonVarianceExhausted",
             "FailureReasonEscalationTimedOut",
-            "FailureReasonComponentUnresolved"
+            "FailureReasonComponentUnresolved",
+            "FailureReasonDependencyUnresolved",
+            "FailureReasonDependencyCycle"
           ],
           "x-go-base": "int"
         },
