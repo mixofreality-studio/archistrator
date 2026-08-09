@@ -4439,20 +4439,10 @@ const deploymentRoundTripFixture = `{
 // slot-6 model.deployment object for the three sections. It must stay red,
 // unmodified, until Task 3 adds Infrastructure/Bindings/Settings fields to the
 // generated DeploymentTopology type.
-func TestDeploymentSectionsSurviveRoundTrip(t *testing.T) {
-	p, ok, err := decodeProjectDoc([]byte(deploymentRoundTripFixture), ProjectID("deployment-roundtrip-project"))
-	if err != nil {
-		t.Fatalf("decodeProjectDoc: %v", err)
-	}
-	if !ok {
-		t.Fatal("decodeProjectDoc: project not found")
-	}
-
-	reencoded, err := encodeProjectDoc(&p, time.Time{})
-	if err != nil {
-		t.Fatalf("encodeProjectDoc: %v", err)
-	}
-
+// deploymentSectionFromReencoded walks the re-encoded project.json down to
+// slot 6's model.deployment object, failing the test if any hop is missing.
+func deploymentSectionFromReencoded(t *testing.T, reencoded []byte) map[string]any {
+	t.Helper()
 	var doc map[string]any
 	if err := json.Unmarshal(reencoded, &doc); err != nil {
 		t.Fatalf("re-decode re-encoded project.json: %v", err)
@@ -4473,23 +4463,45 @@ func TestDeploymentSectionsSurviveRoundTrip(t *testing.T) {
 	if !ok {
 		t.Fatal("re-encoded slot 6 model has no deployment object")
 	}
+	return deployment
+}
 
-	infra, hasInfra := deployment["infrastructure"].([]any)
-	if !hasInfra || len(infra) != 1 {
-		t.Errorf("deployment.infrastructure did not survive the round-trip: got %v", deployment["infrastructure"])
-	} else if entry, ok := infra[0].(map[string]any); !ok || entry["key"] != "postgres" {
-		t.Errorf("deployment.infrastructure[0].key did not survive the round-trip: got %v", infra[0])
+// requireSingletonArray asserts deployment[field] round-tripped as a
+// one-element JSON array, returning it (or nil, after recording a failure).
+func requireSingletonArray(t *testing.T, deployment map[string]any, field string) []any {
+	t.Helper()
+	arr, ok := deployment[field].([]any)
+	if !ok || len(arr) != 1 {
+		t.Errorf("deployment.%s did not survive the round-trip: got %v", field, deployment[field])
+		return nil
+	}
+	return arr
+}
+
+func TestDeploymentSectionsSurviveRoundTrip(t *testing.T) {
+	p, ok, err := decodeProjectDoc([]byte(deploymentRoundTripFixture), ProjectID("deployment-roundtrip-project"))
+	if err != nil {
+		t.Fatalf("decodeProjectDoc: %v", err)
+	}
+	if !ok {
+		t.Fatal("decodeProjectDoc: project not found")
 	}
 
-	bindings, hasBindings := deployment["bindings"].([]any)
-	if !hasBindings || len(bindings) != 1 {
-		t.Errorf("deployment.bindings did not survive the round-trip: got %v", deployment["bindings"])
+	reencoded, err := encodeProjectDoc(&p, time.Time{})
+	if err != nil {
+		t.Fatalf("encodeProjectDoc: %v", err)
 	}
 
-	settings, hasSettings := deployment["settings"].([]any)
-	if !hasSettings || len(settings) != 1 {
-		t.Errorf("deployment.settings did not survive the round-trip: got %v", deployment["settings"])
+	deployment := deploymentSectionFromReencoded(t, reencoded)
+
+	if infra := requireSingletonArray(t, deployment, "infrastructure"); infra != nil {
+		if entry, ok := infra[0].(map[string]any); !ok || entry["key"] != "postgres" {
+			t.Errorf("deployment.infrastructure[0].key did not survive the round-trip: got %v", infra[0])
+		}
 	}
+
+	requireSingletonArray(t, deployment, "bindings")
+	requireSingletonArray(t, deployment, "settings")
 }
 
 // operatingmodel_test.go — coverage for the project-level OperatingModel field + the
