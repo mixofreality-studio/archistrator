@@ -45,10 +45,16 @@ export function PhaseCard({
         </Typography>
         {phase.locked ? <LockOutlinedIcon sx={{ fontSize: 15, opacity: 0.6 }} /> : null}
         <Box sx={{ flexGrow: 1 }} />
-        {phase.active ? (
+        {/* Operating (Task 14): the construction card's DONE treatment overrides the
+            ACTIVE chip even though `active` itself stays true (this is still the
+            project's current phase — just fully built). Reuses the same DONE chip
+            styling as the other two cards' completed treatment below. */}
+        {phase.operating === true ? (
+          <Chip label="DONE" size="small" sx={{ bgcolor: t.committedBg, color: t.committedFg }} />
+        ) : phase.active ? (
           <Chip label="ACTIVE" size="small" sx={{ bgcolor: t.accent, color: t.accentText }} />
         ) : null}
-        {!phase.locked && !phase.active && phase.total > 0 && (
+        {phase.operating !== true && !phase.locked && !phase.active && phase.total > 0 && (
           <Chip label="DONE" size="small" sx={{ bgcolor: t.committedBg, color: t.committedFg }} />
         )}
       </Box>

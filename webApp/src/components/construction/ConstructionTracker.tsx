@@ -17,6 +17,7 @@ import { useMemo, type ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
+import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import { toNetworkView } from '../../contracts/projectAdapters';
 import type {
   GitRow,
@@ -89,6 +90,47 @@ function Metric({
   );
 }
 
+/**
+ * The Operating completion panel (Task 14, finish-construction) — replaces the
+ * awaiting-pump AwaitingPanel once every activity has integrated (misleading
+ * otherwise: an "awaiting the pump" message on a project with nothing left to
+ * dispatch). `activityCount` is rendered dynamically off the real row count
+ * (never a literal 69) so the copy stays honest as the network grows.
+ */
+function ConstructionCompletePanel({
+  t,
+  activityCount,
+  finalEarnedPct,
+}: {
+  t: Tokens;
+  activityCount: number;
+  finalEarnedPct: number | undefined;
+}): ReactNode {
+  return (
+    <Paper
+      data-testid={UI_IDENTIFIERS.Construction.COMPLETE}
+      sx={{
+        p: 5,
+        textAlign: 'center',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        gap: 1.25,
+      }}
+    >
+      <CheckCircleOutlineIcon sx={{ fontSize: 30, color: t.committedDot }} />
+      <Typography sx={{ fontFamily: t.mono, color: t.ink, fontSize: 14, fontWeight: 700 }}>
+        {`Construction complete — all ${String(activityCount)} activities integrated.`}
+      </Typography>
+      {finalEarnedPct !== undefined && (
+        <Typography sx={{ fontFamily: t.mono, color: t.muted, fontSize: 12.5 }}>
+          {`Final earned value: ${String(Math.round(finalEarnedPct))}%`}
+        </Typography>
+      )}
+    </Paper>
+  );
+}
+
 /** Inline legend swatch for the EV chart. */
 function Legend({
   t,
@@ -127,6 +169,7 @@ export function ConstructionTracker({
   onSelectActivity,
   constructionRows,
   constructionProgress,
+  operating,
 }: {
   networkEnvelope: ProjectArtifactModelEnvelope | undefined;
   activityEnvelope: ProjectArtifactModelEnvelope | undefined;
@@ -142,6 +185,12 @@ export function ConstructionTracker({
   constructionRows?: ConstructionRows | undefined;
   /** Project-level EV progress (from project read); absent before any construction. */
   constructionProgress?: ConstructionProgress | undefined;
+  /**
+   * The derived "Operating" state (Task 14) — ProjectStateWithGit.operating,
+   * threaded down from ConstructionConsole. True once every construction activity
+   * has integrated; swaps the dormant-pump AwaitingPanel for the completion panel.
+   */
+  operating?: boolean | undefined;
 }): ReactNode {
   const t = useTokens();
   const view = useMemo(
@@ -293,6 +342,16 @@ export function ConstructionTracker({
   const spi = ev?.spi;
   const evPoints = constructionProgress?.points;
 
+  // Operating completion copy: activity count is the real construction-row count
+  // (never a literal 69), and the final EV figure mirrors EvTrackingChart's own
+  // "latest earned" derivation (ground-truth points win; the estimator curve is
+  // the fallback) so the two surfaces never disagree.
+  const totalActivityCount = Object.keys(constructionRows ?? {}).length;
+  const finalEarnedPct =
+    evPoints !== undefined && evPoints.length > 0
+      ? evPoints[evPoints.length - 1]?.earnedPct
+      : ev?.earned[ev.earned.length - 1];
+
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
       {/* ---- Headline metrics ------------------------------------------------ */}
@@ -426,6 +485,15 @@ export function ConstructionTracker({
             onOverride={onOverride}
           />
         </>
+      ) : operating === true ? (
+        // Operating (Task 14): every activity has integrated — the "awaiting the
+        // pump" copy would be misleading (there is nothing left for the pump to
+        // dispatch), so the completion panel replaces it.
+        <ConstructionCompletePanel
+          activityCount={totalActivityCount}
+          finalEarnedPct={finalEarnedPct}
+          t={t}
+        />
       ) : (
         <AwaitingPanel
           detail={

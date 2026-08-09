@@ -103,6 +103,7 @@ import type {
 } from './types';
 import type { ArtifactModelEnvelope, Money, ProjectArtifactModelEnvelope } from './types';
 import type { CostProjection, OperationsView } from './operationsTypes';
+import { deriveOperating } from './operating.ts';
 
 type Schemas = components['schemas'];
 
@@ -279,6 +280,11 @@ export function mapProjectSummary(w: Schemas['SystemDesignProjectSummary']): Pro
     committedCount: w.CommittedCount,
     totalCount: w.TotalCount,
     updatedAt: w.UpdatedAt,
+    // Operating (Task 14, finish-construction): the catalog's derived construction-
+    // complete signal (Task 13's isConstructionComplete, mirrored client-side by
+    // deriveOperating — see operating.ts). Omitted (nil) unless true, mirroring
+    // the wire field's own "omitempty" convention.
+    ...(w.ConstructionComplete === true ? { constructionComplete: true } : {}),
   };
 }
 
@@ -502,6 +508,22 @@ export function mapProjectState(w: Schemas['SystemDesignProjectState']): Project
     w.ServiceContracts,
     mapServiceContract
   ) as ServiceContracts | undefined;
+  // Operating (Task 14, finish-construction): the ONE deriveOperating call site,
+  // fed the raw {Phase, BuildStatus} ordinals off the wire record BEFORE
+  // mapConstructionRow collapses them into the display-oriented ConstructionRow
+  // shape (which drops the coarse Phase ordinal entirely). Every render site
+  // (catalog chip via ProjectSummary.ConstructionComplete, AppShell chip, HomeBase
+  // construction card, the Tracker completion panel, the Console begin/resume
+  // button) consumes this ONE precomputed boolean rather than re-deriving it.
+  // Routed through mapRecord (rather than a bare `w.ActivityConstruction ?? {}`)
+  // for its null-guard: schema.ts's generated type omits `| null`, but Go nil
+  // maps serialize as JSON `null` on the wire — the same drift mapRecord's own
+  // doc comment above notes and guards for every other head-state map.
+  const operatingRows = mapRecord(w.ActivityConstruction, (cs) => ({
+    phase: cs.Phase,
+    buildStatus: cs.BuildStatus,
+  }));
+  const operating = deriveOperating(Object.values(operatingRows ?? {}), base.phase);
   return {
     ...base,
     ...(gitRows !== undefined ? { gitRows } : {}),
@@ -512,6 +534,7 @@ export function mapProjectState(w: Schemas['SystemDesignProjectState']): Project
       : {}),
     ...(w.reviewPolicy !== undefined ? { reviewPolicy: w.reviewPolicy } : {}),
     ...(w.testingState !== undefined ? { testingState: w.testingState } : {}),
+    ...(operating ? { operating: true } : {}),
   };
 }
 

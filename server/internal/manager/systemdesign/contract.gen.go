@@ -382,14 +382,15 @@ type ProjectState struct {
 }
 
 type ProjectSummary struct {
-	ProjectID      ProjectID  `json:"ProjectID"`
-	Name           string     `json:"Name"`
-	Owner          OwnerScope `json:"Owner"`
-	Phase          Phase      `json:"Phase"`
-	PhaseName      string     `json:"PhaseName"`
-	CommittedCount int64      `json:"CommittedCount"`
-	TotalCount     int64      `json:"TotalCount"`
-	UpdatedAt      time.Time  `json:"UpdatedAt"`
+	ProjectID            ProjectID  `json:"ProjectID"`
+	Name                 string     `json:"Name"`
+	Owner                OwnerScope `json:"Owner"`
+	Phase                Phase      `json:"Phase"`
+	PhaseName            string     `json:"PhaseName"`
+	ConstructionComplete *bool      `json:"ConstructionComplete,omitempty"`
+	CommittedCount       int64      `json:"CommittedCount"`
+	TotalCount           int64      `json:"TotalCount"`
+	UpdatedAt            time.Time  `json:"UpdatedAt"`
 }
 
 type ResearchInput struct {

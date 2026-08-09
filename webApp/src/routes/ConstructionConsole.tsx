@@ -437,7 +437,10 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
         <Box sx={{ flexGrow: 1, minHeight: 0, overflowY: 'auto', px: { xs: 2, md: 4 }, py: 3 }}>
           <ConsoleHeader
             action={
-              tab === 'tracker' ? (
+              // Operating (Task 14): once construction is fully complete the
+              // begin/resume button is hidden entirely — not relabeled, since there
+              // is nothing left to begin or resume.
+              tab === 'tracker' && project?.operating !== true ? (
                 <Button
                   data-testid={UI_IDENTIFIERS.Construction.BEGIN_BUTTON}
                   disabled={beginActive}
@@ -483,6 +486,7 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
                 constructionRows={project?.constructionRows}
                 gitFor={gitForActivity}
                 networkEnvelope={networkEnvelope}
+                operating={project?.operating}
                 overrideError={overrideError}
                 overridePending={override.isPending}
                 session={session}

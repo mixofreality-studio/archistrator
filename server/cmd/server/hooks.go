@@ -872,10 +872,22 @@ func (h *appHooks) FinalizeBillingStateAccess(_ *Config, v billingstate.BillingS
 	return v
 }
 
-// FinalizeMerchantGatewayAccess is identity — merchantGatewayAccess is the
-// required, arm-less stub binding; no composition-root policy applies.
-func (h *appHooks) FinalizeMerchantGatewayAccess(_ *Config, v merchantgateway.MerchantGatewayAccess) merchantgateway.MerchantGatewayAccess {
-	return v
+// FinalizeMerchantGatewayAccess swaps the generated stub (fwra.Unknown,
+// "not implemented" on every op) for the package's own not-configured
+// implementation. manager/billing and engine/billing are real, wired components;
+// resourceaccess/billingstate is NOT — it's still the generated stub (every op
+// returns fwra.Unknown, "not implemented"), earmarked as retry-waste debt in
+// docs/bugs/2026-08-09-construction-open-items.md; real state access returns with
+// the settlement re-plan (docs/billing-setup.md). This hook only fixes
+// merchantGatewayAccess: its generated stub's Unknown kind isn't in
+// gatewayActivityOptions' TerminalRA set (manager/billing/billingmanager.go), so
+// callers burned a full retry budget before failing anyway with a message that gave
+// no path forward. The not-configured implementation fails terminally (fwra.Auth)
+// with a message pointing at docs/billing-setup.md. Unconditional — Stripe is not
+// configured in ANY profile yet, so there is no cloud/local or dry-run split here
+// (unlike FinalizeOperatedRuntimeAccess above).
+func (h *appHooks) FinalizeMerchantGatewayAccess(_ *Config, _ merchantgateway.MerchantGatewayAccess) merchantgateway.MerchantGatewayAccess {
+	return merchantgateway.NewNotConfiguredMerchantGatewayAccess()
 }
 
 // FinalizeOperatedSystemStateAccess is identity — operatedSystemStateAccess is

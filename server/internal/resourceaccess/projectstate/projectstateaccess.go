@@ -695,6 +695,14 @@ func (s *GitStore) ListProjects(ctx context.Context, owner OwnerScope, cred Repo
 				paused := true
 				summary.OperatorPaused = &paused
 			}
+			// ConstructionComplete (Task 13, finish-construction): surfaces the SAME
+			// derived construction-complete signal on the catalog row, at zero extra
+			// I/O cost — p is already the full per-project read this N+1 pass performs.
+			// Omitted (nil) unless true, mirroring the OperatorPaused convention above.
+			if isConstructionComplete(p) {
+				complete := true
+				summary.ConstructionComplete = &complete
+			}
 		} else if !isNotFound(perr) {
 			// A real read fault (auth/transient/infra) on a discovered repo is surfaced;
 			// a NotFound (repo provisioned, project.json not yet committed) is tolerated —
@@ -710,6 +718,30 @@ func (s *GitStore) ListProjects(ctx context.Context, owner OwnerScope, cred Repo
 		return out[i].ProjectID.String() > out[j].ProjectID.String()
 	})
 	return out, nil
+}
+
+// isConstructionComplete derives the catalog's construction-complete signal
+// (Task 13, finish-construction): true iff the project has entered Construction
+// (Phase == PhaseConstruction), has at least one ActivityConstruction row (an
+// empty/nil map — construction started but nothing dispatched yet, or a project
+// that never reached Construction — is never "complete"), and EVERY row has
+// BOTH reached Phase == ActivityConstructionDone AND BuildStatus ==
+// BuildIntegrated. A row that is merely Done-but-not-integrated (the
+// Skipped/TakenOver shape RecordActivityExited leaves, projectstateaccess.go
+// ~1888) or still Running/Failed keeps the project incomplete — Phase alone is
+// not sufficient, matching the fixture corpus at testdata/operating_fixtures.json
+// (shared byte-identically with the webApp TS side; see that file's sync
+// comment). Unexported: only ListProjects (same package) calls it today.
+func isConstructionComplete(p Project) bool {
+	if p.Phase != PhaseConstruction || len(p.ActivityConstruction) == 0 {
+		return false
+	}
+	for _, cs := range p.ActivityConstruction {
+		if cs.Phase != ActivityConstructionDone || cs.BuildStatus != BuildIntegrated {
+			return false
+		}
+	}
+	return true
 }
 
 // readProjectForList reads the project head-state for the ListProjects N+1 pass.

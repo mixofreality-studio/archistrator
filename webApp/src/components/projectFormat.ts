@@ -13,6 +13,17 @@ export const PHASE_LABELS: Record<ProjectPhase, string> = {
   unknown: 'Draft',
 };
 
+/**
+ * The chip label for a project, applying the "Operating" override (Task 14,
+ * finish-construction) when the derived construction-complete signal is true.
+ * Presentation-only: `phase` stays the 3-phase enum (PHASE_LABELS is untouched,
+ * so the decode-fallback semantics for every other phase are unaffected);
+ * "Operating" is applied here, at the render sites, on top of it.
+ */
+export function phaseLabel(phase: ProjectPhase, operating?: boolean): string {
+  return operating === true ? 'Operating' : PHASE_LABELS[phase];
+}
+
 /** Compact relative timestamp, e.g. "just now", "3h ago", "5d ago", or a date. */
 export function formatUpdatedAt(iso: string): string {
   const then = Date.parse(iso);

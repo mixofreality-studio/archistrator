@@ -342,6 +342,16 @@ var encapsulationAllowlistData = map[string][]string{
 	"internal/resourceaccess/billingstate": {
 		"NewRevenueLedgerAccess",
 	},
+	// EXPLICIT NOT-CONFIGURED VARIANT CONSTRUCTOR (same VARIANT-CONSTRUCTOR category as
+	// artifact/agenticjob's dry-run constructors above): the generated stub fails every op
+	// with fwra.Unknown ("not implemented"), which burns the workflow's full retry budget
+	// before failing — dishonest about WHY, since the real component IS wired and only a
+	// live Stripe credential is missing. NewNotConfiguredMerchantGatewayAccess replaces the
+	// generated stub (composed via hooks.FinalizeMerchantGatewayAccess) with a terminal
+	// fwra.Auth error pointing at docs/billing-setup.md.
+	"internal/resourceaccess/merchantgateway": {
+		"NewNotConfiguredMerchantGatewayAccess",
+	},
 	// FREE-FUNCTION BEHAVIOUR over the contract's named-scalar handle/enum value types: the
 	// schema-first rule keeps generated contract types method-free, so
 	// String/Parse/Equal/IsZero/IsTerminal behaviour lives as free funcs. Plus the package Error

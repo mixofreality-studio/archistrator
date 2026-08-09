@@ -12,7 +12,7 @@ import LinearProgress from '@mui/material/LinearProgress';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import GitHubIcon from '@mui/icons-material/GitHub';
 import type { ProjectSummary } from '../contracts/types';
-import { PHASE_LABELS, formatUpdatedAt } from './projectFormat';
+import { phaseLabel, formatUpdatedAt } from './projectFormat';
 import { useTokens } from '../utilities/theme/ThemeContext';
 import { UI_IDENTIFIERS } from '../utilities/constants/UIIdentifiers';
 
@@ -46,7 +46,7 @@ export function ProjectCard({
     >
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
         <Chip
-          label={PHASE_LABELS[project.phase]}
+          label={phaseLabel(project.phase, project.constructionComplete)}
           size="small"
           sx={{ bgcolor: t.chatArchitectBg, color: t.chatArchitectFg }}
         />
