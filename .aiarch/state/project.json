@@ -1,6 +1,6 @@
 {
   "id": "archistrator",
-  "version": 582,
+  "version": 583,
   "phase": 2,
   "owner": "dev-architect",
   "name": "Archistrator",
@@ -10669,7 +10669,9 @@
         {
           "phase": "detailed_design",
           "weight": 20,
-          "label": "Detailed Design"
+          "label": "Detailed Design",
+          "completed": true,
+          "completedAt": "2026-08-09T04:12:33.28632Z"
         },
         {
           "phase": "test_plan",
@@ -27478,5 +27480,5 @@
     }
   },
   "reviewPolicy": {},
-  "updatedAt": "2026-08-09T04:11:15.705148Z"
+  "updatedAt": "2026-08-09T04:12:35.624191Z"
 }
