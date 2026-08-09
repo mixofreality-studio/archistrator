@@ -1,5 +1,6 @@
-package merchantgateway
-
+// Package merchantgateway is the merchantGatewayAccess component: the Stripe
+// vendor-account gateway resource access.
+//
 // This file is hand-written (NOT generated) and stays alongside contract.gen.go.
 // The generated stubMerchantGatewayAccess (contract.gen.go) already fails every op —
 // it is not a silent-success fake — but it does so with fwra.Unknown, "not
@@ -16,6 +17,7 @@ package merchantgateway
 // with an explicit, terminal fwra.Auth error: no wasted retries, and a message
 // pointing at docs/billing-setup.md for how to provision Stripe and swap this
 // out for a live gateway client.
+package merchantgateway
 
 import (
 	"github.com/google/uuid"
