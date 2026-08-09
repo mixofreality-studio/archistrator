@@ -4393,6 +4393,105 @@ func TestProjectDoc_BackCompat_NoPhaseArtifacts(t *testing.T) {
 	}
 }
 
+// deploymentRoundTripFixture is a minimal project.json document whose slot-6
+// (KindOperationalConcepts) model carries one entry each of
+// deployment.infrastructure/bindings/settings, shaped exactly like the restored
+// state (2026-08-09 finish-construction plan, Task 2). The generated
+// DeploymentTopology Go type (contract.gen.go) currently models only
+// deliveryStyle/containers/environments, so decodeProjectDoc silently drops
+// these three sections on unmarshal into the typed model — this fixture is the
+// input that proves it.
+const deploymentRoundTripFixture = `{
+  "id": "deployment-roundtrip-project",
+  "version": 1,
+  "phase": 0,
+  "owner": "testowner",
+  "name": "deployment roundtrip project",
+  "research": {},
+  "slots": {
+    "6": {
+      "status": 2,
+      "kind": 6,
+      "model": {
+        "deploymentScenario": "cloud",
+        "constructionVenue": {"kind": "github"},
+        "reviewPolicyRef": "",
+        "trustSummaries": {"billing": "", "usageMetering": "", "dataOwnership": ""},
+        "deployment": {
+          "deliveryStyle": 0,
+          "containers": [],
+          "environments": [],
+          "infrastructure": [{"key":"postgres","substrate":"postgres","profiles":["cloud"],"presence":"required","env":{"URL":"ARCHISTRATOR_POSTGRES_URL"}}],
+          "bindings": [{"component":"projectStateAccess","presence":"required","provides":[],"settings":[{"name":"projectStateGitRepoURL","type":"string","default":"","env":"ARCHISTRATOR_PROJECT_STATE_GIT_REPO_URL","description":"projectStateAccess GitLocal on-disk head-state repo URL (file://)."}],"perProfile":{"local":{"variant":"GitLocal","infra":[]},"cloud":{"variant":"GitHub","infra":["github-app"]}}}],
+          "settings": [{"name":"listenAddr","type":"string","default":":8080","env":"ARCHISTRATOR_LISTEN_ADDR","description":"HTTP listen address."}]
+        }
+      }
+    }
+  }
+}`
+
+// TestDeploymentSectionsSurviveRoundTrip is the RED test for the codec drop
+// (2026-08-09 finish-construction plan, Task 2 — fixed in Task 3). It decodes
+// deploymentRoundTripFixture through decodeProjectDoc (the same decode path
+// applyMutationOnBranchFiles uses to load the aggregate for a mutation) and
+// re-encodes it through encodeProjectDoc (the same encode path buildStateFiles
+// uses to assemble the next commit), then inspects the raw re-encoded JSON's
+// slot-6 model.deployment object for the three sections. It must stay red,
+// unmodified, until Task 3 adds Infrastructure/Bindings/Settings fields to the
+// generated DeploymentTopology type.
+func TestDeploymentSectionsSurviveRoundTrip(t *testing.T) {
+	p, ok, err := decodeProjectDoc([]byte(deploymentRoundTripFixture), ProjectID("deployment-roundtrip-project"))
+	if err != nil {
+		t.Fatalf("decodeProjectDoc: %v", err)
+	}
+	if !ok {
+		t.Fatal("decodeProjectDoc: project not found")
+	}
+
+	reencoded, err := encodeProjectDoc(&p, time.Time{})
+	if err != nil {
+		t.Fatalf("encodeProjectDoc: %v", err)
+	}
+
+	var doc map[string]any
+	if err := json.Unmarshal(reencoded, &doc); err != nil {
+		t.Fatalf("re-decode re-encoded project.json: %v", err)
+	}
+	slots, ok := doc["slots"].(map[string]any)
+	if !ok {
+		t.Fatal("re-encoded document has no slots map")
+	}
+	slot6, ok := slots["6"].(map[string]any)
+	if !ok {
+		t.Fatal("re-encoded document has no slot 6 (operationalConcepts)")
+	}
+	model, ok := slot6["model"].(map[string]any)
+	if !ok {
+		t.Fatal("re-encoded slot 6 has no model")
+	}
+	deployment, ok := model["deployment"].(map[string]any)
+	if !ok {
+		t.Fatal("re-encoded slot 6 model has no deployment object")
+	}
+
+	infra, hasInfra := deployment["infrastructure"].([]any)
+	if !hasInfra || len(infra) != 1 {
+		t.Errorf("deployment.infrastructure did not survive the round-trip: got %v", deployment["infrastructure"])
+	} else if entry, ok := infra[0].(map[string]any); !ok || entry["key"] != "postgres" {
+		t.Errorf("deployment.infrastructure[0].key did not survive the round-trip: got %v", infra[0])
+	}
+
+	bindings, hasBindings := deployment["bindings"].([]any)
+	if !hasBindings || len(bindings) != 1 {
+		t.Errorf("deployment.bindings did not survive the round-trip: got %v", deployment["bindings"])
+	}
+
+	settings, hasSettings := deployment["settings"].([]any)
+	if !hasSettings || len(settings) != 1 {
+		t.Errorf("deployment.settings did not survive the round-trip: got %v", deployment["settings"])
+	}
+}
+
 // operatingmodel_test.go — coverage for the project-level OperatingModel field + the
 // SetOperatingModel head-state write (founder ruling 2026-07-05). A project is born
 // self-operated (the back-compat default); SetOperatingModel flips it to
