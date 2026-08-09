@@ -1,6 +1,6 @@
 {
   "id": "archistrator",
-  "version": 592,
+  "version": 593,
   "phase": 2,
   "owner": "dev-architect",
   "name": "Archistrator",
@@ -10655,8 +10655,12 @@
     },
     "C-WIA": {
       "activityID": "C-WIA",
-      "phase": 1,
-      "startedAt": "2026-08-09T04:14:40.465536Z"
+      "phase": 3,
+      "startedAt": "2026-08-09T04:14:40.465536Z",
+      "completedAt": "2026-08-09T04:51:08.410276Z",
+      "buildStatus": 3,
+      "failureReason": 4,
+      "failureDetail": "construction supervision exceeded max attempts"
     },
     "G-SPA": {
       "activityID": "G-SPA",
@@ -27489,5 +27493,5 @@
     }
   },
   "reviewPolicy": {},
-  "updatedAt": "2026-08-09T04:14:42.835378Z"
+  "updatedAt": "2026-08-09T04:51:10.700288Z"
 }
