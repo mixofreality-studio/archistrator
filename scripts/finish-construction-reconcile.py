@@ -37,17 +37,19 @@ STAMP = "2026-08-09T00:00:00Z"
 NOTES = {
     "C-BG": "Reconciled 2026-08-09: the failure was the slot-9 ACT-COMPONENT-COVERAGE "
             "blocker (fixed in the C-EA amendment), not the component. Requirements SRS "
-            "re-recorded under phaseArtifacts.billingStateAccess; billing state access "
-            "built (see server/internal/resourceaccess/billingstate); settlement "
-            "integration deferred to the settlement re-plan — see docs/billing-setup.md.",
+            "re-recorded under phaseArtifacts.billingStateAccess; billingStateAccess is "
+            "contract + generated stub on main (server/internal/resourceaccess/"
+            "billingstate); real state access returns with the settlement re-plan — see "
+            "docs/billing-setup.md.",
     "C-WIA": "Reconciled 2026-08-09: completed with zero scope — the Work Item concept "
              "was descoped by founder ruling 2026-07-20 (slot-3 rejected[] ledger); "
              "residual surface is recordActivityWorkItemOpened on projectStateAccess "
              "(built under C-PA).",
     "C-BS": "Reconciled 2026-08-09: phase set to Done/Integrated. billingStateAccess is "
-            "real and built (server/internal/resourceaccess/billingstate); settlementstate "
-            "and revenueLedgerAccess remain contract-only stubs under the billing→"
-            "settlement deferral — see docs/billing-setup.md.",
+            "contract + generated stub on main (server/internal/resourceaccess/"
+            "billingstate); real state access returns with the settlement re-plan; "
+            "settlementstate and revenueLedgerAccess remain contract-only stubs under the "
+            "billing→settlement deferral — see docs/billing-setup.md.",
     "C-BM": "Built: server/internal/manager/billing (onboard, register-customer, "
             "close-cycle, shortfall-sweep workflows) against the frozen billingManager "
             "contract; gateway integration deferred pending Stripe configuration — see "
