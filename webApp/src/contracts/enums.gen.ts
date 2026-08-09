@@ -79,7 +79,7 @@ export type ActivityBuildStatusGoVarname = (typeof ACTIVITY_BUILD_STATUS_GO_VARN
 export const ACTIVITY_BUILD_STATUS_ORDINAL_TO_GO_VARNAME: readonly ActivityBuildStatusGoVarname[] =
   ACTIVITY_BUILD_STATUS_GO_VARNAMES;
 
-// NOT mechanically derivable to an app string: Mechanical derivation gives ("inConstruction"/"inReview"/"integrated"/"failed"), but adapters.ts buildStatusRowFromOrdinal returns kebab-case ("in-construction"/"in-review"/"integrated") and folds ordinal 3 (BuildFailed) into "in-construction" ("no terminal-fail row state"). Casing convention + deliberate collapse, not a bug.
+// NOT mechanically derivable to an app string: Mechanical derivation gives ("inConstruction"/"inReview"/"integrated"/"failed"), but enumMappings.ts buildStatusRowFromOrdinal returns kebab-case ("in-construction"/"in-review"/"integrated"/"failed"). Every member now maps 1:1 — ordinal 3 (BuildFailed) is a TERMINAL row state of its own and is NO LONGER folded into "in-construction" — so the only remaining divergence is the kebab-case convention, not a bug.
 // --- ActivityConstructionPhase -------------------------------------------
 // Sources: SystemDesignActivityConstructionPhase
 export const ACTIVITY_CONSTRUCTION_PHASE_GO_VARNAMES = [

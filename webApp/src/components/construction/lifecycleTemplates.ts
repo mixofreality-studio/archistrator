@@ -121,7 +121,9 @@ const CANONICAL_ORDER: readonly CanonicalPhase[] = [
   'integration',
 ];
 
-type InFlightStatus = Exclude<BuildStatus, 'integrated' | 'blocked' | 'not-started'>;
+// `failed` joins integrated/blocked/not-started as a NON-in-flight status: the
+// pump durably gave up, so no lifecycle phase is active for it.
+type InFlightStatus = Exclude<BuildStatus, 'integrated' | 'blocked' | 'not-started' | 'failed'>;
 
 const STATUS_TARGET_PHASE: Record<InFlightStatus, CanonicalPhase> = {
   eligible: 'requirements',
@@ -130,9 +132,16 @@ const STATUS_TARGET_PHASE: Record<InFlightStatus, CanonicalPhase> = {
   'in-review': 'integration',
 };
 
-/** The index within `phases` that is active for `status`, or null (nothing active: done or not started). */
+/** The index within `phases` that is active for `status`, or null (nothing active: done, failed, or not started). */
 function activeIdxFor(phases: readonly PhaseTemplate[], status: BuildStatus): number | null {
-  if (status === 'integrated' || status === 'blocked' || status === 'not-started') return null;
+  if (
+    status === 'integrated' ||
+    status === 'blocked' ||
+    status === 'not-started' ||
+    status === 'failed'
+  ) {
+    return null;
+  }
 
   const targetPhase = STATUS_TARGET_PHASE[status];
   const startAt = CANONICAL_ORDER.indexOf(targetPhase);
@@ -147,7 +156,8 @@ function activeIdxFor(phases: readonly PhaseTemplate[], status: BuildStatus): nu
  * Derive per-phase `{done, active}` state from the kind's template + the
  * activity's committed BuildStatus. Pure function — no fabrication.
  *
- * `integrated` → all phases done; `blocked`/`not-started` → none done/active.
+ * `integrated` → all phases done; `blocked`/`not-started`/`failed` → none
+ * done/active (a terminally failed activity has no phase still in flight).
  */
 export function phaseStateFor(kind: ActivityKind, status: BuildStatus): PhaseState[] {
   // Runtime-tolerant lookup: TS proves `kind` is an ActivityKind, but bad project

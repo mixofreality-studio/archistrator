@@ -28,7 +28,7 @@ import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline';
 import type { Tokens } from '../../utilities/theme/themes';
 import type { ConstructionRow } from '../../contracts/types';
 import { StatusChip } from './status';
-import type { BuildStatus } from '../../contracts/constructionAdapters';
+import { FAILURE_REASON_LABEL, type BuildStatus } from '../../contracts/constructionAdapters';
 import { KindBadge, kindColor } from './KindBadge';
 import { useComments, activityConstructionAnchor } from '../comments/CommentContext';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
@@ -73,6 +73,9 @@ function ListRow({
   const artifactCount = vm.row.produced?.length ?? 0;
   // The ConstructionRow.status is a subset of BuildStatus; cast is safe.
   const status = vm.row.status as BuildStatus;
+  // On a terminal-fail row, name the reason right here — the row must not read as
+  // a healthy build. The actionable FailureDetail lives in the activity detail pane.
+  const failureReason = vm.row.failureReason;
 
   return (
     <Box
@@ -147,6 +150,11 @@ function ListRow({
       >
         {vm.name}
       </Typography>
+      {failureReason !== undefined ? (
+        <Typography sx={{ fontFamily: t.mono, fontSize: 9.5, color: t.dangerFg, mt: 0.25 }}>
+          {FAILURE_REASON_LABEL[failureReason]}
+        </Typography>
+      ) : null}
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mt: 0.4 }}>
         <Box
           sx={{

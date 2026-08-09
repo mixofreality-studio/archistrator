@@ -19,6 +19,7 @@ import type {
   ARTIFACT_STAGE_GO_VARNAMES,
   EpisodeKind,
   EpisodeOutcome,
+  FailureReason,
 } from './enums.gen';
 
 type S = components['schemas'];
@@ -623,14 +624,30 @@ export interface ProducedArtifactRow {
 
 export type TestingVariantName = 'plan' | 'harness' | 'perf' | 'systemTest' | 'qaProcess';
 
+/**
+ * The per-activity build-status row state (ProjectActivityBuildStatus, kebab-cased
+ * — see enumMappings.buildStatusRowFromOrdinal). `failed` is TERMINAL: the pump
+ * durably gave up on the activity and recorded a FailureReason on head-state so the
+ * operator sees it in the console rather than in a log nobody reads.
+ */
+export type ActivityBuildStatusRow = 'integrated' | 'in-review' | 'in-construction' | 'failed';
+
 export interface ConstructionRow {
   activityId: string;
   kind: 'service' | 'frontend' | 'testing' | 'deployment' | 'documentation';
   /** Testing sub-type; present only when kind === 'testing'. */
   variant?: TestingVariantName;
-  status: 'integrated' | 'in-review' | 'in-construction';
+  status: ActivityBuildStatusRow;
   phase: string;
   produced?: ProducedArtifactRow[];
+  /**
+   * Why the activity terminally failed. Present only on a `failed` row — every
+   * non-failed row carries the zero-value `unknown` reason on the wire, which
+   * mapConstructionRow drops.
+   */
+  failureReason?: FailureReason;
+  /** Human-readable detail naming the failure and its repair; absent when empty. */
+  failureDetail?: string;
 }
 
 export type ConstructionRows = Record<string, ConstructionRow>;

@@ -37,28 +37,34 @@ import {
   type RuntimeStatusSeamGoVarname,
   TESTING_VARIANT_ORDINAL_TO_GO_VARNAME,
   type TestingVariantGoVarname,
-} from './enums.gen';
-import type { CiStatus, PipelinePhase, ProjectSessionStage, TestingVariantName } from './types';
+} from './enums.gen.ts';
+import type {
+  ActivityBuildStatusRow,
+  CiStatus,
+  PipelinePhase,
+  ProjectSessionStage,
+  TestingVariantName,
+} from './types';
 import type { RuntimePhase } from './operationsTypes';
 
 // --- ActivityBuildStatus (row status) ---------------------------------------
 // Mechanical derivation gives ("inConstruction"/"inReview"/"integrated"/"failed");
-// the app instead uses kebab-case and has no terminal-fail row state, so
-// BuildFailed collapses into "in-construction".
+// the app uses kebab-case. Every member maps 1:1 — BuildFailed is a TERMINAL row
+// state of its own. It used to collapse into "in-construction" ("no terminal-fail
+// row state"), which rendered an activity the pump had durably given up on as
+// "In construction" forever; the operator only ever saw the stall in a log.
 
 const ACTIVITY_BUILD_STATUS_APP_STRING: Readonly<
-  Record<ActivityBuildStatusGoVarname, 'integrated' | 'in-review' | 'in-construction'>
+  Record<ActivityBuildStatusGoVarname, ActivityBuildStatusRow>
 > = {
   BuildInConstruction: 'in-construction',
   BuildInReview: 'in-review',
   BuildIntegrated: 'integrated',
-  BuildFailed: 'in-construction',
+  BuildFailed: 'failed',
 };
 
 /** ProjectActivityBuildStatus (0 in-construction,1 in-review,2 integrated,3 failed). */
-export function buildStatusRowFromOrdinal(
-  ordinal: number
-): 'integrated' | 'in-review' | 'in-construction' {
+export function buildStatusRowFromOrdinal(ordinal: number): ActivityBuildStatusRow {
   const varname = ACTIVITY_BUILD_STATUS_ORDINAL_TO_GO_VARNAME[ordinal];
   return varname !== undefined ? ACTIVITY_BUILD_STATUS_APP_STRING[varname] : 'in-construction';
 }

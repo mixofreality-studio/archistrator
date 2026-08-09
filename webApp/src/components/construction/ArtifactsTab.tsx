@@ -20,6 +20,7 @@ import Typography from '@mui/material/Typography';
 import type { ConstructionSessionState } from '../../contracts/types';
 import { sessionIsLive } from '../../contracts/constructionAdapters';
 import type {
+  ActivityBuildStatusRow,
   ArtifactModelEnvelope,
   ConstructionRows,
   ProjectArtifactModelEnvelope,
@@ -130,15 +131,17 @@ export function ArtifactsTab({
       name: nameForId(row.activityId),
       row,
     }));
-    // Sort: integrated last, then by activityId alphabetically.
-    const order: Record<string, number> = {
-      'in-construction': 0,
-      'in-review': 1,
-      integrated: 2,
+    // Sort: terminally failed FIRST (it is the thing needing the operator),
+    // integrated last, then by activityId alphabetically.
+    const order: Record<ActivityBuildStatusRow, number> = {
+      failed: 0,
+      'in-construction': 1,
+      'in-review': 2,
+      integrated: 3,
     };
     vms.sort((a, b) => {
-      const ao = order[a.row.status] ?? 99;
-      const bo = order[b.row.status] ?? 99;
+      const ao = order[a.row.status];
+      const bo = order[b.row.status];
       if (ao !== bo) return ao - bo;
       return a.activityId.localeCompare(b.activityId);
     });

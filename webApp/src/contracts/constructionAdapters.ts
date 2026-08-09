@@ -22,6 +22,7 @@ import type {
   ConstructionRow,
   NetworkModel,
 } from './types';
+import type { FailureReason } from './enums.gen';
 
 /** The build-status lens applied to a tracker node — mirrors the mock BuildStatus. */
 export type BuildStatus =
@@ -31,7 +32,8 @@ export type BuildStatus =
   | 'in-detailed-design'
   | 'eligible'
   | 'blocked'
-  | 'not-started';
+  | 'not-started'
+  | 'failed';
 
 export const BUILD_STATUS_META: Record<BuildStatus, { label: string; short: string }> = {
   integrated: { label: 'Integrated', short: 'INTEG' },
@@ -41,6 +43,22 @@ export const BUILD_STATUS_META: Record<BuildStatus, { label: string; short: stri
   eligible: { label: 'Eligible', short: 'READY' },
   blocked: { label: 'Blocked', short: 'BLOCKED' },
   'not-started': { label: 'Not started', short: 'PEND' },
+  failed: { label: 'Failed', short: 'FAILED' },
+};
+
+/**
+ * Human labels for the terminal FailureReason recorded on a failed construction
+ * row. Keyed by the generated app-string union, so a new Go FailureReason const
+ * breaks tsc here rather than rendering a raw camelCase token to the operator.
+ */
+export const FAILURE_REASON_LABEL: Record<FailureReason, string> = {
+  unknown: 'Unknown failure',
+  pipelineFailed: 'Pipeline failed',
+  pipelineCancelled: 'Pipeline cancelled',
+  pipelineTimedOut: 'Pipeline timed out',
+  varianceExhausted: 'Variance exhausted',
+  escalationTimedOut: 'Escalation timed out',
+  componentUnresolved: 'Component unresolved',
 };
 
 /** Human-readable label for the technical construction stage. */
@@ -111,8 +129,8 @@ export function activeActivityId(
 
 /**
  * Maps a ConstructionRow status string onto the tracker BuildStatus lens.
- * Only the three values the wire emits are handled; anything unexpected falls
- * back to `'not-started'` (defensive total function).
+ * The row-state union is a subset of BuildStatus, so every member maps 1:1;
+ * anything unexpected falls back to `'not-started'` (defensive total function).
  */
 export function buildStatusForConstructionRow(row: ConstructionRow): BuildStatus {
   switch (row.status) {
@@ -122,6 +140,8 @@ export function buildStatusForConstructionRow(row: ConstructionRow): BuildStatus
       return 'in-review';
     case 'in-construction':
       return 'in-construction';
+    case 'failed':
+      return 'failed';
     default:
       return 'not-started';
   }
@@ -132,7 +152,7 @@ export function buildStatusForConstructionRow(row: ConstructionRow): BuildStatus
  * four pure sources — no Temporal pump, no server round-trip:
  *
  *   1. constructionRowFor(id) — PRIMARY: the per-activity construction head-state
- *      aggregate (integrated / in-review / in-construction). When present this
+ *      aggregate (integrated / in-review / in-construction / failed). When present this
  *      WINS over all other sources except the live session override (see §3).
  *   2. gitFor(id)?.merged === true — SECONDARY/COMPATIBLE: the PR landing on main
  *      is also treated as integrated. Used when constructionRowFor returns nothing.
