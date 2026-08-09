@@ -971,11 +971,56 @@ const (
 	// operated app's server container talks to today (one shared Temporal
 	// namespace-per-app is assumed downstream via the app's own name).
 	platformTemporalHostPort = "temporal-frontend.temporal.svc:7233"
-	// platformGithubAppID / platformGithubAccount identify the GitHub App
-	// identity archistrator's own server uses for its self-managed
-	// construction dispatch and CLOUD projectStateAccess git substrate.
-	platformGithubAppID   = "4029529"
-	platformGithubAccount = "davidmarne"
+	// platformGithubAppID / platformGithubAccount / platformGithubAppSlug
+	// identify the GitHub App identity archistrator's own server uses for its
+	// self-managed construction dispatch and CLOUD projectStateAccess git
+	// substrate. The App is `archistrator-bot`, installed on the
+	// mixofreality-studio org.
+	//
+	// These superseded appId 4029529 / account "davidmarne", which dated to the
+	// 2026-06-14 registry-removal era and were stale in both halves: 4029529 was
+	// the older "aiarch" App predating archistrator's extraction into its own
+	// repo, and "davidmarne" is a personal user account with no aiarch-* repos
+	// and no App installation — every catalog read against it failed with
+	// "FindInstallation: app not installed on account davidmarne" (HTTP 404).
+	//
+	// The slug is load-bearing, not cosmetic: config_adapter.go's
+	// validateGithubAppSlug fails the boot outright on a cloud profile whose App
+	// rail is configured but whose slug is empty, because the slug renders the
+	// seated design workflow's `allowed_bots:` line.
+	platformGithubAppID   = "4112774"
+	platformGithubAccount = "mixofreality-studio"
+	platformGithubAppSlug = "archistrator-bot"
+
+	// platformConstruction* name the repo the GitHub-Actions construction
+	// dispatch falls back to, and the Temporal task queue the construction
+	// Manager runs on. The repo is a FALLBACK only — since the gh-mode venue
+	// switch every cloud dispatch is retargeted to the project's own repo via
+	// PipelineSpec.TargetRepo — but it is REQUIRED all the same: main.gen.go's
+	// cloud arm builds agenticjob.NewGitHubActionsAgenticJobAccess
+	// unconditionally and newActionsRESTClient rejects an empty Owner/Repo, so a
+	// manifest rendered without these CrashLoops at boot.
+	platformConstructionRepoOwner    = "mixofreality-studio"
+	platformConstructionRepoName     = "archistrator"
+	platformConstructionWorkflowFile = "aiarch-construct.yml"
+	platformConstructionRef          = "main"
+	platformConstructionTaskQueue    = "archistrator-construction"
+
+	// platformArtifactRepo* address the git store construction outputs stage to.
+	// Also required rather than optional, for the same reason: the cloud arm
+	// calls artifact.NewGitHubCloudArtifactAccess unconditionally and
+	// newCloudArtifactStore rejects an empty RepoURL/Owner. Unlike construction
+	// dispatch there is NO per-project override anywhere in ArtifactAccess's
+	// contract, so this one repo stages every project's output.
+	platformArtifactRepoURL   = "https://github.com/mixofreality-studio/archistrator.git"
+	platformArtifactRepoOwner = "mixofreality-studio"
+
+	// platformWorkerProvider / platformAnthropic* select the LLM worker
+	// provider. Ollama is test-only and never deployed in-cluster.
+	platformWorkerProvider          = "anthropic"
+	platformAnthropicModel          = "claude-opus-4-8"
+	platformAnthropicArchitectModel = "claude-opus-4-8"
+	platformAnthropicCritiqueModel  = "claude-sonnet-4-6"
 	// platformKeycloakServiceHost is the in-cluster Keycloak service the
 	// server validates bearer tokens' JWKS against.
 	platformKeycloakServiceHost = "keycloak-service.keycloak.svc.cluster.local:8080"
@@ -1308,14 +1353,29 @@ func serverEnv(d RuntimeDesiredState, serverName string) []envVar {
 	}
 
 	githubSecret := d.AppName + "-github-app-secret"
+	anthropicSecret := d.AppName + "-anthropic-secret"
 	env = append(env,
 		envVar{Name: "ARCHISTRATOR_TEMPORAL_HOSTPORT", Value: platformTemporalHostPort},
 		envVar{Name: "ARCHISTRATOR_TEMPORAL_NAMESPACE", Value: d.AppName},
+		envVar{Name: "ARCHISTRATOR_ARTIFACT_REPO_URL", Value: platformArtifactRepoURL},
+		envVar{Name: "ARCHISTRATOR_ARTIFACT_REPO_OWNER", Value: platformArtifactRepoOwner},
+		envVar{Name: "ARCHISTRATOR_ARTIFACT_REPO_LOCAL", Value: "false"},
 		envVar{Name: "ARCHISTRATOR_GITHUB_APP_ID", Value: platformGithubAppID},
 		envVar{Name: "ARCHISTRATOR_GITHUB_ACCOUNT", Value: platformGithubAccount},
+		envVar{Name: "ARCHISTRATOR_GITHUB_APP_SLUG", Value: platformGithubAppSlug},
 		envVar{Name: "ARCHISTRATOR_GITHUB_APP_PRIVATE_KEY_PEM", SecretName: githubSecret, SecretKey: "privateKey", Optional: true},
 		envVar{Name: "ARCHISTRATOR_PROJECT_STATE_GIT_LOCAL", Value: "false"},
+		envVar{Name: "ARCHISTRATOR_CONSTRUCTION_REPO_OWNER", Value: platformConstructionRepoOwner},
+		envVar{Name: "ARCHISTRATOR_CONSTRUCTION_REPO_NAME", Value: platformConstructionRepoName},
+		envVar{Name: "ARCHISTRATOR_CONSTRUCTION_WORKFLOW_FILE", Value: platformConstructionWorkflowFile},
+		envVar{Name: "ARCHISTRATOR_CONSTRUCTION_REF", Value: platformConstructionRef},
+		envVar{Name: "ARCHISTRATOR_CONSTRUCTION_TASK_QUEUE", Value: platformConstructionTaskQueue},
 		envVar{Name: "ARCHISTRATOR_GITHUB_WEBHOOK_SECRET", SecretName: githubSecret, SecretKey: "webhookSecret", Optional: true},
+		envVar{Name: "ARCHISTRATOR_WORKER_PROVIDER", Value: platformWorkerProvider},
+		envVar{Name: "ARCHISTRATOR_ANTHROPIC_MODEL", Value: platformAnthropicModel},
+		envVar{Name: "ARCHISTRATOR_ANTHROPIC_ARCHITECT_MODEL", Value: platformAnthropicArchitectModel},
+		envVar{Name: "ARCHISTRATOR_ANTHROPIC_CRITIQUE_MODEL", Value: platformAnthropicCritiqueModel},
+		envVar{Name: "ARCHISTRATOR_ANTHROPIC_API_KEY", SecretName: anthropicSecret, SecretKey: "apiKey"},
 		envVar{Name: "ARCHISTRATOR_KEYCLOAK_JWKS_URL", Value: fmt.Sprintf(
 			"http://%s/realms/%s/protocol/openid-connect/certs", platformKeycloakServiceHost, d.AppName)},
 		envVar{Name: "ARCHISTRATOR_KEYCLOAK_ISSUER", Value: d.OIDC.Issuer},
