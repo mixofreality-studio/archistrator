@@ -63,7 +63,7 @@ Architect ruling: the phase enum models the design-process axis, which genuinely
 
 1. All gates green: server (`gofmt`, `go vet`, `fix-check`, build, golangci-lint v2.12, `test-short`, `method-check`, every `gen-*-check`), webApp (`npm run check`: gen:api drift, `tsc -b`, eslint, prettier, node tests), systemtests (constitution + `gen-check`), method-assets drift.
 2. **Record `testingState` through the rail after the gates actually run green** (real, not asserted).
-3. **Stripe setup guide** at `docs/billing-setup.md`: every key/secret/envvar the billing scope needs (Stripe Connect keys, webhook secrets, the not-configured envvars the stubs read), where they land (helm values / k8s secrets in the `software` repo), and the settlement re-plan pointer.
+3. **Stripe setup guide** at `docs/billing-setup.md`: every key/secret/envvar the billing scope needs (ordinary Stripe vendor account keys, webhook secrets, the not-configured envvars the stubs read), where they land (helm values / k8s secrets in the `software` repo), and the settlement re-plan pointer.
 4. Push `main` (this alone updates the deployed app's state); release images; hand-bump the Argo `image.tag` in `../software`; push that repo.
 5. Browser-verify https://archistrator.capture-gtd.com/ shows the project Operating with all 69 activities integrated.
 
