@@ -28318,7 +28318,16 @@
           ]
         }
       ]
-    }
+    },
+    "testRuns": [
+      {
+        "id": "TR-2026-08-09-FINISH-CONSTRUCTION-FULL-SUITE",
+        "endedAt": "2026-08-09T22:42:17Z",
+        "passed": 23,
+        "failed": 0,
+        "note": "Task 17 finish-construction final gate run, 2026-08-09. Every gate green after one fix-forward (systemtests gen-check drift — STP-UC3-H2 + STP-UC4 DesiredStateChange fields regenerated). Passed/Failed count GATES (suite-level commands), not individual test cases — each gate internally runs many tests, all passing. Server (18 gates): gofmt, GOWORK=off go vet, make fix-check, GOWORK=off go build ./..., make lint (golangci-lint v2.12), GOWORK=off make test-short, GOWORK=off make method-check, gen-models-check, gen-fakes-check, gen-client-check, gen-internal-tools-check, gen-temporal-check, gen-sdk-check, gen-config-check, gen-main-check, gen-uiprofiles-check, encapsulation-check, sumtype-check. webApp (1 gate): npm run check (gen:api drift + tsc -b + eslint + prettier + node tests, 407/407 node tests pass). systemtests (4 gates): gofmt, make fix-check, GOWORK=off go test ./constitution/... -count=1, make gen-check (red until the fix-forward commit, then clean). See docs/bugs/2026-08-09-construction-open-items.md for the full gate table and earmark ledger."
+      }
+    ]
   },
   "reviewPolicy": {},
   "updatedAt": "2026-08-09T05:30:44.213963Z"
