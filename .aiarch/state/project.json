@@ -1,6 +1,6 @@
 {
   "id": "archistrator",
-  "version": 594,
+  "version": 595,
   "phase": 2,
   "owner": "dev-architect",
   "name": "Archistrator",
@@ -10108,8 +10108,10 @@
     },
     "C-BG": {
       "activityID": "C-BG",
-      "phase": 1,
+      "phase": 3,
       "startedAt": "2026-08-09T04:51:42.548779Z",
+      "completedAt": "2026-08-09T05:30:41.939946Z",
+      "buildStatus": 3,
       "produced": [
         {
           "Kind": "service-contract",
@@ -10125,7 +10127,9 @@
           "Produced": true,
           "Note": "Re-homed from C-DG (pre-reconciliation mis-attributed billingGatewayAccess); merchantGatewayAccess is the billing→settlement gateway re-cut successor. Contract-only stub on main; construction returns with the deferred settlement re-plan."
         }
-      ]
+      ],
+      "failureReason": 4,
+      "failureDetail": "construction supervision exceeded max attempts"
     },
     "C-BM": {
       "activityID": "C-BM",
@@ -27494,5 +27498,5 @@
     }
   },
   "reviewPolicy": {},
-  "updatedAt": "2026-08-09T04:51:45.335762Z"
+  "updatedAt": "2026-08-09T05:30:44.213963Z"
 }
