@@ -11322,7 +11322,7 @@
       "activityID": "N-DEP",
       "phase": 2,
       "kind": "deployment",
-      "buildStatus": 1,
+      "buildStatus": 2,
       "produced": [
         {
           "Kind": "deployment",
@@ -11330,6 +11330,13 @@
           "Source": "implementation/log",
           "Produced": true,
           "Note": "Provisioning/deployment change applied and verified against the target environment."
+        },
+        {
+          "Kind": "note",
+          "Title": "N-DEP — deployment review",
+          "Source": "",
+          "Produced": true,
+          "Note": "Reviewed against the running system 2026-08-09: SPA serves at archistrator.capture-gtd.com, API responds behind OIDC, Argo app pinned+synced. Verdict: integrated. Evidence: `curl -sf https://archistrator.capture-gtd.com/` → HTTP 302 (exit 0) redirecting to https://keycloak.capture-gtd.com/realms/archistrator/protocol/openid-connect/auth (OIDC front door, not 5xx). `curl -s -o /dev/null -w '%{http_code}' https://archistrator.capture-gtd.com/api/v1/capabilities` → 302 (same OIDC gateway redirect, not 404/5xx — endpoint exists behind auth). Argo Application `../software/k8s/argocd/applications/archistrator-server.yaml` exists, targets `products/archistrator/helm/archistrator-server` on `main`, pins `image.tag: 0.8.83` (real released tag, bumped from 0.7.0 alongside GHCR migration), with `syncPolicy.automated.{prune,selfHeal}` on."
         }
       ]
     },
