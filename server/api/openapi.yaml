@@ -3628,6 +3628,8 @@ components:
             properties:
                 CommittedCount:
                     type: integer
+                ConstructionComplete:
+                    type: boolean
                 Name:
                     type: string
                 Owner:

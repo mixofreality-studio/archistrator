@@ -4525,6 +4525,38 @@ func TestListProjects_PassesThrough(t *testing.T) {
 	}
 }
 
+// TestListProjects_CopiesConstructionComplete (Task 13 fix round 1): the RA's
+// derived construction-complete flag must survive the manager's
+// summaryToContract mapping — this manager's OWN ProjectSummary is what the
+// SPA catalog actually reads (SystemDesignProjectSummary in the client
+// contract), so a mapping that dropped the field would silently strand it at
+// the RA boundary. Kept as its own test (rather than folded into
+// TestListProjects_PassesThrough above) to stay under the gocyclo limit.
+func TestListProjects_CopiesConstructionComplete(t *testing.T) {
+	now := time.Now().UTC()
+	complete := true
+	src := []projectstate.ProjectSummary{
+		{ProjectID: "alpha", Name: "A", Owner: "alice", Phase: projectstate.PhaseSystemDesign, CommittedCount: 2, TotalCount: 8, UpdatedAt: now},
+		{ProjectID: "gamma", Name: "G", Owner: "alice", Phase: projectstate.PhaseConstruction, CommittedCount: 17, TotalCount: 17, UpdatedAt: now, ConstructionComplete: &complete},
+	}
+	fake := &fakeProjectStateAccess{listSummary: src}
+	m := newCatalogMgr(fake, nil, nil, "")
+
+	got, err := m.ListProjects(rc(), OwnerScope("alice"))
+	if err != nil {
+		t.Fatalf("ListProjects: unexpected error: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("ListProjects: got %d summaries, want 2", len(got))
+	}
+	if got[0].ConstructionComplete != nil {
+		t.Fatalf("ListProjects: summary[0] ConstructionComplete = %v, want nil (never set on the RA summary)", got[0].ConstructionComplete)
+	}
+	if got[1].ConstructionComplete == nil || !*got[1].ConstructionComplete {
+		t.Fatalf("ListProjects: summary[1] ConstructionComplete = %v, want true (copied from the RA summary)", got[1].ConstructionComplete)
+	}
+}
+
 func TestListProjects_RAError_MapsInfrastructure(t *testing.T) {
 	fake := &fakeProjectStateAccess{listErr: fwra.New(fwra.Infrastructure, "db down")}
 	m := newCatalogMgr(fake, nil, nil, "")

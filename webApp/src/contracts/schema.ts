@@ -1901,6 +1901,7 @@ export interface components {
     };
     SystemDesignProjectSummary: {
       CommittedCount: number;
+      ConstructionComplete?: boolean;
       Name: string;
       Owner: components['schemas']['SystemDesignOwnerScope'];
       Phase: components['schemas']['SystemDesignPhase'];

@@ -2966,14 +2966,20 @@ func phaseName(p Phase) string {
 func summaryToContract(s projectstate.ProjectSummary) ProjectSummary {
 	phase := Phase(int(s.Phase))
 	return ProjectSummary{
-		ProjectID:      ProjectID(s.ProjectID),
-		Name:           s.Name,
-		Owner:          OwnerScope(s.Owner),
-		Phase:          phase,
-		PhaseName:      phaseName(phase),
-		CommittedCount: int64(s.CommittedCount),
-		TotalCount:     int64(s.TotalCount),
-		UpdatedAt:      s.UpdatedAt,
+		ProjectID: ProjectID(s.ProjectID),
+		Name:      s.Name,
+		Owner:     OwnerScope(s.Owner),
+		Phase:     phase,
+		PhaseName: phaseName(phase),
+		// ConstructionComplete (Task 13 fix round 1): the RA-level derived flag
+		// (projectstate.isConstructionComplete, surfaced on ListProjects) carried
+		// straight through — this manager's ProjectSummary is what the SPA catalog
+		// actually reads (the RA's own ProjectSummary never crosses the client
+		// boundary), so the field must be copied here for the browser to see it.
+		ConstructionComplete: s.ConstructionComplete,
+		CommittedCount:       int64(s.CommittedCount),
+		TotalCount:           int64(s.TotalCount),
+		UpdatedAt:            s.UpdatedAt,
 	}
 }
 

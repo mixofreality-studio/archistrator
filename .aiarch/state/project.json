@@ -25625,6 +25625,9 @@
                 "construction"
               ]
             },
+            "ConstructionComplete": {
+              "type": "boolean"
+            },
             "CommittedCount": {
               "type": "integer"
             },
