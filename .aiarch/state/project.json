@@ -20346,7 +20346,8 @@
             2,
             3,
             4,
-            5
+            5,
+            6
           ],
           "x-enum-varnames": [
             "FailureReasonUnknown",
@@ -20354,7 +20355,8 @@
             "PipelineCancelled",
             "PipelineTimedOut",
             "VarianceExhausted",
-            "EscalationTimedOut"
+            "EscalationTimedOut",
+            "ComponentUnresolved"
           ],
           "x-go-base": "int"
         },
