@@ -2,8 +2,9 @@
  * Deployments — the desired-state publish surface. aiarch PUBLISHES desired state
  * (a commit to the manifests repo); the GitOps runtime DRIVES convergence — there
  * is no aiarch progress bar, only the observed rollup Phase + an in-flight
- * (converging) flag from the live view. The Deploy / Scale / Update-autoscaler /
- * Withdraw buttons call the real POST routes (operationsManager). Per-component
+ * (converging) flag from the live view. The Deploy and Withdraw buttons call the
+ * real POST routes (operationsManager); Scale is disabled and explained rather
+ * than wired — see useOperationsMutations.ts. Per-component
  * revision detail is not carried by the read projection yet, so the tab surfaces
  * the rollup + the publish affordances honestly. [operationsManager + operatedRuntimeAccess]
  */
@@ -13,13 +14,19 @@ import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
 import Chip from '@mui/material/Chip';
 import Button from '@mui/material/Button';
+import Tooltip from '@mui/material/Tooltip';
 import RocketLaunchOutlinedIcon from '@mui/icons-material/RocketLaunchOutlined';
 import TrendingUpOutlinedIcon from '@mui/icons-material/TrendingUpOutlined';
 import PowerSettingsNewIcon from '@mui/icons-material/PowerSettingsNew';
 import { useTokens } from '../../utilities/theme/ThemeContext';
 import type { OperationsView } from '../../contracts/operationsTypes';
 import { normalizePhase } from '../../contracts/operationsAdapters';
-import { useOperationAction, useWithdrawOperatedApp } from '../../hooks/useOperationsMutations';
+import {
+  useOperationAction,
+  useWithdrawOperatedApp,
+  UNSUPPORTED_ACTION_REASON,
+  type OperationActionKind,
+} from '../../hooks/useOperationsMutations';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 import { PhaseChip } from './phase';
 import { AwaitingPanel } from './AwaitingPanel';
@@ -44,7 +51,7 @@ export function DeploymentsTab({
         ? withdraw.error.message
         : undefined;
 
-  const run = (kind: 'deploy' | 'scale' | 'autoscaler-policy'): void => {
+  const run = (kind: OperationActionKind): void => {
     action.mutate(kind, {
       onSuccess: (r) => {
         setLastResult(
@@ -163,20 +170,32 @@ export function DeploymentsTab({
             >
               Deploy / publish revision
             </Button>
-            <Button
-              color="inherit"
-              data-testid={UI_IDENTIFIERS.Operations.SCALE_BUTTON}
-              disabled={busy}
-              size="small"
-              startIcon={<TrendingUpOutlinedIcon sx={{ fontSize: 15 }} />}
-              sx={{ py: 0.25, fontSize: 11, color: t.ink, borderColor: t.line }}
-              variant="outlined"
-              onClick={() => {
-                run('scale');
-              }}
-            >
-              Scale
-            </Button>
+            {/*
+              Scale is DISABLED, not hidden and not wired: it used to publish a
+              zero-value desired state the server now rejects by name (2026-08-08
+              final review, fix 3). Replicas come from the project's deployment
+              model and there is no operator override path through desired-state
+              assembly yet, so the honest surface is a visible, explained
+              non-affordance rather than a button that fails.
+            */}
+            <Tooltip title={UNSUPPORTED_ACTION_REASON}>
+              <span>
+                <Button
+                  disabled
+                  color="inherit"
+                  data-testid={UI_IDENTIFIERS.Operations.SCALE_BUTTON}
+                  size="small"
+                  startIcon={<TrendingUpOutlinedIcon sx={{ fontSize: 15 }} />}
+                  sx={{ py: 0.25, fontSize: 11, color: t.ink, borderColor: t.line }}
+                  variant="outlined"
+                >
+                  Scale
+                </Button>
+              </span>
+            </Tooltip>
+            <Typography sx={{ fontFamily: t.body, fontSize: 10.5, color: t.muted }}>
+              Scale is not available yet — replicas come from the deployment model.
+            </Typography>
             <Box sx={{ flexGrow: 1 }} />
             <Button
               color="inherit"

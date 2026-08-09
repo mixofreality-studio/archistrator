@@ -211,6 +211,33 @@ func (m *operationsManager) DeployAfterConstruction(rc fwmgr.Context, operatedAp
 		return DeployResult{}, newError(fwmgr.ContractMisuse,
 			fmt.Sprintf("unknown desired-state reason %d", int(change.Reason)))
 	}
+	// PATCH-KIND DISCRIMINATOR (2026-08-08 final review, fix 3). Only a FULL-BUNDLE
+	// republish can be assembled today: the desired state is rendered from the project's
+	// deployment model + the deployable bundle, and Scale/Policy carry neither. Before
+	// this check they were accepted, reached DeployWorkflow, skipped assembly, and
+	// published a ZERO-VALUE RuntimeDesiredState — inert under the old opaque-bytes
+	// contract, but under the renderer either a confusing ContractMisuse from deep inside
+	// the ResourceAccess (Real profile) or a half-rendered deployment. Rejecting them here,
+	// by name, is the honest answer: they are not supported in this slice.
+	//
+	// NOT faked: replicas come from the deployment model (assembleDesiredState reads the
+	// workload node's declared instance count), so an operator scale override needs a real
+	// replica-override input threaded through assembly — the same missing seam that keeps
+	// autoscale-pause and delinquency-pause from publishing anything (progress.md's Task 2
+	// earmark). That is a capability to build, not a button to wire.
+	switch change.PatchKind {
+	case PatchFullBundle:
+		// ok — the one assemblable patch kind.
+	case PatchScale, PatchPolicy:
+		return DeployResult{}, newError(fwmgr.ContractMisuse,
+			fmt.Sprintf("patchKind %q is not supported in this slice: desired state is assembled from the project's deployment model and the deployable bundle, and a scale/policy patch carries neither (replicas come from the deployment model; there is no operator replica-override path yet). Only a full-bundle republish can be published today", patchKindName(change.PatchKind)))
+	case PatchKindUnknown:
+		return DeployResult{}, newError(fwmgr.ContractMisuse,
+			fmt.Sprintf("unknown desired-state patchKind %d", int(change.PatchKind)))
+	default:
+		return DeployResult{}, newError(fwmgr.ContractMisuse,
+			fmt.Sprintf("unknown desired-state patchKind %d", int(change.PatchKind)))
+	}
 
 	wfID := deployWorkflowID(operatedAppID, change.ChangeID)
 	opts := client.StartWorkflowOptions{
@@ -324,7 +351,6 @@ func (m *operationsManager) RegisterOperatedApp(rc fwmgr.Context, operatedAppID 
 	if deployableBundleRef == "" {
 		return 0, newError(fwmgr.ContractMisuse, "empty deployableBundleRef")
 	}
-
 	wfID := registerWorkflowID(operatedAppID)
 	opts := client.StartWorkflowOptions{
 		ID:                       wfID,
@@ -570,6 +596,18 @@ func isNotFound(err error) bool {
 // standardised on OperatedAppId, not deployedAppId).
 type operatedAppID = uuid.UUID
 
+// D13 IDENTITY NOTE. An operated app's id is DERIVED from its project's id — a pure,
+// lookup-free function realized ONCE, at the composition root
+// (cmd/server/hooks.go's OperatedAppIDForProject), which is also where the
+// project → operated-app-id read route and the RegisterOperatedApp identity guard
+// live. It cannot live in this package: the encapsulation gate (internal/arch_test.go's
+// TestGeneratedOnlyPublic) admits no exported symbol here beyond the generated contract
+// surface and the four Temporal registration entrypoints, and duplicating the
+// derivation into a second unexported copy is exactly the drift this note exists to
+// prevent. RegisterOperatedApp below therefore validates its params but does NOT
+// re-derive the id; the composition-root wrapper refuses a mismatched pair before the
+// call reaches this façade, over both transports (REST and MCP).
+
 // customerID is the billing-customer aggregate identifier; a plain uuid.UUID,
 // canonical in settlementStateAccess (operationsManager.md §3.0).
 type customerID = uuid.UUID
@@ -760,6 +798,27 @@ func desiredStateReasonName(r DesiredStateReason) string {
 	// Unreachable for the five defined DesiredStateReason values above (the
 	// exhaustive linter enforces that every real variant has its own case); kept
 	// as a defensive fallback for an out-of-range ordinal.
+	return "unknown"
+}
+
+// patchKindName returns the canonical wire name for a desired-state patch kind. Kept as
+// a FREE FUNCTION (not a PatchKind method) so the generated enum is pure data — the same
+// rule desiredStateReasonName above follows.
+func patchKindName(k PatchKind) string {
+	switch k {
+	case PatchKindUnknown:
+		// zero-value sentinel.
+		return "unknown"
+	case PatchFullBundle:
+		return "fullBundle"
+	case PatchScale:
+		return "scale"
+	case PatchPolicy:
+		return "policy"
+	}
+	// Unreachable for the four defined PatchKind values above (the exhaustive linter
+	// enforces that every real variant has its own case); kept as a defensive fallback
+	// for an out-of-range ordinal.
 	return "unknown"
 }
 

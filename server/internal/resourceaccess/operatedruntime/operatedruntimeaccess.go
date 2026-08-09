@@ -20,6 +20,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"text/template"
 	"time"
@@ -208,6 +209,17 @@ func (r realOperatedRuntime) PublishDesiredState(_ fwra.Context, appID uuid.UUID
 	if d.AppName == "" {
 		return fwra.New(fwra.ContractMisuse, "operatedruntime real profile: publishDesiredState: empty RuntimeDesiredState.AppName")
 	}
+	// AppName is a PATH SEGMENT here — gitOpsAppDir joins it into the clone and
+	// gitOpsPublish os.RemoveAll's the result — and it originates, several layers up, in
+	// a user-supplied repository name. It is validated at the point of use, before any
+	// filesystem call, rather than trusted from the caller: a "../.." or an absolute path
+	// arriving here would delete outside the app's own directory in a repository that
+	// holds the whole fleet's manifests.
+	if !validAppName(d.AppName) {
+		return fwra.New(fwra.ContractMisuse,
+			"operatedruntime real profile: publishDesiredState: RuntimeDesiredState.AppName "+strconv.Quote(d.AppName)+
+				" is not a DNS-1123 label (lowercase letters, digits and interior hyphens, at most 63 characters); it names a Kubernetes namespace and a directory in the GitOps repository, and must be a single safe path segment")
+	}
 	msg := fmt.Sprintf("operatedruntime: publish %s (appId=%s, idempotencyKey=%s)", d.AppName, appID, idempotencyKey)
 	return r.gitOpsCommit(msg, gitOpsPublish(appID, d))
 }
@@ -319,7 +331,9 @@ func (r realOperatedRuntime) GetDeploymentResourceHealth(rc fwra.Context, appID 
 		if rerr != nil {
 			return nil, rerr
 		}
-		return joinModelKeyHealth(manifests, nil), nil
+		// Never synced: no live resources, and no Application to report a rollup —
+		// every model key, the Application's own included, is fail-closed Degraded.
+		return joinModelKeyHealth(manifests, nil, RuntimeStatusDegraded), nil
 	}
 	return parseModelKeyHealth(raw, desired)
 }
@@ -471,6 +485,37 @@ func gitOpsHasStagedChanges(dir string) (bool, error) {
 		return true, nil
 	}
 	return false, fmt.Errorf("git diff --cached --quiet: %w", err)
+}
+
+// validAppName reports whether s is a DNS-1123 label: 1–63 characters of lowercase
+// letters, digits and interior hyphens. Kubernetes requires it of the namespace and
+// object names an app name becomes, and it simultaneously guarantees s is a single safe
+// path segment for the GitOps repository — it can contain no "/", no "\" and no "." (so
+// neither "." nor ".."), and cannot be empty or absolute. Every filesystem path this
+// file builds from an app name is gated on it: PublishDesiredState checks the incoming
+// desired state, and gitOpsResolveAppByID checks the name it derives from a committed
+// file's own name before Withdraw removes anything.
+//
+// The operations Manager applies the identical rule to the project id at assembly time
+// (its own validAppName, deploy.go). This copy is the load-bearing one — it is the check
+// standing between a caller-supplied string and os.RemoveAll — and is deliberately not
+// factored across the layer boundary: this package's public surface is generated-only.
+func validAppName(s string) bool {
+	if len(s) == 0 || len(s) > 63 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c >= 'a' && c <= 'z', c >= '0' && c <= '9':
+			// ok anywhere.
+		case c == '-' && i != 0 && i != len(s)-1:
+			// ok in the interior only.
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // gitOpsAppDir is the directory every rendered manifest except the Application lands in.
@@ -675,6 +720,9 @@ func gitOpsPublish(appID uuid.UUID, d RuntimeDesiredState) func(string) error {
 		if err != nil {
 			return err
 		}
+		if err := gitOpsRefuseSelfManagedDowngrade(workdir, d); err != nil {
+			return err
+		}
 
 		appDir := gitOpsAppDir(workdir, d.AppName)
 		if err := os.RemoveAll(appDir); err != nil {
@@ -717,6 +765,59 @@ func gitOpsPublish(appID uuid.UUID, d RuntimeDesiredState) func(string) error {
 		}
 		return nil
 	}
+}
+
+// gitOpsRefuseSelfManagedDowngrade is the FOURTH self-destruction guard (2026-08-08
+// final review, fix 5), and the only one that is not derived from the same single fact
+// as the other three.
+//
+// prune:false, the omitted Argo finalizer, and Withdraw's refusal all follow from ONE
+// boolean — RuntimeDesiredState.SelfManaged, set by ONE string comparison in the Manager
+// (appName == "archistrator"). They are three expressions of one fact, not three
+// independent guards. So a publish that arrives with SelfManaged false for a path where
+// a self-managed Application already sits rewrites that Application in TENANT shape —
+// prune:true, selfHeal:true, and the cascade-delete finalizer restored — disarming all
+// three in a single commit, with the next Argo sync free to prune archistrator's own
+// control plane.
+//
+// The evidence needed to refuse is already in the clone: the previously committed
+// Application at this app's own path. If it exists, is determinably self-managed, and
+// the incoming desired state is NOT, refuse. A downgrade from self-managed to tenant
+// shape is never a legitimate automated operation — turning the platform's own
+// deployment into a prunable tenant is a deliberate act for a human at a terminal.
+//
+// UNDETERMINABLE shape refuses too, on the same fail-closed reasoning gitOpsSelfManaged
+// already applies for Withdraw: if the committed file's syncPolicy is not one this
+// renderer could have produced, we cannot rule out that it is self-managed, and guessing
+// wrong in this direction is the expensive one. An incoming SELF-MANAGED publish never
+// refuses (there is no downgrade to make), so archistrator can always republish itself.
+func gitOpsRefuseSelfManagedDowngrade(workdir string, d RuntimeDesiredState) error {
+	if d.SelfManaged {
+		return nil
+	}
+	appFile := gitOpsApplicationFile(workdir, d.AppName)
+	raw, err := os.ReadFile(appFile) // #nosec G304 -- appFile is built from a validated app name (validAppName), not from raw input
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil // first publish for this app — nothing to downgrade.
+		}
+		return fwra.Wrap(fwra.Infrastructure, err, "operatedruntime.gitops: read "+appFile)
+	}
+	selfManaged, ok := gitOpsSelfManaged(string(raw))
+	if !ok {
+		return fwra.New(fwra.ContractMisuse,
+			"operatedruntime.gitops: refusing to publish "+d.AppName+
+				": the committed Argo Application at "+appFile+" has a syncPolicy shape this renderer could not have produced, so it cannot be confirmed NOT self-managed; "+
+				"overwriting it could turn archistrator's own control plane into a prunable tenant")
+	}
+	if selfManaged {
+		return fwra.New(fwra.ContractMisuse,
+			"operatedruntime.gitops: refusing to publish "+d.AppName+
+				": the committed Argo Application at "+appFile+" is self-managed (prune:false, manual sync, no cascade finalizer) and this desired state is not; "+
+				"rewriting it in tenant shape would disarm all three self-destruction guards in one commit. "+
+				"A self-managed to tenant downgrade is a deliberate human operation, never an automated publish")
+	}
+	return nil
 }
 
 // gitOpsResolvedApp is what gitOpsResolveAppByID reports about the Application whose
@@ -768,7 +869,17 @@ func gitOpsResolveAppByID(workdir string, appID uuid.UUID) (resolved gitOpsResol
 			return gitOpsResolvedApp{}, false, fwra.New(fwra.ContractMisuse,
 				"operatedruntime.gitops: "+path+" matches appId "+want+" but its syncPolicy shape is not one render() could have produced; refusing to determine self-managed status")
 		}
-		return gitOpsResolvedApp{AppName: strings.TrimSuffix(e.Name(), ".yaml"), SelfManaged: selfManaged}, true, nil
+		// The app name is derived from a FILE NAME in the repository, and it is about to
+		// be joined into a path Withdraw calls os.RemoveAll on. A file called "..yaml"
+		// would trim to "." and remove the whole apps directory; the same rule that gates
+		// publish gates this derived name too, rather than trusting the repository's
+		// contents.
+		appName := strings.TrimSuffix(e.Name(), ".yaml")
+		if !validAppName(appName) {
+			return gitOpsResolvedApp{}, false, fwra.New(fwra.ContractMisuse,
+				"operatedruntime.gitops: "+path+" matches appId "+want+" but its file name does not yield a valid app name (a DNS-1123 label); refusing to derive a filesystem path from it")
+		}
+		return gitOpsResolvedApp{AppName: appName, SelfManaged: selfManaged}, true, nil
 	}
 	return gitOpsResolvedApp{}, false, nil
 }
@@ -2177,19 +2288,52 @@ func parseResourceHealth(raw []byte) ([]resourceHealth, error) {
 	return out, nil
 }
 
+// mapArgoResourceHealth folds ONE entry of status.resources[] into RuntimeStatus. It
+// differs from mapArgoHealth (the app-level rollup) in exactly one case, and that case
+// is the point of it: a per-resource entry with an ABSENT health field means Argo has no
+// health CHECK for that kind, not that the resource is unhealthy or unevaluated.
+//
+// Argo only reports health for kinds it has a checker for — built-ins plus the Lua
+// scripts it ships. Three of the objects this renderer emits have none:
+// SecurityPolicy and BackendTrafficPolicy (Envoy Gateway) and KeycloakRealmImport. They
+// appear in status.resources[] with a status but no health at all. Folding that through
+// mapArgoHealth gave RuntimeStatusUnknown, which the diagram paints red — so the gateway
+// and identity-provider nodes read permanently unhealthy on a perfectly healthy cluster.
+//
+// What their PRESENCE in the resource set does mean is that Argo synced them: the object
+// is in the app's live inventory. That is the only verdict available for these kinds, and
+// reporting it is honest — the fail-closed case is ABSENCE (handled by joinModelKeyHealth's
+// no-match rule), which is a genuinely different fact: the renderer emitted an object the
+// cluster does not have.
+func mapArgoResourceHealth(status string) RuntimeStatus {
+	if status == "" {
+		return RuntimeStatusHealthy
+	}
+	return mapArgoHealth(status)
+}
+
 // joinModelKeyHealth is the health-overlay join itself (task-10-brief Step 4/spec §6):
 // match each of manifests' (Kind, Name, Namespace) against resources, and emit one
 // ModelKeyHealth per ModelKey a manifest carries — fanning out where a manifest carries
 // several (the Postgres Cluster carries all three database-role model keys, spec §5.1a).
 //
-// FAIL-CLOSED, the load-bearing rule this task adds: a manifest render() emits with NO
-// matching entry in resources reports RuntimeStatusDegraded, never RuntimeStatusHealthy
-// and never a silently dropped ModelKeyHealth. It should exist on the cluster and does
-// not — that absence is exactly what red is for, not something to paper over as
-// "nothing to report." resources being nil/empty (the never-synced case,
-// GetDeploymentResourceHealth above) degrades every manifest the same way, by the same
-// rule — there is no separate branch for it.
-func joinModelKeyHealth(manifests []manifest, resources []resourceHealth) []ModelKeyHealth {
+// FAIL-CLOSED: a manifest render() emits with NO matching entry in resources reports
+// RuntimeStatusDegraded, never RuntimeStatusHealthy and never a silently dropped
+// ModelKeyHealth. It should exist on the cluster and does not — that absence is exactly
+// what red is for, not something to paper over as "nothing to report." resources being
+// nil/empty (the never-synced case, GetDeploymentResourceHealth above) degrades every
+// manifest the same way, by the same rule — there is no separate branch for it.
+//
+// THE APPLICATION IS NOT JOINED AGAINST ITS OWN RESOURCE LIST (2026-08-08 final review,
+// fix 2). An Argo Application never lists ITSELF among status.resources[] — that list is
+// what the Application manages, not what it is. Joining it therefore hit the fail-closed
+// no-match rule on every read, painting the app's namespace node (the node the
+// Application carries, renderApplication) permanently red no matter how healthy the
+// deployment was. The Application is the thing REPORTING, so its model keys take its own
+// app-level rollup instead, passed in as applicationStatus — the honest verdict for "how
+// is this whole app doing", and the same value GetApplicationHealth returns. The
+// never-synced path passes RuntimeStatusDegraded, keeping that case fail-closed.
+func joinModelKeyHealth(manifests []manifest, resources []resourceHealth, applicationStatus RuntimeStatus) []ModelKeyHealth {
 	type identity struct{ Kind, Name, Namespace string }
 	byIdentity := make(map[identity]string, len(resources))
 	for _, r := range resources {
@@ -2199,8 +2343,13 @@ func joinModelKeyHealth(manifests []manifest, resources []resourceHealth) []Mode
 	var out []ModelKeyHealth
 	for _, m := range manifests {
 		status := RuntimeStatusDegraded // fail-closed default: rendered, but no live match.
-		if h, ok := byIdentity[identity{Kind: m.Kind, Name: m.Name, Namespace: m.Namespace}]; ok {
-			status = mapArgoHealth(h)
+		switch {
+		case m.Kind == "Application":
+			status = applicationStatus
+		default:
+			if h, ok := byIdentity[identity{Kind: m.Kind, Name: m.Name, Namespace: m.Namespace}]; ok {
+				status = mapArgoResourceHealth(h)
+			}
 		}
 		for _, key := range m.ModelKeys {
 			out = append(out, ModelKeyHealth{ModelKey: key, Status: status})
@@ -2221,11 +2370,17 @@ func parseModelKeyHealth(raw []byte, desired RuntimeDesiredState) ([]ModelKeyHea
 	if err != nil {
 		return nil, err
 	}
+	var app argoApplication
+	if uerr := json.Unmarshal(raw, &app); uerr != nil {
+		return nil, fwra.Wrap(fwra.Infrastructure, uerr, "operatedruntime: parse Argo Application")
+	}
 	resources, err := parseResourceHealth(raw)
 	if err != nil {
 		return nil, err
 	}
-	return joinModelKeyHealth(manifests, resources), nil
+	// The Application's own model keys take its app-level rollup, not a resource match
+	// it can never have — see joinModelKeyHealth.
+	return joinModelKeyHealth(manifests, resources, mapArgoHealth(app.Status.Health.Status)), nil
 }
 
 // inClusterHTTPClient builds an *http.Client trusting the cluster's own CA and returns the

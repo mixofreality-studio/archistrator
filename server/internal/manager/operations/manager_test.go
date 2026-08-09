@@ -242,6 +242,29 @@ func Test_Delinquency_EmptyCustomerID(t *testing.T) {
 	}
 }
 
+// ---- A13: the patch-kind discriminator (2026-08-08 final review, fix 3) -----
+//
+// Scale and Policy assemble no desired state — replicas come from the deployment model
+// and neither patch carries a bundle — so before this check they published a ZERO-VALUE
+// RuntimeDesiredState the renderer cannot use. Rejected by NAME at the façade so the
+// operator reads "not supported in this slice" rather than a ContractMisuse surfaced
+// from deep inside a ResourceAccess.
+
+func Test_Deploy_RejectsScaleAndPolicyPatchKinds(t *testing.T) {
+	for _, patch := range []PatchKind{PatchScale, PatchPolicy, PatchKindUnknown} {
+		m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+		_, err := m.DeployAfterConstruction(bgCtx(), uuid.New(),
+			DesiredStateChange{Reason: ReasonOperator, PatchKind: patch, ChangeID: "c1"})
+		oe := asOperationsError(t, err)
+		if oe.Kind != fwmgr.ContractMisuse {
+			t.Fatalf("patchKind %v: want ContractMisuse, got %s", patchKindName(patch), oe.Kind)
+		}
+		if patch != PatchKindUnknown && !strings.Contains(oe.Detail, patchKindName(patch)) {
+			t.Errorf("patchKind %v: the rejection must name the unsupported kind, got %q", patchKindName(patch), oe.Detail)
+		}
+	}
+}
+
 // ---- A12: RegisterOperatedApp — every param fails loudly, never silently skipped ---
 
 func Test_RegisterOperatedApp_EmptyOperatedAppID(t *testing.T) {
@@ -819,31 +842,39 @@ func Test_Deploy_NoBundleRef_FailedPrecondition(t *testing.T) {
 	}
 }
 
-// B3: an operator scale republish (PatchScale) does NOT retrieve a bundle but still
-// publishes + records (reason=operator).
-func Test_Deploy_OperatorScale_NoBundleRetrieve(t *testing.T) {
-	var ts testsuite.WorkflowTestSuite
-	env := ts.NewTestWorkflowEnvironment()
+// B3 (rewritten, 2026-08-08 final review fix 3): an operator scale republish is REFUSED
+// by the workflow and publishes NOTHING. It used to assemble no desired state and publish
+// the zero value, which under the renderer is a half-rendered deployment or a confusing
+// ContractMisuse from deep inside the ResourceAccess. The façade rejects it first
+// (Test_Deploy_RejectsScaleAndPolicyPatchKinds); this covers the workflow's own guard, so
+// no future caller can reintroduce the zero-value publish by going around the façade.
+func Test_Deploy_OperatorScale_IsRefusedAndPublishesNothing(t *testing.T) {
+	for _, patch := range []PatchKind{PatchScale, PatchPolicy, PatchKindUnknown} {
+		t.Run(patchKindName(patch), func(t *testing.T) {
+			var ts testsuite.WorkflowTestSuite
+			env := ts.NewTestWorkflowEnvironment()
 
-	deps, os, rt, us, ar := baseDeps()
-	appID := uuid.New()
-	os.system = operatedsystemstate.OperatedSystem{ID: appID, Version: 2}
-	wf := newWorkflows(deps)
-	registerDeploy(env, wf, os, rt, us, ar)
+			deps, os, rt, us, ar := baseDeps()
+			appID := uuid.New()
+			os.system = operatedsystemstate.OperatedSystem{ID: appID, Version: 2, DeployableBundleRef: "addr-1"}
+			wf := newWorkflows(deps)
+			registerDeploy(env, wf, os, rt, us, ar)
 
-	env.ExecuteWorkflow(executionKindDeploy, deployInput{
-		OperatedAppID: appID,
-		Change:        DesiredStateChange{Reason: ReasonOperator, PatchKind: PatchScale, ChangeID: "c2"},
-	})
+			env.ExecuteWorkflow(executionKindDeploy, deployInput{
+				OperatedAppID: appID,
+				Change:        DesiredStateChange{Reason: ReasonOperator, PatchKind: patch, ChangeID: "c2"},
+			})
 
-	if err := env.GetWorkflowError(); err != nil {
-		t.Fatalf("workflow error: %v", err)
-	}
-	if ar.retrieveN != 0 {
-		t.Fatalf("operator scale must NOT retrieve a bundle, got %d", ar.retrieveN)
-	}
-	if len(rt.publishes) != 1 || len(os.published) != 1 || os.published[0] != operatedsystemstate.ReasonOperator {
-		t.Fatalf("want one publish + head-state record(operator), got publishes=%d head=%v", len(rt.publishes), os.published)
+			if env.GetWorkflowError() == nil {
+				t.Fatalf("patchKind %v must be refused", patchKindName(patch))
+			}
+			if len(rt.publishes) != 0 || len(rt.published) != 0 || len(os.published) != 0 {
+				t.Fatalf("a refused patch must publish nothing; runtime=%d head=%v", len(rt.publishes), os.published)
+			}
+			if ar.retrieveN != 0 {
+				t.Fatalf("a refused patch must retrieve no bundle, got %d", ar.retrieveN)
+			}
+		})
 	}
 }
 
@@ -1459,14 +1490,14 @@ func Test_Deploy_ConflictOnRecord_ReReadReApply_Succeeds(t *testing.T) {
 
 	deps, os, rt, us, ar := baseDeps()
 	appID := uuid.New()
-	os.system = operatedsystemstate.OperatedSystem{ID: appID, Version: 1}
+	os.system = operatedsystemstate.OperatedSystem{ID: appID, Version: 1, DeployableBundleRef: "addr-1"}
 	os.conflictFirst = 2 // first two head-state publishes Conflict, then succeed
 	wf := newWorkflows(deps)
 	registerDeploy(env, wf, os, rt, us, ar)
 
 	env.ExecuteWorkflow(executionKindDeploy, deployInput{
 		OperatedAppID: appID,
-		Change:        DesiredStateChange{Reason: ReasonOperator, PatchKind: PatchScale, ChangeID: "c-conf"},
+		Change:        DesiredStateChange{Reason: ReasonOperator, PatchKind: PatchFullBundle, ChangeID: "c-conf"},
 	})
 
 	if err := env.GetWorkflowError(); err != nil {
@@ -1738,6 +1769,66 @@ func TestAssembleDesiredState_MapsCloudEnvironmentAndBundleImages(t *testing.T) 
 	wantDBKeys := []string{"cloud-infra-billingstate", "cloud-infra-operatedsystemstate", "cloud-infra-usagelog"}
 	if !slices.Equal(got.Postgres.ModelKeys, wantDBKeys) || !got.Postgres.Enabled {
 		t.Errorf("Postgres = %+v, want ModelKeys=%v (sorted) Enabled=true", got.Postgres, wantDBKeys)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// The bundle is UNVALIDATED JSON (2026-08-08 final review, fix 4). json.Unmarshal
+// into a struct succeeds on null, on {}, and on any unrelated object — every unknown
+// field ignored, every absent field left zero — so a clean parse proves nothing. An
+// empty image renders a literal `image:` into a COMMITTED Deployment.
+// ---------------------------------------------------------------------------
+
+func TestAssembleDesiredState_RejectsABundleWithNoImages(t *testing.T) {
+	for _, tc := range []struct{ name, body string }{
+		{"empty object", `{}`},
+		{"null", `null`},
+		{"unrelated object", `{"somethingElse":"entirely","count":3}`},
+		{"server image only", `{"serverImage":"s:1"}`},
+		{"webapp image only", `{"webAppImage":"w:1"}`},
+		{"blank strings", `{"serverImage":"","webAppImage":""}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			bundle := deployableBundle{Output: artifact.ConstructionOutput{
+				Bytes: []byte(tc.body), MIMEType: "application/json",
+			}}
+			_, err := assembleDesiredState(testProject(t), bundle, operatedsystemstate.OperatedSystem{})
+			if err == nil {
+				t.Fatalf("bundle %s parsed but carries no usable images; assembly must refuse rather than render an empty image", tc.name)
+			}
+			if !strings.Contains(err.Error(), "Image") && !strings.Contains(err.Error(), "image") {
+				t.Errorf("the error must name the missing image, got %q", err)
+			}
+		})
+	}
+}
+
+// TestAssembleDesiredState_RejectsAZeroReplicaCount: Replicas 0 renders `replicas: 0`
+// into a committed Deployment — a perfectly working manifest for an app that is not
+// running. The zero value must REFUSE, not SKIP.
+func TestAssembleDesiredState_RejectsAZeroReplicaCount(t *testing.T) {
+	proj := testProject(t)
+	model := proj.OperationalConcepts.Model.(*projectstate.DeploymentOperationsModel)
+	ns := namespaceFor(model)
+	ns.Children[0].Instances = 0
+
+	_, err := assembleDesiredState(proj, fixtureBundle(t), operatedsystemstate.OperatedSystem{})
+	if err == nil {
+		t.Fatal("expected an error for a 0-instance server workload (a silent scale-to-zero)")
+	}
+}
+
+// TestAssembleDesiredState_RejectsAnUnsafeProjectID: the project id becomes the
+// Kubernetes namespace, every rendered object's name, AND a path segment in the GitOps
+// repository that operatedruntime os.RemoveAll's. It originates in a user-supplied
+// repository name.
+func TestAssembleDesiredState_RejectsAnUnsafeProjectID(t *testing.T) {
+	for _, id := range []string{"../../etc", "/absolute", "..", ".", "has/slash", "Upper", "has space", "-leading"} {
+		proj := testProject(t)
+		proj.ID = projectstate.ProjectID(id)
+		if _, err := assembleDesiredState(proj, fixtureBundle(t), operatedsystemstate.OperatedSystem{}); err == nil {
+			t.Errorf("project id %q must be rejected: it names a namespace and a directory", id)
+		}
 	}
 }
 

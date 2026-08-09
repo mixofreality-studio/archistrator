@@ -4,9 +4,10 @@
  *   live view) + projected monthly + the scale what-if curve (the read-only
  *   cost-projection endpoint). [operationEstimationEngine.queryCostProjection]
  *   OPERATOR autoscaler view: mode (Auto/Manual) + decision history (with why)
- *   from the live view, plus the Update-autoscaler-policy publish action. The
- *   autoscaler is a THIRD actor; resume from idle-pause is traffic-driven, not a
- *   button. [autoscalerEngine]
+ *   from the live view. The autoscaler is a THIRD actor; resume from idle-pause is
+ *   traffic-driven, not a button. The Update-autoscaler-policy publish is DISABLED
+ *   (2026-08-08 final review, fix 3) — it assembled no desired state and published a
+ *   zero value, which the server now rejects by name. [autoscalerEngine]
  */
 import type { ReactNode } from 'react';
 import { useState } from 'react';
@@ -26,7 +27,7 @@ import type {
 } from '../../contracts/operationsTypes';
 import { formatMoney, formatEventTime } from '../../contracts/operationsAdapters';
 import { useCostProjection } from '../../hooks/useCostProjection';
-import { useOperationAction } from '../../hooks/useOperationsMutations';
+import { UNSUPPORTED_ACTION_REASON } from '../../hooks/useOperationsMutations';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 import { AwaitingPanel } from './AwaitingPanel';
 
@@ -40,8 +41,6 @@ export function ScalingCostTab({
   const t = useTokens();
   const costQuery = useCostProjection(operatedAppId, undefined, view !== undefined);
   const cost = costQuery.data;
-  const action = useOperationAction(operatedAppId);
-  const [policyResult, setPolicyResult] = useState<string | null>(null);
 
   if (view === undefined) {
     return (
@@ -51,14 +50,6 @@ export function ScalingCostTab({
       />
     );
   }
-
-  const updatePolicy = (): void => {
-    action.mutate('autoscaler-policy', {
-      onSuccess: (r) => {
-        setPolicyResult(r.published ? 'policy republished' : 'accepted');
-      },
-    });
-  };
 
   return (
     <Box
@@ -165,26 +156,31 @@ export function ScalingCostTab({
             }}
           />
           <Box sx={{ flexGrow: 1 }} />
-          <Button
-            color="inherit"
-            data-testid={UI_IDENTIFIERS.Operations.AUTOSCALER_POLICY_BUTTON}
-            disabled={action.isPending}
-            size="small"
-            startIcon={<TuneIcon sx={{ fontSize: 14 }} />}
-            sx={{ py: 0.2, fontSize: 10.5, color: t.ink, borderColor: t.line }}
-            variant="outlined"
-            onClick={updatePolicy}
-          >
-            Update autoscaler policy
-          </Button>
-          {policyResult !== null && (
-            <Chip
-              label={policyResult}
-              size="small"
-              sx={{ height: 18, fontSize: 9, fontFamily: t.mono, color: t.committedFg }}
-              variant="outlined"
-            />
-          )}
+          {/*
+            DISABLED, not wired (2026-08-08 final review, fix 3): an
+            autoscaler-policy publish sent (reason=Operator, patchKind=Policy),
+            which the server now rejects by name — it assembled no desired state
+            and published a zero value. The autoscaler's mode and decision history
+            below are still real reads; only the publish is absent.
+          */}
+          <Tooltip title={UNSUPPORTED_ACTION_REASON}>
+            <span>
+              <Button
+                disabled
+                color="inherit"
+                data-testid={UI_IDENTIFIERS.Operations.AUTOSCALER_POLICY_BUTTON}
+                size="small"
+                startIcon={<TuneIcon sx={{ fontSize: 14 }} />}
+                sx={{ py: 0.2, fontSize: 10.5, color: t.ink, borderColor: t.line }}
+                variant="outlined"
+              >
+                Update autoscaler policy
+              </Button>
+            </span>
+          </Tooltip>
+          <Typography sx={{ fontFamily: t.body, fontSize: 10.5, color: t.muted }}>
+            Policy publish is not available yet.
+          </Typography>
         </Box>
 
         <Paper sx={{ p: 0, overflow: 'hidden' }}>

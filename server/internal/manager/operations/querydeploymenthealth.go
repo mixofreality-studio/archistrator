@@ -147,22 +147,30 @@ func allDeploymentDiagramKeys(nodes []projectstate.DeploymentNode) []string {
 // their browser, another app's namespace — is HealthStateNeutral: the load-bearing
 // rule this task adds. Never Unhealthy for a node archistrator does not deploy, and
 // never simply omitted (every node in allKeys gets exactly one NodeHealth entry).
+// SEVERAL RESOURCES CAN ANSWER TO ONE KEY, and the worst one wins (2026-08-08 final
+// review). The gateway node alone collects four HTTPRoutes, four BackendTrafficPolicies
+// and a SecurityPolicy; an earlier version of this fold kept whichever entry came LAST
+// in the RA's slice, so one degraded route could be masked by a healthy one purely by
+// render order. Unhealthy therefore dominates Healthy here — the same fail-closed
+// direction every other rule in this path takes.
 func applyDiagramHealth(raHealth []operatedruntime.ModelKeyHealth, allKeys []string) DeploymentHealth {
-	byKey := make(map[string]operatedruntime.RuntimeStatus, len(raHealth))
+	byKey := make(map[string]HealthState, len(raHealth))
 	for _, h := range raHealth {
-		byKey[h.ModelKey] = h.Status
+		health := HealthStateUnhealthy
+		if h.Status == operatedruntime.RuntimeStatusHealthy {
+			health = HealthStateHealthy
+		}
+		if prior, seen := byKey[h.ModelKey]; seen && prior == HealthStateUnhealthy {
+			continue // already condemned by another resource answering to this key.
+		}
+		byKey[h.ModelKey] = health
 	}
 
 	nodes := make([]NodeHealth, 0, len(allKeys))
 	for _, key := range allKeys {
-		status, ok := byKey[key]
+		health, ok := byKey[key]
 		if !ok {
-			nodes = append(nodes, NodeHealth{ModelKey: key, Health: HealthStateNeutral})
-			continue
-		}
-		health := HealthStateUnhealthy
-		if status == operatedruntime.RuntimeStatusHealthy {
-			health = HealthStateHealthy
+			health = HealthStateNeutral
 		}
 		nodes = append(nodes, NodeHealth{ModelKey: key, Health: health})
 	}

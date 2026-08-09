@@ -40,42 +40,44 @@ func (wf *workflows) DeployWorkflow(ctx workflow.Context, in deployInput) (Deplo
 		return DeployResult{}, err
 	}
 
+	// PATCH-KIND GUARD (2026-08-08 final review, fix 3) — the workflow half of the
+	// façade's own check (DeployAfterConstruction, operationsmanager.go). Every
+	// desired state this workflow publishes is ASSEMBLED; there is no placeholder
+	// branch any more. A non-full-bundle patch used to fall through here with a
+	// zero-value RuntimeDesiredState and publish it, which under the renderer is
+	// either a confusing ContractMisuse from inside the ResourceAccess or a
+	// half-rendered deployment. Refusing it in the workflow too means no future
+	// caller can reintroduce the zero-value publish by going around the façade.
+	if in.Change.PatchKind != PatchFullBundle {
+		return DeployResult{}, temporal.NewNonRetryableApplicationError(
+			"patchKind "+patchKindName(in.Change.PatchKind)+" is not supported: desired state is assembled from the project's deployment model and the deployable bundle, and only a full-bundle republish carries both",
+			fwmgr.ErrType(fwmgr.ContractMisuse), nil)
+	}
+
 	// Deploy pre-condition (§2.1): the operated system has a deployableBundleRef for a
 	// first take-live (full bundle). FailedPrecondition is a terminal façade-class
 	// error surfaced from the workflow.
-	//
-	// desired starts as the zero value: a non-full-bundle republish (operator
-	// scale, autoscale, delinquency) has no fresh bundle to re-derive images from,
-	// so it republishes this placeholder — matching reconcile.go's and
-	// delinquencyenforcement.go's own republish call sites — until incremental
-	// desired-state patching lands. (Task 8 removed the caller-supplied
-	// DesiredStateChange.RenderedDesiredState this comment used to forward-reference:
-	// the client never sent it, and the server renders desired state itself, below.)
-	var desired operatedruntime.RuntimeDesiredState
-	if in.Change.Reason == ReasonDeployAfterConstruction && in.Change.PatchKind == PatchFullBundle {
-		if op.DeployableBundleRef == "" {
-			return DeployResult{}, temporal.NewNonRetryableApplicationError(
-				"operated system has no deployableBundleRef (no constructed output to deploy)",
-				fwmgr.ErrType(fwmgr.FailedPrecondition), nil)
-		}
-		// Retrieve the deployable bundle + the operated app's own committed
-		// deployment model, then fold them (with head-state) into the typed
-		// desired state the render step (Task 4+) turns into Kubernetes YAML.
-		bundle, berr := wf.retrieveBundle(ctx, op.DeployableBundleRef)
-		if berr != nil {
-			return DeployResult{}, berr
-		}
-		proj, perr := wf.readProject(ctx, op.ProjectRef)
-		if perr != nil {
-			return DeployResult{}, perr
-		}
-		d, aerr := assembleDesiredState(proj, bundle, op)
-		if aerr != nil {
-			return DeployResult{}, temporal.NewNonRetryableApplicationError(
-				"failed to assemble the desired state from the project's deployment model",
-				fwmgr.ErrType(fwmgr.FailedPrecondition), aerr)
-		}
-		desired = d
+	if op.DeployableBundleRef == "" {
+		return DeployResult{}, temporal.NewNonRetryableApplicationError(
+			"operated system has no deployableBundleRef (no constructed output to deploy)",
+			fwmgr.ErrType(fwmgr.FailedPrecondition), nil)
+	}
+	// Retrieve the deployable bundle + the operated app's own committed
+	// deployment model, then fold them (with head-state) into the typed
+	// desired state the render step (Task 4+) turns into Kubernetes YAML.
+	bundle, berr := wf.retrieveBundle(ctx, op.DeployableBundleRef)
+	if berr != nil {
+		return DeployResult{}, berr
+	}
+	proj, perr := wf.readProject(ctx, op.ProjectRef)
+	if perr != nil {
+		return DeployResult{}, perr
+	}
+	desired, aerr := assembleDesiredState(proj, bundle, op)
+	if aerr != nil {
+		return DeployResult{}, temporal.NewNonRetryableApplicationError(
+			"failed to assemble the desired state from the project's deployment model",
+			fwmgr.ErrType(fwmgr.FailedPrecondition), aerr)
 	}
 
 	// Publish the assembled desired state (git commit; content-idempotent).
@@ -302,6 +304,19 @@ func assembleDesiredState(proj projectstate.Project, bundle deployableBundle, _ 
 	if appName == "" {
 		return operatedruntime.RuntimeDesiredState{}, fmt.Errorf("assembleDesiredState: project has no ID")
 	}
+	// The project id becomes the app name, the Kubernetes namespace, the host label,
+	// every rendered object's name prefix — and a PATH SEGMENT in the GitOps repo the
+	// renderer removes and rewrites (operatedruntime's gitOpsAppDir). It originates from
+	// a user-supplied repository name, so it is validated here as a DNS-1123 label
+	// (lowercase alphanumerics and interior hyphens, ≤63 chars), which is both what
+	// Kubernetes requires of a namespace and, incidentally, a guarantee it is a single
+	// safe path segment: no separator, no "..", no absolute path, no leading dot.
+	// operatedruntime re-checks the same rule at the point of use (the check that
+	// actually protects the filesystem); this one exists so a bad project id fails with
+	// a readable Manager-layer error before a git clone ever happens.
+	if !validAppName(appName) {
+		return operatedruntime.RuntimeDesiredState{}, fmt.Errorf("assembleDesiredState: project id %q is not a valid app name: it must be a DNS-1123 label (lowercase letters, digits and interior hyphens, at most 63 characters) — it becomes the Kubernetes namespace, every rendered object's name, and a directory in the GitOps repository", appName)
+	}
 
 	model, ok := proj.OperationalConcepts.Model.(*projectstate.DeploymentOperationsModel)
 	if !ok || model == nil {
@@ -400,12 +415,27 @@ func assembleDesiredState(proj projectstate.Project, bundle deployableBundle, _ 
 		dbKeys[i] = n.Key
 	}
 
+	// json.Unmarshal into a struct SUCCEEDS on `null`, on `{}`, and on any unrelated
+	// JSON object — every unknown field is simply ignored and every absent field keeps
+	// its zero value. So a parse that returns no error proves nothing about the bundle's
+	// contents, and the images must be checked explicitly. This is the same fail-open
+	// shape this plan has now closed five times (a renderer skipping auth on a blank
+	// client id; a delete-guard disarming on unset config; app-level health defaulting
+	// to Healthy; a zero-value desired-state publish): a zero value must REFUSE, never
+	// SKIP. An empty image renders a literal `image:` line into a COMMITTED Deployment
+	// — valid YAML, invalid Kubernetes, and only discovered when the rollout fails.
 	var manifest bundleManifest
 	if uerr := json.Unmarshal(bundle.Output.Bytes, &manifest); uerr != nil {
 		return operatedruntime.RuntimeDesiredState{}, fmt.Errorf("assembleDesiredState: project %q: deployable bundle is not a valid bundle manifest: %w", appName, uerr)
 	}
+	if manifest.ServerImage == "" {
+		return operatedruntime.RuntimeDesiredState{}, fmt.Errorf("assembleDesiredState: project %q: deployable bundle carries no serverImage (bundle parsed but is empty, null, or not a bundle manifest); refusing to render a Deployment with no image", appName)
+	}
+	if manifest.WebAppImage == "" {
+		return operatedruntime.RuntimeDesiredState{}, fmt.Errorf("assembleDesiredState: project %q: deployable bundle carries no webAppImage (bundle parsed but is empty, null, or not a bundle manifest); refusing to render a Deployment with no image", appName)
+	}
 
-	return operatedruntime.RuntimeDesiredState{
+	desired := operatedruntime.RuntimeDesiredState{
 		AppName:         appName,
 		Namespace:       appName,
 		Host:            appName + "." + platformDomain,
@@ -434,7 +464,43 @@ func assembleDesiredState(proj projectstate.Project, bundle deployableBundle, _ 
 			ClientSecretRef: appName + "-oidc-client-secret",
 		},
 		SelfManaged: appName == selfManagedProjectRef,
-	}, nil
+	}
+
+	// Replica counts are checked on the ASSEMBLED value, not only at their sources, so
+	// no later field-by-field edit can reintroduce a silent scale-to-zero: Replicas: 0
+	// renders `replicas: 0` into a COMMITTED Deployment, which is a perfectly working
+	// manifest for an app that is simply not running — the quietest possible outage.
+	if desired.Server.Replicas < 1 || desired.WebApp.Replicas < 1 || desired.Postgres.Instances < 1 {
+		return operatedruntime.RuntimeDesiredState{}, fmt.Errorf("assembleDesiredState: project %q: assembled replica counts must all be >= 1 (server=%d, webapp=%d, postgres=%d); 0 is a silent scale-to-zero, not a deployment", appName, desired.Server.Replicas, desired.WebApp.Replicas, desired.Postgres.Instances)
+	}
+	return desired, nil
+}
+
+// validAppName reports whether s is a DNS-1123 label: 1–63 characters of lowercase
+// letters, digits and interior hyphens. That is what Kubernetes requires of the
+// namespace and object names the app name becomes, and it simultaneously guarantees s
+// is a single safe path segment for the GitOps repository — it can contain no "/", no
+// "\", no "." (so neither "." nor ".."), and cannot be empty or absolute.
+// operatedruntime applies the identical rule at the filesystem itself (its own
+// validAppName, unexported there because that package's public surface is
+// generated-only); this copy exists so the failure surfaces as a readable Manager error
+// before any clone happens.
+func validAppName(s string) bool {
+	if len(s) == 0 || len(s) > 63 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c >= 'a' && c <= 'z', c >= '0' && c <= '9':
+			// ok anywhere.
+		case c == '-' && i != 0 && i != len(s)-1:
+			// ok in the interior only.
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // findCloudEnvironment returns the deployment model's cloud-profile environment.

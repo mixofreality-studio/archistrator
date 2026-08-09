@@ -277,13 +277,111 @@ func TestJoinModelKeyHealth_NoLiveResourcesDegradesEveryManifest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
-	got := joinModelKeyHealth(manifests, nil)
+	got := joinModelKeyHealth(manifests, nil, RuntimeStatusDegraded)
 	if len(got) == 0 {
 		t.Fatal("expected one ModelKeyHealth per rendered manifest ModelKey, got none")
 	}
 	for _, h := range got {
 		if h.Status != RuntimeStatusDegraded {
 			t.Errorf("%s = %v, want Degraded (no live resources at all)", h.ModelKey, h.Status)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// The two joins the 2026-08-08 final review found wrong (fix 2). Both would have
+// painted a healthy production cluster red, and neither was caught because every
+// existing fixture hand-sets a health field on every resource — a shape the real
+// Argo status.resources[] does not have.
+// ---------------------------------------------------------------------------
+
+// TestGetDeploymentResourceHealth_FullySyncedClusterIsAllHealthy exercises the real
+// shape: EVERY object the renderer emits is present in status.resources[], the ones Argo
+// has a health checker for carry Healthy, and the ones it has NO checker for
+// (HTTPRoute, BackendTrafficPolicy, SecurityPolicy, KeycloakRealmImport) carry no health
+// field at all. Every diagram node must read Healthy — including the namespace node,
+// whose Application never appears in its own resource list, and the gateway and
+// identity-provider nodes, whose objects Argo cannot grade.
+func TestGetDeploymentResourceHealth_FullySyncedClusterIsAllHealthy(t *testing.T) {
+	got, err := parseModelKeyHealth(loadArgoFixture(t, "application-fully-synced.json"), testDesiredState())
+	if err != nil {
+		t.Fatalf("parseModelKeyHealth: %v", err)
+	}
+	if len(got) == 0 {
+		t.Fatal("no model keys reported")
+	}
+	for _, h := range got {
+		if h.Status != RuntimeStatusHealthy {
+			t.Errorf("%s = %v, want Healthy — a fully synced cluster must not read red anywhere", h.ModelKey, h.Status)
+		}
+	}
+	// Named explicitly so a future change that simply drops these keys from the result
+	// (which the loop above would not notice) still fails.
+	byKey := map[string]RuntimeStatus{}
+	for _, h := range got {
+		byKey[h.ModelKey] = h.Status
+	}
+	for _, k := range []string{"cloud-node-ns-archistrator", "cloud-infra-gateway", "cloud-infra-keycloak"} {
+		if byKey[k] != RuntimeStatusHealthy {
+			t.Errorf("%s = %v, want Healthy", k, byKey[k])
+		}
+	}
+}
+
+// TestGetDeploymentResourceHealth_ApplicationTakesItsOwnRollup: an Argo Application never
+// lists ITSELF among status.resources[], so joining it there hit the fail-closed no-match
+// rule and painted the app's namespace node permanently red. Its model key must instead
+// carry the Application's own app-level health — Healthy here, on a fixture whose
+// individual resources are a mixture (the point being that the namespace node follows the
+// ROLLUP, which is what the Application reports).
+func TestGetDeploymentResourceHealth_ApplicationTakesItsOwnRollup(t *testing.T) {
+	got, err := parseModelKeyHealth(loadArgoFixture(t, "application-healthy.json"), testDesiredState())
+	if err != nil {
+		t.Fatalf("parseModelKeyHealth: %v", err)
+	}
+	byKey := map[string]RuntimeStatus{}
+	for _, h := range got {
+		byKey[h.ModelKey] = h.Status
+	}
+	if _, ok := byKey["cloud-node-ns-archistrator"]; !ok {
+		t.Fatal("the Application's model key must still be reported, never dropped")
+	}
+	if byKey["cloud-node-ns-archistrator"] != RuntimeStatusHealthy {
+		t.Errorf("cloud-node-ns-archistrator = %v, want Healthy (the Application's own status.health.status)", byKey["cloud-node-ns-archistrator"])
+	}
+	// The reverse direction: a Degraded rollup must reach the same node.
+	degraded, err := parseModelKeyHealth(loadArgoFixture(t, "application-mixed.json"), testDesiredState())
+	if err != nil {
+		t.Fatalf("parseModelKeyHealth: %v", err)
+	}
+	for _, h := range degraded {
+		if h.ModelKey == "cloud-node-ns-archistrator" && h.Status != RuntimeStatusDegraded {
+			t.Errorf("cloud-node-ns-archistrator = %v, want Degraded (the Application's own rollup)", h.Status)
+		}
+	}
+}
+
+// TestMapArgoResourceHealth_AbsentHealthIsNotRed pins the distinction the per-resource
+// fold turns on: ABSENT from the resource set is fail-closed Degraded (covered by
+// TestGetDeploymentResourceHealth_RenderedButAbsentFromClusterIsDegraded above), while
+// PRESENT WITH NO HEALTH FIELD means Argo has no checker for the kind — the object
+// synced, and reporting it red is wrong. Everything else folds exactly as the app-level
+// mapping does, including the D10 Progressing asymmetry.
+func TestMapArgoResourceHealth_AbsentHealthIsNotRed(t *testing.T) {
+	if got := mapArgoResourceHealth(""); got != RuntimeStatusHealthy {
+		t.Errorf(`mapArgoResourceHealth("") = %v, want Healthy (present in the resource set, no health check for the kind)`, got)
+	}
+	for _, c := range []struct {
+		in   string
+		want RuntimeStatus
+	}{
+		{"Healthy", RuntimeStatusHealthy},
+		{"Progressing", RuntimeStatusDegraded},
+		{"Degraded", RuntimeStatusDegraded},
+		{"Missing", RuntimeStatusDegraded},
+	} {
+		if got := mapArgoResourceHealth(c.in); got != c.want {
+			t.Errorf("mapArgoResourceHealth(%q) = %v, want %v", c.in, got, c.want)
 		}
 	}
 }
@@ -1902,3 +2000,155 @@ func TestWithdraw_FailsClosedOnMultiDocumentApplicationFile(t *testing.T) {
 		t.Error("a failed determination must not still push a commit")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// The FOURTH path to self-destruction (2026-08-08 final review, fix 5): a publish
+// that rewrites a self-managed Application in tenant shape disarms prune:false, the
+// omitted finalizer AND the Withdraw refusal in one commit, because all three derive
+// from the same single boolean.
+// ---------------------------------------------------------------------------
+
+// TestPublishDesiredState_RefusesSelfManagedDowngrade: the committed Application is
+// self-managed and the incoming desired state is not. Nothing may be written — not the
+// Application, not the app directory — and the previously committed self-managed shape
+// must survive byte-for-byte.
+func TestPublishDesiredState_RefusesSelfManagedDowngrade(t *testing.T) {
+	repo := newScratchRepo(t)
+	rt := realOperatedRuntime{config: RuntimeConfig{GitOpsRepoURL: "file://" + repo}}
+	appID := uuid.New()
+
+	// testDesiredState() IS the self-managed fixture.
+	if err := rt.PublishDesiredState(testCtx(t), appID, testDesiredState(), "idem-1"); err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+	before := headCommit(t, repo)
+	appFile := filepath.Join(inspectClone(t, repo), "k8s", "argocd", "applications", "archistrator.yaml")
+	original, err := os.ReadFile(appFile)
+	if err != nil {
+		t.Fatalf("read %s: %v", appFile, err)
+	}
+
+	tenant := testDesiredState()
+	tenant.SelfManaged = false // the whole attack: one flipped boolean.
+	perr := rt.PublishDesiredState(testCtx(t), appID, tenant, "idem-2")
+
+	var e *fwra.Error
+	if !errors.As(perr, &e) || e.Kind != fwra.ContractMisuse {
+		t.Fatalf("self-managed -> tenant downgrade: want ContractMisuse (refuse), got %v", perr)
+	}
+	if e.Retryable {
+		t.Fatal("the downgrade refusal must be terminal, not retryable")
+	}
+	if headCommit(t, repo) != before {
+		t.Fatal("a refused downgrade must not create a commit")
+	}
+	after, rerr := os.ReadFile(filepath.Join(inspectClone(t, repo), "k8s", "argocd", "applications", "archistrator.yaml"))
+	if rerr != nil {
+		t.Fatalf("re-read %s: %v", appFile, rerr)
+	}
+	if string(after) != string(original) {
+		t.Error("the committed self-managed Application was modified by a refused publish")
+	}
+	if selfManaged, ok := gitOpsSelfManaged(string(after)); !ok || !selfManaged {
+		t.Errorf("the committed Application is no longer self-managed (selfManaged=%v ok=%v)", selfManaged, ok)
+	}
+}
+
+// TestPublishDesiredState_SelfManagedRepublishIsNotADowngrade: the guard must not brick
+// archistrator's own redeploys. A self-managed publish over a self-managed Application is
+// the normal case and must go through.
+func TestPublishDesiredState_SelfManagedRepublishIsNotADowngrade(t *testing.T) {
+	repo := newScratchRepo(t)
+	rt := realOperatedRuntime{config: RuntimeConfig{GitOpsRepoURL: "file://" + repo}}
+	appID := uuid.New()
+
+	if err := rt.PublishDesiredState(testCtx(t), appID, testDesiredState(), "idem-1"); err != nil {
+		t.Fatalf("first publish: %v", err)
+	}
+	changed := testDesiredState()
+	changed.Server.Image = "ghcr.io/example/archistrator-server:0.9.0"
+	if err := rt.PublishDesiredState(testCtx(t), appID, changed, "idem-2"); err != nil {
+		t.Fatalf("self-managed republish must be allowed: %v", err)
+	}
+}
+
+// TestPublishDesiredState_RefusesWhenExistingShapeIsUndeterminable: a hand-edited
+// Application whose syncPolicy is not one this renderer could have produced cannot be
+// confirmed NOT self-managed, so a tenant-shaped publish over it is refused rather than
+// guessed — the same fail-closed direction Withdraw already takes.
+func TestPublishDesiredState_RefusesWhenExistingShapeIsUndeterminable(t *testing.T) {
+	repo := newScratchRepo(t)
+	mystery := "apiVersion: argoproj.io/v1alpha1\n" +
+		"kind: Application\n" +
+		"metadata:\n" +
+		"  name: archistrator\n" +
+		"  namespace: argocd\n" +
+		"spec:\n" +
+		"  project: default\n"
+	seedBareRepo(t, repo, "k8s/argocd/applications/archistrator.yaml", mystery)
+
+	rt := realOperatedRuntime{config: RuntimeConfig{GitOpsRepoURL: "file://" + repo}}
+	before := headCommit(t, repo)
+
+	tenant := testDesiredState()
+	tenant.SelfManaged = false
+	err := rt.PublishDesiredState(testCtx(t), uuid.New(), tenant, "idem-1")
+
+	var e *fwra.Error
+	if !errors.As(err, &e) || e.Kind != fwra.ContractMisuse {
+		t.Fatalf("publish over an undeterminable Application: want ContractMisuse, got %v", err)
+	}
+	if headCommit(t, repo) != before {
+		t.Error("a refused publish must not create a commit")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// AppName is a path segment (2026-08-08 final review, fix 4). It originates in a
+// user-supplied repository name and reaches os.RemoveAll.
+// ---------------------------------------------------------------------------
+
+func TestPublishDesiredState_RejectsAnUnsafeAppName(t *testing.T) {
+	for _, name := range []string{
+		"../../etc",
+		"/absolute",
+		"..",
+		".",
+		"has/slash",
+		"Upper",
+		"-leading-hyphen",
+		"trailing-hyphen-",
+		"has space",
+	} {
+		t.Run(name, func(t *testing.T) {
+			repo := newScratchRepo(t)
+			rt := realOperatedRuntime{config: RuntimeConfig{GitOpsRepoURL: "file://" + repo}}
+
+			d := testDesiredState()
+			d.AppName = name
+			err := rt.PublishDesiredState(testCtx(t), uuid.New(), d, "idem-1")
+
+			var e *fwra.Error
+			if !errors.As(err, &e) || e.Kind != fwra.ContractMisuse {
+				t.Fatalf("AppName %q: want ContractMisuse, got %v", name, err)
+			}
+			// The check runs before the repository is even cloned, so the scratch
+			// remote is still empty — nothing was written anywhere.
+			if _, cerr := runGit(repo, "rev-parse", "--verify", "HEAD"); cerr == nil {
+				t.Errorf("AppName %q: a rejected publish must not create a commit", name)
+			}
+		})
+	}
+}
+
+func TestValidAppName_AcceptsRealAppNames(t *testing.T) {
+	for _, name := range []string{"archistrator", "gtdapp", "a", "a-b-c", "app123"} {
+		if !validAppName(name) {
+			t.Errorf("validAppName(%q) = false, want true", name)
+		}
+	}
+	if validAppName(strings.Repeat("a", 64)) {
+		t.Error("a 64-character app name must be rejected (DNS-1123 labels stop at 63)")
+	}
+}
+
