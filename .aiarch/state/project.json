@@ -21139,12 +21139,166 @@
               "items": {
                 "$ref": "#/$defs/DeploymentEnvironment"
               }
+            },
+            "infrastructure": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/DeploymentInfraNode"
+              }
+            },
+            "bindings": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/DeploymentComponentBinding"
+              }
+            },
+            "settings": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/DeploymentSettingSpec"
+              }
             }
           },
           "required": [
             "deliveryStyle",
             "containers",
             "environments"
+          ],
+          "additionalProperties": false
+        },
+        "DeploymentInfraNode": {
+          "type": "object",
+          "properties": {
+            "key": {
+              "type": "string"
+            },
+            "substrate": {
+              "type": "string"
+            },
+            "profiles": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "string"
+              }
+            },
+            "presence": {
+              "type": "string"
+            },
+            "env": {
+              "type": [
+                "null",
+                "object"
+              ],
+              "additionalProperties": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "key",
+            "substrate"
+          ],
+          "additionalProperties": false
+        },
+        "DeploymentSettingSpec": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string"
+            },
+            "default": {
+              "type": "string"
+            },
+            "env": {
+              "type": "string"
+            },
+            "description": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "type",
+            "env"
+          ],
+          "additionalProperties": false
+        },
+        "DeploymentBindingProfile": {
+          "type": "object",
+          "properties": {
+            "variant": {
+              "type": "string"
+            },
+            "infra": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "variant"
+          ],
+          "additionalProperties": false
+        },
+        "DeploymentComponentBinding": {
+          "type": "object",
+          "properties": {
+            "component": {
+              "type": "string"
+            },
+            "presence": {
+              "type": "string"
+            },
+            "provides": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "string"
+              }
+            },
+            "settings": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/DeploymentSettingSpec"
+              }
+            },
+            "perProfile": {
+              "type": [
+                "null",
+                "object"
+              ],
+              "additionalProperties": {
+                "$ref": "#/$defs/DeploymentBindingProfile"
+              }
+            }
+          },
+          "required": [
+            "component",
+            "presence"
           ],
           "additionalProperties": false
         },

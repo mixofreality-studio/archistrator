@@ -692,6 +692,47 @@ components:
                 - components
                 - surface
             type: object
+        ModelDeploymentBindingProfile:
+            additionalProperties: false
+            properties:
+                infra:
+                    items:
+                        type: string
+                    type:
+                        - "null"
+                        - array
+                variant:
+                    type: string
+            required:
+                - variant
+            type: object
+        ModelDeploymentComponentBinding:
+            additionalProperties: false
+            properties:
+                component:
+                    type: string
+                perProfile:
+                    additionalProperties:
+                        $ref: '#/components/schemas/ModelDeploymentBindingProfile'
+                    type: object
+                presence:
+                    type: string
+                provides:
+                    items:
+                        type: string
+                    type:
+                        - "null"
+                        - array
+                settings:
+                    items:
+                        $ref: '#/components/schemas/ModelDeploymentSettingSpec'
+                    type:
+                        - "null"
+                        - array
+            required:
+                - component
+                - presence
+            type: object
         ModelDeploymentEnvironment:
             additionalProperties: false
             properties:
@@ -743,6 +784,31 @@ components:
                         - array
             required:
                 - derivedRelationships
+            type: object
+        ModelDeploymentInfraNode:
+            additionalProperties: false
+            properties:
+                env:
+                    additionalProperties:
+                        type: string
+                    type: object
+                key:
+                    type: string
+                presence:
+                    type:
+                        - "null"
+                        - string
+                profiles:
+                    items:
+                        type: string
+                    type:
+                        - "null"
+                        - array
+                substrate:
+                    type: string
+            required:
+                - key
+                - substrate
             type: object
         ModelDeploymentNode:
             additionalProperties: false
@@ -872,9 +938,37 @@ components:
                 - technology
                 - mode
             type: object
+        ModelDeploymentSettingSpec:
+            additionalProperties: false
+            properties:
+                default:
+                    type:
+                        - "null"
+                        - string
+                description:
+                    type:
+                        - "null"
+                        - string
+                env:
+                    type: string
+                name:
+                    type: string
+                type:
+                    type: string
+            required:
+                - name
+                - type
+                - env
+            type: object
         ModelDeploymentTopology:
             additionalProperties: false
             properties:
+                bindings:
+                    items:
+                        $ref: '#/components/schemas/ModelDeploymentComponentBinding'
+                    type:
+                        - "null"
+                        - array
                 containers:
                     items:
                         $ref: '#/components/schemas/ModelDeployContainer'
@@ -890,6 +984,18 @@ components:
                 environments:
                     items:
                         $ref: '#/components/schemas/ModelDeploymentEnvironment'
+                    type:
+                        - "null"
+                        - array
+                infrastructure:
+                    items:
+                        $ref: '#/components/schemas/ModelDeploymentInfraNode'
+                    type:
+                        - "null"
+                        - array
+                settings:
+                    items:
+                        $ref: '#/components/schemas/ModelDeploymentSettingSpec'
                     type:
                         - "null"
                         - array
