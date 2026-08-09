@@ -7567,3 +7567,46 @@ func TestArtifactSlot_UnmarshalJSON_RejectsNonEnvelopeModel(t *testing.T) {
 		t.Errorf("error should name the missing envelope discriminator, got: %v", err)
 	}
 }
+
+func TestActivityItem_ComponentIDRoundTrips(t *testing.T) {
+	in := ActivityList{Activities: []ActivityItem{
+		{Name: "C-TLM", Title: "TodoListManager", Coding: true, ComponentID: "todo-list-manager"},
+		{Name: "N-STP", Title: "System Test Plan", Coding: false},
+	}}
+	b, err := json.Marshal(in)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	// omitempty: the noncoding entry must not carry a misleading empty string.
+	if strings.Contains(string(b), `"componentId":""`) {
+		t.Fatalf("empty componentId must be omitted, got %s", b)
+	}
+	if !strings.Contains(string(b), `"componentId":"todo-list-manager"`) {
+		t.Fatalf("authored componentId missing from wire form, got %s", b)
+	}
+	var out ActivityList
+	if err := json.Unmarshal(b, &out); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if out.Activities[0].ComponentID != "todo-list-manager" {
+		t.Fatalf("want todo-list-manager, got %q", out.Activities[0].ComponentID)
+	}
+	if out.Activities[1].ComponentID != "" {
+		t.Fatalf("want empty, got %q", out.Activities[1].ComponentID)
+	}
+}
+
+func TestLayerString(t *testing.T) {
+	for layer, want := range map[Layer]string{
+		LayerClient:         "client",
+		LayerManager:        "manager",
+		LayerEngine:         "engine",
+		LayerResourceAccess: "resourceAccess",
+		LayerResource:       "resource",
+		LayerUtility:        "utility",
+	} {
+		if got := layer.String(); got != want {
+			t.Fatalf("Layer(%d).String() = %q, want %q", layer, got, want)
+		}
+	}
+}

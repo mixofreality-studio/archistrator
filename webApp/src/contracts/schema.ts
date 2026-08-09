@@ -856,6 +856,7 @@ export interface components {
     };
     ModelActivityItem: {
       coding: boolean;
+      componentId?: string;
       effortDays: number;
       name: string;
       riskBucket: number;

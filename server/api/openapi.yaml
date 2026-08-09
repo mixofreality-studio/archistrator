@@ -441,6 +441,8 @@ components:
             properties:
                 coding:
                     type: boolean
+                componentId:
+                    type: string
                 effortDays:
                     type: number
                 name:

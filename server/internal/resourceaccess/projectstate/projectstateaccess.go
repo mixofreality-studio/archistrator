@@ -3861,6 +3861,14 @@ type ActivityItem struct {
 	// additive, omitempty for back-compat with documents that pre-date it. Name stays
 	// the network id (the load-bearing dependency/head-state key); Title is display-only.
 	Title string `json:"title,omitempty"`
+	// ComponentID names the committed System component (systemDesign Components[].id)
+	// this activity builds. AUTHORED at Phase-2 draft time — never derived by matching.
+	// Its PRESENCE declares the activity STRUCTURAL (Löwy ch.13 Table 13-1, one per
+	// architecture component); its absence declares it nonstructural (Table 13-2:
+	// harnesses, base services) or noncoding. When present it must resolve to a
+	// committed component. A noncoding provisioning activity (R-*) may name the
+	// Resource component it provisions.
+	ComponentID string `json:"componentId,omitempty"`
 }
 
 // ActivityList holds the Phase-2 activity list artifact — the coding + noncoding
@@ -6213,6 +6221,12 @@ var layerNames = map[Layer]string{
 	LayerUtility:        "utility",
 }
 var layerByName = invert(layerNames)
+
+// String returns the canonical lowercase layer name — the same spelling layerNames
+// carries on the wire. Defined so callers OUTSIDE this package (the construction
+// Manager hydrating an activity's layer from its component) can name a Layer
+// without reaching for the unexported map.
+func (l Layer) String() string { return enumName(layerNames, l) }
 
 // MarshalJSON encodes the Layer as its camelCase wire name.
 func (l Layer) MarshalJSON() ([]byte, error) { return marshalEnum(l, layerNames, "Layer") }
