@@ -21,6 +21,7 @@ import type {
   ConstructionStage,
   ConstructionRow,
   NetworkModel,
+  NetworkMilestone,
 } from './types';
 import type { FailureReason } from './enums.gen';
 
@@ -167,8 +168,16 @@ export function buildStatusForConstructionRow(row: ConstructionRow): BuildStatus
  *      integrated set (not just the git-merged subset).
  *
  * The map contains every activity id that appears in the network's dependency
- * rows (as `activity` or inside any `dependsOn` array). IDs absent from the
- * network are not included — callers should fall back to `'not-started'`.
+ * rows (as `activity` or inside any `dependsOn` array), EXCLUDING milestone ids
+ * (network.milestones[]) — a milestone is a zero-duration event node, not a
+ * constructable activity, so it never gets a BuildStatus entry of its own. IDs
+ * absent from the network are not included — callers should fall back to
+ * `'not-started'`.
+ *
+ * A dependsOn entry naming a milestone id is resolved through
+ * `isDependencySatisfied` below rather than the activity `done` set directly —
+ * see that function for the recursive-satisfaction rule, which mirrors the
+ * server's resolveDependencySatisfied.
  *
  * When `constructionRowFor` is undefined (no construction data at all), behaviour
  * is identical to the pre-constructionRows derivation (git-merged → integrated,
@@ -183,17 +192,26 @@ export function computeActivityStatuses(
 ): Map<string, BuildStatus> {
   const deps = network.dependencies ?? [];
 
-  // Collect the full activity universe from the dependency rows.
+  const milestoneById = new Map<string, NetworkMilestone>();
+  for (const m of network.milestones ?? []) milestoneById.set(m.id, m);
+
+  // Collect the full activity universe from the dependency rows, excluding
+  // milestone ids — those are event nodes, not constructable activities, and are
+  // resolved via isDependencySatisfied instead of appearing in the status map.
   const allIds = new Set<string>();
   for (const d of deps) {
-    allIds.add(d.activity);
-    for (const p of d.dependsOn ?? []) allIds.add(p);
+    if (!milestoneById.has(d.activity)) allIds.add(d.activity);
+    for (const p of d.dependsOn ?? []) {
+      if (!milestoneById.has(p)) allIds.add(p);
+    }
   }
 
-  // Build predecessor index (id → predecessor ids[]).
+  // Build predecessor index (id → predecessor ids[]) over real activities only;
+  // a predecessor entry may still name a milestone id, resolved below.
   const predecessors = new Map<string, string[]>();
   for (const id of allIds) predecessors.set(id, []);
   for (const d of deps) {
+    if (milestoneById.has(d.activity)) continue;
     for (const p of d.dependsOn ?? []) {
       predecessors.get(d.activity)?.push(p);
     }
@@ -228,13 +246,56 @@ export function computeActivityStatuses(
       if (constructionRow !== undefined) {
         result.set(id, buildStatusForConstructionRow(constructionRow));
       } else {
-        // Network-derived fallback: eligible if all predecessors are done, else blocked.
+        // Network-derived fallback: eligible if all predecessors are satisfied, else
+        // blocked. A predecessor naming a milestone resolves recursively through
+        // isDependencySatisfied rather than a plain `done` lookup.
         const preds = predecessors.get(id) ?? [];
-        const allPredsDone = preds.every((p) => done.has(p));
+        const allPredsDone = preds.every((p) =>
+          isDependencySatisfied(p, milestoneById, done, new Set())
+        );
         result.set(id, allPredsDone ? 'eligible' : 'blocked');
       }
     }
   }
 
   return result;
+}
+
+/**
+ * Recursively resolves whether one dependency id is satisfied — the SPA mirror of
+ * the server's resolveDependencySatisfied (constructionmanager.go:982-1016).
+ *
+ *   - An activity id is satisfied iff it's a member of the integrated `done` set.
+ *   - A milestone id (present in `milestoneById`) is satisfied iff EVERY id in its
+ *     own `dependsOn` is, recursively, satisfied. A milestone with no `dependsOn`
+ *     (the project-start gate) is satisfied.
+ *   - A dangling id (neither a known activity nor an authored milestone) and a
+ *     milestone dependency cycle both resolve to "not satisfied" — the dependent
+ *     activity simply stays blocked. Unlike the server, the SPA render doesn't
+ *     need to distinguish DependencyUnresolved from DependencyCycle as separate
+ *     failure kinds; both are authored-network defects surfaced elsewhere (the
+ *     construction pump's own terminal-failure reporting), not something the
+ *     tracker view computes.
+ *
+ * `visiting` is the set of milestone ids on THIS call's recursion stack — passing
+ * a fresh Set() per top-level caller and threading it through recursive calls
+ * guarantees termination on an authored cycle instead of recursing forever.
+ */
+function isDependencySatisfied(
+  depID: string,
+  milestoneById: Map<string, NetworkMilestone>,
+  done: Set<string>,
+  visiting: Set<string>
+): boolean {
+  const milestone = milestoneById.get(depID);
+  if (milestone !== undefined) {
+    if (visiting.has(depID)) return false;
+    visiting.add(depID);
+    const satisfied = (milestone.dependsOn ?? []).every((sub) =>
+      isDependencySatisfied(sub, milestoneById, done, visiting)
+    );
+    visiting.delete(depID);
+    return satisfied;
+  }
+  return done.has(depID);
 }

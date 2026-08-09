@@ -394,12 +394,20 @@ export function toNetworkView(
   const serverComputed = net.computed ?? {};
 
   // The activity universe = everything named in dependencies (activities + their
-  // predecessors), so a node with no declared deps row still appears.
+  // predecessors), so a node with no declared deps row still appears. Milestone
+  // ids are excluded — a milestone id can appear inside an activity's dependsOn,
+  // but milestones already get their own node below (milestoneNodes); without
+  // this exclusion a milestone id materializes TWICE: once here as a phantom
+  // zero-day "activity" node (no join hit in activityByName, so days/workerClass
+  // default to empty) and once as the real milestone node.
+  const milestoneIds = new Set((net.milestones ?? []).map((m) => m.id));
   const ids = new Set<string>();
   const netDependencies = net.dependencies ?? [];
   for (const d of netDependencies) {
-    ids.add(d.activity);
-    for (const p of d.dependsOn ?? []) ids.add(p);
+    if (!milestoneIds.has(d.activity)) ids.add(d.activity);
+    for (const p of d.dependsOn ?? []) {
+      if (!milestoneIds.has(p)) ids.add(p);
+    }
   }
   if (ids.size === 0 && (net.milestones ?? []).length === 0) return EMPTY_NETWORK_VIEW;
 
