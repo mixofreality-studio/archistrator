@@ -1,6 +1,6 @@
 {
   "id": "archistrator",
-  "version": 581,
+  "version": 582,
   "phase": 2,
   "owner": "dev-architect",
   "name": "Archistrator",
@@ -10660,6 +10660,34 @@
     "G-SPA": {
       "activityID": "G-SPA",
       "phase": 1,
+      "phases": [
+        {
+          "phase": "requirements",
+          "weight": 15,
+          "label": "Requirements"
+        },
+        {
+          "phase": "detailed_design",
+          "weight": 20,
+          "label": "Detailed Design"
+        },
+        {
+          "phase": "test_plan",
+          "weight": 10,
+          "label": "Test Plan"
+        },
+        {
+          "phase": "construction",
+          "weight": 40,
+          "label": "Construction"
+        },
+        {
+          "phase": "integration",
+          "weight": 15,
+          "label": "Integration"
+        }
+      ],
+      "currentPhase": "requirements",
       "startedAt": "2026-08-09T04:11:07.410697Z"
     },
     "I-UC1": {
@@ -27450,5 +27478,5 @@
     }
   },
   "reviewPolicy": {},
-  "updatedAt": "2026-08-09T04:11:09.691545Z"
+  "updatedAt": "2026-08-09T04:11:15.705148Z"
 }
