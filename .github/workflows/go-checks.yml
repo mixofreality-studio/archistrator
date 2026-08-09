@@ -25,21 +25,38 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-latest
-    # This TEMPLATE assumes a built-app repo layout with go.mod at the repo
-    # root. archistrator's own repo (where this got seated by the
-    # method-assets scaffold sync) keeps its Go module under server/ instead
-    # — server-checks.yml is the real gate here — so every step below would
-    # fail vacuously ("go.mod not found") on a repo this template was never
-    # meant to govern. Guard the whole job on a root go.mod's presence rather
-    # than editing/deleting the template content, so built-app repos (which
-    # do have a root go.mod) are unaffected.
-    if: ${{ hashFiles('go.mod') != '' }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
 
+      # This TEMPLATE assumes a built-app repo layout with go.mod at the repo
+      # root. archistrator's own repo (where this got seated by the
+      # method-assets scaffold sync) keeps its Go module under server/ instead
+      # — server-checks.yml is the real gate here — so every step below would
+      # fail vacuously ("go.mod not found") on a repo this template was never
+      # meant to govern.
+      #
+      # A JOB-LEVEL `if: hashFiles('go.mod') != ''` was tried first and broke
+      # the workflow outright (GitHub rejected the whole file as invalid — 0
+      # jobs scheduled, not even a skip). Guarding via a step output instead:
+      # this step runs after checkout (so the file, if any, is actually on
+      # disk) and every step below is individually conditioned on its output,
+      # so a repo without a root go.mod cleanly SKIPS the rest of the job
+      # instead of failing it, while built-app repos (which do have a root
+      # go.mod, by the template's own contract) are unaffected.
+      - name: Detect built-app go.mod
+        id: gomod
+        run: |
+          if [ -f go.mod ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::go-checks.yml is the method-assets built-app template; this repo has no root go.mod (its Go module lives under server/, gated by server-checks.yml instead) — skipping the rest of this job."
+          fi
+
       - name: Set up Go
+        if: steps.gomod.outputs.present == 'true'
         uses: actions/setup-go@v6
         with:
           go-version: '1.26.0'
@@ -51,26 +68,33 @@ jobs:
       # untidy module mid-construction). This mutates only the CI workspace —
       # it is not a drift gate on the committed go.mod/go.sum.
       - name: Tidy module graph
+        if: steps.gomod.outputs.present == 'true'
         run: go mod tidy
 
       - name: Check formatting
+        if: steps.gomod.outputs.present == 'true'
         run: test -z "$(gofmt -l .)" || { gofmt -l .; echo "Run 'gofmt -w .'"; exit 1; }
 
       - name: Go vet
+        if: steps.gomod.outputs.present == 'true'
         run: go vet ./...
 
       - name: Build
+        if: steps.gomod.outputs.present == 'true'
         run: go build ./...
 
       # Analyzer-based `go fix` (Go 1.26): fails with a unified diff when any
       # modernizer rewrite is pending. Run `go fix ./...` locally to apply.
       - name: Go fix check
+        if: steps.gomod.outputs.present == 'true'
         run: go fix -diff ./...
 
       - name: Lint
+        if: steps.gomod.outputs.present == 'true'
         uses: golangci/golangci-lint-action@v9
         with:
           version: v2.12
 
       - name: Test
+        if: steps.gomod.outputs.present == 'true'
         run: go test ./...

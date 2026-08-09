@@ -175,6 +175,21 @@ jobs:
           # Use the server go.sum for caching (systemtests is stdlib-only, no sum)
           cache-dependency-path: server/go.sum
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # The wire tests below boot the real Go server (harness-driven), which
+      # runs resolveWorkerProvider's boot-time `claude --version` preflight on
+      # the local profile with no ANTHROPIC_API_KEY (server/cmd/server/hooks.go,
+      # backed by framework-go-infrastructure-llm's PreflightClaudeCLI) — the
+      # same preflight server-checks.yml and uitests.yml install this CLI for.
+      # Only the binary needs to be on PATH; no login/API key required — the
+      # tests use ARCHISTRATOR_SYSTEMTESTS_DRAFTING=replay, not claude-local.
+      - name: Install Claude Code CLI
+        run: npm install -g @anthropic-ai/claude-code
+
       - name: Check formatting (systemtests)
         working-directory: systemtests
         run: test -z "$(gofmt -l .)" || { gofmt -l .; echo "Run 'gofmt -w .'"; exit 1; }
