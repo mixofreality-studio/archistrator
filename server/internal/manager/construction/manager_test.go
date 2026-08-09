@@ -1056,6 +1056,20 @@ func makeCommittedNetwork(deps []projectstate.NetworkDependency) projectstate.Ar
 	}
 }
 
+// makeCommittedNetworkWithMilestones builds a committed Network ArtifactSlot carrying
+// both the authored activity dependencies AND the authored milestones — the
+// combination the live benchmark drain (N-PERF/N-IT/N-UAT/N-HARD/N-DEPLOY/N-DOC all
+// gating on M3/M4) needs to reproduce.
+func makeCommittedNetworkWithMilestones(deps []projectstate.NetworkDependency, milestones []projectstate.NetworkMilestone) projectstate.ArtifactSlot {
+	return projectstate.ArtifactSlot{
+		Status: projectstate.ReviewCommitted,
+		Model: &projectstate.Network{
+			Dependencies: deps,
+			Milestones:   milestones,
+		},
+	}
+}
+
 // makeCommittedActivityList builds a minimal committed ArtifactSlot holding a *projectstate.ActivityList.
 func makeCommittedActivityList(items []projectstate.ActivityItem) projectstate.ArtifactSlot {
 	return projectstate.ArtifactSlot{
@@ -1167,10 +1181,27 @@ func TestNextEligibleActivity_UnknownComponentIsBlocked(t *testing.T) {
 }
 
 func TestNextEligibleActivity_NothingEligibleIsQuiescent(t *testing.T) {
+	// A is authored into the ActivityList (a real, in-flight predecessor of B) so
+	// this fixture stays realistic under the milestone-aware resolver: an id that
+	// resolves to neither an activity nor a milestone is now a reported plan defect
+	// (verdictBlocked), not silently "just not done yet". A is Running (not
+	// NotStarted, so it is not itself a candidate this tick, and not Done, so it
+	// does not satisfy B) — the fixture now represents "the only candidate's
+	// dependency genuinely isn't satisfied yet" instead of leaning on an
+	// unauthored id.
 	proj := projWithActivities(
-		[]projectstate.ActivityItem{{Name: "B", Title: "B", Coding: false}},
-		[]projectstate.NetworkDependency{{Activity: "B", DependsOn: []string{"A"}}},
+		[]projectstate.ActivityItem{
+			{Name: "A", Title: "A", Coding: false},
+			{Name: "B", Title: "B", Coding: false},
+		},
+		[]projectstate.NetworkDependency{
+			{Activity: "A", DependsOn: []string{}},
+			{Activity: "B", DependsOn: []string{"A"}},
+		},
 	)
+	proj.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
+		"A": {ActivityID: "A", Phase: projectstate.ActivityConstructionRunning},
+	}
 	sel := nextEligibleActivity(proj)
 	if sel.Verdict != verdictQuiescent {
 		t.Fatalf("want verdictQuiescent, got %v", sel.Verdict)
@@ -1256,6 +1287,228 @@ func TestNextEligibleActivity_Chain(t *testing.T) {
 	}
 	if sel.Activity.EstimateDays != 8 {
 		t.Fatalf("case 4: expected EstimateDays=8, got %f", sel.Activity.EstimateDays)
+	}
+}
+
+// TestNextEligibleActivity_MilestoneDependencySatisfied reproduces the live benchmark
+// drain: an activity (N-DOC) depends on a MILESTONE (M4), not an activity. M4 is
+// itself authored with its own dependsOn — I-UC-CONSULT and I-UC-AMEND, both Done.
+// The milestone has genuinely been reached; before the fix, allDepsDone looked M4 up
+// in the activity-status map, never found it (milestones never get a head-state
+// record), and treated it as permanently unsatisfied — this is the exact false block
+// that stranded 6 activities in the drain. This test FAILS on the old allDepsDone.
+func TestNextEligibleActivity_MilestoneDependencySatisfied(t *testing.T) {
+	proj := projectstate.Project{
+		Phase: projectstate.PhaseConstruction,
+		Network: makeCommittedNetworkWithMilestones(
+			[]projectstate.NetworkDependency{
+				{Activity: "I-UC-CONSULT", DependsOn: []string{}},
+				{Activity: "I-UC-AMEND", DependsOn: []string{}},
+				{Activity: "N-DOC", DependsOn: []string{"M4"}},
+			},
+			[]projectstate.NetworkMilestone{
+				{ID: "M4", Name: "M4", DependsOn: []string{"I-UC-CONSULT", "I-UC-AMEND"}},
+			},
+		),
+		ActivityList: makeCommittedActivityList([]projectstate.ActivityItem{
+			{Name: "I-UC-CONSULT", Coding: true},
+			{Name: "I-UC-AMEND", Coding: true},
+			{Name: "N-DOC", Coding: false},
+		}),
+		SystemDesign: makeCommittedSystemDesign(nil),
+		ActivityConstruction: map[string]projectstate.ActivityConstructionStatus{
+			"I-UC-CONSULT": {ActivityID: "I-UC-CONSULT", Phase: projectstate.ActivityConstructionDone},
+			"I-UC-AMEND":   {ActivityID: "I-UC-AMEND", Phase: projectstate.ActivityConstructionDone},
+		},
+	}
+
+	sel := nextEligibleActivity(proj)
+	if sel.Verdict != verdictDispatch {
+		t.Fatalf("want verdictDispatch (M4 reached via its own dependsOn), got %v (blocked=%q)", sel.Verdict, sel.BlockedReason)
+	}
+	if sel.Activity.ActivityID != "N-DOC" {
+		t.Fatalf("want N-DOC dispatched, got %q", sel.Activity.ActivityID)
+	}
+}
+
+// TestNextEligibleActivity_MilestoneDependencyNotSatisfied is the mirror case: M4's
+// own dependsOn are NOT all Done (I-UC-AMEND still pending), so the milestone has
+// genuinely not been reached and N-DOC must stay ineligible.
+func TestNextEligibleActivity_MilestoneDependencyNotSatisfied(t *testing.T) {
+	proj := projectstate.Project{
+		Phase: projectstate.PhaseConstruction,
+		Network: makeCommittedNetworkWithMilestones(
+			[]projectstate.NetworkDependency{
+				{Activity: "I-UC-CONSULT", DependsOn: []string{}},
+				{Activity: "I-UC-AMEND", DependsOn: []string{}},
+				{Activity: "N-DOC", DependsOn: []string{"M4"}},
+			},
+			[]projectstate.NetworkMilestone{
+				{ID: "M4", Name: "M4", DependsOn: []string{"I-UC-CONSULT", "I-UC-AMEND"}},
+			},
+		),
+		ActivityList: makeCommittedActivityList([]projectstate.ActivityItem{
+			{Name: "I-UC-CONSULT", Coding: true},
+			{Name: "I-UC-AMEND", Coding: true},
+			{Name: "N-DOC", Coding: false},
+		}),
+		SystemDesign: makeCommittedSystemDesign(nil),
+		ActivityConstruction: map[string]projectstate.ActivityConstructionStatus{
+			"I-UC-CONSULT": {ActivityID: "I-UC-CONSULT", Phase: projectstate.ActivityConstructionDone},
+			"I-UC-AMEND":   {ActivityID: "I-UC-AMEND", Phase: projectstate.ActivityConstructionRunning},
+		},
+	}
+
+	sel := nextEligibleActivity(proj)
+	if sel.Verdict != verdictQuiescent {
+		t.Fatalf("want verdictQuiescent (M4 not yet reached), got %v activity=%q", sel.Verdict, sel.Activity.ActivityID)
+	}
+}
+
+// TestNextEligibleActivity_MilestoneDependsOnMilestone exercises the recursive case:
+// M4 depends on M3 (a milestone, not an activity), and M3 depends on an activity
+// that's Done. N-DOC (dependsOn M4) must resolve all the way through M4 -> M3 -> A.
+func TestNextEligibleActivity_MilestoneDependsOnMilestone(t *testing.T) {
+	proj := projectstate.Project{
+		Phase: projectstate.PhaseConstruction,
+		Network: makeCommittedNetworkWithMilestones(
+			[]projectstate.NetworkDependency{
+				{Activity: "A", DependsOn: []string{}},
+				{Activity: "N-DOC", DependsOn: []string{"M4"}},
+			},
+			[]projectstate.NetworkMilestone{
+				{ID: "M3", Name: "M3", DependsOn: []string{"A"}},
+				{ID: "M4", Name: "M4", DependsOn: []string{"M3"}},
+			},
+		),
+		ActivityList: makeCommittedActivityList([]projectstate.ActivityItem{
+			{Name: "A", Coding: true},
+			{Name: "N-DOC", Coding: false},
+		}),
+		SystemDesign: makeCommittedSystemDesign(nil),
+		ActivityConstruction: map[string]projectstate.ActivityConstructionStatus{
+			"A": {ActivityID: "A", Phase: projectstate.ActivityConstructionDone},
+		},
+	}
+
+	sel := nextEligibleActivity(proj)
+	if sel.Verdict != verdictDispatch {
+		t.Fatalf("want verdictDispatch through M4->M3->A, got %v (blocked=%q)", sel.Verdict, sel.BlockedReason)
+	}
+	if sel.Activity.ActivityID != "N-DOC" {
+		t.Fatalf("want N-DOC dispatched, got %q", sel.Activity.ActivityID)
+	}
+
+	// Unsatisfied at the bottom of the chain (A not Done) must propagate all the way
+	// back up through both milestone hops.
+	proj.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
+		"A": {ActivityID: "A", Phase: projectstate.ActivityConstructionRunning},
+	}
+	sel = nextEligibleActivity(proj)
+	if sel.Verdict != verdictQuiescent {
+		t.Fatalf("want verdictQuiescent (A not done, M3/M4 not reached), got %v", sel.Verdict)
+	}
+}
+
+// TestNextEligibleActivity_MilestoneCycleTerminates proves the cycle guard: an
+// authored network can (however wrongly) declare M-X depends on M-Y depends on M-X.
+// Resolution must terminate — reported as verdictBlocked, not an infinite recursion —
+// and the test itself is bounded so a regression that reintroduces unbounded
+// recursion fails as a hang the test runner's own timeout catches, not silently.
+func TestNextEligibleActivity_MilestoneCycleTerminates(t *testing.T) {
+	done := make(chan pumpSelection, 1)
+	go func() {
+		proj := projectstate.Project{
+			Phase: projectstate.PhaseConstruction,
+			Network: makeCommittedNetworkWithMilestones(
+				[]projectstate.NetworkDependency{
+					{Activity: "N-DOC", DependsOn: []string{"M-X"}},
+				},
+				[]projectstate.NetworkMilestone{
+					{ID: "M-X", Name: "M-X", DependsOn: []string{"M-Y"}},
+					{ID: "M-Y", Name: "M-Y", DependsOn: []string{"M-X"}},
+				},
+			),
+			ActivityList: makeCommittedActivityList([]projectstate.ActivityItem{
+				{Name: "N-DOC", Coding: false},
+			}),
+			SystemDesign: makeCommittedSystemDesign(nil),
+		}
+		done <- nextEligibleActivity(proj)
+	}()
+
+	select {
+	case sel := <-done:
+		if sel.Verdict != verdictBlocked {
+			t.Fatalf("want verdictBlocked on a milestone cycle, got %v", sel.Verdict)
+		}
+		if !strings.Contains(sel.BlockedReason, "cycle") {
+			t.Fatalf("blocked reason must call out the cycle, got %q", sel.BlockedReason)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("nextEligibleActivity did not terminate on a milestone dependency cycle (infinite recursion)")
+	}
+}
+
+// TestNextEligibleActivity_UnknownDependencyIdIsBlocked: an authored dependency id
+// that names neither a known activity nor a known milestone is a genuine plan defect
+// — loud (verdictBlocked), never silently treated as "just not satisfied yet" (which
+// would be indistinguishable from an ordinary quiescent tick).
+func TestNextEligibleActivity_UnknownDependencyIdIsBlocked(t *testing.T) {
+	proj := projectstate.Project{
+		Phase: projectstate.PhaseConstruction,
+		Network: makeCommittedNetworkWithMilestones(
+			[]projectstate.NetworkDependency{
+				{Activity: "N-DOC", DependsOn: []string{"M-GHOST"}},
+			},
+			nil,
+		),
+		ActivityList: makeCommittedActivityList([]projectstate.ActivityItem{
+			{Name: "N-DOC", Coding: false},
+		}),
+		SystemDesign: makeCommittedSystemDesign(nil),
+	}
+
+	sel := nextEligibleActivity(proj)
+	if sel.Verdict != verdictBlocked {
+		t.Fatalf("want verdictBlocked for an unresolvable dependency id, got %v", sel.Verdict)
+	}
+	if sel.BlockedActivityID != "N-DOC" {
+		t.Fatalf("want blocked activity N-DOC, got %q", sel.BlockedActivityID)
+	}
+	if !strings.Contains(sel.BlockedReason, "M-GHOST") {
+		t.Fatalf("blocked reason must name the unresolvable id, got %q", sel.BlockedReason)
+	}
+}
+
+// TestNextEligibleActivity_DependencyDefectDoesNotBlockUnrelatedWork: a dependency
+// defect on ONE not-yet-eligible activity must not halt the pump entirely — an
+// UNRELATED, currently-eligible activity still dispatches this tick. The defect only
+// escalates to verdictBlocked once it is the thing actually stalling progress (see
+// TestNextEligibleActivity_UnknownDependencyIdIsBlocked).
+func TestNextEligibleActivity_DependencyDefectDoesNotBlockUnrelatedWork(t *testing.T) {
+	proj := projectstate.Project{
+		Phase: projectstate.PhaseConstruction,
+		Network: makeCommittedNetworkWithMilestones(
+			[]projectstate.NetworkDependency{
+				{Activity: "A", DependsOn: []string{}},
+				{Activity: "N-DOC", DependsOn: []string{"M-GHOST"}},
+			},
+			nil,
+		),
+		ActivityList: makeCommittedActivityList([]projectstate.ActivityItem{
+			{Name: "A", Coding: true},
+			{Name: "N-DOC", Coding: false},
+		}),
+		SystemDesign: makeCommittedSystemDesign(nil),
+	}
+
+	sel := nextEligibleActivity(proj)
+	if sel.Verdict != verdictDispatch {
+		t.Fatalf("want verdictDispatch for unrelated eligible activity A, got %v (blocked=%q)", sel.Verdict, sel.BlockedReason)
+	}
+	if sel.Activity.ActivityID != "A" {
+		t.Fatalf("want A dispatched despite N-DOC's dependency defect, got %q", sel.Activity.ActivityID)
 	}
 }
 

@@ -91,6 +91,20 @@ func (wf *workflows) PumpNextActivityWorkflow(ctx workflow.Context, in pumpInput
 		// the next scheduled tick considers the rest of the network instead of
 		// re-blocking on this one. An empty credential is correct for the local store;
 		// the git adapter mints just-in-time (same as the supervision pause path).
+		//
+		// verdictBlocked now also covers a SIBLING plan defect surfaced by
+		// nextEligibleActivity: an authored dependency id (network.dependencies[].dependsOn)
+		// that names neither a known activity nor a known milestone, or a milestone
+		// dependency cycle — see resolveDependencySatisfied in constructionmanager.go.
+		// Both defect classes are recorded through the SAME ComponentUnresolved
+		// FailureReason bucket deliberately: it is the only existing "authored id does
+		// not resolve, terminal until a human amends the plan" ordinal, and minting a
+		// dedicated one requires authoring it in .aiarch/state/project.json (the
+		// enum's source of truth per c59c7b3) plus a cross-repo regen — out of reach
+		// here. sel.BlockedReason (the `detail` field below) always states the TRUE
+		// cause in full, so the operator is never actually misled — only the closed
+		// wire `reason` enum is coarser than ideal. Earmark: a dedicated
+		// DependencyUnresolved ordinal once schema authoring is unblocked.
 		logger.Error("construction pump: activity cannot be dispatched",
 			"projectId", string(in.ProjectID),
 			"activityId", sel.BlockedActivityID,
