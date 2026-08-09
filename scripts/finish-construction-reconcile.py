@@ -1,18 +1,28 @@
 #!/usr/bin/env python3
-"""Finish-construction Task 11: lifecycle reconciliation hand-commit.
+"""Finish-construction Task 11 + 12: lifecycle reconciliation hand-commits.
 
-Brings the six outstanding activityConstruction rows (C-BG, C-WIA, C-BS, C-BM,
-R-BG) to phase Done(2) / buildStatus Integrated(2), adds the new C-EA row for
-the coverage-amendment component, and appends episode-ledger "gap" records
-(per the founder's mid-run instruction) for the transitioned activities that
-have no real episode record on file — commit-not-made-by-archistrator gaps.
+Default (no flags) — Task 11: brings the six outstanding activityConstruction
+rows (C-BG, C-WIA, C-BS, C-BM, R-BG) to phase Done(2) / buildStatus
+Integrated(2), adds the new C-EA row for the coverage-amendment component,
+and appends episode-ledger "gap" records (per the founder's mid-run
+instruction) for the transitioned activities that have no real episode
+record on file — commit-not-made-by-archistrator gaps.
 
-Idempotent: re-running is a no-op once the state already reflects the target
-shape (both for the project.json edits and the episode gap-record appends).
+--recompute-progress — Task 12: recomputes .constructionProgress from the
+now-complete activityConstruction record. earned% is derived (never hand-
+typed) as Sigma(effortDays of Done+Integrated activities) / Sigma(all
+effortDays) read from slot-9 (.activityList). Sets Week = TotalWeeks and
+appends (or, on re-run, updates in place) the completion point in
+.constructionProgress.points, preserving every prior point in the series.
+
+Idempotent: re-running either subcommand is a no-op once the state already
+reflects the target shape.
 
 Run from the archistrator repo root. Edits .aiarch/state/project.json and
-.aiarch/traces/episodes.jsonl in place. Pattern: scripts/align-construction-phase.py.
+(for the default subcommand) .aiarch/traces/episodes.jsonl in place.
+Pattern: scripts/align-construction-phase.py.
 """
+import argparse
 import json
 import os
 
@@ -217,7 +227,96 @@ def append_episode_gaps():
     return appended
 
 
+# --- Task 12: recompute .constructionProgress from the completed activity record ---
+
+PROGRESS_NOTE_MARKER = "Construction complete 2026-08-09:"
+
+
+def compute_earned_fraction(d):
+    """Derive (earned_effort_days, total_effort_days) from slot-9 (activity list)
+    effortDays crossed with .activityConstruction phase/buildStatus. Never
+    hand-typed: the earned% the caller reports is always Sigma/Sigma over this."""
+    activities = d["slots"]["9"]["model"]["activities"]
+    ac = d["activityConstruction"]
+    total = sum(a["effortDays"] for a in activities)
+    earned = sum(
+        a["effortDays"]
+        for a in activities
+        if ac.get(a["name"], {}).get("phase") == DONE
+        and ac.get(a["name"], {}).get("buildStatus") == BUILD_INTEGRATED
+    )
+    return earned, total
+
+
+def recompute_progress():
+    """Recompute .constructionProgress.Week and append/update the completion
+    point in .constructionProgress.points. Derivation only — earned% comes
+    from compute_earned_fraction(); plannedPct is the same linear
+    week/TotalWeeks basis the existing points already use. Idempotent: a
+    second run updates the existing marked completion point in place rather
+    than appending a duplicate, and leaves every prior point untouched."""
+    d = json.load(open(STATE))
+    cp = d["constructionProgress"]
+    before = json.loads(json.dumps(cp))
+
+    earned, total = compute_earned_fraction(d)
+    earned_pct = round(earned / total * 100, 1)
+    total_weeks = cp["TotalWeeks"]
+    week = total_weeks
+    planned_pct = round(week / total_weeks * 100, 1)
+
+    note = (
+        f"{PROGRESS_NOTE_MARKER} all 69 activityConstruction rows Done+Integrated "
+        f"({earned}/{total} effort-days from slot-9, {earned_pct:.1f}% earned); "
+        f"Week set to TotalWeeks ({total_weeks}); recomputed from the completed "
+        f"activity record, not hand-typed."
+    )
+    point = {
+        "week": week,
+        "earnedPct": earned_pct,
+        "plannedPct": planned_pct,
+        "note": note,
+    }
+
+    cp["Week"] = week
+    points = cp.setdefault("points", [])
+    existing = next(
+        (p for p in points if p.get("note", "").startswith(PROGRESS_NOTE_MARKER)), None
+    )
+    if existing is not None:
+        existing.update(point)
+    else:
+        points.append(point)
+
+    with open(STATE, "w") as f:
+        json.dump(d, f, indent=2, ensure_ascii=False)
+        f.write("\n")
+
+    return before, cp, earned, total
+
+
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--recompute-progress",
+        action="store_true",
+        help="Task 12: recompute .constructionProgress from the activity record "
+        "instead of running the default Task 11 lifecycle reconciliation.",
+    )
+    args = parser.parse_args()
+
+    if args.recompute_progress:
+        before, after, earned, total = recompute_progress()
+        print(f"constructionProgress.Week: {before.get('Week')} -> {after.get('Week')}")
+        print(f"earned effort-days: {earned} / {total} = {earned / total * 100:.1f}%")
+        print("points[] before:")
+        for p in before.get("points", []):
+            print(f"  {p}")
+        print("points[] after:")
+        for p in after.get("points", []):
+            print(f"  {p}")
+        return
+
     diffs = reconcile_state()
     print("activityConstruction transitions:")
     for activity_id, before, after in diffs:

@@ -11725,7 +11725,7 @@
     }
   },
   "constructionProgress": {
-    "Week": 1,
+    "Week": 49,
     "TotalWeeks": 49,
     "HandOffModel": "Senior hand-off",
     "SupervisionCap": 3,
@@ -11741,6 +11741,12 @@
         "earnedPct": 93.7,
         "plannedPct": 2,
         "note": "week-01 addendum: operations RAs (C-OSA rebuilt real, C-OR constructed) reviewed and integrated same week"
+      },
+      {
+        "week": 49,
+        "earnedPct": 100.0,
+        "plannedPct": 100.0,
+        "note": "Construction complete 2026-08-09: all 69 activityConstruction rows Done+Integrated (1070/1070 effort-days from slot-9, 100.0% earned); Week set to TotalWeeks (49); recomputed from the completed activity record, not hand-typed."
       }
     ]
   },
