@@ -391,18 +391,19 @@ export function OperationalConceptsView({
 
   // The deployment diagram's live health overlay (Task 12, spec D10). Gated on
   // the operations capability (D9 — the local profile has no operations surface
-  // to query). There is no committed projectId <-> operatedAppId correlation
-  // anywhere in the system yet — RegisterOperatedApp has zero production callers
-  // today (see task-11-report.md's identical finding for the Operations console
-  // route) — so inventing one here would repeat the exact
-  // fail-open-guard-keyed-to-nothing-wired pattern this plan's history has
-  // already rejected twice. Until a future task wires real operated-app
-  // registration and a way to look up its ID from a project, this stays empty:
-  // useDeploymentHealth's own `enabled` guard keeps the query from ever firing,
-  // and the diagram renders exactly as it does today.
-  const operatedAppId = '';
+  // to query).
+  //
+  // CONVENTION (founder ruling, 2026-08-08): an operated app's id IS its
+  // project's id — an operated app is the deployed instance of one project's
+  // system, and today there is exactly one per project, so `projectId` is
+  // passed straight through as `operatedAppId` with no lookup verb or stored
+  // correlation. See useDeploymentHealth.ts's module doc for the full rationale
+  // and the relaxation path (a real lookup, added if/when multi-deployment
+  // projects exist). `projectId` can still be empty (no route param yet / still
+  // loading), which useDeploymentHealth's own enabled guard treats as dormant —
+  // it never fires a request with a blank operatedAppId.
   const capabilities = useCapabilities();
-  const healthQuery = useDeploymentHealth(operatedAppId, operationsEnabled(capabilities));
+  const healthQuery = useDeploymentHealth(projectId, operationsEnabled(capabilities));
   const healthByKey: Record<string, HealthState> = healthQuery.data ?? {};
 
   const model = useMemo(() => toDeploymentOperationsView(envelope), [envelope]);
