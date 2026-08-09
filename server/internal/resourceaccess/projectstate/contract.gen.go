@@ -399,6 +399,7 @@ const (
 	PipelineTimedOut     FailureReason = 3
 	VarianceExhausted    FailureReason = 4
 	EscalationTimedOut   FailureReason = 5
+	ComponentUnresolved  FailureReason = 6
 )
 
 type Glossary struct {

@@ -469,6 +469,7 @@ export const FAILURE_REASON_GO_VARNAMES = [
   'FailureReasonPipelineTimedOut',
   'FailureReasonVarianceExhausted',
   'FailureReasonEscalationTimedOut',
+  'FailureReasonComponentUnresolved',
 ] as const;
 
 export type FailureReasonGoVarname = (typeof FAILURE_REASON_GO_VARNAMES)[number];
@@ -484,6 +485,7 @@ export const FAILURE_REASON_APP_STRINGS = [
   'pipelineTimedOut',
   'varianceExhausted',
   'escalationTimedOut',
+  'componentUnresolved',
 ] as const;
 
 export type FailureReason = (typeof FAILURE_REASON_APP_STRINGS)[number];
@@ -497,6 +499,7 @@ export const FAILURE_REASON_APP_TO_ORDINAL: Readonly<Record<FailureReason, numbe
   pipelineTimedOut: 3,
   varianceExhausted: 4,
   escalationTimedOut: 5,
+  componentUnresolved: 6,
 };
 // --- HealthState ---------------------------------------------------------
 // Sources: OperationsHealthState

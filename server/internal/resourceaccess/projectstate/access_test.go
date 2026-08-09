@@ -5964,6 +5964,25 @@ func TestActivityBuildStatus_String(t *testing.T) {
 	}
 }
 
+// ComponentUnresolved is the terminal FailureReason recorded when the construction
+// pump cannot dispatch an eligible activity because its authored componentId names no
+// component in the committed systemDesign. Its wire name is what the console renders,
+// so it is pinned here alongside the load-bearing ordinals of its predecessors.
+func TestFailureReason_ComponentUnresolvedWireName(t *testing.T) {
+	if got := ComponentUnresolved.String(); got != "componentUnresolved" {
+		t.Fatalf("want componentUnresolved, got %q", got)
+	}
+	if ComponentUnresolved != 6 {
+		t.Fatalf("ComponentUnresolved must be ordinal 6, got %d", ComponentUnresolved)
+	}
+	// The persisted ordinals of the pre-existing variants are load-bearing: every
+	// failure record already on disk decodes through them.
+	if FailureReasonUnknown != 0 || PipelineFailed != 1 || PipelineCancelled != 2 ||
+		PipelineTimedOut != 3 || VarianceExhausted != 4 || EscalationTimedOut != 5 {
+		t.Fatal("existing FailureReason ordinals must not move")
+	}
+}
+
 // ---- Task 1: ActivityType + TestingVariant + ActivityMethodPhase ----
 
 func TestActivityType_String(t *testing.T) {

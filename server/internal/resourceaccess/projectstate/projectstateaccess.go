@@ -6542,6 +6542,12 @@ func (p ActivityConstructionPhase) String() string {
 // EscalationTimedOut — an escalation waited for an operator override that never
 // came within the bounded escalation-wait window.
 
+// ComponentUnresolved — an eligible activity could not be dispatched because its
+// authored componentId names no component in the committed systemDesign. A plan
+// defect, terminal until a human amends the activity list — deliberately NOT routed
+// through the interventionEngine, which adjudicates variance for work legitimately
+// in flight.
+
 // String returns the canonical wire name for the failure reason.
 func (r FailureReason) String() string {
 	switch r {
@@ -6555,10 +6561,12 @@ func (r FailureReason) String() string {
 		return "varianceExhausted"
 	case EscalationTimedOut:
 		return "escalationTimedOut"
+	case ComponentUnresolved:
+		return "componentUnresolved"
 	case FailureReasonUnknown:
 		return "unknown"
 	}
-	// Unreachable for the six defined FailureReason values above (the exhaustive
+	// Unreachable for the seven defined FailureReason values above (the exhaustive
 	// linter enforces that every real variant has its own case); kept as a
 	// defensive fallback for an out-of-range ordinal.
 	return "unknown"

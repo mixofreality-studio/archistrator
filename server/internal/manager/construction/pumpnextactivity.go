@@ -81,12 +81,28 @@ func (wf *workflows) PumpNextActivityWorkflow(ctx workflow.Context, in pumpInput
 	sel := wf.nextEligible(proj)
 	switch sel.Verdict {
 	case verdictBlocked:
-		// Task 3 replaces this arm with a durable RecordActivityFailed. Until then it
-		// is loud in the log and ends the cascade — never a silent skip.
+		// LOUD, DURABLE, APP-VISIBLE (spec §4.3). The log line alone is the failure mode
+		// being eliminated — a warning buried in a serve log is how this defect consumed
+		// an entire benchmark run undetected — so the escalation is the HEAD-STATE
+		// record: ActivityConstructionFailed is sticky via CoarsePhaseFor, so the
+		// operator sees a red node carrying ComponentUnresolved and the reason. NOT a
+		// returned workflow error: a failed Temporal execution is invisible in the
+		// console. Recording the terminal also takes the activity out of NotStarted, so
+		// the next scheduled tick considers the rest of the network instead of
+		// re-blocking on this one. An empty credential is correct for the local store;
+		// the git adapter mints just-in-time (same as the supervision pause path).
 		logger.Error("construction pump: activity cannot be dispatched",
 			"projectId", string(in.ProjectID),
 			"activityId", sel.BlockedActivityID,
 			"reason", sel.BlockedReason)
+		if _, ferr := wf.applyRecovering(ctx, in.ProjectID, proj.Version, func(expected projectstate.Version) (projectstate.Version, error) {
+			return wf.Acts.ConstructionTransitionRecordActivityFailed(
+				ctx, projectstate.ProjectID(in.ProjectID), expected,
+				sel.BlockedActivityID, projectstate.ComponentUnresolved, sel.BlockedReason,
+				railCredEnvelope{}.toProjectState())
+		}); ferr != nil {
+			return PumpResult{}, ferr
+		}
 		dispatch = pumpDispatch{Decided: true, Dispatched: false}
 		return PumpResult{Dispatched: false}, nil
 	case verdictQuiescent:

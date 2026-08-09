@@ -1803,7 +1803,7 @@ export interface components {
       week: number;
     };
     /** @enum {integer} */
-    SystemDesignFailureReason: 0 | 1 | 2 | 3 | 4 | 5;
+    SystemDesignFailureReason: 0 | 1 | 2 | 3 | 4 | 5 | 6;
     SystemDesignFinding: {
       location?: components['schemas']['SystemDesignLocation'];
       message: string;

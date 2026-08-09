@@ -2696,6 +2696,74 @@ func Test_Pump_DrainedNetwork_QuietNoContinueAsNew(t *testing.T) {
 	}
 }
 
+// A blocked activity is recorded as a TERMINAL, app-visible failure — not a silent
+// skip, and not a workflow error (a failed Temporal execution is invisible in the
+// console; the head-state record IS the escalation).
+func Test_Pump_BlockedActivity_RecordsTerminalFailure(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	pid := ProjectID(uuid.NewString())
+	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}}
+	const reason = `activity C-TLM names component "todo-list-managr", which is not in the committed systemDesign — amend the committed activityList`
+	wf := newWorkflows(wfDeps{
+		Intervention: &fakeIntervention{}, Review: &fakeReview{},
+		NextEligibleActivity: func(_ projectstate.Project) pumpSelection {
+			return pumpSelection{
+				Verdict:           verdictBlocked,
+				BlockedActivityID: "C-TLM",
+				BlockedReason:     reason,
+			}
+		},
+	})
+	registerPump(env, wf, ps, &fakePipeline{phase: PipelineSucceeded})
+
+	env.ExecuteWorkflow(executionKindPump, pumpInput{ProjectID: pid})
+
+	if !env.IsWorkflowCompleted() {
+		t.Fatal("pump did not complete")
+	}
+	// The cascade ENDS — no ContinueAsNew, and no error surfaced to Temporal.
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a blocked activity must not fail the workflow, got %v", err)
+	}
+	var res PumpResult
+	if err := env.GetWorkflowResult(&res); err != nil {
+		t.Fatalf("decode pump result: %v", err)
+	}
+	if res.Dispatched {
+		t.Fatalf("want Dispatched:false, got %+v", res)
+	}
+	// The durable, operator-visible record: the offending activity, the new terminal
+	// reason, and the operator-facing detail carried through VERBATIM (it names both
+	// the activity and the unresolvable component id — that is what a human reads off
+	// the failed node).
+	if len(ps.failed) != 1 {
+		t.Fatalf("want exactly one failure record, got %v", ps.failed)
+	}
+	want := failCall{activityID: "C-TLM", reason: projectstate.ComponentUnresolved, detail: reason}
+	if ps.failed[0] != want {
+		t.Fatalf("failure record mismatch:\n got %+v\nwant %+v", ps.failed[0], want)
+	}
+	// Nothing was dispatched: no child recorded an exit.
+	if len(ps.exited) != 0 {
+		t.Fatalf("no child should have run, got %v", ps.exited)
+	}
+	// The façade's synchronous read sees a DECIDED, non-dispatching tick — the pump
+	// must not look like it is still deciding.
+	enc, err := env.QueryWorkflow(queryPumpDispatch)
+	if err != nil {
+		t.Fatalf("query pump dispatch decision: %v", err)
+	}
+	var d pumpDispatch
+	if err := enc.Get(&d); err != nil {
+		t.Fatalf("decode pump dispatch decision: %v", err)
+	}
+	if d != (pumpDispatch{Decided: true}) {
+		t.Fatalf("want a decided non-dispatch decision, got %+v", d)
+	}
+}
+
 // A pause Signal delivered to the (cascading) pump halts it BEFORE any dispatch: the
 // pump goes quiet WITHOUT ContinueAsNew and WITHOUT starting a child, even though an
 // activity is eligible. The resume path re-triggers the pump.
