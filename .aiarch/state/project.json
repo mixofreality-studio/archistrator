@@ -13864,7 +13864,8 @@
             5,
             6,
             7,
-            8
+            8,
+            9
           ],
           "x-enum-varnames": [
             "FailureReasonUnknown",
@@ -13875,7 +13876,8 @@
             "EscalationTimedOut",
             "ComponentUnresolved",
             "DependencyUnresolved",
-            "DependencyCycle"
+            "DependencyCycle",
+            "ActivityUnclassifiable"
           ],
           "x-go-base": "int"
         },
@@ -19567,14 +19569,18 @@
             1,
             2,
             3,
-            4
+            4,
+            5,
+            6
           ],
           "x-enum-varnames": [
             "ActivityTypeService",
             "ActivityTypeFrontend",
             "ActivityTypeTesting",
             "ActivityTypeDeployment",
-            "ActivityTypeDocumentation"
+            "ActivityTypeDocumentation",
+            "ActivityTypeUIDesign",
+            "ActivityTypeIntegration"
           ],
           "x-go-base": "int"
         },
@@ -20355,7 +20361,8 @@
             5,
             6,
             7,
-            8
+            8,
+            9
           ],
           "x-enum-varnames": [
             "FailureReasonUnknown",
@@ -20366,7 +20373,8 @@
             "EscalationTimedOut",
             "ComponentUnresolved",
             "DependencyUnresolved",
-            "DependencyCycle"
+            "DependencyCycle",
+            "ActivityUnclassifiable"
           ],
           "x-go-base": "int"
         },
@@ -23506,14 +23514,18 @@
             1,
             2,
             3,
-            4
+            4,
+            5,
+            6
           ],
           "x-enum-varnames": [
             "ActivityTypeService",
             "ActivityTypeFrontend",
             "ActivityTypeTesting",
             "ActivityTypeDeployment",
-            "ActivityTypeDocumentation"
+            "ActivityTypeDocumentation",
+            "ActivityTypeUIDesign",
+            "ActivityTypeIntegration"
           ],
           "x-go-base": "int"
         },
@@ -24209,7 +24221,8 @@
             5,
             6,
             7,
-            8
+            8,
+            9
           ],
           "x-enum-varnames": [
             "FailureReasonUnknown",
@@ -24220,7 +24233,8 @@
             "FailureReasonEscalationTimedOut",
             "FailureReasonComponentUnresolved",
             "FailureReasonDependencyUnresolved",
-            "FailureReasonDependencyCycle"
+            "FailureReasonDependencyCycle",
+            "FailureReasonActivityUnclassifiable"
           ],
           "x-go-base": "int"
         },
