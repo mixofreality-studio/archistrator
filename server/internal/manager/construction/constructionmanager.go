@@ -58,7 +58,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"sort"
 	"strings"
 	"time"
@@ -731,20 +730,42 @@ func constructionInterventionPolicy(mode string) intervention.InterventionPolicy
 // NextEligibleActivity helper). It was folded out of adapters.go so adapters.go carries
 // only the engine boundary adapters; none of this touches Temporal or any RA seam.
 
+// pumpVerdict is the pump's three-state selection outcome. It replaces the former
+// (activity, bool) pair, whose false arm conflated "the network is drained" with
+// "this activity cannot be dispatched" — the conflation that let a stalled network
+// masquerade as a quiescent one for a whole benchmark run.
+type pumpVerdict int
+
+const (
+	verdictQuiescent pumpVerdict = iota
+	verdictDispatch
+	verdictBlocked
+)
+
+// pumpSelection carries the verdict plus whichever payload it implies: the hydrated
+// activity on verdictDispatch, the offending id + operator-facing reason on
+// verdictBlocked, nothing on verdictQuiescent.
+type pumpSelection struct {
+	Activity          constructionActivity
+	Verdict           pumpVerdict
+	BlockedActivityID string
+	BlockedReason     string
+}
+
 // nextEligibleActivity resolves the next eligible construction activity for a project
 // from its head-state. An activity is eligible iff it is NotStarted and every dep is
 // Done. Iteration is ActivityList declaration order with a name tie-break.
-func nextEligibleActivity(proj projectstate.Project) (constructionActivity, bool) {
+func nextEligibleActivity(proj projectstate.Project) pumpSelection {
 	// Committed Network+ActivityList alone are not authorization to build: the
 	// Phase-2 seal (AdvanceToConstruction — every slot committed, SDP review binding
 	// an option) is what moves the project into PhaseConstruction. Selecting work
 	// before that would start construction on an unvalidated project design.
 	if proj.Phase != projectstate.PhaseConstruction {
-		return constructionActivity{}, false
+		return pumpSelection{Verdict: verdictQuiescent}
 	}
 	network, activityList, ok := committedPlanInputs(proj)
 	if !ok {
-		return constructionActivity{}, false
+		return pumpSelection{Verdict: verdictQuiescent}
 	}
 
 	itemByName := make(map[string]projectstate.ActivityItem, len(activityList.Activities))
@@ -773,7 +794,7 @@ func nextEligibleActivity(proj projectstate.Project) (constructionActivity, bool
 		candidates = append(candidates, candidate{declIdx: i, activity: name})
 	}
 	if len(candidates) == 0 {
-		return constructionActivity{}, false
+		return pumpSelection{Verdict: verdictQuiescent}
 	}
 	sort.SliceStable(candidates, func(i, j int) bool {
 		if candidates[i].declIdx != candidates[j].declIdx {
@@ -784,17 +805,46 @@ func nextEligibleActivity(proj projectstate.Project) (constructionActivity, bool
 
 	chosen := candidates[0].activity
 	item := itemByName[chosen]
-	var produced []projectstate.ProducedArtifact
-	if proj.ActivityConstruction != nil {
-		produced = proj.ActivityConstruction[chosen].Produced
+
+	// Component identity is AUTHORED (spec §2.5): its presence declares the activity
+	// structural, its absence declares it nonstructural or noncoding. ServiceContracts
+	// play NO part in selection — requiring one was the chicken-and-egg that stalled
+	// every fresh project, since the contract is produced by the detailed-design PHASE
+	// of the very activity being selected.
+	var comp *projectstate.Component
+	if item.ComponentID != "" {
+		comp = lookupComponent(proj, item.ComponentID)
+		if comp == nil {
+			return pumpSelection{
+				Verdict:           verdictBlocked,
+				BlockedActivityID: chosen,
+				BlockedReason: fmt.Sprintf(
+					"activity %s names component %q, which is not in the committed systemDesign — amend the committed activityList",
+					chosen, item.ComponentID),
+			}
+		}
 	}
-	component, ok := resolveComponentID(item.Title, produced, proj.ServiceContracts)
-	if !ok {
-		slog.Warn("construction pump: no service-contract key resolves for activity — skipping dispatch",
-			"activityId", chosen, "title", item.Title)
-		return constructionActivity{}, false
+	return pumpSelection{Verdict: verdictDispatch, Activity: hydrateConstructionActivity(chosen, item, comp)}
+}
+
+// lookupComponent resolves a component id against the committed systemDesign by EXACT
+// id match. Returns nil when the slot is uncommitted/unpopulated or no component has
+// that id — both are the caller's blocked case. No normalization, no name matching:
+// the authored id is the identity (spec §2.1).
+func lookupComponent(proj projectstate.Project, id string) *projectstate.Component {
+	if proj.SystemDesign.Status != projectstate.ReviewCommitted {
+		return nil
 	}
-	return hydrateConstructionActivity(chosen, item, component), true
+	sys, ok := proj.SystemDesign.Model.(*projectstate.System)
+	if !ok || sys == nil {
+		return nil
+	}
+	for i := range sys.Components {
+		if sys.Components[i].ID == id {
+			return &sys.Components[i]
+		}
+	}
+	return nil
 }
 
 // committedPlanInputs returns the committed typed Network + ActivityList head-state
@@ -816,71 +866,6 @@ func committedPlanInputs(proj projectstate.Project) (*projectstate.Network, *pro
 		return nil, nil, false
 	}
 	return network, activityList, true
-}
-
-// resolveComponentID maps an activity to its service-contract component KEY.
-func resolveComponentID(title string, produced []projectstate.ProducedArtifact, contracts map[string]projectstate.ServiceContract) (string, bool) {
-	for _, art := range produced {
-		if art.Kind != "service-contract" {
-			continue
-		}
-		if key, ok := matchContractKey(art.Title, contracts); ok {
-			return key, true
-		}
-	}
-
-	base := title
-	if i := strings.IndexByte(base, '('); i >= 0 {
-		base = base[:i]
-	}
-	n := normalizeIdent(base)
-	best, bestLen := "", 0
-	for comp := range contracts {
-		cn := normalizeIdent(comp)
-		if cn != "" && len(cn) > bestLen && strings.Contains(n, cn) {
-			best, bestLen = comp, len(cn)
-		}
-	}
-	if best != "" {
-		return best, true
-	}
-	return "", false
-}
-
-// matchContractKey resolves a produced service-contract artifact title to a real key.
-func matchContractKey(title string, contracts map[string]projectstate.ServiceContract) (string, bool) {
-	n := normalizeIdent(title)
-	if n == "" {
-		return "", false
-	}
-	best, bestLen := "", 0
-	for comp := range contracts {
-		cn := normalizeIdent(comp)
-		if cn == "" {
-			continue
-		}
-		if cn == n {
-			return comp, true
-		}
-		if len(cn) > bestLen && strings.Contains(n, cn) {
-			best, bestLen = comp, len(cn)
-		}
-	}
-	if best != "" {
-		return best, true
-	}
-	return "", false
-}
-
-// normalizeIdent lowercases s and keeps only [a-z0-9].
-func normalizeIdent(s string) string {
-	var b strings.Builder
-	for _, r := range strings.ToLower(s) {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
-			b.WriteRune(r)
-		}
-	}
-	return b.String()
 }
 
 // isActivityNotStarted reports whether the activity is in the NotStarted phase.
@@ -910,21 +895,29 @@ func allDepsDone(deps []string, status map[string]projectstate.ActivityConstruct
 }
 
 // hydrateConstructionActivity populates a constructionActivity from the activity id +
-// its ActivityList item. Coding=true → Construction; Coding=false → Noncoding.
-func hydrateConstructionActivity(activityID string, item projectstate.ActivityItem, componentID string) constructionActivity {
+// its ActivityList item. Coding=true → Construction; Coding=false → Noncoding. comp is
+// the resolved systemDesign component, or nil for a componentless (nonstructural or
+// noncoding) activity — it supplies BOTH the ComponentID passed to the dispatch as
+// component_id AND the Layer, which had no populator before this change and printed
+// as an empty string into every PR body.
+func hydrateConstructionActivity(activityID string, item projectstate.ActivityItem, comp *projectstate.Component) constructionActivity {
 	kind := activityKindNoncoding
 	if item.Coding {
 		kind = activityKindConstruction
 	}
 	typ := projectstate.DeriveType(activityID)
 	variant := projectstate.DeriveVariant(activityID)
-	return constructionActivity{
+	act := constructionActivity{
 		ActivityID:   activityID,
 		Kind:         kind,
-		ComponentID:  componentID,
 		EstimateDays: item.EffortDays,
 		Phases:       projectstate.ProfileFor(typ, variant).PhaseIDs(),
 	}
+	if comp != nil {
+		act.ComponentID = comp.ID
+		act.Layer = comp.Layer.String()
+	}
+	return act
 }
 
 // gitactivities.go held the CUSTOM per-activity git head-state Record Activities
@@ -1035,7 +1028,7 @@ type wfDeps struct {
 
 	// NextEligibleActivity resolves the next eligible construction activity for a
 	// project from its head-state (the Manager's own pure selection).
-	NextEligibleActivity func(proj projectstate.Project) (constructionActivity, bool)
+	NextEligibleActivity func(proj projectstate.Project) pumpSelection
 
 	// InterventionPolicy is the project's committed policy snapshot the Manager feeds
 	// the interventionEngine by value, typed DIRECTLY as the Engine's own published
@@ -1064,7 +1057,7 @@ type workflows struct {
 	RailEnabled bool
 	Repo        func(projectID ProjectID) (sourcecontrol.RepoRef, bool)
 
-	NextEligibleActivity  func(proj projectstate.Project) (constructionActivity, bool)
+	NextEligibleActivity  func(proj projectstate.Project) pumpSelection
 	InterventionPolicy    intervention.InterventionPolicy
 	EscalationWaitTimeout time.Duration
 }

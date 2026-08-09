@@ -263,7 +263,7 @@ func TestSubmitPhaseDecision_EmptyActivityID(t *testing.T) {
 }
 
 func TestHydrateConstructionActivity_ServicePhases(t *testing.T) {
-	got := hydrateConstructionActivity("C-Orders", projectstate.ActivityItem{Coding: true, EffortDays: 5}, "comp-1")
+	got := hydrateConstructionActivity("C-Orders", projectstate.ActivityItem{Coding: true, EffortDays: 5}, nil)
 	want := []projectstate.ActivityMethodPhase{
 		projectstate.MethodPhaseRequirements, projectstate.MethodPhaseDetailedDesign,
 		projectstate.MethodPhaseTestPlan, projectstate.MethodPhaseConstruction,
@@ -280,7 +280,7 @@ func TestHydrateConstructionActivity_ServicePhases(t *testing.T) {
 }
 
 func TestHydrateConstructionActivity_TestingPlanIsThreePhases(t *testing.T) {
-	got := hydrateConstructionActivity("N-STP", projectstate.ActivityItem{Coding: true}, "")
+	got := hydrateConstructionActivity("N-STP", projectstate.ActivityItem{Coding: true}, nil)
 	want := []projectstate.ActivityMethodPhase{
 		projectstate.MethodPhaseRequirements, projectstate.MethodPhaseConstruction,
 		projectstate.MethodPhaseIntegration,
@@ -1066,6 +1066,117 @@ func makeCommittedActivityList(items []projectstate.ActivityItem) projectstate.A
 	}
 }
 
+// makeCommittedSystemDesign builds a minimal committed ArtifactSlot holding a
+// *projectstate.System with the given components — the authored-componentId lookup
+// target nextEligibleActivity consults instead of ServiceContracts.
+func makeCommittedSystemDesign(comps []projectstate.Component) projectstate.ArtifactSlot {
+	return projectstate.ArtifactSlot{
+		Status: projectstate.ReviewCommitted,
+		Model:  &projectstate.System{Components: comps},
+	}
+}
+
+var todoComponents = []projectstate.Component{
+	{ID: "todo-list-manager", Name: "TodoListManager", Layer: projectstate.LayerManager},
+	{ID: "todo-owner-client", Name: "TodoOwnerClient", Layer: projectstate.LayerClient},
+}
+
+func projWithActivities(acts []projectstate.ActivityItem, deps []projectstate.NetworkDependency) projectstate.Project {
+	return projectstate.Project{
+		Phase:        projectstate.PhaseConstruction,
+		Network:      makeCommittedNetwork(deps),
+		ActivityList: makeCommittedActivityList(acts),
+		SystemDesign: makeCommittedSystemDesign(todoComponents),
+	}
+}
+
+// The regression the whole change exists for: a fresh project with NO service
+// contracts must still dispatch its first coding activity.
+func TestNextEligibleActivity_DispatchesWithNoServiceContracts(t *testing.T) {
+	proj := projWithActivities(
+		[]projectstate.ActivityItem{{
+			Name: "C-TLM", Title: "TodoListManager — settlement manager",
+			Coding: true, EffortDays: 13, ComponentID: "todo-list-manager",
+		}},
+		[]projectstate.NetworkDependency{{Activity: "C-TLM", DependsOn: []string{}}},
+	)
+	// Deliberately nil: ServiceContracts must play no part in selection.
+	proj.ServiceContracts = nil
+
+	sel := nextEligibleActivity(proj)
+	if sel.Verdict != verdictDispatch {
+		t.Fatalf("want verdictDispatch, got %v (blocked=%q)", sel.Verdict, sel.BlockedReason)
+	}
+	if sel.Activity.ComponentID != "todo-list-manager" {
+		t.Fatalf("want componentID todo-list-manager, got %q", sel.Activity.ComponentID)
+	}
+	if sel.Activity.Layer != "manager" {
+		t.Fatalf("want layer hydrated to manager, got %q", sel.Activity.Layer)
+	}
+	if sel.Activity.Kind != activityKindConstruction {
+		t.Fatalf("want activityKindConstruction, got %v", sel.Activity.Kind)
+	}
+}
+
+// Nonstructural coding (ch.13 Table 13-2) and noncoding activities are LEGAL
+// with no componentId and dispatch with an empty component_id.
+func TestNextEligibleActivity_ComponentlessActivitiesDispatch(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		item projectstate.ActivityItem
+	}{
+		{"nonstructural coding", projectstate.ActivityItem{Name: "I-UC1", Title: "Integrate use case 1", Coding: true}},
+		{"noncoding", projectstate.ActivityItem{Name: "N-STP", Title: "System Test Plan", Coding: false}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			proj := projWithActivities(
+				[]projectstate.ActivityItem{tc.item},
+				[]projectstate.NetworkDependency{{Activity: tc.item.Name, DependsOn: []string{}}},
+			)
+			sel := nextEligibleActivity(proj)
+			if sel.Verdict != verdictDispatch {
+				t.Fatalf("want verdictDispatch, got %v (blocked=%q)", sel.Verdict, sel.BlockedReason)
+			}
+			if sel.Activity.ComponentID != "" {
+				t.Fatalf("want empty componentID, got %q", sel.Activity.ComponentID)
+			}
+		})
+	}
+}
+
+// The ONE blocked condition: a non-empty componentId naming no committed component.
+func TestNextEligibleActivity_UnknownComponentIsBlocked(t *testing.T) {
+	proj := projWithActivities(
+		[]projectstate.ActivityItem{{
+			Name: "C-TLM", Title: "TodoListManager", Coding: true, ComponentID: "todo-list-managr",
+		}},
+		[]projectstate.NetworkDependency{{Activity: "C-TLM", DependsOn: []string{}}},
+	)
+	sel := nextEligibleActivity(proj)
+	if sel.Verdict != verdictBlocked {
+		t.Fatalf("want verdictBlocked, got %v", sel.Verdict)
+	}
+	if sel.BlockedActivityID != "C-TLM" {
+		t.Fatalf("want blocked activity C-TLM, got %q", sel.BlockedActivityID)
+	}
+	// The detail must name both the activity and the unresolvable id — it is the
+	// only thing an operator sees in the console.
+	if !strings.Contains(sel.BlockedReason, "C-TLM") || !strings.Contains(sel.BlockedReason, "todo-list-managr") {
+		t.Fatalf("blocked reason must name the activity and the bad id, got %q", sel.BlockedReason)
+	}
+}
+
+func TestNextEligibleActivity_NothingEligibleIsQuiescent(t *testing.T) {
+	proj := projWithActivities(
+		[]projectstate.ActivityItem{{Name: "B", Title: "B", Coding: false}},
+		[]projectstate.NetworkDependency{{Activity: "B", DependsOn: []string{"A"}}},
+	)
+	sel := nextEligibleActivity(proj)
+	if sel.Verdict != verdictQuiescent {
+		t.Fatalf("want verdictQuiescent, got %v", sel.Verdict)
+	}
+}
+
 // TestNextEligibleActivity_Chain exercises the A→B→C network with progressively
 // committed construction status entries.
 func TestNextEligibleActivity_Chain(t *testing.T) {
@@ -1076,52 +1187,49 @@ func TestNextEligibleActivity_Chain(t *testing.T) {
 		{Activity: "C", DependsOn: []string{"B"}},
 	}
 	activities := []projectstate.ActivityItem{
-		{Name: "A", Title: "A", EffortDays: 5, WorkerClass: "AI", Coding: true, RiskBucket: 2},
-		{Name: "B", Title: "B", EffortDays: 3, WorkerClass: "AI", Coding: true, RiskBucket: 1},
+		{Name: "A", Title: "A", EffortDays: 5, WorkerClass: "AI", Coding: true, RiskBucket: 2, ComponentID: "comp-a"},
+		{Name: "B", Title: "B", EffortDays: 3, WorkerClass: "AI", Coding: true, RiskBucket: 1, ComponentID: "comp-b"},
 		{Name: "C", Title: "C", EffortDays: 8, WorkerClass: "Human", Coding: false, RiskBucket: 3},
 	}
 
-	// resolveComponentID now requires a real .serviceContracts key (the hardened
-	// resolver skips dispatch otherwise). Provide one contract per activity so the
-	// eligibility walk under test can dispatch; the Title matches the key so the fuzzy
-	// resolver finds it.
+	// Selection now resolves the authored ComponentID against the committed
+	// systemDesign — ServiceContracts play no part. C is noncoding (no ComponentID).
 	base := projectstate.Project{
 		Phase:        projectstate.PhaseConstruction,
 		Network:      makeCommittedNetwork(network),
 		ActivityList: makeCommittedActivityList(activities),
-		ServiceContracts: map[string]projectstate.ServiceContract{
-			"A": {Component: "A"},
-			"B": {Component: "B"},
-			"C": {Component: "C"},
-		},
+		SystemDesign: makeCommittedSystemDesign([]projectstate.Component{
+			{ID: "comp-a", Name: "A", Layer: projectstate.LayerManager},
+			{ID: "comp-b", Name: "B", Layer: projectstate.LayerManager},
+		}),
 	}
 
 	// ---- Case 1: empty ActivityConstruction → A is eligible (no deps). ----
 	proj := base
-	got, ok := nextEligibleActivity(proj)
-	if !ok {
-		t.Fatal("case 1: expected eligible activity, got false")
+	sel := nextEligibleActivity(proj)
+	if sel.Verdict != verdictDispatch {
+		t.Fatalf("case 1: expected verdictDispatch, got %v", sel.Verdict)
 	}
-	if got.ActivityID != "A" {
-		t.Fatalf("case 1: expected A, got %q", got.ActivityID)
+	if sel.Activity.ActivityID != "A" {
+		t.Fatalf("case 1: expected A, got %q", sel.Activity.ActivityID)
 	}
-	if got.EstimateDays != 5 {
-		t.Fatalf("case 1: expected EstimateDays=5, got %f", got.EstimateDays)
+	if sel.Activity.EstimateDays != 5 {
+		t.Fatalf("case 1: expected EstimateDays=5, got %f", sel.Activity.EstimateDays)
 	}
 
 	// ---- Case 2: A Done → B is eligible. ----
 	proj.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
 		"A": {ActivityID: "A", Phase: projectstate.ActivityConstructionDone},
 	}
-	got, ok = nextEligibleActivity(proj)
-	if !ok {
-		t.Fatal("case 2: expected eligible activity, got false")
+	sel = nextEligibleActivity(proj)
+	if sel.Verdict != verdictDispatch {
+		t.Fatalf("case 2: expected verdictDispatch, got %v", sel.Verdict)
 	}
-	if got.ActivityID != "B" {
-		t.Fatalf("case 2: expected B, got %q", got.ActivityID)
+	if sel.Activity.ActivityID != "B" {
+		t.Fatalf("case 2: expected B, got %q", sel.Activity.ActivityID)
 	}
-	if got.EstimateDays != 3 {
-		t.Fatalf("case 2: expected EstimateDays=3, got %f", got.EstimateDays)
+	if sel.Activity.EstimateDays != 3 {
+		t.Fatalf("case 2: expected EstimateDays=3, got %f", sel.Activity.EstimateDays)
 	}
 
 	// ---- Case 3: A Done, B Running → nothing eligible (C blocked; B running). ----
@@ -1129,9 +1237,9 @@ func TestNextEligibleActivity_Chain(t *testing.T) {
 		"A": {ActivityID: "A", Phase: projectstate.ActivityConstructionDone},
 		"B": {ActivityID: "B", Phase: projectstate.ActivityConstructionRunning},
 	}
-	_, ok = nextEligibleActivity(proj)
-	if ok {
-		t.Fatal("case 3: expected no eligible activity, got true")
+	sel = nextEligibleActivity(proj)
+	if sel.Verdict != verdictQuiescent {
+		t.Fatalf("case 3: expected verdictQuiescent, got %v", sel.Verdict)
 	}
 
 	// ---- Case 4: A Done, B Done → C is eligible. ----
@@ -1139,15 +1247,15 @@ func TestNextEligibleActivity_Chain(t *testing.T) {
 		"A": {ActivityID: "A", Phase: projectstate.ActivityConstructionDone},
 		"B": {ActivityID: "B", Phase: projectstate.ActivityConstructionDone},
 	}
-	got, ok = nextEligibleActivity(proj)
-	if !ok {
-		t.Fatal("case 4: expected eligible activity, got false")
+	sel = nextEligibleActivity(proj)
+	if sel.Verdict != verdictDispatch {
+		t.Fatalf("case 4: expected verdictDispatch, got %v", sel.Verdict)
 	}
-	if got.ActivityID != "C" {
-		t.Fatalf("case 4: expected C, got %q", got.ActivityID)
+	if sel.Activity.ActivityID != "C" {
+		t.Fatalf("case 4: expected C, got %q", sel.Activity.ActivityID)
 	}
-	if got.EstimateDays != 8 {
-		t.Fatalf("case 4: expected EstimateDays=8, got %f", got.EstimateDays)
+	if sel.Activity.EstimateDays != 8 {
+		t.Fatalf("case 4: expected EstimateDays=8, got %f", sel.Activity.EstimateDays)
 	}
 }
 
@@ -1162,9 +1270,9 @@ func TestNextEligibleActivity_UncommittedSlots(t *testing.T) {
 		proj := projectstate.Project{
 			ActivityList: makeCommittedActivityList(activities),
 		}
-		_, ok := nextEligibleActivity(proj)
-		if ok {
-			t.Fatal("expected false for uncommitted network, got true")
+		sel := nextEligibleActivity(proj)
+		if sel.Verdict != verdictQuiescent {
+			t.Fatalf("expected verdictQuiescent for uncommitted network, got %v", sel.Verdict)
 		}
 	})
 
@@ -1175,17 +1283,17 @@ func TestNextEligibleActivity_UncommittedSlots(t *testing.T) {
 				{Activity: "A", DependsOn: []string{}},
 			}),
 		}
-		_, ok := nextEligibleActivity(proj)
-		if ok {
-			t.Fatal("expected false for uncommitted activity list, got true")
+		sel := nextEligibleActivity(proj)
+		if sel.Verdict != verdictQuiescent {
+			t.Fatalf("expected verdictQuiescent for uncommitted activity list, got %v", sel.Verdict)
 		}
 	})
 
 	// Both uncommitted (zero-value project).
 	t.Run("both_uncommitted", func(t *testing.T) {
-		_, ok := nextEligibleActivity(projectstate.Project{})
-		if ok {
-			t.Fatal("expected false for zero-value project, got true")
+		sel := nextEligibleActivity(projectstate.Project{})
+		if sel.Verdict != verdictQuiescent {
+			t.Fatalf("expected verdictQuiescent for zero-value project, got %v", sel.Verdict)
 		}
 	})
 }
@@ -1197,12 +1305,14 @@ func TestNextEligibleActivity_UncommittedSlots(t *testing.T) {
 func TestNextEligibleActivity_RequiresConstructionPhase(t *testing.T) {
 	network := []projectstate.NetworkDependency{{Activity: "A", DependsOn: []string{}}}
 	activities := []projectstate.ActivityItem{
-		{Name: "A", Title: "A", EffortDays: 5, WorkerClass: "AI", Coding: true, RiskBucket: 2},
+		{Name: "A", Title: "A", EffortDays: 5, WorkerClass: "AI", Coding: true, RiskBucket: 2, ComponentID: "comp-a"},
 	}
 	base := projectstate.Project{
-		Network:          makeCommittedNetwork(network),
-		ActivityList:     makeCommittedActivityList(activities),
-		ServiceContracts: map[string]projectstate.ServiceContract{"A": {Component: "A"}},
+		Network:      makeCommittedNetwork(network),
+		ActivityList: makeCommittedActivityList(activities),
+		SystemDesign: makeCommittedSystemDesign([]projectstate.Component{
+			{ID: "comp-a", Name: "A", Layer: projectstate.LayerManager},
+		}),
 	}
 
 	for _, tc := range []struct {
@@ -1215,8 +1325,8 @@ func TestNextEligibleActivity_RequiresConstructionPhase(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			proj := base
 			proj.Phase = tc.phase
-			if _, ok := nextEligibleActivity(proj); ok {
-				t.Fatalf("expected no eligible activity before the construction seal (phase %v), got true", tc.phase)
+			if sel := nextEligibleActivity(proj); sel.Verdict != verdictQuiescent {
+				t.Fatalf("expected verdictQuiescent before the construction seal (phase %v), got %v", tc.phase, sel.Verdict)
 			}
 		})
 	}
@@ -1224,9 +1334,9 @@ func TestNextEligibleActivity_RequiresConstructionPhase(t *testing.T) {
 	t.Run("construction", func(t *testing.T) {
 		proj := base
 		proj.Phase = projectstate.PhaseConstruction
-		got, ok := nextEligibleActivity(proj)
-		if !ok || got.ActivityID != "A" {
-			t.Fatalf("expected A eligible once sealed into construction, got ok=%v id=%q", ok, got.ActivityID)
+		sel := nextEligibleActivity(proj)
+		if sel.Verdict != verdictDispatch || sel.Activity.ActivityID != "A" {
+			t.Fatalf("expected A eligible once sealed into construction, got verdict=%v id=%q", sel.Verdict, sel.Activity.ActivityID)
 		}
 	})
 }
@@ -1237,9 +1347,9 @@ func TestNextEligibleActivity_RequiresConstructionPhase(t *testing.T) {
 // in the live project. This test uses a synthetic project where both deps are Done
 // and C-PE is NotStarted, verifying nextEligibleActivity selects it.
 //
-// Reconciliation note: the activity id IS the contract key here (C-PE), so the
-// hardened resolver resolves ComponentID == "C-PE" from the C-PE service contract
-// (the Title matches the key). Contract filename is C-PE.json accordingly.
+// Reconciliation note: selection now resolves the authored ComponentID against the
+// committed systemDesign, not a service-contract key — C-PE names component
+// "projectExport" directly.
 func TestNextEligibleActivity_ProjectExportDogfood(t *testing.T) {
 	network := []projectstate.NetworkDependency{
 		{Activity: "C-CW", DependsOn: []string{}},
@@ -1249,72 +1359,75 @@ func TestNextEligibleActivity_ProjectExportDogfood(t *testing.T) {
 	activities := []projectstate.ActivityItem{
 		{Name: "C-CW", EffortDays: 30, WorkerClass: "junior-developer", Coding: true, RiskBucket: 8},
 		{Name: "D-MPD", EffortDays: 5, WorkerClass: "senior-developer", Coding: false, RiskBucket: 2},
-		{Name: "C-PE", Title: "C-PE", EffortDays: 3, WorkerClass: "junior-developer", Coding: true, RiskBucket: 1},
+		{Name: "C-PE", Title: "C-PE", EffortDays: 3, WorkerClass: "junior-developer", Coding: true, RiskBucket: 1, ComponentID: "projectExport"},
 	}
 	proj := projectstate.Project{
 		Phase:        projectstate.PhaseConstruction,
 		Network:      makeCommittedNetwork(network),
 		ActivityList: makeCommittedActivityList(activities),
-		ServiceContracts: map[string]projectstate.ServiceContract{
-			"C-PE": {Component: "C-PE"},
-		},
+		SystemDesign: makeCommittedSystemDesign([]projectstate.Component{
+			{ID: "projectExport", Name: "projectExport", Layer: projectstate.LayerManager},
+		}),
 		ActivityConstruction: map[string]projectstate.ActivityConstructionStatus{
 			"C-CW":  {ActivityID: "C-CW", Phase: projectstate.ActivityConstructionDone},
 			"D-MPD": {ActivityID: "D-MPD", Phase: projectstate.ActivityConstructionDone},
 			// C-PE is absent (zero value = NotStarted)
 		},
 	}
-	got, ok := nextEligibleActivity(proj)
-	if !ok {
-		t.Fatal("expected C-PE to be eligible, got false")
+	sel := nextEligibleActivity(proj)
+	if sel.Verdict != verdictDispatch {
+		t.Fatalf("expected C-PE to be eligible, got verdict=%v (blocked=%q)", sel.Verdict, sel.BlockedReason)
 	}
-	if got.ActivityID != "C-PE" {
-		t.Fatalf("expected ActivityID=C-PE, got %q", got.ActivityID)
+	if sel.Activity.ActivityID != "C-PE" {
+		t.Fatalf("expected ActivityID=C-PE, got %q", sel.Activity.ActivityID)
 	}
-	// ComponentID is derived from the activity name by hydrateConstructionActivity
-	// (ComponentID = activityID), so it equals "C-PE" — not "projectExport".
-	if got.ComponentID != "C-PE" {
-		t.Fatalf("expected ComponentID=C-PE, got %q", got.ComponentID)
+	if sel.Activity.ComponentID != "projectExport" {
+		t.Fatalf("expected ComponentID=projectExport, got %q", sel.Activity.ComponentID)
 	}
-	if got.EstimateDays != 3 {
-		t.Fatalf("expected EstimateDays=3, got %f", got.EstimateDays)
+	if sel.Activity.EstimateDays != 3 {
+		t.Fatalf("expected EstimateDays=3, got %f", sel.Activity.EstimateDays)
 	}
-	if got.Kind != activityKindConstruction {
-		t.Fatalf("expected Kind=activityKindConstruction (Coding=true), got %v", got.Kind)
+	if sel.Activity.Kind != activityKindConstruction {
+		t.Fatalf("expected Kind=activityKindConstruction (Coding=true), got %v", sel.Activity.Kind)
 	}
 }
 
 // TestNextEligibleActivity_HydratedFields checks that the returned constructionActivity
-// is fully hydrated from the ActivityList item (Kind, ComponentID stay zero/empty since
-// the ActivityList has no component/kind — only the fields that map cleanly are set).
+// is fully hydrated from the ActivityList item and the resolved systemDesign component.
 func TestNextEligibleActivity_HydratedFields(t *testing.T) {
 	network := []projectstate.NetworkDependency{
 		{Activity: "X", DependsOn: []string{}},
 	}
 	activities := []projectstate.ActivityItem{
-		{Name: "X", Title: "X", EffortDays: 13, WorkerClass: "HumanSenior", Coding: true, RiskBucket: 5},
+		{Name: "X", Title: "X", EffortDays: 13, WorkerClass: "HumanSenior", Coding: true, RiskBucket: 5, ComponentID: "comp-x"},
 	}
 	proj := projectstate.Project{
 		Phase:        projectstate.PhaseConstruction,
 		Network:      makeCommittedNetwork(network),
 		ActivityList: makeCommittedActivityList(activities),
-		ServiceContracts: map[string]projectstate.ServiceContract{
-			"X": {Component: "X"},
-		},
+		SystemDesign: makeCommittedSystemDesign([]projectstate.Component{
+			{ID: "comp-x", Name: "X", Layer: projectstate.LayerEngine},
+		}),
 	}
-	got, ok := nextEligibleActivity(proj)
-	if !ok {
-		t.Fatal("expected eligible activity")
+	sel := nextEligibleActivity(proj)
+	if sel.Verdict != verdictDispatch {
+		t.Fatalf("expected verdictDispatch, got %v", sel.Verdict)
 	}
-	if got.ActivityID != "X" {
-		t.Fatalf("expected ActivityID=X, got %q", got.ActivityID)
+	if sel.Activity.ActivityID != "X" {
+		t.Fatalf("expected ActivityID=X, got %q", sel.Activity.ActivityID)
 	}
-	if got.EstimateDays != 13 {
-		t.Fatalf("expected EstimateDays=13, got %f", got.EstimateDays)
+	if sel.Activity.EstimateDays != 13 {
+		t.Fatalf("expected EstimateDays=13, got %f", sel.Activity.EstimateDays)
 	}
 	// Kind is determined by Coding flag: Coding=true → activityKindConstruction.
-	if got.Kind != activityKindConstruction {
-		t.Fatalf("expected Kind=activityKindConstruction, got %v", got.Kind)
+	if sel.Activity.Kind != activityKindConstruction {
+		t.Fatalf("expected Kind=activityKindConstruction, got %v", sel.Activity.Kind)
+	}
+	if sel.Activity.ComponentID != "comp-x" {
+		t.Fatalf("expected ComponentID=comp-x, got %q", sel.Activity.ComponentID)
+	}
+	if sel.Activity.Layer != "engine" {
+		t.Fatalf("expected Layer=engine, got %q", sel.Activity.Layer)
 	}
 }
 
@@ -1420,80 +1533,6 @@ func Test_GetSessionState_NamespaceNotFound_IsInfrastructureNot404(t *testing.T)
 	}
 	if e.Kind != fwmanager.Infrastructure {
 		t.Fatalf("want Infrastructure, got %d (detail %q)", e.Kind, e.Detail)
-	}
-}
-
-func TestResolveComponentID(t *testing.T) {
-	contracts := map[string]projectstate.ServiceContract{
-		"operatedRuntimeAccess": {Component: "operatedRuntimeAccess"},
-		"billingManager":        {Component: "billingManager"},
-		"settlementManager":     {Component: "settlementManager"},
-		"mcpClient":             {Component: "mcpClient"},
-	}
-	cases := []struct {
-		name     string
-		title    string
-		produced []projectstate.ProducedArtifact
-		want     string
-		wantOK   bool
-	}{
-		{
-			name:   "fuzzy title match (no hint)",
-			title:  "Build Operated Runtime Access",
-			want:   "operatedRuntimeAccess",
-			wantOK: true,
-		},
-		{
-			// Parenthetical names settlementManager but the target is billingManager.
-			name:   "parenthetical does not steal the fuzzy match",
-			title:  "Build Billing Manager (reuses sunk settlementManager skeleton)",
-			want:   "billingManager",
-			wantOK: true,
-		},
-		{
-			name:   "fuzzy title match mcp",
-			title:  "Build MCP Client",
-			want:   "mcpClient",
-			wantOK: true,
-		},
-		{
-			// produced[] service-contract hint is authoritative even when the title would
-			// fuzzy-match a DIFFERENT (or no) contract.
-			name:  "produced hint wins over title",
-			title: "Some unrelated activity title",
-			produced: []projectstate.ProducedArtifact{
-				{Kind: "code", Title: "ignored code artifact"},
-				{Kind: "service-contract", Title: "operatedRuntimeAccess — service contract"},
-			},
-			want:   "operatedRuntimeAccess",
-			wantOK: true,
-		},
-		{
-			// No contract match AND no hint → sentinel (caller logs + skips dispatch).
-			name:   "no match returns sentinel",
-			title:  "Wire up the CI gate",
-			want:   "",
-			wantOK: false,
-		},
-		{
-			// A produced hint that does not name a real key falls through to the (absent)
-			// fuzzy title match → sentinel.
-			name:  "stale hint with no key falls through to sentinel",
-			title: "Wire up the CI gate",
-			produced: []projectstate.ProducedArtifact{
-				{Kind: "service-contract", Title: "ghostComponent — service contract"},
-			},
-			want:   "",
-			wantOK: false,
-		},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			got, ok := resolveComponentID(c.title, c.produced, contracts)
-			if got != c.want || ok != c.wantOK {
-				t.Errorf("resolveComponentID(%q) = (%q, %v), want (%q, %v)", c.title, got, ok, c.want, c.wantOK)
-			}
-		})
 	}
 }
 
@@ -2530,8 +2569,8 @@ func Test_Pump_EligibleActivity_RunsChild_ThenContinueAsNew(t *testing.T) {
 	wf := newWorkflows(wfDeps{
 		Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
 		Review:       &fakeReview{},
-		NextEligibleActivity: func(_ projectstate.Project) (constructionActivity, bool) {
-			return sampleActivity(), true
+		NextEligibleActivity: func(_ projectstate.Project) pumpSelection {
+			return pumpSelection{Verdict: verdictDispatch, Activity: sampleActivity()}
 		},
 	})
 	registerPump(env, wf, ps, &fakePipeline{phase: PipelineSucceeded})
@@ -2568,8 +2607,8 @@ func Test_Pump_EligibleActivity_SurfacesSyncDispatchDecision(t *testing.T) {
 	wf := newWorkflows(wfDeps{
 		Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
 		Review:       &fakeReview{},
-		NextEligibleActivity: func(_ projectstate.Project) (constructionActivity, bool) {
-			return sampleActivity(), true
+		NextEligibleActivity: func(_ projectstate.Project) pumpSelection {
+			return pumpSelection{Verdict: verdictDispatch, Activity: sampleActivity()}
 		},
 	})
 	registerPump(env, wf, ps, &fakePipeline{phase: PipelineSucceeded})
@@ -2603,8 +2642,8 @@ func Test_Pump_DrainedNetwork_SurfacesQuiescentDecision(t *testing.T) {
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}}
 	wf := newWorkflows(wfDeps{
 		Intervention: &fakeIntervention{}, Review: &fakeReview{},
-		NextEligibleActivity: func(_ projectstate.Project) (constructionActivity, bool) {
-			return constructionActivity{}, false
+		NextEligibleActivity: func(_ projectstate.Project) pumpSelection {
+			return pumpSelection{Verdict: verdictQuiescent}
 		},
 	})
 	registerPump(env, wf, ps, &fakePipeline{phase: PipelineSucceeded})
@@ -2637,8 +2676,8 @@ func Test_Pump_DrainedNetwork_QuietNoContinueAsNew(t *testing.T) {
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}}
 	wf := newWorkflows(wfDeps{
 		Intervention: &fakeIntervention{}, Review: &fakeReview{},
-		NextEligibleActivity: func(_ projectstate.Project) (constructionActivity, bool) {
-			return constructionActivity{}, false // network drained
+		NextEligibleActivity: func(_ projectstate.Project) pumpSelection {
+			return pumpSelection{Verdict: verdictQuiescent} // network drained
 		},
 	})
 	registerPump(env, wf, ps, &fakePipeline{phase: PipelineSucceeded})
@@ -2669,8 +2708,8 @@ func Test_Pump_PauseSignal_HaltsCascade_NoDispatch(t *testing.T) {
 	wf := newWorkflows(wfDeps{
 		Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
 		Review:       &fakeReview{},
-		NextEligibleActivity: func(_ projectstate.Project) (constructionActivity, bool) {
-			return sampleActivity(), true // an activity IS eligible — but the pause wins
+		NextEligibleActivity: func(_ projectstate.Project) pumpSelection {
+			return pumpSelection{Verdict: verdictDispatch, Activity: sampleActivity()} // an activity IS eligible — but the pause wins
 		},
 	})
 	registerPump(env, wf, ps, &fakePipeline{phase: PipelineSucceeded})

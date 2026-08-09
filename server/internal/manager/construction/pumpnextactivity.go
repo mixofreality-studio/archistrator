@@ -78,15 +78,25 @@ func (wf *workflows) PumpNextActivityWorkflow(ctx workflow.Context, in pumpInput
 		return PumpResult{}, err
 	}
 
-	activity, eligible := wf.nextEligible(proj)
-	if !eligible {
-		// Network drained (or nothing eligible this tick) ⇒ the cascade ENDS here:
-		// return quiet WITHOUT ContinueAsNew so the pump goes dormant (the next
-		// begin/schedule firing re-triggers it).
+	sel := wf.nextEligible(proj)
+	switch sel.Verdict {
+	case verdictBlocked:
+		// Task 3 replaces this arm with a durable RecordActivityFailed. Until then it
+		// is loud in the log and ends the cascade — never a silent skip.
+		logger.Error("construction pump: activity cannot be dispatched",
+			"projectId", string(in.ProjectID),
+			"activityId", sel.BlockedActivityID,
+			"reason", sel.BlockedReason)
+		dispatch = pumpDispatch{Decided: true, Dispatched: false}
+		return PumpResult{Dispatched: false}, nil
+	case verdictQuiescent:
 		logger.Info("no eligible activity — cascade quiescent", "projectId", string(in.ProjectID))
 		dispatch = pumpDispatch{Decided: true, Dispatched: false}
 		return PumpResult{Dispatched: false}, nil
+	case verdictDispatch:
+		// fall through to the dispatch below
 	}
+	activity := sel.Activity
 
 	// Eligible ⇒ start a per-activity child workflow (idempotent on its id; a
 	// redundant tick collapses to the running child). PARENT_CLOSE_POLICY ABANDON:
@@ -131,11 +141,11 @@ func (wf *workflows) PumpNextActivityWorkflow(ctx workflow.Context, in pumpInput
 	return PumpResult{}, workflow.NewContinueAsNewError(ctx, executionKindPump, pumpInput{ProjectID: in.ProjectID})
 }
 
-// nextEligible resolves the next eligible activity via the injected helper. With no
-// helper wired (or no eligible activity) it is a quiet tick.
-func (wf *workflows) nextEligible(proj projectstate.Project) (constructionActivity, bool) {
+// nextEligible resolves the next selection via the injected helper. With no helper
+// wired it is a quiet tick.
+func (wf *workflows) nextEligible(proj projectstate.Project) pumpSelection {
 	if wf.NextEligibleActivity == nil {
-		return constructionActivity{}, false
+		return pumpSelection{Verdict: verdictQuiescent}
 	}
 	return wf.NextEligibleActivity(proj)
 }
