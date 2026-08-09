@@ -290,3 +290,28 @@ Each is its own follow-up, not a gap in this design:
 - **Automated image-tag promotion** — still manual, as the current `archistrator-server.yaml` annotation notes; the renderer now owns the tag, so promotion becomes a question of what feeds it.
 - **Fleet re-render on renderer change** — the mechanism is free (§5.4) but untested with one app.
 - **Operator scale and autoscaler-policy publishes** — both are rejected by name at the operations façade and disabled in the console. Desired state is assembled from the deployment model plus the deployable bundle, and neither patch kind carries either; replicas come from the model, so an operator override needs a real replica-override input threaded through assembly. That is the same missing seam that keeps autoscale-pause and delinquency-pause from publishing anything, and it is one follow-up, not two.
+
+### 11.1 Carried follow-ups from implementation
+
+Accumulated across implementation and its reviews. Recorded here because the working notes they came from are scratch, and a list nobody can find is a list nobody acts on.
+
+**Capability gaps — real behaviour that is absent, not merely unpolished:**
+
+- **Delinquency enforcement cannot pause a tenant app.** It previously published a zero-value desired state, which was inert under the old opaque-bytes contract but would be a half-rendered deployment under the renderer, so the publish was removed. Nothing replaced it. Head-state still records the decision; the runtime never changes. Blocked on the same replica-override seam as operator scale. **This touches the billing rail and deserves its own task.**
+- **The Operations console has no navigation entry** anywhere in the webApp — it is reachable only by a hand-constructed URL carrying an operated-app id. Now unblocked by D13's derivation, but deliberately not added here.
+- **`bundleManifest{ServerImage, WebAppImage}` has no producer.** The shape was invented to unblock assembly and is validated on read (non-empty images, replicas ≥ 1), but nothing writes it yet. It must be ratified against the real bundle producer before built-app onboarding.
+
+**Accuracy limits in the health overlay:**
+
+- A kind ArgoCD *does* grade (e.g. the server `Deployment`) that is `Healthy` but `OutOfSync` reads **green**. That is Argo's own verdict on the live object, and it matches this feature's stated purpose — "green if deployed and healthy". Ungradeable kinds are different: with no health signal at all, sync is the only available evidence, so they are green only when `Synced`. The asymmetry is deliberate. Its visible consequence: between a Deploy publish and the operator clicking Sync, the workload nodes read green while the gateway and Keycloak nodes read red.
+- The rendered Argo `Application` is the one object with **no golden file** — production runs four Applications where the renderer emits one, so there is no counterpart to diff. It is covered by behaviour tests and a pre-cutover hand-check.
+
+**Operational sharp edges:**
+
+- **No `sync-wave` annotations.** Production splits archistrator across four waved Applications; the rendered form is one recursive Application, so the server and Postgres sync together and the server CrashLoops until the database accepts connections. It self-heals.
+- **`push HEAD:main` hardcodes the branch** with no rebase-on-reject. A rejected push surfaces as a loud infrastructure error and the next reconcile tick re-clones.
+- **Publish clones the whole repo per reconcile tick.** Fine at current scale.
+- **`Withdraw` only finds apps this system published** (publish always stamps the `archistrator.dev/app-id` annotation). A hand-edited app whose annotation was stripped makes withdraw a no-op — destructively safe and contract-mandated, but an operational surprise. Deliberately not "fixed": the real repo holds many hand-written Applications that will never carry the annotation, so treating unannotated as ambiguous would refuse every withdraw forever.
+- **Platform constants are hardcoded in the Manager** (domain, OIDC coordinates, Postgres sizing). Correct for the single-app slice; wrong the moment a second app is operated.
+- **The operated-app-id derivation lives at the composition root**, exposed by a hand-mounted route outside the contract/codegen pipeline. It follows the existing `/api/v1/capabilities` precedent and there is exactly one derivation in the codebase, but moving it into the operations façade is one allowlist entry and a file move.
+- **Nothing ties the rendered Keycloak `apiVersion` to the operator's pinned `targetRevision`.** An operator upgrade that drops `v2alpha1` would break the render silently.
