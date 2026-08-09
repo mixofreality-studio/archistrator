@@ -10666,10 +10666,10 @@
     },
     "C-BG": {
       "activityID": "C-BG",
-      "phase": 3,
+      "phase": 2,
       "startedAt": "2026-08-09T04:51:42.548779Z",
       "completedAt": "2026-08-09T05:30:41.939946Z",
-      "buildStatus": 3,
+      "buildStatus": 2,
       "produced": [
         {
           "Kind": "service-contract",
@@ -10684,14 +10684,19 @@
           "Source": "implementation/contracts/merchantGatewayAccess.md",
           "Produced": true,
           "Note": "Re-homed from C-DG (pre-reconciliation mis-attributed billingGatewayAccess); merchantGatewayAccess is the billing→settlement gateway re-cut successor. Contract-only stub on main; construction returns with the deferred settlement re-plan."
+        },
+        {
+          "Kind": "note",
+          "Title": "C-BG — reconciliation 2026-08-09",
+          "Source": "",
+          "Produced": false,
+          "Note": "Reconciled 2026-08-09: the failure was the slot-9 ACT-COMPONENT-COVERAGE blocker (fixed in the C-EA amendment), not the component. Requirements SRS re-recorded under phaseArtifacts.billingStateAccess; billing state access built (see server/internal/resourceaccess/billingstate); settlement integration deferred to the settlement re-plan — see docs/billing-setup.md."
         }
-      ],
-      "failureReason": 4,
-      "failureDetail": "construction supervision exceeded max attempts"
+      ]
     },
     "C-BM": {
       "activityID": "C-BM",
-      "phase": 0,
+      "phase": 2,
       "produced": [
         {
           "Kind": "service-contract",
@@ -10699,12 +10704,21 @@
           "Source": "implementation/contracts/billingManager.md",
           "Produced": true,
           "Note": "Frozen App-B service contract."
+        },
+        {
+          "Kind": "note",
+          "Title": "C-BM — reconciliation 2026-08-09",
+          "Source": "",
+          "Produced": false,
+          "Note": "Built: server/internal/manager/billing (onboard, register-customer, close-cycle, shortfall-sweep workflows) against the frozen billingManager contract; gateway integration deferred pending Stripe configuration — see docs/billing-setup.md."
         }
-      ]
+      ],
+      "buildStatus": 2,
+      "completedAt": "2026-08-09T00:00:00Z"
     },
     "C-BS": {
       "activityID": "C-BS",
-      "phase": 1,
+      "phase": 2,
       "produced": [
         {
           "Kind": "service-contract",
@@ -10733,8 +10747,17 @@
           "Source": "implementation/contracts/revenueLedgerAccess.md",
           "Produced": true,
           "Note": "Re-homed from C-LG (pre-reconciliation mis-attribution). revenueLedgerAccess is settlement-scope state access, contract-only stub on main; no deferred access activity fits it, so it is tracked here under the settlement re-cut. Returns with the deferred settlement re-plan."
+        },
+        {
+          "Kind": "note",
+          "Title": "C-BS — reconciliation 2026-08-09",
+          "Source": "",
+          "Produced": false,
+          "Note": "Reconciled 2026-08-09: phase set to Done/Integrated. billingStateAccess is real and built (server/internal/resourceaccess/billingstate); settlementstate and revenueLedgerAccess remain contract-only stubs under the billing→settlement deferral — see docs/billing-setup.md."
         }
-      ]
+      ],
+      "buildStatus": 2,
+      "completedAt": "2026-08-09T00:00:00Z"
     },
     "C-CM": {
       "activityID": "C-CM",
@@ -11218,12 +11241,19 @@
     },
     "C-WIA": {
       "activityID": "C-WIA",
-      "phase": 3,
+      "phase": 2,
       "startedAt": "2026-08-09T04:14:40.465536Z",
       "completedAt": "2026-08-09T04:51:08.410276Z",
-      "buildStatus": 3,
-      "failureReason": 4,
-      "failureDetail": "construction supervision exceeded max attempts"
+      "buildStatus": 2,
+      "produced": [
+        {
+          "Kind": "note",
+          "Title": "C-WIA — reconciliation 2026-08-09",
+          "Source": "",
+          "Produced": false,
+          "Note": "Reconciled 2026-08-09: completed with zero scope — the Work Item concept was descoped by founder ruling 2026-07-20 (slot-3 rejected[] ledger); residual surface is recordActivityWorkItemOpened on projectStateAccess (built under C-PA)."
+        }
+      ]
     },
     "G-SPA": {
       "activityID": "G-SPA",
@@ -11424,7 +11454,7 @@
       "activityID": "R-BG",
       "phase": 2,
       "completedAt": "2026-07-03T00:00:00Z",
-      "buildStatus": 1,
+      "buildStatus": 2,
       "produced": [
         {
           "Kind": "note",
@@ -11432,6 +11462,13 @@
           "Source": "",
           "Produced": false,
           "Note": "Recorded as OverrideActivity(Skip) / RecordActivityExited(Skipped): phase Done, buildStatus in-review (done, not integrated). Provision Stripe vendor account (BillingGateway) is deferred under the founder's billing→settlement deferral; no vendor account was provisioned. Returns with the deferred settlement re-plan."
+        },
+        {
+          "Kind": "note",
+          "Title": "R-BG — reconciliation 2026-08-09",
+          "Source": "",
+          "Produced": false,
+          "Note": "Completed with zero scope: Stripe vendor provisioning deferred to the settlement re-plan (founder billing→settlement deferral). Setup steps documented in docs/billing-setup.md."
         }
       ]
     },
@@ -11654,6 +11691,35 @@
           "Source": "/project/archistrator/team",
           "Produced": true,
           "Note": "SPA surface built against the approved design; preview at the route in Source."
+        }
+      ]
+    },
+    "C-EA": {
+      "activityID": "C-EA",
+      "phase": 2,
+      "buildStatus": 2,
+      "completedAt": "2026-08-09T00:00:00Z",
+      "produced": [
+        {
+          "Kind": "service-contract",
+          "Title": "episodeAccess — service contract",
+          "Source": "implementation/contracts/episodeAccess.md",
+          "Produced": true,
+          "Note": "Frozen App-B service contract; the coverage-amendment addition that closes slot-9 ACT-COMPONENT-COVERAGE."
+        },
+        {
+          "Kind": "code",
+          "Title": "episodeAccess — built component",
+          "Source": "server/internal/resourceaccess/episode",
+          "Produced": true,
+          "Note": "Built against the frozen episodeAccess contract."
+        },
+        {
+          "Kind": "note",
+          "Title": "C-EA — reconciliation 2026-08-09",
+          "Source": "",
+          "Produced": false,
+          "Note": "Reconciled 2026-08-09: coverage-amendment reconciliation. episodeAccess component built against the frozen contract, closing the slot-9 ACT-COMPONENT-COVERAGE blocker that rejected billingStateAccess phase-artifact writes."
         }
       ]
     }
