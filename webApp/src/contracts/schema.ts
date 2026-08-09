@@ -940,6 +940,19 @@ export interface components {
       surface: string;
       technology: string;
     };
+    ModelDeploymentBindingProfile: {
+      infra?: null | string[];
+      variant: string;
+    };
+    ModelDeploymentComponentBinding: {
+      component: string;
+      perProfile?: {
+        [key: string]: components['schemas']['ModelDeploymentBindingProfile'];
+      };
+      presence: string;
+      provides?: null | string[];
+      settings?: null | components['schemas']['ModelDeploymentSettingSpec'][];
+    };
     ModelDeploymentEnvironment: {
       computed?: components['schemas']['ModelDeploymentEnvironmentComputed'];
       nodes: null | components['schemas']['ModelDeploymentNode'][];
@@ -951,6 +964,15 @@ export interface components {
     };
     ModelDeploymentEnvironmentComputed: {
       derivedRelationships: null | components['schemas']['ModelDeploymentRelationship'][];
+    };
+    ModelDeploymentInfraNode: {
+      env?: {
+        [key: string]: string;
+      };
+      key: string;
+      presence?: null | string;
+      profiles?: null | string[];
+      substrate: string;
     };
     ModelDeploymentNode: {
       children: null | components['schemas']['ModelDeploymentNode'][];
@@ -989,11 +1011,21 @@ export interface components {
       technology: string;
       to: string;
     };
+    ModelDeploymentSettingSpec: {
+      default?: null | string;
+      description?: null | string;
+      env: string;
+      name: string;
+      type: string;
+    };
     ModelDeploymentTopology: {
+      bindings?: null | components['schemas']['ModelDeploymentComponentBinding'][];
       containers: null | components['schemas']['ModelDeployContainer'][];
       /** @enum {string} */
       deliveryStyle: 'cloud' | 'local' | 'both';
       environments: null | components['schemas']['ModelDeploymentEnvironment'][];
+      infrastructure?: null | components['schemas']['ModelDeploymentInfraNode'][];
+      settings?: null | components['schemas']['ModelDeploymentSettingSpec'][];
     };
     ModelDynamicView: {
       key: string;
