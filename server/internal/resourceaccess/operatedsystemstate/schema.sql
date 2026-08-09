@@ -28,16 +28,12 @@
 --   in_flight              → OperatedSystem.InFlight (true ⇒ actively operated; the
 --                            ReadInFlightOperatedApps scan predicate). Set true on
 --                            publish, false on withdraw / delinquency-withdraw.
---   deployable_bundle_ref  → OperatedSystem.DeployableBundleRef. GAP (documented in
---                            postgres.go + the C-OSA follow-up): the frozen §2 contract
---                            has NO write verb carrying a bundle ref, so this column has
---                            no writer here and stays '' — the deploy-after-construction
---                            seeding handoff (a cross-Manager write or an added verb) is
---                            a follow-up. Read back faithfully so a seeded row works.
+--   deployable_bundle_ref  → OperatedSystem.DeployableBundleRef. Written by
+--                            RegisterOperatedSystem at onboarding.
 --   customer_id            → the delinquency-sweep scope key for ReadInFlightOperatedApps
---                            (InFlightScope.CustomerID). Same GAP: no write verb carries
---                            a customer id, so it stays NULL and a customer-scoped sweep
---                            returns empty until the seeding handoff lands. Nullable.
+--                            (InFlightScope.CustomerID). Written by RegisterOperatedSystem.
+--   project_ref            → the project whose project.json supplies the deployment model
+--                            the operationsManager renders from. A pointer, never a copy.
 --   last_reason            → the last DesiredStateReason a publish recorded (audit).
 --   last_delinquency       → the last DelinquencyAction recorded (audit).
 --   decision_*             → the last AutoscaleDecision a reason=autoscale publish
@@ -50,6 +46,7 @@ CREATE TABLE IF NOT EXISTS operated_system (
     in_flight             boolean     NOT NULL DEFAULT false,
     deployable_bundle_ref text        NOT NULL DEFAULT '',
     customer_id           uuid        NULL,
+    project_ref           text        NOT NULL DEFAULT '',
     last_reason           smallint    NOT NULL DEFAULT 0,
     last_delinquency      smallint    NOT NULL DEFAULT 0,
     decision_action       smallint    NULL,

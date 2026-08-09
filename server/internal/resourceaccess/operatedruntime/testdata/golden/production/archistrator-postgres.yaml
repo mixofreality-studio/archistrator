@@ -1,0 +1,28 @@
+---
+# Source: archistrator-postgres/templates/cluster.yaml
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: archistrator-postgres
+  namespace: archistrator
+spec:
+  instances: 1
+  imageName: ghcr.io/cloudnative-pg/postgresql:16
+  monitoring:
+    enablePodMonitor: true
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "500m"
+    limits:
+      memory: "1Gi"
+      cpu: "1000m"
+  storage:
+    size: 10Gi
+    storageClass: do-block-storage
+  bootstrap:
+    initdb:
+      database: archistrator
+      owner: app
+      postInitSQL:
+        - CREATE DATABASE gitea OWNER app;

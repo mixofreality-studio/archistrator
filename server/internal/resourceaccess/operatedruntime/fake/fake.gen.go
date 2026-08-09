@@ -12,12 +12,13 @@ import (
 // FakeOperatedRuntimeAccess is a generated test double for operatedruntime.OperatedRuntimeAccess: set the Fn field(s)
 // a test needs; calling a method whose Fn is unset panics.
 type FakeOperatedRuntimeAccess struct {
-	GetApplicationHealthFn   func(rc fwra.Context, appID uuid.UUID) (operatedruntime.RuntimeStatus, error)
-	GetSloStatusFn           func(rc fwra.Context, appID uuid.UUID) (operatedruntime.SloStatus, error)
-	PublishDesiredStateFn    func(rc fwra.Context, appID uuid.UUID, desired operatedruntime.RuntimeDesiredState, idempotencyKey fwra.IdempotencyKey) error
-	ReadComputeAttributionFn func(rc fwra.Context, appID uuid.UUID, window operatedruntime.AttributionWindow) (operatedruntime.ComputeAttribution, error)
-	WirePaymentConfigFn      func(rc fwra.Context, deployedAppID uuid.UUID, binding operatedruntime.GatewayBinding, idempotencyKey fwra.IdempotencyKey) error
-	WithdrawFn               func(rc fwra.Context, appID uuid.UUID, idempotencyKey fwra.IdempotencyKey) error
+	GetApplicationHealthFn        func(rc fwra.Context, appID uuid.UUID) (operatedruntime.RuntimeStatus, error)
+	GetDeploymentResourceHealthFn func(rc fwra.Context, appID uuid.UUID, desired operatedruntime.RuntimeDesiredState) ([]operatedruntime.ModelKeyHealth, error)
+	GetSloStatusFn                func(rc fwra.Context, appID uuid.UUID) (operatedruntime.SloStatus, error)
+	PublishDesiredStateFn         func(rc fwra.Context, appID uuid.UUID, desired operatedruntime.RuntimeDesiredState, idempotencyKey fwra.IdempotencyKey) error
+	ReadComputeAttributionFn      func(rc fwra.Context, appID uuid.UUID, window operatedruntime.AttributionWindow) (operatedruntime.ComputeAttribution, error)
+	WirePaymentConfigFn           func(rc fwra.Context, deployedAppID uuid.UUID, binding operatedruntime.GatewayBinding, idempotencyKey fwra.IdempotencyKey) error
+	WithdrawFn                    func(rc fwra.Context, appID uuid.UUID, idempotencyKey fwra.IdempotencyKey) error
 }
 
 func (f *FakeOperatedRuntimeAccess) GetApplicationHealth(rc fwra.Context, appID uuid.UUID) (operatedruntime.RuntimeStatus, error) {
@@ -25,6 +26,13 @@ func (f *FakeOperatedRuntimeAccess) GetApplicationHealth(rc fwra.Context, appID 
 		panic("FakeOperatedRuntimeAccess.GetApplicationHealthFn not set")
 	}
 	return f.GetApplicationHealthFn(rc, appID)
+}
+
+func (f *FakeOperatedRuntimeAccess) GetDeploymentResourceHealth(rc fwra.Context, appID uuid.UUID, desired operatedruntime.RuntimeDesiredState) ([]operatedruntime.ModelKeyHealth, error) {
+	if f.GetDeploymentResourceHealthFn == nil {
+		panic("FakeOperatedRuntimeAccess.GetDeploymentResourceHealthFn not set")
+	}
+	return f.GetDeploymentResourceHealthFn(rc, appID, desired)
 }
 
 func (f *FakeOperatedRuntimeAccess) GetSloStatus(rc fwra.Context, appID uuid.UUID) (operatedruntime.SloStatus, error) {

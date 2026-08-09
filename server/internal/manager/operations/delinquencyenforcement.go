@@ -3,7 +3,6 @@ package operations
 import (
 	"go.temporal.io/sdk/workflow"
 
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedruntime"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedsystemstate"
 )
 
@@ -73,12 +72,20 @@ func (wf *workflows) runDelinquencyBranch(ctx workflow.Context, customerID custo
 	}
 
 	for _, app := range apps {
-		// EXECUTE the BillingTerms-derived enforcement: a pause publishes replicas=0
-		// (via publishDesiredState); a hard withdraw removes the runtime.
+		// EXECUTE the BillingTerms-derived enforcement: a pause is INTENDED to publish
+		// replicas=0; a hard withdraw removes the runtime.
 		if dctx.PauseNotWithdraw {
-			if perr := wf.publishDesiredState(ctx, app.ID, operatedruntime.RuntimeDesiredState{ContentType: "application/desired-state"}); perr != nil {
-				return perr
-			}
+			// Deliberately does NOT call the runtime publish (review finding 2, same
+			// reasoning as reconcile.go's HealthRetry/autoscale comments): the only
+			// state this path could construct today is either the static model-declared
+			// replica count (WRONG — a pause must scale to zero, not republish the
+			// normal count) or an empty struct (the exact half-rendered-deployment
+			// hazard the fail-loud fold exists to prevent). recordDelinquencyAction
+			// below still records that the pause was DECIDED and applied at the
+			// head-state level; the runtime-level scale-to-zero needs a replica-override
+			// extension to assembleDesiredState, earmarked as a follow-up (same one
+			// reconcile.go's autoscale path needs).
+			logger.Info("delinquency pause: no replica-override path to publish a real scale-to-zero yet (follow-up)", "operatedAppId", app.ID.String())
 		} else {
 			if werr := wf.withdrawRuntime(ctx, app.ID); werr != nil {
 				return werr

@@ -498,6 +498,31 @@ export const FAILURE_REASON_APP_TO_ORDINAL: Readonly<Record<FailureReason, numbe
   varianceExhausted: 4,
   escalationTimedOut: 5,
 };
+// --- HealthState ---------------------------------------------------------
+// Sources: OperationsHealthState
+export const HEALTH_STATE_GO_VARNAMES = [
+  'HealthStateNeutral',
+  'HealthStateHealthy',
+  'HealthStateUnhealthy',
+] as const;
+
+export type HealthStateGoVarname = (typeof HEALTH_STATE_GO_VARNAMES)[number];
+
+export const HEALTH_STATE_ORDINAL_TO_GO_VARNAME: readonly HealthStateGoVarname[] =
+  HEALTH_STATE_GO_VARNAMES;
+
+// NOTE: no existing hand-authored app-string table to verify against (unwired/new enum) — derived mechanically, unverified.
+export const HEALTH_STATE_APP_STRINGS = ['neutral', 'healthy', 'unhealthy'] as const;
+
+export type HealthState = (typeof HEALTH_STATE_APP_STRINGS)[number];
+
+export const HEALTH_STATE_ORDINAL_TO_APP: readonly HealthState[] = HEALTH_STATE_APP_STRINGS;
+
+export const HEALTH_STATE_APP_TO_ORDINAL: Readonly<Record<HealthState, number>> = {
+  neutral: 0,
+  healthy: 1,
+  unhealthy: 2,
+};
 // --- OverrideKind --------------------------------------------------------
 // Sources: ConstructionOverrideKind
 export const OVERRIDE_KIND_GO_VARNAMES = [

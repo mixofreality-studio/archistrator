@@ -12,6 +12,7 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedruntime"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedsystemstate"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usage"
 	"github.com/mixofreality-studio/archistrator/server/internal/utility/messagebus"
 	"go.temporal.io/sdk/client"
@@ -63,11 +64,14 @@ type DeployResult struct {
 	Revision  *string `json:"revision,omitempty"`
 }
 
+type DeploymentHealth struct {
+	Nodes []NodeHealth `json:"Nodes"`
+}
+
 type DesiredStateChange struct {
-	Reason               DesiredStateReason `json:"reason"`
-	PatchKind            PatchKind          `json:"patchKind"`
-	ChangeID             string             `json:"changeId"`
-	RenderedDesiredState []byte             `json:"renderedDesiredState,omitempty"`
+	Reason    DesiredStateReason `json:"reason"`
+	PatchKind PatchKind          `json:"patchKind"`
+	ChangeID  string             `json:"changeId"`
 }
 
 type DesiredStateReason int
@@ -86,9 +90,22 @@ type HealthSnapshotView struct {
 	Phase  RuntimeStatusSeam `json:"Phase"`
 }
 
+type HealthState int
+
+const (
+	HealthStateNeutral   HealthState = 0
+	HealthStateHealthy   HealthState = 1
+	HealthStateUnhealthy HealthState = 2
+)
+
 type Money struct {
 	MinorUnits int64  `json:"MinorUnits"`
 	Currency   string `json:"Currency"`
+}
+
+type NodeHealth struct {
+	ModelKey string      `json:"ModelKey"`
+	Health   HealthState `json:"Health"`
 }
 
 type OperatedSystemView struct {
@@ -153,6 +170,8 @@ type SloRowView struct {
 	Healthy   bool   `json:"Healthy"`
 }
 
+type Version uint64
+
 type WhatIfCurve struct {
 	Points []WhatIfPoint `json:"Points"`
 }
@@ -175,8 +194,10 @@ type OperationsManager interface {
 	ApplyDelinquencyPolicy(rc fwm.Context, customerID uuid.UUID, delinquencyContext DelinquencyContext) error
 	DeployAfterConstruction(rc fwm.Context, operatedAppID uuid.UUID, change DesiredStateChange) (DeployResult, error)
 	QueryCostProjection(rc fwm.Context, operatedAppID uuid.UUID, requestID string, points *ScaleWhatIfPoints) (CostProjectionSeam, error)
+	QueryDeploymentHealth(rc fwm.Context, operatedAppID uuid.UUID) (DeploymentHealth, error)
 	QueryOperatedSystemView(rc fwm.Context, operatedAppID uuid.UUID, requestID string) (OperatedSystemView, error)
 	ReconcileOperatedState(rc fwm.Context, tickID string, scope *ReconcileScope) (ReconcileResult, error)
+	RegisterOperatedApp(rc fwm.Context, operatedAppID uuid.UUID, customerID uuid.UUID, projectRef string, deployableBundleRef string) (Version, error)
 	WithdrawSystem(rc fwm.Context, operatedAppID uuid.UUID, changeID string, reason WithdrawReason) (WithdrawResult, error)
 }
 
@@ -184,6 +205,6 @@ type OperationsManager interface {
 // builder newOperationsManager in the manager package (which owns the stateful facade setup:
 // the Temporal client, the deps, and config). The constructor returns the
 // interface, so the concrete manager impl stays unexported.
-func NewOperationsManager(client client.Client, operatedSystemState operatedsystemstate.OperatedSystemStateAccess, operatedRuntime operatedruntime.OperatedRuntimeAccess, usage usage.UsageAccess, artifact artifact.ArtifactAccess, messageBus messagebus.MessageBus, intervention intervention.InterventionEngine, autoscaler autoscaler.AutoscalerEngine, operationEstimation operationestimation.OperationEstimationEngine) OperationsManager {
-	return newOperationsManager(client, operatedSystemState, operatedRuntime, usage, artifact, messageBus, intervention, autoscaler, operationEstimation)
+func NewOperationsManager(client client.Client, operatedSystemState operatedsystemstate.OperatedSystemStateAccess, operatedRuntime operatedruntime.OperatedRuntimeAccess, usage usage.UsageAccess, artifact artifact.ArtifactAccess, messageBus messagebus.MessageBus, intervention intervention.InterventionEngine, autoscaler autoscaler.AutoscalerEngine, operationEstimation operationestimation.OperationEstimationEngine, projectState projectstate.ProjectStateAccess) OperationsManager {
+	return newOperationsManager(client, operatedSystemState, operatedRuntime, usage, artifact, messageBus, intervention, autoscaler, operationEstimation, projectState)
 }

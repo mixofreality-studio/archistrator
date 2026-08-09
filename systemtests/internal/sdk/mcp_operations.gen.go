@@ -40,6 +40,16 @@ func (c *MCPClient) OperationsQueryCostProjection(ctx context.Context, operatedA
 	return mcpCallResult[CostProjectionSeam](c, ctx, "operationsQueryCostProjection", OperationsQueryCostProjectionInput{OperatedAppID: operatedAppID, RequestID: requestID, Points: points})
 }
 
+// OperationsQueryDeploymentHealthInput is the MCP tool-call argument object for operationsQueryDeploymentHealth.
+type OperationsQueryDeploymentHealthInput struct {
+	OperatedAppID string `json:"operatedAppID"`
+}
+
+// OperationsQueryDeploymentHealth calls the operationsQueryDeploymentHealth tool on the Operations manager over MCP.
+func (c *MCPClient) OperationsQueryDeploymentHealth(ctx context.Context, operatedAppID string) (DeploymentHealth, error) {
+	return mcpCallResult[DeploymentHealth](c, ctx, "operationsQueryDeploymentHealth", OperationsQueryDeploymentHealthInput{OperatedAppID: operatedAppID})
+}
+
 // OperationsQueryOperatedSystemViewInput is the MCP tool-call argument object for operationsQueryOperatedSystemView.
 type OperationsQueryOperatedSystemViewInput struct {
 	OperatedAppID string `json:"operatedAppID"`
@@ -60,6 +70,19 @@ type OperationsReconcileOperatedStateInput struct {
 // OperationsReconcileOperatedState calls the operationsReconcileOperatedState tool on the Operations manager over MCP.
 func (c *MCPClient) OperationsReconcileOperatedState(ctx context.Context, tickID string, scope *ReconcileScope) (ReconcileResult, error) {
 	return mcpCallResult[ReconcileResult](c, ctx, "operationsReconcileOperatedState", OperationsReconcileOperatedStateInput{TickID: tickID, Scope: scope})
+}
+
+// OperationsRegisterOperatedAppInput is the MCP tool-call argument object for operationsRegisterOperatedApp.
+type OperationsRegisterOperatedAppInput struct {
+	OperatedAppID       string `json:"operatedAppID"`
+	CustomerID          string `json:"customerID"`
+	ProjectRef          string `json:"projectRef"`
+	DeployableBundleRef string `json:"deployableBundleRef"`
+}
+
+// OperationsRegisterOperatedApp calls the operationsRegisterOperatedApp tool on the Operations manager over MCP.
+func (c *MCPClient) OperationsRegisterOperatedApp(ctx context.Context, operatedAppID string, customerID string, projectRef string, deployableBundleRef string) (OperationsVersion, error) {
+	return mcpCallResult[OperationsVersion](c, ctx, "operationsRegisterOperatedApp", OperationsRegisterOperatedAppInput{OperatedAppID: operatedAppID, CustomerID: customerID, ProjectRef: projectRef, DeployableBundleRef: deployableBundleRef})
 }
 
 // OperationsWithdrawSystemInput is the MCP tool-call argument object for operationsWithdrawSystem.

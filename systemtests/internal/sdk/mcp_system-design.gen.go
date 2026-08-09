@@ -88,8 +88,8 @@ type SystemDesignSetOperatingModelInput struct {
 }
 
 // SystemDesignSetOperatingModel calls the systemDesignSetOperatingModel tool on the SystemDesign manager over MCP.
-func (c *MCPClient) SystemDesignSetOperatingModel(ctx context.Context, projectID ProjectID, model OperatingModel) (Version, error) {
-	return mcpCallResult[Version](c, ctx, "systemDesignSetOperatingModel", SystemDesignSetOperatingModelInput{ProjectID: projectID, Model: model})
+func (c *MCPClient) SystemDesignSetOperatingModel(ctx context.Context, projectID ProjectID, model OperatingModel) (SystemDesignVersion, error) {
+	return mcpCallResult[SystemDesignVersion](c, ctx, "systemDesignSetOperatingModel", SystemDesignSetOperatingModelInput{ProjectID: projectID, Model: model})
 }
 
 // SystemDesignSetResearchInputInput is the MCP tool-call argument object for systemDesignSetResearchInput.
@@ -99,8 +99,8 @@ type SystemDesignSetResearchInputInput struct {
 }
 
 // SystemDesignSetResearchInput calls the systemDesignSetResearchInput tool on the SystemDesign manager over MCP.
-func (c *MCPClient) SystemDesignSetResearchInput(ctx context.Context, projectID ProjectID, research ResearchInput) (Version, error) {
-	return mcpCallResult[Version](c, ctx, "systemDesignSetResearchInput", SystemDesignSetResearchInputInput{ProjectID: projectID, Research: research})
+func (c *MCPClient) SystemDesignSetResearchInput(ctx context.Context, projectID ProjectID, research ResearchInput) (SystemDesignVersion, error) {
+	return mcpCallResult[SystemDesignVersion](c, ctx, "systemDesignSetResearchInput", SystemDesignSetResearchInputInput{ProjectID: projectID, Research: research})
 }
 
 // SystemDesignAskQuestionsInput is the MCP tool-call argument object for systemDesignAskQuestions.

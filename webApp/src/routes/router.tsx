@@ -28,6 +28,8 @@ import { ChangeRequestsScreen } from './ChangeRequests';
 import { SubprojectFlowScreen } from './SubprojectFlow';
 import { BillingScreen } from './Billing';
 import { TeamScreen } from './TeamView';
+import { operationsBeforeLoad } from './operationsGuard';
+import { fetchCapabilities } from '../hooks/useCapabilities';
 
 const rootRoute = createRootRoute({ component: Outlet });
 
@@ -82,6 +84,17 @@ const operationsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/operations/$operatedAppId',
   component: OperationsConsoleScreen,
+  // D9 (operations-argocd-deployment Task 11): the local profile holds no
+  // deployment credential and must not surface operations at all — not a
+  // disabled console, not a simulated one. Confirmed fresh from the server on
+  // every navigation (GET /api/v1/capabilities, never trusted from a stale
+  // client cache) BEFORE the console mounts: {operations:false} redirects
+  // home (local always answers successfully, so this IS the D9 case); a
+  // genuinely unreachable capabilities check does NOT redirect — it hands
+  // OperationsConsoleScreen an explicit error state via context instead, so a
+  // cloud operator mid-incident sees why, not a silent bounce to the catalog.
+  // See operationsGuard.ts.
+  beforeLoad: () => operationsBeforeLoad(fetchCapabilities),
 });
 
 const changeRequestsRoute = createRoute({

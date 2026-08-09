@@ -98,6 +98,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -108,9 +109,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	github "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github"
 	keycloak "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-keycloak"
 	llm "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-llm"
+	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 	"github.com/mixofreality-studio/archistrator-platform/framework-go/utilities/security"
 	tlog "go.temporal.io/sdk/log"
@@ -500,15 +504,18 @@ func (h *appHooks) DevConfig(cfg *Config) web.DevConfig {
 // — through either transport — is logged once server-side with op/projectID/cause.
 func (h *appHooks) WrapManagers(managers WebManagers) WebManagers {
 	return WebManagers{
-		ConstructionManager:  loggingConstructionManager{inner: managers.ConstructionManager, log: h.logger},
-		OperationsManager:    loggingOperationsManager{inner: managers.OperationsManager, log: h.logger},
+		ConstructionManager: loggingConstructionManager{inner: managers.ConstructionManager, log: h.logger},
+		OperationsManager: projectScopedOperationsManager{
+			OperationsManager: loggingOperationsManager{inner: managers.OperationsManager, log: h.logger},
+		},
 		ProjectDesignManager: loggingProjectDesignManager{inner: managers.ProjectDesignManager, log: h.logger},
 		SystemDesignManager:  loggingSystemDesignManager{inner: managers.SystemDesignManager, log: h.logger},
 	}
 }
 
 // ExtraMounts adds the composition-root-only routes behind the same auth boundary:
-// GET /api/userinfo (the SPA session probe — not a manager op) and /mcp (the MCP
+// GET /api/userinfo (the SPA session probe — not a manager op), GET /api/v1/capabilities
+// (the operations-argocd-deployment D9 seam — see below), and /mcp (the MCP
 // transport over the SAME four wrapped managers the REST handlers use, plus the
 // ui://archistrator/shell.html MCP-Apps resource). On the local profile, also
 // mounts the embedded SPA at "/" (local-first-init-funnel Task 4, spa_handler.go)
@@ -516,7 +523,10 @@ func (h *appHooks) WrapManagers(managers WebManagers) WebManagers {
 // construction from the same process that answers /api + /mcp. Gated on BOTH the
 // `localdist` build tag (spaFS, spa_embed.go/spa_stub.go — cloud images never
 // carry the tag) AND the runtime profile, so a hypothetical localdist-tagged
-// binary run with cloud config never mounts the SPA either.
+// binary run with cloud config never mounts the SPA either. The local profile
+// also UNMOUNTS the generated operations routes entirely (D9: local holds no
+// deployment credential and must not appear to operate — not a disabled
+// console, not a simulated one; see the doc comment on that block below).
 //
 // WEBAPP_ORIGIN/WEBAPP_ASSET_VERSION are NOT configgen-owned (configgen emits
 // config.gen.go from project.json's deployment model, which does not yet declare
@@ -542,9 +552,170 @@ func (h *appHooks) ExtraMounts(root *http.ServeMux, cfg *Config, dev web.DevConf
 		managers.SystemDesignManager, managers.ProjectDesignManager, managers.ConstructionManager, managers.OperationsManager,
 		webAppOrigin, assetVersion))
 
+	// GET /api/v1/capabilities — the ONE thing that tells the webApp which
+	// deployment profile it is talking to (operations-argocd-deployment Task 11,
+	// spec D9). Behind the same auth boundary as /api/userinfo: by the time any
+	// route component mounts, UserProvider has already confirmed a session, so
+	// the read rides the same cookie/token. The response's zero value
+	// ({"operations":false}) is the SAFE direction — an unreachable/erroring read
+	// on the client leaves useCapabilities() returning undefined, and
+	// webApp/src/utilities/capabilities.ts's operationsEnabled treats undefined
+	// (and false) as HIDDEN, never shown-by-default.
+	root.Handle("GET /api/v1/capabilities",
+		web.AuthMiddleware(dev, validator)(http.HandlerFunc(h.handleCapabilities(cfg))))
+
+	// GET /api/v1/projects/{projectID}/operated-app-id — the D13 derivation, answered
+	// server-side so the browser never reimplements it (see OperatedAppIDForProject).
+	// Same auth boundary and same composition-root-only status as /api/v1/capabilities;
+	// mounted in BOTH profiles because it is a pure derivation that surfaces nothing
+	// operational — the local profile's overlay stays dormant on the capability gate
+	// (D9), not on this route's absence.
+	root.Handle("GET /api/v1/projects/{projectID}/operated-app-id",
+		web.AuthMiddleware(dev, validator)(h.handleOperatedAppID()))
+
 	if resolveProfile(cfg) == "local" {
 		mountSPA(root, h.logger)
+
+		// D9: the local profile holds no deployment credential and must not
+		// APPEAR to operate — not a disabled console, not a simulated one. Hiding
+		// the webApp nav entry is not enough on its own (a curious user could
+		// still hit the URL directly): the generated operations routes
+		// (internal/client/web/operations/operations_handlers.gen.go, all under
+		// /api/v1/operations/) are UNMOUNTED here rather than left live-but-hidden.
+		// This pattern mirrors the /api/v1/ 5xx-logging shadow above: a MORE
+		// SPECIFIC literal pattern registered directly on root wins over both the
+		// broader "/api/v1/" pattern and (on a localdist build) the SPA's
+		// "/{first}/{rest...}" wildcard (spa_handler.go), so every
+		// /api/v1/operations/... request 404s exactly as if the routes were never
+		// registered at all — never falls through to genServer's real handlers.
+		root.Handle("/api/v1/operations/", http.NotFoundHandler())
 	}
+}
+
+// capabilitiesResponse is the wire shape GET /api/v1/capabilities answers —
+// mirrored by hand on the webApp side (webApp/src/utilities/capabilities.ts's
+// Capabilities type) since this composition-root-only route is not generated
+// from a .serviceContracts entry.
+type capabilitiesResponse struct {
+	Operations bool `json:"operations"`
+}
+
+// handleCapabilities reports operations:true ONLY on the cloud profile — the
+// profile whose operatedRuntimeAccess binding actually holds a real deployment
+// credential (operatedRuntimeAccess binds local -> Local (dry-run), cloud ->
+// Real). This is the single source of truth resolveProfile already computes;
+// no separate config flag to drift from it.
+func (h *appHooks) handleCapabilities(cfg *Config) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(capabilitiesResponse{Operations: resolveProfile(cfg) == "cloud"}); err != nil {
+			h.logger.Warn("capabilities: failed writing response", "err", err)
+		}
+	}
+}
+
+// ===========================================================================
+// D13 — the project → operated-app identity.
+// ===========================================================================
+
+// operatedAppIDNamespace is the fixed UUID namespace OperatedAppIDForProject derives
+// under. A platform constant, not a configuration knob: changing it re-points every
+// project at a different operated app and orphans every head-state row already
+// registered under the old derivation. Minted once (2026-08-08) and frozen.
+var operatedAppIDNamespace = uuid.MustParse("fa098c85-58b6-483e-8506-36045a008da7")
+
+// OperatedAppIDForProject derives an operated app's id from its project's id. This is
+// the ONE realization of spec D13 — "an operated app's id IS its project's id: one
+// operated app per project, no lookup verb, no stored correlation" — and every consumer
+// of that identity goes through it: the deployment-diagram health overlay (via
+// handleOperatedAppID below), the RegisterOperatedApp identity guard
+// (projectScopedOperationsManager below), and the operator following the deployment
+// runbook.
+//
+// D13's INTENT is that the mapping needs no lookup: given a project, anyone can compute
+// its operated app's id with no read and no stored table. Its first MECHANISM — literal
+// equality — could not survive contact with the types: a projectstate.ProjectID is a
+// free-form string ("archistrator"), an operatedAppId is a uuid.UUID, and passing the
+// former where the latter is expected is a 400 on every call, forever. A deterministic
+// derivation keeps every property D13 actually wanted (pure function of the project id,
+// stable across processes and restarts, no lookup verb, no new contract surface) and is
+// type-honest.
+//
+// UUIDv5 — SHA-1 over a fixed namespace plus the project id — because it is specified,
+// stable, and reproducible on both sides of any wire without inventing a format. The
+// value is neither a secret nor an authorization boundary: knowing a project id has
+// always implied knowing which operated app it deploys to, and authorization stays where
+// it already is (the Principal on the call Context).
+//
+// It lives HERE, at the composition root, rather than in the operations Manager, because
+// the encapsulation gate (internal/arch_test.go's TestGeneratedOnlyPublic) admits no
+// exported symbol in a generated-contract package beyond its generated surface, and a
+// second unexported copy inside the Manager is exactly the drift a single derivation
+// exists to prevent.
+//
+// RELAXATION PATH (unchanged from D13): if a project ever needs more than one
+// deployment, a real projectRef → operatedAppId lookup gets added then; the FIRST
+// deployment keeps the id this function derives — so nothing already registered moves —
+// and additional deployments take fresh ids.
+func OperatedAppIDForProject(projectRef string) uuid.UUID {
+	return uuid.NewSHA1(operatedAppIDNamespace, []byte(projectRef))
+}
+
+// operatedAppIDResponse is the wire shape GET /api/v1/projects/{projectID}/operated-app-id
+// answers — mirrored by hand on the webApp side (webApp/src/api/client.ts), like
+// capabilitiesResponse above, since this composition-root-only route has no
+// .serviceContracts entry.
+type operatedAppIDResponse struct {
+	OperatedAppID string `json:"operatedAppId"`
+}
+
+// handleOperatedAppID answers the derived operated-app id for a project. It exists so
+// the browser never has to reproduce the derivation: the deployment diagram's health
+// overlay knows a projectId and needs the uuid QueryDeploymentHealth takes, and
+// hand-rolling UUIDv5 in TypeScript would be a second implementation of a rule with one
+// authority. Pure — it reads nothing, so it cannot fail — and it deliberately does NOT
+// assert the project or the operated app exists: it answers "what id WOULD this project's
+// deployment have", which is exactly what a caller needs before anything is registered.
+// The overlay's own read (QueryDeploymentHealth) is where a not-yet-registered app
+// surfaces, with a precondition error naming that fact.
+func (h *appHooks) handleOperatedAppID() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		projectID := r.PathValue("projectID")
+		if projectID == "" {
+			http.Error(w, "missing projectID", http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(operatedAppIDResponse{OperatedAppID: OperatedAppIDForProject(projectID).String()}); err != nil {
+			h.logger.Warn("operated-app-id: failed writing response", "err", err)
+		}
+	}
+}
+
+// projectScopedOperationsManager enforces D13 at the one write that creates an operated
+// app. RegisterOperatedApp takes an operatedAppId AND a projectRef as independent
+// parameters, so nothing in the type system stops a caller seeding a row under an id no
+// consumer will ever derive — and because every consumer DERIVES the id rather than
+// reading it back from anywhere, such a row is not a visible error but a permanent dead
+// end: the console and the health overlay would both address the derived id and find
+// nothing, forever.
+//
+// The guard sits at the composition root rather than inside the Manager façade because
+// the derivation does (see OperatedAppIDForProject). It covers every caller of either
+// transport: WrapManagers wraps the SAME OperationsManager the REST handlers and the MCP
+// tools both call. The embedded interface carries every other op through untouched, so a
+// future contract op cannot silently bypass the wrapper by being forgotten here.
+type projectScopedOperationsManager struct {
+	operations.OperationsManager
+}
+
+func (m projectScopedOperationsManager) RegisterOperatedApp(rc fwmanager.Context, operatedAppID uuid.UUID, customerID uuid.UUID, projectRef string, deployableBundleRef string) (operations.Version, error) {
+	if want := OperatedAppIDForProject(projectRef); projectRef != "" && operatedAppID != want {
+		return 0, fwmanager.New(fwmanager.ContractMisuse,
+			fmt.Sprintf("operatedAppId %s is not the id derived from projectRef %q (%s): an operated app's id IS its project's id (spec D13) — one operated app per project, derived, never chosen",
+				operatedAppID, projectRef, want))
+	}
+	return m.OperationsManager.RegisterOperatedApp(rc, operatedAppID, customerID, projectRef, deployableBundleRef)
 }
 
 // ArtifactAccessGitHubCloudArgs supplies the CLOUD artifactAccess ctor args: the

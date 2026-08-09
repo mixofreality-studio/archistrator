@@ -779,6 +779,18 @@ var encapsulationAllowlistData = map[string][]string{
 	// NewProfiledOperatedRuntimeAccess; the profiled ctor + its RuntimeProfile/
 	// RuntimeConfig params are structurally reachable from the generated surface, so
 	// only these two new free functions need listing.
+	//
+	// Task 10 (2026-08-07 operations/ArgoCD plan): Manifest and ResourceHealth — the
+	// two entries this comment used to document here — are UNEXPORTED again
+	// (manifest, resourceHealth). The health-overlay join they were exported FOR
+	// (Task 9's plan) turned out to belong in this same package, not the Manager
+	// (Task 9's review: a Manager-side join would have reintroduced the exact
+	// Kubernetes-vocabulary leak decision D11 removed). parseModelKeyHealth /
+	// joinModelKeyHealth (operatedruntimeaccess.go) now do that join internally, so
+	// neither type needs to leave the package — the allowlist shrinks back to the
+	// two deployment-profile constructors below, which is the evidence the boundary
+	// is right: an architecture change that leaves its old exceptions behind hasn't
+	// really landed.
 	"internal/resourceaccess/operatedruntime": {
 		"NewLocalOperatedRuntimeAccess",
 		"NewRealOperatedRuntimeAccess",

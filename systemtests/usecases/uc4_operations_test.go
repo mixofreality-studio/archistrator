@@ -87,10 +87,9 @@ func Test_UC4_DeployReconcileObserve(t *testing.T) {
 	operatedAppID := harness.NewProjectID()
 
 	published, revision, err := tr.DeployAfterConstruction(ctx, operatedAppID, harness.DesiredStateChange{
-		Reason:               "deployAfterConstruction",
-		PatchKind:            "fullBundle",
-		ChangeID:             "chg-deploy-001",
-		RenderedDesiredState: []byte("apiVersion: v1"),
+		Reason:    "deployAfterConstruction",
+		PatchKind: "fullBundle",
+		ChangeID:  "chg-deploy-001",
 	})
 	// Unseeded app ⇒ head-state read NotFound ⇒ workflow fails ⇒ façade 503.
 	if !errors.Is(err, harness.ErrUnavailable) {
@@ -149,10 +148,9 @@ func Test_UC4_DeployAfterConstruction_DuplicateChangeID_SameDeterministicOutcome
 
 	operatedAppID := harness.NewProjectID()
 	change := harness.DesiredStateChange{
-		Reason:               "deployAfterConstruction",
-		PatchKind:            "fullBundle",
-		ChangeID:             "chg-deploy-001",
-		RenderedDesiredState: []byte("apiVersion: v1"),
+		Reason:    "deployAfterConstruction",
+		PatchKind: "fullBundle",
+		ChangeID:  "chg-deploy-001",
 	}
 
 	published1, revision1, err1 := tr.DeployAfterConstruction(ctx, operatedAppID, change)

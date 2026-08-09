@@ -26,8 +26,10 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/operations/apply-delinquency-policy/{customerID}", h.handleApplyDelinquencyPolicy)
 	mux.HandleFunc("POST /api/v1/operations/deploy-after-construction/{operatedAppID}", h.handleDeployAfterConstruction)
 	mux.HandleFunc("POST /api/v1/operations/query-cost-projection/{operatedAppID}", h.handleQueryCostProjection)
+	mux.HandleFunc("GET /api/v1/operations/query-deployment-health/{operatedAppID}", h.handleQueryDeploymentHealth)
 	mux.HandleFunc("GET /api/v1/operations/query-operated-system-view/{operatedAppID}", h.handleQueryOperatedSystemView)
 	mux.HandleFunc("POST /api/v1/operations/reconcile-operated-state", h.handleReconcileOperatedState)
+	mux.HandleFunc("POST /api/v1/operations/register-operated-app/{operatedAppID}/{customerID}", h.handleRegisterOperatedApp)
 	mux.HandleFunc("POST /api/v1/operations/withdraw-system/{operatedAppID}", h.handleWithdrawSystem)
 }
 
@@ -47,6 +49,11 @@ type queryCostProjectionRequest struct {
 type reconcileOperatedStateRequest struct {
 	TickID string              `json:"tickID"`
 	Scope  *mgr.ReconcileScope `json:"scope"`
+}
+
+type registerOperatedAppRequest struct {
+	ProjectRef          string `json:"projectRef"`
+	DeployableBundleRef string `json:"deployableBundleRef"`
 }
 
 type withdrawSystemRequest struct {
@@ -149,6 +156,34 @@ func (h *Handler) handleQueryCostProjection(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, http.StatusOK, result)
 }
 
+// handleQueryDeploymentHealth binds GET /api/v1/operations/query-deployment-health/{operatedAppID} -> mgr.QueryDeploymentHealth.
+func (h *Handler) handleQueryDeploymentHealth(w http.ResponseWriter, r *http.Request) {
+	operatedAppID, err := uuid.Parse(r.PathValue("operatedAppID"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid operatedAppID: "+err.Error())
+		return
+	}
+	principal, ok := security.PrincipalFrom(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthenticated", "authentication required")
+		return
+	}
+	decision, err := h.Security.Authorize(r.Context(), principal,
+		security.Action{Verb: "query-deployment-health"},
+		security.ResourceRef{Kind: "operatedapp", ID: operatedAppID.String()})
+	if err != nil || !decision.Permit {
+		writeError(w, http.StatusForbidden, "forbidden", "not permitted")
+		return
+	}
+	rc := fwmanager.Context{Context: r.Context(), Principal: principal}
+	result, err := h.Manager.QueryDeploymentHealth(rc, operatedAppID)
+	if err != nil {
+		writeManagerError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
 // handleQueryOperatedSystemView binds GET /api/v1/operations/query-operated-system-view/{operatedAppID} -> mgr.QueryOperatedSystemView.
 func (h *Handler) handleQueryOperatedSystemView(w http.ResponseWriter, r *http.Request) {
 	operatedAppID, err := uuid.Parse(r.PathValue("operatedAppID"))
@@ -198,6 +233,43 @@ func (h *Handler) handleReconcileOperatedState(w http.ResponseWriter, r *http.Re
 	}
 	rc := fwmanager.Context{Context: r.Context(), Principal: principal}
 	result, err := h.Manager.ReconcileOperatedState(rc, req.TickID, req.Scope)
+	if err != nil {
+		writeManagerError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+// handleRegisterOperatedApp binds POST /api/v1/operations/register-operated-app/{operatedAppID}/{customerID} -> mgr.RegisterOperatedApp.
+func (h *Handler) handleRegisterOperatedApp(w http.ResponseWriter, r *http.Request) {
+	operatedAppID, err := uuid.Parse(r.PathValue("operatedAppID"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid operatedAppID: "+err.Error())
+		return
+	}
+	customerID, err := uuid.Parse(r.PathValue("customerID"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid customerID: "+err.Error())
+		return
+	}
+	var req registerOperatedAppRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	principal, ok := security.PrincipalFrom(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthenticated", "authentication required")
+		return
+	}
+	decision, err := h.Security.Authorize(r.Context(), principal,
+		security.Action{Verb: "register-operated-app"},
+		security.ResourceRef{Kind: "operatedapp", ID: operatedAppID.String()})
+	if err != nil || !decision.Permit {
+		writeError(w, http.StatusForbidden, "forbidden", "not permitted")
+		return
+	}
+	rc := fwmanager.Context{Context: r.Context(), Principal: principal}
+	result, err := h.Manager.RegisterOperatedApp(rc, operatedAppID, customerID, req.ProjectRef, req.DeployableBundleRef)
 	if err != nil {
 		writeManagerError(w, err)
 		return

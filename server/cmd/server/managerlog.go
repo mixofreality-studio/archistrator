@@ -268,10 +268,20 @@ func (m loggingOperationsManager) QueryOperatedSystemView(rc fwmanager.Context, 
 	return v, logInfraError(m.log, "Operations.QueryOperatedSystemView", operatedAppID.String(), err)
 }
 
+func (m loggingOperationsManager) QueryDeploymentHealth(rc fwmanager.Context, operatedAppID uuid.UUID) (operations.DeploymentHealth, error) {
+	v, err := m.inner.QueryDeploymentHealth(rc, operatedAppID)
+	return v, logInfraError(m.log, "Operations.QueryDeploymentHealth", operatedAppID.String(), err)
+}
+
 func (m loggingOperationsManager) ReconcileOperatedState(rc fwmanager.Context, tickID string, scope *operations.ReconcileScope) (operations.ReconcileResult, error) {
 	// A reconcile tick addresses no single operated app.
 	v, err := m.inner.ReconcileOperatedState(rc, tickID, scope)
 	return v, logInfraError(m.log, "Operations.ReconcileOperatedState", "", err)
+}
+
+func (m loggingOperationsManager) RegisterOperatedApp(rc fwmanager.Context, operatedAppID uuid.UUID, customerID uuid.UUID, projectRef string, deployableBundleRef string) (operations.Version, error) {
+	v, err := m.inner.RegisterOperatedApp(rc, operatedAppID, customerID, projectRef, deployableBundleRef)
+	return v, logInfraError(m.log, "Operations.RegisterOperatedApp", operatedAppID.String(), err)
 }
 
 func (m loggingOperationsManager) WithdrawSystem(rc fwmanager.Context, operatedAppID uuid.UUID, changeID string, reason operations.WithdrawReason) (operations.WithdrawResult, error) {

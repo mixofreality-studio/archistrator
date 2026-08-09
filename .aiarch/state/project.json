@@ -6071,6 +6071,12 @@
             "to": "design-health-engine",
             "mode": "sync",
             "label": "EvaluateDesignHealth(project, systemModel) → findings"
+          },
+          {
+            "from": "operations-manager",
+            "to": "project-state-access",
+            "mode": "sync",
+            "label": "readProject(projectRef) -> deployment model"
           }
         ],
         "dynamicViews": [
@@ -6831,6 +6837,12 @@
                     "to": "artifact-access",
                     "mode": "sync",
                     "label": "retrieveConstructionOutput(deployableBundleRef) → deployable bundle"
+                  },
+                  {
+                    "from": "operations-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "readProject(projectRef) → deployment model (render inputs: cloud environment namespace, host, workloads, roles)"
                   }
                 ]
               },
@@ -16398,21 +16410,67 @@
           ],
           "additionalProperties": false
         },
-        "RuntimeDesiredState": {
+        "ModelKeyHealth": {
           "type": "object",
           "properties": {
-            "Bytes": {
-              "type": "string",
-              "contentEncoding": "base64",
-              "x-go-type": "[]byte"
-            },
-            "ContentType": {
+            "ModelKey": {
               "type": "string"
+            },
+            "Status": {
+              "$ref": "#/$defs/RuntimeStatus"
             }
           },
           "required": [
-            "Bytes",
-            "ContentType"
+            "ModelKey",
+            "Status"
+          ],
+          "additionalProperties": false
+        },
+        "RuntimeDesiredState": {
+          "type": "object",
+          "properties": {
+            "AppName": {
+              "type": "string"
+            },
+            "Namespace": {
+              "type": "string"
+            },
+            "Host": {
+              "type": "string"
+            },
+            "ModelKey": {
+              "type": "string"
+            },
+            "GatewayModelKey": {
+              "type": "string"
+            },
+            "Server": {
+              "$ref": "#/$defs/Workload"
+            },
+            "WebApp": {
+              "$ref": "#/$defs/Workload"
+            },
+            "Postgres": {
+              "$ref": "#/$defs/PostgresSpec"
+            },
+            "OIDC": {
+              "$ref": "#/$defs/OIDCSpec"
+            },
+            "SelfManaged": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "AppName",
+            "Namespace",
+            "Host",
+            "ModelKey",
+            "GatewayModelKey",
+            "Server",
+            "WebApp",
+            "Postgres",
+            "OIDC",
+            "SelfManaged"
           ],
           "additionalProperties": false
         },
@@ -16449,6 +16507,77 @@
             "Detail"
           ],
           "additionalProperties": false
+        },
+        "Workload": {
+          "type": "object",
+          "properties": {
+            "ModelKey": {
+              "type": "string"
+            },
+            "Image": {
+              "type": "string"
+            },
+            "Replicas": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "ModelKey",
+            "Image",
+            "Replicas"
+          ],
+          "additionalProperties": false
+        },
+        "PostgresSpec": {
+          "type": "object",
+          "properties": {
+            "ModelKeys": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "Enabled": {
+              "type": "boolean"
+            },
+            "Instances": {
+              "type": "integer"
+            },
+            "StorageClass": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "ModelKeys",
+            "Enabled",
+            "Instances",
+            "StorageClass"
+          ],
+          "additionalProperties": false
+        },
+        "OIDCSpec": {
+          "type": "object",
+          "properties": {
+            "ModelKey": {
+              "type": "string"
+            },
+            "Issuer": {
+              "type": "string"
+            },
+            "ClientID": {
+              "type": "string"
+            },
+            "ClientSecretRef": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "ModelKey",
+            "Issuer",
+            "ClientID",
+            "ClientSecretRef"
+          ],
+          "additionalProperties": false
         }
       },
       "interface": {
@@ -16470,6 +16599,33 @@
             ],
             "result": {
               "$ref": "#/$defs/RuntimeStatus"
+            },
+            "error": true
+          },
+          {
+            "name": "GetDeploymentResourceHealth",
+            "params": [
+              {
+                "name": "appID",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid",
+                  "x-go-import": "github.com/google/uuid",
+                  "x-go-type": "uuid.UUID"
+                }
+              },
+              {
+                "name": "desired",
+                "schema": {
+                  "$ref": "#/$defs/RuntimeDesiredState"
+                }
+              }
+            ],
+            "result": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ModelKeyHealth"
+              }
             },
             "error": true
           },
@@ -16708,6 +16864,12 @@
               "x-go-import": "github.com/google/uuid",
               "x-go-type": "uuid.UUID"
             },
+            "CustomerID": {
+              "type": "string",
+              "format": "uuid",
+              "x-go-import": "github.com/google/uuid",
+              "x-go-type": "uuid.UUID"
+            },
             "Version": {
               "$ref": "#/$defs/Version"
             },
@@ -16719,14 +16881,19 @@
             },
             "DeployableBundleRef": {
               "type": "string"
+            },
+            "ProjectRef": {
+              "type": "string"
             }
           },
           "required": [
             "ID",
+            "CustomerID",
             "Version",
             "Status",
             "InFlight",
-            "DeployableBundleRef"
+            "DeployableBundleRef",
+            "ProjectRef"
           ],
           "additionalProperties": false
         },
@@ -16780,6 +16947,52 @@
         "name": "OperatedSystemStateAccess",
         "layer": "resourceaccess",
         "operations": [
+          {
+            "name": "RegisterOperatedSystem",
+            "params": [
+              {
+                "name": "operatedAppID",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid",
+                  "x-go-import": "github.com/google/uuid",
+                  "x-go-type": "uuid.UUID"
+                }
+              },
+              {
+                "name": "customerID",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid",
+                  "x-go-import": "github.com/google/uuid",
+                  "x-go-type": "uuid.UUID"
+                }
+              },
+              {
+                "name": "projectRef",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "name": "deployableBundleRef",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "name": "idempotencyKey",
+                "schema": {
+                  "type": "string",
+                  "x-go-type": "fwra.IdempotencyKey"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/Version"
+            },
+            "error": true
+          },
           {
             "name": "PublishDesiredState",
             "params": [
@@ -17383,6 +17596,10 @@
         {
           "name": "operationEstimation",
           "component": "operationEstimationEngine"
+        },
+        {
+          "name": "projectState",
+          "component": "projectStateAccess"
         }
       ],
       "title": "operations contract",
@@ -17530,11 +17747,6 @@
             "changeId": {
               "type": "string",
               "x-go-name": "ChangeID"
-            },
-            "renderedDesiredState": {
-              "type": "string",
-              "contentEncoding": "base64",
-              "x-go-type": "[]byte"
             }
           },
           "required": [
@@ -17562,6 +17774,24 @@
           ],
           "x-go-base": "int"
         },
+        "DeploymentHealth": {
+          "type": "object",
+          "properties": {
+            "Nodes": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/NodeHealth"
+              }
+            }
+          },
+          "required": [
+            "Nodes"
+          ],
+          "additionalProperties": false
+        },
         "HealthSnapshotView": {
           "type": "object",
           "properties": {
@@ -17582,6 +17812,20 @@
           ],
           "additionalProperties": false
         },
+        "HealthState": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2
+          ],
+          "x-enum-varnames": [
+            "HealthStateNeutral",
+            "HealthStateHealthy",
+            "HealthStateUnhealthy"
+          ],
+          "x-go-base": "int"
+        },
         "Money": {
           "type": "object",
           "properties": {
@@ -17595,6 +17839,22 @@
           "required": [
             "MinorUnits",
             "Currency"
+          ],
+          "additionalProperties": false
+        },
+        "NodeHealth": {
+          "type": "object",
+          "properties": {
+            "ModelKey": {
+              "type": "string"
+            },
+            "Health": {
+              "$ref": "#/$defs/HealthState"
+            }
+          },
+          "required": [
+            "ModelKey",
+            "Health"
           ],
           "additionalProperties": false
         },
@@ -17861,6 +18121,10 @@
             "withdrawn"
           ],
           "additionalProperties": false
+        },
+        "Version": {
+          "type": "integer",
+          "x-go-type": "uint64"
         }
       },
       "interface": {
@@ -17944,6 +18208,24 @@
             "error": true
           },
           {
+            "name": "QueryDeploymentHealth",
+            "params": [
+              {
+                "name": "operatedAppID",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid",
+                  "x-go-import": "github.com/google/uuid",
+                  "x-go-type": "uuid.UUID"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/DeploymentHealth"
+            },
+            "error": true
+          },
+          {
             "name": "QueryOperatedSystemView",
             "params": [
               {
@@ -17986,6 +18268,45 @@
             ],
             "result": {
               "$ref": "#/$defs/ReconcileResult"
+            },
+            "error": true
+          },
+          {
+            "name": "RegisterOperatedApp",
+            "params": [
+              {
+                "name": "operatedAppID",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid",
+                  "x-go-import": "github.com/google/uuid",
+                  "x-go-type": "uuid.UUID"
+                }
+              },
+              {
+                "name": "customerID",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid",
+                  "x-go-import": "github.com/google/uuid",
+                  "x-go-type": "uuid.UUID"
+                }
+              },
+              {
+                "name": "projectRef",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "name": "deployableBundleRef",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/Version"
             },
             "error": true
           },
@@ -27239,7 +27560,7 @@
                     },
                     {
                       "name": "change",
-                      "value": "{\"reason\":1,\"patchKind\":1,\"changeId\":\"chg-deploy-001\",\"renderedDesiredState\":\"YXBpVmVyc2lvbjogdjE=\"}",
+                      "value": "{\"reason\":1,\"patchKind\":1,\"changeId\":\"chg-deploy-001\"}",
                       "schemaRef": "#/$defs/DesiredStateChange"
                     }
                   ],
@@ -27359,7 +27680,7 @@
                     },
                     {
                       "name": "change",
-                      "value": "{\"reason\":1,\"patchKind\":1,\"changeId\":\"chg-deploy-001\",\"renderedDesiredState\":\"YXBpVmVyc2lvbjogdjE=\"}",
+                      "value": "{\"reason\":1,\"patchKind\":1,\"changeId\":\"chg-deploy-001\"}",
                       "schemaRef": "#/$defs/DesiredStateChange"
                     }
                   ],
@@ -27380,7 +27701,7 @@
                     },
                     {
                       "name": "change",
-                      "value": "{\"reason\":1,\"patchKind\":1,\"changeId\":\"chg-deploy-001\",\"renderedDesiredState\":\"YXBpVmVyc2lvbjogdjE=\"}",
+                      "value": "{\"reason\":1,\"patchKind\":1,\"changeId\":\"chg-deploy-001\"}",
                       "schemaRef": "#/$defs/DesiredStateChange"
                     }
                   ],

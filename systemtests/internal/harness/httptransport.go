@@ -309,10 +309,9 @@ func toConstructionSessionState(view sdk.ConstructionSessionView) ConstructionSe
 
 func toDesiredStateChange(change DesiredStateChange) sdk.DesiredStateChange {
 	return sdk.DesiredStateChange{
-		Reason:               desiredStateReason(change.Reason),
-		PatchKind:            patchKind(change.PatchKind),
-		ChangeID:             change.ChangeID,
-		RenderedDesiredState: change.RenderedDesiredState,
+		Reason:    desiredStateReason(change.Reason),
+		PatchKind: patchKind(change.PatchKind),
+		ChangeID:  change.ChangeID,
 	}
 }
 

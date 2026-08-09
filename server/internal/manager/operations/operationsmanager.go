@@ -22,6 +22,16 @@
 //   - QueryCostProjection     — Workflow (entry; short-lived read-only, no mutation)
 //   - ApplyDelinquencyPolicy  — Signal (queued, cross-Manager from settlementManager)
 //
+// Added post-freeze (Task 8): RegisterOperatedApp — Workflow (entry; short-lived
+// onboarding seed). Reaches operatedSystemStateAccess.RegisterOperatedSystem, the ONLY
+// way to create the head-state row a first DeployAfterConstruction requires. Also
+// post-freeze: QueryOperatedSystemView — Workflow (entry; short-lived read-only op 2.7).
+// Also post-freeze (Task 10, 2026-08-07 operations/ArgoCD plan): QueryDeploymentHealth —
+// Workflow (entry; short-lived read-only op 2.9). Joins the operated app's rendered
+// deployment model against operatedRuntimeAccess.GetDeploymentResourceHealth's live
+// per-resource read so the deployment diagram can colour each node
+// (querydeploymenthealth.go).
+//
 // File layout (mirrors internal/manager/construction):
 //   - operationsmanager.go : the Manager that translates public ops into Temporal client calls (§6.2)
 //   - contract.go          : the public façade types (§3)
@@ -55,6 +65,7 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedruntime"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedsystemstate"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usage"
 	"github.com/mixofreality-studio/archistrator/server/internal/utility/messagebus"
 )
@@ -104,6 +115,7 @@ type operationsManager struct {
 	intervention        intervention.InterventionEngine
 	autoscaler          autoscaler.AutoscalerEngine
 	operationEstimation operationestimation.OperationEstimationEngine
+	projectState        projectstate.ProjectStateAccess
 
 	// Policy/config snapshots folded into the Workflows struct by RegisterWorker. They
 	// are construction-time defaults (in production the Manager reads them from
@@ -146,6 +158,7 @@ func newOperationsManager(
 	interventionEng intervention.InterventionEngine,
 	autoscalerEng autoscaler.AutoscalerEngine,
 	operationEstimation operationestimation.OperationEstimationEngine,
+	projectState projectstate.ProjectStateAccess,
 ) *operationsManager {
 	return &operationsManager{
 		client:              c,
@@ -157,6 +170,7 @@ func newOperationsManager(
 		intervention:        interventionEng,
 		autoscaler:          autoscalerEng,
 		operationEstimation: operationEstimation,
+		projectState:        projectState,
 		infrastructureKind:  autoscaler.InfrastructureKindGoTemporalPostgres,
 	}
 }
@@ -196,6 +210,33 @@ func (m *operationsManager) DeployAfterConstruction(rc fwmgr.Context, operatedAp
 	default:
 		return DeployResult{}, newError(fwmgr.ContractMisuse,
 			fmt.Sprintf("unknown desired-state reason %d", int(change.Reason)))
+	}
+	// PATCH-KIND DISCRIMINATOR (2026-08-08 final review, fix 3). Only a FULL-BUNDLE
+	// republish can be assembled today: the desired state is rendered from the project's
+	// deployment model + the deployable bundle, and Scale/Policy carry neither. Before
+	// this check they were accepted, reached DeployWorkflow, skipped assembly, and
+	// published a ZERO-VALUE RuntimeDesiredState — inert under the old opaque-bytes
+	// contract, but under the renderer either a confusing ContractMisuse from deep inside
+	// the ResourceAccess (Real profile) or a half-rendered deployment. Rejecting them here,
+	// by name, is the honest answer: they are not supported in this slice.
+	//
+	// NOT faked: replicas come from the deployment model (assembleDesiredState reads the
+	// workload node's declared instance count), so an operator scale override needs a real
+	// replica-override input threaded through assembly — the same missing seam that keeps
+	// autoscale-pause and delinquency-pause from publishing anything (progress.md's Task 2
+	// earmark). That is a capability to build, not a button to wire.
+	switch change.PatchKind {
+	case PatchFullBundle:
+		// ok — the one assemblable patch kind.
+	case PatchScale, PatchPolicy:
+		return DeployResult{}, newError(fwmgr.ContractMisuse,
+			fmt.Sprintf("patchKind %q is not supported in this slice: desired state is assembled from the project's deployment model and the deployable bundle, and a scale/policy patch carries neither (replicas come from the deployment model; there is no operator replica-override path yet). Only a full-bundle republish can be published today", patchKindName(change.PatchKind)))
+	case PatchKindUnknown:
+		return DeployResult{}, newError(fwmgr.ContractMisuse,
+			fmt.Sprintf("unknown desired-state patchKind %d", int(change.PatchKind)))
+	default:
+		return DeployResult{}, newError(fwmgr.ContractMisuse,
+			fmt.Sprintf("unknown desired-state patchKind %d", int(change.PatchKind)))
 	}
 
 	wfID := deployWorkflowID(operatedAppID, change.ChangeID)
@@ -283,6 +324,55 @@ func (m *operationsManager) WithdrawSystem(rc fwmgr.Context, operatedAppID opera
 	return result, nil
 }
 
+// RegisterOperatedApp — op 2.8 (onboarding). Temporal Workflow (entry; short-lived,
+// StartWorkflow, id {operatedAppId}:register). Seeds the operatedSystemStateAccess
+// head-state row for a newly onboarded operated app: the customer, project, and
+// deployable-bundle reference — the columns the frozen desired-state write verbs have
+// no way to set (operatedSystemStateAccess.RegisterOperatedSystem is the only writer).
+// Without this op no operated app can be created and a first
+// DeployAfterConstruction (§2.1, which requires a seeded deployableBundleRef) is
+// impossible.
+//
+// Every param is validated non-empty before any Temporal call — mirroring the sibling
+// ops' façade pre-condition checks — so a missing id or ref is a caller ContractMisuse,
+// never silently treated as "nothing to do". SYNC: returns the new head-state version
+// once the row is durably seeded.
+func (m *operationsManager) RegisterOperatedApp(rc fwmgr.Context, operatedAppID operatedAppID, customerID customerID, projectRef string, deployableBundleRef string) (Version, error) {
+	ctx := rc.Context
+	if operatedAppID == uuid.Nil {
+		return 0, newError(fwmgr.ContractMisuse, "empty operatedAppId")
+	}
+	if customerID == uuid.Nil {
+		return 0, newError(fwmgr.ContractMisuse, "empty customerId")
+	}
+	if projectRef == "" {
+		return 0, newError(fwmgr.ContractMisuse, "empty projectRef")
+	}
+	if deployableBundleRef == "" {
+		return 0, newError(fwmgr.ContractMisuse, "empty deployableBundleRef")
+	}
+	wfID := registerWorkflowID(operatedAppID)
+	opts := client.StartWorkflowOptions{
+		ID:                       wfID,
+		TaskQueue:                TaskQueue,
+		WorkflowIDConflictPolicy: enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
+	}
+	we, err := m.client.ExecuteWorkflow(ctx, opts, executionKindRegister, registerInput{
+		OperatedAppID:       operatedAppID,
+		CustomerID:          customerID,
+		ProjectRef:          projectRef,
+		DeployableBundleRef: deployableBundleRef,
+	})
+	if err != nil {
+		return 0, mapStartError(err)
+	}
+	var result Version
+	if err := we.Get(ctx, &result); err != nil {
+		return 0, newError(fwmgr.Infrastructure, err.Error())
+	}
+	return result, nil
+}
+
 // QueryCostProjection — op 2.4. Temporal Workflow (entry; short-lived read-only, id
 // {operatedAppId}:costProjection:{requestId}). Reads observed usage + recent
 // desired-state history → runs operationEstimationEngine.ProjectForOperatedApp
@@ -352,6 +442,40 @@ func (m *operationsManager) QueryOperatedSystemView(rc fwmgr.Context, operatedAp
 	return result, nil
 }
 
+// QueryDeploymentHealth — op 2.9 (read). Short-lived read-only Temporal Workflow
+// (StartWorkflow, id {operatedAppId}:deploymentHealth:{a fresh uuid}). Joins the
+// operated app's rendered deployment model against the live per-resource health the
+// operatedRuntimeAccess GitOps/ArgoCD backend reports (QueryDeploymentHealthWorkflow,
+// querydeploymenthealth.go), so the deployment diagram can colour each node. MUTATES
+// NO STATE. SYNC, side-effect-free. Unlike QueryCostProjection/QueryOperatedSystemView
+// this op takes no caller-supplied requestId: every call is safe to run fresh (no
+// idempotency to preserve across retries — a stale read is simply re-read), so the
+// workflow id's second component is minted here instead of carried by the caller.
+func (m *operationsManager) QueryDeploymentHealth(rc fwmgr.Context, operatedAppID operatedAppID) (DeploymentHealth, error) {
+	ctx := rc.Context
+	if operatedAppID == uuid.Nil {
+		return DeploymentHealth{}, newError(fwmgr.ContractMisuse, "empty operatedAppId")
+	}
+
+	wfID := deploymentHealthWorkflowID(operatedAppID)
+	opts := client.StartWorkflowOptions{
+		ID:                       wfID,
+		TaskQueue:                TaskQueue,
+		WorkflowIDConflictPolicy: enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
+	}
+	we, err := m.client.ExecuteWorkflow(ctx, opts, executionKindDeploymentHealth, queryDeploymentHealthInput{
+		OperatedAppID: operatedAppID,
+	})
+	if err != nil {
+		return DeploymentHealth{}, mapStartError(err)
+	}
+	var result DeploymentHealth
+	if err := we.Get(ctx, &result); err != nil {
+		return DeploymentHealth{}, newError(fwmgr.Infrastructure, err.Error())
+	}
+	return result, nil
+}
+
 // ApplyDelinquencyPolicy — op 2.5. Temporal Signal (applyDelinquencyPolicy, queued,
 // cross-Manager). Delivered by settlementManager. The Manager resumes (or starts +
 // resumes via signal-with-start) the delinquency-enforcement workflow for the
@@ -403,10 +527,26 @@ func costProjectionWorkflowID(operatedAppID operatedAppID, requestID string) str
 	return fmt.Sprintf("%s:costProjection:%s", operatedAppID, requestID)
 }
 
+// registerWorkflowID derives {operatedAppId}:register — the one-time onboarding seed
+// (no second discriminator; an operated app is registered exactly once).
+func registerWorkflowID(operatedAppID operatedAppID) string {
+	return fmt.Sprintf("%s:register", operatedAppID)
+}
+
 // viewWorkflowID derives {operatedAppId}:view:{requestId} (the short-lived read-only
 // operator-view continuity token; operationsRead-ruling.md §A).
 func viewWorkflowID(operatedAppID operatedAppID, requestID string) string {
 	return fmt.Sprintf("%s:view:%s", operatedAppID, requestID)
+}
+
+// deploymentHealthWorkflowID derives {operatedAppId}:deploymentHealth:{a fresh uuid} —
+// this op (op 2.9) carries no caller-supplied requestId (QueryDeploymentHealth's doc),
+// so the discriminator is minted here. A fresh id per call means
+// WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING never actually collides with a prior
+// invocation — every call runs its own short-lived execution, which is correct for a
+// read with nothing to deduplicate.
+func deploymentHealthWorkflowID(operatedAppID operatedAppID) string {
+	return fmt.Sprintf("%s:deploymentHealth:%s", operatedAppID, uuid.NewString())
 }
 
 // delinquencyWorkflowID derives the customer's delinquency-enforcement workflow id
@@ -455,6 +595,18 @@ func isNotFound(err error) bool {
 // canonical in operatedSystemStateAccess (operationsManager.md §3.0 / OQ-3 →
 // standardised on OperatedAppId, not deployedAppId).
 type operatedAppID = uuid.UUID
+
+// D13 IDENTITY NOTE. An operated app's id is DERIVED from its project's id — a pure,
+// lookup-free function realized ONCE, at the composition root
+// (cmd/server/hooks.go's OperatedAppIDForProject), which is also where the
+// project → operated-app-id read route and the RegisterOperatedApp identity guard
+// live. It cannot live in this package: the encapsulation gate (internal/arch_test.go's
+// TestGeneratedOnlyPublic) admits no exported symbol here beyond the generated contract
+// surface and the four Temporal registration entrypoints, and duplicating the
+// derivation into a second unexported copy is exactly the drift this note exists to
+// prevent. RegisterOperatedApp below therefore validates its params but does NOT
+// re-derive the id; the composition-root wrapper refuses a mismatched pair before the
+// call reaches this façade, over both transports (REST and MCP).
 
 // customerID is the billing-customer aggregate identifier; a plain uuid.UUID,
 // canonical in settlementStateAccess (operationsManager.md §3.0).
@@ -646,6 +798,27 @@ func desiredStateReasonName(r DesiredStateReason) string {
 	// Unreachable for the five defined DesiredStateReason values above (the
 	// exhaustive linter enforces that every real variant has its own case); kept
 	// as a defensive fallback for an out-of-range ordinal.
+	return "unknown"
+}
+
+// patchKindName returns the canonical wire name for a desired-state patch kind. Kept as
+// a FREE FUNCTION (not a PatchKind method) so the generated enum is pure data — the same
+// rule desiredStateReasonName above follows.
+func patchKindName(k PatchKind) string {
+	switch k {
+	case PatchKindUnknown:
+		// zero-value sentinel.
+		return "unknown"
+	case PatchFullBundle:
+		return "fullBundle"
+	case PatchScale:
+		return "scale"
+	case PatchPolicy:
+		return "policy"
+	}
+	// Unreachable for the four defined PatchKind values above (the exhaustive linter
+	// enforces that every real variant has its own case); kept as a defensive fallback
+	// for an out-of-range ordinal.
 	return "unknown"
 }
 
@@ -1027,8 +1200,13 @@ const (
 	executionKindCostProjection = "operationsCostProjection"
 	// executionKindOperatedSystemView is the short-lived read-only operator-view workflow.
 	executionKindOperatedSystemView = "operationsOperatedSystemView"
+	// executionKindDeploymentHealth is the short-lived read-only deployment-diagram
+	// health-overlay workflow (op 2.9).
+	executionKindDeploymentHealth = "operationsDeploymentHealth"
 	// executionKindDelinquency is the queued delinquency-enforcement workflow.
 	executionKindDelinquency = "operationsDelinquencyEnforcement"
+	// executionKindRegister is the short-lived onboarding-seed workflow.
+	executionKindRegister = "operationsRegister"
 )
 
 // signalApplyDelinquencyPolicy resumes the delinquency-enforcement branch; backs
@@ -1087,6 +1265,14 @@ func activityOptions() func(activityName string) (workflow.ActivityOptions, bool
 		Timeout:    20 * time.Second,
 		TerminalRA: []fwra.Kind{fwra.ContractMisuse, fwra.NotFound},
 	}.Options()
+	// registerOpts — the one-time onboarding-seed write (10s; terminal ContractMisuse
+	// AND Conflict — unlike recordHeadOpts, a second registration under a different key
+	// is not a stale-version race to re-read→re-apply against; it is a genuine
+	// already-registered caller error the workflow must surface, not retry).
+	registerOpts := fwmgr.ActivityPreset{
+		Timeout:    10 * time.Second,
+		TerminalRA: []fwra.Kind{fwra.ContractMisuse, fwra.Conflict},
+	}.Options()
 
 	presets := map[string]workflow.ActivityOptions{
 		"operatedSystemStateAccess.readOperatedSystem":        readHeadOpts,
@@ -1095,9 +1281,11 @@ func activityOptions() func(activityName string) (workflow.ActivityOptions, bool
 		"operatedSystemStateAccess.recordRuntimeStatusChange": recordHeadOpts,
 		"operatedSystemStateAccess.withdrawSystem":            recordHeadOpts,
 		"operatedSystemStateAccess.recordDelinquencyAction":   recordHeadOpts,
+		"operatedSystemStateAccess.registerOperatedSystem":    registerOpts,
 		"operatedRuntimeAccess.publishDesiredState":           publishOpts,
 		"operatedRuntimeAccess.withdraw":                      publishOpts,
 		"operatedRuntimeAccess.getApplicationHealth":          runtimeReadOpts,
+		"operatedRuntimeAccess.getDeploymentResourceHealth":   runtimeReadOpts,
 		"operatedRuntimeAccess.getSloStatus":                  runtimeReadOpts,
 		"operatedRuntimeAccess.readComputeAttribution":        runtimeReadOpts,
 		"artifactAccess.retrieveConstructionOutput":           artifactReadOpts,
@@ -1112,7 +1300,7 @@ func activityOptions() func(activityName string) (workflow.ActivityOptions, bool
 }
 
 // WorkerManifest assembles the genWorkerManifest RegisterWorker (worker.gen.go)
-// consumes: the six workflow bodies under their registered names, no custom
+// consumes: the seven workflow bodies under their registered names, no custom
 // (hand-written) activities, the per-activity option-preset hook, and the
 // genActivities threaded from the impl's stored published deps.
 //
@@ -1150,7 +1338,9 @@ func (m *operationsManager) WorkerManifest() genWorkerManifest {
 			{Name: executionKindWithdraw, Fn: wf.WithdrawWorkflow},
 			{Name: executionKindCostProjection, Fn: wf.CostProjectionWorkflow},
 			{Name: executionKindOperatedSystemView, Fn: wf.ViewWorkflow},
+			{Name: executionKindDeploymentHealth, Fn: wf.QueryDeploymentHealthWorkflow},
 			{Name: executionKindDelinquency, Fn: wf.DelinquencyEnforcementWorkflow},
+			{Name: executionKindRegister, Fn: wf.RegisterWorkflow},
 		},
 		ActivityOptions: optsHook,
 		Activities: genActivities{
@@ -1159,6 +1349,7 @@ func (m *operationsManager) WorkerManifest() genWorkerManifest {
 			Usage:               m.usage,
 			Artifact:            m.artifact,
 			MessageBus:          nil,
+			ProjectState:        m.projectState,
 		},
 	}
 }

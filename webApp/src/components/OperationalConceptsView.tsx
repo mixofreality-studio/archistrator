@@ -41,8 +41,17 @@ import {
   type LinkedObjective,
   type ObjectiveLinks,
 } from '../contracts/deploymentOpsLogic';
-import type { ArtifactModelEnvelope, DeploymentProfile, Objective } from '../contracts/types';
+import type {
+  ArtifactModelEnvelope,
+  DeploymentProfile,
+  HealthState,
+  Objective,
+} from '../contracts/types';
 import { useProject } from '../hooks/useProject';
+import { useCapabilities } from '../hooks/useCapabilities';
+import { useDeploymentHealth } from '../hooks/useDeploymentHealth';
+import { useOperatedAppId } from '../hooks/useOperatedAppId';
+import { operationsEnabled } from '../utilities/capabilities';
 import { useTokens } from '../utilities/theme/ThemeContext';
 import {
   useComments,
@@ -381,6 +390,23 @@ export function OperationalConceptsView({
     return toMissionView(missionEnvelope).objectives ?? [];
   }, [project]);
 
+  // The deployment diagram's live health overlay (Task 12, spec D10). Gated on
+  // the operations capability (D9 — the local profile has no operations surface
+  // to query).
+  //
+  // CONVENTION (founder ruling, 2026-08-08; mechanism corrected in that day's
+  // final review): an operated app's id is DERIVED from its project's id — one
+  // operated app per project, no lookup verb, nothing stored to correlate them.
+  // The derivation lives server-side and is read through useOperatedAppId; the
+  // projectId is NOT the operatedAppId (it is a free-form string, the id is a
+  // uuid) and passing it straight through 400s on every poll. Until the read
+  // lands the id is undefined, which useDeploymentHealth's own enabled guard
+  // treats as dormant — it never fires a request with a blank operatedAppId.
+  const capabilities = useCapabilities();
+  const operatedAppId = useOperatedAppId(projectId);
+  const healthQuery = useDeploymentHealth(operatedAppId ?? '', operationsEnabled(capabilities));
+  const healthByKey: Record<string, HealthState> = healthQuery.data ?? {};
+
   const model = useMemo(() => toDeploymentOperationsView(envelope), [envelope]);
 
   const profiles = useMemo(() => listDeploymentProfiles(envelope), [envelope]);
@@ -600,6 +626,7 @@ export function OperationalConceptsView({
 
             {activeProfile !== undefined && (
               <DeploymentFlow
+                healthByKey={healthByKey}
                 height={height}
                 opEnvelope={envelope}
                 profile={activeProfile}

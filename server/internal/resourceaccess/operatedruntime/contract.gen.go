@@ -28,9 +28,36 @@ type GatewayBinding struct {
 	ConnectedAccountID string `json:"ConnectedAccountID"`
 }
 
+type ModelKeyHealth struct {
+	ModelKey string        `json:"ModelKey"`
+	Status   RuntimeStatus `json:"Status"`
+}
+
+type OIDCSpec struct {
+	ModelKey        string `json:"ModelKey"`
+	Issuer          string `json:"Issuer"`
+	ClientID        string `json:"ClientID"`
+	ClientSecretRef string `json:"ClientSecretRef"`
+}
+
+type PostgresSpec struct {
+	ModelKeys    []string `json:"ModelKeys"`
+	Enabled      bool     `json:"Enabled"`
+	Instances    int64    `json:"Instances"`
+	StorageClass string   `json:"StorageClass"`
+}
+
 type RuntimeDesiredState struct {
-	Bytes       []byte `json:"Bytes"`
-	ContentType string `json:"ContentType"`
+	AppName         string       `json:"AppName"`
+	Namespace       string       `json:"Namespace"`
+	Host            string       `json:"Host"`
+	ModelKey        string       `json:"ModelKey"`
+	GatewayModelKey string       `json:"GatewayModelKey"`
+	Server          Workload     `json:"Server"`
+	WebApp          Workload     `json:"WebApp"`
+	Postgres        PostgresSpec `json:"Postgres"`
+	OIDC            OIDCSpec     `json:"OIDC"`
+	SelfManaged     bool         `json:"SelfManaged"`
 }
 
 type RuntimeStatus int
@@ -48,9 +75,16 @@ type SloStatus struct {
 	Detail string `json:"Detail"`
 }
 
+type Workload struct {
+	ModelKey string `json:"ModelKey"`
+	Image    string `json:"Image"`
+	Replicas int64  `json:"Replicas"`
+}
+
 // OperatedRuntimeAccess is the generated service-contract interface for this component.
 type OperatedRuntimeAccess interface {
 	GetApplicationHealth(rc fwra.Context, appID uuid.UUID) (RuntimeStatus, error)
+	GetDeploymentResourceHealth(rc fwra.Context, appID uuid.UUID, desired RuntimeDesiredState) ([]ModelKeyHealth, error)
 	GetSloStatus(rc fwra.Context, appID uuid.UUID) (SloStatus, error)
 	PublishDesiredState(rc fwra.Context, appID uuid.UUID, desired RuntimeDesiredState, idempotencyKey fwra.IdempotencyKey) error
 	ReadComputeAttribution(rc fwra.Context, appID uuid.UUID, window AttributionWindow) (ComputeAttribution, error)

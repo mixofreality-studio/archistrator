@@ -87,6 +87,11 @@ export const OP_BINDINGS = {
     path: '/api/v1/operations/query-cost-projection/{operatedAppID}',
     tool: 'operationsQueryCostProjection',
   },
+  operationsQueryDeploymentHealth: {
+    method: 'GET',
+    path: '/api/v1/operations/query-deployment-health/{operatedAppID}',
+    tool: 'operationsQueryDeploymentHealth',
+  },
   operationsQueryOperatedSystemView: {
     method: 'GET',
     path: '/api/v1/operations/query-operated-system-view/{operatedAppID}',
@@ -96,6 +101,11 @@ export const OP_BINDINGS = {
     method: 'POST',
     path: '/api/v1/operations/reconcile-operated-state',
     tool: 'operationsReconcileOperatedState',
+  },
+  operationsRegisterOperatedApp: {
+    method: 'POST',
+    path: '/api/v1/operations/register-operated-app/{operatedAppID}/{customerID}',
+    tool: 'operationsRegisterOperatedApp',
   },
   operationsWithdrawSystem: {
     method: 'POST',

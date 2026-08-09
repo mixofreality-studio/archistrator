@@ -15,6 +15,7 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedruntime"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedsystemstate"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usage"
 	"github.com/mixofreality-studio/archistrator/server/internal/utility/messagebus"
 )
@@ -29,6 +30,7 @@ type genActivities struct {
 	Usage               usage.UsageAccess
 	Artifact            artifact.ArtifactAccess
 	MessageBus          messagebus.MessageBus
+	ProjectState        projectstate.ProjectStateAccess
 }
 
 // genActivityIdempotencyKey derives the run-scoped 3-part key
@@ -75,6 +77,13 @@ func (a *genActivities) OperatedSystemStateRecordRuntimeStatusChange(ctx context
 	return v, fwmanager.MapError(err)
 }
 
+// OperatedSystemStateRegisterOperatedSystem wraps operatedSystemStateAccess.registerOperatedSystem.
+// Registered as "operatedSystemStateAccess.registerOperatedSystem".
+func (a *genActivities) OperatedSystemStateRegisterOperatedSystem(ctx context.Context, operatedAppID uuid.UUID, customerID uuid.UUID, projectRef string, deployableBundleRef string) (operatedsystemstate.Version, error) {
+	v, err := a.OperatedSystemState.RegisterOperatedSystem(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, operatedAppID, customerID, projectRef, deployableBundleRef, genActivityIdempotencyKey(ctx))
+	return v, fwmanager.MapError(err)
+}
+
 // OperatedSystemStateWithdrawSystem wraps operatedSystemStateAccess.withdrawSystem.
 // Registered as "operatedSystemStateAccess.withdrawSystem".
 func (a *genActivities) OperatedSystemStateWithdrawSystem(ctx context.Context, operatedAppID uuid.UUID, expectedVersion operatedsystemstate.Version) (operatedsystemstate.Version, error) {
@@ -86,6 +95,13 @@ func (a *genActivities) OperatedSystemStateWithdrawSystem(ctx context.Context, o
 // Registered as "operatedRuntimeAccess.getApplicationHealth".
 func (a *genActivities) OperatedRuntimeGetApplicationHealth(ctx context.Context, appID uuid.UUID) (operatedruntime.RuntimeStatus, error) {
 	v, err := a.OperatedRuntime.GetApplicationHealth(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, appID)
+	return v, fwmanager.MapError(err)
+}
+
+// OperatedRuntimeGetDeploymentResourceHealth wraps operatedRuntimeAccess.getDeploymentResourceHealth.
+// Registered as "operatedRuntimeAccess.getDeploymentResourceHealth".
+func (a *genActivities) OperatedRuntimeGetDeploymentResourceHealth(ctx context.Context, appID uuid.UUID, desired operatedruntime.RuntimeDesiredState) ([]operatedruntime.ModelKeyHealth, error) {
+	v, err := a.OperatedRuntime.GetDeploymentResourceHealth(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, appID, desired)
 	return v, fwmanager.MapError(err)
 }
 
@@ -178,4 +194,67 @@ func (a *genActivities) MessageBusDeliverSignal(ctx context.Context, targetExecu
 func (a *genActivities) MessageBusRegisterSchedule(ctx context.Context, scheduleID messagebus.ScheduleID, spec messagebus.ScheduleSpec) error {
 	err := a.MessageBus.RegisterSchedule(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, scheduleID, spec)
 	return fwmanager.MapError(err)
+}
+
+// ProjectStateAcknowledgeStaleBasis wraps projectStateAccess.acknowledgeStaleBasis.
+// Registered as "projectStateAccess.acknowledgeStaleBasis".
+func (a *genActivities) ProjectStateAcknowledgeStaleBasis(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, kind projectstate.ArtifactKind, note string) (projectstate.Version, error) {
+	v, err := a.ProjectState.AcknowledgeStaleBasis(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, kind, note, genActivityIdempotencyKey(ctx))
+	return v, fwmanager.MapError(err)
+}
+
+// ProjectStateAdvancePhase wraps projectStateAccess.advancePhase.
+// Registered as "projectStateAccess.advancePhase".
+func (a *genActivities) ProjectStateAdvancePhase(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version) (projectstate.Version, error) {
+	v, err := a.ProjectState.AdvancePhase(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion)
+	return v, fwmanager.MapError(err)
+}
+
+// ProjectStateCommitArtifact wraps projectStateAccess.commitArtifact.
+// Registered as "projectStateAccess.commitArtifact".
+func (a *genActivities) ProjectStateCommitArtifact(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, kind projectstate.ArtifactKind) (projectstate.Version, error) {
+	v, err := a.ProjectState.CommitArtifact(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, kind)
+	return v, fwmanager.MapError(err)
+}
+
+// ProjectStateCreateProject wraps projectStateAccess.createProject.
+// Registered as "projectStateAccess.createProject".
+func (a *genActivities) ProjectStateCreateProject(ctx context.Context, projectID projectstate.ProjectID, owner projectstate.OwnerScope, name string) (projectstate.Version, error) {
+	v, err := a.ProjectState.CreateProject(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, owner, name)
+	return v, fwmanager.MapError(err)
+}
+
+// ProjectStateListProjects wraps projectStateAccess.listProjects.
+// Registered as "projectStateAccess.listProjects".
+func (a *genActivities) ProjectStateListProjects(ctx context.Context, owner projectstate.OwnerScope) ([]projectstate.ProjectSummary, error) {
+	v, err := a.ProjectState.ListProjects(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, owner)
+	return v, fwmanager.MapError(err)
+}
+
+// ProjectStateReadProject wraps projectStateAccess.readProject.
+// Registered as "projectStateAccess.readProject".
+func (a *genActivities) ProjectStateReadProject(ctx context.Context, projectID projectstate.ProjectID) (projectstate.Project, error) {
+	v, err := a.ProjectState.ReadProject(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID)
+	return v, fwmanager.MapError(err)
+}
+
+// ProjectStateReadProjectVersion wraps projectStateAccess.readProjectVersion.
+// Registered as "projectStateAccess.readProjectVersion".
+func (a *genActivities) ProjectStateReadProjectVersion(ctx context.Context, projectID projectstate.ProjectID) (projectstate.Version, error) {
+	v, err := a.ProjectState.ReadProjectVersion(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID)
+	return v, fwmanager.MapError(err)
+}
+
+// ProjectStateSetOperatingModel wraps projectStateAccess.setOperatingModel.
+// Registered as "projectStateAccess.setOperatingModel".
+func (a *genActivities) ProjectStateSetOperatingModel(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, model projectstate.OperatingModel) (projectstate.Version, error) {
+	v, err := a.ProjectState.SetOperatingModel(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, model)
+	return v, fwmanager.MapError(err)
+}
+
+// ProjectStateSetResearchInput wraps projectStateAccess.setResearchInput.
+// Registered as "projectStateAccess.setResearchInput".
+func (a *genActivities) ProjectStateSetResearchInput(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, research projectstate.ResearchInput) (projectstate.Version, error) {
+	v, err := a.ProjectState.SetResearchInput(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, research)
+	return v, fwmanager.MapError(err)
 }

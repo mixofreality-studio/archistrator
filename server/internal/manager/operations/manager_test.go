@@ -19,6 +19,9 @@ package operations
 //   A9  ApplyDelinquencyPolicy rejects empty customerId                → ContractMisuse
 //   A10 Workflow-id derivation tokens are the §6.1 shapes
 //   A11 DesiredStateReason / AutoscaleAction String() coverage
+//   A12 RegisterOperatedApp rejects empty operatedAppId/customerId/projectRef/
+//       deployableBundleRef (each independently, fail loudly — no zero-value skip) →
+//       ContractMisuse
 //
 // B. DeployWorkflow (workflow_test.go):
 //   B1  happy path: read → (bundle) → publish runtime → record head-state(deploy)
@@ -28,7 +31,8 @@ package operations
 // C. ReconcileWorkflow (workflow_test.go):
 //   C1  Path B: health transition → recordRuntimeStatusChange + DecideOnHealth(Retry)
 //                                   → re-publish; usage recorded
-//   C2  Path C: autoscaler Pause (idle) → publish replicas=0 + record(autoscale)
+//   C2  Path C: autoscaler Pause (idle) → record(autoscale); no runtime publish yet
+//       (no replica-override input to assembleDesiredState — follow-up)
 //   C3  quiet tick: no transition + NoChange → no transitions, no republishes
 //   C4  multiple in-flight apps counted in ReconcileResult.Observed
 //
@@ -42,16 +46,27 @@ package operations
 //       (asserted by zero head-state writes on the fake)
 //
 // F. DelinquencyEnforcementWorkflow (workflow_test.go):
-//   F1  queued signal resumes branch → pause (replicas=0) publish + recordDelinquencyAction
+//   F1  queued signal resumes branch → pause recordDelinquencyAction; no runtime
+//       publish yet (no replica-override input to assembleDesiredState — follow-up)
 //   F2  withdraw-terms branch → withdraw runtime + recordDelinquencyAction
 //
 // G. §6.5 Conflict discipline (workflow_test.go):
 //   G1  recordPublishDesiredState returns Conflict twice → re-read→re-apply converges
+//
+// H. RegisterWorkflow (op 2.8, onboarding seed):
+//   H1  happy path: registerOperatedSystem called once with the exact params passed in
+//   H2  already-registered (RA Conflict) propagates as the workflow/façade error, NOT
+//       swallowed or retried
 // =============================================================================
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -66,6 +81,8 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedruntime"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedsystemstate"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
+	projectstatefake "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate/fake"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usage"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/testsuite"
@@ -95,7 +112,7 @@ func asOperationsError(t *testing.T, err error) *fwmgr.Error {
 // ---- A1/A2: DeployAfterConstruction id checks -------------------------------
 
 func Test_Deploy_EmptyOperatedAppID(t *testing.T) {
-	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.DeployAfterConstruction(bgCtx(), uuid.Nil,
 		DesiredStateChange{Reason: ReasonDeployAfterConstruction, ChangeID: "c1"})
 	if got := asOperationsError(t, err).Kind; got != fwmgr.ContractMisuse {
@@ -104,7 +121,7 @@ func Test_Deploy_EmptyOperatedAppID(t *testing.T) {
 }
 
 func Test_Deploy_EmptyChangeID(t *testing.T) {
-	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.DeployAfterConstruction(bgCtx(), uuid.New(),
 		DesiredStateChange{Reason: ReasonOperator, ChangeID: ""})
 	if got := asOperationsError(t, err).Kind; got != fwmgr.ContractMisuse {
@@ -115,7 +132,7 @@ func Test_Deploy_EmptyChangeID(t *testing.T) {
 // ---- A3/A4/A5: the reason discriminator rejection (OQ-5) --------------------
 
 func Test_Deploy_RejectsReservedAutoscaleReason(t *testing.T) {
-	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.DeployAfterConstruction(bgCtx(), uuid.New(),
 		DesiredStateChange{Reason: ReasonAutoscale, ChangeID: "c1"})
 	if got := asOperationsError(t, err).Kind; got != fwmgr.ContractMisuse {
@@ -124,7 +141,7 @@ func Test_Deploy_RejectsReservedAutoscaleReason(t *testing.T) {
 }
 
 func Test_Deploy_RejectsReservedDelinquencyReason(t *testing.T) {
-	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.DeployAfterConstruction(bgCtx(), uuid.New(),
 		DesiredStateChange{Reason: ReasonDelinquency, ChangeID: "c1"})
 	if got := asOperationsError(t, err).Kind; got != fwmgr.ContractMisuse {
@@ -133,7 +150,7 @@ func Test_Deploy_RejectsReservedDelinquencyReason(t *testing.T) {
 }
 
 func Test_Deploy_RejectsUnknownReason(t *testing.T) {
-	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.DeployAfterConstruction(bgCtx(), uuid.New(),
 		DesiredStateChange{Reason: ReasonUnknown, ChangeID: "c1"})
 	if got := asOperationsError(t, err).Kind; got != fwmgr.ContractMisuse {
@@ -144,7 +161,7 @@ func Test_Deploy_RejectsUnknownReason(t *testing.T) {
 // ---- A6: ReconcileOperatedState ---------------------------------------------
 
 func Test_Reconcile_EmptyTickID(t *testing.T) {
-	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.ReconcileOperatedState(bgCtx(), "", nil)
 	if got := asOperationsError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -154,7 +171,7 @@ func Test_Reconcile_EmptyTickID(t *testing.T) {
 // ---- A7: WithdrawSystem ------------------------------------------------------
 
 func Test_Withdraw_EmptyOperatedAppID(t *testing.T) {
-	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.WithdrawSystem(bgCtx(), uuid.Nil, "c1", WithdrawReason{})
 	if got := asOperationsError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -162,7 +179,7 @@ func Test_Withdraw_EmptyOperatedAppID(t *testing.T) {
 }
 
 func Test_Withdraw_EmptyChangeID(t *testing.T) {
-	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.WithdrawSystem(bgCtx(), uuid.New(), "", WithdrawReason{})
 	if got := asOperationsError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -172,7 +189,7 @@ func Test_Withdraw_EmptyChangeID(t *testing.T) {
 // ---- A8: QueryCostProjection ------------------------------------------------
 
 func Test_CostProjection_EmptyOperatedAppID(t *testing.T) {
-	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.QueryCostProjection(bgCtx(), uuid.Nil, "r1", nil)
 	if got := asOperationsError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -180,7 +197,7 @@ func Test_CostProjection_EmptyOperatedAppID(t *testing.T) {
 }
 
 func Test_CostProjection_EmptyRequestID(t *testing.T) {
-	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.QueryCostProjection(bgCtx(), uuid.New(), "", nil)
 	if got := asOperationsError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -190,7 +207,7 @@ func Test_CostProjection_EmptyRequestID(t *testing.T) {
 // ---- A8b: QueryOperatedSystemView (op 2.7) ----------------------------------
 
 func Test_View_EmptyOperatedAppID(t *testing.T) {
-	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.QueryOperatedSystemView(bgCtx(), uuid.Nil, "r1")
 	if got := asOperationsError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -198,8 +215,18 @@ func Test_View_EmptyOperatedAppID(t *testing.T) {
 }
 
 func Test_View_EmptyRequestID(t *testing.T) {
-	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.QueryOperatedSystemView(bgCtx(), uuid.New(), "")
+	if got := asOperationsError(t, err).Kind; got != fwmgr.ContractMisuse {
+		t.Fatalf("want ContractMisuse, got %s", got)
+	}
+}
+
+// ---- A8c: QueryDeploymentHealth (op 2.9) ------------------------------------
+
+func Test_QueryDeploymentHealth_EmptyOperatedAppID(t *testing.T) {
+	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	_, err := m.QueryDeploymentHealth(bgCtx(), uuid.Nil)
 	if got := asOperationsError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
 	}
@@ -208,8 +235,65 @@ func Test_View_EmptyRequestID(t *testing.T) {
 // ---- A9: ApplyDelinquencyPolicy ---------------------------------------------
 
 func Test_Delinquency_EmptyCustomerID(t *testing.T) {
-	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	err := m.ApplyDelinquencyPolicy(bgCtx(), uuid.Nil, DelinquencyContext{})
+	if got := asOperationsError(t, err).Kind; got != fwmgr.ContractMisuse {
+		t.Fatalf("want ContractMisuse, got %s", got)
+	}
+}
+
+// ---- A13: the patch-kind discriminator (2026-08-08 final review, fix 3) -----
+//
+// Scale and Policy assemble no desired state — replicas come from the deployment model
+// and neither patch carries a bundle — so before this check they published a ZERO-VALUE
+// RuntimeDesiredState the renderer cannot use. Rejected by NAME at the façade so the
+// operator reads "not supported in this slice" rather than a ContractMisuse surfaced
+// from deep inside a ResourceAccess.
+
+func Test_Deploy_RejectsScaleAndPolicyPatchKinds(t *testing.T) {
+	for _, patch := range []PatchKind{PatchScale, PatchPolicy, PatchKindUnknown} {
+		m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+		_, err := m.DeployAfterConstruction(bgCtx(), uuid.New(),
+			DesiredStateChange{Reason: ReasonOperator, PatchKind: patch, ChangeID: "c1"})
+		oe := asOperationsError(t, err)
+		if oe.Kind != fwmgr.ContractMisuse {
+			t.Fatalf("patchKind %v: want ContractMisuse, got %s", patchKindName(patch), oe.Kind)
+		}
+		if patch != PatchKindUnknown && !strings.Contains(oe.Detail, patchKindName(patch)) {
+			t.Errorf("patchKind %v: the rejection must name the unsupported kind, got %q", patchKindName(patch), oe.Detail)
+		}
+	}
+}
+
+// ---- A12: RegisterOperatedApp — every param fails loudly, never silently skipped ---
+
+func Test_RegisterOperatedApp_EmptyOperatedAppID(t *testing.T) {
+	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	_, err := m.RegisterOperatedApp(bgCtx(), uuid.Nil, uuid.New(), "project-1", "bundle-1")
+	if got := asOperationsError(t, err).Kind; got != fwmgr.ContractMisuse {
+		t.Fatalf("want ContractMisuse, got %s", got)
+	}
+}
+
+func Test_RegisterOperatedApp_EmptyCustomerID(t *testing.T) {
+	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	_, err := m.RegisterOperatedApp(bgCtx(), uuid.New(), uuid.Nil, "project-1", "bundle-1")
+	if got := asOperationsError(t, err).Kind; got != fwmgr.ContractMisuse {
+		t.Fatalf("want ContractMisuse, got %s", got)
+	}
+}
+
+func Test_RegisterOperatedApp_EmptyProjectRef(t *testing.T) {
+	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	_, err := m.RegisterOperatedApp(bgCtx(), uuid.New(), uuid.New(), "", "bundle-1")
+	if got := asOperationsError(t, err).Kind; got != fwmgr.ContractMisuse {
+		t.Fatalf("want ContractMisuse, got %s", got)
+	}
+}
+
+func Test_RegisterOperatedApp_EmptyDeployableBundleRef(t *testing.T) {
+	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	_, err := m.RegisterOperatedApp(bgCtx(), uuid.New(), uuid.New(), "project-1", "")
 	if got := asOperationsError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
 	}
@@ -237,6 +321,20 @@ func Test_WorkflowIDDerivation(t *testing.T) {
 	}
 	if got := delinquencyWorkflowID(pid); got != pid.String()+":delinquency" {
 		t.Fatalf("delinquency id: %q", got)
+	}
+	if got := registerWorkflowID(pid); got != pid.String()+":register" {
+		t.Fatalf("register id: %q", got)
+	}
+	// deploymentHealthWorkflowID mints a fresh discriminator per call (op 2.9 takes no
+	// caller-supplied requestId) — assert the fixed prefix/shape and that two calls
+	// never collide, rather than pinning an exact string.
+	a, b := deploymentHealthWorkflowID(pid), deploymentHealthWorkflowID(pid)
+	wantPrefix := pid.String() + ":deploymentHealth:"
+	if !strings.HasPrefix(a, wantPrefix) || !strings.HasPrefix(b, wantPrefix) {
+		t.Fatalf("deployment health id prefix: %q / %q, want prefix %q", a, b, wantPrefix)
+	}
+	if a == b {
+		t.Fatalf("deployment health id must be fresh per call, got the same id twice: %q", a)
 	}
 }
 
@@ -300,11 +398,26 @@ type fakeOperatedState struct {
 	// calls before succeeding — drives the §6.5 re-read→re-apply loop.
 	conflictFirst int
 
-	published   []operatedsystemstate.DesiredStateReason
-	statusChges []operatedsystemstate.RuntimeStatus
-	withdrawn   []uuid.UUID
-	delinquency []operatedsystemstate.DelinquencyAction
-	version     operatedsystemstate.Version
+	published     []operatedsystemstate.DesiredStateReason
+	statusChges   []operatedsystemstate.RuntimeStatus
+	withdrawn     []uuid.UUID
+	delinquency   []operatedsystemstate.DelinquencyAction
+	registrations []registerCall
+	version       operatedsystemstate.Version
+
+	// registerErr, when non-nil, is returned by RegisterOperatedSystem instead of
+	// bumping the version — drives the already-registered Conflict path (H2).
+	registerErr error
+}
+
+// registerCall records one RegisterOperatedSystem call verbatim — asserted by the
+// onboarding tests (H) to prove the façade's params reach the RA unmodified, not just
+// that some call happened.
+type registerCall struct {
+	OperatedAppID       uuid.UUID
+	CustomerID          uuid.UUID
+	ProjectRef          string
+	DeployableBundleRef string
 }
 
 func (f *fakeOperatedState) ReadOperatedSystem(_ fwra.Context, _ uuid.UUID) (operatedsystemstate.OperatedSystem, error) {
@@ -336,6 +449,21 @@ func (f *fakeOperatedState) maybeConflict() error {
 		return fwra.New(fwra.Conflict, "stale version")
 	}
 	return nil
+}
+
+func (f *fakeOperatedState) RegisterOperatedSystem(_ fwra.Context, operatedAppID uuid.UUID, customerID uuid.UUID, projectRef string, deployableBundleRef string, _ fwra.IdempotencyKey) (operatedsystemstate.Version, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.registrations = append(f.registrations, registerCall{
+		OperatedAppID:       operatedAppID,
+		CustomerID:          customerID,
+		ProjectRef:          projectRef,
+		DeployableBundleRef: deployableBundleRef,
+	})
+	if f.registerErr != nil {
+		return 0, f.registerErr
+	}
+	return f.bump(), nil
 }
 
 func (f *fakeOperatedState) PublishDesiredState(_ fwra.Context, _ uuid.UUID, _ operatedsystemstate.Version, reason operatedsystemstate.DesiredStateReason, _ *operatedsystemstate.AutoscaleDecision, _ fwra.IdempotencyKey) (operatedsystemstate.Version, error) {
@@ -376,18 +504,22 @@ var _ operatedsystemstate.OperatedSystemStateAccess = (*fakeOperatedState)(nil)
 type fakeRuntime struct {
 	mu sync.Mutex
 
-	health      operatedruntime.RuntimeStatus
-	slo         operatedruntime.SloStatus
-	attribution operatedruntime.ComputeAttribution
+	health              operatedruntime.RuntimeStatus
+	slo                 operatedruntime.SloStatus
+	attribution         operatedruntime.ComputeAttribution
+	deploymentHealth    []operatedruntime.ModelKeyHealth
+	deploymentHealthErr error
 
 	publishes []uuid.UUID
+	published []operatedruntime.RuntimeDesiredState // review finding 1: the PAYLOAD each publish carried, not just the count
 	withdraws []uuid.UUID
 }
 
-func (r *fakeRuntime) PublishDesiredState(_ fwra.Context, appID uuid.UUID, _ operatedruntime.RuntimeDesiredState, _ fwra.IdempotencyKey) error {
+func (r *fakeRuntime) PublishDesiredState(_ fwra.Context, appID uuid.UUID, desired operatedruntime.RuntimeDesiredState, _ fwra.IdempotencyKey) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.publishes = append(r.publishes, appID)
+	r.published = append(r.published, desired)
 	return nil
 }
 
@@ -400,6 +532,13 @@ func (r *fakeRuntime) Withdraw(_ fwra.Context, appID uuid.UUID, _ fwra.Idempoten
 
 func (r *fakeRuntime) GetApplicationHealth(_ fwra.Context, _ uuid.UUID) (operatedruntime.RuntimeStatus, error) {
 	return r.health, nil
+}
+
+func (r *fakeRuntime) GetDeploymentResourceHealth(_ fwra.Context, _ uuid.UUID, _ operatedruntime.RuntimeDesiredState) ([]operatedruntime.ModelKeyHealth, error) {
+	if r.deploymentHealthErr != nil {
+		return nil, r.deploymentHealthErr
+	}
+	return r.deploymentHealth, nil
 }
 
 func (r *fakeRuntime) GetSloStatus(_ fwra.Context, _ uuid.UUID) (operatedruntime.SloStatus, error) {
@@ -452,11 +591,17 @@ type fakeArtifacts struct {
 	mu        sync.Mutex
 }
 
+// fakeBundleManifestJSON is a valid bundleManifest (assemble.go) payload — the
+// deploy bundle path (B1) now folds this through assembleDesiredState, which
+// requires parseable bundle bytes; content doesn't matter to these tests, only
+// that it parses.
+const fakeBundleManifestJSON = `{"serverImage":"fake/server:test","webAppImage":"fake/webapp:test"}`
+
 func (a *fakeArtifacts) RetrieveConstructionOutput(_ fwra.Context, _ string) (artifact.ConstructionOutput, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.retrieveN++
-	return artifact.ConstructionOutput{}, nil
+	return artifact.ConstructionOutput{Bytes: []byte(fakeBundleManifestJSON), MIMEType: "application/json"}, nil
 }
 
 func (a *fakeArtifacts) RetrieveOutputTree(_ fwra.Context, _ string) (artifact.OutputTree, error) {
@@ -549,19 +694,31 @@ func baseDeps() (wfDeps, *fakeOperatedState, *fakeRuntime, *fakeUsage, *fakeArti
 // call by. Registering the full set each test is harmless (unused ones are never
 // dispatched) and keeps the per-workflow register helpers uniform.
 func registerActs(env *testsuite.TestWorkflowEnvironment, os *fakeOperatedState, rt *fakeRuntime, us *fakeUsage, ar *fakeArtifacts) {
-	acts := &genActivities{OperatedSystemState: os, OperatedRuntime: rt, Usage: us, Artifact: ar}
+	// ps serves the SAME complete "archistrator" project fixture assemble_test.go
+	// exercises directly (projectFixture) — so DeployWorkflow's happy path (B1),
+	// which now folds the deployment model through assembleDesiredState, keeps
+	// succeeding without every test needing to author its own model.
+	ps := &projectstatefake.FakeProjectStateAccess{
+		ReadProjectFn: func(_ fwra.Context, _ projectstate.ProjectID) (projectstate.Project, error) {
+			return projectFixture(), nil
+		},
+	}
+	acts := &genActivities{OperatedSystemState: os, OperatedRuntime: rt, Usage: us, Artifact: ar, ProjectState: ps}
 	reg := func(fn any, name string) {
 		env.RegisterActivityWithOptions(fn, activity.RegisterOptions{Name: name})
 	}
+	reg(acts.ProjectStateReadProject, "projectStateAccess.readProject")
 	reg(acts.OperatedSystemStateReadOperatedSystem, "operatedSystemStateAccess.readOperatedSystem")
 	reg(acts.OperatedSystemStateReadInFlightOperatedApps, "operatedSystemStateAccess.readInFlightOperatedApps")
 	reg(acts.OperatedSystemStatePublishDesiredState, "operatedSystemStateAccess.publishDesiredState")
 	reg(acts.OperatedSystemStateRecordRuntimeStatusChange, "operatedSystemStateAccess.recordRuntimeStatusChange")
 	reg(acts.OperatedSystemStateWithdrawSystem, "operatedSystemStateAccess.withdrawSystem")
 	reg(acts.OperatedSystemStateRecordDelinquencyAction, "operatedSystemStateAccess.recordDelinquencyAction")
+	reg(acts.OperatedSystemStateRegisterOperatedSystem, "operatedSystemStateAccess.registerOperatedSystem")
 	reg(acts.OperatedRuntimePublishDesiredState, "operatedRuntimeAccess.publishDesiredState")
 	reg(acts.OperatedRuntimeWithdraw, "operatedRuntimeAccess.withdraw")
 	reg(acts.OperatedRuntimeGetApplicationHealth, "operatedRuntimeAccess.getApplicationHealth")
+	reg(acts.OperatedRuntimeGetDeploymentResourceHealth, "operatedRuntimeAccess.getDeploymentResourceHealth")
 	reg(acts.OperatedRuntimeGetSloStatus, "operatedRuntimeAccess.getSloStatus")
 	reg(acts.OperatedRuntimeReadComputeAttribution, "operatedRuntimeAccess.readComputeAttribution")
 	reg(acts.UsageRecordComputeUsage, "usageAccess.recordComputeUsage")
@@ -595,8 +752,18 @@ func registerView(env *testsuite.TestWorkflowEnvironment, wf *workflows, os *fak
 	registerActs(env, os, rt, us, ar)
 }
 
+func registerQueryDeploymentHealth(env *testsuite.TestWorkflowEnvironment, wf *workflows, os *fakeOperatedState, rt *fakeRuntime, us *fakeUsage, ar *fakeArtifacts) {
+	env.RegisterWorkflowWithOptions(wf.QueryDeploymentHealthWorkflow, workflow.RegisterOptions{Name: executionKindDeploymentHealth})
+	registerActs(env, os, rt, us, ar)
+}
+
 func registerDelinquency(env *testsuite.TestWorkflowEnvironment, wf *workflows, os *fakeOperatedState, rt *fakeRuntime, us *fakeUsage, ar *fakeArtifacts) {
 	env.RegisterWorkflowWithOptions(wf.DelinquencyEnforcementWorkflow, workflow.RegisterOptions{Name: executionKindDelinquency})
+	registerActs(env, os, rt, us, ar)
+}
+
+func registerRegister(env *testsuite.TestWorkflowEnvironment, wf *workflows, os *fakeOperatedState, rt *fakeRuntime, us *fakeUsage, ar *fakeArtifacts) {
+	env.RegisterWorkflowWithOptions(wf.RegisterWorkflow, workflow.RegisterOptions{Name: executionKindRegister})
 	registerActs(env, os, rt, us, ar)
 }
 
@@ -635,6 +802,16 @@ func Test_Deploy_HappyPath_RetrievesBundle_PublishesAndRecords(t *testing.T) {
 	if len(rt.publishes) != 1 {
 		t.Fatalf("want one runtime publish, got %d", len(rt.publishes))
 	}
+	// Review finding 1: assert WHAT was published, not just that a publish
+	// happened — a left-zero-valued `desired` in deploy.go would previously pass
+	// this test undetected.
+	if len(rt.published) != 1 {
+		t.Fatalf("want one recorded published payload, got %d", len(rt.published))
+	}
+	if got := rt.published[0]; got.Namespace != "archistrator" || got.Server.Image != "fake/server:test" {
+		t.Fatalf("published desired state not assembled: got Namespace=%q Server.Image=%q, want Namespace=%q Server.Image=%q",
+			got.Namespace, got.Server.Image, "archistrator", "fake/server:test")
+	}
 	if len(os.published) != 1 || os.published[0] != operatedsystemstate.ReasonDeployAfterConstruction {
 		t.Fatalf("want one head-state publish(deployAfterConstruction), got %v", os.published)
 	}
@@ -665,31 +842,39 @@ func Test_Deploy_NoBundleRef_FailedPrecondition(t *testing.T) {
 	}
 }
 
-// B3: an operator scale republish (PatchScale) does NOT retrieve a bundle but still
-// publishes + records (reason=operator).
-func Test_Deploy_OperatorScale_NoBundleRetrieve(t *testing.T) {
-	var ts testsuite.WorkflowTestSuite
-	env := ts.NewTestWorkflowEnvironment()
+// B3 (rewritten, 2026-08-08 final review fix 3): an operator scale republish is REFUSED
+// by the workflow and publishes NOTHING. It used to assemble no desired state and publish
+// the zero value, which under the renderer is a half-rendered deployment or a confusing
+// ContractMisuse from deep inside the ResourceAccess. The façade rejects it first
+// (Test_Deploy_RejectsScaleAndPolicyPatchKinds); this covers the workflow's own guard, so
+// no future caller can reintroduce the zero-value publish by going around the façade.
+func Test_Deploy_OperatorScale_IsRefusedAndPublishesNothing(t *testing.T) {
+	for _, patch := range []PatchKind{PatchScale, PatchPolicy, PatchKindUnknown} {
+		t.Run(patchKindName(patch), func(t *testing.T) {
+			var ts testsuite.WorkflowTestSuite
+			env := ts.NewTestWorkflowEnvironment()
 
-	deps, os, rt, us, ar := baseDeps()
-	appID := uuid.New()
-	os.system = operatedsystemstate.OperatedSystem{ID: appID, Version: 2}
-	wf := newWorkflows(deps)
-	registerDeploy(env, wf, os, rt, us, ar)
+			deps, os, rt, us, ar := baseDeps()
+			appID := uuid.New()
+			os.system = operatedsystemstate.OperatedSystem{ID: appID, Version: 2, DeployableBundleRef: "addr-1"}
+			wf := newWorkflows(deps)
+			registerDeploy(env, wf, os, rt, us, ar)
 
-	env.ExecuteWorkflow(executionKindDeploy, deployInput{
-		OperatedAppID: appID,
-		Change:        DesiredStateChange{Reason: ReasonOperator, PatchKind: PatchScale, ChangeID: "c2"},
-	})
+			env.ExecuteWorkflow(executionKindDeploy, deployInput{
+				OperatedAppID: appID,
+				Change:        DesiredStateChange{Reason: ReasonOperator, PatchKind: patch, ChangeID: "c2"},
+			})
 
-	if err := env.GetWorkflowError(); err != nil {
-		t.Fatalf("workflow error: %v", err)
-	}
-	if ar.retrieveN != 0 {
-		t.Fatalf("operator scale must NOT retrieve a bundle, got %d", ar.retrieveN)
-	}
-	if len(rt.publishes) != 1 || len(os.published) != 1 || os.published[0] != operatedsystemstate.ReasonOperator {
-		t.Fatalf("want one publish + head-state record(operator), got publishes=%d head=%v", len(rt.publishes), os.published)
+			if env.GetWorkflowError() == nil {
+				t.Fatalf("patchKind %v must be refused", patchKindName(patch))
+			}
+			if len(rt.publishes) != 0 || len(rt.published) != 0 || len(os.published) != 0 {
+				t.Fatalf("a refused patch must publish nothing; runtime=%d head=%v", len(rt.publishes), os.published)
+			}
+			if ar.retrieveN != 0 {
+				t.Fatalf("a refused patch must retrieve no bundle, got %d", ar.retrieveN)
+			}
+		})
 	}
 }
 
@@ -726,16 +911,21 @@ func Test_Reconcile_HealthTransition_RecordsStatus_AndRepublishes(t *testing.T) 
 	if us.computeN != 1 {
 		t.Fatalf("want one recordComputeUsage, got %d", us.computeN)
 	}
-	// Retry directive re-publishes prior desired state (runtime publish, no head-state
-	// autoscale record).
-	if len(rt.publishes) != 1 {
-		t.Fatalf("want one re-publish from the Retry directive, got %d", len(rt.publishes))
+	// Review finding 2: the Retry directive no longer calls the runtime publish —
+	// this Manager has no cached prior desired state to re-derive, and publishing
+	// an empty RuntimeDesiredState is a real hazard under the typed contract, not
+	// an inert no-op. Retry is observability-only until a real "last published
+	// state" concept lands (see reconcile.go's HealthRetry comment).
+	if len(rt.publishes) != 0 {
+		t.Fatalf("want zero runtime publishes from the Retry directive (no cached state to republish), got %d", len(rt.publishes))
 	}
 }
 
-// C2: autoscaler Pause (idle) publishes replicas=0 and records the head-state
-// transition (reason=autoscale).
-func Test_Reconcile_AutoscalePause_PublishesAndRecordsAutoscale(t *testing.T) {
+// C2: autoscaler Pause (idle) records the head-state transition (reason=autoscale).
+// Does NOT call the runtime publish (review finding 2): assembleDesiredState has
+// no replica-override input yet, so there is no correct RuntimeDesiredState this
+// path could construct today — see autoscaleOne's comment (reconcile.go).
+func Test_Reconcile_AutoscalePause_RecordsAutoscaleDecision(t *testing.T) {
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
 
@@ -763,8 +953,8 @@ func Test_Reconcile_AutoscalePause_PublishesAndRecordsAutoscale(t *testing.T) {
 	if len(os.published) != 1 || os.published[0] != operatedsystemstate.ReasonAutoscale {
 		t.Fatalf("want one head-state publish(autoscale), got %v", os.published)
 	}
-	if len(rt.publishes) != 1 {
-		t.Fatalf("want one runtime publish for the idle-pause, got %d", len(rt.publishes))
+	if len(rt.publishes) != 0 {
+		t.Fatalf("want zero runtime publishes for the idle-pause (no replica-override path yet), got %d", len(rt.publishes))
 	}
 }
 
@@ -1075,11 +1265,160 @@ func Test_View_UnconfiguredAutoscaler_ReportsUnknown(t *testing.T) {
 	}
 }
 
+// ============================ I. QueryDeploymentHealthWorkflow (op 2.9) =====
+
+// I1: happy path — reads head-state + the committed project, assembles the desired
+// state (the same fold DeployWorkflow's full-bundle branch uses), calls the RA verb,
+// and applies the diagram collapse/neutrality rules over the FULL cloud-environment
+// key set — not just the keys the RA happened to return.
+func Test_QueryDeploymentHealth_ComposesRAHealthAndAppliesNeutrality(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	deps, os, rt, us, ar := baseDeps()
+	appID := uuid.New()
+	os.system = operatedsystemstate.OperatedSystem{ID: appID, Version: 1, DeployableBundleRef: "addr-1"}
+	rt.deploymentHealth = []operatedruntime.ModelKeyHealth{
+		{ModelKey: "cloud-node-server-deployment", Status: operatedruntime.RuntimeStatusHealthy},
+		{ModelKey: "cloud-infra-billingstate", Status: operatedruntime.RuntimeStatusDegraded},
+	}
+	wf := newWorkflows(deps)
+	registerQueryDeploymentHealth(env, wf, os, rt, us, ar)
+
+	env.ExecuteWorkflow(executionKindDeploymentHealth, queryDeploymentHealthInput{OperatedAppID: appID})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	var got DeploymentHealth
+	if err := env.GetWorkflowResult(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	byKey := map[string]HealthState{}
+	for _, n := range got.Nodes {
+		byKey[n.ModelKey] = n.Health
+	}
+	if byKey["cloud-node-server-deployment"] != HealthStateHealthy {
+		t.Errorf("server = %v, want Healthy", byKey["cloud-node-server-deployment"])
+	}
+	if byKey["cloud-infra-billingstate"] != HealthStateUnhealthy {
+		t.Errorf("billingstate = %v, want Unhealthy (Degraded collapses to Unhealthy)", byKey["cloud-infra-billingstate"])
+	}
+	// Diagram nodes the RA never mentioned at all — the architect's own laptop and
+	// browser, the shared gateway — must read Neutral, never Unhealthy. This is the
+	// trap spec §6 names explicitly: a naive join paints the founder's own laptop red.
+	for _, k := range []string{"cloud-node-browser", "cloud-node-architect-machine", "cloud-infra-gateway"} {
+		if byKey[k] != HealthStateNeutral {
+			t.Errorf("%s = %v, want Neutral — the RA returned no opinion about it", k, byKey[k])
+		}
+	}
+}
+
+// I2: no deployableBundleRef (nothing has ever been deployed) → FailedPrecondition,
+// mirroring Deploy's own B2. No RA call, nothing published.
+func Test_QueryDeploymentHealth_NoBundleRef_FailedPrecondition(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	deps, os, rt, us, ar := baseDeps()
+	appID := uuid.New()
+	os.system = operatedsystemstate.OperatedSystem{ID: appID, Version: 1, DeployableBundleRef: ""}
+	wf := newWorkflows(deps)
+	registerQueryDeploymentHealth(env, wf, os, rt, us, ar)
+
+	env.ExecuteWorkflow(executionKindDeploymentHealth, queryDeploymentHealthInput{OperatedAppID: appID})
+
+	if env.GetWorkflowError() == nil {
+		t.Fatal("want a FailedPrecondition error for a missing deployableBundleRef")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// applyDiagramHealth / allDeploymentDiagramKeys — pure functions (querydeploymenthealth.go).
+// ---------------------------------------------------------------------------
+
+// TestQueryDeploymentHealth_NeutralForNodesWeDoNotDeploy is the trap from spec §6: a
+// naive join paints the architect's own laptop, their browser, and another app's
+// namespace red. Only the ONE key the RA actually reported may collapse to
+// Healthy/Unhealthy; every other diagram key must read Neutral.
+func TestQueryDeploymentHealth_NeutralForNodesWeDoNotDeploy(t *testing.T) {
+	got := applyDiagramHealth(
+		[]operatedruntime.ModelKeyHealth{{ModelKey: "cloud-node-server-deployment", Status: operatedruntime.RuntimeStatusHealthy}},
+		[]string{"cloud-node-server-deployment", "cloud-node-browser", "cloud-node-ns-gtd", "cloud-node-architect-machine"},
+	)
+	byKey := map[string]HealthState{}
+	for _, n := range got.Nodes {
+		byKey[n.ModelKey] = n.Health
+	}
+	if byKey["cloud-node-server-deployment"] != HealthStateHealthy {
+		t.Errorf("server = %v, want Healthy", byKey["cloud-node-server-deployment"])
+	}
+	for _, k := range []string{"cloud-node-browser", "cloud-node-ns-gtd", "cloud-node-architect-machine"} {
+		if byKey[k] != HealthStateNeutral {
+			t.Errorf("%s = %v, want Neutral — we do not deploy it", k, byKey[k])
+		}
+	}
+}
+
+// TestApplyDiagramHealth_NonHealthyCollapsesToUnhealthy: every RuntimeStatus other than
+// Healthy — Degraded, Pending, Unknown, Withdrawn — collapses to HealthStateUnhealthy.
+// D10's "only Healthy is green" rule, expressed here over RuntimeStatus.
+func TestApplyDiagramHealth_NonHealthyCollapsesToUnhealthy(t *testing.T) {
+	for _, status := range []operatedruntime.RuntimeStatus{
+		operatedruntime.RuntimeStatusDegraded,
+		operatedruntime.RuntimeStatusPending,
+		operatedruntime.RuntimeStatusUnknown,
+		operatedruntime.RuntimeStatusWithdrawn,
+	} {
+		got := applyDiagramHealth(
+			[]operatedruntime.ModelKeyHealth{{ModelKey: "k1", Status: status}},
+			[]string{"k1"},
+		)
+		if len(got.Nodes) != 1 || got.Nodes[0].Health != HealthStateUnhealthy {
+			t.Errorf("status %v: nodes = %+v, want one Unhealthy node", status, got.Nodes)
+		}
+	}
+}
+
+// TestAllDeploymentDiagramKeys_WalksNodesAndInfrastructureNodesRecursively pins the
+// key set applyDiagramHealth's neutrality rule is computed over: every DeploymentNode
+// key AND every InfrastructureNode key nested anywhere in the tree, including subtrees
+// (the architect's machine/browser) archistrator never deploys to.
+func TestAllDeploymentDiagramKeys_WalksNodesAndInfrastructureNodesRecursively(t *testing.T) {
+	env, ok := findCloudEnvironment(projectFixture().OperationalConcepts.Model.(*projectstate.DeploymentOperationsModel).Deployment.Environments)
+	if !ok {
+		t.Fatal("projectFixture has no cloud environment")
+	}
+	keys := allDeploymentDiagramKeys(env.Nodes)
+	want := []string{
+		"cloud-node-browser",
+		"cloud-node-architect-machine",
+		"cloud-node-cluster",
+		"cloud-node-ns-archistrator",
+		"cloud-node-server-deployment",
+		"cloud-infra-gateway",
+		"cloud-infra-keycloak",
+		"cloud-infra-static-assets",
+		"cloud-infra-operatedsystemstate",
+		"cloud-infra-billingstate",
+		"cloud-infra-usagelog",
+		"cloud-infra-temporal",
+	}
+	for _, w := range want {
+		if !slices.Contains(keys, w) {
+			t.Errorf("allDeploymentDiagramKeys missing %q; got %v", w, keys)
+		}
+	}
+}
+
 // ============================ F. DelinquencyEnforcementWorkflow =============
 
-// F1: the queued signal resumes the branch; pause terms publish replicas=0 + record
-// the delinquency action (Paused).
-func Test_Delinquency_PauseTerms_PublishesAndRecordsPaused(t *testing.T) {
+// F1: the queued signal resumes the branch; pause terms record the delinquency
+// action (Paused). No runtime publish yet (review finding 2): a pause needs a
+// real scale-to-zero, which assembleDesiredState cannot construct without a
+// replica-override input — see runDelinquencyBranch's comment
+// (delinquencyenforcement.go).
+func Test_Delinquency_PauseTerms_RecordsPaused(t *testing.T) {
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
 
@@ -1100,8 +1439,8 @@ func Test_Delinquency_PauseTerms_PublishesAndRecordsPaused(t *testing.T) {
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("workflow error: %v", err)
 	}
-	if len(rt.publishes) != 2 {
-		t.Fatalf("want two pause publishes (one per app), got %d", len(rt.publishes))
+	if len(rt.publishes) != 0 {
+		t.Fatalf("want zero runtime publishes for pause terms (no replica-override path yet), got %d", len(rt.publishes))
 	}
 	if len(rt.withdraws) != 0 {
 		t.Fatalf("pause terms must NOT withdraw, got %d", len(rt.withdraws))
@@ -1151,14 +1490,14 @@ func Test_Deploy_ConflictOnRecord_ReReadReApply_Succeeds(t *testing.T) {
 
 	deps, os, rt, us, ar := baseDeps()
 	appID := uuid.New()
-	os.system = operatedsystemstate.OperatedSystem{ID: appID, Version: 1}
+	os.system = operatedsystemstate.OperatedSystem{ID: appID, Version: 1, DeployableBundleRef: "addr-1"}
 	os.conflictFirst = 2 // first two head-state publishes Conflict, then succeed
 	wf := newWorkflows(deps)
 	registerDeploy(env, wf, os, rt, us, ar)
 
 	env.ExecuteWorkflow(executionKindDeploy, deployInput{
 		OperatedAppID: appID,
-		Change:        DesiredStateChange{Reason: ReasonOperator, PatchKind: PatchScale, ChangeID: "c-conf"},
+		Change:        DesiredStateChange{Reason: ReasonOperator, PatchKind: PatchFullBundle, ChangeID: "c-conf"},
 	})
 
 	if err := env.GetWorkflowError(); err != nil {
@@ -1171,5 +1510,566 @@ func Test_Deploy_ConflictOnRecord_ReReadReApply_Succeeds(t *testing.T) {
 	}
 	if len(os.published) != 1 {
 		t.Fatalf("conflict loop must converge to exactly one recorded head-state publish, got %v", os.published)
+	}
+}
+
+// ============================ H. RegisterWorkflow ============================
+
+// H1: the happy path calls registerOperatedSystem exactly once, with the exact params
+// the façade was given (not just "some call happened"), and returns the new version.
+func Test_Register_HappyPath_CallsRegisterOperatedSystemOnce(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	deps, os, rt, us, ar := baseDeps()
+	appID := uuid.New()
+	custID := uuid.New()
+	wf := newWorkflows(deps)
+	registerRegister(env, wf, os, rt, us, ar)
+
+	env.ExecuteWorkflow(executionKindRegister, registerInput{
+		OperatedAppID:       appID,
+		CustomerID:          custID,
+		ProjectRef:          "project-abc",
+		DeployableBundleRef: "bundle-xyz",
+	})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	var res Version
+	if err := env.GetWorkflowResult(&res); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if res != Version(1) {
+		t.Fatalf("version = %d, want 1", res)
+	}
+	if len(os.registrations) != 1 {
+		t.Fatalf("want exactly one registerOperatedSystem call, got %d", len(os.registrations))
+	}
+	want := registerCall{OperatedAppID: appID, CustomerID: custID, ProjectRef: "project-abc", DeployableBundleRef: "bundle-xyz"}
+	if got := os.registrations[0]; got != want {
+		t.Fatalf("registerOperatedSystem call = %+v, want %+v", got, want)
+	}
+}
+
+// H2: an already-registered app (RA Conflict, a different key against an existing row)
+// propagates as the workflow's error — it is NOT swallowed, and NOT retried into a
+// silent success (registration is a one-time event, not a re-read→re-apply race).
+func Test_Register_AlreadyRegistered_ConflictPropagates(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	deps, os, rt, us, ar := baseDeps()
+	os.registerErr = fwra.New(fwra.Conflict, "operated app already registered")
+	wf := newWorkflows(deps)
+	registerRegister(env, wf, os, rt, us, ar)
+
+	env.ExecuteWorkflow(executionKindRegister, registerInput{
+		OperatedAppID:       uuid.New(),
+		CustomerID:          uuid.New(),
+		ProjectRef:          "project-abc",
+		DeployableBundleRef: "bundle-xyz",
+	})
+
+	if env.GetWorkflowError() == nil {
+		t.Fatal("want a Conflict error for an already-registered app")
+	}
+	if len(os.registrations) != 1 {
+		t.Fatalf("want exactly one registerOperatedSystem attempt (no silent retry), got %d", len(os.registrations))
+	}
+}
+
+// ============================ F. assembleDesiredState (deploy.go) ============
+
+// mustJSON marshals v into a bundleManifest-shaped payload for a deployableBundle
+// fixture, failing the test on a marshal error (never expected for these literals).
+func mustJSON(t *testing.T, v bundleManifest) []byte {
+	t.Helper()
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("mustJSON: %v", err)
+	}
+	return b
+}
+
+// projectFixture builds a complete, self-consistent "archistrator" project whose
+// cloud deployment environment MIRRORS THE REAL COMMITTED STRUCTURE (verified
+// against .aiarch/state/project.json, founder ruling 2026-08-08 correcting the
+// original round-1 brief): a namespace declaring ONE workload node (the server)
+// plus role-carrying infrastructure nodes — gateway, identityProvider, the
+// webapp's static-asset server (role "other", disambiguated from the decoy
+// cloud-infra-temporal-alike node below by its relationship to the webapp's
+// containerInstance, not by role — D11 trap #1), and three database nodes
+// collapsed to one PostgresSpec (D11 trap #2). The webapp's own containerInstance
+// legitimately sits on the architect's browser (D11 trap #3) — that subtree is
+// NOT a decoy, it is the correct place for it.
+//
+// testProject (below) is this fixture under the exact name the task brief's given
+// test calls; registerActs (above) shares this SAME builder so the pre-existing
+// DeployWorkflow tests — which now also invoke assembleDesiredState — keep
+// passing without hand-authoring a second fixture.
+func projectFixture() projectstate.Project {
+	browser := projectstate.DeploymentNode{
+		Key:        "cloud-node-browser",
+		Name:       "Web browser",
+		Technology: "Chrome, Firefox, Safari or Edge",
+		ContainerInstances: []projectstate.ContainerInstance{
+			{Key: "cloud-ci-spa-browser", ContainerKey: "archistrator-webapp"},
+		},
+	}
+	architectMachine := projectstate.DeploymentNode{
+		Key:        "cloud-node-architect-machine",
+		Name:       "Architect's computer",
+		Technology: "macOS, Windows or Linux",
+		Children:   []projectstate.DeploymentNode{browser},
+	}
+
+	serverDeployment := projectstate.DeploymentNode{
+		Key:        "cloud-node-server-deployment",
+		Name:       "server Deployment",
+		Technology: "Kubernetes Deployment",
+		Instances:  2,
+		ContainerInstances: []projectstate.ContainerInstance{
+			{Key: "cloud-ci-server", ContainerKey: "archistrator-server"},
+		},
+	}
+	namespace := projectstate.DeploymentNode{
+		Key:        "cloud-node-ns-archistrator",
+		Name:       "archistrator namespace",
+		Technology: "k8s-namespace",
+		Children:   []projectstate.DeploymentNode{serverDeployment},
+		InfrastructureNodes: []projectstate.InfrastructureNode{
+			{Key: "cloud-infra-gateway", Name: "Envoy Gateway", Role: projectstate.RoleGateway},
+			{Key: "cloud-infra-keycloak", Name: "Keycloak", Role: projectstate.RoleIdentityProvider},
+			{Key: "cloud-infra-static-assets", Name: "Static asset server", Role: projectstate.RoleOther},
+			{Key: "cloud-infra-operatedsystemstate", Name: "OperatedSystemState", Role: projectstate.RoleDatabase},
+			{Key: "cloud-infra-billingstate", Name: "BillingState", Role: projectstate.RoleDatabase},
+			{Key: "cloud-infra-usagelog", Name: "UsageLog", Role: projectstate.RoleDatabase},
+		},
+	}
+	// decoyOtherRoleNode: a SECOND role:"other" node in the SAME namespace as the
+	// real static-asset server, with no relationship delivering the webapp
+	// container — proves the D11 trap #1 disambiguation is real (relationship,
+	// not "the only role:other node I happened to find").
+	namespace.InfrastructureNodes = append(namespace.InfrastructureNodes,
+		projectstate.InfrastructureNode{Key: "cloud-infra-temporal", Name: "DurableExecutionRuntime", Role: projectstate.RoleOther})
+	cluster := projectstate.DeploymentNode{
+		Key:        "cloud-node-cluster",
+		Name:       "Mixofreality Kubernetes Cluster",
+		Technology: "k8s",
+		Children:   []projectstate.DeploymentNode{namespace},
+	}
+
+	model := &projectstate.DeploymentOperationsModel{
+		Deployment: projectstate.DeploymentTopology{
+			Environments: []projectstate.DeploymentEnvironment{
+				{
+					Profile: projectstate.ProfileCloud,
+					Title:   "Cloud",
+					Nodes:   []projectstate.DeploymentNode{architectMachine, cluster},
+					// The relationship is what identifies the static-asset node as the
+					// webapp's serving node (D11 trap #1) — role alone is ambiguous.
+					Relationships: []projectstate.DeploymentRelationship{
+						{From: "cloud-infra-static-assets", To: "cloud-ci-spa-browser", Label: "Delivers the SPA to the architect's browser", Technology: "HTTPS", Mode: projectstate.CallSync},
+					},
+				},
+				{
+					Profile: projectstate.ProfileTest,
+					Title:   "Test",
+				},
+			},
+		},
+	}
+
+	return projectstate.Project{
+		ID: "archistrator",
+		OperationalConcepts: projectstate.ArtifactSlot{
+			Model: model,
+		},
+	}
+}
+
+// testProject is the task brief's named fixture: "a trimmed project with a cloud
+// environment". See projectFixture for the node tree it returns.
+func testProject(t *testing.T) projectstate.Project {
+	t.Helper()
+	return projectFixture()
+}
+
+// testProjectLocalOnly is a project whose deployment model carries no cloud
+// environment (only local) — the model assembleDesiredState must reject.
+func testProjectLocalOnly(t *testing.T) projectstate.Project {
+	t.Helper()
+	model := &projectstate.DeploymentOperationsModel{
+		Deployment: projectstate.DeploymentTopology{
+			Environments: []projectstate.DeploymentEnvironment{
+				{Profile: projectstate.ProfileLocal, Title: "Local"},
+				{Profile: projectstate.ProfileTest, Title: "Test"},
+			},
+		},
+	}
+	return projectstate.Project{
+		ID: "archistrator",
+		OperationalConcepts: projectstate.ArtifactSlot{
+			Model: model,
+		},
+	}
+}
+
+func TestAssembleDesiredState_MapsCloudEnvironmentAndBundleImages(t *testing.T) {
+	proj := testProject(t) // fixture: a trimmed project with a cloud environment
+	bundle := deployableBundle{Output: artifact.ConstructionOutput{
+		Bytes:    mustJSON(t, bundleManifest{ServerImage: "ghcr.io/mixofreality-studio/archistrator-server:0.8.16", WebAppImage: "ghcr.io/mixofreality-studio/archistrator-webapp:0.6.61"}),
+		MIMEType: "application/json",
+	}}
+	op := operatedsystemstate.OperatedSystem{ID: uuid.New(), Version: 3}
+
+	got, err := assembleDesiredState(proj, bundle, op)
+	if err != nil {
+		t.Fatalf("assembleDesiredState: %v", err)
+	}
+	// Every scalar the fold derives, checked in one table. A plain chain of ifs
+	// adds a branch per field and pushes this test past the cyclomatic-
+	// complexity gate every time the contract gains one.
+	for _, tc := range []struct{ field, got, want string }{
+		{"Namespace", got.Namespace, "archistrator"},
+		{"Host", got.Host, "archistrator.capture-gtd.com"},
+		{"Server.Image", got.Server.Image, "ghcr.io/mixofreality-studio/archistrator-server:0.8.16"},
+		{"WebApp.Image", got.WebApp.Image, "ghcr.io/mixofreality-studio/archistrator-webapp:0.6.61"},
+		{"Server.ModelKey", got.Server.ModelKey, "cloud-node-server-deployment"},
+		// WebApp.ModelKey is the STATIC-ASSET node's key (D11 trap #3), never
+		// the browser node's — the browser is where archistrator-webapp's
+		// containerInstance legitimately lives, but it must never be coloured
+		// by cluster health.
+		{"WebApp.ModelKey", got.WebApp.ModelKey, "cloud-infra-static-assets"},
+		{"ModelKey", got.ModelKey, "cloud-node-ns-archistrator"},
+		{"OIDC.ModelKey", got.OIDC.ModelKey, "cloud-infra-keycloak"},
+		// GatewayModelKey is carried SEPARATELY from ModelKey so the routes and
+		// Envoy policies colour the gateway node rather than the namespace node
+		// (which would strand the gateway node uncoloured and misattribute
+		// route health to the namespace).
+		{"GatewayModelKey", got.GatewayModelKey, "cloud-infra-gateway"},
+		{"OIDC.ClientID", got.OIDC.ClientID, "archistrator-webapp"},
+	} {
+		if tc.got != tc.want {
+			t.Errorf("%s = %q, want %q", tc.field, tc.got, tc.want)
+		}
+	}
+
+	if !got.SelfManaged {
+		t.Error("archistrator must assemble as SelfManaged")
+	}
+	if got.Server.Replicas != 2 {
+		t.Errorf("Server.Replicas = %d, want 2 (from the model's declared instances)", got.Server.Replicas)
+	}
+	// Postgres.ModelKeys carries EVERY database-role node's key (D11 trap #2: one
+	// rendered Cluster still backs all three diagram nodes, but each must colour
+	// independently), sorted for the byte-deterministic render.
+	wantDBKeys := []string{"cloud-infra-billingstate", "cloud-infra-operatedsystemstate", "cloud-infra-usagelog"}
+	if !slices.Equal(got.Postgres.ModelKeys, wantDBKeys) || !got.Postgres.Enabled {
+		t.Errorf("Postgres = %+v, want ModelKeys=%v (sorted) Enabled=true", got.Postgres, wantDBKeys)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// The bundle is UNVALIDATED JSON (2026-08-08 final review, fix 4). json.Unmarshal
+// into a struct succeeds on null, on {}, and on any unrelated object — every unknown
+// field ignored, every absent field left zero — so a clean parse proves nothing. An
+// empty image renders a literal `image:` into a COMMITTED Deployment.
+// ---------------------------------------------------------------------------
+
+func TestAssembleDesiredState_RejectsABundleWithNoImages(t *testing.T) {
+	for _, tc := range []struct{ name, body string }{
+		{"empty object", `{}`},
+		{"null", `null`},
+		{"unrelated object", `{"somethingElse":"entirely","count":3}`},
+		{"server image only", `{"serverImage":"s:1"}`},
+		{"webapp image only", `{"webAppImage":"w:1"}`},
+		{"blank strings", `{"serverImage":"","webAppImage":""}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			bundle := deployableBundle{Output: artifact.ConstructionOutput{
+				Bytes: []byte(tc.body), MIMEType: "application/json",
+			}}
+			_, err := assembleDesiredState(testProject(t), bundle, operatedsystemstate.OperatedSystem{})
+			if err == nil {
+				t.Fatalf("bundle %s parsed but carries no usable images; assembly must refuse rather than render an empty image", tc.name)
+			}
+			if !strings.Contains(err.Error(), "Image") && !strings.Contains(err.Error(), "image") {
+				t.Errorf("the error must name the missing image, got %q", err)
+			}
+		})
+	}
+}
+
+// TestAssembleDesiredState_RejectsAZeroReplicaCount: Replicas 0 renders `replicas: 0`
+// into a committed Deployment — a perfectly working manifest for an app that is not
+// running. The zero value must REFUSE, not SKIP.
+func TestAssembleDesiredState_RejectsAZeroReplicaCount(t *testing.T) {
+	proj := testProject(t)
+	model := proj.OperationalConcepts.Model.(*projectstate.DeploymentOperationsModel)
+	ns := namespaceFor(model)
+	ns.Children[0].Instances = 0
+
+	_, err := assembleDesiredState(proj, fixtureBundle(t), operatedsystemstate.OperatedSystem{})
+	if err == nil {
+		t.Fatal("expected an error for a 0-instance server workload (a silent scale-to-zero)")
+	}
+}
+
+// TestAssembleDesiredState_RejectsAnUnsafeProjectID: the project id becomes the
+// Kubernetes namespace, every rendered object's name, AND a path segment in the GitOps
+// repository that operatedruntime os.RemoveAll's. It originates in a user-supplied
+// repository name.
+func TestAssembleDesiredState_RejectsAnUnsafeProjectID(t *testing.T) {
+	for _, id := range []string{"../../etc", "/absolute", "..", ".", "has/slash", "Upper", "has space", "-leading"} {
+		proj := testProject(t)
+		proj.ID = projectstate.ProjectID(id)
+		if _, err := assembleDesiredState(proj, fixtureBundle(t), operatedsystemstate.OperatedSystem{}); err == nil {
+			t.Errorf("project id %q must be rejected: it names a namespace and a directory", id)
+		}
+	}
+}
+
+func TestAssembleDesiredState_RejectsAModelWithNoCloudEnvironment(t *testing.T) {
+	proj := testProjectLocalOnly(t) // fixture with only the local environment
+	_, err := assembleDesiredState(proj, deployableBundle{}, operatedsystemstate.OperatedSystem{})
+	if err == nil {
+		t.Fatal("expected an error when the deployment model has no cloud environment")
+	}
+}
+
+// namespaceFor is a test helper: the fixture's resolved cluster -> namespace
+// path is the same two hops in every mutation test below.
+func namespaceFor(model *projectstate.DeploymentOperationsModel) *projectstate.DeploymentNode {
+	cluster := &model.Deployment.Environments[0].Nodes[1]
+	return &cluster.Children[0]
+}
+
+func fixtureBundle(t *testing.T) deployableBundle {
+	return deployableBundle{Output: artifact.ConstructionOutput{
+		Bytes:    mustJSON(t, bundleManifest{ServerImage: "s:1", WebAppImage: "w:1"}),
+		MIMEType: "application/json",
+	}}
+}
+
+// TestAssembleDesiredState_RejectsAWorkloadNodeWithNoMatchingContainerInstance
+// covers the "fail loudly rather than defaulting" requirement directly: a cloud
+// environment whose namespace carries no matching server container instance is a
+// real misconfiguration, not a silently half-rendered deployment.
+func TestAssembleDesiredState_RejectsAWorkloadNodeWithNoMatchingContainerInstance(t *testing.T) {
+	proj := testProject(t)
+	model := proj.OperationalConcepts.Model.(*projectstate.DeploymentOperationsModel)
+	// Drop the server workload node entirely, leaving the namespace with only
+	// infrastructure nodes.
+	namespaceFor(model).Children = nil
+
+	_, err := assembleDesiredState(proj, fixtureBundle(t), operatedsystemstate.OperatedSystem{})
+	if err == nil {
+		t.Fatal("expected an error when the model has no server workload node")
+	}
+}
+
+// TestAssembleDesiredState_RejectsANamespaceThatDisagreesWithTheAppID covers
+// review finding 3: the fold must not silently use appName as Namespace while
+// ignoring what the resolved namespace node's own key actually says.
+func TestAssembleDesiredState_RejectsANamespaceThatDisagreesWithTheAppID(t *testing.T) {
+	proj := testProject(t)
+	model := proj.OperationalConcepts.Model.(*projectstate.DeploymentOperationsModel)
+	// Rename the namespace node so it no longer follows the ns-<appID> convention
+	// (e.g. an architect declared a differently-named namespace) — must fail
+	// loudly, not silently deploy to "archistrator" anyway.
+	namespaceFor(model).Key = "cloud-node-ns-foo"
+
+	_, err := assembleDesiredState(proj, fixtureBundle(t), operatedsystemstate.OperatedSystem{})
+	if err == nil {
+		t.Fatal("expected an error when the resolved namespace node disagrees with the app id")
+	}
+}
+
+// TestAssembleDesiredState_RejectsAZeroInstanceWorkload covers review finding 3:
+// a workload node declaring 0 instances is a real misconfiguration (fail loudly),
+// never a silent scale-to-zero.
+func TestAssembleDesiredState_RejectsAZeroInstanceWorkload(t *testing.T) {
+	proj := testProject(t)
+	model := proj.OperationalConcepts.Model.(*projectstate.DeploymentOperationsModel)
+	namespaceFor(model).Children[0].Instances = 0 // server workload
+
+	_, err := assembleDesiredState(proj, fixtureBundle(t), operatedsystemstate.OperatedSystem{})
+	if err == nil {
+		t.Fatal("expected an error when a workload node declares 0 instances")
+	}
+}
+
+// TestAssembleDesiredState_RejectsMissingIdentityProvider covers D11: an
+// identityProvider-role node is required (an app with no OIDC provider cannot be
+// assembled); its absence must fail loudly, not silently omit OIDC.
+func TestAssembleDesiredState_RejectsMissingIdentityProvider(t *testing.T) {
+	proj := testProject(t)
+	model := proj.OperationalConcepts.Model.(*projectstate.DeploymentOperationsModel)
+	ns := namespaceFor(model)
+	kept := ns.InfrastructureNodes[:0]
+	for _, in := range ns.InfrastructureNodes {
+		if in.Role != projectstate.RoleIdentityProvider {
+			kept = append(kept, in)
+		}
+	}
+	ns.InfrastructureNodes = kept
+
+	_, err := assembleDesiredState(proj, fixtureBundle(t), operatedsystemstate.OperatedSystem{})
+	if err == nil {
+		t.Fatal("expected an error when the namespace has no identityProvider node")
+	}
+}
+
+// TestAssembleDesiredState_RejectsMissingGateway: without a gateway node the
+// routes and Envoy policies have nothing to attribute their health to, so the
+// gateway component on the deployment diagram could never show green or red.
+// That is a real modeling gap, surfaced rather than tolerated.
+func TestAssembleDesiredState_RejectsMissingGateway(t *testing.T) {
+	proj := testProject(t)
+	model := proj.OperationalConcepts.Model.(*projectstate.DeploymentOperationsModel)
+	ns := namespaceFor(model)
+	kept := ns.InfrastructureNodes[:0]
+	for _, in := range ns.InfrastructureNodes {
+		if in.Role != projectstate.RoleGateway {
+			kept = append(kept, in)
+		}
+	}
+	ns.InfrastructureNodes = kept
+
+	_, err := assembleDesiredState(proj, fixtureBundle(t), operatedsystemstate.OperatedSystem{})
+	if err == nil {
+		t.Fatal("expected an error when the namespace has no gateway node")
+	}
+}
+
+// TestAssembleDesiredState_RejectsMissingDatabaseNodes covers D11: zero
+// database-role nodes is a real misconfiguration (which database backs this
+// app?), not an omitted-but-tolerated Postgres.
+func TestAssembleDesiredState_RejectsMissingDatabaseNodes(t *testing.T) {
+	proj := testProject(t)
+	model := proj.OperationalConcepts.Model.(*projectstate.DeploymentOperationsModel)
+	ns := namespaceFor(model)
+	kept := ns.InfrastructureNodes[:0]
+	for _, in := range ns.InfrastructureNodes {
+		if in.Role != projectstate.RoleDatabase {
+			kept = append(kept, in)
+		}
+	}
+	ns.InfrastructureNodes = kept
+
+	_, err := assembleDesiredState(proj, fixtureBundle(t), operatedsystemstate.OperatedSystem{})
+	if err == nil {
+		t.Fatal("expected an error when the namespace has no database node")
+	}
+}
+
+// TestAssembleDesiredState_RejectsAWebAppWithNoDeliveringRelationship covers
+// D11 trap #1 directly: role:"other" alone is ambiguous (the fixture's decoy
+// cloud-infra-temporal-alike node shares it) — with the relationship removed,
+// nothing identifies a serving node, and the fold must fail loudly rather than
+// guess between the two role:"other" candidates.
+func TestAssembleDesiredState_RejectsAWebAppWithNoDeliveringRelationship(t *testing.T) {
+	proj := testProject(t)
+	model := proj.OperationalConcepts.Model.(*projectstate.DeploymentOperationsModel)
+	model.Deployment.Environments[0].Relationships = nil
+
+	_, err := assembleDesiredState(proj, fixtureBundle(t), operatedsystemstate.OperatedSystem{})
+	if err == nil {
+		t.Fatal("expected an error when no relationship identifies the webapp's serving node")
+	}
+}
+
+// TestAssembleDesiredState_AgainstTheRealCommittedModel is the round-2 check:
+// assembleDesiredState must SUCCEED against archistrator's own real, committed
+// .aiarch/state/project.json cloud environment — not a hand-authored fixture.
+// The founder's round-1 framing ("the model lacks a webapp/postgres node") was
+// wrong; the model DOES describe the deployment, via infrastructureNodes +
+// role, not containerInstances. This test is the proof.
+func TestAssembleDesiredState_AgainstTheRealCommittedModel(t *testing.T) {
+	proj := realArchistratorProject(t)
+	bundle := deployableBundle{Output: artifact.ConstructionOutput{
+		Bytes:    mustJSON(t, bundleManifest{ServerImage: "ghcr.io/mixofreality-studio/archistrator-server:0.8.16", WebAppImage: "ghcr.io/mixofreality-studio/archistrator-webapp:0.6.61"}),
+		MIMEType: "application/json",
+	}}
+	op := operatedsystemstate.OperatedSystem{ID: uuid.New(), Version: 1}
+
+	got, err := assembleDesiredState(proj, bundle, op)
+	if err != nil {
+		t.Fatalf("assembleDesiredState against the real committed model: %v", err)
+	}
+
+	if got.AppName != "archistrator" || got.Namespace != "archistrator" {
+		t.Errorf("AppName/Namespace = %q/%q, want archistrator/archistrator", got.AppName, got.Namespace)
+	}
+	if got.ModelKey != "cloud-node-ns-archistrator" {
+		t.Errorf("ModelKey = %q, want cloud-node-ns-archistrator", got.ModelKey)
+	}
+	if !got.SelfManaged {
+		t.Error("archistrator's own project must assemble as SelfManaged")
+	}
+	if got.Server.ModelKey != "cloud-node-server-deployment" || got.Server.Replicas != 2 {
+		t.Errorf("Server = %+v, want ModelKey=cloud-node-server-deployment Replicas=2", got.Server)
+	}
+	if got.WebApp.ModelKey != "cloud-infra-static-assets" {
+		t.Errorf("WebApp.ModelKey = %q, want cloud-infra-static-assets", got.WebApp.ModelKey)
+	}
+	// All three real database-role nodes must be present and sorted (D11 trap #2:
+	// one archistrator-postgres Cluster backs all three diagram nodes, and each
+	// must be able to colour independently — a single collapsed key would strand
+	// two of them uncoloured).
+	wantDBKeys := []string{"cloud-infra-billingstate", "cloud-infra-operatedsystemstate", "cloud-infra-usagelog"}
+	if !slices.Equal(got.Postgres.ModelKeys, wantDBKeys) || !got.Postgres.Enabled {
+		t.Errorf("Postgres = %+v, want ModelKeys=%v (sorted) Enabled=true", got.Postgres, wantDBKeys)
+	}
+	if got.OIDC.ModelKey != "cloud-infra-keycloak" {
+		t.Errorf("OIDC.ModelKey = %q, want cloud-infra-keycloak", got.OIDC.ModelKey)
+	}
+	if got.OIDC.Issuer == "" || got.OIDC.ClientID == "" {
+		t.Errorf("OIDC = %+v, want both Issuer and ClientID populated", got.OIDC)
+	}
+}
+
+// realArchistratorProject reads the real, committed .aiarch/state/project.json
+// straight off disk and decodes just enough of it (the operational-concepts
+// slot) to exercise assembleDesiredState against reality, without pulling in
+// the full projectstate.GitStore machinery (an on-disk git worktree read this
+// test doesn't need). Deliberately narrow: only proj.ID and
+// proj.OperationalConcepts.Model are populated — the two fields
+// assembleDesiredState reads.
+func realArchistratorProject(t *testing.T) projectstate.Project {
+	t.Helper()
+	// server/internal/manager/operations -> server -> repo root -> .aiarch/state/project.json
+	path := filepath.Join("..", "..", "..", "..", ".aiarch", "state", "project.json")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	var doc struct {
+		ID    string `json:"id"`
+		Slots map[string]struct {
+			Model struct {
+				Deployment json.RawMessage `json:"deployment"`
+			} `json:"model"`
+		} `json:"slots"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("unmarshal %s: %v", path, err)
+	}
+	slot6, ok := doc.Slots["6"]
+	if !ok {
+		t.Fatalf("%s has no slot 6 (operational concepts)", path)
+	}
+	var topology projectstate.DeploymentTopology
+	if err := json.Unmarshal(slot6.Model.Deployment, &topology); err != nil {
+		t.Fatalf("unmarshal slot 6 deployment topology: %v", err)
+	}
+	return projectstate.Project{
+		ID: projectstate.ProjectID(doc.ID),
+		OperationalConcepts: projectstate.ArtifactSlot{
+			Model: &projectstate.DeploymentOperationsModel{Deployment: topology},
+		},
 	}
 }

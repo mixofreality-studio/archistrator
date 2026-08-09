@@ -1,0 +1,179 @@
+{
+  "apiVersion": "argoproj.io/v1alpha1",
+  "kind": "Application",
+  "metadata": {
+    "name": "archistrator",
+    "namespace": "argocd",
+    "annotations": {
+      "argocd.argoproj.io/compare-options": "ServerSideDiff=true",
+      "archistrator.dev/app-id": "3f3e6e0a-7d3c-4f5a-9b1e-8c2a1d4f9a11"
+    }
+  },
+  "spec": {
+    "project": "default",
+    "source": {
+      "repoURL": "https://github.com/davidmarne/aiarchmultiplatform.git",
+      "targetRevision": "main",
+      "path": "k8s/argocd/apps/archistrator",
+      "directory": {
+        "recurse": true
+      }
+    },
+    "destination": {
+      "server": "https://kubernetes.default.svc",
+      "namespace": "archistrator"
+    },
+    "syncPolicy": {
+      "syncOptions": [
+        "CreateNamespace=true",
+        "ServerSideApply=true"
+      ]
+    }
+  },
+  "status": {
+    "health": {
+      "status": "Healthy"
+    },
+    "sync": {
+      "status": "Synced",
+      "revision": "9c1d2e3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e"
+    },
+    "resources": [
+      {
+        "group": "apps",
+        "version": "v1",
+        "kind": "Deployment",
+        "namespace": "archistrator",
+        "name": "archistrator-server",
+        "status": "Synced",
+        "health": {
+          "status": "Healthy"
+        }
+      },
+      {
+        "group": "",
+        "version": "v1",
+        "kind": "Service",
+        "namespace": "archistrator",
+        "name": "archistrator-server",
+        "status": "Synced",
+        "health": {
+          "status": "Healthy"
+        }
+      },
+      {
+        "group": "apps",
+        "version": "v1",
+        "kind": "Deployment",
+        "namespace": "archistrator",
+        "name": "archistrator-webapp",
+        "status": "Synced",
+        "health": {
+          "status": "Healthy"
+        }
+      },
+      {
+        "group": "",
+        "version": "v1",
+        "kind": "Service",
+        "namespace": "archistrator",
+        "name": "archistrator-webapp",
+        "status": "Synced",
+        "health": {
+          "status": "Healthy"
+        }
+      },
+      {
+        "group": "postgresql.cnpg.io",
+        "version": "v1",
+        "kind": "Cluster",
+        "namespace": "archistrator",
+        "name": "archistrator-postgres",
+        "status": "Synced",
+        "health": {
+          "status": "Healthy"
+        }
+      },
+      {
+        "group": "gateway.networking.k8s.io",
+        "version": "v1",
+        "kind": "HTTPRoute",
+        "namespace": "archistrator",
+        "name": "archistrator-api-route",
+        "status": "Synced"
+      },
+      {
+        "group": "gateway.networking.k8s.io",
+        "version": "v1",
+        "kind": "HTTPRoute",
+        "namespace": "archistrator",
+        "name": "archistrator-webapp-route",
+        "status": "Synced"
+      },
+      {
+        "group": "gateway.networking.k8s.io",
+        "version": "v1",
+        "kind": "HTTPRoute",
+        "namespace": "archistrator",
+        "name": "archistrator-healthz-route",
+        "status": "Synced"
+      },
+      {
+        "group": "gateway.networking.k8s.io",
+        "version": "v1",
+        "kind": "HTTPRoute",
+        "namespace": "archistrator",
+        "name": "archistrator-readyz-route",
+        "status": "Synced"
+      },
+      {
+        "group": "gateway.envoyproxy.io",
+        "version": "v1alpha1",
+        "kind": "BackendTrafficPolicy",
+        "namespace": "archistrator",
+        "name": "archistrator-api-route-policy",
+        "status": "Synced"
+      },
+      {
+        "group": "gateway.envoyproxy.io",
+        "version": "v1alpha1",
+        "kind": "BackendTrafficPolicy",
+        "namespace": "archistrator",
+        "name": "archistrator-webapp-route-policy",
+        "status": "Synced"
+      },
+      {
+        "group": "gateway.envoyproxy.io",
+        "version": "v1alpha1",
+        "kind": "BackendTrafficPolicy",
+        "namespace": "archistrator",
+        "name": "archistrator-healthz-route-policy",
+        "status": "Synced"
+      },
+      {
+        "group": "gateway.envoyproxy.io",
+        "version": "v1alpha1",
+        "kind": "BackendTrafficPolicy",
+        "namespace": "archistrator",
+        "name": "archistrator-readyz-route-policy",
+        "status": "Synced"
+      },
+      {
+        "group": "gateway.envoyproxy.io",
+        "version": "v1alpha1",
+        "kind": "SecurityPolicy",
+        "namespace": "archistrator",
+        "name": "archistrator-oidc-policy",
+        "status": "Synced"
+      },
+      {
+        "group": "k8s.keycloak.org",
+        "version": "v2alpha1",
+        "kind": "KeycloakRealmImport",
+        "namespace": "keycloak",
+        "name": "archistrator-realm",
+        "status": "Synced"
+      }
+    ]
+  }
+}

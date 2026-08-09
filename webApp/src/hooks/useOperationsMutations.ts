@@ -1,43 +1,48 @@
 /**
- * UC4 operations write mutations. deploy / scale / autoscaler-policy are now ONE
- * route — operations/deploy-after-construction — distinguished by the desired-state
- * change's (reason, patchKind) discriminator:
- *   - deploy            → reason=DeployAfterConstruction, patchKind=FullBundle
- *   - scale             → reason=Operator,                patchKind=Scale
- *   - autoscaler-policy → reason=Operator,                patchKind=Policy
- * withdraw is operations/withdraw-system. Each mints a fresh changeId and
- * invalidates the operations view so the console re-reads fresh server state.
+ * UC4 operations write mutations. deploy is operations/deploy-after-construction
+ * (reason=DeployAfterConstruction, patchKind=FullBundle); withdraw is
+ * operations/withdraw-system. Each mints a fresh changeId and invalidates the
+ * operations view so the console re-reads fresh server state.
+ *
+ * SCALE AND AUTOSCALER-POLICY ARE NOT SUPPORTED IN THIS SLICE (2026-08-08 final
+ * review, fix 3) and are deliberately absent from OperationActionKind rather than
+ * present-but-failing. They used to send (reason=Operator, patchKind=Scale|Policy),
+ * which the server accepted and then published a zero-value desired state for —
+ * inert under the old opaque-bytes contract, but under the renderer either a
+ * confusing ContractMisuse from deep inside the ResourceAccess or a half-rendered
+ * deployment. The server now rejects both patch kinds by name at the operations
+ * façade; the console must not be able to construct the request at all.
+ *
+ * They are not faked instead: replicas come from the project's deployment model, so
+ * an operator scale override needs a real replica-override path threaded through
+ * desired-state assembly — the same missing seam that keeps autoscale-pause and
+ * delinquency-pause from publishing anything. That is a capability to build, not a
+ * button to wire.
  */
 import { useMutation, useQueryClient, type UseMutationResult } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
 import { toApiError } from '../contracts/errors';
 import type { components } from '../contracts/schema';
-import {
-  REASON_DEPLOY_AFTER_CONSTRUCTION,
-  REASON_OPERATOR,
-  PATCH_FULL_BUNDLE,
-  PATCH_SCALE,
-  PATCH_POLICY,
-} from '../contracts/wire';
+import { REASON_DEPLOY_AFTER_CONSTRUCTION, PATCH_FULL_BUNDLE } from '../contracts/wire';
 import type { DeployResult, WithdrawResult } from '../contracts/operationsTypes';
 import { operationsViewKey } from './useOperationsView';
 
-/** The kinds of desired-state republish the console can trigger. */
-export type OperationActionKind = 'deploy' | 'scale' | 'autoscaler-policy';
+/**
+ * The kinds of desired-state republish the console can trigger. One today — see the
+ * module doc for why scale and autoscaler-policy are absent rather than disabled
+ * here.
+ */
+export type OperationActionKind = 'deploy';
+
+/** The one publishable change: a full-bundle republish of the current bundle. */
+export const UNSUPPORTED_ACTION_REASON =
+  'Not supported yet: replicas come from the project’s deployment model, and there is no operator override path through desired-state assembly. Deploy republishes the current bundle.';
 
 function changeFor(
-  kind: OperationActionKind,
+  _kind: OperationActionKind,
   changeId: string
 ): components['schemas']['OperationsDesiredStateChange'] {
-  switch (kind) {
-    case 'scale':
-      return { changeId, reason: REASON_OPERATOR, patchKind: PATCH_SCALE };
-    case 'autoscaler-policy':
-      return { changeId, reason: REASON_OPERATOR, patchKind: PATCH_POLICY };
-    case 'deploy':
-    default:
-      return { changeId, reason: REASON_DEPLOY_AFTER_CONSTRUCTION, patchKind: PATCH_FULL_BUNDLE };
-  }
+  return { changeId, reason: REASON_DEPLOY_AFTER_CONSTRUCTION, patchKind: PATCH_FULL_BUNDLE };
 }
 
 /** Deploy / scale / autoscaler-policy — a desired-state republish. */

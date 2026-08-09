@@ -2,15 +2,24 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"encoding/json"
+	"io"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
+	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 
+	"github.com/mixofreality-studio/archistrator/server/internal/client/web"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/construction"
+	"github.com/mixofreality-studio/archistrator/server/internal/manager/operations"
 	"github.com/mixofreality-studio/archistrator/server/internal/utility/messagebus"
 )
 
@@ -416,4 +425,214 @@ func TestConstructionExecutionKinds_MatchesConstructionTaskQueue(t *testing.T) {
 			t.Fatalf("kind %q resolved with TaskQueue %q, want %q", k, table[k].TaskQueue, construction.TaskQueue)
 		}
 	}
+}
+
+// ---------------------------------------------------------------------------
+// ExtraMounts — GET /api/v1/capabilities + the local-profile operations
+// unmount (operations-argocd-deployment Task 11, spec D9: the local profile
+// holds no deployment credential and must not APPEAR to operate).
+// ---------------------------------------------------------------------------
+
+func newTestAppHooks() *appHooks {
+	return &appHooks{logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+}
+
+func TestExtraMounts_Capabilities_ReportsProfile(t *testing.T) {
+	cases := []struct {
+		name     string
+		gitLocal bool
+		want     bool
+	}{
+		{"local profile reports operations disabled", true, false},
+		{"cloud profile reports operations enabled", false, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newTestAppHooks()
+			cfg := &Config{ProjectStateGitLocal: tc.gitLocal}
+			root := http.NewServeMux()
+			h.ExtraMounts(root, cfg, web.DevConfig{Enabled: true}, nil, WebManagers{})
+
+			ts := httptest.NewServer(root)
+			defer ts.Close()
+
+			resp, err := http.Get(ts.URL + "/api/v1/capabilities")
+			if err != nil {
+				t.Fatalf("GET /api/v1/capabilities: %v", err)
+			}
+			defer func() { _ = resp.Body.Close() }()
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("status = %d, want 200", resp.StatusCode)
+			}
+			var got capabilitiesResponse
+			if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+				t.Fatalf("decode: %v", err)
+			}
+			if got.Operations != tc.want {
+				t.Fatalf("Operations = %v, want %v", got.Operations, tc.want)
+			}
+		})
+	}
+}
+
+// TestExtraMounts_LocalProfile_UnmountsOperationsRoutes proves the local
+// profile does not merely HIDE the operations nav — it unmounts the routes
+// server-side, exactly as if they were never registered. Mirrors main.gen.go's
+// real mux shape: root.Handle("/", genServer) runs BEFORE ExtraMounts, so a
+// stand-in "genServer" here proves whether a request actually reached the
+// underlying handler.
+func TestExtraMounts_LocalProfile_UnmountsOperationsRoutes(t *testing.T) {
+	h := newTestAppHooks()
+	cfg := &Config{ProjectStateGitLocal: true}
+	root := http.NewServeMux()
+	var hit bool
+	root.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hit = true
+		w.WriteHeader(http.StatusOK)
+	}))
+	h.ExtraMounts(root, cfg, web.DevConfig{Enabled: true}, nil, WebManagers{})
+
+	ts := httptest.NewServer(root)
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/api/v1/operations/query-operated-system-view/some-id")
+	if err != nil {
+		t.Fatalf("GET operations route: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404 (operations routes must be unmounted on local)", resp.StatusCode)
+	}
+	if hit {
+		t.Fatal("request reached the underlying handler — operations route was NOT unmounted")
+	}
+
+	// A non-operations /api/v1/ request must still reach the underlying handler.
+	resp2, err := http.Get(ts.URL + "/api/v1/construction/whatever")
+	if err != nil {
+		t.Fatalf("GET non-operations route: %v", err)
+	}
+	defer func() { _ = resp2.Body.Close() }()
+	if !hit {
+		t.Fatal("expected a non-operations /api/v1/ request to still reach the underlying handler")
+	}
+}
+
+// TestExtraMounts_CloudProfile_OperationsRoutesStayMounted proves the local-only
+// shadow is not accidentally blanket: a cloud profile boot must leave
+// /api/v1/operations/... routed through to the real handler.
+func TestExtraMounts_CloudProfile_OperationsRoutesStayMounted(t *testing.T) {
+	h := newTestAppHooks()
+	cfg := &Config{ProjectStateGitLocal: false}
+	root := http.NewServeMux()
+	var hit bool
+	root.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hit = true
+		w.WriteHeader(http.StatusOK)
+	}))
+	h.ExtraMounts(root, cfg, web.DevConfig{Enabled: true}, nil, WebManagers{})
+
+	ts := httptest.NewServer(root)
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/api/v1/operations/query-operated-system-view/some-id")
+	if err != nil {
+		t.Fatalf("GET operations route: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if !hit {
+		t.Fatal("expected the cloud profile to leave operations routes mounted")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// D13 — the project → operated-app identity (2026-08-08 final review, fix 1).
+// ---------------------------------------------------------------------------
+
+// TestOperatedAppIDForProject_IsDeterministicAndDistinct: the derivation is a pure
+// function — the same project id yields the same operated app id in this process and
+// any other, with no lookup and nothing stored — and different projects never collide.
+// The pinned literal is the point of the test: nothing reads the id back from storage,
+// so if this value ever changes, every already-registered head-state row is orphaned
+// and every console URL an operator has bookmarked stops resolving.
+func TestOperatedAppIDForProject_IsDeterministicAndDistinct(t *testing.T) {
+	const want = "b663aadc-9cc3-5069-b2bb-d360de9c6a10" // archistrator — frozen 2026-08-08
+	got := OperatedAppIDForProject("archistrator")
+	if got.String() != want {
+		t.Fatalf("OperatedAppIDForProject(%q) = %s, want %s — changing the derivation orphans every registered operated app", "archistrator", got, want)
+	}
+	if again := OperatedAppIDForProject("archistrator"); again != got {
+		t.Fatalf("derivation is not deterministic: %s then %s", got, again)
+	}
+	if other := OperatedAppIDForProject("gtdapp"); other == got {
+		t.Fatal("two different projects derived the same operated app id")
+	}
+	if got == uuid.Nil {
+		t.Fatal("derivation produced the nil UUID, which every façade rejects as empty")
+	}
+}
+
+// TestExtraMounts_OperatedAppID_AnswersTheDerivedID: the route the webApp reads answers
+// the SAME derivation, not a second implementation of it — which is the whole reason the
+// browser does not hand-roll UUIDv5.
+func TestExtraMounts_OperatedAppID_AnswersTheDerivedID(t *testing.T) {
+	h := newTestAppHooks()
+	root := http.NewServeMux()
+	h.ExtraMounts(root, &Config{ProjectStateGitLocal: false}, web.DevConfig{Enabled: true}, nil, WebManagers{})
+
+	ts := httptest.NewServer(root)
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/api/v1/projects/archistrator/operated-app-id")
+	if err != nil {
+		t.Fatalf("GET operated-app-id: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	var got operatedAppIDResponse
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got.OperatedAppID != OperatedAppIDForProject("archistrator").String() {
+		t.Fatalf("OperatedAppID = %q, want %q", got.OperatedAppID, OperatedAppIDForProject("archistrator"))
+	}
+}
+
+// TestProjectScopedOperationsManager_RefusesAMismatchedID: a registration whose id is
+// not the derived one is refused BEFORE it creates a head-state row nothing can ever
+// address again (every consumer derives the id; none reads it back). The derived id
+// passes straight through.
+func TestProjectScopedOperationsManager_RefusesAMismatchedID(t *testing.T) {
+	inner := &fakeRegisterOperationsManager{}
+	m := projectScopedOperationsManager{OperationsManager: inner}
+	rc := fwmanager.Context{Context: context.Background()}
+
+	if _, err := m.RegisterOperatedApp(rc, uuid.New(), uuid.New(), "archistrator", "bundle-1"); err == nil {
+		t.Fatal("a mismatched operatedAppId must be refused")
+	}
+	if inner.calls != 0 {
+		t.Fatal("a refused registration must never reach the manager")
+	}
+
+	if _, err := m.RegisterOperatedApp(rc, OperatedAppIDForProject("archistrator"), uuid.New(), "archistrator", "bundle-1"); err != nil {
+		t.Fatalf("the derived id must be accepted: %v", err)
+	}
+	if inner.calls != 1 {
+		t.Fatalf("want one delegated registration, got %d", inner.calls)
+	}
+}
+
+// fakeRegisterOperationsManager records RegisterOperatedApp delegation. Every other op
+// is carried by the embedded nil interface — this test never calls them, and a panic
+// would be the correct failure if it ever did.
+type fakeRegisterOperationsManager struct {
+	operations.OperationsManager
+	calls int
+}
+
+func (f *fakeRegisterOperationsManager) RegisterOperatedApp(_ fwmanager.Context, _ uuid.UUID, _ uuid.UUID, _ string, _ string) (operations.Version, error) {
+	f.calls++
+	return 1, nil
 }

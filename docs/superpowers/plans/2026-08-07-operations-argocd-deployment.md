@@ -28,12 +28,10 @@
 
 | Path | Responsibility |
 |---|---|
-| `server/internal/resourceaccess/operatedruntime/render.go` | Pure renderer: typed `RuntimeDesiredState` → ordered named manifests. No I/O. |
-| `server/internal/resourceaccess/operatedruntime/render_test.go` | Golden-file tests + invariant gates. |
 | `server/internal/resourceaccess/operatedruntime/testdata/golden/*.yaml` | Expected rendered output, and the `helm template` capture of the four production charts. |
-| `server/internal/resourceaccess/operatedruntime/gitops.go` | Real profile's git clone/commit/push against the software repo. |
-| `server/internal/resourceaccess/operatedruntime/argohealth.go` | Argo `Application` CR reader via in-cluster ServiceAccount. |
-| `server/internal/manager/operations/assemble.go` | Manager-side fold of project model + bundle + head-state into `RuntimeDesiredState`. |
+| `server/internal/resourceaccess/operatedruntime/testdata/argo/*.json` | Argo `Application` CR fixtures for the health parser. |
+
+> **The `TestFileLayout` gate forbids new hand-written `.go` files in these packages.** Every ResourceAccess package in this repo has exactly one impl file and one test file (`projectstateaccess.go` runs past 5,800 lines — large single files are the accepted cost of the standard). So the renderer, the GitOps commit path, and the Argo health reader ALL fold into `operatedruntimeaccess.go`, and all their tests into `access_test.go`. Do not create `render.go`, `gitops.go`, `argohealth.go`, or their test files — the gate is zero-waiver and will fail the build.
 
 **Server — modified**
 
@@ -264,17 +262,22 @@ git commit -m "feat(operatedsystemstate): add RegisterOperatedSystem seeding ver
 
 ---
 
-## Task 2: Typed `RuntimeDesiredState`
+## Task 2: Typed `RuntimeDesiredState` end-to-end
 
-Replaces the opaque `{Bytes, ContentType}` blob with the struct the renderer needs, including the `ModelKey` fields the health overlay joins on.
+Replaces the opaque `{Bytes, ContentType}` blob with the struct the renderer needs, **and** populates it from its three real sources in the same task. These are one task deliberately: a contract change without its assembly would mean writing a knowingly-incomplete literal, and there is no reason to split them — assembly depends only on the typed struct and the `projectStateAccess` edge, not on the renderer.
 
 **Files:**
-- Modify: `.aiarch/state/project.json` (`.serviceContracts.operatedRuntimeAccess`)
-- Modify: `server/internal/resourceaccess/operatedruntime/operatedruntimeaccess.go`
-- Modify: `server/internal/manager/operations/deploy.go:54-58`
+- Modify: `.aiarch/state/project.json` (`.serviceContracts.operatedRuntimeAccess`, `.systemDesign` relationships)
+- Modify: `server/internal/manager/operations/deploy.go` (assembly folds in here — `TestFileLayout` allows one file per workflow, and this is `DeployWorkflow`'s)
+- Modify: `server/internal/manager/operations/manager_test.go`
+- Modify: `server/internal/manager/operations/deploy.go`
 
 **Interfaces:**
-- Produces: `operatedruntime.RuntimeDesiredState` with fields `AppName, Namespace, Host, ModelKey string`, `Server, WebApp Workload`, `Postgres PostgresSpec`, `OIDC OIDCSpec`, `SelfManaged bool`; `Workload{ModelKey, Image string, Replicas int64}`; `PostgresSpec{ModelKey string, Enabled bool, Instances int64, StorageClass string}`; `OIDCSpec{Issuer, ClientID, ClientSecretRef string}`.
+- Consumes: `projectstate.ReadProject(rc fwra.Context, projectID ProjectID) (Project, error)`; `artifact.RetrieveConstructionOutput`; `operatedsystemstate.OperatedSystem`.
+- Produces: `operatedruntime.RuntimeDesiredState` with fields `AppName, Namespace, Host, ModelKey string`, `Server, WebApp Workload`, `Postgres PostgresSpec`, `OIDC OIDCSpec`, `SelfManaged bool`; `Workload{ModelKey, Image string, Replicas int64}`; `PostgresSpec{ModelKeys []string, Enabled bool, Instances int64, StorageClass string}`; `OIDCSpec{ModelKey, Issuer, ClientID, ClientSecretRef string}`.
+
+> **`PostgresSpec.ModelKeys` is a slice, not a single key.** Three `database` nodes collapse to one rendered `Cluster`, but all three are real diagram nodes and all three must colour from that one resource's health. The keys are sorted, because the renderer must be byte-deterministic.
+- Produces: `func assembleDesiredState(proj projectstate.Project, bundle deployableBundle, op operatedsystemstate.OperatedSystem) (operatedruntime.RuntimeDesiredState, error)`.
 
 - [ ] **Step 1: Replace the `RuntimeDesiredState` `$def`**
 
@@ -299,17 +302,18 @@ defs['Workload'] = obj([
 ], ['ModelKey', 'Image', 'Replicas'])
 
 defs['PostgresSpec'] = obj([
-    ('ModelKey', {'type': 'string'}),
+    ('ModelKeys', {'type': 'array', 'items': {'type': 'string'}}),
     ('Enabled', {'type': 'boolean'}),
     ('Instances', {'type': 'integer'}),
     ('StorageClass', {'type': 'string'}),
-], ['ModelKey', 'Enabled', 'Instances', 'StorageClass'])
+], ['ModelKeys', 'Enabled', 'Instances', 'StorageClass'])
 
 defs['OIDCSpec'] = obj([
+    ('ModelKey', {'type': 'string'}),
     ('Issuer', {'type': 'string'}),
     ('ClientID', {'type': 'string'}),
     ('ClientSecretRef', {'type': 'string'}),
-], ['Issuer', 'ClientID', 'ClientSecretRef'])
+], ['ModelKey', 'Issuer', 'ClientID', 'ClientSecretRef'])
 
 defs['RuntimeDesiredState'] = obj([
     ('AppName', {'type': 'string'}),
@@ -327,55 +331,125 @@ json.dump(d, open(p, 'w'), indent=2)
 open(p, 'a').write('\n')
 ```
 
-- [ ] **Step 2: Regenerate**
+- [ ] **Step 2: Add the architecture relationship**
+
+The Manager is about to call a ResourceAccess it has never called. Declare it, or the architecture gate rejects the edge.
+
+Inspect the existing shape first — the slot index and relationship fields must match siblings exactly:
 
 ```bash
-cd server && GOWORK=off make gen-models
+python3 -c "
+import json
+d=json.load(open('.aiarch/state/project.json'))
+for k,s in d['slots'].items():
+    if isinstance(s,dict) and s.get('model',{}).get('relationships'):
+        print('slot',k,'->',json.dumps(s['model']['relationships'][0]))
+        break
+"
 ```
 
-- [ ] **Step 3: Build and collect the breakage**
+Then append, in that same shape:
+
+```
+{"from": "operationsManager", "to": "projectStateAccess",
+ "label": "Reads the operated app's deployment model from",
+ "technology": "in-process", "mode": "sync"}
+```
+
+- [ ] **Step 3: Regenerate contracts and activities**
 
 ```bash
-cd server && GOWORK=off go build ./... 2>&1 | head -20
+cd server && GOWORK=off make gen-models && GOWORK=off make gen-temporal
+git diff --stat internal/
 ```
 
-Expected: FAIL at `internal/manager/operations/deploy.go` — it still constructs `RuntimeDesiredState{Bytes: ..., ContentType: ...}`.
+Expected: `operatedruntime/contract.gen.go` carries the new struct; `operations/activities.gen.go` and `invokers.gen.go` gain `ProjectState*` entries.
 
-- [ ] **Step 4: Make the Manager compile against the new type (temporary shim)**
-
-In `deploy.go`, replace the `publishDesiredState` call's literal:
+- [ ] **Step 4: Write the failing tests**
 
 ```go
-	if perr := wf.publishDesiredState(ctx, in.OperatedAppID, operatedruntime.RuntimeDesiredState{
-		AppName:   in.Change.AppName,
-		Namespace: in.Change.Namespace,
-	}); perr != nil {
-		return DeployResult{}, perr
+func TestAssembleDesiredState_MapsCloudEnvironmentAndBundleImages(t *testing.T) {
+	proj := testProject(t)   // fixture: a trimmed project with a cloud environment
+	bundle := deployableBundle{Output: artifact.ConstructionOutput{ /* server+webapp image refs */ }}
+	op := operatedsystemstate.OperatedSystem{ID: uuid.New(), Version: 3}
+
+	got, err := assembleDesiredState(proj, bundle, op)
+	if err != nil {
+		t.Fatalf("assembleDesiredState: %v", err)
 	}
+	if got.Namespace != "archistrator" {
+		t.Errorf("Namespace = %q, want archistrator", got.Namespace)
+	}
+	if got.Host != "archistrator.capture-gtd.com" {
+		t.Errorf("Host = %q, want archistrator.capture-gtd.com", got.Host)
+	}
+	if got.Server.ModelKey != "cloud-node-server-deployment" {
+		t.Errorf("Server.ModelKey = %q, want cloud-node-server-deployment", got.Server.ModelKey)
+	}
+	if !got.SelfManaged {
+		t.Error("archistrator must assemble as SelfManaged")
+	}
+}
+
+func TestAssembleDesiredState_RejectsAModelWithNoCloudEnvironment(t *testing.T) {
+	proj := testProjectLocalOnly(t) // fixture with only the local environment
+	_, err := assembleDesiredState(proj, deployableBundle{}, operatedsystemstate.OperatedSystem{})
+	if err == nil {
+		t.Fatal("expected an error when the deployment model has no cloud environment")
+	}
+}
 ```
 
-This is deliberately incomplete — Task 8 replaces it with the real assembly. Add a comment saying so:
-
-```go
-	// TASK-8: assembled from project model + bundle + head-state in assemble.go.
-	// This partial literal exists only so the tree compiles between tasks.
-```
-
-You will also need to add `AppName` / `Namespace` to `DesiredStateChange` temporarily, or read them from `op` — whichever keeps the diff smallest. Task 8 removes the shim entirely.
-
-- [ ] **Step 5: Build clean**
+- [ ] **Step 5: Run and watch them fail**
 
 ```bash
-cd server && GOWORK=off go build ./... && GOWORK=off go test ./internal/resourceaccess/operatedruntime/ -v
+cd server && GOWORK=off go test ./internal/manager/operations/ -run TestAssemble -v
 ```
 
-Expected: build succeeds; the existing `access_test.go` dry-run tests still pass (the Local profile ignores the payload either way).
+Expected: FAIL — `undefined: assembleDesiredState`. The package may also fail to compile because `deploy.go` still builds the old `{Bytes, ContentType}` literal; that compile failure is part of the red state.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: Implement the fold**
+
+Read the `cloud` environment from the project's deployment model and select elements **by `role`, never by the free-text `technology` string** (spec D11). The deployable elements are `infrastructureNodes` carrying roles, alongside workload nodes:
+
+| Model element | `role` | Feeds |
+|---|---|---|
+| `cloud-node-server-deployment` (workload node, `instances: 2`) | — | `Server` workload |
+| `cloud-infra-static-assets` (nginx) | `other` | `WebApp` workload |
+| `cloud-infra-gateway` (Envoy) | `gateway` | route/policy rendering |
+| `cloud-infra-keycloak` (OIDC) | `identityProvider` | `OIDC` spec + the Keycloak CR |
+| `cloud-infra-operatedsystemstate`, `-billingstate`, `-usagelog` | `database` ×3 | one `PostgresSpec` |
+
+Three traps, all of which will silently produce wrong output if missed:
+
+- **`role: other` is ambiguous** — nginx and `cloud-infra-temporal` share it. Identify the static-asset node by its relationship to the webapp container, not by role alone. Do NOT add a new role value to the model; it is a design artifact with its own review rail.
+- **Three `database` nodes → one `PostgresSpec`.** Production runs a single `archistrator-postgres` serving all three logical stores.
+- **`archistrator-webapp` sits on `cloud-node-browser`.** That is correct — the SPA executes in the browser. The in-cluster thing is the nginx serving it, so the `WebApp` workload's `ModelKey` is the static-asset node's key, NOT the browser node's.
+
+Take images from the bundle. Replicas come from the workload node's `Instances` (head-state carries no replica field). `SelfManaged` is true when the operated app's project is archistrator's own.
+
+Fail loudly rather than defaulting: a model with no cloud environment, or a required role with no matching node, is a real misconfiguration and must surface as an error the operator can read — not a silently half-rendered deployment.
+
+Fail loudly rather than defaulting: a model with no cloud environment, or a workload node with no matching container instance, is a real misconfiguration and must surface as an error the operator can read — not a silently half-rendered deployment.
+
+- [ ] **Step 7: Wire it into `deploy.go`**
+
+Replace the old `RuntimeDesiredState{Bytes: ..., ContentType: ...}` literal with a call through `assembleDesiredState`. The bundle comes from `retrieveBundle` — **delete the `_` discard at line 47** and retain the result. The project comes from the newly generated `ProjectStateReadProject` invoker.
+
+- [ ] **Step 8: Run and watch them pass**
 
 ```bash
+cd server && GOWORK=off go test ./internal/manager/operations/ ./internal/resourceaccess/operatedruntime/ -v
+```
+
+Expected: PASS. The Real profile's `publishDesiredState` still returns its unimplemented-backend diagnostic — that is correct and expected until Task 7; the Local/dry-run profile accepts the payload as a no-op.
+
+- [ ] **Step 9: Full suite and commit**
+
+```bash
+cd server && GOWORK=off make test
 git add .aiarch/state/project.json server/internal/
-git commit -m "feat(operatedruntime): typed RuntimeDesiredState replacing opaque bytes"
+git commit -m "feat(operations): typed RuntimeDesiredState assembled from model, bundle, and head-state"
 ```
 
 ---
@@ -421,12 +495,14 @@ git commit -m "test(operatedruntime): capture production chart output as render 
 ## Task 4: Renderer — server and webapp workloads
 
 **Files:**
-- Create: `server/internal/resourceaccess/operatedruntime/render.go`
-- Create: `server/internal/resourceaccess/operatedruntime/render_test.go`
+- Modify: `server/internal/resourceaccess/operatedruntime/operatedruntimeaccess.go` (append the renderer — `TestFileLayout` forbids a new `render.go`)
+- Modify: `server/internal/resourceaccess/operatedruntime/access_test.go` (append the tests)
 
 **Interfaces:**
 - Consumes: `RuntimeDesiredState` (Task 2).
-- Produces: `type Manifest struct { ModelKey, Kind, Name, Namespace string; YAML string }` and `func render(d RuntimeDesiredState) ([]Manifest, error)` — returns manifests in a deterministic order (sorted by `Kind` then `Name`).
+- Produces: `type Manifest struct { ModelKeys []string; Kind, Name, Namespace, YAML string }` and `func render(d RuntimeDesiredState) ([]Manifest, error)` — returns manifests in a deterministic order (sorted by `Kind` then `Name`).
+
+> **`ModelKeys` is a slice because the mapping is not one-to-one.** Most manifests answer to exactly one diagram node, but the Postgres `Cluster` answers to all three `database` nodes (`operatedsystemstate`, `billingstate`, `usagelog`) — production runs one cluster serving all three logical stores, and all three nodes must colour from its health. Keep the slice sorted so the render stays byte-deterministic.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -447,12 +523,22 @@ func testDesiredState() RuntimeDesiredState {
 			Replicas: 1,
 		},
 		WebApp: Workload{
-			ModelKey: "cloud-node-webapp-deployment",
-			Image:    "ghcr.io/mixofreality-studio/archistrator-webapp:0.6.61",
+			ModelKey: "cloud-infra-static-assets",
+			Image:    "ghcr.io/mixofreality-studio/archistrator-webapp:0.6.14",
 			Replicas: 1,
 		},
-		Postgres:    PostgresSpec{ModelKey: "cloud-node-postgres", Enabled: true, Instances: 1, StorageClass: "do-block-storage"},
-		OIDC:        OIDCSpec{Issuer: "https://keycloak.capture-gtd.com/realms/archistrator", ClientID: "archistrator-webapp", ClientSecretRef: "archistrator-oidc-client-secret"},
+		Postgres: PostgresSpec{
+			ModelKeys:    []string{"cloud-infra-billingstate", "cloud-infra-operatedsystemstate", "cloud-infra-usagelog"},
+			Enabled:      true,
+			Instances:    1,
+			StorageClass: "do-block-storage",
+		},
+		OIDC: OIDCSpec{
+			ModelKey:        "cloud-infra-keycloak",
+			Issuer:          "https://keycloak.capture-gtd.com/realms/archistrator",
+			ClientID:        "archistrator-webapp",
+			ClientSecretRef: "archistrator-oidc-client-secret",
+		},
 		SelfManaged: true,
 	}
 }
@@ -471,8 +557,8 @@ func TestRender_EmitsServerDeploymentWithModelKey(t *testing.T) {
 	if found == nil {
 		t.Fatal("no Deployment/archistrator-server in rendered output")
 	}
-	if found.ModelKey != "cloud-node-server-deployment" {
-		t.Errorf("ModelKey = %q, want cloud-node-server-deployment", found.ModelKey)
+	if len(found.ModelKeys) != 1 || found.ModelKeys[0] != "cloud-node-server-deployment" {
+		t.Errorf("ModelKeys = %v, want [cloud-node-server-deployment]", found.ModelKeys)
 	}
 	if found.Namespace != "archistrator" {
 		t.Errorf("Namespace = %q, want archistrator", found.Namespace)
@@ -524,7 +610,11 @@ import (
 // came from. ModelKey is what lets the health overlay attribute a live resource
 // back to a diagram node without storing a mapping table.
 type Manifest struct {
-	ModelKey  string
+	// ModelKeys are the deployment-model nodes this object answers to. Usually one;
+	// the Postgres Cluster answers to all three database nodes, since production runs
+	// one cluster serving all three logical stores and every one of those diagram
+	// nodes must colour from its health. Kept sorted so the render is deterministic.
+	ModelKeys []string
 	Kind      string
 	Name      string
 	Namespace string
@@ -595,7 +685,7 @@ func render(d RuntimeDesiredState) ([]Manifest, error) {
 			return nil, err
 		}
 		out = append(out, Manifest{
-			ModelKey: w.wl.ModelKey, Kind: "Deployment",
+			ModelKeys: []string{w.wl.ModelKey}, Kind: "Deployment",
 			Name: name, Namespace: d.Namespace, YAML: y,
 		})
 	}
@@ -634,11 +724,11 @@ git commit -m "feat(operatedruntime): render server and webapp workloads"
 ## Task 5: Renderer — Postgres, gateway routes, and the Argo Application
 
 **Files:**
-- Modify: `server/internal/resourceaccess/operatedruntime/render.go`
-- Modify: `server/internal/resourceaccess/operatedruntime/render_test.go`
+- Modify: `server/internal/resourceaccess/operatedruntime/operatedruntimeaccess.go`
+- Modify: `server/internal/resourceaccess/operatedruntime/access_test.go`
 
 **Interfaces:**
-- Produces: `render` additionally emits `Cluster` (CNPG), `HTTPRoute`, `SecurityPolicy`, `BackendTrafficPolicy`, `ReferenceGrant`, and `Application`.
+- Produces: `render` additionally emits `Cluster` (CNPG), 4× `HTTPRoute`, `SecurityPolicy`, 4× `BackendTrafficPolicy`, the Keycloak realm CR, and `Application`. No `ReferenceGrant`.
 
 - [ ] **Step 1: Write the failing test for the self-managed guard**
 
@@ -741,7 +831,7 @@ spec:
 `))
 ```
 
-Emit it in `render` with `ModelKey: d.ModelKey`, `Kind: "Application"`, `Name: d.AppName`, `Namespace: "argocd"`.
+Emit it in `render` with `ModelKeys: []string{d.ModelKey}`, `Kind: "Application"`, `Name: d.AppName`, `Namespace: "argocd"`.
 
 - [ ] **Step 4: Run and watch both pass**
 
@@ -757,11 +847,23 @@ Emit a `Cluster` (`postgresql.cnpg.io/v1`) when `d.Postgres.Enabled`, with `inst
 
 - [ ] **Step 6: Add gateway routes**
 
-Emit `HTTPRoute` (one per route in the production chart: webapp `/`, api `/api`, healthz `/healthz`, readyz `/readyz`), `SecurityPolicy`, `BackendTrafficPolicy`, and `ReferenceGrant`, mirroring `testdata/golden/production/archistrator-gateway-routes.yaml`.
+Emit `HTTPRoute` (one per route in the production chart: webapp `/`, api `/api`, healthz `/healthz`, readyz `/readyz`), `SecurityPolicy`, and `BackendTrafficPolicy` — 4 of each route/policy, and NO `ReferenceGrant` (the chart gates it on a cross-namespace backend that cannot arise; the golden has none) — mirroring `testdata/golden/production/archistrator-gateway-routes.yaml`.
 
 **Reproduce the production chart's route arrangement exactly**, including the deliberate absence of a dedicated `/oauth2` route. That chart carries a load-bearing comment explaining why: a more-specific `/oauth2` route would steal the OIDC callback away from the policy-attached `/` route, so the Envoy filter would never run and no session would be established. Adding one would break login in a way that is hard to diagnose.
 
 The `SecurityPolicy` references the OIDC client secret by name (`d.OIDC.ClientSecretRef`) and must never inline its value.
+
+- [ ] **Step 6b: Add the Keycloak realm/client CR (spec D12)**
+
+Emit a Keycloak CR provisioning the app's realm and its confidential OIDC client, carrying `ModelKeys: []string{d.OIDC.ModelKey}` — the `identityProvider` infra node's key (`cloud-infra-keycloak`).
+
+**This object is the highest-risk thing in the render and has no golden diff.** Production's realm and client are hand-managed in the admin console — the `KeycloakRealmImport` was deliberately removed once — so nothing in `testdata/golden/production/` constrains it. A wrong realm or client breaks login for the entire app, and archistrator's own front door is on that path.
+
+Consequences for how you write it:
+- Match the CRD version the cluster's Keycloak operator actually serves. Check `k8s/argocd/auth/keycloak-operator.yaml` in the software repo rather than assuming.
+- The client secret is referenced, never rendered (the no-Secret-data gate applies).
+- The rendered client's `clientId` and `redirectUris` must match what the `SecurityPolicy` from Step 6 expects, or the OIDC flow breaks in a way the manifests alone won't reveal.
+- Write an explicit unit test asserting realm name, `clientId`, and redirect URIs, since no golden file will catch a regression here.
 
 - [ ] **Step 7: Run the full renderer suite**
 
@@ -785,7 +887,7 @@ git commit -m "feat(operatedruntime): render postgres, gateway routes, and Argo 
 The gates are the safety net; the golden diff is the acceptance bar.
 
 **Files:**
-- Modify: `server/internal/resourceaccess/operatedruntime/render_test.go`
+- Modify: `server/internal/resourceaccess/operatedruntime/access_test.go`
 
 - [ ] **Step 1: Write the invariant gates**
 
@@ -831,8 +933,11 @@ func TestRender_EveryManifestCarriesAModelKey(t *testing.T) {
 		t.Fatalf("render: %v", err)
 	}
 	for _, m := range ms {
-		if m.ModelKey == "" {
-			t.Errorf("%s/%s has no ModelKey; it cannot be attributed to a diagram node", m.Kind, m.Name)
+		if len(m.ModelKeys) == 0 {
+			t.Errorf("%s/%s has no ModelKeys; it cannot be attributed to a diagram node", m.Kind, m.Name)
+		}
+		if !sort.StringsAreSorted(m.ModelKeys) {
+			t.Errorf("%s/%s ModelKeys not sorted: %v (render must be deterministic)", m.Kind, m.Name, m.ModelKeys)
 		}
 	}
 }
@@ -918,9 +1023,8 @@ git commit -m "test(operatedruntime): invariant gates and production golden diff
 ## Task 7: GitOps commit path
 
 **Files:**
-- Create: `server/internal/resourceaccess/operatedruntime/gitops.go`
-- Create: `server/internal/resourceaccess/operatedruntime/gitops_test.go`
-- Modify: `server/internal/resourceaccess/operatedruntime/operatedruntimeaccess.go`
+- Modify: `server/internal/resourceaccess/operatedruntime/operatedruntimeaccess.go` (append the commit path — `TestFileLayout` forbids a new `gitops.go`)
+- Modify: `server/internal/resourceaccess/operatedruntime/access_test.go`
 
 **Interfaces:**
 - Consumes: `render` (Task 4–5).
@@ -996,6 +1100,10 @@ In `gitops.go`: clone to a temp dir, write the manifest set to `k8s/argocd/apps/
 
 Withdraw removes both paths and commits the same way. Removing something that is already gone is a success, matching the contract's `NotFound ⇒ success` withdraw semantics.
 
+**Withdraw must refuse the self-managed app.** This is the other half of the D8 guard, and without it the guard is decorative. `prune: false` stops a *renderer* bug from deleting archistrator's control plane, and Task 5 additionally omits the Argo finalizer when `SelfManaged` — but `Withdraw` deletes the Application outright, which is a third path to the same outcome. An operator clicking Withdraw on archistrator in archistrator's own console would take down the thing servicing the click, with nothing left to undo it.
+
+Hard-guard it: `Withdraw` returns a terminal `fwra.ContractMisuse` (never a retry) naming the app when the target is the self-managed one. Write that test before the implementation. Tearing archistrator down is a deliberate `kubectl` operation by a human who means it, not a button.
+
 - [ ] **Step 4: Replace the Real profile bodies**
 
 In `operatedruntimeaccess.go`, `PublishDesiredState` and `Withdraw` now delegate to the `gitops.go` functions. Leave `WirePaymentConfig` returning `notImplemented` — it is genuinely out of scope. Update the package doc comment: the "N-DEP follow-up" paragraph is now stale for these two verbs.
@@ -1017,116 +1125,7 @@ git commit -m "feat(operatedruntime): GitOps commit path for publish and withdra
 
 ---
 
-## Task 8: Manager assembly
-
-Replaces the Task 2 shim with the real three-source fold, and finally consumes the bundle that `deploy.go:47` discards.
-
-**Files:**
-- Modify: `.aiarch/state/project.json` (`.systemDesign` relationships)
-- Create: `server/internal/manager/operations/assemble.go`
-- Create: `server/internal/manager/operations/assemble_test.go`
-- Modify: `server/internal/manager/operations/deploy.go`
-
-**Interfaces:**
-- Consumes: `projectstate.ReadProject(rc, projectID) (Project, error)`; `artifact.RetrieveConstructionOutput`; `operatedsystemstate.OperatedSystem`.
-- Produces: `func assembleDesiredState(proj projectstate.Project, bundle deployableBundle, op operatedsystemstate.OperatedSystem) (operatedruntime.RuntimeDesiredState, error)`.
-
-- [ ] **Step 1: Add the architecture relationship**
-
-The Manager is about to call a ResourceAccess it has never called. Declare it, or the architecture gate rejects the edge.
-
-```python
-import json, collections
-p = '.aiarch/state/project.json'
-d = json.load(open(p), object_pairs_hook=collections.OrderedDict)
-# Locate the systemDesign slot's relationships list, then append:
-#   {"from": "operationsManager", "to": "projectStateAccess",
-#    "label": "Reads the operated app's deployment model from", "technology": "in-process", "mode": "sync"}
-# Inspect first — the slot index and the exact relationship shape must match siblings:
-sd = [s for s in d['slots'].values() if isinstance(s, dict) and s.get('model', {}).get('relationships')]
-print(len(sd))
-print(json.dumps(sd[0]['model']['relationships'][0], indent=1))
-```
-
-Add the relationship in the same shape as its siblings, then:
-
-```bash
-cd server && GOWORK=off make gen-temporal && git diff --stat internal/manager/operations/
-```
-
-Expected: `activities.gen.go` and `invokers.gen.go` gain `ProjectState*` entries.
-
-- [ ] **Step 2: Write the failing test**
-
-```go
-func TestAssembleDesiredState_MapsCloudEnvironmentAndBundleImages(t *testing.T) {
-	proj := testProject(t)   // fixture: loads a trimmed project.json with a cloud environment
-	bundle := deployableBundle{Output: artifact.ConstructionOutput{ /* server+webapp image refs */ }}
-	op := operatedsystemstate.OperatedSystem{ID: uuid.New(), Version: 3}
-
-	got, err := assembleDesiredState(proj, bundle, op)
-	if err != nil {
-		t.Fatalf("assembleDesiredState: %v", err)
-	}
-	if got.Namespace != "archistrator" {
-		t.Errorf("Namespace = %q, want archistrator", got.Namespace)
-	}
-	if got.Host != "archistrator.capture-gtd.com" {
-		t.Errorf("Host = %q, want archistrator.capture-gtd.com", got.Host)
-	}
-	if got.Server.ModelKey != "cloud-node-server-deployment" {
-		t.Errorf("Server.ModelKey = %q, want cloud-node-server-deployment", got.Server.ModelKey)
-	}
-	if !got.SelfManaged {
-		t.Error("archistrator must assemble as SelfManaged")
-	}
-}
-
-func TestAssembleDesiredState_RejectsAModelWithNoCloudEnvironment(t *testing.T) {
-	proj := testProjectLocalOnly(t) // fixture with only the local environment
-	_, err := assembleDesiredState(proj, deployableBundle{}, operatedsystemstate.OperatedSystem{})
-	if err == nil {
-		t.Fatal("expected an error when the deployment model has no cloud environment")
-	}
-}
-```
-
-- [ ] **Step 3: Run and watch them fail**
-
-```bash
-cd server && GOWORK=off go test ./internal/manager/operations/ -run TestAssemble -v
-```
-
-Expected: FAIL — `undefined: assembleDesiredState`.
-
-- [ ] **Step 4: Implement the fold**
-
-In `assemble.go`, read the `cloud` environment from the project's deployment model and walk its nodes to find the namespace node, the workload nodes, and the postgres node — carrying each node's `key` into the matching `ModelKey`. Take images from the bundle, replicas from head-state. `SelfManaged` is true when the operated app's project is archistrator's own.
-
-Fail loudly rather than defaulting: a model with no cloud environment, or a workload node with no matching container instance, is a real misconfiguration and must surface as an error the operator can read — not a silently half-rendered deployment.
-
-- [ ] **Step 5: Remove the Task 2 shim**
-
-In `deploy.go`, replace the partial `RuntimeDesiredState` literal with a call through `assembleDesiredState`, using the bundle now retained from `retrieveBundle` (delete the `_` discard at line 47) and the project read via the newly generated `ProjectStateReadProject` invoker. Delete the `// TASK-8:` comment.
-
-- [ ] **Step 6: Run and watch them pass**
-
-```bash
-cd server && GOWORK=off go test ./internal/manager/operations/ -v
-```
-
-Expected: PASS.
-
-- [ ] **Step 7: Commit**
-
-```bash
-git add .aiarch/state/project.json server/internal/manager/operations/
-git commit -m "feat(operations): assemble typed desired state from model, bundle, and head-state"
-```
-
----
-
-## Task 9: Public façade — register op and dropping `RenderedDesiredState`
+## Task 8: Public façade — register op and dropping `RenderedDesiredState`
 
 **Files:**
 - Modify: `.aiarch/state/project.json` (`.serviceContracts.operationsManager`)
@@ -1167,12 +1166,11 @@ git commit -m "feat(operations): add RegisterOperatedApp; drop client-supplied r
 
 ---
 
-## Task 10: Health reads from the Argo Application CR
+## Task 9: Health reads from the Argo Application CR
 
 **Files:**
-- Create: `server/internal/resourceaccess/operatedruntime/argohealth.go`
-- Create: `server/internal/resourceaccess/operatedruntime/argohealth_test.go`
-- Modify: `server/internal/resourceaccess/operatedruntime/operatedruntimeaccess.go`
+- Modify: `server/internal/resourceaccess/operatedruntime/operatedruntimeaccess.go` (append the health reader — `TestFileLayout` forbids a new `argohealth.go`)
+- Modify: `server/internal/resourceaccess/operatedruntime/access_test.go`
 
 **Interfaces:**
 - Produces: `func mapArgoHealth(status string) RuntimeStatus` — `"Healthy"` → `RuntimeStatusHealthy`; everything else observed → `RuntimeStatusDegraded`; unknown/absent → `RuntimeStatusUnknown`. Also `type ResourceHealth struct { Kind, Name, Namespace, Health string }` and a parser from the CR's `status.resources[]`.
@@ -1249,104 +1247,163 @@ git commit -m "feat(operatedruntime): read health from the Argo Application CR"
 
 ---
 
-## Task 11: `QueryDeploymentHealth`
+## Task 10: `QueryDeploymentHealth`
 
-Joins the re-derived model-key map against live per-resource health.
+Joins model keys to live per-resource health. **The join lives in ResourceAccess, not the Manager** — see the layering note below, which reverses this plan's original design.
 
 **Files:**
-- Modify: `.aiarch/state/project.json` (`.serviceContracts.operationsManager`)
-- Create: `server/internal/manager/operations/health.go`
-- Create: `server/internal/manager/operations/health_test.go`
+- Modify: `.aiarch/state/project.json` (`.serviceContracts.operatedRuntimeAccess` — new verb; `.serviceContracts.operationsManager` — new public op)
+- Modify: `server/internal/resourceaccess/operatedruntime/operatedruntimeaccess.go`
+- Modify: `server/internal/resourceaccess/operatedruntime/access_test.go`
+- Modify: `server/internal/arch_test.go` (REMOVE two allowlist entries — see below)
+- Create: `server/internal/manager/operations/querydeploymenthealth.go` — permitted only because `TestFileLayout` allows one file per WORKFLOW and this is `QueryDeploymentHealthWorkflow`'s. The required filename is `strings.ToLower(strings.TrimSuffix(entryFunc, "Workflow")) + ".go"`; verify before creating.
+- Modify: `server/internal/manager/operations/manager_test.go`
 
 **Interfaces:**
-- Produces: `QueryDeploymentHealth(rc fwm.Context, operatedAppID uuid.UUID) (DeploymentHealth, error)` where `DeploymentHealth{Nodes []NodeHealth}` and `NodeHealth{ModelKey, Kind, Name string, Health HealthState}`; `HealthState ∈ {HealthStateNeutral, HealthStateHealthy, HealthStateUnhealthy}`.
+- New RA verb: `GetDeploymentResourceHealth(rc fwra.Context, appID uuid.UUID, desired RuntimeDesiredState) ([]ModelKeyHealth, error)` where `ModelKeyHealth{ModelKey string, Status RuntimeStatus}`.
+- New public op: `QueryDeploymentHealth(rc fwm.Context, operatedAppID uuid.UUID) (DeploymentHealth, error)` where `DeploymentHealth{Nodes []NodeHealth}` and `NodeHealth{ModelKey string, Health HealthState}`; `HealthState ∈ {HealthStateNeutral, HealthStateHealthy, HealthStateUnhealthy}`.
 
-- [ ] **Step 1: Write the failing test**
+### Why the join moved into ResourceAccess
+
+This plan originally put `joinHealth(manifests []Manifest, health []ResourceHealth, …)` in the Manager. That was wrong on two counts, both found in Task 9's review:
+
+1. **It reintroduces the exact leak decision D11 removed.** `Manifest{Kind, Name, Namespace, YAML}` and `ResourceHealth{Kind, Name, Namespace, Health}` are Kubernetes vocabulary, and the planned `healthStateFor` switched on the literal Argo string `"Healthy"` inside `manager/operations`. D11 removed a single `"k8s"` literal from the Manager; this would have put a Kubernetes object-identity triple *and* an Argo health enum there. Spec D4 states the rule without exception.
+2. **It could not compile.** The original text says `QueryDeploymentHealth` "re-runs `assembleDesiredState` + `render`" — but `render` is unexported and must stay so. A new RA verb was needed regardless; the only open question was what it returns.
+
+The RA gains no new concept: `ModelKey`/`ModelKeys` are *already* RA contract vocabulary (they sit in `RuntimeDesiredState`, `Workload`, `PostgresSpec`, `OIDCSpec`), and `Manifest.ModelKeys` is precisely the record of where a model key and a Kubernetes identity coexist. Joining there joins where both inputs already live; joining in the Manager means exporting the Kubernetes half upward only to rejoin it.
+
+### The split of responsibilities
+
+| Layer | Answers |
+|---|---|
+| ResourceAccess | "Which model keys does this app actually deploy, and how is each doing?" Returns substrate-neutral `RuntimeStatus`, never an Argo string. |
+| Manager | "Of the keys on this diagram, which are even ours?" Reads the cloud environment's full key list from project.json, marks Neutral every key the RA did not return, and collapses `RuntimeStatus` → the three-state `HealthState`. |
+
+The RA must NOT enumerate the deployment environment — it receives keys as opaque strings and never interprets them. It will not know what `cloud-node-browser` is, and does not need to. Conversely the D10 collapse (only Healthy is green) is a *diagram* concern and belongs in the Manager, expressed over `RuntimeStatus`.
+
+- [ ] **Step 1: Add the RA verb to the contract and regenerate**
+
+Edit `.serviceContracts.operatedRuntimeAccess` in `.aiarch/state/project.json`: add a `ModelKeyHealth` `$def` (`ModelKey` string, `Status` → the existing `RuntimeStatus` enum) and the `GetDeploymentResourceHealth` operation. Repo conventions, already verified: operations use `"result"` + `"error": true` (never `"returns"`), and there is no `IdempotencyKey` `$def` — siblings inline it.
+
+```bash
+cd server && GOWORK=off make gen-models
+```
+
+Expect hand-written fakes and noop implementations elsewhere to break; fix them in this task.
+
+This takes `operatedRuntimeAccess` to 7 ops — inside Appendix B's limit of 12, well clear of the ≥20 reject line.
+
+- [ ] **Step 2: Write the failing RA test**
 
 ```go
-func TestQueryDeploymentHealth_NeutralForUnrenderedNodes(t *testing.T) {
-	// The cloud environment contains nodes archistrator does not deploy: the
-	// architect's laptop, their browser, the temporal and gtd namespaces. None of
-	// these may ever be coloured — a naive join would paint them unhealthy.
-	got := joinHealth(
-		[]Manifest{{ModelKey: "cloud-node-server-deployment", Kind: "Deployment", Name: "archistrator-server"}},
-		[]ResourceHealth{{Kind: "Deployment", Name: "archistrator-server", Health: "Healthy"}},
-		[]string{"cloud-node-server-deployment", "cloud-node-browser", "cloud-node-ns-gtd"},
-	)
+func TestGetDeploymentResourceHealth_MapsPerResourceHealthToModelKeys(t *testing.T) {
+	// Fixture: an Application CR whose status.resources[] carries one Healthy
+	// Deployment and one Degraded Cluster, matching what render() emits for
+	// testDesiredState().
+	got, err := parseModelKeyHealth(loadArgoFixture(t, "application-mixed.json"), testDesiredState())
+	if err != nil {
+		t.Fatalf("parseModelKeyHealth: %v", err)
+	}
+	byKey := map[string]RuntimeStatus{}
+	for _, h := range got {
+		byKey[h.ModelKey] = h.Status
+	}
+	if byKey["cloud-node-server-deployment"] != RuntimeStatusHealthy {
+		t.Errorf("server = %v, want Healthy", byKey["cloud-node-server-deployment"])
+	}
+	// All three database model keys collapse onto the one Cluster resource and
+	// must therefore all report its health.
+	for _, k := range []string{"cloud-infra-operatedsystemstate", "cloud-infra-billingstate", "cloud-infra-usagelog"} {
+		if byKey[k] != RuntimeStatusDegraded {
+			t.Errorf("%s = %v, want Degraded (all three share one Cluster)", k, byKey[k])
+		}
+	}
+}
 
+func TestGetDeploymentResourceHealth_RenderedButAbsentFromClusterIsDegraded(t *testing.T) {
+	// A manifest the renderer emits but the cluster does not report: it should
+	// exist and does not. That is Degraded, never Healthy and never omitted.
+	got, err := parseModelKeyHealth(loadArgoFixture(t, "application-missing-cluster.json"), testDesiredState())
+	if err != nil {
+		t.Fatalf("parseModelKeyHealth: %v", err)
+	}
+	for _, h := range got {
+		if h.ModelKey == "cloud-infra-billingstate" && h.Status == RuntimeStatusHealthy {
+			t.Error("a resource missing from the cluster must not report Healthy")
+		}
+	}
+}
+```
+
+- [ ] **Step 3: Run and watch them fail**
+
+```bash
+cd server && GOWORK=off go test ./internal/resourceaccess/operatedruntime/ -run TestGetDeploymentResourceHealth -v
+```
+
+Expected: FAIL — `undefined: parseModelKeyHealth`.
+
+- [ ] **Step 4: Implement the RA verb**
+
+Internally: `render(desired)` → find the Application by the `archistrator.dev/app-id` annotation → `parseResourceHealth` → match each rendered manifest on `(Kind, Name, Namespace)` → emit one `ModelKeyHealth` per `ModelKey`, fanning out where a manifest carries several (the Postgres `Cluster` carries three).
+
+Fail-closed rules, in keeping with the two fail-open checks this plan has already rejected:
+- A rendered manifest with no matching live resource is **Degraded** — it should exist and does not. Never Healthy, never silently dropped.
+- Any read failure propagates as an error. Never a Healthy default.
+
+- [ ] **Step 5: Un-export `Manifest` and `ResourceHealth`**
+
+Both were exported only so the Manager could join them. With the join inside the RA, neither needs to be. Rename to unexported forms and **remove both entries from `encapsulationAllowlistData` in `server/internal/arch_test.go`**.
+
+This is the strongest signal the boundary is now right: the gate's exception surface shrinks rather than grows. Do not skip it because the tests already pass.
+
+- [ ] **Step 6: Fold in two carried Minor findings from Task 9**
+
+Same file, so close them here rather than in a separate pass:
+- `GetApplicationHealth` discards its `fwra.Context` and builds the request with `http.NewRequest`. Use `http.NewRequestWithContext` so an activity deadline or cancellation actually propagates — today it is lost.
+- A 200 response with valid JSON but no `items` key currently yields `Pending`, conflating "unexpected shape" with "never synced". Distinguish them — assert `kind == "ApplicationList"`, or detect the absent key — so an unexpected payload is an error rather than a benign-looking Pending.
+
+- [ ] **Step 7: Add the public Manager op**
+
+Add `QueryDeploymentHealth` to `.serviceContracts.operationsManager`, regenerate, and implement `QueryDeploymentHealthWorkflow`: read head-state, read the project, assemble the desired state, call the RA verb, then apply the Manager-side rules — every cloud-environment key the RA did not return is `HealthStateNeutral`; returned keys collapse `RuntimeStatusHealthy` → `HealthStateHealthy` and everything else → `HealthStateUnhealthy`.
+
+- [ ] **Step 8: Write the Manager neutrality test**
+
+This is the trap from spec §6 — a naive join paints the architect's own laptop red.
+
+```go
+func TestQueryDeploymentHealth_NeutralForNodesWeDoNotDeploy(t *testing.T) {
+	got := applyDiagramHealth(
+		[]operatedruntime.ModelKeyHealth{{ModelKey: "cloud-node-server-deployment", Status: operatedruntime.RuntimeStatusHealthy}},
+		[]string{"cloud-node-server-deployment", "cloud-node-browser", "cloud-node-ns-gtd", "cloud-node-architect-machine"},
+	)
 	byKey := map[string]HealthState{}
 	for _, n := range got.Nodes {
 		byKey[n.ModelKey] = n.Health
 	}
 	if byKey["cloud-node-server-deployment"] != HealthStateHealthy {
-		t.Errorf("server deployment = %v, want Healthy", byKey["cloud-node-server-deployment"])
+		t.Errorf("server = %v, want Healthy", byKey["cloud-node-server-deployment"])
 	}
-	if byKey["cloud-node-browser"] != HealthStateNeutral {
-		t.Errorf("browser = %v, want Neutral — it is not in the app's resource set", byKey["cloud-node-browser"])
-	}
-	if byKey["cloud-node-ns-gtd"] != HealthStateNeutral {
-		t.Errorf("gtd namespace = %v, want Neutral — it belongs to another app", byKey["cloud-node-ns-gtd"])
-	}
-}
-
-func TestQueryDeploymentHealth_UnhealthyWhenResourceDegraded(t *testing.T) {
-	got := joinHealth(
-		[]Manifest{{ModelKey: "cloud-node-server-deployment", Kind: "Deployment", Name: "archistrator-server"}},
-		[]ResourceHealth{{Kind: "Deployment", Name: "archistrator-server", Health: "Degraded"}},
-		[]string{"cloud-node-server-deployment"},
-	)
-	if got.Nodes[0].Health != HealthStateUnhealthy {
-		t.Errorf("health = %v, want Unhealthy", got.Nodes[0].Health)
+	for _, k := range []string{"cloud-node-browser", "cloud-node-ns-gtd", "cloud-node-architect-machine"} {
+		if byKey[k] != HealthStateNeutral {
+			t.Errorf("%s = %v, want Neutral — we do not deploy it", k, byKey[k])
+		}
 	}
 }
 ```
 
-- [ ] **Step 2: Run and watch them fail**
+- [ ] **Step 9: Full suite, regenerate the client surface, commit**
 
 ```bash
-cd server && GOWORK=off go test ./internal/manager/operations/ -run TestQueryDeploymentHealth -v
-```
-
-Expected: FAIL — `undefined: joinHealth`.
-
-- [ ] **Step 3: Implement**
-
-`joinHealth` takes the rendered manifests, the live resource health, and the full list of model keys in the cloud environment. A key with no rendered manifest is `Neutral`, always — never `Unhealthy`. A key with a manifest but no live resource is `Unhealthy` (it should exist and does not). Otherwise fold the Argo string through:
-
-```go
-// healthStateFor collapses an Argo per-resource health string to the three-state
-// diagram vocabulary (spec D10). Note this is NOT mapArgoHealth: that one answers
-// "what RuntimeStatus is this app in" for head-state; this one answers "what colour
-// is this diagram node". Only "Healthy" is green.
-func healthStateFor(argoHealth string) HealthState {
-	if argoHealth == "Healthy" {
-		return HealthStateHealthy
-	}
-	return HealthStateUnhealthy
-}
-```
-
-`QueryDeploymentHealth` re-runs `assembleDesiredState` + `render` to get the manifests, calls the Argo reader, and joins.
-
-- [ ] **Step 4: Run and watch them pass**
-
-```bash
-cd server && GOWORK=off go test ./internal/manager/operations/ -v
-```
-
-Expected: PASS.
-
-- [ ] **Step 5: Regenerate the client surface and commit**
-
-```bash
-cd server && GOWORK=off make gen-client && cd ../webApp && npm run gen:api
+cd server && GOWORK=off make test && GOWORK=off make gen-client
+cd ../webApp && npm run gen:api && npm run check
 git add .aiarch/state/project.json server/ webApp/src/contracts/ webApp/src/api/
 git commit -m "feat(operations): QueryDeploymentHealth joining model keys to live health"
 ```
 
 ---
 
-## Task 12: Hide operations in the local profile
+## Task 11: Hide operations in the local profile
 
 **Files:**
 - Modify: `server/cmd/server/hooks.go`
@@ -1416,7 +1473,7 @@ git commit -m "feat(operations): hide the operations surface in the local profil
 
 ---
 
-## Task 13: Deployment diagram health overlay
+## Task 12: Deployment diagram health overlay
 
 **Files:**
 - Create: `webApp/src/hooks/useDeploymentHealth.ts`
@@ -1426,7 +1483,7 @@ git commit -m "feat(operations): hide the operations surface in the local profil
 - Modify: `webApp/src/components/flow/DeploymentNodes.tsx`
 
 **Interfaces:**
-- Consumes: `QueryDeploymentHealth` (Task 11); `useCapabilities` (Task 12).
+- Consumes: `QueryDeploymentHealth` (Task 10) — returns `{Nodes: [{modelKey, health}]}` where health is `Healthy` | `Unhealthy`, and any diagram node absent from the response is Neutral; `useCapabilities` (Task 11).
 - Produces, all in `deploymentHealth.ts`:
   - `type HealthState = 'Healthy' | 'Unhealthy'`
   - `healthColorName(state: HealthState | undefined): 'green' | 'red' | 'neutral'` — pure, no theme dependency, which is what makes it testable under `node --test`
@@ -1490,7 +1547,7 @@ git commit -m "feat(webapp): live health overlay on the deployment diagram"
 
 ---
 
-## Task 14: Cutover
+## Task 13: Cutover
 
 Not code — a runbook, executed against the real cluster. Each step is reversible.
 
@@ -1498,9 +1555,38 @@ Not code — a runbook, executed against the real cluster. Each step is reversib
 
 Run the renderer against archistrator's real project state and diff the output against the four production charts one final time. Commit nothing to the software repo.
 
+**Hand-check the rendered Argo `Application` against the four live ones.** This is the only object the automated golden diff does not cover, because production splits archistrator across four Applications and the renderer emits one — there is no counterpart to compare against. It is also the object that actually drives the cutover: everything else is applied *because* it says so. Five behaviour tests cover its shape (self-managed prune/sync/finalizer, tenant sync), but nothing compares it to what is live. Read it against `k8s/argocd/applications/archistrator-{server,webapp,postgres,gateway-routes}.yaml` and confirm the destination namespace, project, and repo URL match before going further.
+
 - [ ] **Step 2: Register archistrator as an operated app**
 
-Call `RegisterOperatedApp` with archistrator's project id and its current GHCR image tags as the bundle ref. Confirm the head-state row exists with a non-empty `deployable_bundle_ref`.
+Two inputs are easy to get wrong; both are corrected here from the original draft.
+
+**The operated app id is DERIVED, not chosen** (spec D13). It is `uuidv5(namespace fa098c85-58b6-483e-8506-36045a008da7, projectId)`, realized once in `server/cmd/server/hooks.go`'s `OperatedAppIDForProject`. For `archistrator` that is:
+
+```
+b663aadc-9cc3-5069-b2bb-d360de9c6a10
+```
+
+Read it from the running server rather than trusting this document:
+
+```bash
+curl -s https://archistrator.capture-gtd.com/api/v1/projects/archistrator/operated-app-id
+# {"operatedAppId":"b663aadc-9cc3-5069-b2bb-d360de9c6a10"}
+```
+
+The composition root **refuses** a registration whose id is not the derived one, so a mistyped id fails loudly instead of creating a head-state row nothing can ever address again. This same id is what the Operations console URL takes (`/operations/<operatedAppId>`) and what the deployment diagram's health overlay polls.
+
+**The bundle ref is a content address, not an image tag.** `deployableBundleRef` is passed to `artifactAccess.retrieveConstructionOutput`, which resolves it to the bundle's bytes; those bytes must be a JSON object of exactly the shape assembly reads:
+
+```json
+{"serverImage":"ghcr.io/…/archistrator-server:0.8.16","webAppImage":"ghcr.io/…/archistrator-webapp:0.6.14"}
+```
+
+So Step 2 is really two acts: **store that JSON as a construction output, take the content address it returns, and register THAT**. Registering a bare image tag as the ref leaves the deploy in Step 3 failing at retrieval, and an empty or unrelated payload now fails loudly at assembly (`deployable bundle carries no serverImage`) rather than committing a Deployment with an empty `image:`.
+
+Confirm afterwards that the head-state row exists with a non-empty `deployable_bundle_ref`.
+
+**Scale and Update-autoscaler-policy are not part of this cutover.** Both are rejected by the operations façade and disabled in the console (spec §11) — desired state is assembled from the deployment model plus the bundle, and neither patch carries either. Deploy is the only publish.
 
 - [ ] **Step 3: Parallel publish**
 
@@ -1510,19 +1596,44 @@ Deploy from the console. The server commits to `k8s/argocd/apps/archistrator/`. 
 
 In the software repo, delete the four `k8s/argocd/applications/archistrator-*.yaml` files and add the rendered Application. ArgoCD will show the app **OutOfSync and wait** — manual sync is the guard. Read the diff in the Argo UI, then click Sync.
 
+**Prerequisite before this step:** the OIDC client-secret placeholder Secret must exist in the **`keycloak`** namespace as well as the app's namespace. The Keycloak operator requires the referenced Secret to sit alongside the Keycloak CR, and the CR is rendered into `keycloak` (spec §5.5). This is a new out-of-band step that has no equivalent in the current hand-managed setup.
+
+**Expect a CrashLoop on first apply, and do not treat it as a failed cutover.** Production splits archistrator across four Applications carrying `sync-wave` annotations. The rendered form is one recursive Application with no waves, so the server `Deployment` and the CNPG `Cluster` sync together and the server will restart until Postgres accepts connections. It self-heals within a couple of minutes. If it has not settled after that, it is a real failure — go to Step 6.
+
 - [ ] **Step 5: Verify**
 
-Confirm the console shows healthy, the deployment diagram shows green on the server deployment, and archistrator is still reachable at `archistrator.capture-gtd.com`.
+Confirm archistrator is still reachable at `archistrator.capture-gtd.com` and the console shows healthy. Then open the Deployment & Operations Model page on the **cloud** environment and read the overlay against these expectations (the health join was corrected on 2026-08-08; before that fix two of these would have been red on a perfectly healthy cluster):
+
+| Node | Expected once settled | Why |
+|---|---|---|
+| `cloud-node-server-deployment` | green | Deployment + Service, both health-checked by Argo |
+| `cloud-infra-static-assets` | green | the webapp Deployment + Service |
+| `cloud-infra-operatedsystemstate` / `-billingstate` / `-usagelog` | green | all three colour from the ONE CNPG `Cluster` |
+| `cloud-infra-gateway` | green | HTTPRoutes + Envoy policies; several objects answer to this one key and the WORST wins, so any degraded or unsynced route shows here |
+| `cloud-infra-keycloak` | green | the `KeycloakRealmImport` — Argo has no health check for the kind, so green means present **and `Synced`** |
+| `cloud-node-ns-archistrator` | green | the Argo `Application`'s OWN rollup (an Application never lists itself among its resources) |
+| `cloud-node-architect-machine`, `cloud-node-browser`, `cloud-node-ns-temporal`, `cloud-node-ns-gtd`, `cloud-node-external` | neutral | archistrator does not deploy them |
+| every node on the `test` and `local` environments | neutral | not observable at all |
+
+**Between the Deploy publish in Step 3 and your clicking Sync in Step 4, the gateway and keycloak nodes read RED, and that is correct.** Archistrator's Application is manual-sync by design (the D8 self-guard), so every deploy passes through that window. For the kinds Argo cannot grade — `HTTPRoute`, `SecurityPolicy`, `BackendTrafficPolicy`, `KeycloakRealmImport` — green means present **and `Synced`**; an `OutOfSync` or sync-status-less entry reads red rather than claiming a change landed that you have not yet applied. They turn green after the sync.
+
+Red on the first read is expected while the rollout settles (D10 has no amber: `Progressing` reads red). Red that persists after a couple of minutes, with everything Synced, is real — go to Step 6.
+
+A node that is **neutral when the table says green** means the model key the renderer stamps no longer matches the diagram node's key — a rename in the deployment model, not a cluster problem.
 
 - [ ] **Step 6: Rollback if needed**
 
-`git revert` the software repo commit and click Sync. Because `prune: false` is set on archistrator's own Application, a bad render cannot have deleted anything — the worst case is an unapplied change.
+`git revert` the software repo commit and click Sync. Because `prune: false` is set on archistrator's own Application — and Task 5 additionally omits the Argo finalizer when `SelfManaged`, and Task 7 hard-guards `Withdraw` against it — a bad render cannot have deleted anything. The worst case is an unapplied change.
+
+Those three guards exist because they cover three genuinely different paths to the same outcome: a renderer that omits a manifest, a delete or rename of the Application object, and an operator clicking Withdraw. Any one of them alone leaves a hole.
+
+A **fourth** guard covers the path the other three cannot: all three derive from the single `SelfManaged` boolean, so a publish arriving with it false would rewrite archistrator's own Application in tenant shape — `prune: true`, `selfHeal: true`, finalizer restored — and disarm all three in one commit. `gitOpsPublish` now refuses to overwrite a committed self-managed Application with a tenant-shaped one (or with one whose shape it cannot determine). If you ever see that refusal during cutover, do NOT work around it: it means the desired state being published does not believe archistrator is self-managed, and publishing it would arm the cluster to prune the control plane.
 
 ---
 
 ## Self-Review Notes
 
-**Spec coverage:** D1/D2/D3 → Tasks 4–7. D4 → Task 2 + Task 4. D5 → Task 8. D6 → scope of the whole plan. D7 → Task 10. D8 → Task 5 Step 3 + Task 14. D9 → Task 12. D10 → Tasks 10–13. §4.1–4.3 contract changes → Tasks 1, 2, 9, 11. §4.4 relationship → Task 8 Step 1. §5.2 golden diff → Task 6. §5.3 gates → Task 6. §6 overlay → Tasks 11, 13. §7 security → Task 7 (credential) + Task 12 (profile). §10 cutover → Task 14.
+**Spec coverage:** D1/D2/D3 → Tasks 4–7. D4 → Task 2 + Task 4. D5 → Task 2. D6 → scope of the whole plan. D7 → Task 9. D8 → Task 5 Step 3 + Task 13. D9 → Task 11. D10 → Tasks 9–12. §4.1–4.3 contract changes → Tasks 1, 2, 8, 10. §4.4 relationship → Task 2 Step 2. §5.2 golden diff → Task 6. §5.3 gates → Task 6. §6 overlay → Tasks 10, 12. §7 security → Task 7 (credential) + Task 11 (profile). §10 cutover → Task 13.
 
 **Known gaps, deliberately deferred to §11 of the spec:** built-app onboarding, SLO and cost attribution, tenant namespace guardrails, automated image-tag promotion, fleet re-render.
 

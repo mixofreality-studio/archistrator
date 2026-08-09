@@ -38,6 +38,9 @@ Meanwhile the software repo (`../software`) runs a standard app-of-apps: `root` 
 | D8 | **Approval is the operator clicking Deploy**; the server commits directly to `../software` main. Archistrator's own Application is rendered with `prune: false` and manual sync, so self-modification always requires a human to press Sync in Argo. | *PR-and-merge* rejected: moves approval out of the product into GitHub and makes every deploy two-step. *Full auto with no self-guard* rejected: with `prune: true` a renderer bug that omits a manifest deletes the control plane, leaving no automated way back. |
 | D9 | **The local profile does not surface operations at all** — routes unmounted, console hidden. | *Dry-run console visible locally* rejected by the founder: local must not appear to operate. |
 | D10 | **Deployment diagram health is strict green / red / neutral.** `Healthy` → green; every other observed state (`Progressing`, `Degraded`, `Missing`, `Suspended`, `Unknown`) → red; anything outside the app's resource set → neutral. | *Amber for Progressing* rejected in favour of glance-readability. Accepted cost: the diagram reads red mid-rollout until it settles. |
+| D11 | **The model maps to manifests by `role`, not by technology string.** The deployable elements are `infrastructureNodes` carrying machine-readable `role` values (`gateway`, `identityProvider`, `database`) plus workload nodes. Selection keys off those, never off the free-text `technology` field. | *Selecting by `technology`* rejected: it puts Kubernetes vocabulary in the Manager and couples assembly to an unconstrained free-text string (`"k8s"` vs `"k8s-namespace"` vs `"Kubernetes Deployment"`, none of them validated). |
+| D12 | **The renderer emits a Keycloak realm CR per app.** Onboarding an app provisions its realm and OIDC client instead of requiring manual admin-console work. The cluster already runs the Keycloak operator (`keycloak-k8s-resources` 26.4.2, API group `k8s.keycloak.org/v2alpha1`). **Create-only — see §5.5.** | *Keeping Keycloak manual* rejected by the founder. *Reconciling the realm for real* (Admin API or a reconciling controller) rejected as materially larger scope that puts an automated writer on the path to the founder's own login. Accepted cost: this is the one rendered object with no production counterpart to diff against (§5.2). |
+| D13 | **`operatedAppId = uuidv5(fixed namespace, projectId)`.** An operated app's id is DERIVED from its project's id — one operated app per project, computed by anyone who knows the project, with no lookup verb, no stored correlation and no new contract surface. Realized once, in `server/cmd/server/hooks.go`'s `OperatedAppIDForProject`; the webApp reads it from `GET /api/v1/projects/{projectID}/operated-app-id` rather than reimplementing UUIDv5 in the browser, and the composition root refuses a `RegisterOperatedApp` whose id is not the derived one. | *Literal equality* (`operatedAppId == projectId`, the ruling's first mechanism) was tried and is type-incompatible: a `ProjectID` is a free-form string (`"archistrator"`), an `operatedAppId` is a `uuid.UUID`, so the overlay 400s on every poll — a guaranteed error loop in place of the dormancy it replaced. The derivation keeps every property the ruling wanted and is type-honest. *A `projectRef → operatedAppId` lookup verb* stays deferred: it would allow several deployments per project, but costs a contract op and a Manager read path. Not a trap to defer — if multiple deployments are ever needed, the lookup gets added then, the first deployment keeps the derived id, and additional ones take fresh ids. |
 
 ---
 
@@ -129,11 +132,33 @@ New relationship: `operationsManager → projectStateAccess`. Must land in `.sys
 
 **The renderer reads only its typed `RuntimeDesiredState`.** It never reads `project.json` — that would be a ResourceAccess component reaching across to another system's state. The **Manager** reads the deployment model's `cloud` environment (`.slots[6].model.deployment.environments[0]`) and folds namespace, host, container set, and env wiring into the typed struct before the call. This keeps §6's re-derivation honest: the same typed input always produces the same manifests and therefore the same model-key map.
 
-Output per app: `Deployment` + `Service` for server and webapp, CNPG `Cluster`, `HTTPRoute`s, `SecurityPolicy`, `BackendTrafficPolicy`, `ReferenceGrant`, and the Argo `Application` itself.
+Output per app: `Deployment` + `Service` for server and webapp, CNPG `Cluster`, `HTTPRoute`s, `SecurityPolicy`, `BackendTrafficPolicy`, the Keycloak realm CR (D12), and the Argo `Application` itself.
+
+**No `ReferenceGrant`.** The production chart gates it on a cross-namespace backend, which cannot arise here (backends live in the app's own namespace), and the captured golden contains none. Rendering one would mean emitting a resource production does not have.
+
+### 5.1a Model → manifest mapping (D11)
+
+The deployment model is not a loose sketch that happens to resemble the deployment — it carries the deployable elements as `infrastructureNodes` with machine-readable `role` values, alongside workload nodes. The assembly selects on those:
+
+| Model element | `role` | Renders as |
+|---|---|---|
+| `cloud-node-server-deployment` (workload node, `instances: 2`) | — | server `Deployment` + `Service` |
+| `cloud-infra-static-assets` (nginx) | `other` | webapp `Deployment` + `Service` |
+| `cloud-infra-gateway` (Envoy) | `gateway` | `HTTPRoute`s + `SecurityPolicy` + `BackendTrafficPolicy` |
+| `cloud-infra-keycloak` (OIDC) | `identityProvider` | Keycloak realm/client CR |
+| `cloud-infra-operatedsystemstate`, `-billingstate`, `-usagelog` | `database` ×3 | one CNPG `Cluster` |
+
+Three properties of this mapping are load-bearing and easy to get wrong:
+
+- **`role: other` is ambiguous.** `cloud-infra-static-assets` (nginx) and `cloud-infra-temporal` share it. The static-asset node is identified by its relationship to the webapp container, not by role alone. Do not invent a new role value to disambiguate — the model is a design artifact with its own review rail.
+- **Three `database` nodes map to one `Cluster`.** Production runs a single `archistrator-postgres` serving all three logical stores. All three diagram nodes therefore colour from that one resource's health.
+- **`archistrator-webapp` sits on `cloud-node-browser` and must stay neutral.** The SPA genuinely executes in the architect's browser; the in-cluster thing is the nginx that serves it. Colouring the browser node from cluster health would be wrong.
 
 ### 5.2 Acceptance criterion — the golden diff
 
 Render archistrator's own `DesiredState` and compare against `helm template` output of the four existing hand-written charts. **Semantic equivalence with what is running in production today is the bar.** This is what makes the dogfood verifiable rather than hopeful: the target is not "plausible YAML", it is "the YAML currently keeping archistrator alive".
+
+**One exemption: the Keycloak CR (D12).** It has no production counterpart — the realm and client are hand-managed in the admin console today. It is therefore the single rendered object with no golden diff to check it, and needs its own test plus a deliberate first apply. Treat it as the highest-risk object in the render, not the easiest: a wrong realm or client CR breaks login for the whole app, and archistrator's own front door is on that path.
 
 ### 5.3 Invariant gates (build-failing tests)
 
@@ -142,9 +167,37 @@ Render archistrator's own `DesiredState` and compare against `helm template` out
 - `SelfManaged` output carries `prune: false` and manual sync.
 - Rendering is deterministic: identical input yields byte-identical output (required for content-idempotent publish, and for §6's re-derivation).
 
+### 5.3a Refusals on the publish path
+
+Three checks that make a zero value REFUSE rather than SKIP — the failure shape this design has now hit five times (a renderer skipping auth on a blank client id; a delete-guard disarming on unset config; app-level health defaulting to Healthy; a zero-value desired-state publish; an unchecked bundle):
+
+- **The bundle is validated, not merely parsed.** `json.Unmarshal` into the bundle manifest succeeds on `null`, on `{}` and on any unrelated object, so a clean parse proves nothing. Both image references must be non-empty and every assembled replica count ≥ 1 — an empty image renders a literal `image:` into a committed Deployment, and `replicas: 0` is a working manifest for an app that is not running.
+- **The app name is a path segment.** It originates in a user-supplied repository name and reaches `os.RemoveAll` in a repository holding the whole fleet's manifests. It is validated as a DNS-1123 label (which Kubernetes requires of the namespace anyway) at assembly AND again inside the ResourceAccess, before any filesystem call.
+- **A self-managed → tenant downgrade is refused at publish.** D8's three guards (`prune: false`, the omitted finalizer, `Withdraw`'s refusal) all derive from ONE boolean, so a publish arriving with `SelfManaged` false for a path where a self-managed `Application` already sits would rewrite it in tenant shape and disarm all three in a single commit. The previously committed `Application` is already in the clone: if it is self-managed — or its syncPolicy shape cannot be determined — and the incoming desired state is not, publish refuses. This is the fourth guard, and the only one not derived from the same fact as the other three.
+
 ### 5.4 Fleet re-render
 
 D3's accepted cost. Because publish is content-idempotent, the reconcile tick can re-render and republish only when content differs — the fleet converges on a renderer change without a separate migration mechanism. Out of scope for this slice (one app), but the property is why D3 is affordable.
+
+### 5.5 What the Keycloak CR does and does not do (D12)
+
+Verified against the operator's own source at the pinned 26.4.2 tag, not against documentation — third-party docs disagree with the shipped code on more than one point (the current docs describe `v2beta1`; 26.4.2 serves `v2alpha1` only, and the placeholder syntax is `${VAR}`, not `$(VAR)`).
+
+**`KeycloakRealmImport` is create-only.** If the realm already exists it is *not* overwritten, and the CR neither updates nor deletes. The practical consequences:
+
+| Case | Effect |
+|---|---|
+| A newly onboarded app | Realm and client are provisioned. This is D12's goal, and it is met. |
+| **archistrator itself** | Its realm is already hand-managed in the admin console, so applying the CR is a **deliberate no-op**. |
+
+So "GitOps owns the realm" is *not* achieved by this mechanism and cannot be. What is achieved is automated provisioning for future apps. The founder ratified this trade-off knowingly (2026-08-08) rather than expanding scope to a reconciling writer on the platform's own login path.
+
+Two further constraints, both real prerequisites rather than footnotes:
+
+- The operator requires `keycloakCRName` to reference a Keycloak CR in the **same namespace**, so the rendered CR lands in `keycloak`, not the app's namespace. The client-secret placeholder Secret must therefore exist in the `keycloak` namespace as well as the app's — a new out-of-band step for the cutover runbook.
+- The rendered realm body is **minimal: no roles, groups, or mappers.** Harmless for archistrator (no-op anyway), but a genuinely new app's users would lack `drive-phase` / `approve-artifact`. That gap belongs to built-app onboarding (§11), not here.
+
+Because this object is exercised for the first time by a future tenant rather than by this dogfood, its unit tests are the only thing standing behind it. Treat a change to it as a change to production login.
 
 ---
 
@@ -170,6 +223,13 @@ cloud-node-external              neutral   external services
 A strict binary applied naively would paint the architect's laptop, their browser, and the gtd namespace red. **Only nodes the renderer actually emits resources for may take a colour**; everything else — including the whole `test` and `local` environments — renders neutral.
 
 **States** (D10): `Healthy` → green; `Progressing`/`Degraded`/`Missing`/`Suspended`/`Unknown` → red; not in the resource set → neutral.
+
+**Two things `status.resources[]` does not say, and how each is read.** Both were getting the join wrong in the direction of red:
+
+- **The `Application` never lists itself.** That list is what the Application manages, not what it is, so joining the rendered Application against it hit the fail-closed no-match rule on every read and painted the app's namespace node permanently red. The Application is the thing *reporting*: its model key takes its own app-level `status.health.status` — the same value `getApplicationHealth` returns.
+- **A resource with no `health` field is not an unhealthy resource.** Argo reports health only for kinds it has a checker for; `HTTPRoute`, `SecurityPolicy`, `BackendTrafficPolicy` and `KeycloakRealmImport` have none and appear with a sync status and no health at all. For those kinds **the sync status is the whole verdict**: green only for an explicit `Synced`, and `OutOfSync`, an unrecognized value or a missing sync status all read red. That distinction is not academic — archistrator's own Application is manual-sync by design (D8), so the window between publishing and pressing Sync is a normal state on every deploy, and a diagram claiming a change landed before it was applied is the one failure this overlay exists to prevent. A kind Argo CAN grade keeps Argo's own health verdict. **Absent from the list entirely stays Degraded** — the genuinely different fact (the renderer emitted an object the cluster does not have) and still the fail-closed rule.
+
+**Several resources can answer to one model key** (the gateway node collects four `HTTPRoute`s, four `BackendTrafficPolicy`s and a `SecurityPolicy`), and the worst status wins — never whichever happened to be rendered last.
 
 ---
 
@@ -229,3 +289,29 @@ Each is its own follow-up, not a gap in this design:
 - **Tenant namespace guardrails** — PodSecurity, ResourceQuota, NetworkPolicy, Argo `AppProject` sandbox. Required before any non-archistrator app deploys.
 - **Automated image-tag promotion** — still manual, as the current `archistrator-server.yaml` annotation notes; the renderer now owns the tag, so promotion becomes a question of what feeds it.
 - **Fleet re-render on renderer change** — the mechanism is free (§5.4) but untested with one app.
+- **Operator scale and autoscaler-policy publishes** — both are rejected by name at the operations façade and disabled in the console. Desired state is assembled from the deployment model plus the deployable bundle, and neither patch kind carries either; replicas come from the model, so an operator override needs a real replica-override input threaded through assembly. That is the same missing seam that keeps autoscale-pause and delinquency-pause from publishing anything, and it is one follow-up, not two.
+
+### 11.1 Carried follow-ups from implementation
+
+Accumulated across implementation and its reviews. Recorded here because the working notes they came from are scratch, and a list nobody can find is a list nobody acts on.
+
+**Capability gaps — real behaviour that is absent, not merely unpolished:**
+
+- **Delinquency enforcement cannot pause a tenant app.** It previously published a zero-value desired state, which was inert under the old opaque-bytes contract but would be a half-rendered deployment under the renderer, so the publish was removed. Nothing replaced it. Head-state still records the decision; the runtime never changes. Blocked on the same replica-override seam as operator scale. **This touches the billing rail and deserves its own task.**
+- **The Operations console has no navigation entry** anywhere in the webApp — it is reachable only by a hand-constructed URL carrying an operated-app id. Now unblocked by D13's derivation, but deliberately not added here.
+- **`bundleManifest{ServerImage, WebAppImage}` has no producer.** The shape was invented to unblock assembly and is validated on read (non-empty images, replicas ≥ 1), but nothing writes it yet. It must be ratified against the real bundle producer before built-app onboarding.
+
+**Accuracy limits in the health overlay:**
+
+- A kind ArgoCD *does* grade (e.g. the server `Deployment`) that is `Healthy` but `OutOfSync` reads **green**. That is Argo's own verdict on the live object, and it matches this feature's stated purpose — "green if deployed and healthy". Ungradeable kinds are different: with no health signal at all, sync is the only available evidence, so they are green only when `Synced`. The asymmetry is deliberate. Its visible consequence: between a Deploy publish and the operator clicking Sync, the workload nodes read green while the gateway and Keycloak nodes read red.
+- The rendered Argo `Application` is the one object with **no golden file** — production runs four Applications where the renderer emits one, so there is no counterpart to diff. It is covered by behaviour tests and a pre-cutover hand-check.
+
+**Operational sharp edges:**
+
+- **No `sync-wave` annotations.** Production splits archistrator across four waved Applications; the rendered form is one recursive Application, so the server and Postgres sync together and the server CrashLoops until the database accepts connections. It self-heals.
+- **`push HEAD:main` hardcodes the branch** with no rebase-on-reject. A rejected push surfaces as a loud infrastructure error and the next reconcile tick re-clones.
+- **Publish clones the whole repo per reconcile tick.** Fine at current scale.
+- **`Withdraw` only finds apps this system published** (publish always stamps the `archistrator.dev/app-id` annotation). A hand-edited app whose annotation was stripped makes withdraw a no-op — destructively safe and contract-mandated, but an operational surprise. Deliberately not "fixed": the real repo holds many hand-written Applications that will never carry the annotation, so treating unannotated as ambiguous would refuse every withdraw forever.
+- **Platform constants are hardcoded in the Manager** (domain, OIDC coordinates, Postgres sizing). Correct for the single-app slice; wrong the moment a second app is operated.
+- **The operated-app-id derivation lives at the composition root**, exposed by a hand-mounted route outside the contract/codegen pipeline. It follows the existing `/api/v1/capabilities` precedent and there is exactly one derivation in the codebase, but moving it into the operations façade is one allowlist entry and a file move.
+- **Nothing ties the rendered Keycloak `apiVersion` to the operator's pinned `targetRevision`.** An operator upgrade that drops `v2alpha1` would break the render silently.

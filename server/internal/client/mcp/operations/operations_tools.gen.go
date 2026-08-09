@@ -30,8 +30,10 @@ func (h *Handler) Register(srv *mcp.Server) {
 	mcp.AddTool(srv, &mcp.Tool{Name: "operationsApplyDelinquencyPolicy", Description: "Apply the billing-delinquency policy to a customer (e.g. suspend or restore their operated systems) given the current delinquency context.", InputSchema: applyDelinquencyPolicyInputSchema(), OutputSchema: applyDelinquencyPolicyOutputSchema()}, h.handleApplyDelinquencyPolicy)
 	mcp.AddTool(srv, &mcp.Tool{Name: "operationsDeployAfterConstruction", Description: "Deploy a desired-state change to an operated application once its construction completes. Returns the deployment outcome.", InputSchema: deployAfterConstructionInputSchema(), OutputSchema: deployAfterConstructionOutputSchema()}, h.handleDeployAfterConstruction)
 	mcp.AddTool(srv, &mcp.Tool{Name: "operationsQueryCostProjection", Description: "Project the operating cost of an operated application, optionally across scale/what-if points. requestID idempotently identifies the query. Read-only.", InputSchema: queryCostProjectionInputSchema(), OutputSchema: queryCostProjectionOutputSchema()}, h.handleQueryCostProjection)
+	mcp.AddTool(srv, &mcp.Tool{Name: "operationsQueryDeploymentHealth", Description: "Return the deployment diagram's per-node health for an operated application: nodes it deploys colour healthy/unhealthy from the live cluster, every other node on the diagram (e.g. the architect's own laptop or browser) reads neutral. Read-only.", InputSchema: queryDeploymentHealthInputSchema(), OutputSchema: queryDeploymentHealthOutputSchema()}, h.handleQueryDeploymentHealth)
 	mcp.AddTool(srv, &mcp.Tool{Name: "operationsQueryOperatedSystemView", Description: "Return the live operated-system view (runtime status and topology) for an operated application. requestID idempotently identifies the query. Read-only.", InputSchema: queryOperatedSystemViewInputSchema(), OutputSchema: queryOperatedSystemViewOutputSchema()}, h.handleQueryOperatedSystemView)
 	mcp.AddTool(srv, &mcp.Tool{Name: "operationsReconcileOperatedState", Description: "Reconcile the actual operated state toward the desired state across the given scope (or everything when omitted). tickID idempotently identifies the reconcile tick.", InputSchema: reconcileOperatedStateInputSchema(), OutputSchema: reconcileOperatedStateOutputSchema()}, h.handleReconcileOperatedState)
+	mcp.AddTool(srv, &mcp.Tool{Name: "operationsRegisterOperatedApp", Description: "Onboard a new operated application by seeding its head-state row — the customer, project, and deployable-bundle reference it will deploy from. Must run once before the first DeployAfterConstruction. Returns the new head-state version.", InputSchema: registerOperatedAppInputSchema(), OutputSchema: registerOperatedAppOutputSchema()}, h.handleRegisterOperatedApp)
 	mcp.AddTool(srv, &mcp.Tool{Name: "operationsWithdrawSystem", Description: "Withdraw and tear down an operated application (identified by its deploy changeID) for the given reason. Returns the withdrawal outcome.", InputSchema: withdrawSystemInputSchema(), OutputSchema: withdrawSystemOutputSchema()}, h.handleWithdrawSystem)
 }
 
@@ -61,6 +63,14 @@ type queryCostProjectionOutput struct {
 	Result mgr.CostProjectionSeam `json:"result"`
 }
 
+type queryDeploymentHealthInput struct {
+	OperatedAppID uuid.UUID `json:"operatedAppID"`
+}
+
+type queryDeploymentHealthOutput struct {
+	Result mgr.DeploymentHealth `json:"result"`
+}
+
 type queryOperatedSystemViewInput struct {
 	OperatedAppID uuid.UUID `json:"operatedAppID"`
 	RequestID     string    `json:"requestID"`
@@ -77,6 +87,17 @@ type reconcileOperatedStateInput struct {
 
 type reconcileOperatedStateOutput struct {
 	Result mgr.ReconcileResult `json:"result"`
+}
+
+type registerOperatedAppInput struct {
+	OperatedAppID       uuid.UUID `json:"operatedAppID"`
+	CustomerID          uuid.UUID `json:"customerID"`
+	ProjectRef          string    `json:"projectRef"`
+	DeployableBundleRef string    `json:"deployableBundleRef"`
+}
+
+type registerOperatedAppOutput struct {
+	Result mgr.Version `json:"result"`
 }
 
 type withdrawSystemInput struct {
@@ -119,6 +140,16 @@ func queryCostProjectionInputSchema() *jsonschema.Schema {
 	return s
 }
 
+// queryDeploymentHealthInputSchema is the explicit MCP input schema for the QueryDeploymentHealth operation.
+func queryDeploymentHealthInputSchema() *jsonschema.Schema {
+	s := objectSchema[queryDeploymentHealthInput]()
+	fixUUIDStrings(s)
+	relaxRawJSON(s)
+	allowNullMaps(s)
+	s.Required = []string{"operatedAppID"}
+	return s
+}
+
 // queryOperatedSystemViewInputSchema is the explicit MCP input schema for the QueryOperatedSystemView operation.
 func queryOperatedSystemViewInputSchema() *jsonschema.Schema {
 	s := objectSchema[queryOperatedSystemViewInput]()
@@ -136,6 +167,16 @@ func reconcileOperatedStateInputSchema() *jsonschema.Schema {
 	relaxRawJSON(s)
 	allowNullMaps(s)
 	s.Required = []string{"tickID"}
+	return s
+}
+
+// registerOperatedAppInputSchema is the explicit MCP input schema for the RegisterOperatedApp operation.
+func registerOperatedAppInputSchema() *jsonschema.Schema {
+	s := objectSchema[registerOperatedAppInput]()
+	fixUUIDStrings(s)
+	relaxRawJSON(s)
+	allowNullMaps(s)
+	s.Required = []string{"operatedAppID", "customerID", "projectRef", "deployableBundleRef"}
 	return s
 }
 
@@ -176,6 +217,15 @@ func queryCostProjectionOutputSchema() *jsonschema.Schema {
 	return s
 }
 
+// queryDeploymentHealthOutputSchema is the explicit MCP output schema for the QueryDeploymentHealth operation.
+func queryDeploymentHealthOutputSchema() *jsonschema.Schema {
+	s := objectSchema[queryDeploymentHealthOutput]()
+	fixUUIDStrings(s)
+	relaxRawJSON(s)
+	allowNullMaps(s)
+	return s
+}
+
 // queryOperatedSystemViewOutputSchema is the explicit MCP output schema for the QueryOperatedSystemView operation.
 func queryOperatedSystemViewOutputSchema() *jsonschema.Schema {
 	s := objectSchema[queryOperatedSystemViewOutput]()
@@ -188,6 +238,15 @@ func queryOperatedSystemViewOutputSchema() *jsonschema.Schema {
 // reconcileOperatedStateOutputSchema is the explicit MCP output schema for the ReconcileOperatedState operation.
 func reconcileOperatedStateOutputSchema() *jsonschema.Schema {
 	s := objectSchema[reconcileOperatedStateOutput]()
+	fixUUIDStrings(s)
+	relaxRawJSON(s)
+	allowNullMaps(s)
+	return s
+}
+
+// registerOperatedAppOutputSchema is the explicit MCP output schema for the RegisterOperatedApp operation.
+func registerOperatedAppOutputSchema() *jsonschema.Schema {
+	s := objectSchema[registerOperatedAppOutput]()
 	fixUUIDStrings(s)
 	relaxRawJSON(s)
 	allowNullMaps(s)
@@ -240,6 +299,19 @@ func (h *Handler) handleQueryCostProjection(ctx context.Context, _ *mcp.CallTool
 	return nil, out, nil
 }
 
+// handleQueryDeploymentHealth is the MCP tool handler for the QueryDeploymentHealth operation.
+func (h *Handler) handleQueryDeploymentHealth(ctx context.Context, _ *mcp.CallToolRequest, in queryDeploymentHealthInput) (*mcp.CallToolResult, queryDeploymentHealthOutput, error) {
+	var out queryDeploymentHealthOutput
+	principal, _ := security.PrincipalFrom(ctx)
+	rc := fwmanager.Context{Context: ctx, Principal: principal}
+	result, err := h.Manager.QueryDeploymentHealth(rc, in.OperatedAppID)
+	if err != nil {
+		return nil, out, mapManagerError(err)
+	}
+	out.Result = result
+	return nil, out, nil
+}
+
 // handleQueryOperatedSystemView is the MCP tool handler for the QueryOperatedSystemView operation.
 func (h *Handler) handleQueryOperatedSystemView(ctx context.Context, _ *mcp.CallToolRequest, in queryOperatedSystemViewInput) (*mcp.CallToolResult, queryOperatedSystemViewOutput, error) {
 	var out queryOperatedSystemViewOutput
@@ -259,6 +331,19 @@ func (h *Handler) handleReconcileOperatedState(ctx context.Context, _ *mcp.CallT
 	principal, _ := security.PrincipalFrom(ctx)
 	rc := fwmanager.Context{Context: ctx, Principal: principal}
 	result, err := h.Manager.ReconcileOperatedState(rc, in.TickID, in.Scope)
+	if err != nil {
+		return nil, out, mapManagerError(err)
+	}
+	out.Result = result
+	return nil, out, nil
+}
+
+// handleRegisterOperatedApp is the MCP tool handler for the RegisterOperatedApp operation.
+func (h *Handler) handleRegisterOperatedApp(ctx context.Context, _ *mcp.CallToolRequest, in registerOperatedAppInput) (*mcp.CallToolResult, registerOperatedAppOutput, error) {
+	var out registerOperatedAppOutput
+	principal, _ := security.PrincipalFrom(ctx)
+	rc := fwmanager.Context{Context: ctx, Principal: principal}
+	result, err := h.Manager.RegisterOperatedApp(rc, in.OperatedAppID, in.CustomerID, in.ProjectRef, in.DeployableBundleRef)
 	if err != nil {
 		return nil, out, mapManagerError(err)
 	}

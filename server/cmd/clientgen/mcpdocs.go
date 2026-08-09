@@ -62,8 +62,10 @@ var mcpOpDocs = map[string]map[string]string{
 		"ApplyDelinquencyPolicy":  "Apply the billing-delinquency policy to a customer (e.g. suspend or restore their operated systems) given the current delinquency context.",
 		"DeployAfterConstruction": "Deploy a desired-state change to an operated application once its construction completes. Returns the deployment outcome.",
 		"QueryCostProjection":     "Project the operating cost of an operated application, optionally across scale/what-if points. requestID idempotently identifies the query. Read-only.",
+		"QueryDeploymentHealth":   "Return the deployment diagram's per-node health for an operated application: nodes it deploys colour healthy/unhealthy from the live cluster, every other node on the diagram (e.g. the architect's own laptop or browser) reads neutral. Read-only.",
 		"QueryOperatedSystemView": "Return the live operated-system view (runtime status and topology) for an operated application. requestID idempotently identifies the query. Read-only.",
 		"ReconcileOperatedState":  "Reconcile the actual operated state toward the desired state across the given scope (or everything when omitted). tickID idempotently identifies the reconcile tick.",
+		"RegisterOperatedApp":     "Onboard a new operated application by seeding its head-state row — the customer, project, and deployable-bundle reference it will deploy from. Must run once before the first DeployAfterConstruction. Returns the new head-state version.",
 		"WithdrawSystem":          "Withdraw and tear down an operated application (identified by its deploy changeID) for the given reason. Returns the withdrawal outcome.",
 	},
 }

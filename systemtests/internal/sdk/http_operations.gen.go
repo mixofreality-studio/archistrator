@@ -47,6 +47,14 @@ func (c *HTTPClient) OperationsQueryCostProjection(ctx context.Context, operated
 	return out, err
 }
 
+// OperationsQueryDeploymentHealth calls the QueryDeploymentHealth operation on the Operations manager over HTTP.
+func (c *HTTPClient) OperationsQueryDeploymentHealth(ctx context.Context, operatedAppID string) (DeploymentHealth, error) {
+	path := fmt.Sprintf("/api/v1/operations/query-deployment-health/%s", operatedAppID)
+	var out DeploymentHealth
+	err := c.doRequest(ctx, http.MethodGet, path, nil, &out, http.StatusOK)
+	return out, err
+}
+
 // OperationsQueryOperatedSystemView calls the QueryOperatedSystemView operation on the Operations manager over HTTP.
 func (c *HTTPClient) OperationsQueryOperatedSystemView(ctx context.Context, operatedAppID string, requestID string) (OperatedSystemView, error) {
 	path := fmt.Sprintf("/api/v1/operations/query-operated-system-view/%s", operatedAppID)
@@ -69,6 +77,20 @@ func (c *HTTPClient) OperationsReconcileOperatedState(ctx context.Context, tickI
 	path := "/api/v1/operations/reconcile-operated-state"
 	var out ReconcileResult
 	err := c.doRequest(ctx, http.MethodPost, path, OperationsReconcileOperatedStateRequest{TickID: tickID, Scope: scope}, &out, http.StatusOK)
+	return out, err
+}
+
+// OperationsRegisterOperatedAppRequest is the JSON request body for OperationsRegisterOperatedApp.
+type OperationsRegisterOperatedAppRequest struct {
+	ProjectRef          string `json:"projectRef"`
+	DeployableBundleRef string `json:"deployableBundleRef"`
+}
+
+// OperationsRegisterOperatedApp calls the RegisterOperatedApp operation on the Operations manager over HTTP.
+func (c *HTTPClient) OperationsRegisterOperatedApp(ctx context.Context, operatedAppID string, customerID string, projectRef string, deployableBundleRef string) (OperationsVersion, error) {
+	path := fmt.Sprintf("/api/v1/operations/register-operated-app/%s/%s", operatedAppID, customerID)
+	var out OperationsVersion
+	err := c.doRequest(ctx, http.MethodPost, path, OperationsRegisterOperatedAppRequest{ProjectRef: projectRef, DeployableBundleRef: deployableBundleRef}, &out, http.StatusOK)
 	return out, err
 }
 
