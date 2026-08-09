@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -361,28 +362,75 @@ func TestGetDeploymentResourceHealth_ApplicationTakesItsOwnRollup(t *testing.T) 
 	}
 }
 
-// TestMapArgoResourceHealth_AbsentHealthIsNotRed pins the distinction the per-resource
-// fold turns on: ABSENT from the resource set is fail-closed Degraded (covered by
-// TestGetDeploymentResourceHealth_RenderedButAbsentFromClusterIsDegraded above), while
-// PRESENT WITH NO HEALTH FIELD means Argo has no checker for the kind — the object
-// synced, and reporting it red is wrong. Everything else folds exactly as the app-level
-// mapping does, including the D10 Progressing asymmetry.
-func TestMapArgoResourceHealth_AbsentHealthIsNotRed(t *testing.T) {
-	if got := mapArgoResourceHealth(""); got != RuntimeStatusHealthy {
-		t.Errorf(`mapArgoResourceHealth("") = %v, want Healthy (present in the resource set, no health check for the kind)`, got)
-	}
+// TestMapArgoResourceHealth pins all three facts the per-resource fold turns on:
+// ABSENT from the resource set is fail-closed Degraded (covered by
+// TestGetDeploymentResourceHealth_RenderedButAbsentFromClusterIsDegraded above); PRESENT
+// WITH NO HEALTH FIELD means Argo has no checker for the kind, so its SYNC status is the
+// only fact there is and only "Synced" may be green; and a graded kind keeps Argo's own
+// verdict unchanged, including the D10 Progressing asymmetry.
+func TestMapArgoResourceHealth(t *testing.T) {
 	for _, c := range []struct {
-		in   string
-		want RuntimeStatus
+		name         string
+		health, sync string
+		want         RuntimeStatus
 	}{
-		{"Healthy", RuntimeStatusHealthy},
-		{"Progressing", RuntimeStatusDegraded},
-		{"Degraded", RuntimeStatusDegraded},
-		{"Missing", RuntimeStatusDegraded},
+		// Ungradeable kinds — sync is the whole verdict.
+		{"ungradeable and synced", "", "Synced", RuntimeStatusHealthy},
+		{"ungradeable and out of sync", "", "OutOfSync", RuntimeStatusDegraded},
+		{"ungradeable with no sync status at all", "", "", RuntimeStatusDegraded},
+		{"ungradeable with an unrecognized sync status", "", "Weird", RuntimeStatusDegraded},
+		// Graded kinds — Argo's own health verdict, whatever the sync status says.
+		{"graded healthy", "Healthy", "Synced", RuntimeStatusHealthy},
+		{"graded progressing", "Progressing", "Synced", RuntimeStatusDegraded},
+		{"graded degraded", "Degraded", "Synced", RuntimeStatusDegraded},
+		{"graded missing", "Missing", "OutOfSync", RuntimeStatusDegraded},
 	} {
-		if got := mapArgoResourceHealth(c.in); got != c.want {
-			t.Errorf("mapArgoResourceHealth(%q) = %v, want %v", c.in, got, c.want)
+		if got := mapArgoResourceHealth(c.health, c.sync); got != c.want {
+			t.Errorf("%s: mapArgoResourceHealth(%q, %q) = %v, want %v", c.name, c.health, c.sync, got, c.want)
 		}
+	}
+}
+
+// TestGetDeploymentResourceHealth_UngradeableButOutOfSyncIsNotGreen is the manual-sync
+// window, which for archistrator's own Application is not an edge case but a normal state
+// on every deploy (D8: manual sync IS the self-guard). A published-but-unsynced
+// SecurityPolicy and an unsynced KeycloakRealmImport are present in status.resources[] and
+// ungradeable, so before this rule they read green — the diagram claiming a change landed
+// when the operator had not yet pressed Sync. Both must read red; the objects that ARE
+// synced in the same fixture must still read green, or the rule would just be a blanket
+// pessimism.
+func TestGetDeploymentResourceHealth_UngradeableButOutOfSyncIsNotGreen(t *testing.T) {
+	got, err := parseModelKeyHealth(loadArgoFixture(t, "application-awaiting-manual-sync.json"), testDesiredState())
+	if err != nil {
+		t.Fatalf("parseModelKeyHealth: %v", err)
+	}
+	byKey := map[string][]RuntimeStatus{}
+	for _, h := range got {
+		byKey[h.ModelKey] = append(byKey[h.ModelKey], h.Status)
+	}
+
+	// The SecurityPolicy is OutOfSync and the KeycloakRealmImport carries no sync status
+	// at all — neither is evidence the object is applied.
+	if !slices.Contains(byKey["cloud-infra-gateway"], RuntimeStatusDegraded) {
+		t.Errorf("cloud-infra-gateway = %v, want at least one Degraded (its SecurityPolicy is OutOfSync)", byKey["cloud-infra-gateway"])
+	}
+	for _, s := range byKey["cloud-infra-keycloak"] {
+		if s == RuntimeStatusHealthy {
+			t.Error("cloud-infra-keycloak reads Healthy for a resource carrying no sync status at all")
+		}
+	}
+	// Synced-and-graded objects in the same read are unaffected.
+	for _, k := range []string{"cloud-node-server-deployment", "cloud-infra-static-assets", "cloud-infra-billingstate"} {
+		for _, s := range byKey[k] {
+			if s != RuntimeStatusHealthy {
+				t.Errorf("%s = %v, want Healthy (synced and graded healthy)", k, byKey[k])
+			}
+		}
+	}
+	// The routes and traffic policies ARE synced, so the ungradeable rule must not
+	// blanket-degrade them — the gateway node's red comes from the SecurityPolicy alone.
+	if !slices.Contains(byKey["cloud-infra-gateway"], RuntimeStatusHealthy) {
+		t.Errorf("cloud-infra-gateway = %v, want the synced routes/policies still reporting Healthy", byKey["cloud-infra-gateway"])
 	}
 }
 

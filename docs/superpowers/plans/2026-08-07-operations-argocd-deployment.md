@@ -1609,13 +1609,15 @@ Confirm archistrator is still reachable at `archistrator.capture-gtd.com` and th
 | `cloud-node-server-deployment` | green | Deployment + Service, both health-checked by Argo |
 | `cloud-infra-static-assets` | green | the webapp Deployment + Service |
 | `cloud-infra-operatedsystemstate` / `-billingstate` / `-usagelog` | green | all three colour from the ONE CNPG `Cluster` |
-| `cloud-infra-gateway` | green | HTTPRoutes + Envoy policies; several objects answer to this one key and the WORST wins, so any degraded route shows here |
-| `cloud-infra-keycloak` | green | the `KeycloakRealmImport` — Argo has no health check for the kind, so its presence in the resource set is the verdict |
+| `cloud-infra-gateway` | green | HTTPRoutes + Envoy policies; several objects answer to this one key and the WORST wins, so any degraded or unsynced route shows here |
+| `cloud-infra-keycloak` | green | the `KeycloakRealmImport` — Argo has no health check for the kind, so green means present **and `Synced`** |
 | `cloud-node-ns-archistrator` | green | the Argo `Application`'s OWN rollup (an Application never lists itself among its resources) |
 | `cloud-node-architect-machine`, `cloud-node-browser`, `cloud-node-ns-temporal`, `cloud-node-ns-gtd`, `cloud-node-external` | neutral | archistrator does not deploy them |
 | every node on the `test` and `local` environments | neutral | not observable at all |
 
-Red on the first read is expected while the rollout settles (D10 has no amber: `Progressing` reads red). Red that persists after a couple of minutes is real — go to Step 6.
+**Between the Deploy publish in Step 3 and your clicking Sync in Step 4, the gateway and keycloak nodes read RED, and that is correct.** Archistrator's Application is manual-sync by design (the D8 self-guard), so every deploy passes through that window. For the kinds Argo cannot grade — `HTTPRoute`, `SecurityPolicy`, `BackendTrafficPolicy`, `KeycloakRealmImport` — green means present **and `Synced`**; an `OutOfSync` or sync-status-less entry reads red rather than claiming a change landed that you have not yet applied. They turn green after the sync.
+
+Red on the first read is expected while the rollout settles (D10 has no amber: `Progressing` reads red). Red that persists after a couple of minutes, with everything Synced, is real — go to Step 6.
 
 A node that is **neutral when the table says green** means the model key the renderer stamps no longer matches the diagram node's key — a rename in the deployment model, not a cluster problem.
 

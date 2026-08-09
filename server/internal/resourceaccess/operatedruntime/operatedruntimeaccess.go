@@ -2199,7 +2199,12 @@ type argoApplication struct {
 			Kind      string `json:"kind"`
 			Name      string `json:"name"`
 			Namespace string `json:"namespace"`
-			Health    struct {
+			// Status is the entry's SYNC status ("Synced" / "OutOfSync"); Health is a
+			// separate object that is absent entirely for kinds Argo has no health
+			// check for. Two different facts, and the per-resource fold needs both —
+			// see mapArgoResourceHealth.
+			Status string `json:"status"`
+			Health struct {
 				Status string `json:"status"`
 			} `json:"health"`
 		} `json:"resources"`
@@ -2250,6 +2255,10 @@ type resourceHealth struct {
 	Name      string
 	Namespace string
 	Health    string
+	// Sync is the entry's status.resources[].status — "Synced", "OutOfSync", or empty.
+	// It is what makes a HEALTHLESS entry readable at all (mapArgoResourceHealth): for a
+	// kind Argo cannot grade, whether it is synced is the only fact about it there is.
+	Sync string
 }
 
 // mapArgoHealth folds an Argo Application's status.health.status into RuntimeStatus. Only
@@ -2283,7 +2292,7 @@ func parseResourceHealth(raw []byte) ([]resourceHealth, error) {
 	}
 	out := make([]resourceHealth, 0, len(app.Status.Resources))
 	for _, r := range app.Status.Resources {
-		out = append(out, resourceHealth{Kind: r.Kind, Name: r.Name, Namespace: r.Namespace, Health: r.Health.Status})
+		out = append(out, resourceHealth{Kind: r.Kind, Name: r.Name, Namespace: r.Namespace, Health: r.Health.Status, Sync: r.Status})
 	}
 	return out, nil
 }
@@ -2294,22 +2303,35 @@ func parseResourceHealth(raw []byte) ([]resourceHealth, error) {
 // health CHECK for that kind, not that the resource is unhealthy or unevaluated.
 //
 // Argo only reports health for kinds it has a checker for — built-ins plus the Lua
-// scripts it ships. Three of the objects this renderer emits have none:
-// SecurityPolicy and BackendTrafficPolicy (Envoy Gateway) and KeycloakRealmImport. They
-// appear in status.resources[] with a status but no health at all. Folding that through
+// scripts it ships. Four of the objects this renderer emits have none: SecurityPolicy and
+// BackendTrafficPolicy (Envoy Gateway), KeycloakRealmImport, and HTTPRoute. They appear in
+// status.resources[] with a sync status and no health at all. Folding that through
 // mapArgoHealth gave RuntimeStatusUnknown, which the diagram paints red — so the gateway
 // and identity-provider nodes read permanently unhealthy on a perfectly healthy cluster.
 //
-// What their PRESENCE in the resource set does mean is that Argo synced them: the object
-// is in the app's live inventory. That is the only verdict available for these kinds, and
-// reporting it is honest — the fail-closed case is ABSENCE (handled by joinModelKeyHealth's
-// no-match rule), which is a genuinely different fact: the renderer emitted an object the
-// cluster does not have.
-func mapArgoResourceHealth(status string) RuntimeStatus {
-	if status == "" {
-		return RuntimeStatusHealthy
+// For an ungradeable kind, then, SYNC IS THE ONLY FACT THERE IS, and it is the fact that
+// matters: archistrator's own Application is manual-sync by design (the D8 self-guard), so
+// the window between a Deploy publish and the operator pressing Sync is not an edge case —
+// it is a normal state on every deploy. Reporting green for an OutOfSync object in that
+// window would claim a change landed when it has not, which is the single failure this
+// overlay exists to prevent. Only an explicitly "Synced" entry may
+// be green: OutOfSync, an unrecognized value, and a MISSING sync status all fold to
+// Degraded, because none of them is evidence the object is applied.
+//
+// A gradeable kind keeps Argo's own health verdict unchanged — Argo grades those against
+// the live object, and second-guessing it here would be this file inventing a rule.
+//
+// The fail-closed case remains ABSENCE from status.resources[] entirely (joinModelKeyHealth's
+// no-match rule): a genuinely different fact — the renderer emitted an object the cluster
+// does not have at all.
+func mapArgoResourceHealth(health, sync string) RuntimeStatus {
+	if health == "" {
+		if sync == "Synced" {
+			return RuntimeStatusHealthy
+		}
+		return RuntimeStatusDegraded
 	}
-	return mapArgoHealth(status)
+	return mapArgoHealth(health)
 }
 
 // joinModelKeyHealth is the health-overlay join itself (task-10-brief Step 4/spec §6):
@@ -2335,9 +2357,9 @@ func mapArgoResourceHealth(status string) RuntimeStatus {
 // never-synced path passes RuntimeStatusDegraded, keeping that case fail-closed.
 func joinModelKeyHealth(manifests []manifest, resources []resourceHealth, applicationStatus RuntimeStatus) []ModelKeyHealth {
 	type identity struct{ Kind, Name, Namespace string }
-	byIdentity := make(map[identity]string, len(resources))
+	byIdentity := make(map[identity]resourceHealth, len(resources))
 	for _, r := range resources {
-		byIdentity[identity{Kind: r.Kind, Name: r.Name, Namespace: r.Namespace}] = r.Health
+		byIdentity[identity{Kind: r.Kind, Name: r.Name, Namespace: r.Namespace}] = r
 	}
 
 	var out []ModelKeyHealth
@@ -2347,8 +2369,8 @@ func joinModelKeyHealth(manifests []manifest, resources []resourceHealth, applic
 		case m.Kind == "Application":
 			status = applicationStatus
 		default:
-			if h, ok := byIdentity[identity{Kind: m.Kind, Name: m.Name, Namespace: m.Namespace}]; ok {
-				status = mapArgoResourceHealth(h)
+			if r, ok := byIdentity[identity{Kind: m.Kind, Name: m.Name, Namespace: m.Namespace}]; ok {
+				status = mapArgoResourceHealth(r.Health, r.Sync)
 			}
 		}
 		for _, key := range m.ModelKeys {
