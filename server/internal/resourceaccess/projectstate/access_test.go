@@ -323,6 +323,111 @@ func assertIdentityPersistedVerbatimOnDisk(ctx context.Context, t *testing.T, re
 	}
 }
 
+// --------------------------------------------------------------------------
+// Project-identity guard — the local git-backed store is single-project (a
+// repo is whatever project.json happens to be committed under statePathPrefix)
+// and, pre-fix, nothing checked that the caller's projectID matched the `id`
+// already committed there: decodeProjectDoc unconditionally STAMPED the
+// requested projectID onto the decoded aggregate, discarding the real on-disk
+// id. Two archistrator instances sharing a Temporal namespace hit this for
+// real: one instance's worker executed the OTHER project's workflow against
+// its OWN repo, silently rewriting that repo's project.json `id` and grafting
+// a foreign activityConstruction entry into an otherwise-intact document.
+// guardProjectIdentity (loadAggregateForMutation, projectstateaccess.go)
+// refuses any mutation whose target projectID doesn't match a non-empty
+// on-disk id, BEFORE anything is decoded or written.
+// --------------------------------------------------------------------------
+
+// readRawProjectDoc reads project.json straight off the repo through a fresh
+// ReadSubtree — the same "prove it's really on disk, not merely held in memory"
+// read path assertIdentityPersistedVerbatimOnDisk above uses. Returns a copy:
+// snap.Files' backing bytes must not be mutated/reused across calls.
+func readRawProjectDoc(ctx context.Context, t *testing.T, repo *fwgithub.GitStore) []byte {
+	t.Helper()
+	snap, err := repo.ReadSubtree(ctx, ".aiarch/state", fwgithub.GitAuth{Local: true})
+	if err != nil {
+		t.Fatalf("ReadSubtree: %v", err)
+	}
+	raw, ok := snap.Files["project.json"]
+	if !ok {
+		t.Fatal("project.json not committed to the repo")
+	}
+	out := make([]byte, len(raw))
+	copy(out, raw)
+	return out
+}
+
+// TestProjectIdentityGuard_RefusesCrossProjectWrite reproduces the observed
+// corruption at the store layer: a repo already carries a committed document for
+// ownerID; a write then arrives addressed to a DIFFERENT project (intruderID) —
+// exactly what happens when two archistrator instances share a Temporal namespace
+// and one instance's worker executes the other's workflow against its own repo.
+// The write must be refused outright, as fwra.ContractMisuse (permanent — no retry
+// fixes a repo-identity mismatch), naming both projects, and the on-disk document
+// must be byte-for-byte UNCHANGED afterward.
+func TestProjectIdentityGuard_RefusesCrossProjectWrite(t *testing.T) {
+	store, proj, cred, ctx := newLocalGitStoreWithRepo(t)
+
+	ownerID := ProjectID("todomvc-run-20260808T000116Z-1744cf81")
+	intruderID := ProjectID("archistrator")
+
+	v1, err := store.CreateProject(fwra.Context{Context: ctx}, ownerID, "alice", "TodoMVC", cred, fwra.IdempotencyKey("wf:create-owner"))
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+
+	before := readRawProjectDoc(ctx, t, proj)
+
+	_, err = store.RecordOperatorPaused(fwra.Context{Context: ctx}, intruderID, v1, "cross-project contamination", cred, fwra.IdempotencyKey("wf:pause-intruder"))
+	if err == nil {
+		t.Fatal("RecordOperatorPaused for a MISMATCHED project must be refused, got nil error")
+	}
+	if got := kindOf(t, err); got != fwra.ContractMisuse {
+		t.Fatalf("error kind = %v, want fwra.ContractMisuse (permanent — a retry can never fix an identity mismatch)", got)
+	}
+	var fe *fwra.Error
+	if !errors.As(err, &fe) {
+		t.Fatalf("expected *fwra.Error, got %T", err)
+	}
+	if fe.Retryable {
+		t.Fatalf("identity-mismatch ContractMisuse error must NOT be retryable, got Retryable=true: %v", fe)
+	}
+	if !strings.Contains(err.Error(), string(ownerID)) || !strings.Contains(err.Error(), string(intruderID)) {
+		t.Fatalf("error must name BOTH the on-disk owner project and the refused requester, got: %v", err)
+	}
+
+	after := readRawProjectDoc(ctx, t, proj)
+	if !bytes.Equal(before, after) {
+		t.Fatalf("refused write MUST NOT touch the document:\nbefore: %s\nafter:  %s", before, after)
+	}
+}
+
+// TestProjectIdentityGuard_FreshRepoFirstWriteSucceeds proves the guard's
+// empty/absent-id carve-out: a repo with NO committed project.json yet (exactly
+// what `archistrator init` scaffolds — cmd/archistrator/init.go deliberately
+// writes no project.json) must still accept its first write (CreateProject),
+// and a subsequent SAME-project write must keep working normally afterward.
+func TestProjectIdentityGuard_FreshRepoFirstWriteSucceeds(t *testing.T) {
+	store, _, cred, ctx := newLocalGitStoreWithRepo(t)
+	id := ProjectID("todomvc-run-20260808T000116Z-1744cf81")
+
+	v1, err := store.CreateProject(fwra.Context{Context: ctx}, id, "alice", "TodoMVC", cred, fwra.IdempotencyKey("wf:create-fresh"))
+	if err != nil {
+		t.Fatalf("CreateProject on a fresh repo (no project.json yet) must succeed, got: %v", err)
+	}
+	if v1 != 1 {
+		t.Fatalf("CreateProject version = %d, want 1", v1)
+	}
+
+	v2, err := store.RecordOperatorPaused(fwra.Context{Context: ctx}, id, v1, "matching-project", cred, fwra.IdempotencyKey("wf:pause-same"))
+	if err != nil {
+		t.Fatalf("RecordOperatorPaused for the SAME project must keep working, got: %v", err)
+	}
+	if v2 != v1+1 {
+		t.Fatalf("version = %d, want %d", v2, v1+1)
+	}
+}
+
 // gitconstruction_test.go — black-box regression tests for the 7 construction-
 // transition verbs (Task 4: state foundation). Mirrors the activityconstruction_test.go
 // and gitactivity_test.go discipline: real throwaway on-disk git store, no mocks,

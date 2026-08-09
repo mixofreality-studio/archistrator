@@ -86,6 +86,30 @@ type BranchRepoLocator interface {
 	ProjectRepoOnBranch(projectID ProjectID, branch string) (*fwgithub.GitStore, error)
 }
 
+// repoDescriber is an OPTIONAL capability a RepoLocator MAY implement to expose a
+// human-readable identifier (the resolved repo's clone URL / local path) for
+// DIAGNOSTIC TEXT ONLY — the project-identity guard (loadAggregateForMutation)
+// names it in its refused-write error so a human reading the failure can find the
+// physical repo, not just the logical projectID. This is not a git lexeme (no
+// ref/sha/tree crosses the seam) — the URL/path is already known plumbing detail
+// surfaced back at NewGitLocal*/NewGitHub* construction time.
+type repoDescriber interface {
+	DescribeRepo(projectID ProjectID) string
+}
+
+// repoDescription returns a best-effort human-readable identifier for projectID's
+// resolved repo, for error text only. Falls back to the projectID itself (per
+// name-as-identity, REWORK.5 — the repo is deterministically named after it) when
+// the locator does not implement repoDescriber.
+func (s *GitStore) repoDescription(projectID ProjectID) string {
+	if d, ok := s.locator.(repoDescriber); ok {
+		if desc := d.DescribeRepo(projectID); desc != "" {
+			return desc
+		}
+	}
+	return string(projectID)
+}
+
 // projectRepo resolves the per-project store handle for a read/write. A non-empty
 // branch override + a BranchRepoLocator-capable locator yields a branch-bound handle;
 // otherwise the locator's default-branch ProjectRepo handle is returned (the original
@@ -861,7 +885,7 @@ func (s *GitStore) applyMutationOnBranchFiles(
 	}
 
 	// STEPS 2–3 — decode + mode gate + version guard.
-	p, err := loadAggregateForMutation(snap, op, projectID, expectedVersion, mode)
+	p, err := loadAggregateForMutation(snap, op, projectID, expectedVersion, mode, s.repoDescription(projectID))
 	if err != nil {
 		return 0, err
 	}
@@ -893,11 +917,28 @@ func (s *GitStore) applyMutationOnBranchFiles(
 //
 // STEP 2 — decode the aggregate (or open a fresh one) and run the mode gate.
 //
+// STEP 2a — project-identity guard. The local git-backed store is single-project:
+// a repo is whatever project.json happens to be committed at its statePathPrefix,
+// and (pre-fix) nothing checked that the caller's projectID actually matched it —
+// decodeProjectDoc unconditionally STAMPS the requested projectID onto the decoded
+// aggregate, discarding whatever `id` was actually on disk. Two archistrator
+// instances sharing a Temporal namespace hit this directly: one instance's worker
+// executed the OTHER project's workflow against its OWN repo, and the mutation
+// silently rewrote that repo's project.json `id` to the wrong project, grafting a
+// foreign activityConstruction entry into an otherwise-intact document — corruption
+// that looks plausible until someone checks the id. Refuse BEFORE any decode/mutate
+// touches the document when the repo already carries a DIFFERENT non-empty id. An
+// EMPTY on-disk id (freshly-initialized repo, `archistrator init` → first write) is
+// not a mismatch — that is how a project is born.
+//
 // STEP 3 — version guard (the same optimistic-concurrency check as Postgres; the
 // Version lives in the committed project.json — invariant iv: derivable from repo
 // state alone). The git ref-CAS at push time is the cross-process gate; this
 // guard catches a stale caller even before the push.
-func loadAggregateForMutation(snap fwgithub.GitSnapshot, op string, projectID ProjectID, expectedVersion Version, mode mutationMode) (Project, error) {
+func loadAggregateForMutation(snap fwgithub.GitSnapshot, op string, projectID ProjectID, expectedVersion Version, mode mutationMode, repoDesc string) (Project, error) {
+	if err := guardProjectIdentity(snap, op, projectID, repoDesc); err != nil {
+		return Project{}, err
+	}
 	p, exists, err := decodeProjectFromSnapshot(snap, projectID)
 	if err != nil {
 		return Project{}, err
@@ -918,6 +959,48 @@ func loadAggregateForMutation(snap fwgithub.GitSnapshot, op string, projectID Pr
 		return Project{}, fwra.New(fwra.Conflict, fmt.Sprintf("projectstate.%s: stale version for project %s: have %d, expected %d", op, projectID, p.Version, expectedVersion))
 	}
 	return p, nil
+}
+
+// guardProjectIdentity refuses a mutation whose target projectID does not match the
+// `id` already committed in the repo's project.json (STEP 2a above). It peeks the
+// RAW on-disk id directly — deliberately BEFORE decodeProjectFromSnapshot runs,
+// because that decoder stamps the CALLER's projectID onto the result and would
+// otherwise erase the very mismatch this guard exists to catch. A missing
+// project.json (fresh repo) or an empty `id` (pre-identity document / not yet
+// created) is not a mismatch and passes through untouched.
+//
+// Classification: fwra.ContractMisuse, not fwra.Conflict. This is caller/infra
+// misuse crossing a repo-identity boundary — the wrong project's caller writing
+// into this repo — not an optimistic-concurrency race. A version Conflict is
+// something a caller can legitimately resolve by re-reading the current version
+// and reissuing the same logical mutation; an identity mismatch cannot be resolved
+// that way — re-reading and retrying with the "corrected" version would just
+// reproduce the identical mismatch (and, worse, a caller/framework layer that
+// treats Conflict as auto-retryable-after-refresh would spin forever). Both Kinds
+// report DefaultRetryable()==false at the fwra layer, but ContractMisuse is the one
+// this codebase already reserves for terminal, human-recovery-gate failures (see
+// decodeProjectDoc's malformed-JSON / malformed-slot classification just below,
+// "QA F36": retry cannot fix bytes already at rest).
+func guardProjectIdentity(snap fwgithub.GitSnapshot, op string, projectID ProjectID, repoDesc string) error {
+	raw, ok := snap.Files[projectFile]
+	if !ok {
+		return nil // no committed document yet — nothing to protect.
+	}
+	var head struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(raw, &head); err != nil {
+		// Malformed JSON is surfaced properly (as fwra.ContractMisuse) by
+		// decodeProjectFromSnapshot immediately after this guard runs; swallow it
+		// here rather than duplicate that classification.
+		return nil
+	}
+	if head.ID != "" && head.ID != string(projectID) {
+		return fwra.New(fwra.ContractMisuse, fmt.Sprintf(
+			"projectstate.%s: refusing to write project %s into repo %s, which already holds a document for project %s (identity mismatch — no retry can fix this; check for cross-project worker/namespace contamination)",
+			op, projectID, repoDesc, head.ID))
+	}
+	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -1617,6 +1700,15 @@ func (l gitRepoLocator) ProjectRepo(projectID ProjectID) (*fwgithub.GitStore, er
 		return nil, fwra.New(fwra.ContractMisuse, fmt.Sprintf("gitRepoLocator: empty repo URL for project %s", projectID))
 	}
 	return fwgithub.NewGitStore(url, l.branch)
+}
+
+// DescribeRepo satisfies repoDescriber: exposes the resolved repo's clone URL /
+// local path for diagnostics (the project-identity guard's error text). In the
+// LOCAL profile this is the ONE fixed on-disk repo every projectID resolves to
+// (perProjectRepoURL ignores its argument there) — exactly the identifier a human
+// needs to find the corrupted repo after a cross-project write was refused.
+func (l gitRepoLocator) DescribeRepo(projectID ProjectID) string {
+	return l.perProjectRepoURL(projectID)
 }
 
 // ProjectRepoOnBranch satisfies BranchRepoLocator (I-DESIGN-DISPATCH §2a): it binds the
