@@ -27,7 +27,7 @@ import { useUser } from '../utilities/auth/UserContext';
 import { userLabel } from '../utilities/auth/userInfo';
 import { useProject } from '../hooks/useProject';
 import { config } from '../utilities/config';
-import { PHASE_LABELS } from './projectFormat';
+import { phaseLabel } from './projectFormat';
 import { ProjectMenu } from './ProjectMenu';
 import { ThemeSwitcher } from './ThemeSwitcher';
 import { useTokens } from '../utilities/theme/ThemeContext';
@@ -106,7 +106,7 @@ export function AppShell({
           <ProjectMenu currentName={name} projectId={projectId} />
           {project !== undefined && (
             <Chip
-              label={PHASE_LABELS[project.phase]}
+              label={phaseLabel(project.phase, project.operating)}
               size="small"
               sx={{
                 display: { xs: 'none', md: 'flex' },

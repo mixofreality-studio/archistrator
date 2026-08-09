@@ -396,6 +396,16 @@ export interface ProjectSummary {
   committedCount: number;
   totalCount: number;
   updatedAt: string;
+  /**
+   * The derived "Operating" presentation state (Task 14, finish-construction):
+   * true once every construction activity has reached Done + Integrated (the
+   * server's isConstructionComplete, mirrored by contracts/operating.ts's
+   * deriveOperating). Absent (never false) — mirrors the wire field's own
+   * omitempty convention. Presentation-only: `phase` itself stays `construction`;
+   * render sites (ProjectCard, AppShell, ProjectMenu) apply an "Operating" label
+   * override on top of it rather than a new ProjectPhase member.
+   */
+  constructionComplete?: boolean;
 }
 
 /** The full typed head-state of one project. */
@@ -929,6 +939,15 @@ export type ProjectStateWithGit = ProjectState & {
   reviewPolicy?: ReviewPolicyView;
   /** Project-level testing artifacts — absent until an N-* activity produces output. */
   testingState?: TestingStateView;
+  /**
+   * The derived "Operating" presentation state (Task 14, finish-construction) —
+   * the full-project-detail-view counterpart of ProjectSummary.constructionComplete,
+   * computed the SAME way (contracts/operating.ts's deriveOperating) off the raw
+   * per-activity construction head-state at the wire.ts boundary (mapProjectState),
+   * so every full-detail render site (HomeBase, ConstructionTracker,
+   * ConstructionConsole) shares one precomputed answer. Absent (never false).
+   */
+  operating?: boolean;
 };
 
 /** Lookup helper — undefined for not-yet-branched activities (honest-empty). */

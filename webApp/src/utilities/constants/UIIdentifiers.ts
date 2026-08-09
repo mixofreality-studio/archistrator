@@ -356,6 +356,7 @@ export const UI_IDENTIFIERS = {
     SUMMARY_STRIP: 'construction-summary-strip',
     TRACKER: 'construction-tracker',
     AWAITING: 'construction-awaiting',
+    COMPLETE: 'construction-complete',
     ACTIVE_DETAIL: 'construction-active-detail',
     ROLE_LINE: 'construction-role-line',
     INTERVENTIONS: 'construction-interventions',

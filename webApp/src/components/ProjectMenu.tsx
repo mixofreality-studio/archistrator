@@ -18,7 +18,7 @@ import CheckIcon from '@mui/icons-material/Check';
 import { useNavigate } from '@tanstack/react-router';
 import { useProjects } from '../hooks/useProjects';
 import { CreateProjectDialog } from './CreateProjectDialog';
-import { PHASE_LABELS, formatUpdatedAt } from './projectFormat';
+import { phaseLabel, formatUpdatedAt } from './projectFormat';
 import { useTokens } from '../utilities/theme/ThemeContext';
 import { UI_IDENTIFIERS } from '../utilities/constants/UIIdentifiers';
 
@@ -106,7 +106,7 @@ export function ProjectMenu({
               </Typography>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mt: 0.25 }}>
                 <Chip
-                  label={PHASE_LABELS[p.phase]}
+                  label={phaseLabel(p.phase, p.constructionComplete)}
                   size="small"
                   sx={{
                     height: 18,
