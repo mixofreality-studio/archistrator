@@ -6,7 +6,7 @@
 
 - 62/68 `activityConstruction` rows are Done+Integrated (the precedented hand-seeded reconciliation shape). Stragglers: **C-BM** (NotStarted), **C-BS** (phantom Running — no Temporal workflow exists behind it), **C-BG** and **C-WIA** (Failed, sticky — no reopen seam exists), **N-DEP** and **R-BG** (Done but buildStatus InReview).
 - **Hard blocker:** committed System component `episode-access` has no coding activity in slot 9, so `ACT-COMPONENT-COVERAGE` (SeverityError, `server/cmd/aiarch-state-mcp/crossartifact.go`) rejects **every** construction rail write (`recordPhaseArtifact` / `recordServiceContract` / `recordTestingState`) project-wide. The rule matches normalized name/title and ignores `componentId`. The episode-access *code and contract already exist* (`server/internal/resourceaccess/episode`, `serviceContracts["episodeAccess"]`).
-- **Data corruption:** server-side projectstate writes round-trip `project.json` through the generated contract type, which does not model `deployment.{infrastructure,bindings,settings}`; commit `87e4fe9` silently deleted all three (5/18/15 → 0/0/0). This is why `make gen-temporal-check` fails (`appgen: envnames: infra "postgres": not declared in deployment` — four CI steps share that one appgen run). Last-good content: `f6d2a75`. Working-tree `server/cmd/server/config.gen.go` is fallout from a half-run appgen — discard, do not commit.
+- **Data corruption:** server-side projectstate writes round-trip `project.json` through the generated contract type, which does not model `deployment.{infrastructure,bindings,settings}`; commit `87e4fe9` silently deleted all three (5/15/18 → 0/0/0). This is why `make gen-temporal-check` fails (`appgen: envnames: infra "postgres": not declared in deployment` — four CI steps share that one appgen run). Last-good content: `f6d2a75`. Working-tree `server/cmd/server/config.gen.go` is fallout from a half-run appgen — discard, do not commit.
 - **"Operating" does not exist in the product.** The phase enum ends at construction; the construction console shows "Awaiting the construction pump" / "Resume construction" forever, even at 100 % integrated; the HomeBase construction card can structurally never show DONE.
 - **Deployment:** the deployed server reads project state from GitHub `mixofreality-studio/archistrator` branch `main` (push = state deploy). Local main is 31 commits ahead of origin, unpushed. Code changes ride `release.yml` → ghcr images → hand-bump of `image.tag` in `../software/k8s/argocd/applications/archistrator-server.yaml` (Argo auto-syncs).
 - Slot-9 carries **zero** `componentId` fields (the authored-componentId dispatch fix landed without the backfill).
@@ -24,7 +24,7 @@ Rationale (architect): one `publishDraft` through the un-fixed codec re-deletes 
 
 ### Phase B — slot-9 + slot-10 amendment through the legal rail
 
-One amendment wave (`projectDesignRequestArtifactDraft kind=activityList` → `putDraftModel` (full model) → `publishDraft` → commit):
+One amendment wave — two sequential draft artifacts (activityList, then network) if the rail requires one kind per draft session; slots 11–16 acked once, at the end of the wave. Per artifact: `projectDesignRequestArtifactDraft` → `putDraftModel` (full model) → `publishDraft` → commit. Content:
 
 - **Add C-EA** — name `C-EA`, title "Build Episode Access", `componentId: episode-access`, coding, worker class + effort/risk quanta mirroring sibling RA coding activities. (The title must normalize to contain `episodeaccess` — the coverage rule ignores `componentId`.)
 - **Backfill `componentId`** onto every coding activity in the same amendment (the stale-basis cascade fires once per wave; converts coverage from fragile title-matching to authored truth).
@@ -76,7 +76,7 @@ Architect ruling: the phase enum models the design-process axis, which genuinely
 
 ## Test plan
 
-- New: codec round-trip test (Phase A), milestone-in-dependsOn adapter test (Phase D), operating-derivation unit tests (all-integrated, one-failed, one-in-review, empty), billing stub unit tests.
+- New: codec round-trip test (Phase A), milestone-in-dependsOn adapter test (Phase D), operating-derivation tests with **shared fixtures exercised by both the Go catalog derivation and the TS adapter derivation** (all-integrated, one-failed, one-in-review, empty, and a Skipped-shaped row) — architect condition to prevent cross-side drift, billing stub unit tests.
 - Existing: full server/webApp/systemtests suites per Phase E.
 
 ## Explicitly out of scope (earmarked)
