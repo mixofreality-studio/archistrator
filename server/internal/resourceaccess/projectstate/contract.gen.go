@@ -612,14 +612,15 @@ type ProjectOption struct {
 }
 
 type ProjectSummary struct {
-	ProjectID      ProjectID  `json:"ProjectID"`
-	Name           string     `json:"Name"`
-	Owner          OwnerScope `json:"Owner"`
-	Phase          Phase      `json:"Phase"`
-	CommittedCount int        `json:"CommittedCount"`
-	TotalCount     int        `json:"TotalCount"`
-	UpdatedAt      time.Time  `json:"UpdatedAt"`
-	OperatorPaused *bool      `json:"OperatorPaused,omitempty"`
+	ProjectID            ProjectID  `json:"ProjectID"`
+	Name                 string     `json:"Name"`
+	Owner                OwnerScope `json:"Owner"`
+	Phase                Phase      `json:"Phase"`
+	CommittedCount       int        `json:"CommittedCount"`
+	TotalCount           int        `json:"TotalCount"`
+	UpdatedAt            time.Time  `json:"UpdatedAt"`
+	OperatorPaused       *bool      `json:"OperatorPaused,omitempty"`
+	ConstructionComplete *bool      `json:"ConstructionComplete,omitempty"`
 }
 
 type ProvisioningSpecRecord struct {

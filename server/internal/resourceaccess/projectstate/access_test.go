@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -2941,6 +2942,64 @@ func TestGitStore_ListProjects_SurfacesOperatorPaused(t *testing.T) {
 	}
 	if len(after) != 1 || after[0].OperatorPaused == nil || !*after[0].OperatorPaused {
 		t.Fatalf("want OperatorPaused=true after RecordOperatorPaused, got %+v", after)
+	}
+}
+
+// operatingFixtureRow / operatingFixtureCase decode the SHARED fixture corpus at
+// testdata/operating_fixtures.json — shared byte-identically with the webApp TS
+// side (see the sync comment atop that file) so both languages assert the exact
+// same construction-complete cases. Kept minimal (phase + buildStatus ints,
+// project-level phase, expected bool) since isConstructionComplete looks at
+// nothing else.
+type operatingFixtureRow struct {
+	Phase       int `json:"phase"`
+	BuildStatus int `json:"buildStatus"`
+}
+
+type operatingFixtureCase struct {
+	Name         string                `json:"name"`
+	Rows         []operatingFixtureRow `json:"rows"`
+	ProjectPhase int                   `json:"projectPhase"`
+	Expect       bool                  `json:"expect"`
+}
+
+// TestIsConstructionComplete_Fixtures drives isConstructionComplete against the
+// shared fixture corpus (architect condition: same cases on both the Go and TS
+// sides — all-integrated true; one-failed/one-in-review/empty/skipped-shaped-row/
+// not-construction-phase all false). skipped-shaped-row specifically pins the
+// Done+InReview shape RecordActivityExited leaves for a Skipped/TakenOver outcome
+// (projectstateaccess.go ~1888) — Phase alone reaching Done is not enough; every
+// row's BuildStatus must ALSO be BuildIntegrated.
+func TestIsConstructionComplete_Fixtures(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("testdata", "operating_fixtures.json"))
+	if err != nil {
+		t.Fatalf("read fixtures: %v", err)
+	}
+	var cases []operatingFixtureCase
+	if err := json.Unmarshal(raw, &cases); err != nil {
+		t.Fatalf("decode fixtures: %v", err)
+	}
+	if len(cases) == 0 {
+		t.Fatal("fixture corpus is empty; this test would pass vacuously")
+	}
+	for _, tc := range cases {
+		t.Run(tc.Name, func(t *testing.T) {
+			p := Project{Phase: Phase(tc.ProjectPhase)}
+			if len(tc.Rows) > 0 {
+				p.ActivityConstruction = make(map[string]ActivityConstructionStatus, len(tc.Rows))
+				for i, row := range tc.Rows {
+					key := fmt.Sprintf("A%d", i)
+					p.ActivityConstruction[key] = ActivityConstructionStatus{
+						ActivityID:  key,
+						Phase:       ActivityConstructionPhase(row.Phase),
+						BuildStatus: ActivityBuildStatus(row.BuildStatus),
+					}
+				}
+			}
+			if got := isConstructionComplete(p); got != tc.Expect {
+				t.Errorf("isConstructionComplete(%s) = %v, want %v", tc.Name, got, tc.Expect)
+			}
+		})
 	}
 }
 

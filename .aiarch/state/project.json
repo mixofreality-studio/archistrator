@@ -22327,6 +22327,9 @@
             },
             "OperatorPaused": {
               "type": "boolean"
+            },
+            "ConstructionComplete": {
+              "type": "boolean"
             }
           },
           "required": [
