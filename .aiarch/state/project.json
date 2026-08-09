@@ -2327,7 +2327,7 @@
                   {
                     "id": "apply-price",
                     "kind": "action",
-                    "label": "Apply price model -\u003e compute build-cost ceiling",
+                    "label": "Apply price model -> compute build-cost ceiling",
                     "roleName": "",
                     "linkedActorId": null
                   },
@@ -6068,7 +6068,7 @@
             "from": "operations-manager",
             "to": "project-state-access",
             "mode": "sync",
-            "label": "readProject(projectRef) -\u003e deployment model"
+            "label": "readProject(projectRef) -> deployment model"
           }
         ],
         "dynamicViews": [
@@ -7518,7 +7518,7 @@
                     "from": "billing-manager",
                     "to": "message-bus",
                     "mode": "sync",
-                    "label": "registerSchedule(closeBillingCycle:\u003ccustomerId\u003e) — recurring settlement cycle (idempotent by schedule id)"
+                    "label": "registerSchedule(closeBillingCycle:<customerId>) — recurring settlement cycle (idempotent by schedule id)"
                   }
                 ]
               }
@@ -9283,6 +9283,449 @@
                   "mode": "sync"
                 }
               ]
+            }
+          ],
+          "infrastructure": [
+            {
+              "key": "postgres",
+              "substrate": "postgres",
+              "profiles": [
+                "cloud"
+              ],
+              "presence": "required",
+              "env": {
+                "URL": "ARCHISTRATOR_POSTGRES_URL"
+              }
+            },
+            {
+              "key": "github-app",
+              "substrate": "github-app",
+              "profiles": [
+                "cloud"
+              ],
+              "presence": "optional",
+              "env": {
+                "APP_ID": "ARCHISTRATOR_GITHUB_APP_ID",
+                "PRIVATE_KEY_PEM": "ARCHISTRATOR_GITHUB_APP_PRIVATE_KEY_PEM",
+                "ACCOUNT": "ARCHISTRATOR_GITHUB_ACCOUNT",
+                "APP_SLUG": "ARCHISTRATOR_GITHUB_APP_SLUG",
+                "INSTALLATION_ID": "ARCHISTRATOR_GITHUB_INSTALLATION_ID",
+                "API_BASE_URL": "ARCHISTRATOR_GITHUB_API_BASE_URL"
+              }
+            },
+            {
+              "key": "keycloak",
+              "substrate": "keycloak",
+              "profiles": [
+                "cloud"
+              ],
+              "presence": "optional",
+              "env": {
+                "JWKS_URL": "ARCHISTRATOR_KEYCLOAK_JWKS_URL",
+                "ISSUER": "ARCHISTRATOR_KEYCLOAK_ISSUER"
+              }
+            },
+            {
+              "key": "otel",
+              "substrate": "otel",
+              "profiles": [
+                "cloud",
+                "test",
+                "local"
+              ],
+              "presence": "optional",
+              "env": {}
+            },
+            {
+              "key": "temporal",
+              "substrate": "temporal",
+              "profiles": [
+                "cloud",
+                "test",
+                "local"
+              ],
+              "presence": "required",
+              "env": {
+                "HOSTPORT": "ARCHISTRATOR_TEMPORAL_HOSTPORT",
+                "NAMESPACE": "ARCHISTRATOR_TEMPORAL_NAMESPACE"
+              }
+            }
+          ],
+          "bindings": [
+            {
+              "component": "projectStateAccess",
+              "presence": "required",
+              "provides": [],
+              "settings": [
+                {
+                  "name": "projectStateGitRepoURL",
+                  "type": "string",
+                  "default": "",
+                  "env": "ARCHISTRATOR_PROJECT_STATE_GIT_REPO_URL",
+                  "description": "projectStateAccess GitLocal on-disk head-state repo URL (file://)."
+                }
+              ],
+              "perProfile": {
+                "local": {
+                  "variant": "GitLocal",
+                  "infra": []
+                },
+                "cloud": {
+                  "variant": "GitHub",
+                  "infra": [
+                    "github-app"
+                  ]
+                }
+              }
+            },
+            {
+              "component": "constructionTransitionAccess",
+              "presence": "required",
+              "provides": [],
+              "settings": [],
+              "perProfile": {
+                "local": {
+                  "variant": "GitLocal",
+                  "infra": []
+                },
+                "cloud": {
+                  "variant": "GitHub",
+                  "infra": [
+                    "github-app"
+                  ]
+                }
+              }
+            },
+            {
+              "component": "gitActivityStatusAccess",
+              "presence": "required",
+              "provides": [],
+              "settings": [],
+              "perProfile": {
+                "local": {
+                  "variant": "GitLocal",
+                  "infra": []
+                },
+                "cloud": {
+                  "variant": "GitHub",
+                  "infra": [
+                    "github-app"
+                  ]
+                }
+              }
+            },
+            {
+              "component": "designSessionAccess",
+              "presence": "required",
+              "provides": [],
+              "settings": [],
+              "perProfile": {
+                "local": {
+                  "variant": "GitLocal",
+                  "infra": []
+                },
+                "cloud": {
+                  "variant": "GitHub",
+                  "infra": [
+                    "github-app"
+                  ]
+                }
+              }
+            },
+            {
+              "component": "artifactAccess",
+              "presence": "optional-dormant",
+              "provides": [],
+              "settings": [
+                {
+                  "name": "artifactRepoURL",
+                  "type": "string",
+                  "default": "",
+                  "env": "ARCHISTRATOR_ARTIFACT_REPO_URL",
+                  "description": "artifactAccess GitLocal on-disk construction-output repo URL (file://)."
+                }
+              ],
+              "perProfile": {
+                "local": {
+                  "variant": "GitLocal",
+                  "infra": []
+                },
+                "cloud": {
+                  "variant": "GitHubCloud",
+                  "infra": [
+                    "github-app"
+                  ]
+                }
+              }
+            },
+            {
+              "component": "agenticJobAccess",
+              "presence": "optional-dormant",
+              "provides": [],
+              "settings": [],
+              "perProfile": {
+                "cloud": {
+                  "variant": "GitHubActions",
+                  "infra": [
+                    "github-app"
+                  ]
+                }
+              }
+            },
+            {
+              "component": "sourceControlAccess",
+              "presence": "optional-dormant",
+              "provides": [],
+              "settings": [],
+              "perProfile": {
+                "local": {
+                  "variant": "GitLocal",
+                  "infra": []
+                },
+                "cloud": {
+                  "variant": "GitHub",
+                  "infra": [
+                    "github-app"
+                  ]
+                }
+              }
+            },
+            {
+              "component": "operatedSystemStateAccess",
+              "presence": "required",
+              "provides": [],
+              "settings": [],
+              "perProfile": {
+                "cloud": {
+                  "variant": "Postgres",
+                  "infra": [
+                    "postgres"
+                  ]
+                },
+                "local": {
+                  "variant": "NoOp",
+                  "infra": []
+                }
+              }
+            },
+            {
+              "component": "usageAccess",
+              "presence": "required",
+              "provides": [],
+              "settings": [],
+              "perProfile": {
+                "cloud": {
+                  "variant": "Postgres",
+                  "infra": [
+                    "postgres"
+                  ]
+                },
+                "local": {
+                  "variant": "NoOp",
+                  "infra": []
+                }
+              }
+            },
+            {
+              "component": "episodeAccess",
+              "presence": "required",
+              "provides": [],
+              "settings": [],
+              "perProfile": {
+                "local": {
+                  "variant": "LocalFS",
+                  "infra": []
+                },
+                "cloud": {
+                  "variant": "NoOp",
+                  "infra": []
+                }
+              }
+            },
+            {
+              "component": "operatedRuntimeAccess",
+              "presence": "required",
+              "provides": [],
+              "settings": [],
+              "perProfile": {
+                "local": {
+                  "variant": "Local",
+                  "infra": []
+                },
+                "cloud": {
+                  "variant": "Real",
+                  "infra": []
+                }
+              }
+            },
+            {
+              "component": "billingStateAccess",
+              "presence": "required",
+              "provides": [],
+              "settings": [],
+              "perProfile": {}
+            },
+            {
+              "component": "revenueLedgerAccess",
+              "presence": "required",
+              "provides": [],
+              "settings": [],
+              "perProfile": {}
+            },
+            {
+              "component": "merchantGatewayAccess",
+              "presence": "required",
+              "provides": [],
+              "settings": [],
+              "perProfile": {}
+            },
+            {
+              "component": "messageBus",
+              "presence": "required",
+              "provides": [],
+              "settings": [],
+              "perProfile": {
+                "local": {
+                  "variant": "Temporal",
+                  "infra": [
+                    "temporal"
+                  ]
+                },
+                "cloud": {
+                  "variant": "Temporal",
+                  "infra": [
+                    "temporal"
+                  ]
+                }
+              }
+            }
+          ],
+          "settings": [
+            {
+              "name": "listenAddr",
+              "type": "string",
+              "default": ":8080",
+              "env": "ARCHISTRATOR_LISTEN_ADDR",
+              "description": "HTTP listen address."
+            },
+            {
+              "name": "shutdownTimeout",
+              "type": "duration",
+              "default": "20s",
+              "env": "ARCHISTRATOR_SHUTDOWN_TIMEOUT",
+              "description": "Graceful HTTP shutdown drain timeout."
+            },
+            {
+              "name": "constructionEscalationTimeout",
+              "type": "duration",
+              "default": "30m",
+              "env": "ARCHISTRATOR_CONSTRUCTION_ESCALATION_TIMEOUT",
+              "description": "How long an escalated construction activity waits for an operator override before it terminally fails. 0 == wait-forever."
+            },
+            {
+              "name": "constructionInterventionMode",
+              "type": "string",
+              "default": "tiered",
+              "env": "ARCHISTRATOR_CONSTRUCTION_INTERVENTION_MODE",
+              "description": "Intervention regime: tiered (autonomous retry then escalate) or escalate-everything (supervised)."
+            },
+            {
+              "name": "constructionRepoOwner",
+              "type": "string",
+              "default": "",
+              "env": "ARCHISTRATOR_CONSTRUCTION_REPO_OWNER",
+              "description": "Construction repo owner (GitHub Actions dispatch target); also the GitHubAccount chained default."
+            },
+            {
+              "name": "constructionRepoName",
+              "type": "string",
+              "default": "",
+              "env": "ARCHISTRATOR_CONSTRUCTION_REPO_NAME",
+              "description": "Construction repo name (GitHub Actions dispatch target)."
+            },
+            {
+              "name": "constructionWorkflowFile",
+              "type": "string",
+              "default": "aiarch-construct.yml",
+              "env": "ARCHISTRATOR_CONSTRUCTION_WORKFLOW_FILE",
+              "description": "Construction workflow file the pipeline RA dispatches."
+            },
+            {
+              "name": "constructionRef",
+              "type": "string",
+              "default": "main",
+              "env": "ARCHISTRATOR_CONSTRUCTION_REF",
+              "description": "Git ref the construction workflow is dispatched against."
+            },
+            {
+              "name": "constructionTaskQueue",
+              "type": "string",
+              "default": "construction",
+              "env": "ARCHISTRATOR_CONSTRUCTION_TASK_QUEUE",
+              "description": "Construction Manager Temporal task queue."
+            },
+            {
+              "name": "constructionDryRun",
+              "type": "bool",
+              "default": "false",
+              "env": "ARCHISTRATOR_CONSTRUCTION_DRYRUN",
+              "description": "Register the construction Worker with in-memory stubs (no GitHub Actions run / LLM call). NEVER a production default."
+            },
+            {
+              "name": "operationsDryRun",
+              "type": "bool",
+              "default": "false",
+              "env": "ARCHISTRATOR_OPERATIONS_DRYRUN",
+              "description": "Select the operatedRuntimeAccess LOCAL/dry-run profile (deterministic, side-effect-free). Default false selects the REAL GitOps/kubernetes profile."
+            },
+            {
+              "name": "operatedRuntimeGitOpsRepoURL",
+              "type": "string",
+              "default": "",
+              "env": "ARCHISTRATOR_OPERATED_RUNTIME_GITOPS_REPO_URL",
+              "description": "REAL operatedRuntime profile GitOps target repo. Empty until the N-DEP backend lands; unused by the dry-run profile."
+            },
+            {
+              "name": "projectStateGitLocal",
+              "type": "bool",
+              "default": "false",
+              "env": "ARCHISTRATOR_PROJECT_STATE_GIT_LOCAL",
+              "description": "Select the file:// on-disk git projectStateAccess substrate (local profile)."
+            },
+            {
+              "name": "projectStateGitRepoURL",
+              "type": "string",
+              "default": "",
+              "env": "ARCHISTRATOR_PROJECT_STATE_GIT_REPO_URL",
+              "description": "Per-project repo file:// URL when projectStateGitLocal is true."
+            },
+            {
+              "name": "artifactRepoURL",
+              "type": "string",
+              "default": "",
+              "env": "ARCHISTRATOR_ARTIFACT_REPO_URL",
+              "description": "artifactAccess construction-output repo clone URL. Constructed only when set (else the slice stages no outputs)."
+            },
+            {
+              "name": "artifactRepoOwner",
+              "type": "string",
+              "default": "",
+              "env": "ARCHISTRATOR_ARTIFACT_REPO_OWNER",
+              "description": "artifactAccess CLOUD repo owner (installation discovery)."
+            },
+            {
+              "name": "artifactRepoLocal",
+              "type": "bool",
+              "default": "false",
+              "env": "ARCHISTRATOR_ARTIFACT_REPO_LOCAL",
+              "description": "Select the file:// on-disk artifactAccess repo (no credential)."
+            },
+            {
+              "name": "authDevMode",
+              "type": "bool",
+              "default": "false",
+              "env": "ARCHISTRATOR_AUTH_DEV_MODE",
+              "description": "Inject a dev principal on every request and skip access-token validation. MUST be off behind an IdP-fronted edge."
             }
           ]
         }
@@ -11103,7 +11546,7 @@
         "week": 1,
         "earnedPct": 90.3,
         "plannedPct": 2,
-        "note": "first tracking point cut at week 1 of 49 (tracking started late; EV reflects cumulative integration to date, 935/1035 effort-days; plannedPct is the compressed-option linear plan basis at nominal week 1 (1/49); no trend until \u003e=4 points)"
+        "note": "first tracking point cut at week 1 of 49 (tracking started late; EV reflects cumulative integration to date, 935/1035 effort-days; plannedPct is the compressed-option linear plan basis at nominal week 1 (1/49); no trend until >=4 points)"
       },
       {
         "week": 1,
@@ -26139,12 +26582,12 @@
           "id": "STP-UC1",
           "useCase": "drive-system-design",
           "title": "Drive System Design (client op: driveDesignPhase)",
-          "description": "Black-box exercise of the Phase-1 design loop at the systemDesignManager surface. Proves the artifact draft-\u003ereview-\u003ecommit state machine and the phase-advance gate; breaks it with premature advance, a reject-redraft loop, and an out-of-order draft request.",
+          "description": "Black-box exercise of the Phase-1 design loop at the systemDesignManager surface. Proves the artifact draft->review->commit state machine and the phase-advance gate; breaks it with premature advance, a reject-redraft loop, and an out-of-order draft request.",
           "cases": [
             {
               "id": "STP-UC1-H1",
               "kind": "happy",
-              "title": "Full artifact loop: create -\u003e research -\u003e draft mission -\u003e approve -\u003e commit; advance once Phase-1 complete",
+              "title": "Full artifact loop: create -> research -> draft mission -> approve -> commit; advance once Phase-1 complete",
               "proves": "The design loop drives an artifact from draft to committed and the phase gate opens only when every Phase-1 slot is committed (Method-conformance objective #2).",
               "expectedOutcome": "Mission reaches StageCommitted; with all Phase-1 kinds 0-7 committed, AdvancePhase returns advanced=true, missingArtifacts=[].",
               "steps": [
@@ -26189,7 +26632,7 @@
                     "result": "1",
                     "errorExpected": false
                   },
-                  "assertion": "Returns an incremented Version (\u003e=1); research is persisted before drafting begins."
+                  "assertion": "Returns an incremented Version (>=1); research is persisted before drafting begins."
                 },
                 {
                   "seq": 3,
@@ -26488,7 +26931,7 @@
                     "errorExpected": true,
                     "errorCode": "PreconditionFailed"
                   },
-                  "assertion": "kind=4 (KindCoreUseCases) requested while kind=3 (KindVolatilities) is uncommitted -\u003e refused. No SessionRef returned."
+                  "assertion": "kind=4 (KindCoreUseCases) requested while kind=3 (KindVolatilities) is uncommitted -> refused. No SessionRef returned."
                 }
               ]
             }
@@ -26504,7 +26947,7 @@
               "id": "STP-UC2-H1",
               "kind": "happy",
               "title": "Commit the normal option, then advance to construction",
-              "proves": "A valid SDPCommit records the chosen option and lets construction open (mirrors uc2 chain: SubmitSDPDecision -\u003e commitOption -\u003e openWorkItem).",
+              "proves": "A valid SDPCommit records the chosen option and lets construction open (mirrors uc2 chain: SubmitSDPDecision -> commitOption -> openWorkItem).",
               "expectedOutcome": "SubmitSDPDecision(commit, \"normal\") succeeds; AdvanceToConstruction returns advanced=true, missingArtifacts=[].",
               "steps": [
                 {
@@ -26820,7 +27263,7 @@
               "id": "STP-UC3-H1",
               "kind": "happy",
               "title": "Pump dispatches the next eligible activity and drives it through the review gate",
-              "proves": "ExecuteNextActivity picks the next eligible activity, and a PhaseApprove advances it toward merge/exit (mirrors uc3 chain: executeNextActivity -\u003e PickWorkerClass -\u003e ... -\u003e ProposeReviews -\u003e mergePullRequest -\u003e recordActivityExited).",
+              "proves": "ExecuteNextActivity picks the next eligible activity, and a PhaseApprove advances it toward merge/exit (mirrors uc3 chain: executeNextActivity -> PickWorkerClass -> ... -> ProposeReviews -> mergePullRequest -> recordActivityExited).",
               "expectedOutcome": "First tick dispatches an activity (dispatched=true); PhaseApprove is accepted; a later tick progresses the activity to exit.",
               "steps": [
                 {
@@ -26928,7 +27371,7 @@
               "id": "STP-UC3-H2",
               "kind": "happy",
               "title": "Escalated activity is resolved by an operator takeover and resumes construction",
-              "proves": "OverrideActivity resolves an operator escalation raised when DecideOnVariance returns VarianceEscalate, and hands the activity back into active construction (mirrors uc3 chain: executeNextActivity -\u003e ... -\u003e DecideOnVariance(Escalate) -\u003e escalate-operator -\u003e OverrideActivity(Takeover) -\u003e resume dispatch). Covers the architecture's operator mid-chain escalation entry chain executeNextActivity -\u003e overrideActivity (closes STP-CHAIN-COVER).",
+              "proves": "OverrideActivity resolves an operator escalation raised when DecideOnVariance returns VarianceEscalate, and hands the activity back into active construction (mirrors uc3 chain: executeNextActivity -> ... -> DecideOnVariance(Escalate) -> escalate-operator -> OverrideActivity(Takeover) -> resume dispatch). Covers the architecture's operator mid-chain escalation entry chain executeNextActivity -> overrideActivity (closes STP-CHAIN-COVER).",
               "expectedOutcome": "First tick dispatches an activity whose agentic job goes on to exhaust its retry budget and escalate (StageAwaitingTakeover); the operator's OverrideActivity(kind=Takeover) is accepted with no error; a subsequent read shows the activity has left StageAwaitingTakeover and resumed at StageDispatching under a changed arrangement.",
               "steps": [
                 {
@@ -27065,7 +27508,7 @@
                     },
                     {
                       "name": "feedback",
-                      "value": "{\"notes\":\"Contract has 22 operations; split the component (reject \u003e=20).\",\"comments\":null}",
+                      "value": "{\"notes\":\"Contract has 22 operations; split the component (reject >=20).\",\"comments\":null}",
                       "schemaRef": "#/$defs/ReviewFeedback"
                     }
                   ],
@@ -27145,7 +27588,7 @@
                     "result": "{\"dispatched\":false}",
                     "errorExpected": false
                   },
-                  "assertion": "Same tickID replayed -\u003e no second dispatch of C-BILLENG; the branch/PR count for the activity is unchanged."
+                  "assertion": "Same tickID replayed -> no second dispatch of C-BILLENG; the branch/PR count for the activity is unchanged."
                 }
               ]
             }
@@ -27155,14 +27598,14 @@
           "id": "STP-UC4",
           "useCase": "operate-a-delivered-system",
           "title": "Operate a Delivered System (client ops: operateDeliveredSystem / readOperatedSystemView)",
-          "description": "Black-box exercise of the operationsManager surface. Proves deploy-\u003ereconcile-\u003eobserve reaches Healthy; breaks it with the delinquency pause path, deploy idempotency on a duplicate changeId, and terminal withdrawal.",
+          "description": "Black-box exercise of the operationsManager surface. Proves deploy->reconcile->observe reaches Healthy; breaks it with the delinquency pause path, deploy idempotency on a duplicate changeId, and terminal withdrawal.",
           "cases": [
             {
               "id": "STP-UC4-H1",
               "kind": "happy",
               "title": "Deploy after construction, reconcile, and observe Healthy",
-              "proves": "A full-bundle deploy publishes desired state and the reconcile loop drives the app to Healthy (mirrors uc4: deployAfterConstruction -\u003e publishDesiredState -\u003e reconcileOperatedState -\u003e getApplicationHealth).",
-              "expectedOutcome": "DeployResult.published=true; ReconcileResult shows a Pending-\u003eHealthy transition; QueryOperatedSystemView reports Phase=RuntimeStatusHealthy.",
+              "proves": "A full-bundle deploy publishes desired state and the reconcile loop drives the app to Healthy (mirrors uc4: deployAfterConstruction -> publishDesiredState -> reconcileOperatedState -> getApplicationHealth).",
+              "expectedOutcome": "DeployResult.published=true; ReconcileResult shows a Pending->Healthy transition; QueryOperatedSystemView reports Phase=RuntimeStatusHealthy.",
               "steps": [
                 {
                   "seq": 1,
@@ -27204,7 +27647,7 @@
                     "result": "{\"observed\":1,\"transitions\":1,\"republished\":0}",
                     "errorExpected": false
                   },
-                  "assertion": "observed\u003e=1 and transitions\u003e=1 - a status transition (Pending-\u003eHealthy) is recorded on change only."
+                  "assertion": "observed>=1 and transitions>=1 - a status transition (Pending->Healthy) is recorded on change only."
                 },
                 {
                   "seq": 3,
@@ -27232,7 +27675,7 @@
               "id": "STP-UC4-N1",
               "kind": "negative",
               "title": "Delinquency policy pauses (not withdraws) the operated system",
-              "proves": "The queued Manager-\u003eManager delinquency signal must PAUSE the system when pauseNotWithdraw=true and must be observable - never silently withdraw or ignore it.",
+              "proves": "The queued Manager->Manager delinquency signal must PAUSE the system when pauseNotWithdraw=true and must be observable - never silently withdraw or ignore it.",
               "expectedOutcome": "After ApplyDelinquencyPolicy, publishDesiredState fires with reason=ReasonDelinquency and the view is NOT RuntimeStatusWithdrawn.",
               "steps": [
                 {
@@ -27394,8 +27837,8 @@
             {
               "id": "STP-UC5-H1",
               "kind": "happy",
-              "title": "Close a billing cycle -\u003e compute net -\u003e route money once",
-              "proves": "Closing a cycle reads revenue + usage, computes the signed net, routes it exactly once, and settles the cycle (mirrors uc5: closeBillingCycle -\u003e readBilling -\u003e readRange x2 -\u003e ComputeNet -\u003e charge|payout -\u003e settleCycle).",
+              "title": "Close a billing cycle -> compute net -> route money once",
+              "proves": "Closing a cycle reads revenue + usage, computes the signed net, routes it exactly once, and settles the cycle (mirrors uc5: closeBillingCycle -> readBilling -> readRange x2 -> ComputeNet -> charge|payout -> settleCycle).",
               "expectedOutcome": "Exactly one settled cycle is recorded for (customer, cycle); the gateway moves money once under Idempotency-Key settle:cust-88:2026-06.",
               "steps": [
                 {
