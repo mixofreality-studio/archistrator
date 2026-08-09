@@ -428,6 +428,68 @@ func TestProjectIdentityGuard_FreshRepoFirstWriteSucceeds(t *testing.T) {
 	}
 }
 
+// TestProjectIdentityGuard_CreateProjectRefusesForeignIDAgainstOccupiedRepo is the
+// committed regression for the gap an independent reviewer found and reproduced:
+// CreateProject's RESUME probe used to delegate to ReadProject, which (via
+// decodeProjectFromSnapshot) STAMPS the requested projectID onto whatever it
+// decodes and never compares it to the on-disk `id`. Called for a FOREIGN id
+// against a repo that already holds a DIFFERENT project's committed document —
+// exactly the LOCAL-profile single-repo shape of the real incident — that used to
+// return a FABRICATED SUCCESS (a version number, nil error) for a project that was
+// never created in that repo, without ever reaching applyMutation /
+// loadAggregateForMutation / the write-path guard. This must now fail loudly, the
+// same way every sibling verb does, and the on-disk document must be untouched.
+func TestProjectIdentityGuard_CreateProjectRefusesForeignIDAgainstOccupiedRepo(t *testing.T) {
+	store, proj, cred, ctx := newLocalGitStoreWithRepo(t)
+
+	ownerID := ProjectID("todomvc-run-20260808T000116Z-1744cf81")
+	intruderID := ProjectID("archistrator")
+
+	v1, err := store.CreateProject(fwra.Context{Context: ctx}, ownerID, "alice", "TodoMVC", cred, fwra.IdempotencyKey("wf:create-owner"))
+	if err != nil {
+		t.Fatalf("CreateProject(owner): %v", err)
+	}
+	if v1 != 1 {
+		t.Fatalf("CreateProject(owner) version = %d, want 1", v1)
+	}
+
+	before := readRawProjectDoc(ctx, t, proj)
+
+	gotVersion, err := store.CreateProject(fwra.Context{Context: ctx}, intruderID, "bob", "Archistrator", cred, fwra.IdempotencyKey("wf:create-intruder"))
+	if err == nil {
+		t.Fatalf("CreateProject for a FOREIGN project against an occupied repo must be refused, got a fabricated success: version=%d", gotVersion)
+	}
+	if got := kindOf(t, err); got != fwra.ContractMisuse {
+		t.Fatalf("error kind = %v, want fwra.ContractMisuse (permanent — a retry can never fix an identity mismatch)", got)
+	}
+	var fe *fwra.Error
+	if !errors.As(err, &fe) {
+		t.Fatalf("expected *fwra.Error, got %T", err)
+	}
+	if fe.Retryable {
+		t.Fatalf("identity-mismatch ContractMisuse error must NOT be retryable, got Retryable=true: %v", fe)
+	}
+	if !strings.Contains(err.Error(), string(ownerID)) || !strings.Contains(err.Error(), string(intruderID)) {
+		t.Fatalf("error must name BOTH the on-disk owner project and the refused requester, got: %v", err)
+	}
+
+	after := readRawProjectDoc(ctx, t, proj)
+	if !bytes.Equal(before, after) {
+		t.Fatalf("refused CreateProject MUST NOT touch the document:\nbefore: %s\nafter:  %s", before, after)
+	}
+
+	// The owner project itself must be entirely unaffected — a fresh read still
+	// resolves to the SAME id/version, not the intruder's.
+	owner, err := store.ReadProject(fwra.Context{Context: ctx}, ownerID, cred)
+	if err != nil {
+		t.Fatalf("ReadProject(owner) after refused intruder CreateProject: %v", err)
+	}
+	if owner.ID != ownerID || owner.Version != v1 {
+		t.Fatalf("owner project corrupted by the refused intruder CreateProject: got id=%s version=%d, want id=%s version=%d",
+			owner.ID, owner.Version, ownerID, v1)
+	}
+}
+
 // gitconstruction_test.go — black-box regression tests for the 7 construction-
 // transition verbs (Task 4: state foundation). Mirrors the activityconstruction_test.go
 // and gitactivity_test.go discipline: real throwaway on-disk git store, no mocks,

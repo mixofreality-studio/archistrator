@@ -520,15 +520,41 @@ func (s *GitStore) CreateProject(ctx context.Context, projectID ProjectID, owner
 	// This is the permissive-resume path: it preserves the existing state (no clobber)
 	// and is idempotent (a re-run against an already-created repo returns the same
 	// project). A genuine NotFound (no state yet) falls through to the fresh init below.
-	existing, err := s.ReadProject(fwra.Context{Context: ctx}, projectID, cred)
-	if err == nil {
-		// State already committed — RESUME (return the existing version, no write).
-		return existing.Version, nil
-	}
-	if !isNotFound(err) {
-		// A real read fault (auth/transient/infra) is surfaced; only NotFound (no state
-		// yet) is the fresh-create signal.
+	//
+	// This does NOT delegate to s.ReadProject: that helper (via decodeProjectFromSnapshot)
+	// STAMPS the requested projectID onto whatever it decodes and never compares it to the
+	// on-disk `id` — so a bare ReadProject-based resume probe would report a FABRICATED
+	// SUCCESS (existing.Version, nil) for a foreign projectID against an already-occupied
+	// repo, without ever reaching applyMutation/loadAggregateForMutation's identity guard.
+	// That is worse than the byte-corruption the guard elsewhere prevents: no bytes are
+	// written, but the caller walks away believing a project was created that never was.
+	// Read the raw snapshot ourselves instead and run the SAME guardProjectIdentity check
+	// the write path uses, before any decode.
+	auth, err := s.gitAuth(cred, "CreateProject")
+	if err != nil {
 		return 0, err
+	}
+	repo, err := s.projectRepo(projectID, "")
+	if err != nil {
+		return 0, err
+	}
+	snap, err := repo.ReadSubtree(ctx, statePathPrefix, auth)
+	if err != nil {
+		return 0, err
+	}
+	if err := guardProjectIdentity(snap, "CreateProject", projectID, s.repoDescription(projectID)); err != nil {
+		return 0, err
+	}
+	existing, exists, err := decodeProjectFromSnapshot(snap, projectID)
+	if err != nil {
+		// A real decode fault (malformed committed JSON/slots) is surfaced; classification
+		// is already fwra.ContractMisuse from decodeProjectDoc.
+		return 0, err
+	}
+	if exists {
+		// State already committed (and, per the guard above, committed to THIS projectID)
+		// — RESUME (return the existing version, no write).
+		return existing.Version, nil
 	}
 
 	// Fresh init: no committed state — seed project.json at Version 1.
@@ -875,6 +901,24 @@ func (s *GitStore) applyMutationOnBranchFiles(
 		return 0, err
 	}
 
+	// STEP 0 — project-identity guard, BEFORE the dedup probe. It must run first: the
+	// dedup ledger (applied_mutations/<key>.json) is keyed ONLY by idempotencyKey, with
+	// NO projectID scoping in the record at all (appliedRecord carries no project field).
+	// If a cross-project idempotencyKey collision ever landed a dedup hit for the WRONG
+	// project, STEP 1 below would return rec.ResultVersion and short-circuit — reaching
+	// neither this guard nor loadAggregateForMutation's decode/mode/version gates — the
+	// exact same "fabricated success, nothing written, caller told it worked" shape the
+	// CreateProject resume-probe gap had. Every current idempotencyKey minted in this
+	// codebase embeds a Temporal-server-assigned WorkflowExecution.RunID (a fresh UUID
+	// per workflow run, globally unique across the whole Temporal server — see
+	// genActivityIdempotencyKey in each manager's activities.gen.go) or a freshly minted
+	// uuid.NewString() (constructionmanager.go), so a real collision is not reachable
+	// today; run the guard first anyway — it is a no-op for every legitimate same-project
+	// call (matching or absent id) and costs nothing.
+	if err := guardProjectIdentity(snap, op, projectID, s.repoDescription(projectID)); err != nil {
+		return 0, err
+	}
+
 	// STEP 1 — dedup-first probe. A committed applied_mutations/<key>.json means a
 	// prior attempt already landed: return its result_version, IGNORING
 	// expectedVersion (a retry may re-pass a now-stale version; the dedup must win).
@@ -885,7 +929,7 @@ func (s *GitStore) applyMutationOnBranchFiles(
 	}
 
 	// STEPS 2–3 — decode + mode gate + version guard.
-	p, err := loadAggregateForMutation(snap, op, projectID, expectedVersion, mode, s.repoDescription(projectID))
+	p, err := loadAggregateForMutation(snap, op, projectID, expectedVersion, mode)
 	if err != nil {
 		return 0, err
 	}
@@ -913,32 +957,20 @@ func (s *GitStore) applyMutationOnBranchFiles(
 }
 
 // loadAggregateForMutation is applyMutationOnBranchFiles' STEP 2 + STEP 3,
-// extracted verbatim.
+// extracted verbatim. The project-identity guard (guardProjectIdentity) runs
+// EARLIER, in applyMutationOnBranchFiles' STEP 0 — before the dedup probe, not
+// here — so by the time this function runs, projectID is already known to either
+// match the on-disk `id` or the document doesn't exist/carries no id yet. See STEP
+// 0's comment in applyMutationOnBranchFiles for why it must precede the dedup
+// probe (the dedup ledger has no per-project scoping at all).
 //
 // STEP 2 — decode the aggregate (or open a fresh one) and run the mode gate.
-//
-// STEP 2a — project-identity guard. The local git-backed store is single-project:
-// a repo is whatever project.json happens to be committed at its statePathPrefix,
-// and (pre-fix) nothing checked that the caller's projectID actually matched it —
-// decodeProjectDoc unconditionally STAMPS the requested projectID onto the decoded
-// aggregate, discarding whatever `id` was actually on disk. Two archistrator
-// instances sharing a Temporal namespace hit this directly: one instance's worker
-// executed the OTHER project's workflow against its OWN repo, and the mutation
-// silently rewrote that repo's project.json `id` to the wrong project, grafting a
-// foreign activityConstruction entry into an otherwise-intact document — corruption
-// that looks plausible until someone checks the id. Refuse BEFORE any decode/mutate
-// touches the document when the repo already carries a DIFFERENT non-empty id. An
-// EMPTY on-disk id (freshly-initialized repo, `archistrator init` → first write) is
-// not a mismatch — that is how a project is born.
 //
 // STEP 3 — version guard (the same optimistic-concurrency check as Postgres; the
 // Version lives in the committed project.json — invariant iv: derivable from repo
 // state alone). The git ref-CAS at push time is the cross-process gate; this
 // guard catches a stale caller even before the push.
-func loadAggregateForMutation(snap fwgithub.GitSnapshot, op string, projectID ProjectID, expectedVersion Version, mode mutationMode, repoDesc string) (Project, error) {
-	if err := guardProjectIdentity(snap, op, projectID, repoDesc); err != nil {
-		return Project{}, err
-	}
+func loadAggregateForMutation(snap fwgithub.GitSnapshot, op string, projectID ProjectID, expectedVersion Version, mode mutationMode) (Project, error) {
 	p, exists, err := decodeProjectFromSnapshot(snap, projectID)
 	if err != nil {
 		return Project{}, err
