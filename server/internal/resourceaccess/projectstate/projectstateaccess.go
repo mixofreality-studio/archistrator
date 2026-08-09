@@ -86,6 +86,31 @@ type BranchRepoLocator interface {
 	ProjectRepoOnBranch(projectID ProjectID, branch string) (*fwgithub.GitStore, error)
 }
 
+// repoDescriber is an OPTIONAL capability a RepoLocator MAY implement to expose a
+// human-readable identifier (the resolved repo's clone URL / local path) for
+// DIAGNOSTIC TEXT ONLY — the project-identity guard (guardProjectIdentity, run
+// from applyMutationOnBranchFiles' STEP 0) names it in its refused-write error
+// so a human reading the failure can find the
+// physical repo, not just the logical projectID. This is not a git lexeme (no
+// ref/sha/tree crosses the seam) — the URL/path is already known plumbing detail
+// surfaced back at NewGitLocal*/NewGitHub* construction time.
+type repoDescriber interface {
+	DescribeRepo(projectID ProjectID) string
+}
+
+// repoDescription returns a best-effort human-readable identifier for projectID's
+// resolved repo, for error text only. Falls back to the projectID itself (per
+// name-as-identity, REWORK.5 — the repo is deterministically named after it) when
+// the locator does not implement repoDescriber.
+func (s *GitStore) repoDescription(projectID ProjectID) string {
+	if d, ok := s.locator.(repoDescriber); ok {
+		if desc := d.DescribeRepo(projectID); desc != "" {
+			return desc
+		}
+	}
+	return string(projectID)
+}
+
 // projectRepo resolves the per-project store handle for a read/write. A non-empty
 // branch override + a BranchRepoLocator-capable locator yields a branch-bound handle;
 // otherwise the locator's default-branch ProjectRepo handle is returned (the original
@@ -496,15 +521,42 @@ func (s *GitStore) CreateProject(ctx context.Context, projectID ProjectID, owner
 	// This is the permissive-resume path: it preserves the existing state (no clobber)
 	// and is idempotent (a re-run against an already-created repo returns the same
 	// project). A genuine NotFound (no state yet) falls through to the fresh init below.
-	existing, err := s.ReadProject(fwra.Context{Context: ctx}, projectID, cred)
-	if err == nil {
-		// State already committed — RESUME (return the existing version, no write).
-		return existing.Version, nil
-	}
-	if !isNotFound(err) {
-		// A real read fault (auth/transient/infra) is surfaced; only NotFound (no state
-		// yet) is the fresh-create signal.
+	//
+	// This does NOT delegate to s.ReadProject: that helper (via decodeProjectFromSnapshot)
+	// STAMPS the requested projectID onto whatever it decodes and never compares it to the
+	// on-disk `id` — so a bare ReadProject-based resume probe would report a FABRICATED
+	// SUCCESS (existing.Version, nil) for a foreign projectID against an already-occupied
+	// repo, without ever reaching applyMutationOnBranchFiles' STEP 0 identity guard
+	// (guardProjectIdentity).
+	// That is worse than the byte-corruption the guard elsewhere prevents: no bytes are
+	// written, but the caller walks away believing a project was created that never was.
+	// Read the raw snapshot ourselves instead and run the SAME guardProjectIdentity check
+	// the write path uses, before any decode.
+	auth, err := s.gitAuth(cred, "CreateProject")
+	if err != nil {
 		return 0, err
+	}
+	repo, err := s.projectRepo(projectID, "")
+	if err != nil {
+		return 0, err
+	}
+	snap, err := repo.ReadSubtree(ctx, statePathPrefix, auth)
+	if err != nil {
+		return 0, err
+	}
+	if err := guardProjectIdentity(snap, "CreateProject", projectID, s.repoDescription(projectID)); err != nil {
+		return 0, err
+	}
+	existing, exists, err := decodeProjectFromSnapshot(snap, projectID)
+	if err != nil {
+		// A real decode fault (malformed committed JSON/slots) is surfaced; classification
+		// is already fwra.ContractMisuse from decodeProjectDoc.
+		return 0, err
+	}
+	if exists {
+		// State already committed (and, per the guard above, committed to THIS projectID)
+		// — RESUME (return the existing version, no write).
+		return existing.Version, nil
 	}
 
 	// Fresh init: no committed state — seed project.json at Version 1.
@@ -851,6 +903,24 @@ func (s *GitStore) applyMutationOnBranchFiles(
 		return 0, err
 	}
 
+	// STEP 0 — project-identity guard, BEFORE the dedup probe. It must run first: the
+	// dedup ledger (applied_mutations/<key>.json) is keyed ONLY by idempotencyKey, with
+	// NO projectID scoping in the record at all (appliedRecord carries no project field).
+	// If a cross-project idempotencyKey collision ever landed a dedup hit for the WRONG
+	// project, STEP 1 below would return rec.ResultVersion and short-circuit — reaching
+	// neither this guard nor loadAggregateForMutation's decode/mode/version gates — the
+	// exact same "fabricated success, nothing written, caller told it worked" shape the
+	// CreateProject resume-probe gap had. Every current idempotencyKey minted in this
+	// codebase embeds a Temporal-server-assigned WorkflowExecution.RunID (a fresh UUID
+	// per workflow run, globally unique across the whole Temporal server — see
+	// genActivityIdempotencyKey in each manager's activities.gen.go) or a freshly minted
+	// uuid.NewString() (constructionmanager.go), so a real collision is not reachable
+	// today; run the guard first anyway — it is a no-op for every legitimate same-project
+	// call (matching or absent id) and costs nothing.
+	if err := guardProjectIdentity(snap, op, projectID, s.repoDescription(projectID)); err != nil {
+		return 0, err
+	}
+
 	// STEP 1 — dedup-first probe. A committed applied_mutations/<key>.json means a
 	// prior attempt already landed: return its result_version, IGNORING
 	// expectedVersion (a retry may re-pass a now-stale version; the dedup must win).
@@ -889,7 +959,12 @@ func (s *GitStore) applyMutationOnBranchFiles(
 }
 
 // loadAggregateForMutation is applyMutationOnBranchFiles' STEP 2 + STEP 3,
-// extracted verbatim.
+// extracted verbatim. The project-identity guard (guardProjectIdentity) runs
+// EARLIER, in applyMutationOnBranchFiles' STEP 0 — before the dedup probe, not
+// here — so by the time this function runs, projectID is already known to either
+// match the on-disk `id` or the document doesn't exist/carries no id yet. See STEP
+// 0's comment in applyMutationOnBranchFiles for why it must precede the dedup
+// probe (the dedup ledger has no per-project scoping at all).
 //
 // STEP 2 — decode the aggregate (or open a fresh one) and run the mode gate.
 //
@@ -918,6 +993,49 @@ func loadAggregateForMutation(snap fwgithub.GitSnapshot, op string, projectID Pr
 		return Project{}, fwra.New(fwra.Conflict, fmt.Sprintf("projectstate.%s: stale version for project %s: have %d, expected %d", op, projectID, p.Version, expectedVersion))
 	}
 	return p, nil
+}
+
+// guardProjectIdentity refuses a mutation whose target projectID does not match the
+// `id` already committed in the repo's project.json (applyMutationOnBranchFiles'
+// STEP 0, before the dedup probe). It peeks the
+// RAW on-disk id directly — deliberately BEFORE decodeProjectFromSnapshot runs,
+// because that decoder stamps the CALLER's projectID onto the result and would
+// otherwise erase the very mismatch this guard exists to catch. A missing
+// project.json (fresh repo) or an empty `id` (pre-identity document / not yet
+// created) is not a mismatch and passes through untouched.
+//
+// Classification: fwra.ContractMisuse, not fwra.Conflict. This is caller/infra
+// misuse crossing a repo-identity boundary — the wrong project's caller writing
+// into this repo — not an optimistic-concurrency race. A version Conflict is
+// something a caller can legitimately resolve by re-reading the current version
+// and reissuing the same logical mutation; an identity mismatch cannot be resolved
+// that way — re-reading and retrying with the "corrected" version would just
+// reproduce the identical mismatch (and, worse, a caller/framework layer that
+// treats Conflict as auto-retryable-after-refresh would spin forever). Both Kinds
+// report DefaultRetryable()==false at the fwra layer, but ContractMisuse is the one
+// this codebase already reserves for terminal, human-recovery-gate failures (see
+// decodeProjectDoc's malformed-JSON / malformed-slot classification just below,
+// "QA F36": retry cannot fix bytes already at rest).
+func guardProjectIdentity(snap fwgithub.GitSnapshot, op string, projectID ProjectID, repoDesc string) error {
+	raw, ok := snap.Files[projectFile]
+	if !ok {
+		return nil // no committed document yet — nothing to protect.
+	}
+	var head struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(raw, &head); err != nil {
+		// Malformed JSON is surfaced properly (as fwra.ContractMisuse) by
+		// decodeProjectFromSnapshot immediately after this guard runs; swallow it
+		// here rather than duplicate that classification.
+		return nil
+	}
+	if head.ID != "" && head.ID != string(projectID) {
+		return fwra.New(fwra.ContractMisuse, fmt.Sprintf(
+			"projectstate.%s: refusing to write project %s into repo %s, which already holds a document for project %s (identity mismatch — no retry can fix this; check for cross-project worker/namespace contamination)",
+			op, projectID, repoDesc, head.ID))
+	}
+	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -1617,6 +1735,15 @@ func (l gitRepoLocator) ProjectRepo(projectID ProjectID) (*fwgithub.GitStore, er
 		return nil, fwra.New(fwra.ContractMisuse, fmt.Sprintf("gitRepoLocator: empty repo URL for project %s", projectID))
 	}
 	return fwgithub.NewGitStore(url, l.branch)
+}
+
+// DescribeRepo satisfies repoDescriber: exposes the resolved repo's clone URL /
+// local path for diagnostics (the project-identity guard's error text). In the
+// LOCAL profile this is the ONE fixed on-disk repo every projectID resolves to
+// (perProjectRepoURL ignores its argument there) — exactly the identifier a human
+// needs to find the corrupted repo after a cross-project write was refused.
+func (l gitRepoLocator) DescribeRepo(projectID ProjectID) string {
+	return l.perProjectRepoURL(projectID)
 }
 
 // ProjectRepoOnBranch satisfies BranchRepoLocator (I-DESIGN-DISPATCH §2a): it binds the
@@ -3861,6 +3988,14 @@ type ActivityItem struct {
 	// additive, omitempty for back-compat with documents that pre-date it. Name stays
 	// the network id (the load-bearing dependency/head-state key); Title is display-only.
 	Title string `json:"title,omitempty"`
+	// ComponentID names the committed System component (systemDesign Components[].id)
+	// this activity builds. AUTHORED at Phase-2 draft time — never derived by matching.
+	// Its PRESENCE declares the activity STRUCTURAL (Löwy ch.13 Table 13-1, one per
+	// architecture component); its absence declares it nonstructural (Table 13-2:
+	// harnesses, base services) or noncoding. When present it must resolve to a
+	// committed component. A noncoding provisioning activity (R-*) may name the
+	// Resource component it provisions.
+	ComponentID string `json:"componentId,omitempty"`
 }
 
 // ActivityList holds the Phase-2 activity list artifact — the coding + noncoding
@@ -6214,6 +6349,12 @@ var layerNames = map[Layer]string{
 }
 var layerByName = invert(layerNames)
 
+// String returns the canonical lowercase layer name — the same spelling layerNames
+// carries on the wire. Defined so callers OUTSIDE this package (the construction
+// Manager hydrating an activity's layer from its component) can name a Layer
+// without reaching for the unexported map.
+func (l Layer) String() string { return enumName(layerNames, l) }
+
 // MarshalJSON encodes the Layer as its camelCase wire name.
 func (l Layer) MarshalJSON() ([]byte, error) { return marshalEnum(l, layerNames, "Layer") }
 
@@ -6528,6 +6669,25 @@ func (p ActivityConstructionPhase) String() string {
 // EscalationTimedOut — an escalation waited for an operator override that never
 // came within the bounded escalation-wait window.
 
+// ComponentUnresolved — an eligible activity could not be dispatched because its
+// authored componentId names no component in the committed systemDesign. A plan
+// defect, terminal until a human amends the activity list — deliberately NOT routed
+// through the interventionEngine, which adjudicates variance for work legitimately
+// in flight. Reserved for the componentId case; a dependency-graph defect on the
+// same activity is DependencyUnresolved or DependencyCycle instead.
+
+// DependencyUnresolved — an eligible activity could not be dispatched because one
+// of its dependency ids names neither an activity in the committed activity list
+// nor a milestone in the committed network. A dangling reference. FailureDetail
+// carries the activity and the dangling id. Repair: fix the id, or author the
+// missing node. Same terminal/non-intervention treatment as ComponentUnresolved.
+
+// DependencyCycle — an eligible activity could not be dispatched because
+// dependency resolution found a cycle through activities/milestones. Every id
+// resolves; the topology is wrong. FailureDetail carries the cycle path. Repair:
+// break the cycle by removing an edge. Same terminal/non-intervention treatment
+// as ComponentUnresolved.
+
 // String returns the canonical wire name for the failure reason.
 func (r FailureReason) String() string {
 	switch r {
@@ -6541,10 +6701,16 @@ func (r FailureReason) String() string {
 		return "varianceExhausted"
 	case EscalationTimedOut:
 		return "escalationTimedOut"
+	case ComponentUnresolved:
+		return "componentUnresolved"
+	case DependencyUnresolved:
+		return "dependencyUnresolved"
+	case DependencyCycle:
+		return "dependencyCycle"
 	case FailureReasonUnknown:
 		return "unknown"
 	}
-	// Unreachable for the six defined FailureReason values above (the exhaustive
+	// Unreachable for the nine defined FailureReason values above (the exhaustive
 	// linter enforces that every real variant has its own case); kept as a
 	// defensive fallback for an out-of-range ordinal.
 	return "unknown"

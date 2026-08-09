@@ -323,6 +323,173 @@ func assertIdentityPersistedVerbatimOnDisk(ctx context.Context, t *testing.T, re
 	}
 }
 
+// --------------------------------------------------------------------------
+// Project-identity guard — the local git-backed store is single-project (a
+// repo is whatever project.json happens to be committed under statePathPrefix)
+// and, pre-fix, nothing checked that the caller's projectID matched the `id`
+// already committed there: decodeProjectDoc unconditionally STAMPED the
+// requested projectID onto the decoded aggregate, discarding the real on-disk
+// id. Two archistrator instances sharing a Temporal namespace hit this for
+// real: one instance's worker executed the OTHER project's workflow against
+// its OWN repo, silently rewriting that repo's project.json `id` and grafting
+// a foreign activityConstruction entry into an otherwise-intact document.
+// guardProjectIdentity (run from applyMutationOnBranchFiles' STEP 0,
+// projectstateaccess.go) refuses any mutation whose target projectID doesn't
+// match a non-empty on-disk id, BEFORE anything is decoded or written.
+// --------------------------------------------------------------------------
+
+// readRawProjectDoc reads project.json straight off the repo through a fresh
+// ReadSubtree — the same "prove it's really on disk, not merely held in memory"
+// read path assertIdentityPersistedVerbatimOnDisk above uses. Returns a copy:
+// snap.Files' backing bytes must not be mutated/reused across calls.
+func readRawProjectDoc(ctx context.Context, t *testing.T, repo *fwgithub.GitStore) []byte {
+	t.Helper()
+	snap, err := repo.ReadSubtree(ctx, ".aiarch/state", fwgithub.GitAuth{Local: true})
+	if err != nil {
+		t.Fatalf("ReadSubtree: %v", err)
+	}
+	raw, ok := snap.Files["project.json"]
+	if !ok {
+		t.Fatal("project.json not committed to the repo")
+	}
+	out := make([]byte, len(raw))
+	copy(out, raw)
+	return out
+}
+
+// TestProjectIdentityGuard_RefusesCrossProjectWrite reproduces the observed
+// corruption at the store layer: a repo already carries a committed document for
+// ownerID; a write then arrives addressed to a DIFFERENT project (intruderID) —
+// exactly what happens when two archistrator instances share a Temporal namespace
+// and one instance's worker executes the other's workflow against its own repo.
+// The write must be refused outright, as fwra.ContractMisuse (permanent — no retry
+// fixes a repo-identity mismatch), naming both projects, and the on-disk document
+// must be byte-for-byte UNCHANGED afterward.
+func TestProjectIdentityGuard_RefusesCrossProjectWrite(t *testing.T) {
+	store, proj, cred, ctx := newLocalGitStoreWithRepo(t)
+
+	ownerID := ProjectID("todomvc-run-20260808T000116Z-1744cf81")
+	intruderID := ProjectID("archistrator")
+
+	v1, err := store.CreateProject(fwra.Context{Context: ctx}, ownerID, "alice", "TodoMVC", cred, fwra.IdempotencyKey("wf:create-owner"))
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+
+	before := readRawProjectDoc(ctx, t, proj)
+
+	_, err = store.RecordOperatorPaused(fwra.Context{Context: ctx}, intruderID, v1, "cross-project contamination", cred, fwra.IdempotencyKey("wf:pause-intruder"))
+	if err == nil {
+		t.Fatal("RecordOperatorPaused for a MISMATCHED project must be refused, got nil error")
+	}
+	if got := kindOf(t, err); got != fwra.ContractMisuse {
+		t.Fatalf("error kind = %v, want fwra.ContractMisuse (permanent — a retry can never fix an identity mismatch)", got)
+	}
+	var fe *fwra.Error
+	if !errors.As(err, &fe) {
+		t.Fatalf("expected *fwra.Error, got %T", err)
+	}
+	if fe.Retryable {
+		t.Fatalf("identity-mismatch ContractMisuse error must NOT be retryable, got Retryable=true: %v", fe)
+	}
+	if !strings.Contains(err.Error(), string(ownerID)) || !strings.Contains(err.Error(), string(intruderID)) {
+		t.Fatalf("error must name BOTH the on-disk owner project and the refused requester, got: %v", err)
+	}
+
+	after := readRawProjectDoc(ctx, t, proj)
+	if !bytes.Equal(before, after) {
+		t.Fatalf("refused write MUST NOT touch the document:\nbefore: %s\nafter:  %s", before, after)
+	}
+}
+
+// TestProjectIdentityGuard_FreshRepoFirstWriteSucceeds proves the guard's
+// empty/absent-id carve-out: a repo with NO committed project.json yet (exactly
+// what `archistrator init` scaffolds — cmd/archistrator/init.go deliberately
+// writes no project.json) must still accept its first write (CreateProject),
+// and a subsequent SAME-project write must keep working normally afterward.
+func TestProjectIdentityGuard_FreshRepoFirstWriteSucceeds(t *testing.T) {
+	store, _, cred, ctx := newLocalGitStoreWithRepo(t)
+	id := ProjectID("todomvc-run-20260808T000116Z-1744cf81")
+
+	v1, err := store.CreateProject(fwra.Context{Context: ctx}, id, "alice", "TodoMVC", cred, fwra.IdempotencyKey("wf:create-fresh"))
+	if err != nil {
+		t.Fatalf("CreateProject on a fresh repo (no project.json yet) must succeed, got: %v", err)
+	}
+	if v1 != 1 {
+		t.Fatalf("CreateProject version = %d, want 1", v1)
+	}
+
+	v2, err := store.RecordOperatorPaused(fwra.Context{Context: ctx}, id, v1, "matching-project", cred, fwra.IdempotencyKey("wf:pause-same"))
+	if err != nil {
+		t.Fatalf("RecordOperatorPaused for the SAME project must keep working, got: %v", err)
+	}
+	if v2 != v1+1 {
+		t.Fatalf("version = %d, want %d", v2, v1+1)
+	}
+}
+
+// TestProjectIdentityGuard_CreateProjectRefusesForeignIDAgainstOccupiedRepo is the
+// committed regression for the gap an independent reviewer found and reproduced:
+// CreateProject's RESUME probe used to delegate to ReadProject, which (via
+// decodeProjectFromSnapshot) STAMPS the requested projectID onto whatever it
+// decodes and never compares it to the on-disk `id`. Called for a FOREIGN id
+// against a repo that already holds a DIFFERENT project's committed document —
+// exactly the LOCAL-profile single-repo shape of the real incident — that used to
+// return a FABRICATED SUCCESS (a version number, nil error) for a project that was
+// never created in that repo, without ever reaching applyMutation /
+// loadAggregateForMutation / the write-path guard. This must now fail loudly, the
+// same way every sibling verb does, and the on-disk document must be untouched.
+func TestProjectIdentityGuard_CreateProjectRefusesForeignIDAgainstOccupiedRepo(t *testing.T) {
+	store, proj, cred, ctx := newLocalGitStoreWithRepo(t)
+
+	ownerID := ProjectID("todomvc-run-20260808T000116Z-1744cf81")
+	intruderID := ProjectID("archistrator")
+
+	v1, err := store.CreateProject(fwra.Context{Context: ctx}, ownerID, "alice", "TodoMVC", cred, fwra.IdempotencyKey("wf:create-owner"))
+	if err != nil {
+		t.Fatalf("CreateProject(owner): %v", err)
+	}
+	if v1 != 1 {
+		t.Fatalf("CreateProject(owner) version = %d, want 1", v1)
+	}
+
+	before := readRawProjectDoc(ctx, t, proj)
+
+	gotVersion, err := store.CreateProject(fwra.Context{Context: ctx}, intruderID, "bob", "Archistrator", cred, fwra.IdempotencyKey("wf:create-intruder"))
+	if err == nil {
+		t.Fatalf("CreateProject for a FOREIGN project against an occupied repo must be refused, got a fabricated success: version=%d", gotVersion)
+	}
+	if got := kindOf(t, err); got != fwra.ContractMisuse {
+		t.Fatalf("error kind = %v, want fwra.ContractMisuse (permanent — a retry can never fix an identity mismatch)", got)
+	}
+	var fe *fwra.Error
+	if !errors.As(err, &fe) {
+		t.Fatalf("expected *fwra.Error, got %T", err)
+	}
+	if fe.Retryable {
+		t.Fatalf("identity-mismatch ContractMisuse error must NOT be retryable, got Retryable=true: %v", fe)
+	}
+	if !strings.Contains(err.Error(), string(ownerID)) || !strings.Contains(err.Error(), string(intruderID)) {
+		t.Fatalf("error must name BOTH the on-disk owner project and the refused requester, got: %v", err)
+	}
+
+	after := readRawProjectDoc(ctx, t, proj)
+	if !bytes.Equal(before, after) {
+		t.Fatalf("refused CreateProject MUST NOT touch the document:\nbefore: %s\nafter:  %s", before, after)
+	}
+
+	// The owner project itself must be entirely unaffected — a fresh read still
+	// resolves to the SAME id/version, not the intruder's.
+	owner, err := store.ReadProject(fwra.Context{Context: ctx}, ownerID, cred)
+	if err != nil {
+		t.Fatalf("ReadProject(owner) after refused intruder CreateProject: %v", err)
+	}
+	if owner.ID != ownerID || owner.Version != v1 {
+		t.Fatalf("owner project corrupted by the refused intruder CreateProject: got id=%s version=%d, want id=%s version=%d",
+			owner.ID, owner.Version, ownerID, v1)
+	}
+}
+
 // gitconstruction_test.go — black-box regression tests for the 7 construction-
 // transition verbs (Task 4: state foundation). Mirrors the activityconstruction_test.go
 // and gitactivity_test.go discipline: real throwaway on-disk git store, no mocks,
@@ -5964,6 +6131,44 @@ func TestActivityBuildStatus_String(t *testing.T) {
 	}
 }
 
+// ComponentUnresolved is the terminal FailureReason recorded when the construction
+// pump cannot dispatch an eligible activity because its authored componentId names no
+// component in the committed systemDesign. Its wire name is what the console renders,
+// so it is pinned here alongside the load-bearing ordinals of its predecessors.
+//
+// DependencyUnresolved (ordinal 7) and DependencyCycle (ordinal 8) are the sibling
+// dependency-graph FailureReason variants minted in c2c33ab: a dangling dependency id
+// (names neither an authored activity nor an authored milestone) vs. a dependency
+// cycle (every id resolves; the topology is broken). Pinned here too, alongside every
+// pre-existing ordinal, so a reordering of the whole enum fails loudly — the persisted
+// ordinals are load-bearing: every failure record already on disk decodes through them.
+func TestFailureReason_ComponentUnresolvedWireName(t *testing.T) {
+	if got := ComponentUnresolved.String(); got != "componentUnresolved" {
+		t.Fatalf("want componentUnresolved, got %q", got)
+	}
+	if ComponentUnresolved != 6 {
+		t.Fatalf("ComponentUnresolved must be ordinal 6, got %d", ComponentUnresolved)
+	}
+	if got := DependencyUnresolved.String(); got != "dependencyUnresolved" {
+		t.Fatalf("want dependencyUnresolved, got %q", got)
+	}
+	if DependencyUnresolved != 7 {
+		t.Fatalf("DependencyUnresolved must be ordinal 7, got %d", DependencyUnresolved)
+	}
+	if got := DependencyCycle.String(); got != "dependencyCycle" {
+		t.Fatalf("want dependencyCycle, got %q", got)
+	}
+	if DependencyCycle != 8 {
+		t.Fatalf("DependencyCycle must be ordinal 8, got %d", DependencyCycle)
+	}
+	// The persisted ordinals of the pre-existing variants are load-bearing: every
+	// failure record already on disk decodes through them.
+	if FailureReasonUnknown != 0 || PipelineFailed != 1 || PipelineCancelled != 2 ||
+		PipelineTimedOut != 3 || VarianceExhausted != 4 || EscalationTimedOut != 5 {
+		t.Fatal("existing FailureReason ordinals must not move")
+	}
+}
+
 // ---- Task 1: ActivityType + TestingVariant + ActivityMethodPhase ----
 
 func TestActivityType_String(t *testing.T) {
@@ -7565,5 +7770,48 @@ func TestArtifactSlot_UnmarshalJSON_RejectsNonEnvelopeModel(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "kind") {
 		t.Errorf("error should name the missing envelope discriminator, got: %v", err)
+	}
+}
+
+func TestActivityItem_ComponentIDRoundTrips(t *testing.T) {
+	in := ActivityList{Activities: []ActivityItem{
+		{Name: "C-TLM", Title: "TodoListManager", Coding: true, ComponentID: "todo-list-manager"},
+		{Name: "N-STP", Title: "System Test Plan", Coding: false},
+	}}
+	b, err := json.Marshal(in)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	// omitempty: the noncoding entry must not carry a misleading empty string.
+	if strings.Contains(string(b), `"componentId":""`) {
+		t.Fatalf("empty componentId must be omitted, got %s", b)
+	}
+	if !strings.Contains(string(b), `"componentId":"todo-list-manager"`) {
+		t.Fatalf("authored componentId missing from wire form, got %s", b)
+	}
+	var out ActivityList
+	if err := json.Unmarshal(b, &out); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if out.Activities[0].ComponentID != "todo-list-manager" {
+		t.Fatalf("want todo-list-manager, got %q", out.Activities[0].ComponentID)
+	}
+	if out.Activities[1].ComponentID != "" {
+		t.Fatalf("want empty, got %q", out.Activities[1].ComponentID)
+	}
+}
+
+func TestLayerString(t *testing.T) {
+	for layer, want := range map[Layer]string{
+		LayerClient:         "client",
+		LayerManager:        "manager",
+		LayerEngine:         "engine",
+		LayerResourceAccess: "resourceAccess",
+		LayerResource:       "resource",
+		LayerUtility:        "utility",
+	} {
+		if got := layer.String(); got != want {
+			t.Fatalf("Layer(%d).String() = %q, want %q", layer, got, want)
+		}
 	}
 }

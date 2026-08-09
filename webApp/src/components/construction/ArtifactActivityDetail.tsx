@@ -23,7 +23,7 @@ import type {
   ProducedArtifactRow,
   ProjectStateWithGit,
 } from '../../contracts/types';
-import type { BuildStatus } from '../../contracts/constructionAdapters';
+import { FAILURE_REASON_LABEL, type BuildStatus } from '../../contracts/constructionAdapters';
 import { contractForActivity } from '../../contracts/serviceContracts';
 import { StatusChip } from './status';
 import { KindBadge, KIND_META } from './KindBadge';
@@ -63,6 +63,31 @@ function ActivityHeader({ t, vm }: { t: Tokens; vm: ArtifactActivityVM }): React
         <Typography sx={{ fontFamily: t.mono, fontSize: 11, color: t.muted }}>
           phase · {vm.row.phase}
         </Typography>
+        {/* Terminal failure: the pump durably gave up on this activity. The reason
+            names WHAT failed; the detail is the actionable part (which activity, and
+            the repair). Same mono-sublabel + body-note idiom as ArtifactCard. */}
+        {vm.row.failureReason !== undefined ? (
+          <Box sx={{ mt: 0.6, borderLeft: `3px solid ${t.dangerFg}`, pl: 1 }}>
+            <Typography
+              sx={{
+                fontFamily: t.mono,
+                fontWeight: 700,
+                fontSize: 10.5,
+                letterSpacing: '0.06em',
+                color: t.dangerFg,
+              }}
+            >
+              CONSTRUCTION FAILED · {FAILURE_REASON_LABEL[vm.row.failureReason].toUpperCase()}
+            </Typography>
+            {vm.row.failureDetail !== undefined ? (
+              <Typography
+                sx={{ fontFamily: t.body, fontSize: 12.5, color: t.ink, lineHeight: 1.45 }}
+              >
+                {vm.row.failureDetail}
+              </Typography>
+            ) : null}
+          </Box>
+        ) : null}
       </Box>
     </Box>
   );
@@ -86,7 +111,9 @@ function lifecyclePhases(row: ConstructionRow): { name: string; done: boolean }[
   const kindLabel = KIND_META[row.kind].label;
   const prefix = kindLabel[0] ?? '?';
 
-  // Status ordinal: in-construction(0) < in-review(1) < integrated(2).
+  // Status ordinal: in-construction(0) < in-review(1) < integrated(2). A terminal
+  // `failed` row also reads 0 — it never got past Designed, and the failure banner
+  // in ActivityHeader (not this strip) is what says the activity is dead.
   const ord = row.status === 'integrated' ? 2 : row.status === 'in-review' ? 1 : 0;
 
   return [

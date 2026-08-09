@@ -263,7 +263,7 @@ func TestSubmitPhaseDecision_EmptyActivityID(t *testing.T) {
 }
 
 func TestHydrateConstructionActivity_ServicePhases(t *testing.T) {
-	got := hydrateConstructionActivity("C-Orders", projectstate.ActivityItem{Coding: true, EffortDays: 5}, "comp-1")
+	got := hydrateConstructionActivity("C-Orders", projectstate.ActivityItem{Coding: true, EffortDays: 5}, nil)
 	want := []projectstate.ActivityMethodPhase{
 		projectstate.MethodPhaseRequirements, projectstate.MethodPhaseDetailedDesign,
 		projectstate.MethodPhaseTestPlan, projectstate.MethodPhaseConstruction,
@@ -280,7 +280,7 @@ func TestHydrateConstructionActivity_ServicePhases(t *testing.T) {
 }
 
 func TestHydrateConstructionActivity_TestingPlanIsThreePhases(t *testing.T) {
-	got := hydrateConstructionActivity("N-STP", projectstate.ActivityItem{Coding: true}, "")
+	got := hydrateConstructionActivity("N-STP", projectstate.ActivityItem{Coding: true}, nil)
 	want := []projectstate.ActivityMethodPhase{
 		projectstate.MethodPhaseRequirements, projectstate.MethodPhaseConstruction,
 		projectstate.MethodPhaseIntegration,
@@ -1056,6 +1056,20 @@ func makeCommittedNetwork(deps []projectstate.NetworkDependency) projectstate.Ar
 	}
 }
 
+// makeCommittedNetworkWithMilestones builds a committed Network ArtifactSlot carrying
+// both the authored activity dependencies AND the authored milestones — the
+// combination the live benchmark drain (N-PERF/N-IT/N-UAT/N-HARD/N-DEPLOY/N-DOC all
+// gating on M3/M4) needs to reproduce.
+func makeCommittedNetworkWithMilestones(deps []projectstate.NetworkDependency, milestones []projectstate.NetworkMilestone) projectstate.ArtifactSlot {
+	return projectstate.ArtifactSlot{
+		Status: projectstate.ReviewCommitted,
+		Model: &projectstate.Network{
+			Dependencies: deps,
+			Milestones:   milestones,
+		},
+	}
+}
+
 // makeCommittedActivityList builds a minimal committed ArtifactSlot holding a *projectstate.ActivityList.
 func makeCommittedActivityList(items []projectstate.ActivityItem) projectstate.ArtifactSlot {
 	return projectstate.ArtifactSlot{
@@ -1063,6 +1077,134 @@ func makeCommittedActivityList(items []projectstate.ActivityItem) projectstate.A
 		Model: &projectstate.ActivityList{
 			Activities: items,
 		},
+	}
+}
+
+// makeCommittedSystemDesign builds a minimal committed ArtifactSlot holding a
+// *projectstate.System with the given components — the authored-componentId lookup
+// target nextEligibleActivity consults instead of ServiceContracts.
+func makeCommittedSystemDesign(comps []projectstate.Component) projectstate.ArtifactSlot {
+	return projectstate.ArtifactSlot{
+		Status: projectstate.ReviewCommitted,
+		Model:  &projectstate.System{Components: comps},
+	}
+}
+
+var todoComponents = []projectstate.Component{
+	{ID: "todo-list-manager", Name: "TodoListManager", Layer: projectstate.LayerManager},
+	{ID: "todo-owner-client", Name: "TodoOwnerClient", Layer: projectstate.LayerClient},
+}
+
+func projWithActivities(acts []projectstate.ActivityItem, deps []projectstate.NetworkDependency) projectstate.Project {
+	return projectstate.Project{
+		Phase:        projectstate.PhaseConstruction,
+		Network:      makeCommittedNetwork(deps),
+		ActivityList: makeCommittedActivityList(acts),
+		SystemDesign: makeCommittedSystemDesign(todoComponents),
+	}
+}
+
+// The regression the whole change exists for: a fresh project with NO service
+// contracts must still dispatch its first coding activity.
+func TestNextEligibleActivity_DispatchesWithNoServiceContracts(t *testing.T) {
+	proj := projWithActivities(
+		[]projectstate.ActivityItem{{
+			Name: "C-TLM", Title: "TodoListManager — settlement manager",
+			Coding: true, EffortDays: 13, ComponentID: "todo-list-manager",
+		}},
+		[]projectstate.NetworkDependency{{Activity: "C-TLM", DependsOn: []string{}}},
+	)
+	// Deliberately nil: ServiceContracts must play no part in selection.
+	proj.ServiceContracts = nil
+
+	sel := nextEligibleActivity(proj)
+	if sel.Verdict != verdictDispatch {
+		t.Fatalf("want verdictDispatch, got %v (blocked=%q)", sel.Verdict, sel.BlockedReason)
+	}
+	if sel.Activity.ComponentID != "todo-list-manager" {
+		t.Fatalf("want componentID todo-list-manager, got %q", sel.Activity.ComponentID)
+	}
+	if sel.Activity.Layer != "manager" {
+		t.Fatalf("want layer hydrated to manager, got %q", sel.Activity.Layer)
+	}
+	if sel.Activity.Kind != activityKindConstruction {
+		t.Fatalf("want activityKindConstruction, got %v", sel.Activity.Kind)
+	}
+}
+
+// Nonstructural coding (ch.13 Table 13-2) and noncoding activities are LEGAL
+// with no componentId and dispatch with an empty component_id.
+func TestNextEligibleActivity_ComponentlessActivitiesDispatch(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		item projectstate.ActivityItem
+	}{
+		{"nonstructural coding", projectstate.ActivityItem{Name: "I-UC1", Title: "Integrate use case 1", Coding: true}},
+		{"noncoding", projectstate.ActivityItem{Name: "N-STP", Title: "System Test Plan", Coding: false}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			proj := projWithActivities(
+				[]projectstate.ActivityItem{tc.item},
+				[]projectstate.NetworkDependency{{Activity: tc.item.Name, DependsOn: []string{}}},
+			)
+			sel := nextEligibleActivity(proj)
+			if sel.Verdict != verdictDispatch {
+				t.Fatalf("want verdictDispatch, got %v (blocked=%q)", sel.Verdict, sel.BlockedReason)
+			}
+			if sel.Activity.ComponentID != "" {
+				t.Fatalf("want empty componentID, got %q", sel.Activity.ComponentID)
+			}
+		})
+	}
+}
+
+// The ONE blocked condition: a non-empty componentId naming no committed component.
+func TestNextEligibleActivity_UnknownComponentIsBlocked(t *testing.T) {
+	proj := projWithActivities(
+		[]projectstate.ActivityItem{{
+			Name: "C-TLM", Title: "TodoListManager", Coding: true, ComponentID: "todo-list-managr",
+		}},
+		[]projectstate.NetworkDependency{{Activity: "C-TLM", DependsOn: []string{}}},
+	)
+	sel := nextEligibleActivity(proj)
+	if sel.Verdict != verdictBlocked {
+		t.Fatalf("want verdictBlocked, got %v", sel.Verdict)
+	}
+	if sel.BlockedActivityID != "C-TLM" {
+		t.Fatalf("want blocked activity C-TLM, got %q", sel.BlockedActivityID)
+	}
+	// The detail must name both the activity and the unresolvable id — it is the
+	// only thing an operator sees in the console.
+	if !strings.Contains(sel.BlockedReason, "C-TLM") || !strings.Contains(sel.BlockedReason, "todo-list-managr") {
+		t.Fatalf("blocked reason must name the activity and the bad id, got %q", sel.BlockedReason)
+	}
+}
+
+func TestNextEligibleActivity_NothingEligibleIsQuiescent(t *testing.T) {
+	// A is authored into the ActivityList (a real, in-flight predecessor of B) so
+	// this fixture stays realistic under the milestone-aware resolver: an id that
+	// resolves to neither an activity nor a milestone is now a reported plan defect
+	// (verdictBlocked), not silently "just not done yet". A is Running (not
+	// NotStarted, so it is not itself a candidate this tick, and not Done, so it
+	// does not satisfy B) — the fixture now represents "the only candidate's
+	// dependency genuinely isn't satisfied yet" instead of leaning on an
+	// unauthored id.
+	proj := projWithActivities(
+		[]projectstate.ActivityItem{
+			{Name: "A", Title: "A", Coding: false},
+			{Name: "B", Title: "B", Coding: false},
+		},
+		[]projectstate.NetworkDependency{
+			{Activity: "A", DependsOn: []string{}},
+			{Activity: "B", DependsOn: []string{"A"}},
+		},
+	)
+	proj.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
+		"A": {ActivityID: "A", Phase: projectstate.ActivityConstructionRunning},
+	}
+	sel := nextEligibleActivity(proj)
+	if sel.Verdict != verdictQuiescent {
+		t.Fatalf("want verdictQuiescent, got %v", sel.Verdict)
 	}
 }
 
@@ -1076,52 +1218,49 @@ func TestNextEligibleActivity_Chain(t *testing.T) {
 		{Activity: "C", DependsOn: []string{"B"}},
 	}
 	activities := []projectstate.ActivityItem{
-		{Name: "A", Title: "A", EffortDays: 5, WorkerClass: "AI", Coding: true, RiskBucket: 2},
-		{Name: "B", Title: "B", EffortDays: 3, WorkerClass: "AI", Coding: true, RiskBucket: 1},
+		{Name: "A", Title: "A", EffortDays: 5, WorkerClass: "AI", Coding: true, RiskBucket: 2, ComponentID: "comp-a"},
+		{Name: "B", Title: "B", EffortDays: 3, WorkerClass: "AI", Coding: true, RiskBucket: 1, ComponentID: "comp-b"},
 		{Name: "C", Title: "C", EffortDays: 8, WorkerClass: "Human", Coding: false, RiskBucket: 3},
 	}
 
-	// resolveComponentID now requires a real .serviceContracts key (the hardened
-	// resolver skips dispatch otherwise). Provide one contract per activity so the
-	// eligibility walk under test can dispatch; the Title matches the key so the fuzzy
-	// resolver finds it.
+	// Selection now resolves the authored ComponentID against the committed
+	// systemDesign — ServiceContracts play no part. C is noncoding (no ComponentID).
 	base := projectstate.Project{
 		Phase:        projectstate.PhaseConstruction,
 		Network:      makeCommittedNetwork(network),
 		ActivityList: makeCommittedActivityList(activities),
-		ServiceContracts: map[string]projectstate.ServiceContract{
-			"A": {Component: "A"},
-			"B": {Component: "B"},
-			"C": {Component: "C"},
-		},
+		SystemDesign: makeCommittedSystemDesign([]projectstate.Component{
+			{ID: "comp-a", Name: "A", Layer: projectstate.LayerManager},
+			{ID: "comp-b", Name: "B", Layer: projectstate.LayerManager},
+		}),
 	}
 
 	// ---- Case 1: empty ActivityConstruction → A is eligible (no deps). ----
 	proj := base
-	got, ok := nextEligibleActivity(proj)
-	if !ok {
-		t.Fatal("case 1: expected eligible activity, got false")
+	sel := nextEligibleActivity(proj)
+	if sel.Verdict != verdictDispatch {
+		t.Fatalf("case 1: expected verdictDispatch, got %v", sel.Verdict)
 	}
-	if got.ActivityID != "A" {
-		t.Fatalf("case 1: expected A, got %q", got.ActivityID)
+	if sel.Activity.ActivityID != "A" {
+		t.Fatalf("case 1: expected A, got %q", sel.Activity.ActivityID)
 	}
-	if got.EstimateDays != 5 {
-		t.Fatalf("case 1: expected EstimateDays=5, got %f", got.EstimateDays)
+	if sel.Activity.EstimateDays != 5 {
+		t.Fatalf("case 1: expected EstimateDays=5, got %f", sel.Activity.EstimateDays)
 	}
 
 	// ---- Case 2: A Done → B is eligible. ----
 	proj.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
 		"A": {ActivityID: "A", Phase: projectstate.ActivityConstructionDone},
 	}
-	got, ok = nextEligibleActivity(proj)
-	if !ok {
-		t.Fatal("case 2: expected eligible activity, got false")
+	sel = nextEligibleActivity(proj)
+	if sel.Verdict != verdictDispatch {
+		t.Fatalf("case 2: expected verdictDispatch, got %v", sel.Verdict)
 	}
-	if got.ActivityID != "B" {
-		t.Fatalf("case 2: expected B, got %q", got.ActivityID)
+	if sel.Activity.ActivityID != "B" {
+		t.Fatalf("case 2: expected B, got %q", sel.Activity.ActivityID)
 	}
-	if got.EstimateDays != 3 {
-		t.Fatalf("case 2: expected EstimateDays=3, got %f", got.EstimateDays)
+	if sel.Activity.EstimateDays != 3 {
+		t.Fatalf("case 2: expected EstimateDays=3, got %f", sel.Activity.EstimateDays)
 	}
 
 	// ---- Case 3: A Done, B Running → nothing eligible (C blocked; B running). ----
@@ -1129,9 +1268,9 @@ func TestNextEligibleActivity_Chain(t *testing.T) {
 		"A": {ActivityID: "A", Phase: projectstate.ActivityConstructionDone},
 		"B": {ActivityID: "B", Phase: projectstate.ActivityConstructionRunning},
 	}
-	_, ok = nextEligibleActivity(proj)
-	if ok {
-		t.Fatal("case 3: expected no eligible activity, got true")
+	sel = nextEligibleActivity(proj)
+	if sel.Verdict != verdictQuiescent {
+		t.Fatalf("case 3: expected verdictQuiescent, got %v", sel.Verdict)
 	}
 
 	// ---- Case 4: A Done, B Done → C is eligible. ----
@@ -1139,15 +1278,237 @@ func TestNextEligibleActivity_Chain(t *testing.T) {
 		"A": {ActivityID: "A", Phase: projectstate.ActivityConstructionDone},
 		"B": {ActivityID: "B", Phase: projectstate.ActivityConstructionDone},
 	}
-	got, ok = nextEligibleActivity(proj)
-	if !ok {
-		t.Fatal("case 4: expected eligible activity, got false")
+	sel = nextEligibleActivity(proj)
+	if sel.Verdict != verdictDispatch {
+		t.Fatalf("case 4: expected verdictDispatch, got %v", sel.Verdict)
 	}
-	if got.ActivityID != "C" {
-		t.Fatalf("case 4: expected C, got %q", got.ActivityID)
+	if sel.Activity.ActivityID != "C" {
+		t.Fatalf("case 4: expected C, got %q", sel.Activity.ActivityID)
 	}
-	if got.EstimateDays != 8 {
-		t.Fatalf("case 4: expected EstimateDays=8, got %f", got.EstimateDays)
+	if sel.Activity.EstimateDays != 8 {
+		t.Fatalf("case 4: expected EstimateDays=8, got %f", sel.Activity.EstimateDays)
+	}
+}
+
+// TestNextEligibleActivity_MilestoneDependencySatisfied reproduces the live benchmark
+// drain: an activity (N-DOC) depends on a MILESTONE (M4), not an activity. M4 is
+// itself authored with its own dependsOn — I-UC-CONSULT and I-UC-AMEND, both Done.
+// The milestone has genuinely been reached; before the fix, allDepsDone looked M4 up
+// in the activity-status map, never found it (milestones never get a head-state
+// record), and treated it as permanently unsatisfied — this is the exact false block
+// that stranded 6 activities in the drain. This test FAILS on the old allDepsDone.
+func TestNextEligibleActivity_MilestoneDependencySatisfied(t *testing.T) {
+	proj := projectstate.Project{
+		Phase: projectstate.PhaseConstruction,
+		Network: makeCommittedNetworkWithMilestones(
+			[]projectstate.NetworkDependency{
+				{Activity: "I-UC-CONSULT", DependsOn: []string{}},
+				{Activity: "I-UC-AMEND", DependsOn: []string{}},
+				{Activity: "N-DOC", DependsOn: []string{"M4"}},
+			},
+			[]projectstate.NetworkMilestone{
+				{ID: "M4", Name: "M4", DependsOn: []string{"I-UC-CONSULT", "I-UC-AMEND"}},
+			},
+		),
+		ActivityList: makeCommittedActivityList([]projectstate.ActivityItem{
+			{Name: "I-UC-CONSULT", Coding: true},
+			{Name: "I-UC-AMEND", Coding: true},
+			{Name: "N-DOC", Coding: false},
+		}),
+		SystemDesign: makeCommittedSystemDesign(nil),
+		ActivityConstruction: map[string]projectstate.ActivityConstructionStatus{
+			"I-UC-CONSULT": {ActivityID: "I-UC-CONSULT", Phase: projectstate.ActivityConstructionDone},
+			"I-UC-AMEND":   {ActivityID: "I-UC-AMEND", Phase: projectstate.ActivityConstructionDone},
+		},
+	}
+
+	sel := nextEligibleActivity(proj)
+	if sel.Verdict != verdictDispatch {
+		t.Fatalf("want verdictDispatch (M4 reached via its own dependsOn), got %v (blocked=%q)", sel.Verdict, sel.BlockedReason)
+	}
+	if sel.Activity.ActivityID != "N-DOC" {
+		t.Fatalf("want N-DOC dispatched, got %q", sel.Activity.ActivityID)
+	}
+}
+
+// TestNextEligibleActivity_MilestoneDependencyNotSatisfied is the mirror case: M4's
+// own dependsOn are NOT all Done (I-UC-AMEND still pending), so the milestone has
+// genuinely not been reached and N-DOC must stay ineligible.
+func TestNextEligibleActivity_MilestoneDependencyNotSatisfied(t *testing.T) {
+	proj := projectstate.Project{
+		Phase: projectstate.PhaseConstruction,
+		Network: makeCommittedNetworkWithMilestones(
+			[]projectstate.NetworkDependency{
+				{Activity: "I-UC-CONSULT", DependsOn: []string{}},
+				{Activity: "I-UC-AMEND", DependsOn: []string{}},
+				{Activity: "N-DOC", DependsOn: []string{"M4"}},
+			},
+			[]projectstate.NetworkMilestone{
+				{ID: "M4", Name: "M4", DependsOn: []string{"I-UC-CONSULT", "I-UC-AMEND"}},
+			},
+		),
+		ActivityList: makeCommittedActivityList([]projectstate.ActivityItem{
+			{Name: "I-UC-CONSULT", Coding: true},
+			{Name: "I-UC-AMEND", Coding: true},
+			{Name: "N-DOC", Coding: false},
+		}),
+		SystemDesign: makeCommittedSystemDesign(nil),
+		ActivityConstruction: map[string]projectstate.ActivityConstructionStatus{
+			"I-UC-CONSULT": {ActivityID: "I-UC-CONSULT", Phase: projectstate.ActivityConstructionDone},
+			"I-UC-AMEND":   {ActivityID: "I-UC-AMEND", Phase: projectstate.ActivityConstructionRunning},
+		},
+	}
+
+	sel := nextEligibleActivity(proj)
+	if sel.Verdict != verdictQuiescent {
+		t.Fatalf("want verdictQuiescent (M4 not yet reached), got %v activity=%q", sel.Verdict, sel.Activity.ActivityID)
+	}
+}
+
+// TestNextEligibleActivity_MilestoneDependsOnMilestone exercises the recursive case:
+// M4 depends on M3 (a milestone, not an activity), and M3 depends on an activity
+// that's Done. N-DOC (dependsOn M4) must resolve all the way through M4 -> M3 -> A.
+func TestNextEligibleActivity_MilestoneDependsOnMilestone(t *testing.T) {
+	proj := projectstate.Project{
+		Phase: projectstate.PhaseConstruction,
+		Network: makeCommittedNetworkWithMilestones(
+			[]projectstate.NetworkDependency{
+				{Activity: "A", DependsOn: []string{}},
+				{Activity: "N-DOC", DependsOn: []string{"M4"}},
+			},
+			[]projectstate.NetworkMilestone{
+				{ID: "M3", Name: "M3", DependsOn: []string{"A"}},
+				{ID: "M4", Name: "M4", DependsOn: []string{"M3"}},
+			},
+		),
+		ActivityList: makeCommittedActivityList([]projectstate.ActivityItem{
+			{Name: "A", Coding: true},
+			{Name: "N-DOC", Coding: false},
+		}),
+		SystemDesign: makeCommittedSystemDesign(nil),
+		ActivityConstruction: map[string]projectstate.ActivityConstructionStatus{
+			"A": {ActivityID: "A", Phase: projectstate.ActivityConstructionDone},
+		},
+	}
+
+	sel := nextEligibleActivity(proj)
+	if sel.Verdict != verdictDispatch {
+		t.Fatalf("want verdictDispatch through M4->M3->A, got %v (blocked=%q)", sel.Verdict, sel.BlockedReason)
+	}
+	if sel.Activity.ActivityID != "N-DOC" {
+		t.Fatalf("want N-DOC dispatched, got %q", sel.Activity.ActivityID)
+	}
+
+	// Unsatisfied at the bottom of the chain (A not Done) must propagate all the way
+	// back up through both milestone hops.
+	proj.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
+		"A": {ActivityID: "A", Phase: projectstate.ActivityConstructionRunning},
+	}
+	sel = nextEligibleActivity(proj)
+	if sel.Verdict != verdictQuiescent {
+		t.Fatalf("want verdictQuiescent (A not done, M3/M4 not reached), got %v", sel.Verdict)
+	}
+}
+
+// TestNextEligibleActivity_MilestoneCycleTerminates proves the cycle guard: an
+// authored network can (however wrongly) declare M-X depends on M-Y depends on M-X.
+// Resolution must terminate — reported as verdictBlocked, not an infinite recursion —
+// and the test itself is bounded so a regression that reintroduces unbounded
+// recursion fails as a hang the test runner's own timeout catches, not silently.
+func TestNextEligibleActivity_MilestoneCycleTerminates(t *testing.T) {
+	done := make(chan pumpSelection, 1)
+	go func() {
+		proj := projectstate.Project{
+			Phase: projectstate.PhaseConstruction,
+			Network: makeCommittedNetworkWithMilestones(
+				[]projectstate.NetworkDependency{
+					{Activity: "N-DOC", DependsOn: []string{"M-X"}},
+				},
+				[]projectstate.NetworkMilestone{
+					{ID: "M-X", Name: "M-X", DependsOn: []string{"M-Y"}},
+					{ID: "M-Y", Name: "M-Y", DependsOn: []string{"M-X"}},
+				},
+			),
+			ActivityList: makeCommittedActivityList([]projectstate.ActivityItem{
+				{Name: "N-DOC", Coding: false},
+			}),
+			SystemDesign: makeCommittedSystemDesign(nil),
+		}
+		done <- nextEligibleActivity(proj)
+	}()
+
+	select {
+	case sel := <-done:
+		if sel.Verdict != verdictBlocked {
+			t.Fatalf("want verdictBlocked on a milestone cycle, got %v", sel.Verdict)
+		}
+		if !strings.Contains(sel.BlockedReason, "cycle") {
+			t.Fatalf("blocked reason must call out the cycle, got %q", sel.BlockedReason)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("nextEligibleActivity did not terminate on a milestone dependency cycle (infinite recursion)")
+	}
+}
+
+// TestNextEligibleActivity_UnknownDependencyIdIsBlocked: an authored dependency id
+// that names neither a known activity nor a known milestone is a genuine plan defect
+// — loud (verdictBlocked), never silently treated as "just not satisfied yet" (which
+// would be indistinguishable from an ordinary quiescent tick).
+func TestNextEligibleActivity_UnknownDependencyIdIsBlocked(t *testing.T) {
+	proj := projectstate.Project{
+		Phase: projectstate.PhaseConstruction,
+		Network: makeCommittedNetworkWithMilestones(
+			[]projectstate.NetworkDependency{
+				{Activity: "N-DOC", DependsOn: []string{"M-GHOST"}},
+			},
+			nil,
+		),
+		ActivityList: makeCommittedActivityList([]projectstate.ActivityItem{
+			{Name: "N-DOC", Coding: false},
+		}),
+		SystemDesign: makeCommittedSystemDesign(nil),
+	}
+
+	sel := nextEligibleActivity(proj)
+	if sel.Verdict != verdictBlocked {
+		t.Fatalf("want verdictBlocked for an unresolvable dependency id, got %v", sel.Verdict)
+	}
+	if sel.BlockedActivityID != "N-DOC" {
+		t.Fatalf("want blocked activity N-DOC, got %q", sel.BlockedActivityID)
+	}
+	if !strings.Contains(sel.BlockedReason, "M-GHOST") {
+		t.Fatalf("blocked reason must name the unresolvable id, got %q", sel.BlockedReason)
+	}
+}
+
+// TestNextEligibleActivity_DependencyDefectDoesNotBlockUnrelatedWork: a dependency
+// defect on ONE not-yet-eligible activity must not halt the pump entirely — an
+// UNRELATED, currently-eligible activity still dispatches this tick. The defect only
+// escalates to verdictBlocked once it is the thing actually stalling progress (see
+// TestNextEligibleActivity_UnknownDependencyIdIsBlocked).
+func TestNextEligibleActivity_DependencyDefectDoesNotBlockUnrelatedWork(t *testing.T) {
+	proj := projectstate.Project{
+		Phase: projectstate.PhaseConstruction,
+		Network: makeCommittedNetworkWithMilestones(
+			[]projectstate.NetworkDependency{
+				{Activity: "A", DependsOn: []string{}},
+				{Activity: "N-DOC", DependsOn: []string{"M-GHOST"}},
+			},
+			nil,
+		),
+		ActivityList: makeCommittedActivityList([]projectstate.ActivityItem{
+			{Name: "A", Coding: true},
+			{Name: "N-DOC", Coding: false},
+		}),
+		SystemDesign: makeCommittedSystemDesign(nil),
+	}
+
+	sel := nextEligibleActivity(proj)
+	if sel.Verdict != verdictDispatch {
+		t.Fatalf("want verdictDispatch for unrelated eligible activity A, got %v (blocked=%q)", sel.Verdict, sel.BlockedReason)
+	}
+	if sel.Activity.ActivityID != "A" {
+		t.Fatalf("want A dispatched despite N-DOC's dependency defect, got %q", sel.Activity.ActivityID)
 	}
 }
 
@@ -1162,9 +1523,9 @@ func TestNextEligibleActivity_UncommittedSlots(t *testing.T) {
 		proj := projectstate.Project{
 			ActivityList: makeCommittedActivityList(activities),
 		}
-		_, ok := nextEligibleActivity(proj)
-		if ok {
-			t.Fatal("expected false for uncommitted network, got true")
+		sel := nextEligibleActivity(proj)
+		if sel.Verdict != verdictQuiescent {
+			t.Fatalf("expected verdictQuiescent for uncommitted network, got %v", sel.Verdict)
 		}
 	})
 
@@ -1175,17 +1536,17 @@ func TestNextEligibleActivity_UncommittedSlots(t *testing.T) {
 				{Activity: "A", DependsOn: []string{}},
 			}),
 		}
-		_, ok := nextEligibleActivity(proj)
-		if ok {
-			t.Fatal("expected false for uncommitted activity list, got true")
+		sel := nextEligibleActivity(proj)
+		if sel.Verdict != verdictQuiescent {
+			t.Fatalf("expected verdictQuiescent for uncommitted activity list, got %v", sel.Verdict)
 		}
 	})
 
 	// Both uncommitted (zero-value project).
 	t.Run("both_uncommitted", func(t *testing.T) {
-		_, ok := nextEligibleActivity(projectstate.Project{})
-		if ok {
-			t.Fatal("expected false for zero-value project, got true")
+		sel := nextEligibleActivity(projectstate.Project{})
+		if sel.Verdict != verdictQuiescent {
+			t.Fatalf("expected verdictQuiescent for zero-value project, got %v", sel.Verdict)
 		}
 	})
 }
@@ -1197,12 +1558,14 @@ func TestNextEligibleActivity_UncommittedSlots(t *testing.T) {
 func TestNextEligibleActivity_RequiresConstructionPhase(t *testing.T) {
 	network := []projectstate.NetworkDependency{{Activity: "A", DependsOn: []string{}}}
 	activities := []projectstate.ActivityItem{
-		{Name: "A", Title: "A", EffortDays: 5, WorkerClass: "AI", Coding: true, RiskBucket: 2},
+		{Name: "A", Title: "A", EffortDays: 5, WorkerClass: "AI", Coding: true, RiskBucket: 2, ComponentID: "comp-a"},
 	}
 	base := projectstate.Project{
-		Network:          makeCommittedNetwork(network),
-		ActivityList:     makeCommittedActivityList(activities),
-		ServiceContracts: map[string]projectstate.ServiceContract{"A": {Component: "A"}},
+		Network:      makeCommittedNetwork(network),
+		ActivityList: makeCommittedActivityList(activities),
+		SystemDesign: makeCommittedSystemDesign([]projectstate.Component{
+			{ID: "comp-a", Name: "A", Layer: projectstate.LayerManager},
+		}),
 	}
 
 	for _, tc := range []struct {
@@ -1215,8 +1578,8 @@ func TestNextEligibleActivity_RequiresConstructionPhase(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			proj := base
 			proj.Phase = tc.phase
-			if _, ok := nextEligibleActivity(proj); ok {
-				t.Fatalf("expected no eligible activity before the construction seal (phase %v), got true", tc.phase)
+			if sel := nextEligibleActivity(proj); sel.Verdict != verdictQuiescent {
+				t.Fatalf("expected verdictQuiescent before the construction seal (phase %v), got %v", tc.phase, sel.Verdict)
 			}
 		})
 	}
@@ -1224,9 +1587,9 @@ func TestNextEligibleActivity_RequiresConstructionPhase(t *testing.T) {
 	t.Run("construction", func(t *testing.T) {
 		proj := base
 		proj.Phase = projectstate.PhaseConstruction
-		got, ok := nextEligibleActivity(proj)
-		if !ok || got.ActivityID != "A" {
-			t.Fatalf("expected A eligible once sealed into construction, got ok=%v id=%q", ok, got.ActivityID)
+		sel := nextEligibleActivity(proj)
+		if sel.Verdict != verdictDispatch || sel.Activity.ActivityID != "A" {
+			t.Fatalf("expected A eligible once sealed into construction, got verdict=%v id=%q", sel.Verdict, sel.Activity.ActivityID)
 		}
 	})
 }
@@ -1237,9 +1600,9 @@ func TestNextEligibleActivity_RequiresConstructionPhase(t *testing.T) {
 // in the live project. This test uses a synthetic project where both deps are Done
 // and C-PE is NotStarted, verifying nextEligibleActivity selects it.
 //
-// Reconciliation note: the activity id IS the contract key here (C-PE), so the
-// hardened resolver resolves ComponentID == "C-PE" from the C-PE service contract
-// (the Title matches the key). Contract filename is C-PE.json accordingly.
+// Reconciliation note: selection now resolves the authored ComponentID against the
+// committed systemDesign, not a service-contract key — C-PE names component
+// "projectExport" directly.
 func TestNextEligibleActivity_ProjectExportDogfood(t *testing.T) {
 	network := []projectstate.NetworkDependency{
 		{Activity: "C-CW", DependsOn: []string{}},
@@ -1249,72 +1612,75 @@ func TestNextEligibleActivity_ProjectExportDogfood(t *testing.T) {
 	activities := []projectstate.ActivityItem{
 		{Name: "C-CW", EffortDays: 30, WorkerClass: "junior-developer", Coding: true, RiskBucket: 8},
 		{Name: "D-MPD", EffortDays: 5, WorkerClass: "senior-developer", Coding: false, RiskBucket: 2},
-		{Name: "C-PE", Title: "C-PE", EffortDays: 3, WorkerClass: "junior-developer", Coding: true, RiskBucket: 1},
+		{Name: "C-PE", Title: "C-PE", EffortDays: 3, WorkerClass: "junior-developer", Coding: true, RiskBucket: 1, ComponentID: "projectExport"},
 	}
 	proj := projectstate.Project{
 		Phase:        projectstate.PhaseConstruction,
 		Network:      makeCommittedNetwork(network),
 		ActivityList: makeCommittedActivityList(activities),
-		ServiceContracts: map[string]projectstate.ServiceContract{
-			"C-PE": {Component: "C-PE"},
-		},
+		SystemDesign: makeCommittedSystemDesign([]projectstate.Component{
+			{ID: "projectExport", Name: "projectExport", Layer: projectstate.LayerManager},
+		}),
 		ActivityConstruction: map[string]projectstate.ActivityConstructionStatus{
 			"C-CW":  {ActivityID: "C-CW", Phase: projectstate.ActivityConstructionDone},
 			"D-MPD": {ActivityID: "D-MPD", Phase: projectstate.ActivityConstructionDone},
 			// C-PE is absent (zero value = NotStarted)
 		},
 	}
-	got, ok := nextEligibleActivity(proj)
-	if !ok {
-		t.Fatal("expected C-PE to be eligible, got false")
+	sel := nextEligibleActivity(proj)
+	if sel.Verdict != verdictDispatch {
+		t.Fatalf("expected C-PE to be eligible, got verdict=%v (blocked=%q)", sel.Verdict, sel.BlockedReason)
 	}
-	if got.ActivityID != "C-PE" {
-		t.Fatalf("expected ActivityID=C-PE, got %q", got.ActivityID)
+	if sel.Activity.ActivityID != "C-PE" {
+		t.Fatalf("expected ActivityID=C-PE, got %q", sel.Activity.ActivityID)
 	}
-	// ComponentID is derived from the activity name by hydrateConstructionActivity
-	// (ComponentID = activityID), so it equals "C-PE" — not "projectExport".
-	if got.ComponentID != "C-PE" {
-		t.Fatalf("expected ComponentID=C-PE, got %q", got.ComponentID)
+	if sel.Activity.ComponentID != "projectExport" {
+		t.Fatalf("expected ComponentID=projectExport, got %q", sel.Activity.ComponentID)
 	}
-	if got.EstimateDays != 3 {
-		t.Fatalf("expected EstimateDays=3, got %f", got.EstimateDays)
+	if sel.Activity.EstimateDays != 3 {
+		t.Fatalf("expected EstimateDays=3, got %f", sel.Activity.EstimateDays)
 	}
-	if got.Kind != activityKindConstruction {
-		t.Fatalf("expected Kind=activityKindConstruction (Coding=true), got %v", got.Kind)
+	if sel.Activity.Kind != activityKindConstruction {
+		t.Fatalf("expected Kind=activityKindConstruction (Coding=true), got %v", sel.Activity.Kind)
 	}
 }
 
 // TestNextEligibleActivity_HydratedFields checks that the returned constructionActivity
-// is fully hydrated from the ActivityList item (Kind, ComponentID stay zero/empty since
-// the ActivityList has no component/kind — only the fields that map cleanly are set).
+// is fully hydrated from the ActivityList item and the resolved systemDesign component.
 func TestNextEligibleActivity_HydratedFields(t *testing.T) {
 	network := []projectstate.NetworkDependency{
 		{Activity: "X", DependsOn: []string{}},
 	}
 	activities := []projectstate.ActivityItem{
-		{Name: "X", Title: "X", EffortDays: 13, WorkerClass: "HumanSenior", Coding: true, RiskBucket: 5},
+		{Name: "X", Title: "X", EffortDays: 13, WorkerClass: "HumanSenior", Coding: true, RiskBucket: 5, ComponentID: "comp-x"},
 	}
 	proj := projectstate.Project{
 		Phase:        projectstate.PhaseConstruction,
 		Network:      makeCommittedNetwork(network),
 		ActivityList: makeCommittedActivityList(activities),
-		ServiceContracts: map[string]projectstate.ServiceContract{
-			"X": {Component: "X"},
-		},
+		SystemDesign: makeCommittedSystemDesign([]projectstate.Component{
+			{ID: "comp-x", Name: "X", Layer: projectstate.LayerEngine},
+		}),
 	}
-	got, ok := nextEligibleActivity(proj)
-	if !ok {
-		t.Fatal("expected eligible activity")
+	sel := nextEligibleActivity(proj)
+	if sel.Verdict != verdictDispatch {
+		t.Fatalf("expected verdictDispatch, got %v", sel.Verdict)
 	}
-	if got.ActivityID != "X" {
-		t.Fatalf("expected ActivityID=X, got %q", got.ActivityID)
+	if sel.Activity.ActivityID != "X" {
+		t.Fatalf("expected ActivityID=X, got %q", sel.Activity.ActivityID)
 	}
-	if got.EstimateDays != 13 {
-		t.Fatalf("expected EstimateDays=13, got %f", got.EstimateDays)
+	if sel.Activity.EstimateDays != 13 {
+		t.Fatalf("expected EstimateDays=13, got %f", sel.Activity.EstimateDays)
 	}
 	// Kind is determined by Coding flag: Coding=true → activityKindConstruction.
-	if got.Kind != activityKindConstruction {
-		t.Fatalf("expected Kind=activityKindConstruction, got %v", got.Kind)
+	if sel.Activity.Kind != activityKindConstruction {
+		t.Fatalf("expected Kind=activityKindConstruction, got %v", sel.Activity.Kind)
+	}
+	if sel.Activity.ComponentID != "comp-x" {
+		t.Fatalf("expected ComponentID=comp-x, got %q", sel.Activity.ComponentID)
+	}
+	if sel.Activity.Layer != "engine" {
+		t.Fatalf("expected Layer=engine, got %q", sel.Activity.Layer)
 	}
 }
 
@@ -1420,80 +1786,6 @@ func Test_GetSessionState_NamespaceNotFound_IsInfrastructureNot404(t *testing.T)
 	}
 	if e.Kind != fwmanager.Infrastructure {
 		t.Fatalf("want Infrastructure, got %d (detail %q)", e.Kind, e.Detail)
-	}
-}
-
-func TestResolveComponentID(t *testing.T) {
-	contracts := map[string]projectstate.ServiceContract{
-		"operatedRuntimeAccess": {Component: "operatedRuntimeAccess"},
-		"billingManager":        {Component: "billingManager"},
-		"settlementManager":     {Component: "settlementManager"},
-		"mcpClient":             {Component: "mcpClient"},
-	}
-	cases := []struct {
-		name     string
-		title    string
-		produced []projectstate.ProducedArtifact
-		want     string
-		wantOK   bool
-	}{
-		{
-			name:   "fuzzy title match (no hint)",
-			title:  "Build Operated Runtime Access",
-			want:   "operatedRuntimeAccess",
-			wantOK: true,
-		},
-		{
-			// Parenthetical names settlementManager but the target is billingManager.
-			name:   "parenthetical does not steal the fuzzy match",
-			title:  "Build Billing Manager (reuses sunk settlementManager skeleton)",
-			want:   "billingManager",
-			wantOK: true,
-		},
-		{
-			name:   "fuzzy title match mcp",
-			title:  "Build MCP Client",
-			want:   "mcpClient",
-			wantOK: true,
-		},
-		{
-			// produced[] service-contract hint is authoritative even when the title would
-			// fuzzy-match a DIFFERENT (or no) contract.
-			name:  "produced hint wins over title",
-			title: "Some unrelated activity title",
-			produced: []projectstate.ProducedArtifact{
-				{Kind: "code", Title: "ignored code artifact"},
-				{Kind: "service-contract", Title: "operatedRuntimeAccess — service contract"},
-			},
-			want:   "operatedRuntimeAccess",
-			wantOK: true,
-		},
-		{
-			// No contract match AND no hint → sentinel (caller logs + skips dispatch).
-			name:   "no match returns sentinel",
-			title:  "Wire up the CI gate",
-			want:   "",
-			wantOK: false,
-		},
-		{
-			// A produced hint that does not name a real key falls through to the (absent)
-			// fuzzy title match → sentinel.
-			name:  "stale hint with no key falls through to sentinel",
-			title: "Wire up the CI gate",
-			produced: []projectstate.ProducedArtifact{
-				{Kind: "service-contract", Title: "ghostComponent — service contract"},
-			},
-			want:   "",
-			wantOK: false,
-		},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			got, ok := resolveComponentID(c.title, c.produced, contracts)
-			if got != c.want || ok != c.wantOK {
-				t.Errorf("resolveComponentID(%q) = (%q, %v), want (%q, %v)", c.title, got, ok, c.want, c.wantOK)
-			}
-		})
 	}
 }
 
@@ -2530,8 +2822,8 @@ func Test_Pump_EligibleActivity_RunsChild_ThenContinueAsNew(t *testing.T) {
 	wf := newWorkflows(wfDeps{
 		Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
 		Review:       &fakeReview{},
-		NextEligibleActivity: func(_ projectstate.Project) (constructionActivity, bool) {
-			return sampleActivity(), true
+		NextEligibleActivity: func(_ projectstate.Project) pumpSelection {
+			return pumpSelection{Verdict: verdictDispatch, Activity: sampleActivity()}
 		},
 	})
 	registerPump(env, wf, ps, &fakePipeline{phase: PipelineSucceeded})
@@ -2568,8 +2860,8 @@ func Test_Pump_EligibleActivity_SurfacesSyncDispatchDecision(t *testing.T) {
 	wf := newWorkflows(wfDeps{
 		Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
 		Review:       &fakeReview{},
-		NextEligibleActivity: func(_ projectstate.Project) (constructionActivity, bool) {
-			return sampleActivity(), true
+		NextEligibleActivity: func(_ projectstate.Project) pumpSelection {
+			return pumpSelection{Verdict: verdictDispatch, Activity: sampleActivity()}
 		},
 	})
 	registerPump(env, wf, ps, &fakePipeline{phase: PipelineSucceeded})
@@ -2603,8 +2895,8 @@ func Test_Pump_DrainedNetwork_SurfacesQuiescentDecision(t *testing.T) {
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}}
 	wf := newWorkflows(wfDeps{
 		Intervention: &fakeIntervention{}, Review: &fakeReview{},
-		NextEligibleActivity: func(_ projectstate.Project) (constructionActivity, bool) {
-			return constructionActivity{}, false
+		NextEligibleActivity: func(_ projectstate.Project) pumpSelection {
+			return pumpSelection{Verdict: verdictQuiescent}
 		},
 	})
 	registerPump(env, wf, ps, &fakePipeline{phase: PipelineSucceeded})
@@ -2637,8 +2929,8 @@ func Test_Pump_DrainedNetwork_QuietNoContinueAsNew(t *testing.T) {
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}}
 	wf := newWorkflows(wfDeps{
 		Intervention: &fakeIntervention{}, Review: &fakeReview{},
-		NextEligibleActivity: func(_ projectstate.Project) (constructionActivity, bool) {
-			return constructionActivity{}, false // network drained
+		NextEligibleActivity: func(_ projectstate.Project) pumpSelection {
+			return pumpSelection{Verdict: verdictQuiescent} // network drained
 		},
 	})
 	registerPump(env, wf, ps, &fakePipeline{phase: PipelineSucceeded})
@@ -2657,6 +2949,188 @@ func Test_Pump_DrainedNetwork_QuietNoContinueAsNew(t *testing.T) {
 	}
 }
 
+// A blocked activity is recorded as a TERMINAL, app-visible failure — not a silent
+// skip, and not a workflow error (a failed Temporal execution is invisible in the
+// console; the head-state record IS the escalation).
+func Test_Pump_BlockedActivity_RecordsTerminalFailure(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	pid := ProjectID(uuid.NewString())
+	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}}
+	const reason = `activity C-TLM names component "todo-list-managr", which is not in the committed systemDesign — amend the committed activityList`
+	wf := newWorkflows(wfDeps{
+		Intervention: &fakeIntervention{}, Review: &fakeReview{},
+		NextEligibleActivity: func(_ projectstate.Project) pumpSelection {
+			return pumpSelection{
+				Verdict:              verdictBlocked,
+				BlockedActivityID:    "C-TLM",
+				BlockedFailureReason: projectstate.ComponentUnresolved,
+				BlockedReason:        reason,
+			}
+		},
+	})
+	registerPump(env, wf, ps, &fakePipeline{phase: PipelineSucceeded})
+
+	env.ExecuteWorkflow(executionKindPump, pumpInput{ProjectID: pid})
+
+	if !env.IsWorkflowCompleted() {
+		t.Fatal("pump did not complete")
+	}
+	// The cascade ENDS — no ContinueAsNew, and no error surfaced to Temporal.
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a blocked activity must not fail the workflow, got %v", err)
+	}
+	var res PumpResult
+	if err := env.GetWorkflowResult(&res); err != nil {
+		t.Fatalf("decode pump result: %v", err)
+	}
+	if res.Dispatched {
+		t.Fatalf("want Dispatched:false, got %+v", res)
+	}
+	// The durable, operator-visible record: the offending activity, the new terminal
+	// reason, and the operator-facing detail carried through VERBATIM (it names both
+	// the activity and the unresolvable component id — that is what a human reads off
+	// the failed node).
+	if len(ps.failed) != 1 {
+		t.Fatalf("want exactly one failure record, got %v", ps.failed)
+	}
+	want := failCall{activityID: "C-TLM", reason: projectstate.ComponentUnresolved, detail: reason}
+	if ps.failed[0] != want {
+		t.Fatalf("failure record mismatch:\n got %+v\nwant %+v", ps.failed[0], want)
+	}
+	// Nothing was dispatched: no child recorded an exit.
+	if len(ps.exited) != 0 {
+		t.Fatalf("no child should have run, got %v", ps.exited)
+	}
+	// The façade's synchronous read sees a DECIDED, non-dispatching tick — the pump
+	// must not look like it is still deciding.
+	enc, err := env.QueryWorkflow(queryPumpDispatch)
+	if err != nil {
+		t.Fatalf("query pump dispatch decision: %v", err)
+	}
+	var d pumpDispatch
+	if err := enc.Get(&d); err != nil {
+		t.Fatalf("decode pump dispatch decision: %v", err)
+	}
+	if d != (pumpDispatch{Decided: true}) {
+		t.Fatalf("want a decided non-dispatch decision, got %+v", d)
+	}
+}
+
+// Test_Pump_DependencyUnresolved_RecordsDistinctFailureReason proves a dangling
+// dependency id records DependencyUnresolved — a DIFFERENT FailureReason ordinal from
+// ComponentUnresolved (Test_Pump_BlockedActivity_RecordsTerminalFailure above) and from
+// DependencyCycle (below) — asserted on the recorded failure record itself, not just a
+// log line. Mirrors Test_Pump_BlockedActivity_RecordsTerminalFailure's shape, wired
+// through nextEligibleActivity's real dependency-defect classification instead of a
+// hand-built pumpSelection, so it also exercises resolveDependencySatisfied end to end.
+func Test_Pump_DependencyUnresolved_RecordsDistinctFailureReason(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	pid := ProjectID(uuid.NewString())
+	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}}
+	wf := newWorkflows(wfDeps{
+		Intervention:         &fakeIntervention{},
+		Review:               &fakeReview{},
+		NextEligibleActivity: nextEligibleActivity,
+	})
+	registerPump(env, wf, ps, &fakePipeline{phase: PipelineSucceeded})
+
+	proj := projectstate.Project{
+		Phase: projectstate.PhaseConstruction,
+		Network: makeCommittedNetworkWithMilestones(
+			[]projectstate.NetworkDependency{
+				{Activity: "N-DOC", DependsOn: []string{"M-GHOST"}},
+			},
+			nil,
+		),
+		ActivityList: makeCommittedActivityList([]projectstate.ActivityItem{
+			{Name: "N-DOC", Coding: false},
+		}),
+		SystemDesign: makeCommittedSystemDesign(nil),
+	}
+	ps.project.Network = proj.Network
+	ps.project.ActivityList = proj.ActivityList
+	ps.project.SystemDesign = proj.SystemDesign
+
+	env.ExecuteWorkflow(executionKindPump, pumpInput{ProjectID: pid})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a blocked activity must not fail the workflow, got %v", err)
+	}
+	if len(ps.failed) != 1 {
+		t.Fatalf("want exactly one failure record, got %v", ps.failed)
+	}
+	got := ps.failed[0]
+	if got.activityID != "N-DOC" {
+		t.Fatalf("want failure recorded against N-DOC, got %+v", got)
+	}
+	if got.reason != projectstate.DependencyUnresolved {
+		t.Fatalf("want DependencyUnresolved, got %v", got.reason)
+	}
+	if !strings.Contains(got.detail, "M-GHOST") {
+		t.Fatalf("failure detail must name the dangling id, got %q", got.detail)
+	}
+}
+
+// Test_Pump_DependencyCycle_RecordsDistinctFailureReason proves a milestone dependency
+// cycle records DependencyCycle — distinct from both ComponentUnresolved and
+// DependencyUnresolved — asserted on the recorded failure record.
+func Test_Pump_DependencyCycle_RecordsDistinctFailureReason(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	pid := ProjectID(uuid.NewString())
+	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}}
+	wf := newWorkflows(wfDeps{
+		Intervention:         &fakeIntervention{},
+		Review:               &fakeReview{},
+		NextEligibleActivity: nextEligibleActivity,
+	})
+	registerPump(env, wf, ps, &fakePipeline{phase: PipelineSucceeded})
+
+	proj := projectstate.Project{
+		Phase: projectstate.PhaseConstruction,
+		Network: makeCommittedNetworkWithMilestones(
+			[]projectstate.NetworkDependency{
+				{Activity: "N-DOC", DependsOn: []string{"M-X"}},
+			},
+			[]projectstate.NetworkMilestone{
+				{ID: "M-X", Name: "M-X", DependsOn: []string{"M-Y"}},
+				{ID: "M-Y", Name: "M-Y", DependsOn: []string{"M-X"}},
+			},
+		),
+		ActivityList: makeCommittedActivityList([]projectstate.ActivityItem{
+			{Name: "N-DOC", Coding: false},
+		}),
+		SystemDesign: makeCommittedSystemDesign(nil),
+	}
+	ps.project.Network = proj.Network
+	ps.project.ActivityList = proj.ActivityList
+	ps.project.SystemDesign = proj.SystemDesign
+
+	env.ExecuteWorkflow(executionKindPump, pumpInput{ProjectID: pid})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a blocked activity must not fail the workflow, got %v", err)
+	}
+	if len(ps.failed) != 1 {
+		t.Fatalf("want exactly one failure record, got %v", ps.failed)
+	}
+	got := ps.failed[0]
+	if got.activityID != "N-DOC" {
+		t.Fatalf("want failure recorded against N-DOC, got %+v", got)
+	}
+	if got.reason != projectstate.DependencyCycle {
+		t.Fatalf("want DependencyCycle, got %v", got.reason)
+	}
+	if !strings.Contains(got.detail, "cycle") {
+		t.Fatalf("failure detail must call out the cycle, got %q", got.detail)
+	}
+}
+
 // A pause Signal delivered to the (cascading) pump halts it BEFORE any dispatch: the
 // pump goes quiet WITHOUT ContinueAsNew and WITHOUT starting a child, even though an
 // activity is eligible. The resume path re-triggers the pump.
@@ -2669,8 +3143,8 @@ func Test_Pump_PauseSignal_HaltsCascade_NoDispatch(t *testing.T) {
 	wf := newWorkflows(wfDeps{
 		Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
 		Review:       &fakeReview{},
-		NextEligibleActivity: func(_ projectstate.Project) (constructionActivity, bool) {
-			return sampleActivity(), true // an activity IS eligible — but the pause wins
+		NextEligibleActivity: func(_ projectstate.Project) pumpSelection {
+			return pumpSelection{Verdict: verdictDispatch, Activity: sampleActivity()} // an activity IS eligible — but the pause wins
 		},
 	})
 	registerPump(env, wf, ps, &fakePipeline{phase: PipelineSucceeded})

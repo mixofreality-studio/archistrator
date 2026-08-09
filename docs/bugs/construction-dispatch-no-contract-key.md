@@ -1,6 +1,14 @@
 # Bug: construction never dispatches — "no service-contract key resolves for activity"
 
-**Status:** open · **Severity:** blocks all real construction · **Found:** 2026-08-07 (AC iteration 0, first real end-to-end benchmark build of todomvc)
+**Status:** fixed on branch `construction-dispatch-componentid` · **Severity:** blocked all real construction · **Found:** 2026-08-07 (AC iteration 0, first real end-to-end benchmark build of todomvc)
+
+Fixed by the design in
+`docs/superpowers/specs/2026-08-08-construction-dispatch-componentid-design.md`: dispatch now
+resolves an activity's component through an authored `ComponentID` field instead of the
+contract-only `resolveComponentID` resolver described below (deleted), and a milestone-dependency
+defect found by the same drain (§4.3a of that spec) is fixed alongside it. Evidence: a dry-run
+drain of the todomvc corpus reached 26/26 activities `Done` under
+`ARCHISTRATOR_CONSTRUCTION_DRYRUN=true`, with zero activities stalled quiescent.
 
 ## Symptom
 

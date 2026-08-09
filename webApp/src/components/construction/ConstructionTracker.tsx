@@ -266,6 +266,7 @@ export function ConstructionTracker({
       'eligible',
       'blocked',
       'not-started',
+      'failed',
     ];
     return order.map((s) => ({ status: s, count: counts.get(s) ?? 0 }));
   }, [statusMap]);

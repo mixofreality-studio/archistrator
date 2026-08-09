@@ -117,9 +117,10 @@ const NON_MECHANICAL = {
     '(RuntimeStatusHealthy) to "Running". Casing + semantic rename, not a bug.',
   ActivityBuildStatus:
     'Mechanical derivation gives ("inConstruction"/"inReview"/"integrated"/"failed"), but ' +
-    'adapters.ts buildStatusRowFromOrdinal returns kebab-case ("in-construction"/"in-review"/' +
-    '"integrated") and folds ordinal 3 (BuildFailed) into "in-construction" ("no terminal-fail ' +
-    'row state"). Casing convention + deliberate collapse, not a bug.',
+    'enumMappings.ts buildStatusRowFromOrdinal returns kebab-case ("in-construction"/' +
+    '"in-review"/"integrated"/"failed"). Every member now maps 1:1 — ordinal 3 (BuildFailed) ' +
+    'is a TERMINAL row state of its own and is NO LONGER folded into "in-construction" — so ' +
+    'the only remaining divergence is the kebab-case convention, not a bug.',
   CICheckState:
     'Mechanical derivation gives ("pending"/"success"/"failure"), but enums.ts ' +
     'ciStatusFromOrdinal returns ("in_progress"/"success"/"failed") — different words ' +

@@ -39,6 +39,8 @@ import {
   type EpisodeKind,
   EPISODE_OUTCOME_ORDINAL_TO_APP,
   type EpisodeOutcome,
+  FAILURE_REASON_ORDINAL_TO_APP,
+  type FailureReason,
   OVERRIDE_KIND_APP_TO_ORDINAL,
   PATCH_KIND_APP_TO_ORDINAL,
   PHASE_DECISION_APP_TO_ORDINAL,
@@ -46,7 +48,7 @@ import {
   REVIEW_DECISION_APP_TO_ORDINAL,
   SDP_DECISION_APP_TO_ORDINAL,
   SESSION_STAGE_ORDINAL_TO_APP,
-} from './enums.gen';
+} from './enums.gen.ts';
 import {
   buildStatusRowFromOrdinal,
   ciStatusFromOrdinal,
@@ -55,7 +57,7 @@ import {
   runtimePhaseFromOrdinal,
   autoscalerModeFromOrdinal,
   testingVariantFromOrdinal,
-} from './enumMappings';
+} from './enumMappings.ts';
 import type {
   ArtifactKind,
   ArtifactKindFull,
@@ -148,6 +150,13 @@ function activityRowKindFromOrdinal(
   ordinal: number
 ): 'service' | 'frontend' | 'testing' | 'deployment' | 'documentation' {
   return ACTIVITY_TYPE_ORDINAL_TO_APP[ordinal] ?? 'service';
+}
+
+/** SystemDesignFailureReason (0 unknown,1 pipelineFailed,2 pipelineCancelled,
+ * 3 pipelineTimedOut,4 varianceExhausted,5 escalationTimedOut,6 componentUnresolved,
+ * 7 dependencyUnresolved,8 dependencyCycle). */
+function failureReasonFromOrdinal(ordinal: number): FailureReason {
+  return FAILURE_REASON_ORDINAL_TO_APP[ordinal] ?? 'unknown';
 }
 
 /** OperationsAutoscaleAction (0 noChange,1 scaleUp,2 scaleDown,3 pause,4 resume). */
@@ -347,6 +356,11 @@ function mapConstructionRow(w: Schemas['SystemDesignActivityConstructionStatus']
   // activity id); variant is only meaningful for testing activities.
   const kind = activityRowKindFromOrdinal(w.Type);
   const variant = kind === 'testing' ? testingVariantFromOrdinal(w.Variant) : undefined;
+  // FailureReason/FailureDetail are only meaningful on a terminal-fail row: every
+  // other row carries the zero-value reason (`unknown`) and an empty detail, so
+  // they are dropped rather than decorating healthy rows with a phantom failure.
+  const failureReason = failureReasonFromOrdinal(w.FailureReason);
+  const carriesFailure = failureReason !== 'unknown';
   return {
     activityId: w.ActivityID,
     kind,
@@ -354,6 +368,8 @@ function mapConstructionRow(w: Schemas['SystemDesignActivityConstructionStatus']
     status: buildStatusRowFromOrdinal(w.BuildStatus),
     phase: w.CurrentPhase,
     ...(w.Produced !== null ? { produced: w.Produced.map(mapProducedArtifact) } : {}),
+    ...(carriesFailure ? { failureReason } : {}),
+    ...(carriesFailure && w.FailureDetail.length > 0 ? { failureDetail: w.FailureDetail } : {}),
   };
 }
 

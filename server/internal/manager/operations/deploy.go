@@ -300,139 +300,34 @@ type bundleManifest struct {
 // misconfiguration and must surface as an error the operator can read — never a
 // silently half-rendered deployment.
 func assembleDesiredState(proj projectstate.Project, bundle deployableBundle, _ operatedsystemstate.OperatedSystem) (operatedruntime.RuntimeDesiredState, error) {
-	appName := string(proj.ID)
-	if appName == "" {
-		return operatedruntime.RuntimeDesiredState{}, fmt.Errorf("assembleDesiredState: project has no ID")
-	}
-	// The project id becomes the app name, the Kubernetes namespace, the host label,
-	// every rendered object's name prefix — and a PATH SEGMENT in the GitOps repo the
-	// renderer removes and rewrites (operatedruntime's gitOpsAppDir). It originates from
-	// a user-supplied repository name, so it is validated here as a DNS-1123 label
-	// (lowercase alphanumerics and interior hyphens, ≤63 chars), which is both what
-	// Kubernetes requires of a namespace and, incidentally, a guarantee it is a single
-	// safe path segment: no separator, no "..", no absolute path, no leading dot.
-	// operatedruntime re-checks the same rule at the point of use (the check that
-	// actually protects the filesystem); this one exists so a bad project id fails with
-	// a readable Manager-layer error before a git clone ever happens.
-	if !validAppName(appName) {
-		return operatedruntime.RuntimeDesiredState{}, fmt.Errorf("assembleDesiredState: project id %q is not a valid app name: it must be a DNS-1123 label (lowercase letters, digits and interior hyphens, at most 63 characters) — it becomes the Kubernetes namespace, every rendered object's name, and a directory in the GitOps repository", appName)
-	}
-
-	model, ok := proj.OperationalConcepts.Model.(*projectstate.DeploymentOperationsModel)
-	if !ok || model == nil {
-		return operatedruntime.RuntimeDesiredState{}, fmt.Errorf("assembleDesiredState: project %q has no committed operational-concepts deployment model", appName)
-	}
-
-	env, ok := findCloudEnvironment(model.Deployment.Environments)
-	if !ok {
-		return operatedruntime.RuntimeDesiredState{}, fmt.Errorf("assembleDesiredState: project %q's deployment model has no cloud environment", appName)
-	}
-
-	// Server: the workload DeploymentNode carrying the server ContainerInstance.
-	// Its PARENT is the app's own namespace — found structurally (no "cluster"
-	// pre-filter needed: the search is depth-first over the WHOLE environment, and
-	// the server container instance only legitimately exists once, under
-	// namespace -> workload).
-	serverKey := appName + "-server"
-	serverNode, namespace, ok := findWorkload(env.Nodes, projectstate.DeploymentNode{}, serverKey)
-	if !ok {
-		return operatedruntime.RuntimeDesiredState{}, fmt.Errorf("assembleDesiredState: project %q's cloud environment has no workload node for container %q", appName, serverKey)
-	}
-	if serverNode.Instances < 1 {
-		return operatedruntime.RuntimeDesiredState{}, fmt.Errorf("assembleDesiredState: project %q's server workload node %q declares %d instances; want >= 1 (a 0-instance node is a real misconfiguration, not a scale-to-zero request)", appName, serverNode.Key, serverNode.Instances)
-	}
-
-	// The k8s namespace STRING is not itself a field anywhere on DeploymentNode —
-	// only the platform's own "ns-<appID>" node-key convention (verified: real
-	// nodes are literally "cloud-node-ns-archistrator", "cloud-node-ns-gtd") names
-	// it. Rather than silently ASSUMING the convention holds and using appName
-	// regardless of what the resolved namespace node actually says, verify the
-	// resolved node's key follows it and fail loudly on disagreement — a model
-	// that declared some other namespace (e.g. "ns-foo") must not silently deploy
-	// to appName instead.
-	if !strings.HasSuffix(namespace.Key, "ns-"+appName) {
-		return operatedruntime.RuntimeDesiredState{}, fmt.Errorf("assembleDesiredState: project %q's resolved namespace node %q does not follow the ns-%s naming convention (server/webapp workloads must live under the app's own namespace)", appName, namespace.Key, appName)
-	}
-
-	// WebApp: `archistrator-webapp`'s ContainerInstance legitimately sits on the
-	// architect's browser node (the SPA executes client-side) — that is correct,
-	// not a gap, and is never treated as a workload to deploy. The IN-CLUSTER
-	// thing is the static-asset server (nginx) that DELIVERS it, identified by
-	// its relationship to the webapp's ContainerInstance (D11 trap #1: role
-	// "other" alone is ambiguous — nginx and cloud-infra-temporal share it — so
-	// role is a filter, never the sole selector). The browser's ContainerInstance
-	// is itself the target of MORE than one relationship in the real committed
-	// model (e.g. "the architect uses the SPA") — only the one sourced from an
-	// infrastructure node actually in the app's own namespace is the serving
-	// node; a person or any other non-infra source is not a candidate.
-	webAppKey := appName + "-webapp"
-	webAppCIKey, ok := findContainerInstanceKey(env.Nodes, webAppKey)
-	if !ok {
-		return operatedruntime.RuntimeDesiredState{}, fmt.Errorf("assembleDesiredState: project %q's cloud environment has no containerInstance for %q anywhere (not even the architect's browser, where the SPA legitimately executes)", appName, webAppKey)
-	}
-	webAppNode, err := findServingInfrastructureNode(env.Relationships, namespace, webAppCIKey)
+	appName, err := resolveAppName(proj)
 	if err != nil {
-		return operatedruntime.RuntimeDesiredState{}, fmt.Errorf("assembleDesiredState: project %q: %w", appName, err)
+		return operatedruntime.RuntimeDesiredState{}, err
 	}
 
-	// OIDC: the namespace's identityProvider-role node. Required (an app with no
-	// identity provider cannot be assembled). Its key IS carried forward as
-	// OIDC.ModelKey (Task 6 enforces that every rendered manifest — including
-	// Task 5's Keycloak realm/client CR, spec D12 — carries a non-empty ModelKey;
-	// this is what that CR stamps itself with).
-	oidcNode, err := findInfrastructureNodeByRole(namespace.InfrastructureNodes, projectstate.RoleIdentityProvider)
+	env, err := resolveCloudEnvironment(proj, appName)
 	if err != nil {
-		return operatedruntime.RuntimeDesiredState{}, fmt.Errorf("assembleDesiredState: project %q: %w", appName, err)
+		return operatedruntime.RuntimeDesiredState{}, err
 	}
 
-	// Gateway: the namespace's gateway-role node. Carried forward as its OWN key
-	// rather than folded into the namespace's, because the HTTPRoutes, Envoy
-	// policies and SecurityPolicy the renderer emits are what make the gateway
-	// node on the deployment diagram show green or red. Stamping them with the
-	// namespace key instead would leave the gateway node permanently uncoloured
-	// AND misattribute route health to the namespace. Required, on the same
-	// fail-loud terms as every other role lookup here.
-	gatewayNode, err := findInfrastructureNodeByRole(namespace.InfrastructureNodes, projectstate.RoleGateway)
+	serverNode, namespace, err := resolveServerWorkload(env, appName)
 	if err != nil {
-		return operatedruntime.RuntimeDesiredState{}, fmt.Errorf("assembleDesiredState: project %q: %w", appName, err)
+		return operatedruntime.RuntimeDesiredState{}, err
 	}
 
-	// Postgres: D11 trap #2 — production runs ONE archistrator-postgres CNPG
-	// cluster serving all three logical stores (operatedSystemState/billingState/
-	// usageLog), each modeled as its OWN database-role diagram node so the
-	// deployment diagram can color each independently. The single rendered
-	// Cluster is still correct (matching production's one archistrator-postgres);
-	// only the key-tracking must fan out, so PostgresSpec carries every
-	// database-role node's key (ModelKeys), sorted for Task 4's byte-deterministic
-	// render — not a single collapsed choice that would silently strand two of
-	// the three diagram nodes uncoloured.
-	dbNodes, err := findDatabaseNodes(namespace)
+	webAppNode, err := resolveWebAppNode(env, namespace, appName)
 	if err != nil {
-		return operatedruntime.RuntimeDesiredState{}, fmt.Errorf("assembleDesiredState: project %q: %w", appName, err)
-	}
-	dbKeys := make([]string, len(dbNodes))
-	for i, n := range dbNodes {
-		dbKeys[i] = n.Key
+		return operatedruntime.RuntimeDesiredState{}, err
 	}
 
-	// json.Unmarshal into a struct SUCCEEDS on `null`, on `{}`, and on any unrelated
-	// JSON object — every unknown field is simply ignored and every absent field keeps
-	// its zero value. So a parse that returns no error proves nothing about the bundle's
-	// contents, and the images must be checked explicitly. This is the same fail-open
-	// shape this plan has now closed five times (a renderer skipping auth on a blank
-	// client id; a delete-guard disarming on unset config; app-level health defaulting
-	// to Healthy; a zero-value desired-state publish): a zero value must REFUSE, never
-	// SKIP. An empty image renders a literal `image:` line into a COMMITTED Deployment
-	// — valid YAML, invalid Kubernetes, and only discovered when the rollout fails.
-	var manifest bundleManifest
-	if uerr := json.Unmarshal(bundle.Output.Bytes, &manifest); uerr != nil {
-		return operatedruntime.RuntimeDesiredState{}, fmt.Errorf("assembleDesiredState: project %q: deployable bundle is not a valid bundle manifest: %w", appName, uerr)
+	oidcNode, gatewayNode, dbKeys, err := resolveSupportingNodes(namespace, appName)
+	if err != nil {
+		return operatedruntime.RuntimeDesiredState{}, err
 	}
-	if manifest.ServerImage == "" {
-		return operatedruntime.RuntimeDesiredState{}, fmt.Errorf("assembleDesiredState: project %q: deployable bundle carries no serverImage (bundle parsed but is empty, null, or not a bundle manifest); refusing to render a Deployment with no image", appName)
-	}
-	if manifest.WebAppImage == "" {
-		return operatedruntime.RuntimeDesiredState{}, fmt.Errorf("assembleDesiredState: project %q: deployable bundle carries no webAppImage (bundle parsed but is empty, null, or not a bundle manifest); refusing to render a Deployment with no image", appName)
+
+	manifest, err := parseBundleManifest(bundle, appName)
+	if err != nil {
+		return operatedruntime.RuntimeDesiredState{}, err
 	}
 
 	desired := operatedruntime.RuntimeDesiredState{
@@ -474,6 +369,172 @@ func assembleDesiredState(proj projectstate.Project, bundle deployableBundle, _ 
 		return operatedruntime.RuntimeDesiredState{}, fmt.Errorf("assembleDesiredState: project %q: assembled replica counts must all be >= 1 (server=%d, webapp=%d, postgres=%d); 0 is a silent scale-to-zero, not a deployment", appName, desired.Server.Replicas, desired.WebApp.Replicas, desired.Postgres.Instances)
 	}
 	return desired, nil
+}
+
+// resolveAppName derives the app name from proj.ID and validates it. The
+// project id becomes the app name, the Kubernetes namespace, the host label,
+// every rendered object's name prefix — and a PATH SEGMENT in the GitOps repo the
+// renderer removes and rewrites (operatedruntime's gitOpsAppDir). It originates from
+// a user-supplied repository name, so it is validated here as a DNS-1123 label
+// (lowercase alphanumerics and interior hyphens, ≤63 chars), which is both what
+// Kubernetes requires of a namespace and, incidentally, a guarantee it is a single
+// safe path segment: no separator, no "..", no absolute path, no leading dot.
+// operatedruntime re-checks the same rule at the point of use (the check that
+// actually protects the filesystem); this one exists so a bad project id fails with
+// a readable Manager-layer error before a git clone ever happens.
+func resolveAppName(proj projectstate.Project) (string, error) {
+	appName := string(proj.ID)
+	if appName == "" {
+		return "", fmt.Errorf("assembleDesiredState: project has no ID")
+	}
+	if !validAppName(appName) {
+		return "", fmt.Errorf("assembleDesiredState: project id %q is not a valid app name: it must be a DNS-1123 label (lowercase letters, digits and interior hyphens, at most 63 characters) — it becomes the Kubernetes namespace, every rendered object's name, and a directory in the GitOps repository", appName)
+	}
+	return appName, nil
+}
+
+// resolveCloudEnvironment resolves proj's committed operational-concepts
+// deployment model and, within it, the model's cloud environment.
+func resolveCloudEnvironment(proj projectstate.Project, appName string) (projectstate.DeploymentEnvironment, error) {
+	model, ok := proj.OperationalConcepts.Model.(*projectstate.DeploymentOperationsModel)
+	if !ok || model == nil {
+		return projectstate.DeploymentEnvironment{}, fmt.Errorf("assembleDesiredState: project %q has no committed operational-concepts deployment model", appName)
+	}
+	env, ok := findCloudEnvironment(model.Deployment.Environments)
+	if !ok {
+		return projectstate.DeploymentEnvironment{}, fmt.Errorf("assembleDesiredState: project %q's deployment model has no cloud environment", appName)
+	}
+	return env, nil
+}
+
+// resolveServerWorkload resolves the workload DeploymentNode carrying the
+// server ContainerInstance and its parent namespace node. Its PARENT is the
+// app's own namespace — found structurally (no "cluster" pre-filter needed:
+// the search is depth-first over the WHOLE environment, and the server
+// container instance only legitimately exists once, under namespace ->
+// workload).
+//
+// The instance count and the namespace's naming convention are both verified
+// here too: a 0-instance workload node is a real misconfiguration, not a
+// scale-to-zero request, and the k8s namespace STRING is not itself a field
+// anywhere on DeploymentNode — only the platform's own "ns-<appID>" node-key
+// convention (verified: real nodes are literally "cloud-node-ns-archistrator",
+// "cloud-node-ns-gtd") names it. Rather than silently ASSUMING the convention
+// holds and using appName regardless of what the resolved namespace node
+// actually says, verify the resolved node's key follows it and fail loudly on
+// disagreement — a model that declared some other namespace (e.g. "ns-foo")
+// must not silently deploy to appName instead.
+func resolveServerWorkload(env projectstate.DeploymentEnvironment, appName string) (serverNode, namespace projectstate.DeploymentNode, err error) {
+	serverKey := appName + "-server"
+	serverNode, namespace, ok := findWorkload(env.Nodes, projectstate.DeploymentNode{}, serverKey)
+	if !ok {
+		return projectstate.DeploymentNode{}, projectstate.DeploymentNode{}, fmt.Errorf("assembleDesiredState: project %q's cloud environment has no workload node for container %q", appName, serverKey)
+	}
+	if serverNode.Instances < 1 {
+		return projectstate.DeploymentNode{}, projectstate.DeploymentNode{}, fmt.Errorf("assembleDesiredState: project %q's server workload node %q declares %d instances; want >= 1 (a 0-instance node is a real misconfiguration, not a scale-to-zero request)", appName, serverNode.Key, serverNode.Instances)
+	}
+	if !strings.HasSuffix(namespace.Key, "ns-"+appName) {
+		return projectstate.DeploymentNode{}, projectstate.DeploymentNode{}, fmt.Errorf("assembleDesiredState: project %q's resolved namespace node %q does not follow the ns-%s naming convention (server/webapp workloads must live under the app's own namespace)", appName, namespace.Key, appName)
+	}
+	return serverNode, namespace, nil
+}
+
+// resolveWebAppNode resolves the in-cluster infrastructure node serving the
+// webapp. `archistrator-webapp`'s ContainerInstance legitimately sits on the
+// architect's browser node (the SPA executes client-side) — that is correct,
+// not a gap, and is never treated as a workload to deploy. The IN-CLUSTER
+// thing is the static-asset server (nginx) that DELIVERS it, identified by
+// its relationship to the webapp's ContainerInstance (D11 trap #1: role
+// "other" alone is ambiguous — nginx and cloud-infra-temporal share it — so
+// role is a filter, never the sole selector). The browser's ContainerInstance
+// is itself the target of MORE than one relationship in the real committed
+// model (e.g. "the architect uses the SPA") — only the one sourced from an
+// infrastructure node actually in the app's own namespace is the serving
+// node; a person or any other non-infra source is not a candidate.
+func resolveWebAppNode(env projectstate.DeploymentEnvironment, namespace projectstate.DeploymentNode, appName string) (projectstate.InfrastructureNode, error) {
+	webAppKey := appName + "-webapp"
+	webAppCIKey, ok := findContainerInstanceKey(env.Nodes, webAppKey)
+	if !ok {
+		return projectstate.InfrastructureNode{}, fmt.Errorf("assembleDesiredState: project %q's cloud environment has no containerInstance for %q anywhere (not even the architect's browser, where the SPA legitimately executes)", appName, webAppKey)
+	}
+	webAppNode, err := findServingInfrastructureNode(env.Relationships, namespace, webAppCIKey)
+	if err != nil {
+		return projectstate.InfrastructureNode{}, fmt.Errorf("assembleDesiredState: project %q: %w", appName, err)
+	}
+	return webAppNode, nil
+}
+
+// resolveSupportingNodes resolves the namespace's required identityProvider
+// and gateway role nodes, plus the set of database-role node keys backing the
+// shared Postgres cluster.
+//
+// OIDC: the namespace's identityProvider-role node. Required (an app with no
+// identity provider cannot be assembled). Its key IS carried forward as
+// OIDC.ModelKey (Task 6 enforces that every rendered manifest — including
+// Task 5's Keycloak realm/client CR, spec D12 — carries a non-empty ModelKey;
+// this is what that CR stamps itself with).
+//
+// Gateway: the namespace's gateway-role node. Carried forward as its OWN key
+// rather than folded into the namespace's, because the HTTPRoutes, Envoy
+// policies and SecurityPolicy the renderer emits are what make the gateway
+// node on the deployment diagram show green or red. Stamping them with the
+// namespace key instead would leave the gateway node permanently uncoloured
+// AND misattribute route health to the namespace. Required, on the same
+// fail-loud terms as every other role lookup here.
+//
+// Postgres: D11 trap #2 — production runs ONE archistrator-postgres CNPG
+// cluster serving all three logical stores (operatedSystemState/billingState/
+// usageLog), each modeled as its OWN database-role diagram node so the
+// deployment diagram can color each independently. The single rendered
+// Cluster is still correct (matching production's one archistrator-postgres);
+// only the key-tracking must fan out, so PostgresSpec carries every
+// database-role node's key (ModelKeys), sorted for Task 4's byte-deterministic
+// render — not a single collapsed choice that would silently strand two of
+// the three diagram nodes uncoloured.
+func resolveSupportingNodes(namespace projectstate.DeploymentNode, appName string) (oidcNode, gatewayNode projectstate.InfrastructureNode, dbKeys []string, err error) {
+	oidcNode, err = findInfrastructureNodeByRole(namespace.InfrastructureNodes, projectstate.RoleIdentityProvider)
+	if err != nil {
+		return projectstate.InfrastructureNode{}, projectstate.InfrastructureNode{}, nil, fmt.Errorf("assembleDesiredState: project %q: %w", appName, err)
+	}
+	gatewayNode, err = findInfrastructureNodeByRole(namespace.InfrastructureNodes, projectstate.RoleGateway)
+	if err != nil {
+		return projectstate.InfrastructureNode{}, projectstate.InfrastructureNode{}, nil, fmt.Errorf("assembleDesiredState: project %q: %w", appName, err)
+	}
+	dbNodes, err := findDatabaseNodes(namespace)
+	if err != nil {
+		return projectstate.InfrastructureNode{}, projectstate.InfrastructureNode{}, nil, fmt.Errorf("assembleDesiredState: project %q: %w", appName, err)
+	}
+	dbKeys = make([]string, len(dbNodes))
+	for i, n := range dbNodes {
+		dbKeys[i] = n.Key
+	}
+	return oidcNode, gatewayNode, dbKeys, nil
+}
+
+// parseBundleManifest decodes bundle's JSON-encoded bundleManifest and
+// refuses one whose image refs are missing. json.Unmarshal into a struct
+// SUCCEEDS on `null`, on `{}`, and on any unrelated JSON object — every
+// unknown field is simply ignored and every absent field keeps its zero
+// value. So a parse that returns no error proves nothing about the bundle's
+// contents, and the images must be checked explicitly. This is the same
+// fail-open shape this plan has now closed five times (a renderer skipping
+// auth on a blank client id; a delete-guard disarming on unset config;
+// app-level health defaulting to Healthy; a zero-value desired-state
+// publish): a zero value must REFUSE, never SKIP. An empty image renders a
+// literal `image:` line into a COMMITTED Deployment — valid YAML, invalid
+// Kubernetes, and only discovered when the rollout fails.
+func parseBundleManifest(bundle deployableBundle, appName string) (bundleManifest, error) {
+	var manifest bundleManifest
+	if uerr := json.Unmarshal(bundle.Output.Bytes, &manifest); uerr != nil {
+		return bundleManifest{}, fmt.Errorf("assembleDesiredState: project %q: deployable bundle is not a valid bundle manifest: %w", appName, uerr)
+	}
+	if manifest.ServerImage == "" {
+		return bundleManifest{}, fmt.Errorf("assembleDesiredState: project %q: deployable bundle carries no serverImage (bundle parsed but is empty, null, or not a bundle manifest); refusing to render a Deployment with no image", appName)
+	}
+	if manifest.WebAppImage == "" {
+		return bundleManifest{}, fmt.Errorf("assembleDesiredState: project %q: deployable bundle carries no webAppImage (bundle parsed but is empty, null, or not a bundle manifest); refusing to render a Deployment with no image", appName)
+	}
+	return manifest, nil
 }
 
 // validAppName reports whether s is a DNS-1123 label: 1–63 characters of lowercase

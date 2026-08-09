@@ -78,15 +78,51 @@ func (wf *workflows) PumpNextActivityWorkflow(ctx workflow.Context, in pumpInput
 		return PumpResult{}, err
 	}
 
-	activity, eligible := wf.nextEligible(proj)
-	if !eligible {
-		// Network drained (or nothing eligible this tick) ⇒ the cascade ENDS here:
-		// return quiet WITHOUT ContinueAsNew so the pump goes dormant (the next
-		// begin/schedule firing re-triggers it).
+	sel := wf.nextEligible(proj)
+	switch sel.Verdict {
+	case verdictBlocked:
+		// LOUD, DURABLE, APP-VISIBLE (spec §4.3). The log line alone is the failure mode
+		// being eliminated — a warning buried in a serve log is how this defect consumed
+		// an entire benchmark run undetected — so the escalation is the HEAD-STATE
+		// record: ActivityConstructionFailed is sticky via CoarsePhaseFor, so the
+		// operator sees a red node carrying its FailureReason and the reason. NOT a
+		// returned workflow error: a failed Temporal execution is invisible in the
+		// console. Recording the terminal also takes the activity out of NotStarted, so
+		// the next scheduled tick considers the rest of the network instead of
+		// re-blocking on this one. An empty credential is correct for the local store;
+		// the git adapter mints just-in-time (same as the supervision pause path).
+		//
+		// verdictBlocked also covers two SIBLING plan defects surfaced by
+		// nextEligibleActivity: an authored dependency id (network.dependencies[].dependsOn)
+		// that names neither a known activity nor a known milestone (DependencyUnresolved),
+		// or a milestone dependency cycle (DependencyCycle) — see resolveDependencySatisfied
+		// in constructionmanager.go. Each defect class is recorded through its OWN
+		// FailureReason variant — sel.BlockedFailureReason, set by nextEligibleActivity at
+		// the point the defect is classified — per the ruling that one FailureReason variant
+		// covers one repair class; FailureDetail (sel.BlockedReason below) discriminates
+		// instances WITHIN a class (which id, which cycle path), never between classes.
+		logger.Error("construction pump: activity cannot be dispatched",
+			"projectId", string(in.ProjectID),
+			"activityId", sel.BlockedActivityID,
+			"reason", sel.BlockedReason)
+		if _, ferr := wf.applyRecovering(ctx, in.ProjectID, proj.Version, func(expected projectstate.Version) (projectstate.Version, error) {
+			return wf.Acts.ConstructionTransitionRecordActivityFailed(
+				ctx, projectstate.ProjectID(in.ProjectID), expected,
+				sel.BlockedActivityID, sel.BlockedFailureReason, sel.BlockedReason,
+				railCredEnvelope{}.toProjectState())
+		}); ferr != nil {
+			return PumpResult{}, ferr
+		}
+		dispatch = pumpDispatch{Decided: true, Dispatched: false}
+		return PumpResult{Dispatched: false}, nil
+	case verdictQuiescent:
 		logger.Info("no eligible activity — cascade quiescent", "projectId", string(in.ProjectID))
 		dispatch = pumpDispatch{Decided: true, Dispatched: false}
 		return PumpResult{Dispatched: false}, nil
+	case verdictDispatch:
+		// fall through to the dispatch below
 	}
+	activity := sel.Activity
 
 	// Eligible ⇒ start a per-activity child workflow (idempotent on its id; a
 	// redundant tick collapses to the running child). PARENT_CLOSE_POLICY ABANDON:
@@ -131,11 +167,11 @@ func (wf *workflows) PumpNextActivityWorkflow(ctx workflow.Context, in pumpInput
 	return PumpResult{}, workflow.NewContinueAsNewError(ctx, executionKindPump, pumpInput{ProjectID: in.ProjectID})
 }
 
-// nextEligible resolves the next eligible activity via the injected helper. With no
-// helper wired (or no eligible activity) it is a quiet tick.
-func (wf *workflows) nextEligible(proj projectstate.Project) (constructionActivity, bool) {
+// nextEligible resolves the next selection via the injected helper. With no helper
+// wired it is a quiet tick.
+func (wf *workflows) nextEligible(proj projectstate.Project) pumpSelection {
 	if wf.NextEligibleActivity == nil {
-		return constructionActivity{}, false
+		return pumpSelection{Verdict: verdictQuiescent}
 	}
 	return wf.NextEligibleActivity(proj)
 }

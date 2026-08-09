@@ -28,8 +28,8 @@ export function statusColor(t: Tokens, s: BuildStatus): string {
       return t.accent; // the accent draws the eye to the thing needing intervention
     case 'not-started':
       return t.muted;
-    default:
-      return t.muted;
+    case 'failed':
+      return t.dangerFg; // terminal failure — the danger tone, not the blocked accent
   }
 }
 
@@ -50,8 +50,9 @@ export function statusFill(t: Tokens, s: BuildStatus): { fg: string; bg: string 
       return { fg: t.awaitingFg, bg: t.awaitingBg };
     case 'not-started':
       return { fg: t.muted, bg: 'transparent' };
-    default:
-      return { fg: t.muted, bg: 'transparent' };
+    case 'failed':
+      // Same pairing episodes/EpisodesPanel outcomeFill uses for a failed episode.
+      return { fg: t.dangerFg, bg: t.awaitingBg };
   }
 }
 
@@ -101,6 +102,7 @@ export function StatusLegend({ t }: { t: Tokens }): ReactNode {
     'eligible',
     'blocked',
     'not-started',
+    'failed',
   ];
   return (
     <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 1.25 }}>

@@ -176,8 +176,12 @@ selection now performs makes hydrating it a single line.
 | `verdictBlocked{activityID, reason}` | eligible but undispatchable |
 
 `verdictBlocked` fires on the pump's **defensive** re-check — never trust storage, even
-gate-protected storage — on **one condition only**: a non-empty `ComponentID` naming no component
-in the committed `.systemDesign`.
+gate-protected storage — on **three conditions**: a non-empty `ComponentID` naming no component in
+the committed `.systemDesign` (`ComponentUnresolved`); an authored dependency id
+(`network.dependencies[].dependsOn`) naming neither a known activity nor a known milestone
+(`DependencyUnresolved`); or a milestone dependency cycle (`DependencyCycle`). The latter two were
+not part of the original design — see §4.3a, added after the live drain surfaced milestone
+dependencies as a second dispatch-blocking defect.
 
 An empty `ComponentID` on a coding activity is **legal**: it declares the activity nonstructural
 (§2.5), and it dispatches with an empty `component_id` exactly as a noncoding activity does today
@@ -191,23 +195,49 @@ An empty `ComponentID` on a coding activity is **legal**: it declares the activi
    (`invokers.gen.go:241`) with an empty `railCredEnvelope` — the pause path in
    `projectsupervision.go` establishes that the local store ignores an empty cred and the git
    adapter mints just-in-time.
-2. Reason: a **new closed-enum value** `FailureReasonPlanUnresolvable`, wire name
-   `"planUnresolvable"`, added to the six existing values
-   (`projectstateaccess.go:6391`, `String()` at :6412).
-3. Detail: names the activity, the defect, and the repair — e.g. *"activity C-TLM names component
-   'todo-list-managr', which is not in the committed systemDesign; amend the committed
-   activityList"*.
+2. Reason: **three new closed-enum values**, added to the six existing values
+   (`projectstateaccess.go:6652` ff.): `ComponentUnresolved` (wire `"componentUnresolved"`, ordinal
+   6) for the componentId case described here; `DependencyUnresolved` (wire
+   `"dependencyUnresolved"`, ordinal 7) and `DependencyCycle` (wire `"dependencyCycle"`, ordinal 8)
+   for the milestone-dependency defects added in §4.3a below. (An earlier draft of this design
+   proposed a single, differently-named enum value covering only the componentId case — that name
+   never shipped and appears nowhere in the codebase; disregard it.)
+3. Detail: names the activity, the defect, and — since `RecordActivityFailed` is sticky and there
+   is no reopen/retry verb in the store — that amending the plan alone will not restart it.
 4. Logs at ERROR, sets `dispatch = {Decided:true, Dispatched:false}`, and returns **without**
    ContinueAsNew.
 
-This is durable and app-visible: `ActivityConstructionStatus.FailureReason` / `FailureDetail`
-already render in the construction console, and `ActivityConstructionFailed` is sticky
-(`CoarsePhaseFor` short-circuits). The operator sees a red failed node.
+This is durable and app-visible: `ActivityConstructionStatus.FailureReason` / `FailureDetail` are
+recorded on the head-state record, and `ActivityConstructionFailed` is sticky (`CoarsePhaseFor`
+short-circuits). **This was NOT yet true when this section was first written** — the SPA had no
+terminal-fail row state at all and folded `BuildFailed` into a generic `in-construction` look,
+which is exactly why the webApp work in Stage 1 (`webApp/src/components/construction/status.tsx`,
+`constructionAdapters.ts`) exists: it adds the `failed` `BuildStatus` member, its chip styling, and
+the `FAILURE_REASON_LABEL` map, so the operator now sees a distinct red failed node carrying the
+reason and detail text, not a lookalike in-progress one.
 
 **Not** a returned workflow error — a failed Temporal execution is invisible in the app and buys
 only retry noise. **Not** an interventionEngine escalation — that engine adjudicates variance for
 work legitimately in flight; a plan-integrity defect is terminal until a human amends the plan,
 and routing it through `DecideOnVariance` would launder a deterministic defect into a retry loop.
+
+### 4.3a A second dispatch-blocking defect, found by the live drain
+
+§8's dry-run drain (todomvc corpus) surfaced a **second, independent** defect behind the same
+symptom class as §1: a milestone dependency (`network.dependencies[].dependsOn` naming a
+`network.milestones` entry, not an activity) was never satisfied, because the original
+`allDepsSatisfied` check only ever looked for a `Done` `ActivityConstruction` record — which a
+milestone, being a zero-duration authored event node, never gets. Every activity gated behind a
+milestone stalled exactly the way componentId-unresolvable activities did pre-fix: silently, behind
+a quiescent verdict with no operator-visible cause.
+
+The fix (`resolveDependencySatisfied` / `allDepsSatisfied`, `constructionmanager.go`) makes
+milestone satisfaction **derived**: a milestone is satisfied iff every id in its own `dependsOn` is,
+recursively, satisfied (empty `dependsOn` = satisfied). A dependency id naming neither a known
+activity nor a known milestone, or a cycle in that recursion, is surfaced through the same loud
+`verdictBlocked` path as `ComponentUnresolved` — its own `FailureReason` variant per class
+(`DependencyUnresolved`, `DependencyCycle`), never folded into it. This closed under the drain: all
+26 activities in the todomvc corpus reached `Done`.
 
 **Advance-past semantics.** On later ticks the Failed activity is no longer `NotStarted`, so the
 sweep considers other candidates: independent branches resume, and every dependent of the failed
@@ -315,9 +345,10 @@ Two independently shippable stages. Stage 1 adds no new rules, so CI stays green
 backfills are still outstanding.
 
 **Stage 1 — unblock construction (reaches the AC).**
-Schema field · pump selection rewrite · three-state verdict · `FailureReasonPlanUnresolvable` ·
-webApp codec regen · authored backfill of the benchmark state repo's 8 coding activities ·
-dry-run validation · benchmark resume mode · the real metrics run.
+Schema field · pump selection rewrite · three-state verdict · `ComponentUnresolved` /
+`DependencyUnresolved` / `DependencyCycle` · webApp codec regen · authored backfill of the
+benchmark state repo's 8 coding activities · dry-run validation · benchmark resume mode · the real
+metrics run.
 
 **Stage 2 — prevent recurrence.**
 The two `ACT-*` Error rules and the `ACT-NONSTRUCTURAL-CODING` Info rule · authored backfill of
@@ -387,7 +418,8 @@ All of it is in scope for the stage that triggers it.
    `ACT-UNKNOWN-COMPONENT`, and the `ACT-NONSTRUCTURAL-CODING` Info rule;
    `systemActivityListJoinRules` membership assertions.
 4. **`FailureReason` exhaustive switches** — the linter demands every switch handle
-   `PlanUnresolvable`; the webApp must render the new wire value.
+   `ComponentUnresolved`, `DependencyUnresolved`, and `DependencyCycle`; the webApp must render
+   the new wire values.
 5. **webApp codec regen** — `ModelActivityItem` (`webApp/src/contracts/schema.ts:825`) lacks
    `componentId`; the chain is clientgen → OAS → `schema.ts`/`types.ts`. Skipping the regen
    renders activity screens empty.

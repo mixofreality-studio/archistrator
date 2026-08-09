@@ -58,7 +58,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"sort"
 	"strings"
 	"time"
@@ -731,22 +730,57 @@ func constructionInterventionPolicy(mode string) intervention.InterventionPolicy
 // NextEligibleActivity helper). It was folded out of adapters.go so adapters.go carries
 // only the engine boundary adapters; none of this touches Temporal or any RA seam.
 
+// pumpVerdict is the pump's three-state selection outcome. It replaces the former
+// (activity, bool) pair, whose false arm conflated "the network is drained" with
+// "this activity cannot be dispatched" — the conflation that let a stalled network
+// masquerade as a quiescent one for a whole benchmark run.
+type pumpVerdict int
+
+const (
+	verdictQuiescent pumpVerdict = iota
+	verdictDispatch
+	verdictBlocked
+)
+
+// pumpSelection carries the verdict plus whichever payload it implies: the hydrated
+// activity on verdictDispatch, the offending id + operator-facing reason + the
+// discriminating FailureReason on verdictBlocked, nothing on verdictQuiescent.
+// BlockedFailureReason picks the repair CLASS (componentId vs. dangling dependency
+// id vs. dependency cycle); BlockedReason is the human-readable detail WITHIN that
+// class — the governing rule is one variant per repair class, detail discriminates
+// instances, never classes.
+type pumpSelection struct {
+	Activity             constructionActivity
+	Verdict              pumpVerdict
+	BlockedActivityID    string
+	BlockedReason        string
+	BlockedFailureReason projectstate.FailureReason
+}
+
 // nextEligibleActivity resolves the next eligible construction activity for a project
 // from its head-state. An activity is eligible iff it is NotStarted and every dep is
-// Done. Iteration is ActivityList declaration order with a name tie-break.
-func nextEligibleActivity(proj projectstate.Project) (constructionActivity, bool) {
+// satisfied — an activity dependency requires a Done record, a milestone dependency is
+// satisfied DERIVEDLY (it never has a Done record of its own; see allDepsSatisfied /
+// milestonesByID). Iteration is ActivityList declaration order; the first eligible
+// activity in that order is chosen (the candidate-list name tie-break below is
+// currently unreachable, since declIdx is already unique per activity).
+func nextEligibleActivity(proj projectstate.Project) pumpSelection {
 	// Committed Network+ActivityList alone are not authorization to build: the
 	// Phase-2 seal (AdvanceToConstruction — every slot committed, SDP review binding
 	// an option) is what moves the project into PhaseConstruction. Selecting work
 	// before that would start construction on an unvalidated project design.
 	if proj.Phase != projectstate.PhaseConstruction {
-		return constructionActivity{}, false
+		return pumpSelection{Verdict: verdictQuiescent}
 	}
 	network, activityList, ok := committedPlanInputs(proj)
 	if !ok {
-		return constructionActivity{}, false
+		return pumpSelection{Verdict: verdictQuiescent}
 	}
 
+	// itemByName is both the ActivityItem lookup AND the membership set of authored
+	// activity names (the two ideas share exactly one key set, so one map serves both:
+	// resolveDependencySatisfied/allDepsSatisfied below only ever probe it for
+	// presence via `_, isActivity := itemByName[depID]`).
 	itemByName := make(map[string]projectstate.ActivityItem, len(activityList.Activities))
 	for _, item := range activityList.Activities {
 		itemByName[item.Name] = item
@@ -757,23 +791,53 @@ func nextEligibleActivity(proj projectstate.Project) (constructionActivity, bool
 		depsByActivity[dep.Activity] = dep.DependsOn
 	}
 
+	milestones := milestonesByID(network)
+
 	type candidate struct {
 		declIdx  int
 		activity string
 	}
 	var candidates []candidate
+	// problemActivityID/problemReason/problemKind capture the FIRST authored-dependency
+	// defect (an id naming neither an activity nor a milestone, or a milestone cycle)
+	// encountered while scanning in declaration order — deterministic, since
+	// activityList.Activities is an authored slice, never a map. It is used ONLY as
+	// a fallback explanation when nothing else is eligible this tick (below): a
+	// defect on an activity that ISN'T currently blocking progress must not halt
+	// otherwise-dispatchable work, but a defect that WOULD otherwise present as an
+	// ordinary quiet tick must not go unreported — that silent-quiescent disguise is
+	// exactly the failure mode this change closes for milestone dependencies.
+	var problemActivityID, problemReason string
+	var problemKind projectstate.FailureReason
 	for i, item := range activityList.Activities {
 		name := item.Name
 		if !isActivityNotStarted(name, proj.ActivityConstruction) {
 			continue
 		}
-		if !allDepsDone(depsByActivity[name], proj.ActivityConstruction) {
+		res := allDepsSatisfied(depsByActivity[name], itemByName, proj.ActivityConstruction, milestones)
+		if res.problemReason != "" {
+			if problemReason == "" {
+				problemActivityID, problemReason, problemKind = name, res.problemReason, res.problemKind
+			}
+			continue
+		}
+		if !res.satisfied {
 			continue
 		}
 		candidates = append(candidates, candidate{declIdx: i, activity: name})
 	}
 	if len(candidates) == 0 {
-		return constructionActivity{}, false
+		if problemReason != "" {
+			return pumpSelection{
+				Verdict:              verdictBlocked,
+				BlockedActivityID:    problemActivityID,
+				BlockedFailureReason: problemKind,
+				BlockedReason: fmt.Sprintf(
+					"activity %s: %s — terminally failed; amending the committed network alone will NOT restart it (RecordActivityFailed is sticky and there is no reopen/retry path)",
+					problemActivityID, problemReason),
+			}
+		}
+		return pumpSelection{Verdict: verdictQuiescent}
 	}
 	sort.SliceStable(candidates, func(i, j int) bool {
 		if candidates[i].declIdx != candidates[j].declIdx {
@@ -784,17 +848,47 @@ func nextEligibleActivity(proj projectstate.Project) (constructionActivity, bool
 
 	chosen := candidates[0].activity
 	item := itemByName[chosen]
-	var produced []projectstate.ProducedArtifact
-	if proj.ActivityConstruction != nil {
-		produced = proj.ActivityConstruction[chosen].Produced
+
+	// Component identity is AUTHORED (spec §2.5): its presence declares the activity
+	// structural, its absence declares it nonstructural or noncoding. ServiceContracts
+	// play NO part in selection — requiring one was the chicken-and-egg that stalled
+	// every fresh project, since the contract is produced by the detailed-design PHASE
+	// of the very activity being selected.
+	var comp *projectstate.Component
+	if item.ComponentID != "" {
+		comp = lookupComponent(proj, item.ComponentID)
+		if comp == nil {
+			return pumpSelection{
+				Verdict:              verdictBlocked,
+				BlockedActivityID:    chosen,
+				BlockedFailureReason: projectstate.ComponentUnresolved,
+				BlockedReason: fmt.Sprintf(
+					"activity %s names component %q, which is not in the committed systemDesign — terminally failed; amending the committed activityList alone will NOT restart it (RecordActivityFailed is sticky and there is no reopen/retry path)",
+					chosen, item.ComponentID),
+			}
+		}
 	}
-	component, ok := resolveComponentID(item.Title, produced, proj.ServiceContracts)
-	if !ok {
-		slog.Warn("construction pump: no service-contract key resolves for activity — skipping dispatch",
-			"activityId", chosen, "title", item.Title)
-		return constructionActivity{}, false
+	return pumpSelection{Verdict: verdictDispatch, Activity: hydrateConstructionActivity(chosen, item, comp)}
+}
+
+// lookupComponent resolves a component id against the committed systemDesign by EXACT
+// id match. Returns nil when the slot is uncommitted/unpopulated or no component has
+// that id — both are the caller's blocked case. No normalization, no name matching:
+// the authored id is the identity (spec §2.1).
+func lookupComponent(proj projectstate.Project, id string) *projectstate.Component {
+	if proj.SystemDesign.Status != projectstate.ReviewCommitted {
+		return nil
 	}
-	return hydrateConstructionActivity(chosen, item, component), true
+	sys, ok := proj.SystemDesign.Model.(*projectstate.System)
+	if !ok || sys == nil {
+		return nil
+	}
+	for i := range sys.Components {
+		if sys.Components[i].ID == id {
+			return &sys.Components[i]
+		}
+	}
+	return nil
 }
 
 // committedPlanInputs returns the committed typed Network + ActivityList head-state
@@ -818,71 +912,6 @@ func committedPlanInputs(proj projectstate.Project) (*projectstate.Network, *pro
 	return network, activityList, true
 }
 
-// resolveComponentID maps an activity to its service-contract component KEY.
-func resolveComponentID(title string, produced []projectstate.ProducedArtifact, contracts map[string]projectstate.ServiceContract) (string, bool) {
-	for _, art := range produced {
-		if art.Kind != "service-contract" {
-			continue
-		}
-		if key, ok := matchContractKey(art.Title, contracts); ok {
-			return key, true
-		}
-	}
-
-	base := title
-	if i := strings.IndexByte(base, '('); i >= 0 {
-		base = base[:i]
-	}
-	n := normalizeIdent(base)
-	best, bestLen := "", 0
-	for comp := range contracts {
-		cn := normalizeIdent(comp)
-		if cn != "" && len(cn) > bestLen && strings.Contains(n, cn) {
-			best, bestLen = comp, len(cn)
-		}
-	}
-	if best != "" {
-		return best, true
-	}
-	return "", false
-}
-
-// matchContractKey resolves a produced service-contract artifact title to a real key.
-func matchContractKey(title string, contracts map[string]projectstate.ServiceContract) (string, bool) {
-	n := normalizeIdent(title)
-	if n == "" {
-		return "", false
-	}
-	best, bestLen := "", 0
-	for comp := range contracts {
-		cn := normalizeIdent(comp)
-		if cn == "" {
-			continue
-		}
-		if cn == n {
-			return comp, true
-		}
-		if len(cn) > bestLen && strings.Contains(n, cn) {
-			best, bestLen = comp, len(cn)
-		}
-	}
-	if best != "" {
-		return best, true
-	}
-	return "", false
-}
-
-// normalizeIdent lowercases s and keeps only [a-z0-9].
-func normalizeIdent(s string) string {
-	var b strings.Builder
-	for _, r := range strings.ToLower(s) {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
-			b.WriteRune(r)
-		}
-	}
-	return b.String()
-}
-
 // isActivityNotStarted reports whether the activity is in the NotStarted phase.
 func isActivityNotStarted(activityID string, status map[string]projectstate.ActivityConstructionStatus) bool {
 	if status == nil {
@@ -895,36 +924,142 @@ func isActivityNotStarted(activityID string, status map[string]projectstate.Acti
 	return s.Phase == projectstate.ActivityConstructionNotStarted
 }
 
-// allDepsDone reports whether every dependency has Phase == Done.
-func allDepsDone(deps []string, status map[string]projectstate.ActivityConstructionStatus) bool {
-	for _, dep := range deps {
-		if status == nil {
-			return false
+// milestonesByID indexes the network's AUTHORED milestones (M0-M5 + N-DOGFOOD, per
+// projectstate.NetworkMilestone) by id for O(1) lookup during dependency resolution.
+// Built once per selection from the authored Network.Milestones slice — the only
+// iteration is over that slice's fixed authored order, so this stays deterministic
+// (no map-order-sensitive decision is ever made from it; it is purely a lookup index).
+func milestonesByID(network *projectstate.Network) map[string]projectstate.NetworkMilestone {
+	m := make(map[string]projectstate.NetworkMilestone, len(network.Milestones))
+	for _, ms := range network.Milestones {
+		m[ms.ID] = ms
+	}
+	return m
+}
+
+// depResolution is the outcome of resolving one dependency id. problemReason is set
+// (non-empty) the instant resolution meets a genuine plan-authoring defect — an id
+// naming neither an activity nor a milestone, or a milestone dependency cycle — and
+// is propagated unchanged back up through every enclosing recursive frame, so the
+// caller always reports the FIRST defect actually encountered. problemKind
+// discriminates the two defect CLASSES (projectstate.DependencyUnresolved for a
+// dangling id, projectstate.DependencyCycle for a cycle) — the repair-class choice
+// per the FailureReason ruling; problemReason stays free text WITHIN that class.
+type depResolution struct {
+	satisfied     bool
+	problemReason string
+	problemKind   projectstate.FailureReason
+}
+
+// resolveDependencySatisfied resolves whether one dependency id is satisfied.
+//
+//   - Names an ACTIVITY (present in itemByName, the authored ActivityList) —
+//     satisfied iff its ActivityConstruction head-state record exists with
+//     Phase==Done. This is today's meaning, unchanged.
+//   - Names a MILESTONE (present in milestones, the authored Network.Milestones) —
+//     milestones never receive a head-state record of their own (they are
+//     zero-duration authored event nodes, not activities), so their satisfaction is
+//     DERIVED: satisfied iff every id in the milestone's OWN DependsOn is,
+//     recursively, satisfied. A milestone with no DependsOn (the project-start gate)
+//     is satisfied.
+//   - Names NEITHER — a genuine authored-network defect — is surfaced via
+//     problemReason/problemKind (projectstate.DependencyUnresolved) rather than
+//     silently folded into "not satisfied"; the same loud-terminal treatment as the
+//     R4-style ComponentUnresolved precedent this mirrors (constructionmanager.go's
+//     nextEligibleActivity componentId check / pumpnextactivity.go verdictBlocked),
+//     but its OWN FailureReason variant — dangling reference is a different repair
+//     class from an unresolved componentId, even though both escalate the same way.
+//
+// visiting is the set of milestone ids currently on THIS call's recursion stack.
+// Re-entering an id already in it is a cycle in the authored network — reported as a
+// problemKind==projectstate.DependencyCycle problem instead of recursing forever: an
+// authored cycle is a real possibility (this is data the pump does not control) and
+// an infinite loop inside a Temporal workflow is far worse than a false negative, so
+// termination is guaranteed unconditionally by this check, independent of any
+// assumption that the network is acyclic. Every id in a cycle DOES resolve (to a
+// milestone), which is exactly why this is DependencyCycle, not
+// DependencyUnresolved — the topology is broken, not a dangling reference.
+func resolveDependencySatisfied(
+	depID string,
+	itemByName map[string]projectstate.ActivityItem,
+	status map[string]projectstate.ActivityConstructionStatus,
+	milestones map[string]projectstate.NetworkMilestone,
+	visiting map[string]bool,
+) depResolution {
+	if ms, isMilestone := milestones[depID]; isMilestone {
+		if visiting[depID] {
+			return depResolution{problemKind: projectstate.DependencyCycle, problemReason: fmt.Sprintf(
+				"milestone dependency cycle detected: %q depends (directly or transitively) on itself", depID)}
 		}
-		s, exists := status[dep]
-		if !exists || s.Phase != projectstate.ActivityConstructionDone {
-			return false
+		visiting[depID] = true
+		defer delete(visiting, depID)
+		for _, sub := range ms.DependsOn {
+			r := resolveDependencySatisfied(sub, itemByName, status, milestones, visiting)
+			if r.problemReason != "" {
+				return r
+			}
+			if !r.satisfied {
+				return depResolution{satisfied: false}
+			}
+		}
+		return depResolution{satisfied: true}
+	}
+	if _, isActivity := itemByName[depID]; isActivity {
+		if status == nil {
+			return depResolution{satisfied: false}
+		}
+		s, exists := status[depID]
+		return depResolution{satisfied: exists && s.Phase == projectstate.ActivityConstructionDone}
+	}
+	return depResolution{problemKind: projectstate.DependencyUnresolved, problemReason: fmt.Sprintf(
+		"dependency id %q is neither an authored activity (activityList) nor an authored milestone (network.milestones)",
+		depID)}
+}
+
+// allDepsSatisfied reports whether every dependency id for one activity resolves to
+// satisfied, short-circuiting on the first unsatisfied id OR the first authoring
+// problem (whichever is found first, in authored slice order). A fresh `visiting` set
+// per top-level dependency id keeps unrelated dependency chains from cross-polluting
+// each other's cycle detection.
+func allDepsSatisfied(
+	deps []string,
+	itemByName map[string]projectstate.ActivityItem,
+	status map[string]projectstate.ActivityConstructionStatus,
+	milestones map[string]projectstate.NetworkMilestone,
+) depResolution {
+	for _, dep := range deps {
+		r := resolveDependencySatisfied(dep, itemByName, status, milestones, map[string]bool{})
+		if r.problemReason != "" || !r.satisfied {
+			return r
 		}
 	}
-	return true
+	return depResolution{satisfied: true}
 }
 
 // hydrateConstructionActivity populates a constructionActivity from the activity id +
-// its ActivityList item. Coding=true → Construction; Coding=false → Noncoding.
-func hydrateConstructionActivity(activityID string, item projectstate.ActivityItem, componentID string) constructionActivity {
+// its ActivityList item. Coding=true → Construction; Coding=false → Noncoding. comp is
+// the resolved systemDesign component, or nil for a componentless (nonstructural or
+// noncoding) activity — it supplies BOTH the ComponentID passed to the dispatch as
+// component_id AND the Layer, which had no populator before this change and printed
+// as an empty string into every PR body.
+func hydrateConstructionActivity(activityID string, item projectstate.ActivityItem, comp *projectstate.Component) constructionActivity {
 	kind := activityKindNoncoding
 	if item.Coding {
 		kind = activityKindConstruction
 	}
 	typ := projectstate.DeriveType(activityID)
 	variant := projectstate.DeriveVariant(activityID)
-	return constructionActivity{
+	act := constructionActivity{
 		ActivityID:   activityID,
 		Kind:         kind,
-		ComponentID:  componentID,
 		EstimateDays: item.EffortDays,
 		Phases:       projectstate.ProfileFor(typ, variant).PhaseIDs(),
 	}
+	if comp != nil {
+		act.ComponentID = comp.ID
+		act.Layer = comp.Layer.String()
+	}
+	return act
 }
 
 // gitactivities.go held the CUSTOM per-activity git head-state Record Activities
@@ -1035,7 +1170,7 @@ type wfDeps struct {
 
 	// NextEligibleActivity resolves the next eligible construction activity for a
 	// project from its head-state (the Manager's own pure selection).
-	NextEligibleActivity func(proj projectstate.Project) (constructionActivity, bool)
+	NextEligibleActivity func(proj projectstate.Project) pumpSelection
 
 	// InterventionPolicy is the project's committed policy snapshot the Manager feeds
 	// the interventionEngine by value, typed DIRECTLY as the Engine's own published
@@ -1064,7 +1199,7 @@ type workflows struct {
 	RailEnabled bool
 	Repo        func(projectID ProjectID) (sourcecontrol.RepoRef, bool)
 
-	NextEligibleActivity  func(proj projectstate.Project) (constructionActivity, bool)
+	NextEligibleActivity  func(proj projectstate.Project) pumpSelection
 	InterventionPolicy    intervention.InterventionPolicy
 	EscalationWaitTimeout time.Duration
 }

@@ -31,17 +31,23 @@ package main
 //	                                 documented default rate spec — listed so the
 //	                                 silent default is at least visible.
 //
-// THE ACTIVITY→COMPONENT JOIN mirrors the construction pump's dispatch join
-// (internal/manager/construction/eligibility.go, resolveComponentID): normalize to
-// [a-z0-9] and take the LONGEST component key contained in the normalized subject,
-// with the title truncated at '(' exactly as dispatch does. Dispatch matches the
-// activity TITLE against the serviceContracts keys; at Phase-2 validate time no
-// contracts exist yet, so the match domain here is the committed System's component
-// IDs, Names, and declared ContractKeys — and the activity NAME is a subject alongside
-// the title, which is what resolves the `<componentId>-coding` naming convention
-// (gtdapp shape) as well as the `Build <ComponentName>` title convention. The derive
-// is per-activity single-target (longest match wins), exactly like dispatch, so a
-// coding activity covers precisely ONE component.
+// THE ACTIVITY→COMPONENT JOIN below is a NORMALIZED longest-key-containment match
+// (title truncated at '('): normalize to [a-z0-9] and take the LONGEST component key
+// contained in the normalized subject. Subjects are the activity Name AND Title; keys
+// are the committed System's component IDs, Names, and declared ContractKeys — which
+// resolves both the `<componentId>-coding` naming convention (gtdapp shape) and the
+// `Build <ComponentName>` title convention. The derive is per-activity single-target
+// (longest match wins), so a coding activity covers precisely ONE component.
+//
+// This USED TO mirror the construction pump's own dispatch join byte-for-byte
+// (resolveComponentID, internal/manager/construction/eligibility.go). That function
+// and file no longer exist: this branch (construction-dispatch-componentid) replaced
+// title-normalization dispatch with an AUTHORED ActivityItem.ComponentID field,
+// exact-matched against committed System component ids (constructionmanager.go,
+// nextEligibleActivity / lookupComponent — no normalization, no name matching). The
+// normalized join here is therefore no longer a parity mirror of dispatch; it is now
+// this validator's own Phase-2 convention, unchanged, pending a Stage-2 rewrite to
+// align it with the authored componentId.
 //
 // Severity policy: these are System×ActivityList JOIN rules, so they take the SAME
 // staleness-aware downgrade the DEP-* System×OperationalConcepts rules take (see
@@ -204,11 +210,14 @@ func activityCoverageFindings(proj projectstate.Project) []methodcheck.Finding {
 }
 
 // deriveActivityComponent derives the single System component a coding activity
-// builds — the validate-time twin of the construction pump's resolveComponentID
-// (internal/manager/construction/eligibility.go): normalized longest-key containment,
-// title truncated at '('. Subjects are the activity Name AND Title; keys are the
-// component ID, Name, and declared ContractKey. Longest normalized key wins, so an
-// activity resolves "operation-estimation-engine" over "estimation-engine".
+// builds, by normalized longest-key containment: title truncated at '('. Subjects
+// are the activity Name AND Title; keys are the component ID, Name, and declared
+// ContractKey. Longest normalized key wins, so an activity resolves
+// "operation-estimation-engine" over "estimation-engine". This no longer mirrors
+// the construction pump's dispatch join — dispatch now resolves via the AUTHORED
+// ActivityItem.ComponentID field (constructionmanager.go); see the package-level
+// comment above for why. deriveActivityComponent ignores item.ComponentID and
+// keeps deriving from Name/Title, unchanged — a Stage-2 concern.
 func deriveActivityComponent(item projectstate.ActivityItem, comps []projectstate.Component) (string, bool) {
 	var subjects []string
 	if n := normalizeIdent(item.Name); n != "" {
@@ -290,10 +299,13 @@ func componentKindWord(k projectstate.ComponentKind) string {
 	}
 }
 
-// normalizeIdent lowercases s and keeps only [a-z0-9] — byte-for-byte the dispatch
-// join's normalizer (internal/manager/construction/eligibility.go normalizeIdent),
-// duplicated here because it is unexported there and this binary must not widen the
-// construction Manager's surface for a validator concern.
+// normalizeIdent lowercases s and keeps only [a-z0-9]. It used to be a byte-for-byte
+// duplicate of the dispatch join's normalizer (internal/manager/construction/
+// eligibility.go normalizeIdent), kept as a copy because it was unexported there and
+// this binary must not widen the construction Manager's surface for a validator
+// concern. That source function and file are gone: dispatch no longer normalizes an
+// identifier at all, it exact-matches an authored ActivityItem.ComponentID. This copy
+// now stands alone as this validator's own normalizer.
 func normalizeIdent(s string) string {
 	var b strings.Builder
 	for _, r := range strings.ToLower(s) {
