@@ -34,3 +34,31 @@ export async function fetchCapabilities(): Promise<Capabilities> {
   }
   return (await res.json()) as Capabilities;
 }
+
+/** The wire shape GET /api/v1/projects/{projectId}/operated-app-id answers. */
+export interface OperatedAppIdResponse {
+  readonly operatedAppId: string;
+}
+
+/**
+ * Raw fetch for GET /api/v1/projects/{projectId}/operated-app-id — the operated
+ * app id a project's deployment carries (spec D13, 2026-08-08 final review).
+ *
+ * The SERVER derives it (server/cmd/server/hooks.go's OperatedAppIDForProject:
+ * UUIDv5 over a fixed namespace and the project id) and the browser only reads
+ * it. That split is deliberate: the derivation has exactly one authority, and
+ * reimplementing UUIDv5 here — assembling SHA-1 bytes and stamping version and
+ * variant bits by hand — would be a second one, free to drift from the first
+ * with no test able to see it. This is a composition-root-only route, like
+ * fetchCapabilities above, so it is hand-typed rather than generated.
+ */
+export async function fetchOperatedAppId(projectId: string): Promise<OperatedAppIdResponse> {
+  const res = await fetch(
+    `${config.apiBaseUrl}/api/v1/projects/${encodeURIComponent(projectId)}/operated-app-id`,
+    { headers: { Accept: 'application/json' } }
+  );
+  if (!res.ok) {
+    throw new Error(`Failed to load operated app id: ${String(res.status)} ${res.statusText}`);
+  }
+  return (await res.json()) as OperatedAppIdResponse;
+}

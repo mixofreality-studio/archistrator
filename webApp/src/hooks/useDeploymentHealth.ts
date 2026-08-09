@@ -11,17 +11,16 @@
  * whether that's because the server never observed the key or because it
  * explicitly reported Neutral collapses to the same thing here.
  *
- * CONVENTION (founder ruling, 2026-08-08): an operated app's id IS its project's
- * id. An operated app is the deployed instance of one project's system, and
- * today there is exactly one per project, so callers pass the project's own id
- * as `operatedAppId` — there is no separate lookup verb or stored correlation.
- * This is a default that can be relaxed, not a load-bearing identity: if a
- * project ever needs more than one deployment, a real lookup gets added then,
- * the first deployment keeps its id (== the project id, unchanged), and any
- * additional ones take fresh ids. Do not treat the two ids as coincidentally
- * equal — they are equal BY this convention, and a future divergence (a real
- * operatedAppId <> projectId mapping) is the intended relaxation path, not a
- * bug to route around silently.
+ * CONVENTION (founder ruling, 2026-08-08; mechanism corrected in that day's final
+ * review): an operated app's id is DERIVED from its project's id — one operated
+ * app per project, no lookup verb, nothing stored to correlate them. Callers pass
+ * the value useOperatedAppId reads, NOT the project id itself: the two are not
+ * interchangeable (a project id is a free-form string, an operatedAppId is a uuid)
+ * and passing the project id straight through 400s on every poll. This is a
+ * default that can be relaxed, not a load-bearing identity: if a project ever
+ * needs more than one deployment, a real lookup gets added then, the first
+ * deployment keeps the id the derivation yields, and additional ones take fresh
+ * ids.
  *
  * Runtime health can change between polls (a rollout settling, a pod restarting),
  * so this refetches on the same cadence useOperationsView.ts's runtime poll uses
@@ -46,8 +45,9 @@ export function deploymentHealthKey(operatedAppId: string): readonly unknown[] {
 }
 
 /**
- * @param operatedAppId The operated app to read live health for — by convention,
- *   the project's own id (see the module doc above). Empty stays dormant.
+ * @param operatedAppId The operated app to read live health for — the id derived
+ *   from the project (useOperatedAppId; see the module doc above). Empty stays
+ *   dormant, which is also what an un-loaded derivation looks like.
  * @param capabilityEnabled Whether the operations capability is on (D9); the
  *   caller reads this from useCapabilities().operations.
  */
