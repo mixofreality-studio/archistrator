@@ -179,9 +179,8 @@ type SystemRelationship struct {
 }
 
 type SystemView struct {
-	Components     []SystemComponent    `json:"components"`
-	Relationships  []SystemRelationship `json:"relationships,omitempty"`
-	CoreUseCaseIDs []string             `json:"coreUseCaseIds,omitempty"`
+	Components    []SystemComponent    `json:"components"`
+	Relationships []SystemRelationship `json:"relationships,omitempty"`
 }
 
 type WorkerMix struct {

@@ -265,7 +265,7 @@
    "uiSurface": false
   },
   {
-   "constructionProfile": "handwritten",
+   "constructionProfile": "provided",
    "id": "security",
    "kind": "utility",
    "name": "Security",
@@ -273,7 +273,7 @@
    "uiSurface": false
   },
   {
-   "constructionProfile": "handwritten",
+   "constructionProfile": "provided",
    "id": "logging",
    "kind": "utility",
    "name": "Logging",
@@ -281,7 +281,7 @@
    "uiSurface": false
   },
   {
-   "constructionProfile": "handwritten",
+   "constructionProfile": "provided",
    "id": "diagnostics",
    "kind": "utility",
    "name": "Diagnostics",
@@ -289,20 +289,13 @@
    "uiSurface": false
   },
   {
-   "constructionProfile": "handwritten",
+   "constructionProfile": "provided",
    "id": "message-bus",
    "kind": "utility",
    "name": "MessageBus",
    "provisioning": "owned",
    "uiSurface": false
   }
- ],
- "coreUseCaseIds": [
-  "UC1",
-  "UC2",
-  "UC3",
-  "UC4",
-  "UC5"
  ],
  "relationships": [
   {

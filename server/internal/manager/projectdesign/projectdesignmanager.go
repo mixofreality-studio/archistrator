@@ -3029,9 +3029,7 @@ func derefBool(p *bool) bool { return p != nil && *p }
 // toEstimationSystemView converts the canonical System to the estimation Engine's OWN
 // slim SystemView at the call boundary. Only what the derivation reads crosses:
 // identity, kind, and the three typed doctrine attributes (constructionProfile,
-// provisioning, uiSurface). CoreUseCaseIDs is left unset here — Task 10 wires it from
-// the committed .coreUseCases slot once the System and CoreUseCases are assembled
-// together on the read path; this function sees only the System.
+// provisioning, uiSurface).
 //
 // An unauthored constructionProfile defaults to "handwritten" — the CONSERVATIVE
 // direction. Defaulting to "generated" would silently delete real planned work, which
@@ -3080,15 +3078,19 @@ func toProjectStateActivityList(plan estimation.DerivedPlan) projectstate.Activi
 // it derives the baseline from the committed System, applies the authored deltas, and
 // returns the canonical shapes every existing reader already consumes.
 //
+// No core-use-case ids are consumed here: the founder's 2026-08-09 ruling drops I-*
+// integration activities entirely (App A makes integration a phase of every activity's
+// own lifecycle, so a separate I-* would charge the same work twice), which was the only
+// thing that ever read them. SystemView.CoreUseCaseIDs is gone from the contract
+// (Task 10a); do not resurrect a use-case-id parameter here to feed it.
+//
 // A delta that violates the vocabulary fails the READ, loudly. Silently dropping a bad
 // delta would be the zombie failure mode returning by another door.
 func MaterializeActivityPlan(
 	sys projectstate.System,
-	useCaseIDs []string,
 	deltas estimation.ActivityListDeltas,
 ) (projectstate.ActivityList, []projectstate.NetworkDependency, error) {
 	view := toEstimationSystemView(sys)
-	view.CoreUseCaseIDs = useCaseIDs
 
 	plan, err := estimation.NewEstimationEngine().DerivePlan(fweng.Context{}, view, deltas)
 	if err != nil {

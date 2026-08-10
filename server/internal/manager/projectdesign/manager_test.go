@@ -5219,7 +5219,7 @@ func TestMaterializeActivityPlanProducesTheReaderShape(t *testing.T) {
 		{ID: "order-manager", Name: "OrderManager", Kind: projectstate.CompManager},
 		{ID: "order-access", Name: "OrderAccess", Kind: projectstate.CompResourceAccess},
 	}}
-	list, deps, err := MaterializeActivityPlan(sys, []string{"UC1"}, estimation.ActivityListDeltas{})
+	list, deps, err := MaterializeActivityPlan(sys, estimation.ActivityListDeltas{})
 	if err != nil {
 		t.Fatalf("MaterializeActivityPlan: %v", err)
 	}
@@ -5241,14 +5241,18 @@ func TestMaterializeActivityPlanProducesTheReaderShape(t *testing.T) {
 }
 
 // loadCommittedStateForTest reads the repo's own committed project document and returns
-// the slot-5 System, the core use-case ids, and the historical .activityConstruction
-// keys. It reads LIVE state rather than a fixture on purpose: the risk this test guards
-// against is one specific historical key having no derived counterpart, which a
-// synthetic fixture cannot reproduce.
+// the slot-5 System and the historical .activityConstruction keys. It reads LIVE state
+// rather than a fixture on purpose: the risk this test guards against is one specific
+// historical key having no derived counterpart, which a synthetic fixture cannot
+// reproduce.
+//
+// It no longer decodes core use cases (Task 10a): the founder's ruling drops I-*
+// integration activities entirely, which were the only thing that ever read them, and
+// MaterializeActivityPlan no longer takes a use-case-id parameter to feed.
 //
 // The path is resolved relative to this test file's package directory
 // (server/internal/manager/projectdesign), so it does not depend on the caller's cwd.
-func loadCommittedStateForTest(t *testing.T) (projectstate.System, []string, []string) {
+func loadCommittedStateForTest(t *testing.T) (projectstate.System, []string) {
 	t.Helper()
 	const rel = "../../../../.aiarch/state/project.json"
 	raw, err := os.ReadFile(rel)
@@ -5273,30 +5277,6 @@ func loadCommittedStateForTest(t *testing.T) (projectstate.System, []string, []s
 		t.Fatal("slot 5 decoded to zero components - the test would be vacuous")
 	}
 
-	// Core use cases live in their own slot (a CoreUseCases document: Decisions, each
-	// carrying a UseCase with a Classification); ids only, best effort — only the
-	// ClassCore-classified use cases feed the I-* derivation (deriveActivities: "one per
-	// core use case"). Decoded via the real projectstate.CoreUseCases shape, NOT a
-	// hand-rolled {"useCases":[...]}, which no committed slot actually uses (verified:
-	// the real slot is {"decisions":[{"useCase":{...}}]}) and would silently decode to
-	// zero ids forever, starving every I-* alias assertion below of a match to check.
-	var cuc projectstate.CoreUseCases
-	for _, slot := range doc.Slots {
-		if err := json.Unmarshal(slot.Model, &cuc); err == nil && len(cuc.Decisions) > 0 {
-			break
-		}
-	}
-	ids := make([]string, 0, len(cuc.Decisions))
-	for _, dec := range cuc.Decisions {
-		if dec.UseCase.Classification != projectstate.ClassCore {
-			continue
-		}
-		ids = append(ids, string(dec.UseCase.ID))
-	}
-	if len(ids) == 0 {
-		t.Fatal("core use cases decoded to zero ids - the I-UC* alias assertions would be vacuous")
-	}
-
 	keys := make([]string, 0, len(doc.ActivityConstruction))
 	for k := range doc.ActivityConstruction {
 		keys = append(keys, k)
@@ -5305,7 +5285,7 @@ func loadCommittedStateForTest(t *testing.T) (projectstate.System, []string, []s
 	if len(keys) == 0 {
 		t.Fatal("activityConstruction decoded to zero keys - the test would be vacuous")
 	}
-	return sys, ids, keys
+	return sys, keys
 }
 
 // THE JOIN THAT MUST NOT BREAK. Once the derivation is authoritative, slot 9 renders
@@ -5316,8 +5296,8 @@ func loadCommittedStateForTest(t *testing.T) (projectstate.System, []string, []s
 // committed key set rather than a fixture, because the risk is a specific historical key
 // having no derived counterpart.
 func TestEveryHistoricalConstructionKeyResolvesToADerivedActivity(t *testing.T) {
-	sys, useCaseIDs, historicalKeys := loadCommittedStateForTest(t)
-	list, _, err := MaterializeActivityPlan(sys, useCaseIDs, estimation.ActivityListDeltas{})
+	sys, historicalKeys := loadCommittedStateForTest(t)
+	list, _, err := MaterializeActivityPlan(sys, estimation.ActivityListDeltas{})
 	if err != nil {
 		t.Fatalf("MaterializeActivityPlan: %v", err)
 	}
@@ -5340,9 +5320,16 @@ func TestEveryHistoricalConstructionKeyResolvesToADerivedActivity(t *testing.T) 
 	//     historical effort (20/25/15 days) built the code-generation pipeline itself —
 	//     genuinely one-time, non-recurring work with no place in a plan that is derived
 	//     fresh from the CURRENT architecture on every read.
+	//   - I-UC1..I-UC5: the founder's 2026-08-09 ruling (Task 10a) drops I-* integration
+	//     activities entirely — App A makes integration a PHASE of every activity's own
+	//     lifecycle, so a separate I-* charges the same work twice — so NO I-* activity is
+	//     ever derived any more. These five still resolve through the alias map (it
+	//     records history, not what is still derived), but their canonical target is now
+	//     permanently absent from every derived plan, same as the zombies above.
 	noCounterpart := map[string]bool{
 		"C-HE": true, "C-WIA": true, "R-WIT": true, "R-DER": true,
 		"C-CW": true, "C-CM": true, "C-CS": true,
+		"I-UC1": true, "I-UC2": true, "I-UC3": true, "I-UC4": true, "I-UC5": true,
 	}
 
 	for _, historical := range historicalKeys {
@@ -5371,7 +5358,7 @@ func TestMaterializeActivityPlanPropagatesDeltaErrors(t *testing.T) {
 	sys := projectstate.System{Components: []projectstate.Component{
 		{ID: "order-manager", Name: "OrderManager", Kind: projectstate.CompManager},
 	}}
-	_, _, err := MaterializeActivityPlan(sys, nil, estimation.ActivityListDeltas{
+	_, _, err := MaterializeActivityPlan(sys, estimation.ActivityListDeltas{
 		Overrides: []estimation.ActivityOverride{{Activity: "C-gone", Justification: "j"}},
 	})
 	if err == nil {

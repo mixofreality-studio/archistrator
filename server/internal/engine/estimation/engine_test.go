@@ -798,7 +798,8 @@ func TestDefaultRiskIsFibonacci(t *testing.T) {
 
 // sampleSystem is a miniature but complete System: one handwritten manager, one engine,
 // one resourceAccess, one GENERATED client that carries a UI surface, one vendor
-// resource, one owned resource, and one utility. It exercises every emission rule.
+// resource, one owned resource, one handwritten utility, and one PROVIDED utility. It
+// exercises every emission rule.
 func sampleSystem() SystemView {
 	return SystemView{
 		Components: []SystemComponent{
@@ -809,8 +810,8 @@ func sampleSystem() SystemView {
 			{ID: "stripe", Name: "Stripe", Kind: "resource", Provisioning: "vendor"},
 			{ID: "order-db", Name: "OrderDB", Kind: "resource", Provisioning: "owned"},
 			{ID: "logging", Name: "Logging", Kind: "utility", ConstructionProfile: "handwritten"},
+			{ID: "security", Name: "Security", Kind: "utility", ConstructionProfile: "provided"},
 		},
-		CoreUseCaseIDs: []string{"UC1", "UC2"},
 	}
 }
 
@@ -842,6 +843,21 @@ func TestDeriveActivitiesEmitsNoCodingActivityForGeneratedComponents(t *testing.
 	got := names(deriveActivities(sampleSystem()))
 	if _, ok := got["C-web-client"]; ok {
 		t.Error("emitted a coding activity for a generated-transport client; the generator does that work")
+	}
+}
+
+// Ruling 1 (founder, 2026-08-09): a "provided" component is platform/third-party
+// supplied and gets no C-* either, same as "generated" — but for a different reason
+// (configured against an off-the-shelf piece, not code the generator emits). The
+// handwritten "logging" utility in the same sampleSystem proves this isn't just "no
+// utility ever gets a C-*": the guard is on constructionProfile, not on kind.
+func TestDeriveActivitiesEmitsNoCodingActivityForProvidedComponents(t *testing.T) {
+	got := names(deriveActivities(sampleSystem()))
+	if _, ok := got["C-security"]; ok {
+		t.Error("emitted a coding activity for a provided component; it is platform/third-party supplied")
+	}
+	if _, ok := got["C-logging"]; !ok {
+		t.Error("missing C-logging; a HANDWRITTEN utility must still get a coding activity")
 	}
 }
 
@@ -894,11 +910,13 @@ func TestDeriveActivitiesNoSPAWorkWithoutAUISurface(t *testing.T) {
 	}
 }
 
-func TestDeriveActivitiesEmitsOneIntegrationActivityPerCoreUseCase(t *testing.T) {
-	got := names(deriveActivities(sampleSystem()))
-	for _, want := range []string{"I-UC1", "I-UC2"} {
-		if _, ok := got[want]; !ok {
-			t.Errorf("missing %q", want)
+// Ruling 2 (founder, 2026-08-09): no I-* integration activity is ever derived. Table
+// 11-1 has none — only System Testing (N-IT) — and App A makes integration a PHASE of
+// every activity's own lifecycle, so a separate I-* would charge the same work twice.
+func TestDeriveActivitiesEmitsNoIntegrationActivities(t *testing.T) {
+	for _, a := range deriveActivities(sampleSystem()) {
+		if len(a.Name) > 2 && a.Name[:2] == "I-" {
+			t.Errorf("derived an I-* integration activity (%s); ruling 2 drops the whole family", a.Name)
 		}
 	}
 }
@@ -1135,8 +1153,9 @@ func TestDeriveDependenciesDropsEdgesToComponentsWithNoActivity(t *testing.T) {
 }
 
 // Fixed pattern edges: the UI design gates SPA construction, the scaffold gates the
-// per-manager screens, the test plan gates the harness, and every integration gates the
-// terminal system-testing activity.
+// per-manager screens, the test plan gates the harness, and every per-manager SPA
+// construction activity gates the terminal system-testing activity (ruling 2's
+// replacement for the old I-* → N-IT edges: N-IT re-bases onto the U-SPA-* set).
 func TestDeriveDependenciesEmitsFixedPatternEdges(t *testing.T) {
 	sys := edgeSystem()
 	got := depsByActivity(deriveDependencies(sys, deriveActivities(sys)))
@@ -1152,13 +1171,12 @@ func TestDeriveDependenciesEmitsFixedPatternEdges(t *testing.T) {
 	assertContains("U-SPA-order-manager", "G-SPA")
 	assertContains("U-SPA-order-manager", "U-SPA-S")
 	assertContains("N-STH", "N-STP")
-	assertContains("N-IT", "I-UC1")
-	assertContains("N-IT", "I-UC2")
+	assertContains("N-IT", "U-SPA-order-manager")
 }
 
 // M0 is the SDP-review milestone: Löwy makes it an explicit forced dependency so that
 // no construction activity starts before the review. M1-M3 are layer-completion
-// milestones, M4 is use-cases-demonstrable.
+// milestones.
 func TestDeriveMilestones(t *testing.T) {
 	sys := edgeSystem()
 	ms := deriveMilestones(sys, deriveActivities(sys))
@@ -1166,16 +1184,18 @@ func TestDeriveMilestones(t *testing.T) {
 	for _, m := range ms {
 		byID[m.Id] = m
 	}
-	for _, want := range []string{"M0", "M1", "M2", "M3", "M4"} {
+	for _, want := range []string{"M0", "M1", "M2", "M3"} {
 		if _, ok := byID[want]; !ok {
 			t.Errorf("missing derived milestone %q", want)
 		}
 	}
-	if got := byID["M4"].DependsOn; !reflect.DeepEqual(got, []string{"I-UC1", "I-UC2"}) {
-		t.Errorf("M4 dependsOn = %v, want the integration set", got)
-	}
 	if got := byID["M3"].DependsOn; !reflect.DeepEqual(got, []string{"C-order-manager"}) {
 		t.Errorf("M3 (managers complete) dependsOn = %v, want [C-order-manager]", got)
+	}
+	// M4 (Use Cases Demonstrable) depended entirely on the now-removed I-* integration
+	// activities (ruling 2) and had no other fan-in, so it must not be derived.
+	if _, ok := byID["M4"]; ok {
+		t.Error("M4 must not be derived; it depended entirely on the removed I-* activities")
 	}
 	// M5 (v1 Production Live) depends entirely on additive noncoding, so it is NOT
 	// derived — it arrives as an additive delta.
@@ -1573,6 +1593,47 @@ func TestParityDropsGeneratedClientCodingActivities(t *testing.T) {
 	}
 }
 
+// Ruling 1 (founder, 2026-08-09): the four "provided" utilities (Keycloak-backed
+// security, OTel diagnostics, the structured logging sink, the Temporal-backed
+// message-bus) are platform/third-party supplied and get no coding activity, same as
+// "generated" — but for a different reason (configured, not code the generator emits).
+// The fixture stamps all four "provided" (testdata/system_view.json); this is
+// reachable (not vacuous) because the fixture's live-committed values were
+// "handwritten" until this task, which is exactly what would have derived a C-* for
+// each of these four before ruling 1.
+func TestParityEmitsNoCodingActivityForProvidedUtilities(t *testing.T) {
+	got := parityNames(parityPlan(t))
+	for _, c := range []string{"C-security", "C-logging", "C-diagnostics", "C-message-bus"} {
+		if got[c] {
+			t.Errorf("derived %q for a provided utility; it is platform/third-party supplied", c)
+		}
+	}
+}
+
+// Ruling 2 (founder, 2026-08-09): no I-* integration activity is ever derived. Löwy's
+// Table 11-1 has none — only System Testing (N-IT) — and App A makes integration a
+// PHASE of every activity's own lifecycle, so a separate I-* would charge the same work
+// twice. Reachable: the fixture's 5 core use cases fed I-UC1..I-UC5 before this task.
+func TestParityEmitsNoIntegrationActivities(t *testing.T) {
+	for name := range parityNames(parityPlan(t)) {
+		if len(name) > 2 && name[:2] == "I-" {
+			t.Errorf("derived an I-* integration activity (%s); ruling 2 drops the whole family", name)
+		}
+	}
+}
+
+// The derived count is an EXACT invariant, not a lower bound — a silent drift in either
+// direction (an emission rule regressing to emit too much or too little) must fail this
+// test. Task 6 established 49 over the pre-ruling fixture (progress.md, "HEADLINE
+// RESULT OF THE WHOLE PLAN"); rulings 1+2 remove exactly 9 (4 provided-utility codings
+// + 5 I-UC* integrations), landing on 40.
+func TestParityDerivesExactlyFortyActivities(t *testing.T) {
+	plan := parityPlan(t)
+	if len(plan.Activities) != 40 {
+		t.Errorf("derived %d activities, want exactly 40", len(plan.Activities))
+	}
+}
+
 // Correction 3: R-* only for vendor resources. The four owned stores get none.
 func TestParityEmitsProvisioningOnlyForVendorResources(t *testing.T) {
 	got := parityNames(parityPlan(t))
@@ -1614,7 +1675,7 @@ func TestParityCoversEveryHandwrittenCodeComponentExactlyOnce(t *testing.T) {
 		}
 	}
 	for _, c := range sys.Components {
-		if !isCodeLayer(c.Kind) || c.ConstructionProfile == "generated" {
+		if !isCodeLayer(c.Kind) || c.ConstructionProfile == "generated" || c.ConstructionProfile == "provided" {
 			continue
 		}
 		if count[c.ID] != 1 {

@@ -1,6 +1,6 @@
 {
   "id": "archistrator",
-  "version": 600,
+  "version": 601,
   "phase": 2,
   "owner": "dev-architect",
   "name": "Archistrator",
@@ -16403,16 +16403,6 @@
               "items": {
                 "$ref": "#/$defs/SystemRelationship"
               }
-            },
-            "coreUseCaseIds": {
-              "type": [
-                "null",
-                "array"
-              ],
-              "items": {
-                "type": "string"
-              },
-              "x-go-name": "CoreUseCaseIDs"
             }
           },
           "required": [

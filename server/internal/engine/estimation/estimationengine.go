@@ -1443,10 +1443,20 @@ func isCodeLayer(kind string) bool {
 }
 
 // codingActivityFor emits the C-* coding activity for a handwritten code-layer
-// component, or false when the component doesn't qualify (generated transport, or a
-// non-code-layer kind such as resource).
+// component, or false when the component doesn't qualify: generated transport (the
+// generator does that work), a non-code-layer kind such as resource, or a "provided"
+// component — platform/third-party supplied, no coding activity either.
+//
+// Löwy's Table 11-1 DOES give Logging and Security their own coding activities (6 and
+// 7) — because in that worked example they are BUILT. The rule here is about who builds
+// it, not about the layer: this project's security/diagnostics/logging/message-bus
+// utilities are CONFIGURED against off-the-shelf platform pieces (Keycloak, OTel, a
+// structured sink, the Workflow Execution Substrate), so planning construction work for
+// them would be the same defect as planning work the generator does. An unauthored
+// constructionProfile still defaults to "handwritten" upstream (toEstimationSystemView) —
+// only an explicit "generated" or "provided" value skips the activity.
 func codingActivityFor(c SystemComponent) (DerivedActivity, bool) {
-	if !isCodeLayer(c.Kind) || c.ConstructionProfile == "generated" {
+	if !isCodeLayer(c.Kind) || c.ConstructionProfile == "generated" || c.ConstructionProfile == "provided" {
 		return DerivedActivity{}, false
 	}
 	effort := defaultEffortFor(c.Kind)
@@ -1514,15 +1524,6 @@ func spaScaffoldActivities() []DerivedActivity {
 	}
 }
 
-// integrationActivityFor emits the I-* integration activity for one core use case.
-func integrationActivityFor(useCaseID string) DerivedActivity {
-	return DerivedActivity{
-		Name: "I-" + useCaseID, Title: "Integrate " + useCaseID,
-		EffortDays: 10, RiskBucket: defaultRiskFor(10),
-		WorkerClass: workerClassFor("I"), Coding: false, Derived: true,
-	}
-}
-
 // noncodingInventoryActivities emits the always-emit testing / QA inventory.
 func noncodingInventoryActivities() []DerivedActivity {
 	out := make([]DerivedActivity, 0, len(alwaysEmitNoncoding))
@@ -1550,14 +1551,19 @@ func systemHasUISurface(system SystemView) bool {
 //
 // Emission rules (each one a mechanical consequence of the architecture):
 //
-//	C-<id>          one per code-layer component with constructionProfile != "generated"
-//	(none)          generated-transport components — the generator does that work
+//	C-<id>          one per code-layer component with constructionProfile == "handwritten"
+//	(none)          "generated" components — the generator does that work
+//	(none)          "provided" components — platform/third-party supplied, nothing to build
 //	R-<id>          one per Resource with provisioning == "vendor"
 //	(none)          owned stores — schema/deploy work arrives as additive noncoding
 //	U-SPA-<manager> one per Manager, when any component declares a UI surface
 //	U-SPA-S         the SPA scaffold, when any component declares a UI surface
 //	G-SPA           the UI-design concept, when any component declares a UI surface
-//	I-UC<n>         one per core use case
+//	(none)          no I-* integration activity — App A makes integration a PHASE of
+//	                every activity's own lifecycle, so a separate I-* would charge the
+//	                same work twice; System Testing (N-IT) is the one activity Table
+//	                11-1 gives integration, and it depends on the U-SPA-* construction
+//	                activities (see addFixedPatternEdges), not on a per-use-case I-*.
 //	N-*             the always-emit testing inventory
 func deriveActivities(system SystemView) []DerivedActivity {
 	out := make([]DerivedActivity, 0, len(system.Components)*2)
@@ -1578,10 +1584,6 @@ func deriveActivities(system SystemView) []DerivedActivity {
 
 	if uiSurface {
 		out = append(out, spaScaffoldActivities()...)
-	}
-
-	for _, uc := range system.CoreUseCaseIDs {
-		out = append(out, integrationActivityFor(uc))
 	}
 
 	out = append(out, noncodingInventoryActivities()...)
@@ -1684,33 +1686,33 @@ func architectureEdges(system SystemView, byComponent map[string]string) map[str
 	return raw
 }
 
-// useCaseAndSPANames extracts the sorted I-* and U-SPA-<manager>-* activity names
-// present in the derived set, for the fixed pattern edges below.
-func useCaseAndSPANames(acts []DerivedActivity) (useCases, spaScreens []string) {
+// spaScreenNames extracts the sorted U-SPA-<manager>-* activity names present in the
+// derived set (the scaffold U-SPA-S is excluded — it is a predecessor of these, not a
+// peer), for the fixed pattern edges below.
+func spaScreenNames(acts []DerivedActivity) (spaScreens []string) {
 	for _, a := range acts {
-		if len(a.Name) > 2 && a.Name[:2] == "I-" {
-			useCases = append(useCases, a.Name)
-		}
 		if len(a.Name) > 6 && a.Name[:6] == "U-SPA-" && a.Name != "U-SPA-S" {
 			spaScreens = append(spaScreens, a.Name)
 		}
 	}
-	sort.Strings(useCases)
 	sort.Strings(spaScreens)
-	return useCases, spaScreens
+	return spaScreens
 }
 
 // addFixedPatternEdges applies the mechanical sequencing the architecture graph cannot
 // state: the UI design gates SPA construction, the scaffold gates the per-manager
-// screens, the test plan gates the harnesses, and every integration gates the terminal
-// system-testing activity. Edges into an activity absent from this derivation (e.g. no
-// UI surface) are simply skipped.
+// screens, the test plan gates the harnesses, and every per-manager SPA construction
+// activity gates the terminal system-testing activity — structurally what Table 11-1's
+// activity 21 (System Testing) does by depending on the client activities (5, 19, 20),
+// now that there is no separate I-* to depend on instead (ruling 2: integration is a
+// PHASE of each activity's own lifecycle, not a standalone activity). Edges into an
+// activity absent from this derivation (e.g. no UI surface) are simply skipped.
 func addFixedPatternEdges(reduced map[string][]string, acts []DerivedActivity) {
 	present := map[string]bool{}
 	for _, a := range acts {
 		present[a.Name] = true
 	}
-	useCases, spaScreens := useCaseAndSPANames(acts)
+	spaScreens := spaScreenNames(acts)
 
 	addEdge := func(activity, pred string) {
 		if !present[activity] || !present[pred] {
@@ -1721,12 +1723,10 @@ func addFixedPatternEdges(reduced map[string][]string, acts []DerivedActivity) {
 	for _, s := range spaScreens {
 		addEdge(s, "G-SPA")
 		addEdge(s, "U-SPA-S")
+		addEdge("N-IT", s)
 	}
 	addEdge("N-STH", "N-STP")
 	addEdge("N-RTH", "N-STP")
-	for _, uc := range useCases {
-		addEdge("N-IT", uc)
-	}
 }
 
 // deriveDependencies builds the network edges: the transitively reduced architecture
@@ -1745,9 +1745,13 @@ func deriveDependencies(system SystemView, acts []DerivedActivity) []NetworkDepe
 	return out
 }
 
-// deriveMilestones emits M0-M4. M0 is the SDP-review forced dependency (ch. 11 "About
+// deriveMilestones emits M0-M3. M0 is the SDP-review forced dependency (ch. 11 "About
 // Milestones": "none of the construction activities should start before the SDP
-// review"). M1-M3 are layer completions, M4 is use-cases-demonstrable.
+// review"). M1-M3 are layer completions.
+//
+// M4 (Use Cases Demonstrable) is deliberately NOT derived: it depended entirely on the
+// now-removed I-* integration activities (ruling 2) and had no other fan-in of its own,
+// so it is removed rather than emitted with an empty DependsOn.
 //
 // M5 (v1 Production Live) is deliberately NOT derived: it depends entirely on additive
 // noncoding activities, so it arrives as an additive delta.
@@ -1757,13 +1761,11 @@ func deriveMilestones(system SystemView, acts []DerivedActivity) []NetworkMilest
 		kindByComponent[c.ID] = c.Kind
 	}
 
-	var provisioning, engines, managers, integrations []string
+	var provisioning, engines, managers []string
 	for _, a := range acts {
 		switch {
 		case len(a.Name) > 2 && a.Name[:2] == "R-":
 			provisioning = append(provisioning, a.Name)
-		case len(a.Name) > 2 && a.Name[:2] == "I-":
-			integrations = append(integrations, a.Name)
 		case len(a.Name) > 2 && a.Name[:2] == "C-":
 			switch kindByComponent[a.ComponentID] {
 			case "engine":
@@ -1773,7 +1775,7 @@ func deriveMilestones(system SystemView, acts []DerivedActivity) []NetworkMilest
 			}
 		}
 	}
-	for _, s := range [][]string{provisioning, engines, managers, integrations} {
+	for _, s := range [][]string{provisioning, engines, managers} {
 		sort.Strings(s)
 	}
 
@@ -1782,7 +1784,6 @@ func deriveMilestones(system SystemView, acts []DerivedActivity) []NetworkMilest
 		{Id: "M1", DependsOn: provisioning},
 		{Id: "M2", DependsOn: engines},
 		{Id: "M3", DependsOn: managers},
-		{Id: "M4", DependsOn: integrations},
 	}
 }
 
