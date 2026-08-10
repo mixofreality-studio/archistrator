@@ -1524,19 +1524,28 @@ func TestAdditiveActivityIsAppended(t *testing.T) {
 
 // C2: an additive carrying a componentId is a covert per-component exclusion or
 // replacement channel. It is exactly how C-HE and C-WIA would come back.
+//
+// AdditiveActivity.ComponentID is a *string on purpose (author input, where nil-vs-
+// supplied is load-bearing) so the literal needs ptrString, NOT a bare string. The empty
+// string is deliberately still a rejection: a caller writing `"componentId": ""` is
+// supplying the field, and a plain string type could not tell that from absent.
 func TestAdditiveWithComponentIDIsRejected(t *testing.T) {
-	_, err := NewEstimationEngine().DerivePlan(fweng.Context{}, edgeSystem(), ActivityListDeltas{
-		Additive: []AdditiveActivity{{
-			Name: "N-X", Title: "x", EffortDays: 5, RiskBucket: 2,
-			WorkerClass: "junior-developer", Justification: "j",
-			ComponentID: "order-manager",
-		}},
-	})
-	var fe *fweng.Error
-	if !errors.As(err, &fe) || fe.Kind != fweng.ContractMisuse {
-		t.Fatalf("want ContractMisuse for an additive carrying a componentId, got %v", err)
+	for _, cid := range []string{"order-manager", ""} {
+		_, err := NewEstimationEngine().DerivePlan(fweng.Context{}, edgeSystem(), ActivityListDeltas{
+			Additive: []AdditiveActivity{{
+				Name: "N-X", Title: "x", EffortDays: 5, RiskBucket: 2,
+				WorkerClass: "junior-developer", Justification: "j",
+				ComponentID: ptrString(cid),
+			}},
+		})
+		var fe *fweng.Error
+		if !errors.As(err, &fe) || fe.Kind != fweng.ContractMisuse {
+			t.Fatalf("componentId=%q: want ContractMisuse for an additive carrying a componentId, got %v", cid, err)
+		}
 	}
 }
+
+func ptrString(s string) *string { return &s }
 
 // An additive may not shadow a derived activity — that is an exclusion in disguise.
 func TestAdditiveCollidingWithADerivedNameIsRejected(t *testing.T) {
