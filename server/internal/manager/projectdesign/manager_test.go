@@ -5326,10 +5326,18 @@ func TestEveryHistoricalConstructionKeyResolvesToADerivedActivity(t *testing.T) 
 	//     ever derived any more. These five still resolve through the alias map (it
 	//     records history, not what is still derived), but their canonical target is now
 	//     permanently absent from every derived plan, same as the zombies above.
+	//   - C-SE, C-LG, C-DG, C-DA: the four "provided" utilities (security/logging/
+	//     diagnostics/message-bus — founder ruling 1, Task 10a). Task 10b amended the live
+	//     committed System (slot 5) to actually carry constructionProfile: "provided" on
+	//     these four (it had been applied to the derivation's test fixture only, which is
+	//     the defect that produced the Task 10b blocker); with that fixed, the derivation
+	//     correctly never emits C-security/C-logging/C-diagnostics/C-message-bus. Their
+	//     Done+Integrated history stays valid but orphaned, same as the generated clients.
 	noCounterpart := map[string]bool{
 		"C-HE": true, "C-WIA": true, "R-WIT": true, "R-DER": true,
 		"C-CW": true, "C-CM": true, "C-CS": true,
 		"I-UC1": true, "I-UC2": true, "I-UC3": true, "I-UC4": true, "I-UC5": true,
+		"C-SE": true, "C-LG": true, "C-DG": true, "C-DA": true,
 	}
 
 	for _, historical := range historicalKeys {
@@ -5363,5 +5371,56 @@ func TestMaterializeActivityPlanPropagatesDeltaErrors(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("a delta naming an underived activity must fail the read")
+	}
+}
+
+// TestFixtureSystemViewMatchesLiveCommittedSystem is the standing guard against the exact
+// defect class that produced the Task 10b blocker: the estimation package's frozen golden
+// parity fixture (testdata/system_view.json) asserting a constructionProfile/
+// provisioning/uiSurface value that the LIVE committed System (slot 5) does not actually
+// carry. Task 7 checked agreement once with a one-off script; nothing re-ran it when Task
+// 10a changed the fixture to stamp "provided" on four utilities, so slot 5 silently fell
+// out of step and the golden-parity test kept asserting 40 against a fixture that no
+// longer described the real architecture. This makes that re-check standing rather than
+// one-off, reading LIVE state on purpose (same convention as loadCommittedStateForTest).
+func TestFixtureSystemViewMatchesLiveCommittedSystem(t *testing.T) {
+	sys, _ := loadCommittedStateForTest(t)
+	live := toEstimationSystemView(sys)
+	liveByID := make(map[string]estimation.SystemComponent, len(live.Components))
+	for _, c := range live.Components {
+		liveByID[c.ID] = c
+	}
+
+	const rel = "../../engine/estimation/testdata/system_view.json"
+	raw, err := os.ReadFile(rel)
+	if err != nil {
+		t.Fatalf("read fixture at %s: %v", rel, err)
+	}
+	var fixture estimation.SystemView
+	if err := json.Unmarshal(raw, &fixture); err != nil {
+		t.Fatalf("decode fixture: %v", err)
+	}
+	if len(fixture.Components) == 0 {
+		t.Fatal("fixture decoded to zero components - the test would be vacuous")
+	}
+
+	for _, f := range fixture.Components {
+		l, ok := liveByID[f.ID]
+		if !ok {
+			t.Errorf("fixture component %q has no live committed-System counterpart (slot 5)", f.ID)
+			continue
+		}
+		if l.Kind != f.Kind {
+			t.Errorf("component %q: fixture kind %q, live committed System kind %q", f.ID, f.Kind, l.Kind)
+		}
+		if l.ConstructionProfile != f.ConstructionProfile {
+			t.Errorf("component %q: fixture constructionProfile %q, live committed System constructionProfile %q — the fixture has drifted from the committed System", f.ID, f.ConstructionProfile, l.ConstructionProfile)
+		}
+		if l.Provisioning != f.Provisioning {
+			t.Errorf("component %q: fixture provisioning %q, live committed System provisioning %q — the fixture has drifted from the committed System", f.ID, f.Provisioning, l.Provisioning)
+		}
+		if l.UiSurface != f.UiSurface {
+			t.Errorf("component %q: fixture uiSurface %v, live committed System uiSurface %v — the fixture has drifted from the committed System", f.ID, f.UiSurface, l.UiSurface)
+		}
 	}
 }

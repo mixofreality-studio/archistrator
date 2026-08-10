@@ -1,6 +1,6 @@
 {
   "id": "archistrator",
-  "version": 601,
+  "version": 602,
   "phase": 2,
   "owner": "dev-architect",
   "name": "Archistrator",
@@ -5763,7 +5763,7 @@
             "atomicBusinessVerbs": [],
             "buildStatus": "external",
             "contractKey": "security",
-            "constructionProfile": "handwritten",
+            "constructionProfile": "provided",
             "provisioning": "owned",
             "uiSurface": false
           },
@@ -5775,7 +5775,7 @@
             "encapsulates": "Utility: structured logging sink every Manager reports to. Passes the cappuccino-machine test — serves any system, owns no business volatility.",
             "atomicBusinessVerbs": [],
             "buildStatus": "external",
-            "constructionProfile": "handwritten",
+            "constructionProfile": "provided",
             "provisioning": "owned",
             "uiSurface": false
           },
@@ -5787,7 +5787,7 @@
             "encapsulates": "Utility: health and telemetry reporting surface (OTel) for every Manager. Passes the cappuccino-machine test — serves any system, owns no business volatility.",
             "atomicBusinessVerbs": [],
             "buildStatus": "external",
-            "constructionProfile": "handwritten",
+            "constructionProfile": "provided",
             "provisioning": "owned",
             "uiSurface": false
           },
@@ -5805,7 +5805,7 @@
               "registerSchedule"
             ],
             "contractKey": "messageBus",
-            "constructionProfile": "handwritten",
+            "constructionProfile": "provided",
             "provisioning": "owned",
             "uiSurface": false
           }
