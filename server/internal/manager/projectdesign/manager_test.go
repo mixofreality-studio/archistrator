@@ -5424,3 +5424,99 @@ func TestFixtureSystemViewMatchesLiveCommittedSystem(t *testing.T) {
 		}
 	}
 }
+
+// loadDerivedPlanCheckFixtures reads the repo's own committed project document (LIVE
+// state, same convention as loadCommittedStateForTest) and returns the slot-5 System,
+// the authored overrides sidecar (top-level activityListOverrides — Task 10b Step 3,
+// "a new sibling holding the authored overrides"), and the committed slot-9 ActivityList.
+func loadDerivedPlanCheckFixtures(t *testing.T) (projectstate.System, estimation.ActivityListDeltas, projectstate.ActivityList) {
+	t.Helper()
+	const rel = "../../../../.aiarch/state/project.json"
+	raw, err := os.ReadFile(rel)
+	if err != nil {
+		t.Fatalf("read committed project state at %s: %v", rel, err)
+	}
+	var doc struct {
+		Slots map[string]struct {
+			Model json.RawMessage `json:"model"`
+		} `json:"slots"`
+		ActivityListOverrides estimation.ActivityListDeltas `json:"activityListOverrides"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("decode committed project state: %v", err)
+	}
+
+	var sys projectstate.System
+	if err := json.Unmarshal(doc.Slots["5"].Model, &sys); err != nil {
+		t.Fatalf("decode slot 5 (System): %v", err)
+	}
+	if len(sys.Components) == 0 {
+		t.Fatal("slot 5 decoded to zero components - the test would be vacuous")
+	}
+
+	var committed projectstate.ActivityList
+	if err := json.Unmarshal(doc.Slots["9"].Model, &committed); err != nil {
+		t.Fatalf("decode slot 9 (ActivityList): %v", err)
+	}
+	if len(committed.Activities) == 0 {
+		t.Fatal("slot 9 decoded to zero activities - the test would be vacuous")
+	}
+
+	return sys, doc.ActivityListOverrides, committed
+}
+
+// TestDerivedPlanMatchesCommittedState is the Task 10b drift gate (`make
+// derived-plan-check`): it re-derives the Phase-2 plan from the committed System (slot 5)
+// plus the authored overrides sidecar, and fails if the result differs from what slot 9
+// holds. This is what makes ACT-COMPONENT-COVERAGE deletable (Task 11, retired
+// 2026-08-09) — re-deriving and comparing is strictly stronger than checking coverage —
+// and it is backed by a real Go test specifically so it also runs in the normal suite; a
+// drift gate nobody remembers to run by hand is no gate at all.
+func TestDerivedPlanMatchesCommittedState(t *testing.T) {
+	sys, deltas, committed := loadDerivedPlanCheckFixtures(t)
+
+	got, _, err := MaterializeActivityPlan(sys, deltas)
+	if err != nil {
+		t.Fatalf("MaterializeActivityPlan over the committed System + overrides: %v", err)
+	}
+
+	gotByName := make(map[string]projectstate.ActivityItem, len(got.Activities))
+	for _, a := range got.Activities {
+		gotByName[a.Name] = a
+	}
+	wantByName := make(map[string]projectstate.ActivityItem, len(committed.Activities))
+	for _, a := range committed.Activities {
+		wantByName[a.Name] = a
+	}
+
+	if len(got.Activities) != len(committed.Activities) {
+		t.Errorf("re-derived %d activities, committed slot 9 holds %d", len(got.Activities), len(committed.Activities))
+	}
+	for name, want := range wantByName {
+		g, ok := gotByName[name]
+		if !ok {
+			t.Errorf("committed slot-9 activity %q is no longer produced by the derivation", name)
+			continue
+		}
+		if g.EffortDays != want.EffortDays {
+			t.Errorf("activity %q: re-derived effortDays %v, committed slot 9 holds %v", name, g.EffortDays, want.EffortDays)
+		}
+		if g.RiskBucket != want.RiskBucket {
+			t.Errorf("activity %q: re-derived riskBucket %v, committed slot 9 holds %v", name, g.RiskBucket, want.RiskBucket)
+		}
+		if g.WorkerClass != want.WorkerClass {
+			t.Errorf("activity %q: re-derived workerClass %q, committed slot 9 holds %q", name, g.WorkerClass, want.WorkerClass)
+		}
+		if g.Coding != want.Coding {
+			t.Errorf("activity %q: re-derived coding %v, committed slot 9 holds %v", name, g.Coding, want.Coding)
+		}
+		if g.ComponentID != want.ComponentID {
+			t.Errorf("activity %q: re-derived componentId %q, committed slot 9 holds %q", name, g.ComponentID, want.ComponentID)
+		}
+	}
+	for name := range gotByName {
+		if _, ok := wantByName[name]; !ok {
+			t.Errorf("the derivation now produces %q, which committed slot 9 does not hold — slot 9 has drifted from the System", name)
+		}
+	}
+}
