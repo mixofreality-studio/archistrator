@@ -41,7 +41,9 @@
   git diff --stat .aiarch/state/project.json
   ```
 
-  Expected: tens of changed lines, not thousands. Also bump the document's top-level `version` integer (currently 595) — the rail increments it on every write.
+  The test is **proportionality, not an absolute line count**: the diff should contain only your intended insertions plus the `version` bump, in contiguous hunks, with no stray reindentation elsewhere in the file. A genuinely large addition legitimately produces a large diff — 9 new `$defs` pretty-printed at 2-space indent came to 317 lines in Task 1, which was correct. What indicates a formatting accident is a diff touching regions you did not edit, or one approaching the file's full 28,334 lines. If you see that, revert with `git checkout -- .aiarch/state/project.json` and redo with the recipe above.
+
+  Also bump the document's top-level `version` integer — the rail increments it on every write. (595 before Task 1; each state-editing task bumps it again.)
 - **`contract.gen.go` and `fake/fake.gen.go` are generated. Never hand-edit them.** Change the contract in `project.json` `.serviceContracts`, then run `make gen-models`.
 - **Engine purity is a hard gate.** `internal/engine/estimation` must import ONLY `fweng` and stdlib. No `projectstate` import, no I/O, no `time.Now()`, no `math/rand`, no goroutines, no global mutable state. `make encapsulation-check` and `make method-check` must stay green.
 - **Worker classes are a fixed roster**, spelled exactly: `system-architect`, `product-manager`, `project-manager`, `senior-developer`, `junior-developer`, `ui-designer`, `ux-reviewer`, `qa-engineer`, `test-engineer`, `software-tester`.
