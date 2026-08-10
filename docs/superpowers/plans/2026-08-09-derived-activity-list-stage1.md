@@ -3254,6 +3254,28 @@ Replace the "Draft-job doctrine (CI dispatch)" task statement. The new task is:
 
 State the closed vocabulary explicitly: **no exclusions, no derived-edge overrides.** If a component needs no work it should not be a component; if a derived edge is wrong, the relationship is wrong — amend the System.
 
+- [ ] **Step 2b: Record the four doctrine corrections this project produced**
+
+These are new rules discovered during execution, not restatements. Each one prevented real defective output, so each needs to survive into the next project.
+
+**(a) Components you do not build get no coding activity — two kinds.** The skill already says generated transport gets none. Add the second kind: a component backed by an **off-the-shelf platform or third-party service** is configured, not built. This project's four utilities are all of that kind (`security` → Keycloak, `diagnostics` → OTel, `logging` → a structured sink, `message-bus` → the Temporal substrate), and the derivation initially planned 4 coding activities for work nobody was doing.
+
+State the distinction explicitly, because Löwy cuts the other way and a reader will notice: **Table 11-1 gives Logging and Security coding activities (6 and 7) — because in that example they are being built.** The rule turns on *who builds it*, never on which layer it sits in. Express it in the model as a `constructionProfile` of `generated` or `provided`; unauthored must keep defaulting to `handwritten`, so an unknown value conservatively emits work rather than silently deleting it.
+
+**(b) No per-use-case integration activities.** Delete the draft-job doctrine line instructing "one `I-UC*` integration activity per core use case". Two independent reasons:
+- **Table 11-1 has no integration activities at all** — only activity 21, System Testing, depending on 5, 19 and 20.
+- **App A makes Integration a phase of every activity's own lifecycle** (Requirements → Detailed Design → Test Plan → Construction → **Integration**), so a separate `I-*` charges the same work twice.
+
+Also reconcile the skill's internal contradiction: its Step 2 says integration goes *per component cluster* while its draft-job doctrine said *per core use case*. Neither matches the worked example. The terminal system-testing gate depends on the top-of-stack construction activities, as activity 21 does.
+
+**(c) Ground a justification in a property, not a superlative.** Every override carries a written justification, in this precedence: the committed title if it explains; else an observable checkable property; else honest provenance saying the rationale was not recorded.
+
+The failure mode worth naming: **every false justification this project produced was a superlative** — "tied for the most", "the smallest contract in the system", "the largest footprint of any engine". Each was falsified by a single counterexample somewhere in a 37-component system. The claims that held stated a bare property and its consequence ("16 contract operations, past the App-C maximum of 12") rather than a ranking. So: state the number and what follows from it; reach for a ranking only if you have checked every peer.
+
+And a false checkable claim is **worse** than honest provenance — it invites a reader to trust it and skip re-checking. "The rationale was not recorded; retained so the reviewed plan's numbers survive; flagged for re-estimation" is a good justification, not a failure to find one.
+
+**(d) The drift gate replaces coverage checking.** The activity list is generated-and-committed, gated by a target that re-derives from the committed System and fails on any difference — the same pattern as `contract.gen.go` and `make gen-models-check`. That is strictly stronger than the retired `ACT-COMPONENT-COVERAGE` rule, which could only ask whether every component appeared somewhere.
+
 - [ ] **Step 3: Update the anti-patterns and exit criteria**
 
 Add an anti-pattern: *"Authoring a derived activity by hand"* — a coding activity typed into the delta document is either a duplicate of the derived one or a zombie; the three zombies (`C-HE`, `C-WIA`, `R-WIT`) are what this prevents.
