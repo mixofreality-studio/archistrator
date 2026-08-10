@@ -219,6 +219,106 @@ func TestDerivePlanOnEmptySystemIsAnEmptyPlanNotAnError(t *testing.T) {
 	}
 }
 
+// The deferred two-pass validation exists so two additives may legally depend on each
+// other: appendAdditives indexes EVERY additive before validateAdditiveEdges checks any
+// edge. Inlining the edge check into the append loop would reject this valid input — and
+// that regression is invisible to every other test in this file, because their edge
+// targets are all derived baseline activities that exist before additive processing.
+// The reference is FORWARD on purpose: N-FIRST depends on N-SECOND, which is appended
+// after it.
+func TestAdditivesMayDependOnEachOther(t *testing.T) {
+	plan := planFor(t, ActivityListDeltas{Additive: []AdditiveActivity{
+		{
+			Name: "N-FIRST", Title: "first", EffortDays: 5, RiskBucket: 2,
+			WorkerClass: "senior-developer", DependsOn: []string{"N-SECOND"},
+			Justification: "depends on a sibling additive declared after it",
+		},
+		{
+			Name: "N-SECOND", Title: "second", EffortDays: 5, RiskBucket: 2,
+			WorkerClass:   "senior-developer",
+			Justification: "the forward-referenced sibling",
+		},
+	}})
+	if _, ok := activityNamed(plan, "N-FIRST"); !ok {
+		t.Error("N-FIRST missing from the plan")
+	}
+	if _, ok := activityNamed(plan, "N-SECOND"); !ok {
+		t.Error("N-SECOND missing from the plan")
+	}
+	var found bool
+	for _, d := range plan.Dependencies {
+		if d.Activity == "N-FIRST" && len(d.DependsOn) == 1 && d.DependsOn[0] == "N-SECOND" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("N-FIRST -> N-SECOND edge missing; the two-pass ordering has regressed to single-pass")
+	}
+}
+
+// mustReject asserts the deltas are refused with a ContractMisuse. Every caller varies
+// exactly ONE field away from an otherwise-legal delta, so the named guard is the only
+// one eligible — a rejection test that passed because an EARLIER guard fired would not
+// be testing what its name claims.
+func mustReject(t *testing.T, what string, deltas ActivityListDeltas) {
+	t.Helper()
+	_, err := NewEstimationEngine().DerivePlan(fweng.Context{}, edgeSystem(), deltas)
+	var fe *fweng.Error
+	if !errors.As(err, &fe) || fe.Kind != fweng.ContractMisuse {
+		t.Fatalf("%s: want ContractMisuse, got %v", what, err)
+	}
+}
+
+// legalAdditive passes every guard, so a caller can break exactly one field and know
+// which guard fired.
+func legalAdditive() AdditiveActivity {
+	return AdditiveActivity{
+		Name: "N-X", Title: "x", EffortDays: 5, RiskBucket: 2,
+		WorkerClass: "senior-developer", Justification: "j",
+	}
+}
+
+func TestOverrideWithNonFibonacciRiskIsRejected(t *testing.T) {
+	mustReject(t, "override with risk bucket 4", ActivityListDeltas{Overrides: []ActivityOverride{{
+		Activity: "C-order-manager", RiskBucket: ptrInt(4), Justification: "j",
+	}}})
+}
+
+func TestAdditiveWithoutJustificationIsRejected(t *testing.T) {
+	a := legalAdditive()
+	a.Justification = ""
+	mustReject(t, "additive without justification", ActivityListDeltas{Additive: []AdditiveActivity{a}})
+}
+
+func TestAdditiveWithIllegalEffortIsRejected(t *testing.T) {
+	for _, bad := range []float64{7, 40} {
+		a := legalAdditive()
+		a.EffortDays = bad
+		mustReject(t, "additive with off-quantum or oversized effort",
+			ActivityListDeltas{Additive: []AdditiveActivity{a}})
+	}
+}
+
+func TestAdditiveWithNonFibonacciRiskIsRejected(t *testing.T) {
+	a := legalAdditive()
+	a.RiskBucket = 4
+	mustReject(t, "additive with risk bucket 4", ActivityListDeltas{Additive: []AdditiveActivity{a}})
+}
+
+func TestAdditiveMilestoneWithoutJustificationIsRejected(t *testing.T) {
+	mustReject(t, "additive milestone without justification", ActivityListDeltas{
+		AdditiveMilestones: []AdditiveMilestone{{Id: "M9"}},
+	})
+}
+
+func TestAdditiveMilestoneWithDanglingDependencyIsRejected(t *testing.T) {
+	mustReject(t, "additive milestone with dangling dependsOn", ActivityListDeltas{
+		AdditiveMilestones: []AdditiveMilestone{{
+			Id: "M9", DependsOn: []string{"N-DOES-NOT-EXIST"}, Justification: "j",
+		}},
+	})
+}
+
 func ptrFloat(f float64) *float64 { return &f }
 func ptrInt(i int64) *int64       { return &i }
 func ptrString(s string) *string  { return &s }
