@@ -7985,3 +7985,40 @@ func TestLayerString(t *testing.T) {
 		}
 	}
 }
+
+func TestResolveActivityAliasMapsHistoricalShortNames(t *testing.T) {
+	canonical, ok := ResolveActivityAlias("C-BM")
+	if !ok {
+		t.Fatal("C-BM did not resolve; every historical construction key must resolve")
+	}
+	if canonical != "C-billing-manager" {
+		t.Errorf("C-BM resolved to %q, want C-billing-manager", canonical)
+	}
+}
+
+func TestResolveActivityAliasIsInjective(t *testing.T) {
+	seen := map[string]string{}
+	for historical, canonical := range activityAliases {
+		if prior, dup := seen[canonical]; dup {
+			t.Errorf("canonical id %q is claimed by both %q and %q", canonical, prior, historical)
+		}
+		seen[canonical] = historical
+	}
+}
+
+func TestHistoricalAliasForRoundTrips(t *testing.T) {
+	for historical, canonical := range activityAliases {
+		got, ok := HistoricalAliasFor(canonical)
+		if !ok || got != historical {
+			t.Errorf("round trip failed for %q: got %q, ok=%v", historical, got, ok)
+		}
+	}
+}
+
+// An unknown key must report ok=false rather than silently returning the input. A silent
+// pass-through would make a typo look like a valid activity.
+func TestResolveActivityAliasReportsUnknownKeys(t *testing.T) {
+	if _, ok := ResolveActivityAlias("C-NOPE"); ok {
+		t.Error("an unknown historical key must report ok=false")
+	}
+}

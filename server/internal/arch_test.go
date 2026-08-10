@@ -782,6 +782,15 @@ var encapsulationAllowlistData = map[string][]string{
 		"Volatilities.Kind",
 		"Volatility",
 		"WorkerMix",
+		// ACTIVITY-ID ALIAS SEAM (2026-08-09, derived-activity-list stage 1). The derived
+		// activity id is a function of the component id (C-<component-id>), while the 69
+		// existing .activityConstruction rows are keyed by hand-chosen short names (C-BM,
+		// R-GH, …) and are all Done+Integrated. Founder ruling: alias map, not a key
+		// rewrite — rewriting completed construction records for cosmetic key consistency
+		// is risk with no payoff. Exported because the join between construction state and
+		// derived activities lives OUTSIDE this package; no caller exists yet in stage 1.
+		"ResolveActivityAlias",
+		"HistoricalAliasFor",
 	},
 	// DEPLOYMENT-PROFILE VARIANT CONSTRUCTORS (step-8 A2 composegen seam): the two
 	// no-arg, no-error profile wrappers (Real/Local) the generated composition root

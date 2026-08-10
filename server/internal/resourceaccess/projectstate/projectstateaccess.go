@@ -7953,3 +7953,90 @@ func ReviewPolicyFromGateIDs(byType map[string][]string) ReviewPolicy {
 // shared kinds (fwra.NotFound, fwra.Conflict, fwra.Transient, fwra.Infrastructure,
 // fwra.ContractMisuse).
 type Error = fwra.Error
+
+// --- Historical activity-ID alias map -------------------------------------
+//
+// Maps the HISTORICAL hand-chosen activity short names (C-BM, C-AA, …) to the
+// DERIVED canonical ids (C-<component-id>).
+//
+// Why an alias map and not a key rewrite: all 69 rows in .activityConstruction
+// are keyed by the historical short names and every one is Done+Integrated.
+// Rewriting completed construction records to gain cosmetic key consistency is
+// risk with no payoff (founder ruling, 2026-08-09). The short name survives as
+// a render label; the canonical id is what the derivation produces and what
+// new state keys off.
+//
+// Only C-* / R-* activities that carried a componentId get a 1:1 alias. The
+// U-SPA-* set is re-derived per MANAGER (a different decomposition, not a
+// rename), and the three zombie activities (C-HE, C-WIA, R-WIT) have no
+// canonical counterpart by design — they name components that do not exist.
+
+// activityAliases maps historical short name → derived canonical id.
+var activityAliases = map[string]string{
+	"C-AA":  "C-artifact-access",
+	"C-AE":  "C-autoscaler-engine",
+	"C-BE":  "C-billing-engine",
+	"C-BG":  "C-merchant-gateway-access",
+	"C-BM":  "C-billing-manager",
+	"C-BS":  "C-billing-state-access",
+	"C-CM":  "C-mcp-client",
+	"C-CP":  "C-agentic-job-access",
+	"C-CS":  "C-scheduler-client",
+	"C-CW":  "C-web-client",
+	"C-DA":  "C-message-bus",
+	"C-DG":  "C-diagnostics",
+	"C-DH":  "C-design-health-engine",
+	"C-EA":  "C-episode-access",
+	"C-EE":  "C-estimation-engine",
+	"C-IE":  "C-intervention-engine",
+	"C-LG":  "C-logging",
+	"C-MCN": "C-construction-manager",
+	"C-MOP": "C-operations-manager",
+	"C-MPD": "C-project-design-manager",
+	"C-MSD": "C-system-design-manager",
+	"C-OE":  "C-operation-estimation-engine",
+	"C-OR":  "C-operated-runtime-access",
+	"C-OSA": "C-operated-system-state-access",
+	"C-PA":  "C-project-state-access",
+	"C-RE":  "C-review-engine",
+	"C-SC":  "C-source-control-access",
+	"C-SE":  "C-security",
+	"C-UA":  "C-usage-access",
+
+	// HAND-DERIVED: the generator keys on componentId, and no R-* activity in slot 9
+	// carries one (never backfilled), so these four were resolved by hand from the
+	// activity titles against the committed System's four provisioning:"vendor"
+	// components, each of which the deriver emits an R-<component-id> activity for.
+	// R-DER ("Durable Execution Runtime") and R-WIT ("Work Item Tracker") are
+	// deliberately excluded: R-DER is componentless (an additive delta, same category
+	// as the N-* checklist activities) and R-WIT is a zombie (no such resource exists).
+	"R-GH":  "R-github",                        // "Provision / register the GitHub App"
+	"R-BG":  "R-merchant-gateway",              // "Provision Stripe vendor account (BillingGateway)"
+	"R-CPR": "R-construction-pipeline-runtime", // "Select + provision Construction Pipeline Runtime"
+	"R-ORS": "R-operated-runtime",              // "Select + provision Operated Runtime Infrastructure"
+}
+
+// canonicalToHistorical is the reverse index, built once at init from activityAliases so
+// the two directions can never drift apart.
+var canonicalToHistorical = func() map[string]string {
+	m := make(map[string]string, len(activityAliases))
+	for historical, canonical := range activityAliases {
+		m[canonical] = historical
+	}
+	return m
+}()
+
+// ResolveActivityAlias maps a historical activity key to its derived canonical id.
+// ok is false for an unknown key — never a silent pass-through, which would make a typo
+// look like a valid activity.
+func ResolveActivityAlias(historical string) (string, bool) {
+	c, ok := activityAliases[historical]
+	return c, ok
+}
+
+// HistoricalAliasFor maps a derived canonical id back to the historical short name that
+// existing .activityConstruction rows are keyed by.
+func HistoricalAliasFor(canonical string) (string, bool) {
+	h, ok := canonicalToHistorical[canonical]
+	return h, ok
+}
