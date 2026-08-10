@@ -4055,7 +4055,11 @@ func (a *ActivityList) isArtifactModel() {}
 type Network struct {
 	// --- AUTHORED inputs (stored on disk) ---
 	Dependencies []NetworkDependency `json:"dependencies"`
-	CriticalPath []string            `json:"criticalPath"` // activity names on the critical path
+	// CriticalPath, for a DERIVED network (Task 10b, 2026-08-09), is written as the
+	// alphabetically-sorted SET of zero-float activity names from a ComputeNetwork
+	// solve over the derivation — not an ORDERED path through the graph, despite the
+	// field name. Do not read adjacency or sequence into its element order.
+	CriticalPath []string `json:"criticalPath"` // activity names on the critical path
 	// Milestones are the authored zero-duration event nodes (M0–M5 + N-DOGFOOD): the
 	// id/name/public/dependsOn are authored; OnCriticalPath + EventTime are computed at
 	// read. omitempty so a network with none round-trips unchanged.
@@ -7966,29 +7970,41 @@ type Error = fwra.Error
 // a render label; the canonical id is what the derivation produces and what
 // new state keys off.
 //
-// Only C-* / R-* activities that carried a componentId get a 1:1 alias. The
-// U-SPA-* set is re-derived per MANAGER (a different decomposition, not a
-// rename), and the three zombie activities (C-HE, C-WIA, R-WIT) have no
-// canonical counterpart by design — they name components that do not exist.
+// ONE SIGNATURE FOR "NO DERIVED COUNTERPART" (2026-08-10 review fix): an
+// entry belongs in this map ONLY when its canonical id names an activity the
+// derivation actually emits TODAY. A historical key whose only possible
+// canonical target is something the derivation will never (again) produce —
+// because the component is gone, because it is deliberately componentless,
+// or because a founder ruling removed that whole activity category — is left
+// OUT of the map entirely, so ResolveActivityAlias reports ok=false for it,
+// the SAME signal a genuine typo gets. Before this fix the same underlying
+// fact ("no derived counterpart") was reported two different ways depending
+// on whether anyone had bothered to type the entry in: the three zombies
+// (C-HE, C-WIA, R-WIT — components that no longer exist) and R-DER
+// (componentless) were simply absent (ok=false), while 12 other equally
+// uncounterparted keys — the three generated-transport clients (C-CW, C-CM,
+// C-CS), the four "provided" utilities (C-SE, C-LG, C-DG, C-DA), and all
+// five former integration activities (I-UC1..I-UC5, eliminated entirely by
+// the 2026-08-09 founder ruling that folds integration into every activity's
+// own lifecycle) — were IN the map and returned ok=true for a canonical id
+// nothing derives. All 16 are now absent, uniformly ok=false; see the
+// canonical id each used to carry in the git history of this file if that
+// mapping is needed again.
 //
-// Task 10 completion (2026-08-09): TestEveryHistoricalConstructionKeyResolvesTo
-// ADerivedActivity, run against the REAL committed state, found this map
-// incomplete for two further cases the "only C-*/R-*" rule above did not
-// anticipate:
-//
-//   - I-UC1..I-UC5: the historical integration activities were numbered
-//     ordinally; the derivation names an I-* activity after the CoreUseCase id
-//     it integrates (a semantic slug, e.g. "drive-system-design"), which is a
-//     rename exactly like the C-*/R-* case, just never entered here. The
-//     ordinal→slug mapping below is read off each I-UC<n>'s committed title,
-//     which states the use case in full (e.g. I-UC1's title is "End-to-end
-//     integration: UC1 (Phase-1 system-design workflow)" — the ONLY core use
-//     case about the Phase-1 system-design workflow is "drive-system-design").
-//   - G-SPA: not a rename (the derivation always emits an activity literally
-//     named "G-SPA" when the system has a UI surface), so it needs no
-//     alias BY THE RULE ABOVE — but it is entered here anyway as a trivial
-//     self-alias so the join test does not need a separate identity
-//     fallback for the one non-renamed, non-N-*/non-U-SPA-* historical key.
+// Only C-* / R-* activities that carried a componentId AND whose component
+// the current architecture still builds get a 1:1 alias. U-SPA-1..U-SPA-5
+// get a 1:1 alias too (Task 10 completion, 2026-08-10): the spec tabulates
+// them against the five managers 1:1, so — unlike the rest of the U-SPA-*
+// set, which is re-derived per MANAGER as a genuinely different
+// decomposition and needs no alias — these five ARE plain renames, resolved
+// by hand from each activity's committed title against the five manager
+// components (e.g. U-SPA-1's title, "SPA — Phase-1 system-design screens",
+// names the one manager that owns Phase-1 system design). U-SPA-6 and
+// U-SPA-TEAM stay unaliased: both are genuinely cross-cutting screens (a
+// change-request re-entry flow; a Team/Agents roster) that no single manager
+// owns, so — like N-* and the rest of U-SPA-* — they resolve through the
+// prefix fallback in TestEveryHistoricalConstructionKeyResolvesToADerivedActivity
+// rather than a 1:1 rename entry here.
 
 // activityAliases maps historical short name → derived canonical id.
 var activityAliases = map[string]string{
@@ -7998,17 +8014,11 @@ var activityAliases = map[string]string{
 	"C-BG":  "C-merchant-gateway-access",
 	"C-BM":  "C-billing-manager",
 	"C-BS":  "C-billing-state-access",
-	"C-CM":  "C-mcp-client",
 	"C-CP":  "C-agentic-job-access",
-	"C-CS":  "C-scheduler-client",
-	"C-CW":  "C-web-client",
-	"C-DA":  "C-message-bus",
-	"C-DG":  "C-diagnostics",
 	"C-DH":  "C-design-health-engine",
 	"C-EA":  "C-episode-access",
 	"C-EE":  "C-estimation-engine",
 	"C-IE":  "C-intervention-engine",
-	"C-LG":  "C-logging",
 	"C-MCN": "C-construction-manager",
 	"C-MOP": "C-operations-manager",
 	"C-MPD": "C-project-design-manager",
@@ -8019,7 +8029,6 @@ var activityAliases = map[string]string{
 	"C-PA":  "C-project-state-access",
 	"C-RE":  "C-review-engine",
 	"C-SC":  "C-source-control-access",
-	"C-SE":  "C-security",
 	"C-UA":  "C-usage-access",
 
 	// HAND-DERIVED: the generator keys on componentId, and no R-* activity in slot 9
@@ -8034,15 +8043,15 @@ var activityAliases = map[string]string{
 	"R-CPR": "R-construction-pipeline-runtime", // "Select + provision Construction Pipeline Runtime"
 	"R-ORS": "R-operated-runtime",              // "Select + provision Operated Runtime Infrastructure"
 
-	// HAND-DERIVED (Task 10 completion): the ordinal I-UC<n> names were never
-	// backfilled either, so these five are resolved by hand from each activity's
-	// committed title against the five "classification": "core" use cases in
-	// slot 4 (.coreUseCases).
-	"I-UC1": "I-drive-system-design",             // title: "...(Phase-1 system-design workflow)"
-	"I-UC2": "I-commit-to-a-project-option",      // title: "...(Phase-2 project-design + SDP commit)"
-	"I-UC3": "I-execute-a-construction-activity", // title: "...(construction activity execution)"
-	"I-UC4": "I-operate-a-delivered-system",      // title: "...(operate + reconcile + autoscale)"
-	"I-UC5": "I-bill-the-user-for-usage",         // title: "...(bill-the-user cycle)"
+	// HAND-DERIVED (Task 10 completion, 2026-08-10): the ordinal U-SPA-<n> names were
+	// never backfilled against the derivation's per-MANAGER decomposition, so these
+	// five are resolved by hand from each activity's committed title against the five
+	// manager components in slot 5.
+	"U-SPA-1": "U-SPA-system-design-manager",  // title: "...Phase-1 system-design screens..."
+	"U-SPA-2": "U-SPA-project-design-manager", // title: "...Phase-2 project-design screens..."
+	"U-SPA-3": "U-SPA-construction-manager",   // title: "...Construction tracking + artifacts console..."
+	"U-SPA-4": "U-SPA-operations-manager",     // title: "...Operations console..."
+	"U-SPA-5": "U-SPA-billing-manager",        // title: "...Billing screens..."
 
 	// Trivial self-alias — see the file doc above for why G-SPA is entered here
 	// even though it is not a rename.

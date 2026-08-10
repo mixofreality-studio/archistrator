@@ -1044,10 +1044,24 @@ func TestTransitiveReductionIsSorted(t *testing.T) {
 }
 
 // A cycle is bad input, but the reduction must TERMINATE rather than hang or overflow —
-// a malformed committed System must never wedge the derivation.
-func TestTransitiveReductionTerminatesOnCycles(_ *testing.T) {
-	in := map[string][]string{"a": {"b"}, "b": {"a"}}
-	_ = transitiveReduction(in) // must simply return
+// a malformed committed System must never wedge the derivation. A blank *testing.T
+// (the prior form of this test) is structurally incapable of reporting a failure, so it
+// could never actually catch a hang, a panic, or a wrong result; a real *testing.T plus
+// assertions closes that gap. The input pairs an isolated 2-node cycle (proves
+// termination) with an ordinary redundant-edge diamond leg elsewhere in the SAME graph
+// (proves the reduction still does real work despite the malformed component).
+func TestTransitiveReductionTerminatesOnCycles(t *testing.T) {
+	in := map[string][]string{
+		"a": {"b"}, "b": {"a"}, // 2-node cycle: must not hang or panic
+		"x": {"y", "z"}, "y": {"z"}, // x->z is redundant: z is reachable from x via y
+	}
+	got := transitiveReduction(in)
+	if got == nil {
+		t.Fatal("transitiveReduction returned nil over a graph containing a cycle")
+	}
+	if !reflect.DeepEqual(got["x"], []string{"y"}) {
+		t.Errorf(`transitiveReduction(%v)["x"] = %v, want ["y"] ("z" pruned as redundant via "y")`, in, got["x"])
+	}
 }
 
 func edgeSystem() SystemView {
@@ -1720,6 +1734,23 @@ func TestParityPlanSolvesThroughComputeNetwork(t *testing.T) {
 	}
 	if len(sol.Nodes) == 0 {
 		t.Fatal("ComputeNetwork produced no nodes for the derived plan")
+	}
+	// Every derived activity AND milestone must reach the CPM graph. buildNodeUniverse
+	// walks EDGES, not the activity list (network.go:126), so an activity with no
+	// incident edge in either direction silently gets no node at all — invisible to
+	// ES/EF/float and the critical path however large its effort (C2, 2026-08-10: this
+	// caught N-QA, N-SMOKE, N-PERF getting no node — 40 activities solving to only 37
+	// nodes, with no test catching it because the old assertion only checked
+	// len(sol.Nodes) != 0). Activities land in sol.Nodes; milestones are solved
+	// separately into sol.Milestones (buildActivityNodes excludes milestone ids from
+	// the Nodes map by design) but are unconditionally seeded into the node universe
+	// by buildNodeUniverse, so they can never go missing the way an activity can — the
+	// combined count below still asserts their presence rather than assuming it.
+	wantTotal := len(plan.Activities) + len(plan.Milestones)
+	gotTotal := len(sol.Nodes) + len(sol.Milestones)
+	if gotTotal != wantTotal {
+		t.Errorf("ComputeNetwork solved %d total nodes (%d activities + %d milestones), want %d (%d activities + %d milestones) — an activity has no incident edge and is invisible to the CPM solve",
+			gotTotal, len(sol.Nodes), len(sol.Milestones), wantTotal, len(plan.Activities), len(plan.Milestones))
 	}
 	if sol.Summary.TotalDurationDays <= 0 {
 		t.Errorf("derived plan solves to a non-positive duration %v", sol.Summary.TotalDurationDays)

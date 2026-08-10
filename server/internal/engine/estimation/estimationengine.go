@@ -1700,14 +1700,44 @@ func spaScreenNames(acts []DerivedActivity) (spaScreens []string) {
 }
 
 // addFixedPatternEdges applies the mechanical sequencing the architecture graph cannot
-// state: the UI design gates SPA construction, the scaffold gates the per-manager
-// screens, the test plan gates the harnesses, and every per-manager SPA construction
-// activity gates the terminal system-testing activity — structurally what Table 11-1's
-// activity 21 (System Testing) does by depending on the client activities (5, 19, 20),
-// now that there is no separate I-* to depend on instead (ruling 2: integration is a
-// PHASE of each activity's own lifecycle, not a standalone activity). Edges into an
-// activity absent from this derivation (e.g. no UI surface) are simply skipped.
-func addFixedPatternEdges(reduced map[string][]string, acts []DerivedActivity) {
+// state:
+//
+//   - the UI design gates SPA construction, the scaffold gates the per-manager screens;
+//   - EACH per-manager SPA construction activity ALSO depends on the manager's own C-*
+//     coding activity — structurally what Table 11-1's activity 19 (Client App1) does by
+//     depending on the managers it calls. architectureEdges cannot express this itself:
+//     every client component's constructionProfile is "generated" (the platform emits
+//     the transport tier), so activityForComponent indexes no C-* activity for it, and
+//     the client→manager architecture relationships have no C-* source to route
+//     through — they are silently dropped rather than misrouted (C1, 2026-08-10).
+//   - the test plan gates the harnesses;
+//   - every per-manager SPA construction activity gates the terminal system-testing
+//     activity — structurally what Table 11-1's activity 21 (System Testing) does by
+//     depending on the client activities (5, 19, 20), now that there is no separate I-*
+//     to depend on instead (ruling 2: integration is a PHASE of each activity's own
+//     lifecycle, not a standalone activity). When the system declares NO UI surface at
+//     all (no U-SPA-* screens exist), N-IT's fan-in falls back to every manager's C-*
+//     coding activity directly instead — the same Table-11-1 activity-21 relationship,
+//     minus the client layer that a headless project does not have (C1 minor, same root
+//     cause: without this fallback a headless project's N-IT gets NO predecessors at
+//     all);
+//   - the always-emit noncoding inventory (N-QA, N-SMOKE, N-PERF) each get a defensible
+//     predecessor so every activity the derivation always emits is reachable in the CPM
+//     graph (C2, 2026-08-10): buildNodeUniverse walks EDGES, not the activity list, so
+//     an activity with no incident edge in either direction silently gets no node at all
+//     and drops out of the CPM solve with no ES/EF/float and no critical-path
+//     membership, however large its effort. N-PERF follows N-STH — performance testing
+//     runs the harness N-STH builds. N-SMOKE follows N-STP for the same reason N-STH and
+//     N-RTH do — a daily smoke check needs the test plan's definition of what "smoke"
+//     covers before it can run one. N-QA is a process/gate activity with no natural
+//     upstream work product of its own (Löwy: QA reviews and tunes the development
+//     PROCESS, "what will it take to assure quality" — it is not gated BY the work), so
+//     it gets no predecessor of its own, but it must still gate N-IT (system testing)
+//     rather than sit as an island off the schedule the CPM solve can't reach.
+//
+// Edges into an activity absent from this derivation (e.g. no UI surface) are simply
+// skipped.
+func addFixedPatternEdges(reduced map[string][]string, acts []DerivedActivity, system SystemView) {
 	present := map[string]bool{}
 	for _, a := range acts {
 		present[a.Name] = true
@@ -1721,12 +1751,30 @@ func addFixedPatternEdges(reduced map[string][]string, acts []DerivedActivity) {
 		reduced[activity] = append(reduced[activity], pred)
 	}
 	for _, s := range spaScreens {
+		mgrActivity := "C-" + s[len("U-SPA-"):] // s is "U-SPA-<manager-component-id>"
 		addEdge(s, "G-SPA")
 		addEdge(s, "U-SPA-S")
+		addEdge(s, mgrActivity)
 		addEdge("N-IT", s)
+	}
+	if len(spaScreens) == 0 {
+		// Headless fallback (C1 minor): no U-SPA-* screens exist, so route N-IT's fan-in
+		// straight to every manager's coding activity instead of through a client layer
+		// that does not exist.
+		for _, c := range system.Components {
+			if c.Kind == "manager" {
+				addEdge("N-IT", "C-"+c.ID)
+			}
+		}
 	}
 	addEdge("N-STH", "N-STP")
 	addEdge("N-RTH", "N-STP")
+
+	// C2: give the always-emit inventory its own pattern edges so every one of these
+	// activities is reachable in the CPM graph (see the function doc above).
+	addEdge("N-PERF", "N-STH")
+	addEdge("N-SMOKE", "N-STP")
+	addEdge("N-IT", "N-QA")
 }
 
 // deriveDependencies builds the network edges: the transitively reduced architecture
@@ -1734,7 +1782,7 @@ func addFixedPatternEdges(reduced map[string][]string, acts []DerivedActivity) {
 func deriveDependencies(system SystemView, acts []DerivedActivity) []NetworkDependency {
 	raw := architectureEdges(system, activityForComponent(acts))
 	reduced := transitiveReduction(raw)
-	addFixedPatternEdges(reduced, acts)
+	addFixedPatternEdges(reduced, acts, system)
 
 	out := make([]NetworkDependency, 0, len(reduced))
 	for activity, preds := range reduced {

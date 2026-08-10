@@ -1,6 +1,6 @@
 {
   "id": "archistrator",
-  "version": 604,
+  "version": 605,
   "phase": 2,
   "owner": "dev-architect",
   "name": "Archistrator",
@@ -379,6 +379,7 @@
           {
             "activity": "N-IT",
             "dependsOn": [
+              "N-QA",
               "U-SPA-billing-manager",
               "U-SPA-construction-manager",
               "U-SPA-operations-manager",
@@ -387,7 +388,19 @@
             ]
           },
           {
+            "activity": "N-PERF",
+            "dependsOn": [
+              "N-STH"
+            ]
+          },
+          {
             "activity": "N-RTH",
+            "dependsOn": [
+              "N-STP"
+            ]
+          },
+          {
+            "activity": "N-SMOKE",
             "dependsOn": [
               "N-STP"
             ]
@@ -401,6 +414,7 @@
           {
             "activity": "U-SPA-billing-manager",
             "dependsOn": [
+              "C-billing-manager",
               "G-SPA",
               "U-SPA-S"
             ]
@@ -408,6 +422,7 @@
           {
             "activity": "U-SPA-construction-manager",
             "dependsOn": [
+              "C-construction-manager",
               "G-SPA",
               "U-SPA-S"
             ]
@@ -415,6 +430,7 @@
           {
             "activity": "U-SPA-operations-manager",
             "dependsOn": [
+              "C-operations-manager",
               "G-SPA",
               "U-SPA-S"
             ]
@@ -422,6 +438,7 @@
           {
             "activity": "U-SPA-project-design-manager",
             "dependsOn": [
+              "C-project-design-manager",
               "G-SPA",
               "U-SPA-S"
             ]
@@ -429,6 +446,7 @@
           {
             "activity": "U-SPA-system-design-manager",
             "dependsOn": [
+              "C-system-design-manager",
               "G-SPA",
               "U-SPA-S"
             ]
@@ -441,8 +459,11 @@
           "C-operations-manager",
           "C-project-design-manager",
           "C-source-control-access",
+          "N-IT",
           "R-github",
-          "R-operated-runtime"
+          "R-operated-runtime",
+          "U-SPA-billing-manager",
+          "U-SPA-construction-manager"
         ],
         "milestones": [
           {
@@ -515,7 +536,7 @@
           "addressee": ""
         }
       ],
-      "revisions": 2
+      "revisions": 3
     },
     "11": {
       "status": 2,
@@ -602,8 +623,9 @@
       "revisions": 1,
       "staleBasisCause": {
         "upstreamKind": "network",
-        "upstreamRevision": 2
-      }
+        "upstreamRevision": 3
+      },
+      "staleBasis": true
     },
     "12": {
       "status": 2,
@@ -690,8 +712,9 @@
       "revisions": 1,
       "staleBasisCause": {
         "upstreamKind": "network",
-        "upstreamRevision": 2
-      }
+        "upstreamRevision": 3
+      },
+      "staleBasis": true
     },
     "13": {
       "status": 2,
@@ -778,8 +801,9 @@
       "revisions": 1,
       "staleBasisCause": {
         "upstreamKind": "network",
-        "upstreamRevision": 2
-      }
+        "upstreamRevision": 3
+      },
+      "staleBasis": true
     },
     "14": {
       "status": 2,
@@ -866,8 +890,9 @@
       "revisions": 1,
       "staleBasisCause": {
         "upstreamKind": "network",
-        "upstreamRevision": 2
-      }
+        "upstreamRevision": 3
+      },
+      "staleBasis": true
     },
     "15": {
       "status": 2,
@@ -973,8 +998,9 @@
       "revisions": 1,
       "staleBasisCause": {
         "upstreamKind": "network",
-        "upstreamRevision": 2
-      }
+        "upstreamRevision": 3
+      },
+      "staleBasis": true
     },
     "16": {
       "status": 2,
@@ -1102,8 +1128,9 @@
       "revisions": 1,
       "staleBasisCause": {
         "upstreamKind": "network",
-        "upstreamRevision": 2
-      }
+        "upstreamRevision": 3
+      },
+      "staleBasis": true
     },
     "2": {
       "status": 2,
@@ -10022,7 +10049,7 @@
           "addressee": ""
         }
       ],
-      "revisions": 2
+      "revisions": 3
     }
   },
   "activityConstruction": {
@@ -28096,13 +28123,13 @@
     "overrides": [
       {
         "activity": "C-agentic-job-access",
-        "justification": "Committed title (formerly C-CP) describes a venue-neutral agentic job rail supporting two execution venues (CI + local), consolidated from the former Construction Pipeline Access — real dual-venue scope beyond the 10d resourceAccess band default, so 25d/risk 5 is retained.",
+        "justification": "The superseded hand-authored title (formerly C-CP) describes a venue-neutral agentic job rail supporting two execution venues (CI + local), consolidated from the former Construction Pipeline Access — real dual-venue scope beyond the 10d resourceAccess band default, so 25d/risk 5 is retained.",
         "effortDays": 25,
         "riskBucket": 5
       },
       {
         "activity": "C-artifact-access",
-        "justification": "Committed title (formerly C-AA) notes this component is 'carved out of Project State Access — retroactive reconciliation, actuals-derived': the risk bucket (3) reflects a recorded actual from a real extraction, not a forward estimate, so it is retained over the 2 band default. Effort (10d) already matches the band default.",
+        "justification": "The superseded hand-authored title (formerly C-AA) notes this component is 'carved out of Project State Access — retroactive reconciliation, actuals-derived': the risk bucket (3) reflects a recorded actual from a real extraction, not a forward estimate, so it is retained over the 2 band default. Effort (10d) already matches the band default.",
         "riskBucket": 3
       },
       {
@@ -28204,7 +28231,7 @@
       },
       {
         "activity": "N-PERF",
-        "justification": "Committed title 'Performance smoke test (latency under nominal load)' describes a narrow, single-scenario check — smaller in scope than the derived default's full 'Performance testing' — consistent with the smaller 5d/risk-2 figure, which is retained.",
+        "justification": "The superseded hand-authored title 'Performance smoke test (latency under nominal load)' describes a narrow, single-scenario check — smaller in scope than the derived default's full 'Performance testing' — consistent with the smaller 5d/risk-2 figure, which is retained.",
         "effortDays": 5,
         "riskBucket": 2
       },

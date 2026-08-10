@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -5219,7 +5220,7 @@ func TestMaterializeActivityPlanProducesTheReaderShape(t *testing.T) {
 		{ID: "order-manager", Name: "OrderManager", Kind: projectstate.CompManager},
 		{ID: "order-access", Name: "OrderAccess", Kind: projectstate.CompResourceAccess},
 	}}
-	list, deps, err := MaterializeActivityPlan(sys, estimation.ActivityListDeltas{})
+	list, deps, _, err := MaterializeActivityPlan(sys, estimation.ActivityListDeltas{})
 	if err != nil {
 		t.Fatalf("MaterializeActivityPlan: %v", err)
 	}
@@ -5297,7 +5298,7 @@ func loadCommittedStateForTest(t *testing.T) (projectstate.System, []string) {
 // having no derived counterpart.
 func TestEveryHistoricalConstructionKeyResolvesToADerivedActivity(t *testing.T) {
 	sys, historicalKeys := loadCommittedStateForTest(t)
-	list, _, err := MaterializeActivityPlan(sys, estimation.ActivityListDeltas{})
+	list, _, _, err := MaterializeActivityPlan(sys, estimation.ActivityListDeltas{})
 	if err != nil {
 		t.Fatalf("MaterializeActivityPlan: %v", err)
 	}
@@ -5306,33 +5307,39 @@ func TestEveryHistoricalConstructionKeyResolvesToADerivedActivity(t *testing.T) 
 		derived[a.Name] = true
 	}
 
-	// No derived counterpart BY DESIGN — a derived list never emits these, and their
-	// Done+Integrated history stays valid but orphaned from the forward-looking plan:
-	//   - C-HE, C-WIA, R-WIT: zombies, name components that no longer exist.
-	//   - R-DER: componentless (an additive delta, not a rename).
-	//   - C-CW, C-CM, C-CS: the three generated-transport clients (web/mcp/scheduler).
-	//     Per Task 6's golden-parity result (progress.md, "HEADLINE RESULT OF THE WHOLE
-	//     PLAN": 49 derived vs. 69 committed, "−3 generated-client codings (C-CW, C-CM,
-	//     C-CS)"), this is one of the FIVE reconciling differences the whole derivation
-	//     is built to reproduce, not a defect: codingActivityFor skips any component
-	//     whose ConstructionProfile == "generated" ("the generator does that work"), and
-	//     all three of web-client/mcp-client/scheduler-client are generated. The real
-	//     historical effort (20/25/15 days) built the code-generation pipeline itself —
-	//     genuinely one-time, non-recurring work with no place in a plan that is derived
-	//     fresh from the CURRENT architecture on every read.
-	//   - I-UC1..I-UC5: the founder's 2026-08-09 ruling (Task 10a) drops I-* integration
-	//     activities entirely — App A makes integration a PHASE of every activity's own
-	//     lifecycle, so a separate I-* charges the same work twice — so NO I-* activity is
-	//     ever derived any more. These five still resolve through the alias map (it
-	//     records history, not what is still derived), but their canonical target is now
-	//     permanently absent from every derived plan, same as the zombies above.
-	//   - C-SE, C-LG, C-DG, C-DA: the four "provided" utilities (security/logging/
-	//     diagnostics/message-bus — founder ruling 1, Task 10a). Task 10b amended the live
-	//     committed System (slot 5) to actually carry constructionProfile: "provided" on
-	//     these four (it had been applied to the derivation's test fixture only, which is
-	//     the defect that produced the Task 10b blocker); with that fixed, the derivation
-	//     correctly never emits C-security/C-logging/C-diagnostics/C-message-bus. Their
-	//     Done+Integrated history stays valid but orphaned, same as the generated clients.
+	// No derived counterpart BY DESIGN (16 historical keys total, I3(c) 2026-08-10 —
+	// corrected from an earlier "the three zombie activities" undercount): a derived
+	// list never emits these, and their Done+Integrated history stays valid but
+	// orphaned from the forward-looking plan. ResolveActivityAlias reports ok=false
+	// for every one of them (I3(b)): they are simply absent from activityAliases,
+	// the SAME signal a typo gets, rather than resolving to a canonical id nothing
+	// derives.
+	//   - C-HE, C-WIA, R-WIT (3): zombies, name components that no longer exist.
+	//   - R-DER (1): componentless (an additive delta, not a rename).
+	//   - C-CW, C-CM, C-CS (3): the three generated-transport clients (web/mcp/
+	//     scheduler). Per Task 6's golden-parity result (progress.md, "HEADLINE RESULT
+	//     OF THE WHOLE PLAN": 49 derived vs. 69 committed, "−3 generated-client
+	//     codings (C-CW, C-CM, C-CS)"), this is one of the FIVE reconciling
+	//     differences the whole derivation is built to reproduce, not a defect:
+	//     codingActivityFor skips any component whose ConstructionProfile ==
+	//     "generated" ("the generator does that work"), and all three of
+	//     web-client/mcp-client/scheduler-client are generated. The real historical
+	//     effort (20/25/15 days) built the code-generation pipeline itself —
+	//     genuinely one-time, non-recurring work with no place in a plan that is
+	//     derived fresh from the CURRENT architecture on every read.
+	//   - I-UC1..I-UC5 (5): the founder's 2026-08-09 ruling (Task 10a) drops I-*
+	//     integration activities entirely — App A makes integration a PHASE of every
+	//     activity's own lifecycle, so a separate I-* charges the same work twice —
+	//     so NO I-* activity is ever derived any more, and no canonical id for one
+	//     could ever resolve.
+	//   - C-SE, C-LG, C-DG, C-DA (4): the four "provided" utilities (security/
+	//     logging/diagnostics/message-bus — founder ruling 1, Task 10a). Task 10b
+	//     amended the live committed System (slot 5) to actually carry
+	//     constructionProfile: "provided" on these four (it had been applied to the
+	//     derivation's test fixture only, which is the defect that produced the
+	//     Task 10b blocker); with that fixed, the derivation correctly never emits
+	//     C-security/C-logging/C-diagnostics/C-message-bus. Their Done+Integrated
+	//     history stays valid but orphaned, same as the generated clients.
 	noCounterpart := map[string]bool{
 		"C-HE": true, "C-WIA": true, "R-WIT": true, "R-DER": true,
 		"C-CW": true, "C-CM": true, "C-CS": true,
@@ -5341,17 +5348,22 @@ func TestEveryHistoricalConstructionKeyResolvesToADerivedActivity(t *testing.T) 
 	}
 
 	for _, historical := range historicalKeys {
-		if noCounterpart[historical] {
-			continue
-		}
 		canonical, ok := projectstate.ResolveActivityAlias(historical)
 		if !ok {
-			// U-SPA-* and N-* are re-derived or arrive as additive deltas rather than
-			// being renamed, so they legitimately have no alias.
+			if noCounterpart[historical] {
+				continue // no derived counterpart BY DESIGN — see the comment above.
+			}
+			// U-SPA-6 / U-SPA-TEAM / U-SPA-S and N-* are re-derived, componentless, or
+			// arrive as additive deltas rather than being renamed, so they legitimately
+			// have no alias.
 			if strings.HasPrefix(historical, "U-SPA-") || strings.HasPrefix(historical, "N-") {
 				continue
 			}
 			t.Errorf("historical construction key %q has no alias; its Done+Integrated history would be orphaned", historical)
+			continue
+		}
+		if noCounterpart[historical] {
+			t.Errorf("historical key %q resolved to %q, but it is listed as having no derived counterpart", historical, canonical)
 			continue
 		}
 		if !derived[canonical] {
@@ -5366,7 +5378,7 @@ func TestMaterializeActivityPlanPropagatesDeltaErrors(t *testing.T) {
 	sys := projectstate.System{Components: []projectstate.Component{
 		{ID: "order-manager", Name: "OrderManager", Kind: projectstate.CompManager},
 	}}
-	_, _, err := MaterializeActivityPlan(sys, estimation.ActivityListDeltas{
+	_, _, _, err := MaterializeActivityPlan(sys, estimation.ActivityListDeltas{
 		Overrides: []estimation.ActivityOverride{{Activity: "C-gone", Justification: "j"}},
 	})
 	if err == nil {
@@ -5423,13 +5435,35 @@ func TestFixtureSystemViewMatchesLiveCommittedSystem(t *testing.T) {
 			t.Errorf("component %q: fixture uiSurface %v, live committed System uiSurface %v — the fixture has drifted from the committed System", f.ID, f.UiSurface, l.UiSurface)
 		}
 	}
+
+	// I1 (2026-08-10): relationships were never compared here, so the 74-relationship
+	// fixture could diverge from the live committed System's relationships silently —
+	// exactly the defect class this test exists to catch, just on the OTHER field. Edges
+	// are compared as a sorted "from->to" multiset so ordering differences between the
+	// fixture and the live document never cause a false failure.
+	edgeStrings := func(rels []estimation.SystemRelationship) []string {
+		out := make([]string, 0, len(rels))
+		for _, r := range rels {
+			out = append(out, r.From+"->"+r.To)
+		}
+		sort.Strings(out)
+		return out
+	}
+	fixtureEdges := edgeStrings(fixture.Relationships)
+	liveEdges := edgeStrings(live.Relationships)
+	if !reflect.DeepEqual(fixtureEdges, liveEdges) {
+		t.Errorf("fixture relationships (%d) do not match live committed System relationships (%d, slot 5) — the fixture has drifted from the committed System", len(fixtureEdges), len(liveEdges))
+	}
 }
 
 // loadDerivedPlanCheckFixtures reads the repo's own committed project document (LIVE
 // state, same convention as loadCommittedStateForTest) and returns the slot-5 System,
 // the authored overrides sidecar (top-level activityListOverrides — Task 10b Step 3,
-// "a new sibling holding the authored overrides"), and the committed slot-9 ActivityList.
-func loadDerivedPlanCheckFixtures(t *testing.T) (projectstate.System, estimation.ActivityListDeltas, projectstate.ActivityList) {
+// "a new sibling holding the authored overrides"), the committed slot-9 ActivityList,
+// and the committed slot-10 Network (I1, 2026-08-10: the gate must cover dependencies
+// and milestones too, not just the activity list — a slot-5 RELATIONSHIP edit reshapes
+// slot 10 without touching slot 9 at all, and nothing was re-deriving or comparing that).
+func loadDerivedPlanCheckFixtures(t *testing.T) (projectstate.System, estimation.ActivityListDeltas, projectstate.ActivityList, projectstate.Network) {
 	t.Helper()
 	const rel = "../../../../.aiarch/state/project.json"
 	raw, err := os.ReadFile(rel)
@@ -5462,35 +5496,82 @@ func loadDerivedPlanCheckFixtures(t *testing.T) (projectstate.System, estimation
 		t.Fatal("slot 9 decoded to zero activities - the test would be vacuous")
 	}
 
-	return sys, doc.ActivityListOverrides, committed
+	var committedNetwork projectstate.Network
+	if err := json.Unmarshal(doc.Slots["10"].Model, &committedNetwork); err != nil {
+		t.Fatalf("decode slot 10 (Network): %v", err)
+	}
+	if len(committedNetwork.Dependencies) == 0 {
+		t.Fatal("slot 10 decoded to zero dependencies - the test would be vacuous")
+	}
+
+	return sys, doc.ActivityListOverrides, committed, committedNetwork
+}
+
+// depsByActivityPS indexes a []projectstate.NetworkDependency by activity name, with
+// each DependsOn set sorted so the comparison in TestDerivedPlanMatchesCommittedState is
+// order-independent.
+func depsByActivityPS(deps []projectstate.NetworkDependency) map[string][]string {
+	out := make(map[string][]string, len(deps))
+	for _, d := range deps {
+		preds := append([]string(nil), d.DependsOn...)
+		sort.Strings(preds)
+		out[d.Activity] = preds
+	}
+	return out
+}
+
+// milestonesByIDPS indexes a []projectstate.NetworkMilestone by id, with each DependsOn
+// set sorted, same convention as depsByActivityPS.
+func milestonesByIDPS(ms []projectstate.NetworkMilestone) map[string][]string {
+	out := make(map[string][]string, len(ms))
+	for _, m := range ms {
+		preds := append([]string(nil), m.DependsOn...)
+		sort.Strings(preds)
+		out[m.ID] = preds
+	}
+	return out
 }
 
 // TestDerivedPlanMatchesCommittedState is the Task 10b drift gate (`make
 // derived-plan-check`): it re-derives the Phase-2 plan from the committed System (slot 5)
 // plus the authored overrides sidecar, and fails if the result differs from what slot 9
-// holds. This is what makes ACT-COMPONENT-COVERAGE deletable (Task 11, retired
+// and slot 10 hold. This is what makes ACT-COMPONENT-COVERAGE deletable (Task 11, retired
 // 2026-08-09) — re-deriving and comparing is strictly stronger than checking coverage —
 // and it is backed by a real Go test specifically so it also runs in the normal suite; a
 // drift gate nobody remembers to run by hand is no gate at all.
+//
+// I1 (2026-08-10): dependencies and milestones are compared alongside activities. Before
+// this, the gate discarded MaterializeActivityPlan's deps return with `_` entirely, so a
+// slot-5 RELATIONSHIP edit — which reshapes slot 10 without adding/removing/resizing a
+// single activity — re-derived nothing and was caught by nothing.
 func TestDerivedPlanMatchesCommittedState(t *testing.T) {
-	sys, deltas, committed := loadDerivedPlanCheckFixtures(t)
+	sys, deltas, committed, committedNetwork := loadDerivedPlanCheckFixtures(t)
 
-	got, _, err := MaterializeActivityPlan(sys, deltas)
+	got, gotDeps, gotMilestones, err := MaterializeActivityPlan(sys, deltas)
 	if err != nil {
 		t.Fatalf("MaterializeActivityPlan over the committed System + overrides: %v", err)
 	}
 
-	gotByName := make(map[string]projectstate.ActivityItem, len(got.Activities))
-	for _, a := range got.Activities {
+	assertDerivedActivitiesMatch(t, got.Activities, committed.Activities)
+	assertDerivedDependenciesMatch(t, gotDeps, committedNetwork.Dependencies)
+	assertDerivedMilestonesMatch(t, gotMilestones, committedNetwork.Milestones)
+}
+
+// assertDerivedActivitiesMatch is the slot-9 half of TestDerivedPlanMatchesCommittedState,
+// split out to keep the top-level test under the gocyclo cap.
+func assertDerivedActivitiesMatch(t *testing.T, got, committed []projectstate.ActivityItem) {
+	t.Helper()
+	gotByName := make(map[string]projectstate.ActivityItem, len(got))
+	for _, a := range got {
 		gotByName[a.Name] = a
 	}
-	wantByName := make(map[string]projectstate.ActivityItem, len(committed.Activities))
-	for _, a := range committed.Activities {
+	wantByName := make(map[string]projectstate.ActivityItem, len(committed))
+	for _, a := range committed {
 		wantByName[a.Name] = a
 	}
 
-	if len(got.Activities) != len(committed.Activities) {
-		t.Errorf("re-derived %d activities, committed slot 9 holds %d", len(got.Activities), len(committed.Activities))
+	if len(got) != len(committed) {
+		t.Errorf("re-derived %d activities, committed slot 9 holds %d", len(got), len(committed))
 	}
 	for name, want := range wantByName {
 		g, ok := gotByName[name]
@@ -5517,6 +5598,58 @@ func TestDerivedPlanMatchesCommittedState(t *testing.T) {
 	for name := range gotByName {
 		if _, ok := wantByName[name]; !ok {
 			t.Errorf("the derivation now produces %q, which committed slot 9 does not hold — slot 9 has drifted from the System", name)
+		}
+	}
+}
+
+// assertDerivedDependenciesMatch is the slot-10-dependencies half of
+// TestDerivedPlanMatchesCommittedState (I1, 2026-08-10).
+func assertDerivedDependenciesMatch(t *testing.T, gotDeps, committedDeps []projectstate.NetworkDependency) {
+	t.Helper()
+	gotDepsByActivity := depsByActivityPS(gotDeps)
+	wantDepsByActivity := depsByActivityPS(committedDeps)
+	if len(gotDepsByActivity) != len(wantDepsByActivity) {
+		t.Errorf("re-derived dependency rows for %d activities, committed slot 10 holds %d", len(gotDepsByActivity), len(wantDepsByActivity))
+	}
+	for activity, want := range wantDepsByActivity {
+		g, ok := gotDepsByActivity[activity]
+		if !ok {
+			t.Errorf("committed slot-10 dependency row for %q is no longer produced by the derivation", activity)
+			continue
+		}
+		if !reflect.DeepEqual(g, want) {
+			t.Errorf("activity %q: re-derived dependsOn %v, committed slot 10 holds %v", activity, g, want)
+		}
+	}
+	for activity := range gotDepsByActivity {
+		if _, ok := wantDepsByActivity[activity]; !ok {
+			t.Errorf("the derivation now produces a dependency row for %q, which committed slot 10 does not hold — slot 10 has drifted from the System", activity)
+		}
+	}
+}
+
+// assertDerivedMilestonesMatch is the slot-10-milestones half of
+// TestDerivedPlanMatchesCommittedState (I1, 2026-08-10).
+func assertDerivedMilestonesMatch(t *testing.T, gotMilestones, committedMilestones []projectstate.NetworkMilestone) {
+	t.Helper()
+	gotMilestonesByID := milestonesByIDPS(gotMilestones)
+	wantMilestonesByID := milestonesByIDPS(committedMilestones)
+	if len(gotMilestonesByID) != len(wantMilestonesByID) {
+		t.Errorf("re-derived %d milestones, committed slot 10 holds %d", len(gotMilestonesByID), len(wantMilestonesByID))
+	}
+	for id, want := range wantMilestonesByID {
+		g, ok := gotMilestonesByID[id]
+		if !ok {
+			t.Errorf("committed slot-10 milestone %q is no longer produced by the derivation", id)
+			continue
+		}
+		if !reflect.DeepEqual(g, want) {
+			t.Errorf("milestone %q: re-derived dependsOn %v, committed slot 10 holds %v", id, g, want)
+		}
+	}
+	for id := range gotMilestonesByID {
+		if _, ok := wantMilestonesByID[id]; !ok {
+			t.Errorf("the derivation now produces milestone %q, which committed slot 10 does not hold — slot 10 has drifted from the System", id)
 		}
 	}
 }

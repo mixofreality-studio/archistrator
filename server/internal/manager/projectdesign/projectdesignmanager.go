@@ -3074,6 +3074,22 @@ func toProjectStateActivityList(plan estimation.DerivedPlan) projectstate.Activi
 	return projectstate.ActivityList{Activities: acts}
 }
 
+// toProjectStateMilestones converts the Engine's derived milestones to the projectstate
+// shape (I1, 2026-08-10). Only Id/DependsOn cross here — Name and Public are display-only
+// authoring decorations with no derivation source (DerivedPlan carries no opinion on
+// them, same as AdditiveMilestone in the delta vocabulary), so they are left at their
+// zero value; a caller rendering these for a human MUST overlay the existing committed
+// Name/Public rather than take them from here. What this DOES make comparable — the
+// thing the drift gate (TestDerivedPlanMatchesCommittedState) actually needs — is the
+// STRUCTURE: which milestones exist and what they depend on.
+func toProjectStateMilestones(plan estimation.DerivedPlan) []projectstate.NetworkMilestone {
+	out := make([]projectstate.NetworkMilestone, 0, len(plan.Milestones))
+	for _, m := range plan.Milestones {
+		out = append(out, projectstate.NetworkMilestone{ID: m.Id, DependsOn: m.DependsOn})
+	}
+	return out
+}
+
 // MaterializeActivityPlan is the single render-on-read entry point for the Phase-2 plan:
 // it derives the baseline from the committed System, applies the authored deltas, and
 // returns the canonical shapes every existing reader already consumes.
@@ -3084,22 +3100,27 @@ func toProjectStateActivityList(plan estimation.DerivedPlan) projectstate.Activi
 // thing that ever read them. SystemView.CoreUseCaseIDs is gone from the contract
 // (Task 10a); do not resurrect a use-case-id parameter here to feed it.
 //
+// Milestones are returned alongside activities/dependencies (I1, 2026-08-10) so a caller
+// — chiefly the derived-plan drift gate — can compare the FULL derived network, not just
+// the activity list: before this, a slot-5 relationship edit that only shifted milestone
+// fan-in re-derived nothing the gate could see.
+//
 // A delta that violates the vocabulary fails the READ, loudly. Silently dropping a bad
 // delta would be the zombie failure mode returning by another door.
 func MaterializeActivityPlan(
 	sys projectstate.System,
 	deltas estimation.ActivityListDeltas,
-) (projectstate.ActivityList, []projectstate.NetworkDependency, error) {
+) (projectstate.ActivityList, []projectstate.NetworkDependency, []projectstate.NetworkMilestone, error) {
 	view := toEstimationSystemView(sys)
 
 	plan, err := estimation.NewEstimationEngine().DerivePlan(fweng.Context{}, view, deltas)
 	if err != nil {
-		return projectstate.ActivityList{}, nil, err
+		return projectstate.ActivityList{}, nil, nil, err
 	}
 
 	deps := make([]projectstate.NetworkDependency, 0, len(plan.Dependencies))
 	for _, d := range plan.Dependencies {
 		deps = append(deps, projectstate.NetworkDependency{Activity: d.Activity, DependsOn: d.DependsOn})
 	}
-	return toProjectStateActivityList(plan), deps, nil
+	return toProjectStateActivityList(plan), deps, toProjectStateMilestones(plan), nil
 }
