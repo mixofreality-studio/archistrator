@@ -14,7 +14,34 @@
 
 - **Stage 1 only.** Part 2 of the spec (compression moves) gets its own plan. `criticalSpeedup` must **NOT** be removed or altered in this plan — it is the only compression lever until the move catalog lands.
 - **All Go commands run from `server/` with `GOWORK=off`.** Test: `GOWORK=off go test ./...`. Regen: `GOWORK=off make gen-models`.
-- **Never hand-edit `.aiarch/state/project.json` state slots.** All state writes go through the `aiarch-state` MCP tools. `.serviceContracts` entries are written with `recordServiceContract`. Slot models are written with `putDraftModel` → `publishDraft`.
+- **State edits are hand-edits, gated by `validate`.** The `aiarch-state` MCP server is a **CI-only** rail (wired via `--mcp-config` in `.github/workflows/aiarch-*.yml`, rooted by the `AIARCH_STATE_ROOT` env var); it is not registered in local sessions and its write tools are unavailable here. Local structural changes are hand-edits plus a reconciliation commit — the precedent the finish-construction wave set.
+
+  **Every task that touches `.aiarch/state/project.json` MUST run the validator afterward** and treat a non-zero error count as a failure:
+
+  ```bash
+  cd server && GOWORK=off go build -o /tmp/aiarch-state-mcp ./cmd/aiarch-state-mcp
+  cd .. && /tmp/aiarch-state-mcp validate --root .
+  ```
+
+  Expected tail: `aiarch-state validate: PASS (<N> advisory finding(s), 0 errors)`. This runs the **same** rule set `putDraftModel` applies in-loop — framework methodcheck plus the app-side ACT-*/PA-*/DH-* tiers — so the gate is not weakened by editing directly. **Baseline before this plan: 55 advisory findings, 0 errors.** Advisory count may move as ACT-* warnings clear; the error count must stay 0.
+
+- **Editing `project.json` without reformatting it.** It is one ~921 KB / 28 k-line JSON document, and this recipe round-trips **byte-identically** (verified 2026-08-09) — anything else produces a diff of tens of thousands of spurious lines:
+
+  ```python
+  import json
+  d = json.load(open('.aiarch/state/project.json'))
+  # ... mutate d ...
+  json.dump(d, open('.aiarch/state/project.json', 'w'), indent=2, ensure_ascii=False)
+  open('.aiarch/state/project.json', 'a').write('\n')   # trailing newline
+  ```
+
+  Do **not** pass `sort_keys=True` and do **not** use `indent=1`; both rewrite the whole file. After any state edit, confirm the diff is scoped:
+
+  ```bash
+  git diff --stat .aiarch/state/project.json
+  ```
+
+  Expected: tens of changed lines, not thousands. Also bump the document's top-level `version` integer (currently 595) — the rail increments it on every write.
 - **`contract.gen.go` and `fake/fake.gen.go` are generated. Never hand-edit them.** Change the contract in `project.json` `.serviceContracts`, then run `make gen-models`.
 - **Engine purity is a hard gate.** `internal/engine/estimation` must import ONLY `fweng` and stdlib. No `projectstate` import, no I/O, no `time.Now()`, no `math/rand`, no goroutines, no global mutable state. `make encapsulation-check` and `make method-check` must stay green.
 - **Worker classes are a fixed roster**, spelled exactly: `system-architect`, `product-manager`, `project-manager`, `senior-developer`, `junior-developer`, `ui-designer`, `ux-reviewer`, `qa-engineer`, `test-engineer`, `software-tester`.
@@ -57,7 +84,7 @@
 Adds the Engine's own types and the `DerivePlan` operation, then regenerates. The implementation is a stub returning an empty plan; Tasks 2–6 fill it in. This task exists separately because the generated types are the vocabulary every later task speaks.
 
 **Files:**
-- Modify: `.aiarch/state/project.json` → `.serviceContracts.estimationEngine` (via `recordServiceContract` MCP tool)
+- Modify: `.aiarch/state/project.json` → `.serviceContracts.estimationEngine` (hand-edit per the Global Constraints recipe, then `validate`)
 - Regenerate: `server/internal/engine/estimation/contract.gen.go`, `server/internal/engine/estimation/fake/fake.gen.go`
 - Create: `server/internal/engine/estimation/derive.go`
 
@@ -82,7 +109,7 @@ Note the shape: `component`, `layer`, `goPackage`, `title`, `$defs`, `interface`
 
 - [ ] **Step 2: Add the new `$defs`**
 
-Use the `recordServiceContract` MCP tool to write the `estimationEngine` contract with these `$defs` **added** (keep every existing def unchanged):
+Hand-edit `.serviceContracts.estimationEngine.$defs` with these definitions **added** (keep every existing def unchanged), using the byte-identical round-trip recipe from the Global Constraints:
 
 ```json
 {
@@ -209,6 +236,16 @@ Append to `interface.operations` (the contract goes from 3 to 4 operations — w
   "error": true
 }
 ```
+
+- [ ] **Step 3b: Validate the state edit**
+
+Run:
+```bash
+cd server && GOWORK=off go build -o /tmp/aiarch-state-mcp ./cmd/aiarch-state-mcp && cd ..
+/tmp/aiarch-state-mcp validate --root .
+git diff --stat .aiarch/state/project.json
+```
+Expected: `PASS (… 0 errors)`, and a diff of tens of lines, not thousands.
 
 - [ ] **Step 4: Regenerate**
 
@@ -2005,9 +2042,9 @@ EOF
 Until now the attributes lived only in the test fixture. This task makes them real on slot 5.
 
 **Files:**
-- Modify: `.aiarch/state/project.json` → `.serviceContracts.projectStateAccess.$defs.Component` (via `recordServiceContract`)
+- Modify: `.aiarch/state/project.json` → `.serviceContracts.projectStateAccess.$defs.Component` (hand-edit)
 - Regenerate: `server/internal/resourceaccess/projectstate/contract.gen.go`
-- Modify: `.aiarch/state/project.json` → slot 5 model (via `putDraftModel` → `publishDraft`)
+- Modify: `.aiarch/state/project.json` → `slots["5"].model.components` (hand-edit; slot 5 stays `status: 2` / committed — this is a reconciliation amendment, the shape the finish-construction wave used)
 
 **Interfaces:**
 - Consumes: nothing from earlier tasks.
@@ -2015,7 +2052,7 @@ Until now the attributes lived only in the test fixture. This task makes them re
 
 - [ ] **Step 1: Extend the Component schema**
 
-Use `recordServiceContract` to write the `projectStateAccess` contract with these properties **added** to `$defs.Component.properties` (keep every existing property and the existing `required` list unchanged — all three are optional so old documents stay valid):
+Hand-edit `.serviceContracts.projectStateAccess.$defs.Component.properties` to add these (keep every existing property and the existing `required` list unchanged — all three are optional so old documents stay valid):
 
 ```json
 {
@@ -2041,7 +2078,7 @@ Expected: PASS. The fields are additive and optional, so nothing should break.
 
 - [ ] **Step 4: Author the slot-5 amendment**
 
-Read the committed System with `getCommittedSlot`, then use `putDraftModel` to write it back with the attributes stamped on:
+Hand-edit `slots["5"].model.components`, stamping the attributes on. Leave the slot's `status` untouched (it stays committed — this is a reconciliation amendment, not a new draft cycle):
 
 - `constructionProfile: "generated"` on `web-client`, `mcp-client`, `scheduler-client` (their substance is generated transport: REST handlers, typed clients, MCP tool surfaces, OAS).
 - `constructionProfile: "handwritten"` on every other code-layer component (managers, engines, resourceAccess, utilities).
@@ -2051,7 +2088,7 @@ Read the committed System with `getCommittedSlot`, then use `putDraftModel` to w
 
 `uiSurface` and `constructionProfile` are **separate axes**: `web-client` is `generated` AND `uiSurface: true`. Its Go transport tier is generator output, while the browser SPA in front of it is real handwritten work — which is what the `U-SPA-*` set accounts for.
 
-Then `publishDraft` exactly once.
+Then run the validator and the scoped-diff check from the Global Constraints. `0 errors` is required; the ACT-* advisory count should be unchanged by this task.
 
 - [ ] **Step 5: Verify the amendment landed and matches the fixture**
 
@@ -2499,7 +2536,7 @@ The flip. Everything before this was additive and behaviour-preserving; this is 
 **Files:**
 - Modify: `server/internal/resourceaccess/projectstate/projectstateaccess.go` (the `ActivityList` slot read path)
 - Modify: `server/internal/manager/projectdesign/deriveplan.go`
-- Modify: `.aiarch/state/project.json` slots 9 and 10 (via `putDraftModel` → `publishDraft`)
+- Modify: `.aiarch/state/project.json` `slots["9"]` and `slots["10"]` (hand-edit; both stay committed — reconciliation amendment)
 
 **Interfaces:**
 - Consumes: `toEstimationSystemView`, `toProjectStateActivityList` (Task 8); `DerivePlan` (Task 5); `ResolveActivityAlias` (Task 9).
@@ -2597,7 +2634,7 @@ Expected: PASS.
 
 - [ ] **Step 5: Author the slot-9 and slot-10 delta documents**
 
-Using `putDraftModel` → `publishDraft`, replace the materialized slot-9 list with the delta document. Derive the overrides mechanically from the current committed list: for each derived activity whose committed `effortDays`/`riskBucket` differs from the derived default, emit one override carrying the committed number and a justification naming why that component is off its band midpoint. Emit additive entries for the 11 checklist noncoding activities (`N-SCHEMA`, `N-CI`, `N-SEC`, `N-ADR`, `N-RUN`, `N-REQ`, `N-ARCH`, `N-PLAN`, `N-SC`, `N-DEP`, `N-HARD`), `R-DER`, `U-SPA-6`, and `U-SPA-TEAM`, each with its own incident edges and a justification.
+Hand-edit `slots["9"].model` to replace the materialized activity list with the delta document (and `slots["10"].model` correspondingly), keeping both slots committed. Derive the overrides mechanically from the current committed list: for each derived activity whose committed `effortDays`/`riskBucket` differs from the derived default, emit one override carrying the committed number and a justification naming why that component is off its band midpoint. Emit additive entries for the 11 checklist noncoding activities (`N-SCHEMA`, `N-CI`, `N-SEC`, `N-ADR`, `N-RUN`, `N-REQ`, `N-ARCH`, `N-PLAN`, `N-SC`, `N-DEP`, `N-HARD`), `R-DER`, `U-SPA-6`, and `U-SPA-TEAM`, each with its own incident edges and a justification.
 
 Generate the starting point:
 ```bash
