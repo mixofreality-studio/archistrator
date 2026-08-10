@@ -23,11 +23,14 @@ import (
 // before its architecture is committed. The *fweng.Error channel is reserved for
 // contract misuse: a delta that the vocabulary forbids (an override naming no derived
 // activity, an additive carrying a componentId, a missing justification).
-func (EstimationEngineImpl) DerivePlan(_ fweng.Context, system SystemView, _ ActivityListDeltas) (DerivedPlan, error) {
+func (EstimationEngineImpl) DerivePlan(_ fweng.Context, system SystemView, deltas ActivityListDeltas) (DerivedPlan, error) {
 	if len(system.Components) == 0 {
 		return DerivedPlan{Activities: nil, Dependencies: nil, Milestones: nil}, nil
 	}
-	return DerivedPlan{Activities: nil, Dependencies: nil, Milestones: nil}, nil
+	acts := deriveActivities(system)
+	deps := deriveDependencies(system, acts)
+	ms := deriveMilestones(system, acts)
+	return applyDeltas(acts, deps, ms, deltas)
 }
 
 // workerClassFor maps an activity ID prefix to its worker class. The roster is FIXED —
