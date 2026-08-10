@@ -1,6 +1,6 @@
 {
   "id": "archistrator",
-  "version": 603,
+  "version": 604,
   "phase": 2,
   "owner": "dev-architect",
   "name": "Archistrator",
@@ -28107,13 +28107,13 @@
       },
       {
         "activity": "C-autoscaler-engine",
-        "justification": "Carried over from the committed activity list (C-AE); the original sizing rationale was not recorded. The observable signals actually cut the other way — autoscalerEngine carries only 1 contract operation and touches 1 architecture relationship, the smallest footprint of any engine — yet the committed number is double the 15d engine band default. Retained so the reviewed plan's number survives, flagged for re-estimation as an unexplained outlier.",
+        "justification": "Carried over from the committed activity list (C-AE); the original sizing rationale was not recorded. The observable signals actually cut the other way — autoscalerEngine carries 1 contract operation and touches 1 architecture relationship — tied with reviewEngine for the fewest operations of any engine, above only designHealthEngine's 0 — yet the committed number is double the 15d engine band default. Retained so the reviewed plan's number survives, flagged for re-estimation as an unexplained outlier.",
         "effortDays": 30,
         "riskBucket": 5
       },
       {
         "activity": "C-billing-manager",
-        "justification": "Carried over from the committed activity list (C-BM). This is the one manager sized BELOW the 25d band default (20d) while the available architecture signals (contract op count, relationship degree) are unremarkable relative to its peers — the deviation runs opposite to the pattern every other manager override follows (larger, not smaller, than the default). Flagged as an unexplained opposite deviation rather than rationalized after the fact — retained so the reviewed plan's number survives, pending re-estimation.",
+        "justification": "Carried over from the committed activity list (C-BM). This is the one manager sized BELOW the 25d band default (20d) while carries 6 contract operations, the fewest of the five managers, which partly explains the below-default effort — the deviation runs opposite to the pattern every other manager override follows (larger, not smaller, than the default). Flagged as an unexplained opposite deviation rather than rationalized after the fact — retained so the reviewed plan's number survives, pending re-estimation.",
         "effortDays": 20
       },
       {
@@ -28145,13 +28145,13 @@
       },
       {
         "activity": "C-operated-runtime-access",
-        "justification": "operatedRuntimeAccess carries 7 contract operations — tied for the most of any resourceAccess — and is the only resourceAccess encapsulating more than one volatility (2, versus 1 for every peer) — consistent with the largest resourceAccess coding effort in the list (35d, the god-activity cap) and the highest risk bucket (8).",
+        "justification": "operatedRuntimeAccess is the only resourceAccess encapsulating more than one volatility (2, versus 1 for every peer) — the distinguishing signal here. Its 7 contract operations rank third among resourceAccess components, behind sourceControlAccess's 11 and projectStateAccess's 9. Consistent with 35d (the god-activity cap) and risk bucket 8, a level it shares with C-project-state-access and C-source-control-access.",
         "effortDays": 35,
         "riskBucket": 8
       },
       {
         "activity": "C-operated-system-state-access",
-        "justification": "operatedSystemStateAccess carries 7 contract operations — tied for the most of any resourceAccess — consistent with the above-default 15d effort. The further elevation to risk bucket 5 (versus the 2 the operation-count signal alone would predict) is not independently explained by any recorded signal; retained together so the reviewed plan's numbers survive, with the risk figure specifically flagged for re-estimation.",
+        "justification": "Carried over from the committed activity list (C-OSA); the original sizing rationale was not recorded. operatedSystemStateAccess carries 7 contract operations — third among resourceAccess components, behind sourceControlAccess's 11 and projectStateAccess's 9 — and 1 volatility like every peer except operatedRuntimeAccess. No recorded signal distinguishes it enough to explain either the above-default 15d effort or the elevation to risk bucket 5. Retained so the reviewed plan's numbers survive, flagged for re-estimation.",
         "effortDays": 15,
         "riskBucket": 5
       },
@@ -28181,7 +28181,7 @@
       },
       {
         "activity": "C-review-engine",
-        "justification": "Carried over from the committed activity list (C-RE); the original sizing rationale for the elevated risk bucket (5 vs the 3 band default) was not recorded — reviewEngine carries only 1 contract operation, the smallest contract in the system, which does not explain the elevation. Retained so the reviewed plan's number survives, flagged for re-estimation. Effort (15d) already matches the band default.",
+        "justification": "Carried over from the committed activity list (C-RE); the original sizing rationale for the elevated risk bucket (5 vs the 3 band default) was not recorded — reviewEngine carries 1 contract operation — tied with autoscalerEngine for the fewest of any engine, and above only designHealthEngine's 0, which does not explain the elevation. Retained so the reviewed plan's number survives, flagged for re-estimation. Effort (15d) already matches the band default.",
         "riskBucket": 5
       },
       {
