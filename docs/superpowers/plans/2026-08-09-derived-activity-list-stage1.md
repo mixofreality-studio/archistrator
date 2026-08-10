@@ -100,6 +100,13 @@ Adds the Engine's own types and the `DerivePlan` operation, then regenerates. Th
 
 `AdditiveActivity` carries a `componentId` field **that is always rejected** (Task 5). It exists so a component-bound additive fails with an explanatory contract-misuse error naming the reason, rather than as an opaque schema decode failure — the author needs to be told *why* the vocabulary forbids it.
 
+**The two `componentId` fields are deliberately asymmetric — do not "harmonize" them:**
+
+| Field | Shape | Why |
+|---|---|---|
+| `DerivedActivity.ComponentID` | **required** → plain `string` | Engine *output* that this code constructs. Empty means "no component", exactly as the canonical `projectstate.ActivityItem.ComponentID` (a plain `string`) already models it. A pointer would force nil-handling across Tasks 3, 4, 5 and 8 for no semantic gain. |
+| `AdditiveActivity.ComponentID` | **optional** → `*string` | Author *input*, and the always-rejected field. nil-vs-supplied is load-bearing: a caller passing `"componentId": ""` must still be rejected, and with a plain `string` that is indistinguishable from absent and would slip through the guard. |
+
 - [ ] **Step 1: Read the existing contract entry**
 
 Run:
@@ -209,7 +216,7 @@ Hand-edit `.serviceContracts.estimationEngine.$defs` with these definitions **ad
       "componentId": {"type": "string", "x-go-name": "ComponentID"},
       "derived": {"type": "boolean"}
     },
-    "required": ["name", "title", "effortDays", "riskBucket", "workerClass", "coding", "derived"],
+    "required": ["name", "title", "effortDays", "riskBucket", "workerClass", "coding", "componentId", "derived"],
     "additionalProperties": false
   },
   "DerivedPlan": {
