@@ -1,0 +1,605 @@
+{
+ "components": [
+  {
+   "constructionProfile": "generated",
+   "id": "web-client",
+   "kind": "client",
+   "name": "WebClient",
+   "provisioning": "owned",
+   "uiSurface": true
+  },
+  {
+   "constructionProfile": "generated",
+   "id": "mcp-client",
+   "kind": "client",
+   "name": "MCPClient",
+   "provisioning": "owned",
+   "uiSurface": false
+  },
+  {
+   "constructionProfile": "generated",
+   "id": "scheduler-client",
+   "kind": "client",
+   "name": "SchedulerClient",
+   "provisioning": "owned",
+   "uiSurface": false
+  },
+  {
+   "constructionProfile": "handwritten",
+   "id": "system-design-manager",
+   "kind": "manager",
+   "name": "SystemDesignManager",
+   "provisioning": "owned",
+   "uiSurface": false
+  },
+  {
+   "constructionProfile": "handwritten",
+   "id": "project-design-manager",
+   "kind": "manager",
+   "name": "ProjectDesignManager",
+   "provisioning": "owned",
+   "uiSurface": false
+  },
+  {
+   "constructionProfile": "handwritten",
+   "id": "construction-manager",
+   "kind": "manager",
+   "name": "ConstructionManager",
+   "provisioning": "owned",
+   "uiSurface": false
+  },
+  {
+   "constructionProfile": "handwritten",
+   "id": "operations-manager",
+   "kind": "manager",
+   "name": "OperationsManager",
+   "provisioning": "owned",
+   "uiSurface": false
+  },
+  {
+   "constructionProfile": "handwritten",
+   "id": "billing-manager",
+   "kind": "manager",
+   "name": "BillingManager",
+   "provisioning": "owned",
+   "uiSurface": false
+  },
+  {
+   "constructionProfile": "handwritten",
+   "id": "estimation-engine",
+   "kind": "engine",
+   "name": "EstimationEngine",
+   "provisioning": "owned",
+   "uiSurface": false
+  },
+  {
+   "constructionProfile": "handwritten",
+   "id": "operation-estimation-engine",
+   "kind": "engine",
+   "name": "OperationEstimationEngine",
+   "provisioning": "owned",
+   "uiSurface": false
+  },
+  {
+   "constructionProfile": "handwritten",
+   "id": "billing-engine",
+   "kind": "engine",
+   "name": "BillingEngine",
+   "provisioning": "owned",
+   "uiSurface": false
+  },
+  {
+   "constructionProfile": "handwritten",
+   "id": "intervention-engine",
+   "kind": "engine",
+   "name": "InterventionEngine",
+   "provisioning": "owned",
+   "uiSurface": false
+  },
+  {
+   "constructionProfile": "handwritten",
+   "id": "autoscaler-engine",
+   "kind": "engine",
+   "name": "AutoscalerEngine",
+   "provisioning": "owned",
+   "uiSurface": false
+  },
+  {
+   "constructionProfile": "handwritten",
+   "id": "review-engine",
+   "kind": "engine",
+   "name": "ReviewEngine",
+   "provisioning": "owned",
+   "uiSurface": false
+  },
+  {
+   "constructionProfile": "handwritten",
+   "id": "design-health-engine",
+   "kind": "engine",
+   "name": "DesignHealthEngine",
+   "provisioning": "owned",
+   "uiSurface": false
+  },
+  {
+   "constructionProfile": "handwritten",
+   "id": "project-state-access",
+   "kind": "resourceAccess",
+   "name": "ProjectStateAccess",
+   "provisioning": "owned",
+   "uiSurface": false
+  },
+  {
+   "constructionProfile": "handwritten",
+   "id": "operated-system-state-access",
+   "kind": "resourceAccess",
+   "name": "OperatedSystemStateAccess",
+   "provisioning": "owned",
+   "uiSurface": false
+  },
+  {
+   "constructionProfile": "handwritten",
+   "id": "billing-state-access",
+   "kind": "resourceAccess",
+   "name": "BillingStateAccess",
+   "provisioning": "owned",
+   "uiSurface": false
+  },
+  {
+   "constructionProfile": "handwritten",
+   "id": "agentic-job-access",
+   "kind": "resourceAccess",
+   "name": "AgenticJobAccess",
+   "provisioning": "owned",
+   "uiSurface": false
+  },
+  {
+   "constructionProfile": "handwritten",
+   "id": "operated-runtime-access",
+   "kind": "resourceAccess",
+   "name": "OperatedRuntimeAccess",
+   "provisioning": "owned",
+   "uiSurface": false
+  },
+  {
+   "constructionProfile": "handwritten",
+   "id": "usage-access",
+   "kind": "resourceAccess",
+   "name": "UsageAccess",
+   "provisioning": "owned",
+   "uiSurface": false
+  },
+  {
+   "constructionProfile": "handwritten",
+   "id": "episode-access",
+   "kind": "resourceAccess",
+   "name": "EpisodeAccess",
+   "provisioning": "owned",
+   "uiSurface": false
+  },
+  {
+   "constructionProfile": "handwritten",
+   "id": "merchant-gateway-access",
+   "kind": "resourceAccess",
+   "name": "MerchantGatewayAccess",
+   "provisioning": "owned",
+   "uiSurface": false
+  },
+  {
+   "constructionProfile": "handwritten",
+   "id": "source-control-access",
+   "kind": "resourceAccess",
+   "name": "SourceControlAccess",
+   "provisioning": "owned",
+   "uiSurface": false
+  },
+  {
+   "constructionProfile": "handwritten",
+   "id": "artifact-access",
+   "kind": "resourceAccess",
+   "name": "ArtifactAccess",
+   "provisioning": "owned",
+   "uiSurface": false
+  },
+  {
+   "constructionProfile": "handwritten",
+   "id": "project-git-repo",
+   "kind": "resource",
+   "name": "ProjectGitRepo",
+   "provisioning": "owned",
+   "uiSurface": false
+  },
+  {
+   "constructionProfile": "handwritten",
+   "id": "operated-system-state",
+   "kind": "resource",
+   "name": "OperatedSystemState",
+   "provisioning": "owned",
+   "uiSurface": false
+  },
+  {
+   "constructionProfile": "handwritten",
+   "id": "billing-state",
+   "kind": "resource",
+   "name": "BillingState",
+   "provisioning": "owned",
+   "uiSurface": false
+  },
+  {
+   "constructionProfile": "handwritten",
+   "id": "construction-pipeline-runtime",
+   "kind": "resource",
+   "name": "ConstructionPipelineRuntime",
+   "provisioning": "vendor",
+   "uiSurface": false
+  },
+  {
+   "constructionProfile": "handwritten",
+   "id": "operated-runtime",
+   "kind": "resource",
+   "name": "OperatedRuntime",
+   "provisioning": "vendor",
+   "uiSurface": false
+  },
+  {
+   "constructionProfile": "handwritten",
+   "id": "usage-log",
+   "kind": "resource",
+   "name": "UsageLog",
+   "provisioning": "owned",
+   "uiSurface": false
+  },
+  {
+   "constructionProfile": "handwritten",
+   "id": "merchant-gateway",
+   "kind": "resource",
+   "name": "MerchantGateway",
+   "provisioning": "vendor",
+   "uiSurface": false
+  },
+  {
+   "constructionProfile": "handwritten",
+   "id": "github",
+   "kind": "resource",
+   "name": "GitHub",
+   "provisioning": "vendor",
+   "uiSurface": false
+  },
+  {
+   "constructionProfile": "handwritten",
+   "id": "security",
+   "kind": "utility",
+   "name": "Security",
+   "provisioning": "owned",
+   "uiSurface": false
+  },
+  {
+   "constructionProfile": "handwritten",
+   "id": "logging",
+   "kind": "utility",
+   "name": "Logging",
+   "provisioning": "owned",
+   "uiSurface": false
+  },
+  {
+   "constructionProfile": "handwritten",
+   "id": "diagnostics",
+   "kind": "utility",
+   "name": "Diagnostics",
+   "provisioning": "owned",
+   "uiSurface": false
+  },
+  {
+   "constructionProfile": "handwritten",
+   "id": "message-bus",
+   "kind": "utility",
+   "name": "MessageBus",
+   "provisioning": "owned",
+   "uiSurface": false
+  }
+ ],
+ "coreUseCaseIds": [
+  "UC1",
+  "UC2",
+  "UC3",
+  "UC4",
+  "UC5"
+ ],
+ "relationships": [
+  {
+   "from": "web-client",
+   "to": "system-design-manager"
+  },
+  {
+   "from": "web-client",
+   "to": "project-design-manager"
+  },
+  {
+   "from": "web-client",
+   "to": "construction-manager"
+  },
+  {
+   "from": "web-client",
+   "to": "operations-manager"
+  },
+  {
+   "from": "web-client",
+   "to": "billing-manager"
+  },
+  {
+   "from": "mcp-client",
+   "to": "system-design-manager"
+  },
+  {
+   "from": "mcp-client",
+   "to": "project-design-manager"
+  },
+  {
+   "from": "mcp-client",
+   "to": "construction-manager"
+  },
+  {
+   "from": "mcp-client",
+   "to": "operations-manager"
+  },
+  {
+   "from": "mcp-client",
+   "to": "billing-manager"
+  },
+  {
+   "from": "scheduler-client",
+   "to": "construction-manager"
+  },
+  {
+   "from": "scheduler-client",
+   "to": "operations-manager"
+  },
+  {
+   "from": "scheduler-client",
+   "to": "billing-manager"
+  },
+  {
+   "from": "project-design-manager",
+   "to": "estimation-engine"
+  },
+  {
+   "from": "project-design-manager",
+   "to": "operation-estimation-engine"
+  },
+  {
+   "from": "project-design-manager",
+   "to": "billing-engine"
+  },
+  {
+   "from": "construction-manager",
+   "to": "intervention-engine"
+  },
+  {
+   "from": "construction-manager",
+   "to": "review-engine"
+  },
+  {
+   "from": "operations-manager",
+   "to": "intervention-engine"
+  },
+  {
+   "from": "operations-manager",
+   "to": "autoscaler-engine"
+  },
+  {
+   "from": "operations-manager",
+   "to": "operation-estimation-engine"
+  },
+  {
+   "from": "billing-manager",
+   "to": "billing-engine"
+  },
+  {
+   "from": "billing-manager",
+   "to": "intervention-engine"
+  },
+  {
+   "from": "system-design-manager",
+   "to": "project-state-access"
+  },
+  {
+   "from": "system-design-manager",
+   "to": "agentic-job-access"
+  },
+  {
+   "from": "project-design-manager",
+   "to": "project-state-access"
+  },
+  {
+   "from": "project-design-manager",
+   "to": "agentic-job-access"
+  },
+  {
+   "from": "construction-manager",
+   "to": "project-state-access"
+  },
+  {
+   "from": "construction-manager",
+   "to": "artifact-access"
+  },
+  {
+   "from": "construction-manager",
+   "to": "agentic-job-access"
+  },
+  {
+   "from": "operations-manager",
+   "to": "operated-system-state-access"
+  },
+  {
+   "from": "operations-manager",
+   "to": "operated-runtime-access"
+  },
+  {
+   "from": "operations-manager",
+   "to": "usage-access"
+  },
+  {
+   "from": "operations-manager",
+   "to": "artifact-access"
+  },
+  {
+   "from": "billing-manager",
+   "to": "billing-state-access"
+  },
+  {
+   "from": "billing-manager",
+   "to": "usage-access"
+  },
+  {
+   "from": "billing-manager",
+   "to": "merchant-gateway-access"
+  },
+  {
+   "from": "system-design-manager",
+   "to": "source-control-access"
+  },
+  {
+   "from": "project-design-manager",
+   "to": "source-control-access"
+  },
+  {
+   "from": "construction-manager",
+   "to": "source-control-access"
+  },
+  {
+   "from": "construction-manager",
+   "to": "episode-access"
+  },
+  {
+   "from": "system-design-manager",
+   "to": "episode-access"
+  },
+  {
+   "from": "project-design-manager",
+   "to": "episode-access"
+  },
+  {
+   "from": "episode-access",
+   "to": "project-git-repo"
+  },
+  {
+   "from": "project-state-access",
+   "to": "project-git-repo"
+  },
+  {
+   "from": "artifact-access",
+   "to": "project-git-repo"
+  },
+  {
+   "from": "operated-system-state-access",
+   "to": "operated-system-state"
+  },
+  {
+   "from": "billing-state-access",
+   "to": "billing-state"
+  },
+  {
+   "from": "agentic-job-access",
+   "to": "construction-pipeline-runtime"
+  },
+  {
+   "from": "operated-runtime-access",
+   "to": "operated-runtime"
+  },
+  {
+   "from": "usage-access",
+   "to": "usage-log"
+  },
+  {
+   "from": "merchant-gateway-access",
+   "to": "merchant-gateway"
+  },
+  {
+   "from": "source-control-access",
+   "to": "github"
+  },
+  {
+   "from": "web-client",
+   "to": "security"
+  },
+  {
+   "from": "mcp-client",
+   "to": "security"
+  },
+  {
+   "from": "scheduler-client",
+   "to": "security"
+  },
+  {
+   "from": "system-design-manager",
+   "to": "logging"
+  },
+  {
+   "from": "system-design-manager",
+   "to": "diagnostics"
+  },
+  {
+   "from": "project-design-manager",
+   "to": "logging"
+  },
+  {
+   "from": "project-design-manager",
+   "to": "diagnostics"
+  },
+  {
+   "from": "construction-manager",
+   "to": "logging"
+  },
+  {
+   "from": "construction-manager",
+   "to": "diagnostics"
+  },
+  {
+   "from": "operations-manager",
+   "to": "logging"
+  },
+  {
+   "from": "operations-manager",
+   "to": "diagnostics"
+  },
+  {
+   "from": "billing-manager",
+   "to": "logging"
+  },
+  {
+   "from": "billing-manager",
+   "to": "diagnostics"
+  },
+  {
+   "from": "billing-manager",
+   "to": "message-bus"
+  },
+  {
+   "from": "operations-manager",
+   "to": "message-bus"
+  },
+  {
+   "from": "construction-manager",
+   "to": "message-bus"
+  },
+  {
+   "from": "billing-manager",
+   "to": "operations-manager"
+  },
+  {
+   "from": "construction-manager",
+   "to": "project-design-manager"
+  },
+  {
+   "from": "system-design-manager",
+   "to": "estimation-engine"
+  },
+  {
+   "from": "system-design-manager",
+   "to": "design-health-engine"
+  },
+  {
+   "from": "operations-manager",
+   "to": "project-state-access"
+  }
+ ]
+}
