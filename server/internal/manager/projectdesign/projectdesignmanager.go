@@ -3003,3 +3003,74 @@ func isEpisodeTraceNotFound(err error) bool {
 	var raErr *fwra.Error
 	return errors.As(err, &raErr) && raErr.Kind == fwra.NotFound
 }
+
+// --- Phase-2 activity-list derivation: the projectstate <-> estimation conversion
+// boundary (Option B full encapsulation: the estimation Engine redefines every domain
+// type it uses as its own generated def and imports NO projectstate, so the Manager
+// maps field-by-field here — exactly as toEstimationOption above does for
+// EstimateForOption). Task 10 wires toEstimationSystemView + toProjectStateActivityList
+// into the read path; DerivePlan itself (Task 5) and its call are exercised there. ---
+
+// derefString returns *p, or fallback when p is nil or points at the empty string —
+// the shared "unauthored optional -> concrete default" rule this boundary applies to
+// every optional projectstate.Component attribute the Engine needs resolved.
+func derefString(p *string, fallback string) string {
+	if p == nil || *p == "" {
+		return fallback
+	}
+	return *p
+}
+
+// derefBool returns *p, or false when p is nil — projectstate's UiSurface is an
+// unauthored-means-absent tri-state; the Engine only ever sees a resolved bool.
+func derefBool(p *bool) bool { return p != nil && *p }
+
+// toEstimationSystemView converts the canonical System to the estimation Engine's OWN
+// slim SystemView at the call boundary. Only what the derivation reads crosses:
+// identity, kind, and the three typed doctrine attributes (constructionProfile,
+// provisioning, uiSurface). CoreUseCaseIDs is left unset here — Task 10 wires it from
+// the committed .coreUseCases slot once the System and CoreUseCases are assembled
+// together on the read path; this function sees only the System.
+//
+// An unauthored constructionProfile defaults to "handwritten" — the CONSERVATIVE
+// direction. Defaulting to "generated" would silently delete real planned work, which
+// is the one failure mode this whole derivation design exists to prevent. An
+// unauthored provisioning defaults to "owned" (no vendor assumed).
+func toEstimationSystemView(sys projectstate.System) estimation.SystemView {
+	comps := make([]estimation.SystemComponent, 0, len(sys.Components))
+	for _, c := range sys.Components {
+		comps = append(comps, estimation.SystemComponent{
+			ID:                  c.ID,
+			Name:                c.Name,
+			Kind:                c.Kind.String(),
+			ConstructionProfile: derefString(c.ConstructionProfile, "handwritten"),
+			Provisioning:        derefString(c.Provisioning, "owned"),
+			UiSurface:           derefBool(c.UiSurface),
+		})
+	}
+	rels := make([]estimation.SystemRelationship, 0, len(sys.Relationships))
+	for _, r := range sys.Relationships {
+		rels = append(rels, estimation.SystemRelationship{From: r.From, To: r.To})
+	}
+	return estimation.SystemView{Components: comps, Relationships: rels}
+}
+
+// toProjectStateActivityList converts the Engine's derived plan back to the canonical
+// ActivityList shape every existing reader already consumes (the SPA catalog
+// projection, the construction pump, earned value). Only the Activities cross here —
+// DerivedPlan's Dependencies/Milestones feed the Network artifact, not this slot.
+func toProjectStateActivityList(plan estimation.DerivedPlan) projectstate.ActivityList {
+	acts := make([]projectstate.ActivityItem, 0, len(plan.Activities))
+	for _, a := range plan.Activities {
+		acts = append(acts, projectstate.ActivityItem{
+			Name:        a.Name,
+			Title:       a.Title,
+			EffortDays:  a.EffortDays,
+			RiskBucket:  int(a.RiskBucket),
+			WorkerClass: a.WorkerClass,
+			Coding:      a.Coding,
+			ComponentID: a.ComponentID,
+		})
+	}
+	return projectstate.ActivityList{Activities: acts}
+}

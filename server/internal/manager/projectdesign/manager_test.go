@@ -5152,3 +5152,62 @@ func Test_GetEpisodeTimeline_TraceReadError_MapsInfrastructure(t *testing.T) {
 		t.Fatalf("want Infrastructure, got %d", got)
 	}
 }
+
+// --- deriveplan.go conversion boundary: projectstate <-> estimation (Task 8) ---
+
+func TestToEstimationSystemViewCarriesTheTypedAttributes(t *testing.T) {
+	sys := projectstate.System{
+		Components: []projectstate.Component{
+			{ID: "order-manager", Name: "OrderManager", Kind: projectstate.CompManager},
+			{ID: "web-client", Name: "WebClient", Kind: projectstate.CompClient},
+		},
+	}
+	sys.Components[0].ConstructionProfile = strPtr("handwritten")
+	sys.Components[1].ConstructionProfile = strPtr("generated")
+	sys.Components[1].UiSurface = boolPtr(true)
+
+	got := toEstimationSystemView(sys)
+	if len(got.Components) != 2 {
+		t.Fatalf("converted %d components, want 2", len(got.Components))
+	}
+	byID := map[string]estimation.SystemComponent{}
+	for _, c := range got.Components {
+		byID[c.ID] = c
+	}
+	if byID["order-manager"].Kind != "manager" {
+		t.Errorf("manager kind = %q, want %q", byID["order-manager"].Kind, "manager")
+	}
+	if byID["web-client"].ConstructionProfile != "generated" || !byID["web-client"].UiSurface {
+		t.Errorf("web-client = %+v, want generated with a UI surface", byID["web-client"])
+	}
+}
+
+// A component with no authored constructionProfile must default to handwritten — the
+// conservative direction. Defaulting to "generated" would silently delete real work.
+func TestToEstimationSystemViewDefaultsToHandwritten(t *testing.T) {
+	sys := projectstate.System{Components: []projectstate.Component{
+		{ID: "x", Name: "X", Kind: projectstate.CompEngine},
+	}}
+	got := toEstimationSystemView(sys)
+	if got.Components[0].ConstructionProfile != "handwritten" {
+		t.Errorf("default profile = %q, want handwritten", got.Components[0].ConstructionProfile)
+	}
+}
+
+func TestToProjectStateActivityListRoundTrips(t *testing.T) {
+	plan := estimation.DerivedPlan{Activities: []estimation.DerivedActivity{
+		{Name: "C-x", Title: "Build X", EffortDays: 15, RiskBucket: 3,
+			WorkerClass: "junior-developer", Coding: true, ComponentID: "x", Derived: true},
+	}}
+	got := toProjectStateActivityList(plan)
+	if len(got.Activities) != 1 {
+		t.Fatalf("converted %d activities, want 1", len(got.Activities))
+	}
+	a := got.Activities[0]
+	if a.Name != "C-x" || a.EffortDays != 15 || a.RiskBucket != 3 ||
+		a.WorkerClass != "junior-developer" || !a.Coding || a.ComponentID != "x" {
+		t.Errorf("converted activity = %+v", a)
+	}
+}
+
+func boolPtr(b bool) *bool { return &b }
