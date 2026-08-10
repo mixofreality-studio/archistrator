@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -5211,3 +5213,168 @@ func TestToProjectStateActivityListRoundTrips(t *testing.T) {
 }
 
 func boolPtr(b bool) *bool { return &b }
+
+func TestMaterializeActivityPlanProducesTheReaderShape(t *testing.T) {
+	sys := projectstate.System{Components: []projectstate.Component{
+		{ID: "order-manager", Name: "OrderManager", Kind: projectstate.CompManager},
+		{ID: "order-access", Name: "OrderAccess", Kind: projectstate.CompResourceAccess},
+	}}
+	list, deps, err := MaterializeActivityPlan(sys, []string{"UC1"}, estimation.ActivityListDeltas{})
+	if err != nil {
+		t.Fatalf("MaterializeActivityPlan: %v", err)
+	}
+	if len(list.Activities) == 0 {
+		t.Fatal("materialized an empty activity list for a populated System")
+	}
+	var sawManager bool
+	for _, a := range list.Activities {
+		if a.Name == "C-order-manager" && a.ComponentID == "order-manager" {
+			sawManager = true
+		}
+	}
+	if !sawManager {
+		t.Error("materialized list missing C-order-manager")
+	}
+	if len(deps) == 0 {
+		t.Error("materialized no dependency rows")
+	}
+}
+
+// loadCommittedStateForTest reads the repo's own committed project document and returns
+// the slot-5 System, the core use-case ids, and the historical .activityConstruction
+// keys. It reads LIVE state rather than a fixture on purpose: the risk this test guards
+// against is one specific historical key having no derived counterpart, which a
+// synthetic fixture cannot reproduce.
+//
+// The path is resolved relative to this test file's package directory
+// (server/internal/manager/projectdesign), so it does not depend on the caller's cwd.
+func loadCommittedStateForTest(t *testing.T) (projectstate.System, []string, []string) {
+	t.Helper()
+	const rel = "../../../../.aiarch/state/project.json"
+	raw, err := os.ReadFile(rel)
+	if err != nil {
+		t.Fatalf("read committed project state at %s: %v", rel, err)
+	}
+	var doc struct {
+		Slots map[string]struct {
+			Model json.RawMessage `json:"model"`
+		} `json:"slots"`
+		ActivityConstruction map[string]json.RawMessage `json:"activityConstruction"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("decode committed project state: %v", err)
+	}
+
+	var sys projectstate.System
+	if err := json.Unmarshal(doc.Slots["5"].Model, &sys); err != nil {
+		t.Fatalf("decode slot 5 (System): %v", err)
+	}
+	if len(sys.Components) == 0 {
+		t.Fatal("slot 5 decoded to zero components - the test would be vacuous")
+	}
+
+	// Core use cases live in their own slot (a CoreUseCases document: Decisions, each
+	// carrying a UseCase with a Classification); ids only, best effort — only the
+	// ClassCore-classified use cases feed the I-* derivation (deriveActivities: "one per
+	// core use case"). Decoded via the real projectstate.CoreUseCases shape, NOT a
+	// hand-rolled {"useCases":[...]}, which no committed slot actually uses (verified:
+	// the real slot is {"decisions":[{"useCase":{...}}]}) and would silently decode to
+	// zero ids forever, starving every I-* alias assertion below of a match to check.
+	var cuc projectstate.CoreUseCases
+	for _, slot := range doc.Slots {
+		if err := json.Unmarshal(slot.Model, &cuc); err == nil && len(cuc.Decisions) > 0 {
+			break
+		}
+	}
+	ids := make([]string, 0, len(cuc.Decisions))
+	for _, dec := range cuc.Decisions {
+		if dec.UseCase.Classification != projectstate.ClassCore {
+			continue
+		}
+		ids = append(ids, string(dec.UseCase.ID))
+	}
+	if len(ids) == 0 {
+		t.Fatal("core use cases decoded to zero ids - the I-UC* alias assertions would be vacuous")
+	}
+
+	keys := make([]string, 0, len(doc.ActivityConstruction))
+	for k := range doc.ActivityConstruction {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	if len(keys) == 0 {
+		t.Fatal("activityConstruction decoded to zero keys - the test would be vacuous")
+	}
+	return sys, ids, keys
+}
+
+// THE JOIN THAT MUST NOT BREAK. Once the derivation is authoritative, slot 9 renders
+// activities named C-<component-id> while the 69 rows in .activityConstruction remain
+// keyed by their hand-chosen short names (C-BM, R-GH, …), every one Done+Integrated.
+// Any code joining plan to construction state therefore needs the alias to resolve, and
+// nothing else in stage 1 exercises that seam — so it is asserted here, over the REAL
+// committed key set rather than a fixture, because the risk is a specific historical key
+// having no derived counterpart.
+func TestEveryHistoricalConstructionKeyResolvesToADerivedActivity(t *testing.T) {
+	sys, useCaseIDs, historicalKeys := loadCommittedStateForTest(t)
+	list, _, err := MaterializeActivityPlan(sys, useCaseIDs, estimation.ActivityListDeltas{})
+	if err != nil {
+		t.Fatalf("MaterializeActivityPlan: %v", err)
+	}
+	derived := make(map[string]bool, len(list.Activities))
+	for _, a := range list.Activities {
+		derived[a.Name] = true
+	}
+
+	// No derived counterpart BY DESIGN — a derived list never emits these, and their
+	// Done+Integrated history stays valid but orphaned from the forward-looking plan:
+	//   - C-HE, C-WIA, R-WIT: zombies, name components that no longer exist.
+	//   - R-DER: componentless (an additive delta, not a rename).
+	//   - C-CW, C-CM, C-CS: the three generated-transport clients (web/mcp/scheduler).
+	//     Per Task 6's golden-parity result (progress.md, "HEADLINE RESULT OF THE WHOLE
+	//     PLAN": 49 derived vs. 69 committed, "−3 generated-client codings (C-CW, C-CM,
+	//     C-CS)"), this is one of the FIVE reconciling differences the whole derivation
+	//     is built to reproduce, not a defect: codingActivityFor skips any component
+	//     whose ConstructionProfile == "generated" ("the generator does that work"), and
+	//     all three of web-client/mcp-client/scheduler-client are generated. The real
+	//     historical effort (20/25/15 days) built the code-generation pipeline itself —
+	//     genuinely one-time, non-recurring work with no place in a plan that is derived
+	//     fresh from the CURRENT architecture on every read.
+	noCounterpart := map[string]bool{
+		"C-HE": true, "C-WIA": true, "R-WIT": true, "R-DER": true,
+		"C-CW": true, "C-CM": true, "C-CS": true,
+	}
+
+	for _, historical := range historicalKeys {
+		if noCounterpart[historical] {
+			continue
+		}
+		canonical, ok := projectstate.ResolveActivityAlias(historical)
+		if !ok {
+			// U-SPA-* and N-* are re-derived or arrive as additive deltas rather than
+			// being renamed, so they legitimately have no alias.
+			if strings.HasPrefix(historical, "U-SPA-") || strings.HasPrefix(historical, "N-") {
+				continue
+			}
+			t.Errorf("historical construction key %q has no alias; its Done+Integrated history would be orphaned", historical)
+			continue
+		}
+		if !derived[canonical] {
+			t.Errorf("historical key %q aliases to %q, which the derivation does not emit", historical, canonical)
+		}
+	}
+}
+
+// A delta document that violates the vocabulary must fail the READ, loudly. A silently
+// dropped bad delta is the zombie failure mode returning by another door.
+func TestMaterializeActivityPlanPropagatesDeltaErrors(t *testing.T) {
+	sys := projectstate.System{Components: []projectstate.Component{
+		{ID: "order-manager", Name: "OrderManager", Kind: projectstate.CompManager},
+	}}
+	_, _, err := MaterializeActivityPlan(sys, nil, estimation.ActivityListDeltas{
+		Overrides: []estimation.ActivityOverride{{Activity: "C-gone", Justification: "j"}},
+	})
+	if err == nil {
+		t.Fatal("a delta naming an underived activity must fail the read")
+	}
+}

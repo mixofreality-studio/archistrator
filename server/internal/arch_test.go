@@ -302,8 +302,16 @@ var encapsulationAllowlistData = map[string][]string{
 		"RegisterWorker",
 		"TaskQueue",
 	},
-	// Temporal registration entrypoints (see construction).
+	// Temporal registration entrypoints (see construction). MaterializeActivityPlan
+	// (Task 10, 2026-08-09 derived-activity-list stage 1) is the single render-on-read
+	// entry point for the Phase-2 plan — it derives the baseline from the committed
+	// System and applies the authored deltas. Exported because the slot-9/10 read path
+	// that calls it lives OUTSIDE this package (projectstate.ProjectStateAccess); no
+	// caller exists yet in stage 1 (same category as Task 9's ResolveActivityAlias/
+	// HistoricalAliasFor above — published surface for a seam this stage builds but does
+	// not yet wire end-to-end).
 	"internal/manager/projectdesign": {
+		"MaterializeActivityPlan",
 		"RegisterManagerWorker",
 		"RegisterWorker",
 		"TaskQueue",

@@ -7970,6 +7970,25 @@ type Error = fwra.Error
 // U-SPA-* set is re-derived per MANAGER (a different decomposition, not a
 // rename), and the three zombie activities (C-HE, C-WIA, R-WIT) have no
 // canonical counterpart by design — they name components that do not exist.
+//
+// Task 10 completion (2026-08-09): TestEveryHistoricalConstructionKeyResolvesTo
+// ADerivedActivity, run against the REAL committed state, found this map
+// incomplete for two further cases the "only C-*/R-*" rule above did not
+// anticipate:
+//
+//   - I-UC1..I-UC5: the historical integration activities were numbered
+//     ordinally; the derivation names an I-* activity after the CoreUseCase id
+//     it integrates (a semantic slug, e.g. "drive-system-design"), which is a
+//     rename exactly like the C-*/R-* case, just never entered here. The
+//     ordinal→slug mapping below is read off each I-UC<n>'s committed title,
+//     which states the use case in full (e.g. I-UC1's title is "End-to-end
+//     integration: UC1 (Phase-1 system-design workflow)" — the ONLY core use
+//     case about the Phase-1 system-design workflow is "drive-system-design").
+//   - G-SPA: not a rename (the derivation always emits an activity literally
+//     named "G-SPA" when the system has a UI surface), so it needs no
+//     alias BY THE RULE ABOVE — but it is entered here anyway as a trivial
+//     self-alias so the join test does not need a separate identity
+//     fallback for the one non-renamed, non-N-*/non-U-SPA-* historical key.
 
 // activityAliases maps historical short name → derived canonical id.
 var activityAliases = map[string]string{
@@ -8014,6 +8033,20 @@ var activityAliases = map[string]string{
 	"R-BG":  "R-merchant-gateway",              // "Provision Stripe vendor account (BillingGateway)"
 	"R-CPR": "R-construction-pipeline-runtime", // "Select + provision Construction Pipeline Runtime"
 	"R-ORS": "R-operated-runtime",              // "Select + provision Operated Runtime Infrastructure"
+
+	// HAND-DERIVED (Task 10 completion): the ordinal I-UC<n> names were never
+	// backfilled either, so these five are resolved by hand from each activity's
+	// committed title against the five "classification": "core" use cases in
+	// slot 4 (.coreUseCases).
+	"I-UC1": "I-drive-system-design",             // title: "...(Phase-1 system-design workflow)"
+	"I-UC2": "I-commit-to-a-project-option",      // title: "...(Phase-2 project-design + SDP commit)"
+	"I-UC3": "I-execute-a-construction-activity", // title: "...(construction activity execution)"
+	"I-UC4": "I-operate-a-delivered-system",      // title: "...(operate + reconcile + autoscale)"
+	"I-UC5": "I-bill-the-user-for-usage",         // title: "...(bill-the-user cycle)"
+
+	// Trivial self-alias — see the file doc above for why G-SPA is entered here
+	// even though it is not a rename.
+	"G-SPA": "G-SPA",
 }
 
 // canonicalToHistorical is the reverse index, built once at init from activityAliases so

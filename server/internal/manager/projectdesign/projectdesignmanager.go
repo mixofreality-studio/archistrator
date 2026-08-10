@@ -54,6 +54,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 	"github.com/mixofreality-studio/archistrator-platform/framework-go/utilities/security"
@@ -3073,4 +3074,30 @@ func toProjectStateActivityList(plan estimation.DerivedPlan) projectstate.Activi
 		})
 	}
 	return projectstate.ActivityList{Activities: acts}
+}
+
+// MaterializeActivityPlan is the single render-on-read entry point for the Phase-2 plan:
+// it derives the baseline from the committed System, applies the authored deltas, and
+// returns the canonical shapes every existing reader already consumes.
+//
+// A delta that violates the vocabulary fails the READ, loudly. Silently dropping a bad
+// delta would be the zombie failure mode returning by another door.
+func MaterializeActivityPlan(
+	sys projectstate.System,
+	useCaseIDs []string,
+	deltas estimation.ActivityListDeltas,
+) (projectstate.ActivityList, []projectstate.NetworkDependency, error) {
+	view := toEstimationSystemView(sys)
+	view.CoreUseCaseIDs = useCaseIDs
+
+	plan, err := estimation.NewEstimationEngine().DerivePlan(fweng.Context{}, view, deltas)
+	if err != nil {
+		return projectstate.ActivityList{}, nil, err
+	}
+
+	deps := make([]projectstate.NetworkDependency, 0, len(plan.Dependencies))
+	for _, d := range plan.Dependencies {
+		deps = append(deps, projectstate.NetworkDependency{Activity: d.Activity, DependsOn: d.DependsOn})
+	}
+	return toProjectStateActivityList(plan), deps, nil
 }
