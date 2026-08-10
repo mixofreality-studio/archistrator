@@ -127,7 +127,7 @@ Hand-edit `.serviceContracts.estimationEngine.$defs` with these definitions **ad
       "provisioning": {"type": "string"},
       "uiSurface": {"type": "boolean"}
     },
-    "required": ["id", "name", "kind"],
+    "required": ["id", "name", "kind", "constructionProfile", "provisioning", "uiSurface"],
     "additionalProperties": false
   },
   "SystemRelationship": {
@@ -173,7 +173,7 @@ Hand-edit `.serviceContracts.estimationEngine.$defs` with these definitions **ad
       "componentId": {"type": "string", "x-go-name": "ComponentID"},
       "justification": {"type": "string"}
     },
-    "required": ["name", "title", "effortDays", "riskBucket", "workerClass", "justification"],
+    "required": ["name", "title", "effortDays", "riskBucket", "workerClass", "coding", "justification"],
     "additionalProperties": false
   },
   "AdditiveMilestone": {
@@ -1653,7 +1653,7 @@ func applyDeltas(base []DerivedActivity, deps []NetworkDependency, ms []NetworkM
 			return DerivedPlan{}, fweng.New(fweng.ContractMisuse,
 				"DerivePlan: additive activity "+a.Name+" shadows a derived activity; that is an exclusion in disguise")
 		}
-		if a.ComponentID != "" {
+		if a.ComponentID != nil {
 			return DerivedPlan{}, fweng.New(fweng.ContractMisuse,
 				"DerivePlan: additive activity "+a.Name+" carries a componentId; additive is for genuinely componentless work, "+
 					"and a component-bound additive is a covert exclusion/replacement channel")
@@ -1819,14 +1819,16 @@ generated = {'web-client', 'mcp-client', 'scheduler-client'}
 vendor = {'github', 'merchant-gateway', 'construction-pipeline-runtime', 'operated-runtime'}
 comps = []
 for c in sysm['components']:
-    e = {'id': c['id'], 'name': c['name'], 'kind': c['kind']}
-    if c['kind'] == 'resource':
-        e['provisioning'] = 'vendor' if c['id'] in vendor else 'owned'
-    else:
-        e['constructionProfile'] = 'generated' if c['id'] in generated else 'handwritten'
-    if c['id'] == 'web-client':
-        e['uiSurface'] = True
-    comps.append(e)
+    # All three attributes are REQUIRED on the Engine's slim view, so emit every one on
+    # every component — the Engine receives fully resolved values and never re-defaults.
+    comps.append({
+        'id': c['id'],
+        'name': c['name'],
+        'kind': c['kind'],
+        'constructionProfile': 'generated' if c['id'] in generated else 'handwritten',
+        'provisioning': ('vendor' if c['id'] in vendor else 'owned') if c['kind'] == 'resource' else 'owned',
+        'uiSurface': c['id'] == 'web-client',
+    })
 rels = [{'from': r['from'], 'to': r['to']} for r in sysm.get('relationships', [])]
 out = {'components': comps, 'relationships': rels,
        'coreUseCaseIds': ['UC1', 'UC2', 'UC3', 'UC4', 'UC5']}
