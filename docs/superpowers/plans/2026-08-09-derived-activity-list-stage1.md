@@ -2834,6 +2834,68 @@ func TestMaterializeActivityPlanProducesTheReaderShape(t *testing.T) {
 	}
 }
 
+// loadCommittedStateForTest reads the repo's own committed project document and returns
+// the slot-5 System, the core use-case ids, and the historical .activityConstruction
+// keys. It reads LIVE state rather than a fixture on purpose: the risk this test guards
+// against is one specific historical key having no derived counterpart, which a
+// synthetic fixture cannot reproduce.
+//
+// The path is resolved relative to this test file's package directory
+// (server/internal/manager/projectdesign), so it does not depend on the caller's cwd.
+func loadCommittedStateForTest(t *testing.T) (projectstate.System, []string, []string) {
+	t.Helper()
+	const rel = "../../../../.aiarch/state/project.json"
+	raw, err := os.ReadFile(rel)
+	if err != nil {
+		t.Fatalf("read committed project state at %s: %v", rel, err)
+	}
+	var doc struct {
+		Slots map[string]struct {
+			Model json.RawMessage `json:"model"`
+		} `json:"slots"`
+		ActivityConstruction map[string]json.RawMessage `json:"activityConstruction"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("decode committed project state: %v", err)
+	}
+
+	var sys projectstate.System
+	if err := json.Unmarshal(doc.Slots["5"].Model, &sys); err != nil {
+		t.Fatalf("decode slot 5 (System): %v", err)
+	}
+	if len(sys.Components) == 0 {
+		t.Fatal("slot 5 decoded to zero components - the test would be vacuous")
+	}
+
+	// Core use cases live in their own slot; ids only, best effort. If the shape does
+	// not match, the derivation simply emits no I-* activities, which does not affect
+	// what this test asserts.
+	var useCases struct {
+		UseCases []struct {
+			ID string `json:"id"`
+		} `json:"useCases"`
+	}
+	for _, slot := range doc.Slots {
+		if err := json.Unmarshal(slot.Model, &useCases); err == nil && len(useCases.UseCases) > 0 {
+			break
+		}
+	}
+	ids := make([]string, 0, len(useCases.UseCases))
+	for _, uc := range useCases.UseCases {
+		ids = append(ids, uc.ID)
+	}
+
+	keys := make([]string, 0, len(doc.ActivityConstruction))
+	for k := range doc.ActivityConstruction {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	if len(keys) == 0 {
+		t.Fatal("activityConstruction decoded to zero keys - the test would be vacuous")
+	}
+	return sys, ids, keys
+}
+
 // THE JOIN THAT MUST NOT BREAK. Once the derivation is authoritative, slot 9 renders
 // activities named C-<component-id> while the 69 rows in .activityConstruction remain
 // keyed by their hand-chosen short names (C-BM, R-GH, …), every one Done+Integrated.
@@ -2842,8 +2904,8 @@ func TestMaterializeActivityPlanProducesTheReaderShape(t *testing.T) {
 // committed key set rather than a fixture, because the risk is a specific historical key
 // having no derived counterpart.
 func TestEveryHistoricalConstructionKeyResolvesToADerivedActivity(t *testing.T) {
-	sys := loadCommittedSystemForTest(t) // the live slot-5 System
-	list, _, err := MaterializeActivityPlan(sys, coreUseCaseIDsForTest(t), estimation.ActivityListDeltas{})
+	sys, useCaseIDs, historicalKeys := loadCommittedStateForTest(t)
+	list, _, err := MaterializeActivityPlan(sys, useCaseIDs, estimation.ActivityListDeltas{})
 	if err != nil {
 		t.Fatalf("MaterializeActivityPlan: %v", err)
 	}
@@ -2856,7 +2918,7 @@ func TestEveryHistoricalConstructionKeyResolvesToADerivedActivity(t *testing.T) 
 	// R-DER have no derived counterpart BY DESIGN — a derived list never emits them.
 	noCounterpart := map[string]bool{"C-HE": true, "C-WIA": true, "R-WIT": true, "R-DER": true}
 
-	for _, historical := range historicalConstructionKeysForTest(t) {
+	for _, historical := range historicalKeys {
 		if noCounterpart[historical] {
 			continue
 		}
