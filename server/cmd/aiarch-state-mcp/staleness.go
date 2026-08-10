@@ -5,10 +5,10 @@ package main
 // whole-document validation. applyGateSeverityPolicies composes them:
 //
 //  1. STALENESS-AWARE severity for the CROSS-ARTIFACT System×OperationalConcepts join
-//     rules (applyStaleBasisDowngrades — the first half of the deadlock class; below)
-//     and, by the same token, for the app-side System×ActivityList join rules
-//     (applyActivityListStaleDowngrades over the ACT-* rules of crossartifact.go,
-//     which applyGateSeverityPolicies appends before any downgrade runs).
+//     rules (applyStaleBasisDowngrades — the first half of the deadlock class; below).
+//     The app-side System×ActivityList join this used to mirror (ACT-* rules of
+//     crossartifact.go) is retired 2026-08-09 — coverage moved from validation to
+//     derivation, so there is no ACT-* Error left to downgrade.
 //  2. SLOT-SCOPED severity (applySlotScopeDowngrades — the second half): findings
 //     attributable to a specific artifact slot are Errors ONLY when that slot is the
 //     one the session is amending (the AMBIENT slot). Findings on OTHER slots are
@@ -72,7 +72,6 @@ import (
 func applyGateSeverityPolicies(proj projectstate.Project, ambient projectstate.ArtifactKind, hasAmbient bool, findings []methodcheck.Finding) []methodcheck.Finding {
 	findings = appendAppSideCrossArtifactFindings(proj, findings)
 	findings = applyStaleBasisDowngrades(proj, findings)
-	findings = applyActivityListStaleDowngrades(proj, findings)
 	if hasAmbient {
 		findings = applySlotScopeDowngrades(ambient, findings)
 	}
@@ -134,52 +133,6 @@ func applyStaleBasisDowngrades(proj projectstate.Project, findings []methodcheck
 	return out
 }
 
-// systemActivityListJoinRules is the closed set of rules that JOIN System ×
-// ActivityList — the app-side coding-activity-coverage predicates (crossartifact.go)
-// whose subject is the committed activity list matched against the System component
-// graph. The EXACT mirror of systemOpConceptsJoinRules for the Phase-1→Phase-2 join:
-// a System amendment that adds or renames components can never satisfy
-// ACT-COMPONENT-COVERAGE in the same session (the activity-list update is a LATER
-// ActivityList amendment), so while the activityList slot is flagged StaleBasis the
-// join is advisory, not blocking.
-//
-//   - ACT-COMPONENT-COVERAGE (Error)   every code-layer System component has a
-//     coding activity
-//   - ACT-UNKNOWN-COMPONENT  (already Warning) a coding activity derives no System
-//     component; listed so the set documents the FULL System×ActivityList join
-//     surface and stays correct if its severity ever changes.
-//
-// Deliberately NOT in the set: PA-RATECARD-* (same-artifact rules internal to
-// PlanningAssumptions, which must hold in every draft regardless of staleness).
-var systemActivityListJoinRules = map[methodcheck.RuleID]bool{
-	"ACT-COMPONENT-COVERAGE": true,
-	"ACT-UNKNOWN-COMPONENT":  true,
-}
-
-// activityListStaleDowngradeNote is appended to every downgraded finding so the gate
-// log states WHY the rule did not block and WHEN it will again.
-const activityListStaleDowngradeNote = " [downgraded to warning: the activityList slot is flagged stale-basis, so its reconciliation with the System is pending by design; this System×ActivityList rule regains Error severity once the slot is re-committed or its staleness acknowledged]"
-
-// applyActivityListStaleDowngrades applies the staleness-aware severity policy for the
-// System×ActivityList join rules — the exact mirror of applyStaleBasisDowngrades over
-// the ActivityList slot: when that slot carries StaleBasis=true, every Error finding
-// of a System×ActivityList join rule downgrades to an annotated Warning. Everything
-// else passes through untouched.
-func applyActivityListStaleDowngrades(proj projectstate.Project, findings []methodcheck.Finding) []methodcheck.Finding {
-	if !proj.ActivityList.StaleBasis {
-		return findings
-	}
-	out := make([]methodcheck.Finding, len(findings))
-	for i, f := range findings {
-		if f.Severity == methodcheck.SeverityError && systemActivityListJoinRules[f.RuleID] {
-			f.Severity = methodcheck.SeverityWarning
-			f.Message += activityListStaleDowngradeNote
-		}
-		out[i] = f
-	}
-	return out
-}
-
 // ---------------------------------------------------------------------------------
 // SLOT-SCOPED severity (policy 2) — the general fallback beneath the staleness case.
 // ---------------------------------------------------------------------------------
@@ -230,11 +183,11 @@ var ruleSlotAttributionPrefixes = []struct {
 	{"DEP-", projectstate.KindOperationalConcepts, attribSlot},
 	{"STD-", projectstate.KindStandardCheck, attribSlot},
 	{"STP-", 0, attribTesting},
-	// App-side cross-artifact rules (crossartifact.go). Attribution follows the
-	// subject slot exactly like DEP-*: the ACT-* System×ActivityList join is fixed by
-	// an ActivityList amendment; the PA-RATECARD-* consistency is fixed by a
-	// PlanningAssumptions amendment.
-	{"ACT-", projectstate.KindActivityList, attribSlot},
+	// App-side cross-artifact rules (crossartifact.go). Attribution follows the subject
+	// slot exactly like DEP-*: the PA-RATECARD-* consistency is fixed by a
+	// PlanningAssumptions amendment. The ACT-* System×ActivityList join rules this
+	// entry used to sit beside are retired 2026-08-09 (coverage moved from validation
+	// to derivation).
 	{"PA-", projectstate.KindPlanningAssumptions, attribSlot},
 	// Live design-health tier (internal/engine/designhealth). The DH-* rules are the
 	// mechanical systemDesign directives + joins; their subject is the architecture,
