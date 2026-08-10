@@ -1,6 +1,6 @@
 {
   "id": "archistrator",
-  "version": 595,
+  "version": 596,
   "phase": 2,
   "owner": "dev-architect",
   "name": "Archistrator",
@@ -16222,6 +16222,300 @@
             "staffingCap"
           ],
           "additionalProperties": false
+        },
+        "SystemComponent": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "x-go-name": "ID"
+            },
+            "name": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string"
+            },
+            "constructionProfile": {
+              "type": "string"
+            },
+            "provisioning": {
+              "type": "string"
+            },
+            "uiSurface": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "kind"
+          ],
+          "additionalProperties": false
+        },
+        "SystemRelationship": {
+          "type": "object",
+          "properties": {
+            "from": {
+              "type": "string"
+            },
+            "to": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "from",
+            "to"
+          ],
+          "additionalProperties": false
+        },
+        "SystemView": {
+          "type": "object",
+          "properties": {
+            "components": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/SystemComponent"
+              }
+            },
+            "relationships": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/SystemRelationship"
+              }
+            },
+            "coreUseCaseIds": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "string"
+              },
+              "x-go-name": "CoreUseCaseIDs"
+            }
+          },
+          "required": [
+            "components"
+          ],
+          "additionalProperties": false
+        },
+        "ActivityOverride": {
+          "type": "object",
+          "properties": {
+            "activity": {
+              "type": "string"
+            },
+            "effortDays": {
+              "type": [
+                "null",
+                "number"
+              ]
+            },
+            "riskBucket": {
+              "type": [
+                "null",
+                "integer"
+              ]
+            },
+            "justification": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "activity",
+            "justification"
+          ],
+          "additionalProperties": false
+        },
+        "AdditiveActivity": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "effortDays": {
+              "type": "number"
+            },
+            "riskBucket": {
+              "type": "integer"
+            },
+            "workerClass": {
+              "type": "string"
+            },
+            "coding": {
+              "type": "boolean"
+            },
+            "dependsOn": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "string"
+              }
+            },
+            "componentId": {
+              "type": "string",
+              "x-go-name": "ComponentID"
+            },
+            "justification": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "title",
+            "effortDays",
+            "riskBucket",
+            "workerClass",
+            "justification"
+          ],
+          "additionalProperties": false
+        },
+        "AdditiveMilestone": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "dependsOn": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "string"
+              }
+            },
+            "justification": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "justification"
+          ],
+          "additionalProperties": false
+        },
+        "ActivityListDeltas": {
+          "type": "object",
+          "properties": {
+            "overrides": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/ActivityOverride"
+              }
+            },
+            "additive": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/AdditiveActivity"
+              }
+            },
+            "additiveMilestones": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/AdditiveMilestone"
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "DerivedActivity": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "effortDays": {
+              "type": "number"
+            },
+            "riskBucket": {
+              "type": "integer"
+            },
+            "workerClass": {
+              "type": "string"
+            },
+            "coding": {
+              "type": "boolean"
+            },
+            "componentId": {
+              "type": "string",
+              "x-go-name": "ComponentID"
+            },
+            "derived": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "name",
+            "title",
+            "effortDays",
+            "riskBucket",
+            "workerClass",
+            "coding",
+            "derived"
+          ],
+          "additionalProperties": false
+        },
+        "DerivedPlan": {
+          "type": "object",
+          "properties": {
+            "activities": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/DerivedActivity"
+              }
+            },
+            "dependencies": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/NetworkDependency"
+              }
+            },
+            "milestones": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/NetworkMilestone"
+              }
+            }
+          },
+          "required": [
+            "activities",
+            "dependencies"
+          ],
+          "additionalProperties": false
         }
       },
       "interface": {
@@ -16303,6 +16597,27 @@
             ],
             "result": {
               "$ref": "#/$defs/ConstructionEstimate"
+            },
+            "error": true
+          },
+          {
+            "name": "DerivePlan",
+            "params": [
+              {
+                "name": "system",
+                "schema": {
+                  "$ref": "#/$defs/SystemView"
+                }
+              },
+              {
+                "name": "deltas",
+                "schema": {
+                  "$ref": "#/$defs/ActivityListDeltas"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/DerivedPlan"
             },
             "error": true
           }
