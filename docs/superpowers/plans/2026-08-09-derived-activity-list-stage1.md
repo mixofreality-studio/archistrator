@@ -2800,7 +2800,7 @@ The flip. Everything before this was additive and behaviour-preserving; this is 
 - Modify: `.aiarch/state/project.json` `slots["9"]` and `slots["10"]` (hand-edit; both stay committed — reconciliation amendment)
 
 **Interfaces:**
-- Consumes: `toEstimationSystemView`, `toProjectStateActivityList` (Task 8); `DerivePlan` (Task 5); `ResolveActivityAlias` (Task 9).
+- Consumes: `toEstimationSystemView`, `toProjectStateActivityList` (Task 8); `DerivePlan` (Task 5); `ResolveActivityAlias` (Task 9) — **this task is what makes Task 9's alias map load-bearing**; before it, nothing called it.
 - Produces: `MaterializeActivityPlan(sys projectstate.System, useCaseIDs []string, deltas estimation.ActivityListDeltas) (projectstate.ActivityList, []projectstate.NetworkDependency, error)` on the Manager — the single render-on-read entry point.
 
 - [ ] **Step 1: Write the failing test**
@@ -2831,6 +2831,48 @@ func TestMaterializeActivityPlanProducesTheReaderShape(t *testing.T) {
 	}
 	if len(deps) == 0 {
 		t.Error("materialized no dependency rows")
+	}
+}
+
+// THE JOIN THAT MUST NOT BREAK. Once the derivation is authoritative, slot 9 renders
+// activities named C-<component-id> while the 69 rows in .activityConstruction remain
+// keyed by their hand-chosen short names (C-BM, R-GH, …), every one Done+Integrated.
+// Any code joining plan to construction state therefore needs the alias to resolve, and
+// nothing else in stage 1 exercises that seam — so it is asserted here, over the REAL
+// committed key set rather than a fixture, because the risk is a specific historical key
+// having no derived counterpart.
+func TestEveryHistoricalConstructionKeyResolvesToADerivedActivity(t *testing.T) {
+	sys := loadCommittedSystemForTest(t) // the live slot-5 System
+	list, _, err := MaterializeActivityPlan(sys, coreUseCaseIDsForTest(t), estimation.ActivityListDeltas{})
+	if err != nil {
+		t.Fatalf("MaterializeActivityPlan: %v", err)
+	}
+	derived := make(map[string]bool, len(list.Activities))
+	for _, a := range list.Activities {
+		derived[a.Name] = true
+	}
+
+	// The zombies (components that no longer exist) and the componentless additive
+	// R-DER have no derived counterpart BY DESIGN — a derived list never emits them.
+	noCounterpart := map[string]bool{"C-HE": true, "C-WIA": true, "R-WIT": true, "R-DER": true}
+
+	for _, historical := range historicalConstructionKeysForTest(t) {
+		if noCounterpart[historical] {
+			continue
+		}
+		canonical, ok := projectstate.ResolveActivityAlias(historical)
+		if !ok {
+			// U-SPA-* and N-* are re-derived or arrive as additive deltas rather than
+			// being renamed, so they legitimately have no alias.
+			if strings.HasPrefix(historical, "U-SPA-") || strings.HasPrefix(historical, "N-") {
+				continue
+			}
+			t.Errorf("historical construction key %q has no alias; its Done+Integrated history would be orphaned", historical)
+			continue
+		}
+		if !derived[canonical] {
+			t.Errorf("historical key %q aliases to %q, which the derivation does not emit", historical, canonical)
+		}
 	}
 }
 
