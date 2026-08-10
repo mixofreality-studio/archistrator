@@ -68,7 +68,7 @@ type DerivedActivity struct {
 	RiskBucket  int64   `json:"riskBucket"`
 	WorkerClass string  `json:"workerClass"`
 	Coding      bool    `json:"coding"`
-	ComponentID *string `json:"componentId,omitempty"`
+	ComponentID string  `json:"componentId"`
 	Derived     bool    `json:"derived"`
 }
 

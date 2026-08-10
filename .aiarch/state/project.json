@@ -1,6 +1,6 @@
 {
   "id": "archistrator",
-  "version": 597,
+  "version": 598,
   "phase": 2,
   "owner": "dev-architect",
   "name": "Archistrator",
@@ -16480,6 +16480,7 @@
             "riskBucket",
             "workerClass",
             "coding",
+            "componentId",
             "derived"
           ],
           "additionalProperties": false
