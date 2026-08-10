@@ -80,6 +80,12 @@ func edgeSystem() SystemView {
 		{From: "order-manager", To: "order-access"},
 		{From: "pricing-engine", To: "order-access"},
 		{From: "order-access", To: "order-db"},
+		// order-access -> logging exists so C-order-access appears as a dependent at
+		// all; without it the dangling-edge test below is vacuous (its loop body never
+		// runs, because the only edge out of order-access is dropped before it becomes
+		// a key). Adding it changes no other expectation: logging is a handwritten
+		// utility with its own C-* activity, and it introduces no new inherited path.
+		{From: "order-access", To: "logging"},
 	}
 	return sys
 }
@@ -124,11 +130,47 @@ func TestComponentIDIsSetOnlyOnComponentBoundActivities(t *testing.T) {
 	}
 }
 
+// An edge pointing at a component with NO derived activity (an owned store, a generated
+// client) must be dropped, not emitted as a dangling reference into the CPM solve — a
+// dangling predecessor injects a zero-duration phantom node and silently distorts the
+// critical path.
+//
+// Two things this test has to get right, both of which an earlier version got wrong: it
+// must not be VACUOUS (C-order-access has to actually appear as a dependent, or the loop
+// never runs), and it must assert on RESOLVABILITY rather than on specific names — a
+// dropped !okTo guard emits the EMPTY STRING as a predecessor, not a readable id like
+// "C-order-db", so a literal comparison sails straight past the regression.
 func TestDeriveDependenciesDropsEdgesToComponentsWithNoActivity(t *testing.T) {
-	got := depsByActivity(deriveDependencies(edgeSystem(), deriveActivities(edgeSystem())))
-	for _, pred := range got["C-order-access"] {
-		if pred == "C-order-db" || pred == "R-order-db" {
-			t.Errorf("emitted an edge to the owned store order-db: %v", got["C-order-access"])
+	sys := edgeSystem()
+	acts := deriveActivities(sys)
+	known := make(map[string]bool, len(acts))
+	for _, a := range acts {
+		known[a.Name] = true
+	}
+	deps := deriveDependencies(sys, acts)
+	got := depsByActivity(deps)
+
+	// Vacuity guard: if order-access ever stops appearing as a dependent, this test
+	// proves nothing and must fail loudly rather than pass silently.
+	if _, ok := got["C-order-access"]; !ok {
+		t.Fatal("fixture went vacuous: C-order-access has no dependency row, so a leaked dangling edge could not be observed")
+	}
+
+	for _, d := range deps {
+		for _, p := range d.DependsOn {
+			switch {
+			case p == "":
+				t.Errorf("activity %q has an EMPTY predecessor — an edge to a component with no derived activity leaked through", d.Activity)
+			case !known[p]:
+				t.Errorf("activity %q depends on %q, which is not a derived activity; dangling predecessors inject zero-duration phantom nodes into the CPM solve", d.Activity, p)
+			}
+		}
+	}
+
+	// And specifically: the owned store must never have produced an activity edge.
+	for _, p := range got["C-order-access"] {
+		if strings.Contains(p, "order-db") {
+			t.Errorf("edge to the owned store order-db survived: %v", got["C-order-access"])
 		}
 	}
 }
