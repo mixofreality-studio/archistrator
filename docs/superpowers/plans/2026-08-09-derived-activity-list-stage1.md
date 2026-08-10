@@ -59,20 +59,25 @@
 
 ## File Structure
 
+> **BINDING — the layer file-layout standard** (`docs/superpowers/specs/2026-07-11-layer-file-layout-standard-design.md`, enforced by `TestFileLayout` in `server/internal/arch_test.go`, **live with zero waivers**). A leaf layer package may contain ONLY:
+>
+> - **Rule 1** — one handwritten contract-implementation file: `<pkg>engine.go` / `<pkg>manager.go` / `<pkg>access.go`. It holds *all* contract methods plus everything shared — strategy tables, behaviour free-functions, codecs, adapters. **Large files are an accepted consequence** and explicitly sanctioned by the standard.
+> - **Rule 2** — one file per Temporal workflow (**managers only**; not applicable to Engines or ResourceAccess).
+> - **Rule 3** — one handwritten test file: `engine_test.go` / `manager_test.go` / `access_test.go`.
+> - **Rule 4** — no other handwritten `.go` files. Generated `*.gen.go`, `contract.schema.json`, and non-Go assets (including `testdata/`) are exempt.
+>
+> This plan originally specified per-concern files (`derive.go`, `derive_edges.go`, `deriveplan.go`, `activityalias.go`, …), every one of which violates Rule 4. **Do not create them.** The rule is machine-checked; `make lint` and the estimation-package test run will NOT catch it, because the gate lives in `internal/arch_test.go` — only `GOWORK=off go test ./internal/` or a full `./...` run fires it.
+
 **Created:**
-- `server/internal/engine/estimation/derive.go` — the derivation: activity emission, worker-class table, effort/risk defaults. One responsibility: System → activity set.
-- `server/internal/engine/estimation/derive_edges.go` — edge derivation, transitive reduction, pattern edges, milestone derivation. One responsibility: activity set → network.
-- `server/internal/engine/estimation/derive_deltas.go` — delta validation and application. One responsibility: baseline + deltas → final plan.
-- `server/internal/engine/estimation/derive_test.go` — unit tests for activity emission and defaults.
-- `server/internal/engine/estimation/derive_edges_test.go` — transitive-reduction and milestone tests, including the Löwy Fig 11-4 → 11-5 fixture.
-- `server/internal/engine/estimation/derive_deltas_test.go` — delta-vocabulary rejection tests.
-- `server/internal/engine/estimation/derive_parity_test.go` — the golden parity test against the live committed System.
-- `server/internal/engine/estimation/testdata/system_view.json` — frozen slim `SystemView` snapshot of the live slot 5.
-- `server/internal/engine/estimation/testdata/expected_plan.json` — the expected derived plan (golden file).
-- `server/internal/manager/projectdesign/deriveplan.go` — the `projectstate` → `estimation` conversion boundary and the materialize-on-read entry point.
-- `server/internal/manager/projectdesign/deriveplan_test.go` — conversion tests.
-- `server/internal/resourceaccess/projectstate/activityalias.go` — historical short-name → derived canonical id alias map.
-- `server/internal/resourceaccess/projectstate/activityalias_test.go` — alias round-trip test.
+- `server/internal/engine/estimation/testdata/system_view.json` — frozen slim `SystemView` snapshot of the live slot 5. (`testdata/` is exempt from the layout rule.)
+
+**Modified (all new code folds into these existing files — Rules 1 and 3):**
+- `server/internal/engine/estimation/estimationengine.go` — **all** derivation code: activity emission, worker-class/effort/risk tables, edge derivation and transitive reduction, milestone derivation, delta validation and application, and `DerivePlan` itself.
+- `server/internal/engine/estimation/engine_test.go` — **all** estimation tests, appended to the existing CPM tests.
+- `server/internal/manager/projectdesign/projectdesignmanager.go` — the `projectstate` → `estimation` conversion boundary and the materialize-on-read entry point.
+- `server/internal/manager/projectdesign/manager_test.go` — conversion tests.
+- `server/internal/resourceaccess/projectstate/projectstateaccess.go` — historical short-name → derived canonical id alias map.
+- `server/internal/resourceaccess/projectstate/access_test.go` — alias round-trip test.
 
 **Modified:**
 - `.aiarch/state/project.json` `.serviceContracts.estimationEngine` — new `$defs` + `DerivePlan` op (Task 1).
@@ -2325,13 +2330,76 @@ EOF
 
 ---
 
+### Task 7b: Consolidate the estimation package to the layer file-layout standard
+
+Tasks 3–6 created seven handwritten files in `server/internal/engine/estimation/`. Every one violates Rule 4 of the layer file-layout standard, and `TestFileLayout` — live with **zero waivers** — fails on the branch while passing on `main`. It went undetected for four tasks because those tasks ran only `go test ./internal/engine/estimation/...`; the gate lives in `internal/arch_test.go`, which that path never loads.
+
+This is a regression introduced by this plan. It is fixed by moving code, not by weakening the gate: `.golangci.yml`, `arch_test.go`, and the standard itself are all off-limits.
+
+**Files:**
+- Delete (folding their contents into the two files below): `derive.go`, `derive_edges.go`, `derive_deltas.go`, `derive_test.go`, `derive_edges_test.go`, `derive_deltas_test.go`, `derive_parity_test.go`
+- Modify: `server/internal/engine/estimation/estimationengine.go` — receives all three implementation files' contents
+- Modify: `server/internal/engine/estimation/engine_test.go` — receives all four test files' contents
+- Untouched: `testdata/system_view.json` (exempt), `contract.gen.go`, `fake/fake.gen.go`
+
+**Interfaces:** unchanged. This task moves code between files and changes nothing else — every function keeps its name, signature, and body.
+
+- [ ] **Step 1: Confirm the gate fails, and exactly why**
+
+```bash
+cd server && GOWORK=off go test ./internal/ -run TestFileLayout
+```
+Expected: FAIL, naming the seven files. Record the output — it is the before-state.
+
+- [ ] **Step 2: Fold the three implementation files into `estimationengine.go`**
+
+Append the full contents of `derive.go`, `derive_edges.go` and `derive_deltas.go` to `estimationengine.go`, minus their `package` clauses and import blocks. Merge their imports into the existing block (`sort` is likely already there; add what is missing). Each file's header comment becomes a section comment introducing that block of functions — keep the prose, it carries the Löwy citations and the reasoning for the delta vocabulary. Delete the three files.
+
+Rule 1 explicitly sanctions the resulting size: *"Large files are an accepted consequence — `projectstateaccess.go` folds ~40 source files."*
+
+- [ ] **Step 3: Fold the four test files into `engine_test.go`**
+
+Append the contents of `derive_test.go`, `derive_edges_test.go`, `derive_deltas_test.go` and `derive_parity_test.go` to the existing `engine_test.go`, minus `package` clauses, merging imports. Watch for helper-name collisions with the pre-existing CPM tests (`usd`, `approx`, `eps`, `serialChainOption`). If one collides, rename the NEWER helper and say so in the report — never delete or weaken an existing test to resolve a collision. Delete the four files.
+
+- [ ] **Step 4: Verify the gate passes and nothing else moved**
+
+```bash
+cd server
+GOWORK=off go test ./internal/ -run 'TestFileLayout|TestMethodLayering'
+GOWORK=off go test ./internal/engine/estimation/...
+GOWORK=off golangci-lint run ./internal/engine/estimation/...
+GOWORK=off make encapsulation-check
+```
+All must pass. The estimation test count must be **identical** to before the fold — report the before and after numbers explicitly. A dropped test is the main risk in this task.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add -A server/internal/engine/estimation/
+git commit -m "$(cat <<'EOF'
+refactor(estimation): fold derivation into the layer file-layout standard
+
+Tasks 3-6 created seven handwritten files; the standard allows exactly one
+implementation file (estimationengine.go) and one test file
+(engine_test.go). TestFileLayout is live with zero waivers and was failing
+on this branch while passing on main.
+
+Code moved only — no signature, behaviour, or test-assertion changes.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+EOF
+)"
+```
+
+---
+
 ### Task 8: Wire the Manager to DerivePlan
 
 The Engine imports no `projectstate`, so the Manager converts at the call boundary — the same Option B pattern `toEstimationOption` already uses.
 
 **Files:**
-- Create: `server/internal/manager/projectdesign/deriveplan.go`
-- Create: `server/internal/manager/projectdesign/deriveplan_test.go`
+- Modify: `server/internal/manager/projectdesign/projectdesignmanager.go` (append — Rule 1; do NOT create deriveplan.go)
+- Modify: `server/internal/manager/projectdesign/manager_test.go` (append — Rule 3)
 
 **Interfaces:**
 - Consumes: `estimation.SystemView`, `estimation.ActivityListDeltas`, `estimation.DerivedPlan`, `EstimationEngine.DerivePlan` (Tasks 1, 5); `projectstate.Component` attributes (Task 7).
@@ -2339,7 +2407,7 @@ The Engine imports no `projectstate`, so the Manager converts at the call bounda
 
 - [ ] **Step 1: Write the failing test**
 
-Create `server/internal/manager/projectdesign/deriveplan_test.go`:
+Append to `server/internal/manager/projectdesign/manager_test.go` (Rule 3):
 
 ```go
 package projectdesign
@@ -2417,7 +2485,7 @@ Expected: FAIL — `undefined: toEstimationSystemView`, `undefined: toProjectSta
 
 - [ ] **Step 3: Implement the conversion boundary**
 
-Create `server/internal/manager/projectdesign/deriveplan.go`:
+Append to `server/internal/manager/projectdesign/projectdesignmanager.go` (Rule 1 — do NOT create a separate file):
 
 ```go
 // deriveplan.go is the projectstate ↔ estimation conversion boundary for the Phase-2
@@ -2542,8 +2610,8 @@ EOF
 Derived ids are `C-<component-id>`; the 69 rows in `.activityConstruction` are keyed by hand-chosen short names. The founder ratified an alias map over a key rewrite — rewriting Done+Integrated construction records to gain cosmetic key consistency is risk with no payoff.
 
 **Files:**
-- Create: `server/internal/resourceaccess/projectstate/activityalias.go`
-- Create: `server/internal/resourceaccess/projectstate/activityalias_test.go`
+- Modify: `server/internal/resourceaccess/projectstate/projectstateaccess.go` (append — Rule 1; do NOT create activityalias.go)
+- Modify: `server/internal/resourceaccess/projectstate/access_test.go` (append — Rule 3)
 
 **Interfaces:**
 - Consumes: nothing from earlier tasks.
@@ -2578,7 +2646,7 @@ Copy the emitted lines into Step 3's table. Note only `C-*`/`R-*` with a `compon
 
 - [ ] **Step 2: Write the failing test**
 
-Create `server/internal/resourceaccess/projectstate/activityalias_test.go`:
+Append to `server/internal/resourceaccess/projectstate/access_test.go` (Rule 3):
 
 ```go
 package projectstate
@@ -2630,7 +2698,7 @@ Expected: FAIL — `undefined: ResolveActivityAlias`.
 
 - [ ] **Step 4: Implement the alias map**
 
-Create `server/internal/resourceaccess/projectstate/activityalias.go`:
+Append to `server/internal/resourceaccess/projectstate/projectstateaccess.go` (Rule 1 — do NOT create a separate file):
 
 ```go
 // activityalias.go maps the HISTORICAL hand-chosen activity short names (C-BM, C-AA, …)
@@ -2737,7 +2805,7 @@ The flip. Everything before this was additive and behaviour-preserving; this is 
 
 - [ ] **Step 1: Write the failing test**
 
-Append to `server/internal/manager/projectdesign/deriveplan_test.go`:
+Append further to `server/internal/manager/projectdesign/manager_test.go`:
 
 ```go
 func TestMaterializeActivityPlanProducesTheReaderShape(t *testing.T) {
@@ -2788,7 +2856,7 @@ Expected: FAIL — `undefined: MaterializeActivityPlan`.
 
 - [ ] **Step 3: Implement the render-on-read entry point**
 
-Append to `server/internal/manager/projectdesign/deriveplan.go`:
+Append further to `server/internal/manager/projectdesign/projectdesignmanager.go`:
 
 ```go
 // MaterializeActivityPlan is the single render-on-read entry point for the Phase-2 plan:
@@ -3051,6 +3119,8 @@ GOWORK=off make gen-models-check      # codegen drift
 GOWORK=off make encapsulation-check   # engine purity
 GOWORK=off make method-check          # Method design gate
 GOWORK=off make lint                  # linters
+GOWORK=off go test ./internal/         # TestFileLayout + TestMethodLayering — the LAYER GATES.
+                                      # Package-scoped runs do NOT fire these; run them per task.
 ```
 
 All five must pass. Then confirm in the running app that the Phase-2 activity-list and network screens render the materialized plan.
