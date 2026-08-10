@@ -43,9 +43,20 @@ func parityNames(plan DerivedPlan) map[string]bool {
 	return m
 }
 
-// Correction 1: the three zombies must NOT appear. HandOffEngine was cut from the
-// architecture; there is no work-item-access component and no work-item-tracker
-// resource. All three are committed today, marked Done+Integrated.
+// Correction 1 — the three zombie activities (C-HE / C-WIA / R-WIT in the committed
+// plan, all Done+Integrated against components that no longer exist) must not appear.
+//
+// HONEST SCOPE: this test cannot prove the deriver "excludes" them, because there is no
+// exclusion branch to exercise — deriveActivities emits C-*/R-* names ONLY by iterating
+// system.Components, so a component that does not exist can never produce an activity.
+// Corrections 2 and 3 below DO have real guard branches (constructionProfile ==
+// "generated", provisioning != "vendor") and their tests genuinely exercise them.
+//
+// What this test is actually worth: (a) a fixture-staleness tripwire, failing if a
+// future re-extraction reintroduces one of these three components, and (b) a structural
+// tripwire against any regression that sourced activity names from somewhere other than
+// system.Components. The real evidence for Correction 1 is the derived-vs-committed
+// diff in the task report, not this assertion in isolation.
 func TestParityDropsTheZombieActivities(t *testing.T) {
 	got := parityNames(parityPlan(t))
 	for _, zombie := range []string{"C-hand-off-engine", "C-work-item-access", "R-work-item-tracker"} {
