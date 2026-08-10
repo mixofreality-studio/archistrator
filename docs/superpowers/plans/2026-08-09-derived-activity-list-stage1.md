@@ -2373,6 +2373,42 @@ Introduce a third `constructionProfile` value, `"provided"` (platform / third-pa
 
 ---
 
+### Task 10b: Write the computed plan into slot 9, and gate it against drift
+
+The founder's ruling replaced the original "store deltas, materialize on read" design. That design required every reader to materialize, which is impossible to do cleanly: the layer order is Manager → Engine → ResourceAccess, so `projectstate` can call neither the Manager (where `MaterializeActivityPlan` lives) nor the Engine (which derives). Two live readers — the construction pump's `committedPlanInputs` and SDP-review's `committedActivityList` — would have silently read an empty plan.
+
+**The replacement, which is also how this repo already handles generated artefacts:** slot 9 stores the **computed** activity list, so every existing reader keeps working unchanged. The overrides that produced it are stored alongside as the authored input. A `make` target re-derives and fails on any difference — the same pattern as `contract.gen.go` and `make gen-models-check`.
+
+That drift gate is what makes `ACT-COMPONENT-COVERAGE` deletable in Task 11: re-deriving and comparing is strictly stronger than checking coverage.
+
+**Content:** the 40 derived activities, with the effort/risk **overrides applied** so the committed plan's numbers survive (dropping them would reset every estimate to a band midpoint — every ResourceAccess 10d, every engine 15d — discarding the architect's real sizing judgement). The 14 componentless additives are cut per the founder's ruling. Slot 10 gets the derived dependency rows and milestones M0–M3.
+
+**Files:**
+- Modify: `.aiarch/state/project.json` → `slots["9"].model`, `slots["10"].model`, and a new sibling holding the authored overrides
+- Modify: `server/Makefile` — a `derived-plan-check` target
+- Modify: `server/internal/manager/projectdesign/manager_test.go` — the drift test
+
+**Steps:**
+
+- [ ] **Step 1: Read the current slot 9 fully** before changing it. It is the record of a real, reviewed plan; understand every entry.
+
+- [ ] **Step 2: Author the overrides.** For every derived activity whose committed effort/risk differs from the band default, one override carrying the committed number and a written justification. Use this precedence, and record in the report how many landed in each tier:
+  1. The committed **title** explains it — use that.
+  2. An **observable, checkable property** explains it — contract operation count in `.serviceContracts`, `encapsulatesVolatilities` length, relationship degree. State the fact and its consequence, e.g. *"systemDesignManager carries 16 contract operations, past the App-C maximum of 12 — the largest manager surface in the system, so 35d rather than the 25d band midpoint."* Verifiable, not narrative.
+  3. **Nothing distinguishes it** — say so honestly: *"Carried over from the committed activity list; the original sizing rationale was not recorded. Retained rather than reset to the band default so the reviewed plan's numbers survive the move to derivation — flagged for re-estimation."*
+
+  **Never invent a rationale.** An after-the-fact justification presented as the original reasoning is a forgery, and this is going into committed state. Where an activity deviates *opposite* to its same-kind peers (`C-BM`, `R-BG`), say exactly that and flag it unexplained.
+
+- [ ] **Step 3: Write slots 9 and 10.** Slot 9 = the 40 computed activities with overrides applied. Slot 10 = derived dependencies + milestones M0–M3. Both stay `status: 2` (committed) — a reconciliation amendment, not a new draft cycle. **The three zombies and the three generated-client codings must not appear in any form.**
+
+- [ ] **Step 4: Add the drift gate.** A `make derived-plan-check` target that re-derives from the committed System and fails if the result differs from what slot 9 holds. Back it with a Go test in `manager_test.go` so it runs in the normal suite too. **Prove it fails**: perturb one stored activity's effort, confirm RED, restore, confirm GREEN. That proof is the deliverable.
+
+- [ ] **Step 5: Verify.** `GOWORK=off go test ./...` (many packages read this state), `./internal/` layer gates, `golangci-lint run ./...`, `make encapsulation-check`, and `aiarch-state-mcp validate --root .`. Errors must stay **0**; the advisory count is expected to **drop** as hand-authored activities disappear — report which findings went.
+
+- [ ] **Step 6: Commit**, recording in the message the 69 → 40 reconciliation and the 19 orphaned construction rows (14 additives + 5 integration) as a deliberate consequence.
+
+---
+
 ### Task 7b: Consolidate the estimation package to the layer file-layout standard
 
 Tasks 3–6 created seven handwritten files in `server/internal/engine/estimation/`. Every one violates Rule 4 of the layer file-layout standard, and `TestFileLayout` — live with **zero waivers** — fails on the branch while passing on `main`. It went undetected for four tasks because those tasks ran only `go test ./internal/engine/estimation/...`; the gate lives in `internal/arch_test.go`, which that path never loads.
