@@ -957,6 +957,7 @@ package estimation
 import (
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 )
 
@@ -1059,6 +1060,24 @@ func TestDeriveDependenciesMapsRelationshipsAndReduces(t *testing.T) {
 
 // An edge pointing at a component with NO derived activity (an owned store, a generated
 // client) must be dropped, not emitted as a dangling reference into the CPM solve.
+// The ComponentID contract this whole file depends on: deriveDependencies indexes
+// activities by ComponentID to rewrite architecture edges as activity edges, so a
+// componentless activity that carried a stray ComponentID would silently capture edges
+// meant for a real component. Asserted here, at the consumer, rather than in Task 3.
+func TestComponentIDIsSetOnlyOnComponentBoundActivities(t *testing.T) {
+	for _, a := range deriveActivities(edgeSystem()) {
+		componentBound := strings.HasPrefix(a.Name, "C-") || strings.HasPrefix(a.Name, "R-") ||
+			(strings.HasPrefix(a.Name, "U-SPA-") && a.Name != "U-SPA-S")
+		switch {
+		case componentBound && a.ComponentID == "":
+			t.Errorf("%s is component-bound but carries no ComponentID", a.Name)
+		case !componentBound && a.ComponentID != "":
+			t.Errorf("%s is componentless but carries ComponentID %q; it would capture edges meant for that component",
+				a.Name, a.ComponentID)
+		}
+	}
+}
+
 func TestDeriveDependenciesDropsEdgesToComponentsWithNoActivity(t *testing.T) {
 	got := depsByActivity(deriveDependencies(edgeSystem(), deriveActivities(edgeSystem())))
 	for _, pred := range got["C-order-access"] {
