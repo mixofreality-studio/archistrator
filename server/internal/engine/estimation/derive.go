@@ -28,12 +28,12 @@ func (EstimationEngineImpl) DerivePlan(_ fweng.Context, system SystemView, _ Act
 	return DerivedPlan{Activities: nil, Dependencies: nil, Milestones: nil}, nil
 }
 
-// workerClassFor maps an activity ID prefix (plus the component kind for coding
-// activities) to its worker class. The roster is FIXED — an unknown class silently
-// rides default token rates in the cost engines and misclassifies in every downstream
-// view, so this function only ever returns a roster member.
+// workerClassFor maps an activity ID prefix to its worker class. The roster is FIXED —
+// an unknown class silently rides default token rates in the cost engines and
+// misclassifies in every downstream view, so this function only ever returns a roster
+// member.
 //
-// Verified against the 69 hand-authored activities in the committed list: prefix+kind
+// Verified against the 69 hand-authored activities in the committed list: prefix
 // predicts workerClass with ZERO exceptions, which is what makes it derivable.
 func workerClassFor(prefix string) string {
 	switch prefix {
@@ -70,6 +70,14 @@ func noncodingInventoryClass(name string) string {
 
 // defaultEffortFor returns the band-MIDPOINT effort default for a component, in whole
 // 5-day quanta. These are the bands the-method-activity-list already states.
+//
+// Exception: resource. The Resource build band is 10–20 (midpoint 15), but R-* activities
+// are emitted ONLY for provisioning vendor resources (Stripe account, GitHub App) — not
+// building a resource. Owned stores get no R-* at all; their schema work arrives as
+// additive noncoding. The value 10 is grounded in observed vendor-provisioning effort:
+// the committed activity list's six R-* activities ran 5, 5, 10, 15, 15, 25 (median and
+// mean both 12.5). Do not "fix" this to 15; that would silently inflate every
+// vendor-provisioning estimate.
 //
 // Deliberately NOT signal-driven (op counts, volatility counts, graph degree): service
 // contracts are Phase-3 artifacts and do not exist when this runs, a regression over
