@@ -1,6 +1,6 @@
 {
   "id": "archistrator",
-  "version": 596,
+  "version": 597,
   "phase": 2,
   "owner": "dev-architect",
   "name": "Archistrator",
@@ -16249,7 +16249,10 @@
           "required": [
             "id",
             "name",
-            "kind"
+            "kind",
+            "constructionProfile",
+            "provisioning",
+            "uiSurface"
           ],
           "additionalProperties": false
         },
@@ -16378,6 +16381,7 @@
             "effortDays",
             "riskBucket",
             "workerClass",
+            "coding",
             "justification"
           ],
           "additionalProperties": false

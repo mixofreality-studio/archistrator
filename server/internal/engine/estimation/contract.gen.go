@@ -41,7 +41,7 @@ type AdditiveActivity struct {
 	EffortDays    float64  `json:"effortDays"`
 	RiskBucket    int64    `json:"riskBucket"`
 	WorkerClass   string   `json:"workerClass"`
-	Coding        *bool    `json:"coding,omitempty"`
+	Coding        bool     `json:"coding"`
 	DependsOn     []string `json:"dependsOn,omitempty"`
 	ComponentID   *string  `json:"componentId,omitempty"`
 	Justification string   `json:"justification"`
@@ -165,12 +165,12 @@ type RiskScore struct {
 }
 
 type SystemComponent struct {
-	ID                  string  `json:"id"`
-	Name                string  `json:"name"`
-	Kind                string  `json:"kind"`
-	ConstructionProfile *string `json:"constructionProfile,omitempty"`
-	Provisioning        *string `json:"provisioning,omitempty"`
-	UiSurface           *bool   `json:"uiSurface,omitempty"`
+	ID                  string `json:"id"`
+	Name                string `json:"name"`
+	Kind                string `json:"kind"`
+	ConstructionProfile string `json:"constructionProfile"`
+	Provisioning        string `json:"provisioning"`
+	UiSurface           bool   `json:"uiSurface"`
 }
 
 type SystemRelationship struct {
