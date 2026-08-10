@@ -218,6 +218,9 @@ type Component struct {
 	AtomicBusinessVerbs      []string      `json:"atomicBusinessVerbs"`
 	BuildStatus              *string       `json:"buildStatus,omitempty"`
 	ContractKey              *string       `json:"contractKey,omitempty"`
+	ConstructionProfile      *string       `json:"constructionProfile,omitempty"`
+	Provisioning             *string       `json:"provisioning,omitempty"`
+	UiSurface                *bool         `json:"uiSurface,omitempty"`
 }
 
 type ComponentKind int

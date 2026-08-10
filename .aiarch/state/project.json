@@ -1,6 +1,6 @@
 {
   "id": "archistrator",
-  "version": 598,
+  "version": 600,
   "phase": 2,
   "owner": "dev-architect",
   "name": "Archistrator",
@@ -5235,7 +5235,10 @@
               "Customer Interaction Channel"
             ],
             "atomicBusinessVerbs": [],
-            "contractKey": "webClient"
+            "contractKey": "webClient",
+            "constructionProfile": "generated",
+            "provisioning": "owned",
+            "uiSurface": true
           },
           {
             "id": "mcp-client",
@@ -5247,7 +5250,10 @@
               "Customer Interaction Channel"
             ],
             "atomicBusinessVerbs": [],
-            "contractKey": "mcpClient"
+            "contractKey": "mcpClient",
+            "constructionProfile": "generated",
+            "provisioning": "owned",
+            "uiSurface": false
           },
           {
             "id": "scheduler-client",
@@ -5259,7 +5265,10 @@
               "Customer Interaction Channel"
             ],
             "atomicBusinessVerbs": [],
-            "buildStatus": "planned"
+            "buildStatus": "planned",
+            "constructionProfile": "generated",
+            "provisioning": "owned",
+            "uiSurface": false
           },
           {
             "id": "system-design-manager",
@@ -5271,7 +5280,10 @@
               "System Design Phase Workflow"
             ],
             "atomicBusinessVerbs": [],
-            "contractKey": "systemDesignManager"
+            "contractKey": "systemDesignManager",
+            "constructionProfile": "handwritten",
+            "provisioning": "owned",
+            "uiSurface": false
           },
           {
             "id": "project-design-manager",
@@ -5283,7 +5295,10 @@
               "Project Design Phase Workflow"
             ],
             "atomicBusinessVerbs": [],
-            "contractKey": "projectDesignManager"
+            "contractKey": "projectDesignManager",
+            "constructionProfile": "handwritten",
+            "provisioning": "owned",
+            "uiSurface": false
           },
           {
             "id": "construction-manager",
@@ -5295,7 +5310,10 @@
               "Construction Phase Workflow"
             ],
             "atomicBusinessVerbs": [],
-            "contractKey": "constructionManager"
+            "contractKey": "constructionManager",
+            "constructionProfile": "handwritten",
+            "provisioning": "owned",
+            "uiSurface": false
           },
           {
             "id": "operations-manager",
@@ -5307,7 +5325,10 @@
               "Operation Phase Workflow"
             ],
             "atomicBusinessVerbs": [],
-            "contractKey": "operationsManager"
+            "contractKey": "operationsManager",
+            "constructionProfile": "handwritten",
+            "provisioning": "owned",
+            "uiSurface": false
           },
           {
             "id": "billing-manager",
@@ -5319,7 +5340,10 @@
               "Billing Workflow"
             ],
             "atomicBusinessVerbs": [],
-            "contractKey": "billingManager"
+            "contractKey": "billingManager",
+            "constructionProfile": "handwritten",
+            "provisioning": "owned",
+            "uiSurface": false
           },
           {
             "id": "estimation-engine",
@@ -5331,7 +5355,10 @@
               "Construction Estimation Model"
             ],
             "atomicBusinessVerbs": [],
-            "contractKey": "estimationEngine"
+            "contractKey": "estimationEngine",
+            "constructionProfile": "handwritten",
+            "provisioning": "owned",
+            "uiSurface": false
           },
           {
             "id": "operation-estimation-engine",
@@ -5343,7 +5370,10 @@
               "Operation Estimation Model"
             ],
             "atomicBusinessVerbs": [],
-            "contractKey": "operationEstimationEngine"
+            "contractKey": "operationEstimationEngine",
+            "constructionProfile": "handwritten",
+            "provisioning": "owned",
+            "uiSurface": false
           },
           {
             "id": "billing-engine",
@@ -5355,7 +5385,10 @@
               "Service Pricing"
             ],
             "atomicBusinessVerbs": [],
-            "contractKey": "billingEngine"
+            "contractKey": "billingEngine",
+            "constructionProfile": "handwritten",
+            "provisioning": "owned",
+            "uiSurface": false
           },
           {
             "id": "intervention-engine",
@@ -5367,7 +5400,10 @@
               "Intervention Policy"
             ],
             "atomicBusinessVerbs": [],
-            "contractKey": "interventionEngine"
+            "contractKey": "interventionEngine",
+            "constructionProfile": "handwritten",
+            "provisioning": "owned",
+            "uiSurface": false
           },
           {
             "id": "autoscaler-engine",
@@ -5379,7 +5415,10 @@
               "Autoscaling Policy"
             ],
             "atomicBusinessVerbs": [],
-            "contractKey": "autoscalerEngine"
+            "contractKey": "autoscalerEngine",
+            "constructionProfile": "handwritten",
+            "provisioning": "owned",
+            "uiSurface": false
           },
           {
             "id": "review-engine",
@@ -5391,7 +5430,10 @@
               "Review Policy"
             ],
             "atomicBusinessVerbs": [],
-            "contractKey": "reviewEngine"
+            "contractKey": "reviewEngine",
+            "constructionProfile": "handwritten",
+            "provisioning": "owned",
+            "uiSurface": false
           },
           {
             "id": "design-health-engine",
@@ -5402,7 +5444,10 @@
             "encapsulatesVolatilities": [
               "System Design Phase Workflow"
             ],
-            "atomicBusinessVerbs": []
+            "atomicBusinessVerbs": [],
+            "constructionProfile": "handwritten",
+            "provisioning": "owned",
+            "uiSurface": false
           },
           {
             "id": "project-state-access",
@@ -5429,7 +5474,10 @@
               "recordActivityExited",
               "recordOperatorPaused"
             ],
-            "contractKey": "projectStateAccess"
+            "contractKey": "projectStateAccess",
+            "constructionProfile": "handwritten",
+            "provisioning": "owned",
+            "uiSurface": false
           },
           {
             "id": "operated-system-state-access",
@@ -5448,7 +5496,10 @@
               "withdrawSystem",
               "recordDelinquencyAction"
             ],
-            "contractKey": "operatedSystemStateAccess"
+            "contractKey": "operatedSystemStateAccess",
+            "constructionProfile": "handwritten",
+            "provisioning": "owned",
+            "uiSurface": false
           },
           {
             "id": "billing-state-access",
@@ -5467,7 +5518,10 @@
               "resettleCycle",
               "readPersistentlyDelinquentCustomers"
             ],
-            "contractKey": "billingStateAccess"
+            "contractKey": "billingStateAccess",
+            "constructionProfile": "handwritten",
+            "provisioning": "owned",
+            "uiSurface": false
           },
           {
             "id": "agentic-job-access",
@@ -5483,7 +5537,10 @@
               "observeConstructionPipeline",
               "cancelConstructionPipeline"
             ],
-            "contractKey": "agenticJobAccess"
+            "contractKey": "agenticJobAccess",
+            "constructionProfile": "handwritten",
+            "provisioning": "owned",
+            "uiSurface": false
           },
           {
             "id": "operated-runtime-access",
@@ -5502,7 +5559,10 @@
               "getSloStatus",
               "readComputeAttribution"
             ],
-            "contractKey": "operatedRuntimeAccess"
+            "contractKey": "operatedRuntimeAccess",
+            "constructionProfile": "handwritten",
+            "provisioning": "owned",
+            "uiSurface": false
           },
           {
             "id": "usage-access",
@@ -5518,7 +5578,10 @@
               "recordFinalUsage",
               "readRange"
             ],
-            "contractKey": "usageAccess"
+            "contractKey": "usageAccess",
+            "constructionProfile": "handwritten",
+            "provisioning": "owned",
+            "uiSurface": false
           },
           {
             "id": "episode-access",
@@ -5534,7 +5597,10 @@
               "listEpisodes",
               "readTraceEvents"
             ],
-            "contractKey": "episodeAccess"
+            "contractKey": "episodeAccess",
+            "constructionProfile": "handwritten",
+            "provisioning": "owned",
+            "uiSurface": false
           },
           {
             "id": "merchant-gateway-access",
@@ -5549,7 +5615,10 @@
               "chargeCustomer",
               "validateStoredInstrument"
             ],
-            "contractKey": "merchantGatewayAccess"
+            "contractKey": "merchantGatewayAccess",
+            "constructionProfile": "handwritten",
+            "provisioning": "owned",
+            "uiSurface": false
           },
           {
             "id": "source-control-access",
@@ -5573,7 +5642,10 @@
               "postReview",
               "mergePullRequest"
             ],
-            "contractKey": "sourceControlAccess"
+            "contractKey": "sourceControlAccess",
+            "constructionProfile": "handwritten",
+            "provisioning": "owned",
+            "uiSurface": false
           },
           {
             "id": "artifact-access",
@@ -5589,7 +5661,10 @@
               "retrieveConstructionOutput",
               "retrieveOutputTree"
             ],
-            "contractKey": "artifactAccess"
+            "contractKey": "artifactAccess",
+            "constructionProfile": "handwritten",
+            "provisioning": "owned",
+            "uiSurface": false
           },
           {
             "id": "project-git-repo",
@@ -5597,7 +5672,10 @@
             "kind": "resource",
             "layer": "resource",
             "encapsulates": "The customer-owned per-project git repository — the physical store for the typed project state (git-as-DB) and content-addressed Phase-3 construction outputs (B-12: one customer-owned store per scenario, retrievable outright).",
-            "atomicBusinessVerbs": []
+            "atomicBusinessVerbs": [],
+            "constructionProfile": "handwritten",
+            "provisioning": "owned",
+            "uiSurface": false
           },
           {
             "id": "operated-system-state",
@@ -5605,7 +5683,10 @@
             "kind": "resource",
             "layer": "resource",
             "encapsulates": "Physical store of operated-system rows (desired state, runtime status, deployable-bundle refs), mutated only via guarded in-place updates through OperatedSystemStateAccess (B-08).",
-            "atomicBusinessVerbs": []
+            "atomicBusinessVerbs": [],
+            "constructionProfile": "handwritten",
+            "provisioning": "owned",
+            "uiSurface": false
           },
           {
             "id": "billing-state",
@@ -5613,7 +5694,10 @@
             "kind": "resource",
             "layer": "resource",
             "encapsulates": "Physical store of billing rows (customers, payment-instrument bindings, cycles, settlements), reached only through BillingStateAccess (B-11).",
-            "atomicBusinessVerbs": []
+            "atomicBusinessVerbs": [],
+            "constructionProfile": "handwritten",
+            "provisioning": "owned",
+            "uiSurface": false
           },
           {
             "id": "construction-pipeline-runtime",
@@ -5621,7 +5705,10 @@
             "kind": "resource",
             "layer": "resource",
             "encapsulates": "The external execution fabric that runs agentic jobs on the project's configured venue — the customer's CI or their local runner (B-13); reached only through AgenticJobAccess.",
-            "atomicBusinessVerbs": []
+            "atomicBusinessVerbs": [],
+            "constructionProfile": "handwritten",
+            "provisioning": "vendor",
+            "uiSurface": false
           },
           {
             "id": "operated-runtime",
@@ -5629,7 +5716,10 @@
             "kind": "resource",
             "layer": "resource",
             "encapsulates": "The runtime hosting deployed customer systems, exposing health/SLO/compute-attribution telemetry (B-08, B-18); reached only through OperatedRuntimeAccess.",
-            "atomicBusinessVerbs": []
+            "atomicBusinessVerbs": [],
+            "constructionProfile": "handwritten",
+            "provisioning": "vendor",
+            "uiSurface": false
           },
           {
             "id": "usage-log",
@@ -5637,7 +5727,10 @@
             "kind": "resource",
             "layer": "resource",
             "encapsulates": "Append-only physical ledger of compute-usage entries feeding cost projection and usage-based billing (B-11, B-16); reached only through UsageAccess.",
-            "atomicBusinessVerbs": []
+            "atomicBusinessVerbs": [],
+            "constructionProfile": "handwritten",
+            "provisioning": "owned",
+            "uiSurface": false
           },
           {
             "id": "merchant-gateway",
@@ -5645,7 +5738,10 @@
             "kind": "resource",
             "layer": "resource",
             "encapsulates": "The external payment provider (Stripe, charge-only Connect) executing charges/refunds against the customer's stored instrument (B-11); reached only through MerchantGatewayAccess.",
-            "atomicBusinessVerbs": []
+            "atomicBusinessVerbs": [],
+            "constructionProfile": "handwritten",
+            "provisioning": "vendor",
+            "uiSurface": false
           },
           {
             "id": "github",
@@ -5653,7 +5749,10 @@
             "kind": "resource",
             "layer": "resource",
             "encapsulates": "The external repo host carrying the GitHub App installation, per-project repos, branches, pull requests, and Actions triggers (B-12, B-13); reached only through SourceControlAccess.",
-            "atomicBusinessVerbs": []
+            "atomicBusinessVerbs": [],
+            "constructionProfile": "handwritten",
+            "provisioning": "vendor",
+            "uiSurface": false
           },
           {
             "id": "security",
@@ -5663,7 +5762,10 @@
             "encapsulates": "Utility: authentication/authorization for every entry channel (Keycloak-backed AuthN/AuthZ; service identity for timer triggers). Passes the cappuccino-machine test — serves any system, owns no business volatility.",
             "atomicBusinessVerbs": [],
             "buildStatus": "external",
-            "contractKey": "security"
+            "contractKey": "security",
+            "constructionProfile": "handwritten",
+            "provisioning": "owned",
+            "uiSurface": false
           },
           {
             "id": "logging",
@@ -5672,7 +5774,10 @@
             "layer": "utility",
             "encapsulates": "Utility: structured logging sink every Manager reports to. Passes the cappuccino-machine test — serves any system, owns no business volatility.",
             "atomicBusinessVerbs": [],
-            "buildStatus": "external"
+            "buildStatus": "external",
+            "constructionProfile": "handwritten",
+            "provisioning": "owned",
+            "uiSurface": false
           },
           {
             "id": "diagnostics",
@@ -5681,7 +5786,10 @@
             "layer": "utility",
             "encapsulates": "Utility: health and telemetry reporting surface (OTel) for every Manager. Passes the cappuccino-machine test — serves any system, owns no business volatility.",
             "atomicBusinessVerbs": [],
-            "buildStatus": "external"
+            "buildStatus": "external",
+            "constructionProfile": "handwritten",
+            "provisioning": "owned",
+            "uiSurface": false
           },
           {
             "id": "message-bus",
@@ -5696,7 +5804,10 @@
               "deliverSignal",
               "registerSchedule"
             ],
-            "contractKey": "messageBus"
+            "contractKey": "messageBus",
+            "constructionProfile": "handwritten",
+            "provisioning": "owned",
+            "uiSurface": false
           }
         ],
         "relationships": [
@@ -21151,6 +21262,24 @@
               "type": [
                 "null",
                 "string"
+              ]
+            },
+            "constructionProfile": {
+              "type": [
+                "null",
+                "string"
+              ]
+            },
+            "provisioning": {
+              "type": [
+                "null",
+                "string"
+              ]
+            },
+            "uiSurface": {
+              "type": [
+                "null",
+                "boolean"
               ]
             }
           },
