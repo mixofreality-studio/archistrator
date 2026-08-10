@@ -2330,6 +2330,49 @@ EOF
 
 ---
 
+### Task 10a: Apply the founder's derivation rulings (provided utilities, no I-*)
+
+Founder rulings taken 2026-08-09 after reviewing the full derived list. Three changes to what the derivation emits, plus their consequences.
+
+**Ruling 1 — utilities backed by off-the-shelf platform components get no coding activity.** All four of this project's utilities are provided, per their own `encapsulates` text: `security` is "Keycloak-backed AuthN/AuthZ", `diagnostics` is a "telemetry reporting surface (OTel)", `logging` is a structured logging sink, and `message-bus` encapsulates the Workflow Execution Substrate over Temporal. Planning construction work for them is the same defect as planning work the generator does.
+
+> Löwy's Table 11-1 *does* give Logging and Security coding activities (6 and 7) — because in that example they are being built. Here they are configured. The rule is about who builds it, not about the layer.
+
+Introduce a third `constructionProfile` value, `"provided"` (platform / third-party supplied), alongside `"generated"`. Both mean **no `C-*` activity**. Unauthored still defaults to `"handwritten"`, so an unknown value conservatively emits work rather than silently dropping it.
+
+**Ruling 2 — drop the `I-*` integration activities entirely.** They have no basis in the worked example: Table 11-1 contains no integration activities, only activity 21 (System Testing, 30d) depending on 5, 19 and 20. `I-UC*` came from `the-method-activity-list`'s draft-job doctrine, which contradicts that same skill's own Step 2 (integration per *component cluster*). The stronger argument is double-counting: App A makes **Integration a phase of every activity's own lifecycle**, so a separate `I-*` activity charges the same work twice.
+
+**Ruling 3 — slot 9 stores the derived list only.** The 14 componentless additives are cut.
+
+**Consequences that must be carried through:**
+- **Milestone M4** ("Use Cases Demonstrable") loses its entire fan-in and is removed. M0–M3 remain.
+- **`N-IT` re-bases**: its predecessors become the client/SPA construction activities instead of the `I-*` set — structurally what Table 11-1's activity 21 does.
+- **`SystemView.CoreUseCaseIDs` becomes dead** and is removed from the contract, along with the `useCaseIDs` parameter on `MaterializeActivityPlan`.
+- Derived count goes 49 → **40**.
+
+**Files:**
+- Modify: `.aiarch/state/project.json` → `.serviceContracts.estimationEngine` (drop `coreUseCaseIds` from `SystemView`), then regenerate
+- Modify: `server/internal/engine/estimation/estimationengine.go` — emission rules, milestones, pattern edges
+- Modify: `server/internal/engine/estimation/engine_test.go` — every affected test
+- Modify: `server/internal/engine/estimation/testdata/system_view.json` — stamp `provided` on the four utilities
+- Modify: `server/internal/manager/projectdesign/projectdesignmanager.go` + `manager_test.go` — drop the `useCaseIDs` parameter
+
+**Steps:**
+
+- [ ] **Step 1: Update the emission rules.** In the coding-activity rule, skip a component whose `ConstructionProfile` is `"generated"` **or** `"provided"`. Delete the integration-activity emission and its helper. Keep the comment explaining *why* provided components are skipped, citing the Table 11-1 contrast above.
+
+- [ ] **Step 2: Update milestones and pattern edges.** Remove M4. Remove the `I-* → N-IT` pattern edges and replace them with edges from the SPA construction activities (`U-SPA-*`) to `N-IT`, so the terminal gate still has a real fan-in.
+
+- [ ] **Step 3: Drop `coreUseCaseIds`.** Remove it from the `SystemView` `$def` in `.serviceContracts.estimationEngine`, bump `version`, run `make gen-models`, and remove the now-dead `useCaseIDs` parameter from `MaterializeActivityPlan` and its callers/tests. Validate state (`0 errors`).
+
+- [ ] **Step 4: Update the fixture and every affected test.** Stamp `constructionProfile: "provided"` on `security`, `logging`, `diagnostics`, `message-bus` in `testdata/system_view.json`. Update the parity tests: the derived count becomes **40**; add assertions that no `C-security` / `C-logging` / `C-diagnostics` / `C-message-bus` is emitted, and that no `I-*` activity is emitted at all. **Both new assertions must be reachable** — the fixture contains all four utilities and five core use cases existed before, so removing either guard must turn the test red. Verify that by mutation and report it.
+
+- [ ] **Step 5: Verify.** `GOWORK=off go test ./internal/engine/estimation/...`, `./internal/manager/projectdesign/...`, `./internal/` (layer gates), `./...`, plus `golangci-lint run ./...`, `make encapsulation-check`, and `aiarch-state-mcp validate --root .` (errors must stay 0).
+
+- [ ] **Step 6: Commit.**
+
+---
+
 ### Task 7b: Consolidate the estimation package to the layer file-layout standard
 
 Tasks 3–6 created seven handwritten files in `server/internal/engine/estimation/`. Every one violates Rule 4 of the layer file-layout standard, and `TestFileLayout` — live with **zero waivers** — fails on the branch while passing on `main`. It went undetected for four tasks because those tasks ran only `go test ./internal/engine/estimation/...`; the gate lives in `internal/arch_test.go`, which that path never loads.
