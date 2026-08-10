@@ -45,6 +45,10 @@
 - **`contract.gen.go` and `fake/fake.gen.go` are generated. Never hand-edit them.** Change the contract in `project.json` `.serviceContracts`, then run `make gen-models`.
 - **Engine purity is a hard gate.** `internal/engine/estimation` must import ONLY `fweng` and stdlib. No `projectstate` import, no I/O, no `time.Now()`, no `math/rand`, no goroutines, no global mutable state. `make encapsulation-check` and `make method-check` must stay green.
 - **Worker classes are a fixed roster**, spelled exactly: `system-architect`, `product-manager`, `project-manager`, `senior-developer`, `junior-developer`, `ui-designer`, `ux-reviewer`, `qa-engineer`, `test-engineer`, `software-tester`.
+- **Lint rules that bite this work** (`.golangci.yml`, converged by managed-scaffold sync — **never edit it to make a finding go away**):
+  - `revive` flags **unused parameters**. Do not carry a parameter "for symmetry" or future use; drop it. The plan's signatures are already minimal for this reason.
+  - `gocyclo` caps cyclomatic complexity at **15**, on production **and test** files. `deriveActivities` and `deriveDependencies` are the two functions most at risk. If either trips the cap, extract a named helper per emission rule (e.g. `codingActivityFor`, `provisioningActivityFor`, `spaActivitiesFor`) rather than restructuring the logic — the rules are meant to read one-to-one against the derivation table.
+  - `gosec` is disabled for `_test.go` only; `testdata` reads in non-test files would trip it.
 - **Effort quantum:** every derived `effortDays` is a multiple of 5 and ≤ 35. **Risk buckets** are Fibonacci: 1, 2, 3, 5, 8, 13.
 - **Activity ID prefixes are load-bearing** (downstream classifiers key on them): `C-` per-component coding, `U-SPA*` SPA construction, `G-` UI-design, `I-` integration, `R-` resource provisioning, `N-` noncoding, `S-` simulator (stage 2), `D-` design-first (stage 2 only, never in the base list).
 - **Commit after every task.** End commit messages with `Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>`.
@@ -339,7 +343,7 @@ Three pure lookup tables. They are separated from the emission logic (Task 3) be
 
 **Interfaces:**
 - Consumes: `SystemComponent` (Task 1).
-- Produces: `workerClassFor(prefix string, kind string) string`, `defaultEffortFor(kind string, profile string) float64`, `defaultRiskFor(effortDays float64) int64`. Tasks 3 and 5 call all three.
+- Produces: `workerClassFor(prefix string) string`, `noncodingInventoryClass(name string) string`, `defaultEffortFor(kind string) float64`, `defaultRiskFor(effortDays float64) int64`. Tasks 3 and 5 call all four.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -352,19 +356,17 @@ import "testing"
 
 func TestWorkerClassFor(t *testing.T) {
 	cases := []struct {
-		prefix, kind, want string
+		prefix, want string
 	}{
-		{"C", "manager", "junior-developer"},
-		{"C", "engine", "junior-developer"},
-		{"C", "resourceAccess", "junior-developer"},
-		{"U", "client", "junior-developer"},
-		{"R", "resource", "senior-developer"},
-		{"I", "", "senior-developer"},
-		{"G", "", "ui-designer"},
+		{"C", "junior-developer"},
+		{"U", "junior-developer"},
+		{"R", "senior-developer"},
+		{"I", "senior-developer"},
+		{"G", "ui-designer"},
 	}
 	for _, c := range cases {
-		if got := workerClassFor(c.prefix, c.kind); got != c.want {
-			t.Errorf("workerClassFor(%q,%q) = %q, want %q", c.prefix, c.kind, got, c.want)
+		if got := workerClassFor(c.prefix); got != c.want {
+			t.Errorf("workerClassFor(%q) = %q, want %q", c.prefix, got, c.want)
 		}
 	}
 }
@@ -391,19 +393,19 @@ func TestWorkerClassForNoncodingInventory(t *testing.T) {
 
 func TestDefaultEffortFor(t *testing.T) {
 	cases := []struct {
-		kind, profile string
-		want          float64
+		kind string
+		want float64
 	}{
-		{"manager", "handwritten", 25},
-		{"engine", "handwritten", 15},
-		{"resourceAccess", "handwritten", 10},
-		{"client", "handwritten", 25},
-		{"utility", "handwritten", 10},
-		{"resource", "vendor", 10},
+		{"manager", 25},
+		{"engine", 15},
+		{"resourceAccess", 10},
+		{"client", 25},
+		{"utility", 10},
+		{"resource", 10},
 	}
 	for _, c := range cases {
-		if got := defaultEffortFor(c.kind, c.profile); got != c.want {
-			t.Errorf("defaultEffortFor(%q,%q) = %v, want %v", c.kind, c.profile, got, c.want)
+		if got := defaultEffortFor(c.kind); got != c.want {
+			t.Errorf("defaultEffortFor(%q) = %v, want %v", c.kind, got, c.want)
 		}
 	}
 }
@@ -411,7 +413,7 @@ func TestDefaultEffortFor(t *testing.T) {
 // Every default must satisfy App C §4.4: a 5-day quantum, no god activity (>35d).
 func TestDefaultEffortObeysQuantumAndCap(t *testing.T) {
 	for _, kind := range []string{"manager", "engine", "resourceAccess", "client", "utility", "resource"} {
-		e := defaultEffortFor(kind, "handwritten")
+		e := defaultEffortFor(kind)
 		if e <= 0 || e > 35 {
 			t.Errorf("defaultEffortFor(%q) = %v, out of (0,35]", kind, e)
 		}
@@ -464,7 +466,7 @@ Append to `server/internal/engine/estimation/derive.go`:
 //
 // Verified against the 69 hand-authored activities in the committed list: prefix+kind
 // predicts workerClass with ZERO exceptions, which is what makes it derivable.
-func workerClassFor(prefix string, kind string) string {
+func workerClassFor(prefix string) string {
 	switch prefix {
 	case "C", "U":
 		return "junior-developer" // junior builds components and the SPA
@@ -506,7 +508,7 @@ func noncodingInventoryClass(name string) string {
 // precision"), and it would make the baseline churn whenever a relationship is edited.
 // Roughly half of these get overridden by a justified delta — that is the design intent:
 // the agent's judgment is spent on the exceptions, not on transcription.
-func defaultEffortFor(kind string, profile string) float64 {
+func defaultEffortFor(kind string) float64 {
 	switch kind {
 	case "manager":
 		return 25
@@ -817,25 +819,25 @@ func deriveActivities(system SystemView) []DerivedActivity {
 	for _, c := range system.Components {
 		switch {
 		case isCodeLayer(c.Kind) && c.ConstructionProfile != "generated":
-			effort := defaultEffortFor(c.Kind, c.ConstructionProfile)
+			effort := defaultEffortFor(c.Kind)
 			out = append(out, DerivedActivity{
 				Name:        "C-" + c.ID,
 				Title:       "Build " + c.Name,
 				EffortDays:  effort,
 				RiskBucket:  defaultRiskFor(effort),
-				WorkerClass: workerClassFor("C", c.Kind),
+				WorkerClass: workerClassFor("C"),
 				Coding:      true,
 				ComponentID: c.ID,
 				Derived:     true,
 			})
 		case c.Kind == "resource" && c.Provisioning == "vendor":
-			effort := defaultEffortFor(c.Kind, c.Provisioning)
+			effort := defaultEffortFor(c.Kind)
 			out = append(out, DerivedActivity{
 				Name:        "R-" + c.ID,
 				Title:       "Provision " + c.Name,
 				EffortDays:  effort,
 				RiskBucket:  defaultRiskFor(effort),
-				WorkerClass: workerClassFor("R", c.Kind),
+				WorkerClass: workerClassFor("R"),
 				Coding:      false,
 				ComponentID: c.ID,
 				Derived:     true,
@@ -850,7 +852,7 @@ func deriveActivities(system SystemView) []DerivedActivity {
 				Title:       "SPA screens for " + c.Name,
 				EffortDays:  20,
 				RiskBucket:  defaultRiskFor(20),
-				WorkerClass: workerClassFor("U", c.Kind),
+				WorkerClass: workerClassFor("U"),
 				Coding:      true,
 				ComponentID: c.ID,
 				Derived:     true,
@@ -863,12 +865,12 @@ func deriveActivities(system SystemView) []DerivedActivity {
 			DerivedActivity{
 				Name: "U-SPA-S", Title: "SPA scaffold, auth wiring and design system",
 				EffortDays: 10, RiskBucket: defaultRiskFor(10),
-				WorkerClass: workerClassFor("U", "client"), Coding: true, Derived: true,
+				WorkerClass: workerClassFor("U"), Coding: true, Derived: true,
 			},
 			DerivedActivity{
 				Name: "G-SPA", Title: "UI design concepts for the SPA",
 				EffortDays: 15, RiskBucket: defaultRiskFor(15),
-				WorkerClass: workerClassFor("G", ""), Coding: false, Derived: true,
+				WorkerClass: workerClassFor("G"), Coding: false, Derived: true,
 			},
 		)
 	}
@@ -877,7 +879,7 @@ func deriveActivities(system SystemView) []DerivedActivity {
 		out = append(out, DerivedActivity{
 			Name: "I-" + uc, Title: "Integrate " + uc,
 			EffortDays: 10, RiskBucket: defaultRiskFor(10),
-			WorkerClass: workerClassFor("I", ""), Coding: false, Derived: true,
+			WorkerClass: workerClassFor("I"), Coding: false, Derived: true,
 		})
 	}
 
@@ -1344,7 +1346,7 @@ import (
 
 func planFor(t *testing.T, deltas ActivityListDeltas) DerivedPlan {
 	t.Helper()
-	plan, err := EstimationEngineImpl{}.DerivePlan(nil, edgeSystem(), deltas)
+	plan, err := NewEstimationEngine().DerivePlan(fweng.Context{}, edgeSystem(), deltas)
 	if err != nil {
 		t.Fatalf("DerivePlan returned error: %v", err)
 	}
@@ -1393,7 +1395,7 @@ func TestOverrideReplacesEffortAndRisk(t *testing.T) {
 // An override naming no derived activity is the zombie failure mode: the live committed
 // list carries C-HE, C-WIA and R-WIT against components that do not exist. Loud failure.
 func TestOverrideOfUnknownActivityIsRejected(t *testing.T) {
-	_, err := EstimationEngineImpl{}.DerivePlan(nil, edgeSystem(), ActivityListDeltas{
+	_, err := NewEstimationEngine().DerivePlan(fweng.Context{}, edgeSystem(), ActivityListDeltas{
 		Overrides: []ActivityOverride{{Activity: "C-hand-off-engine", Justification: "x"}},
 	})
 	var fe *fweng.Error
@@ -1403,7 +1405,7 @@ func TestOverrideOfUnknownActivityIsRejected(t *testing.T) {
 }
 
 func TestOverrideWithoutJustificationIsRejected(t *testing.T) {
-	_, err := EstimationEngineImpl{}.DerivePlan(nil, edgeSystem(), ActivityListDeltas{
+	_, err := NewEstimationEngine().DerivePlan(fweng.Context{}, edgeSystem(), ActivityListDeltas{
 		Overrides: []ActivityOverride{{Activity: "C-order-manager", EffortDays: ptrFloat(35)}},
 	})
 	var fe *fweng.Error
@@ -1414,7 +1416,7 @@ func TestOverrideWithoutJustificationIsRejected(t *testing.T) {
 
 func TestOverrideBreakingTheQuantumIsRejected(t *testing.T) {
 	for _, bad := range []float64{7, 11, 40} {
-		_, err := EstimationEngineImpl{}.DerivePlan(nil, edgeSystem(), ActivityListDeltas{
+		_, err := NewEstimationEngine().DerivePlan(fweng.Context{}, edgeSystem(), ActivityListDeltas{
 			Overrides: []ActivityOverride{{
 				Activity: "C-order-manager", EffortDays: ptrFloat(bad), Justification: "j",
 			}},
@@ -1453,7 +1455,7 @@ func TestAdditiveActivityIsAppended(t *testing.T) {
 // C2: an additive carrying a componentId is a covert per-component exclusion or
 // replacement channel. It is exactly how C-HE and C-WIA would come back.
 func TestAdditiveWithComponentIDIsRejected(t *testing.T) {
-	_, err := EstimationEngineImpl{}.DerivePlan(nil, edgeSystem(), ActivityListDeltas{
+	_, err := NewEstimationEngine().DerivePlan(fweng.Context{}, edgeSystem(), ActivityListDeltas{
 		Additive: []AdditiveActivity{{
 			Name: "N-X", Title: "x", EffortDays: 5, RiskBucket: 2,
 			WorkerClass: "junior-developer", Justification: "j",
@@ -1468,7 +1470,7 @@ func TestAdditiveWithComponentIDIsRejected(t *testing.T) {
 
 // An additive may not shadow a derived activity — that is an exclusion in disguise.
 func TestAdditiveCollidingWithADerivedNameIsRejected(t *testing.T) {
-	_, err := EstimationEngineImpl{}.DerivePlan(nil, edgeSystem(), ActivityListDeltas{
+	_, err := NewEstimationEngine().DerivePlan(fweng.Context{}, edgeSystem(), ActivityListDeltas{
 		Additive: []AdditiveActivity{{
 			Name: "C-order-manager", Title: "shadow", EffortDays: 5, RiskBucket: 2,
 			WorkerClass: "junior-developer", Justification: "j",
@@ -1483,7 +1485,7 @@ func TestAdditiveCollidingWithADerivedNameIsRejected(t *testing.T) {
 // C3: an additive declares its OWN incident edges only. Pointing at a nonexistent
 // activity would inject a dangling node into the CPM solve.
 func TestAdditiveEdgeToUnknownActivityIsRejected(t *testing.T) {
-	_, err := EstimationEngineImpl{}.DerivePlan(nil, edgeSystem(), ActivityListDeltas{
+	_, err := NewEstimationEngine().DerivePlan(fweng.Context{}, edgeSystem(), ActivityListDeltas{
 		Additive: []AdditiveActivity{{
 			Name: "N-X", Title: "x", EffortDays: 5, RiskBucket: 2,
 			WorkerClass: "junior-developer", Justification: "j",
@@ -1497,7 +1499,7 @@ func TestAdditiveEdgeToUnknownActivityIsRejected(t *testing.T) {
 }
 
 func TestAdditiveWithOffRosterWorkerClassIsRejected(t *testing.T) {
-	_, err := EstimationEngineImpl{}.DerivePlan(nil, edgeSystem(), ActivityListDeltas{
+	_, err := NewEstimationEngine().DerivePlan(fweng.Context{}, edgeSystem(), ActivityListDeltas{
 		Additive: []AdditiveActivity{{
 			Name: "N-X", Title: "x", EffortDays: 5, RiskBucket: 2,
 			WorkerClass: "Platform-DevOps-Engineer", Justification: "j",
@@ -1533,7 +1535,7 @@ func TestAdditiveMilestoneIsAppended(t *testing.T) {
 }
 
 func TestAdditiveMilestoneShadowingADerivedOneIsRejected(t *testing.T) {
-	_, err := EstimationEngineImpl{}.DerivePlan(nil, edgeSystem(), ActivityListDeltas{
+	_, err := NewEstimationEngine().DerivePlan(fweng.Context{}, edgeSystem(), ActivityListDeltas{
 		AdditiveMilestones: []AdditiveMilestone{{Id: "M0", Justification: "j"}},
 	})
 	var fe *fweng.Error
@@ -1545,7 +1547,7 @@ func TestAdditiveMilestoneShadowingADerivedOneIsRejected(t *testing.T) {
 // An empty System is a normal DOMAIN result (a project read before its architecture is
 // committed), never an error.
 func TestDerivePlanOnEmptySystemIsAnEmptyPlanNotAnError(t *testing.T) {
-	plan, err := EstimationEngineImpl{}.DerivePlan(nil, SystemView{}, ActivityListDeltas{})
+	plan, err := NewEstimationEngine().DerivePlan(fweng.Context{}, SystemView{}, ActivityListDeltas{})
 	if err != nil {
 		t.Fatalf("empty System must be a domain result, got error %v", err)
 	}
@@ -1869,7 +1871,7 @@ func loadSystemFixture(t *testing.T) SystemView {
 
 func parityPlan(t *testing.T) DerivedPlan {
 	t.Helper()
-	plan, err := EstimationEngineImpl{}.DerivePlan(nil, loadSystemFixture(t), ActivityListDeltas{})
+	plan, err := NewEstimationEngine().DerivePlan(fweng.Context{}, loadSystemFixture(t), ActivityListDeltas{})
 	if err != nil {
 		t.Fatalf("DerivePlan over the live System: %v", err)
 	}
@@ -1985,7 +1987,7 @@ func TestParityPlanSolvesThroughComputeNetwork(t *testing.T) {
 	for _, a := range plan.Activities {
 		items = append(items, ActivityItem{Name: a.Name, EffortDays: a.EffortDays})
 	}
-	sol, err := EstimationEngineImpl{}.ComputeNetwork(nil,
+	sol, err := NewEstimationEngine().ComputeNetwork(fweng.Context{},
 		ActivityList{Activities: items},
 		Network{Dependencies: plan.Dependencies, Milestones: plan.Milestones})
 	if err != nil {
@@ -2612,7 +2614,7 @@ func MaterializeActivityPlan(
 	view := toEstimationSystemView(sys)
 	view.CoreUseCaseIDs = useCaseIDs
 
-	plan, err := estimation.EstimationEngineImpl{}.DerivePlan(nil, view, deltas)
+	plan, err := estimation.NewEstimationEngine().DerivePlan(fweng.Context{}, view, deltas)
 	if err != nil {
 		return projectstate.ActivityList{}, nil, err
 	}
@@ -2625,7 +2627,7 @@ func MaterializeActivityPlan(
 }
 ```
 
-> If `EstimationEngineImpl` is not exported from the estimation package, call through the injected `estimator estimation.EstimationEngine` field on the Manager instead (see `NewProjectDesignManager` in `contract.gen.go:254`) and make `MaterializeActivityPlan` a method on the Manager. Check with `grep -n "EstimationEngineImpl" internal/engine/estimation/*.go | head -3`.
+> `estimation.NewEstimationEngine()` is the exported constructor (`contract.gen.go:137`, returns `EstimationEngineImpl{}`); the Engine is stateless, so constructing one per call is free and matches how `engine_test.go` already calls it.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
