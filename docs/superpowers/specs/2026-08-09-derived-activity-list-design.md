@@ -2,6 +2,34 @@
 
 **Date:** 2026-08-09 · **Approver:** system-architect (rulings Q1–Q4 recorded below; founder ratified the two escalated calls) · **Founder ask:** the Phase-2 activity list looks mechanical — one activity per component contract, one per component implementation, one per UI app, one per test rig (Löwy Table 11-1). Generate it with code instead of an agent. Governing principle: **do anything deterministic with code, and only non-deterministic things with agents.**
 
+---
+
+## ⚠ AMENDED AFTER EXECUTION — 2026-08-10, Stage 1 shipped @`b7abd9b`
+
+Stage 1 is built and merged. Execution superseded parts of the design below. **Read this block first; where it conflicts with the original text, this block is correct.** The original is preserved unedited as the record of what was designed rather than what exists.
+
+**1. Slot 9 stores the COMPUTED plan, not a delta document.** §1.1's "the slots store only deltas; render-on-read = derive + apply deltas" was abandoned as unimplementable. The layer order is Manager → Engine → ResourceAccess, so `projectstate` can call neither the Manager (where `MaterializeActivityPlan` lives) nor the Engine that derives. Two live readers — `committedPlanInputs` and `committedActivityList` — would have type-asserted a delta document into an empty `ActivityList` and proceeded with **no plan at all**. What shipped: slot 9 holds the computed activities (shape unchanged, so every reader works untouched), a root-level `activityListOverrides` sibling holds the authored input, and `make derived-plan-check` re-derives and fails on drift — the same generated-and-gated pattern the repo already uses for `contract.gen.go`.
+
+**2. Two founder rulings changed what the derivation emits** (2026-08-09, after reviewing the full derived output):
+- **`constructionProfile` has a third value, `"provided"`** — a component backed by an off-the-shelf platform or third-party service is configured, not built. All four utilities are provided (Keycloak / OTel / a logging sink / the Temporal substrate). `generated` and `provided` both suppress the coding activity; unauthored still defaults to `handwritten`.
+- **`I-*` integration activities are gone entirely.** Table 11-1 has none, and App A already makes Integration a phase of every activity's own lifecycle, so a separate `I-*` double-counts. Consequently **milestones are M0–M3**, not M0–M4 — M4 lost its whole fan-in — and `N-IT` depends on the `U-SPA-*` set (falling back to the `C-<manager>` set when there is no UI surface).
+
+**3. §1.4 conditions C3 and C4 are UNIMPLEMENTABLE as written.** Both describe channels that do not exist in the shipped vocabulary:
+- **C3** claims additive deltas express the `N-CI`→coding and `N-SCHEMA`→store-RA fan-outs. `AdditiveActivity.DependsOn` declares only the *predecessors of the additive*. There is no way for an additive to become a **predecessor of a derived activity**.
+- **C4** claims a derived milestone can acquire predecessors from additives. `applyAdditiveMilestones` **rejects** any additive milestone shadowing a derived one, and no other channel exists.
+
+Both are latent only because the founder cut the 14 componentless additives, so the additive path has never run against real data. **Stage 2 must resolve them before it can lean on additives.**
+
+**4. The activity count is 40, not 49 or 69.** 69 hand-authored → 40 derived: −3 zombies, −3 generated-transport clients, −4 provided utilities, −5 integration, −14 componentless additives.
+
+**5. §1.8's alias map covers 40 of the 69 construction rows; 29 are deliberately orphaned** (verified 2026-08-10): 3 zombies, 3 generated clients, 4 provided utilities, 5 integration, 11 `N-*` checklist, 2 SPA extras, and `R-DER`. Every one of the 40 derived activities does have a construction row.
+
+**6. A defect this design did not anticipate, now doctrine.** Suppressing a component's coding activity also suppresses **every architecture edge through it**. When the clients became `generated`, all client→manager edges vanished and the `U-SPA-<manager>` activities standing in for them inherited nothing — so the committed plan had the system fully tested **50 days before the managers it tests existed**, understating duration by 43% (115 against a true 165). Every gate was green; the network was internally consistent and incoherent as a schedule. Fixed by wiring `U-SPA-<m> → C-<m>`. The general lesson, now in `method-assets` v0.4.0: **a derived network can satisfy every consistency check and still describe an impossible schedule — solve it and assert an ordering invariant.**
+
+**7. Open for a ruling: the enforcement point weakened.** `ACT-COMPONENT-COVERAGE` ran inside `applyGateSeverityPolicies`, so it fired in the MCP `putDraftModel` **write path** as well as in `validate`. Its replacement is a Go test, and `aiarch-design.yml` runs only `validate --slot` — so an agent amending slot 9 in a design session now gets no in-loop feedback. Folding re-derivation into `validate` was investigated and rejected: `MaterializeActivityPlan` sits in a Manager package importing the Temporal SDK, against `validate.go`'s explicit thin-CLI doctrine, and `activityListOverrides` is not in the typed `Project` model. The predicate is strictly stronger; where it fires is weaker.
+
+---
+
 ## Current state (verified 2026-08-09 against `.aiarch/state/project.json`)
 
 - **Slot 9 `.activityList`** holds 69 committed activities. Prefixes: `C`=31, `N`=18, `U`=8, `R`=6, `I`=5, `G`=1.
