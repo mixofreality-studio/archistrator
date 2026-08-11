@@ -79,6 +79,8 @@ export const FRONTEND_PHASES = withExitCriterion(GENERATED_TEMPLATES.frontend);
 export const TESTING_PHASES = withExitCriterion(GENERATED_TEMPLATES.testing);
 export const DEPLOYMENT_PHASES = withExitCriterion(GENERATED_TEMPLATES.deployment);
 export const DOCUMENTATION_PHASES = withExitCriterion(GENERATED_TEMPLATES.documentation);
+export const UI_DESIGN_PHASES = withExitCriterion(GENERATED_TEMPLATES.uiDesign);
+export const INTEGRATION_PHASES = withExitCriterion(GENERATED_TEMPLATES.integration);
 
 // The kind → template registry. Exhaustive over ActivityKind so a new kind is a
 // compile error rather than a silent fall-through to another kind's template.
@@ -88,6 +90,8 @@ const TEMPLATES: Record<ActivityKind, readonly PhaseTemplate[]> = {
   testing: TESTING_PHASES,
   deployment: DEPLOYMENT_PHASES,
   documentation: DOCUMENTATION_PHASES,
+  uiDesign: UI_DESIGN_PHASES,
+  integration: INTEGRATION_PHASES,
 };
 
 // Neutral single-phase fallback for an unknown (bad-data) kind — never borrow

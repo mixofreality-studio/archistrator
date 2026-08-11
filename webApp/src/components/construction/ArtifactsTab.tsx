@@ -162,6 +162,8 @@ export function ArtifactsTab({
       testing: 0,
       deployment: 0,
       documentation: 0,
+      uiDesign: 0,
+      integration: 0,
     };
     for (const vm of activities) {
       counts[vm.row.kind] += 1;

@@ -860,8 +860,15 @@ func nextEligibleActivity(proj projectstate.Project) pumpSelection {
 	})
 
 	chosen := candidates[0].activity
-	item := itemByName[chosen]
+	return dispatchSelectionFor(proj, chosen, itemByName[chosen])
+}
 
+// dispatchSelectionFor resolves the CHOSEN activity into its dispatchable selection:
+// authored component identity, then classification. Both failure arms are plan
+// defects that block terminally rather than dispatch a guess. Folded out of
+// nextEligibleActivity so the eligibility scan and the chosen-activity resolution
+// each stay under the complexity gate on their own.
+func dispatchSelectionFor(proj projectstate.Project, chosen string, item projectstate.ActivityItem) pumpSelection {
 	// Component identity is AUTHORED (spec §2.5): its presence declares the activity
 	// structural, its absence declares it nonstructural or noncoding. ServiceContracts
 	// play NO part in selection — requiring one was the chicken-and-egg that stalled

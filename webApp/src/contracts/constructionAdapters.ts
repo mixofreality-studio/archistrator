@@ -62,6 +62,7 @@ export const FAILURE_REASON_LABEL: Record<FailureReason, string> = {
   componentUnresolved: 'Component unresolved',
   dependencyUnresolved: 'Dependency unresolved',
   dependencyCycle: 'Dependency cycle',
+  activityUnclassifiable: 'Activity unclassifiable',
 };
 
 /** Human-readable label for the technical construction stage. */

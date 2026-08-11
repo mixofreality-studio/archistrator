@@ -43,6 +43,8 @@ const ACTION_LABEL: Record<ActivityKind, string> = {
   testing: 'Review the test plan',
   deployment: 'Review the deployment change',
   documentation: 'Review the doc change',
+  uiDesign: 'Review the UI design concept',
+  integration: 'Review the integration pass',
 };
 
 // ---------------------------------------------------------------------------

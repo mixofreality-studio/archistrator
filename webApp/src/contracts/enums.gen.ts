@@ -124,6 +124,8 @@ export const ACTIVITY_TYPE_GO_VARNAMES = [
   'ActivityTypeTesting',
   'ActivityTypeDeployment',
   'ActivityTypeDocumentation',
+  'ActivityTypeUIDesign',
+  'ActivityTypeIntegration',
 ] as const;
 
 export type ActivityTypeGoVarname = (typeof ACTIVITY_TYPE_GO_VARNAMES)[number];
@@ -137,6 +139,8 @@ export const ACTIVITY_TYPE_APP_STRINGS = [
   'testing',
   'deployment',
   'documentation',
+  'uiDesign',
+  'integration',
 ] as const;
 
 export type ActivityType = (typeof ACTIVITY_TYPE_APP_STRINGS)[number];
@@ -149,6 +153,8 @@ export const ACTIVITY_TYPE_APP_TO_ORDINAL: Readonly<Record<ActivityType, number>
   testing: 2,
   deployment: 3,
   documentation: 4,
+  uiDesign: 5,
+  integration: 6,
 };
 // --- ArtifactKind --------------------------------------------------------
 // Sources: SystemDesignArtifactKind, ProjectDesignArtifactKind (identical; folded)
@@ -472,6 +478,7 @@ export const FAILURE_REASON_GO_VARNAMES = [
   'FailureReasonComponentUnresolved',
   'FailureReasonDependencyUnresolved',
   'FailureReasonDependencyCycle',
+  'FailureReasonActivityUnclassifiable',
 ] as const;
 
 export type FailureReasonGoVarname = (typeof FAILURE_REASON_GO_VARNAMES)[number];
@@ -490,6 +497,7 @@ export const FAILURE_REASON_APP_STRINGS = [
   'componentUnresolved',
   'dependencyUnresolved',
   'dependencyCycle',
+  'activityUnclassifiable',
 ] as const;
 
 export type FailureReason = (typeof FAILURE_REASON_APP_STRINGS)[number];
@@ -506,6 +514,7 @@ export const FAILURE_REASON_APP_TO_ORDINAL: Readonly<Record<FailureReason, numbe
   componentUnresolved: 6,
   dependencyUnresolved: 7,
   dependencyCycle: 8,
+  activityUnclassifiable: 9,
 };
 // --- HealthState ---------------------------------------------------------
 // Sources: OperationsHealthState

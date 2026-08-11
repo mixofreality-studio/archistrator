@@ -644,7 +644,14 @@ export type ActivityBuildStatusRow = 'integrated' | 'in-review' | 'in-constructi
 
 export interface ConstructionRow {
   activityId: string;
-  kind: 'service' | 'frontend' | 'testing' | 'deployment' | 'documentation';
+  kind:
+    | 'service'
+    | 'frontend'
+    | 'testing'
+    | 'deployment'
+    | 'documentation'
+    | 'uiDesign'
+    | 'integration';
   /** Testing sub-type; present only when kind === 'testing'. */
   variant?: TestingVariantName;
   status: ActivityBuildStatusRow;

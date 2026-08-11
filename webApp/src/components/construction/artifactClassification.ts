@@ -9,6 +9,8 @@ export type Classification =
   | 'frontend'
   | 'deployment'
   | 'documentation'
+  | 'uiDesign'
+  | 'integration'
   | 'testing:plan'
   | 'testing:harness'
   | 'testing:perf'
