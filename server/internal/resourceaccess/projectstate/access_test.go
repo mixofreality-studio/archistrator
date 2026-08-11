@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -2944,6 +2945,64 @@ func TestGitStore_ListProjects_SurfacesOperatorPaused(t *testing.T) {
 	}
 }
 
+// operatingFixtureRow / operatingFixtureCase decode the SHARED fixture corpus at
+// testdata/operating_fixtures.json — shared byte-identically with the webApp TS
+// side (see the sync comment atop that file) so both languages assert the exact
+// same construction-complete cases. Kept minimal (phase + buildStatus ints,
+// project-level phase, expected bool) since isConstructionComplete looks at
+// nothing else.
+type operatingFixtureRow struct {
+	Phase       int `json:"phase"`
+	BuildStatus int `json:"buildStatus"`
+}
+
+type operatingFixtureCase struct {
+	Name         string                `json:"name"`
+	Rows         []operatingFixtureRow `json:"rows"`
+	ProjectPhase int                   `json:"projectPhase"`
+	Expect       bool                  `json:"expect"`
+}
+
+// TestIsConstructionComplete_Fixtures drives isConstructionComplete against the
+// shared fixture corpus (architect condition: same cases on both the Go and TS
+// sides — all-integrated true; one-failed/one-in-review/empty/skipped-shaped-row/
+// not-construction-phase all false). skipped-shaped-row specifically pins the
+// Done+InReview shape RecordActivityExited leaves for a Skipped/TakenOver outcome
+// (projectstateaccess.go ~1888) — Phase alone reaching Done is not enough; every
+// row's BuildStatus must ALSO be BuildIntegrated.
+func TestIsConstructionComplete_Fixtures(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("testdata", "operating_fixtures.json"))
+	if err != nil {
+		t.Fatalf("read fixtures: %v", err)
+	}
+	var cases []operatingFixtureCase
+	if err := json.Unmarshal(raw, &cases); err != nil {
+		t.Fatalf("decode fixtures: %v", err)
+	}
+	if len(cases) == 0 {
+		t.Fatal("fixture corpus is empty; this test would pass vacuously")
+	}
+	for _, tc := range cases {
+		t.Run(tc.Name, func(t *testing.T) {
+			p := Project{Phase: Phase(tc.ProjectPhase)}
+			if len(tc.Rows) > 0 {
+				p.ActivityConstruction = make(map[string]ActivityConstructionStatus, len(tc.Rows))
+				for i, row := range tc.Rows {
+					key := fmt.Sprintf("A%d", i)
+					p.ActivityConstruction[key] = ActivityConstructionStatus{
+						ActivityID:  key,
+						Phase:       ActivityConstructionPhase(row.Phase),
+						BuildStatus: ActivityBuildStatus(row.BuildStatus),
+					}
+				}
+			}
+			if got := isConstructionComplete(p); got != tc.Expect {
+				t.Errorf("isConstructionComplete(%s) = %v, want %v", tc.Name, got, tc.Expect)
+			}
+		})
+	}
+}
+
 // TestGitStore_StageCommitRoundTrip — stage a typed model, commit it, read it back
 // with its review status (a model round-trips through git JSON).
 // TestGitStore_SetResearchInput_WritesFilesAndPointer proves the F42 files-not-JSON model
@@ -4391,6 +4450,117 @@ func TestProjectDoc_BackCompat_NoPhaseArtifacts(t *testing.T) {
 	if got.TestingState != nil {
 		t.Errorf("TestingState should be nil for legacy project.json, got %+v", got.TestingState)
 	}
+}
+
+// deploymentRoundTripFixture is a minimal project.json document whose slot-6
+// (KindOperationalConcepts) model carries one entry each of
+// deployment.infrastructure/bindings/settings, shaped exactly like the restored
+// state (2026-08-09 finish-construction plan, Task 2). The generated
+// DeploymentTopology Go type (contract.gen.go) currently models only
+// deliveryStyle/containers/environments, so decodeProjectDoc silently drops
+// these three sections on unmarshal into the typed model — this fixture is the
+// input that proves it.
+const deploymentRoundTripFixture = `{
+  "id": "deployment-roundtrip-project",
+  "version": 1,
+  "phase": 0,
+  "owner": "testowner",
+  "name": "deployment roundtrip project",
+  "research": {},
+  "slots": {
+    "6": {
+      "status": 2,
+      "kind": 6,
+      "model": {
+        "deploymentScenario": "cloud",
+        "constructionVenue": {"kind": "github"},
+        "reviewPolicyRef": "",
+        "trustSummaries": {"billing": "", "usageMetering": "", "dataOwnership": ""},
+        "deployment": {
+          "deliveryStyle": 0,
+          "containers": [],
+          "environments": [],
+          "infrastructure": [{"key":"postgres","substrate":"postgres","profiles":["cloud"],"presence":"required","env":{"URL":"ARCHISTRATOR_POSTGRES_URL"}}],
+          "bindings": [{"component":"projectStateAccess","presence":"required","provides":[],"settings":[{"name":"projectStateGitRepoURL","type":"string","default":"","env":"ARCHISTRATOR_PROJECT_STATE_GIT_REPO_URL","description":"projectStateAccess GitLocal on-disk head-state repo URL (file://)."}],"perProfile":{"local":{"variant":"GitLocal","infra":[]},"cloud":{"variant":"GitHub","infra":["github-app"]}}}],
+          "settings": [{"name":"listenAddr","type":"string","default":":8080","env":"ARCHISTRATOR_LISTEN_ADDR","description":"HTTP listen address."}]
+        }
+      }
+    }
+  }
+}`
+
+// TestDeploymentSectionsSurviveRoundTrip is the RED test for the codec drop
+// (2026-08-09 finish-construction plan, Task 2 — fixed in Task 3). It decodes
+// deploymentRoundTripFixture through decodeProjectDoc (the same decode path
+// applyMutationOnBranchFiles uses to load the aggregate for a mutation) and
+// re-encodes it through encodeProjectDoc (the same encode path buildStateFiles
+// uses to assemble the next commit), then inspects the raw re-encoded JSON's
+// slot-6 model.deployment object for the three sections. It must stay red,
+// unmodified, until Task 3 adds Infrastructure/Bindings/Settings fields to the
+// generated DeploymentTopology type.
+// deploymentSectionFromReencoded walks the re-encoded project.json down to
+// slot 6's model.deployment object, failing the test if any hop is missing.
+func deploymentSectionFromReencoded(t *testing.T, reencoded []byte) map[string]any {
+	t.Helper()
+	var doc map[string]any
+	if err := json.Unmarshal(reencoded, &doc); err != nil {
+		t.Fatalf("re-decode re-encoded project.json: %v", err)
+	}
+	slots, ok := doc["slots"].(map[string]any)
+	if !ok {
+		t.Fatal("re-encoded document has no slots map")
+	}
+	slot6, ok := slots["6"].(map[string]any)
+	if !ok {
+		t.Fatal("re-encoded document has no slot 6 (operationalConcepts)")
+	}
+	model, ok := slot6["model"].(map[string]any)
+	if !ok {
+		t.Fatal("re-encoded slot 6 has no model")
+	}
+	deployment, ok := model["deployment"].(map[string]any)
+	if !ok {
+		t.Fatal("re-encoded slot 6 model has no deployment object")
+	}
+	return deployment
+}
+
+// requireSingletonArray asserts deployment[field] round-tripped as a
+// one-element JSON array, returning it (or nil, after recording a failure).
+func requireSingletonArray(t *testing.T, deployment map[string]any, field string) []any {
+	t.Helper()
+	arr, ok := deployment[field].([]any)
+	if !ok || len(arr) != 1 {
+		t.Errorf("deployment.%s did not survive the round-trip: got %v", field, deployment[field])
+		return nil
+	}
+	return arr
+}
+
+func TestDeploymentSectionsSurviveRoundTrip(t *testing.T) {
+	p, ok, err := decodeProjectDoc([]byte(deploymentRoundTripFixture), ProjectID("deployment-roundtrip-project"))
+	if err != nil {
+		t.Fatalf("decodeProjectDoc: %v", err)
+	}
+	if !ok {
+		t.Fatal("decodeProjectDoc: project not found")
+	}
+
+	reencoded, err := encodeProjectDoc(&p, time.Time{})
+	if err != nil {
+		t.Fatalf("encodeProjectDoc: %v", err)
+	}
+
+	deployment := deploymentSectionFromReencoded(t, reencoded)
+
+	if infra := requireSingletonArray(t, deployment, "infrastructure"); infra != nil {
+		if entry, ok := infra[0].(map[string]any); !ok || entry["key"] != "postgres" {
+			t.Errorf("deployment.infrastructure[0].key did not survive the round-trip: got %v", infra[0])
+		}
+	}
+
+	requireSingletonArray(t, deployment, "bindings")
+	requireSingletonArray(t, deployment, "settings")
 }
 
 // operatingmodel_test.go — coverage for the project-level OperatingModel field + the
@@ -7815,5 +7985,42 @@ func TestLayerString(t *testing.T) {
 		if got := layer.String(); got != want {
 			t.Fatalf("Layer(%d).String() = %q, want %q", layer, got, want)
 		}
+	}
+}
+
+func TestResolveActivityAliasMapsHistoricalShortNames(t *testing.T) {
+	canonical, ok := ResolveActivityAlias("C-BM")
+	if !ok {
+		t.Fatal("C-BM did not resolve; every historical construction key must resolve")
+	}
+	if canonical != "C-billing-manager" {
+		t.Errorf("C-BM resolved to %q, want C-billing-manager", canonical)
+	}
+}
+
+func TestResolveActivityAliasIsInjective(t *testing.T) {
+	seen := map[string]string{}
+	for historical, canonical := range activityAliases {
+		if prior, dup := seen[canonical]; dup {
+			t.Errorf("canonical id %q is claimed by both %q and %q", canonical, prior, historical)
+		}
+		seen[canonical] = historical
+	}
+}
+
+func TestHistoricalAliasForRoundTrips(t *testing.T) {
+	for historical, canonical := range activityAliases {
+		got, ok := HistoricalAliasFor(canonical)
+		if !ok || got != historical {
+			t.Errorf("round trip failed for %q: got %q, ok=%v", historical, got, ok)
+		}
+	}
+}
+
+// An unknown key must report ok=false rather than silently returning the input. A silent
+// pass-through would make a typo look like a valid activity.
+func TestResolveActivityAliasReportsUnknownKeys(t *testing.T) {
+	if _, ok := ResolveActivityAlias("C-NOPE"); ok {
+		t.Error("an unknown historical key must report ok=false")
 	}
 }

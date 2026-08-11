@@ -40,3 +40,11 @@ server/cmd/server/webappdist/
 # .aiarch/traces/.gitignore ("*\n") in every OPERATED repo, so this dogfood
 # entry is only needed here, in archistrator's own repo.
 /.aiarch/traces/
+
+# Git worktrees created by the harness (EnterWorktree) and by hand. Scratch
+# checkouts of this same repo — committing one would nest the entire tree.
+/.claude/worktrees/
+
+# Subagent-driven-development workspaces (ledgers, task briefs, review
+# packages). Working notes for an in-flight plan, not committed artifacts.
+.superpowers/sdd/

@@ -14,6 +14,7 @@ type FakeEstimationEngine struct {
 	ComputeEarnedValueFn func(rc fweng.Context, activities estimation.ActivityList, network estimation.Network, integrated []string, totalWeeks int64, calendarDaysPerWeek int64) (estimation.EVCurve, error)
 	ComputeNetworkFn     func(rc fweng.Context, activities estimation.ActivityList, network estimation.Network) (estimation.NetworkSolution, error)
 	EstimateForOptionFn  func(rc fweng.Context, option estimation.ProjectOption) (estimation.ConstructionEstimate, error)
+	DerivePlanFn         func(rc fweng.Context, system estimation.SystemView, deltas estimation.ActivityListDeltas) (estimation.DerivedPlan, error)
 }
 
 func (f *FakeEstimationEngine) ComputeEarnedValue(rc fweng.Context, activities estimation.ActivityList, network estimation.Network, integrated []string, totalWeeks int64, calendarDaysPerWeek int64) (estimation.EVCurve, error) {
@@ -35,6 +36,13 @@ func (f *FakeEstimationEngine) EstimateForOption(rc fweng.Context, option estima
 		panic("FakeEstimationEngine.EstimateForOptionFn not set")
 	}
 	return f.EstimateForOptionFn(rc, option)
+}
+
+func (f *FakeEstimationEngine) DerivePlan(rc fweng.Context, system estimation.SystemView, deltas estimation.ActivityListDeltas) (estimation.DerivedPlan, error) {
+	if f.DerivePlanFn == nil {
+		panic("FakeEstimationEngine.DerivePlanFn not set")
+	}
+	return f.DerivePlanFn(rc, system, deltas)
 }
 
 var _ estimation.EstimationEngine = (*FakeEstimationEngine)(nil)

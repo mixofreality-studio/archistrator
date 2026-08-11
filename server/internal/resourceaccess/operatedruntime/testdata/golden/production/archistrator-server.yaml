@@ -6,7 +6,7 @@ metadata:
   name: archistrator-server
   namespace: archistrator
   labels:
-    helm.sh/chart: archistrator-server-0.7.1
+    helm.sh/chart: archistrator-server-0.7.0
     app.kubernetes.io/name: archistrator-server
     app.kubernetes.io/instance: archistrator-server
     app.kubernetes.io/version: "0.6.0"
@@ -29,7 +29,7 @@ metadata:
   name: archistrator-server
   namespace: archistrator
   labels:
-    helm.sh/chart: archistrator-server-0.7.1
+    helm.sh/chart: archistrator-server-0.7.0
     app.kubernetes.io/name: archistrator-server
     app.kubernetes.io/instance: archistrator-server
     app.kubernetes.io/version: "0.6.0"
@@ -110,6 +110,12 @@ spec:
         # with constructionPipeline below) — no credential env here. config.go
         # constructs the store only when ARTIFACT_REPO_URL is set; empty == no
         # staging (acceptable for the empty-session runtime state).
+        - name: ARCHISTRATOR_ARTIFACT_REPO_URL
+          value: "https://github.com/mixofreality-studio/archistrator.git"
+        - name: ARCHISTRATOR_ARTIFACT_REPO_OWNER
+          value: "mixofreality-studio"
+        - name: ARCHISTRATOR_ARTIFACT_REPO_LOCAL
+          value: "false"
         # --- GitHub App identity (shared by constructionPipeline + artifact ---
         # store; the 2026-06-09 git-forward model). The numeric App id +
         # (optional) API base URL + (optional) pre-resolved installation id are
@@ -119,7 +125,7 @@ spec:
         # referenced (never rendered). optional:true so the pod still starts
         # before the secret exists.
         - name: ARCHISTRATOR_GITHUB_APP_ID
-          value: "4029529"
+          value: "4112774"
         # sourceControlAccess (I-RA project-birth repo provisioning) + the
         # projectStateAccess CLOUD git substrate (I-GIT-DESIGN design-artifact
         # commits) both key off the GitHub *account* (org login). config.go
@@ -129,7 +135,9 @@ spec:
         # the PR-rail branch-protection actor (off the provision path); harmless when
         # empty.
         - name: ARCHISTRATOR_GITHUB_ACCOUNT
-          value: "davidmarne"
+          value: "mixofreality-studio"
+        - name: ARCHISTRATOR_GITHUB_APP_SLUG
+          value: "archistrator-bot"
         - name: ARCHISTRATOR_GITHUB_APP_PRIVATE_KEY_PEM
           valueFrom:
             secretKeyRef:
@@ -159,6 +167,16 @@ spec:
         # (aiarch-construct.yml / main); repoOwner + repoName name the user's
         # construction repo. taskQueue is the construction Manager's Temporal
         # task queue.
+        - name: ARCHISTRATOR_CONSTRUCTION_REPO_OWNER
+          value: "mixofreality-studio"
+        - name: ARCHISTRATOR_CONSTRUCTION_REPO_NAME
+          value: "archistrator"
+        - name: ARCHISTRATOR_CONSTRUCTION_WORKFLOW_FILE
+          value: "aiarch-construct.yml"
+        - name: ARCHISTRATOR_CONSTRUCTION_REF
+          value: "main"
+        - name: ARCHISTRATOR_CONSTRUCTION_TASK_QUEUE
+          value: "archistrator-construction"
         # --- GitHub webhook (PREMATURE — consumed once C-BM/C-BG wire billing
         #     + the webhook receiver land; config.go does NOT read this key yet.
         #     Forward wiring only; optional:true so the pod starts before the
@@ -178,6 +196,23 @@ spec:
         # (never rendered), optional:true so the pod starts before the secret
         # exists. Gated on stripe.enabled (default false) so nothing renders until
         # C-BG lands.
+        # --- Worker provider (Anthropic Messages API) -----------------------
+        # The API key comes from a secret created out-of-band (kubectl create
+        # secret generic) in the archistrator namespace; it is referenced (never
+        # rendered) here. Ollama is test-only and not deployed in-cluster.
+        - name: ARCHISTRATOR_WORKER_PROVIDER
+          value: "anthropic"
+        - name: ARCHISTRATOR_ANTHROPIC_MODEL
+          value: "claude-opus-4-8"
+        - name: ARCHISTRATOR_ANTHROPIC_ARCHITECT_MODEL
+          value: "claude-opus-4-8"
+        - name: ARCHISTRATOR_ANTHROPIC_CRITIQUE_MODEL
+          value: "claude-sonnet-4-6"
+        - name: ARCHISTRATOR_ANTHROPIC_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: archistrator-anthropic-secret
+              key: apiKey
         # --- Auth (dev mode OFF behind Envoy; the server validates the bearer
         #     access token itself against Keycloak's JWKS — GTD parity) --------
         - name: ARCHISTRATOR_KEYCLOAK_JWKS_URL

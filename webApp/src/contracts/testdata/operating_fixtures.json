@@ -1,0 +1,54 @@
+[
+  {
+    "name": "all-integrated",
+    "rows": [
+      { "phase": 2, "buildStatus": 2 },
+      { "phase": 2, "buildStatus": 2 },
+      { "phase": 2, "buildStatus": 2 }
+    ],
+    "projectPhase": 2,
+    "expect": true
+  },
+  {
+    "name": "one-failed",
+    "rows": [
+      { "phase": 2, "buildStatus": 2 },
+      { "phase": 3, "buildStatus": 3 }
+    ],
+    "projectPhase": 2,
+    "expect": false
+  },
+  {
+    "name": "one-in-review",
+    "rows": [
+      { "phase": 2, "buildStatus": 2 },
+      { "phase": 1, "buildStatus": 1 }
+    ],
+    "projectPhase": 2,
+    "expect": false
+  },
+  {
+    "name": "empty",
+    "rows": [],
+    "projectPhase": 2,
+    "expect": false
+  },
+  {
+    "name": "skipped-shaped-row",
+    "rows": [
+      { "phase": 2, "buildStatus": 2 },
+      { "phase": 2, "buildStatus": 1 }
+    ],
+    "projectPhase": 2,
+    "expect": false
+  },
+  {
+    "name": "not-construction-phase",
+    "rows": [
+      { "phase": 2, "buildStatus": 2 },
+      { "phase": 2, "buildStatus": 2 }
+    ],
+    "projectPhase": 1,
+    "expect": false
+  }
+]

@@ -1,6 +1,6 @@
 # aiarch server — developer make targets.
 
-.PHONY: test test-short fmt vet fix fix-check lint sumtype-check method-check encapsulation-check gen-models gen-models-check gen-fakes gen-fakes-check gen gen-client gen-client-check gen-internal-tools gen-internal-tools-check gen-temporal gen-temporal-check gen-sdk gen-sdk-check gen-config gen-config-check gen-uiprofiles gen-uiprofiles-check claude-assets
+.PHONY: test test-short fmt vet fix fix-check lint sumtype-check method-check encapsulation-check gen-models gen-models-check gen-fakes gen-fakes-check gen gen-client gen-client-check gen-internal-tools gen-internal-tools-check gen-temporal gen-temporal-check gen-sdk gen-sdk-check gen-config gen-config-check gen-uiprofiles gen-uiprofiles-check claude-assets derived-plan-check
 
 # claude-assets — materialize the .claude method prompt surface (agents/commands/
 # skills) into the repo root from the method-assets lib pinned in go.mod. The
@@ -235,3 +235,14 @@ method-check:
 # change: ENCAP_DUMP=1 GOWORK=off go test ./internal/ -run TestGeneratedOnlyPublic -v
 encapsulation-check:
 	GOWORK=off go test ./internal/ -run TestGeneratedOnlyPublic
+
+# DERIVED-PLAN drift gate (Task 10b). Slot 9 (.aiarch/state/project.json
+# .slots["9"].model) stores the COMPUTED Phase-2 activity list, not a delta document —
+# same pattern as contract.gen.go + gen-models-check. This target re-derives the plan
+# from the committed System (slot 5) plus the authored overrides sidecar
+# (.activityListOverrides) and fails if the result differs from what slot 9 holds.
+# TestDerivedPlanMatchesCommittedState reads project.json out-of-tree (same reason
+# method-check uses -count=1: a green run would otherwise cache and a later
+# project.json edit would never re-run).
+derived-plan-check:
+	GOWORK=off go test ./internal/manager/projectdesign/... -run TestDerivedPlanMatchesCommittedState -count=1 -v

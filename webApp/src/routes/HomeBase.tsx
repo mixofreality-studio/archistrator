@@ -239,7 +239,7 @@ function HomeBaseBody({
       .sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind));
   }, [project]);
 
-  const phases = useMemo(() => toPhaseCards(project), [project]);
+  const phases = useMemo(() => toPhaseCards(project, project.operating), [project]);
 
   // Default selection: first committed, else first non-empty, else first.
   const defaultKind =
@@ -271,21 +271,25 @@ function HomeBaseBody({
           </Typography>
         </Box>
         <Box sx={{ flexGrow: 1 }} />
-        {designRoute !== null && (
-          <Button
-            color="primary"
-            data-testid={UI_IDENTIFIERS.HomeBase.RESUME_DESIGN}
-            endIcon={<ArrowForwardIcon />}
-            size="large"
-            variant="contained"
-            onClick={() => {
-              openDesign(designRoute);
-            }}
-          >
-            {/* Phase-specific: "Resume Construction" / "Resume Project Design" / … */}
-            {committedCount > 0 ? `Resume ${currentPhase.title}` : `Enter ${currentPhase.title}`}
-          </Button>
-        )}
+        {/* Operating (Task 14): once construction is fully complete there is nothing
+            left to "resume" — the button is hidden entirely (not relabeled), same
+            treatment as ConstructionConsole's begin/resume button. */}
+        {designRoute !== null &&
+          !(currentPhase.id === 'construction' && project.operating === true) && (
+            <Button
+              color="primary"
+              data-testid={UI_IDENTIFIERS.HomeBase.RESUME_DESIGN}
+              endIcon={<ArrowForwardIcon />}
+              size="large"
+              variant="contained"
+              onClick={() => {
+                openDesign(designRoute);
+              }}
+            >
+              {/* Phase-specific: "Resume Construction" / "Resume Project Design" / … */}
+              {committedCount > 0 ? `Resume ${currentPhase.title}` : `Enter ${currentPhase.title}`}
+            </Button>
+          )}
       </Box>
 
       <EconomicsStrip project={project} />

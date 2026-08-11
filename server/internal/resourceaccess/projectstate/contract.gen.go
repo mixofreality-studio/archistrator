@@ -220,6 +220,9 @@ type Component struct {
 	AtomicBusinessVerbs      []string      `json:"atomicBusinessVerbs"`
 	BuildStatus              *string       `json:"buildStatus,omitempty"`
 	ContractKey              *string       `json:"contractKey,omitempty"`
+	ConstructionProfile      *string       `json:"constructionProfile,omitempty"`
+	Provisioning             *string       `json:"provisioning,omitempty"`
+	UiSurface                *bool         `json:"uiSurface,omitempty"`
 }
 
 type ComponentKind int
@@ -304,6 +307,19 @@ type DeployNoteRecord struct {
 	AuthoredAt *time.Time `json:"authoredAt,omitempty"`
 }
 
+type DeploymentBindingProfile struct {
+	Variant string   `json:"variant"`
+	Infra   []string `json:"infra,omitempty"`
+}
+
+type DeploymentComponentBinding struct {
+	Component  string                              `json:"component"`
+	Presence   string                              `json:"presence"`
+	Provides   []string                            `json:"provides,omitempty"`
+	Settings   []DeploymentSettingSpec             `json:"settings,omitempty"`
+	PerProfile map[string]DeploymentBindingProfile `json:"perProfile,omitempty"`
+}
+
 type DeploymentEnvironment struct {
 	Profile       DeploymentProfile              `json:"profile"`
 	Title         string                         `json:"title"`
@@ -315,6 +331,14 @@ type DeploymentEnvironment struct {
 
 type DeploymentEnvironmentComputed struct {
 	DerivedRelationships []DeploymentRelationship `json:"derivedRelationships"`
+}
+
+type DeploymentInfraNode struct {
+	Key       string            `json:"key"`
+	Substrate string            `json:"substrate"`
+	Profiles  []string          `json:"profiles,omitempty"`
+	Presence  *string           `json:"presence,omitempty"`
+	Env       map[string]string `json:"env,omitempty"`
 }
 
 type DeploymentOperationsModel struct {
@@ -350,10 +374,21 @@ type DeploymentRelationship struct {
 	Mode       CallMode `json:"mode"`
 }
 
+type DeploymentSettingSpec struct {
+	Name        string  `json:"name"`
+	Type        string  `json:"type"`
+	Default     *string `json:"default,omitempty"`
+	Env         string  `json:"env"`
+	Description *string `json:"description,omitempty"`
+}
+
 type DeploymentTopology struct {
-	DeliveryStyle DeliveryStyle           `json:"deliveryStyle"`
-	Containers    []DeployContainer       `json:"containers"`
-	Environments  []DeploymentEnvironment `json:"environments"`
+	DeliveryStyle  DeliveryStyle                `json:"deliveryStyle"`
+	Containers     []DeployContainer            `json:"containers"`
+	Environments   []DeploymentEnvironment      `json:"environments"`
+	Infrastructure []DeploymentInfraNode        `json:"infrastructure,omitempty"`
+	Bindings       []DeploymentComponentBinding `json:"bindings,omitempty"`
+	Settings       []DeploymentSettingSpec      `json:"settings,omitempty"`
 }
 
 type DocNoteRecord struct {
@@ -583,14 +618,15 @@ type ProjectOption struct {
 }
 
 type ProjectSummary struct {
-	ProjectID      ProjectID  `json:"ProjectID"`
-	Name           string     `json:"Name"`
-	Owner          OwnerScope `json:"Owner"`
-	Phase          Phase      `json:"Phase"`
-	CommittedCount int        `json:"CommittedCount"`
-	TotalCount     int        `json:"TotalCount"`
-	UpdatedAt      time.Time  `json:"UpdatedAt"`
-	OperatorPaused *bool      `json:"OperatorPaused,omitempty"`
+	ProjectID            ProjectID  `json:"ProjectID"`
+	Name                 string     `json:"Name"`
+	Owner                OwnerScope `json:"Owner"`
+	Phase                Phase      `json:"Phase"`
+	CommittedCount       int        `json:"CommittedCount"`
+	TotalCount           int        `json:"TotalCount"`
+	UpdatedAt            time.Time  `json:"UpdatedAt"`
+	OperatorPaused       *bool      `json:"OperatorPaused,omitempty"`
+	ConstructionComplete *bool      `json:"ConstructionComplete,omitempty"`
 }
 
 type ProvisioningSpecRecord struct {

@@ -302,8 +302,16 @@ var encapsulationAllowlistData = map[string][]string{
 		"RegisterWorker",
 		"TaskQueue",
 	},
-	// Temporal registration entrypoints (see construction).
+	// Temporal registration entrypoints (see construction). MaterializeActivityPlan
+	// (Task 10, 2026-08-09 derived-activity-list stage 1) is the single render-on-read
+	// entry point for the Phase-2 plan — it derives the baseline from the committed
+	// System and applies the authored deltas. Exported because the slot-9/10 read path
+	// that calls it lives OUTSIDE this package (projectstate.ProjectStateAccess); no
+	// caller exists yet in stage 1 (same category as Task 9's ResolveActivityAlias/
+	// HistoricalAliasFor above — published surface for a seam this stage builds but does
+	// not yet wire end-to-end).
 	"internal/manager/projectdesign": {
+		"MaterializeActivityPlan",
 		"RegisterManagerWorker",
 		"RegisterWorker",
 		"TaskQueue",
@@ -341,6 +349,16 @@ var encapsulationAllowlistData = map[string][]string{
 	// now lives in the billingStateAccess package alongside the generated billing surface.
 	"internal/resourceaccess/billingstate": {
 		"NewRevenueLedgerAccess",
+	},
+	// EXPLICIT NOT-CONFIGURED VARIANT CONSTRUCTOR (same VARIANT-CONSTRUCTOR category as
+	// artifact/agenticjob's dry-run constructors above): the generated stub fails every op
+	// with fwra.Unknown ("not implemented"), which burns the workflow's full retry budget
+	// before failing — dishonest about WHY, since the real component IS wired and only a
+	// live Stripe credential is missing. NewNotConfiguredMerchantGatewayAccess replaces the
+	// generated stub (composed via hooks.FinalizeMerchantGatewayAccess) with a terminal
+	// fwra.Auth error pointing at docs/billing-setup.md.
+	"internal/resourceaccess/merchantgateway": {
+		"NewNotConfiguredMerchantGatewayAccess",
 	},
 	// FREE-FUNCTION BEHAVIOUR over the contract's named-scalar handle/enum value types: the
 	// schema-first rule keeps generated contract types method-free, so
@@ -781,6 +799,15 @@ var encapsulationAllowlistData = map[string][]string{
 		"Volatilities.Kind",
 		"Volatility",
 		"WorkerMix",
+		// ACTIVITY-ID ALIAS SEAM (2026-08-09, derived-activity-list stage 1). The derived
+		// activity id is a function of the component id (C-<component-id>), while the 69
+		// existing .activityConstruction rows are keyed by hand-chosen short names (C-BM,
+		// R-GH, …) and are all Done+Integrated. Founder ruling: alias map, not a key
+		// rewrite — rewriting completed construction records for cosmetic key consistency
+		// is risk with no payoff. Exported because the join between construction state and
+		// derived activities lives OUTSIDE this package; no caller exists yet in stage 1.
+		"ResolveActivityAlias",
+		"HistoricalAliasFor",
 	},
 	// DEPLOYMENT-PROFILE VARIANT CONSTRUCTORS (step-8 A2 composegen seam): the two
 	// no-arg, no-error profile wrappers (Real/Local) the generated composition root

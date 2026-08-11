@@ -73,6 +73,14 @@ export interface PhaseCardView {
   locked: boolean;
   /** True when this is the project's current phase and still has owed slots. */
   active: boolean;
+  /**
+   * True on the construction card only, when the derived "Operating" state
+   * applies (Task 14, finish-construction) — every construction activity has
+   * integrated. Presentation overlay: `active`/`locked` are unchanged by it: the
+   * card is still the project's current phase, just rendered with the DONE
+   * treatment instead of ACTIVE. Absent (never false) for the other two cards.
+   */
+  operating?: boolean;
 }
 
 const PHASE_META: Record<PhaseId, { index: number; title: string; subtitle: string }> = {
@@ -105,9 +113,13 @@ const PHASE_ORDINAL: Record<ProjectPhase, number> = {
  * Builds the three phase cards from the project head-state. Phase progress is the
  * committed-slot count over the phase's required slots; a phase is locked until
  * the project has reached (or passed) it, and active when it is the current phase
- * with owed slots.
+ * with owed slots. `operating` (Task 14) is the caller-supplied derived
+ * construction-complete signal (ProjectStateWithGit.operating) — plumbed in
+ * rather than recomputed here, since toPhaseCards takes the bare ProjectState
+ * shape and the derivation needs the raw construction head-state this type
+ * doesn't carry.
  */
-export function toPhaseCards(project: ProjectState): PhaseCardView[] {
+export function toPhaseCards(project: ProjectState, operating?: boolean): PhaseCardView[] {
   const committed = new Set(
     project.slots.filter((s) => slotStageFromOrdinal(s.stage) === 'committed').map((s) => s.kind)
   );
@@ -134,7 +146,7 @@ export function toPhaseCards(project: ProjectState): PhaseCardView[] {
   return [
     card('systemDesign', PHASE1_ORDER),
     card('projectDesign', PHASE2_ORDER),
-    card('construction', []),
+    { ...card('construction', []), ...(operating === true ? { operating: true } : {}) },
   ];
 }
 
