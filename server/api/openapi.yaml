@@ -574,6 +574,10 @@ components:
                     type:
                         - "null"
                         - string
+                constructionProfile:
+                    type:
+                        - "null"
+                        - string
                 contractKey:
                     type:
                         - "null"
@@ -608,6 +612,14 @@ components:
                     type: string
                 name:
                     type: string
+                provisioning:
+                    type:
+                        - "null"
+                        - string
+                uiSurface:
+                    type:
+                        - "null"
+                        - boolean
             required:
                 - id
                 - name
