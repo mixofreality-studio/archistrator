@@ -106,6 +106,8 @@ const (
 	ActivityTypeTesting       ActivityType = 2
 	ActivityTypeDeployment    ActivityType = 3
 	ActivityTypeDocumentation ActivityType = 4
+	ActivityTypeUIDesign      ActivityType = 5
+	ActivityTypeIntegration   ActivityType = 6
 )
 
 type Actor struct {
@@ -393,15 +395,16 @@ type EvPoint struct {
 type FailureReason int
 
 const (
-	FailureReasonUnknown FailureReason = 0
-	PipelineFailed       FailureReason = 1
-	PipelineCancelled    FailureReason = 2
-	PipelineTimedOut     FailureReason = 3
-	VarianceExhausted    FailureReason = 4
-	EscalationTimedOut   FailureReason = 5
-	ComponentUnresolved  FailureReason = 6
-	DependencyUnresolved FailureReason = 7
-	DependencyCycle      FailureReason = 8
+	FailureReasonUnknown   FailureReason = 0
+	PipelineFailed         FailureReason = 1
+	PipelineCancelled      FailureReason = 2
+	PipelineTimedOut       FailureReason = 3
+	VarianceExhausted      FailureReason = 4
+	EscalationTimedOut     FailureReason = 5
+	ComponentUnresolved    FailureReason = 6
+	DependencyUnresolved   FailureReason = 7
+	DependencyCycle        FailureReason = 8
+	ActivityUnclassifiable FailureReason = 9
 )
 
 type Glossary struct {
@@ -895,7 +898,7 @@ type GitActivityStatusAccess interface {
 	RecordActivityCIObserved(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, ci CICheckState, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	RecordActivityArchApproved(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	RecordActivityMerged(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	RecordActivityStarted(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	RecordActivityStarted(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, typ ActivityType, variant TestingVariant, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	RecordActivityCompleted(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
 }
 

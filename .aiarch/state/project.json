@@ -15393,6 +15393,46 @@
             "CICheckFailure"
           ],
           "x-go-base": "int"
+        },
+        "ActivityType": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ],
+          "x-enum-varnames": [
+            "ActivityTypeService",
+            "ActivityTypeFrontend",
+            "ActivityTypeTesting",
+            "ActivityTypeDeployment",
+            "ActivityTypeDocumentation",
+            "ActivityTypeUIDesign",
+            "ActivityTypeIntegration"
+          ],
+          "x-go-base": "int"
+        },
+        "TestingVariant": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2,
+            3,
+            4
+          ],
+          "x-enum-varnames": [
+            "TestVariantPlan",
+            "TestVariantHarness",
+            "TestVariantPerf",
+            "TestVariantSystemTest",
+            "TestVariantQAProcess"
+          ],
+          "x-go-base": "int"
         }
       },
       "interface": {
@@ -15610,6 +15650,18 @@
                 "name": "activityID",
                 "schema": {
                   "type": "string"
+                }
+              },
+              {
+                "name": "typ",
+                "schema": {
+                  "$ref": "#/$defs/ActivityType"
+                }
+              },
+              {
+                "name": "variant",
+                "schema": {
+                  "$ref": "#/$defs/TestingVariant"
                 }
               },
               {

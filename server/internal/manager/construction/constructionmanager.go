@@ -687,14 +687,27 @@ type constructionActivity struct {
 	CRLabel      string
 	IsRevert     bool
 	Phases       []projectstate.ActivityMethodPhase
+	// Type/Variant are the classification the pump resolved ONCE
+	// (projectstate.ClassifyActivity) at selection time, which every downstream
+	// consumer then CARRIES rather than re-deriving: the Phases above, the review
+	// policy's GatedPhasesByType key (activityTypeName), the head-state Type/Variant
+	// stamp (RecordActivityStarted) and the per-phase slash command (CommandFor).
+	// Classify once, carry the result — a second derivation is a second chance to
+	// disagree, which is exactly how a phase profile and its commands drifted apart.
+	// The zero pair (Service, Plan) is what a legacy Temporal payload decodes to,
+	// preserving pre-change behavior for a workflow already in flight.
+	Type    projectstate.ActivityType
+	Variant projectstate.TestingVariant
 }
 
 // activityTypeName returns the canonical activity-type wire name
-// ("service"/"frontend"/"testing") derived from the activity id. These are the exact
-// keys the ReviewPolicy's GatedPhasesByType map is keyed by (and the keys the webApp
-// PolicyPanel must emit) — the gate consults RequiresHuman(activityTypeName(), phase).
+// ("service"/"frontend"/"testing"/…) for the activity's STAMPED type. These are the
+// exact keys the ReviewPolicy's GatedPhasesByType map is keyed by (and the keys the
+// webApp PolicyPanel must emit) — the gate consults RequiresHuman(activityTypeName(),
+// phase). It reads the stamped Type rather than re-deriving from the id: re-deriving
+// would let the gate map be keyed by a different type than the phases being walked.
 func (a constructionActivity) activityTypeName() string {
-	return projectstate.DeriveType(a.ActivityID).String()
+	return a.Type.String()
 }
 
 // ===========================================================================
@@ -868,7 +881,24 @@ func nextEligibleActivity(proj projectstate.Project) pumpSelection {
 			}
 		}
 	}
-	return pumpSelection{Verdict: verdictDispatch, Activity: hydrateConstructionActivity(chosen, item, comp)}
+	// Classification is resolved HERE, once, from the three facts the committed plan
+	// authored (id, workerClass, coding) — and the resolved pair then rides the
+	// dispatched constructionActivity to every consumer. An activity the rules cannot
+	// classify has no phase profile and no slash command, so dispatching it would mean
+	// guessing: the id-prefix guess is what handed infra activity N-ENV a testing
+	// command and killed it with VarianceExhausted. Block instead, as a plan defect.
+	typ, variant, cerr := projectstate.ClassifyActivity(chosen, item.WorkerClass, item.Coding)
+	if cerr != nil {
+		return pumpSelection{
+			Verdict:              verdictBlocked,
+			BlockedActivityID:    chosen,
+			BlockedFailureReason: projectstate.ActivityUnclassifiable,
+			BlockedReason: fmt.Sprintf(
+				"activity %s has workerClass %q with coding=%v, which matches no activity-classification rule, so no phase profile or construction command can be resolved for it — terminally failed; repair by amending workerClass or coding in the committed activity list (RecordActivityFailed is sticky and there is no reopen/retry path)",
+				chosen, item.WorkerClass, item.Coding),
+		}
+	}
+	return pumpSelection{Verdict: verdictDispatch, Activity: hydrateConstructionActivity(chosen, item, comp, typ, variant)}
 }
 
 // lookupComponent resolves a component id against the committed systemDesign by EXACT
@@ -1042,17 +1072,21 @@ func allDepsSatisfied(
 // noncoding) activity — it supplies BOTH the ComponentID passed to the dispatch as
 // component_id AND the Layer, which had no populator before this change and printed
 // as an empty string into every PR body.
-func hydrateConstructionActivity(activityID string, item projectstate.ActivityItem, comp *projectstate.Component) constructionActivity {
+//
+// typ/variant are the caller's ALREADY-RESOLVED classification (nextEligibleActivity's
+// single ClassifyActivity call): this function stamps them and derives Phases from
+// them, so the phase walk and the stamped pair can never name different profiles.
+func hydrateConstructionActivity(activityID string, item projectstate.ActivityItem, comp *projectstate.Component, typ projectstate.ActivityType, variant projectstate.TestingVariant) constructionActivity {
 	kind := activityKindNoncoding
 	if item.Coding {
 		kind = activityKindConstruction
 	}
-	typ := projectstate.DeriveType(activityID)
-	variant := projectstate.DeriveVariant(activityID)
 	act := constructionActivity{
 		ActivityID:   activityID,
 		Kind:         kind,
 		EstimateDays: item.EffortDays,
+		Type:         typ,
+		Variant:      variant,
 		Phases:       projectstate.ProfileFor(typ, variant).PhaseIDs(),
 	}
 	if comp != nil {

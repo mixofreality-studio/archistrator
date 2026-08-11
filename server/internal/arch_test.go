@@ -472,6 +472,15 @@ var encapsulationAllowlistData = map[string][]string{
 		// Manager needs to dispatch the right command for an activity (construction/
 		// adapters.go). Both are total, side-effect-free functions of already-public
 		// projectstate enum values; there is nothing to generate a contract op for.
+		//
+		// ClassifyActivity is the DISPATCH-TIME half of the same rule: (id, workerClass,
+		// coding) → (ActivityType, TestingVariant), the pair the construction Manager must
+		// resolve before it can pick either a phase profile (ProfileFor) or a slash command
+		// (CommandFor). ClassifyType is now a lens over it, so the view-model
+		// classification and the dispatch classification cannot drift apart. Same category:
+		// total (modulo its unclassifiable error), side-effect-free, over already-public
+		// projectstate enum values.
+		"ClassifyActivity",
 		"ClassifyType",
 		// DesignCommandFor (Plan-2 Task B1) + its DesignJobMode dispatch-shape enum: the
 		// (kind, mode, addressee) → .claude slash-command name mapping the design Managers

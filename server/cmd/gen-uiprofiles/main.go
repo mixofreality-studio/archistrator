@@ -54,6 +54,8 @@ var kinds = []kindSpec{
 	{"testing", "TESTING_PHASES", projectstate.ActivityTypeTesting, projectstate.TestVariantPlan},
 	{"deployment", "DEPLOYMENT_PHASES", projectstate.ActivityTypeDeployment, projectstate.TestVariantPlan},
 	{"documentation", "DOCUMENTATION_PHASES", projectstate.ActivityTypeDocumentation, projectstate.TestVariantPlan},
+	{"uiDesign", "UI_DESIGN_PHASES", projectstate.ActivityTypeUIDesign, projectstate.TestVariantPlan},
+	{"integration", "INTEGRATION_PHASES", projectstate.ActivityTypeIntegration, projectstate.TestVariantPlan},
 }
 
 func main() {

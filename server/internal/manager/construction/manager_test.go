@@ -262,8 +262,25 @@ func TestSubmitPhaseDecision_EmptyActivityID(t *testing.T) {
 	}
 }
 
+// classifyForTest runs the production classifier the pump runs, so a hydrate test
+// exercises the same (type, variant) resolution dispatch does rather than a
+// hand-picked pair.
+func classifyForTest(t *testing.T, id string, item projectstate.ActivityItem) (projectstate.ActivityType, projectstate.TestingVariant) {
+	t.Helper()
+	typ, variant, err := projectstate.ClassifyActivity(id, item.WorkerClass, item.Coding)
+	if err != nil {
+		t.Fatalf("ClassifyActivity(%s): %v", id, err)
+	}
+	return typ, variant
+}
+
 func TestHydrateConstructionActivity_ServicePhases(t *testing.T) {
-	got := hydrateConstructionActivity("C-Orders", projectstate.ActivityItem{Coding: true, EffortDays: 5}, nil)
+	item := projectstate.ActivityItem{WorkerClass: "junior-developer", Coding: true, EffortDays: 5}
+	typ, variant := classifyForTest(t, "C-Orders", item)
+	got := hydrateConstructionActivity("C-Orders", item, nil, typ, variant)
+	if got.Type != projectstate.ActivityTypeService {
+		t.Fatalf("Type = %v, want Service", got.Type)
+	}
 	want := []projectstate.ActivityMethodPhase{
 		projectstate.MethodPhaseRequirements, projectstate.MethodPhaseDetailedDesign,
 		projectstate.MethodPhaseTestPlan, projectstate.MethodPhaseConstruction,
@@ -280,7 +297,12 @@ func TestHydrateConstructionActivity_ServicePhases(t *testing.T) {
 }
 
 func TestHydrateConstructionActivity_TestingPlanIsThreePhases(t *testing.T) {
-	got := hydrateConstructionActivity("N-STP", projectstate.ActivityItem{Coding: true}, nil)
+	item := projectstate.ActivityItem{WorkerClass: "test-engineer"}
+	typ, variant := classifyForTest(t, "N-STP", item)
+	got := hydrateConstructionActivity("N-STP", item, nil, typ, variant)
+	if got.Type != projectstate.ActivityTypeTesting || got.Variant != projectstate.TestVariantPlan {
+		t.Fatalf("(Type, Variant) = (%v, %v), want (Testing, Plan)", got.Type, got.Variant)
+	}
 	want := []projectstate.ActivityMethodPhase{
 		projectstate.MethodPhaseRequirements, projectstate.MethodPhaseConstruction,
 		projectstate.MethodPhaseIntegration,
@@ -313,12 +335,27 @@ func TestDispatchInputsForIncludesCommand(t *testing.T) {
 	}
 
 	// A testing harness detailed-design phase -> testing-harness-detailed-design.
+	// The pair is CARRIED on the spec (classified once by the pump), never re-derived
+	// from the id here — an N-* id alone no longer implies testing.
 	in2 := dispatchInputsFor(pipelineSpec{
 		ActivityID: "N-STH",
 		Phase:      "detailed_design",
+		Type:       projectstate.ActivityTypeTesting,
+		Variant:    projectstate.TestVariantHarness,
 	})
 	if in2["command"] != "testing-harness-detailed-design" {
 		t.Errorf("command = %q, want testing-harness-detailed-design", in2["command"])
+	}
+
+	// The N-ENV defect: an infra activity carries the DEPLOYMENT pair, so the same
+	// N- prefix that used to force a testing command now produces a deployment one.
+	in3 := dispatchInputsFor(pipelineSpec{
+		ActivityID: "N-ENV",
+		Phase:      "construction",
+		Type:       projectstate.ActivityTypeDeployment,
+	})
+	if in3["command"] != "deployment-construction" {
+		t.Errorf("command = %q, want deployment-construction", in3["command"])
 	}
 }
 
@@ -695,7 +732,7 @@ func (s *stubGitStatus) RecordActivityMerged(_ fwra.Context, _ projectstate.Proj
 	return s.apply(key, activityID, func(g *projectstate.ActivityGitStatus) { g.Merged = true })
 }
 
-func (s *stubGitStatus) RecordActivityStarted(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, _ projectstate.RepoCredential, key fwra.IdempotencyKey) (projectstate.Version, error) {
+func (s *stubGitStatus) RecordActivityStarted(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, typ projectstate.ActivityType, variant projectstate.TestingVariant, _ projectstate.RepoCredential, key fwra.IdempotencyKey) (projectstate.Version, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if activityID == "" {
@@ -708,6 +745,8 @@ func (s *stubGitStatus) RecordActivityStarted(_ fwra.Context, _ projectstate.Pro
 	c := s.cons[activityID]
 	c.ActivityID = activityID
 	c.Phase = projectstate.ActivityConstructionRunning
+	c.Type = typ
+	c.Variant = variant
 	s.cons[activityID] = c
 	s.version++
 	s.dedup[key] = s.version
@@ -1140,7 +1179,7 @@ func TestNextEligibleActivity_ComponentlessActivitiesDispatch(t *testing.T) {
 		item projectstate.ActivityItem
 	}{
 		{"nonstructural coding", projectstate.ActivityItem{Name: "I-UC1", Title: "Integrate use case 1", Coding: true}},
-		{"noncoding", projectstate.ActivityItem{Name: "N-STP", Title: "System Test Plan", Coding: false}},
+		{"noncoding", projectstate.ActivityItem{Name: "N-STP", Title: "System Test Plan", WorkerClass: "test-engineer", Coding: false}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			proj := projWithActivities(
@@ -1218,9 +1257,9 @@ func TestNextEligibleActivity_Chain(t *testing.T) {
 		{Activity: "C", DependsOn: []string{"B"}},
 	}
 	activities := []projectstate.ActivityItem{
-		{Name: "A", Title: "A", EffortDays: 5, WorkerClass: "AI", Coding: true, RiskBucket: 2, ComponentID: "comp-a"},
-		{Name: "B", Title: "B", EffortDays: 3, WorkerClass: "AI", Coding: true, RiskBucket: 1, ComponentID: "comp-b"},
-		{Name: "C", Title: "C", EffortDays: 8, WorkerClass: "Human", Coding: false, RiskBucket: 3},
+		{Name: "A", Title: "A", EffortDays: 5, WorkerClass: "junior-developer", Coding: true, RiskBucket: 2, ComponentID: "comp-a"},
+		{Name: "B", Title: "B", EffortDays: 3, WorkerClass: "junior-developer", Coding: true, RiskBucket: 1, ComponentID: "comp-b"},
+		{Name: "C", Title: "C", EffortDays: 8, WorkerClass: "system-architect", Coding: false, RiskBucket: 3},
 	}
 
 	// Selection now resolves the authored ComponentID against the committed
@@ -1313,7 +1352,7 @@ func TestNextEligibleActivity_MilestoneDependencySatisfied(t *testing.T) {
 		ActivityList: makeCommittedActivityList([]projectstate.ActivityItem{
 			{Name: "I-UC-CONSULT", Coding: true},
 			{Name: "I-UC-AMEND", Coding: true},
-			{Name: "N-DOC", Coding: false},
+			{Name: "N-DOC", WorkerClass: "system-architect", Coding: false},
 		}),
 		SystemDesign: makeCommittedSystemDesign(nil),
 		ActivityConstruction: map[string]projectstate.ActivityConstructionStatus{
@@ -1350,7 +1389,7 @@ func TestNextEligibleActivity_MilestoneDependencyNotSatisfied(t *testing.T) {
 		ActivityList: makeCommittedActivityList([]projectstate.ActivityItem{
 			{Name: "I-UC-CONSULT", Coding: true},
 			{Name: "I-UC-AMEND", Coding: true},
-			{Name: "N-DOC", Coding: false},
+			{Name: "N-DOC", WorkerClass: "system-architect", Coding: false},
 		}),
 		SystemDesign: makeCommittedSystemDesign(nil),
 		ActivityConstruction: map[string]projectstate.ActivityConstructionStatus{
@@ -1383,7 +1422,7 @@ func TestNextEligibleActivity_MilestoneDependsOnMilestone(t *testing.T) {
 		),
 		ActivityList: makeCommittedActivityList([]projectstate.ActivityItem{
 			{Name: "A", Coding: true},
-			{Name: "N-DOC", Coding: false},
+			{Name: "N-DOC", WorkerClass: "system-architect", Coding: false},
 		}),
 		SystemDesign: makeCommittedSystemDesign(nil),
 		ActivityConstruction: map[string]projectstate.ActivityConstructionStatus{
@@ -1430,7 +1469,7 @@ func TestNextEligibleActivity_MilestoneCycleTerminates(t *testing.T) {
 				},
 			),
 			ActivityList: makeCommittedActivityList([]projectstate.ActivityItem{
-				{Name: "N-DOC", Coding: false},
+				{Name: "N-DOC", WorkerClass: "system-architect", Coding: false},
 			}),
 			SystemDesign: makeCommittedSystemDesign(nil),
 		}
@@ -1464,7 +1503,7 @@ func TestNextEligibleActivity_UnknownDependencyIdIsBlocked(t *testing.T) {
 			nil,
 		),
 		ActivityList: makeCommittedActivityList([]projectstate.ActivityItem{
-			{Name: "N-DOC", Coding: false},
+			{Name: "N-DOC", WorkerClass: "system-architect", Coding: false},
 		}),
 		SystemDesign: makeCommittedSystemDesign(nil),
 	}
@@ -1498,7 +1537,7 @@ func TestNextEligibleActivity_DependencyDefectDoesNotBlockUnrelatedWork(t *testi
 		),
 		ActivityList: makeCommittedActivityList([]projectstate.ActivityItem{
 			{Name: "A", Coding: true},
-			{Name: "N-DOC", Coding: false},
+			{Name: "N-DOC", WorkerClass: "system-architect", Coding: false},
 		}),
 		SystemDesign: makeCommittedSystemDesign(nil),
 	}
@@ -1558,7 +1597,7 @@ func TestNextEligibleActivity_UncommittedSlots(t *testing.T) {
 func TestNextEligibleActivity_RequiresConstructionPhase(t *testing.T) {
 	network := []projectstate.NetworkDependency{{Activity: "A", DependsOn: []string{}}}
 	activities := []projectstate.ActivityItem{
-		{Name: "A", Title: "A", EffortDays: 5, WorkerClass: "AI", Coding: true, RiskBucket: 2, ComponentID: "comp-a"},
+		{Name: "A", Title: "A", EffortDays: 5, WorkerClass: "junior-developer", Coding: true, RiskBucket: 2, ComponentID: "comp-a"},
 	}
 	base := projectstate.Project{
 		Network:      makeCommittedNetwork(network),
@@ -1994,7 +2033,7 @@ func (f *fakeProjectState) RecordActivityMerged(_ fwra.Context, _ projectstate.P
 	return f.bump(), nil
 }
 
-func (f *fakeProjectState) RecordActivityStarted(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *fakeProjectState) RecordActivityStarted(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ActivityType, _ projectstate.TestingVariant, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.bump(), nil
@@ -3047,7 +3086,7 @@ func Test_Pump_DependencyUnresolved_RecordsDistinctFailureReason(t *testing.T) {
 			nil,
 		),
 		ActivityList: makeCommittedActivityList([]projectstate.ActivityItem{
-			{Name: "N-DOC", Coding: false},
+			{Name: "N-DOC", WorkerClass: "system-architect", Coding: false},
 		}),
 		SystemDesign: makeCommittedSystemDesign(nil),
 	}
@@ -3103,7 +3142,7 @@ func Test_Pump_DependencyCycle_RecordsDistinctFailureReason(t *testing.T) {
 			},
 		),
 		ActivityList: makeCommittedActivityList([]projectstate.ActivityItem{
-			{Name: "N-DOC", Coding: false},
+			{Name: "N-DOC", WorkerClass: "system-architect", Coding: false},
 		}),
 		SystemDesign: makeCommittedSystemDesign(nil),
 	}
@@ -4055,7 +4094,7 @@ func Test_Construct_LocalMerge_CheckpointsHoldsUntilMergeApproval(t *testing.T) 
 	pipe := newFakePipeline()
 	wf := newWorkflows(gateDeps(ps))
 	registerConstruct(env, wf, ps, pipe)
-	// checkpoints gates detailed_design + construction; the merge gate holds last.
+	// checkpoints gates detailed_design + construction + integration; merge holds last.
 	env.RegisterDelayedCallback(func() {
 		env.SignalWorkflow(signalPhaseDecision, phaseDecisionSignal{Phase: "detailed_design", Decision: PhaseApprove})
 	}, 20*time.Second)
@@ -4063,8 +4102,11 @@ func Test_Construct_LocalMerge_CheckpointsHoldsUntilMergeApproval(t *testing.T) 
 		env.SignalWorkflow(signalPhaseDecision, phaseDecisionSignal{Phase: "construction", Decision: PhaseApprove})
 	}, 40*time.Second)
 	env.RegisterDelayedCallback(func() {
-		env.SignalWorkflow(signalPhaseDecision, phaseDecisionSignal{Phase: mergeGateKey, Decision: PhaseApprove})
+		env.SignalWorkflow(signalPhaseDecision, phaseDecisionSignal{Phase: "integration", Decision: PhaseApprove})
 	}, 60*time.Second)
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalPhaseDecision, phaseDecisionSignal{Phase: mergeGateKey, Decision: PhaseApprove})
+	}, 80*time.Second)
 	env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{ProjectID: "p", ActivityID: "C-Orders", Activity: sampleActivity()})
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("workflow error: %v", err)
@@ -4543,8 +4585,11 @@ func Test_Construct_MergeJob_WritesNoGapRecord(t *testing.T) {
 		env.SignalWorkflow(signalPhaseDecision, phaseDecisionSignal{Phase: "construction", Decision: PhaseApprove})
 	}, 40*time.Second)
 	env.RegisterDelayedCallback(func() {
-		env.SignalWorkflow(signalPhaseDecision, phaseDecisionSignal{Phase: mergeGateKey, Decision: PhaseApprove})
+		env.SignalWorkflow(signalPhaseDecision, phaseDecisionSignal{Phase: "integration", Decision: PhaseApprove})
 	}, 60*time.Second)
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalPhaseDecision, phaseDecisionSignal{Phase: mergeGateKey, Decision: PhaseApprove})
+	}, 80*time.Second)
 	env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{ProjectID: "p", ActivityID: "C-Orders", Activity: sampleActivity()})
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("workflow error: %v", err)

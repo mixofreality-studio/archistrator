@@ -29,6 +29,12 @@ type pipelineSpec struct {
 	Ref         string
 	// Phase is the ActivityMethodPhase.String() for the current activity phase.
 	Phase string
+	// Type/Variant are the activity's classification, COPIED from the dispatched
+	// constructionActivity (classified once by the pump) rather than re-derived from
+	// the id here. dispatchInputsFor resolves the slash command from this pair, so the
+	// command is by construction drawn from the same pair the phase profile came from.
+	Type    projectstate.ActivityType
+	Variant projectstate.TestingVariant
 }
 
 // pipelineObservation is the Manager's neutral pipeline observation.
@@ -87,9 +93,11 @@ func (wf *workflows) constructRepoTarget(projectID ProjectID) (agenticjob.RepoTa
 
 // dispatchInputsFor builds the DispatchInputs bag for a construction pipeline dispatch.
 // The `command` input is the thin slash-command the workflow runs; it is computed here
-// from the activity's derived type/variant and the current phase so the workflow itself
-// holds no routing logic. component_id is a Manager-resolved passthrough. (Moved workflow-
-// side from the retired pipelineAdapter — it only reads workflow state + projectstate.CommandFor.)
+// from the activity's CARRIED type/variant (classified once by the pump, copied onto the
+// spec) and the current phase, so the workflow itself holds no routing logic and no
+// second derivation can disagree with the phase profile being walked. component_id is a
+// Manager-resolved passthrough. (Moved workflow-side from the retired pipelineAdapter —
+// it only reads workflow state + projectstate.CommandFor.)
 func dispatchInputsFor(spec pipelineSpec) map[string]string {
 	m := map[string]string{
 		"activity_id":  spec.ActivityID,
@@ -97,9 +105,7 @@ func dispatchInputsFor(spec pipelineSpec) map[string]string {
 	}
 	if spec.Phase != "" {
 		m["phase"] = spec.Phase
-		typ := projectstate.DeriveType(spec.ActivityID)
-		variant := projectstate.DeriveVariant(spec.ActivityID)
-		m["command"] = projectstate.CommandFor(typ, variant, projectstate.ActivityMethodPhase(spec.Phase))
+		m["command"] = projectstate.CommandFor(spec.Type, spec.Variant, projectstate.ActivityMethodPhase(spec.Phase))
 	}
 	return m
 }
@@ -651,6 +657,11 @@ func (wf *workflows) mergeAndRecord(
 // idempotency the pump already relies on). It mints a credential ONCE for the
 // started+completed pair via the supplied gitForward.cred when the branch lifecycle
 // has already minted one, else mints its own.
+//
+// It also stamps the activity's classified (Type, Variant) onto the head-state row —
+// the RA seeds its Phases slice from that pair, so an unstamped row seeded the 5-phase
+// SERVICE set for every activity and made earned value disagree with the profile the
+// workflow walks.
 func (wf *workflows) recordActivityStarted(
 	ctx workflow.Context,
 	in constructActivityInput,
@@ -661,7 +672,8 @@ func (wf *workflows) recordActivityStarted(
 		return nil
 	}
 	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
-		return wf.Acts.GitStatusRecordActivityStarted(ctx, projectstate.ProjectID(in.ProjectID), expected, string(in.ActivityID), cred.toProjectState())
+		return wf.Acts.GitStatusRecordActivityStarted(ctx, projectstate.ProjectID(in.ProjectID), expected, string(in.ActivityID),
+			in.Activity.Type, in.Activity.Variant, cred.toProjectState())
 	})
 	if err != nil {
 		return err
@@ -1024,8 +1036,13 @@ func (wf *workflows) runAttempt(
 	// Construction). A phase whose pipeline fails routes to intervention (App-A: a
 	// failing review repeats the preceding task), then the activity retries from the
 	// first phase. --------------------------------------------------------------
+	//
+	// A payload with no Phases is a workflow that started before the pump resolved
+	// them; it derives from the CARRIED pair, whose zero value (Service, Plan) decodes
+	// to exactly the canonical five this fallback used to hardcode — so legacy payloads
+	// behave identically while a stamped pair now gets its real profile.
 	if len(in.Activity.Phases) == 0 {
-		in.Activity.Phases = projectstate.ProfileFor(projectstate.ActivityTypeService, 0).PhaseIDs()
+		in.Activity.Phases = projectstate.ProfileFor(in.Activity.Type, in.Activity.Variant).PhaseIDs()
 	}
 	phaseFailed, done, err := wf.walkPhases(ctx, in, attempt, reviewPolicy, state, gf, headVersion, overrideCh, gitOn, startedCred)
 	if err != nil {
@@ -1247,6 +1264,8 @@ func (wf *workflows) runPipeline(ctx workflow.Context, in constructActivityInput
 		ActivityID:  string(in.ActivityID),
 		ComponentID: in.Activity.ComponentID,
 		Phase:       phase.String(),
+		Type:        in.Activity.Type,
+		Variant:     in.Activity.Variant,
 	})
 	if err != nil {
 		return pipelineObservation{}, err
