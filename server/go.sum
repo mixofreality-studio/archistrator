@@ -177,6 +177,8 @@ github.com/mixofreality-studio/archistrator-platform/method-assets v0.2.0 h1:pdJ
 github.com/mixofreality-studio/archistrator-platform/method-assets v0.2.0/go.mod h1:qKlCW6xoGLF7usqM6sxby/crSkBWxI7/YPJzHeKPSBY=
 github.com/mixofreality-studio/archistrator-platform/method-assets v0.3.0 h1:Y5rOjzOUQElV/FaqV7Dm4tSXH63rNHXXv5tX3YrdTjw=
 github.com/mixofreality-studio/archistrator-platform/method-assets v0.3.0/go.mod h1:qKlCW6xoGLF7usqM6sxby/crSkBWxI7/YPJzHeKPSBY=
+github.com/mixofreality-studio/archistrator-platform/method-assets v0.4.0 h1:Cwew8pDJIogyJyIfLpZH+4DqhMNhqrzzh9I26Y6se/g=
+github.com/mixofreality-studio/archistrator-platform/method-assets v0.4.0/go.mod h1:qKlCW6xoGLF7usqM6sxby/crSkBWxI7/YPJzHeKPSBY=
 github.com/moby/docker-image-spec v1.3.1 h1:jMKff3w6PgbfSa69GfNg+zN/XLhfXJGnEx3Nl2EsFP0=
 github.com/moby/docker-image-spec v1.3.1/go.mod h1:eKmb5VW8vQEh/BAr2yvVNvuiJuY6UIocYsFu/DxxRpo=
 github.com/moby/go-archive v0.2.0 h1:zg5QDUM2mi0JIM9fdQZWC7U8+2ZfixfTYoHL7rWUcP8=

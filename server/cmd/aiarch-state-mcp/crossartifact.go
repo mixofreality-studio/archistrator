@@ -6,22 +6,17 @@ package main
 // inside applyGateSeverityPolicies so no enforcement point can miss them and the
 // in-loop and CI verdicts can never disagree).
 //
-// The rules close the System×ActivityList join the framework rules do not cover — the
-// drift class observed live on gtdapp 2026-07-10: the Phase-1 System was amended
-// (components renamed persistence-access→item-access / person-client→webapp-client,
-// NEW components added) while the committed Phase-2 activityList still carried one
-// coding activity per OLD component and nothing for the new ones. Only the generic
-// staleness flag caught it, and staleness can be acknowledged away.
+// The System×ActivityList coverage join that used to live here (ACT-COMPONENT-COVERAGE /
+// ACT-UNKNOWN-COMPONENT, retired 2026-08-09) is GONE: coverage moved from validation to
+// derivation. The Phase-2 activity list is now DERIVED from the committed System
+// (server/internal/engine/estimation, DerivePlan) rather than hand-authored, so "does
+// every code component have exactly one coding activity" is true BY CONSTRUCTION — a
+// stronger guarantee than any gate could check after the fact, backed by the
+// `derived-plan-check` drift gate (server/internal/manager/projectdesign/manager_test.go,
+// TestDerivedPlanMatchesCommittedState) rather than a validation rule. See
+// docs/superpowers/specs/2026-08-09-derived-activity-list-design.md and Task 11 of
+// docs/superpowers/plans/2026-08-09-derived-activity-list-stage1.md.
 //
-//	ACT-COMPONENT-COVERAGE (Error)   every committed System component in a CODE layer
-//	                                 (client / manager / engine / resourceAccess) must
-//	                                 be covered by ≥1 coding activity in the committed
-//	                                 activityList — The Method's "exactly ONE coding
-//	                                 activity per component" (ch. 7; resources and
-//	                                 utilities get noncoding provision activities).
-//	ACT-UNKNOWN-COMPONENT  (Warning) a coding activity whose derived component matches
-//	                                 NO committed System component — the stale-name
-//	                                 residue of a component rename.
 //	PA-RATECARD-KEYS       (Warning) a planningAssumptions.rateCard key that equals no
 //	                                 planningAssumptions.resources entry is dead config:
 //	                                 the cost engine's deriveClassRates does an EXACT
@@ -31,31 +26,8 @@ package main
 //	                                 documented default rate spec — listed so the
 //	                                 silent default is at least visible.
 //
-// THE ACTIVITY→COMPONENT JOIN below is a NORMALIZED longest-key-containment match
-// (title truncated at '('): normalize to [a-z0-9] and take the LONGEST component key
-// contained in the normalized subject. Subjects are the activity Name AND Title; keys
-// are the committed System's component IDs, Names, and declared ContractKeys — which
-// resolves both the `<componentId>-coding` naming convention (gtdapp shape) and the
-// `Build <ComponentName>` title convention. The derive is per-activity single-target
-// (longest match wins), so a coding activity covers precisely ONE component.
-//
-// This USED TO mirror the construction pump's own dispatch join byte-for-byte
-// (resolveComponentID, internal/manager/construction/eligibility.go). That function
-// and file no longer exist: this branch (construction-dispatch-componentid) replaced
-// title-normalization dispatch with an AUTHORED ActivityItem.ComponentID field,
-// exact-matched against committed System component ids (constructionmanager.go,
-// nextEligibleActivity / lookupComponent — no normalization, no name matching). The
-// normalized join here is therefore no longer a parity mirror of dispatch; it is now
-// this validator's own Phase-2 convention, unchanged, pending a Stage-2 rewrite to
-// align it with the authored componentId.
-//
-// Severity policy: these are System×ActivityList JOIN rules, so they take the SAME
-// staleness-aware downgrade the DEP-* System×OperationalConcepts rules take (see
-// staleness.go, systemActivityListJoinRules): while the activityList slot is flagged
-// StaleBasis, reconciliation is pending by design and the Error downgrades to Warning.
-// Slot-scoped attribution: ACT-* → activityList, PA-* → planningAssumptions
-// (ruleSlotAttributionPrefixes), so a session amending a DIFFERENT slot is never
-// deadlocked by them.
+// Slot-scoped attribution: PA-* → planningAssumptions (ruleSlotAttributionPrefixes), so
+// a session amending a DIFFERENT slot is never deadlocked by them.
 
 import (
 	"fmt"
@@ -80,7 +52,6 @@ import (
 // systemDesign slot in ruleSlotAttributionPrefixes), so the in-loop authoring gate,
 // the construct gate, and the CI `validate` subcommand share one design-health verdict.
 func appendAppSideCrossArtifactFindings(proj projectstate.Project, findings []methodcheck.Finding) []methodcheck.Finding {
-	findings = append(findings, activityCoverageFindings(proj)...)
 	findings = append(findings, rateCardFindings(proj)...)
 	findings = append(findings, paEnumHoleFindings(proj)...)
 	if raw, err := projectstate.EncodeProjectJSON(proj); err == nil {
@@ -156,166 +127,6 @@ func paEnumHoleFindings(proj projectstate.Project) []methodcheck.Finding {
 	return out
 }
 
-// activityCoverageFindings emits ACT-COMPONENT-COVERAGE / ACT-UNKNOWN-COMPONENT over
-// the committed System × committed ActivityList join.
-func activityCoverageFindings(proj projectstate.Project) []methodcheck.Finding {
-	sys, ok := committedSystem(proj)
-	if !ok {
-		return nil
-	}
-	al, ok := committedActivityList(proj)
-	if !ok {
-		return nil
-	}
-
-	var out []methodcheck.Finding
-	covered := make(map[string]bool)
-	for i, item := range al.Activities {
-		if !item.Coding || isIntegrationActivity(item) {
-			// Noncoding activities provision resources/utilities and integration
-			// activities span components — neither maps to a single code component.
-			continue
-		}
-		compID, found := deriveActivityComponent(item, sys.Components)
-		if !found {
-			out = append(out, methodcheck.Finding{
-				RuleID:   "ACT-UNKNOWN-COMPONENT",
-				Severity: methodcheck.SeverityWarning,
-				Message: fmt.Sprintf(
-					"coding activity %q (%q) derives NO committed System component — likely a stale activity name left behind by a component rename; reconcile the activityList with the amended System",
-					item.Name, item.Title),
-				Location: &methodcheck.Location{Ordinal: i, Section: "activity " + item.Name},
-			})
-			continue
-		}
-		covered[compID] = true
-	}
-	for i, comp := range sys.Components {
-		if !isCodeComponentKind(comp.Kind) {
-			continue // resources/utilities get noncoding provision activities, not coding ones
-		}
-		if covered[comp.ID] {
-			continue
-		}
-		out = append(out, methodcheck.Finding{
-			RuleID:   "ACT-COMPONENT-COVERAGE",
-			Severity: methodcheck.SeverityError,
-			Message: fmt.Sprintf(
-				"committed System component %q (%s %q) is covered by NO coding activity in the committed activityList — The Method requires exactly one coding activity per code component (clients/managers/engines/resourceAccess); a System amendment that added or renamed components needs a matching activityList amendment",
-				comp.ID, componentKindWord(comp.Kind), comp.Name),
-			Location: &methodcheck.Location{Ordinal: i, Section: "component " + comp.ID},
-		})
-	}
-	return out
-}
-
-// deriveActivityComponent derives the single System component a coding activity
-// builds, by normalized longest-key containment: title truncated at '('. Subjects
-// are the activity Name AND Title; keys are the component ID, Name, and declared
-// ContractKey. Longest normalized key wins, so an activity resolves
-// "operation-estimation-engine" over "estimation-engine". This no longer mirrors
-// the construction pump's dispatch join — dispatch now resolves via the AUTHORED
-// ActivityItem.ComponentID field (constructionmanager.go); see the package-level
-// comment above for why. deriveActivityComponent ignores item.ComponentID and
-// keeps deriving from Name/Title, unchanged — a Stage-2 concern.
-func deriveActivityComponent(item projectstate.ActivityItem, comps []projectstate.Component) (string, bool) {
-	var subjects []string
-	if n := normalizeIdent(item.Name); n != "" {
-		subjects = append(subjects, n)
-	}
-	title := item.Title
-	if i := strings.IndexByte(title, '('); i >= 0 {
-		title = title[:i]
-	}
-	if n := normalizeIdent(title); n != "" {
-		subjects = append(subjects, n)
-	}
-
-	best, bestLen := "", 0
-	for _, comp := range comps {
-		keys := []string{comp.ID, comp.Name}
-		if comp.ContractKey != nil {
-			keys = append(keys, *comp.ContractKey)
-		}
-		for _, key := range keys {
-			kn := normalizeIdent(key)
-			if kn == "" || len(kn) <= bestLen {
-				continue
-			}
-			for _, subject := range subjects {
-				if strings.Contains(subject, kn) {
-					best, bestLen = comp.ID, len(kn)
-					break
-				}
-			}
-		}
-	}
-	return best, best != ""
-}
-
-// isIntegrationActivity reports whether a coding activity is an INTEGRATION activity —
-// exempt from the per-component mapping (it spans components). Recognizes both live
-// naming conventions: `integrate-*` names (gtdapp shape) and the corpus `I-*` id family
-// (seed-construction normalizeID), plus an "integration" title as the fallback signal.
-func isIntegrationActivity(item projectstate.ActivityItem) bool {
-	name := strings.ToLower(strings.TrimSpace(item.Name))
-	if strings.HasPrefix(name, "integrate") || strings.HasPrefix(name, "i-") {
-		return true
-	}
-	return strings.Contains(strings.ToLower(item.Title), "integration")
-}
-
-// isCodeComponentKind reports whether the component kind is one of the four CODE
-// layers that The Method gives exactly one coding activity each. Resources and
-// utilities are provisioned by noncoding activities instead.
-func isCodeComponentKind(k projectstate.ComponentKind) bool {
-	switch k {
-	case projectstate.CompClient, projectstate.CompManager, projectstate.CompEngine, projectstate.CompResourceAccess:
-		return true
-	case projectstate.CompResource, projectstate.CompUtility:
-		return false
-	default:
-		return false
-	}
-}
-
-// componentKindWord renders a component kind for finding messages.
-func componentKindWord(k projectstate.ComponentKind) string {
-	switch k {
-	case projectstate.CompClient:
-		return "client"
-	case projectstate.CompManager:
-		return "manager"
-	case projectstate.CompEngine:
-		return "engine"
-	case projectstate.CompResourceAccess:
-		return "resourceAccess"
-	case projectstate.CompResource:
-		return "resource"
-	case projectstate.CompUtility:
-		return "utility"
-	default:
-		return "component"
-	}
-}
-
-// normalizeIdent lowercases s and keeps only [a-z0-9]. It used to be a byte-for-byte
-// duplicate of the dispatch join's normalizer (internal/manager/construction/
-// eligibility.go normalizeIdent), kept as a copy because it was unexported there and
-// this binary must not widen the construction Manager's surface for a validator
-// concern. That source function and file are gone: dispatch no longer normalizes an
-// identifier at all, it exact-matches an authored ActivityItem.ComponentID. This copy
-// now stands alone as this validator's own normalizer.
-func normalizeIdent(s string) string {
-	var b strings.Builder
-	for _, r := range strings.ToLower(s) {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
-			b.WriteRune(r)
-		}
-	}
-	return b.String()
-}
-
 // rateCardFindings emits PA-RATECARD-KEYS / PA-RATECARD-DEFAULTED over the committed
 // PlanningAssumptions (a single-artifact consistency check: rateCard keys against the
 // declared resource classes).
@@ -370,28 +181,4 @@ func rateCardFindings(proj projectstate.Project) []methodcheck.Finding {
 		})
 	}
 	return out
-}
-
-// committedSystem returns the committed System model, when present.
-func committedSystem(proj projectstate.Project) (*projectstate.System, bool) {
-	if proj.SystemDesign.Status != projectstate.ReviewCommitted {
-		return nil, false
-	}
-	sys, ok := proj.SystemDesign.Model.(*projectstate.System)
-	if !ok || sys == nil {
-		return nil, false
-	}
-	return sys, true
-}
-
-// committedActivityList returns the committed ActivityList model, when present.
-func committedActivityList(proj projectstate.Project) (*projectstate.ActivityList, bool) {
-	if proj.ActivityList.Status != projectstate.ReviewCommitted {
-		return nil, false
-	}
-	al, ok := proj.ActivityList.Model.(*projectstate.ActivityList)
-	if !ok || al == nil {
-		return nil, false
-	}
-	return al, true
 }

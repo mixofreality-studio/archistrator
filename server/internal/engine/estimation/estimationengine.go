@@ -1292,3 +1292,762 @@ func backwardFloat(idSet map[string]struct{}, deps []NetworkDependency, mileston
 	}
 	return lateStart
 }
+
+// --- Derivation: DerivePlan ---
+//
+// DerivePlan is the deterministic Phase-2 derivation of the activity list and network
+// from the committed System (Löwy ch. 11; Fig 11-4 → Fig 11-5 is literally a transitive
+// reduction over the component dependency chart). The activity inventory is NOT authored:
+// it falls out of the architecture, and the only authored input is the ActivityListDeltas
+// document (justified effort/risk overrides plus genuinely componentless additive
+// activities).
+//
+// Purity, as for every op on this Engine: no I/O, no clock, no randomness, no globals.
+// Identical inputs → identical DerivedPlan, always. All iteration over maps is sorted.
+
+// DerivePlan derives the full activity list and network from the committed System and
+// applies the authored deltas.
+//
+// An EMPTY system is a normal DOMAIN result (an empty plan) — a project may be read
+// before its architecture is committed. The *fweng.Error channel is reserved for
+// contract misuse: a delta that the vocabulary forbids (an override naming no derived
+// activity, an additive carrying a componentId, a missing justification).
+func (EstimationEngineImpl) DerivePlan(_ fweng.Context, system SystemView, deltas ActivityListDeltas) (DerivedPlan, error) {
+	if len(system.Components) == 0 {
+		return DerivedPlan{Activities: nil, Dependencies: nil, Milestones: nil}, nil
+	}
+	acts := deriveActivities(system)
+	deps := deriveDependencies(system, acts)
+	ms := deriveMilestones(system, acts)
+	return applyDeltas(acts, deps, ms, deltas)
+}
+
+// workerClassFor maps an activity ID prefix to its worker class. The roster is FIXED —
+// an unknown class silently rides default token rates in the cost engines and
+// misclassifies in every downstream view, so this function only ever returns a roster
+// member.
+//
+// Verified against the 69 hand-authored activities in the committed list: prefix
+// predicts workerClass with ZERO exceptions, which is what makes it derivable.
+func workerClassFor(prefix string) string {
+	switch prefix {
+	case "C", "U":
+		return "junior-developer" // junior builds components and the SPA
+	case "R", "I":
+		return "senior-developer" // senior integrates and owns provisioning
+	case "G":
+		return "ui-designer"
+	default:
+		return "senior-developer"
+	}
+}
+
+// noncodingInventoryClass returns the fixed worker class for a member of the always-emit
+// noncoding inventory. Löwy ch. 9 keeps three DISTINCT quality roles — the test engineer
+// (writes code to break the system), the software tester (runs system testing), and the
+// QA engineer (senior, process: "what will it take to assure quality?"). Do not collapse
+// them. The regression harness is developer-owned, deliberately NOT the test engineer's.
+func noncodingInventoryClass(name string) string {
+	switch name {
+	case "N-STP", "N-STH", "N-PERF":
+		return "test-engineer"
+	case "N-RTH", "N-SMOKE":
+		return "senior-developer"
+	case "N-QA":
+		return "qa-engineer"
+	case "N-IT":
+		return "software-tester"
+	default:
+		return "senior-developer"
+	}
+}
+
+// defaultEffortFor returns the band-MIDPOINT effort default for a component, in whole
+// 5-day quanta. These are the bands the-method-activity-list already states.
+//
+// Exception: resource. The Resource build band is 10–20 (midpoint 15), but R-* activities
+// are emitted ONLY for provisioning vendor resources (Stripe account, GitHub App) — not
+// building a resource. Owned stores get no R-* at all; their schema work arrives as
+// additive noncoding. The value 10 is grounded in observed vendor-provisioning effort:
+// the committed activity list's six R-* activities ran 5, 5, 10, 15, 15, 25 (median and
+// mean both 12.5). Do not "fix" this to 15; that would silently inflate every
+// vendor-provisioning estimate.
+//
+// Deliberately NOT signal-driven (op counts, volatility counts, graph degree): service
+// contracts are Phase-3 artifacts and do not exist when this runs, a regression over
+// slot-5 metadata is the false precision App C §4.4 forbids ("strive for accuracy, not
+// precision"), and it would make the baseline churn whenever a relationship is edited.
+// Roughly half of these get overridden by a justified delta — that is the design intent:
+// the agent's judgment is spent on the exceptions, not on transcription.
+func defaultEffortFor(kind string) float64 {
+	switch kind {
+	case "manager":
+		return 25
+	case "engine":
+		return 15
+	case "resourceAccess":
+		return 10
+	case "client":
+		return 25
+	case "utility":
+		return 10
+	case "resource":
+		return 10
+	default:
+		return 10
+	}
+}
+
+// defaultRiskFor maps an effort band to a Fibonacci risk bucket. Dumb on purpose — it
+// carries no more information than the effort does, which is honest: at Phase-2 time
+// nothing better is knowable without the agent's judgment, and that arrives as an
+// override.
+func defaultRiskFor(effortDays float64) int64 {
+	switch {
+	case effortDays <= 10:
+		return 2
+	case effortDays <= 20:
+		return 3
+	default:
+		return 5
+	}
+}
+
+// alwaysEmitNoncoding is the standard testing / QA inventory emitted for EVERY project
+// (the-method-activity-list Step 2b). Unit testing alone is "borderline useless" (Löwy
+// ch. 2); the load-bearing verification is full regression of the integrated system, so
+// the harnesses are planned work, not an afterthought. Fixed efforts — these do not
+// scale with the architecture.
+var alwaysEmitNoncoding = []struct {
+	Name   string
+	Title  string
+	Effort float64
+}{
+	{"N-QA", "Quality-assurance process and gates", 10},
+	{"N-PERF", "Performance testing", 15},
+	{"N-RTH", "Regression test harness", 15},
+	{"N-SMOKE", "Daily build and smoke", 5},
+	{"N-STH", "System test harness", 20},
+	{"N-STP", "System test plan (all core use cases)", 15},
+	{"N-IT", "System testing (terminal gate)", 30},
+}
+
+// isCodeLayer reports whether a component kind gets a coding activity at all. Resources
+// are provisioned, never coded by us.
+func isCodeLayer(kind string) bool {
+	switch kind {
+	case "client", "manager", "engine", "resourceAccess", "utility":
+		return true
+	}
+	return false
+}
+
+// codingActivityFor emits the C-* coding activity for a handwritten code-layer
+// component, or false when the component doesn't qualify: generated transport (the
+// generator does that work), a non-code-layer kind such as resource, or a "provided"
+// component — platform/third-party supplied, no coding activity either.
+//
+// Löwy's Table 11-1 DOES give Logging and Security their own coding activities (6 and
+// 7) — because in that worked example they are BUILT. The rule here is about who builds
+// it, not about the layer: this project's security/diagnostics/logging/message-bus
+// utilities are CONFIGURED against off-the-shelf platform pieces (Keycloak, OTel, a
+// structured sink, the Workflow Execution Substrate), so planning construction work for
+// them would be the same defect as planning work the generator does. An unauthored
+// constructionProfile still defaults to "handwritten" upstream (toEstimationSystemView) —
+// only an explicit "generated" or "provided" value skips the activity.
+func codingActivityFor(c SystemComponent) (DerivedActivity, bool) {
+	if !isCodeLayer(c.Kind) || c.ConstructionProfile == "generated" || c.ConstructionProfile == "provided" {
+		return DerivedActivity{}, false
+	}
+	effort := defaultEffortFor(c.Kind)
+	return DerivedActivity{
+		Name:        "C-" + c.ID,
+		Title:       "Build " + c.Name,
+		EffortDays:  effort,
+		RiskBucket:  defaultRiskFor(effort),
+		WorkerClass: workerClassFor("C"),
+		Coding:      true,
+		ComponentID: c.ID,
+		Derived:     true,
+	}, true
+}
+
+// provisioningActivityFor emits the R-* provisioning activity for a vendor resource.
+// Owned stores get none — their schema/deploy work arrives as additive noncoding.
+func provisioningActivityFor(c SystemComponent) (DerivedActivity, bool) {
+	if c.Kind != "resource" || c.Provisioning != "vendor" {
+		return DerivedActivity{}, false
+	}
+	effort := defaultEffortFor(c.Kind)
+	return DerivedActivity{
+		Name:        "R-" + c.ID,
+		Title:       "Provision " + c.Name,
+		EffortDays:  effort,
+		RiskBucket:  defaultRiskFor(effort),
+		WorkerClass: workerClassFor("R"),
+		Coding:      false,
+		ComponentID: c.ID,
+		Derived:     true,
+	}, true
+}
+
+// managerSPAActivityFor emits the U-SPA-<manager> construction activity. A screen that
+// crosses managers is the exception (it arrives as an additive delta), not a reason to
+// weaken this one-per-manager rule.
+func managerSPAActivityFor(c SystemComponent) DerivedActivity {
+	return DerivedActivity{
+		Name:        "U-SPA-" + c.ID,
+		Title:       "SPA screens for " + c.Name,
+		EffortDays:  20,
+		RiskBucket:  defaultRiskFor(20),
+		WorkerClass: workerClassFor("U"),
+		Coding:      true,
+		ComponentID: c.ID,
+		Derived:     true,
+	}
+}
+
+// spaScaffoldActivities emits the always-paired SPA scaffold and UI-design-concept
+// activities, present exactly when the system declares a UI surface.
+func spaScaffoldActivities() []DerivedActivity {
+	return []DerivedActivity{
+		{
+			Name: "U-SPA-S", Title: "SPA scaffold, auth wiring and design system",
+			EffortDays: 10, RiskBucket: defaultRiskFor(10),
+			WorkerClass: workerClassFor("U"), Coding: true, Derived: true,
+		},
+		{
+			Name: "G-SPA", Title: "UI design concepts for the SPA",
+			EffortDays: 15, RiskBucket: defaultRiskFor(15),
+			WorkerClass: workerClassFor("G"), Coding: false, Derived: true,
+		},
+	}
+}
+
+// noncodingInventoryActivities emits the always-emit testing / QA inventory.
+func noncodingInventoryActivities() []DerivedActivity {
+	out := make([]DerivedActivity, 0, len(alwaysEmitNoncoding))
+	for _, n := range alwaysEmitNoncoding {
+		out = append(out, DerivedActivity{
+			Name: n.Name, Title: n.Title,
+			EffortDays: n.Effort, RiskBucket: defaultRiskFor(n.Effort),
+			WorkerClass: noncodingInventoryClass(n.Name), Coding: false, Derived: true,
+		})
+	}
+	return out
+}
+
+// systemHasUISurface reports whether any component in the system declares a UI surface.
+func systemHasUISurface(system SystemView) bool {
+	for _, c := range system.Components {
+		if c.UiSurface {
+			return true
+		}
+	}
+	return false
+}
+
+// deriveActivities emits the full derived activity set for the System, sorted by name.
+//
+// Emission rules (each one a mechanical consequence of the architecture):
+//
+//	C-<id>          one per code-layer component with constructionProfile == "handwritten"
+//	(none)          "generated" components — the generator does that work
+//	(none)          "provided" components — platform/third-party supplied, nothing to build
+//	R-<id>          one per Resource with provisioning == "vendor"
+//	(none)          owned stores — schema/deploy work arrives as additive noncoding
+//	U-SPA-<manager> one per Manager, when any component declares a UI surface
+//	U-SPA-S         the SPA scaffold, when any component declares a UI surface
+//	G-SPA           the UI-design concept, when any component declares a UI surface
+//	(none)          no I-* integration activity — App A makes integration a PHASE of
+//	                every activity's own lifecycle, so a separate I-* would charge the
+//	                same work twice; System Testing (N-IT) is the one activity Table
+//	                11-1 gives integration, and it depends on the U-SPA-* construction
+//	                activities (see addFixedPatternEdges), not on a per-use-case I-*.
+//	N-*             the always-emit testing inventory
+func deriveActivities(system SystemView) []DerivedActivity {
+	out := make([]DerivedActivity, 0, len(system.Components)*2)
+
+	uiSurface := systemHasUISurface(system)
+
+	for _, c := range system.Components {
+		if a, ok := codingActivityFor(c); ok {
+			out = append(out, a)
+		}
+		if a, ok := provisioningActivityFor(c); ok {
+			out = append(out, a)
+		}
+		if uiSurface && c.Kind == "manager" {
+			out = append(out, managerSPAActivityFor(c))
+		}
+	}
+
+	if uiSurface {
+		out = append(out, spaScaffoldActivities()...)
+	}
+
+	out = append(out, noncodingInventoryActivities()...)
+
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
+// --- Network derivation: dependency edges and milestones ---
+//
+// This turns the derived activity set plus the System's relationships into the project
+// network: dependency edges (transitively reduced, exactly as Löwy Fig 11-4 → Fig 11-5)
+// and the derived milestones.
+//
+// "Even with a simple system having only two use cases, the dependency chart is
+// cluttered and hard to analyze. A simple technique you can leverage to reduce the
+// complexity is to eliminate dependencies that duplicate inherited dependencies."
+// (ch. 11 §1.2) — that technique is transitive reduction, and it is code, not judgment.
+
+// transitiveReduction removes every edge that is implied by a longer path. An edge
+// u→v is redundant when v is reachable from u through some OTHER direct successor of u.
+//
+// Cycle-safe: reachability is a visited-set BFS, so a malformed (cyclic) committed
+// System yields a defensible result instead of hanging. Output predecessor lists are
+// sorted, so the derivation stays deterministic.
+func transitiveReduction(edges map[string][]string) map[string][]string {
+	// reachable reports whether dst is reachable from src WITHOUT using the direct
+	// src→skip edge.
+	reachable := func(src, dst, skip string) bool {
+		visited := map[string]bool{src: true}
+		queue := make([]string, 0, len(edges[src]))
+		for _, n := range edges[src] {
+			if n != skip {
+				queue = append(queue, n)
+			}
+		}
+		for len(queue) > 0 {
+			cur := queue[0]
+			queue = queue[1:]
+			if cur == dst {
+				return true
+			}
+			if visited[cur] {
+				continue
+			}
+			visited[cur] = true
+			queue = append(queue, edges[cur]...)
+		}
+		return false
+	}
+
+	out := make(map[string][]string, len(edges))
+	for node, preds := range edges {
+		kept := make([]string, 0, len(preds))
+		for _, p := range preds {
+			if !reachable(node, p, p) {
+				kept = append(kept, p)
+			}
+		}
+		if len(kept) == 0 {
+			continue
+		}
+		sort.Strings(kept)
+		out[node] = kept
+	}
+	return out
+}
+
+// activityForComponent indexes the CODING/PROVISIONING activity per component, so an
+// architecture edge can be rewritten as an activity edge. Components with no derived
+// activity (owned stores, generated transport) are simply absent, and edges into them
+// are dropped rather than emitted as dangling references.
+func activityForComponent(acts []DerivedActivity) map[string]string {
+	out := map[string]string{}
+	for _, a := range acts {
+		if a.ComponentID == "" {
+			continue
+		}
+		switch a.Name[:2] {
+		case "C-", "R-":
+			out[a.ComponentID] = a.Name
+		}
+	}
+	return out
+}
+
+// architectureEdges rewrites the System's relationships into raw activity edges
+// (unreduced), dropping self-edges and edges touching a component with no derived
+// activity.
+func architectureEdges(system SystemView, byComponent map[string]string) map[string][]string {
+	raw := map[string][]string{}
+	for _, r := range system.Relationships {
+		from, okFrom := byComponent[r.From]
+		to, okTo := byComponent[r.To]
+		if !okFrom || !okTo || from == to {
+			continue
+		}
+		raw[from] = append(raw[from], to)
+	}
+	return raw
+}
+
+// spaScreenNames extracts the sorted U-SPA-<manager>-* activity names present in the
+// derived set (the scaffold U-SPA-S is excluded — it is a predecessor of these, not a
+// peer), for the fixed pattern edges below.
+func spaScreenNames(acts []DerivedActivity) (spaScreens []string) {
+	for _, a := range acts {
+		if len(a.Name) > 6 && a.Name[:6] == "U-SPA-" && a.Name != "U-SPA-S" {
+			spaScreens = append(spaScreens, a.Name)
+		}
+	}
+	sort.Strings(spaScreens)
+	return spaScreens
+}
+
+// addFixedPatternEdges applies the mechanical sequencing the architecture graph cannot
+// state:
+//
+//   - the UI design gates SPA construction, the scaffold gates the per-manager screens;
+//   - EACH per-manager SPA construction activity ALSO depends on the manager's own C-*
+//     coding activity — structurally what Table 11-1's activity 19 (Client App1) does by
+//     depending on the managers it calls. architectureEdges cannot express this itself:
+//     every client component's constructionProfile is "generated" (the platform emits
+//     the transport tier), so activityForComponent indexes no C-* activity for it, and
+//     the client→manager architecture relationships have no C-* source to route
+//     through — they are silently dropped rather than misrouted (C1, 2026-08-10).
+//   - the test plan gates the harnesses;
+//   - every per-manager SPA construction activity gates the terminal system-testing
+//     activity — structurally what Table 11-1's activity 21 (System Testing) does by
+//     depending on the client activities (5, 19, 20), now that there is no separate I-*
+//     to depend on instead (ruling 2: integration is a PHASE of each activity's own
+//     lifecycle, not a standalone activity). When the system declares NO UI surface at
+//     all (no U-SPA-* screens exist), N-IT's fan-in falls back to every manager's C-*
+//     coding activity directly instead — the same Table-11-1 activity-21 relationship,
+//     minus the client layer that a headless project does not have (C1 minor, same root
+//     cause: without this fallback a headless project's N-IT gets NO predecessors at
+//     all);
+//   - the always-emit noncoding inventory (N-QA, N-SMOKE, N-PERF) each get a defensible
+//     predecessor so every activity the derivation always emits is reachable in the CPM
+//     graph (C2, 2026-08-10): buildNodeUniverse walks EDGES, not the activity list, so
+//     an activity with no incident edge in either direction silently gets no node at all
+//     and drops out of the CPM solve with no ES/EF/float and no critical-path
+//     membership, however large its effort. N-PERF follows N-STH — performance testing
+//     runs the harness N-STH builds. N-SMOKE follows N-STP for the same reason N-STH and
+//     N-RTH do — a daily smoke check needs the test plan's definition of what "smoke"
+//     covers before it can run one. N-QA is a process/gate activity with no natural
+//     upstream work product of its own (Löwy: QA reviews and tunes the development
+//     PROCESS, "what will it take to assure quality" — it is not gated BY the work), so
+//     it gets no predecessor of its own, but it must still gate N-IT (system testing)
+//     rather than sit as an island off the schedule the CPM solve can't reach.
+//
+// Edges into an activity absent from this derivation (e.g. no UI surface) are simply
+// skipped.
+func addFixedPatternEdges(reduced map[string][]string, acts []DerivedActivity, system SystemView) {
+	present := map[string]bool{}
+	for _, a := range acts {
+		present[a.Name] = true
+	}
+	spaScreens := spaScreenNames(acts)
+
+	addEdge := func(activity, pred string) {
+		if !present[activity] || !present[pred] {
+			return
+		}
+		reduced[activity] = append(reduced[activity], pred)
+	}
+	for _, s := range spaScreens {
+		mgrActivity := "C-" + s[len("U-SPA-"):] // s is "U-SPA-<manager-component-id>"
+		addEdge(s, "G-SPA")
+		addEdge(s, "U-SPA-S")
+		addEdge(s, mgrActivity)
+		addEdge("N-IT", s)
+	}
+	if len(spaScreens) == 0 {
+		// Headless fallback (C1 minor): no U-SPA-* screens exist, so route N-IT's fan-in
+		// straight to every manager's coding activity instead of through a client layer
+		// that does not exist.
+		for _, c := range system.Components {
+			if c.Kind == "manager" {
+				addEdge("N-IT", "C-"+c.ID)
+			}
+		}
+	}
+	addEdge("N-STH", "N-STP")
+	addEdge("N-RTH", "N-STP")
+
+	// C2: give the always-emit inventory its own pattern edges so every one of these
+	// activities is reachable in the CPM graph (see the function doc above).
+	addEdge("N-PERF", "N-STH")
+	addEdge("N-SMOKE", "N-STP")
+	addEdge("N-IT", "N-QA")
+}
+
+// deriveDependencies builds the network edges: the transitively reduced architecture
+// edges, plus the fixed pattern edges that no relationship expresses.
+func deriveDependencies(system SystemView, acts []DerivedActivity) []NetworkDependency {
+	raw := architectureEdges(system, activityForComponent(acts))
+	reduced := transitiveReduction(raw)
+	addFixedPatternEdges(reduced, acts, system)
+
+	out := make([]NetworkDependency, 0, len(reduced))
+	for activity, preds := range reduced {
+		sort.Strings(preds)
+		out = append(out, NetworkDependency{Activity: activity, DependsOn: preds})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Activity < out[j].Activity })
+	return out
+}
+
+// deriveMilestones emits M0-M3. M0 is the SDP-review forced dependency (ch. 11 "About
+// Milestones": "none of the construction activities should start before the SDP
+// review"). M1-M3 are layer completions.
+//
+// M4 (Use Cases Demonstrable) is deliberately NOT derived: it depended entirely on the
+// now-removed I-* integration activities (ruling 2) and had no other fan-in of its own,
+// so it is removed rather than emitted with an empty DependsOn.
+//
+// M5 (v1 Production Live) is deliberately NOT derived: it depends entirely on additive
+// noncoding activities, so it arrives as an additive delta.
+func deriveMilestones(system SystemView, acts []DerivedActivity) []NetworkMilestone {
+	kindByComponent := map[string]string{}
+	for _, c := range system.Components {
+		kindByComponent[c.ID] = c.Kind
+	}
+
+	var provisioning, engines, managers []string
+	for _, a := range acts {
+		switch {
+		case len(a.Name) > 2 && a.Name[:2] == "R-":
+			provisioning = append(provisioning, a.Name)
+		case len(a.Name) > 2 && a.Name[:2] == "C-":
+			switch kindByComponent[a.ComponentID] {
+			case "engine":
+				engines = append(engines, a.Name)
+			case "manager":
+				managers = append(managers, a.Name)
+			}
+		}
+	}
+	for _, s := range [][]string{provisioning, engines, managers} {
+		sort.Strings(s)
+	}
+
+	return []NetworkMilestone{
+		{Id: "M0"}, // SDP Review Approved — the forced dependency, no fan-in
+		{Id: "M1", DependsOn: provisioning},
+		{Id: "M2", DependsOn: engines},
+		{Id: "M3", DependsOn: managers},
+	}
+}
+
+// --- Delta application: the authored delta vocabulary ---
+//
+// This enforces and applies the authored delta vocabulary.
+//
+// The vocabulary is CLOSED and deliberately narrow — numbers plus additive activities:
+//
+//   - an OVERRIDE may replace effortDays / riskBucket on a DERIVED activity, and must
+//     carry a written justification;
+//   - an ADDITIVE may append an activity that maps to NO single component, declaring its
+//     own incident edges.
+//
+// There is no exclusion and no derived-to-derived edge override, on purpose. An
+// exclusion asserts that a committed component requires no work — which is either false
+// or an admission that it should not be a component. A wrong exclusion is SILENT where a
+// wrong derivation is LOUD, and the silent form is exactly how C-HE, C-WIA and R-WIT
+// survived in the committed plan against components that no longer exist. If a derived
+// edge is wrong, the System relationship is wrong: fix the architecture.
+
+// workerRoster is the fixed Method team. An unknown class silently rides default token
+// rates in the cost engines and misclassifies in every downstream view, so it is
+// rejected rather than defaulted.
+var workerRoster = map[string]bool{
+	"system-architect": true, "product-manager": true, "project-manager": true,
+	"senior-developer": true, "junior-developer": true, "ui-designer": true,
+	"ux-reviewer": true, "qa-engineer": true, "test-engineer": true, "software-tester": true,
+}
+
+var fibonacciBuckets = map[int64]bool{1: true, 2: true, 3: true, 5: true, 8: true, 13: true}
+
+// legalEffort enforces App C §4.4: a 5-day quantum, no god activity.
+func legalEffort(d float64) bool {
+	return d > 0 && d <= 35 && float64(int(d)) == d && int(d)%5 == 0
+}
+
+// applyOverrides applies the ActivityOverride deltas onto acts (indexed by index) in
+// place. An override may replace effortDays/riskBucket on a DERIVED activity only, and
+// must carry a written justification.
+func applyOverrides(acts []DerivedActivity, index map[string]int, overrides []ActivityOverride) error {
+	for _, o := range overrides {
+		i, ok := index[o.Activity]
+		if !ok {
+			return fweng.New(fweng.ContractMisuse,
+				"DerivePlan: override names activity "+o.Activity+" which the System does not derive; "+
+					"if the work is real the architecture is missing a component, and if the component is gone the override is a zombie")
+		}
+		if o.Justification == "" {
+			return fweng.New(fweng.ContractMisuse,
+				"DerivePlan: override of "+o.Activity+" carries no justification; the delta document is the entire human-review surface and every line must defend itself")
+		}
+		if o.EffortDays != nil {
+			if !legalEffort(*o.EffortDays) {
+				return fweng.New(fweng.ContractMisuse,
+					"DerivePlan: override of "+o.Activity+" breaks the 5-day quantum or the 35-day god-activity cap")
+			}
+			acts[i].EffortDays = *o.EffortDays
+		}
+		if o.RiskBucket != nil {
+			if !fibonacciBuckets[*o.RiskBucket] {
+				return fweng.New(fweng.ContractMisuse,
+					"DerivePlan: override of "+o.Activity+" sets a non-Fibonacci risk bucket")
+			}
+			acts[i].RiskBucket = *o.RiskBucket
+		}
+	}
+	return nil
+}
+
+// validateAdditive checks one AdditiveActivity against the closed vocabulary. It does
+// NOT check incident edges — those are validated only after every additive has been
+// added to the index (see appendAdditives / validateAdditiveEdges), so two additives
+// may legally depend on each other.
+func validateAdditive(a AdditiveActivity, index map[string]int) error {
+	if _, clash := index[a.Name]; clash {
+		return fweng.New(fweng.ContractMisuse,
+			"DerivePlan: additive activity "+a.Name+" shadows a derived activity; that is an exclusion in disguise")
+	}
+	if a.ComponentID != nil {
+		return fweng.New(fweng.ContractMisuse,
+			"DerivePlan: additive activity "+a.Name+" carries a componentId; additive is for genuinely componentless work, "+
+				"and a component-bound additive is a covert exclusion/replacement channel")
+	}
+	if a.Justification == "" {
+		return fweng.New(fweng.ContractMisuse,
+			"DerivePlan: additive activity "+a.Name+" carries no justification")
+	}
+	if !legalEffort(a.EffortDays) {
+		return fweng.New(fweng.ContractMisuse,
+			"DerivePlan: additive activity "+a.Name+" breaks the 5-day quantum or the 35-day god-activity cap")
+	}
+	if !fibonacciBuckets[a.RiskBucket] {
+		return fweng.New(fweng.ContractMisuse,
+			"DerivePlan: additive activity "+a.Name+" sets a non-Fibonacci risk bucket")
+	}
+	if !workerRoster[a.WorkerClass] {
+		return fweng.New(fweng.ContractMisuse,
+			"DerivePlan: additive activity "+a.Name+" names worker class "+a.WorkerClass+
+				", which is not on the fixed Method roster; an unknown class silently rides default token rates")
+	}
+	return nil
+}
+
+// appendAdditives validates and appends deltas.Additive onto acts, registering each new
+// name in index as it goes, and returns the extra dependency edges the additives declare
+// for themselves (not yet validated against the post-additive index).
+func appendAdditives(acts []DerivedActivity, index map[string]int, additive []AdditiveActivity) ([]DerivedActivity, []NetworkDependency, error) {
+	extraDeps := make([]NetworkDependency, 0, len(additive))
+	for _, a := range additive {
+		if err := validateAdditive(a, index); err != nil {
+			return acts, nil, err
+		}
+		acts = append(acts, DerivedActivity{
+			Name: a.Name, Title: a.Title, EffortDays: a.EffortDays, RiskBucket: a.RiskBucket,
+			WorkerClass: a.WorkerClass, Coding: a.Coding, Derived: false,
+		})
+		index[a.Name] = len(acts) - 1
+		if len(a.DependsOn) > 0 {
+			preds := make([]string, len(a.DependsOn))
+			copy(preds, a.DependsOn)
+			sort.Strings(preds)
+			extraDeps = append(extraDeps, NetworkDependency{Activity: a.Name, DependsOn: preds})
+		}
+	}
+	return acts, extraDeps, nil
+}
+
+// validateAdditiveEdges checks additive incident edges only AFTER every additive has
+// been added to index (C3: an additive declares its OWN incident edges only — the
+// target must exist in the plan, or it would inject a dangling node into the CPM
+// solve).
+func validateAdditiveEdges(extraDeps []NetworkDependency, index map[string]int) error {
+	for _, d := range extraDeps {
+		for _, p := range d.DependsOn {
+			if _, ok := index[p]; !ok {
+				return fweng.New(fweng.ContractMisuse,
+					"DerivePlan: additive activity "+d.Activity+" depends on "+p+
+						", which is not an activity in the plan; an additive declares its OWN incident edges only")
+			}
+		}
+	}
+	return nil
+}
+
+// applyAdditiveMilestones validates and appends the AdditiveMilestone deltas (C4: M5 "v1
+// Production Live" depends entirely on additive noncoding and therefore cannot derive)
+// onto ms, and returns the combined, sorted milestone list. A derived milestone may
+// still ACQUIRE predecessors from additive activities, which is why dependsOn is
+// validated against the full post-additive activity set in index.
+func applyAdditiveMilestones(ms []NetworkMilestone, index map[string]int, additive []AdditiveMilestone) ([]NetworkMilestone, error) {
+	milestones := make([]NetworkMilestone, len(ms))
+	copy(milestones, ms)
+	derivedMilestone := make(map[string]bool, len(ms))
+	for _, m := range ms {
+		derivedMilestone[m.Id] = true
+	}
+	for _, am := range additive {
+		if derivedMilestone[am.Id] {
+			return nil, fweng.New(fweng.ContractMisuse,
+				"DerivePlan: additive milestone "+am.Id+" shadows a derived milestone")
+		}
+		if am.Justification == "" {
+			return nil, fweng.New(fweng.ContractMisuse,
+				"DerivePlan: additive milestone "+am.Id+" carries no justification")
+		}
+		for _, p := range am.DependsOn {
+			if _, ok := index[p]; !ok {
+				return nil, fweng.New(fweng.ContractMisuse,
+					"DerivePlan: additive milestone "+am.Id+" depends on "+p+", which is not an activity in the plan")
+			}
+		}
+		preds := make([]string, len(am.DependsOn))
+		copy(preds, am.DependsOn)
+		sort.Strings(preds)
+		milestones = append(milestones, NetworkMilestone{Id: am.Id, DependsOn: preds})
+		derivedMilestone[am.Id] = true
+	}
+	sort.Slice(milestones, func(i, j int) bool { return milestones[i].Id < milestones[j].Id })
+	return milestones, nil
+}
+
+// applyDeltas overlays the authored deltas on the derived baseline.
+func applyDeltas(base []DerivedActivity, deps []NetworkDependency, ms []NetworkMilestone, deltas ActivityListDeltas) (DerivedPlan, error) {
+	index := make(map[string]int, len(base))
+	for i, a := range base {
+		index[a.Name] = i
+	}
+	acts := make([]DerivedActivity, len(base))
+	copy(acts, base)
+
+	if err := applyOverrides(acts, index, deltas.Overrides); err != nil {
+		return DerivedPlan{}, err
+	}
+
+	acts, extraDeps, err := appendAdditives(acts, index, deltas.Additive)
+	if err != nil {
+		return DerivedPlan{}, err
+	}
+
+	// Additive edges are validated only AFTER every additive exists, so two additives may
+	// legally depend on each other.
+	if err := validateAdditiveEdges(extraDeps, index); err != nil {
+		return DerivedPlan{}, err
+	}
+
+	milestones, err := applyAdditiveMilestones(ms, index, deltas.AdditiveMilestones)
+	if err != nil {
+		return DerivedPlan{}, err
+	}
+
+	allDeps := make([]NetworkDependency, 0, len(deps)+len(extraDeps))
+	allDeps = append(allDeps, deps...)
+	allDeps = append(allDeps, extraDeps...)
+	sort.Slice(allDeps, func(i, j int) bool { return allDeps[i].Activity < allDeps[j].Activity })
+	sort.Slice(acts, func(i, j int) bool { return acts[i].Name < acts[j].Name })
+
+	return DerivedPlan{Activities: acts, Dependencies: allDeps, Milestones: milestones}, nil
+}

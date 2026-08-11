@@ -54,6 +54,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 	"github.com/mixofreality-studio/archistrator-platform/framework-go/utilities/security"
@@ -3002,4 +3003,124 @@ func mapRAError(err error, label string) error {
 func isEpisodeTraceNotFound(err error) bool {
 	var raErr *fwra.Error
 	return errors.As(err, &raErr) && raErr.Kind == fwra.NotFound
+}
+
+// --- Phase-2 activity-list derivation: the projectstate <-> estimation conversion
+// boundary (Option B full encapsulation: the estimation Engine redefines every domain
+// type it uses as its own generated def and imports NO projectstate, so the Manager
+// maps field-by-field here — exactly as toEstimationOption above does for
+// EstimateForOption). Task 10 wires toEstimationSystemView + toProjectStateActivityList
+// into the read path; DerivePlan itself (Task 5) and its call are exercised there. ---
+
+// derefString returns *p, or fallback when p is nil or points at the empty string —
+// the shared "unauthored optional -> concrete default" rule this boundary applies to
+// every optional projectstate.Component attribute the Engine needs resolved.
+func derefString(p *string, fallback string) string {
+	if p == nil || *p == "" {
+		return fallback
+	}
+	return *p
+}
+
+// derefBool returns *p, or false when p is nil — projectstate's UiSurface is an
+// unauthored-means-absent tri-state; the Engine only ever sees a resolved bool.
+func derefBool(p *bool) bool { return p != nil && *p }
+
+// toEstimationSystemView converts the canonical System to the estimation Engine's OWN
+// slim SystemView at the call boundary. Only what the derivation reads crosses:
+// identity, kind, and the three typed doctrine attributes (constructionProfile,
+// provisioning, uiSurface).
+//
+// An unauthored constructionProfile defaults to "handwritten" — the CONSERVATIVE
+// direction. Defaulting to "generated" would silently delete real planned work, which
+// is the one failure mode this whole derivation design exists to prevent. An
+// unauthored provisioning defaults to "owned" (no vendor assumed).
+func toEstimationSystemView(sys projectstate.System) estimation.SystemView {
+	comps := make([]estimation.SystemComponent, 0, len(sys.Components))
+	for _, c := range sys.Components {
+		comps = append(comps, estimation.SystemComponent{
+			ID:                  c.ID,
+			Name:                c.Name,
+			Kind:                c.Kind.String(),
+			ConstructionProfile: derefString(c.ConstructionProfile, "handwritten"),
+			Provisioning:        derefString(c.Provisioning, "owned"),
+			UiSurface:           derefBool(c.UiSurface),
+		})
+	}
+	rels := make([]estimation.SystemRelationship, 0, len(sys.Relationships))
+	for _, r := range sys.Relationships {
+		rels = append(rels, estimation.SystemRelationship{From: r.From, To: r.To})
+	}
+	return estimation.SystemView{Components: comps, Relationships: rels}
+}
+
+// toProjectStateActivityList converts the Engine's derived plan back to the canonical
+// ActivityList shape every existing reader already consumes (the SPA catalog
+// projection, the construction pump, earned value). Only the Activities cross here —
+// DerivedPlan's Dependencies/Milestones feed the Network artifact, not this slot.
+func toProjectStateActivityList(plan estimation.DerivedPlan) projectstate.ActivityList {
+	acts := make([]projectstate.ActivityItem, 0, len(plan.Activities))
+	for _, a := range plan.Activities {
+		acts = append(acts, projectstate.ActivityItem{
+			Name:        a.Name,
+			Title:       a.Title,
+			EffortDays:  a.EffortDays,
+			RiskBucket:  int(a.RiskBucket),
+			WorkerClass: a.WorkerClass,
+			Coding:      a.Coding,
+			ComponentID: a.ComponentID,
+		})
+	}
+	return projectstate.ActivityList{Activities: acts}
+}
+
+// toProjectStateMilestones converts the Engine's derived milestones to the projectstate
+// shape (I1, 2026-08-10). Only Id/DependsOn cross here — Name and Public are display-only
+// authoring decorations with no derivation source (DerivedPlan carries no opinion on
+// them, same as AdditiveMilestone in the delta vocabulary), so they are left at their
+// zero value; a caller rendering these for a human MUST overlay the existing committed
+// Name/Public rather than take them from here. What this DOES make comparable — the
+// thing the drift gate (TestDerivedPlanMatchesCommittedState) actually needs — is the
+// STRUCTURE: which milestones exist and what they depend on.
+func toProjectStateMilestones(plan estimation.DerivedPlan) []projectstate.NetworkMilestone {
+	out := make([]projectstate.NetworkMilestone, 0, len(plan.Milestones))
+	for _, m := range plan.Milestones {
+		out = append(out, projectstate.NetworkMilestone{ID: m.Id, DependsOn: m.DependsOn})
+	}
+	return out
+}
+
+// MaterializeActivityPlan is the single render-on-read entry point for the Phase-2 plan:
+// it derives the baseline from the committed System, applies the authored deltas, and
+// returns the canonical shapes every existing reader already consumes.
+//
+// No core-use-case ids are consumed here: the founder's 2026-08-09 ruling drops I-*
+// integration activities entirely (App A makes integration a phase of every activity's
+// own lifecycle, so a separate I-* would charge the same work twice), which was the only
+// thing that ever read them. SystemView.CoreUseCaseIDs is gone from the contract
+// (Task 10a); do not resurrect a use-case-id parameter here to feed it.
+//
+// Milestones are returned alongside activities/dependencies (I1, 2026-08-10) so a caller
+// — chiefly the derived-plan drift gate — can compare the FULL derived network, not just
+// the activity list: before this, a slot-5 relationship edit that only shifted milestone
+// fan-in re-derived nothing the gate could see.
+//
+// A delta that violates the vocabulary fails the READ, loudly. Silently dropping a bad
+// delta would be the zombie failure mode returning by another door.
+func MaterializeActivityPlan(
+	sys projectstate.System,
+	deltas estimation.ActivityListDeltas,
+) (projectstate.ActivityList, []projectstate.NetworkDependency, []projectstate.NetworkMilestone, error) {
+	view := toEstimationSystemView(sys)
+
+	plan, err := estimation.NewEstimationEngine().DerivePlan(fweng.Context{}, view, deltas)
+	if err != nil {
+		return projectstate.ActivityList{}, nil, nil, err
+	}
+
+	deps := make([]projectstate.NetworkDependency, 0, len(plan.Dependencies))
+	for _, d := range plan.Dependencies {
+		deps = append(deps, projectstate.NetworkDependency{Activity: d.Activity, DependsOn: d.DependsOn})
+	}
+	return toProjectStateActivityList(plan), deps, toProjectStateMilestones(plan), nil
 }

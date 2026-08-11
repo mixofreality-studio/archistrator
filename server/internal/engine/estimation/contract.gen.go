@@ -16,10 +16,41 @@ type ActivityList struct {
 	Activities []ActivityItem `json:"activities"`
 }
 
+type ActivityListDeltas struct {
+	Overrides          []ActivityOverride  `json:"overrides,omitempty"`
+	Additive           []AdditiveActivity  `json:"additive,omitempty"`
+	AdditiveMilestones []AdditiveMilestone `json:"additiveMilestones,omitempty"`
+}
+
 type ActivityNetwork struct {
 	Activities   []OptionActivity    `json:"activities"`
 	Dependencies []NetworkDependency `json:"dependencies,omitempty"`
 	Milestones   []NetworkMilestone  `json:"milestones,omitempty"`
+}
+
+type ActivityOverride struct {
+	Activity      string   `json:"activity"`
+	EffortDays    *float64 `json:"effortDays,omitempty"`
+	RiskBucket    *int64   `json:"riskBucket,omitempty"`
+	Justification string   `json:"justification"`
+}
+
+type AdditiveActivity struct {
+	Name          string   `json:"name"`
+	Title         string   `json:"title"`
+	EffortDays    float64  `json:"effortDays"`
+	RiskBucket    int64    `json:"riskBucket"`
+	WorkerClass   string   `json:"workerClass"`
+	Coding        bool     `json:"coding"`
+	DependsOn     []string `json:"dependsOn,omitempty"`
+	ComponentID   *string  `json:"componentId,omitempty"`
+	Justification string   `json:"justification"`
+}
+
+type AdditiveMilestone struct {
+	Id            string   `json:"id"`
+	DependsOn     []string `json:"dependsOn,omitempty"`
+	Justification string   `json:"justification"`
 }
 
 type ConstructionEstimate struct {
@@ -28,6 +59,23 @@ type ConstructionEstimate struct {
 	Risk         RiskScore `json:"Risk"`
 	DirectCost   Money     `json:"DirectCost"`
 	IndirectCost Money     `json:"IndirectCost"`
+}
+
+type DerivedActivity struct {
+	Name        string  `json:"name"`
+	Title       string  `json:"title"`
+	EffortDays  float64 `json:"effortDays"`
+	RiskBucket  int64   `json:"riskBucket"`
+	WorkerClass string  `json:"workerClass"`
+	Coding      bool    `json:"coding"`
+	ComponentID string  `json:"componentId"`
+	Derived     bool    `json:"derived"`
+}
+
+type DerivedPlan struct {
+	Activities   []DerivedActivity   `json:"activities"`
+	Dependencies []NetworkDependency `json:"dependencies"`
+	Milestones   []NetworkMilestone  `json:"milestones,omitempty"`
 }
 
 type EVCurve struct {
@@ -116,6 +164,25 @@ type RiskScore struct {
 	ActivityRisk    float64 `json:"ActivityRisk"`
 }
 
+type SystemComponent struct {
+	ID                  string `json:"id"`
+	Name                string `json:"name"`
+	Kind                string `json:"kind"`
+	ConstructionProfile string `json:"constructionProfile"`
+	Provisioning        string `json:"provisioning"`
+	UiSurface           bool   `json:"uiSurface"`
+}
+
+type SystemRelationship struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+}
+
+type SystemView struct {
+	Components    []SystemComponent    `json:"components"`
+	Relationships []SystemRelationship `json:"relationships,omitempty"`
+}
+
 type WorkerMix struct {
 	ClassRates  map[string]Money `json:"classRates"`
 	StaffingCap int64            `json:"staffingCap"`
@@ -126,6 +193,7 @@ type EstimationEngine interface {
 	ComputeEarnedValue(rc fweng.Context, activities ActivityList, network Network, integrated []string, totalWeeks int64, calendarDaysPerWeek int64) (EVCurve, error)
 	ComputeNetwork(rc fweng.Context, activities ActivityList, network Network) (NetworkSolution, error)
 	EstimateForOption(rc fweng.Context, option ProjectOption) (ConstructionEstimate, error)
+	DerivePlan(rc fweng.Context, system SystemView, deltas ActivityListDeltas) (DerivedPlan, error)
 }
 
 // EstimationEngineImpl is the generated concrete EstimationEngine. Engines are pure (no

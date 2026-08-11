@@ -1,6 +1,6 @@
 {
   "id": "archistrator",
-  "version": 595,
+  "version": 605,
   "phase": 2,
   "owner": "dev-architect",
   "name": "Archistrator",
@@ -299,392 +299,98 @@
       "model": {
         "dependencies": [
           {
-            "activity": "C-AA",
+            "activity": "C-agentic-job-access",
             "dependsOn": [
-              "N-SCHEMA"
+              "R-construction-pipeline-runtime"
             ]
           },
           {
-            "activity": "C-AE",
+            "activity": "C-billing-manager",
             "dependsOn": [
-              "N-CI"
+              "C-billing-engine",
+              "C-billing-state-access",
+              "C-merchant-gateway-access",
+              "C-operations-manager"
             ]
           },
           {
-            "activity": "C-BE",
+            "activity": "C-construction-manager",
             "dependsOn": [
-              "N-CI"
+              "C-artifact-access",
+              "C-intervention-engine",
+              "C-project-design-manager",
+              "C-review-engine"
             ]
           },
           {
-            "activity": "C-BG",
+            "activity": "C-merchant-gateway-access",
             "dependsOn": [
-              "R-BG"
+              "R-merchant-gateway"
             ]
           },
           {
-            "activity": "C-BM",
+            "activity": "C-operated-runtime-access",
             "dependsOn": [
-              "C-BE",
-              "C-BG",
-              "C-BS",
-              "C-DA",
-              "C-DG",
-              "C-IE",
-              "C-LG",
-              "C-MOP",
-              "C-SC",
-              "C-UA"
+              "R-operated-runtime"
             ]
           },
           {
-            "activity": "C-BS",
+            "activity": "C-operations-manager",
             "dependsOn": [
-              "N-SCHEMA"
+              "C-artifact-access",
+              "C-autoscaler-engine",
+              "C-intervention-engine",
+              "C-operated-runtime-access",
+              "C-operated-system-state-access",
+              "C-operation-estimation-engine",
+              "C-project-state-access",
+              "C-usage-access"
             ]
           },
           {
-            "activity": "C-CM",
+            "activity": "C-project-design-manager",
             "dependsOn": [
-              "C-BM",
-              "C-MCN",
-              "C-MOP",
-              "C-MPD",
-              "C-MSD",
-              "C-SE"
+              "C-agentic-job-access",
+              "C-billing-engine",
+              "C-episode-access",
+              "C-estimation-engine",
+              "C-operation-estimation-engine",
+              "C-project-state-access",
+              "C-source-control-access"
             ]
           },
           {
-            "activity": "C-CP",
+            "activity": "C-source-control-access",
             "dependsOn": [
-              "R-CPR"
+              "R-github"
             ]
           },
           {
-            "activity": "C-CS",
+            "activity": "C-system-design-manager",
             "dependsOn": [
-              "C-BM",
-              "C-MCN",
-              "C-MOP",
-              "C-SE"
-            ]
-          },
-          {
-            "activity": "C-CW",
-            "dependsOn": [
-              "C-BM",
-              "C-MCN",
-              "C-MOP",
-              "C-MPD",
-              "C-MSD",
-              "C-SE"
-            ]
-          },
-          {
-            "activity": "C-DA",
-            "dependsOn": [
-              "R-DER"
-            ]
-          },
-          {
-            "activity": "C-DG",
-            "dependsOn": [
-              "N-CI"
-            ]
-          },
-          {
-            "activity": "C-DH",
-            "dependsOn": [
-              "N-CI"
-            ]
-          },
-          {
-            "activity": "C-EA",
-            "dependsOn": [
-              "N-SCHEMA"
-            ]
-          },
-          {
-            "activity": "C-EE",
-            "dependsOn": [
-              "N-CI"
-            ]
-          },
-          {
-            "activity": "C-HE",
-            "dependsOn": [
-              "N-CI"
-            ]
-          },
-          {
-            "activity": "C-IE",
-            "dependsOn": [
-              "N-CI"
-            ]
-          },
-          {
-            "activity": "C-LG",
-            "dependsOn": [
-              "N-CI"
-            ]
-          },
-          {
-            "activity": "C-MCN",
-            "dependsOn": [
-              "C-CP",
-              "C-DA",
-              "C-DG",
-              "C-HE",
-              "C-IE",
-              "C-LG",
-              "C-PA",
-              "C-RE",
-              "C-SC",
-              "C-WIA"
-            ]
-          },
-          {
-            "activity": "C-MOP",
-            "dependsOn": [
-              "C-AE",
-              "C-DA",
-              "C-DG",
-              "C-IE",
-              "C-LG",
-              "C-OE",
-              "C-OR",
-              "C-OSA",
-              "C-PA",
-              "C-SC",
-              "C-UA"
-            ]
-          },
-          {
-            "activity": "C-MPD",
-            "dependsOn": [
-              "C-BE",
-              "C-CP",
-              "C-DA",
-              "C-DG",
-              "C-EE",
-              "C-LG",
-              "C-OE",
-              "C-PA",
-              "C-SC",
-              "C-WIA"
-            ]
-          },
-          {
-            "activity": "C-MSD",
-            "dependsOn": [
-              "C-CP",
-              "C-DA",
-              "C-DG",
-              "C-DH",
-              "C-EE",
-              "C-LG",
-              "C-PA",
-              "C-SC"
-            ]
-          },
-          {
-            "activity": "C-OE",
-            "dependsOn": [
-              "N-CI"
-            ]
-          },
-          {
-            "activity": "C-OR",
-            "dependsOn": [
-              "R-ORS"
-            ]
-          },
-          {
-            "activity": "C-OSA",
-            "dependsOn": [
-              "N-SCHEMA"
-            ]
-          },
-          {
-            "activity": "C-PA",
-            "dependsOn": [
-              "N-SCHEMA"
-            ]
-          },
-          {
-            "activity": "C-RE",
-            "dependsOn": [
-              "N-CI"
-            ]
-          },
-          {
-            "activity": "C-SC",
-            "dependsOn": [
-              "R-GH"
-            ]
-          },
-          {
-            "activity": "C-SE",
-            "dependsOn": [
-              "N-CI"
-            ]
-          },
-          {
-            "activity": "C-UA",
-            "dependsOn": [
-              "N-SCHEMA"
-            ]
-          },
-          {
-            "activity": "C-WIA",
-            "dependsOn": [
-              "R-WIT"
-            ]
-          },
-          {
-            "activity": "G-SPA",
-            "dependsOn": [
-              "N-REQ"
-            ]
-          },
-          {
-            "activity": "I-UC1",
-            "dependsOn": [
-              "C-CP",
-              "C-DA",
-              "C-MSD",
-              "C-PA",
-              "C-SC",
-              "U-SPA-1"
-            ]
-          },
-          {
-            "activity": "I-UC2",
-            "dependsOn": [
-              "C-BE",
-              "C-CP",
-              "C-DA",
-              "C-EE",
-              "C-MPD",
-              "C-OE",
-              "C-PA",
-              "C-SC",
-              "C-WIA",
-              "U-SPA-2"
-            ]
-          },
-          {
-            "activity": "I-UC3",
-            "dependsOn": [
-              "C-AA",
-              "C-CP",
-              "C-DA",
-              "C-HE",
-              "C-IE",
-              "C-MCN",
-              "C-PA",
-              "C-RE",
-              "C-SC",
-              "C-WIA",
-              "U-SPA-3"
-            ]
-          },
-          {
-            "activity": "I-UC4",
-            "dependsOn": [
-              "C-AE",
-              "C-DA",
-              "C-IE",
-              "C-MOP",
-              "C-OE",
-              "C-OR",
-              "C-OSA",
-              "C-PA",
-              "C-UA",
-              "U-SPA-4"
-            ]
-          },
-          {
-            "activity": "I-UC5",
-            "dependsOn": [
-              "C-BE",
-              "C-BG",
-              "C-BM",
-              "C-BS",
-              "C-DA",
-              "C-IE",
-              "C-SC",
-              "C-UA",
-              "U-SPA-5"
-            ]
-          },
-          {
-            "activity": "N-ADR",
-            "dependsOn": [
-              "N-HARD"
-            ]
-          },
-          {
-            "activity": "N-ARCH",
-            "dependsOn": [
-              "N-REQ"
-            ]
-          },
-          {
-            "activity": "N-CI",
-            "dependsOn": [
-              "N-SC"
-            ]
-          },
-          {
-            "activity": "N-DEP",
-            "dependsOn": [
-              "N-ADR",
-              "N-HARD"
-            ]
-          },
-          {
-            "activity": "N-HARD",
-            "dependsOn": [
-              "N-IT",
-              "N-PERF",
-              "N-QA",
-              "N-SEC"
+              "C-agentic-job-access",
+              "C-design-health-engine",
+              "C-episode-access",
+              "C-estimation-engine",
+              "C-project-state-access",
+              "C-source-control-access"
             ]
           },
           {
             "activity": "N-IT",
             "dependsOn": [
-              "C-CM",
-              "C-CS",
-              "I-UC1",
-              "I-UC2",
-              "I-UC3",
-              "I-UC4",
-              "I-UC5",
-              "N-RTH",
-              "N-SMOKE",
-              "N-STH",
-              "U-SPA-6",
-              "U-SPA-TEAM"
+              "N-QA",
+              "U-SPA-billing-manager",
+              "U-SPA-construction-manager",
+              "U-SPA-operations-manager",
+              "U-SPA-project-design-manager",
+              "U-SPA-system-design-manager"
             ]
           },
           {
             "activity": "N-PERF",
             "dependsOn": [
-              "N-IT"
-            ]
-          },
-          {
-            "activity": "N-PLAN",
-            "dependsOn": [
-              "N-ARCH"
-            ]
-          },
-          {
-            "activity": "N-QA",
-            "dependsOn": [
-              "N-PLAN"
+              "N-STH"
             ]
           },
           {
@@ -694,33 +400,9 @@
             ]
           },
           {
-            "activity": "N-RUN",
-            "dependsOn": [
-              "N-DEP"
-            ]
-          },
-          {
-            "activity": "N-SC",
-            "dependsOn": [
-              "N-PLAN"
-            ]
-          },
-          {
-            "activity": "N-SCHEMA",
-            "dependsOn": [
-              "N-REQ"
-            ]
-          },
-          {
-            "activity": "N-SEC",
-            "dependsOn": [
-              "N-IT"
-            ]
-          },
-          {
             "activity": "N-SMOKE",
             "dependsOn": [
-              "N-CI"
+              "N-STP"
             ]
           },
           {
@@ -730,131 +412,58 @@
             ]
           },
           {
-            "activity": "N-STP",
+            "activity": "U-SPA-billing-manager",
             "dependsOn": [
-              "N-REQ",
-              "C-CW"
-            ]
-          },
-          {
-            "activity": "R-BG",
-            "dependsOn": [
-              "N-PLAN"
-            ]
-          },
-          {
-            "activity": "R-CPR",
-            "dependsOn": [
-              "N-PLAN"
-            ]
-          },
-          {
-            "activity": "R-DER",
-            "dependsOn": [
-              "N-PLAN"
-            ]
-          },
-          {
-            "activity": "R-GH",
-            "dependsOn": [
-              "N-PLAN"
-            ]
-          },
-          {
-            "activity": "R-ORS",
-            "dependsOn": [
-              "N-PLAN"
-            ]
-          },
-          {
-            "activity": "R-WIT",
-            "dependsOn": [
-              "N-PLAN",
-              "R-GH"
-            ]
-          },
-          {
-            "activity": "U-SPA-1",
-            "dependsOn": [
-              "C-MSD",
+              "C-billing-manager",
               "G-SPA",
               "U-SPA-S"
             ]
           },
           {
-            "activity": "U-SPA-2",
+            "activity": "U-SPA-construction-manager",
             "dependsOn": [
-              "C-MPD",
+              "C-construction-manager",
               "G-SPA",
               "U-SPA-S"
             ]
           },
           {
-            "activity": "U-SPA-3",
+            "activity": "U-SPA-operations-manager",
             "dependsOn": [
-              "C-MCN",
+              "C-operations-manager",
               "G-SPA",
               "U-SPA-S"
             ]
           },
           {
-            "activity": "U-SPA-4",
+            "activity": "U-SPA-project-design-manager",
             "dependsOn": [
-              "C-MOP",
+              "C-project-design-manager",
               "G-SPA",
               "U-SPA-S"
             ]
           },
           {
-            "activity": "U-SPA-5",
+            "activity": "U-SPA-system-design-manager",
             "dependsOn": [
-              "C-BM",
-              "G-SPA",
-              "U-SPA-S"
-            ]
-          },
-          {
-            "activity": "U-SPA-6",
-            "dependsOn": [
-              "C-MPD",
-              "G-SPA",
-              "U-SPA-S"
-            ]
-          },
-          {
-            "activity": "U-SPA-S",
-            "dependsOn": [
-              "C-CW",
-              "G-SPA",
-              "N-CI"
-            ]
-          },
-          {
-            "activity": "U-SPA-TEAM",
-            "dependsOn": [
+              "C-system-design-manager",
               "G-SPA",
               "U-SPA-S"
             ]
           }
         ],
         "criticalPath": [
-          "N-REQ",
-          "N-ARCH",
-          "N-PLAN",
-          "R-ORS",
-          "C-OR",
-          "C-MOP",
-          "C-BM",
-          "C-CW",
-          "U-SPA-S",
-          "U-SPA-3",
-          "I-UC3",
+          "C-billing-manager",
+          "C-construction-manager",
+          "C-operated-runtime-access",
+          "C-operations-manager",
+          "C-project-design-manager",
+          "C-source-control-access",
           "N-IT",
-          "N-SEC",
-          "N-HARD",
-          "N-ADR",
-          "N-DEP",
-          "N-RUN"
+          "R-github",
+          "R-operated-runtime",
+          "U-SPA-billing-manager",
+          "U-SPA-construction-manager"
         ],
         "milestones": [
           {
@@ -867,14 +476,10 @@
             "name": "Infrastructure Provisioned",
             "public": false,
             "dependsOn": [
-              "R-GH",
-              "R-BG",
-              "R-DER",
-              "R-CPR",
-              "R-ORS",
-              "R-WIT",
-              "N-SCHEMA",
-              "N-CI"
+              "R-construction-pipeline-runtime",
+              "R-github",
+              "R-merchant-gateway",
+              "R-operated-runtime"
             ]
           },
           {
@@ -882,14 +487,13 @@
             "name": "Engines Complete",
             "public": false,
             "dependsOn": [
-              "C-EE",
-              "C-OE",
-              "C-BE",
-              "C-HE",
-              "C-IE",
-              "C-AE",
-              "C-RE",
-              "C-DH"
+              "C-autoscaler-engine",
+              "C-billing-engine",
+              "C-design-health-engine",
+              "C-estimation-engine",
+              "C-intervention-engine",
+              "C-operation-estimation-engine",
+              "C-review-engine"
             ]
           },
           {
@@ -897,34 +501,11 @@
             "name": "Managers Complete",
             "public": false,
             "dependsOn": [
-              "C-MSD",
-              "C-MPD",
-              "C-MCN",
-              "C-MOP",
-              "C-BM"
-            ]
-          },
-          {
-            "id": "M4",
-            "name": "Use Cases Demonstrable (E2E green)",
-            "public": true,
-            "dependsOn": [
-              "I-UC1",
-              "I-UC2",
-              "I-UC3",
-              "I-UC4",
-              "I-UC5"
-            ]
-          },
-          {
-            "id": "M5",
-            "name": "v1 Production Live",
-            "public": true,
-            "dependsOn": [
-              "N-IT",
-              "N-HARD",
-              "N-DEP",
-              "N-RUN"
+              "C-billing-manager",
+              "C-construction-manager",
+              "C-operations-manager",
+              "C-project-design-manager",
+              "C-system-design-manager"
             ]
           }
         ]
@@ -955,7 +536,7 @@
           "addressee": ""
         }
       ],
-      "revisions": 2
+      "revisions": 3
     },
     "11": {
       "status": 2,
@@ -1042,8 +623,9 @@
       "revisions": 1,
       "staleBasisCause": {
         "upstreamKind": "network",
-        "upstreamRevision": 2
-      }
+        "upstreamRevision": 3
+      },
+      "staleBasis": true
     },
     "12": {
       "status": 2,
@@ -1130,8 +712,9 @@
       "revisions": 1,
       "staleBasisCause": {
         "upstreamKind": "network",
-        "upstreamRevision": 2
-      }
+        "upstreamRevision": 3
+      },
+      "staleBasis": true
     },
     "13": {
       "status": 2,
@@ -1218,8 +801,9 @@
       "revisions": 1,
       "staleBasisCause": {
         "upstreamKind": "network",
-        "upstreamRevision": 2
-      }
+        "upstreamRevision": 3
+      },
+      "staleBasis": true
     },
     "14": {
       "status": 2,
@@ -1306,8 +890,9 @@
       "revisions": 1,
       "staleBasisCause": {
         "upstreamKind": "network",
-        "upstreamRevision": 2
-      }
+        "upstreamRevision": 3
+      },
+      "staleBasis": true
     },
     "15": {
       "status": 2,
@@ -1413,8 +998,9 @@
       "revisions": 1,
       "staleBasisCause": {
         "upstreamKind": "network",
-        "upstreamRevision": 2
-      }
+        "upstreamRevision": 3
+      },
+      "staleBasis": true
     },
     "16": {
       "status": 2,
@@ -1542,8 +1128,9 @@
       "revisions": 1,
       "staleBasisCause": {
         "upstreamKind": "network",
-        "upstreamRevision": 2
-      }
+        "upstreamRevision": 3
+      },
+      "staleBasis": true
     },
     "2": {
       "status": 2,
@@ -5235,7 +4822,10 @@
               "Customer Interaction Channel"
             ],
             "atomicBusinessVerbs": [],
-            "contractKey": "webClient"
+            "contractKey": "webClient",
+            "constructionProfile": "generated",
+            "provisioning": "owned",
+            "uiSurface": true
           },
           {
             "id": "mcp-client",
@@ -5247,7 +4837,10 @@
               "Customer Interaction Channel"
             ],
             "atomicBusinessVerbs": [],
-            "contractKey": "mcpClient"
+            "contractKey": "mcpClient",
+            "constructionProfile": "generated",
+            "provisioning": "owned",
+            "uiSurface": false
           },
           {
             "id": "scheduler-client",
@@ -5259,7 +4852,10 @@
               "Customer Interaction Channel"
             ],
             "atomicBusinessVerbs": [],
-            "buildStatus": "planned"
+            "buildStatus": "planned",
+            "constructionProfile": "generated",
+            "provisioning": "owned",
+            "uiSurface": false
           },
           {
             "id": "system-design-manager",
@@ -5271,7 +4867,10 @@
               "System Design Phase Workflow"
             ],
             "atomicBusinessVerbs": [],
-            "contractKey": "systemDesignManager"
+            "contractKey": "systemDesignManager",
+            "constructionProfile": "handwritten",
+            "provisioning": "owned",
+            "uiSurface": false
           },
           {
             "id": "project-design-manager",
@@ -5283,7 +4882,10 @@
               "Project Design Phase Workflow"
             ],
             "atomicBusinessVerbs": [],
-            "contractKey": "projectDesignManager"
+            "contractKey": "projectDesignManager",
+            "constructionProfile": "handwritten",
+            "provisioning": "owned",
+            "uiSurface": false
           },
           {
             "id": "construction-manager",
@@ -5295,7 +4897,10 @@
               "Construction Phase Workflow"
             ],
             "atomicBusinessVerbs": [],
-            "contractKey": "constructionManager"
+            "contractKey": "constructionManager",
+            "constructionProfile": "handwritten",
+            "provisioning": "owned",
+            "uiSurface": false
           },
           {
             "id": "operations-manager",
@@ -5307,7 +4912,10 @@
               "Operation Phase Workflow"
             ],
             "atomicBusinessVerbs": [],
-            "contractKey": "operationsManager"
+            "contractKey": "operationsManager",
+            "constructionProfile": "handwritten",
+            "provisioning": "owned",
+            "uiSurface": false
           },
           {
             "id": "billing-manager",
@@ -5319,7 +4927,10 @@
               "Billing Workflow"
             ],
             "atomicBusinessVerbs": [],
-            "contractKey": "billingManager"
+            "contractKey": "billingManager",
+            "constructionProfile": "handwritten",
+            "provisioning": "owned",
+            "uiSurface": false
           },
           {
             "id": "estimation-engine",
@@ -5331,7 +4942,10 @@
               "Construction Estimation Model"
             ],
             "atomicBusinessVerbs": [],
-            "contractKey": "estimationEngine"
+            "contractKey": "estimationEngine",
+            "constructionProfile": "handwritten",
+            "provisioning": "owned",
+            "uiSurface": false
           },
           {
             "id": "operation-estimation-engine",
@@ -5343,7 +4957,10 @@
               "Operation Estimation Model"
             ],
             "atomicBusinessVerbs": [],
-            "contractKey": "operationEstimationEngine"
+            "contractKey": "operationEstimationEngine",
+            "constructionProfile": "handwritten",
+            "provisioning": "owned",
+            "uiSurface": false
           },
           {
             "id": "billing-engine",
@@ -5355,7 +4972,10 @@
               "Service Pricing"
             ],
             "atomicBusinessVerbs": [],
-            "contractKey": "billingEngine"
+            "contractKey": "billingEngine",
+            "constructionProfile": "handwritten",
+            "provisioning": "owned",
+            "uiSurface": false
           },
           {
             "id": "intervention-engine",
@@ -5367,7 +4987,10 @@
               "Intervention Policy"
             ],
             "atomicBusinessVerbs": [],
-            "contractKey": "interventionEngine"
+            "contractKey": "interventionEngine",
+            "constructionProfile": "handwritten",
+            "provisioning": "owned",
+            "uiSurface": false
           },
           {
             "id": "autoscaler-engine",
@@ -5379,7 +5002,10 @@
               "Autoscaling Policy"
             ],
             "atomicBusinessVerbs": [],
-            "contractKey": "autoscalerEngine"
+            "contractKey": "autoscalerEngine",
+            "constructionProfile": "handwritten",
+            "provisioning": "owned",
+            "uiSurface": false
           },
           {
             "id": "review-engine",
@@ -5391,7 +5017,10 @@
               "Review Policy"
             ],
             "atomicBusinessVerbs": [],
-            "contractKey": "reviewEngine"
+            "contractKey": "reviewEngine",
+            "constructionProfile": "handwritten",
+            "provisioning": "owned",
+            "uiSurface": false
           },
           {
             "id": "design-health-engine",
@@ -5402,7 +5031,10 @@
             "encapsulatesVolatilities": [
               "System Design Phase Workflow"
             ],
-            "atomicBusinessVerbs": []
+            "atomicBusinessVerbs": [],
+            "constructionProfile": "handwritten",
+            "provisioning": "owned",
+            "uiSurface": false
           },
           {
             "id": "project-state-access",
@@ -5429,7 +5061,10 @@
               "recordActivityExited",
               "recordOperatorPaused"
             ],
-            "contractKey": "projectStateAccess"
+            "contractKey": "projectStateAccess",
+            "constructionProfile": "handwritten",
+            "provisioning": "owned",
+            "uiSurface": false
           },
           {
             "id": "operated-system-state-access",
@@ -5448,7 +5083,10 @@
               "withdrawSystem",
               "recordDelinquencyAction"
             ],
-            "contractKey": "operatedSystemStateAccess"
+            "contractKey": "operatedSystemStateAccess",
+            "constructionProfile": "handwritten",
+            "provisioning": "owned",
+            "uiSurface": false
           },
           {
             "id": "billing-state-access",
@@ -5467,7 +5105,10 @@
               "resettleCycle",
               "readPersistentlyDelinquentCustomers"
             ],
-            "contractKey": "billingStateAccess"
+            "contractKey": "billingStateAccess",
+            "constructionProfile": "handwritten",
+            "provisioning": "owned",
+            "uiSurface": false
           },
           {
             "id": "agentic-job-access",
@@ -5483,7 +5124,10 @@
               "observeConstructionPipeline",
               "cancelConstructionPipeline"
             ],
-            "contractKey": "agenticJobAccess"
+            "contractKey": "agenticJobAccess",
+            "constructionProfile": "handwritten",
+            "provisioning": "owned",
+            "uiSurface": false
           },
           {
             "id": "operated-runtime-access",
@@ -5502,7 +5146,10 @@
               "getSloStatus",
               "readComputeAttribution"
             ],
-            "contractKey": "operatedRuntimeAccess"
+            "contractKey": "operatedRuntimeAccess",
+            "constructionProfile": "handwritten",
+            "provisioning": "owned",
+            "uiSurface": false
           },
           {
             "id": "usage-access",
@@ -5518,7 +5165,10 @@
               "recordFinalUsage",
               "readRange"
             ],
-            "contractKey": "usageAccess"
+            "contractKey": "usageAccess",
+            "constructionProfile": "handwritten",
+            "provisioning": "owned",
+            "uiSurface": false
           },
           {
             "id": "episode-access",
@@ -5534,7 +5184,10 @@
               "listEpisodes",
               "readTraceEvents"
             ],
-            "contractKey": "episodeAccess"
+            "contractKey": "episodeAccess",
+            "constructionProfile": "handwritten",
+            "provisioning": "owned",
+            "uiSurface": false
           },
           {
             "id": "merchant-gateway-access",
@@ -5549,7 +5202,10 @@
               "chargeCustomer",
               "validateStoredInstrument"
             ],
-            "contractKey": "merchantGatewayAccess"
+            "contractKey": "merchantGatewayAccess",
+            "constructionProfile": "handwritten",
+            "provisioning": "owned",
+            "uiSurface": false
           },
           {
             "id": "source-control-access",
@@ -5573,7 +5229,10 @@
               "postReview",
               "mergePullRequest"
             ],
-            "contractKey": "sourceControlAccess"
+            "contractKey": "sourceControlAccess",
+            "constructionProfile": "handwritten",
+            "provisioning": "owned",
+            "uiSurface": false
           },
           {
             "id": "artifact-access",
@@ -5589,7 +5248,10 @@
               "retrieveConstructionOutput",
               "retrieveOutputTree"
             ],
-            "contractKey": "artifactAccess"
+            "contractKey": "artifactAccess",
+            "constructionProfile": "handwritten",
+            "provisioning": "owned",
+            "uiSurface": false
           },
           {
             "id": "project-git-repo",
@@ -5597,7 +5259,10 @@
             "kind": "resource",
             "layer": "resource",
             "encapsulates": "The customer-owned per-project git repository — the physical store for the typed project state (git-as-DB) and content-addressed Phase-3 construction outputs (B-12: one customer-owned store per scenario, retrievable outright).",
-            "atomicBusinessVerbs": []
+            "atomicBusinessVerbs": [],
+            "constructionProfile": "handwritten",
+            "provisioning": "owned",
+            "uiSurface": false
           },
           {
             "id": "operated-system-state",
@@ -5605,7 +5270,10 @@
             "kind": "resource",
             "layer": "resource",
             "encapsulates": "Physical store of operated-system rows (desired state, runtime status, deployable-bundle refs), mutated only via guarded in-place updates through OperatedSystemStateAccess (B-08).",
-            "atomicBusinessVerbs": []
+            "atomicBusinessVerbs": [],
+            "constructionProfile": "handwritten",
+            "provisioning": "owned",
+            "uiSurface": false
           },
           {
             "id": "billing-state",
@@ -5613,7 +5281,10 @@
             "kind": "resource",
             "layer": "resource",
             "encapsulates": "Physical store of billing rows (customers, payment-instrument bindings, cycles, settlements), reached only through BillingStateAccess (B-11).",
-            "atomicBusinessVerbs": []
+            "atomicBusinessVerbs": [],
+            "constructionProfile": "handwritten",
+            "provisioning": "owned",
+            "uiSurface": false
           },
           {
             "id": "construction-pipeline-runtime",
@@ -5621,7 +5292,10 @@
             "kind": "resource",
             "layer": "resource",
             "encapsulates": "The external execution fabric that runs agentic jobs on the project's configured venue — the customer's CI or their local runner (B-13); reached only through AgenticJobAccess.",
-            "atomicBusinessVerbs": []
+            "atomicBusinessVerbs": [],
+            "constructionProfile": "handwritten",
+            "provisioning": "vendor",
+            "uiSurface": false
           },
           {
             "id": "operated-runtime",
@@ -5629,7 +5303,10 @@
             "kind": "resource",
             "layer": "resource",
             "encapsulates": "The runtime hosting deployed customer systems, exposing health/SLO/compute-attribution telemetry (B-08, B-18); reached only through OperatedRuntimeAccess.",
-            "atomicBusinessVerbs": []
+            "atomicBusinessVerbs": [],
+            "constructionProfile": "handwritten",
+            "provisioning": "vendor",
+            "uiSurface": false
           },
           {
             "id": "usage-log",
@@ -5637,7 +5314,10 @@
             "kind": "resource",
             "layer": "resource",
             "encapsulates": "Append-only physical ledger of compute-usage entries feeding cost projection and usage-based billing (B-11, B-16); reached only through UsageAccess.",
-            "atomicBusinessVerbs": []
+            "atomicBusinessVerbs": [],
+            "constructionProfile": "handwritten",
+            "provisioning": "owned",
+            "uiSurface": false
           },
           {
             "id": "merchant-gateway",
@@ -5645,7 +5325,10 @@
             "kind": "resource",
             "layer": "resource",
             "encapsulates": "The external payment provider (Stripe, charge-only Connect) executing charges/refunds against the customer's stored instrument (B-11); reached only through MerchantGatewayAccess.",
-            "atomicBusinessVerbs": []
+            "atomicBusinessVerbs": [],
+            "constructionProfile": "handwritten",
+            "provisioning": "vendor",
+            "uiSurface": false
           },
           {
             "id": "github",
@@ -5653,7 +5336,10 @@
             "kind": "resource",
             "layer": "resource",
             "encapsulates": "The external repo host carrying the GitHub App installation, per-project repos, branches, pull requests, and Actions triggers (B-12, B-13); reached only through SourceControlAccess.",
-            "atomicBusinessVerbs": []
+            "atomicBusinessVerbs": [],
+            "constructionProfile": "handwritten",
+            "provisioning": "vendor",
+            "uiSurface": false
           },
           {
             "id": "security",
@@ -5663,7 +5349,10 @@
             "encapsulates": "Utility: authentication/authorization for every entry channel (Keycloak-backed AuthN/AuthZ; service identity for timer triggers). Passes the cappuccino-machine test — serves any system, owns no business volatility.",
             "atomicBusinessVerbs": [],
             "buildStatus": "external",
-            "contractKey": "security"
+            "contractKey": "security",
+            "constructionProfile": "provided",
+            "provisioning": "owned",
+            "uiSurface": false
           },
           {
             "id": "logging",
@@ -5672,7 +5361,10 @@
             "layer": "utility",
             "encapsulates": "Utility: structured logging sink every Manager reports to. Passes the cappuccino-machine test — serves any system, owns no business volatility.",
             "atomicBusinessVerbs": [],
-            "buildStatus": "external"
+            "buildStatus": "external",
+            "constructionProfile": "provided",
+            "provisioning": "owned",
+            "uiSurface": false
           },
           {
             "id": "diagnostics",
@@ -5681,7 +5373,10 @@
             "layer": "utility",
             "encapsulates": "Utility: health and telemetry reporting surface (OTel) for every Manager. Passes the cappuccino-machine test — serves any system, owns no business volatility.",
             "atomicBusinessVerbs": [],
-            "buildStatus": "external"
+            "buildStatus": "external",
+            "constructionProfile": "provided",
+            "provisioning": "owned",
+            "uiSurface": false
           },
           {
             "id": "message-bus",
@@ -5696,7 +5391,10 @@
               "deliverSignal",
               "registerSchedule"
             ],
-            "contractKey": "messageBus"
+            "contractKey": "messageBus",
+            "constructionProfile": "provided",
+            "provisioning": "owned",
+            "uiSurface": false
           }
         ],
         "relationships": [
@@ -9973,400 +9671,202 @@
       "model": {
         "activities": [
           {
-            "name": "C-CW",
-            "effortDays": 20,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "Build Web Client (Go client layer — generated REST handlers + OAS; design folded in)",
-            "componentId": "web-client"
-          },
-          {
-            "name": "U-SPA-S",
-            "effortDays": 10,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "SPA scaffold + auth wiring + design system",
-            "componentId": "web-client"
-          },
-          {
-            "name": "U-SPA-1",
-            "effortDays": 20,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "SPA — Phase-1 system-design screens (architect persona; React-Flow C4 + volatility scatter + activity diagrams + co-author gate)",
-            "componentId": "web-client"
-          },
-          {
-            "name": "U-SPA-2",
-            "effortDays": 20,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "SPA — Phase-2 project-design screens (architect persona)",
-            "componentId": "web-client"
-          },
-          {
-            "name": "U-SPA-3",
-            "effortDays": 20,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "SPA — Construction tracking + artifacts console (architect persona)",
-            "componentId": "web-client"
-          },
-          {
-            "name": "U-SPA-4",
-            "effortDays": 20,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "SPA — Operations console (customer + operator personas)",
-            "componentId": "web-client"
-          },
-          {
-            "name": "U-SPA-5",
-            "effortDays": 15,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "SPA — Billing screens (customer + operator personas)",
-            "componentId": "web-client"
-          },
-          {
-            "name": "U-SPA-6",
-            "effortDays": 15,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "SPA — change-request → subproject flow (Method re-entry)",
-            "componentId": "web-client"
-          },
-          {
-            "name": "U-SPA-TEAM",
-            "effortDays": 5,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 2,
-            "title": "SPA — Team / Agents roster view (Method roles, charters + read-only prompts)",
-            "componentId": "web-client"
-          },
-          {
-            "name": "C-CM",
+            "name": "C-agentic-job-access",
             "effortDays": 25,
             "workerClass": "junior-developer",
             "coding": true,
             "riskBucket": 5,
-            "title": "Build MCP Client",
-            "componentId": "mcp-client"
-          },
-          {
-            "name": "C-CS",
-            "effortDays": 15,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "Build Scheduler Client",
-            "componentId": "scheduler-client"
-          },
-          {
-            "name": "C-MSD",
-            "effortDays": 35,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 8,
-            "title": "Build System Design Manager",
-            "componentId": "system-design-manager"
-          },
-          {
-            "name": "C-MPD",
-            "effortDays": 35,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 8,
-            "title": "Build Project Design Manager",
-            "componentId": "project-design-manager"
-          },
-          {
-            "name": "C-MCN",
-            "effortDays": 35,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 8,
-            "title": "Build Construction Manager",
-            "componentId": "construction-manager"
-          },
-          {
-            "name": "C-MOP",
-            "effortDays": 35,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 8,
-            "title": "Build Operations Manager",
-            "componentId": "operations-manager"
-          },
-          {
-            "name": "C-BM",
-            "effortDays": 20,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "Build Billing Manager",
-            "componentId": "billing-manager"
-          },
-          {
-            "name": "C-EE",
-            "effortDays": 20,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "Build Construction Estimation Engine",
-            "componentId": "estimation-engine"
-          },
-          {
-            "name": "C-OE",
-            "effortDays": 30,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "Build Operation Estimation Engine",
-            "componentId": "operation-estimation-engine"
-          },
-          {
-            "name": "C-BE",
-            "effortDays": 15,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "Build Billing Engine",
-            "componentId": "billing-engine"
-          },
-          {
-            "name": "C-HE",
-            "effortDays": 10,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 2,
-            "title": "Build Hand-Off Engine"
-          },
-          {
-            "name": "C-IE",
-            "effortDays": 15,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "Build Intervention Engine",
-            "componentId": "intervention-engine"
-          },
-          {
-            "name": "C-AE",
-            "effortDays": 30,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "Build Autoscaler Engine",
-            "componentId": "autoscaler-engine"
-          },
-          {
-            "name": "C-RE",
-            "effortDays": 15,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "Build Review Engine (encapsulates ReviewPolicy)",
-            "componentId": "review-engine"
-          },
-          {
-            "name": "C-DH",
-            "effortDays": 15,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "Build Design Health Engine (Method-rule evaluation over the typed project state; adopted from the platform methodcheck extension — retroactive reconciliation, actuals-derived)",
-            "componentId": "design-health-engine"
-          },
-          {
-            "name": "C-PA",
-            "effortDays": 35,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 8,
-            "title": "Build Project State Access (git-as-DB head-state + construction-output stage)",
-            "componentId": "project-state-access"
-          },
-          {
-            "name": "C-AA",
-            "effortDays": 10,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "Build Artifact Access (content-addressed construction outputs in the customer repo; carved out of Project State Access — retroactive reconciliation, actuals-derived)",
-            "componentId": "artifact-access"
-          },
-          {
-            "name": "C-OSA",
-            "effortDays": 15,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "Build Operated System State Access",
-            "componentId": "operated-system-state-access"
-          },
-          {
-            "name": "C-BS",
-            "effortDays": 10,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "Build Billing State Access",
-            "componentId": "billing-state-access"
-          },
-          {
-            "name": "C-WIA",
-            "effortDays": 10,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "Build Work Item Access"
-          },
-          {
-            "name": "C-CP",
-            "effortDays": 25,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "Build Agentic Job Access (venue-neutral agentic job rail — CI venue + local; formerly Build Construction Pipeline Access)",
+            "title": "Build AgenticJobAccess",
             "componentId": "agentic-job-access"
           },
           {
-            "name": "C-OR",
-            "effortDays": 35,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 8,
-            "title": "Build Operated Runtime Access",
-            "componentId": "operated-runtime-access"
-          },
-          {
-            "name": "C-UA",
-            "effortDays": 15,
+            "name": "C-artifact-access",
+            "effortDays": 10,
             "workerClass": "junior-developer",
             "coding": true,
             "riskBucket": 3,
-            "title": "Build Usage Access",
-            "componentId": "usage-access"
+            "title": "Build ArtifactAccess",
+            "componentId": "artifact-access"
           },
           {
-            "name": "C-BG",
-            "effortDays": 15,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "Build Merchant Gateway Access (charge-only Stripe Connect settlement gateway; formerly Build Billing Gateway Access)",
-            "componentId": "merchant-gateway-access"
-          },
-          {
-            "name": "C-SC",
-            "effortDays": 35,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 8,
-            "title": "Build Source Control Access (GitHub App; adopt repo + Actions + PR rail)",
-            "componentId": "source-control-access"
-          },
-          {
-            "name": "C-DA",
+            "name": "C-autoscaler-engine",
             "effortDays": 30,
             "workerClass": "junior-developer",
             "coding": true,
-            "riskBucket": 8,
-            "title": "Build Message Bus (Manager→Manager deliverSignal + registerSchedule utility; formerly Build Durable Execution Access)",
-            "componentId": "message-bus"
-          },
-          {
-            "name": "C-SE",
-            "effortDays": 15,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "Build Security utility",
-            "componentId": "security"
-          },
-          {
-            "name": "C-LG",
-            "effortDays": 10,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 2,
-            "title": "Build Logging utility",
-            "componentId": "logging"
-          },
-          {
-            "name": "C-DG",
-            "effortDays": 10,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 2,
-            "title": "Build Diagnostics utility",
-            "componentId": "diagnostics"
-          },
-          {
-            "name": "R-GH",
-            "effortDays": 10,
-            "workerClass": "senior-developer",
-            "coding": false,
-            "riskBucket": 2,
-            "title": "Provision / register the GitHub App (org install, repo perms, Actions scope; backs WorkItemTracker via Issues)"
-          },
-          {
-            "name": "R-BG",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": false,
-            "riskBucket": 2,
-            "title": "Provision Stripe vendor account (BillingGateway)"
-          },
-          {
-            "name": "R-DER",
-            "effortDays": 15,
-            "workerClass": "senior-developer",
-            "coding": false,
             "riskBucket": 5,
-            "title": "Select + provision Durable Execution Runtime"
+            "title": "Build AutoscalerEngine",
+            "componentId": "autoscaler-engine"
           },
           {
-            "name": "R-CPR",
+            "name": "C-billing-engine",
             "effortDays": 15,
-            "workerClass": "senior-developer",
-            "coding": false,
+            "workerClass": "junior-developer",
+            "coding": true,
             "riskBucket": 3,
-            "title": "Select + provision Construction Pipeline Runtime"
+            "title": "Build BillingEngine",
+            "componentId": "billing-engine"
           },
           {
-            "name": "R-ORS",
-            "effortDays": 25,
-            "workerClass": "senior-developer",
-            "coding": false,
-            "riskBucket": 8,
-            "title": "Select + provision Operated Runtime Infrastructure"
+            "name": "C-billing-manager",
+            "effortDays": 20,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 5,
+            "title": "Build BillingManager",
+            "componentId": "billing-manager"
           },
           {
-            "name": "R-WIT",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": false,
-            "riskBucket": 2,
-            "title": "Provision Work Item Tracker (GitHub Issues via the GitHub App)"
-          },
-          {
-            "name": "N-SCHEMA",
+            "name": "C-billing-state-access",
             "effortDays": 10,
-            "workerClass": "system-architect",
-            "coding": false,
-            "riskBucket": 2,
-            "title": "Schema design for owned stores (ProjectGitRepo, OperatedSystemState, BillingState, UsageLog)"
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 3,
+            "title": "Build BillingStateAccess",
+            "componentId": "billing-state-access"
+          },
+          {
+            "name": "C-construction-manager",
+            "effortDays": 35,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 8,
+            "title": "Build ConstructionManager",
+            "componentId": "construction-manager"
+          },
+          {
+            "name": "C-design-health-engine",
+            "effortDays": 15,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 3,
+            "title": "Build DesignHealthEngine",
+            "componentId": "design-health-engine"
+          },
+          {
+            "name": "C-episode-access",
+            "effortDays": 10,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 3,
+            "title": "Build EpisodeAccess",
+            "componentId": "episode-access"
+          },
+          {
+            "name": "C-estimation-engine",
+            "effortDays": 20,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 3,
+            "title": "Build EstimationEngine",
+            "componentId": "estimation-engine"
+          },
+          {
+            "name": "C-intervention-engine",
+            "effortDays": 15,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 3,
+            "title": "Build InterventionEngine",
+            "componentId": "intervention-engine"
+          },
+          {
+            "name": "C-merchant-gateway-access",
+            "effortDays": 15,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 3,
+            "title": "Build MerchantGatewayAccess",
+            "componentId": "merchant-gateway-access"
+          },
+          {
+            "name": "C-operated-runtime-access",
+            "effortDays": 35,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 8,
+            "title": "Build OperatedRuntimeAccess",
+            "componentId": "operated-runtime-access"
+          },
+          {
+            "name": "C-operated-system-state-access",
+            "effortDays": 15,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 5,
+            "title": "Build OperatedSystemStateAccess",
+            "componentId": "operated-system-state-access"
+          },
+          {
+            "name": "C-operation-estimation-engine",
+            "effortDays": 30,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 5,
+            "title": "Build OperationEstimationEngine",
+            "componentId": "operation-estimation-engine"
+          },
+          {
+            "name": "C-operations-manager",
+            "effortDays": 35,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 8,
+            "title": "Build OperationsManager",
+            "componentId": "operations-manager"
+          },
+          {
+            "name": "C-project-design-manager",
+            "effortDays": 35,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 8,
+            "title": "Build ProjectDesignManager",
+            "componentId": "project-design-manager"
+          },
+          {
+            "name": "C-project-state-access",
+            "effortDays": 35,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 8,
+            "title": "Build ProjectStateAccess",
+            "componentId": "project-state-access"
+          },
+          {
+            "name": "C-review-engine",
+            "effortDays": 15,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 5,
+            "title": "Build ReviewEngine",
+            "componentId": "review-engine"
+          },
+          {
+            "name": "C-source-control-access",
+            "effortDays": 35,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 8,
+            "title": "Build SourceControlAccess",
+            "componentId": "source-control-access"
+          },
+          {
+            "name": "C-system-design-manager",
+            "effortDays": 35,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 8,
+            "title": "Build SystemDesignManager",
+            "componentId": "system-design-manager"
+          },
+          {
+            "name": "C-usage-access",
+            "effortDays": 15,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 3,
+            "title": "Build UsageAccess",
+            "componentId": "usage-access"
           },
           {
             "name": "G-SPA",
@@ -10374,95 +9874,15 @@
             "workerClass": "ui-designer",
             "coding": false,
             "riskBucket": 3,
-            "title": "UI design concepts for the SPA (all Method screens)"
-          },
-          {
-            "name": "I-UC1",
-            "effortDays": 10,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "End-to-end integration: UC1 (Phase-1 system-design workflow)"
-          },
-          {
-            "name": "I-UC2",
-            "effortDays": 10,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "End-to-end integration: UC2 (Phase-2 project-design + SDP commit)"
-          },
-          {
-            "name": "I-UC3",
-            "effortDays": 10,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "End-to-end integration: UC3 (construction activity execution)"
-          },
-          {
-            "name": "I-UC4",
-            "effortDays": 10,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "End-to-end integration: UC4 (operate + reconcile + autoscale)"
-          },
-          {
-            "name": "I-UC5",
-            "effortDays": 10,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "End-to-end integration: UC5 (bill-the-user cycle)"
-          },
-          {
-            "name": "N-STP",
-            "effortDays": 15,
-            "workerClass": "test-engineer",
-            "coding": false,
-            "riskBucket": 3,
-            "title": "System Test Plan — enumerate all the ways to prove the integrated system fails (all core UCs)"
-          },
-          {
-            "name": "N-STH",
-            "effortDays": 20,
-            "workerClass": "test-engineer",
-            "coding": false,
-            "riskBucket": 3,
-            "title": "System Test Harness — Playwright (SPA/UI E2E) + Go (API/integration driver)"
-          },
-          {
-            "name": "N-RTH",
-            "effortDays": 15,
-            "workerClass": "senior-developer",
-            "coding": false,
-            "riskBucket": 3,
-            "title": "Regression Test Harness — end-to-end + per-subsystem + per-component, run continuously"
-          },
-          {
-            "name": "N-SMOKE",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": false,
-            "riskBucket": 2,
-            "title": "Daily build + smoke-test automation"
-          },
-          {
-            "name": "N-QA",
-            "effortDays": 5,
-            "workerClass": "qa-engineer",
-            "coding": false,
-            "riskBucket": 2,
-            "title": "Define quality gates, review process, defect taxonomy; ongoing process audit"
+            "title": "UI design concepts for the SPA"
           },
           {
             "name": "N-IT",
-            "effortDays": 15,
+            "effortDays": 30,
             "workerClass": "software-tester",
             "coding": false,
-            "riskBucket": 3,
-            "title": "System Testing — run the system test plan against the integrated system"
+            "riskBucket": 5,
+            "title": "System testing (terminal gate)"
           },
           {
             "name": "N-PERF",
@@ -10470,96 +9890,136 @@
             "workerClass": "test-engineer",
             "coding": false,
             "riskBucket": 2,
-            "title": "Performance smoke test (latency under nominal load)"
+            "title": "Performance testing"
           },
           {
-            "name": "N-SEC",
+            "name": "N-QA",
             "effortDays": 5,
-            "workerClass": "senior-developer",
+            "workerClass": "qa-engineer",
             "coding": false,
-            "riskBucket": 3,
-            "title": "Security review (edge auth, webhook verify, secrets, Cedar policies)"
+            "riskBucket": 2,
+            "title": "Quality-assurance process and gates"
           },
           {
-            "name": "N-HARD",
+            "name": "N-RTH",
             "effortDays": 15,
             "workerClass": "senior-developer",
             "coding": false,
             "riskBucket": 3,
-            "title": "Hardening + bug-fix pass"
+            "title": "Regression test harness"
           },
           {
-            "name": "N-ADR",
-            "effortDays": 5,
-            "workerClass": "system-architect",
-            "coding": false,
-            "riskBucket": 2,
-            "title": "ADRs for the infrastructure decisions made during construction"
-          },
-          {
-            "name": "N-CI",
+            "name": "N-SMOKE",
             "effortDays": 5,
             "workerClass": "senior-developer",
             "coding": false,
             "riskBucket": 2,
-            "title": "Build/CI pipeline for aiarch-server Go monolith"
+            "title": "Daily build and smoke"
           },
           {
-            "name": "N-SC",
-            "effortDays": 5,
+            "name": "N-STH",
+            "effortDays": 20,
+            "workerClass": "test-engineer",
+            "coding": false,
+            "riskBucket": 3,
+            "title": "System test harness"
+          },
+          {
+            "name": "N-STP",
+            "effortDays": 15,
+            "workerClass": "test-engineer",
+            "coding": false,
+            "riskBucket": 3,
+            "title": "System test plan (all core use cases)"
+          },
+          {
+            "name": "R-construction-pipeline-runtime",
+            "effortDays": 15,
             "workerClass": "senior-developer",
             "coding": false,
-            "riskBucket": 1,
-            "title": "Source-control + branching + commit-convention setup"
+            "riskBucket": 3,
+            "title": "Provision ConstructionPipelineRuntime",
+            "componentId": "construction-pipeline-runtime"
           },
           {
-            "name": "N-DEP",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": false,
-            "riskBucket": 2,
-            "title": "Production deployment (aiarch namespace, ArgoCD app)"
-          },
-          {
-            "name": "N-RUN",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": false,
-            "riskBucket": 2,
-            "title": "Operational runbooks (deploy, rollback, on-call, recovery)"
-          },
-          {
-            "name": "N-REQ",
+            "name": "R-github",
             "effortDays": 10,
-            "workerClass": "system-architect",
+            "workerClass": "senior-developer",
             "coding": false,
             "riskBucket": 2,
-            "title": "Requirements analysis (formal pass beyond /system-design)"
+            "title": "Provision GitHub",
+            "componentId": "github"
           },
           {
-            "name": "N-ARCH",
+            "name": "R-merchant-gateway",
             "effortDays": 5,
-            "workerClass": "system-architect",
+            "workerClass": "senior-developer",
             "coding": false,
             "riskBucket": 2,
-            "title": "Architecture review with management"
+            "title": "Provision MerchantGateway",
+            "componentId": "merchant-gateway"
           },
           {
-            "name": "N-PLAN",
-            "effortDays": 5,
-            "workerClass": "project-manager",
+            "name": "R-operated-runtime",
+            "effortDays": 25,
+            "workerClass": "senior-developer",
             "coding": false,
-            "riskBucket": 2,
-            "title": "Project planning (this phase + downstream)"
+            "riskBucket": 8,
+            "title": "Provision OperatedRuntime",
+            "componentId": "operated-runtime"
           },
           {
-            "name": "C-EA",
+            "name": "U-SPA-S",
             "effortDays": 10,
             "workerClass": "junior-developer",
             "coding": true,
             "riskBucket": 3,
-            "title": "Build Episode Access",
-            "componentId": "episode-access"
+            "title": "SPA scaffold, auth wiring and design system"
+          },
+          {
+            "name": "U-SPA-billing-manager",
+            "effortDays": 20,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 3,
+            "title": "SPA screens for BillingManager",
+            "componentId": "billing-manager"
+          },
+          {
+            "name": "U-SPA-construction-manager",
+            "effortDays": 20,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 3,
+            "title": "SPA screens for ConstructionManager",
+            "componentId": "construction-manager"
+          },
+          {
+            "name": "U-SPA-operations-manager",
+            "effortDays": 20,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 3,
+            "title": "SPA screens for OperationsManager",
+            "componentId": "operations-manager"
+          },
+          {
+            "name": "U-SPA-project-design-manager",
+            "effortDays": 20,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 3,
+            "title": "SPA screens for ProjectDesignManager",
+            "componentId": "project-design-manager"
+          },
+          {
+            "name": "U-SPA-system-design-manager",
+            "effortDays": 20,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 3,
+            "title": "SPA screens for SystemDesignManager",
+            "componentId": "system-design-manager"
           }
         ]
       },
@@ -10589,7 +10049,7 @@
           "addressee": ""
         }
       ],
-      "revisions": 2
+      "revisions": 3
     }
   },
   "activityConstruction": {
@@ -16222,6 +15682,295 @@
             "staffingCap"
           ],
           "additionalProperties": false
+        },
+        "SystemComponent": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "x-go-name": "ID"
+            },
+            "name": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string"
+            },
+            "constructionProfile": {
+              "type": "string"
+            },
+            "provisioning": {
+              "type": "string"
+            },
+            "uiSurface": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "kind",
+            "constructionProfile",
+            "provisioning",
+            "uiSurface"
+          ],
+          "additionalProperties": false
+        },
+        "SystemRelationship": {
+          "type": "object",
+          "properties": {
+            "from": {
+              "type": "string"
+            },
+            "to": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "from",
+            "to"
+          ],
+          "additionalProperties": false
+        },
+        "SystemView": {
+          "type": "object",
+          "properties": {
+            "components": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/SystemComponent"
+              }
+            },
+            "relationships": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/SystemRelationship"
+              }
+            }
+          },
+          "required": [
+            "components"
+          ],
+          "additionalProperties": false
+        },
+        "ActivityOverride": {
+          "type": "object",
+          "properties": {
+            "activity": {
+              "type": "string"
+            },
+            "effortDays": {
+              "type": [
+                "null",
+                "number"
+              ]
+            },
+            "riskBucket": {
+              "type": [
+                "null",
+                "integer"
+              ]
+            },
+            "justification": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "activity",
+            "justification"
+          ],
+          "additionalProperties": false
+        },
+        "AdditiveActivity": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "effortDays": {
+              "type": "number"
+            },
+            "riskBucket": {
+              "type": "integer"
+            },
+            "workerClass": {
+              "type": "string"
+            },
+            "coding": {
+              "type": "boolean"
+            },
+            "dependsOn": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "string"
+              }
+            },
+            "componentId": {
+              "type": "string",
+              "x-go-name": "ComponentID"
+            },
+            "justification": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "title",
+            "effortDays",
+            "riskBucket",
+            "workerClass",
+            "coding",
+            "justification"
+          ],
+          "additionalProperties": false
+        },
+        "AdditiveMilestone": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "dependsOn": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "string"
+              }
+            },
+            "justification": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "justification"
+          ],
+          "additionalProperties": false
+        },
+        "ActivityListDeltas": {
+          "type": "object",
+          "properties": {
+            "overrides": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/ActivityOverride"
+              }
+            },
+            "additive": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/AdditiveActivity"
+              }
+            },
+            "additiveMilestones": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/AdditiveMilestone"
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "DerivedActivity": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "effortDays": {
+              "type": "number"
+            },
+            "riskBucket": {
+              "type": "integer"
+            },
+            "workerClass": {
+              "type": "string"
+            },
+            "coding": {
+              "type": "boolean"
+            },
+            "componentId": {
+              "type": "string",
+              "x-go-name": "ComponentID"
+            },
+            "derived": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "name",
+            "title",
+            "effortDays",
+            "riskBucket",
+            "workerClass",
+            "coding",
+            "componentId",
+            "derived"
+          ],
+          "additionalProperties": false
+        },
+        "DerivedPlan": {
+          "type": "object",
+          "properties": {
+            "activities": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/DerivedActivity"
+              }
+            },
+            "dependencies": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/NetworkDependency"
+              }
+            },
+            "milestones": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/NetworkMilestone"
+              }
+            }
+          },
+          "required": [
+            "activities",
+            "dependencies"
+          ],
+          "additionalProperties": false
         }
       },
       "interface": {
@@ -16303,6 +16052,27 @@
             ],
             "result": {
               "$ref": "#/$defs/ConstructionEstimate"
+            },
+            "error": true
+          },
+          {
+            "name": "DerivePlan",
+            "params": [
+              {
+                "name": "system",
+                "schema": {
+                  "$ref": "#/$defs/SystemView"
+                }
+              },
+              {
+                "name": "deltas",
+                "schema": {
+                  "$ref": "#/$defs/ActivityListDeltas"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/DerivedPlan"
             },
             "error": true
           }
@@ -20831,6 +20601,24 @@
               "type": [
                 "null",
                 "string"
+              ]
+            },
+            "constructionProfile": {
+              "type": [
+                "null",
+                "string"
+              ]
+            },
+            "provisioning": {
+              "type": [
+                "null",
+                "string"
+              ]
+            },
+            "uiSurface": {
+              "type": [
+                "null",
+                "boolean"
               ]
             }
           },
@@ -28330,5 +28118,150 @@
     ]
   },
   "reviewPolicy": {},
-  "updatedAt": "2026-08-09T05:30:44.213963Z"
+  "updatedAt": "2026-08-09T05:30:44.213963Z",
+  "activityListOverrides": {
+    "overrides": [
+      {
+        "activity": "C-agentic-job-access",
+        "justification": "The superseded hand-authored title (formerly C-CP) describes a venue-neutral agentic job rail supporting two execution venues (CI + local), consolidated from the former Construction Pipeline Access — real dual-venue scope beyond the 10d resourceAccess band default, so 25d/risk 5 is retained.",
+        "effortDays": 25,
+        "riskBucket": 5
+      },
+      {
+        "activity": "C-artifact-access",
+        "justification": "The superseded hand-authored title (formerly C-AA) notes this component is 'carved out of Project State Access — retroactive reconciliation, actuals-derived': the risk bucket (3) reflects a recorded actual from a real extraction, not a forward estimate, so it is retained over the 2 band default. Effort (10d) already matches the band default.",
+        "riskBucket": 3
+      },
+      {
+        "activity": "C-autoscaler-engine",
+        "justification": "Carried over from the committed activity list (C-AE); the original sizing rationale was not recorded. The observable signals actually cut the other way — autoscalerEngine carries 1 contract operation and touches 1 architecture relationship — tied with reviewEngine for the fewest operations of any engine, above only designHealthEngine's 0 — yet the committed number is double the 15d engine band default. Retained so the reviewed plan's number survives, flagged for re-estimation as an unexplained outlier.",
+        "effortDays": 30,
+        "riskBucket": 5
+      },
+      {
+        "activity": "C-billing-manager",
+        "justification": "Carried over from the committed activity list (C-BM). This is the one manager sized BELOW the 25d band default (20d) while carries 6 contract operations, the fewest of the five managers, which partly explains the below-default effort — the deviation runs opposite to the pattern every other manager override follows (larger, not smaller, than the default). Flagged as an unexplained opposite deviation rather than rationalized after the fact — retained so the reviewed plan's number survives, pending re-estimation.",
+        "effortDays": 20
+      },
+      {
+        "activity": "C-billing-state-access",
+        "justification": "billingStateAccess is realized across two contract facets (billingStateAccess: 6 operations + revenueLedgerAccess: 3 operations = 9 total) — more surface than a typical single-facet resourceAccess — consistent with the elevated risk bucket (3) against the 2 band default. Effort (10d) already matches the band default.",
+        "riskBucket": 3
+      },
+      {
+        "activity": "C-construction-manager",
+        "justification": "constructionManager touches 14 architecture relationships — the second-highest relationship degree of any manager (after operationsManager's 15) — and carries 10 contract operations, consistent with 35d/risk 8 rather than the 25d/risk-5 band default.",
+        "effortDays": 35,
+        "riskBucket": 8
+      },
+      {
+        "activity": "C-episode-access",
+        "justification": "Carried over from the committed activity list (C-EA); the original sizing rationale for the elevated risk bucket (3 vs the 2 band default) was not recorded — episodeAccess carries only 3 contract operations, unremarkable among resourceAccess components. Retained so the reviewed plan's number survives, flagged for re-estimation. Effort (10d) already matches the band default.",
+        "riskBucket": 3
+      },
+      {
+        "activity": "C-estimation-engine",
+        "justification": "Carried over from the committed activity list (C-EE); the original sizing rationale for 20d against the 15d engine band default was not recorded — estimationEngine carries only 4 contract operations and touches 2 relationships, unremarkable among engines. Retained so the reviewed plan's number survives, flagged for re-estimation.",
+        "effortDays": 20
+      },
+      {
+        "activity": "C-merchant-gateway-access",
+        "justification": "Carried over from the committed activity list (C-BG); the original sizing rationale was not recorded. merchantGatewayAccess carries only 2 contract operations, among the smallest resourceAccess contracts in the system, which does not explain the above-default 15d/risk-3 sizing. Retained so the reviewed plan's number survives, flagged for re-estimation.",
+        "effortDays": 15,
+        "riskBucket": 3
+      },
+      {
+        "activity": "C-operated-runtime-access",
+        "justification": "operatedRuntimeAccess is the only resourceAccess encapsulating more than one volatility (2, versus 1 for every peer) — the distinguishing signal here. Its 7 contract operations rank third among resourceAccess components, behind sourceControlAccess's 11 and projectStateAccess's 9. Consistent with 35d (the god-activity cap) and risk bucket 8, a level it shares with C-project-state-access and C-source-control-access.",
+        "effortDays": 35,
+        "riskBucket": 8
+      },
+      {
+        "activity": "C-operated-system-state-access",
+        "justification": "Carried over from the committed activity list (C-OSA); the original sizing rationale was not recorded. operatedSystemStateAccess carries 7 contract operations — third among resourceAccess components, behind sourceControlAccess's 11 and projectStateAccess's 9 — and 1 volatility like every peer except operatedRuntimeAccess. No recorded signal distinguishes it enough to explain either the above-default 15d effort or the elevation to risk bucket 5. Retained so the reviewed plan's numbers survive, flagged for re-estimation.",
+        "effortDays": 15,
+        "riskBucket": 5
+      },
+      {
+        "activity": "C-operation-estimation-engine",
+        "justification": "Carried over from the committed activity list (C-OE); the original sizing rationale was not recorded. operationEstimationEngine carries only 2 contract operations — among the smallest engine contracts in the system — which does not explain a committed effort double the 15d engine band default. Retained so the reviewed plan's number survives, flagged for re-estimation as an unexplained outlier.",
+        "effortDays": 30,
+        "riskBucket": 5
+      },
+      {
+        "activity": "C-operations-manager",
+        "justification": "operationsManager touches 15 architecture relationships — the highest relationship degree of any component in the system — consistent with the largest manager effort (35d, the god-activity cap) and the highest risk bucket (8).",
+        "effortDays": 35,
+        "riskBucket": 8
+      },
+      {
+        "activity": "C-project-design-manager",
+        "justification": "projectDesignManager carries 11 contract operations — the second-most of any manager, one below the App-C ceiling of 12 — and touches 12 relationships, consistent with 35d (the god-activity cap) and risk 8 rather than the 25d/risk-5 band default.",
+        "effortDays": 35,
+        "riskBucket": 8
+      },
+      {
+        "activity": "C-project-state-access",
+        "justification": "projectStateAccess is realized across four contract facets (constructionTransitionAccess 9 + designSessionAccess 8 + gitActivityStatusAccess 6 + projectStateAccess 9 = 32 operations total) — by far the largest operation surface of any component in the system — consistent with the god-activity-cap effort (35d) and the highest risk bucket (8).",
+        "effortDays": 35,
+        "riskBucket": 8
+      },
+      {
+        "activity": "C-review-engine",
+        "justification": "Carried over from the committed activity list (C-RE); the original sizing rationale for the elevated risk bucket (5 vs the 3 band default) was not recorded — reviewEngine carries 1 contract operation — tied with autoscalerEngine for the fewest of any engine, and above only designHealthEngine's 0, which does not explain the elevation. Retained so the reviewed plan's number survives, flagged for re-estimation. Effort (15d) already matches the band default.",
+        "riskBucket": 5
+      },
+      {
+        "activity": "C-source-control-access",
+        "justification": "sourceControlAccess carries 11 contract operations — one below the App-C ceiling of 12, the largest resourceAccess contract in the system — consistent with the god-activity-cap effort (35d) and the highest risk bucket (8).",
+        "effortDays": 35,
+        "riskBucket": 8
+      },
+      {
+        "activity": "C-system-design-manager",
+        "justification": "systemDesignManager carries 16 contract operations, past the App-C maximum of 12 — the largest contract and the largest manager surface in the system — so 35d (the god-activity cap) and risk 8 are retained rather than the 25d/risk-5 band default.",
+        "effortDays": 35,
+        "riskBucket": 8
+      },
+      {
+        "activity": "C-usage-access",
+        "justification": "Carried over from the committed activity list (C-UA); the original sizing rationale was not recorded — usageAccess carries only 3 contract operations, unremarkable among resourceAccess components. Retained so the reviewed plan's number survives, flagged for re-estimation.",
+        "effortDays": 15,
+        "riskBucket": 3
+      },
+      {
+        "activity": "N-PERF",
+        "justification": "The superseded hand-authored title 'Performance smoke test (latency under nominal load)' describes a narrow, single-scenario check — smaller in scope than the derived default's full 'Performance testing' — consistent with the smaller 5d/risk-2 figure, which is retained.",
+        "effortDays": 5,
+        "riskBucket": 2
+      },
+      {
+        "activity": "N-QA",
+        "justification": "Carried over from the committed activity list; the original sizing rationale for 5d against the 10d always-emit default was not recorded. Retained so the reviewed plan's number survives, flagged for re-estimation.",
+        "effortDays": 5
+      },
+      {
+        "activity": "R-construction-pipeline-runtime",
+        "justification": "Carried over from the committed activity list (R-CPR); the original sizing rationale was not recorded, and no observable contract/volatility/relationship signal exists for a Resource. Retained so the reviewed plan's number survives, flagged for re-estimation.",
+        "effortDays": 15,
+        "riskBucket": 3
+      },
+      {
+        "activity": "R-merchant-gateway",
+        "justification": "Carried over from the committed activity list (R-BG). This is the one vendor-provisioning activity sized BELOW the 10d band default (5d) with no recorded rationale and no observable signal (Resources carry no contract) to explain it — the deviation runs opposite to the pattern the other three vendor-provisioning overrides follow (at or above the default). Flagged as an unexplained opposite deviation rather than rationalized after the fact.",
+        "effortDays": 5
+      },
+      {
+        "activity": "R-operated-runtime",
+        "justification": "Carried over from the committed activity list (R-ORS); the original sizing rationale was not recorded, and no observable contract/volatility/relationship signal exists for a Resource. Retained so the reviewed plan's number survives, flagged for re-estimation — the largest vendor-provisioning override in the list.",
+        "effortDays": 25,
+        "riskBucket": 8
+      },
+      {
+        "activity": "U-SPA-S",
+        "justification": "Carried over from the committed activity list; the original sizing rationale for the elevated risk bucket (3 vs the 2 band default) was not recorded. Retained so the reviewed plan's number survives, flagged for re-estimation. Effort (10d) already matches the band default.",
+        "riskBucket": 3
+      }
+    ]
+  }
 }

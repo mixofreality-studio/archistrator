@@ -4055,7 +4055,11 @@ func (a *ActivityList) isArtifactModel() {}
 type Network struct {
 	// --- AUTHORED inputs (stored on disk) ---
 	Dependencies []NetworkDependency `json:"dependencies"`
-	CriticalPath []string            `json:"criticalPath"` // activity names on the critical path
+	// CriticalPath, for a DERIVED network (Task 10b, 2026-08-09), is written as the
+	// alphabetically-sorted SET of zero-float activity names from a ComputeNetwork
+	// solve over the derivation — not an ORDERED path through the graph, despite the
+	// field name. Do not read adjacency or sequence into its element order.
+	CriticalPath []string `json:"criticalPath"` // activity names on the critical path
 	// Milestones are the authored zero-duration event nodes (M0–M5 + N-DOGFOOD): the
 	// id/name/public/dependsOn are authored; OnCriticalPath + EventTime are computed at
 	// read. omitempty so a network with none round-trips unchanged.
@@ -7953,3 +7957,128 @@ func ReviewPolicyFromGateIDs(byType map[string][]string) ReviewPolicy {
 // shared kinds (fwra.NotFound, fwra.Conflict, fwra.Transient, fwra.Infrastructure,
 // fwra.ContractMisuse).
 type Error = fwra.Error
+
+// --- Historical activity-ID alias map -------------------------------------
+//
+// Maps the HISTORICAL hand-chosen activity short names (C-BM, C-AA, …) to the
+// DERIVED canonical ids (C-<component-id>).
+//
+// Why an alias map and not a key rewrite: all 69 rows in .activityConstruction
+// are keyed by the historical short names and every one is Done+Integrated.
+// Rewriting completed construction records to gain cosmetic key consistency is
+// risk with no payoff (founder ruling, 2026-08-09). The short name survives as
+// a render label; the canonical id is what the derivation produces and what
+// new state keys off.
+//
+// ONE SIGNATURE FOR "NO DERIVED COUNTERPART" (2026-08-10 review fix): an
+// entry belongs in this map ONLY when its canonical id names an activity the
+// derivation actually emits TODAY. A historical key whose only possible
+// canonical target is something the derivation will never (again) produce —
+// because the component is gone, because it is deliberately componentless,
+// or because a founder ruling removed that whole activity category — is left
+// OUT of the map entirely, so ResolveActivityAlias reports ok=false for it,
+// the SAME signal a genuine typo gets. Before this fix the same underlying
+// fact ("no derived counterpart") was reported two different ways depending
+// on whether anyone had bothered to type the entry in: the three zombies
+// (C-HE, C-WIA, R-WIT — components that no longer exist) and R-DER
+// (componentless) were simply absent (ok=false), while 12 other equally
+// uncounterparted keys — the three generated-transport clients (C-CW, C-CM,
+// C-CS), the four "provided" utilities (C-SE, C-LG, C-DG, C-DA), and all
+// five former integration activities (I-UC1..I-UC5, eliminated entirely by
+// the 2026-08-09 founder ruling that folds integration into every activity's
+// own lifecycle) — were IN the map and returned ok=true for a canonical id
+// nothing derives. All 16 are now absent, uniformly ok=false; see the
+// canonical id each used to carry in the git history of this file if that
+// mapping is needed again.
+//
+// Only C-* / R-* activities that carried a componentId AND whose component
+// the current architecture still builds get a 1:1 alias. U-SPA-1..U-SPA-5
+// get a 1:1 alias too (Task 10 completion, 2026-08-10): the spec tabulates
+// them against the five managers 1:1, so — unlike the rest of the U-SPA-*
+// set, which is re-derived per MANAGER as a genuinely different
+// decomposition and needs no alias — these five ARE plain renames, resolved
+// by hand from each activity's committed title against the five manager
+// components (e.g. U-SPA-1's title, "SPA — Phase-1 system-design screens",
+// names the one manager that owns Phase-1 system design). U-SPA-6 and
+// U-SPA-TEAM stay unaliased: both are genuinely cross-cutting screens (a
+// change-request re-entry flow; a Team/Agents roster) that no single manager
+// owns, so — like N-* and the rest of U-SPA-* — they resolve through the
+// prefix fallback in TestEveryHistoricalConstructionKeyResolvesToADerivedActivity
+// rather than a 1:1 rename entry here.
+
+// activityAliases maps historical short name → derived canonical id.
+var activityAliases = map[string]string{
+	"C-AA":  "C-artifact-access",
+	"C-AE":  "C-autoscaler-engine",
+	"C-BE":  "C-billing-engine",
+	"C-BG":  "C-merchant-gateway-access",
+	"C-BM":  "C-billing-manager",
+	"C-BS":  "C-billing-state-access",
+	"C-CP":  "C-agentic-job-access",
+	"C-DH":  "C-design-health-engine",
+	"C-EA":  "C-episode-access",
+	"C-EE":  "C-estimation-engine",
+	"C-IE":  "C-intervention-engine",
+	"C-MCN": "C-construction-manager",
+	"C-MOP": "C-operations-manager",
+	"C-MPD": "C-project-design-manager",
+	"C-MSD": "C-system-design-manager",
+	"C-OE":  "C-operation-estimation-engine",
+	"C-OR":  "C-operated-runtime-access",
+	"C-OSA": "C-operated-system-state-access",
+	"C-PA":  "C-project-state-access",
+	"C-RE":  "C-review-engine",
+	"C-SC":  "C-source-control-access",
+	"C-UA":  "C-usage-access",
+
+	// HAND-DERIVED: the generator keys on componentId, and no R-* activity in slot 9
+	// carries one (never backfilled), so these four were resolved by hand from the
+	// activity titles against the committed System's four provisioning:"vendor"
+	// components, each of which the deriver emits an R-<component-id> activity for.
+	// R-DER ("Durable Execution Runtime") and R-WIT ("Work Item Tracker") are
+	// deliberately excluded: R-DER is componentless (an additive delta, same category
+	// as the N-* checklist activities) and R-WIT is a zombie (no such resource exists).
+	"R-GH":  "R-github",                        // "Provision / register the GitHub App"
+	"R-BG":  "R-merchant-gateway",              // "Provision Stripe vendor account (BillingGateway)"
+	"R-CPR": "R-construction-pipeline-runtime", // "Select + provision Construction Pipeline Runtime"
+	"R-ORS": "R-operated-runtime",              // "Select + provision Operated Runtime Infrastructure"
+
+	// HAND-DERIVED (Task 10 completion, 2026-08-10): the ordinal U-SPA-<n> names were
+	// never backfilled against the derivation's per-MANAGER decomposition, so these
+	// five are resolved by hand from each activity's committed title against the five
+	// manager components in slot 5.
+	"U-SPA-1": "U-SPA-system-design-manager",  // title: "...Phase-1 system-design screens..."
+	"U-SPA-2": "U-SPA-project-design-manager", // title: "...Phase-2 project-design screens..."
+	"U-SPA-3": "U-SPA-construction-manager",   // title: "...Construction tracking + artifacts console..."
+	"U-SPA-4": "U-SPA-operations-manager",     // title: "...Operations console..."
+	"U-SPA-5": "U-SPA-billing-manager",        // title: "...Billing screens..."
+
+	// Trivial self-alias — see the file doc above for why G-SPA is entered here
+	// even though it is not a rename.
+	"G-SPA": "G-SPA",
+}
+
+// canonicalToHistorical is the reverse index, built once at init from activityAliases so
+// the two directions can never drift apart.
+var canonicalToHistorical = func() map[string]string {
+	m := make(map[string]string, len(activityAliases))
+	for historical, canonical := range activityAliases {
+		m[canonical] = historical
+	}
+	return m
+}()
+
+// ResolveActivityAlias maps a historical activity key to its derived canonical id.
+// ok is false for an unknown key — never a silent pass-through, which would make a typo
+// look like a valid activity.
+func ResolveActivityAlias(historical string) (string, bool) {
+	c, ok := activityAliases[historical]
+	return c, ok
+}
+
+// HistoricalAliasFor maps a derived canonical id back to the historical short name that
+// existing .activityConstruction rows are keyed by.
+func HistoricalAliasFor(canonical string) (string, bool) {
+	h, ok := canonicalToHistorical[canonical]
+	return h, ok
+}

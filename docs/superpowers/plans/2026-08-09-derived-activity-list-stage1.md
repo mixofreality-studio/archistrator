@@ -41,10 +41,16 @@
   git diff --stat .aiarch/state/project.json
   ```
 
-  Expected: tens of changed lines, not thousands. Also bump the document's top-level `version` integer (currently 595) — the rail increments it on every write.
+  The test is **proportionality, not an absolute line count**: the diff should contain only your intended insertions plus the `version` bump, in contiguous hunks, with no stray reindentation elsewhere in the file. A genuinely large addition legitimately produces a large diff — 9 new `$defs` pretty-printed at 2-space indent came to 317 lines in Task 1, which was correct. What indicates a formatting accident is a diff touching regions you did not edit, or one approaching the file's full 28,334 lines. If you see that, revert with `git checkout -- .aiarch/state/project.json` and redo with the recipe above.
+
+  Also bump the document's top-level `version` integer — the rail increments it on every write. (595 before Task 1; each state-editing task bumps it again.)
 - **`contract.gen.go` and `fake/fake.gen.go` are generated. Never hand-edit them.** Change the contract in `project.json` `.serviceContracts`, then run `make gen-models`.
 - **Engine purity is a hard gate.** `internal/engine/estimation` must import ONLY `fweng` and stdlib. No `projectstate` import, no I/O, no `time.Now()`, no `math/rand`, no goroutines, no global mutable state. `make encapsulation-check` and `make method-check` must stay green.
 - **Worker classes are a fixed roster**, spelled exactly: `system-architect`, `product-manager`, `project-manager`, `senior-developer`, `junior-developer`, `ui-designer`, `ux-reviewer`, `qa-engineer`, `test-engineer`, `software-tester`.
+- **Lint rules that bite this work** (`.golangci.yml`, converged by managed-scaffold sync — **never edit it to make a finding go away**):
+  - `revive` flags **unused parameters**. Do not carry a parameter "for symmetry" or future use; drop it. The plan's signatures are already minimal for this reason.
+  - `gocyclo` caps cyclomatic complexity at **15**, on production **and test** files. `deriveActivities` and `deriveDependencies` are the two functions most at risk. If either trips the cap, extract a named helper per emission rule (e.g. `codingActivityFor`, `provisioningActivityFor`, `spaActivitiesFor`) rather than restructuring the logic — the rules are meant to read one-to-one against the derivation table.
+  - `gosec` is disabled for `_test.go` only; `testdata` reads in non-test files would trip it.
 - **Effort quantum:** every derived `effortDays` is a multiple of 5 and ≤ 35. **Risk buckets** are Fibonacci: 1, 2, 3, 5, 8, 13.
 - **Activity ID prefixes are load-bearing** (downstream classifiers key on them): `C-` per-component coding, `U-SPA*` SPA construction, `G-` UI-design, `I-` integration, `R-` resource provisioning, `N-` noncoding, `S-` simulator (stage 2), `D-` design-first (stage 2 only, never in the base list).
 - **Commit after every task.** End commit messages with `Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>`.
@@ -53,20 +59,25 @@
 
 ## File Structure
 
+> **BINDING — the layer file-layout standard** (`docs/superpowers/specs/2026-07-11-layer-file-layout-standard-design.md`, enforced by `TestFileLayout` in `server/internal/arch_test.go`, **live with zero waivers**). A leaf layer package may contain ONLY:
+>
+> - **Rule 1** — one handwritten contract-implementation file: `<pkg>engine.go` / `<pkg>manager.go` / `<pkg>access.go`. It holds *all* contract methods plus everything shared — strategy tables, behaviour free-functions, codecs, adapters. **Large files are an accepted consequence** and explicitly sanctioned by the standard.
+> - **Rule 2** — one file per Temporal workflow (**managers only**; not applicable to Engines or ResourceAccess).
+> - **Rule 3** — one handwritten test file: `engine_test.go` / `manager_test.go` / `access_test.go`.
+> - **Rule 4** — no other handwritten `.go` files. Generated `*.gen.go`, `contract.schema.json`, and non-Go assets (including `testdata/`) are exempt.
+>
+> This plan originally specified per-concern files (`derive.go`, `derive_edges.go`, `deriveplan.go`, `activityalias.go`, …), every one of which violates Rule 4. **Do not create them.** The rule is machine-checked; `make lint` and the estimation-package test run will NOT catch it, because the gate lives in `internal/arch_test.go` — only `GOWORK=off go test ./internal/` or a full `./...` run fires it.
+
 **Created:**
-- `server/internal/engine/estimation/derive.go` — the derivation: activity emission, worker-class table, effort/risk defaults. One responsibility: System → activity set.
-- `server/internal/engine/estimation/derive_edges.go` — edge derivation, transitive reduction, pattern edges, milestone derivation. One responsibility: activity set → network.
-- `server/internal/engine/estimation/derive_deltas.go` — delta validation and application. One responsibility: baseline + deltas → final plan.
-- `server/internal/engine/estimation/derive_test.go` — unit tests for activity emission and defaults.
-- `server/internal/engine/estimation/derive_edges_test.go` — transitive-reduction and milestone tests, including the Löwy Fig 11-4 → 11-5 fixture.
-- `server/internal/engine/estimation/derive_deltas_test.go` — delta-vocabulary rejection tests.
-- `server/internal/engine/estimation/derive_parity_test.go` — the golden parity test against the live committed System.
-- `server/internal/engine/estimation/testdata/system_view.json` — frozen slim `SystemView` snapshot of the live slot 5.
-- `server/internal/engine/estimation/testdata/expected_plan.json` — the expected derived plan (golden file).
-- `server/internal/manager/projectdesign/deriveplan.go` — the `projectstate` → `estimation` conversion boundary and the materialize-on-read entry point.
-- `server/internal/manager/projectdesign/deriveplan_test.go` — conversion tests.
-- `server/internal/resourceaccess/projectstate/activityalias.go` — historical short-name → derived canonical id alias map.
-- `server/internal/resourceaccess/projectstate/activityalias_test.go` — alias round-trip test.
+- `server/internal/engine/estimation/testdata/system_view.json` — frozen slim `SystemView` snapshot of the live slot 5. (`testdata/` is exempt from the layout rule.)
+
+**Modified (all new code folds into these existing files — Rules 1 and 3):**
+- `server/internal/engine/estimation/estimationengine.go` — **all** derivation code: activity emission, worker-class/effort/risk tables, edge derivation and transitive reduction, milestone derivation, delta validation and application, and `DerivePlan` itself.
+- `server/internal/engine/estimation/engine_test.go` — **all** estimation tests, appended to the existing CPM tests.
+- `server/internal/manager/projectdesign/projectdesignmanager.go` — the `projectstate` → `estimation` conversion boundary and the materialize-on-read entry point.
+- `server/internal/manager/projectdesign/manager_test.go` — conversion tests.
+- `server/internal/resourceaccess/projectstate/projectstateaccess.go` — historical short-name → derived canonical id alias map.
+- `server/internal/resourceaccess/projectstate/access_test.go` — alias round-trip test.
 
 **Modified:**
 - `.aiarch/state/project.json` `.serviceContracts.estimationEngine` — new `$defs` + `DerivePlan` op (Task 1).
@@ -93,6 +104,13 @@ Adds the Engine's own types and the `DerivePlan` operation, then regenerates. Th
 - Produces: the generated types `SystemComponent`, `SystemRelationship`, `SystemView`, `ActivityOverride`, `AdditiveActivity`, `AdditiveMilestone`, `ActivityListDeltas`, `DerivedActivity`, `DerivedPlan`, and the method `EstimationEngineImpl.DerivePlan(fweng.Context, SystemView, ActivityListDeltas) (DerivedPlan, error)`. Every later task uses these exact names.
 
 `AdditiveActivity` carries a `componentId` field **that is always rejected** (Task 5). It exists so a component-bound additive fails with an explanatory contract-misuse error naming the reason, rather than as an opaque schema decode failure — the author needs to be told *why* the vocabulary forbids it.
+
+**The two `componentId` fields are deliberately asymmetric — do not "harmonize" them:**
+
+| Field | Shape | Why |
+|---|---|---|
+| `DerivedActivity.ComponentID` | **required** → plain `string` | Engine *output* that this code constructs. Empty means "no component", exactly as the canonical `projectstate.ActivityItem.ComponentID` (a plain `string`) already models it. A pointer would force nil-handling across Tasks 3, 4, 5 and 8 for no semantic gain. |
+| `AdditiveActivity.ComponentID` | **optional** → `*string` | Author *input*, and the always-rejected field. nil-vs-supplied is load-bearing: a caller passing `"componentId": ""` must still be rejected, and with a plain `string` that is indistinguishable from absent and would slip through the guard. |
 
 - [ ] **Step 1: Read the existing contract entry**
 
@@ -123,7 +141,7 @@ Hand-edit `.serviceContracts.estimationEngine.$defs` with these definitions **ad
       "provisioning": {"type": "string"},
       "uiSurface": {"type": "boolean"}
     },
-    "required": ["id", "name", "kind"],
+    "required": ["id", "name", "kind", "constructionProfile", "provisioning", "uiSurface"],
     "additionalProperties": false
   },
   "SystemRelationship": {
@@ -169,7 +187,7 @@ Hand-edit `.serviceContracts.estimationEngine.$defs` with these definitions **ad
       "componentId": {"type": "string", "x-go-name": "ComponentID"},
       "justification": {"type": "string"}
     },
-    "required": ["name", "title", "effortDays", "riskBucket", "workerClass", "justification"],
+    "required": ["name", "title", "effortDays", "riskBucket", "workerClass", "coding", "justification"],
     "additionalProperties": false
   },
   "AdditiveMilestone": {
@@ -203,7 +221,7 @@ Hand-edit `.serviceContracts.estimationEngine.$defs` with these definitions **ad
       "componentId": {"type": "string", "x-go-name": "ComponentID"},
       "derived": {"type": "boolean"}
     },
-    "required": ["name", "title", "effortDays", "riskBucket", "workerClass", "coding", "derived"],
+    "required": ["name", "title", "effortDays", "riskBucket", "workerClass", "coding", "componentId", "derived"],
     "additionalProperties": false
   },
   "DerivedPlan": {
@@ -339,7 +357,7 @@ Three pure lookup tables. They are separated from the emission logic (Task 3) be
 
 **Interfaces:**
 - Consumes: `SystemComponent` (Task 1).
-- Produces: `workerClassFor(prefix string, kind string) string`, `defaultEffortFor(kind string, profile string) float64`, `defaultRiskFor(effortDays float64) int64`. Tasks 3 and 5 call all three.
+- Produces: `workerClassFor(prefix string) string`, `noncodingInventoryClass(name string) string`, `defaultEffortFor(kind string) float64`, `defaultRiskFor(effortDays float64) int64`. Tasks 3 and 5 call all four.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -352,19 +370,17 @@ import "testing"
 
 func TestWorkerClassFor(t *testing.T) {
 	cases := []struct {
-		prefix, kind, want string
+		prefix, want string
 	}{
-		{"C", "manager", "junior-developer"},
-		{"C", "engine", "junior-developer"},
-		{"C", "resourceAccess", "junior-developer"},
-		{"U", "client", "junior-developer"},
-		{"R", "resource", "senior-developer"},
-		{"I", "", "senior-developer"},
-		{"G", "", "ui-designer"},
+		{"C", "junior-developer"},
+		{"U", "junior-developer"},
+		{"R", "senior-developer"},
+		{"I", "senior-developer"},
+		{"G", "ui-designer"},
 	}
 	for _, c := range cases {
-		if got := workerClassFor(c.prefix, c.kind); got != c.want {
-			t.Errorf("workerClassFor(%q,%q) = %q, want %q", c.prefix, c.kind, got, c.want)
+		if got := workerClassFor(c.prefix); got != c.want {
+			t.Errorf("workerClassFor(%q) = %q, want %q", c.prefix, got, c.want)
 		}
 	}
 }
@@ -391,19 +407,19 @@ func TestWorkerClassForNoncodingInventory(t *testing.T) {
 
 func TestDefaultEffortFor(t *testing.T) {
 	cases := []struct {
-		kind, profile string
-		want          float64
+		kind string
+		want float64
 	}{
-		{"manager", "handwritten", 25},
-		{"engine", "handwritten", 15},
-		{"resourceAccess", "handwritten", 10},
-		{"client", "handwritten", 25},
-		{"utility", "handwritten", 10},
-		{"resource", "vendor", 10},
+		{"manager", 25},
+		{"engine", 15},
+		{"resourceAccess", 10},
+		{"client", 25},
+		{"utility", 10},
+		{"resource", 10},
 	}
 	for _, c := range cases {
-		if got := defaultEffortFor(c.kind, c.profile); got != c.want {
-			t.Errorf("defaultEffortFor(%q,%q) = %v, want %v", c.kind, c.profile, got, c.want)
+		if got := defaultEffortFor(c.kind); got != c.want {
+			t.Errorf("defaultEffortFor(%q) = %v, want %v", c.kind, got, c.want)
 		}
 	}
 }
@@ -411,7 +427,7 @@ func TestDefaultEffortFor(t *testing.T) {
 // Every default must satisfy App C §4.4: a 5-day quantum, no god activity (>35d).
 func TestDefaultEffortObeysQuantumAndCap(t *testing.T) {
 	for _, kind := range []string{"manager", "engine", "resourceAccess", "client", "utility", "resource"} {
-		e := defaultEffortFor(kind, "handwritten")
+		e := defaultEffortFor(kind)
 		if e <= 0 || e > 35 {
 			t.Errorf("defaultEffortFor(%q) = %v, out of (0,35]", kind, e)
 		}
@@ -464,7 +480,7 @@ Append to `server/internal/engine/estimation/derive.go`:
 //
 // Verified against the 69 hand-authored activities in the committed list: prefix+kind
 // predicts workerClass with ZERO exceptions, which is what makes it derivable.
-func workerClassFor(prefix string, kind string) string {
+func workerClassFor(prefix string) string {
 	switch prefix {
 	case "C", "U":
 		return "junior-developer" // junior builds components and the SPA
@@ -506,7 +522,7 @@ func noncodingInventoryClass(name string) string {
 // precision"), and it would make the baseline churn whenever a relationship is edited.
 // Roughly half of these get overridden by a justified delta — that is the design intent:
 // the agent's judgment is spent on the exceptions, not on transcription.
-func defaultEffortFor(kind string, profile string) float64 {
+func defaultEffortFor(kind string) float64 {
 	switch kind {
 	case "manager":
 		return 25
@@ -817,25 +833,25 @@ func deriveActivities(system SystemView) []DerivedActivity {
 	for _, c := range system.Components {
 		switch {
 		case isCodeLayer(c.Kind) && c.ConstructionProfile != "generated":
-			effort := defaultEffortFor(c.Kind, c.ConstructionProfile)
+			effort := defaultEffortFor(c.Kind)
 			out = append(out, DerivedActivity{
 				Name:        "C-" + c.ID,
 				Title:       "Build " + c.Name,
 				EffortDays:  effort,
 				RiskBucket:  defaultRiskFor(effort),
-				WorkerClass: workerClassFor("C", c.Kind),
+				WorkerClass: workerClassFor("C"),
 				Coding:      true,
 				ComponentID: c.ID,
 				Derived:     true,
 			})
 		case c.Kind == "resource" && c.Provisioning == "vendor":
-			effort := defaultEffortFor(c.Kind, c.Provisioning)
+			effort := defaultEffortFor(c.Kind)
 			out = append(out, DerivedActivity{
 				Name:        "R-" + c.ID,
 				Title:       "Provision " + c.Name,
 				EffortDays:  effort,
 				RiskBucket:  defaultRiskFor(effort),
-				WorkerClass: workerClassFor("R", c.Kind),
+				WorkerClass: workerClassFor("R"),
 				Coding:      false,
 				ComponentID: c.ID,
 				Derived:     true,
@@ -850,7 +866,7 @@ func deriveActivities(system SystemView) []DerivedActivity {
 				Title:       "SPA screens for " + c.Name,
 				EffortDays:  20,
 				RiskBucket:  defaultRiskFor(20),
-				WorkerClass: workerClassFor("U", c.Kind),
+				WorkerClass: workerClassFor("U"),
 				Coding:      true,
 				ComponentID: c.ID,
 				Derived:     true,
@@ -863,12 +879,12 @@ func deriveActivities(system SystemView) []DerivedActivity {
 			DerivedActivity{
 				Name: "U-SPA-S", Title: "SPA scaffold, auth wiring and design system",
 				EffortDays: 10, RiskBucket: defaultRiskFor(10),
-				WorkerClass: workerClassFor("U", "client"), Coding: true, Derived: true,
+				WorkerClass: workerClassFor("U"), Coding: true, Derived: true,
 			},
 			DerivedActivity{
 				Name: "G-SPA", Title: "UI design concepts for the SPA",
 				EffortDays: 15, RiskBucket: defaultRiskFor(15),
-				WorkerClass: workerClassFor("G", ""), Coding: false, Derived: true,
+				WorkerClass: workerClassFor("G"), Coding: false, Derived: true,
 			},
 		)
 	}
@@ -877,7 +893,7 @@ func deriveActivities(system SystemView) []DerivedActivity {
 		out = append(out, DerivedActivity{
 			Name: "I-" + uc, Title: "Integrate " + uc,
 			EffortDays: 10, RiskBucket: defaultRiskFor(10),
-			WorkerClass: workerClassFor("I", ""), Coding: false, Derived: true,
+			WorkerClass: workerClassFor("I"), Coding: false, Derived: true,
 		})
 	}
 
@@ -946,6 +962,7 @@ package estimation
 import (
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 )
 
@@ -1022,6 +1039,12 @@ func edgeSystem() SystemView {
 		{From: "order-manager", To: "order-access"},
 		{From: "pricing-engine", To: "order-access"},
 		{From: "order-access", To: "order-db"},
+		// order-access -> logging exists so C-order-access appears as a dependent at
+		// all; without it the dangling-edge test below is vacuous (its loop body never
+		// runs, because the only edge out of order-access is dropped before it becomes
+		// a key). Adding it changes no other expectation: logging is a handwritten
+		// utility with its own C-* activity, and it introduces no new inherited path.
+		{From: "order-access", To: "logging"},
 	}
 	return sys
 }
@@ -1048,11 +1071,65 @@ func TestDeriveDependenciesMapsRelationshipsAndReduces(t *testing.T) {
 
 // An edge pointing at a component with NO derived activity (an owned store, a generated
 // client) must be dropped, not emitted as a dangling reference into the CPM solve.
+// The ComponentID contract this whole file depends on: deriveDependencies indexes
+// activities by ComponentID to rewrite architecture edges as activity edges, so a
+// componentless activity that carried a stray ComponentID would silently capture edges
+// meant for a real component. Asserted here, at the consumer, rather than in Task 3.
+func TestComponentIDIsSetOnlyOnComponentBoundActivities(t *testing.T) {
+	for _, a := range deriveActivities(edgeSystem()) {
+		componentBound := strings.HasPrefix(a.Name, "C-") || strings.HasPrefix(a.Name, "R-") ||
+			(strings.HasPrefix(a.Name, "U-SPA-") && a.Name != "U-SPA-S")
+		switch {
+		case componentBound && a.ComponentID == "":
+			t.Errorf("%s is component-bound but carries no ComponentID", a.Name)
+		case !componentBound && a.ComponentID != "":
+			t.Errorf("%s is componentless but carries ComponentID %q; it would capture edges meant for that component",
+				a.Name, a.ComponentID)
+		}
+	}
+}
+
+// An edge pointing at a component with NO derived activity (an owned store, a generated
+// client) must be dropped, not emitted as a dangling reference into the CPM solve — a
+// dangling predecessor injects a zero-duration phantom node and silently distorts the
+// critical path.
+//
+// Two things this test has to get right, both of which an earlier version got wrong: it
+// must not be VACUOUS (C-order-access has to actually appear as a dependent, or the loop
+// never runs), and it must assert on RESOLVABILITY rather than on specific names — a
+// dropped !okTo guard emits the EMPTY STRING as a predecessor, not a readable id like
+// "C-order-db", so a literal comparison sails straight past the regression.
 func TestDeriveDependenciesDropsEdgesToComponentsWithNoActivity(t *testing.T) {
-	got := depsByActivity(deriveDependencies(edgeSystem(), deriveActivities(edgeSystem())))
-	for _, pred := range got["C-order-access"] {
-		if pred == "C-order-db" || pred == "R-order-db" {
-			t.Errorf("emitted an edge to the owned store order-db: %v", got["C-order-access"])
+	sys := edgeSystem()
+	acts := deriveActivities(sys)
+	known := make(map[string]bool, len(acts))
+	for _, a := range acts {
+		known[a.Name] = true
+	}
+	deps := deriveDependencies(sys, acts)
+	got := depsByActivity(deps)
+
+	// Vacuity guard: if order-access ever stops appearing as a dependent, this test
+	// proves nothing and must fail loudly rather than pass silently.
+	if _, ok := got["C-order-access"]; !ok {
+		t.Fatal("fixture went vacuous: C-order-access has no dependency row, so a leaked dangling edge could not be observed")
+	}
+
+	for _, d := range deps {
+		for _, p := range d.DependsOn {
+			switch {
+			case p == "":
+				t.Errorf("activity %q has an EMPTY predecessor — an edge to a component with no derived activity leaked through", d.Activity)
+			case !known[p]:
+				t.Errorf("activity %q depends on %q, which is not a derived activity; dangling predecessors inject zero-duration phantom nodes into the CPM solve", d.Activity, p)
+			}
+		}
+	}
+
+	// And specifically: the owned store must never have produced an activity edge.
+	for _, p := range got["C-order-access"] {
+		if strings.Contains(p, "order-db") {
+			t.Errorf("edge to the owned store order-db survived: %v", got["C-order-access"])
 		}
 	}
 }
@@ -1344,7 +1421,7 @@ import (
 
 func planFor(t *testing.T, deltas ActivityListDeltas) DerivedPlan {
 	t.Helper()
-	plan, err := EstimationEngineImpl{}.DerivePlan(nil, edgeSystem(), deltas)
+	plan, err := NewEstimationEngine().DerivePlan(fweng.Context{}, edgeSystem(), deltas)
 	if err != nil {
 		t.Fatalf("DerivePlan returned error: %v", err)
 	}
@@ -1393,7 +1470,7 @@ func TestOverrideReplacesEffortAndRisk(t *testing.T) {
 // An override naming no derived activity is the zombie failure mode: the live committed
 // list carries C-HE, C-WIA and R-WIT against components that do not exist. Loud failure.
 func TestOverrideOfUnknownActivityIsRejected(t *testing.T) {
-	_, err := EstimationEngineImpl{}.DerivePlan(nil, edgeSystem(), ActivityListDeltas{
+	_, err := NewEstimationEngine().DerivePlan(fweng.Context{}, edgeSystem(), ActivityListDeltas{
 		Overrides: []ActivityOverride{{Activity: "C-hand-off-engine", Justification: "x"}},
 	})
 	var fe *fweng.Error
@@ -1403,7 +1480,7 @@ func TestOverrideOfUnknownActivityIsRejected(t *testing.T) {
 }
 
 func TestOverrideWithoutJustificationIsRejected(t *testing.T) {
-	_, err := EstimationEngineImpl{}.DerivePlan(nil, edgeSystem(), ActivityListDeltas{
+	_, err := NewEstimationEngine().DerivePlan(fweng.Context{}, edgeSystem(), ActivityListDeltas{
 		Overrides: []ActivityOverride{{Activity: "C-order-manager", EffortDays: ptrFloat(35)}},
 	})
 	var fe *fweng.Error
@@ -1414,7 +1491,7 @@ func TestOverrideWithoutJustificationIsRejected(t *testing.T) {
 
 func TestOverrideBreakingTheQuantumIsRejected(t *testing.T) {
 	for _, bad := range []float64{7, 11, 40} {
-		_, err := EstimationEngineImpl{}.DerivePlan(nil, edgeSystem(), ActivityListDeltas{
+		_, err := NewEstimationEngine().DerivePlan(fweng.Context{}, edgeSystem(), ActivityListDeltas{
 			Overrides: []ActivityOverride{{
 				Activity: "C-order-manager", EffortDays: ptrFloat(bad), Justification: "j",
 			}},
@@ -1452,23 +1529,32 @@ func TestAdditiveActivityIsAppended(t *testing.T) {
 
 // C2: an additive carrying a componentId is a covert per-component exclusion or
 // replacement channel. It is exactly how C-HE and C-WIA would come back.
+//
+// AdditiveActivity.ComponentID is a *string on purpose (author input, where nil-vs-
+// supplied is load-bearing) so the literal needs ptrString, NOT a bare string. The empty
+// string is deliberately still a rejection: a caller writing `"componentId": ""` is
+// supplying the field, and a plain string type could not tell that from absent.
 func TestAdditiveWithComponentIDIsRejected(t *testing.T) {
-	_, err := EstimationEngineImpl{}.DerivePlan(nil, edgeSystem(), ActivityListDeltas{
-		Additive: []AdditiveActivity{{
-			Name: "N-X", Title: "x", EffortDays: 5, RiskBucket: 2,
-			WorkerClass: "junior-developer", Justification: "j",
-			ComponentID: "order-manager",
-		}},
-	})
-	var fe *fweng.Error
-	if !errors.As(err, &fe) || fe.Kind != fweng.ContractMisuse {
-		t.Fatalf("want ContractMisuse for an additive carrying a componentId, got %v", err)
+	for _, cid := range []string{"order-manager", ""} {
+		_, err := NewEstimationEngine().DerivePlan(fweng.Context{}, edgeSystem(), ActivityListDeltas{
+			Additive: []AdditiveActivity{{
+				Name: "N-X", Title: "x", EffortDays: 5, RiskBucket: 2,
+				WorkerClass: "junior-developer", Justification: "j",
+				ComponentID: ptrString(cid),
+			}},
+		})
+		var fe *fweng.Error
+		if !errors.As(err, &fe) || fe.Kind != fweng.ContractMisuse {
+			t.Fatalf("componentId=%q: want ContractMisuse for an additive carrying a componentId, got %v", cid, err)
+		}
 	}
 }
 
+func ptrString(s string) *string { return &s }
+
 // An additive may not shadow a derived activity — that is an exclusion in disguise.
 func TestAdditiveCollidingWithADerivedNameIsRejected(t *testing.T) {
-	_, err := EstimationEngineImpl{}.DerivePlan(nil, edgeSystem(), ActivityListDeltas{
+	_, err := NewEstimationEngine().DerivePlan(fweng.Context{}, edgeSystem(), ActivityListDeltas{
 		Additive: []AdditiveActivity{{
 			Name: "C-order-manager", Title: "shadow", EffortDays: 5, RiskBucket: 2,
 			WorkerClass: "junior-developer", Justification: "j",
@@ -1483,7 +1569,7 @@ func TestAdditiveCollidingWithADerivedNameIsRejected(t *testing.T) {
 // C3: an additive declares its OWN incident edges only. Pointing at a nonexistent
 // activity would inject a dangling node into the CPM solve.
 func TestAdditiveEdgeToUnknownActivityIsRejected(t *testing.T) {
-	_, err := EstimationEngineImpl{}.DerivePlan(nil, edgeSystem(), ActivityListDeltas{
+	_, err := NewEstimationEngine().DerivePlan(fweng.Context{}, edgeSystem(), ActivityListDeltas{
 		Additive: []AdditiveActivity{{
 			Name: "N-X", Title: "x", EffortDays: 5, RiskBucket: 2,
 			WorkerClass: "junior-developer", Justification: "j",
@@ -1497,7 +1583,7 @@ func TestAdditiveEdgeToUnknownActivityIsRejected(t *testing.T) {
 }
 
 func TestAdditiveWithOffRosterWorkerClassIsRejected(t *testing.T) {
-	_, err := EstimationEngineImpl{}.DerivePlan(nil, edgeSystem(), ActivityListDeltas{
+	_, err := NewEstimationEngine().DerivePlan(fweng.Context{}, edgeSystem(), ActivityListDeltas{
 		Additive: []AdditiveActivity{{
 			Name: "N-X", Title: "x", EffortDays: 5, RiskBucket: 2,
 			WorkerClass: "Platform-DevOps-Engineer", Justification: "j",
@@ -1533,7 +1619,7 @@ func TestAdditiveMilestoneIsAppended(t *testing.T) {
 }
 
 func TestAdditiveMilestoneShadowingADerivedOneIsRejected(t *testing.T) {
-	_, err := EstimationEngineImpl{}.DerivePlan(nil, edgeSystem(), ActivityListDeltas{
+	_, err := NewEstimationEngine().DerivePlan(fweng.Context{}, edgeSystem(), ActivityListDeltas{
 		AdditiveMilestones: []AdditiveMilestone{{Id: "M0", Justification: "j"}},
 	})
 	var fe *fweng.Error
@@ -1545,13 +1631,112 @@ func TestAdditiveMilestoneShadowingADerivedOneIsRejected(t *testing.T) {
 // An empty System is a normal DOMAIN result (a project read before its architecture is
 // committed), never an error.
 func TestDerivePlanOnEmptySystemIsAnEmptyPlanNotAnError(t *testing.T) {
-	plan, err := EstimationEngineImpl{}.DerivePlan(nil, SystemView{}, ActivityListDeltas{})
+	plan, err := NewEstimationEngine().DerivePlan(fweng.Context{}, SystemView{}, ActivityListDeltas{})
 	if err != nil {
 		t.Fatalf("empty System must be a domain result, got error %v", err)
 	}
 	if len(plan.Activities) != 0 {
 		t.Errorf("empty System produced %d activities", len(plan.Activities))
 	}
+}
+
+// mustReject asserts the deltas are refused with a ContractMisuse. Every caller varies
+// exactly ONE field away from an otherwise-legal delta, so the named guard is the only
+// one eligible — a rejection test that passed because an EARLIER guard fired would not
+// be testing what its name claims.
+func mustReject(t *testing.T, what string, deltas ActivityListDeltas) {
+	t.Helper()
+	_, err := NewEstimationEngine().DerivePlan(fweng.Context{}, edgeSystem(), deltas)
+	var fe *fweng.Error
+	if !errors.As(err, &fe) || fe.Kind != fweng.ContractMisuse {
+		t.Fatalf("%s: want ContractMisuse, got %v", what, err)
+	}
+}
+
+// legalAdditive passes every guard, so a caller can break exactly one field and know
+// which guard fired.
+func legalAdditive() AdditiveActivity {
+	return AdditiveActivity{
+		Name: "N-X", Title: "x", EffortDays: 5, RiskBucket: 2,
+		WorkerClass: "senior-developer", Justification: "j",
+	}
+}
+
+// The deferred two-pass validation exists so two additives may legally depend on each
+// other: appendAdditives indexes EVERY additive before validateAdditiveEdges checks any
+// edge. Inlining the edge check into the append loop would reject this valid input — and
+// that regression is invisible to every other test in this file, because their edge
+// targets are all derived baseline activities that exist before additive processing.
+// The reference is FORWARD on purpose: N-FIRST depends on N-SECOND, appended after it.
+func TestAdditivesMayDependOnEachOther(t *testing.T) {
+	plan := planFor(t, ActivityListDeltas{Additive: []AdditiveActivity{
+		{
+			Name: "N-FIRST", Title: "first", EffortDays: 5, RiskBucket: 2,
+			WorkerClass: "senior-developer", DependsOn: []string{"N-SECOND"},
+			Justification: "depends on a sibling additive declared after it",
+		},
+		{
+			Name: "N-SECOND", Title: "second", EffortDays: 5, RiskBucket: 2,
+			WorkerClass: "senior-developer",
+			Justification: "the forward-referenced sibling",
+		},
+	}})
+	if _, ok := activityNamed(plan, "N-FIRST"); !ok {
+		t.Error("N-FIRST missing from the plan")
+	}
+	if _, ok := activityNamed(plan, "N-SECOND"); !ok {
+		t.Error("N-SECOND missing from the plan")
+	}
+	var found bool
+	for _, d := range plan.Dependencies {
+		if d.Activity == "N-FIRST" && len(d.DependsOn) == 1 && d.DependsOn[0] == "N-SECOND" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("N-FIRST -> N-SECOND edge missing; the two-pass ordering has regressed to single-pass")
+	}
+}
+
+func TestOverrideWithNonFibonacciRiskIsRejected(t *testing.T) {
+	mustReject(t, "override with risk bucket 4", ActivityListDeltas{Overrides: []ActivityOverride{{
+		Activity: "C-order-manager", RiskBucket: ptrInt(4), Justification: "j",
+	}}})
+}
+
+func TestAdditiveWithoutJustificationIsRejected(t *testing.T) {
+	a := legalAdditive()
+	a.Justification = ""
+	mustReject(t, "additive without justification", ActivityListDeltas{Additive: []AdditiveActivity{a}})
+}
+
+func TestAdditiveWithIllegalEffortIsRejected(t *testing.T) {
+	for _, bad := range []float64{7, 40} {
+		a := legalAdditive()
+		a.EffortDays = bad
+		mustReject(t, "additive with off-quantum or oversized effort",
+			ActivityListDeltas{Additive: []AdditiveActivity{a}})
+	}
+}
+
+func TestAdditiveWithNonFibonacciRiskIsRejected(t *testing.T) {
+	a := legalAdditive()
+	a.RiskBucket = 4
+	mustReject(t, "additive with risk bucket 4", ActivityListDeltas{Additive: []AdditiveActivity{a}})
+}
+
+func TestAdditiveMilestoneWithoutJustificationIsRejected(t *testing.T) {
+	mustReject(t, "additive milestone without justification", ActivityListDeltas{
+		AdditiveMilestones: []AdditiveMilestone{{Id: "M9"}},
+	})
+}
+
+func TestAdditiveMilestoneWithDanglingDependencyIsRejected(t *testing.T) {
+	mustReject(t, "additive milestone with dangling dependsOn", ActivityListDeltas{
+		AdditiveMilestones: []AdditiveMilestone{{
+			Id: "M9", DependsOn: []string{"N-DOES-NOT-EXIST"}, Justification: "j",
+		}},
+	})
 }
 
 func ptrFloat(f float64) *float64 { return &f }
@@ -1651,7 +1836,7 @@ func applyDeltas(base []DerivedActivity, deps []NetworkDependency, ms []NetworkM
 			return DerivedPlan{}, fweng.New(fweng.ContractMisuse,
 				"DerivePlan: additive activity "+a.Name+" shadows a derived activity; that is an exclusion in disguise")
 		}
-		if a.ComponentID != "" {
+		if a.ComponentID != nil {
 			return DerivedPlan{}, fweng.New(fweng.ContractMisuse,
 				"DerivePlan: additive activity "+a.Name+" carries a componentId; additive is for genuinely componentless work, "+
 					"and a component-bound additive is a covert exclusion/replacement channel")
@@ -1817,14 +2002,16 @@ generated = {'web-client', 'mcp-client', 'scheduler-client'}
 vendor = {'github', 'merchant-gateway', 'construction-pipeline-runtime', 'operated-runtime'}
 comps = []
 for c in sysm['components']:
-    e = {'id': c['id'], 'name': c['name'], 'kind': c['kind']}
-    if c['kind'] == 'resource':
-        e['provisioning'] = 'vendor' if c['id'] in vendor else 'owned'
-    else:
-        e['constructionProfile'] = 'generated' if c['id'] in generated else 'handwritten'
-    if c['id'] == 'web-client':
-        e['uiSurface'] = True
-    comps.append(e)
+    # All three attributes are REQUIRED on the Engine's slim view, so emit every one on
+    # every component — the Engine receives fully resolved values and never re-defaults.
+    comps.append({
+        'id': c['id'],
+        'name': c['name'],
+        'kind': c['kind'],
+        'constructionProfile': 'generated' if c['id'] in generated else 'handwritten',
+        'provisioning': ('vendor' if c['id'] in vendor else 'owned') if c['kind'] == 'resource' else 'owned',
+        'uiSurface': c['id'] == 'web-client',
+    })
 rels = [{'from': r['from'], 'to': r['to']} for r in sysm.get('relationships', [])]
 out = {'components': comps, 'relationships': rels,
        'coreUseCaseIds': ['UC1', 'UC2', 'UC3', 'UC4', 'UC5']}
@@ -1869,7 +2056,7 @@ func loadSystemFixture(t *testing.T) SystemView {
 
 func parityPlan(t *testing.T) DerivedPlan {
 	t.Helper()
-	plan, err := EstimationEngineImpl{}.DerivePlan(nil, loadSystemFixture(t), ActivityListDeltas{})
+	plan, err := NewEstimationEngine().DerivePlan(fweng.Context{}, loadSystemFixture(t), ActivityListDeltas{})
 	if err != nil {
 		t.Fatalf("DerivePlan over the live System: %v", err)
 	}
@@ -1884,9 +2071,20 @@ func parityNames(plan DerivedPlan) map[string]bool {
 	return m
 }
 
-// Correction 1: the three zombies must NOT appear. HandOffEngine was cut from the
-// architecture; there is no work-item-access component and no work-item-tracker
-// resource. All three are committed today, marked Done+Integrated.
+// Correction 1 — the three zombie activities (C-HE / C-WIA / R-WIT in the committed
+// plan, all Done+Integrated against components that no longer exist) must not appear.
+//
+// HONEST SCOPE: this test cannot prove the deriver "excludes" them, because there is no
+// exclusion branch to exercise — deriveActivities emits C-*/R-* names ONLY by iterating
+// system.Components, so a component that does not exist can never produce an activity.
+// Corrections 2 and 3 below DO have real guard branches (constructionProfile ==
+// "generated", provisioning != "vendor") and their tests genuinely exercise them.
+//
+// What this test is actually worth: (a) a fixture-staleness tripwire, failing if a
+// future re-extraction reintroduces one of these three components, and (b) a structural
+// tripwire against any regression that sourced activity names from somewhere other than
+// system.Components. The real evidence for Correction 1 is the derived-vs-committed
+// diff (49 derived vs the committed 69), not this assertion in isolation.
 func TestParityDropsTheZombieActivities(t *testing.T) {
 	got := parityNames(parityPlan(t))
 	for _, zombie := range []string{"C-hand-off-engine", "C-work-item-access", "R-work-item-tracker"} {
@@ -1985,7 +2183,7 @@ func TestParityPlanSolvesThroughComputeNetwork(t *testing.T) {
 	for _, a := range plan.Activities {
 		items = append(items, ActivityItem{Name: a.Name, EffortDays: a.EffortDays})
 	}
-	sol, err := EstimationEngineImpl{}.ComputeNetwork(nil,
+	sol, err := NewEstimationEngine().ComputeNetwork(fweng.Context{},
 		ActivityList{Activities: items},
 		Network{Dependencies: plan.Dependencies, Milestones: plan.Milestones})
 	if err != nil {
@@ -2132,13 +2330,155 @@ EOF
 
 ---
 
+### Task 10a: Apply the founder's derivation rulings (provided utilities, no I-*)
+
+Founder rulings taken 2026-08-09 after reviewing the full derived list. Three changes to what the derivation emits, plus their consequences.
+
+**Ruling 1 — utilities backed by off-the-shelf platform components get no coding activity.** All four of this project's utilities are provided, per their own `encapsulates` text: `security` is "Keycloak-backed AuthN/AuthZ", `diagnostics` is a "telemetry reporting surface (OTel)", `logging` is a structured logging sink, and `message-bus` encapsulates the Workflow Execution Substrate over Temporal. Planning construction work for them is the same defect as planning work the generator does.
+
+> Löwy's Table 11-1 *does* give Logging and Security coding activities (6 and 7) — because in that example they are being built. Here they are configured. The rule is about who builds it, not about the layer.
+
+Introduce a third `constructionProfile` value, `"provided"` (platform / third-party supplied), alongside `"generated"`. Both mean **no `C-*` activity**. Unauthored still defaults to `"handwritten"`, so an unknown value conservatively emits work rather than silently dropping it.
+
+**Ruling 2 — drop the `I-*` integration activities entirely.** They have no basis in the worked example: Table 11-1 contains no integration activities, only activity 21 (System Testing, 30d) depending on 5, 19 and 20. `I-UC*` came from `the-method-activity-list`'s draft-job doctrine, which contradicts that same skill's own Step 2 (integration per *component cluster*). The stronger argument is double-counting: App A makes **Integration a phase of every activity's own lifecycle**, so a separate `I-*` activity charges the same work twice.
+
+**Ruling 3 — slot 9 stores the derived list only.** The 14 componentless additives are cut.
+
+**Consequences that must be carried through:**
+- **Milestone M4** ("Use Cases Demonstrable") loses its entire fan-in and is removed. M0–M3 remain.
+- **`N-IT` re-bases**: its predecessors become the client/SPA construction activities instead of the `I-*` set — structurally what Table 11-1's activity 21 does.
+- **`SystemView.CoreUseCaseIDs` becomes dead** and is removed from the contract, along with the `useCaseIDs` parameter on `MaterializeActivityPlan`.
+- Derived count goes 49 → **40**.
+
+**Files:**
+- Modify: `.aiarch/state/project.json` → `.serviceContracts.estimationEngine` (drop `coreUseCaseIds` from `SystemView`), then regenerate
+- Modify: `server/internal/engine/estimation/estimationengine.go` — emission rules, milestones, pattern edges
+- Modify: `server/internal/engine/estimation/engine_test.go` — every affected test
+- Modify: `server/internal/engine/estimation/testdata/system_view.json` — stamp `provided` on the four utilities
+- Modify: `server/internal/manager/projectdesign/projectdesignmanager.go` + `manager_test.go` — drop the `useCaseIDs` parameter
+
+**Steps:**
+
+- [ ] **Step 1: Update the emission rules.** In the coding-activity rule, skip a component whose `ConstructionProfile` is `"generated"` **or** `"provided"`. Delete the integration-activity emission and its helper. Keep the comment explaining *why* provided components are skipped, citing the Table 11-1 contrast above.
+
+- [ ] **Step 2: Update milestones and pattern edges.** Remove M4. Remove the `I-* → N-IT` pattern edges and replace them with edges from the SPA construction activities (`U-SPA-*`) to `N-IT`, so the terminal gate still has a real fan-in.
+
+- [ ] **Step 3: Drop `coreUseCaseIds`.** Remove it from the `SystemView` `$def` in `.serviceContracts.estimationEngine`, bump `version`, run `make gen-models`, and remove the now-dead `useCaseIDs` parameter from `MaterializeActivityPlan` and its callers/tests. Validate state (`0 errors`).
+
+- [ ] **Step 4: Update the fixture and every affected test.** Stamp `constructionProfile: "provided"` on `security`, `logging`, `diagnostics`, `message-bus` in `testdata/system_view.json`. Update the parity tests: the derived count becomes **40**; add assertions that no `C-security` / `C-logging` / `C-diagnostics` / `C-message-bus` is emitted, and that no `I-*` activity is emitted at all. **Both new assertions must be reachable** — the fixture contains all four utilities and five core use cases existed before, so removing either guard must turn the test red. Verify that by mutation and report it.
+
+- [ ] **Step 5: Verify.** `GOWORK=off go test ./internal/engine/estimation/...`, `./internal/manager/projectdesign/...`, `./internal/` (layer gates), `./...`, plus `golangci-lint run ./...`, `make encapsulation-check`, and `aiarch-state-mcp validate --root .` (errors must stay 0).
+
+- [ ] **Step 6: Commit.**
+
+---
+
+### Task 10b: Write the computed plan into slot 9, and gate it against drift
+
+The founder's ruling replaced the original "store deltas, materialize on read" design. That design required every reader to materialize, which is impossible to do cleanly: the layer order is Manager → Engine → ResourceAccess, so `projectstate` can call neither the Manager (where `MaterializeActivityPlan` lives) nor the Engine (which derives). Two live readers — the construction pump's `committedPlanInputs` and SDP-review's `committedActivityList` — would have silently read an empty plan.
+
+**The replacement, which is also how this repo already handles generated artefacts:** slot 9 stores the **computed** activity list, so every existing reader keeps working unchanged. The overrides that produced it are stored alongside as the authored input. A `make` target re-derives and fails on any difference — the same pattern as `contract.gen.go` and `make gen-models-check`.
+
+That drift gate is what makes `ACT-COMPONENT-COVERAGE` deletable in Task 11: re-deriving and comparing is strictly stronger than checking coverage.
+
+**Content:** the 40 derived activities, with the effort/risk **overrides applied** so the committed plan's numbers survive (dropping them would reset every estimate to a band midpoint — every ResourceAccess 10d, every engine 15d — discarding the architect's real sizing judgement). The 14 componentless additives are cut per the founder's ruling. Slot 10 gets the derived dependency rows and milestones M0–M3.
+
+**Files:**
+- Modify: `.aiarch/state/project.json` → `slots["9"].model`, `slots["10"].model`, and a new sibling holding the authored overrides
+- Modify: `server/Makefile` — a `derived-plan-check` target
+- Modify: `server/internal/manager/projectdesign/manager_test.go` — the drift test
+
+**Steps:**
+
+- [ ] **Step 1: Read the current slot 9 fully** before changing it. It is the record of a real, reviewed plan; understand every entry.
+
+- [ ] **Step 2: Author the overrides.** For every derived activity whose committed effort/risk differs from the band default, one override carrying the committed number and a written justification. Use this precedence, and record in the report how many landed in each tier:
+  1. The committed **title** explains it — use that.
+  2. An **observable, checkable property** explains it — contract operation count in `.serviceContracts`, `encapsulatesVolatilities` length, relationship degree. State the fact and its consequence, e.g. *"systemDesignManager carries 16 contract operations, past the App-C maximum of 12 — the largest manager surface in the system, so 35d rather than the 25d band midpoint."* Verifiable, not narrative.
+  3. **Nothing distinguishes it** — say so honestly: *"Carried over from the committed activity list; the original sizing rationale was not recorded. Retained rather than reset to the band default so the reviewed plan's numbers survive the move to derivation — flagged for re-estimation."*
+
+  **Never invent a rationale.** An after-the-fact justification presented as the original reasoning is a forgery, and this is going into committed state. Where an activity deviates *opposite* to its same-kind peers (`C-BM`, `R-BG`), say exactly that and flag it unexplained.
+
+- [ ] **Step 3: Write slots 9 and 10.** Slot 9 = the 40 computed activities with overrides applied. Slot 10 = derived dependencies + milestones M0–M3. Both stay `status: 2` (committed) — a reconciliation amendment, not a new draft cycle. **The three zombies and the three generated-client codings must not appear in any form.**
+
+- [ ] **Step 4: Add the drift gate.** A `make derived-plan-check` target that re-derives from the committed System and fails if the result differs from what slot 9 holds. Back it with a Go test in `manager_test.go` so it runs in the normal suite too. **Prove it fails**: perturb one stored activity's effort, confirm RED, restore, confirm GREEN. That proof is the deliverable.
+
+- [ ] **Step 5: Verify.** `GOWORK=off go test ./...` (many packages read this state), `./internal/` layer gates, `golangci-lint run ./...`, `make encapsulation-check`, and `aiarch-state-mcp validate --root .`. Errors must stay **0**; the advisory count is expected to **drop** as hand-authored activities disappear — report which findings went.
+
+- [ ] **Step 6: Commit**, recording in the message the 69 → 40 reconciliation and the 19 orphaned construction rows (14 additives + 5 integration) as a deliberate consequence.
+
+---
+
+### Task 7b: Consolidate the estimation package to the layer file-layout standard
+
+Tasks 3–6 created seven handwritten files in `server/internal/engine/estimation/`. Every one violates Rule 4 of the layer file-layout standard, and `TestFileLayout` — live with **zero waivers** — fails on the branch while passing on `main`. It went undetected for four tasks because those tasks ran only `go test ./internal/engine/estimation/...`; the gate lives in `internal/arch_test.go`, which that path never loads.
+
+This is a regression introduced by this plan. It is fixed by moving code, not by weakening the gate: `.golangci.yml`, `arch_test.go`, and the standard itself are all off-limits.
+
+**Files:**
+- Delete (folding their contents into the two files below): `derive.go`, `derive_edges.go`, `derive_deltas.go`, `derive_test.go`, `derive_edges_test.go`, `derive_deltas_test.go`, `derive_parity_test.go`
+- Modify: `server/internal/engine/estimation/estimationengine.go` — receives all three implementation files' contents
+- Modify: `server/internal/engine/estimation/engine_test.go` — receives all four test files' contents
+- Untouched: `testdata/system_view.json` (exempt), `contract.gen.go`, `fake/fake.gen.go`
+
+**Interfaces:** unchanged. This task moves code between files and changes nothing else — every function keeps its name, signature, and body.
+
+- [ ] **Step 1: Confirm the gate fails, and exactly why**
+
+```bash
+cd server && GOWORK=off go test ./internal/ -run TestFileLayout
+```
+Expected: FAIL, naming the seven files. Record the output — it is the before-state.
+
+- [ ] **Step 2: Fold the three implementation files into `estimationengine.go`**
+
+Append the full contents of `derive.go`, `derive_edges.go` and `derive_deltas.go` to `estimationengine.go`, minus their `package` clauses and import blocks. Merge their imports into the existing block (`sort` is likely already there; add what is missing). Each file's header comment becomes a section comment introducing that block of functions — keep the prose, it carries the Löwy citations and the reasoning for the delta vocabulary. Delete the three files.
+
+Rule 1 explicitly sanctions the resulting size: *"Large files are an accepted consequence — `projectstateaccess.go` folds ~40 source files."*
+
+- [ ] **Step 3: Fold the four test files into `engine_test.go`**
+
+Append the contents of `derive_test.go`, `derive_edges_test.go`, `derive_deltas_test.go` and `derive_parity_test.go` to the existing `engine_test.go`, minus `package` clauses, merging imports. Watch for helper-name collisions with the pre-existing CPM tests (`usd`, `approx`, `eps`, `serialChainOption`). If one collides, rename the NEWER helper and say so in the report — never delete or weaken an existing test to resolve a collision. Delete the four files.
+
+- [ ] **Step 4: Verify the gate passes and nothing else moved**
+
+```bash
+cd server
+GOWORK=off go test ./internal/ -run 'TestFileLayout|TestMethodLayering'
+GOWORK=off go test ./internal/engine/estimation/...
+GOWORK=off golangci-lint run ./internal/engine/estimation/...
+GOWORK=off make encapsulation-check
+```
+All must pass. The estimation test count must be **identical** to before the fold — report the before and after numbers explicitly. A dropped test is the main risk in this task.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add -A server/internal/engine/estimation/
+git commit -m "$(cat <<'EOF'
+refactor(estimation): fold derivation into the layer file-layout standard
+
+Tasks 3-6 created seven handwritten files; the standard allows exactly one
+implementation file (estimationengine.go) and one test file
+(engine_test.go). TestFileLayout is live with zero waivers and was failing
+on this branch while passing on main.
+
+Code moved only — no signature, behaviour, or test-assertion changes.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+EOF
+)"
+```
+
+---
+
 ### Task 8: Wire the Manager to DerivePlan
 
 The Engine imports no `projectstate`, so the Manager converts at the call boundary — the same Option B pattern `toEstimationOption` already uses.
 
 **Files:**
-- Create: `server/internal/manager/projectdesign/deriveplan.go`
-- Create: `server/internal/manager/projectdesign/deriveplan_test.go`
+- Modify: `server/internal/manager/projectdesign/projectdesignmanager.go` (append — Rule 1; do NOT create deriveplan.go)
+- Modify: `server/internal/manager/projectdesign/manager_test.go` (append — Rule 3)
 
 **Interfaces:**
 - Consumes: `estimation.SystemView`, `estimation.ActivityListDeltas`, `estimation.DerivedPlan`, `EstimationEngine.DerivePlan` (Tasks 1, 5); `projectstate.Component` attributes (Task 7).
@@ -2146,7 +2486,7 @@ The Engine imports no `projectstate`, so the Manager converts at the call bounda
 
 - [ ] **Step 1: Write the failing test**
 
-Create `server/internal/manager/projectdesign/deriveplan_test.go`:
+Append to `server/internal/manager/projectdesign/manager_test.go` (Rule 3):
 
 ```go
 package projectdesign
@@ -2224,7 +2564,7 @@ Expected: FAIL — `undefined: toEstimationSystemView`, `undefined: toProjectSta
 
 - [ ] **Step 3: Implement the conversion boundary**
 
-Create `server/internal/manager/projectdesign/deriveplan.go`:
+Append to `server/internal/manager/projectdesign/projectdesignmanager.go` (Rule 1 — do NOT create a separate file):
 
 ```go
 // deriveplan.go is the projectstate ↔ estimation conversion boundary for the Phase-2
@@ -2349,8 +2689,8 @@ EOF
 Derived ids are `C-<component-id>`; the 69 rows in `.activityConstruction` are keyed by hand-chosen short names. The founder ratified an alias map over a key rewrite — rewriting Done+Integrated construction records to gain cosmetic key consistency is risk with no payoff.
 
 **Files:**
-- Create: `server/internal/resourceaccess/projectstate/activityalias.go`
-- Create: `server/internal/resourceaccess/projectstate/activityalias_test.go`
+- Modify: `server/internal/resourceaccess/projectstate/projectstateaccess.go` (append — Rule 1; do NOT create activityalias.go)
+- Modify: `server/internal/resourceaccess/projectstate/access_test.go` (append — Rule 3)
 
 **Interfaces:**
 - Consumes: nothing from earlier tasks.
@@ -2385,7 +2725,7 @@ Copy the emitted lines into Step 3's table. Note only `C-*`/`R-*` with a `compon
 
 - [ ] **Step 2: Write the failing test**
 
-Create `server/internal/resourceaccess/projectstate/activityalias_test.go`:
+Append to `server/internal/resourceaccess/projectstate/access_test.go` (Rule 3):
 
 ```go
 package projectstate
@@ -2437,7 +2777,7 @@ Expected: FAIL — `undefined: ResolveActivityAlias`.
 
 - [ ] **Step 4: Implement the alias map**
 
-Create `server/internal/resourceaccess/projectstate/activityalias.go`:
+Append to `server/internal/resourceaccess/projectstate/projectstateaccess.go` (Rule 1 — do NOT create a separate file):
 
 ```go
 // activityalias.go maps the HISTORICAL hand-chosen activity short names (C-BM, C-AA, …)
@@ -2539,12 +2879,12 @@ The flip. Everything before this was additive and behaviour-preserving; this is 
 - Modify: `.aiarch/state/project.json` `slots["9"]` and `slots["10"]` (hand-edit; both stay committed — reconciliation amendment)
 
 **Interfaces:**
-- Consumes: `toEstimationSystemView`, `toProjectStateActivityList` (Task 8); `DerivePlan` (Task 5); `ResolveActivityAlias` (Task 9).
+- Consumes: `toEstimationSystemView`, `toProjectStateActivityList` (Task 8); `DerivePlan` (Task 5); `ResolveActivityAlias` (Task 9) — **this task is what makes Task 9's alias map load-bearing**; before it, nothing called it.
 - Produces: `MaterializeActivityPlan(sys projectstate.System, useCaseIDs []string, deltas estimation.ActivityListDeltas) (projectstate.ActivityList, []projectstate.NetworkDependency, error)` on the Manager — the single render-on-read entry point.
 
 - [ ] **Step 1: Write the failing test**
 
-Append to `server/internal/manager/projectdesign/deriveplan_test.go`:
+Append further to `server/internal/manager/projectdesign/manager_test.go`:
 
 ```go
 func TestMaterializeActivityPlanProducesTheReaderShape(t *testing.T) {
@@ -2573,6 +2913,110 @@ func TestMaterializeActivityPlanProducesTheReaderShape(t *testing.T) {
 	}
 }
 
+// loadCommittedStateForTest reads the repo's own committed project document and returns
+// the slot-5 System, the core use-case ids, and the historical .activityConstruction
+// keys. It reads LIVE state rather than a fixture on purpose: the risk this test guards
+// against is one specific historical key having no derived counterpart, which a
+// synthetic fixture cannot reproduce.
+//
+// The path is resolved relative to this test file's package directory
+// (server/internal/manager/projectdesign), so it does not depend on the caller's cwd.
+func loadCommittedStateForTest(t *testing.T) (projectstate.System, []string, []string) {
+	t.Helper()
+	const rel = "../../../../.aiarch/state/project.json"
+	raw, err := os.ReadFile(rel)
+	if err != nil {
+		t.Fatalf("read committed project state at %s: %v", rel, err)
+	}
+	var doc struct {
+		Slots map[string]struct {
+			Model json.RawMessage `json:"model"`
+		} `json:"slots"`
+		ActivityConstruction map[string]json.RawMessage `json:"activityConstruction"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("decode committed project state: %v", err)
+	}
+
+	var sys projectstate.System
+	if err := json.Unmarshal(doc.Slots["5"].Model, &sys); err != nil {
+		t.Fatalf("decode slot 5 (System): %v", err)
+	}
+	if len(sys.Components) == 0 {
+		t.Fatal("slot 5 decoded to zero components - the test would be vacuous")
+	}
+
+	// Core use cases live in their own slot; ids only, best effort. If the shape does
+	// not match, the derivation simply emits no I-* activities, which does not affect
+	// what this test asserts.
+	var useCases struct {
+		UseCases []struct {
+			ID string `json:"id"`
+		} `json:"useCases"`
+	}
+	for _, slot := range doc.Slots {
+		if err := json.Unmarshal(slot.Model, &useCases); err == nil && len(useCases.UseCases) > 0 {
+			break
+		}
+	}
+	ids := make([]string, 0, len(useCases.UseCases))
+	for _, uc := range useCases.UseCases {
+		ids = append(ids, uc.ID)
+	}
+
+	keys := make([]string, 0, len(doc.ActivityConstruction))
+	for k := range doc.ActivityConstruction {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	if len(keys) == 0 {
+		t.Fatal("activityConstruction decoded to zero keys - the test would be vacuous")
+	}
+	return sys, ids, keys
+}
+
+// THE JOIN THAT MUST NOT BREAK. Once the derivation is authoritative, slot 9 renders
+// activities named C-<component-id> while the 69 rows in .activityConstruction remain
+// keyed by their hand-chosen short names (C-BM, R-GH, …), every one Done+Integrated.
+// Any code joining plan to construction state therefore needs the alias to resolve, and
+// nothing else in stage 1 exercises that seam — so it is asserted here, over the REAL
+// committed key set rather than a fixture, because the risk is a specific historical key
+// having no derived counterpart.
+func TestEveryHistoricalConstructionKeyResolvesToADerivedActivity(t *testing.T) {
+	sys, useCaseIDs, historicalKeys := loadCommittedStateForTest(t)
+	list, _, err := MaterializeActivityPlan(sys, useCaseIDs, estimation.ActivityListDeltas{})
+	if err != nil {
+		t.Fatalf("MaterializeActivityPlan: %v", err)
+	}
+	derived := make(map[string]bool, len(list.Activities))
+	for _, a := range list.Activities {
+		derived[a.Name] = true
+	}
+
+	// The zombies (components that no longer exist) and the componentless additive
+	// R-DER have no derived counterpart BY DESIGN — a derived list never emits them.
+	noCounterpart := map[string]bool{"C-HE": true, "C-WIA": true, "R-WIT": true, "R-DER": true}
+
+	for _, historical := range historicalKeys {
+		if noCounterpart[historical] {
+			continue
+		}
+		canonical, ok := projectstate.ResolveActivityAlias(historical)
+		if !ok {
+			// U-SPA-* and N-* are re-derived or arrive as additive deltas rather than
+			// being renamed, so they legitimately have no alias.
+			if strings.HasPrefix(historical, "U-SPA-") || strings.HasPrefix(historical, "N-") {
+				continue
+			}
+			t.Errorf("historical construction key %q has no alias; its Done+Integrated history would be orphaned", historical)
+			continue
+		}
+		if !derived[canonical] {
+			t.Errorf("historical key %q aliases to %q, which the derivation does not emit", historical, canonical)
+		}
+	}
+}
+
 // A delta document that violates the vocabulary must fail the READ, loudly. A silently
 // dropped bad delta is the zombie failure mode returning by another door.
 func TestMaterializeActivityPlanPropagatesDeltaErrors(t *testing.T) {
@@ -2595,7 +3039,7 @@ Expected: FAIL — `undefined: MaterializeActivityPlan`.
 
 - [ ] **Step 3: Implement the render-on-read entry point**
 
-Append to `server/internal/manager/projectdesign/deriveplan.go`:
+Append further to `server/internal/manager/projectdesign/projectdesignmanager.go`:
 
 ```go
 // MaterializeActivityPlan is the single render-on-read entry point for the Phase-2 plan:
@@ -2612,7 +3056,7 @@ func MaterializeActivityPlan(
 	view := toEstimationSystemView(sys)
 	view.CoreUseCaseIDs = useCaseIDs
 
-	plan, err := estimation.EstimationEngineImpl{}.DerivePlan(nil, view, deltas)
+	plan, err := estimation.NewEstimationEngine().DerivePlan(fweng.Context{}, view, deltas)
 	if err != nil {
 		return projectstate.ActivityList{}, nil, err
 	}
@@ -2625,7 +3069,7 @@ func MaterializeActivityPlan(
 }
 ```
 
-> If `EstimationEngineImpl` is not exported from the estimation package, call through the injected `estimator estimation.EstimationEngine` field on the Manager instead (see `NewProjectDesignManager` in `contract.gen.go:254`) and make `MaterializeActivityPlan` a method on the Manager. Check with `grep -n "EstimationEngineImpl" internal/engine/estimation/*.go | head -3`.
+> `estimation.NewEstimationEngine()` is the exported constructor (`contract.gen.go:137`, returns `EstimationEngineImpl{}`); the Engine is stateless, so constructing one per call is free and matches how `engine_test.go` already calls it.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
@@ -2810,6 +3254,28 @@ Replace the "Draft-job doctrine (CI dispatch)" task statement. The new task is:
 
 State the closed vocabulary explicitly: **no exclusions, no derived-edge overrides.** If a component needs no work it should not be a component; if a derived edge is wrong, the relationship is wrong — amend the System.
 
+- [ ] **Step 2b: Record the four doctrine corrections this project produced**
+
+These are new rules discovered during execution, not restatements. Each one prevented real defective output, so each needs to survive into the next project.
+
+**(a) Components you do not build get no coding activity — two kinds.** The skill already says generated transport gets none. Add the second kind: a component backed by an **off-the-shelf platform or third-party service** is configured, not built. This project's four utilities are all of that kind (`security` → Keycloak, `diagnostics` → OTel, `logging` → a structured sink, `message-bus` → the Temporal substrate), and the derivation initially planned 4 coding activities for work nobody was doing.
+
+State the distinction explicitly, because Löwy cuts the other way and a reader will notice: **Table 11-1 gives Logging and Security coding activities (6 and 7) — because in that example they are being built.** The rule turns on *who builds it*, never on which layer it sits in. Express it in the model as a `constructionProfile` of `generated` or `provided`; unauthored must keep defaulting to `handwritten`, so an unknown value conservatively emits work rather than silently deleting it.
+
+**(b) No per-use-case integration activities.** Delete the draft-job doctrine line instructing "one `I-UC*` integration activity per core use case". Two independent reasons:
+- **Table 11-1 has no integration activities at all** — only activity 21, System Testing, depending on 5, 19 and 20.
+- **App A makes Integration a phase of every activity's own lifecycle** (Requirements → Detailed Design → Test Plan → Construction → **Integration**), so a separate `I-*` charges the same work twice.
+
+Also reconcile the skill's internal contradiction: its Step 2 says integration goes *per component cluster* while its draft-job doctrine said *per core use case*. Neither matches the worked example. The terminal system-testing gate depends on the top-of-stack construction activities, as activity 21 does.
+
+**(c) Ground a justification in a property, not a superlative.** Every override carries a written justification, in this precedence: the committed title if it explains; else an observable checkable property; else honest provenance saying the rationale was not recorded.
+
+The failure mode worth naming: **every false justification this project produced was a superlative** — "tied for the most", "the smallest contract in the system", "the largest footprint of any engine". Each was falsified by a single counterexample somewhere in a 37-component system. The claims that held stated a bare property and its consequence ("16 contract operations, past the App-C maximum of 12") rather than a ranking. So: state the number and what follows from it; reach for a ranking only if you have checked every peer.
+
+And a false checkable claim is **worse** than honest provenance — it invites a reader to trust it and skip re-checking. "The rationale was not recorded; retained so the reviewed plan's numbers survive; flagged for re-estimation" is a good justification, not a failure to find one.
+
+**(d) The drift gate replaces coverage checking.** The activity list is generated-and-committed, gated by a target that re-derives from the committed System and fails on any difference — the same pattern as `contract.gen.go` and `make gen-models-check`. That is strictly stronger than the retired `ACT-COMPONENT-COVERAGE` rule, which could only ask whether every component appeared somewhere.
+
 - [ ] **Step 3: Update the anti-patterns and exit criteria**
 
 Add an anti-pattern: *"Authoring a derived activity by hand"* — a coding activity typed into the delta document is either a duplicate of the derived one or a zombie; the three zombies (`C-HE`, `C-WIA`, `R-WIT`) are what this prevents.
@@ -2858,6 +3324,8 @@ GOWORK=off make gen-models-check      # codegen drift
 GOWORK=off make encapsulation-check   # engine purity
 GOWORK=off make method-check          # Method design gate
 GOWORK=off make lint                  # linters
+GOWORK=off go test ./internal/         # TestFileLayout + TestMethodLayering — the LAYER GATES.
+                                      # Package-scoped runs do NOT fire these; run them per task.
 ```
 
 All five must pass. Then confirm in the running app that the Phase-2 activity-list and network screens render the materialized plan.
