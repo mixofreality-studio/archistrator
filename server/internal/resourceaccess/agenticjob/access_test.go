@@ -3941,3 +3941,20 @@ func TestParseEpisodeStreamDeduplicatesTurnUsageByMessageID(t *testing.T) {
 	// NOT 158/19 — msg_a is counted ONCE, at its last-seen (cumulative) value.
 	assertStreamedUsage(t, sum, EpisodeUsage{In: 108, Out: 14})
 }
+
+// TestLocalDispatchProjectID pins the AIARCH_PROJECT_ID resolution order for local
+// dispatches: the Manager-supplied spec.ProjectID is authoritative; the constructor's
+// repo-basename fallback (hooks.go name-as-identity) applies only when the spec
+// carries none. The fallback stamped the WRONG identity whenever the local repo
+// directory was not named after the project (e.g. a bench scratch "state-repo"),
+// which let the agent rig flip project.json's id on the session branch and trip
+// guardProjectIdentity on every later server-side branch write.
+func TestLocalDispatchProjectID(t *testing.T) {
+	a := &localExecAccess{projectID: "state-repo"}
+	if got := a.dispatchProjectID(PipelineSpec{ProjectID: "todomvc-run-1"}); got != "todomvc-run-1" {
+		t.Fatalf("dispatchProjectID with spec.ProjectID = %q, want the spec's id", got)
+	}
+	if got := a.dispatchProjectID(PipelineSpec{ProjectID: "  "}); got != "state-repo" {
+		t.Fatalf("dispatchProjectID with blank spec.ProjectID = %q, want the constructor fallback", got)
+	}
+}

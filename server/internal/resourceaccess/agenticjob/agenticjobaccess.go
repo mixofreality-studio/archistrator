@@ -1383,7 +1383,23 @@ func (a *localExecAccess) SubmitAgenticJob(rc fwra.Context, spec PipelineSpec) (
 	}
 	componentID := spec.DispatchInputs[dispatchInputComponentIDKey]
 
-	return a.submitClaudeRun(rc, constructDispatchPlan(a.projectID, activityID, command, componentID))
+	return a.submitClaudeRun(rc, constructDispatchPlan(a.dispatchProjectID(spec), activityID, command, componentID))
+}
+
+// dispatchProjectID resolves the AIARCH_PROJECT_ID to stamp on a dispatch: the
+// spec's authoritative ProjectID when the Manager supplied one, else the
+// constructor-time fallback (hooks.go's repo-basename, name-as-identity). The
+// fallback is WRONG whenever the repo directory is not named after the project
+// (any local scratch/state repo): the rig then decodes-and-re-encodes the
+// document under the wrong id, flipping project.json's identity on the session
+// branch, and every later server-side branch write is refused by
+// guardProjectIdentity — the failure that killed bench run
+// run-20260811T211405Z-d661d7af at the very first Mission draft.
+func (a *localExecAccess) dispatchProjectID(spec PipelineSpec) string {
+	if id := strings.TrimSpace(string(spec.ProjectID)); id != "" {
+		return id
+	}
+	return a.projectID
 }
 
 // submitDesignJob is the DESIGN arm of SubmitAgenticJob — the local-executor
@@ -1403,7 +1419,7 @@ func (a *localExecAccess) submitDesignJob(rc fwra.Context, spec PipelineSpec, jo
 		return "", fwra.New(fwra.ContractMisuse, `SubmitAgenticJob: missing DispatchInputs["target_branch"] for a design job`)
 	}
 	artifactKind := strings.TrimSpace(spec.DispatchInputs[dispatchInputArtifactKindKey])
-	return a.submitClaudeRun(rc, designDispatchPlan(a.projectID, jobMode, command, targetBranch, artifactKind))
+	return a.submitClaudeRun(rc, designDispatchPlan(a.dispatchProjectID(spec), jobMode, command, targetBranch, artifactKind))
 }
 
 // submitClaudeRun converges the caller-supplied idempotencyKey on a single in-memory

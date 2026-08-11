@@ -142,6 +142,7 @@ func (wf *workflows) submitPipeline(ctx workflow.Context, spec pipelineSpec) (pi
 		return pipelineHandle{}, terr
 	}
 	handle, err := wf.Acts.PipelineSubmitAgenticJob(ctx, agenticjob.PipelineSpec{
+		ProjectID:  agenticjob.ProjectID(spec.ProjectID),
 		ActivityID: agenticjob.ConstructionActivityID(spec.ActivityID),
 		Steps: []agenticjob.PipelineStep{{
 			Name:      "build",
@@ -1557,6 +1558,7 @@ func (wf *workflows) runLocalMergeStep(
 // inputs — the job key routes it inside the local arm; it never spawns claude.
 func (wf *workflows) runMergePipeline(ctx workflow.Context, in constructActivityInput, state *constructState) (pipelineObservation, error) {
 	handle, err := wf.Acts.PipelineSubmitAgenticJob(ctx, agenticjob.PipelineSpec{
+		ProjectID:  agenticjob.ProjectID(string(in.ProjectID)),
 		ActivityID: agenticjob.ConstructionActivityID(string(in.ActivityID)),
 		Steps: []agenticjob.PipelineStep{{
 			Name:      "build",
