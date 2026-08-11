@@ -91,6 +91,8 @@ const (
 	ActivityTypeTesting       ActivityType = 2
 	ActivityTypeDeployment    ActivityType = 3
 	ActivityTypeDocumentation ActivityType = 4
+	ActivityTypeUIDesign      ActivityType = 5
+	ActivityTypeIntegration   ActivityType = 6
 )
 
 type AnchoredComment struct {
@@ -299,15 +301,16 @@ type EvPoint struct {
 type FailureReason int
 
 const (
-	FailureReasonUnknown              FailureReason = 0
-	FailureReasonPipelineFailed       FailureReason = 1
-	FailureReasonPipelineCancelled    FailureReason = 2
-	FailureReasonPipelineTimedOut     FailureReason = 3
-	FailureReasonVarianceExhausted    FailureReason = 4
-	FailureReasonEscalationTimedOut   FailureReason = 5
-	FailureReasonComponentUnresolved  FailureReason = 6
-	FailureReasonDependencyUnresolved FailureReason = 7
-	FailureReasonDependencyCycle      FailureReason = 8
+	FailureReasonUnknown                FailureReason = 0
+	FailureReasonPipelineFailed         FailureReason = 1
+	FailureReasonPipelineCancelled      FailureReason = 2
+	FailureReasonPipelineTimedOut       FailureReason = 3
+	FailureReasonVarianceExhausted      FailureReason = 4
+	FailureReasonEscalationTimedOut     FailureReason = 5
+	FailureReasonComponentUnresolved    FailureReason = 6
+	FailureReasonDependencyUnresolved   FailureReason = 7
+	FailureReasonDependencyCycle        FailureReason = 8
+	FailureReasonActivityUnclassifiable FailureReason = 9
 )
 
 type Finding struct {

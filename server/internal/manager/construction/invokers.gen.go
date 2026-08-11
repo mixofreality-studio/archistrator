@@ -329,9 +329,9 @@ func (i genInvokers) GitStatusRecordActivityMerged(ctx workflow.Context, project
 }
 
 // GitStatusRecordActivityStarted invokes activity "gitActivityStatusAccess.recordActivityStarted".
-func (i genInvokers) GitStatusRecordActivityStarted(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, cred projectstate.RepoCredential) (projectstate.Version, error) {
+func (i genInvokers) GitStatusRecordActivityStarted(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, typ projectstate.ActivityType, variant projectstate.TestingVariant, cred projectstate.RepoCredential) (projectstate.Version, error) {
 	var out projectstate.Version
-	err := workflow.ExecuteActivity(i.options(ctx, "gitActivityStatusAccess.recordActivityStarted"), "gitActivityStatusAccess.recordActivityStarted", projectID, expectedVersion, activityID, cred).Get(ctx, &out)
+	err := workflow.ExecuteActivity(i.options(ctx, "gitActivityStatusAccess.recordActivityStarted"), "gitActivityStatusAccess.recordActivityStarted", projectID, expectedVersion, activityID, typ, variant, cred).Get(ctx, &out)
 	return out, err
 }
 

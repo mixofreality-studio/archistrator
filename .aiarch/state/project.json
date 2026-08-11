@@ -14005,7 +14005,8 @@
             5,
             6,
             7,
-            8
+            8,
+            9
           ],
           "x-enum-varnames": [
             "FailureReasonUnknown",
@@ -14016,7 +14017,8 @@
             "EscalationTimedOut",
             "ComponentUnresolved",
             "DependencyUnresolved",
-            "DependencyCycle"
+            "DependencyCycle",
+            "ActivityUnclassifiable"
           ],
           "x-go-base": "int"
         },
@@ -16124,6 +16126,46 @@
           ],
           "additionalProperties": false
         },
+        "ActivityType": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ],
+          "x-enum-varnames": [
+            "ActivityTypeService",
+            "ActivityTypeFrontend",
+            "ActivityTypeTesting",
+            "ActivityTypeDeployment",
+            "ActivityTypeDocumentation",
+            "ActivityTypeUIDesign",
+            "ActivityTypeIntegration"
+          ],
+          "x-go-base": "int"
+        },
+        "TestingVariant": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2,
+            3,
+            4
+          ],
+          "x-enum-varnames": [
+            "TestVariantPlan",
+            "TestVariantHarness",
+            "TestVariantPerf",
+            "TestVariantSystemTest",
+            "TestVariantQAProcess"
+          ],
+          "x-go-base": "int"
+        },
         "Version": {
           "type": "integer"
         }
@@ -16343,6 +16385,18 @@
                 "name": "activityID",
                 "schema": {
                   "type": "string"
+                }
+              },
+              {
+                "name": "typ",
+                "schema": {
+                  "$ref": "#/$defs/ActivityType"
+                }
+              },
+              {
+                "name": "variant",
+                "schema": {
+                  "$ref": "#/$defs/TestingVariant"
                 }
               },
               {
@@ -20301,14 +20355,18 @@
             1,
             2,
             3,
-            4
+            4,
+            5,
+            6
           ],
           "x-enum-varnames": [
             "ActivityTypeService",
             "ActivityTypeFrontend",
             "ActivityTypeTesting",
             "ActivityTypeDeployment",
-            "ActivityTypeDocumentation"
+            "ActivityTypeDocumentation",
+            "ActivityTypeUIDesign",
+            "ActivityTypeIntegration"
           ],
           "x-go-base": "int"
         },
@@ -21434,7 +21492,8 @@
             5,
             6,
             7,
-            8
+            8,
+            9
           ],
           "x-enum-varnames": [
             "FailureReasonUnknown",
@@ -21445,7 +21504,8 @@
             "EscalationTimedOut",
             "ComponentUnresolved",
             "DependencyUnresolved",
-            "DependencyCycle"
+            "DependencyCycle",
+            "ActivityUnclassifiable"
           ],
           "x-go-base": "int"
         },
@@ -24415,14 +24475,18 @@
             1,
             2,
             3,
-            4
+            4,
+            5,
+            6
           ],
           "x-enum-varnames": [
             "ActivityTypeService",
             "ActivityTypeFrontend",
             "ActivityTypeTesting",
             "ActivityTypeDeployment",
-            "ActivityTypeDocumentation"
+            "ActivityTypeDocumentation",
+            "ActivityTypeUIDesign",
+            "ActivityTypeIntegration"
           ],
           "x-go-base": "int"
         },
@@ -25118,7 +25182,8 @@
             5,
             6,
             7,
-            8
+            8,
+            9
           ],
           "x-enum-varnames": [
             "FailureReasonUnknown",
@@ -25129,7 +25194,8 @@
             "FailureReasonEscalationTimedOut",
             "FailureReasonComponentUnresolved",
             "FailureReasonDependencyUnresolved",
-            "FailureReasonDependencyCycle"
+            "FailureReasonDependencyCycle",
+            "FailureReasonActivityUnclassifiable"
           ],
           "x-go-base": "int"
         },

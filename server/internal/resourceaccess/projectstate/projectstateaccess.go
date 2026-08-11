@@ -3584,7 +3584,14 @@ func upsertActivityConstruction(p *Project, activityID string, mutate func(s *Ac
 // RecordActivityStarted records that activityID's construction agent has been dispatched
 // (Phase → Running, StartedAt server-resolved). Uses modeRequireExisting (project row
 // exists by Phase 3, same as gitactivity.go verbs).
-func (s *GitStore) RecordActivityStarted(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+//
+// typ/variant are the pair the DISPATCHER classified (ClassifyActivity) and is about to
+// walk. Stamping them here is load-bearing, not decorative: phaseSetFor(cs.Type,
+// cs.Variant) seeds the head-state Phases slice on the first RecordPhaseStarted, so
+// leaving Type at its zero value seeded the 5-phase SERVICE set for every live activity
+// — including correctly-dispatched testing ones — and earned value silently diverged
+// from the profile the workflow actually walks.
+func (s *GitStore) RecordActivityStarted(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, typ ActivityType, variant TestingVariant, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	if activityID == "" {
 		return 0, fwra.New(fwra.ContractMisuse, "projectstate.RecordActivityStarted: empty activityID")
 	}
@@ -3592,6 +3599,8 @@ func (s *GitStore) RecordActivityStarted(rc fwra.Context, projectID ProjectID, e
 	return s.applyMutation(rc.Context, "RecordActivityStarted", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
 		upsertActivityConstruction(p, activityID, func(cs *ActivityConstructionStatus) {
 			cs.Phase = ActivityConstructionRunning
+			cs.Type = typ
+			cs.Variant = variant
 			// Advance the finer BuildStatus lens in lock-step with the coarse Phase so the
 			// SINGLE constructionRows projection (catalog.go) tells the whole cascade story:
 			// a dispatched activity is being built now → in-construction (the SPA's tracker
@@ -6593,6 +6602,8 @@ var activityTypeNames = map[ActivityType]string{
 	ActivityTypeTesting:       "testing",
 	ActivityTypeDeployment:    "deployment",
 	ActivityTypeDocumentation: "documentation",
+	ActivityTypeUIDesign:      "uiDesign",
+	ActivityTypeIntegration:   "integration",
 }
 var activityTypeByName = invert(activityTypeNames)
 
@@ -6724,6 +6735,14 @@ func (p ActivityConstructionPhase) String() string {
 // break the cycle by removing an edge. Same terminal/non-intervention treatment
 // as ComponentUnresolved.
 
+// ActivityUnclassifiable — an eligible activity could not be dispatched because its
+// authored (workerClass, coding) pair matches no ClassifyActivity rule, so no
+// ActivityType — and therefore no phase profile and no slash command — can be
+// resolved for it. A plan defect: dispatching anyway is what handed an infra activity
+// a testing command. FailureDetail carries the activity id, its workerClass and its
+// coding flag. Repair: amend workerClass or coding in the committed activity list.
+// Same terminal/non-intervention treatment as ComponentUnresolved.
+
 // String returns the canonical wire name for the failure reason.
 func (r FailureReason) String() string {
 	switch r {
@@ -6743,10 +6762,12 @@ func (r FailureReason) String() string {
 		return "dependencyUnresolved"
 	case DependencyCycle:
 		return "dependencyCycle"
+	case ActivityUnclassifiable:
+		return "activityUnclassifiable"
 	case FailureReasonUnknown:
 		return "unknown"
 	}
-	// Unreachable for the nine defined FailureReason values above (the exhaustive
+	// Unreachable for the ten defined FailureReason values above (the exhaustive
 	// linter enforces that every real variant has its own case); kept as a
 	// defensive fallback for an out-of-range ordinal.
 	return "unknown"
@@ -6904,6 +6925,13 @@ func CoarseBuildStatus(phases []PhaseCompletion, _ ActivityMethodPhase) Activity
 
 // ActivityTypeDocumentation — a tech-writing / ADR / runbook activity (N-ADR etc.).
 
+// ActivityTypeUIDesign — a UI-design CONCEPT activity (G-* prefix, ui-designer,
+// coding=false). It stops at the design artifact; the SPA surfaces realizing it are
+// separate ActivityTypeFrontend activities.
+
+// ActivityTypeIntegration — an I-* use-case integration activity: wiring and verifying
+// already-constructed components end-to-end. It has no construction of its own.
+
 // String returns the canonical wire name.
 func (t ActivityType) String() string {
 	switch t {
@@ -6915,11 +6943,15 @@ func (t ActivityType) String() string {
 		return "deployment"
 	case ActivityTypeDocumentation:
 		return "documentation"
+	case ActivityTypeUIDesign:
+		return "uiDesign"
+	case ActivityTypeIntegration:
+		return "integration"
 	case ActivityTypeService:
 		// The zero value (== ActivityKindService, the legacy alias).
 		return "service"
 	}
-	// Unreachable for the five defined ActivityType values above (the exhaustive
+	// Unreachable for the seven defined ActivityType values above (the exhaustive
 	// linter enforces that every real variant has its own case); kept as a
 	// defensive fallback for an out-of-range ordinal.
 	return "service"
@@ -7085,22 +7117,30 @@ func ProfileFor(t ActivityType, v TestingVariant) Profile {
 	case ActivityTypeTesting:
 		return profileForTestingVariant(v)
 	case ActivityTypeDeployment:
-		// NOTE: not yet reachable via DeriveType (which emits only Service/Frontend/Testing).
-		// Staged for the dispatch-wiring plan, which will extend DeriveType (e.g. R-* → Deployment)
-		// to select this profile.
 		return Profile{Phases: []ProfilePhase{
 			{MethodPhaseDetailedDesign, 25, "Provisioning Spec"},
 			{MethodPhaseConstruction, 50, "Construction"},
 			{MethodPhaseIntegration, 25, "Convergence Verification"},
 		}}
 	case ActivityTypeDocumentation:
-		// NOTE: not yet reachable via DeriveType (which emits only Service/Frontend/Testing).
-		// Staged for the dispatch-wiring plan, which will disambiguate N-ADR docs from N- testing
-		// to select this profile.
 		return Profile{Phases: []ProfilePhase{
 			{MethodPhaseDetailedDesign, 20, "Outline"},
 			{MethodPhaseConstruction, 60, "Authoring"},
 			{MethodPhaseIntegration, 20, "Doc Review"},
+		}}
+	case ActivityTypeUIDesign:
+		// A UI-design activity produces a CONCEPT, not code: it stops at the design
+		// artifact, and the SPA surfaces that realize it are separate Frontend
+		// activities. Hence no test-plan/construction/integration phases at all.
+		return Profile{Phases: []ProfilePhase{
+			{MethodPhaseRequirements, 40, "UX Requirements"},
+			{MethodPhaseDetailedDesign, 60, "Design Concept"},
+		}}
+	case ActivityTypeIntegration:
+		// An I-* activity IS the integration of already-constructed components: it has
+		// no requirements/design/construction of its own, only the integration pass.
+		return Profile{Phases: []ProfilePhase{
+			{MethodPhaseIntegration, 100, "Integration"},
 		}}
 	case ActivityTypeService: // the zero value — the canonical five, same as default.
 		return Profile{Phases: []ProfilePhase{
@@ -7297,39 +7337,86 @@ func DeriveVariant(activityID string) TestingVariant {
 	}
 }
 
-// ClassifyType determines an activity's canonical ActivityType for the view-model
-// classification. It supersedes the id-prefix-only DeriveType because the N-*
-// id namespace conflates genuine testing (N-IT/N-STP/N-PERF/N-QA/N-STH) with
-// infra (N-SC/N-CI), deployment (N-DEP), and documentation (N-ADR). The
-// authoritative signals are: whether the activity produced a service contract,
-// the U-SPA* frontend prefix, and — for noncoding activities — the owning
-// workerClass from the Phase-2 activity list.
+// ClassifyActivity determines an activity's canonical (ActivityType, TestingVariant)
+// pair from the three facts that EXIST AT DISPATCH TIME: its id, the owning
+// workerClass, and the coding flag — all three authored into the committed Phase-2
+// activity list. It supersedes the id-prefix-only DeriveType, whose N-* prefix arm
+// conflated genuine testing (N-IT/N-STP/N-PERF/N-QA/N-STH) with infra (N-ENV/N-SC/
+// N-CI), deployment (N-DEPLOY/N-HARD) and documentation (N-DOC/N-SCHEMA/N-ADR), and
+// so handed an infra activity a testing slash-command (the N-ENV defect: the agent
+// correctly refused to author a testing artifact, the executor read "no commits" as
+// failure, and the activity died of VarianceExhausted).
 //
-//   - produced a service contract → Service (it built a component), regardless of id
-//   - U-SPA* id                    → Frontend
-//   - coding == true               → Service
-//   - noncoding, by workerClass:
-//     software-tester / test-engineer / qa-engineer → Testing
-//     system-architect                              → Documentation
-//     everything else (dev/devops noncoding)        → Deployment
+// It deliberately does NOT take hasServiceContract. A service contract is a
+// BACKWARD-LOOKING corpus observation: it is produced by the detailed-design PHASE of
+// the very activity being dispatched, so it cannot exist when the dispatch decision is
+// made. Consulting it here would be the same category error as the original bug.
+//
+// Precedence, in order — the first matching rule wins, and there is NO default arm:
+//
+//  1. workerClass ∈ {software-tester, test-engineer, qa-engineer} → Testing, with the
+//     variant read off the id (DeriveVariant)
+//  2. workerClass == "ui-designer"    → Frontend when coding, else UIDesign
+//  3. id prefix U-SPA                 → Frontend
+//  4. id prefix I-                    → Integration
+//  5. coding == true                  → Service
+//  6. workerClass ∈ {system-architect, project-manager, product-manager} → Documentation
+//  7. workerClass ∈ {senior-developer, junior-developer}                 → Deployment
+//  8. otherwise                       → error (the activity is unclassifiable; repair
+//     is to amend workerClass or coding in the committed activity list)
+//
+// The returned TestingVariant is meaningful only when the type is Testing; it is the
+// zero value (TestVariantPlan) otherwise.
+func ClassifyActivity(id, workerClass string, coding bool) (ActivityType, TestingVariant, error) {
+	switch workerClass {
+	case "software-tester", "test-engineer", "qa-engineer":
+		return ActivityTypeTesting, DeriveVariant(id), nil
+	case "ui-designer":
+		if coding {
+			return ActivityTypeFrontend, TestVariantPlan, nil
+		}
+		return ActivityTypeUIDesign, TestVariantPlan, nil
+	}
+	upper := strings.ToUpper(id)
+	if strings.HasPrefix(upper, "U-SPA") {
+		return ActivityTypeFrontend, TestVariantPlan, nil
+	}
+	if strings.HasPrefix(upper, "I-") {
+		return ActivityTypeIntegration, TestVariantPlan, nil
+	}
+	if coding {
+		return ActivityTypeService, TestVariantPlan, nil
+	}
+	switch workerClass {
+	case "system-architect", "project-manager", "product-manager":
+		return ActivityTypeDocumentation, TestVariantPlan, nil
+	case "senior-developer", "junior-developer":
+		return ActivityTypeDeployment, TestVariantPlan, nil
+	}
+	return ActivityTypeService, TestVariantPlan, fmt.Errorf(
+		"activity %s: workerClass %q with coding=%v matches no classification rule", id, workerClass, coding)
+}
+
+// ClassifyType is the VIEW-MODEL classification lens over ClassifyActivity. It adds the
+// one signal a read-time view has and a dispatch does not: hasServiceContract, a
+// backward-looking corpus observation that an activity DID build a component, which
+// wins over every rule below it.
+//
+// It is deliberately LENIENT where ClassifyActivity is strict: a row the rules cannot
+// classify still has to render, so an unclassifiable activity falls back to Deployment
+// (the pre-existing render-only fallback for a noncoding activity of unknown worker
+// class). Dispatch must never take that fallback — it blocks instead (see
+// nextEligibleActivity / ActivityUnclassifiable). Sharing the one classifier is what
+// keeps the view and the dispatch from drifting.
 func ClassifyType(id, workerClass string, coding, hasServiceContract bool) ActivityType {
 	if hasServiceContract {
 		return ActivityTypeService
 	}
-	if strings.HasPrefix(strings.ToUpper(id), "U-SPA") {
-		return ActivityTypeFrontend
-	}
-	if coding {
-		return ActivityTypeService
-	}
-	switch workerClass {
-	case "software-tester", "test-engineer", "qa-engineer":
-		return ActivityTypeTesting
-	case "system-architect":
-		return ActivityTypeDocumentation
-	default:
+	typ, _, err := ClassifyActivity(id, workerClass, coding)
+	if err != nil {
 		return ActivityTypeDeployment
 	}
+	return typ
 }
 
 // DeriveBuildStatus maps corpus presence to the finer build-status lens. integrated is
@@ -7390,6 +7477,17 @@ func DeriveProduced(p CorpusPresence, componentName string, typ ActivityType) []
 				Note:     "SPA surface built against the approved design; preview at the route in Source.",
 			},
 		)
+	case ActivityTypeUIDesign:
+		// A UI-design activity stops at the CONCEPT — the ui-code stub belongs to the
+		// Frontend activities that realize it, so emitting one here would advertise a
+		// built surface that this activity never produced.
+		out = append(out, ProducedArtifact{
+			Kind:     "ui-design",
+			Title:    componentName + " — UI design concept",
+			Source:   "implementation/log",
+			Produced: true,
+			Note:     "UI-design concept: personas, screens, layout, and flows for this surface.",
+		})
 	case ActivityTypeDeployment:
 		out = append(out, ProducedArtifact{
 			Kind:     "deployment",
@@ -7398,7 +7496,7 @@ func DeriveProduced(p CorpusPresence, componentName string, typ ActivityType) []
 			Produced: true,
 			Note:     "Provisioning/deployment change applied and verified against the target environment.",
 		})
-	case ActivityTypeService, ActivityTypeTesting, ActivityTypeDocumentation:
+	case ActivityTypeService, ActivityTypeTesting, ActivityTypeDocumentation, ActivityTypeIntegration:
 		out = append(out, ProducedArtifact{
 			Kind:     "code",
 			Title:    componentName + " — built component",
@@ -7425,6 +7523,14 @@ func profileSlug(t ActivityType, v TestingVariant) string {
 	switch t {
 	case ActivityTypeFrontend:
 		return "frontend"
+	case ActivityTypeUIDesign:
+		// A UI-design activity walks the FRONTEND command family's first two phases
+		// (/frontend-requirements, /frontend-detailed-design) — the same prompts, run
+		// by the ui-designer worker class. No new command files are needed.
+		return "frontend"
+	case ActivityTypeIntegration:
+		// An I-* activity walks /service-integration — the generic integration prompt.
+		return "service"
 	case ActivityTypeDeployment:
 		return "deployment"
 	case ActivityTypeDocumentation:
@@ -7859,11 +7965,18 @@ func ContractTouchesReviewFloor(contract ServiceContract) bool {
 // legacy/explicit "" preset fallback below).
 //
 // checkpoints gates the per-activity contract/architecture commit
-// (MethodPhaseDetailedDesign) and the construction dispatch (MethodPhaseConstruction)
-// — the two funnel checkpoints this per-activity, per-phase mechanism can express.
-// The funnel's third checkpoint ("SDP commit") is a projectDesignManager artifact
+// (MethodPhaseDetailedDesign), the construction dispatch (MethodPhaseConstruction) and
+// the integration pass (MethodPhaseIntegration) — the funnel checkpoints this
+// per-activity, per-phase mechanism can express.
+// The funnel's remaining checkpoint ("SDP commit") is a projectDesignManager artifact
 // commit with no ActivityMethodPhase analog; that workflow gates it unconditionally
 // today, independent of ReviewPolicy — see docs/superpowers/sdd/task-7-report.md.
+//
+// MethodPhaseIntegration is in the list because ActivityTypeIntegration's profile is
+// integration-ONLY (100% weight, one phase): without it an I-* activity would be the
+// one activity family that runs entirely ungated under "checkpoints", which is exactly
+// backwards — an integration activity is where a use case is first exercised end to
+// end (founder-ratified).
 func (p ReviewPolicy) EffectiveGate(activityType string, phase ActivityMethodPhase, floorTouched bool) bool {
 	if phase == MethodPhaseConstruction && floorTouched {
 		return true
@@ -7878,7 +7991,8 @@ func (p ReviewPolicy) EffectiveGate(activityType string, phase ActivityMethodPha
 	case ReviewPresetFull:
 		return true
 	case ReviewPresetCheckpoints:
-		return phase == MethodPhaseDetailedDesign || phase == MethodPhaseConstruction
+		return phase == MethodPhaseDetailedDesign || phase == MethodPhaseConstruction ||
+			phase == MethodPhaseIntegration
 	default:
 		return p.RequiresHuman(activityType, phase)
 	}

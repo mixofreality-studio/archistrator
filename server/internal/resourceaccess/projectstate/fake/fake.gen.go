@@ -165,7 +165,7 @@ type FakeGitActivityStatusAccess struct {
 	RecordActivityCIObservedFn   func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, ci projectstate.CICheckState, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
 	RecordActivityArchApprovedFn func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
 	RecordActivityMergedFn       func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
-	RecordActivityStartedFn      func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
+	RecordActivityStartedFn      func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, typ projectstate.ActivityType, variant projectstate.TestingVariant, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
 	RecordActivityCompletedFn    func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
 }
 
@@ -197,11 +197,11 @@ func (f *FakeGitActivityStatusAccess) RecordActivityMerged(rc fwra.Context, proj
 	return f.RecordActivityMergedFn(rc, projectID, expectedVersion, activityID, cred, idempotencyKey)
 }
 
-func (f *FakeGitActivityStatusAccess) RecordActivityStarted(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *FakeGitActivityStatusAccess) RecordActivityStarted(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, typ projectstate.ActivityType, variant projectstate.TestingVariant, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
 	if f.RecordActivityStartedFn == nil {
 		panic("FakeGitActivityStatusAccess.RecordActivityStartedFn not set")
 	}
-	return f.RecordActivityStartedFn(rc, projectID, expectedVersion, activityID, cred, idempotencyKey)
+	return f.RecordActivityStartedFn(rc, projectID, expectedVersion, activityID, typ, variant, cred, idempotencyKey)
 }
 
 func (f *FakeGitActivityStatusAccess) RecordActivityCompleted(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {

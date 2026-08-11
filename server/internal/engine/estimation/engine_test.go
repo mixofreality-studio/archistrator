@@ -6,6 +6,7 @@ import (
 	"math"
 	"os"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -940,7 +941,7 @@ func TestDeriveActivitiesAlwaysEmitsTheTestingInventory(t *testing.T) {
 // nondeterministic.
 func TestDeriveActivitiesIsDeterministicAndSorted(t *testing.T) {
 	first := deriveActivities(sampleSystem())
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		next := deriveActivities(sampleSystem())
 		if len(next) != len(first) {
 			t.Fatalf("length varies across runs: %d vs %d", len(next), len(first))
@@ -1175,10 +1176,8 @@ func TestDeriveDependenciesEmitsFixedPatternEdges(t *testing.T) {
 	got := depsByActivity(deriveDependencies(sys, deriveActivities(sys)))
 	assertContains := func(activity, want string) {
 		t.Helper()
-		for _, p := range got[activity] {
-			if p == want {
-				return
-			}
+		if slices.Contains(got[activity], want) {
+			return
 		}
 		t.Errorf("%s dependsOn %v, missing %q", activity, got[activity], want)
 	}

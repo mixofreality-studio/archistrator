@@ -69,10 +69,21 @@ export const DOCUMENTATION_PHASES: readonly GeneratedPhase[] = [
   { id: 'documentation-integration', phase: 'integration', name: 'Doc Review', weight: 20 },
 ];
 
+export const UI_DESIGN_PHASES: readonly GeneratedPhase[] = [
+  { id: 'frontend-requirements', phase: 'requirements', name: 'UX Requirements', weight: 40 },
+  { id: 'frontend-detailed-design', phase: 'detailed_design', name: 'Design Concept', weight: 60 },
+];
+
+export const INTEGRATION_PHASES: readonly GeneratedPhase[] = [
+  { id: 'service-integration', phase: 'integration', name: 'Integration', weight: 100 },
+];
+
 export const GENERATED_TEMPLATES: Record<ActivityKind, readonly GeneratedPhase[]> = {
   service: SERVICE_PHASES,
   frontend: FRONTEND_PHASES,
   testing: TESTING_PHASES,
   deployment: DEPLOYMENT_PHASES,
   documentation: DOCUMENTATION_PHASES,
+  uiDesign: UI_DESIGN_PHASES,
+  integration: INTEGRATION_PHASES,
 };

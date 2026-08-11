@@ -537,7 +537,7 @@ func readConstructionStatus(t *testing.T, store *GitStore, id ProjectID, cred Re
 // modeRequireExisting verbs have a row to upsert.
 func seedActivity(t *testing.T, store *GitStore, id ProjectID, v Version, cred RepoCredential, activityID string) Version {
 	t.Helper()
-	v2, err := store.RecordActivityStarted(fwra.Context{Context: context.Background()}, id, v, activityID, cred, fwra.IdempotencyKey("wf:seed-"+activityID))
+	v2, err := store.RecordActivityStarted(fwra.Context{Context: context.Background()}, id, v, activityID, ActivityTypeService, TestVariantPlan, cred, fwra.IdempotencyKey("wf:seed-"+activityID))
 	if err != nil {
 		t.Fatalf("RecordActivityStarted(%s): %v", activityID, err)
 	}
@@ -3835,7 +3835,7 @@ func TestRecordActivityStarted_BirthsRow(t *testing.T) {
 	store, id, v, cred := newConstructionStore(t)
 	ctx := context.Background()
 
-	v2, err := store.RecordActivityStarted(fwra.Context{Context: ctx}, id, v, "X001", cred, fwra.IdempotencyKey("wf:started"))
+	v2, err := store.RecordActivityStarted(fwra.Context{Context: ctx}, id, v, "X001", ActivityTypeService, TestVariantPlan, cred, fwra.IdempotencyKey("wf:started"))
 	if err != nil {
 		t.Fatalf("RecordActivityStarted: %v", err)
 	}
@@ -3863,7 +3863,7 @@ func TestRecordActivityCompleted_AdvancesToDone(t *testing.T) {
 	store, id, v, cred := newConstructionStore(t)
 	ctx := context.Background()
 
-	v2, err := store.RecordActivityStarted(fwra.Context{Context: ctx}, id, v, "X001", cred, fwra.IdempotencyKey("wf:started-done"))
+	v2, err := store.RecordActivityStarted(fwra.Context{Context: ctx}, id, v, "X001", ActivityTypeService, TestVariantPlan, cred, fwra.IdempotencyKey("wf:started-done"))
 	if err != nil {
 		t.Fatalf("RecordActivityStarted: %v", err)
 	}
@@ -3892,7 +3892,7 @@ func TestRecordActivityStarted_Idempotent(t *testing.T) {
 	store, id, v, cred := newConstructionStore(t)
 	ctx := context.Background()
 
-	v2, err := store.RecordActivityStarted(fwra.Context{Context: ctx}, id, v, "X001", cred, fwra.IdempotencyKey("wf:started-idem"))
+	v2, err := store.RecordActivityStarted(fwra.Context{Context: ctx}, id, v, "X001", ActivityTypeService, TestVariantPlan, cred, fwra.IdempotencyKey("wf:started-idem"))
 	if err != nil {
 		t.Fatalf("RecordActivityStarted: %v", err)
 	}
@@ -3902,7 +3902,7 @@ func TestRecordActivityStarted_Idempotent(t *testing.T) {
 	}
 
 	// Retry with the SAME key but stale expectedVersion=0; dedup must win.
-	v2again, err := store.RecordActivityStarted(fwra.Context{Context: ctx}, id, 0, "X001", cred, fwra.IdempotencyKey("wf:started-idem"))
+	v2again, err := store.RecordActivityStarted(fwra.Context{Context: ctx}, id, 0, "X001", ActivityTypeService, TestVariantPlan, cred, fwra.IdempotencyKey("wf:started-idem"))
 	if err != nil {
 		t.Fatalf("idempotent retry should succeed via ledger, got: %v", err)
 	}
@@ -7498,8 +7498,10 @@ func TestReviewPolicy_EffectiveGate_FloorOnlyGuardsConstructionPhase(t *testing.
 }
 
 // TestReviewPolicy_EffectiveGate_Checkpoints pins the "checkpoints" preset to gating
-// exactly the per-activity contract/architecture commit (detailed_design) and the
-// construction dispatch (construction) — not requirements/test_plan/integration.
+// exactly the per-activity contract/architecture commit (detailed_design), the
+// construction dispatch (construction), and the integration pass (integration —
+// founder-ratified; without it an integration-only I-* activity would run entirely
+// ungated) — not requirements/test_plan.
 func TestReviewPolicy_EffectiveGate_Checkpoints(t *testing.T) {
 	p := ReviewPolicy{Preset: presetPtr(ReviewPresetCheckpoints)}
 	gated := map[ActivityMethodPhase]bool{
@@ -7507,7 +7509,7 @@ func TestReviewPolicy_EffectiveGate_Checkpoints(t *testing.T) {
 		MethodPhaseDetailedDesign: true,
 		MethodPhaseTestPlan:       false,
 		MethodPhaseConstruction:   true,
-		MethodPhaseIntegration:    false,
+		MethodPhaseIntegration:    true,
 	}
 	for phase, want := range gated {
 		if got := p.EffectiveGate("service", phase, false); got != want {

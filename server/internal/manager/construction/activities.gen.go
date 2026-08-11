@@ -327,8 +327,8 @@ func (a *genActivities) GitStatusRecordActivityMerged(ctx context.Context, proje
 
 // GitStatusRecordActivityStarted wraps gitActivityStatusAccess.recordActivityStarted.
 // Registered as "gitActivityStatusAccess.recordActivityStarted".
-func (a *genActivities) GitStatusRecordActivityStarted(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	v, err := a.GitStatus.RecordActivityStarted(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, activityID, cred, genActivityIdempotencyKey(ctx))
+func (a *genActivities) GitStatusRecordActivityStarted(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, typ projectstate.ActivityType, variant projectstate.TestingVariant, cred projectstate.RepoCredential) (projectstate.Version, error) {
+	v, err := a.GitStatus.RecordActivityStarted(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, activityID, typ, variant, cred, genActivityIdempotencyKey(ctx))
 	return v, fwmanager.MapError(err)
 }
 

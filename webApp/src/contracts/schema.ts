@@ -908,6 +908,7 @@ export interface components {
     ModelComponent: {
       atomicBusinessVerbs: null | string[];
       buildStatus?: null | string;
+      constructionProfile?: null | string;
       contractKey?: null | string;
       encapsulates: string;
       encapsulatesVolatilities?: null | string[];
@@ -917,6 +918,8 @@ export interface components {
       /** @enum {string} */
       layer: 'client' | 'manager' | 'engine' | 'resourceAccess' | 'resource' | 'utility';
       name: string;
+      provisioning?: null | string;
+      uiSurface?: null | boolean;
     };
     ModelConstructionVenue: {
       kind: string;
@@ -1644,7 +1647,7 @@ export interface components {
     };
     SystemDesignActivityMethodPhase: string;
     /** @enum {integer} */
-    SystemDesignActivityType: 0 | 1 | 2 | 3 | 4;
+    SystemDesignActivityType: 0 | 1 | 2 | 3 | 4 | 5 | 6;
     SystemDesignAnchoredComment: {
       anchorText: string;
       jsonPath: string;
@@ -1835,7 +1838,7 @@ export interface components {
       week: number;
     };
     /** @enum {integer} */
-    SystemDesignFailureReason: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+    SystemDesignFailureReason: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
     SystemDesignFinding: {
       location?: components['schemas']['SystemDesignLocation'];
       message: string;

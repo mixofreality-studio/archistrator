@@ -48,6 +48,7 @@ import {
   REVIEW_DECISION_APP_TO_ORDINAL,
   SDP_DECISION_APP_TO_ORDINAL,
   SESSION_STAGE_ORDINAL_TO_APP,
+  type ActivityType,
 } from './enums.gen.ts';
 import {
   buildStatusRowFromOrdinal,
@@ -146,10 +147,9 @@ function constructionStageFromOrdinal(ordinal: number): ConstructionStage {
   return CONSTRUCTION_STAGE_ORDINAL_TO_APP[ordinal] ?? 'unknown';
 }
 
-/** ProjectActivityType (0 service,1 frontend,2 testing,3 deployment,4 documentation). */
-function activityRowKindFromOrdinal(
-  ordinal: number
-): 'service' | 'frontend' | 'testing' | 'deployment' | 'documentation' {
+/** ProjectActivityType (0 service,1 frontend,2 testing,3 deployment,4 documentation,
+ * 5 uiDesign,6 integration). */
+function activityRowKindFromOrdinal(ordinal: number): ActivityType {
   return ACTIVITY_TYPE_ORDINAL_TO_APP[ordinal] ?? 'service';
 }
 

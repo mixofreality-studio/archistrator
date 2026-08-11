@@ -574,6 +574,10 @@ components:
                     type:
                         - "null"
                         - string
+                constructionProfile:
+                    type:
+                        - "null"
+                        - string
                 contractKey:
                     type:
                         - "null"
@@ -608,6 +612,14 @@ components:
                     type: string
                 name:
                     type: string
+                provisioning:
+                    type:
+                        - "null"
+                        - string
+                uiSurface:
+                    type:
+                        - "null"
+                        - boolean
             required:
                 - id
                 - name
@@ -2878,6 +2890,8 @@ components:
                 - 2
                 - 3
                 - 4
+                - 5
+                - 6
             type: integer
             x-enum-varnames:
                 - ActivityTypeService
@@ -2885,6 +2899,8 @@ components:
                 - ActivityTypeTesting
                 - ActivityTypeDeployment
                 - ActivityTypeDocumentation
+                - ActivityTypeUIDesign
+                - ActivityTypeIntegration
             x-go-base: int
         SystemDesignAnchoredComment:
             additionalProperties: false
@@ -3428,6 +3444,7 @@ components:
                 - 6
                 - 7
                 - 8
+                - 9
             type: integer
             x-enum-varnames:
                 - FailureReasonUnknown
@@ -3439,6 +3456,7 @@ components:
                 - FailureReasonComponentUnresolved
                 - FailureReasonDependencyUnresolved
                 - FailureReasonDependencyCycle
+                - FailureReasonActivityUnclassifiable
             x-go-base: int
         SystemDesignFinding:
             additionalProperties: false

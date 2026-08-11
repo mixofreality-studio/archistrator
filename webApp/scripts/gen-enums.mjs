@@ -161,7 +161,18 @@ function contiguousRuns(words) {
 }
 
 function lowerFirst(s) {
-  return s.length === 0 ? s : s.charAt(0).toLowerCase() + s.slice(1);
+  if (s.length === 0) return s;
+  // Lowercase the LEADING UPPERCASE RUN, matching the Go wire-name convention for
+  // initialisms ("UIDesign" → "uiDesign", "Service" → "service"). When the run's
+  // last capital actually starts the next word (it is followed by a lowercase
+  // letter), that capital is kept: only the initialism before it is lowercased.
+  const run = /^[A-Z]+/.exec(s)?.[0] ?? '';
+  if (run.length <= 1) return s.charAt(0).toLowerCase() + s.slice(1);
+  const rest = s.slice(run.length);
+  if (rest.length > 0 && /^[a-z]/.test(rest)) {
+    return run.slice(0, -1).toLowerCase() + run.slice(-1) + rest;
+  }
+  return run.toLowerCase() + rest;
 }
 
 function deriveAppStrings(localName, varnames) {
