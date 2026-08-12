@@ -8024,3 +8024,71 @@ func TestResolveActivityAliasReportsUnknownKeys(t *testing.T) {
 		t.Error("an unknown historical key must report ok=false")
 	}
 }
+
+// TestFinalizeDraftModel_CoreUseCases pins the server-side NAME→ID finalize pass
+// (name-as-identity): agents author names only; the server assigns UseCase.ID =
+// Slug(Name) and Actor.ID = Slug(Role), re-points VariationOf at the slug, and
+// re-anchors LinkedActorID/DecidedBy actor references onto the normalized ids.
+// Its absence let CoreUseCases commit with raw-name use-case ids and EMPTY actor
+// ids, which no System realization could root an actor→Client chain on.
+func TestFinalizeDraftModel_CoreUseCases(t *testing.T) {
+	variation := "Work the list"
+	lane := "Team Member"
+	decider := "Team member"
+	componentRef := "todoListManager"
+	c := &CoreUseCases{Decisions: []UseCaseDecision{
+		{UseCase: UseCase{
+			Name: "Work the list",
+			Actors: []Actor{
+				{Role: "Team member"},
+				{Role: "Automated tooling"},
+			},
+			Activity: &ActivityDiagram{Nodes: []ActivityNode{
+				{ID: "l1", Kind: NodeSwimLane, RoleName: "Team member", LinkedActorID: &lane},
+				{ID: "d1", Kind: NodeDecision, Label: "route", DecidedBy: &decider},
+				{ID: "d2", Kind: NodeDecision, Label: "route2", DecidedBy: &componentRef},
+			}},
+		}},
+		{UseCase: UseCase{Name: "Review the list", VariationOf: &variation}},
+	}}
+	if err := FinalizeDraftModel(c); err != nil {
+		t.Fatalf("FinalizeDraftModel: %v", err)
+	}
+	uc := c.Decisions[0].UseCase
+	if uc.ID != "work-the-list" {
+		t.Fatalf("UseCase.ID = %q, want slug of the name", uc.ID)
+	}
+	if uc.Actors[0].ID != "team-member" || uc.Actors[1].ID != "automated-tooling" {
+		t.Fatalf("actor ids = %q,%q, want role slugs", uc.Actors[0].ID, uc.Actors[1].ID)
+	}
+	if got := *uc.Activity.Nodes[0].LinkedActorID; got != "team-member" {
+		t.Fatalf("LinkedActorID = %q, want the normalized actor id", got)
+	}
+	if got := *uc.Activity.Nodes[1].DecidedBy; got != "team-member" {
+		t.Fatalf("actor DecidedBy = %q, want the normalized actor id", got)
+	}
+	if got := *uc.Activity.Nodes[2].DecidedBy; got != "todoListManager" {
+		t.Fatalf("component DecidedBy = %q, must be left untouched", got)
+	}
+	if got := *c.Decisions[1].UseCase.VariationOf; got != "work-the-list" {
+		t.Fatalf("VariationOf = %q, want the core use case's slug", got)
+	}
+	// Idempotence: a second pass is a no-op.
+	if err := FinalizeDraftModel(c); err != nil {
+		t.Fatalf("second FinalizeDraftModel: %v", err)
+	}
+	if c.Decisions[0].UseCase.Actors[0].ID != "team-member" {
+		t.Fatalf("finalize must be idempotent")
+	}
+}
+
+// TestFinalizeDraftModel_EmptySlugFails: a name that slugs to nothing is an
+// actionable error, not a silently-empty identity.
+func TestFinalizeDraftModel_EmptySlugFails(t *testing.T) {
+	c := &CoreUseCases{Decisions: []UseCaseDecision{
+		{UseCase: UseCase{Name: "Work the list", Actors: []Actor{{Role: "!!!"}}}},
+	}}
+	if err := FinalizeDraftModel(c); err == nil {
+		t.Fatalf("an actor role slugging to \"\" must fail the finalize pass")
+	}
+}

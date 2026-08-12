@@ -4466,6 +4466,76 @@ func NewUseCase(uc UseCase) (*UseCase, error) {
 	return &out, nil
 }
 
+// FinalizeDraftModel is the NAME→ID finalize pass for agent-authored draft models
+// (founder decision 2026-06-04, name-as-identity): the drafting agent identifies
+// every entity by its human-readable name and NEVER emits an id; the server assigns
+// the stable slug identities. This pass was documented on the model types
+// ("server-assigned Slug(...); not LLM-authored") but lost in the move to the
+// agent-rail draft path — putDraftModel decoded strictly and staged verbatim, so
+// committed CoreUseCases carried raw names as use-case ids and EMPTY actor ids,
+// which no downstream System realization could ever root a chain on (todomvc bench
+// run-20260812T012915Z: the architect proved no legal System exists against such a
+// predecessor and could only STOP). Call it on the decoded model before staging.
+//
+// Idempotent: Slug is a fixed point on its own output, and an already-normalized
+// reference re-resolves to itself. Kinds without identity assignment pass through.
+func FinalizeDraftModel(model ArtifactModel) error {
+	if c, ok := model.(*CoreUseCases); ok {
+		return finalizeCoreUseCasesIdentities(c)
+	}
+	return nil
+}
+
+// finalizeCoreUseCasesIdentities assigns UseCase.ID = Slug(Name), Actor.ID =
+// Slug(Role), re-points VariationOf (authored as the core use case's NAME) at the
+// slug, and re-anchors the two actor-referencing node fields (LinkedActorID lane
+// links; DecidedBy when it names an actor rather than a component) onto the
+// normalized actor ids so the document stays internally consistent.
+func finalizeCoreUseCasesIdentities(c *CoreUseCases) error {
+	for i := range c.Decisions {
+		uc := &c.Decisions[i].UseCase
+		id := Slug(uc.Name)
+		if id == "" {
+			return fmt.Errorf("projectstate.FinalizeDraftModel: use case %d name %q yields an empty identity slug", i+1, uc.Name)
+		}
+		uc.ID = id
+		if uc.VariationOf != nil {
+			v := Slug(*uc.VariationOf)
+			uc.VariationOf = &v
+		}
+		// roleSlug→actor-id map for re-anchoring the node references below.
+		actorIDByRoleSlug := make(map[string]string, len(uc.Actors))
+		for j := range uc.Actors {
+			a := &uc.Actors[j]
+			aid := Slug(a.Role)
+			if aid == "" {
+				return fmt.Errorf("projectstate.FinalizeDraftModel: use case %q actor %d role %q yields an empty identity slug", uc.Name, j+1, a.Role)
+			}
+			a.ID = aid
+			actorIDByRoleSlug[aid] = aid
+		}
+		if uc.Activity == nil {
+			continue
+		}
+		for k := range uc.Activity.Nodes {
+			n := &uc.Activity.Nodes[k]
+			if n.LinkedActorID != nil {
+				if aid, ok := actorIDByRoleSlug[Slug(*n.LinkedActorID)]; ok {
+					n.LinkedActorID = &aid
+				}
+			}
+			// DecidedBy may legally name a Component instead of an actor; only
+			// re-anchor values that resolve to one of this use case's actors.
+			if n.DecidedBy != nil {
+				if aid, ok := actorIDByRoleSlug[Slug(*n.DecidedBy)]; ok {
+					n.DecidedBy = &aid
+				}
+			}
+		}
+	}
+	return nil
+}
+
 // servicecontract.go holds the typed service-contract corpus model for the
 // construction head-state. project.json (.serviceContracts) is the OWNER of each
 // built component's service contract; the value is a contract DOCUMENT — the same

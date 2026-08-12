@@ -9,7 +9,7 @@ require (
 	github.com/mixofreality-studio/archistrator-platform/framework-go-http-generator v0.4.0
 	github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-llm v0.2.0
 	github.com/mixofreality-studio/archistrator-platform/framework-go-projectmodel v0.2.3
-	github.com/mixofreality-studio/archistrator-platform/method-assets v0.4.0
+	github.com/mixofreality-studio/archistrator-platform/method-assets v0.4.1
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.60.0
 	go.temporal.io/api v1.62.12
 	go.temporal.io/sdk v1.44.0
@@ -123,7 +123,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.3.2 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.28.0 // indirect
-	github.com/mixofreality-studio/archistrator-platform/framework-go v0.11.0
+	github.com/mixofreality-studio/archistrator-platform/framework-go v0.11.1
 	github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github v0.1.6
 	github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-keycloak v0.2.0
 	github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-otel v0.1.0

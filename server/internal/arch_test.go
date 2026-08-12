@@ -640,6 +640,12 @@ var encapsulationAllowlistData = map[string][]string{
 		// from/to/mode, dynamic-view useCaseId, …). Consumed by cmd/aiarch-state-mcp
 		// (putDraftModel) AND the server read-back (decodeSlotsMap) so write ≡ read-back.
 		"RequireModelFields",
+		// NAME→ID FINALIZE PASS (name-as-identity, founder 2026-06-04): assigns the
+		// server-owned slug identities (UseCase.ID, Actor.ID, VariationOf, actor-
+		// referencing node links) on a decoded draft model before staging. Consumed by
+		// cmd/aiarch-state-mcp (putDraftModel) — the one draft-model writer — same
+		// category as RequireModelFields above.
+		"FinalizeDraftModel",
 		// CONSTRUCTION-VERB ROUTING CORE: the pure, I/O-free router of a phase-artifact /
 		// testing-state payload into the Project aggregate — the shared core of the RA's
 		// RecordPhaseArtifactProduced, exported so the cmd/aiarch-state-mcp construction verbs

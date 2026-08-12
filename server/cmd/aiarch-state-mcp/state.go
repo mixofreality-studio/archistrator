@@ -71,6 +71,15 @@ func (s *Session) putDraftModel(modelJSON []byte) error {
 			s.Kind.WireName(), err)
 	}
 
+	// FINALIZE — the server-side NAME→ID pass (name-as-identity): the drafting agent
+	// identifies entities by human-readable name and never emits ids; the stable slug
+	// identities (UseCase.ID, Actor.ID, VariationOf, actor-referencing node links) are
+	// assigned HERE, before staging, so what the gates below validate is the same
+	// normalized document the rest of the rail reads.
+	if err := projectstate.FinalizeDraftModel(model); err != nil {
+		return fmt.Errorf("the %s draft names an entity that yields no identity: %w — give it a real name and call putDraftModel again", s.Kind.WireName(), err)
+	}
+
 	// Stage the validated model into the ambient slot at Committed (the status the CI
 	// methodcheck gate validates a slot at, and the status the server read-back reads the
 	// model from). Existing notes / thread / revisions on the slot are preserved.
