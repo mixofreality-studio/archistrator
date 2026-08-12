@@ -418,6 +418,29 @@ func localProjectID(repoURL string) string {
 	return base
 }
 
+// localExecRunTimeoutEnv optionally overrides the local executor's per-invocation
+// claude budget (agenticjob's 25-minute defaultLocalRunTimeout, which mirrors
+// aiarch-construct.yml's job timeout). Same os.Getenv posture as the package's
+// other rarely-used operator overrides (e.g. ARCHISTRATOR_LOCAL_EXEC_ALLOW_UNSANDBOXED):
+// a Go duration string ("45m", "1h"). Exists because a design-heavy episode (the
+// System draft) was observed productively mid-flight at the 25-minute kill on
+// bench run-20260811T232159Z-6b2342fa — a bench/operator pacing choice, not a
+// per-project setting, so it is not part of the generated Config.
+const localExecRunTimeoutEnv = "ARCHISTRATOR_LOCAL_EXEC_RUN_TIMEOUT"
+
+func localExecRunTimeoutFromEnv(logger *slog.Logger) time.Duration {
+	raw := strings.TrimSpace(os.Getenv(localExecRunTimeoutEnv))
+	if raw == "" {
+		return 0 // constructor default (25m)
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil || d <= 0 {
+		logger.Warn("ignoring invalid "+localExecRunTimeoutEnv, "value", raw)
+		return 0
+	}
+	return d
+}
+
 // newLocalPipeline builds the local construction executor (Task 6) over the
 // SAME on-disk repo the local projectstate substrate is configured with.
 func newLocalPipeline(cfg *Config, logger *slog.Logger) (agenticjob.AgenticJobAccess, error) {
@@ -429,7 +452,8 @@ func newLocalPipeline(cfg *Config, logger *slog.Logger) (agenticjob.AgenticJobAc
 		return nil, fmt.Errorf("localPipeline: %w", err)
 	}
 	pipeline, err := agenticjob.NewLocalExecAgenticJobAccess(
-		cfg.ProjectStateGitRepoURL, localProjectID(cfg.ProjectStateGitRepoURL), bin, 0)
+		cfg.ProjectStateGitRepoURL, localProjectID(cfg.ProjectStateGitRepoURL), bin,
+		localExecRunTimeoutFromEnv(logger))
 	if err != nil {
 		return nil, err
 	}
