@@ -35,6 +35,7 @@ import (
 	"encoding/json"
 	"go/ast"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -153,17 +154,10 @@ func (s schemaNode) hasType(want string) bool {
 		return false
 	}
 	// A null-union is by definition allowed to be absent; it is not a required string.
-	for _, t := range many {
-		if t == "null" {
-			return false
-		}
+	if slices.Contains(many, "null") {
+		return false
 	}
-	for _, t := range many {
-		if t == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(many, want)
 }
 
 // defName reads the local def name out of a "#/$defs/X" reference.
