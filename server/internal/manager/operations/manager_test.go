@@ -2073,3 +2073,15 @@ func realArchistratorProject(t *testing.T) projectstate.Project {
 		},
 	}
 }
+
+// Test_Withdraw_RequiresReasonNotes — WithdrawReason.notes is schema-required, and
+// required is presence-only. Taking a customer system out of service is not a
+// silent act; DeployAfterConstruction already guards its nested changeId, so the
+// asymmetry was the defect (2026-08-13 contract-strictness audit).
+func Test_Withdraw_RequiresReasonNotes(t *testing.T) {
+	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	_, err := m.WithdrawSystem(bgCtx(), uuid.New(), "c1", WithdrawReason{Notes: "  "})
+	if got := asOperationsError(t, err).Kind; got != fwmgr.ContractMisuse {
+		t.Fatalf("want ContractMisuse for blank withdraw notes, got %s", got)
+	}
+}

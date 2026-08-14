@@ -80,6 +80,13 @@ func (s *Session) putDraftModel(modelJSON []byte) error {
 		return fmt.Errorf("the %s draft names an entity that yields no identity: %w — give it a real name and call putDraftModel again", s.Kind.WireName(), err)
 	}
 
+	// GATE 1b — IDENTITY INTEGRITY. Schema `required` is presence-only, so `""`
+	// passes GATE 1 and then breaks every consumer that resolves the reference.
+	// Non-emptiness is enforced in Go by design (see ValidateModelIdentities).
+	if err := projectstate.ValidateModelIdentities(model); err != nil {
+		return fmt.Errorf("the %s draft has empty identities: %w\nfix them and call putDraftModel again", s.Kind.WireName(), err)
+	}
+
 	// Stage the validated model into the ambient slot at Committed (the status the CI
 	// methodcheck gate validates a slot at, and the status the server read-back reads the
 	// model from). Existing notes / thread / revisions on the slot are preserved.

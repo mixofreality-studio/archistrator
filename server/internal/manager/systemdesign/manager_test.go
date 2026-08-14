@@ -10248,3 +10248,30 @@ func Test_GetEpisodeTimeline_TraceReadError_MapsInfrastructure(t *testing.T) {
 		t.Fatalf("want Infrastructure, got %d", got)
 	}
 }
+
+// Test_AcknowledgeStaleBasis_RequiresNote closes a 2026-08-13 contract-strictness
+// finding: `note` is schema-required, but `required` is presence-only, so "" passed
+// straight through — and the note also KEYS the ack's idempotency, so every blank
+// ack across distinct slots collapsed onto one key. Checked before the liveness gate
+// so no Temporal client is needed.
+func Test_AcknowledgeStaleBasis_RequiresNote(t *testing.T) {
+	m := &systemDesignManager{}
+	for _, note := range []string{"", "   "} {
+		err := m.AcknowledgeStaleBasis(bgRC(), ProjectID(uuid.NewString()), KindMission, note)
+		if got := asSystemDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
+			t.Errorf("note %q: want ContractMisuse, got %d", note, got)
+		}
+	}
+}
+
+// Test_RequestArtifactDraft_RejectsEmptyFeedbackEnvelope: feedback is optional
+// (nil = a fresh draft), but a non-nil envelope with empty notes steers nothing
+// while telling the agent it was steered. SubmitReviewDecision already rejected
+// exactly this shape; the two ops must agree.
+func Test_RequestArtifactDraft_RejectsEmptyFeedbackEnvelope(t *testing.T) {
+	m := &systemDesignManager{}
+	_, err := m.RequestArtifactDraft(bgRC(), ProjectID(uuid.NewString()), KindMission, &ReviewFeedback{Notes: "  "})
+	if got := asSystemDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
+		t.Fatalf("want ContractMisuse for a present-but-empty feedback envelope, got %d (%v)", got, err)
+	}
+}

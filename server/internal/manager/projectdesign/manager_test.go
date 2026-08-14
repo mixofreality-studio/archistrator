@@ -5653,3 +5653,29 @@ func assertDerivedMilestonesMatch(t *testing.T, gotMilestones, committedMileston
 		}
 	}
 }
+
+// Test_AcknowledgeStaleBasis_RequiresNote — `note` is schema-required, but
+// `required` is presence-only, so "" passed through; it also KEYS the ack's
+// idempotency, so blank acks collapsed onto one key (2026-08-13 audit).
+func Test_AcknowledgeStaleBasis_RequiresNote(t *testing.T) {
+	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	for _, note := range []string{"", "   "} {
+		err := m.AcknowledgeStaleBasis(fwmanager.Context{Context: context.Background()},
+			ProjectID(uuid.NewString()), KindPlanningAssumptions, note)
+		if got := asProjectDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
+			t.Errorf("note %q: want ContractMisuse, got %d", note, got)
+		}
+	}
+}
+
+// Test_RequestArtifactDraft_RejectsEmptyFeedbackEnvelope — a non-nil feedback
+// envelope with empty notes steers nothing while claiming to steer;
+// SubmitReviewDecision already rejected this shape, so the two must agree.
+func Test_RequestArtifactDraft_RejectsEmptyFeedbackEnvelope(t *testing.T) {
+	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	_, err := m.RequestArtifactDraft(fwmanager.Context{Context: context.Background()},
+		ProjectID(uuid.NewString()), KindPlanningAssumptions, &ReviewFeedback{Notes: "  "})
+	if got := asProjectDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
+		t.Fatalf("want ContractMisuse for a present-but-empty feedback envelope, got %d", got)
+	}
+}

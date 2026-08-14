@@ -47,6 +47,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -302,6 +303,9 @@ func (m *operationsManager) WithdrawSystem(rc fwmgr.Context, operatedAppID opera
 	}
 	if changeID == "" {
 		return WithdrawResult{}, newError(fwmgr.ContractMisuse, "empty changeId")
+	}
+	if strings.TrimSpace(reason.Notes) == "" {
+		return WithdrawResult{}, newError(fwmgr.ContractMisuse, "a withdrawal requires non-empty reason notes — taking a customer system out of service is not a silent act")
 	}
 
 	wfID := withdrawWorkflowID(operatedAppID, changeID)

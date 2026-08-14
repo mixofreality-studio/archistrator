@@ -1092,3 +1092,39 @@ func Test_Close_SettleConflict_ReReadReApply_ConvergesToOne(t *testing.T) {
 
 // silence unused-import guard for time in case all delayed callbacks are removed.
 var _ = time.Millisecond
+
+// Test_RecordRevenue_RequiresCurrency — Money.currency is schema-required, and
+// required is presence-only: a money value with no currency is not a money value
+// (2026-08-13 contract-strictness audit).
+func Test_RecordRevenue_RequiresCurrency(t *testing.T) {
+	m := newBillingManager(nil, nil, nil, nil, nil, nil, nil, nil)
+	err := m.RecordInboundRevenue(testCtx(), GatewayRevenueEvent{
+		CustomerID: uuid.New(), CycleID: "cycle-1", GatewayEventID: "evt-1",
+		Amount: Money{MinorUnits: 100, Currency: ""},
+	})
+	if got := asBillingError(t, err).Kind; got != fwmgr.ContractMisuse {
+		t.Fatalf("want ContractMisuse for a currency-less amount, got %s", got)
+	}
+	rerr := m.RecordRevenueReversal(testCtx(), GatewayReversalEvent{
+		CustomerID: uuid.New(), CycleID: "cycle-1", GatewayEventID: "evt-2",
+		Amount: Money{MinorUnits: 100, Currency: "   "},
+	})
+	if got := asBillingError(t, rerr).Kind; got != fwmgr.ContractMisuse {
+		t.Fatalf("want ContractMisuse for a currency-less reversal amount, got %s", got)
+	}
+}
+
+// Test_RecordRevenueReversal_RejectsEmptyBackLink — the reverses-link is optional
+// (nil = reverses no single event), but a pointer to "" persisted into the ledger
+// through derefString as an empty id indistinguishable from absent.
+func Test_RecordRevenueReversal_RejectsEmptyBackLink(t *testing.T) {
+	m := newBillingManager(nil, nil, nil, nil, nil, nil, nil, nil)
+	blank := "  "
+	err := m.RecordRevenueReversal(testCtx(), GatewayReversalEvent{
+		CustomerID: uuid.New(), CycleID: "cycle-1", GatewayEventID: "evt-3",
+		Amount: Money{MinorUnits: 100, Currency: "usd"}, ReversesGatewayEventID: &blank,
+	})
+	if got := asBillingError(t, err).Kind; got != fwmgr.ContractMisuse {
+		t.Fatalf("want ContractMisuse for a present-but-empty reverses link, got %s", got)
+	}
+}

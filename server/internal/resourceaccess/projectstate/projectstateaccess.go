@@ -4499,9 +4499,21 @@ func finalizeCoreUseCasesIdentities(c *CoreUseCases) error {
 			return fmt.Errorf("projectstate.FinalizeDraftModel: use case %d name %q yields an empty identity slug", i+1, uc.Name)
 		}
 		uc.ID = id
+		// variationOf: authored as the CORE use case's NAME on a non-core use case,
+		// and meaningless on a core one. A pointer to "" is a third state that says
+		// nothing — normalize it to absent where absence is the correct reading (a
+		// CORE use case is a variation of nothing), and LEAVE it empty on a non-core
+		// use case, where it is a missing back-reference that ValidateModelIdentities
+		// must reject by name rather than have silently nil-ed away.
 		if uc.VariationOf != nil {
-			v := Slug(*uc.VariationOf)
-			uc.VariationOf = &v
+			if Slug(*uc.VariationOf) == "" {
+				if uc.Classification == ClassCore {
+					uc.VariationOf = nil
+				}
+			} else {
+				v := Slug(*uc.VariationOf)
+				uc.VariationOf = &v
+			}
 		}
 		// roleSlug→actor-id map for re-anchoring the node references below.
 		actorIDByRoleSlug := make(map[string]string, len(uc.Actors))
@@ -4534,6 +4546,133 @@ func finalizeCoreUseCasesIdentities(c *CoreUseCases) error {
 		}
 	}
 	return nil
+}
+
+// ValidateModelIdentities is the identity-integrity gate: every identity a model
+// carries, and every reference to one, must be non-EMPTY — not merely present.
+//
+// WHY THIS IS GO AND NOT SCHEMA (founder ruling 2026-08-13): JSON Schema
+// `required` is a presence check. `""` satisfies it. The contract corpus
+// deliberately carries no minLength/pattern — the schema states the SHAPE, the
+// code states what the values must MEAN. That division is what this function
+// implements, and its absence is what let a CoreUseCases commit with thirteen
+// id-less actors (Actor.required was already ["id","role"]) and dead-end the
+// architecture step two artifacts downstream, where the failure was expensive to
+// diagnose and impossible to repair in place (todomvc bench
+// run-20260812T012915Z).
+//
+// It reports EVERY violation at once, named by the entity's human-readable name,
+// so a drafting agent can correct the whole document in one pass rather than
+// discovering the faults one gate-rejection at a time.
+//
+// Scope: the two models that carry an identity GRAPH (CoreUseCases, System).
+// Models whose identities are their own content (a glossary term, a volatility
+// id) are guarded by methodcheck's per-artifact rules. Semantic RESOLUTION —
+// does this reference name an entity that exists — stays with methodcheck
+// (CUC-ACTOR-ID, CC-*); this gate owns emptiness only, and runs first because an
+// empty reference cannot resolve by definition.
+func ValidateModelIdentities(model ArtifactModel) error {
+	var problems []string
+	switch m := model.(type) {
+	case *CoreUseCases:
+		problems = coreUseCaseIdentityProblems(m)
+	case *System:
+		problems = systemIdentityProblems(m)
+	}
+	if len(problems) == 0 {
+		return nil
+	}
+	return fmt.Errorf("%d identity field(s) are present but EMPTY — an id that is \"\" satisfies the schema and then breaks every consumer that resolves it:\n  - %s",
+		len(problems), strings.Join(problems, "\n  - "))
+}
+
+// nonEmptyID appends a problem when an identity is blank. label already names
+// the owning entity, so the message reads as one sentence.
+func nonEmptyID(problems []string, value, label string) []string {
+	if strings.TrimSpace(value) == "" {
+		return append(problems, label+" is empty")
+	}
+	return problems
+}
+
+// coreUseCaseIdentityProblems collects the empty identities in a CoreUseCases:
+// use-case and actor ids, the variation-of back-reference, and the activity
+// diagram's node ids / edge endpoints / actor links.
+func coreUseCaseIdentityProblems(c *CoreUseCases) []string {
+	var problems []string
+	for i, d := range c.Decisions {
+		uc := d.UseCase
+		name := uc.Name
+		if name == "" {
+			name = fmt.Sprintf("(unnamed use case %d)", i+1)
+		}
+		problems = nonEmptyID(problems, uc.ID, fmt.Sprintf("use case %q: id", name))
+		if uc.VariationOf != nil {
+			problems = nonEmptyID(problems, *uc.VariationOf, fmt.Sprintf("use case %q: variationOf", name))
+		}
+		for j, a := range uc.Actors {
+			problems = nonEmptyID(problems, a.ID, fmt.Sprintf("use case %q actor %d (role %q): id", name, j+1, a.Role))
+		}
+		if uc.Activity == nil {
+			continue
+		}
+		problems = append(problems, activityDiagramIdentityProblems(uc.Activity, name)...)
+	}
+	return problems
+}
+
+// activityDiagramIdentityProblems collects the empty identities inside one
+// use case's activity diagram.
+func activityDiagramIdentityProblems(a *ActivityDiagram, ucName string) []string {
+	var problems []string
+	for k, n := range a.Nodes {
+		problems = nonEmptyID(problems, n.ID, fmt.Sprintf("use case %q node %d (label %q): id", ucName, k+1, n.Label))
+		if n.LinkedActorID != nil {
+			problems = nonEmptyID(problems, *n.LinkedActorID, fmt.Sprintf("use case %q node %q: linkedActorId", ucName, n.ID))
+		}
+		if n.DecidedBy != nil {
+			problems = nonEmptyID(problems, *n.DecidedBy, fmt.Sprintf("use case %q node %q: decidedBy", ucName, n.ID))
+		}
+	}
+	for k, e := range a.Edges {
+		problems = nonEmptyID(problems, e.From, fmt.Sprintf("use case %q edge %d: from", ucName, k+1))
+		problems = nonEmptyID(problems, e.To, fmt.Sprintf("use case %q edge %d: to", ucName, k+1))
+	}
+	return problems
+}
+
+// systemIdentityProblems collects the empty identities in a System: component
+// ids, relationship endpoints, and every dynamic view's use-case id, step node
+// id, and call endpoints.
+func systemIdentityProblems(s *System) []string {
+	var problems []string
+	for i, c := range s.Components {
+		name := c.Name
+		if name == "" {
+			name = fmt.Sprintf("(unnamed component %d)", i+1)
+		}
+		problems = nonEmptyID(problems, c.ID, fmt.Sprintf("component %q: id", name))
+	}
+	for i, r := range s.Relationships {
+		problems = nonEmptyID(problems, r.From, fmt.Sprintf("relationship %d (label %q): from", i+1, r.Label))
+		problems = nonEmptyID(problems, r.To, fmt.Sprintf("relationship %d (label %q): to", i+1, r.Label))
+	}
+	for i, v := range s.DynamicViews {
+		title := v.Title
+		if title == "" {
+			title = fmt.Sprintf("(untitled view %d)", i+1)
+		}
+		problems = nonEmptyID(problems, v.UseCaseID, fmt.Sprintf("dynamic view %q: useCaseId", title))
+		problems = nonEmptyID(problems, v.Key, fmt.Sprintf("dynamic view %q: key", title))
+		for j, st := range v.Steps {
+			problems = nonEmptyID(problems, st.ActivityNodeID, fmt.Sprintf("dynamic view %q step %d: activityNodeId", title, j+1))
+			for k, call := range st.Calls {
+				problems = nonEmptyID(problems, call.From, fmt.Sprintf("dynamic view %q step %d call %d: from", title, j+1, k+1))
+				problems = nonEmptyID(problems, call.To, fmt.Sprintf("dynamic view %q step %d call %d: to", title, j+1, k+1))
+			}
+		}
+	}
+	return problems
 }
 
 // servicecontract.go holds the typed service-contract corpus model for the

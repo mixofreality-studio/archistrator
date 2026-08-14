@@ -40,6 +40,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -282,6 +283,9 @@ func (m *billingManager) RecordInboundRevenue(rc fwmgr.Context, event GatewayRev
 	if event.GatewayEventID == "" {
 		return newError(fwmgr.ContractMisuse, "empty gatewayEventId")
 	}
+	if strings.TrimSpace(event.Amount.Currency) == "" {
+		return newError(fwmgr.ContractMisuse, "empty amount currency — a money value with no currency is not a money value")
+	}
 
 	wfID := closeWorkflowID(event.CustomerID, event.CycleID)
 	opts := client.StartWorkflowOptions{
@@ -313,6 +317,15 @@ func (m *billingManager) RecordRevenueReversal(rc fwmgr.Context, event GatewayRe
 	}
 	if event.GatewayEventID == "" {
 		return newError(fwmgr.ContractMisuse, "empty gatewayEventId")
+	}
+	if strings.TrimSpace(event.Amount.Currency) == "" {
+		return newError(fwmgr.ContractMisuse, "empty amount currency — a money value with no currency is not a money value")
+	}
+	// The back-link is OPTIONAL (nil = a chargeback that reverses no single event),
+	// but a pointer to "" is a third state: derefString persists it into the ledger
+	// as an empty id indistinguishable from absent. Reject a link that points nowhere.
+	if event.ReversesGatewayEventID != nil && strings.TrimSpace(*event.ReversesGatewayEventID) == "" {
+		return newError(fwmgr.ContractMisuse, "reversesGatewayEventId is present but empty — omit it entirely when the chargeback reverses no single event")
 	}
 
 	wfID := closeWorkflowID(event.CustomerID, event.CycleID)

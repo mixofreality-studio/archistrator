@@ -646,6 +646,11 @@ var encapsulationAllowlistData = map[string][]string{
 		// cmd/aiarch-state-mcp (putDraftModel) — the one draft-model writer — same
 		// category as RequireModelFields above.
 		"FinalizeDraftModel",
+		// IDENTITY-INTEGRITY GATE: rejects an identity that is present-but-EMPTY,
+		// which JSON Schema `required` cannot express (founder ruling 2026-08-13:
+		// non-emptiness lives in Go, not in the schema). Consumed by
+		// cmd/aiarch-state-mcp (putDraftModel) beside FinalizeDraftModel.
+		"ValidateModelIdentities",
 		// CONSTRUCTION-VERB ROUTING CORE: the pure, I/O-free router of a phase-artifact /
 		// testing-state payload into the Project aggregate — the shared core of the RA's
 		// RecordPhaseArtifactProduced, exported so the cmd/aiarch-state-mcp construction verbs

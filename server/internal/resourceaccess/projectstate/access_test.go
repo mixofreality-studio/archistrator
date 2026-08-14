@@ -8092,3 +8092,80 @@ func TestFinalizeDraftModel_EmptySlugFails(t *testing.T) {
 		t.Fatalf("an actor role slugging to \"\" must fail the finalize pass")
 	}
 }
+
+// TestValidateModelIdentities_CoreUseCases pins the identity-integrity gate on
+// the exact shape that escaped every existing check: Actor.required was already
+// ["id","role"], so an actor with id "" is schema-VALID. Non-emptiness is a Go
+// invariant, and it must name the offending entity so the agent can fix it.
+func TestValidateModelIdentities_CoreUseCases(t *testing.T) {
+	blank := ""
+	c := &CoreUseCases{Decisions: []UseCaseDecision{
+		{UseCase: UseCase{
+			ID:     "work-the-list",
+			Name:   "Work the list",
+			Actors: []Actor{{ID: "", Role: "Team member"}, {ID: "automated-tooling", Role: "Automated tooling"}},
+			Activity: &ActivityDiagram{
+				Nodes: []ActivityNode{{ID: "", Kind: NodeAction, Label: "add a todo"}},
+				Edges: []ActivityEdge{{From: "n1", To: ""}},
+			},
+		}},
+		{UseCase: UseCase{ID: "", Name: "Review the list", VariationOf: &blank}},
+	}}
+	err := ValidateModelIdentities(c)
+	if err == nil {
+		t.Fatalf("empty identities must be rejected")
+	}
+	msg := err.Error()
+	for _, want := range []string{
+		`use case "Work the list" actor 1 (role "Team member"): id is empty`,
+		`use case "Work the list" node 1 (label "add a todo"): id is empty`,
+		`use case "Work the list" edge 1: to is empty`,
+		`use case "Review the list": id is empty`,
+		`use case "Review the list": variationOf is empty`,
+	} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("message must name the offender %q; got:\n%s", want, msg)
+		}
+	}
+}
+
+// TestValidateModelIdentities_System covers the identity graph the architecture
+// carries: component ids, relationship endpoints, and dynamic-view references.
+func TestValidateModelIdentities_System(t *testing.T) {
+	s := &System{
+		Components:    []Component{{ID: "", Name: "TodoListManager"}, {ID: "listAccess", Name: "ListAccess"}},
+		Relationships: []Relationship{{From: "todoListManager", To: "", Label: "reads"}},
+		DynamicViews: []DynamicView{{
+			UseCaseID: "", Key: "work-the-list", Title: "Work the list",
+			Steps: []CallStep{{ActivityNodeID: "n1", Calls: []TraceCall{{From: "team-member", To: ""}}}},
+		}},
+	}
+	err := ValidateModelIdentities(s)
+	if err == nil {
+		t.Fatalf("empty identities must be rejected")
+	}
+	for _, want := range []string{
+		`component "TodoListManager": id is empty`,
+		`relationship 1 (label "reads"): to is empty`,
+		`dynamic view "Work the list": useCaseId is empty`,
+		`dynamic view "Work the list" step 1 call 1: to is empty`,
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("message must name the offender %q; got:\n%s", want, err.Error())
+		}
+	}
+}
+
+// TestValidateModelIdentities_CleanModelsPass: a fully-identified model, and a
+// model kind this gate does not cover, both pass silently.
+func TestValidateModelIdentities_CleanModelsPass(t *testing.T) {
+	c := &CoreUseCases{Decisions: []UseCaseDecision{
+		{UseCase: UseCase{ID: "work-the-list", Name: "Work the list", Actors: []Actor{{ID: "team-member", Role: "Team member"}}}},
+	}}
+	if err := ValidateModelIdentities(c); err != nil {
+		t.Fatalf("a fully-identified CoreUseCases must pass: %v", err)
+	}
+	if err := ValidateModelIdentities(&Glossary{}); err != nil {
+		t.Fatalf("an uncovered kind must pass: %v", err)
+	}
+}

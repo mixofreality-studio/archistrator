@@ -257,6 +257,13 @@ func (m *systemDesignManager) RequestArtifactDraft(rc fwmanager.Context, project
 	if !artifactKindIsPhase1(kind) {
 		return "", newError(fwmanager.FailedPrecondition, "artifactKind is not a Phase-1 kind")
 	}
+	// A redraft's feedback is OPTIONAL (nil = a fresh draft with no steer), but a
+	// non-nil envelope whose notes are empty is a third state that steers nothing
+	// while telling the agent it was steered. The sibling SubmitReviewDecision
+	// rejects exactly this shape; RequestArtifactDraft must agree.
+	if feedback != nil && strings.TrimSpace(feedback.Notes) == "" {
+		return "", newError(fwmanager.ContractMisuse, "feedback is present but its notes are empty — omit feedback entirely to request a fresh draft with no steer")
+	}
 
 	// Spine-ordering gate. The Phase-1 spine is strictly ordered
 	// (mission → glossary → scrubbedRequirements → volatilities → coreUseCases →
@@ -1668,6 +1675,9 @@ func (m *systemDesignManager) AcknowledgeStaleBasis(rc fwmanager.Context, projec
 	ctx := rc.Context
 	if projectID == "" {
 		return newError(fwmanager.ContractMisuse, "empty projectId")
+	}
+	if strings.TrimSpace(note) == "" {
+		return newError(fwmanager.ContractMisuse, "an acknowledgement requires a non-empty note — it is the reviewer's durable justification, and it also keys the idempotency of the ack")
 	}
 	if !artifactKindIsPhase1(kind) {
 		return newError(fwmanager.FailedPrecondition, "artifactKind is not a Phase-1 kind")

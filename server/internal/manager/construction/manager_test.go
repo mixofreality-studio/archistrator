@@ -4921,3 +4921,43 @@ func Test_GetEpisodeTimeline_TraceReadError_MapsInfrastructure(t *testing.T) {
 		t.Fatalf("want Infrastructure, got %s", got)
 	}
 }
+
+// TestSubmitPhaseDecision_RejectsUnknownPhase closes the hole the 2026-08-13
+// contract-strictness audit found: `phase` is a bare string with no schema
+// vocabulary, so "" (and any typo) was signalled straight through to the child
+// workflow's phase gate, where it could never match a real phase and therefore
+// did nothing at all — a silent no-op presenting as a successful decision.
+func TestSubmitPhaseDecision_RejectsUnknownPhase(t *testing.T) {
+	for _, phase := range []string{"", "   ", "detailedDesign", "Construction", "not-a-phase"} {
+		m := newTestConstructionManager(nil)
+		err := m.SubmitPhaseDecision(testCtx(), "proj-1", "C-Orders", phase, PhaseApprove, nil)
+		if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
+			t.Errorf("phase %q: want ContractMisuse, got %s", phase, got)
+		}
+	}
+}
+
+// TestSubmitPhaseDecision_AcceptsEveryCanonicalPhase is the other half: the five
+// canonical phases must all pass the new vocabulary gate.
+func TestSubmitPhaseDecision_AcceptsEveryCanonicalPhase(t *testing.T) {
+	for _, phase := range []string{"requirements", "detailed_design", "test_plan", "construction", "integration"} {
+		m := newTestConstructionManager(&fakeTemporalClient{})
+		if err := m.SubmitPhaseDecision(testCtx(), "proj-1", "C-Orders", phase, PhaseApprove, nil); err != nil {
+			t.Errorf("phase %q must be accepted, got %v", phase, err)
+		}
+	}
+}
+
+// TestOverrideActivity_RequiresNotes — notes is schema-required on ActivityOverride,
+// but `required` is presence-only: an empty string satisfied it and left the
+// operator's steer with no durable record of why it happened.
+func TestOverrideActivity_RequiresNotes(t *testing.T) {
+	m := newTestConstructionManager(&fakeTemporalClient{})
+	err := m.OverrideActivity(testCtx(), "proj-1", "C-Orders", ActivityOverride{Kind: OverrideSkip, Notes: "  "})
+	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
+		t.Fatalf("want ContractMisuse for a blank override note, got %s", got)
+	}
+	if err := m.OverrideActivity(testCtx(), "proj-1", "C-Orders", ActivityOverride{Kind: OverrideSkip, Notes: "policy skip"}); err != nil {
+		t.Fatalf("a noted override must be accepted: %v", err)
+	}
+}

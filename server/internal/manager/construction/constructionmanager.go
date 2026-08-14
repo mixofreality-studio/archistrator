@@ -372,6 +372,9 @@ func (m *constructionManager) OverrideActivity(rc fwm.Context, projectID Project
 	default:
 		return newError(fwm.ContractMisuse, fmt.Sprintf("unknown override kind %d", int(override.Kind)))
 	}
+	if strings.TrimSpace(override.Notes) == "" {
+		return newError(fwm.ContractMisuse, "an override requires non-empty notes — it is the operator's durable record of WHY the automatic path was steered")
+	}
 
 	wfID := constructActivityWorkflowID(projectID, activityID)
 	sig := operatorOverrideSignal{Override: override}
@@ -432,6 +435,9 @@ func (m *constructionManager) SubmitPhaseDecision(rc fwm.Context, projectID Proj
 	}
 	if activityID == "" {
 		return newError(fwm.ContractMisuse, "empty activityId")
+	}
+	if err := validateMethodPhase(phase); err != nil {
+		return err
 	}
 	if decision == PhaseSendBack && (feedback == nil || feedback.Notes == "") {
 		return newError(fwm.ContractMisuse, "SendBack requires non-empty feedback notes")
@@ -698,6 +704,25 @@ type constructionActivity struct {
 	// preserving pre-change behavior for a workflow already in flight.
 	Type    projectstate.ActivityType
 	Variant projectstate.TestingVariant
+}
+
+// validateMethodPhase rejects a phase that is empty or outside the closed
+// ActivityMethodPhase vocabulary. The wire type is a bare string, and JSON Schema
+// `required` only proves the KEY was sent — so "" (and any typo) reached the child
+// workflow's phase gate as a signal that could never match a real phase, silently
+// doing nothing. Closed vocabularies are validated here for the same reason
+// SetReviewPolicy validates its preset and SetReviewCommentStatus its status.
+func validateMethodPhase(phase string) error {
+	switch projectstate.ActivityMethodPhase(phase) {
+	case projectstate.MethodPhaseRequirements, projectstate.MethodPhaseDetailedDesign,
+		projectstate.MethodPhaseTestPlan, projectstate.MethodPhaseConstruction,
+		projectstate.MethodPhaseIntegration:
+		return nil
+	}
+	if strings.TrimSpace(phase) == "" {
+		return newError(fwm.ContractMisuse, "empty phase")
+	}
+	return newError(fwm.ContractMisuse, fmt.Sprintf("unknown phase %q — expected one of requirements|detailed_design|test_plan|construction|integration", phase))
 }
 
 // activityTypeName returns the canonical activity-type wire name
