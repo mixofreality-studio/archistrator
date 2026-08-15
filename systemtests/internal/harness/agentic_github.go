@@ -72,7 +72,7 @@ import (
 type AgenticGitHub struct {
 	t       *testing.T
 	server  *httptest.Server
-	repoDir string // the bare file:// repo directory on disk (the project repo)
+	repoDir string // the file:// repo directory on disk (the project repo; non-bare, see LocalGitRepo)
 	account string // the org login the App is "installed" on
 
 	mu        sync.Mutex
@@ -204,7 +204,7 @@ func StartAgenticGitHub(t *testing.T, repo LocalGitRepo, account string) *Agenti
 	}
 	f := &AgenticGitHub{
 		t:          t,
-		repoDir:    repo.bare,
+		repoDir:    repo.path,
 		account:    account,
 		nextRunID:  1,
 		prs:        map[string]int{},
@@ -398,15 +398,24 @@ var (
 	reContents      = regexp.MustCompile(`^/repos/([^/]+)/([^/]+)/contents/(.+)$`)
 	reGitRefs       = regexp.MustCompile(`^/repos/([^/]+)/([^/]+)/git/refs$`)
 	reGitRef        = regexp.MustCompile(`^/repos/([^/]+)/([^/]+)/git/ref/(.+)$`)
-	reProtection    = regexp.MustCompile(`^/repos/([^/]+)/([^/]+)/branches/([^/]+)/protection$`)
-	reAgDispatch    = regexp.MustCompile(`^/repos/([^/]+)/([^/]+)/actions/workflows/([^/]+)/dispatches$`)
-	reAgListRuns    = regexp.MustCompile(`^/repos/([^/]+)/([^/]+)/actions/workflows/([^/]+)/runs$`)
-	reAgGetRun      = regexp.MustCompile(`^/repos/([^/]+)/([^/]+)/actions/runs/(\d+)$`)
-	rePulls         = regexp.MustCompile(`^/repos/([^/]+)/([^/]+)/pulls$`)
-	rePull          = regexp.MustCompile(`^/repos/([^/]+)/([^/]+)/pulls/(\d+)$`)
-	rePullReviews   = regexp.MustCompile(`^/repos/([^/]+)/([^/]+)/pulls/(\d+)/reviews$`)
-	rePullMerge     = regexp.MustCompile(`^/repos/([^/]+)/([^/]+)/pulls/(\d+)/merge$`)
-	reCheckRuns     = regexp.MustCompile(`^/repos/([^/]+)/([^/]+)/commits/([^/]+)/check-runs$`)
+	// The git-DATA (tree) API the atomic multi-file commit walks. It replaced the
+	// single-file Contents PUT for repo adoption, and the fake never grew the
+	// endpoints — which surfaced only once the server could boot at all.
+	reGitCommit    = regexp.MustCompile(`^/repos/([^/]+)/([^/]+)/git/commits/(.+)$`)
+	reGitCommits   = regexp.MustCompile(`^/repos/([^/]+)/([^/]+)/git/commits$`)
+	reGitTreeRead  = regexp.MustCompile(`^/repos/([^/]+)/([^/]+)/git/trees/(.+)$`)
+	reGitTrees     = regexp.MustCompile(`^/repos/([^/]+)/([^/]+)/git/trees$`)
+	reGitBlobs     = regexp.MustCompile(`^/repos/([^/]+)/([^/]+)/git/blobs$`)
+	reGitRefUpdate = regexp.MustCompile(`^/repos/([^/]+)/([^/]+)/git/refs/heads/(.+)$`)
+	reProtection   = regexp.MustCompile(`^/repos/([^/]+)/([^/]+)/branches/([^/]+)/protection$`)
+	reAgDispatch   = regexp.MustCompile(`^/repos/([^/]+)/([^/]+)/actions/workflows/([^/]+)/dispatches$`)
+	reAgListRuns   = regexp.MustCompile(`^/repos/([^/]+)/([^/]+)/actions/workflows/([^/]+)/runs$`)
+	reAgGetRun     = regexp.MustCompile(`^/repos/([^/]+)/([^/]+)/actions/runs/(\d+)$`)
+	rePulls        = regexp.MustCompile(`^/repos/([^/]+)/([^/]+)/pulls$`)
+	rePull         = regexp.MustCompile(`^/repos/([^/]+)/([^/]+)/pulls/(\d+)$`)
+	rePullReviews  = regexp.MustCompile(`^/repos/([^/]+)/([^/]+)/pulls/(\d+)/reviews$`)
+	rePullMerge    = regexp.MustCompile(`^/repos/([^/]+)/([^/]+)/pulls/(\d+)/merge$`)
+	reCheckRuns    = regexp.MustCompile(`^/repos/([^/]+)/([^/]+)/commits/([^/]+)/check-runs$`)
 )
 
 func (f *AgenticGitHub) handle(w http.ResponseWriter, r *http.Request) {
@@ -476,6 +485,36 @@ func (f *AgenticGitHub) routeBranchRefs(w http.ResponseWriter, r *http.Request, 
 	case r.Method == http.MethodGet && reGitRef.MatchString(p):
 		m := reGitRef.FindStringSubmatch(p)
 		writeJSONResp(w, 200, map[string]any{"ref": "refs/" + m[3], "object": map[string]any{"sha": "mainsha"}})
+	default:
+		return f.routeGitData(w, r, p)
+	}
+	return true
+}
+
+// routeGitData serves the git-DATA (tree) API that CommitFilesAtomic walks when it
+// seats files during repo adoption: read the head commit for its tree, write blobs,
+// write a tree, write a commit, fast-forward the ref. Like the Contents seat this
+// replaced, it is a NO-OP with deterministic shas — the fake IS the Action, and no
+// test reads the seated workflow file back. What matters is that the walk COMPLETES,
+// because a 404 anywhere in it fails project creation outright (it did: every
+// GitHub-fake test failed on "CommitFilesAtomic: get head commit" once the servers
+// started booting again).
+func (f *AgenticGitHub) routeGitData(w http.ResponseWriter, r *http.Request, p string) bool {
+	switch {
+	case r.Method == http.MethodGet && reGitCommit.MatchString(p):
+		m := reGitCommit.FindStringSubmatch(p)
+		writeJSONResp(w, 200, map[string]any{"sha": m[3], "tree": map[string]any{"sha": "treesha"}})
+	case r.Method == http.MethodGet && reGitTreeRead.MatchString(p):
+		writeJSONResp(w, 200, map[string]any{"sha": "treesha", "tree": []any{}})
+	case r.Method == http.MethodPost && reGitBlobs.MatchString(p):
+		writeJSONResp(w, 201, map[string]any{"sha": "blobsha"})
+	case r.Method == http.MethodPost && reGitTrees.MatchString(p):
+		writeJSONResp(w, 201, map[string]any{"sha": "newtreesha"})
+	case r.Method == http.MethodPost && reGitCommits.MatchString(p):
+		writeJSONResp(w, 201, map[string]any{"sha": "newcommitsha", "tree": map[string]any{"sha": "newtreesha"}})
+	case r.Method == http.MethodPatch && reGitRefUpdate.MatchString(p):
+		m := reGitRefUpdate.FindStringSubmatch(p)
+		writeJSONResp(w, 200, map[string]any{"ref": "refs/heads/" + m[3], "object": map[string]any{"sha": "newcommitsha"}})
 	default:
 		return false
 	}

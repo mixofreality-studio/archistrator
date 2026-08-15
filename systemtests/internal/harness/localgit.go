@@ -11,22 +11,43 @@ import (
 	"testing"
 )
 
-// LocalGitRepo is a throwaway bare git repo served over file:// — the on-disk
+// LocalGitRepo is a throwaway git repo served over file:// — the on-disk
 // substrate the server's LOCAL project-state-git profile
 // (ARCHISTRATOR_PROJECT_STATE_GIT_LOCAL=true) writes design artifacts to. The
 // harness drives the server to commit into it and then inspects the resulting
 // commits with the plain `git` CLI, staying fully black-box (it links no server
 // code and no git library — it only speaks file:// + the published wire surface).
 type LocalGitRepo struct {
-	t      *testing.T
-	bare   string // path to the bare repo (the file:// remote)
+	t *testing.T
+	// path is the repo the file:// remote addresses. It is a NON-BARE working
+	// checkout with receive.denyCurrentBranch=updateInstead, not a bare repo: the
+	// local-exec rail refuses to dispatch when the per-episode trace sink would sit
+	// inside the agent-writable git dir, and a bare repo makes gitDir == repoPath,
+	// so every real-construction system test died at server boot. updateInstead is
+	// what lets a push to the branch this checkout has open still land.
+	path   string
 	branch string
 }
 
 // URL is the file:// clone URL the server is pointed at.
-func (r LocalGitRepo) URL() string { return "file://" + r.bare }
+func (r LocalGitRepo) URL() string { return "file://" + r.path }
 
-// StartLocalGitRepo creates a bare git repo seeded with one empty commit so the
+// initReceivableRepo creates a NON-BARE repo that can still receive pushes to the
+// branch it has checked out (receive.denyCurrentBranch=updateInstead). Bare was the
+// obvious choice for a throwaway remote, but it makes the git dir and the repo path
+// the same directory, which the local-exec trust rule reads — correctly — as "the
+// agent could rewrite its own episode trace" and refuses to dispatch.
+func initReceivableRepo(t *testing.T, root, branch string) string {
+	t.Helper()
+	repo := filepath.Join(root, "remote")
+	gitRun(t, root, "git", "init", "--initial-branch="+branch, repo)
+	gitRun(t, repo, "git", "config", "receive.denyCurrentBranch", "updateInstead")
+	gitRun(t, repo, "git", "config", "user.email", "seed@aiarch.local")
+	gitRun(t, repo, "git", "config", "user.name", "seed")
+	return repo
+}
+
+// StartLocalGitRepo creates a git repo seeded with one empty commit so the
 // branch exists as a real ref (the server's ref-CAS base), served over file://.
 // It mirrors framework-go-infrastructure-github/testinfra.StartLocalGitRepo but
 // is reimplemented here with the git CLI so the black-box harness module takes no
@@ -40,20 +61,11 @@ func StartLocalGitRepo(t *testing.T, branch string) LocalGitRepo {
 		branch = "main"
 	}
 	root := t.TempDir()
-	bare := filepath.Join(root, "remote.git")
+	repo := initReceivableRepo(t, root, branch)
 
-	gitRun(t, root, "git", "init", "--bare", "--initial-branch="+branch, bare)
+	gitRun(t, repo, "git", "commit", "--allow-empty", "-m", "seed")
 
-	// Seed an initial commit through a throwaway working clone so `branch` exists.
-	work := filepath.Join(root, "seed")
-	gitRun(t, root, "git", "clone", bare, work)
-	gitRun(t, work, "git", "-c", "init.defaultBranch="+branch, "checkout", "-B", branch)
-	gitRun(t, work, "git", "config", "user.email", "seed@aiarch.local")
-	gitRun(t, work, "git", "config", "user.name", "seed")
-	gitRun(t, work, "git", "commit", "--allow-empty", "-m", "seed")
-	gitRun(t, work, "git", "push", "origin", branch)
-
-	return LocalGitRepo{t: t, bare: bare, branch: branch}
+	return LocalGitRepo{t: t, path: repo, branch: branch}
 }
 
 // StartLocalGitRepoWithFiles is StartLocalGitRepo, except the seed commit carries
@@ -71,17 +83,10 @@ func StartLocalGitRepoWithFiles(t *testing.T, branch string, files map[string][]
 		branch = "main"
 	}
 	root := t.TempDir()
-	bare := filepath.Join(root, "remote.git")
+	repo := initReceivableRepo(t, root, branch)
 
-	gitRun(t, root, "git", "init", "--bare", "--initial-branch="+branch, bare)
-
-	work := filepath.Join(root, "seed")
-	gitRun(t, root, "git", "clone", bare, work)
-	gitRun(t, work, "git", "-c", "init.defaultBranch="+branch, "checkout", "-B", branch)
-	gitRun(t, work, "git", "config", "user.email", "seed@aiarch.local")
-	gitRun(t, work, "git", "config", "user.name", "seed")
 	for path, content := range files {
-		full := filepath.Join(work, path)
+		full := filepath.Join(repo, path)
 		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
 			t.Fatalf("mkdir %s: %v", filepath.Dir(full), err)
 		}
@@ -89,11 +94,10 @@ func StartLocalGitRepoWithFiles(t *testing.T, branch string, files map[string][]
 			t.Fatalf("write %s: %v", full, err)
 		}
 	}
-	gitRun(t, work, "git", "add", "-A")
-	gitRun(t, work, "git", "commit", "-m", "seed")
-	gitRun(t, work, "git", "push", "origin", branch)
+	gitRun(t, repo, "git", "add", "-A")
+	gitRun(t, repo, "git", "commit", "-m", "seed")
 
-	return LocalGitRepo{t: t, bare: bare, branch: branch}
+	return LocalGitRepo{t: t, path: repo, branch: branch}
 }
 
 // SeedCommittedDesignSlots marks the named artifact kinds as Committed in the
@@ -115,7 +119,7 @@ func (r LocalGitRepo) SeedCommittedDesignSlots(wireKinds ...string) {
 	r.t.Helper()
 	root := r.t.TempDir()
 	work := filepath.Join(root, "seed-slots")
-	gitRun(r.t, root, "git", "clone", r.bare, work)
+	gitRun(r.t, root, "git", "clone", r.path, work)
 	gitRun(r.t, work, "git", "checkout", r.branch)
 	gitRun(r.t, work, "git", "config", "user.email", "seed@aiarch.local")
 	gitRun(r.t, work, "git", "config", "user.name", "seed")
@@ -167,7 +171,7 @@ func (r LocalGitRepo) SeedCommittedDesignSlots(wireKinds ...string) {
 // server pushes increments it.
 func (r LocalGitRepo) CommitCount(ctx context.Context) int {
 	r.t.Helper()
-	out := gitOut(ctx, r.t, r.bare, "rev-list", "--count", r.branch)
+	out := gitOut(ctx, r.t, r.path, "rev-list", "--count", r.branch)
 	n, err := strconv.Atoi(strings.TrimSpace(out))
 	if err != nil {
 		r.t.Fatalf("parse commit count %q: %v", out, err)
@@ -181,7 +185,7 @@ func (r LocalGitRepo) CommitCount(ctx context.Context) int {
 // commit was made).
 func (r LocalGitRepo) ListFiles(ctx context.Context) []string {
 	r.t.Helper()
-	out := gitOut(ctx, r.t, r.bare, "ls-tree", "-r", "--name-only", r.branch)
+	out := gitOut(ctx, r.t, r.path, "ls-tree", "-r", "--name-only", r.branch)
 	var files []string
 	for line := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
 		if line != "" {
@@ -195,7 +199,7 @@ func (r LocalGitRepo) ListFiles(ctx context.Context) []string {
 // for asserting the design-artifact commit (not just that the count grew).
 func (r LocalGitRepo) LastCommitMessage(ctx context.Context) string {
 	r.t.Helper()
-	return strings.TrimSpace(gitOut(ctx, r.t, r.bare, "log", "-1", "--format=%s", r.branch))
+	return strings.TrimSpace(gitOut(ctx, r.t, r.path, "log", "-1", "--format=%s", r.branch))
 }
 
 func gitRun(t *testing.T, dir, name string, args ...string) {
@@ -207,9 +211,9 @@ func gitRun(t *testing.T, dir, name string, args ...string) {
 	}
 }
 
-func gitOut(ctx context.Context, t *testing.T, bare string, args ...string) string {
+func gitOut(ctx context.Context, t *testing.T, repo string, args ...string) string {
 	t.Helper()
-	full := append([]string{"-C", bare}, args...)
+	full := append([]string{"-C", repo}, args...)
 	cmd := exec.CommandContext(ctx, "git", full...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {

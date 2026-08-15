@@ -49,13 +49,36 @@ func BuildServerBinary(ctx context.Context) (string, error) {
 		return "", err
 	}
 	serverDir := filepath.Join(root, "..", "server")
-	bin := filepath.Join(os.TempDir(), fmt.Sprintf("archistrator-server-%d", os.Getpid()))
+	// Both binaries land in ONE per-process directory because the server locates
+	// aiarch-state-mcp as a SIBLING of its own executable (server/cmd/server/hooks.go
+	// locateStateMCPBinary). A per-pid DIRECTORY rather than a per-pid file name so
+	// the sibling can keep the plain name that lookup expects while concurrent test
+	// processes still get their own copies.
+	binDir := filepath.Join(os.TempDir(), fmt.Sprintf("archistrator-systemtests-%d", os.Getpid()))
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		return "", fmt.Errorf("create binary dir %s: %w", binDir, err)
+	}
+	bin := filepath.Join(binDir, "archistrator-server")
 
 	cmd := exec.CommandContext(ctx, "go", "build", "-o", bin, "./cmd/server")
 	cmd.Dir = serverDir
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		return "", fmt.Errorf("build server binary in %s: %w", serverDir, err)
+	}
+
+	// aiarch-state-mcp is REQUIRED, not optional: with CONSTRUCTION_DRYRUN=false
+	// (which AgenticGitHub.Env selects for every real-construction test) a missing
+	// binary makes localPipeline a FATAL boot error, so the server exits before
+	// /healthz and the test only sees "never became healthy within 1m0s". That is
+	// what failed every UC1 agentic test on main for a week. Building it here keeps
+	// the harness self-sufficient — no CI step to remember, and a local
+	// `go test ./usecases/...` behaves the same as CI.
+	stateMCP := exec.CommandContext(ctx, "go", "build", "-o", filepath.Join(binDir, "aiarch-state-mcp"), "./cmd/aiarch-state-mcp")
+	stateMCP.Dir = serverDir
+	stateMCP.Stderr = os.Stderr
+	if err := stateMCP.Run(); err != nil {
+		return "", fmt.Errorf("build aiarch-state-mcp binary in %s: %w", serverDir, err)
 	}
 	return bin, nil
 }

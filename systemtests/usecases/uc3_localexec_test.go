@@ -99,7 +99,7 @@ func usecasesModuleRoot() (string, error) {
 //   - `claude --version`      → the boot-time llm.PreflightClaudeCLI probe
 //     (cmd/server/hooks.go's resolveWorkerProvider) — a plain success line.
 //   - the construction dispatch shape (--dangerously-skip-permissions --settings
-//     <path> --mcp-config <path> --strict-mcp-config --output-format json -p
+//     <path> --mcp-config <path> --strict-mcp-config --output-format stream-json --verbose -p
 //     <prompt> — the Fix-subagent Task 6 sandboxed-by-default shape, THE
 //     INVARIANT in constructionpipelineaccess.go's claudeArgv) → captures argv +
 //     the --mcp-config file's content + the --settings (Tier-2 sandbox) file's
@@ -286,7 +286,7 @@ func assertLocalExecClaudeInvocation(t *testing.T, captureDir, wantStateMCPBin, 
 	// (constructionpipelineaccess.go's claudeArgv doc comment); --strict-mcp-
 	// config ensures only the ONE attached aiarch-state server loads, never
 	// ambient user/project MCP config.
-	for _, want := range []string{"--dangerously-skip-permissions", "--settings", "--mcp-config", "--strict-mcp-config", "--output-format\njson", "-p\n/"} {
+	for _, want := range []string{"--dangerously-skip-permissions", "--settings", "--mcp-config", "--strict-mcp-config", "--output-format\nstream-json", "--verbose", "-p\n/"} {
 		if !strings.Contains(args, want) {
 			t.Fatalf("captured claude args %q missing %q", args, want)
 		}

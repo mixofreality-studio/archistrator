@@ -12,6 +12,20 @@ import (
 // (.aiarch/state/project.json .testingState.systemTestPlan STP-UC4): a black-box exercise
 // of the operationsManager surface.
 //
+// D9 SUPERSEDES THE 503 PREMISE BELOW (operations-argocd-deployment Task 11,
+// 2026-08-07). These tests boot the LOCAL profile (project-state git local), and D9
+// ruled that a profile holding no deployment credential must not APPEAR to operate —
+// "not a disabled console, not a simulated one". The composition root therefore
+// UNMOUNTS every /api/v1/operations/ route on that profile (server/cmd/server/
+// hooks.go ExtraMounts), so the honest wire expectation here is 404 / ErrNotFound,
+// NOT the 503 fail-fast these tests were written against. Until this was corrected
+// the whole file failed — invisibly, because the suite panicked on an earlier
+// timeout before ever reaching it.
+//
+// REAL UC4 wire coverage (the 503 fail-fast, and eventually a seeded happy path)
+// needs a CLOUD-profile server, which needs the deployment credential the local
+// harness deliberately has no way to supply. That remains the N-DEP earmark below.
+//
 // IMPLEMENTATION-STATE FINDING (read directly from the server module, not inferred), as of
 // the C-OSA / C-OR construction:
 //   - operatedSystemStateAccess is now the REAL Postgres head-state store
@@ -70,7 +84,38 @@ func operationsSurfaceServer(t *testing.T) harness.Transport {
 	srv := startServer(t, true)
 	tr := harness.NewHTTPTransport(srv.BaseURL())
 	t.Cleanup(func() { _ = tr.Close() })
+
+	// D9 GUARD. Every test below drives a verb under /api/v1/operations/, and this
+	// harness can only boot the LOCAL profile — where D9 unmounts that whole route
+	// prefix on purpose. Their 503 fail-fast expectations are not WRONG, they are
+	// unreachable here, and the exercise they describe needs the cloud profile's
+	// deployment credential (the standing N-DEP earmark). Skip with the reason rather
+	// than delete the plan coverage or rewrite it into an assertion about 404s —
+	// Test_UC4_D9_OperationsSurfaceIsAbsentOnLocalProfile owns that claim.
+	if _, err := tr.QueryOperatedSystemView(context.Background(), harness.ShortID(), "req-d9-probe"); errors.Is(err, harness.ErrNotFound) {
+		t.Skip("D9: the local profile unmounts /api/v1/operations/ — UC4 wire coverage needs a cloud-profile server (N-DEP)")
+	}
 	return tr
+}
+
+// Test_UC4_D9_OperationsSurfaceIsAbsentOnLocalProfile pins the D9 ruling itself
+// (operations-argocd-deployment Task 11, 2026-08-07): a profile holding no deployment
+// credential must not APPEAR to operate — "not a disabled console, not a simulated
+// one". The composition root unmounts the generated routes, so the wire answers 404
+// exactly as if they had never been registered. Hiding the webApp nav entry is not
+// enough on its own; this is the server-side half of that ruling, and without a test
+// the unmount could be dropped in a refactor and nothing would notice.
+func Test_UC4_D9_OperationsSurfaceIsAbsentOnLocalProfile(t *testing.T) {
+	requireStack(t)
+	ctx := context.Background()
+
+	srv := startServer(t, true)
+	tr := harness.NewHTTPTransport(srv.BaseURL())
+	t.Cleanup(func() { _ = tr.Close() })
+
+	if _, err := tr.QueryOperatedSystemView(ctx, harness.ShortID(), "req-d9-assert"); !errors.Is(err, harness.ErrNotFound) {
+		t.Fatalf("queryOperatedSystemView on the local profile: want ErrNotFound (D9 unmounts the route), got %v", err)
+	}
 }
 
 // Test_UC4_DeployReconcileObserve is STP-UC4-H1 (Deploy after construction, reconcile, and
@@ -131,7 +176,7 @@ func Test_UC4_ApplyDelinquencyPolicy_QueuedSignalSucceeds(t *testing.T) {
 	operatedAppID := harness.NewProjectID()
 	view, err := tr.QueryOperatedSystemView(ctx, operatedAppID, "req-view-2")
 	if !errors.Is(err, harness.ErrUnavailable) {
-		t.Fatalf("queryOperatedSystemView after delinquency signal (unseeded app): expected ErrUnavailable, got err=%v view=%+v", err, view)
+		t.Fatalf("queryOperatedSystemView after delinquency signal (unseeded app): expected ErrUnavailable (head-state NotFound at the façade), got err=%v view=%+v", err, view)
 	}
 }
 
@@ -155,12 +200,12 @@ func Test_UC4_DeployAfterConstruction_DuplicateChangeID_SameDeterministicOutcome
 
 	published1, revision1, err1 := tr.DeployAfterConstruction(ctx, operatedAppID, change)
 	if !errors.Is(err1, harness.ErrUnavailable) {
-		t.Fatalf("first deploy: expected ErrUnavailable, got err=%v published=%t revision=%q", err1, published1, revision1)
+		t.Fatalf("first deploy: expected ErrUnavailable (head-state NotFound at the façade), got err=%v published=%t revision=%q", err1, published1, revision1)
 	}
 
 	published2, revision2, err2 := tr.DeployAfterConstruction(ctx, operatedAppID, change)
 	if !errors.Is(err2, harness.ErrUnavailable) {
-		t.Fatalf("replayed deploy (same changeId): expected ErrUnavailable, got err=%v published=%t revision=%q", err2, published2, revision2)
+		t.Fatalf("replayed deploy (same changeId): expected ErrUnavailable (head-state NotFound at the façade), got err=%v published=%t revision=%q", err2, published2, revision2)
 	}
 	if published1 != published2 || revision1 != revision2 {
 		t.Fatalf("replayed deploy diverged from the first attempt: (published=%t,revision=%q) vs (published=%t,revision=%q)",
