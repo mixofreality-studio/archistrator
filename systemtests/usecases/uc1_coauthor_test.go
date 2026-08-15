@@ -56,7 +56,14 @@ func runUC1(ctx context.Context, t *testing.T, tr harness.Transport, repo harnes
 	// 0) Mint the project through the catalog — projects are no longer born
 	// implicitly on first phase touch; the catalog assigns the projectId every
 	// project-scoped route is then nested under.
-	projectID, err := tr.CreateProject(ctx, "UC1 wiring")
+	// The name IS the identity (name-as-identity), and the co-author workflow id is
+	// derived from it — so a CONSTANT name makes every caller of runUC1 share one
+	// workflow id in the shared aiarch-test Temporal namespace. That is what failed
+	// Test_UC1_CrossSurfaceEquivalence: its two legs have their own server and repo,
+	// but the http leg gives up waiting while its draft is still generating, and the
+	// mcp leg's request then landed on that SAME live workflow and was refused with
+	// "a draft is already generating for this artifact". Unique per call.
+	projectID, err := tr.CreateProject(ctx, "UC1 wiring "+harness.ShortID())
 	if err != nil {
 		t.Fatalf("[%s] createProject: %v", tr.Name(), err)
 	}
