@@ -29,7 +29,7 @@
 import { test, expect } from '@playwright/test';
 import { TESTID, PHASE1_ARTIFACTS } from './support/testids.js';
 import { skipUnlessServer, skipUnlessLiveDrafting } from './support/gating.js';
-import { createProjectFromLanding, enterDesignExperience, commitArtifactsThrough } from './support/flows.js';
+import { openSharedProject, enterDesignExperience, commitArtifactsThrough } from './support/flows.js';
 import { tagUseCase } from './support/useCases.js';
 
 const BASE = process.env.UITESTS_BASE_URL ?? process.env.UITESTS_SPA_URL ?? 'http://localhost:5173';
@@ -51,7 +51,7 @@ test.describe('coreUseCases diagram + picker affordances (live backend — UITES
   test('keyboard comment-arming on the review diagram; committed paint drops the banner for a chip; the picker groups Core/Variations', async ({
     page,
   }) => {
-    await createProjectFromLanding(page);
+    await openSharedProject(page);
     await enterDesignExperience(page);
 
     // Drive mission → volatilities to real committed state (commitArtifactsThrough

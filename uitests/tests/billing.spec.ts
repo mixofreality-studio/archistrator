@@ -17,7 +17,7 @@
 import { test, expect } from '@playwright/test';
 import { TESTID } from './support/testids.js';
 import { skipUnlessServer, gotoApp } from './support/gating.js';
-import { createProjectFromLanding } from './support/flows.js';
+import { openSharedProject } from './support/flows.js';
 import { tagUseCase } from './support/useCases.js';
 
 const BASE = process.env.UITESTS_BASE_URL ?? process.env.UITESTS_SPA_URL ?? 'http://localhost:5173';
@@ -29,10 +29,10 @@ test.beforeEach(async ({ request }) => {
 test('Billing renders the honest "backend not yet provisioned" pending state', async ({ page }) => {
   tagUseCase('bill-the-user-for-usage');
 
-  await createProjectFromLanding(page);
+  await openSharedProject(page);
   const projectIdMatch = /\/project\/([^/]+)\/home$/.exec(page.url());
   const projectId = projectIdMatch?.[1];
-  expect(projectId, 'expected createProjectFromLanding to land on /project/$id/home').toBeDefined();
+  expect(projectId, 'expected openSharedProject to land on /project/$id/home').toBeDefined();
 
   await gotoApp(page, `/project/${String(projectId)}/billing`);
   await expect(page.getByTestId(TESTID.billingRoot)).toBeVisible();

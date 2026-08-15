@@ -17,6 +17,51 @@ import { gotoApp } from './gating.js';
  * dashed `new-project-card`. We open whichever is present so the flow works from
  * any starting catalog.
  */
+/**
+ * openSharedProject gives a spec THE project for this test run.
+ *
+ * ONE PROJECT.JSON PER RUN (founder ruling 2026-08-14). A project's identity is
+ * its repository: the local git substrate holds exactly one project.json per
+ * repo, and `guardProjectIdentity` refuses a second project's write into a repo
+ * another project already claimed. uitests.yml points the server at ONE bare
+ * repo, so a suite where every spec created its own project could only ever have
+ * its FIRST creation succeed — which is exactly what happened: ten specs failed
+ * with "identity mismatch" on every main commit for a week while the two specs
+ * that create nothing kept passing. The guard is right; creating N projects
+ * against one repo was wrong. A new project means a new folder — and for this
+ * suite, the new folder arrives with the next run.
+ *
+ * The create FLOW is still exercised once per run, by whichever spec asks first
+ * (this function's create path asserts the dialog, the home base, and the URL
+ * shape). Later callers navigate to the project already made. The catalog is
+ * re-read rather than trusting cached module state, so a worker restart or a
+ * retry adopts the existing project instead of trying to create a second one.
+ */
+export async function openSharedProject(page: Page): Promise<void> {
+  if (sharedProjectURL !== undefined) {
+    await page.goto(sharedProjectURL);
+    await expect(page.getByTestId(TESTID.homeBaseScreen)).toBeVisible();
+    return;
+  }
+
+  await gotoApp(page, '/');
+  await expect(page.getByTestId(TESTID.projectsLandingScreen)).toBeVisible();
+  const existing = page.getByTestId(/^project-card-/);
+  if ((await existing.count()) > 0) {
+    await existing.first().click();
+    await expect(page.getByTestId(TESTID.homeBaseScreen)).toBeVisible();
+    await expect(page).toHaveURL(/\/project\/[^/]+\/home$/);
+    sharedProjectURL = page.url();
+    return;
+  }
+
+  await createProjectFromLanding(page);
+  sharedProjectURL = page.url();
+}
+
+/** The run's single project home-base URL, memoized after the first open. */
+let sharedProjectURL: string | undefined;
+
 export async function createProjectFromLanding(page: Page): Promise<string> {
   await gotoApp(page, '/');
   await expect(page.getByTestId(TESTID.projectsLandingScreen)).toBeVisible();
@@ -48,7 +93,12 @@ export async function createProjectFromLanding(page: Page): Promise<string> {
 export async function enterDesignExperience(page: Page): Promise<void> {
   await page.getByTestId(TESTID.resumeDesign).click();
   await expect(page.getByTestId(TESTID.designExperience)).toBeVisible();
-  await expect(page).toHaveURL(/\/project\/[^/]+\/design\/system$/);
+  // The experience deep-links to the ARTIFACT it opens on (…/design/system/mission),
+  // so the artifact segment is optional here: this flow asserts "we are in the
+  // system-design experience", not which step it happened to land on. Pinning the
+  // bare route was a stale assertion — the SPA gained the artifact segment and the
+  // flow kept demanding the URL stop short of it.
+  await expect(page).toHaveURL(/\/project\/[^/]+\/design\/system(\/[^/]+)?$/);
 }
 
 /** Default research corpus the first step needs before drafting can start. */

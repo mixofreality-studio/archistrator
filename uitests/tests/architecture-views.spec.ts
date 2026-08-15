@@ -31,7 +31,7 @@ import { test, expect } from '@playwright/test';
 import { TESTID } from './support/testids.js';
 import { skipUnlessServer, skipUnlessLiveDrafting } from './support/gating.js';
 import {
-  createProjectFromLanding,
+  openSharedProject,
   enterDesignExperience,
   commitArtifactsThrough,
 } from './support/flows.js';
@@ -75,7 +75,7 @@ test.describe('architecture & deployment views (live backend — UITESTS_LIVE_DR
   test('dynamic, component-focus, and deployment views render on a committed project', async ({
     page,
   }) => {
-    await createProjectFromLanding(page);
+    await openSharedProject(page);
     await enterDesignExperience(page);
     // Drive the whole spine through operationalConcepts (the furthest artifact),
     // committing system (with dynamicViews) and operationalConcepts (with a

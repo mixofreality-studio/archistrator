@@ -11,7 +11,7 @@
 import { test, expect } from '@playwright/test';
 import { TESTID, ACTIVE_PHASE_ID, PHASE1_ARTIFACTS } from './support/testids.js';
 import { skipUnlessServer } from './support/gating.js';
-import { createProjectFromLanding, enterDesignExperience } from './support/flows.js';
+import { openSharedProject, enterDesignExperience } from './support/flows.js';
 
 const BASE = process.env.UITESTS_BASE_URL ?? process.env.UITESTS_SPA_URL ?? 'http://localhost:5173';
 
@@ -20,7 +20,7 @@ test.beforeEach(async ({ request }) => {
 });
 
 test('home base shows the system-design phase card and the artifact TOC', async ({ page }) => {
-  await createProjectFromLanding(page);
+  await openSharedProject(page);
   await expect(page.getByTestId(TESTID.homeBaseScreen)).toBeVisible();
 
   // The active System Design phase card (typed PhaseId `systemDesign`).
@@ -34,7 +34,7 @@ test('home base shows the system-design phase card and the artifact TOC', async 
 });
 
 test('"Resume design" enters the design experience', async ({ page }) => {
-  await createProjectFromLanding(page);
+  await openSharedProject(page);
   await expect(page.getByTestId(TESTID.homeBaseScreen)).toBeVisible();
 
   await expect(page.getByTestId(TESTID.resumeDesign)).toBeVisible();

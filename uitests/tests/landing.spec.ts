@@ -9,7 +9,7 @@
 import { test, expect } from '@playwright/test';
 import { TESTID } from './support/testids.js';
 import { skipUnlessServer, gotoApp } from './support/gating.js';
-import { createProjectFromLanding } from './support/flows.js';
+import { openSharedProject } from './support/flows.js';
 
 const BASE = process.env.UITESTS_BASE_URL ?? process.env.UITESTS_SPA_URL ?? 'http://localhost:5173';
 
@@ -46,7 +46,7 @@ test('first-login empty state exposes the create-project CTA', async ({ page }) 
 });
 
 test('creating a project navigates to the home base and lists it', async ({ page }) => {
-  await createProjectFromLanding(page);
+  await openSharedProject(page);
   // On the home base now.
   await expect(page.getByTestId(TESTID.homeBaseScreen)).toBeVisible();
 

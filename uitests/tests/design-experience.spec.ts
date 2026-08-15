@@ -17,7 +17,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { TESTID, PHASE1_ARTIFACTS } from './support/testids.js';
 import { skipUnlessServer, skipUnlessLiveDrafting } from './support/gating.js';
-import { createProjectFromLanding, enterDesignExperience } from './support/flows.js';
+import { openSharedProject, enterDesignExperience } from './support/flows.js';
 import { tagUseCase } from './support/useCases.js';
 
 const BASE = process.env.UITESTS_BASE_URL ?? process.env.UITESTS_SPA_URL ?? 'http://localhost:5173';
@@ -56,7 +56,7 @@ test.describe('structure (pure UI — server reachable)', () => {
   });
 
   test('the spine renders a step per Phase-1 artifact', async ({ page }) => {
-    await createProjectFromLanding(page);
+    await openSharedProject(page);
     await enterDesignExperience(page);
 
     await expect(page.getByTestId(TESTID.slimSpine)).toBeVisible();
@@ -66,7 +66,7 @@ test.describe('structure (pure UI — server reachable)', () => {
   });
 
   test('the first step offers a "Request draft" affordance', async ({ page }) => {
-    await createProjectFromLanding(page);
+    await openSharedProject(page);
     await enterDesignExperience(page);
     // The active first step is `mission`; with no session yet it shows the CTA.
     await expect(page.getByTestId(TESTID.spineStep(PHASE1_ARTIFACTS[0]))).toBeVisible();
@@ -90,7 +90,7 @@ test.describe('co-author drafting (live backend — UITESTS_LIVE_DRAFTING=1)', (
   });
 
   test('Request draft shows the generating scene then a rendered artifact', async ({ page }) => {
-    await createProjectFromLanding(page);
+    await openSharedProject(page);
     await enterDesignExperience(page);
 
     await requestFirstDraft(page);
@@ -106,7 +106,7 @@ test.describe('co-author drafting (live backend — UITESTS_LIVE_DRAFTING=1)', (
   });
 
   test('the gate panel appears and Approve advances the spine', async ({ page }) => {
-    await createProjectFromLanding(page);
+    await openSharedProject(page);
     await enterDesignExperience(page);
 
     await requestFirstDraft(page);
@@ -130,7 +130,7 @@ test.describe('co-author drafting (live backend — UITESTS_LIVE_DRAFTING=1)', (
   });
 
   test('Send-back enables after entering free-form feedback', async ({ page }) => {
-    await createProjectFromLanding(page);
+    await openSharedProject(page);
     await enterDesignExperience(page);
 
     await requestFirstDraft(page);
@@ -159,7 +159,7 @@ test.describe('co-author drafting (live backend — UITESTS_LIVE_DRAFTING=1)', (
   });
 
   test('Send back with feedback regenerates the artifact', async ({ page }) => {
-    await createProjectFromLanding(page);
+    await openSharedProject(page);
     await enterDesignExperience(page);
 
     await requestFirstDraft(page);

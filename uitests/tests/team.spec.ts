@@ -15,7 +15,7 @@
 import { test, expect } from '@playwright/test';
 import { TESTID } from './support/testids.js';
 import { skipUnlessServer } from './support/gating.js';
-import { createProjectFromLanding } from './support/flows.js';
+import { openSharedProject } from './support/flows.js';
 
 const BASE = process.env.UITESTS_BASE_URL ?? process.env.UITESTS_SPA_URL ?? 'http://localhost:5173';
 
@@ -28,7 +28,7 @@ test.beforeEach(async ({ request }) => {
 });
 
 test('the Team nav opens the Method-roles roster with role cards', async ({ page }) => {
-  await createProjectFromLanding(page);
+  await openSharedProject(page);
   await expect(page.getByTestId(TESTID.homeBaseScreen)).toBeVisible();
 
   await page.getByTestId(TESTID.teamNav).click();
@@ -42,7 +42,7 @@ test('the Team nav opens the Method-roles roster with role cards', async ({ page
 });
 
 test('a role card opens its charter with the full-prompt disclosure', async ({ page }) => {
-  await createProjectFromLanding(page);
+  await openSharedProject(page);
   await page.getByTestId(TESTID.teamNav).click();
   await expect(page.getByTestId(TESTID.teamScreen)).toBeVisible();
 

@@ -13,7 +13,7 @@
 import { test, expect, type Request } from '@playwright/test';
 import { TESTID } from './support/testids.js';
 import { skipUnlessServer } from './support/gating.js';
-import { createProjectFromLanding, enterDesignExperience } from './support/flows.js';
+import { openSharedProject, enterDesignExperience } from './support/flows.js';
 
 const BASE = process.env.UITESTS_BASE_URL ?? process.env.UITESTS_SPA_URL ?? 'http://localhost:5173';
 
@@ -22,7 +22,7 @@ test.beforeEach(async ({ request }) => {
 });
 
 test('the design-experience ✕ returns to the home base', async ({ page }) => {
-  await createProjectFromLanding(page);
+  await openSharedProject(page);
   await enterDesignExperience(page);
 
   await page.getByTestId(TESTID.designClose).click();
@@ -48,7 +48,7 @@ test('the SPA issues no /render request across the create → design → close f
   });
 
   // Exercise the full pure-UI flow: catalog → create → home → design → close.
-  await createProjectFromLanding(page);
+  await openSharedProject(page);
   await enterDesignExperience(page);
   // Let the design experience settle (session probe + slots) before closing.
   await expect(page.getByTestId(TESTID.slimSpine)).toBeVisible();
