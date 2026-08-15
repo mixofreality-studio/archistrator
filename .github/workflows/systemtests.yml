@@ -268,5 +268,12 @@ jobs:
           # Skip the gated tests (see workflow header for rationale):
           #   Test_UC1_ResearchInputContract — REAL gap: SetResearchInput never
           #     validates a present source's title/content are non-empty.
-          GOWORK=off go test ./usecases/... -count=1 -timeout 10m -v \
+          #
+          # 25m, not 10m: the suite spent a week failing FAST (a server that could
+          # not boot gave up after 60s per test), and once those tests actually ran
+          # to completion the real cost showed up — Test_UC1_CrossSurfaceEquivalence
+          # alone is ~240s (two legs, each waiting out a draft window), and the whole
+          # suite lands around 15m. The 10m budget then killed a run in which 22
+          # tests had already PASSED, reporting a timeout panic instead of a result.
+          GOWORK=off go test ./usecases/... -count=1 -timeout 25m -v \
             -skip 'Test_UC1_ResearchInputContract'
