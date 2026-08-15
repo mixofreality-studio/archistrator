@@ -2126,7 +2126,7 @@ func assertFileContains(t *testing.T, path, want string) {
 // ---------------------------------------------------------------------------
 
 func TestClaudeArgv_DefaultPairsSkipPermissionsWithActiveSandbox(t *testing.T) {
-	args := claudeArgv("/service-construction c a", "/tmp/mcp.json", "/tmp/sandbox.json")
+	args := claudeArgv("/service-construction c a", "/tmp/mcp.json", "/tmp/sandbox.json", "")
 	mustContainArg(t, args, "--dangerously-skip-permissions")
 	mustContainAdjacentPair(t, args, "--settings", "/tmp/sandbox.json")
 	mustContainAdjacentPair(t, args, "--mcp-config", "/tmp/mcp.json")
@@ -2135,7 +2135,7 @@ func TestClaudeArgv_DefaultPairsSkipPermissionsWithActiveSandbox(t *testing.T) {
 
 func TestClaudeArgv_EscapeHatch_OmitsSandboxSettingsButKeepsSkipPermissions(t *testing.T) {
 	t.Setenv(localExecAllowUnsandboxedEnv, "true")
-	args := claudeArgv("/service-construction c a", "/tmp/mcp.json", "/tmp/sandbox.json")
+	args := claudeArgv("/service-construction c a", "/tmp/mcp.json", "/tmp/sandbox.json", "")
 	mustContainArg(t, args, "--dangerously-skip-permissions") // still required: headless, no human to prompt
 	if containsArg(args, "--settings") || containsArg(args, "/tmp/sandbox.json") {
 		t.Fatalf("escape hatch active but sandbox settings still present in argv: %v", args)
@@ -2967,7 +2967,7 @@ func TestTailBufferSingleOversizedWriteKeepsSuffix(t *testing.T) {
 // TR2 — the format switch. --verbose is REQUIRED alongside stream-json in
 // headless (-p) mode; without it claude refuses the combination.
 func TestClaudeArgv_AsksForStreamJSONEventStream(t *testing.T) {
-	args := claudeArgv("/service-construction c a", "/tmp/mcp.json", "/tmp/sandbox.json")
+	args := claudeArgv("/service-construction c a", "/tmp/mcp.json", "/tmp/sandbox.json", "")
 	mustContainAdjacentPair(t, args, "--output-format", "stream-json")
 	mustContainArg(t, args, "--verbose")
 	if containsArg(args, "json") {
@@ -3956,5 +3956,36 @@ func TestLocalDispatchProjectID(t *testing.T) {
 	}
 	if got := a.dispatchProjectID(PipelineSpec{ProjectID: "  "}); got != "state-repo" {
 		t.Fatalf("dispatchProjectID with blank spec.ProjectID = %q, want the constructor fallback", got)
+	}
+}
+
+// TestClaudeArgvModelFlag pins the design-rail model override. Design jobs ADOPT
+// their role in-session rather than dispatching a subagent, so the agent charters'
+// `model:` lines never reach a CLI — this flag is the only thing that can move the
+// design rail off the ambient subscription default, and an unset override must
+// leave the argv byte-identical to what it was before the knob existed.
+func TestClaudeArgvModelFlag(t *testing.T) {
+	withModel := strings.Join(claudeArgv("/mission-draft", "/tmp/mcp.json", "/tmp/sandbox.json", "opus"), "\n")
+	if !strings.Contains(withModel, "--model\nopus") {
+		t.Fatalf("a set model must pass --model; got %q", withModel)
+	}
+	for _, empty := range []string{"", "   "} {
+		got := strings.Join(claudeArgv("/mission-draft", "/tmp/mcp.json", "/tmp/sandbox.json", empty), "\n")
+		if strings.Contains(got, "--model") {
+			t.Fatalf("model %q must leave --model off entirely; got %q", empty, got)
+		}
+	}
+}
+
+// TestDesignDispatchPlanReadsModelEnv proves the design arm actually carries the
+// override onto the plan (the construct arm deliberately does not — construction
+// dispatches keep the ambient default).
+func TestDesignDispatchPlanReadsModelEnv(t *testing.T) {
+	t.Setenv(localExecDesignModelEnv, "opus")
+	if got := designDispatchPlan("p", "draft", "mission-draft", "b", "Mission").model; got != "opus" {
+		t.Fatalf("design plan model = %q, want opus", got)
+	}
+	if got := constructDispatchPlan("p", "C-X", "service-construction", "comp").model; got != "" {
+		t.Fatalf("construct plan model = %q, want empty (ambient default)", got)
 	}
 }

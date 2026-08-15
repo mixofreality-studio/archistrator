@@ -1484,6 +1484,10 @@ type localDispatchPlan struct {
 	// (aiarch-construct.yml's prompt step). Design: "/<command>" with no args
 	// (aiarch-design.yml's draft step).
 	prompt string
+	// model, when non-empty, pins the claude model for this dispatch (--model).
+	// Empty means "whatever the CLI resolves", which is the ambient subscription
+	// default and the behaviour every dispatch had before this field existed.
+	model string
 }
 
 // constructDispatchPlan builds the plan for a CONSTRUCTION dispatch: the activity branch
@@ -1533,6 +1537,7 @@ func constructDispatchPlan(projectID, activityID, command, componentID string) l
 //     prompt, vs the construct step's "/<command> <component> <activity>".
 func designDispatchPlan(projectID, jobMode, command, targetBranch, artifactKind string) localDispatchPlan {
 	return localDispatchPlan{
+		model:         designModelFromEnv(),
 		branch:        targetBranch,
 		worktreeLabel: "design session-branch",
 		rig: map[string]string{
@@ -1687,7 +1692,7 @@ func (a *localExecAccess) dispatch(run *localRun, plan localDispatchPlan, episod
 	}()
 
 	runCtx, runCancel := context.WithTimeout(context.Background(), a.runTimeout)
-	cmd := exec.CommandContext(runCtx, "claude", claudeArgv(plan.prompt, mcpConfigPath, sandboxSettingsPath)...) //nolint:gosec // fixed trusted binary name + internal-only args, mirrors claudecli.go
+	cmd := exec.CommandContext(runCtx, "claude", claudeArgv(plan.prompt, mcpConfigPath, sandboxSettingsPath, plan.model)...) //nolint:gosec // fixed trusted binary name + internal-only args, mirrors claudecli.go
 	cmd.Dir = workDir
 	cmd.Env = claudeSubprocessEnv(rig)
 	// SIGTERM-then-bounded-pipe-close, the SAME shutdown mechanism serverchild.go's
@@ -3380,6 +3385,26 @@ func logFailedRun(branch, diagnostic, tracePath string, stderr []byte) {
 // read fresh per dispatch, never a code-path default.
 const localExecAllowUnsandboxedEnv = "ARCHISTRATOR_LOCAL_EXEC_ALLOW_UNSANDBOXED"
 
+// localExecDesignModelEnv pins the model every DESIGN dispatch runs at. Design jobs
+// are the expensive half of a run and they do NOT dispatch subagents: each command
+// tells the session to ADOPT its role ("read .claude/agents/system-architect.md and
+// act per that charter yourself... do NOT dispatch a subagent"), so the agent
+// charters' own `model:` lines never reach a CLI and the whole design rail runs at
+// whatever model the ambient subscription resolves. This is the one place that can
+// change it. Left unset, nothing changes.
+//
+// It is deliberately rail-scoped rather than role-scoped: inferring "architect vs
+// PM" in Go would duplicate a mapping that lives in the prompts, and a second copy
+// of a classification rule is exactly the drift that cost this codebase a week of
+// mis-dispatched construction commands.
+const localExecDesignModelEnv = "ARCHISTRATOR_LOCAL_EXEC_DESIGN_MODEL"
+
+// designModelFromEnv reads that override per dispatch (never cached), mirroring
+// allowUnsandboxedFromEnv's plain os.Getenv posture.
+func designModelFromEnv() string {
+	return strings.TrimSpace(os.Getenv(localExecDesignModelEnv))
+}
+
 // allowUnsandboxedFromEnv reports whether the operator has explicitly set the
 // escape hatch. Mirrors the plain os.Getenv-driven policy reads already
 // established in this package (e.g. claudeSubprocessEnv's ANTHROPIC_API_KEY
@@ -3413,8 +3438,13 @@ func allowUnsandboxedFromEnv() bool {
 // OS-level containment for NONE, not for a lesser tier — use it only when
 // genuinely necessary, and never add a code path that appends
 // --dangerously-skip-permissions outside this function.
-func claudeArgv(prompt, mcpConfigPath, sandboxSettingsPath string) []string {
+func claudeArgv(prompt, mcpConfigPath, sandboxSettingsPath, model string) []string {
 	args := []string{"--dangerously-skip-permissions"}
+	// An empty model leaves the flag off entirely, so the CLI resolves its own
+	// default exactly as it did before this knob existed.
+	if strings.TrimSpace(model) != "" {
+		args = append(args, "--model", model)
+	}
 	// The sandbox settings are attached UNLESS the operator has explicitly opted
 	// out: that escape hatch is the one place THE INVARIANT's pairing is
 	// deliberately broken — see localExecAllowUnsandboxedEnv's doc comment.
