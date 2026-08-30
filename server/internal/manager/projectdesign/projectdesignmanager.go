@@ -3134,3 +3134,61 @@ func MaterializeActivityPlan(
 	}
 	return toProjectStateActivityList(plan), deps, toProjectStateMilestones(plan), nil
 }
+
+// materializePhase2Draft is the PRODUCTION caller of MaterializeActivityPlan — the
+// render-on-read `the-method-activity-list` mandates: "the server applies the deltas onto
+// the derived baseline (DerivePlan) and stages the result (StageArtifactForReview)". For
+// KindActivityList it REPLACES the model the drafting agent committed on the session
+// branch with the plan derived from the COMMITTED System (slot 5); every other kind
+// passes through byte-identical, so this is inert for the other fifteen slots.
+//
+// Without it slot 9 is whatever the agent typed, and on a freshly drafted project that is
+// `{"activities": null}` — after which assembleSdpReview dies with "option network has
+// zero activities" and the construction pump has nothing to dispatch. The one project
+// that DOES hold a materialized slot 9 (this repo's own) got there by a hand backfill;
+// this is that backfill made mechanical.
+//
+// DELTAS ARE EMPTY, AND THAT IS A KNOWN CONTRACT GAP, not an oversight. The wire model for
+// this slot is projectstate.ActivityList — `activities` and nothing else — so the authored
+// ActivityListDeltas vocabulary (overrides / additive / additiveMilestones) has no way to
+// reach here: an agent that commits a deltas document has its unknown fields dropped by
+// the codec and lands the empty list above. The authored deltas live in the root-level
+// `activityListOverrides` sibling, which projectDoc does not carry, so the Manager cannot
+// read them either (2026-08-10 spec amendment §1). Deriving deltas by DIFFING the drafted
+// list against the baseline is deliberately NOT done — that would silently re-bless the
+// hand-typed materialized list the doctrine forbids and re-open the zombie-activity door
+// the derivation closed. Closing the gap needs a contract change to the slot's model.
+func materializePhase2Draft(
+	proj projectstate.Project,
+	kind projectstate.ArtifactKind,
+	draft projectstate.ArtifactModel,
+) (projectstate.ArtifactModel, error) {
+	if kind != projectstate.KindActivityList {
+		return draft, nil
+	}
+
+	sysSlot := slotFor(proj, projectstate.KindSystem)
+	if sysSlot.Status != projectstate.ReviewCommitted || sysSlot.Model == nil {
+		return nil, fwmanager.New(fwmanager.FailedPrecondition,
+			"cannot materialize the activity list: the systemDesign slot is not committed — the whole Phase-2 plan derives from it, so Phase 1 must be approved before a plan is staged")
+	}
+	sys, ok := sysSlot.Model.(*projectstate.System)
+	if !ok {
+		return nil, wrongModelType(projectstate.KindSystem, sysSlot.Model)
+	}
+
+	list, _, _, err := MaterializeActivityPlan(*sys, estimation.ActivityListDeltas{})
+	if err != nil {
+		return nil, fwmanager.Wrap(fwmanager.FailedPrecondition, err,
+			"cannot materialize the activity list from the committed systemDesign")
+	}
+	// LOUD, never a silent empty list: a System that derives no activities means the
+	// architecture is empty or every component is suppressed (generated/provided). Staging
+	// that would reproduce exactly the zero-activity failure this seam exists to prevent,
+	// one phase later and with no trace of where it came from.
+	if len(list.Activities) == 0 {
+		return nil, fwmanager.New(fwmanager.FailedPrecondition,
+			fmt.Sprintf("the committed systemDesign (%d components) derives ZERO activities — every component is suppressed (constructionProfile generated/provided) or the architecture is empty; fix slot 5 before staging a plan", len(sys.Components)))
+	}
+	return &list, nil
+}

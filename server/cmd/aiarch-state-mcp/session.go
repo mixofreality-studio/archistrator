@@ -59,6 +59,11 @@ const (
 	// inputs. The agent supplies neither.
 	envComponentID = "AIARCH_COMPONENT_ID"
 	envActivityID  = "AIARCH_ACTIVITY_ID"
+	// envCommand is the dispatchable command slug the executor is running (the
+	// same slug it interpolates into the agent's prompt). It selects this
+	// session's STEP MANIFEST, which fixes the registered tool surface. The
+	// agent does not supply it; the dispatch stamps it.
+	envCommand = "AIARCH_COMMAND"
 )
 
 // statePathPrefix + projectFile mirror the projectstate git substrate's reserved
@@ -86,6 +91,14 @@ type Session struct {
 	// modes (which are keyed by Kind instead).
 	ComponentID string
 	ActivityID  string
+
+	// Command is the dispatchable slash-command slug this session serves (e.g.
+	// "mission-draft") — the STEP MANIFEST KEY. When set, buildServer registers
+	// ONLY the MCP tools methodassets' step manifest grants that step, instead
+	// of every read-only tool in the catalog. Empty means no manifest is bound
+	// and the legacy mode-gated surface is used, which keeps hand-run sessions
+	// and any dispatch predating the manifest working unchanged.
+	Command string
 
 	// wroteState is set by any state-mutating verb (putDraftModel / setCritiqueVerdict /
 	// respondToReviewComment) so publishDraft can refuse a no-op publish (nothing drafted
@@ -140,6 +153,7 @@ func newSessionFromEnv(getenv func(string) string, wd string) (*Session, error) 
 		TargetBranch: strings.TrimSpace(getenv(envTargetBranch)),
 		ComponentID:  strings.TrimSpace(getenv(envComponentID)),
 		ActivityID:   strings.TrimSpace(getenv(envActivityID)),
+		Command:      strings.TrimSpace(getenv(envCommand)),
 		git:          runGit,
 	}
 

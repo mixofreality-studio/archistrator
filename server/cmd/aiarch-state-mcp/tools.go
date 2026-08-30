@@ -13,6 +13,7 @@ import (
 	"slices"
 
 	"github.com/google/jsonschema-go/jsonschema"
+	methodassets "github.com/mixofreality-studio/archistrator-platform/method-assets"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
@@ -75,13 +76,54 @@ func buildServer(s *Session) *mcp.Server {
 		Version: "0.1.0",
 	}, nil)
 
+	granted := grantedTools(s)
 	for _, v := range composedVerbs(s) {
-		if containsStr(v.modes, s.Mode) {
+		if containsStr(v.modes, s.Mode) && granted.allows(v.name) {
 			v.register(srv)
 		}
 	}
-	registerRawReadTools(srv, s)
+	registerRawReadTools(srv, s, granted)
 	return srv
+}
+
+// toolGrant is a session's step-manifest tool allowlist. The zero value
+// (bound=false) allows everything — the legacy surface for a session that has
+// no manifest bound.
+type toolGrant struct {
+	bound bool
+	names map[string]bool
+}
+
+func (g toolGrant) allows(name string) bool { return !g.bound || g.names[name] }
+
+// grantedTools resolves this session's step manifest into a tool allowlist.
+//
+// THE MANIFEST NARROWS; IT NEVER WIDENS. The grant is applied ON TOP of the
+// existing job-mode gate, so it can only remove tools a mode already allowed —
+// it can never grant a verb the mode cannot serve. That ordering is what makes
+// the manifest safe to tighten freely: the mode rules remain the authorization
+// boundary, and the manifest is purely a context-budget filter over what is
+// already legal.
+//
+// An absent or unknown command yields an UNBOUND grant (allow-all), preserving
+// the pre-manifest surface for hand-run sessions and for any dispatch not yet
+// stamping AIARCH_COMMAND.
+func grantedTools(s *Session) toolGrant {
+	if s == nil || s.Command == "" {
+		return toolGrant{}
+	}
+	m, ok := methodassets.ManifestFor(s.Command)
+	if !ok {
+		return toolGrant{}
+	}
+	names := map[string]bool{}
+	for _, t := range m.MCPTools() {
+		names[t] = true
+	}
+	if len(names) == 0 {
+		return toolGrant{}
+	}
+	return toolGrant{bound: true, names: names}
 }
 
 // registerRawReadTools registers the non-hidden READ-ONLY + Engine raw generated
@@ -89,9 +131,9 @@ func buildServer(s *Session) *mcp.Server {
 // top of its composed verbs. AgentHidden ops and raw writes are skipped (the composed
 // verbs are the only write surface). Names never collide with the composed verbs
 // (raw tools are <component><Operation>, composed verbs are the hand-named verbs).
-func registerRawReadTools(srv *mcp.Server, s *Session) {
+func registerRawReadTools(srv *mcp.Server, s *Session, granted toolGrant) {
 	for _, tool := range projectstate.InternalToolCatalog() {
-		if !rawToolEligible(tool) {
+		if !rawToolEligible(tool) || !granted.allows(tool.Name) {
 			continue
 		}
 		registerRawTool(srv, s, tool)

@@ -123,8 +123,6 @@ export const UI_IDENTIFIERS = {
     // Header (?) info button that carries the committed artifact's framing copy
     // (replaces the full-width committed intro banner).
     ARTIFACT_INFO: 'artifact-info',
-    // Compact caveat chip on the Standard Check header when upstream slots drifted.
-    STANDARD_CHECK_CAVEAT: 'standard-check-caveat',
     ARTIFACT_RENDER: 'artifact-render',
     DRAFT_FAILED: 'draft-failed',
     DRAFT_FAILURE_REASON: 'draft-failure-reason',
@@ -166,15 +164,6 @@ export const UI_IDENTIFIERS = {
     // Compact stale marker on a spine step, keyed by slot kind.
     spineStale: (kind: string) => `spine-stale-${kind}`,
   },
-  Mission: {
-    // The quiet "realized by" reverse-join line under a business objective —
-    // the committed Deployment & Operations knobs whose objectiveLinks cite it.
-    realizedBy: (objNumber: number) => `mission-realized-by-${String(objNumber)}`,
-    // One knob chip-link on that line (→ Deployment & Operations step), keyed by
-    // objective number + knob field name.
-    realizedLink: (objNumber: number, knob: string) =>
-      `mission-realized-link-${String(objNumber)}-${knob}`,
-  },
   Glossary: {
     // The glossary reference widget (GlossaryView): search + Four-Questions
     // filter chips + the grouped, alphabetized term list.
@@ -196,11 +185,6 @@ export const UI_IDENTIFIERS = {
     usage: (index: number) => `glossary-usage-${String(index)}`,
     // One usage chip-link on that row (→ the used-in step), keyed by index + step kind.
     usageLink: (index: number, kind: string) => `glossary-usage-link-${String(index)}-${kind}`,
-  },
-  ScrubbedRequirements: {
-    // A volatilityHint chip-link on a behavior row (→ Volatilities step),
-    // keyed by the hinted volatility name.
-    hintLink: (name: string) => `behavior-hint-link-${name}`,
   },
   VolatilityMap: {
     // The volatilities artifact's two-lane single-select map (VolatilityMap).
@@ -226,17 +210,20 @@ export const UI_IDENTIFIERS = {
     REJECTED_TOGGLE: 'volatility-rejected-toggle',
     REJECTED_LIST: 'volatility-rejected-list',
     rejectedItem: (index: number) => `volatility-rejected-${String(index)}`,
-    // Navigable joins on the detail card: "Encapsulated by" component links
-    // (→ Architecture step, keyed by owner position) and trace-id links
-    // (→ Required Behaviors step, keyed by the behavior id).
+    // Navigable join on the detail card: "Encapsulated by" component links
+    // (→ Architecture step, keyed by owner position). The trace-id links went with
+    // the Required Behaviors step — the ids still render, as plain provenance text.
     ownerLink: (index: number) => `volatility-owner-link-${String(index)}`,
-    traceLink: (id: string) => `volatility-trace-link-${id}`,
   },
   Architecture: {
     VIEW_SWITCH: 'arch-view-switch',
     VIEW_STATIC: 'static',
     VIEW_DYNAMIC: 'dynamic',
     VIEW_PERSPECTIVE: 'perspective',
+    // The 4th lens on the same System artifact: the committed deployment
+    // topology (DeploymentFlow, the same one the Deployment & Operations step
+    // renders). Instance-less like Static — no companion picker.
+    VIEW_DEPLOYMENT: 'deployment',
     DYNAMIC_PICKER: 'arch-dynamic-picker',
     PERSPECTIVE_PICKER: 'arch-perspective-picker',
     // Dynamic step-through Prev/Next controls (F-QA2-51 testability).
@@ -255,8 +242,8 @@ export const UI_IDENTIFIERS = {
     noVolatility: (componentId: string) => `arch-no-volatility-${componentId}`,
     // Design-Health structure findings joined onto the diagram (findingOverlays):
     // the badge on an offending relationship edge (keyed by its from/to pair), the
-    // badge on an offending component node, and the legend count chip linking to
-    // the Design Health step.
+    // badge on an offending component node, and the legend count chip (a read-only
+    // count since the Design Health step retired).
     findingEdge: (from: string, to: string) => `arch-finding-edge-${from}-${to}`,
     findingNode: (componentId: string) => `arch-finding-node-${componentId}`,
     FINDING_COUNT: 'arch-finding-count',
@@ -266,23 +253,17 @@ export const UI_IDENTIFIERS = {
     VIEW_VERDICT: 'arch-view-verdict',
     // The FragmentBar CC-checks chip ("CC checks · passing" / "CC checks · N
     // findings here" — "here" qualifies the step-scoped count against
-    // VIEW_VERDICT's view-scoped one, fix round 1 FINDING 2) — a real
-    // StepLink into the Design Health step, present only when findings
-    // context is loaded (statusBySeq defined).
+    // VIEW_VERDICT's view-scoped one, fix round 1 FINDING 2). A read-only count
+    // since the Design Health step retired, present only when findings context is
+    // loaded (statusBySeq defined).
     CC_CHECKS_CHIP: 'arch-cc-checks-chip',
   },
-  Deployment: {
-    PROFILE_SWITCH: 'deploy-profile-switch',
-    /** Deployment & Operations Model sections (Wave-2 reshape). */
-    KNOBS: 'depops-knobs',
-    TRUST: 'depops-trust',
-    INFRA: 'depops-infra',
-    DOCTRINE: 'depops-doctrine',
-    // One "Obj N" objectiveLinks chip-link on a per-project knob (→ Mission step),
-    // keyed by knob field name + objective number.
-    objectiveLink: (knob: string, objNumber: number) =>
-      `depops-objective-link-${knob}-${String(objNumber)}`,
-  },
+  // The Deployment & Operations Model page is retired, and every testid in its old
+  // `Deployment` namespace (profile switch, knobs, trust, infra, doctrine, objective
+  // links) went with it. The committed TOPOLOGY still renders — as the Architecture
+  // step's Deployment lens — under Architecture.VIEW_DEPLOYMENT above; DeploymentFlow's
+  // own nodes carry no testids of their own (uitests select them structurally by
+  // xyflow's generated `.react-flow__node` class).
   GatePanel: {
     ROOT: 'gate-panel',
     APPROVE: 'gate-approve',

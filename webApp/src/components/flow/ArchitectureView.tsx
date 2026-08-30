@@ -1,10 +1,21 @@
 /**
  * The System-artifact viewer: a segmented control above the diagram that switches
- * between three lenses on the same architecture —
+ * between four lenses on the same architecture —
  *
  *   Static          → ArchitectureFlow (the full layered C4 component graph)
  *   Dynamic         → DynamicViewFlow  (one call chain per use case, via a picker)
  *   Component focus → PerspectiveFlow  (one component + its inbound/outbound edges)
+ *   Deployment      → DeploymentFlow   (where those components actually RUN)
+ *
+ * The Deployment lens answers the question the other three cannot — where does
+ * this decomposition run — and it is the SAME diagram the Deployment &
+ * Operations step renders, not a second rendering of it. Its topology lives in
+ * another committed slot (`operationalConcepts`), reached through
+ * CommittedSlotsContext: this is a components-layer file and stays pure of
+ * src/hooks, so the orchestrator that already holds the project head-state
+ * (SystemDesignContainer / McpSystemDesignContainer / HomeBase) supplies it. No
+ * committed topology → the toggle is disabled, exactly as Dynamic is with no
+ * dynamic views.
  *
  * The Dynamic lens is a walkthrough-DRIVEN trace, not just a chain: the owning
  * use case's WALKTHROUGH leads (left, 40% — the same focus card, Next / branch
@@ -33,6 +44,7 @@ import ListSubheader from '@mui/material/ListSubheader';
 import FormControl from '@mui/material/FormControl';
 import Typography from '@mui/material/Typography';
 import {
+  listDeploymentProfiles,
   listDynamicViews,
   toC4View,
   toCoreUseCasesView,
@@ -57,7 +69,11 @@ import { resolveContractComponentId } from '../../contracts/contractComponentId'
 import { useTokens } from '../../utilities/theme/ThemeContext';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 import { ArchitectureFlow } from './ArchitectureFlow';
+import { DeploymentFlow } from './DeploymentFlow';
 import { DynamicViewFlow } from './DynamicViewFlow';
+import { FlowEmpty } from './flowShared';
+import { useCommittedSlotEnvelope } from '../CommittedSlotsContext';
+import { useDeploymentHealthOverlay } from './DeploymentHealthContext';
 import { resolveDecider } from './deciderResolution';
 import { PerspectiveFlow } from './PerspectiveFlow';
 import { UseCaseWalkthrough } from '../usecase/UseCaseWalkthrough';
@@ -67,7 +83,7 @@ import { type Layer, LAYER_ORDER, LAYER_LABEL } from './flowLayout';
 import { useComments, dynamicEdgeAnchor, CommentProvider } from '../comments/CommentContext';
 import { resolveDeepLinkView } from './architectureDeepLink';
 
-type ViewMode = 'static' | 'dynamic' | 'perspective';
+type ViewMode = 'static' | 'dynamic' | 'perspective' | 'deployment';
 
 /** Viewport-relative canvas height for the walkthrough-driven trace's two-up
  *  layout ONLY (fix 2, founder QA round 5) — never the full-width fallback,
@@ -133,6 +149,30 @@ export function ArchitectureView({
     () => listDynamicViews(envelope, useCasesEnvelope),
     [envelope, useCasesEnvelope]
   );
+
+  // The Deployment lens' topology: the committed Deployment & Operations model,
+  // joined off the project head-state through CommittedSlotsContext (the same
+  // cross-slot channel MissionView and GlossaryView use — the components layer
+  // never fetches). Undefined until that slot is committed, or when no provider
+  // is mounted; the lens is then simply unavailable.
+  //
+  // The PROFILE is not picked here. Deployment is instance-less at this level:
+  // the lens shows the project's topology and the FIRST committed environment is
+  // the one shown — the same default the retired Deployment & Operations step
+  // opened on. That step owned the per-profile switch; nothing replaced it, since
+  // the choice was the page's, not the diagram's. The health overlay did NOT go
+  // with it — see deploymentHealth below.
+  const opEnvelope = useCommittedSlotEnvelope('operationalConcepts');
+  const deploymentProfile = useMemo(
+    () => listDeploymentProfiles(opEnvelope)[0]?.profile,
+    [opEnvelope]
+  );
+  // The lens' live health tint, delivered by the same orchestrators through
+  // DeploymentHealthContext (this file may not reach src/hooks). Undefined
+  // whenever the overlay is dormant — the local profile has no operations
+  // capability at all (D9) — and DeploymentFlow then renders exactly as it does
+  // with no overlay: an unobserved node is neutral, never red.
+  const deploymentHealth = useDeploymentHealthOverlay();
 
   // Map each established contract to its C4 component id, so a focused component
   // can surface its contract (interfaces + diagrams) once it's been designed.
@@ -519,6 +559,10 @@ export function ArchitectureView({
           color="primary"
           data-testid={UI_IDENTIFIERS.Architecture.VIEW_SWITCH}
           size="small"
+          // Four fixed lenses stay a segmented control (the set does not grow
+          // with project data — that is what the companion Selects are for), but
+          // at a narrow width the row wraps rather than squeezing the labels.
+          sx={{ flexWrap: 'wrap' }}
           value={mode}
           onChange={(_e, next: ViewMode | null) => {
             if (next !== null) setMode(next);
@@ -540,6 +584,13 @@ export function ArchitectureView({
             value={UI_IDENTIFIERS.Architecture.VIEW_PERSPECTIVE}
           >
             Component focus
+          </ToggleButton>
+          <ToggleButton
+            disabled={deploymentProfile === undefined}
+            sx={{ fontFamily: t.mono }}
+            value={UI_IDENTIFIERS.Architecture.VIEW_DEPLOYMENT}
+          >
+            Deployment
           </ToggleButton>
         </ToggleButtonGroup>
 
@@ -620,6 +671,24 @@ export function ArchitectureView({
       {mode === 'static' && (
         <ArchitectureFlow envelope={envelope} findings={structureFindings} height={height} />
       )}
+      {/* The Deployment lens: the committed topology, rendered by the very same
+          DeploymentFlow the Deployment & Operations step uses — same nodes, same
+          hover-to-light-a-connection gesture, same legend. The empty case is
+          reachable only through the persisted lens memory (a project whose
+          topology isn't committed disables the toggle), so it says so plainly
+          rather than rendering a blank canvas. */}
+      {mode === 'deployment' &&
+        (deploymentProfile !== undefined ? (
+          <DeploymentFlow
+            height={height}
+            opEnvelope={opEnvelope}
+            profile={deploymentProfile}
+            systemEnvelope={envelope}
+            {...(deploymentHealth !== undefined ? { healthByKey: deploymentHealth } : {})}
+          />
+        ) : (
+          <FlowEmpty label="No deployment topology committed yet." t={t} />
+        ))}
       {mode === 'dynamic' &&
         (tracedUseCase !== undefined ? (
           <Box

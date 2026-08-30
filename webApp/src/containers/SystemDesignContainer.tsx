@@ -21,6 +21,10 @@ import { PHASE1_ORDER, METHOD_METADATA, slugForKind } from '../contracts/methodM
 
 import { useDesignHealth } from '../hooks/useDesignHealth';
 import { useProject } from '../hooks/useProject';
+import { useCapabilities } from '../hooks/useCapabilities';
+import { useOperatedAppId } from '../hooks/useOperatedAppId';
+import { useDeploymentHealth } from '../hooks/useDeploymentHealth';
+import { operationsEnabled } from '../utilities/capabilities';
 import { useSessionState } from '../hooks/useSessionState';
 import { isSessionAbsent } from '../hooks/sessionPolling';
 import {
@@ -37,6 +41,7 @@ import { DesignExperienceSkeleton } from '../components/design/DesignSkeleton';
 import { SystemDesignView, type SpineStep } from '../components/design/SystemDesignView';
 import { CommittedSlotsProvider } from '../components/CommittedSlotsContext';
 import { StructureFindingsProvider } from '../components/flow/StructureFindingsContext';
+import { DeploymentHealthProvider } from '../components/flow/DeploymentHealthContext';
 import { gateDecisionErrorMessage } from '../components/design/gateFaultLogic';
 import { useComments } from '../components/comments/CommentContext';
 import { EpisodesPanelContainer } from './EpisodesPanelContainer';
@@ -99,8 +104,21 @@ export function SystemDesignContainer({
   // Live Design-Health findings, delivered to the architecture diagram via the
   // StructureFindingsProvider below (findingOverlays render them ON the diagram).
   // Loading / a fetch error leave data undefined → the diagram degrades to no
-  // overlays; the DesignHealthView step shares the same query cache entry.
+  // overlays. (The Design Health step that shared this query cache entry is retired;
+  // the findings now surface only ON the diagrams.)
   const { data: designHealth } = useDesignHealth(projectId);
+  // The Architecture step's Deployment lens' live health tint, delivered via
+  // DeploymentHealthProvider below (that lens is a components-layer file and may
+  // not reach src/hooks — the StructureFindingsProvider arrangement above, for the
+  // same reason). Dormant unless the operations capability is on (D9: cloud
+  // profile only) AND the derived operated-app id has landed, so the local profile
+  // fires nothing at all; `data` is then undefined and the diagram renders
+  // untinted rather than red.
+  const operatedAppId = useOperatedAppId(projectId);
+  const { data: deploymentHealth } = useDeploymentHealth(
+    operatedAppId ?? '',
+    operationsEnabled(useCapabilities())
+  );
   const spine = useMemo(() => buildSpine(project), [project]);
 
   // The active step is URL-derived: the {-$stepSlug} path segment is the source
@@ -368,45 +386,47 @@ export function SystemDesignContainer({
 
   return (
     <StructureFindingsProvider findings={designHealth?.findings}>
-      <CommittedSlotsProvider slots={project.slots}>
-        <SystemDesignView
-          acknowledgeStaleError={acknowledgeStale.error?.message}
-          acknowledgeStalePending={acknowledgeStale.isPending}
-          activeIndex={safeIndex}
-          amendPending={requestDraft.isPending}
-          beginPending={startDesign.isPending || requestDraft.isPending}
-          chat={chat}
-          chatOpen={chatOpen}
-          commentSurface={{ enabled: commentsEnabled, commentCount: comments.length, setAnchor }}
-          decisionPending={submitReview.isPending}
-          episodesSlot={
-            <EpisodesPanelContainer
-              manager="systemDesign"
-              projectId={projectId}
-              targetRef={activeKind}
-            />
-          }
-          gateError={gateError}
-          needsResearch={needsResearch}
-          project={project}
-          researchPending={setResearch.isPending || startDesign.isPending}
-          retryPending={requestDraft.isPending}
-          session={session.data ?? undefined}
-          sessionLoading={session.isLoading}
-          sessionMissing={sessionMissing}
-          spine={spine}
-          onAcknowledgeStale={onAcknowledgeStale}
-          onClose={() => void navigate({ to: '/project/$projectId/home', params: { projectId } })}
-          onOpenChat={() => {
-            setChatOpen(true);
-          }}
-          onRequestDraft={handleRequestDraft}
-          onRetry={retryDraft}
-          onSelectStep={selectStep}
-          onSubmitResearch={submitResearch}
-          onSubmitReview={onSubmitReview}
-        />
-      </CommittedSlotsProvider>
+      <DeploymentHealthProvider healthByKey={deploymentHealth}>
+        <CommittedSlotsProvider slots={project.slots}>
+          <SystemDesignView
+            acknowledgeStaleError={acknowledgeStale.error?.message}
+            acknowledgeStalePending={acknowledgeStale.isPending}
+            activeIndex={safeIndex}
+            amendPending={requestDraft.isPending}
+            beginPending={startDesign.isPending || requestDraft.isPending}
+            chat={chat}
+            chatOpen={chatOpen}
+            commentSurface={{ enabled: commentsEnabled, commentCount: comments.length, setAnchor }}
+            decisionPending={submitReview.isPending}
+            episodesSlot={
+              <EpisodesPanelContainer
+                manager="systemDesign"
+                projectId={projectId}
+                targetRef={activeKind}
+              />
+            }
+            gateError={gateError}
+            needsResearch={needsResearch}
+            project={project}
+            researchPending={setResearch.isPending || startDesign.isPending}
+            retryPending={requestDraft.isPending}
+            session={session.data ?? undefined}
+            sessionLoading={session.isLoading}
+            sessionMissing={sessionMissing}
+            spine={spine}
+            onAcknowledgeStale={onAcknowledgeStale}
+            onClose={() => void navigate({ to: '/project/$projectId/home', params: { projectId } })}
+            onOpenChat={() => {
+              setChatOpen(true);
+            }}
+            onRequestDraft={handleRequestDraft}
+            onRetry={retryDraft}
+            onSelectStep={selectStep}
+            onSubmitResearch={submitResearch}
+            onSubmitReview={onSubmitReview}
+          />
+        </CommittedSlotsProvider>
+      </DeploymentHealthProvider>
     </StructureFindingsProvider>
   );
 }

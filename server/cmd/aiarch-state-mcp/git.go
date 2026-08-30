@@ -7,9 +7,25 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
+	"slices"
 	"strings"
 )
+
+// warnf is fatalf's non-fatal sibling: something an operator should see on a path that
+// nonetheless SUCCEEDED. It lives here rather than beside fatalf in main.go because
+// publishDraft is its only caller and main.go is being edited concurrently.
+//
+// stderr is the only channel this out-of-process binary has: stdout is the MCP protocol
+// stream, and there is NO server-side seam at all for a per-tool event (the server
+// observes a design job's terminal phase and the branch it advanced, never individual
+// tool results). The job runner captures stderr, and the SP1 capture seam tees the
+// episode's event stream to .aiarch/traces/<episodeId>.jsonl — so this is the one note
+// that survives whether or not the agent repeats it in its own words.
+func warnf(format string, args ...any) {
+	fmt.Fprintf(os.Stderr, "aiarch-state-mcp: warning: "+format+"\n", args...)
+}
 
 // runGit executes git in the given repo root and returns trimmed combined output. It is
 // the production git runner injected into Session.git (tests inject a fake).
@@ -84,21 +100,51 @@ func (s *Session) publishDraft(message string) (string, error) {
 		return "", err
 	}
 
+	// PUSH ONLY WHEN THERE IS SOMEWHERE TO PUSH. On the LOCAL venue the state repo has no
+	// `origin` at all, and an unconditional push failed with "fatal: 'origin' does not
+	// appear to be a git repository" — returned as a HARD tool error even though the local
+	// commit had landed, i.e. even though the publish had in fact succeeded. Measured on
+	// one run: 19 of 30 publishDraft calls failed that way, ~309s burned on retries, and
+	// two episodes converged only because the agent invented a workaround. With no origin,
+	// the local commit IS the publication — the server reads the branch off the same
+	// checkout. An origin that EXISTS and fails to push is still a hard error: that is a
+	// real publication failure and nothing below weakens it.
+	pushed := false
 	if s.TargetBranch != "" {
-		if _, err := s.git(s.StateRoot, "push", "origin", "HEAD:"+s.TargetBranch); err != nil {
-			return "", err
+		if s.hasOriginRemote() {
+			if _, err := s.git(s.StateRoot, "push", "origin", "HEAD:"+s.TargetBranch); err != nil {
+				return "", err
+			}
+			pushed = true
+		} else {
+			warnf("publishDraft: no 'origin' remote configured — the commit landed locally on %s and was not pushed (local venue)", s.TargetBranch)
 		}
 	}
 
 	s.published = true
 	branch := s.TargetBranch
-	if branch == "" {
+	switch {
+	case branch == "":
 		branch = "(local; no target branch configured)"
+	case !pushed:
+		branch += " (local only; no 'origin' remote to push to)"
 	}
 	if noNetChange {
 		return fmt.Sprintf("Re-affirmed the %s %s onto %s (no net change; empty commit published so the pipeline records the convergence).", s.Kind.WireName(), s.Mode, branch), nil
 	}
 	return fmt.Sprintf("Published the %s %s onto %s.", s.Kind.WireName(), s.Mode, branch), nil
+}
+
+// hasOriginRemote reports whether the checkout has an `origin` remote configured. A
+// failure to LIST the remotes is deliberately reported as "yes": the caller then attempts
+// the push and surfaces whatever git really says, so a broken `git remote` can never
+// silently turn a genuine push failure into a quiet local-only publish.
+func (s *Session) hasOriginRemote() bool {
+	out, err := s.git(s.StateRoot, "remote")
+	if err != nil {
+		return true
+	}
+	return slices.Contains(strings.Fields(out), "origin")
 }
 
 // ensureDraftToPublish is the no-empty-publish guard: it errors when NO state-mutating

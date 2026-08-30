@@ -852,27 +852,17 @@ function SelectionCard({
         {v.rationale}
       </Typography>
 
-      {/* Requirement traceability, when the artifact recorded it — each behavior
-          id links to the Required Behaviors step. */}
+      {/* Requirement traceability, when the artifact recorded it. The ids used to
+          link to the Required Behaviors step; that step is retired, so they now read
+          as plain provenance — the ids still identify the behaviors the committed
+          artifact traced this volatility to, there is simply no page to open. */}
       {traces !== undefined ? (
         <Typography
           component="p"
           sx={{ mt: 1.5, fontFamily: t.mono, fontSize: 11, color: t.muted }}
           variant="caption"
         >
-          Traces:{' '}
-          {traces.map((id, i) => (
-            <Box component="span" key={id}>
-              <StepLink
-                kind="scrubbedRequirements"
-                label={id}
-                testId={UI_IDENTIFIERS.VolatilityMap.traceLink(id)}
-              >
-                {id}
-              </StepLink>
-              {i < traces.length - 1 ? ', ' : null}
-            </Box>
-          ))}
+          Traces: {traces.join(', ')}
         </Typography>
       ) : null}
     </Box>

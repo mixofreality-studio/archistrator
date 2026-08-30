@@ -12,6 +12,7 @@ use (
 	../archistrator-platform/framework-go-infrastructure-otel
 	../archistrator-platform/framework-go-infrastructure-postgres
 	../archistrator-platform/framework-go-infrastructure-temporal
+	../archistrator-platform/method-assets
 	./server
 	./systemtests
 )

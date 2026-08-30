@@ -22,11 +22,8 @@ import type { ArtifactModelEnvelope, ServiceContracts } from '../contracts/types
 import { Prose } from './Prose';
 import { GlossaryView } from './GlossaryView';
 import { MissionView } from './MissionView';
-import { ScrubbedRequirementsView } from './ScrubbedRequirementsView';
-import { DesignHealthView } from './DesignHealthView';
 import { VolatilityMap } from './VolatilityMap';
 import { ArchitectureView } from './flow/ArchitectureView';
-import { OperationalConceptsView } from './OperationalConceptsView';
 import { UseCaseCarousel } from './usecase/UseCaseCarousel';
 import { UI_IDENTIFIERS } from '../utilities/constants/UIIdentifiers';
 
@@ -104,14 +101,6 @@ function renderBody(
           {...(height !== undefined ? { height } : {})}
         />
       );
-    case 'scrubbedRequirements':
-      return <ScrubbedRequirementsView envelope={envelope} />;
-    case 'standardCheck':
-      // Step 8 is now the render-on-read Design Health dashboard (Wave-2 reshape 3),
-      // not the committed Standard Check teardown. It self-fetches getDesignHealth off
-      // the route's projectId, so the committed `envelope` (empty in the new model) is
-      // unused here.
-      return <DesignHealthView />;
     case 'volatilities':
       return <VolatilityMap envelope={envelope} />;
     case 'system':
@@ -125,16 +114,22 @@ function renderBody(
       );
     case 'coreUseCases':
       return <UseCaseCarousel envelope={envelope} systemEnvelope={systemEnvelope} />;
-    case 'operationalConcepts':
-      return (
-        <OperationalConceptsView
-          envelope={envelope}
-          {...(height !== undefined ? { height } : {})}
-        />
-      );
     // Every Phase-2 kind (planningAssumptions / activityList / network / the 4
     // solution kinds / riskModel / sdpReview), plus an absent envelope/kind,
     // project to markdown via toMarkdown — same as the prior fall-through default.
+    //
+    // The three RETIRED-IN-PLACE Phase-1 kinds (scrubbedRequirements /
+    // operationalConcepts / standardCheck) land here too. They left the drafting
+    // sequence and their dedicated pages are gone, but they are still valid wire
+    // values on every already-committed project.json, so an envelope carrying one
+    // must render SOMETHING rather than crash the dispatcher: toMarkdown still has
+    // a projection for each. Nothing in the SPA routes them here today — the
+    // spine, the home-base TOC and the deep-link resolver all read PHASE1_ORDER,
+    // which no longer lists them — this is the safety net, and the exhaustiveness
+    // arm assertNever needs.
+    case 'scrubbedRequirements':
+    case 'operationalConcepts':
+    case 'standardCheck':
     case 'planningAssumptions':
     case 'activityList':
     case 'network':

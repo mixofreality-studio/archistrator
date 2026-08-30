@@ -94,6 +94,20 @@ export const MUTED_OPACITY = 0.12;
  */
 export const VISITED_OPACITY = 0.55;
 
+/**
+ * The opacity of the TRAIL — the handful of calls the reader has already walked
+ * past, drawn behind the current one in the Dynamic lens (DynamicViewFlow's
+ * TRAIL_LIMIT bounds how many).
+ *
+ * Deliberately LOWER than the VISITED_OPACITY the walked NODES keep. A node
+ * occupies its own box and never overlaps another, so 0.55 reads as exactly one
+ * quiet box. Wires do overlap, and opacity COMPOSITES: N strokes stacked in the
+ * same corridor render as 1-(1-a)^N, so the same tint on a bundle of trail edges
+ * paints a solid band precisely where the chain is densest. Bounding the trail
+ * and tinting it down here keeps even its worst-case overlap a hairline.
+ */
+export const TRAIL_OPACITY = 0.35;
+
 /** Theme colour for a Design-Health finding severity (edge strokes + badges). */
 export function severityColor(t: Tokens, severity: Severity): string {
   switch (severity) {
@@ -378,6 +392,10 @@ export interface EdgeOpts {
   stroke?: string;
   /** Explicit opacity, overriding the variant default. */
   opacity?: number;
+  /** Explicit stroke width, overriding the variant default (2 for a focused or
+   *  finding-bearing edge, 1.5 otherwise) — the Dynamic lens' trail tier draws a
+   *  1px hairline so an already-walked call cannot compete with the current one. */
+  strokeWidth?: number;
   /** Render dashed — used for queued / pub-sub (async) calls vs solid sync calls. */
   dashed?: boolean;
   /** When set, the edge is commentable: selecting it reveals a Comment affordance
@@ -454,7 +472,7 @@ export function flowEdge(
     type: 'layeredStep',
     style: {
       stroke,
-      strokeWidth: variant === 'focus' || findings !== undefined ? 2 : 1.5,
+      strokeWidth: opts.strokeWidth ?? (variant === 'focus' || findings !== undefined ? 2 : 1.5),
       opacity,
       ...(opts.dashed === true ? { strokeDasharray: '6 4' } : {}),
       ...(opts.comment !== undefined ? { cursor: 'pointer' } : {}),

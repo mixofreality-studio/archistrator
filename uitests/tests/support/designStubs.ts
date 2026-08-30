@@ -20,8 +20,11 @@
 import { readFileSync } from 'node:fs';
 import { type Page } from '@playwright/test';
 
-/** Phase-1 ArtifactKind ordinals (openapi enum order — mirrors PHASE1_ORDER in
- * webApp/src/contracts/methodMetadata.ts). */
+/** Phase-1 ArtifactKind WIRE ordinals (openapi enum order). This is the wire enum,
+ * NOT the drafting sequence: `scrubbedRequirements` (2), `operationalConcepts` (6)
+ * and `standardCheck` (7) are retired in place — they left PHASE1_ORDER and lost
+ * their step pages, but they keep their ordinals and stay valid wire values on every
+ * already-committed project.json, so nothing here is renumbered. */
 const KIND_ORDINAL: Record<string, number> = {
   mission: 0,
   glossary: 1,
@@ -180,10 +183,9 @@ export interface StubRejectedVolatility {
 /**
  * stubCommittedVolatilities stubs a project whose `volatilities` slot is
  * COMMITTED with the given accepted items + rejected candidates (the model's
- * newer `rejected`/`traces` fields), upstream mission/glossary/
- * scrubbedRequirements committed empty. Session probes 404, so selecting the
- * volatilities spine step renders the committed VolatilityMap. Returns the
- * project id.
+ * newer `rejected`/`traces` fields), upstream mission/glossary committed empty.
+ * Session probes 404, so selecting the volatilities spine step renders the
+ * committed VolatilityMap. Returns the project id.
  */
 export async function stubCommittedVolatilities(
   page: Page,
@@ -192,7 +194,7 @@ export async function stubCommittedVolatilities(
 ): Promise<string> {
   const projectId = 'volatilities-fixture';
   const slots = [
-    ...['mission', 'glossary', 'scrubbedRequirements'].map((k) => committedSlot(k, {})),
+    ...['mission', 'glossary'].map((k) => committedSlot(k, {})),
     committedSlot('volatilities', { items, rejected }),
   ];
 
@@ -249,13 +251,9 @@ export async function stubAwaitingReviewGlossary(
  */
 export async function stubDraftFailedArchitecture(page: Page): Promise<string> {
   const projectId = 'draft-failed-fixture';
-  const upstream = [
-    'mission',
-    'glossary',
-    'scrubbedRequirements',
-    'volatilities',
-    'coreUseCases',
-  ].map((k) => committedSlot(k, {}));
+  const upstream = ['mission', 'glossary', 'volatilities', 'coreUseCases'].map((k) =>
+    committedSlot(k, {}),
+  );
 
   await stubSessionGate(page);
   await stubGetProject(
@@ -349,6 +347,238 @@ export async function stubRetryableDraftFailedGlossary(
       ),
     });
   });
+  return projectId;
+}
+
+/**
+ * A stubbed live deployment-health reading: the wire rows
+ * GET /api/v1/operations/query-deployment-health/{operatedAppID} answers.
+ * `Health` is the OperationsHealthState ORDINAL (0 Neutral, 1 Healthy, 2 Unhealthy);
+ * `ModelKey` is the topology element key the overlay colours.
+ */
+export interface StubNodeHealth {
+  ModelKey: string;
+  Health: number;
+}
+
+/** The operated-app id the D13 derivation is stubbed to answer (a uuid, never the
+ *  project id — the two are not interchangeable, see useOperatedAppId). */
+const STUB_OPERATED_APP_ID = '6f1d2c34-9ab5-4e77-8c10-2f5b7d9e4a13';
+
+/**
+ * stubCommittedArchitecture stubs a project whose `system` slot is COMMITTED with a
+ * small layered decomposition AND whose retired-in-place `operationalConcepts` slot
+ * is COMMITTED with a deployment topology — the exact head-state shape the
+ * Architecture step's DEPLOYMENT LENS reads (ArchitectureView joins the topology off
+ * the project head-state through CommittedSlotsContext, not off its own slot).
+ *
+ * This is the hermetic replacement for the deployment coverage architecture-views.spec
+ * used to carry on the retired Deployment & Operations step: `operationalConcepts` is
+ * no longer in the drafting sequence, so no live run can reach a committed topology
+ * any more, but the lens must keep rendering for the projects that already have one.
+ * Stubbing the wire is now the only way to exercise it.
+ *
+ * The first environment is `cloud`, mirroring the real committed order (cloud, test,
+ * local) — the lens shows environments[0], and `cloud` is the ONE environment D10 ever
+ * tints, so this is also the only profile on which the health overlay is observable.
+ *
+ * `health` drives the live-overlay arm:
+ *   • omitted → capabilities answers `operations:false` (the LOCAL profile, D9). The
+ *     health query stays dormant, nothing is tinted, and the diagram must render
+ *     exactly as it did before the overlay existed — an unobserved node is neutral,
+ *     never red.
+ *   • supplied → capabilities answers `operations:true` and the health read returns
+ *     these rows, so the named element keys colour.
+ *
+ * Returns the project id.
+ */
+export async function stubCommittedArchitecture(
+  page: Page,
+  health?: StubNodeHealth[],
+): Promise<string> {
+  const projectId = 'architecture-fixture';
+  const system = {
+    components: [
+      {
+        id: 'web-client',
+        name: 'WebClient',
+        layer: 'client',
+        kind: 'client',
+        encapsulates: 'the design experience',
+      },
+      {
+        id: 'design-manager',
+        name: 'DesignManager',
+        layer: 'manager',
+        kind: 'manager',
+        encapsulates: 'the design use-case sequence',
+      },
+      {
+        id: 'artifact-access',
+        name: 'ArtifactAccess',
+        layer: 'resourceAccess',
+        kind: 'resourceAccess',
+        encapsulates: 'artifact storage',
+      },
+    ],
+    relationships: [
+      { from: 'web-client', to: 'design-manager', label: 'drives the design', mode: 'sync' },
+      {
+        from: 'design-manager',
+        to: 'artifact-access',
+        label: 'reads/writes artifacts',
+        mode: 'sync',
+      },
+    ],
+  };
+  // The topology shape DeploymentFlow consumes: shared container DEFINITIONS (which
+  // carry the packaged System component names the instances are coloured by) plus one
+  // environment per profile, whose nodes nest container instances + infrastructure.
+  const operationalConcepts = {
+    deployment: {
+      containers: [
+        {
+          key: 'app-server',
+          name: 'design-server',
+          technology: 'Go',
+          description: 'The design server.',
+          components: ['DesignManager', 'ArtifactAccess'],
+          surface: 'service',
+        },
+        {
+          key: 'app-spa',
+          name: 'design SPA',
+          technology: 'TypeScript · React',
+          description: 'The browser client.',
+          components: ['WebClient'],
+          surface: 'spa',
+        },
+      ],
+      environments: [
+        {
+          profile: 'cloud',
+          title: 'Cloud (K8s cluster)',
+          nodes: [
+            {
+              key: 'cluster',
+              name: 'Design cluster',
+              technology: 'Kubernetes',
+              description: '',
+              instances: 1,
+              tags: [],
+              children: [
+                {
+                  key: 'namespace',
+                  name: 'design namespace',
+                  technology: 'K8s namespace',
+                  description: '',
+                  instances: 1,
+                  tags: [],
+                  children: [],
+                  infrastructureNodes: [],
+                  containerInstances: [
+                    { key: 'ci-server', containerKey: 'app-server', note: '', tags: [] },
+                  ],
+                  softwareSystemInstances: [],
+                },
+              ],
+              infrastructureNodes: [
+                {
+                  key: 'infra-db',
+                  name: 'ProjectStateDB',
+                  technology: 'Postgres',
+                  description: 'The project store.',
+                  tags: [],
+                  role: 'other',
+                },
+              ],
+              containerInstances: [],
+              softwareSystemInstances: [],
+            },
+            {
+              key: 'browser',
+              name: 'Web browser',
+              technology: 'Chrome',
+              description: '',
+              instances: 1,
+              tags: [],
+              children: [],
+              infrastructureNodes: [],
+              containerInstances: [
+                { key: 'ci-spa', containerKey: 'app-spa', note: '', tags: [] },
+              ],
+              softwareSystemInstances: [],
+            },
+          ],
+          persons: [{ key: 'architect', name: 'Architect', description: '' }],
+          relationships: [
+            { from: 'architect', to: 'ci-spa', label: 'designs in', technology: 'HTTPS' },
+            { from: 'ci-spa', to: 'ci-server', label: 'calls', technology: 'REST' },
+          ],
+        },
+        {
+          profile: 'local',
+          title: 'Local (developer laptop)',
+          nodes: [
+            {
+              key: 'laptop',
+              name: 'Developer laptop',
+              technology: 'single binary',
+              description: '',
+              instances: 1,
+              tags: [],
+              children: [],
+              infrastructureNodes: [],
+              containerInstances: [
+                { key: 'local-ci-server', containerKey: 'app-server', note: '', tags: [] },
+              ],
+              softwareSystemInstances: [],
+            },
+          ],
+          persons: [],
+          relationships: [],
+        },
+      ],
+    },
+  };
+
+  const slots = [
+    ...['mission', 'glossary', 'volatilities', 'coreUseCases'].map((k) => committedSlot(k, {})),
+    committedSlot('system', system),
+    committedSlot('operationalConcepts', operationalConcepts),
+  ];
+
+  await stubSessionGate(page);
+  await stubGetProject(page, projectId, projectState(projectId, 'Architecture Fixture', slots));
+  await stubNoSession(page);
+
+  // D9 capability gate. Stubbed in BOTH arms so the spec never reaches a real
+  // server: `false` is the local profile, where the overlay must stay dormant.
+  await page.route('**/api/v1/capabilities', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ operations: health !== undefined }),
+    }),
+  );
+  // D13 derivation — read in both arms (its own query is gated only on a non-empty
+  // projectId), so it is stubbed in both to keep the run hermetic.
+  await page.route('**/api/v1/projects/*/operated-app-id', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ operatedAppId: STUB_OPERATED_APP_ID }),
+    }),
+  );
+  if (health !== undefined) {
+    await page.route('**/api/v1/operations/query-deployment-health/**', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ Nodes: health }),
+      }),
+    );
+  }
   return projectId;
 }
 

@@ -68,6 +68,10 @@ type fakeGit struct {
 	calls     [][]string
 	porcelain string // returned for `status --porcelain`
 	failOn    string // if set, any call whose first arg matches returns an error
+	// noOrigin makes `git remote` list NOTHING — the LOCAL venue, where the state repo
+	// has no origin to push to. The zero value is the remote venue (an origin exists),
+	// so every test that predates the local-venue case keeps asserting a push.
+	noOrigin bool
 }
 
 func (f *fakeGit) run(_ string, args ...string) (string, error) {
@@ -77,6 +81,18 @@ func (f *fakeGit) run(_ string, args ...string) (string, error) {
 	}
 	if len(args) >= 2 && args[0] == "status" && args[1] == "--porcelain" {
 		return f.porcelain, nil
+	}
+	if len(args) == 1 && args[0] == "remote" {
+		if f.noOrigin {
+			return "", nil
+		}
+		return "origin", nil
+	}
+	// What real git does when asked to push to a remote that is not configured — the exact
+	// failure the local venue produced 19 times on one run. Reproduced here so a test can
+	// prove the caller never asks in the first place.
+	if f.noOrigin && len(args) > 0 && args[0] == "push" {
+		return "", &fakeError{"fatal: 'origin' does not appear to be a git repository"}
 	}
 	return "", nil
 }

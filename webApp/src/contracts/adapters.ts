@@ -23,7 +23,6 @@ import type {
   Money,
   Axis,
   CallMode,
-  CheckItem,
   ComponentKind,
   ContainerInstance,
   ContainerSurface,
@@ -38,7 +37,6 @@ import type {
   MissionStatement,
   OperationalConcepts,
   RejectedVolatility,
-  Requirement,
   ScrubbedRequirements,
   StandardCheck,
   System,
@@ -843,31 +841,18 @@ export function toMissionView(envelope: ArtifactModelEnvelope | undefined): Miss
   };
 }
 
-/** The typed required behaviors (id + behavior + provenance + volatility hints), safe-empty. */
-export function toScrubbedRequirementsView(
-  envelope: ArtifactModelEnvelope | undefined
-): Requirement[] {
-  const model = narrow(envelope, 'scrubbedRequirements');
-  return model?.items ?? [];
-}
-
-// The Deployment & Operations Model's per-project projection is pure and lives in a
-// leaf module (directly unit-testable under node --test); re-exported here so callers
-// keep importing the to* adapters from one place.
-export { toDeploymentOperationsView, type DeploymentOperationsView } from './deploymentOpsLogic';
-
-// The deployment edge join/collapse is likewise pure and leaf-module-hosted.
+// The deployment edge join/collapse is pure and leaf-module-hosted.
 export {
   toDeploymentEdges,
   connectedElementKeys,
   type DeploymentEdgeView,
 } from './deploymentEdges';
 
-/** The typed standard-check rows, safe-empty. */
-export function toStandardCheckView(envelope: ArtifactModelEnvelope | undefined): CheckItem[] {
-  const model = narrow(envelope, 'standardCheck');
-  return model?.items ?? [];
-}
+// toScrubbedRequirementsView / toStandardCheckView / the deploymentOpsLogic
+// re-export are gone with the Required-Behaviors, Design-Health and Deployment &
+// Operations pages. Their KINDS are retired in place, so the markdown projections
+// below stay — an already-committed slot of one of those kinds still renders as
+// prose through toMarkdown.
 
 function scrubbedRequirementsToMarkdown(r: ScrubbedRequirements): string {
   const items = r.items ?? [];

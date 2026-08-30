@@ -507,24 +507,32 @@ func Test_SubmitReviewDecision_DeadSession_StagedOnMain_WithdrawRecordsSynchrono
 }
 
 // phase1PredecessorKind returns the immediate predecessor for each Phase-1 kind, and
-// no predecessor for the first (mission).
+// no predecessor for the first (mission). The chain is the 2026-08-30 collapsed
+// sequence: scrubbed-requirements, operational-concepts and standard-check were
+// retired from Phase1RequiredKinds(), so glossary now precedes volatilities directly
+// and system is the last step.
 func Test_Phase1PredecessorKind(t *testing.T) {
 	if _, ok := phase1PredecessorKind(KindMission); ok {
 		t.Fatal("mission (first) must have no predecessor")
 	}
 	cases := map[ArtifactKind]ArtifactKind{
-		KindGlossary:             KindMission,
-		KindScrubbedRequirements: KindGlossary,
-		KindVolatilities:         KindScrubbedRequirements,
-		KindCoreUseCases:         KindVolatilities,
-		KindSystem:               KindCoreUseCases,
-		KindOperationalConcepts:  KindSystem,
-		KindStandardCheck:        KindOperationalConcepts,
+		KindGlossary:     KindMission,
+		KindVolatilities: KindGlossary,
+		KindCoreUseCases: KindVolatilities,
+		KindSystem:       KindCoreUseCases,
 	}
 	for kind, want := range cases {
 		got, ok := phase1PredecessorKind(kind)
 		if !ok || got != want {
 			t.Fatalf("predecessor(%s) = (%s,%v), want (%s,true)", artifactKindString(kind), artifactKindString(got), ok, artifactKindString(want))
+		}
+	}
+
+	// A RETIRED kind is no longer in the sequence, so it has no predecessor — the
+	// drafting gate must not lock it behind a step (nor lock a live step behind it).
+	for _, retired := range []ArtifactKind{KindScrubbedRequirements, KindOperationalConcepts, KindStandardCheck} {
+		if pred, ok := phase1PredecessorKind(retired); ok {
+			t.Fatalf("retired kind %s must have no predecessor, got %s", artifactKindString(retired), artifactKindString(pred))
 		}
 	}
 }
@@ -575,8 +583,8 @@ func Test_AdvancePhase_EmptyProjectID(t *testing.T) {
 func Test_AdvancePhase_StaleSlot_FailedPreconditionNamingSlot(t *testing.T) {
 	pid := ProjectID(uuid.NewString())
 	proj := committedProject(pid, KindMission, KindGlossary)
-	proj.ScrubbedRequirements.Status = projectstate.ReviewCommitted
-	proj.ScrubbedRequirements.StaleBasis = true
+	proj.Volatilities.Status = projectstate.ReviewCommitted
+	proj.Volatilities.StaleBasis = true
 	ps := &renderFakeProjectState{project: proj}
 	m := NewSystemDesignManager(nil, ps, nil, nil, nil, nil, nil, nil, "")
 
@@ -585,8 +593,29 @@ func Test_AdvancePhase_StaleSlot_FailedPreconditionNamingSlot(t *testing.T) {
 	if sde.Kind != fwmanager.FailedPrecondition {
 		t.Fatalf("want FailedPrecondition for a stale committed slot, got %d", sde.Kind)
 	}
-	if !strings.Contains(err.Error(), "scrubbedRequirements") {
-		t.Fatalf("error must name the stale slot scrubbedRequirements, got %q", err.Error())
+	if !strings.Contains(err.Error(), "volatilities") {
+		t.Fatalf("error must name the stale slot volatilities, got %q", err.Error())
+	}
+}
+
+// The stale gate is scoped to Phase1RequiredKinds(): a RETIRED kind's slot may still be
+// committed-and-stale on an existing project (the slots are retired in place, not
+// deleted) and must NOT block the seal — it is no longer part of the phase.
+func Test_AdvancePhase_StaleRetiredSlot_DoesNotBlockSeal(t *testing.T) {
+	pid := ProjectID(uuid.NewString())
+	proj := committedProject(pid, KindMission, KindGlossary)
+	proj.ScrubbedRequirements.Status = projectstate.ReviewCommitted
+	proj.ScrubbedRequirements.StaleBasis = true
+	ps := &renderFakeProjectState{project: proj}
+
+	mc := &temporalmocks.Client{}
+	mc.On("ExecuteWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(nil, errors.New("boom"))
+	m := &systemDesignManager{client: mc, projectState: ps}
+
+	_, err := m.AdvancePhase(bgRC(), pid, false)
+	if got := asSystemDesignError(t, err).Kind; got == fwmanager.FailedPrecondition {
+		t.Fatalf("a stale RETIRED slot must not block the seal, got FailedPrecondition: %v", err)
 	}
 }
 
@@ -596,8 +625,8 @@ func Test_AdvancePhase_StaleSlot_FailedPreconditionNamingSlot(t *testing.T) {
 func Test_AdvancePhase_StaleSlot_AcknowledgeBypassesGate(t *testing.T) {
 	pid := ProjectID(uuid.NewString())
 	proj := committedProject(pid, KindMission)
-	proj.ScrubbedRequirements.Status = projectstate.ReviewCommitted
-	proj.ScrubbedRequirements.StaleBasis = true
+	proj.Volatilities.Status = projectstate.ReviewCommitted
+	proj.Volatilities.StaleBasis = true
 	ps := &renderFakeProjectState{project: proj}
 
 	mc := &temporalmocks.Client{}
@@ -3509,8 +3538,16 @@ func Test_PhaseAdvance_Blocked_MissingArtifacts(t *testing.T) {
 	if missing[KindMission] {
 		t.Fatalf("Mission is committed and must NOT be missing: %v", res.MissingArtifacts)
 	}
-	if !missing[KindStandardCheck] {
-		t.Fatalf("StandardCheck is uncommitted and must be missing: %v", res.MissingArtifacts)
+	if !missing[KindSystem] {
+		t.Fatalf("System is uncommitted and must be missing: %v", res.MissingArtifacts)
+	}
+	// RETIRED (2026-08-30): standard-check left Phase1RequiredKinds(), so an
+	// uncommitted standard-check slot is no longer a missing artifact and must not
+	// hold the seal. Same for the other two retired kinds.
+	for _, retired := range []ArtifactKind{KindScrubbedRequirements, KindOperationalConcepts, KindStandardCheck} {
+		if missing[retired] {
+			t.Fatalf("retired kind %s must not appear in MissingArtifacts: %v", artifactKindString(retired), res.MissingArtifacts)
+		}
 	}
 	if ps.advanced != 0 {
 		t.Fatalf("blocked advance must NOT seal the phase, advanced=%d", ps.advanced)

@@ -48,16 +48,23 @@ export interface MethodArtifactMeta {
   hasPmCritic: boolean;
 }
 
-/** Phase-1 (System Design) artifacts, in server-exposed order. */
+/**
+ * Phase-1 (System Design) artifacts, in server-exposed order.
+ *
+ * RETIRED IN PLACE (2026-08-30, founder ruling — Phase 1 collapses to Requirements
+ * + Architecture): `scrubbedRequirements`, `operationalConcepts` and `standardCheck`
+ * left the DRAFTING SEQUENCE and lost their step pages, but they remain valid wire
+ * kinds with their original ordinals — every committed project.json still carries
+ * them, `ArtifactKindFull`/`enums.gen.ts` still enumerate them, `toMarkdown` still
+ * projects them, and their METHOD_METADATA entries below stay so slugForKind and the
+ * Record<ArtifactKindFull, …> typing remain total. Nothing is renumbered.
+ */
 export const PHASE1_ORDER: readonly ArtifactKindFull[] = [
   'mission',
   'glossary',
-  'scrubbedRequirements',
   'volatilities',
   'coreUseCases',
   'system',
-  'operationalConcepts',
-  'standardCheck',
 ] as const;
 
 /** Phase-2 (Project Design) artifacts, in server-exposed order. */
@@ -90,6 +97,10 @@ export const METHOD_METADATA: Record<ArtifactKindFull, MethodArtifactMeta> = {
     phrase: 'glossary',
     hasPmCritic: true,
   },
+  // RETIRED IN PLACE — no longer in PHASE1_ORDER and no step page renders it. The
+  // entry stays so the Record stays total and slugForKind still answers for old
+  // deep links (an unresolvable slug falls back to the default step, see
+  // SystemDesignContainer).
   scrubbedRequirements: {
     kind: 'scrubbedRequirements',
     title: 'Required Behaviors',
@@ -123,6 +134,8 @@ export const METHOD_METADATA: Record<ArtifactKindFull, MethodArtifactMeta> = {
     phrase: 'architecture',
     hasPmCritic: false,
   },
+  // RETIRED IN PLACE (see scrubbedRequirements above). The MODEL is very much alive:
+  // the Architecture step's Deployment lens reads this committed slot's topology.
   operationalConcepts: {
     kind: 'operationalConcepts',
     title: 'Deployment & Operations Model',
@@ -131,6 +144,7 @@ export const METHOD_METADATA: Record<ArtifactKindFull, MethodArtifactMeta> = {
     phrase: 'deployment & operations model',
     hasPmCritic: true,
   },
+  // RETIRED IN PLACE (see scrubbedRequirements above).
   standardCheck: {
     kind: 'standardCheck',
     title: 'Design Health',

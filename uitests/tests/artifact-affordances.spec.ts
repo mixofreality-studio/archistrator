@@ -9,7 +9,7 @@
  * (the SAME cost-conscious shape architecture-views.spec uses, for the same
  * reason: this harness has no seed/import API, so reaching a real drafted +
  * committed coreUseCases artifact costs a full live co-author run through
- * mission → glossary → scrubbedRequirements → volatilities → coreUseCases):
+ * mission → glossary → volatilities → coreUseCases):
  *
  *   1. While the coreUseCases draft is awaiting review, its activity diagram's
  *      steps are keyboard-focusable and Enter/'c' arms a comment on the

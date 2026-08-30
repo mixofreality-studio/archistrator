@@ -28,10 +28,15 @@ import { ErrorAlert } from '../components/shared/ErrorAlert';
 import { CommentProvider } from '../components/comments/CommentContext';
 import { CommittedSlotsProvider } from '../components/CommittedSlotsContext';
 import { StructureFindingsProvider } from '../components/flow/StructureFindingsContext';
+import { DeploymentHealthProvider } from '../components/flow/DeploymentHealthContext';
 import { StaleBasisMarker } from '../components/design/StaleBasisChip';
 import { ApiError } from '../contracts/errors';
 import { useDesignHealth } from '../hooks/useDesignHealth';
 import { useProject } from '../hooks/useProject';
+import { useCapabilities } from '../hooks/useCapabilities';
+import { useOperatedAppId } from '../hooks/useOperatedAppId';
+import { useDeploymentHealth } from '../hooks/useDeploymentHealth';
+import { operationsEnabled } from '../utilities/capabilities';
 import { useCreateProject } from '../hooks/useCreateProject';
 import { useSetReviewPolicy } from '../hooks/useConstructionMutations';
 import {
@@ -228,9 +233,23 @@ function HomeBaseBody({
   // overlays (StructureFindingsProvider around the ArtifactPane below). Loading /
   // error → undefined → the diagram renders overlay-free.
   const { data: designHealth } = useDesignHealth(projectId);
+  // The ArtifactPane's Architecture Deployment lens' live health tint (see
+  // DeploymentHealthProvider below) — the same dormant-by-default arrangement the
+  // two design containers use: nothing fires unless the operations capability is
+  // on (D9) and the derived operated-app id has landed, and an absent overlay
+  // renders the diagram untinted, never red.
+  const operatedAppId = useOperatedAppId(projectId);
+  const { data: deploymentHealth } = useDeploymentHealth(
+    operatedAppId ?? '',
+    operationsEnabled(useCapabilities())
+  );
 
-  // SYSTEM-DESIGN ONLY — the eight Phase-1 artifacts, in Method order. No
-  // project-design (network/solutions/SDP) or construction artifacts here.
+  // SYSTEM-DESIGN ONLY — the Phase-1 artifacts still in the drafting sequence
+  // (PHASE1_ORDER), in Method order. The retired-in-place kinds are filtered out by
+  // the same PHASE1_ORDER membership test, so an old project's committed
+  // scrubbedRequirements / operationalConcepts / standardCheck slots simply don't
+  // appear as TOC rows. No project-design (network/solutions/SDP) or construction
+  // artifacts here.
   const toc = useMemo(() => {
     const all = toArtifactTableOfContents(project);
     const order = PHASE1_ORDER as readonly string[];
@@ -435,15 +454,19 @@ function HomeBaseBody({
                   gating: comment AFFORDANCES stay design-experience-only. */}
               <CommentProvider enabled={false}>
                 <StructureFindingsProvider findings={designHealth?.findings}>
-                  <CommittedSlotsProvider slots={project.slots}>
-                    <ArtifactPane
-                      artifact={selected}
-                      envelope={selectedEnvelope}
-                      serviceContracts={project.serviceContracts}
-                      systemEnvelope={project.slots.find((s) => s.kind === 'system')?.model}
-                      useCasesEnvelope={project.slots.find((s) => s.kind === 'coreUseCases')?.model}
-                    />
-                  </CommittedSlotsProvider>
+                  <DeploymentHealthProvider healthByKey={deploymentHealth}>
+                    <CommittedSlotsProvider slots={project.slots}>
+                      <ArtifactPane
+                        artifact={selected}
+                        envelope={selectedEnvelope}
+                        serviceContracts={project.serviceContracts}
+                        systemEnvelope={project.slots.find((s) => s.kind === 'system')?.model}
+                        useCasesEnvelope={
+                          project.slots.find((s) => s.kind === 'coreUseCases')?.model
+                        }
+                      />
+                    </CommittedSlotsProvider>
+                  </DeploymentHealthProvider>
                 </StructureFindingsProvider>
               </CommentProvider>
             </>

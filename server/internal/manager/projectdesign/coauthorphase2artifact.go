@@ -763,6 +763,26 @@ func (wf *workflows) finishDraftRound(
 	// this is a no-op there.
 	*headVersion = readBackVersion
 
+	// PLAN MATERIALIZATION (the-method-activity-list). The activity list is DERIVED from
+	// the committed System, not authored: what the agent commits is the human-review
+	// surface, and what gets staged is DerivePlan's baseline with those deltas applied.
+	// Runs on the read-back, AFTER the amendment no-change gate (which measures what the
+	// AGENT moved on the branch, so it must see the agent's own bytes) and BEFORE the
+	// encode, so the staged envelope, the query's state.draft, and the eventual merge to
+	// main all carry the same materialized document. Inert for every kind but the
+	// activity list. Deterministic and in-workflow, exactly like the three estimate
+	// Engines (see workermanifest.go).
+	//
+	// A materialization failure is NOT contained at the human gate: it means the committed
+	// architecture cannot produce a plan at all, which no Retry of THIS session can fix.
+	// Fail the workflow the way the encode below does, with the typed reason attached.
+	materialized, matErr := materializePhase2Draft(proj, toPSKind(in.ArtifactKind), draft)
+	if matErr != nil {
+		logger.Error("Phase-2 plan materialization failed; the staged artifact would have carried no derived plan", "error", matErr.Error())
+		return coAuthorProceed, coAuthorUnknown, fwmanager.MapError(matErr)
+	}
+	draft = materialized
+
 	// Track the staged typed draft for the query.
 	state.draft = draft
 

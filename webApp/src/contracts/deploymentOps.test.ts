@@ -1,30 +1,29 @@
 /// <reference types="node" />
 /**
- * Parse checks for the Wave-2 reshaped surfaces, run against the REAL committed slot
- * JSON (archistrator's own project.json) rather than a hand-built fixture — so a drift
- * between what the views read and the migrated ground truth fails here instead of
+ * Parse checks run against the REAL committed slot JSON (archistrator's own
+ * project.json) rather than a hand-built fixture — so a drift between what the
+ * surviving views read and the migrated ground truth fails here instead of
  * rendering an empty screen at runtime:
  *
- *   • Required Behaviors (slot 2): B-NN ids + `behavior` (renamed from `statement`) +
- *     nullable `statedAs` provenance + `volatilityHint`, and
- *   • Deployment & Operations Model (slot 6): the per-project selections + trust
- *     summaries + infra blocks projected by toDeploymentOperationsView, plus the
- *     surviving deployment topology.
+ *   • Required Behaviors (slot 2): B-NN ids + `statement` + nullable `statedAs`
+ *     provenance + `volatilityHint`. The Required-Behaviors STEP is retired, but the
+ *     committed slot is still read — GlossaryView's cross-artifact term-usage join
+ *     builds its "Behaviors" corpus from `items[].statement` (glossaryLogic
+ *     buildUsageCorpus), and toMarkdown still projects the kind — so the shape check
+ *     stays.
+ *   • Deployment & Operations Model (slot 6): the surviving deployment topology,
+ *     which the Architecture step's Deployment lens renders through
+ *     listDeploymentProfiles / toDeploymentView / DeploymentFlow.
  *
- * toDeploymentOperationsView is imported from its leaf logic module (adapters.ts is
- * not node-loadable — extensionless transitive imports); the required-behaviors and
- * topology shapes are asserted directly against the typed slot JSON.
+ * The per-project SELECTIONS (knobs / trust summaries / infra blocks / objectiveLinks)
+ * are no longer projected anywhere: the Deployment & Operations page is gone and
+ * deploymentOpsLogic.ts went with it, so the toDeploymentOperationsView / KNOB_LABELS
+ * / linkedObjectives cases that used to live here were removed with their subjects.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import type { ArtifactModelEnvelope, Objective, Requirement } from './types.ts';
-import {
-  KNOB_LABELS,
-  linkedObjectives,
-  realizingKnobs,
-  toDeploymentOperationsView,
-} from './deploymentOpsLogic.ts';
+import type { ArtifactModelEnvelope, Requirement } from './types.ts';
 
 interface Slot {
   kind: number;
@@ -40,11 +39,6 @@ function slotModel(key: string): EnvModel {
   if (slot === undefined) throw new Error(`missing slot ${key}`);
   return slot.model as EnvModel;
 }
-
-const depOpsEnvelope: ArtifactModelEnvelope = {
-  kind: 'operationalConcepts',
-  model: slotModel('6'),
-};
 
 void test('slot 2 carries the migrated Required-Behaviors shape', () => {
   const items = (slotModel('2') as { items: Requirement[] | null }).items ?? [];
@@ -70,111 +64,6 @@ void test('slot 2 carries the migrated Required-Behaviors shape', () => {
     items.some((i) => (i.volatilityHint?.length ?? 0) > 0),
     'no volatilityHint found'
   );
-});
-
-void test('toDeploymentOperationsView reads the per-project selections + trust + infra', () => {
-  const v = toDeploymentOperationsView(depOpsEnvelope);
-  assert.ok(v !== undefined, 'expected a committed deployment-operations model');
-  assert.equal(v.deploymentScenario, 'deployedOperated');
-  assert.equal(v.constructionVenue.kind, 'customerCI');
-  assert.equal(v.constructionVenue.repositoryHost, 'GitHub');
-  assert.equal(v.reviewPolicyRef, 'vibes');
-  // scalingPolicy present under deployedOperated, refined off the loose `unknown`.
-  assert.ok(v.scalingPolicy !== undefined);
-  assert.equal(v.scalingPolicy.scaleToZero, true);
-  assert.equal(v.scalingPolicy.targetUtilizationPct, 70);
-  assert.ok(v.infraBuildingBlocks.length > 0);
-  for (const b of v.infraBuildingBlocks) {
-    assert.ok(b.name.length > 0 && b.category.length > 0);
-  }
-  // All three customer trust summaries are non-empty (the ratifiable trust tier).
-  assert.ok(v.trustSummaries.billing.length > 0);
-  assert.ok(v.trustSummaries.usageMetering.length > 0);
-  assert.ok(v.trustSummaries.dataOwnership.length > 0);
-});
-
-void test('toDeploymentOperationsView is safe-empty on an absent model', () => {
-  assert.equal(toDeploymentOperationsView(undefined), undefined);
-  assert.equal(toDeploymentOperationsView({ kind: 'operationalConcepts' }), undefined);
-});
-
-// ── objectiveLinks traceability (Righting Software ch. 5) ────────────────────
-
-/** The committed mission objectives (slot 0) — the join target for the links. */
-const missionObjectives: Objective[] =
-  (slotModel('0') as { objectives: Objective[] | null }).objectives ?? [];
-
-void test('toDeploymentOperationsView carries objectiveLinks through (real slot 6)', () => {
-  const v = toDeploymentOperationsView(depOpsEnvelope);
-  assert.ok(v !== undefined);
-  assert.ok(v.objectiveLinks !== undefined, 'expected committed objectiveLinks');
-  assert.deepEqual(v.objectiveLinks['deploymentScenario'], [3, 10]);
-  assert.deepEqual(v.objectiveLinks['infraBuildingBlocks'], [2, 6, 9, 10]);
-});
-
-void test('linkedObjectives joins knob link numbers onto the mission objectives', () => {
-  const v = toDeploymentOperationsView(depOpsEnvelope);
-  assert.ok(v !== undefined);
-  const chips = linkedObjectives(v.objectiveLinks, 'deploymentScenario', missionObjectives);
-  assert.deepEqual(
-    chips.map((c) => c.number),
-    [3, 10]
-  );
-  for (const c of chips) {
-    assert.ok(c.statement.length > 0, `objective ${String(c.number)} statement missing`);
-  }
-});
-
-void test('linkedObjectives degrades gracefully (absent links / unknown objective)', () => {
-  // Older committed states carry no objectiveLinks at all → render nothing.
-  assert.deepEqual(linkedObjectives(undefined, 'deploymentScenario', missionObjectives), []);
-  // A knob with no entry (or a null entry) → nothing.
-  assert.deepEqual(linkedObjectives({}, 'scalingPolicy', missionObjectives), []);
-  assert.deepEqual(
-    linkedObjectives({ scalingPolicy: null }, 'scalingPolicy', missionObjectives),
-    []
-  );
-  // Duplicates collapse; a number with no matching objective keeps its chip with an
-  // empty statement (the link is still rendered, just tooltip-less).
-  const chips = linkedObjectives(
-    { reviewPolicyRef: [7, 7, 99] },
-    'reviewPolicyRef',
-    missionObjectives
-  );
-  assert.deepEqual(
-    chips.map((c) => c.number),
-    [7, 99]
-  );
-  assert.ok((chips[0]?.statement.length ?? 0) > 0);
-  assert.equal(chips[1]?.statement, '');
-});
-
-void test('realizingKnobs computes the reverse join in canonical knob order', () => {
-  const v = toDeploymentOperationsView(depOpsEnvelope);
-  assert.ok(v !== undefined);
-  // Objective 10 is cited by scenario + scaling + infra in the real committed state.
-  assert.deepEqual(realizingKnobs(v.objectiveLinks, 10), [
-    'deploymentScenario',
-    'scalingPolicy',
-    'infraBuildingBlocks',
-  ]);
-  // Objective 3 → scenario + venue.
-  assert.deepEqual(realizingKnobs(v.objectiveLinks, 3), [
-    'deploymentScenario',
-    'constructionVenue',
-  ]);
-  // An objective no knob cites → nothing (no warning — coverage is the server's job).
-  assert.deepEqual(realizingKnobs(v.objectiveLinks, 1), []);
-  // Absent links (older states) → nothing.
-  assert.deepEqual(realizingKnobs(undefined, 3), []);
-});
-
-void test('every knob has a human label for the realized-by chips', () => {
-  assert.equal(KNOB_LABELS.deploymentScenario, 'Deployment scenario');
-  assert.equal(KNOB_LABELS.constructionVenue, 'Construction venue');
-  assert.equal(KNOB_LABELS.reviewPolicyRef, 'Review policy');
-  assert.equal(KNOB_LABELS.scalingPolicy, 'Scaling');
-  assert.equal(KNOB_LABELS.infraBuildingBlocks, 'Infrastructure building blocks');
 });
 
 void test('the deployment topology survives the reshape (cloud + local profiles)', () => {

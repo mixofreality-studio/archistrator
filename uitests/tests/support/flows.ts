@@ -109,8 +109,8 @@ const RESEARCH_NOTE =
 
 /**
  * Per-step budget for a live model to reach the human gate and commit. The largest
- * Phase-1 artifacts (coreUseCases with activity diagrams, system, operationalConcepts)
- * draft thousands of JSON tokens and, on a LOCAL model, a single draft can take ~3
+ * Phase-1 artifacts (coreUseCases with activity diagrams, and system) draft
+ * thousands of JSON tokens and, on a LOCAL model, a single draft can take ~3
  * minutes — times up to maxRedraftAttempts cycles (draft → validate → PM-critique).
  * This is a generous CEILING, not the expected duration: a hosted/capable worker
  * (Claude) drafts each step in seconds and never approaches it.
@@ -123,10 +123,10 @@ const STEP_GATE_TIMEOUT = 1_800_000;
  * the target step with its committed artifact (the auto-advance after the final
  * approve lands on the next step, so we re-select the target to render it).
  *
- * This is the ONLY way committed `system` (with dynamicViews) / `operationalConcepts`
- * (with a deployment topology) artifacts enter a project's head-state in this
- * black-box harness — the harness links no webApp source and there is NO seed/import
- * API, so artifacts are produced solely by the real drafting workflow over the wire.
+ * This is the ONLY way a committed `system` artifact (with dynamicViews) enters a
+ * project's head-state in this black-box harness — the harness links no webApp source
+ * and there is NO seed/import API, so artifacts are produced solely by the real
+ * drafting workflow over the wire.
  * It therefore requires the full Postgres+Temporal+worker stack (UITESTS_LIVE_DRAFTING=1)
  * AND a model capable of converging each step to a committable artifact.
  *

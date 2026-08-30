@@ -64,6 +64,7 @@ import (
 	"unicode/utf8"
 
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+	methodassets "github.com/mixofreality-studio/archistrator-platform/method-assets"
 )
 
 // SERVICE TEST PLAN (STP) — the LOCAL-EXECUTOR realisation (the localexec
@@ -1398,7 +1399,7 @@ func assertChildEnvAllowlist(t *testing.T, capture string, index int) {
 	wantKeys := []string{
 		"PATH", "HOME", "TERM", "USER", "LOGNAME",
 		"AIARCH_PROJECT_ID", "AIARCH_JOB_MODE", "AIARCH_COMPONENT_ID",
-		"AIARCH_ACTIVITY_ID", "AIARCH_TARGET_BRANCH", "AIARCH_STATE_ROOT",
+		"AIARCH_ACTIVITY_ID", "AIARCH_TARGET_BRANCH", "AIARCH_STATE_ROOT", "AIARCH_COMMAND",
 	}
 	for _, k := range wantKeys {
 		if _, ok := env[k]; !ok {
@@ -2126,7 +2127,7 @@ func assertFileContains(t *testing.T, path, want string) {
 // ---------------------------------------------------------------------------
 
 func TestClaudeArgv_DefaultPairsSkipPermissionsWithActiveSandbox(t *testing.T) {
-	args := claudeArgv("/service-construction c a", "/tmp/mcp.json", "/tmp/sandbox.json", "")
+	args := claudeArgv("/service-construction c a", "/tmp/mcp.json", "/tmp/sandbox.json", "", nil)
 	mustContainArg(t, args, "--dangerously-skip-permissions")
 	mustContainAdjacentPair(t, args, "--settings", "/tmp/sandbox.json")
 	mustContainAdjacentPair(t, args, "--mcp-config", "/tmp/mcp.json")
@@ -2135,7 +2136,7 @@ func TestClaudeArgv_DefaultPairsSkipPermissionsWithActiveSandbox(t *testing.T) {
 
 func TestClaudeArgv_EscapeHatch_OmitsSandboxSettingsButKeepsSkipPermissions(t *testing.T) {
 	t.Setenv(localExecAllowUnsandboxedEnv, "true")
-	args := claudeArgv("/service-construction c a", "/tmp/mcp.json", "/tmp/sandbox.json", "")
+	args := claudeArgv("/service-construction c a", "/tmp/mcp.json", "/tmp/sandbox.json", "", nil)
 	mustContainArg(t, args, "--dangerously-skip-permissions") // still required: headless, no human to prompt
 	if containsArg(args, "--settings") || containsArg(args, "/tmp/sandbox.json") {
 		t.Fatalf("escape hatch active but sandbox settings still present in argv: %v", args)
@@ -2593,7 +2594,7 @@ func assertDesignEnvIsExactlyTheDesignSet(t *testing.T, capture string, index in
 			t.Fatalf("[%s] design child env leaked construct-only var %s (%v)", mode, forbidden, envKeys(env))
 		}
 	}
-	wantAIARCH := []string{"AIARCH_PROJECT_ID", "AIARCH_ARTIFACT_KIND", "AIARCH_JOB_MODE", "AIARCH_TARGET_BRANCH", "AIARCH_STATE_ROOT"}
+	wantAIARCH := []string{"AIARCH_PROJECT_ID", "AIARCH_ARTIFACT_KIND", "AIARCH_JOB_MODE", "AIARCH_TARGET_BRANCH", "AIARCH_STATE_ROOT", "AIARCH_COMMAND"}
 	for _, k := range wantAIARCH {
 		if _, ok := env[k]; !ok {
 			t.Errorf("[%s] design child env missing %s", mode, k)
@@ -2967,7 +2968,7 @@ func TestTailBufferSingleOversizedWriteKeepsSuffix(t *testing.T) {
 // TR2 — the format switch. --verbose is REQUIRED alongside stream-json in
 // headless (-p) mode; without it claude refuses the combination.
 func TestClaudeArgv_AsksForStreamJSONEventStream(t *testing.T) {
-	args := claudeArgv("/service-construction c a", "/tmp/mcp.json", "/tmp/sandbox.json", "")
+	args := claudeArgv("/service-construction c a", "/tmp/mcp.json", "/tmp/sandbox.json", "", nil)
 	mustContainAdjacentPair(t, args, "--output-format", "stream-json")
 	mustContainArg(t, args, "--verbose")
 	if containsArg(args, "json") {
@@ -3965,12 +3966,12 @@ func TestLocalDispatchProjectID(t *testing.T) {
 // design rail off the ambient subscription default, and an unset override must
 // leave the argv byte-identical to what it was before the knob existed.
 func TestClaudeArgvModelFlag(t *testing.T) {
-	withModel := strings.Join(claudeArgv("/mission-draft", "/tmp/mcp.json", "/tmp/sandbox.json", "opus"), "\n")
+	withModel := strings.Join(claudeArgv("/mission-draft", "/tmp/mcp.json", "/tmp/sandbox.json", "opus", nil), "\n")
 	if !strings.Contains(withModel, "--model\nopus") {
 		t.Fatalf("a set model must pass --model; got %q", withModel)
 	}
 	for _, empty := range []string{"", "   "} {
-		got := strings.Join(claudeArgv("/mission-draft", "/tmp/mcp.json", "/tmp/sandbox.json", empty), "\n")
+		got := strings.Join(claudeArgv("/mission-draft", "/tmp/mcp.json", "/tmp/sandbox.json", empty, nil), "\n")
 		if strings.Contains(got, "--model") {
 			t.Fatalf("model %q must leave --model off entirely; got %q", empty, got)
 		}
@@ -3987,5 +3988,153 @@ func TestDesignDispatchPlanReadsModelEnv(t *testing.T) {
 	}
 	if got := constructDispatchPlan("p", "C-X", "service-construction", "comp").model; got != "" {
 		t.Fatalf("construct plan model = %q, want empty (ambient default)", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// PROMPT-SURFACE ISOLATION (Layer A) + the per-step built-in tool complement.
+//
+// --strict-mcp-config already isolates MCP servers, but claudeSubprocessEnv
+// forwards HOME (subscription auth needs it), so skills, slash commands,
+// subagents and PLUGINS still loaded from the operator's ~/.claude. A real
+// dispatch was measured carrying the operator's personal plugin surface into a
+// construction agent — dead context, and a reproducibility defect: a benchmark
+// run's cost depended on which plugins the operator had installed.
+// ---------------------------------------------------------------------------
+
+// argvIndex returns the index of flag in args, or -1.
+func argvIndex(args []string, flag string) int {
+	for i, a := range args {
+		if a == flag {
+			return i
+		}
+	}
+	return -1
+}
+
+// TestClaudeArgvIsolatesThePromptSurface pins the isolation flags on every
+// invocation: only the seated worktree's own .claude is loaded.
+func TestClaudeArgvIsolatesThePromptSurface(t *testing.T) {
+	args := claudeArgv("/mission-draft", "/tmp/mcp.json", "/tmp/sandbox.json", "", nil)
+
+	i := argvIndex(args, "--setting-sources")
+	if i < 0 || i+1 >= len(args) {
+		t.Fatalf("--setting-sources missing from argv: %v", args)
+	}
+	if got := args[i+1]; got != "project" {
+		t.Errorf("--setting-sources = %q, want %q (dropping the user source is what excludes ~/.claude)", got, "project")
+	}
+
+	// The pre-existing MCP isolation must survive untouched.
+	if argvIndex(args, "--strict-mcp-config") < 0 {
+		t.Error("--strict-mcp-config was dropped; ambient MCP servers would load again")
+	}
+	// Cross-episode prompt-cache reuse.
+	if argvIndex(args, "--exclude-dynamic-system-prompt-sections") < 0 {
+		t.Error("--exclude-dynamic-system-prompt-sections missing; per-machine text would break cache reuse")
+	}
+}
+
+// TestClaudeArgvPassesDisallowedTools asserts the deny list reaches the CLI as
+// one comma-separated value, and that an empty list omits the flag entirely
+// rather than passing an empty string (which the CLI would reject).
+func TestClaudeArgvPassesDisallowedTools(t *testing.T) {
+	args := claudeArgv("/mission-draft", "/tmp/mcp.json", "/tmp/sandbox.json", "", []string{"Workflow", "CronList"})
+	i := argvIndex(args, "--disallowedTools")
+	if i < 0 || i+1 >= len(args) {
+		t.Fatalf("--disallowedTools missing: %v", args)
+	}
+	if got := args[i+1]; got != "Workflow,CronList" {
+		t.Errorf("--disallowedTools = %q, want %q", got, "Workflow,CronList")
+	}
+
+	if bare := claudeArgv("/mission-draft", "/tmp/mcp.json", "/tmp/sandbox.json", "", nil); argvIndex(bare, "--disallowedTools") >= 0 {
+		t.Error("--disallowedTools should be omitted entirely when nothing is denied")
+	}
+}
+
+// TestClaudeArgvKeepsTheSandboxInvariant: the isolation flags must not have
+// disturbed THE INVARIANT — --dangerously-skip-permissions only ever ships
+// alongside the Tier-2 sandbox settings.
+func TestClaudeArgvKeepsTheSandboxInvariant(t *testing.T) {
+	args := claudeArgv("/mission-draft", "/tmp/mcp.json", "/tmp/sandbox.json", "", []string{"Workflow"})
+	if argvIndex(args, "--dangerously-skip-permissions") < 0 {
+		t.Fatal("--dangerously-skip-permissions missing")
+	}
+	i := argvIndex(args, "--settings")
+	if i < 0 || i+1 >= len(args) || args[i+1] != "/tmp/sandbox.json" {
+		t.Errorf("sandbox --settings not paired with the permission bypass: %v", args)
+	}
+}
+
+// TestDisallowedBuiltinToolsDeniesTheOrchestrationSurface: a step that grants
+// none of the scopable built-ins denies all of them, and never denies a tool
+// its charter actually grants.
+func TestDisallowedBuiltinToolsDeniesTheOrchestrationSurface(t *testing.T) {
+	deny := disallowedBuiltinTools("mission-draft")
+	if len(deny) == 0 {
+		t.Fatal("mission-draft denied nothing")
+	}
+	denied := map[string]bool{}
+	for _, d := range deny {
+		denied[d] = true
+	}
+
+	// The large-schema orchestration surface an autonomous CI step cannot use.
+	for _, want := range []string{"Workflow", "Artifact", "CronCreate", "Task", "SendMessage", "ScheduleWakeup"} {
+		if !denied[want] {
+			t.Errorf("expected %q to be denied for mission-draft", want)
+		}
+	}
+
+	// Never deny what the manifest grants.
+	m, ok := methodassets.ManifestFor("mission-draft")
+	if !ok {
+		t.Fatal("mission-draft has no manifest")
+	}
+	for _, granted := range m.BuiltinTools() {
+		if denied[granted] {
+			t.Errorf("denied %q, which the step's manifest grants", granted)
+		}
+	}
+	// Read/Bash/Write are load-bearing for every Method step.
+	for _, essential := range []string{"Read", "Bash", "Write", "Edit", "Glob", "Grep"} {
+		if denied[essential] {
+			t.Errorf("denied essential tool %q", essential)
+		}
+	}
+}
+
+// TestDisallowedBuiltinToolsIsInertWithoutAManifest: an unknown or empty
+// command denies nothing, preserving the pre-manifest surface.
+func TestDisallowedBuiltinToolsIsInertWithoutAManifest(t *testing.T) {
+	for _, cmd := range []string{"", "not-a-real-command", "system-design"} {
+		if got := disallowedBuiltinTools(cmd); len(got) != 0 {
+			t.Errorf("command %q denied %v, want nothing", cmd, got)
+		}
+	}
+}
+
+// TestDispatchPlansCarryTheCommand: both arms must stamp the command on the
+// plan AND into the rig, since the seat step, the MCP server and the CLI deny
+// list all key off it and must agree.
+func TestDispatchPlansCarryTheCommand(t *testing.T) {
+	con := constructDispatchPlan("proj", "C-1", "service-construction", "billingGatewayAccess")
+	if con.command != "service-construction" {
+		t.Errorf("construct plan command = %q", con.command)
+	}
+	if got := con.rig["AIARCH_COMMAND"]; got != "service-construction" {
+		t.Errorf("construct rig AIARCH_COMMAND = %q", got)
+	}
+	if !strings.HasPrefix(con.prompt, "/service-construction ") {
+		t.Errorf("construct prompt = %q", con.prompt)
+	}
+
+	des := designDispatchPlan("proj", "draft", "mission-draft", "branch", "Mission")
+	if des.command != "mission-draft" {
+		t.Errorf("design plan command = %q", des.command)
+	}
+	if got := des.rig["AIARCH_COMMAND"]; got != "mission-draft" {
+		t.Errorf("design rig AIARCH_COMMAND = %q", got)
 	}
 }

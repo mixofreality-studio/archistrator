@@ -1,31 +1,35 @@
 /**
- * architecture-views.spec — the three new view families on committed Phase-1
- * artifacts:
+ * architecture-views.spec — the lens families on the committed System artifact:
+ * ArchitectureView's segmented control (`arch-view-switch`) toggling Static /
+ * Dynamic / Component-focus, each with its own picker (`arch-dynamic-picker`,
+ * `arch-perspective-picker`).
  *
- *   • System artifact   → ArchitectureView: a segmented control (`arch-view-switch`)
- *     toggling Static / Dynamic / Component-focus, each with its own picker
- *     (`arch-dynamic-picker`, `arch-perspective-picker`).
- *   • operationalConcepts → OperationalConceptsView: a Deployment section with a
- *     profile switcher (`deploy-profile-switch`) over the present profiles
- *     (cloud / local / test), each rendering its deployment topology.
- *
- * ── Why these are LIVE-only (UITESTS_LIVE_DRAFTING=1) ────────────────────────
+ * ── Why this is LIVE-only (UITESTS_LIVE_DRAFTING=1) ──────────────────────────
  * These views render COMMITTED head-state artifacts. This harness is strictly
  * black-box (the UI sibling of ../systemtests): it links zero webApp source and
  * drives the real SPA → real Go server over the wire. There is NO seed / import /
- * fixture API — the only way a `system` (with dynamicViews) or `operationalConcepts`
- * (with a deployment topology) slot reaches a project's head-state is to run the
- * real co-author drafting workflow and commit every predecessor in order (the
- * Manager's precondition gate enforces required predecessors). That needs the full
- * Postgres + Temporal + worker stack — hence the same UITESTS_LIVE_DRAFTING gate as
- * design-experience.spec's drafting block.
+ * fixture API — the only way a `system` slot (with dynamicViews) reaches a
+ * project's head-state is to run the real co-author drafting workflow and commit
+ * every predecessor in order (the Manager's precondition gate enforces required
+ * predecessors). That needs the full Postgres + Temporal + worker stack — hence the
+ * same UITESTS_LIVE_DRAFTING gate as design-experience.spec's drafting block.
+ *
+ * ── The Deployment lens is NOT covered here (2026-08-30) ─────────────────────
+ * The deployment-topology assertions this spec used to carry drove the Deployment &
+ * Operations STEP and its profile switcher (`deploy-profile-switch`). That step is
+ * retired: Phase 1 now ends at Architecture, so a project driven through this
+ * harness never commits an `operationalConcepts` slot, and the Deployment lens
+ * (which reads that slot) is correctly unavailable on every project this spec can
+ * build. The lens itself survives and still renders for projects that HAVE a
+ * committed topology — it is simply unreachable from a black-box live run until
+ * something re-establishes how that slot gets committed. Flagged, not silently
+ * dropped.
  *
  * Assertions are deliberately black-box and resilient to the non-deterministic
- * model output: we assert the SWITCHER CONTROLS render and respond (the deployment
- * switcher actually changes the rendered topology), and — where the committed shape
- * supports it — that numbered dynamic edges and perspective related nodes appear,
- * tolerating a model that produced a thinner artifact (mirroring systemtests, which
- * also refuse to hard-gate on local-model output shape).
+ * model output: we assert the SWITCHER CONTROLS render and respond, and — where the
+ * committed shape supports it — that numbered dynamic edges and perspective related
+ * nodes appear, tolerating a model that produced a thinner artifact (mirroring
+ * systemtests, which also refuse to hard-gate on local-model output shape).
  */
 import { test, expect } from '@playwright/test';
 import { TESTID } from './support/testids.js';
@@ -40,15 +44,9 @@ import { tagUseCase } from './support/useCases.js';
 const BASE = process.env.UITESTS_BASE_URL ?? process.env.UITESTS_SPA_URL ?? 'http://localhost:5173';
 
 // The ordered Phase-1 kinds the spine commits through (mirrors testids.PHASE1_ARTIFACTS).
-const ORDERED_KINDS = [
-  'mission',
-  'glossary',
-  'scrubbedRequirements',
-  'volatilities',
-  'coreUseCases',
-  'system',
-  'operationalConcepts',
-] as const;
+// `system` (Architecture) is now the last Phase-1 step — scrubbedRequirements and
+// operationalConcepts left the drafting sequence with their pages.
+const ORDERED_KINDS = ['mission', 'glossary', 'volatilities', 'coreUseCases', 'system'] as const;
 
 // xyflow renders edge labels and node titles as DOM text inside the canvas.
 const EDGE_TEXT = '.react-flow__edge-text';
@@ -56,11 +54,11 @@ const NODE = '.react-flow__node';
 
 test.describe('architecture & deployment views (live backend — UITESTS_LIVE_DRAFTING=1)', () => {
   // ONE test drives the full Phase-1 spine ONCE (committing every artifact up to
-  // operationalConcepts) and then asserts all three new view families against that
-  // single committed project. Driving the chain once — rather than re-drafting the
-  // whole spine per assertion — is the only affordable shape for a live model: it
-  // pays the (slow, several-minute-per-heavy-artifact) convergence cost a single
-  // time. The budget must cover seven sequential step gates plus the assertions.
+  // `system`) and then asserts the lens families against that single committed
+  // project. Driving the chain once — rather than re-drafting the whole spine per
+  // assertion — is the only affordable shape for a live model: it pays the (slow,
+  // several-minute-per-heavy-artifact) convergence cost a single time. The budget
+  // must cover five sequential step gates plus the assertions.
   test.describe.configure({ timeout: 12_000_000 });
 
   test.beforeEach(async ({ request }) => {
@@ -72,45 +70,12 @@ test.describe('architecture & deployment views (live backend — UITESTS_LIVE_DR
     tagUseCase('drive-system-design');
   });
 
-  test('dynamic, component-focus, and deployment views render on a committed project', async ({
-    page,
-  }) => {
+  test('dynamic and component-focus views render on a committed project', async ({ page }) => {
     await openSharedProject(page);
     await enterDesignExperience(page);
-    // Drive the whole spine through operationalConcepts (the furthest artifact),
-    // committing system (with dynamicViews) and operationalConcepts (with a
-    // deployment topology) along the way. Leaves the spine on operationalConcepts.
-    await commitArtifactsThrough(page, 'operationalConcepts', ORDERED_KINDS);
-
-    // ── Deployment views (operationalConcepts step) ──────────────────────────
-    // The Deployment section's profile switcher renders one toggle per present
-    // profile (cloud / local / test). It exists only when a topology was committed.
-    const profileSwitch = page.getByTestId(TESTID.deployProfileSwitch);
-    await expect(profileSwitch).toBeVisible();
-
-    const profiles = profileSwitch.getByRole('button');
-    const profileCount = await profiles.count();
-    expect(profileCount).toBeGreaterThanOrEqual(1);
-
-    // Each present profile renders deployment nodes; switching re-renders the
-    // topology. Capture each profile's node text to prove the switch is honoured.
-    const renderings: string[] = [];
-    for (let i = 0; i < profileCount; i++) {
-      await profiles.nth(i).click();
-      // Structural assertion: xyflow renders deployment nodes with no data-testid/
-      // role of their own; counting/reading them by their generated
-      // `.react-flow__node` DOM class is the only way to prove the profile switch
-      // actually re-rendered the topology.
-      // eslint-disable-next-line no-restricted-syntax -- see comment above
-      const nodes = page.locator(NODE);
-      await expect(nodes.first()).toBeVisible({ timeout: 15_000 });
-      renderings.push((await nodes.allInnerTexts()).join('|'));
-    }
-    // A multi-profile (deliveryStyle `both`) topology: ≥2 profiles must differ —
-    // proving the switch actually swapped the rendered topology.
-    if (profileCount >= 2) {
-      expect(new Set(renderings).size).toBeGreaterThanOrEqual(2);
-    }
+    // Drive the whole spine through `system` (the furthest — and now last — Phase-1
+    // artifact), committing it with its dynamicViews. Leaves the spine on `system`.
+    await commitArtifactsThrough(page, 'system', ORDERED_KINDS);
 
     // ── Architecture views (system step) ─────────────────────────────────────
     // Re-select the committed System step to render its ArchitectureView.

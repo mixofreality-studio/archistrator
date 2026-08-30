@@ -125,12 +125,14 @@ export const TESTID = {
   volatilityRejectedList: UI_IDENTIFIERS.VolatilityMap.REJECTED_LIST,
   volatilityRejectedItem: UI_IDENTIFIERS.VolatilityMap.rejectedItem,
 
-  // Architecture (System artifact) view switcher — static / dynamic / perspective.
-  // The switch VALUES are the bare strings 'static' | 'dynamic' | 'perspective'.
+  // Architecture (System artifact) view switcher — static / dynamic / perspective /
+  // deployment. The switch VALUES are the bare strings 'static' | 'dynamic' |
+  // 'perspective' | 'deployment'.
   archViewSwitch: UI_IDENTIFIERS.Architecture.VIEW_SWITCH,
   archViewStatic: UI_IDENTIFIERS.Architecture.VIEW_STATIC,
   archViewDynamic: UI_IDENTIFIERS.Architecture.VIEW_DYNAMIC,
   archViewPerspective: UI_IDENTIFIERS.Architecture.VIEW_PERSPECTIVE,
+  archViewDeployment: UI_IDENTIFIERS.Architecture.VIEW_DEPLOYMENT,
   archDynamicPicker: UI_IDENTIFIERS.Architecture.DYNAMIC_PICKER,
   archPerspectivePicker: UI_IDENTIFIERS.Architecture.PERSPECTIVE_PICKER,
   archDynamicStepPrev: UI_IDENTIFIERS.Architecture.DYNAMIC_STEP_PREV,
@@ -140,7 +142,8 @@ export const TESTID = {
   archDynamicActivityTrace: UI_IDENTIFIERS.Architecture.DYNAMIC_ACTIVITY_TRACE,
   archDynamicFragment: UI_IDENTIFIERS.Architecture.DYNAMIC_FRAGMENT,
   // Per-view CC verdict roll-up beside the dynamic picker, and the FragmentBar's
-  // named CC-checks click-through chip (Task 6, call-chain rollout).
+  // named CC-checks chip (Task 6, call-chain rollout — a read-only count since the
+  // Design Health step retired).
   archViewVerdict: UI_IDENTIFIERS.Architecture.VIEW_VERDICT,
   archCcChecksChip: UI_IDENTIFIERS.Architecture.CC_CHECKS_CHIP,
 
@@ -162,14 +165,11 @@ export const TESTID = {
   useCaseStepBadge: UI_IDENTIFIERS.UseCaseCarousel.STEP_BADGE,
   useCaseStepCalls: UI_IDENTIFIERS.UseCaseCarousel.STEP_CALLS,
 
-  // Deployment (operationalConcepts artifact) profile switcher — the switch
-  // VALUES ('cloud'/'local'/'test') are this package's own concern (no
-  // UI_IDENTIFIERS counterpart — they are DeploymentProfile prop values, not
-  // published testids).
-  deployProfileSwitch: UI_IDENTIFIERS.Deployment.PROFILE_SWITCH,
-  deployProfileCloud: 'cloud',
-  deployProfileLocal: 'local',
-  deployProfileTest: 'test',
+  // The Deployment & Operations page (and its `deploy-profile-switch` toggle) is
+  // retired. The committed topology now renders as the Architecture step's
+  // Deployment lens (archViewSwitch → 'deployment'), which is instance-less: it
+  // shows the first committed environment and offers no profile picker, so there is
+  // no switcher testid left to publish.
 
   // Gate panel
   gatePanel: UI_IDENTIFIERS.GatePanel.ROOT,
@@ -239,11 +239,14 @@ export const TESTID = {
 } as const;
 
 /**
- * The ordered Phase-1 artifact kinds (openapi ArtifactKind enum order). The
- * first — `mission` — is the spine's first step and the only one reachable
+ * The ordered Phase-1 artifact kinds — the DRAFTING SEQUENCE, not the wire enum.
+ * The first — `mission` — is the spine's first step and the only one reachable
  * from a fresh project. Imported straight from the SPA's own PHASE1_ORDER
  * (webApp/src/contracts/methodMetadata.ts) — this display order is product
- * data the SPA owns, not a wire enum uitests should re-derive by hand.
+ * data the SPA owns, not a wire enum uitests should re-derive by hand. That import
+ * is why the specs iterating this list needed no edit when Phase 1 collapsed to
+ * Requirements + Architecture (mission / glossary / volatilities / coreUseCases /
+ * system): they follow PHASE1_ORDER automatically.
  */
 export const PHASE1_ARTIFACTS = PHASE1_ORDER;
 

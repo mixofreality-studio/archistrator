@@ -106,3 +106,53 @@ func TestSeatAssetsRequiresDest(t *testing.T) {
 		t.Fatal("runSeatAssets with blank --dest must error")
 	}
 }
+
+// TestSeatAssetsScopedToACommand: `seat-assets --command <slug>` renders ONLY
+// that step's surface — its own command, its charter, its skill closure — so a
+// dispatched agent never carries the other 58 commands or 9 charters.
+func TestSeatAssetsScopedToACommand(t *testing.T) {
+	dest := t.TempDir()
+	if err := runSeatAssets([]string{"--dest", dest, "--command", "mission-draft"}); err != nil {
+		t.Fatalf("runSeatAssets --command: %v", err)
+	}
+
+	cmds, _ := filepath.Glob(filepath.Join(dest, ".claude", "commands", "*.md"))
+	if len(cmds) != 1 || filepath.Base(cmds[0]) != "mission-draft.md" {
+		t.Errorf("scoped seat rendered commands %v, want only mission-draft.md", cmds)
+	}
+	agents, _ := filepath.Glob(filepath.Join(dest, ".claude", "agents", "*.md"))
+	if len(agents) != 1 || filepath.Base(agents[0]) != "system-architect.md" {
+		t.Errorf("scoped seat rendered agents %v, want only system-architect.md", agents)
+	}
+	if _, err := os.Stat(filepath.Join(dest, ".claude", ".method-assets-manifest.json")); err != nil {
+		t.Errorf("scoped seat did not write the seat manifest: %v", err)
+	}
+}
+
+// TestSeatAssetsScopedSeatNarrowsAPreviouslyFullSeat: re-seating a worktree for
+// a step SWAPS the surface rather than accumulating it, so a worktree reused
+// across steps never carries a previous step's assets.
+func TestSeatAssetsScopedSeatNarrowsAPreviouslyFullSeat(t *testing.T) {
+	dest := t.TempDir()
+	if err := runSeatAssets([]string{"--dest", dest}); err != nil {
+		t.Fatalf("full seat: %v", err)
+	}
+	if full, _ := filepath.Glob(filepath.Join(dest, ".claude", "commands", "*.md")); len(full) < 50 {
+		t.Fatalf("expected a full command set first, got %d", len(full))
+	}
+	if err := runSeatAssets([]string{"--dest", dest, "--command", "mission-draft"}); err != nil {
+		t.Fatalf("scoped re-seat: %v", err)
+	}
+	after, _ := filepath.Glob(filepath.Join(dest, ".claude", "commands", "*.md"))
+	if len(after) != 1 {
+		t.Errorf("after scoped re-seat: %d commands remain, want 1 (prune did not narrow)", len(after))
+	}
+}
+
+// TestSeatAssetsRejectsAnUnknownCommand: a typo must fail loudly at seat time
+// rather than silently seating nothing.
+func TestSeatAssetsRejectsAnUnknownCommand(t *testing.T) {
+	if err := runSeatAssets([]string{"--dest", t.TempDir(), "--command", "not-a-real-command"}); err == nil {
+		t.Error("expected an error for an unknown command slug")
+	}
+}

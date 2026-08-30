@@ -10,8 +10,10 @@
  *
  * Edges are directed calls. Labels are hidden by default (they collapse into an
  * unreadable band otherwise) and utility edges aren't drawn at all — until you
- * hover a component: then it + its direct callers/callees stay lit while everything
- * else fades, and the incident edges (utilities included) highlight with labels.
+ * hover a component: then it + its direct callers/callees stay lit while every
+ * other BOX fades, every non-incident WIRE drops out entirely (a faded wire does
+ * not disappear — overlapping strokes composite back into a band), and the
+ * incident edges (utilities included) highlight with labels.
  *
  * Layout primitives, decoration, the legend, the canvas chrome, and the colour map
  * are shared with the dynamic / perspective / deployment flows via ./flowShared.
@@ -49,7 +51,6 @@ import {
   structureFindingsChipLabel,
   type StructureOverlays,
 } from './findingOverlays';
-import { StepLink } from '../shared/StepLink';
 import { LayerLegend, FlowCanvas, FlowEmpty, FocusNodes } from './flowShared';
 import { relationshipAnchor, useComments, type Anchor } from '../comments/CommentContext';
 
@@ -162,13 +163,20 @@ function derive(
       // midpoint badge (flowEdge/LayeredStepEdge carry them through edge data).
       const findings = overlays.edges.get(edgeOverlayKey(r.from, r.to));
       const findingOpts = findings !== undefined ? { findings } : {};
+      // DEFAULT state: every edge drawn. Structure IS this lens' content, so it
+      // never filters until the reader asks a question of it by hovering.
       if (hoveredId === null)
         return flowEdge(edgeId(r, i), r.from, r.to, r.label, t, {
           dashed,
           comment,
           ...findingOpts,
         });
-      // Hover: only the hovered node's own edges stay; the rest fade out.
+      // Hover-focus: only the hovered node's own edges stay — the rest are
+      // HIDDEN, not faded. Fading cannot work here, because opacity composites:
+      // N muted strokes crossing the same corridor render as 1-(1-a)^N, so the
+      // dimmed remainder paints a band exactly where the graph is densest. The
+      // NODES still only dim (c4Node's MUTED_OPACITY), which is what keeps the
+      // decomposition readable while its wires are filtered out.
       return flowEdge(edgeId(r, i), r.from, r.to, r.label, t, {
         hidden: !incident,
         variant: incident ? 'focus' : 'muted',
@@ -232,9 +240,12 @@ export function ArchitectureFlow({
     return counts;
   }, [model.components]);
 
-  // The legend's structure-findings count chip: a quiet StepLink into the Design
-  // Health step (where the full finding list lives). Severity-tinted by the
-  // loudest attached finding; absent when the diagram carries no overlays.
+  // The legend's structure-findings count chip. Severity-tinted by the loudest
+  // attached finding; absent when the diagram carries no overlays. It used to link
+  // into the Design Health step; that step is retired, so the chip is now a quiet
+  // read-only count — the findings themselves still render ON the diagram
+  // (findingOverlays badges the offending nodes/edges), which is where the detail
+  // actually lives.
   const overallSeverity = useMemo(
     () => maxSeverity([...overlays.edges.values(), ...overlays.nodes.values()].flat()),
     [overlays]
@@ -242,9 +253,9 @@ export function ArchitectureFlow({
   const findingChip =
     overlays.attachedCount > 0 ? (
       <Box sx={{ mt: 0.25, pt: 0.75, borderTop: `1px solid ${t.line}` }}>
-        <StepLink
-          kind="standardCheck"
-          label={structureFindingsChipLabel(overlays.attachedCount)}
+        <Box
+          component="span"
+          data-testid={UI_IDENTIFIERS.Architecture.FINDING_COUNT}
           sx={{
             fontFamily: t.mono,
             fontSize: 10.5,
@@ -256,11 +267,9 @@ export function ArchitectureFlow({
             py: 0.25,
             display: 'inline-block',
           }}
-          testId={UI_IDENTIFIERS.Architecture.FINDING_COUNT}
-          underline="none"
         >
           {structureFindingsChipLabel(overlays.attachedCount)}
-        </StepLink>
+        </Box>
       </Box>
     ) : undefined;
 

@@ -35,7 +35,6 @@ import Button from '@mui/material/Button';
 import Alert from '@mui/material/Alert';
 import Tooltip from '@mui/material/Tooltip';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
-import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 
 import type {
   ArtifactKind,
@@ -52,7 +51,6 @@ import type { Anchor } from '../comments/CommentContext';
 import type { SelectionCommentSurface } from '../comments/SelectionPopover';
 
 import { ArtifactRenderer } from '../ArtifactRenderer';
-import { DesignHealthView } from '../DesignHealthView';
 import { ArtifactIntro, ArtifactInfoButton } from './ArtifactIntro';
 import { StageChip } from '../StageChip';
 import { headerChipStage } from './headerChipStage';
@@ -72,9 +70,10 @@ import type { Tokens } from '../../utilities/theme/themes';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 
 // Prose (markdown) artifact kinds get a paper surface in the full-screen design
-// experience; diagram kinds (volatilities/system/coreUseCases/operationalConcepts)
-// render on their own bordered canvases, so they stay unwrapped.
-const PROSE_ARTIFACT_KINDS = new Set<string>(['mission', 'scrubbedRequirements', 'standardCheck']);
+// experience; diagram kinds (volatilities/system/coreUseCases) render on their own
+// bordered canvases, so they stay unwrapped. The retired-in-place scrubbedRequirements
+// and standardCheck kinds left this set with their steps.
+const PROSE_ARTIFACT_KINDS = new Set<string>(['mission']);
 
 /** Seed rationale for a reconcile-via-amendment fired from the stale banner (F45). */
 const RECONCILE_RATIONALE = 'Reconcile with amended upstream basis.';
@@ -242,8 +241,6 @@ export function SystemDesignView({
   const failureReason = view?.failureReason;
   const failureRunUrl = view?.failureRunUrl;
   const activeCommitted = spine[safeIndex]?.committed === true;
-  const upstreamStaleCount = spine.slice(0, safeIndex).filter((s) => s.stale === true).length;
-  const showStandardCheckCaveat = activeKind === 'standardCheck' && upstreamStaleCount > 0;
   const commentCount = commentSurface?.commentCount ?? 0;
 
   // Whether StepBody's committed-panel arm (below) is what renders: the CommittedArtifactPanel
@@ -334,24 +331,6 @@ export function SystemDesignView({
             <Typography sx={{ fontFamily: t.mono, fontSize: 12, color: t.muted, mt: 0.5 }}>
               {meta.stateAddress} · step {safeIndex + 1} of {spine.length}
             </Typography>
-            {/* PM-P1-3: a compact caveat (not a full-width banner) when the Standard
-                Check renders over drifted upstream artifacts. */}
-            {showStandardCheckCaveat ? (
-              <Chip
-                data-testid={UI_IDENTIFIERS.DesignExperience.STANDARD_CHECK_CAVEAT}
-                icon={<WarningAmberIcon sx={{ fontSize: 14 }} />}
-                label={`may be invalidated — ${String(upstreamStaleCount)} upstream artifact${upstreamStaleCount === 1 ? '' : 's'} changed since this check`}
-                size="small"
-                sx={{
-                  mt: 1,
-                  bgcolor: t.paperAlt,
-                  color: t.ink,
-                  fontWeight: 700,
-                  border: `1.5px solid ${t.bandYellow}`,
-                  '& .MuiChip-icon': { color: t.bandYellow },
-                }}
-              />
-            ) : null}
           </Box>
           <Box sx={{ flexGrow: 1 }} />
           <Tooltip title="drafts: architect Worker">
@@ -515,12 +494,6 @@ function StepBody({
   onWithdraw: () => void;
   onAmend: (feedback: string, onAccepted: () => void) => void;
 }): ReactNode {
-  // Step 8 is render-on-read Design Health (Wave-2 reshape 3): it is never drafted or
-  // committed, so it bypasses the draft/session/gate/Request-draft machinery entirely
-  // and renders the self-fetching dashboard directly.
-  if (activeKind === 'standardCheck') {
-    return <DesignHealthView />;
-  }
   if (needsResearch) {
     return <ResearchInputPanel pending={researchPending} onSubmit={onSubmitResearch} />;
   }

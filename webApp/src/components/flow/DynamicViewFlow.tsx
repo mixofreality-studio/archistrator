@@ -20,13 +20,24 @@
  * chain BUILDS as you walk. Three tiers, not two: the current fragment at full
  * strength with its global sequence number chipped onto each wire, the calls
  * already walked (`visitedSeqs`, derived from the walkthrough's breadcrumb) at a
- * mid tint, and the never-walked remainder as ghosts at the same opacity the
- * muted boxes take. So a call-less step no longer blanks the canvas — it shows
- * the chain so far, and only a start with nothing behind it is dark. Parallel
- * strands between one pair are fanned apart (parallelEdges.ts) so stepping
- * between two of them visibly moves, and a call to a Utility draws a real edge:
- * the static graph's no-lines-to-the-bar convention does not belong in a call
- * chain, where the call IS the content.
+ * mid tint, and the never-walked remainder held back (see EDGE DENSITY below for
+ * what "held back" now means for a wire). So a call-less step no longer blanks
+ * the canvas — it shows the chain so far, and only a start with nothing behind
+ * it is dark. Parallel strands between one pair are fanned apart
+ * (parallelEdges.ts) so stepping between two of them visibly moves, and a call
+ * to a Utility draws a real edge: the static graph's no-lines-to-the-bar
+ * convention does not belong in a call chain, where the call IS the content.
+ *
+ * EDGE DENSITY — the wires are FILTERED, not faded. Fading the remainder was the
+ * original treatment and it cannot work, because opacity COMPOSITES: N strokes
+ * overlapping in one corridor render as 1-(1-a)^N, so six ghosts crossing the
+ * ResourceAccess row at 0.12 add up to 0.54 — a solid band drawn exactly where
+ * the chain is densest and least readable. So the three tiers are now
+ * current / a BOUNDED trail (TRAIL_LIMIT) / hidden, and THE TIER OWNS OPACITY in
+ * both modes: a status tint may colour the current call's stroke and nothing
+ * else. The NODES keep their own three tiers untouched (glow / visited / ghost),
+ * which is what makes hiding wires safe — the system's shape stays fully legible
+ * and only calls that have not happened yet leave the canvas.
  *
  * The camera fits ONCE to the whole diagram when the view changes (`resetKey`)
  * and never moves again while stepping — the founder does not want the canvas
@@ -42,10 +53,10 @@
  * colours, decoration, legend and canvas chrome.
  *
  * CC VISIBILITY (Task 6, call-chain rollout): in fragment mode the FragmentBar's
- * tint chip is a REAL affordance, not decoration — it names what it is ("CC
- * checks · passing" / "CC checks · N findings here", never the test-view's
- * bare "passing ✓") and clicks through to the Design Health step (StepLink,
- * kind `standardCheck`). The trailing "here" (fix round 1, FINDING 2) flags
+ * tint chip names what it is ("CC checks · passing" / "CC checks · N findings
+ * here", never the test-view's bare "passing ✓"). It used to click through to the
+ * Design Health step; that step is retired, so it is now a read-only count — the
+ * findings still render on the chain itself. The trailing "here" (fix round 1, FINDING 2) flags
  * this count as STEP-scoped, distinct from the Architecture picker's
  * view-scoped viewVerdict roll-up beside it — otherwise the same reader could
  * see "2 findings here" beside "5 CC findings" for the same view and read it
@@ -84,7 +95,7 @@ import {
   type Layer,
   type LayoutComponent,
   LAYER_ORDER,
-  MUTED_OPACITY,
+  TRAIL_OPACITY,
   VISITED_OPACITY,
   layerColors,
   computeLayout,
@@ -103,7 +114,6 @@ import {
 } from './fragmentCaption';
 import { parallelIndex } from './parallelEdges';
 import { seqChipLabel } from './seqChipLabel';
-import { StepLink } from '../shared/StepLink';
 
 /** Per-call status for the test views: 'red' = target/failing, 'green' = passing. */
 export type StepStatus = 'red' | 'green';
@@ -122,6 +132,19 @@ function edgeId(r: SequencedCall): string {
 /** No trail at all — the shared empty set, so a chain rendered outside fragment
  *  mode never rebuilds its memo on a fresh identity. */
 const NO_VISITED: ReadonlySet<number> = new Set<number>();
+
+/**
+ * How many already-walked calls stay DRAWN behind the current fragment.
+ *
+ * The bound is the whole point. An unbounded trail re-creates the very bundle
+ * the filtering was introduced to remove: by step 12 a dozen walked wires are
+ * back in the same horizontal corridor, and because opacity composites they read
+ * as one solid band rather than twelve quiet lines. Four is enough to answer
+ * "where did I just come from?" — the full chain in order is the caption rail's
+ * job, and the walked NODES (unfiltered, at VISITED_OPACITY) still carry the
+ * whole route's shape.
+ */
+const TRAIL_LIMIT = 4;
 
 function build(
   dv: DynamicViewModel,
@@ -162,17 +185,24 @@ function build(
   ];
   const layout = computeLayout(placedComponents, dv.edges);
   const layerOf = new Map(dv.participants.map((c) => [c.id, c.layer]));
-  // What is lit. THREE tiers in fragment mode (founder QA round 4): the calls the
-  // current step realizes burn at full strength, the calls already WALKED hold a
-  // mid tint so the chain accretes behind the reader, and everything never walked
-  // stays a ghost at the same 0.12 the muted nodes take (the old 0.40 wires over
-  // 0.12 boxes was the "glitch look" the architect flagged). The self-paced
-  // step-through keeps its original two tiers: one call lit, the rest muted
-  // exactly as the static graph mutes a hovered component's non-neighbours.
+  // What is lit. THREE tiers in fragment mode (founder QA round 4): the
+  // participants the current step's calls touch burn at full strength, those
+  // already WALKED hold a mid tint so the chain accretes behind the reader, and
+  // the never-walked remainder ghosts at MUTED_OPACITY. This node treatment is
+  // untouched by the edge-density fix, and deliberately so: the boxes are what
+  // keep the system's shape legible once the not-yet-walked WIRES stop being
+  // drawn. The self-paced step-through keeps its original two node tiers: the
+  // current call's endpoints lit, the rest muted exactly as the static graph
+  // mutes a hovered component's non-neighbours.
   const focusSeqs = new Set(focused.map((c) => c.seq));
   // The brighter tier always wins: a path that loops back onto its own node puts
   // that node's calls in BOTH sets, and they belong to the current fragment.
   const visited = new Set([...visitedSeqs].filter((s) => !focusSeqs.has(s)));
+  // The drawn TRAIL: the most recently walked calls only (highest seqs first).
+  // The NODES still tier off the full `visited` set — a walked participant stays
+  // lit however long ago it was called — because boxes don't overlap and wires
+  // do (see TRAIL_LIMIT).
+  const trail = new Set([...visited].sort((a, b) => b - a).slice(0, TRAIL_LIMIT));
   const focusEndpoints = new Set([
     ...focused.flatMap((c) => [c.from, c.to]),
     // Change 3: the decider highlight rides the SAME endpoint set a real call's
@@ -243,56 +273,67 @@ function build(
 
   const placed = new Set(nodes.map((n) => n.id));
 
-  // EVERY call gets a line, Utilities included (change 2, founder QA round 4).
-  // The static graph's no-lines-to-the-Utilities-bar convention belongs to the
-  // static graph: in a CALL CHAIN the call is the content, so ci-check's
-  // SystemDesignManager→DesignHealth call must be a real, numbered, tintable
-  // edge — routed through the side handles into the bar rather than dropped.
+  // EVERY call the reader has reached gets a line, Utilities included (change 2,
+  // founder QA round 4). The static graph's no-lines-to-the-Utilities-bar
+  // convention belongs to the static graph: in a CALL CHAIN the call is the
+  // content, so ci-check's SystemDesignManager→DesignHealth call must be a real,
+  // numbered, tintable edge — routed through the side handles into the bar
+  // rather than dropped.
   //
   // No call TEXT on any line; the current fragment's lines carry only their
   // sequence chip (change 4a), which is what ties them to the caption's numbered
-  // list. When a status map is supplied each call is tinted red (failing /
-  // flagged) or green (passing / clean) so the whole picture reads at a glance.
-  // A call with an UNRESOLVED endpoint gets no line (there is no node to attach
-  // it to) — the unresolved ids are surfaced as chips above the canvas instead.
+  // list. A call with an UNRESOLVED endpoint gets no line (there is no node to
+  // attach it to) — the unresolved ids are surfaced as chips above the canvas.
+  //
+  // THREE EDGE TIERS, and THE TIER OWNS OPACITY in both modes:
+  //
+  //   active — the calls the CURRENT step realizes (the whole fragment, or the
+  //            one call the self-paced step-through stands on). Full strength,
+  //            ink (or the status tint), the seq chip, z above everything.
+  //   trail  — the last TRAIL_LIMIT calls WALKED: a quiet muted hairline. No
+  //            chip (the chip is what ties a wire to the caption's numbered
+  //            list, so numbering anything but the current calls defeats it) and
+  //            no status tint (a saturated stroke on a walked-past call reads as
+  //            "this is the one you are looking at").
+  //   rest   — hidden outright. Fading it is what produced the unreadable band:
+  //            opacity composites, so a dozen ghosts sharing one corridor are
+  //            not a dozen faint lines, they are one dark one.
+  //
+  // A status map may therefore colour the ACTIVE call's stroke and nothing else.
+  // It used to lift every non-current call to 0.4 with a saturated red/green
+  // stroke the moment findings loaded — overriding the muted variant entirely,
+  // and on its own enough to bundle the whole chain into a band.
   const drawn = dv.edges.filter((r) => placed.has(r.from) && placed.has(r.to));
   const slots = parallelIndex(drawn.map((r) => ({ id: edgeId(r), from: r.from, to: r.to })));
   const edges: Edge[] = drawn.map((r) => {
-    const isCurrent = focusSeqs.has(r.seq);
-    const isVisited = visited.has(r.seq);
-    const status = statusColor(statusBySeq?.get(r.seq), t);
-    // Visited wires take the ink stroke a focused wire takes (they ARE part of
-    // the chain), held back by opacity alone — a status tint still wins.
-    const stroke = status ?? (fragmentMode && isVisited ? t.ink : undefined);
-    // Fragment mode drives opacity off the tier. The step-through keeps its own
-    // rule: only status-tinted wires were ever explicitly faded (to 0.4), and
-    // everything else rides flowEdge's per-variant default.
-    const opacity = fragmentMode
-      ? isCurrent
-        ? 1
-        : isVisited
-          ? VISITED_OPACITY
-          : MUTED_OPACITY
-      : status !== undefined
-        ? isCurrent || !muted
-          ? 1
-          : 0.4
-        : undefined;
     const slot = slots.get(edgeId(r));
-    return flowEdge(edgeId(r), r.from, r.to, r.label, t, {
-      variant: isCurrent
-        ? 'focus'
-        : fragmentMode && isVisited
-          ? 'normal'
-          : muted
-            ? 'muted'
-            : 'normal',
+    const shared = {
       dashed: r.mode !== 'sync', // queued / pub-sub calls render dashed
       toUtility: layerOf.get(r.to) === 'utility',
-      ...(stroke !== undefined ? { stroke } : {}),
-      ...(opacity !== undefined ? { opacity } : {}),
-      ...(isCurrent ? { seqChip: seqChipLabel(fragmentMode, r) } : {}),
       ...(slot !== undefined ? { parallel: slot } : {}),
+    };
+    if (focusSeqs.has(r.seq)) {
+      const status = statusColor(statusBySeq?.get(r.seq), t);
+      return flowEdge(edgeId(r), r.from, r.to, r.label, t, {
+        ...shared,
+        variant: 'focus',
+        opacity: 1,
+        ...(status !== undefined ? { stroke: status } : {}),
+        seqChip: seqChipLabel(fragmentMode, r),
+      });
+    }
+    if (trail.has(r.seq))
+      // `normal` supplies the muted stroke; only the width and tint are ours.
+      return flowEdge(edgeId(r), r.from, r.to, r.label, t, {
+        ...shared,
+        variant: 'normal',
+        opacity: TRAIL_OPACITY,
+        strokeWidth: 1,
+      });
+    return flowEdge(edgeId(r), r.from, r.to, r.label, t, {
+      ...shared,
+      variant: 'muted',
+      hidden: true,
     });
   });
 
@@ -643,9 +684,9 @@ function FragmentBar({
             {heading}
           </Typography>
           {worst !== undefined ? (
-            <StepLink
-              kind="standardCheck"
-              label={ccChecksChipLabel(worst, ccFindingsCount ?? 0)}
+            <Box
+              component="span"
+              data-testid={UI_IDENTIFIERS.Architecture.CC_CHECKS_CHIP}
               sx={{
                 height: 18,
                 display: 'inline-flex',
@@ -658,11 +699,9 @@ function FragmentBar({
                 borderRadius: 1,
                 px: 0.75,
               }}
-              testId={UI_IDENTIFIERS.Architecture.CC_CHECKS_CHIP}
-              underline="none"
             >
               {ccChecksChipLabel(worst, ccFindingsCount ?? 0)}
-            </StepLink>
+            </Box>
           ) : null}
           {onCommentStep !== undefined && first !== undefined ? (
             <>

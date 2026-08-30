@@ -50,6 +50,16 @@ func main() {
 		}
 		return
 	}
+	// `step-tools` prints a step's built-in tool deny list so the CLOUD rail can
+	// pass --disallowedTools without restating the manifest in YAML. The local
+	// executor calls the manifest in-process (disallowedBuiltinTools); both read
+	// the SAME method-assets manifest, so the two rails cannot diverge.
+	if len(os.Args) > 1 && os.Args[1] == "step-tools" {
+		if err := runStepTools(os.Args[2:], os.Stdout); err != nil {
+			fatalf("step-tools: %v", err)
+		}
+		return
+	}
 
 	wd, err := os.Getwd()
 	if err != nil {

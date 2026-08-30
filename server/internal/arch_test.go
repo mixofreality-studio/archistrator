@@ -306,10 +306,11 @@ var encapsulationAllowlistData = map[string][]string{
 	// (Task 10, 2026-08-09 derived-activity-list stage 1) is the single render-on-read
 	// entry point for the Phase-2 plan — it derives the baseline from the committed
 	// System and applies the authored deltas. Exported because the slot-9/10 read path
-	// that calls it lives OUTSIDE this package (projectstate.ProjectStateAccess); no
-	// caller exists yet in stage 1 (same category as Task 9's ResolveActivityAlias/
-	// HistoricalAliasFor above — published surface for a seam this stage builds but does
-	// not yet wire end-to-end).
+	// that calls it lives OUTSIDE this package (projectstate.ProjectStateAccess). Its
+	// first PRODUCTION caller is now in-package (materializePhase2Draft, on the Phase-2
+	// co-author staging seam), so it is no longer the published-but-unwired surface
+	// stage 1 left behind; the export stays for the out-of-package read path and for the
+	// drift gate.
 	"internal/manager/projectdesign": {
 		"MaterializeActivityPlan",
 		"RegisterManagerWorker",

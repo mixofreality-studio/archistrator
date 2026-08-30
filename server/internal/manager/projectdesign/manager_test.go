@@ -5241,6 +5241,136 @@ func TestMaterializeActivityPlanProducesTheReaderShape(t *testing.T) {
 	}
 }
 
+// archivedEmptyActivityListDraft is the EXACT slot-9 document a freshly drafted project
+// committed on a real benchmark run (archistrator-bench run-20260815T190639Z-6d9224bb,
+// todomvc): the drafting agent authored a deltas document, the wire model
+// (projectstate.ActivityList) has nowhere to put deltas, and what survived the codec was
+// an activity list with no activities. Every downstream reader then found nothing — the
+// SDP assembly died with "option network has zero activities" and the construction pump
+// had nothing to dispatch. Kept as a literal so the regression is pinned to the observed
+// bytes, not to a re-derivation of what they might have been.
+const archivedEmptyActivityListDraft = `{"activities": null}`
+
+func decodeArchivedEmptyActivityList(t *testing.T) *projectstate.ActivityList {
+	t.Helper()
+	var al projectstate.ActivityList
+	if err := json.Unmarshal([]byte(archivedEmptyActivityListDraft), &al); err != nil {
+		t.Fatalf("decode the archived slot-9 document: %v", err)
+	}
+	if len(al.Activities) != 0 {
+		t.Fatal("the archived slot-9 document is supposed to decode to ZERO activities - the test would be vacuous")
+	}
+	return &al
+}
+
+// THE REGRESSION. A Phase-2 activity-list draft round must stage the plan DERIVED from the
+// committed System, not the document the agent committed on the branch — that is what
+// `the-method-activity-list` means by "the server applies the deltas onto the derived
+// baseline and stages the result". Before materializePhase2Draft was wired into
+// finishDraftRound this staged the archived empty list verbatim (MaterializeActivityPlan
+// had no production caller at all), which is exactly how a fresh project reached the SDP
+// review with zero activities.
+//
+// The System is the repo's own committed slot 5 (live state, same convention as
+// TestEveryHistoricalConstructionKeyResolvesToADerivedActivity) so the derivation runs
+// against a real architecture rather than a two-component toy.
+func Test_CoAuthor_ActivityListDraft_StagesTheDerivedPlan_NotTheAgentsEmptyList(t *testing.T) {
+	sys, _ := loadCommittedStateForTest(t)
+
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	proj := projectstate.Project{ID: projectstate.ProjectID(id), Phase: projectstate.PhaseProjectDesign, Version: 2}
+	proj.SystemDesign = committedSlot(&sys)
+	proj.ActivityList = readBackSlot(decodeArchivedEmptyActivityList(t))
+
+	ps := &fakeProjectState{project: proj}
+	pipe := newFakePipeline()
+	wf := newWorkflows()
+	registerCoAuthor(env, wf, ps, pipe)
+
+	env.RegisterDelayedCallback(func() {
+		if view := pdSessionView(t, env); view.Stage != StageAwaitingReview {
+			t.Fatalf("want StageAwaitingReview, got %d", view.Stage)
+		}
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 30*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindActivityList})
+
+	if !env.IsWorkflowCompleted() {
+		t.Fatal("workflow did not complete")
+	}
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	if len(ps.staged) != 1 {
+		t.Fatalf("want 1 staged model, got %d", len(ps.staged))
+	}
+	staged, ok := ps.staged[0].(*projectstate.ActivityList)
+	if !ok {
+		t.Fatalf("staged model is not *projectstate.ActivityList: %T", ps.staged[0])
+	}
+	if len(staged.Activities) == 0 {
+		t.Fatal("the staged activity list is EMPTY - the agent's document was staged verbatim instead of the plan derived from the committed System")
+	}
+
+	// Not merely non-empty: it must be the SAME plan MaterializeActivityPlan renders, so
+	// the drift gate over slot 9 and this write path can never disagree.
+	want, _, _, err := MaterializeActivityPlan(sys, estimation.ActivityListDeltas{})
+	if err != nil {
+		t.Fatalf("MaterializeActivityPlan: %v", err)
+	}
+	if !reflect.DeepEqual(staged.Activities, want.Activities) {
+		t.Errorf("staged %d activities, the derivation renders %d - the staged plan is not the derived plan",
+			len(staged.Activities), len(want.Activities))
+	}
+}
+
+// Every OTHER Phase-2 kind must pass through the materialization seam byte-identical —
+// only the activity list derives. Asserted on the planning-assumptions round because that
+// is the kind the existing happy-path test drafts.
+func TestMaterializePhase2DraftIsInertForEveryOtherKind(t *testing.T) {
+	proj := projectstate.Project{}
+	pa := &projectstate.PlanningAssumptions{Resources: []string{"alice"}, CalendarDaysPerWeek: 5}
+	got, err := materializePhase2Draft(proj, projectstate.KindPlanningAssumptions, pa)
+	if err != nil {
+		t.Fatalf("materializePhase2Draft: %v", err)
+	}
+	if got != projectstate.ArtifactModel(pa) {
+		t.Errorf("a non-activity-list draft must pass through unchanged, got %#v", got)
+	}
+}
+
+// A System that derives ZERO activities must FAIL LOUDLY rather than stage an empty list.
+// Staging it would reproduce the very defect this seam exists to prevent — the empty plan
+// would just surface one phase later, at the SDP review, with nothing pointing back here.
+func TestMaterializePhase2DraftRefusesToStageAnEmptyDerivedPlan(t *testing.T) {
+	proj := projectstate.Project{}
+	proj.SystemDesign = committedSlot(&projectstate.System{})
+
+	_, err := materializePhase2Draft(proj, projectstate.KindActivityList, decodeArchivedEmptyActivityList(t))
+	if err == nil {
+		t.Fatal("a System deriving zero activities must be an error, not a silently staged empty list")
+	}
+	if !strings.Contains(err.Error(), "ZERO activities") {
+		t.Errorf("the error must say what went wrong, got %q", err.Error())
+	}
+}
+
+// An uncommitted systemDesign is a precondition failure, not a nil-deref and not an empty
+// plan: the whole derivation reads slot 5, so there is nothing to derive from.
+func TestMaterializePhase2DraftRequiresACommittedSystem(t *testing.T) {
+	_, err := materializePhase2Draft(projectstate.Project{}, projectstate.KindActivityList, decodeArchivedEmptyActivityList(t))
+	if err == nil {
+		t.Fatal("materializing against an uncommitted systemDesign must be an error")
+	}
+	if !strings.Contains(err.Error(), "systemDesign") {
+		t.Errorf("the error must name the missing prerequisite, got %q", err.Error())
+	}
+}
+
 // loadCommittedStateForTest reads the repo's own committed project document and returns
 // the slot-5 System and the historical .activityConstruction keys. It reads LIVE state
 // rather than a fixture on purpose: the risk this test guards against is one specific

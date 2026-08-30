@@ -79,6 +79,7 @@ import (
 
 	fwgithub "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+	methodassets "github.com/mixofreality-studio/archistrator-platform/method-assets"
 )
 
 // ---------------------------------------------------------------------------
@@ -1488,6 +1489,14 @@ type localDispatchPlan struct {
 	// Empty means "whatever the CLI resolves", which is the ambient subscription
 	// default and the behaviour every dispatch had before this field existed.
 	model string
+	// command is the bare slash-command slug (no leading "/", no arguments) this
+	// dispatch runs — the STEP MANIFEST KEY. It drives three scoping decisions
+	// that all have to agree, which is why it is carried once here rather than
+	// re-parsed out of prompt at each site: the seated .claude subset
+	// (seatPromptSurface --command), the MCP tool surface (stamped as
+	// AIARCH_COMMAND in rig, read by cmd/aiarch-state-mcp), and the built-in
+	// tool complement (--disallowedTools).
+	command string
 }
 
 // constructDispatchPlan builds the plan for a CONSTRUCTION dispatch: the activity branch
@@ -1500,12 +1509,14 @@ func constructDispatchPlan(projectID, activityID, command, componentID string) l
 	return localDispatchPlan{
 		branch:        branch,
 		worktreeLabel: "activity-branch",
+		command:       command,
 		rig: map[string]string{
 			"AIARCH_PROJECT_ID":    projectID,
 			"AIARCH_JOB_MODE":      "construct",
 			"AIARCH_COMPONENT_ID":  componentID,
 			"AIARCH_ACTIVITY_ID":   activityID,
 			"AIARCH_TARGET_BRANCH": branch,
+			"AIARCH_COMMAND":       command,
 		},
 		prompt: "/" + command + " " + componentID + " " + activityID,
 	}
@@ -1540,11 +1551,13 @@ func designDispatchPlan(projectID, jobMode, command, targetBranch, artifactKind 
 		model:         designModelFromEnv(),
 		branch:        targetBranch,
 		worktreeLabel: "design session-branch",
+		command:       command,
 		rig: map[string]string{
 			"AIARCH_PROJECT_ID":    projectID,
 			"AIARCH_ARTIFACT_KIND": artifactKind,
 			"AIARCH_JOB_MODE":      jobMode,
 			"AIARCH_TARGET_BRANCH": targetBranch,
+			"AIARCH_COMMAND":       command,
 		},
 		prompt: "/" + command,
 	}
@@ -1628,7 +1641,7 @@ func (a *localExecAccess) dispatch(run *localRun, plan localDispatchPlan, episod
 	// local-arm no-commit failure. Pre-spawn, so a failure returns cleanly (the deferred
 	// worktree cleanup runs) and a retry re-seats from scratch, exactly like the worktree-add
 	// failure above.
-	if err := a.seatPromptSurface(workDir); err != nil {
+	if err := a.seatPromptSurface(workDir, plan.command); err != nil {
 		return err
 	}
 
@@ -1692,7 +1705,7 @@ func (a *localExecAccess) dispatch(run *localRun, plan localDispatchPlan, episod
 	}()
 
 	runCtx, runCancel := context.WithTimeout(context.Background(), a.runTimeout)
-	cmd := exec.CommandContext(runCtx, "claude", claudeArgv(plan.prompt, mcpConfigPath, sandboxSettingsPath, plan.model)...) //nolint:gosec // fixed trusted binary name + internal-only args, mirrors claudecli.go
+	cmd := exec.CommandContext(runCtx, "claude", claudeArgv(plan.prompt, mcpConfigPath, sandboxSettingsPath, plan.model, disallowedBuiltinTools(plan.command))...) //nolint:gosec // fixed trusted binary name + internal-only args, mirrors claudecli.go
 	cmd.Dir = workDir
 	cmd.Env = claudeSubprocessEnv(rig)
 	// SIGTERM-then-bounded-pipe-close, the SAME shutdown mechanism serverchild.go's
@@ -1747,8 +1760,17 @@ func (a *localExecAccess) dispatch(run *localRun, plan localDispatchPlan, episod
 // success gate counts ONLY the agent's own aiarch-state commit); and in an operated /
 // scaffolded repo the .claude/{commands,agents,skills/the-method*} paths are gitignored,
 // so the render stays uncommitted exactly like the cloud runner.
-func (a *localExecAccess) seatPromptSurface(workDir string) error {
-	cmd := exec.Command(a.stateMCPBin, "seat-assets", "--dest", workDir) //nolint:gosec // the executor's OWN trusted binary (a.stateMCPBin) + fixed internal args, not the agent
+// seatPromptSurface materializes the .claude prompt surface into workDir,
+// SCOPED to `command` when the step has a manifest. A command with no manifest
+// (or an empty one) seats the full tree, which is the pre-manifest behaviour.
+func (a *localExecAccess) seatPromptSurface(workDir, command string) error {
+	seatArgs := []string{"seat-assets", "--dest", workDir}
+	if command != "" {
+		if _, ok := methodassets.ManifestFor(command); ok {
+			seatArgs = append(seatArgs, "--command", command)
+		}
+	}
+	cmd := exec.Command(a.stateMCPBin, seatArgs...) //nolint:gosec // the executor's OWN trusted binary (a.stateMCPBin) + fixed internal args, not the agent
 	cmd.Dir = workDir
 	cmd.Env = seatAssetsEnv()
 	if out, err := cmd.CombinedOutput(); err != nil {
@@ -3438,7 +3460,36 @@ func allowUnsandboxedFromEnv() bool {
 // OS-level containment for NONE, not for a lesser tier — use it only when
 // genuinely necessary, and never add a code path that appends
 // --dangerously-skip-permissions outside this function.
-func claudeArgv(prompt, mcpConfigPath, sandboxSettingsPath, model string) []string {
+// disallowedBuiltinTools returns the built-in tools to switch off for a step.
+// The candidate list and the per-step resolution both live in methodassets,
+// beside the manifest, so this rail and the GitHub Actions rail (which asks
+// `aiarch-state-mcp step-tools`) can never disagree about what a step may hold.
+func disallowedBuiltinTools(command string) []string {
+	if command == "" {
+		return nil
+	}
+	return methodassets.DisallowedBuiltinTools(command)
+}
+
+// PROMPT-SURFACE ISOLATION (Tier 1, prompt side). --strict-mcp-config already
+// keeps ambient MCP servers out. It does NOT isolate the rest of the prompt
+// surface: skills, slash commands, subagents and plugins still load from the
+// operator's ~/.claude because claudeSubprocessEnv forwards HOME (required for
+// subscription auth). Measured on a real dispatch, that leaked the operator's
+// personal plugin surface into every construction agent — superpowers, dataviz,
+// xcodebuildmcp and 15 unrelated agents — which is both context the step cannot
+// use and a REPRODUCIBILITY defect: a benchmark run's cost depended on which
+// plugins the operator happened to have installed.
+//
+// --setting-sources project loads ONLY the seated worktree's own .claude tree
+// and drops the user source. It is preferred over --bare, which would also drop
+// OAuth/keychain auth and force an ANTHROPIC_API_KEY — incompatible with the
+// user's-own-subscription model construction runs on.
+//
+// disallowedTools is the step manifest's complement over the built-in tools: a
+// Mission draft has no use for Workflow, Artifact, Cron*, Task*, or the
+// messaging tools, and each one's schema is pure prefix cost on every turn.
+func claudeArgv(prompt, mcpConfigPath, sandboxSettingsPath, model string, disallowedTools []string) []string {
 	args := []string{"--dangerously-skip-permissions"}
 	// An empty model leaves the flag off entirely, so the CLI resolves its own
 	// default exactly as it did before this knob existed.
@@ -3451,6 +3502,18 @@ func claudeArgv(prompt, mcpConfigPath, sandboxSettingsPath, model string) []stri
 	if !allowUnsandboxedFromEnv() {
 		args = append(args, "--settings", sandboxSettingsPath)
 	}
+	// Prompt-surface isolation + per-step built-in tool scoping (see the doc
+	// comment above). Both are appended before the invariant flags below so the
+	// argv order stays stable for the tests that assert on it.
+	args = append(args, "--setting-sources", "project")
+	if len(disallowedTools) > 0 {
+		args = append(args, "--disallowedTools", strings.Join(disallowedTools, ","))
+	}
+	// Move the per-machine sections (cwd, env info, memory paths, git status)
+	// out of the system prompt and into the first user message, so the cached
+	// prefix is identical across episodes instead of being invalidated by
+	// machine-specific text. Pure cache-hit win; no behavior change.
+	args = append(args, "--exclude-dynamic-system-prompt-sections")
 	return append(args,
 		"--mcp-config", mcpConfigPath,
 		"--strict-mcp-config", // Tier 1: ignore ambient user/project MCP config; attach ONLY mcpConfigPath.

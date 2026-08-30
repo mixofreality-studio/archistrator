@@ -1,9 +1,9 @@
 /* eslint-disable react-refresh/only-export-components -- provider + hook colocated */
 /**
  * Delivery channel for CROSS-SLOT reads: an artifact step view joining against
- * ANOTHER committed artifact of the same project head-state (the Mission view's
- * "realized by" reverse join onto the Deployment & Operations objectiveLinks, the
- * Glossary's term-usage joins across Behaviors/Volatilities/Use Cases/System).
+ * ANOTHER committed artifact of the same project head-state (the Glossary's
+ * term-usage joins across Behaviors/Volatilities/Use Cases/System, the
+ * Architecture view's join onto the Deployment & Operations slot).
  *
  * The StructureFindingsContext idiom: the components layer stays pure (no
  * src/hooks import), the ORCHESTRATORS that already fetch the project head-state

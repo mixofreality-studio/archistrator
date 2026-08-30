@@ -2648,16 +2648,23 @@ func (k ArtifactKind) IsPhase1() bool {
 // Phase1RequiredKinds returns the ordered set of artifact kinds that must all be
 // Committed before Phase 1 can be sealed via advancePhase. Ordering follows the
 // Phase-1 design sequence (projectStateAccess.md §3.1, systemDesignManager.md §1.7).
+//
+// RETIRED STEPS (2026-08-30, founder ruling — Phase-1 step list collapsed):
+// KindScrubbedRequirements, KindOperationalConcepts and KindStandardCheck are no
+// longer part of the drafting sequence and are therefore NOT required for the seal.
+// They are retired IN PLACE — the kinds, their ordinals, their slots and
+// IsPhase1()/AllArtifactKinds() membership are all untouched, because the ordinals
+// are wire values in every already-committed project.json and existing projects
+// still carry those slots. This list is the single source of truth: the phase rail,
+// the seal gate, the predecessor chain (glossary now precedes volatilities), the
+// catalog progress denominator and downstreamKinds staleness all derive from it.
 func Phase1RequiredKinds() []ArtifactKind {
 	return []ArtifactKind{
 		KindMission,
 		KindGlossary,
-		KindScrubbedRequirements,
 		KindVolatilities,
 		KindCoreUseCases,
 		KindSystem,
-		KindOperationalConcepts,
-		KindStandardCheck,
 	}
 }
 

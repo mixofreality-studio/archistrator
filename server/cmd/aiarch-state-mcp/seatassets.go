@@ -32,16 +32,38 @@ import (
 	methodassets "github.com/mixofreality-studio/archistrator-platform/method-assets"
 )
 
-// runSeatAssets parses the seat-assets flags and materializes the full .claude
+// runSeatAssets parses the seat-assets flags and materializes the .claude
 // prompt surface (commands/skills/agents + seat manifest) into --dest.
+//
+// SCOPING (--command). With --command <slug>, only that step's surface is
+// seated: its own command file, the agent charter it adopts, and the transitive
+// closure of the skills it names — the subset methodassets.MaterializeStep
+// resolves from the step manifest. Without it the FULL tree is seated, which
+// stays correct for the managed-scaffold and dogfood install paths that are not
+// dispatching one step.
+//
+// WHY. Seating all 59 commands, 28 skills and 10 agents put ~44.6k tokens of
+// prompt prefix in front of every turn of every dispatch and left the agent
+// holding tools its job mode cannot legally call. Scoping is keyed on the step
+// because the step is what fixes the legal surface; the manifest's existing
+// prune rail makes a re-seat NARROWING rather than additive, so a worktree
+// reused across steps never accumulates a previous step's surface.
 func runSeatAssets(args []string) error {
 	fs := flag.NewFlagSet("seat-assets", flag.ContinueOnError)
 	dest := fs.String("dest", "", "directory to render the .claude prompt surface into (the runner checkout root)")
+	command := fs.String("command", "", "dispatchable command slug to scope the seated surface to (default: seat the full tree)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if strings.TrimSpace(*dest) == "" {
 		return fmt.Errorf("--dest is required (the checkout directory to render .claude into)")
+	}
+
+	if slug := strings.TrimSpace(*command); slug != "" {
+		if err := methodassets.MaterializeStep(*dest, slug); err != nil {
+			return fmt.Errorf("materialize method-assets for step %q into %s: %w", slug, *dest, err)
+		}
+		return nil
 	}
 	if err := methodassets.Materialize(*dest); err != nil {
 		return fmt.Errorf("materialize method-assets into %s: %w", *dest, err)

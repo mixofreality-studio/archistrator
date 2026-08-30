@@ -8,15 +8,16 @@ import (
 
 // ===========================================================================
 // SystemDesignPhaseWorkflow — the PARENT (2026-05-29; systemDesignManager.md
-// §0b / §6, rework §2.2). Drives the seven Phase-1 steps in fixed Method order,
+// §0b / §6, rework §2.2). Drives the Phase-1 steps in fixed Method order,
 // spawning the per-step child gate via executeChild, auto-advancing on each
-// human Approve, and sealing Phase 1 after step 7.
+// human Approve, and sealing Phase 1 after the last step.
 //
-//   mission → glossary → scrubbed-requirements → volatilities → core-use-cases
-//   → system(architecture) → operational-concepts → standard-check → SEAL
+//   mission → glossary → volatilities → core-use-cases → system(architecture) → SEAL
 //
 // (Phase1RequiredKinds() is the fixed ordered sequence — the single source of
-// truth shared with the seal gate.)
+// truth shared with the seal gate. scrubbed-requirements, operational-concepts and
+// standard-check were retired from that sequence on 2026-08-30; in-flight executions
+// still drive the pre-retirement eight — see phase1KindsForRun below.)
 // ===========================================================================
 
 // phaseInput is the start payload for SystemDesignPhaseWorkflow.
@@ -52,10 +53,10 @@ func (wf *workflows) SystemDesignPhaseWorkflow(ctx workflow.Context, in phaseInp
 		}
 	}
 
-	// Drive the seven steps in fixed Method order. For each step, spawn the child
+	// Drive the steps in fixed Method order. For each step, spawn the child
 	// gate and auto-advance only on the child's Approve outcome; a Withdraw holds
 	// the phase at that step (the operator re-enters via requestArtifactDraft).
-	for _, kind := range phase1RequiredKinds() {
+	for _, kind := range phase1KindsForRun(ctx) {
 		if skipCommitted && slotFor(startProj, kind).Status == projectstate.ReviewCommitted {
 			logger.Info("co-author step already committed at phase start; skipping", "kind", artifactKindString(kind))
 			continue
@@ -94,7 +95,7 @@ func (wf *workflows) SystemDesignPhaseWorkflow(ctx workflow.Context, in phaseInp
 		logger.Info("co-author step approved; advancing phase sequence", "kind", artifactKindString(kind))
 	}
 
-	// All seven steps approved → seal Phase 1 (advancePhase). The parent runs the
+	// All steps approved → seal Phase 1 (advancePhase). The parent runs the
 	// same gate as the standalone PhaseAdvanceWorkflow inline.
 	res, err := wf.runPhaseAdvance(ctx, in.ProjectID)
 	if err != nil {
@@ -104,6 +105,46 @@ func (wf *workflows) SystemDesignPhaseWorkflow(ctx workflow.Context, in phaseInp
 		logger.Warn("phase seal blocked despite all steps approved", "missing", res.MissingArtifacts)
 	}
 	return nil
+}
+
+// phase1KindsForRun returns the Phase-1 step sequence THIS workflow execution must
+// drive and seal on — the replay-safe reading of phase1RequiredKinds().
+//
+// RETIRED STEPS (2026-08-30, founder ruling). scrubbed-requirements, operational-
+// concepts and standard-check left projectstate.Phase1RequiredKinds(). Both callers
+// below are workflow code: the rail loop spawns one child gate per kind, and the seal
+// gate reads one slot per kind — so shrinking the list changes the COMMAND sequence a
+// pre-deploy execution recorded (children it already spawned, in an order it already
+// wrote to history). GetVersion pins every in-flight execution (DefaultVersion) to the
+// frozen eight-kind sequence it started on, so it still reaches its own seal; every
+// execution started after this deploy resolves v1 and drives the collapsed list.
+//
+// Called twice inside SystemDesignPhaseWorkflow (loop, then the inline seal) with the
+// same change id, which Temporal answers with the same version and one history marker.
+// Shared workflow-context helper (used by 2 workflows); lives in its first caller's file per the file-layout standard.
+func phase1KindsForRun(ctx workflow.Context) []ArtifactKind {
+	if workflow.GetVersion(ctx, "phase1-retired-steps", workflow.DefaultVersion, 1) >= 1 {
+		return phase1RequiredKinds()
+	}
+	return phase1KindsPreRetirement()
+}
+
+// phase1KindsPreRetirement is the FROZEN Phase-1 sequence as it stood before the
+// 2026-08-30 step retirement. It is replay history, not doctrine: it exists only so a
+// DefaultVersion execution replays the command sequence it actually recorded. Never
+// extend it, and never let it drift toward phase1RequiredKinds() — retiring a further
+// step means a NEW GetVersion change id and a new frozen list, not an edit here.
+func phase1KindsPreRetirement() []ArtifactKind {
+	return []ArtifactKind{
+		KindMission,
+		KindGlossary,
+		KindScrubbedRequirements,
+		KindVolatilities,
+		KindCoreUseCases,
+		KindSystem,
+		KindOperationalConcepts,
+		KindStandardCheck,
+	}
 }
 
 // runPhaseAdvance is the shared seal gate body, called by both the standalone
@@ -122,7 +163,7 @@ func (wf *workflows) runPhaseAdvance(ctx workflow.Context, projectID ProjectID) 
 
 	// Gate: every required Phase-1 kind must be Committed.
 	var missing []ArtifactKind
-	for _, kind := range phase1RequiredKinds() {
+	for _, kind := range phase1KindsForRun(ctx) {
 		if slotFor(proj, kind).Status != projectstate.ReviewCommitted {
 			missing = append(missing, kind)
 		}

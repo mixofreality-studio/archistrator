@@ -40,6 +40,10 @@ import { mapSessionState, systemArtifactKindFromOrdinal } from '../contracts/wir
 
 import { useDesignHealth } from '../hooks/useDesignHealth';
 import { useProject } from '../hooks/useProject';
+import { useCapabilities } from '../hooks/useCapabilities';
+import { useOperatedAppId } from '../hooks/useOperatedAppId';
+import { useDeploymentHealth } from '../hooks/useDeploymentHealth';
+import { operationsEnabled } from '../utilities/capabilities';
 import { isSessionAbsent } from '../hooks/sessionPolling';
 import { useSessionState, sessionStateKey } from '../hooks/useSessionState';
 import {
@@ -52,6 +56,7 @@ import { SystemDesignView, type SpineStep } from '../components/design/SystemDes
 import { DesignExperienceSkeleton } from '../components/design/DesignSkeleton';
 import { CommittedSlotsProvider } from '../components/CommittedSlotsContext';
 import { StructureFindingsProvider } from '../components/flow/StructureFindingsContext';
+import { DeploymentHealthProvider } from '../components/flow/DeploymentHealthContext';
 import { gateDecisionErrorMessage } from '../components/design/gateFaultLogic';
 import type { Anchor } from '../components/comments/CommentContext';
 
@@ -197,6 +202,16 @@ export function McpSystemDesignContainer({
   // (StructureFindingsProvider below) — rides the same transport-blind OpsClient
   // as every other read here, so it works over the MCP host bridge too.
   const { data: designHealth } = useDesignHealth(projectId);
+  // The Architecture step's Deployment lens' live health tint (see
+  // DeploymentHealthProvider below) — the same dormant-by-default arrangement as
+  // SystemDesignContainer: nothing fires unless the operations capability is on
+  // (D9) and the derived operated-app id has landed, and an absent overlay renders
+  // the diagram untinted, never red.
+  const operatedAppId = useOperatedAppId(projectId);
+  const { data: deploymentHealth } = useDeploymentHealth(
+    operatedAppId ?? '',
+    operationsEnabled(useCapabilities())
+  );
   const spine = useMemo(() => buildSpine(project), [project]);
 
   // Seed the session-state cache from the FIRST pushed result in this state
@@ -370,50 +385,52 @@ export function McpSystemDesignContainer({
   return (
     <>
       <StructureFindingsProvider findings={designHealth?.findings}>
-        <CommittedSlotsProvider slots={project.slots}>
-          <SystemDesignView
-            allowEmptySendBack
-            {...(displayMode !== undefined ? { displayMode } : {})}
-            acknowledgeStaleError={acknowledgeStale.error?.message}
-            acknowledgeStalePending={acknowledgeStale.isPending}
-            activeIndex={safeIndex}
-            amendPending={requestDraft.isPending}
-            beginPending={requestDraft.isPending}
-            commentSurface={{
-              enabled: true,
-              commentCount: 0,
-              setAnchor: (anchor) => {
-                if (anchor !== null) {
-                  setComposer({ mode: 'comment', anchor });
-                  setComposerText('');
-                  setSendFallbackHint(false);
-                }
-              },
-            }}
-            decisionPending={submitReview.isPending}
-            gateError={gateError}
-            needsResearch={false}
-            project={project}
-            researchPending={false}
-            retryPending={requestDraft.isPending}
-            session={session.data ?? undefined}
-            sessionLoading={session.isLoading}
-            sessionMissing={sessionMissing}
-            spine={spine}
-            onAcknowledgeStale={(note) => {
-              acknowledgeStale.mutate({ kind: activeKind, note });
-            }}
-            onClose={() => void app.requestTeardown()}
-            onRequestDraft={onRequestDraft}
-            onRetry={() => {
-              requestDraft.mutate({ kind: activeKind });
-            }}
-            onSelectStep={onSelectStep}
-            onSubmitResearch={() => undefined}
-            onSubmitReview={onSubmitReview}
-            onSubmitSelectionComment={(anchor, text) => void submitSelectionComment(anchor, text)}
-          />
-        </CommittedSlotsProvider>
+        <DeploymentHealthProvider healthByKey={deploymentHealth}>
+          <CommittedSlotsProvider slots={project.slots}>
+            <SystemDesignView
+              allowEmptySendBack
+              {...(displayMode !== undefined ? { displayMode } : {})}
+              acknowledgeStaleError={acknowledgeStale.error?.message}
+              acknowledgeStalePending={acknowledgeStale.isPending}
+              activeIndex={safeIndex}
+              amendPending={requestDraft.isPending}
+              beginPending={requestDraft.isPending}
+              commentSurface={{
+                enabled: true,
+                commentCount: 0,
+                setAnchor: (anchor) => {
+                  if (anchor !== null) {
+                    setComposer({ mode: 'comment', anchor });
+                    setComposerText('');
+                    setSendFallbackHint(false);
+                  }
+                },
+              }}
+              decisionPending={submitReview.isPending}
+              gateError={gateError}
+              needsResearch={false}
+              project={project}
+              researchPending={false}
+              retryPending={requestDraft.isPending}
+              session={session.data ?? undefined}
+              sessionLoading={session.isLoading}
+              sessionMissing={sessionMissing}
+              spine={spine}
+              onAcknowledgeStale={(note) => {
+                acknowledgeStale.mutate({ kind: activeKind, note });
+              }}
+              onClose={() => void app.requestTeardown()}
+              onRequestDraft={onRequestDraft}
+              onRetry={() => {
+                requestDraft.mutate({ kind: activeKind });
+              }}
+              onSelectStep={onSelectStep}
+              onSubmitResearch={() => undefined}
+              onSubmitReview={onSubmitReview}
+              onSubmitSelectionComment={(anchor, text) => void submitSelectionComment(anchor, text)}
+            />
+          </CommittedSlotsProvider>
+        </DeploymentHealthProvider>
       </StructureFindingsProvider>
       {composer !== null ? (
         <Box

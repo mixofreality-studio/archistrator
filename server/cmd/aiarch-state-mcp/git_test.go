@@ -98,3 +98,67 @@ func TestPublishDraft_NoNetChange(t *testing.T) {
 		t.Fatalf("re-affirm commit was not pushed")
 	}
 }
+
+// THE LOCAL-VENUE REGRESSION. With no `origin` remote configured, the local commit IS
+// the publication and publishDraft must SUCCEED. Before this, the push ran regardless and
+// git's "fatal: 'origin' does not appear to be a git repository" came back as a hard tool
+// error even though the commit had landed — 19 of 30 publishDraft calls on one measured
+// run, ~309s of retries, and two episodes that converged only because the agent invented a
+// workaround around a verb that had actually worked.
+func TestPublishDraft_NoOriginRemote_LocalCommitIsSuccess(t *testing.T) {
+	s, fg := seedProject(t, minimalProject(), jobModeDraft, projectstate.KindVolatilities)
+	s.wroteState = true
+	fg.porcelain = " M .aiarch/state/project.json"
+	fg.noOrigin = true
+
+	msg, err := s.publishDraft("local venue")
+	if err != nil {
+		t.Fatalf("a publish with no origin remote must succeed on the local commit alone, got: %v", err)
+	}
+	if !fg.didCall("commit") {
+		t.Fatalf("the local commit was not made: %v", fg.calls)
+	}
+	if fg.didCall("push") {
+		t.Fatalf("pushed despite there being no origin remote: %v", fg.calls)
+	}
+	if !s.published {
+		t.Fatal("a successful local-only publish must latch the exactly-once flag")
+	}
+	if !strings.Contains(msg, "local only") {
+		t.Fatalf("the result must say the commit was not pushed, got %q", msg)
+	}
+}
+
+// The real failure path is UNTOUCHED: an origin that EXISTS and fails to push is still a
+// hard error. Nothing about the local-venue carve-out may soften a genuine publication
+// failure.
+func TestPublishDraft_OriginPresentButPushFails_StillHardError(t *testing.T) {
+	s, fg := seedProject(t, minimalProject(), jobModeDraft, projectstate.KindVolatilities)
+	s.wroteState = true
+	fg.porcelain = " M .aiarch/state/project.json"
+	fg.failOn = "push"
+
+	if _, err := s.publishDraft("remote venue"); err == nil {
+		t.Fatal("a failed push against a configured origin must remain a hard error")
+	}
+	if s.published {
+		t.Fatal("a failed push must NOT latch the exactly-once flag - the retry has to be able to push again")
+	}
+}
+
+// A checkout whose `git remote` cannot even be listed must NOT be read as "no origin":
+// that would convert a genuine push failure into a quiet local-only publish. The push is
+// attempted and whatever git says is surfaced.
+func TestPublishDraft_RemoteListingFails_StillAttemptsThePush(t *testing.T) {
+	s, fg := seedProject(t, minimalProject(), jobModeDraft, projectstate.KindVolatilities)
+	s.wroteState = true
+	fg.porcelain = " M .aiarch/state/project.json"
+	fg.failOn = "remote"
+
+	if _, err := s.publishDraft("unknown remotes"); err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+	if !fg.didCall("push") {
+		t.Fatalf("an unlistable remote set must fall back to attempting the push: %v", fg.calls)
+	}
+}

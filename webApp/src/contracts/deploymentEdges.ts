@@ -17,8 +17,8 @@
  * carries, with the full list available on hover.
  *
  * Kept as a leaf module (no runtime imports — types are erased) so it is directly
- * unit-testable under `node --test`, the same convention as deploymentOpsLogic /
- * glossaryLogic; adapters.ts re-exports it.
+ * unit-testable under `node --test`, the same convention as glossaryLogic;
+ * adapters.ts re-exports it.
  */
 import type { DeploymentRelationship } from './types';
 
