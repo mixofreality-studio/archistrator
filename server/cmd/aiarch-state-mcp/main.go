@@ -19,44 +19,55 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-func main() {
-	// ONE-SHOT subcommands run and exit WITHOUT starting the stdio MCP server. `reconcile`
-	// is the deterministic project.json merge-conflict resolver the design workflow's
-	// refresh step invokes when a session branch has diverged from main (F80): it keeps
-	// ALL state-file logic in ProjectStateAccess code (projectstate.ReconcileSlotOntoBase)
-	// rather than a bash/jq hack in the workflow.
-	if len(os.Args) > 1 && os.Args[1] == "reconcile" {
-		if err := runReconcile(os.Getenv, os.Args[2:]); err != nil {
-			fatalf("reconcile: %v", err)
-		}
-		return
+// runOneShotCommand dispatches the one-shot subcommands. ONE-SHOT subcommands run and
+// exit WITHOUT starting the stdio MCP server. argv is the argument list with the program
+// name already stripped. It reports handled=false when argv names none of them, leaving
+// main() to fall through to the MCP server.
+func runOneShotCommand(argv []string) (handled bool, err error) {
+	if len(argv) == 0 {
+		return false, nil
 	}
+	switch argv[0] {
+	// `reconcile` is the deterministic project.json merge-conflict resolver the design
+	// workflow's refresh step invokes when a session branch has diverged from main (F80):
+	// it keeps ALL state-file logic in ProjectStateAccess code
+	// (projectstate.ReconcileSlotOntoBase) rather than a bash/jq hack in the workflow.
+	case "reconcile":
+		return true, wrapOneShot("reconcile", runReconcile(os.Getenv, argv[1:]))
 	// `validate` is the Method-invariant REQUIRED CI check the seated design workflow
 	// runs on every design PR (validate.go): the same methodcheck rules putDraftModel
 	// enforces in-loop, with the staleness-aware cross-artifact severity policy
 	// (staleness.go), over the checkout's committed .aiarch/state/project.json.
-	if len(os.Args) > 1 && os.Args[1] == "validate" {
-		if err := runValidate(os.Args[2:], os.Stdout); err != nil {
-			fatalf("validate: %v", err)
-		}
-		return
-	}
+	case "validate":
+		return true, wrapOneShot("validate", runValidate(argv[1:], os.Stdout))
 	// `seat-assets` materializes the .claude prompt surface into the runner checkout
 	// at job start (seatassets.go): operated repos do not commit the prompt surface —
 	// the pinned binary generation renders it, so the pin is the provenance.
-	if len(os.Args) > 1 && os.Args[1] == "seat-assets" {
-		if err := runSeatAssets(os.Args[2:]); err != nil {
-			fatalf("seat-assets: %v", err)
-		}
-		return
-	}
+	case "seat-assets":
+		return true, wrapOneShot("seat-assets", runSeatAssets(argv[1:]))
 	// `step-tools` prints a step's built-in tool deny list so the CLOUD rail can
 	// pass --disallowedTools without restating the manifest in YAML. The local
 	// executor calls the manifest in-process (disallowedBuiltinTools); both read
 	// the SAME method-assets manifest, so the two rails cannot diverge.
-	if len(os.Args) > 1 && os.Args[1] == "step-tools" {
-		if err := runStepTools(os.Args[2:], os.Stdout); err != nil {
-			fatalf("step-tools: %v", err)
+	case "step-tools":
+		return true, wrapOneShot("step-tools", runStepTools(argv[1:], os.Stdout))
+	}
+	return false, nil
+}
+
+// wrapOneShot prefixes a subcommand failure with the subcommand name, preserving the
+// stderr message shape each one-shot reported before the dispatch was extracted.
+func wrapOneShot(name string, err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("%s: %w", name, err)
+}
+
+func main() {
+	if handled, err := runOneShotCommand(os.Args[1:]); handled {
+		if err != nil {
+			fatalf("%v", err)
 		}
 		return
 	}
