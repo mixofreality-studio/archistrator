@@ -3012,7 +3012,7 @@ func (m *systemDesignManager) projectStateToContract(p projectstate.Project) Pro
 		Research:             researchToContract(p.Research),
 		Slots:                slotsToContract(p),
 		GitRows:              m.gitRowsToContract(ProjectID(p.ID), p.ActivityGit),
-		ActivityConstruction: constructionRowsToContract(p.ActivityConstruction, activityMetaByID(p)),
+		ActivityConstruction: constructionRowsToContract(p.ActivityConstruction, activityMetaByID(p), componentLayerByID(p)),
 		ConstructionProgress: m.constructionProgressToContract(p),
 		ServiceContracts:     serviceContractsToContract(p.ServiceContracts),
 		ReviewPolicy:         reviewPolicyToContract(p.ReviewPolicy),
@@ -3344,12 +3344,16 @@ func repoWebHost(repoBase string) string {
 
 // constructionRowsToContract maps the per-activity construction head-state map
 // (honest-empty: nil in ⇒ nil out). activityMeta carries the Phase-2 activity-list
-// metadata (worker class + coding) keyed by activity id, used to classify each
-// activity's ActivityType (see projectstate.ClassifyType) — the N-* id namespace
-// alone is too coarse.
+// metadata (worker class + coding + componentId) keyed by activity id, used to
+// classify each activity's ActivityType (see projectstate.ClassifyType) — the N-* id
+// namespace alone is too coarse — and to resolve its layer-stack projection.
+// componentLayer is the id -> Method-layer-name lookup built once per call from the
+// committed .systemDesign components (see componentLayerByID); empty when no system
+// design is committed.
 func constructionRowsToContract(
 	rows map[string]projectstate.ActivityConstructionStatus,
 	activityMeta map[string]projectstate.ActivityItem,
+	componentLayer map[string]string,
 ) map[string]ActivityConstructionStatus {
 	if len(rows) == 0 {
 		return nil
@@ -3358,47 +3362,65 @@ func constructionRowsToContract(
 	for id, r := range rows {
 		meta := activityMeta[id]
 		typ, classified := projectstate.ClassifyType(r.ActivityID, meta.WorkerClass, meta.Coding, rowHasServiceContract(r))
-		// Type/Kind/Variant/Phases form a DISCRIMINATED UNION with Classified: an
-		// activity the classifier refused to type asserts nothing about what it is.
+		// Type/Kind/Variant/Phases/BuildStatus/Phase form a DISCRIMINATED UNION with
+		// Classified: an activity the classifier refused to type asserts nothing about
+		// what it is, how far its lifecycle has run, or what its coarse status is.
 		// ClassifyType's failure return is ActivityTypeService — which is also the
 		// generated enum's zero — so passing typ through unconditionally rendered the
 		// ~60 unclassifiable committed rows as Service builds carrying a Service
 		// lifecycle skeleton. That is a different lie, not the honest blank the design
 		// requires ("the caller MUST render the row as Unclassified with NO lifecycle
-		// sub-rows at all"). The generated enum is a closed 0..6 union with no
-		// Unclassified member, so honesty is expressed by OMISSION rather than by a
-		// sentinel: Classified is the tag, Type/Kind/Variant are left at their zero
-		// values and MUST NOT be read while it is false, and Phases — the half of the
-		// claim the view actually renders — is empty rather than a seeded skeleton.
+		// sub-rows at all" — and, per the same reasoning, no coarse status chip
+		// either: a row with no sub-rows to justify it must not assert "Integrated").
+		// The generated enums are closed unions with no Unclassified member, so honesty
+		// is expressed by OMISSION rather than by a sentinel: Classified is the tag,
+		// and Type/Kind/Variant/Phase/BuildStatus are left at their zero values and
+		// MUST NOT be read while it is false; Phases — the half of the claim the view
+		// actually renders sub-rows for — is empty rather than a seeded skeleton.
 		var (
-			wireType ActivityType
-			variant  TestingVariant
-			phases   []PhaseCompletion
+			wireType    ActivityType
+			variant     TestingVariant
+			phases      []PhaseCompletion
+			coarsePhase ActivityConstructionPhase
+			buildStatus ActivityBuildStatus
 		)
 		if classified {
 			wireType = ActivityType(int(typ))
 			if typ == projectstate.ActivityTypeTesting {
 				variant = TestingVariant(int(projectstate.DeriveVariant(r.ActivityID)))
 			}
-			phases = phasesToContract(r.Phases, r.Attempts)
+			// The row's coarse BuildStatus/Phase must be derived from the SAME phase
+			// completions phasesToContract actually emits below — never from the raw
+			// stored r.Phases directly. resolvedPhaseCompletions applies the identical
+			// ledger-preferred-over-stored-per-phase resolution once; both the emitted
+			// Phases and the coarse derivation read off its result, so a partial
+			// attempt ledger can no longer make the coarse chip disagree with the very
+			// phase ticks rendered beneath it.
+			resolved := resolvedPhaseCompletions(r.Phases, r.Attempts)
+			phases = phasesToContract(resolved)
+			coarsePhase = ActivityConstructionPhase(int(projectstate.CoarsePhaseFor(r.Phase, resolved)))
+			buildStatus = ActivityBuildStatus(int(projectstate.CoarseBuildStatusFor(r.BuildStatus, resolved, r.CurrentPhase)))
 		}
+		layer, band := projectstate.LayerForActivity(r.ActivityID, componentLayer[meta.ComponentID])
 		out[id] = ActivityConstructionStatus{
 			ActivityID:    r.ActivityID,
 			Type:          wireType,
 			Kind:          wireType,
 			Variant:       variant,
-			Phase:         ActivityConstructionPhase(int(projectstate.CoarsePhaseFor(r.Phase, r.Phases))),
+			Phase:         coarsePhase,
 			Phases:        phases,
 			CurrentPhase:  ActivityMethodPhase(string(r.CurrentPhase)),
 			StartedAt:     r.StartedAt,
 			CompletedAt:   r.CompletedAt,
-			BuildStatus:   ActivityBuildStatus(int(projectstate.CoarseBuildStatusFor(r.BuildStatus, r.Phases, r.CurrentPhase))),
+			BuildStatus:   buildStatus,
 			Produced:      producedToContract(r.Produced),
 			FailureReason: FailureReason(int(r.FailureReason)),
 			FailureDetail: r.FailureDetail,
 			Attempts:      attemptsToContract(r.Attempts),
 			Classified:    classified,
 			WorstOrigin:   string(projectstate.AttemptsWorstOrigin(r.Attempts)),
+			Layer:         layer,
+			LayerBand:     band,
 		}
 	}
 	return out
@@ -3427,12 +3449,32 @@ func activityMetaByID(p projectstate.Project) map[string]projectstate.ActivityIt
 	return out
 }
 
-// phasesToContract maps the App-A internal phase-completion records.
+// componentLayerByID builds the id → Method-layer-name lookup from the committed
+// .systemDesign components (empty map when no system design is committed, exactly as
+// activityMetaByID tolerates a missing activity list). It feeds LayerForActivity's
+// componentLayer argument in constructionRowsToContract — it must never be joined
+// against an activity id directly (see LayerForActivity's doc comment for why a naive
+// componentId -> layer join mistypes a U-SPA-* activity).
+func componentLayerByID(p projectstate.Project) map[string]string {
+	out := map[string]string{}
+	if sys, ok := p.SystemDesign.Model.(*projectstate.System); ok && sys != nil {
+		for _, c := range sys.Components {
+			out[c.ID] = c.Layer.String()
+		}
+	}
+	return out
+}
+
+// resolvedPhaseCompletions applies App A's binary exit criterion to a copy of the
+// stored phase set: Completed is DERIVED from the attempt ledger whenever the
+// activity has one, per phase, and falls back to the stored value otherwise. This is
+// the SINGLE resolution both phasesToContract (the emitted sub-rows) and
+// constructionRowsToContract's coarse BuildStatus/Phase derivation read from, so the
+// two can never disagree over the same row (task 11 item 2).
 //
-// Completed is DERIVED from the attempt ledger whenever the activity has one:
-// App A's binary exit criterion is that a lifecycle phase is complete iff its GATE
-// task's latest attempt passed (projectstate.PhaseCompleteFromAttempts), which is a
-// stronger claim than a stored boolean nobody can trace back to a review.
+// App A's rule: a lifecycle phase is complete iff its GATE task's latest attempt
+// passed (projectstate.PhaseCompleteFromAttempts), which is a stronger claim than a
+// stored boolean nobody can trace back to a review.
 //
 // The ledger is a FALLBACK trigger, not a hard switch, and the fallback is decided
 // PER PHASE rather than per activity: a phase whose gate task has no attempt is a
@@ -3445,22 +3487,38 @@ func activityMetaByID(p projectstate.Project) map[string]projectstate.ActivityIt
 // This is why the gate attempt is looked up directly: PhaseCompleteFromAttempts
 // returns false both for "the gate was rejected" and for "there is no gate attempt",
 // and those two must not mean the same thing here.
-func phasesToContract(phases []projectstate.PhaseCompletion, attempts []projectstate.TaskAttempt) []PhaseCompletion {
+func resolvedPhaseCompletions(phases []projectstate.PhaseCompletion, attempts []projectstate.TaskAttempt) []projectstate.PhaseCompletion {
 	if len(phases) == 0 {
 		return nil
 	}
-	out := make([]PhaseCompletion, 0, len(phases))
-	for _, ph := range phases {
+	out := make([]projectstate.PhaseCompletion, len(phases))
+	for i, ph := range phases {
 		completed := ph.Completed
 		if gate := projectstate.GateTaskFor(ph.Phase); gate != "" {
 			if latest, ok := projectstate.LatestAttempt(attempts, gate); ok {
 				completed = latest.Outcome == projectstate.OutcomePassed
 			}
 		}
+		out[i] = ph
+		out[i].Completed = completed
+	}
+	return out
+}
+
+// phasesToContract maps the App-A internal phase-completion records onto the wire.
+// The caller (constructionRowsToContract) passes the ALREADY-RESOLVED phase set from
+// resolvedPhaseCompletions — this function performs no further derivation, so it
+// cannot drift from the coarse BuildStatus/Phase computed alongside it.
+func phasesToContract(phases []projectstate.PhaseCompletion) []PhaseCompletion {
+	if len(phases) == 0 {
+		return nil
+	}
+	out := make([]PhaseCompletion, 0, len(phases))
+	for _, ph := range phases {
 		out = append(out, PhaseCompletion{
 			Phase:       ActivityMethodPhase(string(ph.Phase)),
 			Weight:      int64(ph.Weight),
-			Completed:   completed,
+			Completed:   ph.Completed,
 			CompletedAt: ph.CompletedAt,
 			ArtifactRef: ph.ArtifactRef,
 			Label:       ph.Label,

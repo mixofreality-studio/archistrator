@@ -4038,7 +4038,7 @@ func TestConstructionRowsToContract_ClassifiesFromWorkerClass(t *testing.T) {
 		"C-BE":    {Name: "C-BE", WorkerClass: "junior-developer", Coding: true},
 		"U-SPA-1": {Name: "U-SPA-1", WorkerClass: "junior-developer", Coding: true},
 	}
-	got := constructionRowsToContract(rows, meta)
+	got := constructionRowsToContract(rows, meta, nil)
 	cases := []struct {
 		id       string
 		wantType ActivityType
@@ -10336,7 +10336,7 @@ func TestPhasesToContract_CarriesLabel(t *testing.T) {
 	in := []projectstate.PhaseCompletion{
 		{Phase: projectstate.MethodPhaseRequirements, Weight: 15, Label: "UX Requirements"},
 	}
-	got := phasesToContract(in, nil)
+	got := phasesToContract(resolvedPhaseCompletions(in, nil))
 	if len(got) != 1 {
 		t.Fatalf("phasesToContract len = %d, want 1", len(got))
 	}
@@ -10423,7 +10423,7 @@ func TestConstructionRowsToContract_CarriesLedgerAndWorstOrigin(t *testing.T) {
 		}},
 	}
 	meta := map[string]projectstate.ActivityItem{"C-BE": {Name: "C-BE", WorkerClass: "junior-developer", Coding: true}}
-	got := constructionRowsToContract(rows, meta)["C-BE"]
+	got := constructionRowsToContract(rows, meta, nil)["C-BE"]
 	if len(got.Attempts) != 2 {
 		t.Fatalf("Attempts len = %d, want 2", len(got.Attempts))
 	}
@@ -10439,20 +10439,25 @@ func TestConstructionRowsToContract_CarriesLedgerAndWorstOrigin(t *testing.T) {
 // failure return is ActivityTypeService (also the enum zero), so a passthrough
 // rendered ~60 committed rows as Service builds with a full Service lifecycle.
 // Classified is the tag of the discriminated union; the visible half of the rule is
-// that the row carries ZERO lifecycle sub-rows.
+// that the row carries ZERO lifecycle sub-rows — and, per task 11 item 3, no coarse
+// BuildStatus/Phase chip either: a row with no sub-rows to justify it must not assert
+// "Integrated" beside "Unclassified".
 func TestConstructionRowsToContract_UnclassifiableAssertsNoLifecycle(t *testing.T) {
 	rows := map[string]projectstate.ActivityConstructionStatus{
 		// No activity-list metadata (workerClass "", coding false) and no service
 		// contract — exactly the slot-9 id mismatch that leaves 60 of 69 rows untyped.
+		// Every phase is complete, so a classified row would derive Phase=Done and
+		// BuildStatus=Integrated — proving the zero values below come from the
+		// Classified gate, not merely from an input that happens to derive zero.
 		"C-AA": {
 			ActivityID: "C-AA",
 			Phases: []projectstate.PhaseCompletion{
 				{Phase: projectstate.MethodPhaseRequirements, Weight: 15, Label: "Requirements", Completed: true},
-				{Phase: projectstate.MethodPhaseConstruction, Weight: 40, Label: "Construction"},
+				{Phase: projectstate.MethodPhaseConstruction, Weight: 40, Label: "Construction", Completed: true},
 			},
 		},
 	}
-	got := constructionRowsToContract(rows, map[string]projectstate.ActivityItem{})["C-AA"]
+	got := constructionRowsToContract(rows, map[string]projectstate.ActivityItem{}, nil)["C-AA"]
 	if got.Classified {
 		t.Errorf("Classified = true, want false — the classifier has no rule for this row")
 	}
@@ -10466,6 +10471,15 @@ func TestConstructionRowsToContract_UnclassifiableAssertsNoLifecycle(t *testing.
 	// pinned to the zero value only so nothing downstream sees a stale classification.
 	if got.Type != 0 || got.Kind != 0 {
 		t.Errorf("Type/Kind = %d/%d, want the zero value on an unclassified row", got.Type, got.Kind)
+	}
+	// Phase/BuildStatus are likewise undefined while Classified is false, even though
+	// every phase above is complete and would derive Done/Integrated if this row were
+	// classified — the UI must never show a build-status chip with no sub-rows behind it.
+	if got.Phase != 0 {
+		t.Errorf("Phase = %d, want the zero value — an unclassified row must not assert a lifecycle phase", got.Phase)
+	}
+	if got.BuildStatus != 0 {
+		t.Errorf("BuildStatus = %d, want the zero value — an unclassified row must not assert a build status", got.BuildStatus)
 	}
 }
 
@@ -10484,7 +10498,7 @@ func TestPhasesToContract_DerivesCompletedFromTheLedger(t *testing.T) {
 		// The construction gate PASSED though storage says not done.
 		{AttemptID: "C-x:codeReview:1", Task: projectstate.TaskCodeReview, Attempt: 1, Outcome: projectstate.OutcomePassed},
 	}
-	got := phasesToContract(phases, attempts)
+	got := phasesToContract(resolvedPhaseCompletions(phases, attempts))
 	if len(got) != 2 {
 		t.Fatalf("phasesToContract len = %d, want 2", len(got))
 	}
@@ -10502,7 +10516,7 @@ func TestPhasesToContract_EmptyLedgerKeepsTheStoredFlag(t *testing.T) {
 	phases := []projectstate.PhaseCompletion{
 		{Phase: projectstate.MethodPhaseRequirements, Weight: 15, Label: "Requirements", Completed: true},
 	}
-	got := phasesToContract(phases, nil)
+	got := phasesToContract(resolvedPhaseCompletions(phases, nil))
 	if len(got) != 1 {
 		t.Fatalf("phasesToContract len = %d, want 1", len(got))
 	}
@@ -10545,7 +10559,7 @@ func TestConstructionRowsToContract_DerivesPhaseAndBuildStatusNotStored(t *testi
 		"C-BE": {Name: "C-BE", WorkerClass: "junior-developer", Coding: true},
 		"C-FE": {Name: "C-FE", WorkerClass: "junior-developer", Coding: true},
 	}
-	got := constructionRowsToContract(rows, meta)
+	got := constructionRowsToContract(rows, meta, nil)
 
 	if got["C-BE"].Phase != ActivityConstructionPhase(int(projectstate.ActivityConstructionDone)) {
 		t.Errorf("C-BE Phase = %d, want Done (derived) — stored NotStarted must not win", got["C-BE"].Phase)
@@ -10558,6 +10572,108 @@ func TestConstructionRowsToContract_DerivesPhaseAndBuildStatusNotStored(t *testi
 	}
 	if got["C-FE"].BuildStatus != ActivityBuildStatus(int(projectstate.BuildInConstruction)) {
 		t.Errorf("C-FE BuildStatus = %d, want InConstruction (derived)", got["C-FE"].BuildStatus)
+	}
+}
+
+// The row's coarse BuildStatus/Phase must agree with the very Phases sub-rows emitted
+// beside it — both must derive from the SAME ledger-preferred-over-stored resolution.
+// Before this fix, the coarse chip read the raw stored r.Phases while the emitted
+// Phases read the ledger, so a partial ledger could make the two disagree (task 11
+// item 2). Here the stored Construction completion is false, but its codeReview gate
+// PASSED, flipping the emitted sub-row to Completed=true; the coarse status must
+// track that same flip, not the stored false.
+func TestConstructionRowsToContract_CoarseStatusAgreesWithEmittedPhases(t *testing.T) {
+	rows := map[string]projectstate.ActivityConstructionStatus{
+		"C-BE": {
+			ActivityID:   "C-BE",
+			Phase:        projectstate.ActivityConstructionRunning,
+			BuildStatus:  projectstate.BuildInConstruction,
+			CurrentPhase: projectstate.MethodPhaseConstruction,
+			Phases: []projectstate.PhaseCompletion{
+				// Stored says Construction is NOT complete...
+				{Phase: projectstate.MethodPhaseConstruction, Weight: 60, Completed: false},
+				{Phase: projectstate.MethodPhaseIntegration, Weight: 40, Completed: true},
+			},
+			// ...but the ledger's codeReview gate PASSED, so the emitted Construction
+			// sub-row's Completed must flip to true.
+			Attempts: []projectstate.TaskAttempt{
+				{AttemptID: "C-BE:codeReview:1", Task: projectstate.TaskCodeReview, Attempt: 1, Outcome: projectstate.OutcomePassed},
+			},
+		},
+	}
+	meta := map[string]projectstate.ActivityItem{"C-BE": {Name: "C-BE", WorkerClass: "junior-developer", Coding: true}}
+	got := constructionRowsToContract(rows, meta, nil)["C-BE"]
+
+	if len(got.Phases) != 2 || !got.Phases[0].Completed {
+		t.Fatalf("emitted Construction sub-row Completed = %+v, want true (the ledger's codeReview passed)", got.Phases)
+	}
+	if got.BuildStatus != ActivityBuildStatus(int(projectstate.BuildIntegrated)) {
+		t.Errorf("BuildStatus = %d, want Integrated — it must agree with the emitted Phases (both now complete), not the raw stored Construction=false", got.BuildStatus)
+	}
+	if got.Phase != ActivityConstructionPhase(int(projectstate.ActivityConstructionDone)) {
+		t.Errorf("Phase = %d, want Done — it must agree with the emitted Phases", got.Phase)
+	}
+}
+
+// The trap LayerForActivity closes, exercised through the actual mapper
+// (constructionRowsToContract) rather than the pure function directly: a SPA row's
+// ComponentID names its MANAGER (managerSPAActivityFor), so a naive componentId ->
+// layer join over componentLayerByID would draw it on the Manager row. The mapper
+// must resolve through LayerForActivity, not through a direct map lookup.
+func TestConstructionRowsToContract_SPARowIsClientLayerNotItsManagers(t *testing.T) {
+	rows := map[string]projectstate.ActivityConstructionStatus{
+		"U-SPA-billing-manager": {ActivityID: "U-SPA-billing-manager"},
+		"C-billing-manager":     {ActivityID: "C-billing-manager"},
+		"N-IT":                  {ActivityID: "N-IT"},
+	}
+	meta := map[string]projectstate.ActivityItem{
+		"U-SPA-billing-manager": {Name: "U-SPA-billing-manager", WorkerClass: "junior-developer", Coding: true, ComponentID: "billing-manager"},
+		"C-billing-manager":     {Name: "C-billing-manager", WorkerClass: "junior-developer", Coding: true, ComponentID: "billing-manager"},
+		"N-IT":                  {Name: "N-IT", WorkerClass: "software-tester", Coding: false},
+	}
+	componentLayer := map[string]string{"billing-manager": "manager"}
+	got := constructionRowsToContract(rows, meta, componentLayer)
+
+	if l, b := got["U-SPA-billing-manager"].Layer, got["U-SPA-billing-manager"].LayerBand; l != "client" || b != "layered" {
+		t.Errorf("U-SPA-billing-manager Layer/LayerBand = %q/%q, want client/layered — a SPA surface is not its manager's layer", l, b)
+	}
+	if l, b := got["C-billing-manager"].Layer, got["C-billing-manager"].LayerBand; l != "manager" || b != "layered" {
+		t.Errorf("C-billing-manager Layer/LayerBand = %q/%q, want manager/layered", l, b)
+	}
+	if l, b := got["N-IT"].Layer, got["N-IT"].LayerBand; l != "" || b != "projectWide" {
+		t.Errorf("N-IT Layer/LayerBand = %q/%q, want \"\"/projectWide", l, b)
+	}
+}
+
+// componentLayerByID must tolerate an uncommitted system design exactly as
+// activityMetaByID tolerates a missing activity list — an empty map, not a panic or a
+// fabricated layer.
+func TestComponentLayerByID_TolerantOfMissingSystemDesign(t *testing.T) {
+	if got := componentLayerByID(projectstate.Project{}); len(got) != 0 {
+		t.Errorf("componentLayerByID(no system design) = %v, want empty map", got)
+	}
+}
+
+// componentLayerByID projects the committed System's components by id, rendering each
+// Layer enum through its canonical wire string (Layer.String()) — the same lowercase
+// vocabulary LayerForActivity's componentLayer parameter expects.
+func TestComponentLayerByID_ProjectsCommittedComponents(t *testing.T) {
+	p := projectstate.Project{
+		SystemDesign: projectstate.ArtifactSlot{
+			Model: &projectstate.System{
+				Components: []projectstate.Component{
+					{ID: "billing-manager", Layer: projectstate.LayerManager},
+					{ID: "billing-api", Layer: projectstate.LayerClient},
+				},
+			},
+		},
+	}
+	got := componentLayerByID(p)
+	if got["billing-manager"] != "manager" {
+		t.Errorf("billing-manager layer = %q, want manager", got["billing-manager"])
+	}
+	if got["billing-api"] != "client" {
+		t.Errorf("billing-api layer = %q, want client", got["billing-api"])
 	}
 }
 
@@ -10619,7 +10735,7 @@ func TestPhasesToContract_PartialLedgerDoesNotDenySilentPhases(t *testing.T) {
 		{AttemptID: "G-SPA:designReview:1", Task: projectstate.TaskDesignReview, Attempt: 1, Outcome: projectstate.OutcomePassed},
 		{AttemptID: "G-SPA:codeReview:1", Task: projectstate.TaskCodeReview, Attempt: 1, Outcome: projectstate.OutcomePassed},
 	}
-	got := phasesToContract(phases, attempts)
+	got := phasesToContract(resolvedPhaseCompletions(phases, attempts))
 	if len(got) != 4 {
 		t.Fatalf("phasesToContract len = %d, want 4", len(got))
 	}
@@ -10651,7 +10767,7 @@ func TestPhasesToContract_PartialLedgerStillDeniesARejectedGate(t *testing.T) {
 	attempts := []projectstate.TaskAttempt{
 		{AttemptID: "C-x:designReview:1", Task: projectstate.TaskDesignReview, Attempt: 1, Outcome: projectstate.OutcomeRejected},
 	}
-	got := phasesToContract(phases, attempts)
+	got := phasesToContract(resolvedPhaseCompletions(phases, attempts))
 	if len(got) != 2 {
 		t.Fatalf("phasesToContract len = %d, want 2", len(got))
 	}
