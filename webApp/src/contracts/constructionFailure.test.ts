@@ -49,6 +49,12 @@ function wireRow(over: Partial<WireConstructionStatus>): WireConstructionStatus 
     Produced: null,
     Type: 0,
     Variant: 0,
+    // These rows are all classified by construction (Type/Kind 0 ⇒ 'service')
+    // — the classification-gate tests live in constructionAdapters.test.ts, not here.
+    classified: true,
+    worstOrigin: 'observed',
+    layer: '',
+    layerBand: '',
     ...over,
   };
 }
