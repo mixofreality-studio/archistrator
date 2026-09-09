@@ -4414,6 +4414,67 @@ func assertOptionalFieldsCarriedVerbatim(t *testing.T, rec episode.EpisodeRecord
 	}
 }
 
+// ---------------------------------------------------------------------------
+// episodeRecordFor (Task 10): TargetRef carries the attempt key, not the bare
+// activity id. episodeRecordFor needs a workflow.Context (workflow.GetInfo/Now), so it
+// cannot be called from a plain Go test — testEpisodeRecordForWorkflow is a
+// standalone Temporal-testsuite wrapper that isolates just this computation.
+// ---------------------------------------------------------------------------
+
+// testEpisodeRecordForInput carries episodeRecordFor's real (non-ctx) parameters
+// through a Temporal test workflow. obs is left at its zero value (Episode nil): the
+// GAP branch and the summary branch compute TargetRef identically before branching, so
+// the gap branch alone is enough to exercise the attempt-key assembly this test targets.
+type testEpisodeRecordForInput struct {
+	IDSeed     string
+	ActivityID string
+	Task       projectstate.MethodTask
+	Attempt    int
+}
+
+func testEpisodeRecordForWorkflow(ctx workflow.Context, in testEpisodeRecordForInput) (episode.EpisodeRecord, error) {
+	return episodeRecordFor(ctx, pipelineObservation{}, in.IDSeed, in.ActivityID, in.Task, in.Attempt), nil
+}
+
+func TestEpisodeRecordFor_TargetRefCarriesTheAttemptKey(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	env.ExecuteWorkflow(testEpisodeRecordForWorkflow, testEpisodeRecordForInput{
+		IDSeed: "seed", ActivityID: "C-billing-manager", Task: projectstate.TaskDetailedDesign, Attempt: 2,
+	})
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	var rec episode.EpisodeRecord
+	if err := env.GetWorkflowResult(&rec); err != nil {
+		t.Fatalf("decode result: %v", err)
+	}
+
+	want := "C-billing-manager:detailedDesign:2"
+	if rec.TargetRef != want {
+		t.Errorf("TargetRef = %q, want %q — a bare activityId makes the episode permanently unjoinable", rec.TargetRef, want)
+	}
+}
+
+func TestEpisodeRecordFor_FirstAttemptIsOne(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	env.ExecuteWorkflow(testEpisodeRecordForWorkflow, testEpisodeRecordForInput{
+		IDSeed: "seed", ActivityID: "C-x", Task: projectstate.TaskConstruction, Attempt: 1,
+	})
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	var rec episode.EpisodeRecord
+	if err := env.GetWorkflowResult(&rec); err != nil {
+		t.Fatalf("decode result: %v", err)
+	}
+
+	if want := "C-x:construction:1"; rec.TargetRef != want {
+		t.Errorf("TargetRef = %q, want %q", rec.TargetRef, want)
+	}
+}
+
 // A terminal observation carrying a mined summary becomes exactly one EpisodeRecord per
 // dispatched phase, with the summary copied verbatim and the Manager-known
 // Kind/TargetRef/Lineage stamped on.
@@ -4447,8 +4508,11 @@ func Test_Construct_TerminalObservation_PersistsEpisodeRecord(t *testing.T) {
 	if rec.Kind != episode.EpisodeKindConstruction {
 		t.Errorf("Kind = %d, want EpisodeKindConstruction", rec.Kind)
 	}
-	if rec.TargetRef != "C-XYZ" {
-		t.Errorf("TargetRef = %q, want the activity id", rec.TargetRef)
+	// The first dispatched App-A phase is Requirements, whose gate task is SRS Review —
+	// this is the FIRST attempt at that task, so TargetRef carries the attempt key
+	// (Task 10), not the bare activity id.
+	if want := "C-XYZ:srsReview:1"; rec.TargetRef != want {
+		t.Errorf("TargetRef = %q, want the attempt-keyed ref %q", rec.TargetRef, want)
 	}
 	if rec.Lineage == nil || rec.Lineage.WorkflowID == "" || rec.Lineage.RunID == "" {
 		t.Fatalf("Lineage must carry the durable execution identity, got %+v", rec.Lineage)
@@ -4495,8 +4559,10 @@ func Test_Construct_TerminalObservation_MissingSummary_PersistsGapRecord(t *test
 	if rec.EpisodeID == "" || strings.ContainsAny(rec.EpisodeID, ":/ ") {
 		t.Errorf("a synthesized gap id must be non-empty and store-safe, got %q", rec.EpisodeID)
 	}
-	if rec.Kind != episode.EpisodeKindConstruction || rec.TargetRef != "C-XYZ" {
-		t.Errorf("a gap still carries its Kind/TargetRef, got kind=%d ref=%q", rec.Kind, rec.TargetRef)
+	// Same attempt-keyed TargetRef as the summary path (Task 10) — the first dispatched
+	// phase (Requirements) on its first attempt.
+	if want := "C-XYZ:srsReview:1"; rec.Kind != episode.EpisodeKindConstruction || rec.TargetRef != want {
+		t.Errorf("a gap still carries its Kind/TargetRef, got kind=%d ref=%q, want ref=%q", rec.Kind, rec.TargetRef, want)
 	}
 }
 

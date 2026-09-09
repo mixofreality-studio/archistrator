@@ -258,7 +258,12 @@ func (wf *workflows) awaitLateEpisode(ctx workflow.Context, handle pipelineHandl
 // agentic=false marks a dispatch that spawns no agent at all (the local merge job): such
 // a run has no episode to lose, so a nil summary is recorded as NOTHING rather than as a
 // gap. A REMOTE-venue run is skipped entirely for the same "nothing to lose" reason.
-func (wf *workflows) captureEpisode(ctx workflow.Context, in constructActivityInput, handle pipelineHandle, obs pipelineObservation, agentic bool) {
+//
+// task/attempt are the Figure A-1 attribution key the caller already has in hand — the
+// task this dispatch's episode is burned on, and how many times that task has been
+// dispatched for this activity (see episodeRecordFor / constructState.nextTaskAttempt,
+// Task 10).
+func (wf *workflows) captureEpisode(ctx workflow.Context, in constructActivityInput, handle pipelineHandle, obs pipelineObservation, agentic bool, task projectstate.MethodTask, attempt int) {
 	if episodeVenueIsRemote(obs.RunURL) {
 		return
 	}
@@ -270,7 +275,7 @@ func (wf *workflows) captureEpisode(ctx workflow.Context, in constructActivityIn
 	if agentic {
 		obs = wf.awaitLateEpisode(ctx, handle, obs)
 	}
-	rec := episodeRecordFor(ctx, obs, episodeIDSeed(handle, in), string(in.ActivityID))
+	rec := episodeRecordFor(ctx, obs, episodeIDSeed(handle, in), string(in.ActivityID), task, attempt)
 	if err := wf.Acts.EpisodesAppendEpisode(ctx, episode.ProjectID(in.ProjectID), rec); err != nil {
 		// Swallowed BY DESIGN — see the "never fails the business flow" discipline above.
 		workflow.GetLogger(ctx).Error("episode append failed after its full retry envelope; this episode is NOT in the ledger",
@@ -292,7 +297,16 @@ func episodeIDSeed(handle pipelineHandle, in constructActivityInput) string {
 // summary it copies every mined field VERBATIM and stamps only what the Manager alone
 // knows (Kind/TargetRef/Lineage); with no summary it composes an explicit GAP record so
 // the loss is visible. Pure apart from workflow.GetInfo/Now, both replay-deterministic.
-func episodeRecordFor(ctx workflow.Context, obs pipelineObservation, idSeed, activityID string) episode.EpisodeRecord {
+//
+// TargetRef carries the ATTEMPT key (projectstate.AttemptID: "<activityId>:<task>:<n>"),
+// NOT the bare activity id (Task 10). Episode CAPTURE itself stays deferred (SP1), but
+// the KEY cannot wait: the (task, attempt) pair that joins this episode to the Figure A-1
+// unit that burned it exists only HERE, at write time — supplied by the caller from the
+// lifecycle phase and redraft/attempt count it already has in hand — and cannot be
+// reconstructed once it is gone. Lineage.ActivityID is left as the bare Method activity
+// id (a separate concern: joining the episode to the project network), so only TargetRef
+// changes shape.
+func episodeRecordFor(ctx workflow.Context, obs pipelineObservation, idSeed, activityID string, task projectstate.MethodTask, attempt int) episode.EpisodeRecord {
 	exec := workflow.GetInfo(ctx).WorkflowExecution
 	lineage := &episode.EpisodeLineage{
 		WorkflowID: exec.ID,
@@ -302,15 +316,33 @@ func episodeRecordFor(ctx workflow.Context, obs pipelineObservation, idSeed, act
 		// makes the lineage joinable to the project network).
 		ActivityID: &activityID,
 	}
+	targetRef := projectstate.AttemptID(activityID, task, attempt)
 	// Construction dispatches are always EpisodeKindConstruction: the phase profile
 	// (requirements/detailed_design/test_plan/construction/integration) draws no
 	// review-vs-rework distinction, so there is nothing here to map onto the other kinds.
 	const kind = episode.EpisodeKindConstruction
 	if obs.Episode == nil {
-		return episodeGapRecord(kind, activityID, lineage, "gap-"+episodeIDSafe(idSeed),
+		return episodeGapRecord(kind, targetRef, lineage, "gap-"+episodeIDSafe(idSeed),
 			episodeGapReason(episodeMissingSummaryReason, obs.Diagnostic), workflow.Now(ctx))
 	}
-	return episodeRecordFromSummary(*obs.Episode, kind, activityID, lineage, obs.Diagnostic)
+	return episodeRecordFromSummary(*obs.Episode, kind, targetRef, lineage, obs.Diagnostic)
+}
+
+// nextTaskAttempt returns the next 1-based attempt number for t, the Figure A-1 task a
+// dispatch's episode attributes to (see runPipeline / runMergePipeline). It is the SAME
+// counter across an activity's outer variance retries AND a gated phase's human-paced
+// redrafts — both re-enter runPipeline for the SAME phase — so it is the single source
+// of the attempt number projectstate.AttemptID needs (Task 10). Lazily initialized so a
+// constructState built without ever dispatching a pipeline (ProjectSupervisionWorkflow's)
+// allocates nothing. workflow-local: rebuilt deterministically on replay, never
+// persisted — no durable per-task attempt ledger is written yet (see
+// projectstate.TaskAttempt, which lands ahead of its callers in this stage).
+func (s *constructState) nextTaskAttempt(t projectstate.MethodTask) int {
+	if s.taskAttempts == nil {
+		s.taskAttempts = map[projectstate.MethodTask]int{}
+	}
+	s.taskAttempts[t]++
+	return s.taskAttempts[t]
 }
 
 // episodeMissingSummaryReason is the GapReason for the "the run terminated and reported
@@ -1260,6 +1292,21 @@ func (wf *workflows) finalizeActivity(
 // ALSO reads the PR's CI rollup and mirrors it onto the head-state (the git-forward
 // poll-loop verb, C-MCN-GIT) — dormant when the git slice is unwired.
 func (wf *workflows) runPipeline(ctx workflow.Context, in constructActivityInput, phase projectstate.ActivityMethodPhase, state *constructState, gf *gitForward, headVersion *projectstate.Version) (pipelineObservation, error) {
+	// The Figure A-1 task this dispatch's episode attributes to (Task 10): the phase's
+	// binary exit criterion (its gate task) when it has one, else the phase's first task.
+	// Every canonical phase currently HAS a gate task (gateTasks is total over the five),
+	// so the fallback is defensive rather than live today. The attempt number is drawn
+	// from the SAME per-task counter regardless of why this call is happening — the
+	// phase's first dispatch (walkPhases) or a gated phase's SendBack redraft
+	// (awaitPhaseDecision) both land here.
+	task := projectstate.GateTaskFor(phase)
+	if task == "" {
+		if tasks := projectstate.TasksForPhase(phase); len(tasks) > 0 {
+			task = tasks[0]
+		}
+	}
+	attempt := state.nextTaskAttempt(task)
+
 	handle, err := wf.submitPipeline(ctx, pipelineSpec{
 		ProjectID:   in.ProjectID,
 		ActivityID:  string(in.ActivityID),
@@ -1288,7 +1335,7 @@ func (wf *workflows) runPipeline(ctx workflow.Context, in constructActivityInput
 
 		if obs.Phase == PipelineSucceeded || obs.Phase == PipelineFailed {
 			// Episode capture LAST, after this poll's business handling (§capture-seam).
-			wf.captureEpisode(ctx, in, handle, obs, true)
+			wf.captureEpisode(ctx, in, handle, obs, true, task, attempt)
 			return obs, nil
 		}
 		last = obs
@@ -1305,7 +1352,7 @@ func (wf *workflows) runPipeline(ctx workflow.Context, in constructActivityInput
 		RunURL:     last.RunURL,
 		Episode:    last.Episode,
 	}
-	wf.captureEpisode(ctx, in, handle, exhausted, true)
+	wf.captureEpisode(ctx, in, handle, exhausted, true, task, attempt)
 	return pipelineObservation{Phase: exhausted.Phase, Diagnostic: exhausted.Diagnostic}, nil
 }
 
@@ -1588,7 +1635,15 @@ func (wf *workflows) runMergePipeline(ctx workflow.Context, in constructActivity
 			// NOTE the late-episode grace is deliberately NOT taken here — it lives inside
 			// captureEpisode, gated on agentic, so a cancelled merge never spends 20s
 			// waiting for a summary a merge can by construction never produce.
-			wf.captureEpisode(ctx, in, h, obs, false)
+			//
+			// Task attribution (Task 10): the merge job has no Figure A-1 task of its own —
+			// App A's twelve tasks stop at Code Review, and landing the reviewed branch on
+			// main is this platform's own automation, not a Method task. TaskConstruction is
+			// the best-available attribution (merge only runs after Construction's gate has
+			// passed, as the mechanical tail of landing that task's work), sharing its
+			// attempt counter rather than inventing a task that Figure A-1 does not have.
+			mergeTask := projectstate.TaskConstruction
+			wf.captureEpisode(ctx, in, h, obs, false, mergeTask, state.nextTaskAttempt(mergeTask))
 			return obs, nil
 		}
 		_ = workflow.Sleep(ctx, pipelinePollInterval)

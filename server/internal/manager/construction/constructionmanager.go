@@ -1414,6 +1414,17 @@ type constructState struct {
 	// fault does not re-dispatch a merge whose activity branch is already
 	// merged and deleted (which would honestly — and wrongly — fail).
 	mergeCompleted bool
+
+	// taskAttempts counts, per Figure A-1 task (MethodTask), how many times a pipeline
+	// has been dispatched for that task's phase on this activity — the join key
+	// projectstate.AttemptID needs to attribute an episode to the (activity, task,
+	// attempt) it was actually burned on (Task 10, constructactivity.go). It counts
+	// across BOTH the outer variance-retry loop and a gated phase's human-paced redraft
+	// loop, since both re-enter runPipeline for the SAME phase. Workflow-local (rebuilt
+	// deterministically on replay, never persisted); lazily initialized by
+	// constructState.nextTaskAttempt so a state that never dispatches a pipeline
+	// (ProjectSupervisionWorkflow's) allocates nothing.
+	taskAttempts map[projectstate.MethodTask]int
 }
 
 func (s *constructState) view() (ConstructionSessionView, error) {
