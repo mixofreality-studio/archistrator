@@ -29,6 +29,7 @@ import { SubprojectFlowScreen } from './SubprojectFlow';
 import { BillingScreen } from './Billing';
 import { TeamScreen } from './TeamView';
 import { operationsBeforeLoad } from './operationsGuard';
+import { validateLensSearch } from '../components/construction/lens/useLensSelection';
 import { fetchCapabilities } from '../hooks/useCapabilities';
 
 const rootRoute = createRootRoute({ component: Outlet });
@@ -78,6 +79,14 @@ const constructionRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/project/$projectId/construction',
   component: ConstructionConsoleScreen,
+  // The construction console's lens + selection live in the search params —
+  // ?lens=list&a=<activityId>&p=<lifecyclePhase>&k=<task>&n=<attempt> — so the
+  // shared detail pane never owns selection, the 1.5s cascade poll's remount
+  // cannot wipe it, and a link addresses exactly one task attempt. Registering
+  // the schema here is what makes a deep link VALIDATE (an unknown lens falls
+  // back to `list`, a junk attempt is dropped) instead of throwing or rendering
+  // a blank surface. See lens/useLensSelection.ts.
+  validateSearch: validateLensSearch,
 });
 
 const operationsRoute = createRoute({

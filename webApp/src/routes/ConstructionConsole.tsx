@@ -60,6 +60,17 @@ import {
 import { ExperienceChrome } from '../components/design/ExperienceChrome';
 import { ChatRail } from '../components/design/ChatRail';
 import { ConstructionTracker } from '../components/construction/ConstructionTracker';
+import {
+  ConstructionShell,
+  LensComingLater,
+} from '../components/construction/lens/ConstructionShell';
+import {
+  useLensSelection,
+  useLensToolbar,
+  toolbarSignatureOf,
+  type LensId,
+} from '../components/construction/lens/useLensSelection';
+import { KIND_META, type ActivityKind } from '../components/construction/KindBadge';
 import { InterventionsTab } from '../components/construction/InterventionsTab';
 import { ArtifactsTab } from '../components/construction/ArtifactsTab';
 import { ActivityLifecyclePanel } from '../components/construction/ActivityLifecyclePanel';
@@ -327,8 +338,54 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   const activeTitle =
     tab === 'tracker' ? 'Tracker' : tab === 'interventions' ? 'Interventions' : 'Artifacts';
 
-  // --- Activity Lifecycle Panel (additive overlay on Tracker node click) ----
-  const [selectedActivityId, setSelectedActivityId] = useState<string | null>(null);
+  // --- Lens state (Stage B) -------------------------------------------------
+  // Selection is NOT component state: it lives in the URL's search params
+  // (?lens=&a=&p=&k=&n=), so neither the 1.5s cascade poll's remount nor a lens
+  // switch can wipe it, and a link addresses exactly one task attempt. The
+  // toolbar (search/scope/kind/layer/sort) lives in a module store keyed by a
+  // content signature — the NetworkView pattern — so it survives the same churn.
+  const { lens, selection, setLens, select, clear } = useLensSelection();
+  const selectedActivityId = selection.activityId ?? null;
+
+  // The activity IDENTITIES, not their statuses: a cascade completing an activity
+  // must NOT reset the operator's toolbar. The array is rebuilt on every poll tick
+  // (project's identity churns) but toolbarSignatureOf collapses it to the same
+  // STRING, which is what useLensToolbar compares.
+  const activityIds = useMemo(() => Object.keys(project?.constructionRows ?? {}), [project]);
+  const toolbarSignature = useMemo(
+    () => toolbarSignatureOf(projectId, activityIds),
+    [projectId, activityIds]
+  );
+  const { toolbar, setToolbar } = useLensToolbar(toolbarSignature);
+
+  // Facet options come from the REAL rows — an absent kind (unclassified) or an
+  // undrawn layer contributes nothing rather than a fabricated bucket.
+  const kindOptions = useMemo(() => {
+    const kinds = new Set<ActivityKind>();
+    for (const row of Object.values(project?.constructionRows ?? {})) {
+      if (row.kind !== undefined) kinds.add(row.kind);
+    }
+    return [...kinds]
+      .sort((a, b) => KIND_META[a].label.localeCompare(KIND_META[b].label))
+      .map((k) => ({ value: k, label: KIND_META[k].label }));
+  }, [project]);
+
+  const layerOptions = useMemo(() => {
+    const layers = new Set<string>();
+    for (const row of Object.values(project?.constructionRows ?? {})) {
+      if (row.layer !== undefined) layers.add(row.layer);
+    }
+    return [...layers].sort((a, b) => a.localeCompare(b)).map((l) => ({ value: l, label: l }));
+  }, [project]);
+
+  // The TASKS badge — the only lens that asserts something is owed. Counted from
+  // the real head-state: an in-review activity has reached the human code-review
+  // gate. Nothing is inferred for rows with no evidence.
+  const tasksOwed = useMemo(
+    () =>
+      Object.values(project?.constructionRows ?? {}).filter((r) => r.status === 'in-review').length,
+    [project]
+  );
 
   // Derive the NetworkView + status map so the panel can resolve the clicked node's status.
   const networkEnvelope = committedEnvelope(project, 'network');
@@ -378,6 +435,29 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
     // eslint-disable-next-line react-hooks/exhaustive-deps -- gitForActivity is a fresh closure every render (not memoized), reading `project`; project's own changes already invalidate this memo via constructionRowFor (which IS keyed on project), so listing gitForActivity too would defeat the memoization every render for no benefit
     [networkModel, live, activeId, activeStatus, constructionRowFor]
   );
+
+  // The shell's DETAIL slot: one pane, driven entirely by the URL's selection, so
+  // it neither owns selection nor loses it to the cascade poll. Task 4 replaces
+  // this overlay Drawer with a pane laid out beside the content.
+  const detailPane =
+    selectedActivityId !== null ? (
+      <ActivityLifecyclePanel
+        activityId={selectedActivityId}
+        activityTitle={titleForId(selectedActivityId)}
+        derivedStatus={statusMap.get(selectedActivityId) ?? 'not-started'}
+        episodesSlot={
+          <EpisodesPanelContainer
+            manager="construction"
+            projectId={projectId}
+            targetRef={selectedActivityId}
+          />
+        }
+        git={gitForActivity(selectedActivityId)}
+        node={networkView.nodes.find((n) => n.id === selectedActivityId)}
+        row={project?.constructionRows?.[selectedActivityId]}
+        onClose={clear}
+      />
+    ) : undefined;
 
   return (
     <ExperienceChrome
@@ -484,7 +564,7 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
                 </Button>
               ) : undefined
             }
-            subtitle={tabSubtitle(tab)}
+            subtitle={tab === 'tracker' ? lensSubtitle(lens) : tabSubtitle(tab)}
             t={t}
             title={activeTitle}
           />
@@ -494,33 +574,53 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
               <CircularProgress />
             </Box>
           ) : tab === 'tracker' ? (
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-              <ConstructionTracker
-                activityEnvelope={activityEnvelope}
-                constructionProgress={project?.constructionProgress}
-                constructionRows={project?.constructionRows}
-                gitFor={gitForActivity}
-                networkEnvelope={networkEnvelope}
-                operating={project?.operating}
-                overrideError={overrideError}
-                overridePending={override.isPending}
-                session={session}
-                sessionMissing={sessionMissing}
-                onOverride={onOverride}
-                onSelectActivity={setSelectedActivityId}
-              />
-              {/* Phase gate — rendered when ConstructionSessionView.stage === awaitingApproval */}
-              {phaseGateRow !== undefined && gatePhase !== undefined && (
-                <PhaseGatePanel
-                  activityKind={phaseGateRow.kind}
-                  pending={submitPhaseDecision.isPending}
-                  phase={gatePhase}
-                  reviewSet={phaseGateSession?.view.reviewSet}
-                  onApprove={approvePhase}
-                  onSendBack={sendBackPhase}
-                />
-              )}
-            </Box>
+            <ConstructionShell
+              content={
+                lens === 'list' ? (
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    <ConstructionTracker
+                      activityEnvelope={activityEnvelope}
+                      constructionProgress={project?.constructionProgress}
+                      constructionRows={project?.constructionRows}
+                      gitFor={gitForActivity}
+                      networkEnvelope={networkEnvelope}
+                      operating={project?.operating}
+                      overrideError={overrideError}
+                      overridePending={override.isPending}
+                      session={session}
+                      sessionMissing={sessionMissing}
+                      onOverride={onOverride}
+                      onSelectActivity={(id: string) => {
+                        select({ activityId: id });
+                      }}
+                    />
+                    {/* Phase gate — rendered when ConstructionSessionView.stage === awaitingApproval */}
+                    {phaseGateRow !== undefined && gatePhase !== undefined && (
+                      <PhaseGatePanel
+                        activityKind={phaseGateRow.kind}
+                        pending={submitPhaseDecision.isPending}
+                        phase={gatePhase}
+                        reviewSet={phaseGateSession?.view.reviewSet}
+                        onApprove={approvePhase}
+                        onSendBack={sendBackPhase}
+                      />
+                    )}
+                  </Box>
+                ) : (
+                  // Honest placeholder — NOT sample rows. GRAPH is the Stage-D
+                  // layer-stack projection; TASKS is the Stage-C owed-work lens.
+                  <LensComingLater lens={lens} stage={lens === 'graph' ? 'Stage D' : 'Stage C'} />
+                )
+              }
+              detail={detailPane}
+              kindOptions={kindOptions}
+              layerOptions={layerOptions}
+              lens={lens}
+              tasksOwed={tasksOwed}
+              toolbar={toolbar}
+              onLens={setLens}
+              onToolbar={setToolbar}
+            />
           ) : tab === 'interventions' ? (
             <InterventionsTab
               activityEnvelope={activityEnvelope}
@@ -548,40 +648,20 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
           )}
         </Box>
       </Box>
-
-      {/* Activity Lifecycle Panel — additive overlay on Tracker node click. */}
-      <ActivityLifecyclePanel
-        activityId={selectedActivityId}
-        activityTitle={selectedActivityId !== null ? titleForId(selectedActivityId) : undefined}
-        derivedStatus={
-          selectedActivityId !== null
-            ? (statusMap.get(selectedActivityId) ?? 'not-started')
-            : 'not-started'
-        }
-        episodesSlot={
-          selectedActivityId !== null ? (
-            <EpisodesPanelContainer
-              manager="construction"
-              projectId={projectId}
-              targetRef={selectedActivityId}
-            />
-          ) : undefined
-        }
-        git={selectedActivityId !== null ? gitForActivity(selectedActivityId) : undefined}
-        node={
-          selectedActivityId !== null
-            ? networkView.nodes.find((n) => n.id === selectedActivityId)
-            : undefined
-        }
-        row={
-          selectedActivityId !== null ? project?.constructionRows?.[selectedActivityId] : undefined
-        }
-        onClose={() => {
-          setSelectedActivityId(null);
-        }}
-      />
     </ExperienceChrome>
   );
+}
+
+/** The three lenses are three views of ONE dataset — the subtitle says which view. */
+function lensSubtitle(lens: LensId): string {
+  switch (lens) {
+    case 'list':
+      return 'Every activity, its lifecycle phases and its tasks · App-A tracking';
+    case 'graph':
+      return 'The committed project network under a build lens';
+    case 'tasks':
+      return 'Only the tasks that owe someone a decision';
+  }
 }
 
 function tabSubtitle(id: TabId): string {

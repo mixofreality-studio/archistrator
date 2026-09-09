@@ -373,6 +373,20 @@ export const UI_IDENTIFIERS = {
     INTERVENTION_DRAWER_CLOSE: 'construction-intervention-drawer-close',
     INTERVENTION_OPERATOR_BAR: 'construction-intervention-operator-bar',
     interventionSteerButton: (kind: string) => `construction-intervention-steer-${kind}`,
+    // The lens shell (Stage B): ONE route, three lenses over one dataset, a
+    // shared toolbar whose state survives a lens switch, and a persistent
+    // detail slot. Replaces the Tracker/Interventions/Artifacts tab bar.
+    LENS_TOOLBAR: 'construction-lens-toolbar',
+    lensButton: (lens: string) => `construction-lens-${lens}`,
+    LENS_TASKS_COUNT: 'construction-lens-tasks-count',
+    LENS_SEARCH: 'construction-lens-search',
+    LENS_SCOPE: 'construction-lens-scope',
+    LENS_KIND: 'construction-lens-kind',
+    LENS_LAYER: 'construction-lens-layer',
+    LENS_SORT: 'construction-lens-sort',
+    LENS_CONTENT: 'construction-lens-content',
+    LENS_DETAIL: 'construction-lens-detail',
+    LENS_PLACEHOLDER: 'construction-lens-placeholder',
   },
   // The GIT-FORWARD per-activity row cluster (U-SPA-GIT). The shared chrome the
   // construction tracker (and future CR/operations surfaces) render per
