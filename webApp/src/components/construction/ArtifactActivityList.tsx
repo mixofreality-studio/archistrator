@@ -20,6 +20,7 @@
  */
 import { useCallback, useRef, useState, type ReactNode } from 'react';
 import Box from '@mui/material/Box';
+import Chip from '@mui/material/Chip';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
 import IconButton from '@mui/material/IconButton';
@@ -116,7 +117,15 @@ function ListRow({
         >
           {vm.activityId}
         </Typography>
-        <KindBadge kind={vm.row.kind} size="xs" t={t} />
+        {vm.row.kind !== undefined ? (
+          <KindBadge kind={vm.row.kind} size="xs" t={t} />
+        ) : (
+          <Chip
+            label="UNCLASSIFIED"
+            size="small"
+            sx={{ height: 18, fontSize: 8.5, color: t.muted, border: `1px solid ${t.line}` }}
+          />
+        )}
         <Box sx={{ flexGrow: 1 }} />
         <StatusChip size="xs" status={status} t={t} />
         <Tooltip title="Comment on this activity">
@@ -170,7 +179,7 @@ function ListRow({
             sx={{
               width: `${pct.toString()}%`,
               height: '100%',
-              bgcolor: kindColor(t, vm.row.kind).fg,
+              bgcolor: vm.row.kind !== undefined ? kindColor(t, vm.row.kind).fg : t.muted,
             }}
           />
         </Box>

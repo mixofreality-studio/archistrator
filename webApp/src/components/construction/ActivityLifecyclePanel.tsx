@@ -106,11 +106,18 @@ export function ActivityLifecyclePanel({
 
           {/* ---- Body ---------------------------------------------------- */}
           <Box sx={{ flexGrow: 1, overflowY: 'auto', px: 2.5, py: 2 }}>
-            {row !== undefined ? (
+            {row?.kind !== undefined ? (
               <PanelBody
-                currentPhase={row.phase}
+                currentPhase={row.currentLifecyclePhase}
                 derivedStatus={derivedStatus}
                 kind={row.kind}
+                node={node}
+                t={t}
+              />
+            ) : row !== undefined ? (
+              <UnclassifiedBody
+                activityId={activityId}
+                derivedStatus={derivedStatus}
                 node={node}
                 t={t}
               />
@@ -225,7 +232,7 @@ function PanelHeader({
           flexWrap: 'wrap',
         }}
       >
-        {row !== undefined && <KindBadge kind={row.kind} size="xs" t={t} />}
+        {row?.kind !== undefined && <KindBadge kind={row.kind} size="xs" t={t} />}
         <StatusChip size="xs" status={derivedStatus} t={t} />
         {node !== undefined && node.workerClass.length > 0 && (
           <WorkerChip t={t} workerClass={node.workerClass} />
@@ -255,7 +262,7 @@ function PanelBody({
 }: {
   kind: ActivityKind;
   derivedStatus: BuildStatus;
-  /** The row's real current phase (ConstructionRow.phase) — never a guess. */
+  /** The row's real current phase (ConstructionRow.currentLifecyclePhase) — never a guess. */
   currentPhase: string;
   node: NetworkNodeView | undefined;
   t: Tokens;
@@ -356,6 +363,53 @@ function PanelBody({
             {String(phases.reduce((s, p) => s + p.weight, 0))}% · earned {String(pct)}%
           </Typography>
         </Box>
+      </Box>
+    </Box>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Body when the row exists but the server could not classify it — no
+// kind-specific lifecycle skeleton is fabricated for it (honest-blank).
+// ---------------------------------------------------------------------------
+
+function UnclassifiedBody({
+  activityId,
+  derivedStatus,
+  node,
+  t,
+}: {
+  activityId: string;
+  derivedStatus: BuildStatus;
+  node: NetworkNodeView | undefined;
+  t: Tokens;
+}): ReactNode {
+  return (
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+      {node !== undefined && (
+        <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1, mb: 0.5 }}>
+          <NumCell
+            accent={node.onCriticalPath}
+            hint={node.onCriticalPath ? 'critical · float 0' : `float ${String(node.float)}d`}
+            label="EST"
+            t={t}
+            value={`${String(node.days)}d`}
+          />
+        </Box>
+      )}
+      <Box
+        sx={{
+          p: 1.5,
+          border: `1.5px dashed ${t.line}`,
+          borderRadius: 1,
+          bgcolor: t.paperAlt,
+        }}
+      >
+        <Typography sx={{ fontFamily: t.body, fontSize: 12.5, color: t.muted, lineHeight: 1.55 }}>
+          <b>{activityId}</b> — status: <span style={{ color: t.ink }}>{derivedStatus}</span>. The
+          server could not classify this activity&apos;s type, so no kind-specific lifecycle is
+          shown — rendering one would be a guess.
+        </Typography>
       </Box>
     </Box>
   );

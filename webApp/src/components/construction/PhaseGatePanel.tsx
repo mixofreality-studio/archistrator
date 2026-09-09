@@ -11,9 +11,9 @@
  *
  * The `phase` prop MUST be the exact ActivityMethodPhase wire name the server uses
  * (e.g. "detailed_design", "integration", "test_plan") — taken directly from
- * ConstructionRow.phase (CurrentPhase on the server). The SubmitPhaseDecision
+ * ConstructionRow.currentLifecyclePhase (CurrentPhase on the server). The SubmitPhaseDecision
  * signal is phase-multiplexed on the server; the wrong phase string is silently
- * discarded (kept awaiting). Use constructionRow.phase — never derive from display.
+ * discarded (kept awaiting). Use constructionRow.currentLifecyclePhase — never derive from display.
  */
 import type { ReactNode } from 'react';
 import Box from '@mui/material/Box';
@@ -54,7 +54,7 @@ export function PhaseGatePanel({
 }: {
   /**
    * Canonical ActivityMethodPhase wire name (e.g. "detailed_design").
-   * Must be taken from ConstructionRow.phase — never hardcoded or derived.
+   * Must be taken from ConstructionRow.currentLifecyclePhase — never hardcoded or derived.
    */
   phase: string;
   /** Activity kind badge label (service / frontend / testing). */

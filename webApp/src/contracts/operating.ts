@@ -28,7 +28,7 @@ import type { ProjectPhase } from './types';
 /**
  * Coarse per-activity construction lifecycle ordinal — mirrors the server's
  * ActivityConstructionPhase (0 notStarted, 1 running, 2 done, 3 failed). Distinct
- * from ConstructionRow.phase (the fine-grained ActivityMethodPhase STRING already
+ * from ConstructionRow.currentLifecyclePhase (the fine-grained ActivityMethodPhase STRING already
  * mapped for display elsewhere) and from ActivityBuildStatusRow (the coarser
  * build-status STRING lens) — this is the raw ordinal the fixture corpus carries.
  */

@@ -79,6 +79,7 @@ import type {
   GitRows,
   OverrideKind,
   PhaseDecision,
+  PhaseRow,
   ProducedArtifactRow,
   ProjectArtifactKind,
   ProjectPhase,
@@ -100,8 +101,10 @@ import type {
   SessionStateResponse,
   ConstructionRows,
   SubagentSpan,
+  TaskAttemptRow,
   TimelineEvent,
 } from './types';
+import type { EvidenceRefRow, RecordOriginRow } from './types';
 import type { ArtifactModelEnvelope, Money, ProjectArtifactModelEnvelope } from './types';
 import type { CostProjection, OperationsView } from './operationsTypes';
 import { deriveOperating } from './operating.ts';
@@ -357,10 +360,68 @@ function mapProducedArtifact(w: Schemas['SystemDesignProducedArtifact']): Produc
   return { kind: w.Kind, title: w.Title, source: w.Source, produced: w.Produced, note: w.Note };
 }
 
-function mapConstructionRow(w: Schemas['SystemDesignActivityConstructionStatus']): ConstructionRow {
-  // kind is sourced from the derived Type (the view model computes it from the
-  // activity id); variant is only meaningful for testing activities.
-  const kind = activityRowKindFromOrdinal(w.Type);
+/**
+ * The wire carries '' for the zero origin, which means SYNTHESIZED. Mapping it to
+ * anything else — or defaulting an unknown value to 'observed' — is precisely how
+ * a fabricated row would launder itself across the boundary.
+ */
+function mapOrigin(o: string | null | undefined): RecordOriginRow {
+  return o === 'observed' || o === 'backfilled' ? o : 'synthesized';
+}
+
+function mapTaskAttempt(a: Schemas['SystemDesignTaskAttempt']): TaskAttemptRow {
+  return {
+    attemptId: a.attemptId,
+    task: a.task,
+    phase: a.phase,
+    attempt: a.attempt,
+    // exactOptionalPropertyTypes: an optional field must be OMITTED, not set to
+    // `undefined` — so each optional key is conditionally spread rather than
+    // always-assigned.
+    ...(a.actor !== undefined && a.actor.length > 0 ? { actor: a.actor } : {}),
+    ...(a.startedAt !== undefined && a.startedAt !== null ? { startedAt: a.startedAt } : {}),
+    ...(a.endedAt !== undefined && a.endedAt !== null ? { endedAt: a.endedAt } : {}),
+    outcome: a.outcome as TaskAttemptRow['outcome'],
+    evidence: { kind: a.evidence.kind as EvidenceRefRow['kind'], ref: a.evidence.ref },
+    provenance: {
+      origin: mapOrigin(a.provenance.origin),
+      ...(a.provenance.generator !== undefined && a.provenance.generator.length > 0
+        ? { generator: a.provenance.generator }
+        : {}),
+      ...(a.provenance.generatedAt !== undefined && a.provenance.generatedAt !== null
+        ? { generatedAt: a.provenance.generatedAt }
+        : {}),
+      ...(a.provenance.basis !== undefined && a.provenance.basis.length > 0
+        ? { basis: a.provenance.basis }
+        : {}),
+    },
+  };
+}
+
+function mapPhaseCompletion(p: Schemas['SystemDesignPhaseCompletion']): PhaseRow {
+  return {
+    phase: p.Phase,
+    weight: p.Weight,
+    label: p.Label,
+    completed: p.Completed,
+    ...(p.completedAt != null ? { completedAt: p.completedAt } : {}),
+  };
+}
+
+// Exported for direct unit-testing of the row mapping (mapProjectState remains
+// the seam every hook actually reaches this through).
+export function mapConstructionRow(
+  w: Schemas['SystemDesignActivityConstructionStatus']
+): ConstructionRow {
+  // The server refuses to guess a type it cannot classify: Type/Kind/Variant sit
+  // at their zero value and Phases is empty. Surfacing a derived 'service' kind
+  // for one of those unclassified rows (~60 of 69 committed activities) would
+  // fabricate an entire lifecycle at the UI boundary, so `kind` is gated on
+  // `classified` rather than being sourced from Type unconditionally. (The wire
+  // type already pins `classified` to `boolean` — a dropped/missing flag can
+  // never decode to `true`.)
+  const classified = w.classified;
+  const kind = classified ? activityRowKindFromOrdinal(w.Type) : undefined;
   const variant = kind === 'testing' ? testingVariantFromOrdinal(w.Variant) : undefined;
   // FailureReason/FailureDetail are only meaningful on a terminal-fail row: every
   // other row carries the zero-value reason (`unknown`) and an empty detail, so
@@ -369,13 +430,18 @@ function mapConstructionRow(w: Schemas['SystemDesignActivityConstructionStatus']
   const carriesFailure = failureReason !== 'unknown';
   return {
     activityId: w.ActivityID,
-    kind,
+    ...(kind !== undefined ? { kind } : {}),
     ...(variant !== undefined ? { variant } : {}),
     status: buildStatusRowFromOrdinal(w.BuildStatus),
-    phase: w.CurrentPhase,
+    currentLifecyclePhase: w.CurrentPhase,
     ...(w.Produced !== null ? { produced: w.Produced.map(mapProducedArtifact) } : {}),
     ...(carriesFailure ? { failureReason } : {}),
     ...(carriesFailure && w.FailureDetail.length > 0 ? { failureDetail: w.FailureDetail } : {}),
+    phases: (w.Phases ?? []).map(mapPhaseCompletion),
+    attempts: (w.attempts ?? []).map(mapTaskAttempt),
+    // A dropped flag must not read as classified.
+    classified,
+    worstOrigin: mapOrigin(w.worstOrigin),
   };
 }
 

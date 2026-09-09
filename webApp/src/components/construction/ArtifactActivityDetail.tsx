@@ -45,7 +45,15 @@ function ActivityHeader({ t, vm }: { t: Tokens; vm: ArtifactActivityVM }): React
           <Typography sx={{ fontFamily: t.mono, fontSize: 11, color: t.accent }}>
             {vm.activityId}
           </Typography>
-          <KindBadge kind={vm.row.kind} t={t} />
+          {vm.row.kind !== undefined ? (
+            <KindBadge kind={vm.row.kind} t={t} />
+          ) : (
+            <Chip
+              label="UNCLASSIFIED"
+              size="small"
+              sx={{ height: 18, fontSize: 8.5, color: t.muted, border: `1px solid ${t.line}` }}
+            />
+          )}
           <StatusChip size="xs" status={status} t={t} />
         </Box>
         <Typography
@@ -61,7 +69,7 @@ function ActivityHeader({ t, vm }: { t: Tokens; vm: ArtifactActivityVM }): React
           {vm.name}
         </Typography>
         <Typography sx={{ fontFamily: t.mono, fontSize: 11, color: t.muted }}>
-          phase · {vm.row.phase}
+          phase · {vm.row.currentLifecyclePhase}
         </Typography>
         {/* Terminal failure: the pump durably gave up on this activity. The reason
             names WHAT failed; the detail is the actionable part (which activity, and
@@ -105,6 +113,9 @@ function ActivityHeader({ t, vm }: { t: Tokens; vm: ArtifactActivityVM }): React
  * ordinal by leaving Designed/Built pending while Reviewed/Integrated read done.
  */
 function lifecyclePhases(row: ConstructionRow): { name: string; done: boolean }[] {
+  // Unclassified rows get NO fabricated lifecycle sub-rows — the server refused
+  // to type this activity, so this view refuses to invent a per-kind skeleton for it.
+  if (row.kind === undefined) return [];
   const produced = row.produced ?? [];
   const hasAny = produced.length > 0;
   const hasProduced = produced.some((a) => a.produced);
@@ -187,8 +198,8 @@ function LifecycleStrip({ t, vm }: { t: Tokens; vm: ArtifactActivityVM }): React
           mb: 0.75,
         }}
       >
-        {KIND_META[vm.row.kind].label.toUpperCase()} LIFE CYCLE · {doneCount}/{totalCount} artifacts
-        produced
+        {vm.row.kind !== undefined ? KIND_META[vm.row.kind].label.toUpperCase() : 'UNCLASSIFIED'}{' '}
+        LIFE CYCLE · {doneCount}/{totalCount} artifacts produced
       </Typography>
       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, alignItems: 'center' }}>
         {phases.map((p, i) => (
@@ -295,7 +306,9 @@ export function ArtifactActivityDetail({
   // Per-type renderer dispatch: a registered renderer for this activity's
   // classification takes over the body; otherwise the generic contract view +
   // honest-pointer cards below. (Contract-bearing types keep the service path.)
-  const Renderer = artifactRenderers[classify(vm.row)];
+  // An unclassified row has no classification at all — it always falls through.
+  const classification = classify(vm.row);
+  const Renderer = classification !== undefined ? artifactRenderers[classification] : undefined;
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>

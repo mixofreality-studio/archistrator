@@ -17,8 +17,12 @@ export type Classification =
   | 'testing:systemTest'
   | 'testing:qaProcess';
 
-/** Map a construction row to its artifact classification (the renderer key). */
-export function classify(row: ConstructionRow): Classification {
+/**
+ * Map a construction row to its artifact classification (the renderer key).
+ * Undefined when the row is unclassified — never invent a kind to classify by.
+ */
+export function classify(row: ConstructionRow): Classification | undefined {
+  if (row.kind === undefined) return undefined;
   if (row.kind === 'testing') {
     return `testing:${row.variant ?? 'plan'}`;
   }

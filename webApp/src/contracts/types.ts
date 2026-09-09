@@ -642,9 +642,54 @@ export type TestingVariantName = 'plan' | 'harness' | 'perf' | 'systemTest' | 'q
  */
 export type ActivityBuildStatusRow = 'integrated' | 'in-review' | 'in-construction' | 'failed';
 
+/** How a task-attempt (or the row's WorstOrigin roll-up) record came to exist.
+ *  '' on the wire means synthesized — see mapOrigin in wire.ts. */
+export type RecordOriginRow = 'synthesized' | 'backfilled' | 'observed';
+
+export interface AttemptProvenanceRow {
+  origin: RecordOriginRow;
+  generator?: string;
+  generatedAt?: string;
+  basis?: string;
+}
+
+export interface EvidenceRefRow {
+  kind: '' | 'episode' | 'artifact' | 'contract' | 'git';
+  ref: string;
+}
+
+/** One execution of one Figure A-1 task. */
+export interface TaskAttemptRow {
+  attemptId: string;
+  task: string;
+  phase: string;
+  attempt: number;
+  actor?: string;
+  startedAt?: string;
+  endedAt?: string;
+  outcome: '' | 'passed' | 'rejected' | 'failed' | 'skipped';
+  evidence: EvidenceRefRow;
+  provenance: AttemptProvenanceRow;
+}
+
+/** One App-A lifecycle phase with its Table A-1 weight and binary exit state. */
+export interface PhaseRow {
+  phase: string;
+  weight: number;
+  label: string;
+  completed: boolean;
+  completedAt?: string;
+}
+
 export interface ConstructionRow {
   activityId: string;
-  kind:
+  /**
+   * Absent when `classified` is false: the server could not derive a type for
+   * this activity (Type/Kind/Variant are left at their zero value on the wire)
+   * and refuses to guess. Rendering a fabricated kind for an unclassified row
+   * would launder a "no answer" into a plausible-but-wrong lifecycle.
+   */
+  kind?:
     | 'service'
     | 'frontend'
     | 'testing'
@@ -655,7 +700,8 @@ export interface ConstructionRow {
   /** Testing sub-type; present only when kind === 'testing'. */
   variant?: TestingVariantName;
   status: ActivityBuildStatusRow;
-  phase: string;
+  /** The activity's current Figure A-1 lifecycle phase (server: CurrentPhase). */
+  currentLifecyclePhase: string;
   produced?: ProducedArtifactRow[];
   /**
    * Why the activity terminally failed. Present only on a `failed` row — every
@@ -665,6 +711,14 @@ export interface ConstructionRow {
   failureReason?: FailureReason;
   /** Human-readable detail naming the failure and its repair; absent when empty. */
   failureDetail?: string;
+  /** The Table A-1 lifecycle phases and their binary exit state, in Method order. */
+  phases: PhaseRow[];
+  /** The Figure A-1 task-attempt ledger for this activity. */
+  attempts: TaskAttemptRow[];
+  /** Whether the server was able to classify this activity's type at all. */
+  classified: boolean;
+  /** The least-trustworthy provenance origin across this row's attempt ledger. */
+  worstOrigin: RecordOriginRow;
 }
 
 export type ConstructionRows = Record<string, ConstructionRow>;

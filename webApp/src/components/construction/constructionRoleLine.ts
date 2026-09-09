@@ -11,7 +11,7 @@
  *    (unlike ../design/roleLine.ts's ActiveRole → roster-id SEED_FOR map) no
  *    seed translation is needed: the RoleAvatar seed IS the workerClass,
  *    verbatim.
- *  - `phase` comes from ConstructionRow.phase (contracts/types.ts), wired
+ *  - `phase` comes from ConstructionRow.currentLifecyclePhase (contracts/types.ts), wired
  *    straight through from the server's ActivityMethodPhase — set at the
  *    RecordPhaseStarted / RecordPhaseCompleted dispatch boundaries
  *    (projectstateaccess.go), never derived or inferred client-side. It is
@@ -71,7 +71,7 @@ export function humanizeWorkerClass(workerClass: string): string {
 /**
  * @param workerClass the active activity's dispatched worker class (roster id,
  *   verbatim — e.g. "junior-developer")
- * @param phase       ConstructionRow.phase for the active activity, or
+ * @param phase       ConstructionRow.currentLifecyclePhase for the active activity, or
  *   undefined when no construction row has been recorded for it yet
  * @param title       the activity's title (callers fall back to its id first,
  *   same as ActivityRowView / toActivityListView)

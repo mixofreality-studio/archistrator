@@ -24,6 +24,7 @@
  */
 import type { ReactNode } from 'react';
 import Box from '@mui/material/Box';
+import Chip from '@mui/material/Chip';
 import Drawer from '@mui/material/Drawer';
 import IconButton from '@mui/material/IconButton';
 import Typography from '@mui/material/Typography';
@@ -214,7 +215,7 @@ function OperatorBar({ activityId, t }: { activityId: string; t: Tokens }): Reac
 // ---------------------------------------------------------------------------
 
 function askString(activityId: string, row: ConstructionRow): string {
-  const kindLabel = KIND_META[row.kind].label;
+  const kindLabel = row.kind !== undefined ? KIND_META[row.kind].label : 'Unclassified';
   return `${activityId} reached CODE REVIEW — the computed reviewer set needs your gate. Review the ${kindLabel.toLowerCase()} contract / produced change and approve or send back.`;
 }
 
@@ -284,7 +285,7 @@ function DrawerBody({
                 mb: 1,
               }}
             >
-              {row.phase === 'svc-contract'
+              {row.currentLifecyclePhase === 'svc-contract'
                 ? 'REVIEW THE SERVICE CONTRACT BEFORE FREEZE'
                 : 'REVIEW THE PRODUCED CHANGE AGAINST THE FROZEN CONTRACT'}
             </Typography>
@@ -315,9 +316,11 @@ function DrawerBody({
           }}
         >
           <Typography sx={{ fontFamily: t.mono, fontSize: 11.5, color: t.muted }}>
-            {row.kind === 'frontend'
-              ? 'Frontend design-loop review — the design loop experience renders here once the live pump is provisioned (R-CPR).'
-              : 'Testing artifact review — the test-plan view renders here once the live pump is provisioned (R-CPR).'}
+            {row.kind === undefined
+              ? 'The server could not classify this activity — no kind-specific review surface is shown.'
+              : row.kind === 'frontend'
+                ? 'Frontend design-loop review — the design loop experience renders here once the live pump is provisioned (R-CPR).'
+                : 'Testing artifact review — the test-plan view renders here once the live pump is provisioned (R-CPR).'}
           </Typography>
         </Box>
       )}
@@ -389,7 +392,20 @@ export function InterventionDrawer({
                 >
                   INTERVENTION · {activityId}
                 </Typography>
-                <KindBadge kind={row.kind} size="xs" t={t} />
+                {row.kind !== undefined ? (
+                  <KindBadge kind={row.kind} size="xs" t={t} />
+                ) : (
+                  <Chip
+                    label="UNCLASSIFIED"
+                    size="small"
+                    sx={{
+                      height: 18,
+                      fontSize: 8.5,
+                      color: t.muted,
+                      border: `1px solid ${t.line}`,
+                    }}
+                  />
+                )}
               </Box>
               <Typography
                 id="intervention-drawer-title"

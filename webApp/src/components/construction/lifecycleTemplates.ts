@@ -33,7 +33,7 @@
  * phase was "active" from the coarse 8-member BuildStatus and presented that
  * guess unmarked as fact — fabrication, ruled out explicitly by the Stage A
  * design spec. Both are deleted. `phaseStateFor` now derives `done`/`active`
- * from the activity's REAL current phase (ConstructionRow.phase, reported
+ * from the activity's REAL current phase (ConstructionRow.currentLifecyclePhase, reported
  * straight from the server, never inferred) instead of a status-derived
  * guess; with no real current phase reported it marks nothing active and
  * nothing done, except the one non-guessed terminal fact: `integrated` means
@@ -120,7 +120,7 @@ const UNKNOWN_PHASES: readonly PhaseTemplate[] = [
 // an "active" canonical phase from the coarse 8-member BuildStatus via a
 // hand-authored mapping table and present that guess unmarked — the
 // Stage A spec rules this out explicitly. `phaseStateFor` now takes the
-// activity's REAL current phase (ConstructionRow.phase, wired straight
+// activity's REAL current phase (ConstructionRow.currentLifecyclePhase, wired straight
 // through from the server's ActivityMethodPhase at the RecordPhaseStarted /
 // RecordPhaseCompleted dispatch boundaries — see constructionRoleLine.ts's
 // header for the same field used the same way) instead of re-deriving it

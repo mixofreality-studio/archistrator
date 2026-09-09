@@ -166,7 +166,9 @@ export function ArtifactsTab({
       integration: 0,
     };
     for (const vm of activities) {
-      counts[vm.row.kind] += 1;
+      // Unclassified rows (row.kind undefined) don't belong to any per-kind
+      // bucket — they still show up under the "All" filter.
+      if (vm.row.kind !== undefined) counts[vm.row.kind] += 1;
     }
     return counts;
   }, [activities]);

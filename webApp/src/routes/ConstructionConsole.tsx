@@ -213,7 +213,7 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
     submitPhaseDecision.mutate(
       {
         activityId: activeInConstructionId,
-        phase: phaseGateRow.phase,
+        phase: phaseGateRow.currentLifecyclePhase,
         decision: 'approve',
       },
       // Clear any accumulated anchors/comments once the gate is decided so they do
@@ -243,7 +243,7 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
     submitPhaseDecision.mutate(
       {
         activityId: activeInConstructionId,
-        phase: phaseGateRow.phase,
+        phase: phaseGateRow.currentLifecyclePhase,
         decision: 'sendBack',
         ...(hasFeedback
           ? { feedback: { notes, ...(wireComments.length > 0 ? { comments: wireComments } : {}) } }
@@ -499,7 +499,7 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
                 <PhaseGatePanel
                   activityKind={phaseGateRow.kind}
                   pending={submitPhaseDecision.isPending}
-                  phase={phaseGateRow.phase}
+                  phase={phaseGateRow.currentLifecyclePhase}
                   reviewSet={phaseGateSession?.view.reviewSet}
                   onApprove={approvePhase}
                   onSendBack={sendBackPhase}

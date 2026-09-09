@@ -222,7 +222,7 @@ export function ConstructionTracker({
   // sentence — derived ONLY from already-flowing dispatched state (honesty bar):
   // the activity-list entry's workerClass/title (schema.ts ModelActivityItem,
   // joined by id off the committed Phase-2 activity list) and
-  // ConstructionRow.phase (set at the server's RecordPhaseStarted/
+  // ConstructionRow.currentLifecyclePhase (set at the server's RecordPhaseStarted/
   // RecordPhaseCompleted dispatch boundaries — the real per-activity Method
   // phase; NOT the coarser BuildStatus lens). No timers, no inference — see
   // constructionRoleLine.ts.
@@ -235,7 +235,7 @@ export function ConstructionTracker({
     const item = (activityListModel?.activities ?? []).find((a) => a.name === activeId);
     if (item === undefined) return undefined;
     const title = item.title !== undefined && item.title.length > 0 ? item.title : item.name;
-    const phase = constructionRowFor?.(activeId)?.phase;
+    const phase = constructionRowFor?.(activeId)?.currentLifecyclePhase;
     return constructionRoleLine(item.workerClass, phase, title);
   }, [live, activeId, activityListModel, constructionRowFor]);
 

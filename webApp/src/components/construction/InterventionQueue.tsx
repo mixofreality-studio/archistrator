@@ -66,9 +66,14 @@ function QueueCard({
   t: Tokens;
   onOpen: () => void;
 }): ReactNode {
-  const kc = kindColor(t, row.kind);
-  const gateLabel = `gate · Code review · ${KIND_META[row.kind].label} life cycle`;
-  const actionLabel = ACTION_LABEL[row.kind];
+  // An unclassified row (the server could not derive its type) has no per-kind
+  // wording or palette to borrow — fall back to generic review copy.
+  const kc = row.kind !== undefined ? kindColor(t, row.kind) : { fg: t.line, bg: t.paperAlt };
+  const gateLabel =
+    row.kind !== undefined
+      ? `gate · Code review · ${KIND_META[row.kind].label} life cycle`
+      : 'gate · Code review';
+  const actionLabel = row.kind !== undefined ? ACTION_LABEL[row.kind] : 'Review the change';
 
   return (
     <Paper
@@ -96,11 +101,19 @@ function QueueCard({
             {name}
           </Typography>
         )}
-        <KindBadge kind={row.kind} size="xs" t={t} />
+        {row.kind !== undefined ? (
+          <KindBadge kind={row.kind} size="xs" t={t} />
+        ) : (
+          <Chip
+            label="UNCLASSIFIED"
+            size="small"
+            sx={{ height: 18, fontSize: 8.5, color: t.muted, border: `1px solid ${t.line}` }}
+          />
+        )}
         <StatusChip size="xs" status="in-review" t={t} />
         <Box sx={{ flexGrow: 1 }} />
         <Typography sx={{ fontFamily: t.mono, fontSize: 10, color: t.muted }}>
-          phase · {row.phase}
+          phase · {row.currentLifecyclePhase}
         </Typography>
       </Box>
 
