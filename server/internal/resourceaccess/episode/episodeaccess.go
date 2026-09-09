@@ -228,6 +228,11 @@ func (a *localFSEpisodeAccess) AppendEpisode(_ fwra.Context, projectID ProjectID
 // here is belt-and-suspenders over AppendEpisode's append-time skip — it
 // tolerates any duplicate lines that reach the ledger by another path (e.g.
 // hand edits, a second uncoordinated writer) without ever double-counting.
+//
+// query.TargetRef names an ACTIVITY (or design-artifact) id, not a literal record
+// TargetRef — matched via targetRefMatchesActivity, not exact string equality, so a
+// caller can keep querying by the bare activity id even though a record's own
+// TargetRef may now be the composite "<activityId>:<task>:<n>" attempt key.
 func (a *localFSEpisodeAccess) ListEpisodes(_ fwra.Context, query EpisodeQuery) ([]EpisodeRecord, error) {
 	const op = "episode.ListEpisodes"
 	if strings.TrimSpace(string(query.ProjectID)) == "" {
@@ -253,7 +258,7 @@ func (a *localFSEpisodeAccess) ListEpisodes(_ fwra.Context, query EpisodeQuery) 
 		if e.ProjectID != query.ProjectID {
 			continue
 		}
-		if query.TargetRef != nil && e.Record.TargetRef != *query.TargetRef {
+		if query.TargetRef != nil && !targetRefMatchesActivity(e.Record.TargetRef, *query.TargetRef) {
 			continue
 		}
 		if _, seen := byID[e.Record.EpisodeID]; !seen {
@@ -268,6 +273,25 @@ func (a *localFSEpisodeAccess) ListEpisodes(_ fwra.Context, query EpisodeQuery) 
 	}
 	sortByStartedAt(out)
 	return out, nil
+}
+
+// targetRefMatchesActivity reports whether an EpisodeRecord's stored TargetRef
+// belongs to activityID, given a record's TargetRef is one of two shapes:
+//
+//   - a bare activity id, verbatim (a LEGACY record, written before the
+//     construction Manager started stamping the attempt key on TargetRef —
+//     must keep resolving so a query never orphans pre-existing history);
+//   - the composite "<activityId>:<task>:<n>" attempt key (the format
+//     projectstate.AttemptID produces; episode cannot import projectstate — a
+//     ResourceAccess never calls another ResourceAccess — so the ":"-delimited
+//     shape is matched structurally here instead).
+//
+// The colon anchor on the prefix check is load-bearing, not cosmetic: activityID
+// "C-BG" must NOT match a record for the unrelated activity "C-BGX", which
+// shares the plain string prefix "C-BG" but not the colon-delimited "C-BG:". A
+// bare strings.HasPrefix(ref, activityID) would get exactly that case wrong.
+func targetRefMatchesActivity(ref, activityID string) bool {
+	return ref == activityID || strings.HasPrefix(ref, activityID+":")
 }
 
 // sortByStartedAt sorts records ascending by StartedAt with a plain

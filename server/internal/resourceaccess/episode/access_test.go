@@ -18,6 +18,10 @@ package episode
 //   HAPPY PATH / STORE SEMANTICS:
 //     U6  Append then list round-trips a record
 //     U7  ListEpisodes filters by TargetRef
+//     U7a ListEpisodes' TargetRef filter matches BY ACTIVITY (bare legacy id OR the
+//         composite "<activityId>:<task>:<n>" attempt key), not by exact string —
+//         and the colon anchor keeps a same-prefix DIFFERENT activity id from
+//         false-matching (fix round 1, Task 10)
 //     U8  Append is append-only (ledger grows one line per distinct EpisodeID)
 //     U9  First use writes the self-ignoring .gitignore ("*\n") exactly once
 //     U10 ReadTraceEvents returns each line of the raw trace file as a raw event
@@ -173,6 +177,56 @@ func TestListFiltersByTargetRef(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].EpisodeID != "ep-2" {
 		t.Fatalf("got %v, want exactly ep-2", got)
+	}
+}
+
+// TestListMatchesTargetRefByActivityPrefix pins the fix-round matching semantics a
+// fakeEpisodes double could never exercise: a TargetRef query names an ACTIVITY, and a
+// stored record's own TargetRef is either the bare activity id (a LEGACY record,
+// predating the construction Manager stamping the attempt key onto TargetRef) or the
+// composite "<activityId>:<task>:<n>" attempt key — both must resolve. The third
+// fixture (a DIFFERENT activity, "C-BGX", whose id shares only the plain string prefix
+// "C-BG" with the queried activity) pins the colon anchor: a bare
+// strings.HasPrefix(ref, activityID) — no ":" — would wrongly match it too.
+func TestListMatchesTargetRefByActivityPrefix(t *testing.T) {
+	a, _ := newTestAccess(t)
+
+	legacy := testRecord("ep-legacy", EpisodeSucceeded)
+	legacy.TargetRef = "C-BG" // pre-fix bare activity id
+
+	attempt := testRecord("ep-attempt", EpisodeSucceeded)
+	attempt.TargetRef = "C-BG:construction:1" // composite attempt key, same activity
+
+	other := testRecord("ep-other", EpisodeSucceeded)
+	other.TargetRef = "C-BGX:construction:1" // UNRELATED activity, shares string prefix "C-BG"
+
+	for _, r := range []EpisodeRecord{legacy, attempt, other} {
+		if err := a.AppendEpisode(rc(), "p1", r); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	want := "C-BG"
+	got, err := a.ListEpisodes(rc(), EpisodeQuery{ProjectID: "p1", TargetRef: &want})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	gotIDs := make(map[string]bool, len(got))
+	for _, r := range got {
+		gotIDs[r.EpisodeID] = true
+	}
+	if !gotIDs["ep-legacy"] {
+		t.Errorf("want the legacy bare-id record matched, got %v", got)
+	}
+	if !gotIDs["ep-attempt"] {
+		t.Errorf("want the composite attempt-key record matched, got %v", got)
+	}
+	if gotIDs["ep-other"] {
+		t.Errorf("want the unrelated activity's record (C-BGX) NOT matched, got %v", got)
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %d records %v, want exactly 2 (legacy + attempt, not the C-BGX false-positive)", len(got), got)
 	}
 }
 

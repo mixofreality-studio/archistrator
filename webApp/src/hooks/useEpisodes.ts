@@ -6,7 +6,11 @@
  * and the MCP-hosted app (server tool calls) share one hook surface.
  *
  * `EpisodesTarget.targetRef` is:
- *  - the activityId, verbatim, for the construction manager;
+ *  - the activityId for the construction manager — matched server-side by ACTIVITY,
+ *    not exact string equality: a stored EpisodeRecord.TargetRef may be this bare id
+ *    (a legacy record) or the composite "<activityId>:<task>:<n>" attempt key
+ *    (projectstate.AttemptID), so this value is no longer a verbatim copy of every
+ *    record's own TargetRef (fix round 1, Task 10);
  *  - the page's ArtifactKindFull (e.g. "mission", "planningAssumptions") for the
  *    systemDesign/projectDesign managers — converted to the wire's integer
  *    ArtifactKind ordinal via `artifactKindToOrdinal` (contracts/wire.ts) at the
