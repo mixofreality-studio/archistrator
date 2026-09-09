@@ -43,6 +43,7 @@ var allowedCmd = map[string]bool{
 	"aiarch-state-mcp":     true,
 	"appgen":               true,
 	"archistrator":         true,
+	"backfill-attempts":    true,
 	"clientgen":            true,
 	"gen-systemtests":      true,
 	"gen-uiprofiles":       true,
