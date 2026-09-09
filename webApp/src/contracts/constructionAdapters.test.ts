@@ -156,6 +156,27 @@ void test('mapConstructionRow reads the Phases array the server already emits', 
   assert.equal(phase.completed, true);
 });
 
+// layer/layerBand (stage A task 11, read here in stage B task 2 — this mapper
+// predated task 11 so it never picked the fields up). "" is LayerForActivity's own
+// real return for a project-wide row, so it must be dropped rather than surfaced as
+// a fabricated Layer value — same discipline as kind/status/worstOrigin above.
+void test('mapConstructionRow carries the layer projection through to the row', () => {
+  const row = mapConstructionRow(wireRow({ layer: 'client', layerBand: 'layered' }));
+  assert.equal(row.layer, 'client');
+  assert.equal(row.layerBand, 'layered');
+});
+
+void test('mapConstructionRow omits layer/layerBand when the server drew no layer for the row', () => {
+  const row = mapConstructionRow(wireRow({ layer: '', layerBand: 'projectWide' }));
+  assert.equal(row.layer, undefined);
+  assert.equal(row.layerBand, 'projectWide');
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(row, 'layer'),
+    false,
+    'the key must be OMITTED, not set to undefined (exactOptionalPropertyTypes)'
+  );
+});
+
 void test('mapConstructionRow reads the attempt ledger with its join key', () => {
   const row = mapConstructionRow(
     wireRow({

@@ -129,6 +129,8 @@ export type LifecyclePhase =
 /** One Figure A-1 task within a lifecycle phase. */
 export interface GeneratedTask {
   task: string;
+  /** Human-readable display label (server: LabelForTask). */
+  label: string;
   /** True when this task's success IS the phase's binary exit criterion (App A). */
   gate: boolean;
   /** True when the task is emitted only if a real attempt record exists. */
@@ -166,8 +168,9 @@ func writePhasesConst(
 		fmt.Fprintf(b, "    weight: %d,\n", p.Weight)
 		b.WriteString("    tasks: [\n")
 		for _, task := range projectstate.TasksForPhase(p.Phase) {
-			fmt.Fprintf(b, "      { task: %s, gate: %t, conditional: %t },\n",
+			fmt.Fprintf(b, "      { task: %s, label: %s, gate: %t, conditional: %t },\n",
 				tsString(string(task)),
+				tsString(projectstate.LabelForTask(task)),
 				projectstate.GateTaskFor(p.Phase) == task,
 				projectstate.IsConditionalTask(task))
 		}

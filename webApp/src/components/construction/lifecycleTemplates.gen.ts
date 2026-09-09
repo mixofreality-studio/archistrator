@@ -20,6 +20,8 @@ export type LifecyclePhase =
 /** One Figure A-1 task within a lifecycle phase. */
 export interface GeneratedTask {
   task: string;
+  /** Human-readable display label (server: LabelForTask). */
+  label: string;
   /** True when this task's success IS the phase's binary exit criterion (App A). */
   gate: boolean;
   /** True when the task is emitted only if a real attempt record exists. */
@@ -43,8 +45,8 @@ export const SERVICE_PHASES: readonly GeneratedPhase[] = [
     name: 'Requirements',
     weight: 15,
     tasks: [
-      { task: 'srs', gate: false, conditional: false },
-      { task: 'srsReview', gate: true, conditional: false },
+      { task: 'srs', label: 'SRS', gate: false, conditional: false },
+      { task: 'srsReview', label: 'SRS Review', gate: true, conditional: false },
     ],
   },
   {
@@ -53,9 +55,9 @@ export const SERVICE_PHASES: readonly GeneratedPhase[] = [
     name: 'Detailed Design',
     weight: 20,
     tasks: [
-      { task: 'someConstruction', gate: false, conditional: true },
-      { task: 'detailedDesign', gate: false, conditional: false },
-      { task: 'designReview', gate: true, conditional: false },
+      { task: 'someConstruction', label: 'Some Construction', gate: false, conditional: true },
+      { task: 'detailedDesign', label: 'Detailed Design', gate: false, conditional: false },
+      { task: 'designReview', label: 'Design Review', gate: true, conditional: false },
     ],
   },
   {
@@ -64,8 +66,8 @@ export const SERVICE_PHASES: readonly GeneratedPhase[] = [
     name: 'Test Plan',
     weight: 10,
     tasks: [
-      { task: 'stp', gate: false, conditional: false },
-      { task: 'stpReview', gate: true, conditional: false },
+      { task: 'stp', label: 'STP', gate: false, conditional: false },
+      { task: 'stpReview', label: 'STP Review', gate: true, conditional: false },
     ],
   },
   {
@@ -74,9 +76,9 @@ export const SERVICE_PHASES: readonly GeneratedPhase[] = [
     name: 'Construction',
     weight: 40,
     tasks: [
-      { task: 'construction', gate: false, conditional: false },
-      { task: 'testClient', gate: false, conditional: true },
-      { task: 'codeReview', gate: true, conditional: false },
+      { task: 'construction', label: 'Construction', gate: false, conditional: false },
+      { task: 'testClient', label: 'Test Client', gate: false, conditional: true },
+      { task: 'codeReview', label: 'Code Review', gate: true, conditional: false },
     ],
   },
   {
@@ -85,8 +87,8 @@ export const SERVICE_PHASES: readonly GeneratedPhase[] = [
     name: 'Integration',
     weight: 15,
     tasks: [
-      { task: 'integration', gate: false, conditional: false },
-      { task: 'testing', gate: true, conditional: false },
+      { task: 'integration', label: 'Integration', gate: false, conditional: false },
+      { task: 'testing', label: 'Testing', gate: true, conditional: false },
     ],
   },
 ];
@@ -98,8 +100,8 @@ export const FRONTEND_PHASES: readonly GeneratedPhase[] = [
     name: 'UX Requirements',
     weight: 15,
     tasks: [
-      { task: 'srs', gate: false, conditional: false },
-      { task: 'srsReview', gate: true, conditional: false },
+      { task: 'srs', label: 'SRS', gate: false, conditional: false },
+      { task: 'srsReview', label: 'SRS Review', gate: true, conditional: false },
     ],
   },
   {
@@ -108,9 +110,9 @@ export const FRONTEND_PHASES: readonly GeneratedPhase[] = [
     name: 'Design',
     weight: 25,
     tasks: [
-      { task: 'someConstruction', gate: false, conditional: true },
-      { task: 'detailedDesign', gate: false, conditional: false },
-      { task: 'designReview', gate: true, conditional: false },
+      { task: 'someConstruction', label: 'Some Construction', gate: false, conditional: true },
+      { task: 'detailedDesign', label: 'Detailed Design', gate: false, conditional: false },
+      { task: 'designReview', label: 'Design Review', gate: true, conditional: false },
     ],
   },
   {
@@ -119,8 +121,8 @@ export const FRONTEND_PHASES: readonly GeneratedPhase[] = [
     name: 'Flows',
     weight: 10,
     tasks: [
-      { task: 'stp', gate: false, conditional: false },
-      { task: 'stpReview', gate: true, conditional: false },
+      { task: 'stp', label: 'STP', gate: false, conditional: false },
+      { task: 'stpReview', label: 'STP Review', gate: true, conditional: false },
     ],
   },
   {
@@ -129,9 +131,9 @@ export const FRONTEND_PHASES: readonly GeneratedPhase[] = [
     name: 'Construction',
     weight: 35,
     tasks: [
-      { task: 'construction', gate: false, conditional: false },
-      { task: 'testClient', gate: false, conditional: true },
-      { task: 'codeReview', gate: true, conditional: false },
+      { task: 'construction', label: 'Construction', gate: false, conditional: false },
+      { task: 'testClient', label: 'Test Client', gate: false, conditional: true },
+      { task: 'codeReview', label: 'Code Review', gate: true, conditional: false },
     ],
   },
   {
@@ -140,8 +142,8 @@ export const FRONTEND_PHASES: readonly GeneratedPhase[] = [
     name: 'Integration',
     weight: 15,
     tasks: [
-      { task: 'integration', gate: false, conditional: false },
-      { task: 'testing', gate: true, conditional: false },
+      { task: 'integration', label: 'Integration', gate: false, conditional: false },
+      { task: 'testing', label: 'Testing', gate: true, conditional: false },
     ],
   },
 ];
@@ -153,8 +155,8 @@ export const TESTING_PHASES: readonly GeneratedPhase[] = [
     name: 'Use-Case Trace',
     weight: 20,
     tasks: [
-      { task: 'srs', gate: false, conditional: false },
-      { task: 'srsReview', gate: true, conditional: false },
+      { task: 'srs', label: 'SRS', gate: false, conditional: false },
+      { task: 'srsReview', label: 'SRS Review', gate: true, conditional: false },
     ],
   },
   {
@@ -163,9 +165,9 @@ export const TESTING_PHASES: readonly GeneratedPhase[] = [
     name: 'Plan Authoring',
     weight: 45,
     tasks: [
-      { task: 'construction', gate: false, conditional: false },
-      { task: 'testClient', gate: false, conditional: true },
-      { task: 'codeReview', gate: true, conditional: false },
+      { task: 'construction', label: 'Construction', gate: false, conditional: false },
+      { task: 'testClient', label: 'Test Client', gate: false, conditional: true },
+      { task: 'codeReview', label: 'Code Review', gate: true, conditional: false },
     ],
   },
   {
@@ -174,8 +176,8 @@ export const TESTING_PHASES: readonly GeneratedPhase[] = [
     name: 'Plan Review',
     weight: 35,
     tasks: [
-      { task: 'integration', gate: false, conditional: false },
-      { task: 'testing', gate: true, conditional: false },
+      { task: 'integration', label: 'Integration', gate: false, conditional: false },
+      { task: 'testing', label: 'Testing', gate: true, conditional: false },
     ],
   },
 ];
@@ -187,9 +189,9 @@ export const DEPLOYMENT_PHASES: readonly GeneratedPhase[] = [
     name: 'Provisioning Spec',
     weight: 25,
     tasks: [
-      { task: 'someConstruction', gate: false, conditional: true },
-      { task: 'detailedDesign', gate: false, conditional: false },
-      { task: 'designReview', gate: true, conditional: false },
+      { task: 'someConstruction', label: 'Some Construction', gate: false, conditional: true },
+      { task: 'detailedDesign', label: 'Detailed Design', gate: false, conditional: false },
+      { task: 'designReview', label: 'Design Review', gate: true, conditional: false },
     ],
   },
   {
@@ -198,9 +200,9 @@ export const DEPLOYMENT_PHASES: readonly GeneratedPhase[] = [
     name: 'Construction',
     weight: 50,
     tasks: [
-      { task: 'construction', gate: false, conditional: false },
-      { task: 'testClient', gate: false, conditional: true },
-      { task: 'codeReview', gate: true, conditional: false },
+      { task: 'construction', label: 'Construction', gate: false, conditional: false },
+      { task: 'testClient', label: 'Test Client', gate: false, conditional: true },
+      { task: 'codeReview', label: 'Code Review', gate: true, conditional: false },
     ],
   },
   {
@@ -209,8 +211,8 @@ export const DEPLOYMENT_PHASES: readonly GeneratedPhase[] = [
     name: 'Convergence Verification',
     weight: 25,
     tasks: [
-      { task: 'integration', gate: false, conditional: false },
-      { task: 'testing', gate: true, conditional: false },
+      { task: 'integration', label: 'Integration', gate: false, conditional: false },
+      { task: 'testing', label: 'Testing', gate: true, conditional: false },
     ],
   },
 ];
@@ -222,9 +224,9 @@ export const DOCUMENTATION_PHASES: readonly GeneratedPhase[] = [
     name: 'Outline',
     weight: 20,
     tasks: [
-      { task: 'someConstruction', gate: false, conditional: true },
-      { task: 'detailedDesign', gate: false, conditional: false },
-      { task: 'designReview', gate: true, conditional: false },
+      { task: 'someConstruction', label: 'Some Construction', gate: false, conditional: true },
+      { task: 'detailedDesign', label: 'Detailed Design', gate: false, conditional: false },
+      { task: 'designReview', label: 'Design Review', gate: true, conditional: false },
     ],
   },
   {
@@ -233,9 +235,9 @@ export const DOCUMENTATION_PHASES: readonly GeneratedPhase[] = [
     name: 'Authoring',
     weight: 60,
     tasks: [
-      { task: 'construction', gate: false, conditional: false },
-      { task: 'testClient', gate: false, conditional: true },
-      { task: 'codeReview', gate: true, conditional: false },
+      { task: 'construction', label: 'Construction', gate: false, conditional: false },
+      { task: 'testClient', label: 'Test Client', gate: false, conditional: true },
+      { task: 'codeReview', label: 'Code Review', gate: true, conditional: false },
     ],
   },
   {
@@ -244,8 +246,8 @@ export const DOCUMENTATION_PHASES: readonly GeneratedPhase[] = [
     name: 'Doc Review',
     weight: 20,
     tasks: [
-      { task: 'integration', gate: false, conditional: false },
-      { task: 'testing', gate: true, conditional: false },
+      { task: 'integration', label: 'Integration', gate: false, conditional: false },
+      { task: 'testing', label: 'Testing', gate: true, conditional: false },
     ],
   },
 ];
@@ -257,8 +259,8 @@ export const UI_DESIGN_PHASES: readonly GeneratedPhase[] = [
     name: 'UX Requirements',
     weight: 40,
     tasks: [
-      { task: 'srs', gate: false, conditional: false },
-      { task: 'srsReview', gate: true, conditional: false },
+      { task: 'srs', label: 'SRS', gate: false, conditional: false },
+      { task: 'srsReview', label: 'SRS Review', gate: true, conditional: false },
     ],
   },
   {
@@ -267,9 +269,9 @@ export const UI_DESIGN_PHASES: readonly GeneratedPhase[] = [
     name: 'Design Concept',
     weight: 60,
     tasks: [
-      { task: 'someConstruction', gate: false, conditional: true },
-      { task: 'detailedDesign', gate: false, conditional: false },
-      { task: 'designReview', gate: true, conditional: false },
+      { task: 'someConstruction', label: 'Some Construction', gate: false, conditional: true },
+      { task: 'detailedDesign', label: 'Detailed Design', gate: false, conditional: false },
+      { task: 'designReview', label: 'Design Review', gate: true, conditional: false },
     ],
   },
 ];
@@ -281,8 +283,8 @@ export const INTEGRATION_PHASES: readonly GeneratedPhase[] = [
     name: 'Integration',
     weight: 100,
     tasks: [
-      { task: 'integration', gate: false, conditional: false },
-      { task: 'testing', gate: true, conditional: false },
+      { task: 'integration', label: 'Integration', gate: false, conditional: false },
+      { task: 'testing', label: 'Testing', gate: true, conditional: false },
     ],
   },
 ];
@@ -304,8 +306,8 @@ export const TESTING_PLAN_PHASES: readonly GeneratedPhase[] = [
     name: 'Use-Case Trace',
     weight: 20,
     tasks: [
-      { task: 'srs', gate: false, conditional: false },
-      { task: 'srsReview', gate: true, conditional: false },
+      { task: 'srs', label: 'SRS', gate: false, conditional: false },
+      { task: 'srsReview', label: 'SRS Review', gate: true, conditional: false },
     ],
   },
   {
@@ -314,9 +316,9 @@ export const TESTING_PLAN_PHASES: readonly GeneratedPhase[] = [
     name: 'Plan Authoring',
     weight: 45,
     tasks: [
-      { task: 'construction', gate: false, conditional: false },
-      { task: 'testClient', gate: false, conditional: true },
-      { task: 'codeReview', gate: true, conditional: false },
+      { task: 'construction', label: 'Construction', gate: false, conditional: false },
+      { task: 'testClient', label: 'Test Client', gate: false, conditional: true },
+      { task: 'codeReview', label: 'Code Review', gate: true, conditional: false },
     ],
   },
   {
@@ -325,8 +327,8 @@ export const TESTING_PLAN_PHASES: readonly GeneratedPhase[] = [
     name: 'Plan Review',
     weight: 35,
     tasks: [
-      { task: 'integration', gate: false, conditional: false },
-      { task: 'testing', gate: true, conditional: false },
+      { task: 'integration', label: 'Integration', gate: false, conditional: false },
+      { task: 'testing', label: 'Testing', gate: true, conditional: false },
     ],
   },
 ];
@@ -338,9 +340,9 @@ export const TESTING_HARNESS_PHASES: readonly GeneratedPhase[] = [
     name: 'Harness Design',
     weight: 15,
     tasks: [
-      { task: 'someConstruction', gate: false, conditional: true },
-      { task: 'detailedDesign', gate: false, conditional: false },
-      { task: 'designReview', gate: true, conditional: false },
+      { task: 'someConstruction', label: 'Some Construction', gate: false, conditional: true },
+      { task: 'detailedDesign', label: 'Detailed Design', gate: false, conditional: false },
+      { task: 'designReview', label: 'Design Review', gate: true, conditional: false },
     ],
   },
   {
@@ -349,9 +351,9 @@ export const TESTING_HARNESS_PHASES: readonly GeneratedPhase[] = [
     name: 'Harness Construction',
     weight: 70,
     tasks: [
-      { task: 'construction', gate: false, conditional: false },
-      { task: 'testClient', gate: false, conditional: true },
-      { task: 'codeReview', gate: true, conditional: false },
+      { task: 'construction', label: 'Construction', gate: false, conditional: false },
+      { task: 'testClient', label: 'Test Client', gate: false, conditional: true },
+      { task: 'codeReview', label: 'Code Review', gate: true, conditional: false },
     ],
   },
   {
@@ -360,8 +362,8 @@ export const TESTING_HARNESS_PHASES: readonly GeneratedPhase[] = [
     name: 'Harness Review',
     weight: 15,
     tasks: [
-      { task: 'integration', gate: false, conditional: false },
-      { task: 'testing', gate: true, conditional: false },
+      { task: 'integration', label: 'Integration', gate: false, conditional: false },
+      { task: 'testing', label: 'Testing', gate: true, conditional: false },
     ],
   },
 ];
@@ -373,9 +375,9 @@ export const TESTING_PERF_PHASES: readonly GeneratedPhase[] = [
     name: 'Perf Scenario Design',
     weight: 25,
     tasks: [
-      { task: 'someConstruction', gate: false, conditional: true },
-      { task: 'detailedDesign', gate: false, conditional: false },
-      { task: 'designReview', gate: true, conditional: false },
+      { task: 'someConstruction', label: 'Some Construction', gate: false, conditional: true },
+      { task: 'detailedDesign', label: 'Detailed Design', gate: false, conditional: false },
+      { task: 'designReview', label: 'Design Review', gate: true, conditional: false },
     ],
   },
   {
@@ -384,9 +386,9 @@ export const TESTING_PERF_PHASES: readonly GeneratedPhase[] = [
     name: 'Rig Construction',
     weight: 50,
     tasks: [
-      { task: 'construction', gate: false, conditional: false },
-      { task: 'testClient', gate: false, conditional: true },
-      { task: 'codeReview', gate: true, conditional: false },
+      { task: 'construction', label: 'Construction', gate: false, conditional: false },
+      { task: 'testClient', label: 'Test Client', gate: false, conditional: true },
+      { task: 'codeReview', label: 'Code Review', gate: true, conditional: false },
     ],
   },
   {
@@ -395,8 +397,8 @@ export const TESTING_PERF_PHASES: readonly GeneratedPhase[] = [
     name: 'Rig Review',
     weight: 25,
     tasks: [
-      { task: 'integration', gate: false, conditional: false },
-      { task: 'testing', gate: true, conditional: false },
+      { task: 'integration', label: 'Integration', gate: false, conditional: false },
+      { task: 'testing', label: 'Testing', gate: true, conditional: false },
     ],
   },
 ];
@@ -408,8 +410,8 @@ export const TESTING_SYSTEM_TEST_PHASES: readonly GeneratedPhase[] = [
     name: 'Smoke Pass',
     weight: 10,
     tasks: [
-      { task: 'srs', gate: false, conditional: false },
-      { task: 'srsReview', gate: true, conditional: false },
+      { task: 'srs', label: 'SRS', gate: false, conditional: false },
+      { task: 'srsReview', label: 'SRS Review', gate: true, conditional: false },
     ],
   },
   {
@@ -418,9 +420,9 @@ export const TESTING_SYSTEM_TEST_PHASES: readonly GeneratedPhase[] = [
     name: 'Use-Case Execution',
     weight: 45,
     tasks: [
-      { task: 'construction', gate: false, conditional: false },
-      { task: 'testClient', gate: false, conditional: true },
-      { task: 'codeReview', gate: true, conditional: false },
+      { task: 'construction', label: 'Construction', gate: false, conditional: false },
+      { task: 'testClient', label: 'Test Client', gate: false, conditional: true },
+      { task: 'codeReview', label: 'Code Review', gate: true, conditional: false },
     ],
   },
   {
@@ -429,8 +431,8 @@ export const TESTING_SYSTEM_TEST_PHASES: readonly GeneratedPhase[] = [
     name: 'Regression & Sign-off',
     weight: 45,
     tasks: [
-      { task: 'integration', gate: false, conditional: false },
-      { task: 'testing', gate: true, conditional: false },
+      { task: 'integration', label: 'Integration', gate: false, conditional: false },
+      { task: 'testing', label: 'Testing', gate: true, conditional: false },
     ],
   },
 ];
@@ -442,9 +444,9 @@ export const TESTING_QA_PROCESS_PHASES: readonly GeneratedPhase[] = [
     name: 'Gate Definition',
     weight: 40,
     tasks: [
-      { task: 'someConstruction', gate: false, conditional: true },
-      { task: 'detailedDesign', gate: false, conditional: false },
-      { task: 'designReview', gate: true, conditional: false },
+      { task: 'someConstruction', label: 'Some Construction', gate: false, conditional: true },
+      { task: 'detailedDesign', label: 'Detailed Design', gate: false, conditional: false },
+      { task: 'designReview', label: 'Design Review', gate: true, conditional: false },
     ],
   },
   {
@@ -453,9 +455,9 @@ export const TESTING_QA_PROCESS_PHASES: readonly GeneratedPhase[] = [
     name: 'Process Audit',
     weight: 60,
     tasks: [
-      { task: 'construction', gate: false, conditional: false },
-      { task: 'testClient', gate: false, conditional: true },
-      { task: 'codeReview', gate: true, conditional: false },
+      { task: 'construction', label: 'Construction', gate: false, conditional: false },
+      { task: 'testClient', label: 'Test Client', gate: false, conditional: true },
+      { task: 'codeReview', label: 'Code Review', gate: true, conditional: false },
     ],
   },
 ];

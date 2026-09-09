@@ -8461,6 +8461,22 @@ func TestIsConditionalTask_OnlySomeConstructionAndTestClient(t *testing.T) {
 	}
 }
 
+// Pins gen-uiprofiles' GeneratedTask.label against silent drift: a thirteenth task
+// added to the vocabulary without a conscious label falls through to the map's zero
+// value ("") rather than failing loudly here (the `exhaustive` linter catches the same
+// gap at the taskLabels literal itself; this test catches it at the call boundary too).
+func TestGeneratedTasksAllCarryALabel(t *testing.T) {
+	for _, task := range []MethodTask{
+		TaskSRS, TaskSRSReview, TaskSTP, TaskSTPReview, TaskSomeConstruction,
+		TaskDetailedDesign, TaskDesignReview, TaskConstruction, TaskTestClient,
+		TaskCodeReview, TaskIntegration, TaskTesting,
+	} {
+		if LabelForTask(task) == "" {
+			t.Errorf("task %q has no display label", task)
+		}
+	}
+}
+
 func TestPhaseForTask_RoundTrips(t *testing.T) {
 	for _, p := range []ActivityMethodPhase{
 		MethodPhaseRequirements, MethodPhaseTestPlan, MethodPhaseDetailedDesign,

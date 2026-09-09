@@ -8227,6 +8227,34 @@ func AgentTaskFor(p ActivityMethodPhase) MethodTask {
 // IsConditionalTask reports whether a task is emitted only when an attempt exists.
 func IsConditionalTask(t MethodTask) bool { return conditionalTasks[t] }
 
+// taskLabels is the human-readable display label per Figure A-1 task, the vocabulary
+// cmd/gen-uiprofiles emits onto GeneratedTask.label so the SPA renders task rows without
+// hand-authoring its own twelve strings — the exact hand-mirror
+// lifecycleTemplates.gen.ts's own header documents this codebase already paid to clean
+// up once.
+//
+// Listed exhaustively (all twelve MethodTask values), same discipline as
+// conditionalTasks above: `exhaustive` (check: [switch, map] in .golangci.yml) fails the
+// build the moment a thirteenth task is added without a conscious label, rather than
+// silently emitting an empty string for it.
+var taskLabels = map[MethodTask]string{
+	TaskSRS:              "SRS",
+	TaskSRSReview:        "SRS Review",
+	TaskSTP:              "STP",
+	TaskSTPReview:        "STP Review",
+	TaskSomeConstruction: "Some Construction",
+	TaskDetailedDesign:   "Detailed Design",
+	TaskDesignReview:     "Design Review",
+	TaskConstruction:     "Construction",
+	TaskTestClient:       "Test Client",
+	TaskCodeReview:       "Code Review",
+	TaskIntegration:      "Integration",
+	TaskTesting:          "Testing",
+}
+
+// LabelForTask returns the human-readable display label for a Figure A-1 task.
+func LabelForTask(t MethodTask) string { return taskLabels[t] }
+
 // PhaseForTask returns the lifecycle phase a task belongs to (the empty phase when
 // the task is unknown).
 func PhaseForTask(t MethodTask) ActivityMethodPhase {

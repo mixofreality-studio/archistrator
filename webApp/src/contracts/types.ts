@@ -761,6 +761,19 @@ export interface ConstructionRow {
    * stamp is dropped here rather than audited at every consumer.
    */
   worstOrigin?: RecordOriginRow;
+  /**
+   * The Method layer this activity is DRAWN in for the layer-stack projection
+   * (server: LayerForActivity) — not necessarily the layer of the activity's own
+   * component (a SPA activity screens a Manager but draws as a Client). Absent
+   * when the server drew no layer for this row; see `layerBand`.
+   */
+  layer?: Layer;
+  /**
+   * Which band the row renders in: the layered Method stack (Clients/Managers/
+   * Engines/ResourceAccess/Resources) when `'layered'`, or the cross-cutting
+   * project-wide side band beside it when `'projectWide'` — never both.
+   */
+  layerBand?: 'layered' | 'projectWide';
 }
 
 export type ConstructionRows = Record<string, ConstructionRow>;

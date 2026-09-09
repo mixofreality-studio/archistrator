@@ -548,11 +548,16 @@ var encapsulationAllowlistData = map[string][]string{
 		//	                  absent one stay distinguishable.
 		//	AttemptsWorstOrigin → the systemdesign Manager's construction view-model: the
 		//	                  provenance contagion roll-up stamped onto each wire row.
+		//	LabelForTask    → cmd/gen-uiprofiles: the human-readable label emitted onto
+		//	                  each generated task row's GeneratedTask.label field, so the
+		//	                  SPA renders task names without hand-authoring its own
+		//	                  twelve-string copy of this same vocabulary.
 		"AgentTaskFor",
 		"AttemptID",
 		"AttemptsWorstOrigin",
 		"GateTaskFor",
 		"IsConditionalTask",
+		"LabelForTask",
 		"PhaseCompleteFromAttempts",
 		"PhaseForTask",
 		"TasksForPhase",

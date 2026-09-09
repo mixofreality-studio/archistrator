@@ -104,7 +104,7 @@ import type {
   TaskAttemptRow,
   TimelineEvent,
 } from './types';
-import type { EvidenceRefRow, RecordOriginRow } from './types';
+import type { EvidenceRefRow, Layer, RecordOriginRow } from './types';
 import type { ArtifactModelEnvelope, Money, ProjectArtifactModelEnvelope } from './types';
 import type { CostProjection, OperationsView } from './operationsTypes';
 import { deriveOperating } from './operating.ts';
@@ -482,6 +482,11 @@ export function mapConstructionRow(
   // and stays put on the server; making it 'synthesized' instead would tar the 44
   // empty-ledger rows as fabricated, which is a different lie.
   const attempts = (w.attempts ?? []).map(mapTaskAttempt);
+  // layer/layerBand (task 11, construction-UI-rewrite stage A; read here in stage B —
+  // this mapper predated that task). "" is LayerForActivity's own real return for a
+  // row that draws in the project-wide band rather than the layer stack, so it is
+  // dropped the same way an unclassified row's kind is dropped — never surfaced as a
+  // fabricated Layer value.
   return {
     activityId: w.ActivityID,
     ...(kind !== undefined ? { kind } : {}),
@@ -497,6 +502,8 @@ export function mapConstructionRow(
     classified,
     hasBuildEvidence,
     ...(attempts.length > 0 ? { worstOrigin: mapOrigin(w.worstOrigin) } : {}),
+    ...(w.layer !== '' ? { layer: w.layer as Layer } : {}),
+    ...(w.layerBand !== '' ? { layerBand: w.layerBand as 'layered' | 'projectWide' } : {}),
   };
 }
 
