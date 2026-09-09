@@ -154,7 +154,7 @@ gen-main-check: gen-temporal
 # gen-uiprofiles — the per-ActivityKind canonical lifecycle phase table
 # (id/phase/name/weight, cmd/gen-uiprofiles) emitted into the sibling webApp
 # module at ../webApp/src/components/construction/lifecycleTemplates.gen.ts,
-# straight from internal/resourceaccess/projectstate/activityprofile.go's
+# straight from internal/resourceaccess/projectstate/projectstateaccess.go's
 # ProfileFor. No project.json read (Profile is a closed static enumeration),
 # so this needs no `-project`/`-id` flags, unlike the other gen-* targets.
 gen-uiprofiles:
