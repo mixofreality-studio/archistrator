@@ -23,7 +23,10 @@ import type {
   ProducedArtifactRow,
   ProjectStateWithGit,
 } from '../../contracts/types';
-import { FAILURE_REASON_LABEL, type BuildStatus } from '../../contracts/constructionAdapters';
+import {
+  buildStatusForConstructionRow,
+  FAILURE_REASON_LABEL,
+} from '../../contracts/constructionAdapters';
 import { contractForActivity } from '../../contracts/serviceContracts';
 import { StatusChip } from './status';
 import { KindBadge, KIND_META } from './KindBadge';
@@ -37,11 +40,12 @@ import { artifactRenderers } from './artifactRenderers';
 // ---------------------------------------------------------------------------
 
 function ActivityHeader({ t, vm }: { t: Tokens; vm: ArtifactActivityVM }): ReactNode {
-  // ConstructionRow.status is absent exactly when the server could not
-  // classify the activity — that reads as the honest 'unclassified' member,
-  // never the plausible-looking 'not-started' the switch's default used to
-  // imply before this cast was replaced.
-  const status: BuildStatus = vm.row.status ?? 'unclassified';
+  // ConstructionRow.status is absent for two different reasons and
+  // buildStatusForConstructionRow keeps them apart: an UNCLASSIFIED row reads as
+  // the honest 'unclassified' member (never the plausible-looking 'not-started'),
+  // while a CLASSIFIED row with no build evidence yields undefined — it asserts
+  // nothing about its progress, so no chip is rendered at all (spec §7.2).
+  const status = buildStatusForConstructionRow(vm.row);
   return (
     <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5, flexWrap: 'wrap' }}>
       <Box sx={{ minWidth: 0 }}>
@@ -58,7 +62,7 @@ function ActivityHeader({ t, vm }: { t: Tokens; vm: ArtifactActivityVM }): React
               sx={{ height: 18, fontSize: 8.5, color: t.muted, border: `1px solid ${t.line}` }}
             />
           )}
-          <StatusChip size="xs" status={status} t={t} />
+          {status !== undefined ? <StatusChip size="xs" status={status} t={t} /> : null}
         </Box>
         <Typography
           sx={{
@@ -128,10 +132,25 @@ function lifecyclePhases(row: ConstructionRow): { name: string; done: boolean }[
   const kindLabel = KIND_META[row.kind].label;
   const prefix = kindLabel[0] ?? '?';
 
-  // Status ordinal: in-construction(0) < in-review(1) < integrated(2). A terminal
-  // `failed` row also reads 0 — it never got past Designed, and the failure banner
-  // in ActivityHeader (not this strip) is what says the activity is dead.
-  const ord = row.status === 'integrated' ? 2 : row.status === 'in-review' ? 1 : 0;
+  // Status ordinal: no-evidence(-1) < in-construction(0) < in-review(1) <
+  // integrated(2). A terminal `failed` row reads 0 — it never got past Designed, and
+  // the failure banner in ActivityHeader (not this strip) is what says the activity is
+  // dead.
+  //
+  // -1 is the row that asserts NO status: classified, but with no stored phases and no
+  // attempt ledger. It used to read 0 along with everything else, which lit `Designed`
+  // unconditionally — `ord >= 0` is true for every other row — and so claimed the
+  // detailed design was finished for twenty activities nothing has been recorded
+  // against. At -1 the ordinal grants nothing and the strip falls back to the artifact
+  // ENRICHMENT alone, which is real evidence when it is there and absent when it is not.
+  const ord =
+    row.status === 'integrated'
+      ? 2
+      : row.status === 'in-review'
+        ? 1
+        : row.status === undefined
+          ? -1
+          : 0;
 
   return [
     // Designed: any construction status implies design is done; artifacts enrich.

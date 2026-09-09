@@ -1629,6 +1629,7 @@ export interface components {
       classified: boolean;
       /** Format: date-time */
       completedAt?: null | string;
+      hasBuildEvidence: boolean;
       layer: string;
       layerBand: string;
       /** Format: date-time */

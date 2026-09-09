@@ -125,6 +125,9 @@ function wireRow(over: Partial<WireConstructionStatus>): WireConstructionStatus 
     Type: 0,
     Variant: 0,
     classified: true,
+    // The default fixture is a classified row the server DID resolve completions for;
+    // the no-evidence case is opted into per-test by overriding this to false.
+    hasBuildEvidence: true,
     worstOrigin: 'observed',
     layer: '',
     layerBand: '',
@@ -268,6 +271,49 @@ void test('mapConstructionRow keeps worstOrigin when the ledger is non-empty', (
   assert.equal(row.worstOrigin, 'observed');
 });
 
+// Stage B task 1: twenty CLASSIFIED rows have neither stored phases nor an attempt
+// ledger. They resolve to nil completions, so the server's CoarseBuildStatusFor returns
+// its zero value BuildInConstruction and the row arrived asserting "In construction"
+// about work that has not begun. The flag — not `classified`, which is TRUE on these
+// rows — is what the gate reads.
+void test('does not surface a status for a classified row with no evidence', () => {
+  const row = mapConstructionRow(wireRow({ classified: true, hasBuildEvidence: false }));
+  assert.equal(row.classified, true);
+  assert.equal(row.hasBuildEvidence, false);
+  assert.equal(Object.prototype.hasOwnProperty.call(row, 'status'), false);
+});
+
+void test('still surfaces a status for a classified row WITH evidence', () => {
+  const row = mapConstructionRow(
+    wireRow({
+      classified: true,
+      hasBuildEvidence: true,
+      BuildStatus: 1,
+      Phases: [
+        {
+          Phase: 'construction',
+          Weight: 40,
+          Label: 'Construction',
+          Completed: true,
+          ArtifactRef: '',
+        },
+      ],
+    })
+  );
+  assert.notEqual(row.status, undefined);
+});
+
+// A dropped flag must decode as NO evidence — the safe direction, the same rule
+// `classified` follows. The field is `required` in the schema so this should not
+// happen; the point is that if it ever does, the failure lands on the safe side.
+void test('an absent hasBuildEvidence flag reads as no evidence', () => {
+  const row = mapConstructionRow(
+    wireRow({ classified: true, hasBuildEvidence: undefined as unknown as boolean })
+  );
+  assert.ok(!row.hasBuildEvidence);
+  assert.equal(row.status, undefined);
+});
+
 void test('mapConstructionRow treats an absent classified flag as unclassified', () => {
   const row = mapConstructionRow(wireRow({ classified: false }));
   assert.equal(row.classified, false);
@@ -320,4 +366,87 @@ void test('a classified row still surfaces its real status and current lifecycle
 void test('buildStatusForConstructionRow reports unclassified, never not-started, for a row with no status', () => {
   const row = mapConstructionRow(wireRow({ classified: false }));
   assert.equal(buildStatusForConstructionRow(row), 'unclassified');
+});
+
+// A classified row with no build evidence asserts nothing, so it must NOT
+// short-circuit the network-derived readiness pass. Before this gate its wire
+// zero decoded as 'in-construction' and twenty activities never reached the
+// eligible/blocked branch below — the console showed builds in progress for work
+// that had not begun and hid the work that was actually ready to start.
+void test('a classified row with no evidence falls through to network-derived readiness', () => {
+  const network: NetworkModel = {
+    criticalPath: [],
+    dependencies: [
+      { activity: 'A-01', dependsOn: null },
+      { activity: 'B-01', dependsOn: ['A-01'] },
+      { activity: 'C-01', dependsOn: ['B-01'] },
+    ],
+    milestones: [],
+  };
+  const rows: Record<string, ReturnType<typeof mapConstructionRow>> = {
+    'B-01': mapConstructionRow(wireRow({ ActivityID: 'B-01', hasBuildEvidence: false })),
+    'C-01': mapConstructionRow(wireRow({ ActivityID: 'C-01', hasBuildEvidence: false })),
+  };
+
+  const statuses = computeActivityStatuses(
+    network,
+    (id) => ({ merged: id === 'A-01' }),
+    undefined,
+    'not-started',
+    (id) => rows[id]
+  );
+
+  // A-01 is merged ⇒ integrated; B-01's only predecessor is done ⇒ eligible;
+  // C-01 waits on the un-done B-01 ⇒ blocked. None of the three reads
+  // 'in-construction'.
+  assert.equal(statuses.get('B-01'), 'eligible');
+  assert.equal(statuses.get('C-01'), 'blocked');
+});
+
+// The mirror case: an UNCLASSIFIED row still short-circuits on 'unclassified' —
+// there the row IS the answer, and falling through would claim a readiness the
+// server has no basis to compute (it does not know what the activity is).
+void test('an unclassified row still short-circuits network-derived readiness', () => {
+  const network: NetworkModel = {
+    criticalPath: [],
+    dependencies: [{ activity: 'B-01', dependsOn: null }],
+    milestones: [],
+  };
+  const rows: Record<string, ReturnType<typeof mapConstructionRow>> = {
+    'B-01': mapConstructionRow(wireRow({ ActivityID: 'B-01', classified: false })),
+  };
+
+  const statuses = computeActivityStatuses(
+    network,
+    () => ({ merged: false }),
+    undefined,
+    'not-started',
+    (id) => rows[id]
+  );
+
+  assert.equal(statuses.get('B-01'), 'unclassified');
+});
+
+// And a classified row WITH evidence still wins over the network, as it always did.
+void test('a classified row with evidence still overrides network-derived readiness', () => {
+  const network: NetworkModel = {
+    criticalPath: [],
+    dependencies: [{ activity: 'B-01', dependsOn: null }],
+    milestones: [],
+  };
+  const rows: Record<string, ReturnType<typeof mapConstructionRow>> = {
+    'B-01': mapConstructionRow(
+      wireRow({ ActivityID: 'B-01', hasBuildEvidence: true, BuildStatus: 1 })
+    ),
+  };
+
+  const statuses = computeActivityStatuses(
+    network,
+    () => ({ merged: false }),
+    undefined,
+    'not-started',
+    (id) => rows[id]
+  );
+
+  assert.equal(statuses.get('B-01'), 'in-review');
 });

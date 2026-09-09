@@ -29,7 +29,10 @@ import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline';
 import type { Tokens } from '../../utilities/theme/themes';
 import type { ConstructionRow } from '../../contracts/types';
 import { StatusChip } from './status';
-import { FAILURE_REASON_LABEL, type BuildStatus } from '../../contracts/constructionAdapters';
+import {
+  buildStatusForConstructionRow,
+  FAILURE_REASON_LABEL,
+} from '../../contracts/constructionAdapters';
 import { KindBadge, kindColor } from './KindBadge';
 import { useComments, activityConstructionAnchor } from '../comments/CommentContext';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
@@ -72,10 +75,14 @@ function ListRow({
 }): ReactNode {
   const pct = progressOf(vm.row);
   const artifactCount = vm.row.produced?.length ?? 0;
-  // ConstructionRow.status is a subset of BuildStatus when present; absent
-  // (the server could not classify this activity) reads as the honest
-  // 'unclassified' member — never a plausible-looking 'not-started' default.
-  const status: BuildStatus = vm.row.status ?? 'unclassified';
+  // ConstructionRow.status is a subset of BuildStatus when present. Absent means
+  // one of two things and buildStatusForConstructionRow keeps them apart: an
+  // UNCLASSIFIED row reads as the honest 'unclassified' member (never a
+  // plausible-looking 'not-started'), while a CLASSIFIED row with no build
+  // evidence yields undefined — it has nothing to say about its progress, so the
+  // chip is omitted entirely (spec §7.2) rather than borrowing a label from a
+  // state the server never asserted.
+  const status = buildStatusForConstructionRow(vm.row);
   // On a terminal-fail row, name the reason right here — the row must not read as
   // a healthy build. The actionable FailureDetail lives in the activity detail pane.
   const failureReason = vm.row.failureReason;
@@ -129,7 +136,7 @@ function ListRow({
           />
         )}
         <Box sx={{ flexGrow: 1 }} />
-        <StatusChip size="xs" status={status} t={t} />
+        {status !== undefined ? <StatusChip size="xs" status={status} t={t} /> : null}
         <Tooltip title="Comment on this activity">
           <IconButton
             aria-label={`Comment on ${vm.activityId} — ${vm.name}`}

@@ -3418,6 +3418,25 @@ func constructionRowsToContract(
 			FailureDetail: r.FailureDetail,
 			Attempts:      attemptsToContract(r.Attempts),
 			Classified:    classified,
+			// The SECOND half of the discriminated union, and deliberately not the
+			// same bit as Classified: a row can be perfectly well classified and
+			// still have NO record that any work happened on it. Twenty committed
+			// rows are exactly that — neither stored phases nor an attempt ledger —
+			// so resolvedPhaseCompletions returns nil for them and
+			// CoarseBuildStatusFor falls through to its zero value,
+			// BuildInConstruction. That is a named, non-omitempty member the SPA
+			// rendered as a confident "In construction" chip over work that had not
+			// begun, and it also short-circuited the SPA's network-derived
+			// eligible/blocked readiness for those rows.
+			//
+			// Derived from the SAME `resolved` slice the coarse status and the
+			// emitted Phases read off — never recomputed from r.Phases/r.Attempts —
+			// so the flag cannot drift from the claim it gates. len(resolved) > 0
+			// means the profile materialized, which happens exactly when the row had
+			// stored phases or a ledger. An unclassified row resolves to nil too, so
+			// it reports no evidence as well; the consumer distinguishes the two
+			// cases by Classified.
+			HasBuildEvidence: len(resolved) > 0,
 			// MEANINGFUL ONLY ALONGSIDE A NON-EMPTY Attempts ledger. The wire field is
 			// required (no omitempty, and its schema lives in project.json), so the
 			// server always emits a value; over an empty ledger that value is the

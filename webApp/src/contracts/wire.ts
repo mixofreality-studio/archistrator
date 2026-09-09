@@ -451,7 +451,24 @@ export function mapConstructionRow(
   // zero value would otherwise read as a confident, false "In construction"
   // chip. Gating here — once, at the mapping boundary — is cheaper than
   // auditing every consumer for a `classified` check it might forget.
-  const status = classified ? buildStatusRowFromOrdinal(w.BuildStatus) : undefined;
+  //
+  // `status` carries a SECOND gate the other two do not need. The server derives
+  // the coarse status from the row's resolved phase completions, and twenty
+  // committed rows resolve to none of them (no stored phases, no attempt
+  // ledger) — the same BuildInConstruction zero surfaces, this time on a row
+  // that IS classified. hasBuildEvidence is the server's own report of that, so
+  // it is read here rather than re-derived from `phases.length` (which the
+  // server may materialize from the profile for other reasons).
+  //
+  // Read the same way `classified` is, and for the same reason: the wire type
+  // pins it to `boolean` and the field is `required` in the schema, so a dropped
+  // flag can never decode to `true` — it decodes falsy, which is the safe
+  // direction (no evidence ⇒ no status). Coercing it explicitly (`=== true`,
+  // `Boolean(...)`) is what the reader would prefer but both forms are rejected
+  // by the lint gate as redundant against the declared type.
+  const hasBuildEvidence = w.hasBuildEvidence;
+  const status =
+    classified && hasBuildEvidence ? buildStatusRowFromOrdinal(w.BuildStatus) : undefined;
   const currentLifecyclePhase = classified ? w.CurrentPhase : undefined;
   // FailureReason/FailureDetail are only meaningful on a terminal-fail row: every
   // other row carries the zero-value reason (`unknown`) and an empty detail, so
@@ -478,6 +495,7 @@ export function mapConstructionRow(
     attempts,
     // A dropped flag must not read as classified.
     classified,
+    hasBuildEvidence,
     ...(attempts.length > 0 ? { worstOrigin: mapOrigin(w.worstOrigin) } : {}),
   };
 }

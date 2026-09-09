@@ -26105,6 +26105,9 @@
             "classified": {
               "type": "boolean"
             },
+            "hasBuildEvidence": {
+              "type": "boolean"
+            },
             "worstOrigin": {
               "type": "string"
             },
@@ -26128,6 +26131,7 @@
             "FailureReason",
             "FailureDetail",
             "classified",
+            "hasBuildEvidence",
             "worstOrigin",
             "layer",
             "layerBand"

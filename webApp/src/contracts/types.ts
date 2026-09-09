@@ -704,6 +704,18 @@ export interface ConstructionRow {
    * is the real, named state `BuildInConstruction` — not serialized with
    * `omitempty` — so an unclassified row's zero value is indistinguishable from
    * a genuinely-started build unless this is gated the same way.
+   *
+   * ALSO absent when `hasBuildEvidence` is false. The server resolves a row's
+   * coarse status from its phase completions, and twenty committed rows have
+   * neither stored phases nor an attempt ledger — nothing resolves, so the same
+   * zero value surfaces and says "In construction" about work that has not
+   * begun. `classified` is TRUE on those rows: we know exactly what they are.
+   * Consumers must therefore branch on BOTH flags — an absent status with
+   * `classified === false` is "we do not know what this is", while an absent
+   * status with `classified === true` is "we know what it is and have no
+   * evidence about its progress". Collapsing the two into `'unclassified'`
+   * would be the second conflation this rewrite exists to prevent; per spec
+   * §7.2 the no-evidence state gets no chip at all.
    */
   status?: ActivityBuildStatusRow;
   /**
@@ -727,6 +739,17 @@ export interface ConstructionRow {
   attempts: TaskAttemptRow[];
   /** Whether the server was able to classify this activity's type at all. */
   classified: boolean;
+  /**
+   * Whether the server resolved ANY lifecycle-phase completions for this row —
+   * i.e. whether it had stored phases or an attempt ledger to resolve from.
+   *
+   * `false` means no record of progress exists, which is NOT the same as "not
+   * classified" and NOT the same as "not started" (a real, known state nothing
+   * records here either). It is what gates `status` above; it is exposed rather
+   * than left implicit so a consumer reads the reason directly instead of
+   * re-deriving it from an absent field.
+   */
+  hasBuildEvidence: boolean;
   /**
    * The least-trustworthy provenance origin across this row's attempt ledger.
    *

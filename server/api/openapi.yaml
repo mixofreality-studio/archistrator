@@ -2823,6 +2823,8 @@ components:
                         - string
                     x-go-import: time
                     x-go-type: time.Time
+                hasBuildEvidence:
+                    type: boolean
                 layer:
                     type: string
                 layerBand:
@@ -2849,6 +2851,7 @@ components:
                 - FailureReason
                 - FailureDetail
                 - classified
+                - hasBuildEvidence
                 - worstOrigin
                 - layer
                 - layerBand

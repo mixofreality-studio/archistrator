@@ -133,7 +133,8 @@ export function ArtifactsTab({
     }));
     // Sort: terminally failed FIRST (it is the thing needing the operator),
     // integrated last, then by activityId alphabetically. row.status is absent
-    // exactly when the server could not classify the activity — that carries
+    // when the server could not classify the activity OR when it classified the
+    // activity but resolved no build evidence for it. Either way the row carries
     // no actionable signal (nothing to review, nothing failed, nothing in
     // progress), so it sorts AFTER every known status rather than fabricating
     // urgency for a state the server never asserted.

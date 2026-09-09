@@ -142,13 +142,26 @@ export function activeActivityId(
 /**
  * Maps a ConstructionRow status string onto the tracker BuildStatus lens.
  * The row-state union is a subset of BuildStatus, so every present member maps
- * 1:1. `row.status` is absent exactly when the server could not classify the
- * activity (see ConstructionRow.status) — that degrades to `'unclassified'`,
- * never to `'not-started'`: the two mean different things, and folding an
- * unknown state into a known one is the exact false-positive this row-state
- * union exists to avoid. Total function — every input yields a real answer.
+ * 1:1.
+ *
+ * `row.status` is absent for TWO different reasons, and this function keeps them
+ * apart (see ConstructionRow.status):
+ *
+ *   - `classified === false` — the server could not work out what the activity
+ *     even is. That degrades to `'unclassified'`, never to `'not-started'`: the
+ *     two mean different things, and folding an unknown state into a known one
+ *     is the exact false-positive this row-state union exists to avoid.
+ *   - `classified === true` with no build evidence — the server knows exactly
+ *     what the activity is and has NO record of progress on it (no stored
+ *     phases, no attempt ledger). Twenty committed rows are in this state. It is
+ *     not `'unclassified'` (we do know what it is), not `'in-construction'` (the
+ *     lie this stage removes) and not `'not-started'` (a positive claim nothing
+ *     records either). The row simply has nothing to say, so `undefined` is
+ *     returned and the CALLER supplies the honest answer from another source —
+ *     the network-derived eligible/blocked in computeActivityStatuses, or no
+ *     chip at all in a render site (spec §7.2).
  */
-export function buildStatusForConstructionRow(row: ConstructionRow): BuildStatus {
+export function buildStatusForConstructionRow(row: ConstructionRow): BuildStatus | undefined {
   switch (row.status) {
     case 'integrated':
       return 'integrated';
@@ -159,13 +172,13 @@ export function buildStatusForConstructionRow(row: ConstructionRow): BuildStatus
     case 'failed':
       return 'failed';
     case undefined:
-      return 'unclassified';
+      return row.classified ? undefined : 'unclassified';
     // Both `case undefined` (eslint's switch-exhaustiveness-check wants every
     // union member named explicitly) and `default` (tsc's noImplicitReturns
     // does not treat the case list above as exhaustive without one) are
     // required to satisfy both gates; they agree on the same answer.
     default:
-      return 'unclassified';
+      return row.classified ? undefined : 'unclassified';
   }
 }
 
@@ -175,7 +188,9 @@ export function buildStatusForConstructionRow(row: ConstructionRow): BuildStatus
  *
  *   1. constructionRowFor(id) — PRIMARY: the per-activity construction head-state
  *      aggregate (integrated / in-review / in-construction / failed). When present this
- *      WINS over all other sources except the live session override (see §3).
+ *      WINS over all other sources except the live session override (see §3) — unless
+ *      the row asserts no status at all (classified with no build evidence), in which
+ *      case it is skipped and §4 answers instead.
  *   2. gitFor(id)?.merged === true — SECONDARY/COMPATIBLE: the PR landing on main
  *      is also treated as integrated. Used when constructionRowFor returns nothing.
  *   3. liveActiveStatus — the ONE activity currently in-flight (from the session).
@@ -261,9 +276,18 @@ export function computeActivityStatuses(
       result.set(id, liveActiveStatus);
     } else {
       // Check constructionRows for in-review / in-construction (non-done states).
+      // A row that asserts NOTHING (classified, but no build evidence — no stored
+      // phases and no attempt ledger) must NOT short-circuit here: it used to,
+      // because its wire zero decoded as 'in-construction', so twenty activities
+      // never reached the network-derived readiness below and rendered as builds
+      // in progress instead of the eligible/blocked they actually are. An
+      // unclassified row still short-circuits, on 'unclassified' — there the row
+      // IS the answer.
       const constructionRow = constructionRowFor !== undefined ? constructionRowFor(id) : undefined;
-      if (constructionRow !== undefined) {
-        result.set(id, buildStatusForConstructionRow(constructionRow));
+      const rowStatus =
+        constructionRow !== undefined ? buildStatusForConstructionRow(constructionRow) : undefined;
+      if (rowStatus !== undefined) {
+        result.set(id, rowStatus);
       } else {
         // Network-derived fallback: eligible if all predecessors are satisfied, else
         // blocked. A predecessor naming a milestone resolves recursively through

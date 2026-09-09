@@ -51,24 +51,25 @@ const (
 )
 
 type ActivityConstructionStatus struct {
-	ActivityID    string                    `json:"ActivityID"`
-	Type          ActivityType              `json:"Type"`
-	Kind          ActivityType              `json:"Kind"`
-	Variant       TestingVariant            `json:"Variant"`
-	Phase         ActivityConstructionPhase `json:"Phase"`
-	Phases        []PhaseCompletion         `json:"Phases"`
-	CurrentPhase  ActivityMethodPhase       `json:"CurrentPhase"`
-	StartedAt     *time.Time                `json:"startedAt,omitempty"`
-	CompletedAt   *time.Time                `json:"completedAt,omitempty"`
-	BuildStatus   ActivityBuildStatus       `json:"BuildStatus"`
-	Produced      []ProducedArtifact        `json:"Produced"`
-	FailureReason FailureReason             `json:"FailureReason"`
-	FailureDetail string                    `json:"FailureDetail"`
-	Attempts      []TaskAttempt             `json:"attempts,omitempty"`
-	Classified    bool                      `json:"classified"`
-	WorstOrigin   string                    `json:"worstOrigin"`
-	Layer         string                    `json:"layer"`
-	LayerBand     string                    `json:"layerBand"`
+	ActivityID       string                    `json:"ActivityID"`
+	Type             ActivityType              `json:"Type"`
+	Kind             ActivityType              `json:"Kind"`
+	Variant          TestingVariant            `json:"Variant"`
+	Phase            ActivityConstructionPhase `json:"Phase"`
+	Phases           []PhaseCompletion         `json:"Phases"`
+	CurrentPhase     ActivityMethodPhase       `json:"CurrentPhase"`
+	StartedAt        *time.Time                `json:"startedAt,omitempty"`
+	CompletedAt      *time.Time                `json:"completedAt,omitempty"`
+	BuildStatus      ActivityBuildStatus       `json:"BuildStatus"`
+	Produced         []ProducedArtifact        `json:"Produced"`
+	FailureReason    FailureReason             `json:"FailureReason"`
+	FailureDetail    string                    `json:"FailureDetail"`
+	Attempts         []TaskAttempt             `json:"attempts,omitempty"`
+	Classified       bool                      `json:"classified"`
+	HasBuildEvidence bool                      `json:"hasBuildEvidence"`
+	WorstOrigin      string                    `json:"worstOrigin"`
+	Layer            string                    `json:"layer"`
+	LayerBand        string                    `json:"layerBand"`
 }
 
 type ActivityGitStatus struct {

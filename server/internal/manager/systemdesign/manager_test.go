@@ -10759,6 +10759,76 @@ func TestConstructionRowsToContract_WorstOriginIsOnlyMeaningfulWithALedger(t *te
 	}
 }
 
+// A CLASSIFIED row with neither stored phases nor an attempt ledger resolves to nil
+// completions, so CoarseBuildStatusFor returns its zero value BuildInConstruction — a
+// positive claim ("this is being built") about work that has not begun. The wire field
+// is required and its zero is a real, named member, so honesty is expressed by a
+// COMPANION FLAG the consumer gates on, exactly as classified gates kind/status/
+// currentLifecyclePhase and a non-empty ledger gates worstOrigin.
+//
+// hasBuildEvidence is deliberately NOT the same thing as classified: this row IS
+// classified — the server knows exactly what it is — it simply has no record of any
+// progress. Folding the two together would be the second conflation this stage exists
+// to remove.
+func TestConstructionRowsToContract_NoEvidenceAssertsNoBuildStatus(t *testing.T) {
+	rows := map[string]projectstate.ActivityConstructionStatus{
+		// Neither stored phases nor a ledger: nothing to resolve, nothing to assert.
+		"C-x": {ActivityID: "C-x"},
+		// Stored phases: evidence, even though every phase is still incomplete.
+		"C-STORED": {ActivityID: "C-STORED", Phases: allServicePhases()},
+		// A ledger with no stored phases: also evidence (the profile materializes).
+		"C-LEDGER": {
+			ActivityID: "C-LEDGER",
+			Attempts: []projectstate.TaskAttempt{
+				{AttemptID: "C-LEDGER:construction:1", Task: projectstate.TaskConstruction, Attempt: 1,
+					Outcome: projectstate.OutcomePassed},
+			},
+		},
+	}
+	meta := map[string]projectstate.ActivityItem{
+		"C-x":      {Name: "C-x", WorkerClass: "junior-developer", Coding: true},
+		"C-STORED": {Name: "C-STORED", WorkerClass: "junior-developer", Coding: true},
+		"C-LEDGER": {Name: "C-LEDGER", WorkerClass: "junior-developer", Coding: true},
+	}
+	got := constructionRowsToContract(rows, meta, nil)
+
+	row := got["C-x"]
+	if !row.Classified {
+		t.Fatalf("fixture should classify; got Classified=false")
+	}
+	if row.HasBuildEvidence {
+		t.Errorf("HasBuildEvidence = true for a row with no phases and no attempts")
+	}
+	if len(row.Phases) != 0 {
+		t.Errorf("C-x Phases len = %d, want 0 — the flag must track the resolved set", len(row.Phases))
+	}
+	if !got["C-STORED"].HasBuildEvidence {
+		t.Errorf("C-STORED HasBuildEvidence = false; stored phases ARE evidence")
+	}
+	if !got["C-LEDGER"].HasBuildEvidence {
+		t.Errorf("C-LEDGER HasBuildEvidence = false; an attempt ledger IS evidence")
+	}
+}
+
+// An UNCLASSIFIED row cannot have build evidence either: classifiedRowView returns nil
+// completions for it, and the row already asserts nothing about type or status. The two
+// flags are independent in meaning but this pairing must hold — hasBuildEvidence must
+// never be true where Phases is empty, or a consumer gating on it would surface the
+// zero-value chip again through the other door.
+func TestConstructionRowsToContract_UnclassifiedRowHasNoBuildEvidence(t *testing.T) {
+	rows := map[string]projectstate.ActivityConstructionStatus{
+		"ZZ-mystery": {ActivityID: "ZZ-mystery", Phases: allServicePhases()},
+	}
+	got := constructionRowsToContract(rows, map[string]projectstate.ActivityItem{}, nil)
+	row := got["ZZ-mystery"]
+	if row.Classified {
+		t.Fatalf("fixture should NOT classify; got Classified=true")
+	}
+	if row.HasBuildEvidence {
+		t.Errorf("HasBuildEvidence = true on an unclassified row, whose Phases are suppressed")
+	}
+}
+
 // The trap LayerForActivity closes, exercised through the actual mapper
 // (constructionRowsToContract) rather than the pure function directly: a SPA row's
 // ComponentID names its MANAGER (managerSPAActivityFor), so a naive componentId ->
