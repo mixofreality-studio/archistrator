@@ -24389,6 +24389,24 @@
             },
             "FailureDetail": {
               "type": "string"
+            },
+            "attempts": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/TaskAttempt"
+              }
+            },
+            "classified": {
+              "type": "boolean"
+            },
+            "worstOrigin": {
+              "type": "string"
+            },
+            "layer": {
+              "type": "string"
+            },
+            "layerBand": {
+              "type": "string"
             }
           },
           "required": [
@@ -24402,7 +24420,11 @@
             "BuildStatus",
             "Produced",
             "FailureReason",
-            "FailureDetail"
+            "FailureDetail",
+            "classified",
+            "worstOrigin",
+            "layer",
+            "layerBand"
           ],
           "additionalProperties": false
         },
@@ -24631,6 +24653,33 @@
             "ArtifactStageWithdrawn"
           ],
           "x-go-base": "int"
+        },
+        "AttemptProvenance": {
+          "type": "object",
+          "properties": {
+            "origin": {
+              "type": "string"
+            },
+            "generator": {
+              "type": "string"
+            },
+            "generatedAt": {
+              "type": [
+                "null",
+                "string"
+              ],
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time"
+            },
+            "basis": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "origin"
+          ],
+          "additionalProperties": false
         },
         "CICheckState": {
           "type": "integer",
@@ -25171,6 +25220,22 @@
           ],
           "additionalProperties": false
         },
+        "EvidenceRef": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string"
+            },
+            "ref": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "ref"
+          ],
+          "additionalProperties": false
+        },
         "FailureReason": {
           "type": "integer",
           "enum": [
@@ -25327,13 +25392,17 @@
             },
             "ArtifactRef": {
               "type": "string"
+            },
+            "Label": {
+              "type": "string"
             }
           },
           "required": [
             "Phase",
             "Weight",
             "Completed",
-            "ArtifactRef"
+            "ArtifactRef",
+            "Label"
           ],
           "additionalProperties": false
         },
@@ -25908,6 +25977,63 @@
           },
           "required": [
             "scenarios"
+          ],
+          "additionalProperties": false
+        },
+        "TaskAttempt": {
+          "type": "object",
+          "properties": {
+            "attemptId": {
+              "type": "string"
+            },
+            "task": {
+              "type": "string"
+            },
+            "phase": {
+              "$ref": "#/$defs/ActivityMethodPhase"
+            },
+            "attempt": {
+              "type": "integer"
+            },
+            "actor": {
+              "type": "string"
+            },
+            "startedAt": {
+              "type": [
+                "null",
+                "string"
+              ],
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time"
+            },
+            "endedAt": {
+              "type": [
+                "null",
+                "string"
+              ],
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time"
+            },
+            "outcome": {
+              "type": "string"
+            },
+            "evidence": {
+              "$ref": "#/$defs/EvidenceRef"
+            },
+            "provenance": {
+              "$ref": "#/$defs/AttemptProvenance"
+            }
+          },
+          "required": [
+            "attemptId",
+            "task",
+            "phase",
+            "attempt",
+            "outcome",
+            "evidence",
+            "provenance"
           ],
           "additionalProperties": false
         },

@@ -2810,6 +2810,12 @@ components:
                     $ref: '#/components/schemas/SystemDesignActivityType'
                 Variant:
                     $ref: '#/components/schemas/SystemDesignTestingVariant'
+                attempts:
+                    items:
+                        $ref: '#/components/schemas/SystemDesignTaskAttempt'
+                    type: array
+                classified:
+                    type: boolean
                 completedAt:
                     format: date-time
                     type:
@@ -2817,6 +2823,10 @@ components:
                         - string
                     x-go-import: time
                     x-go-type: time.Time
+                layer:
+                    type: string
+                layerBand:
+                    type: string
                 startedAt:
                     format: date-time
                     type:
@@ -2824,6 +2834,8 @@ components:
                         - string
                     x-go-import: time
                     x-go-type: time.Time
+                worstOrigin:
+                    type: string
             required:
                 - ActivityID
                 - Type
@@ -2836,6 +2848,10 @@ components:
                 - Produced
                 - FailureReason
                 - FailureDetail
+                - classified
+                - worstOrigin
+                - layer
+                - layerBand
             type: object
         SystemDesignActivityGitStatus:
             additionalProperties: false
@@ -3025,6 +3041,25 @@ components:
                 - ArtifactStageRejected
                 - ArtifactStageWithdrawn
             x-go-base: int
+        SystemDesignAttemptProvenance:
+            additionalProperties: false
+            properties:
+                basis:
+                    type: string
+                generatedAt:
+                    format: date-time
+                    type:
+                        - "null"
+                        - string
+                    x-go-import: time
+                    x-go-type: time.Time
+                generator:
+                    type: string
+                origin:
+                    type: string
+            required:
+                - origin
+            type: object
         SystemDesignCICheckState:
             enum:
                 - 0
@@ -3433,6 +3468,17 @@ components:
                 - plannedPct
                 - note
             type: object
+        SystemDesignEvidenceRef:
+            additionalProperties: false
+            properties:
+                kind:
+                    type: string
+                ref:
+                    type: string
+            required:
+                - kind
+                - ref
+            type: object
         SystemDesignFailureReason:
             enum:
                 - 0
@@ -3539,6 +3585,8 @@ components:
                     type: string
                 Completed:
                     type: boolean
+                Label:
+                    type: string
                 Phase:
                     $ref: '#/components/schemas/SystemDesignActivityMethodPhase'
                 Weight:
@@ -3555,6 +3603,7 @@ components:
                 - Weight
                 - Completed
                 - ArtifactRef
+                - Label
             type: object
         SystemDesignProducedArtifact:
             additionalProperties: false
@@ -3970,6 +4019,48 @@ components:
                         - array
             required:
                 - scenarios
+            type: object
+        SystemDesignTaskAttempt:
+            additionalProperties: false
+            properties:
+                actor:
+                    type: string
+                attempt:
+                    type: integer
+                attemptId:
+                    type: string
+                endedAt:
+                    format: date-time
+                    type:
+                        - "null"
+                        - string
+                    x-go-import: time
+                    x-go-type: time.Time
+                evidence:
+                    $ref: '#/components/schemas/SystemDesignEvidenceRef'
+                outcome:
+                    type: string
+                phase:
+                    $ref: '#/components/schemas/SystemDesignActivityMethodPhase'
+                provenance:
+                    $ref: '#/components/schemas/SystemDesignAttemptProvenance'
+                startedAt:
+                    format: date-time
+                    type:
+                        - "null"
+                        - string
+                    x-go-import: time
+                    x-go-type: time.Time
+                task:
+                    type: string
+            required:
+                - attemptId
+                - task
+                - phase
+                - attempt
+                - outcome
+                - evidence
+                - provenance
             type: object
         SystemDesignTestArgView:
             additionalProperties: false

@@ -64,6 +64,11 @@ type ActivityConstructionStatus struct {
 	Produced      []ProducedArtifact        `json:"Produced"`
 	FailureReason FailureReason             `json:"FailureReason"`
 	FailureDetail string                    `json:"FailureDetail"`
+	Attempts      []TaskAttempt             `json:"attempts,omitempty"`
+	Classified    bool                      `json:"classified"`
+	WorstOrigin   string                    `json:"worstOrigin"`
+	Layer         string                    `json:"layer"`
+	LayerBand     string                    `json:"layerBand"`
 }
 
 type ActivityGitStatus struct {
@@ -148,6 +153,13 @@ const (
 	ArtifactStageRejected       ArtifactStage = 3
 	ArtifactStageWithdrawn      ArtifactStage = 4
 )
+
+type AttemptProvenance struct {
+	Origin      string     `json:"origin"`
+	Generator   *string    `json:"generator,omitempty"`
+	GeneratedAt *time.Time `json:"generatedAt,omitempty"`
+	Basis       *string    `json:"basis,omitempty"`
+}
 
 type CICheckState int
 
@@ -298,6 +310,11 @@ type EvPoint struct {
 	AcPct      *float64 `json:"acPct,omitempty"`
 }
 
+type EvidenceRef struct {
+	Kind string `json:"kind"`
+	Ref  string `json:"ref"`
+}
+
 type FailureReason int
 
 const (
@@ -354,6 +371,7 @@ type PhaseCompletion struct {
 	Completed   bool                `json:"Completed"`
 	CompletedAt *time.Time          `json:"completedAt,omitempty"`
 	ArtifactRef string              `json:"ArtifactRef"`
+	Label       string              `json:"Label"`
 }
 
 type ProducedArtifact struct {
@@ -503,6 +521,19 @@ type SubagentSpan struct {
 
 type SystemTestPlanView struct {
 	Scenarios []TestScenarioView `json:"scenarios"`
+}
+
+type TaskAttempt struct {
+	AttemptId  string              `json:"attemptId"`
+	Task       string              `json:"task"`
+	Phase      ActivityMethodPhase `json:"phase"`
+	Attempt    int64               `json:"attempt"`
+	Actor      *string             `json:"actor,omitempty"`
+	StartedAt  *time.Time          `json:"startedAt,omitempty"`
+	EndedAt    *time.Time          `json:"endedAt,omitempty"`
+	Outcome    string              `json:"outcome"`
+	Evidence   EvidenceRef         `json:"evidence"`
+	Provenance AttemptProvenance   `json:"provenance"`
 }
 
 type TestArgView struct {

@@ -1625,10 +1625,15 @@ export interface components {
       Produced: null | components['schemas']['SystemDesignProducedArtifact'][];
       Type: components['schemas']['SystemDesignActivityType'];
       Variant: components['schemas']['SystemDesignTestingVariant'];
+      attempts?: components['schemas']['SystemDesignTaskAttempt'][];
+      classified: boolean;
       /** Format: date-time */
       completedAt?: null | string;
+      layer: string;
+      layerBand: string;
       /** Format: date-time */
       startedAt?: null | string;
+      worstOrigin: string;
     };
     SystemDesignActivityGitStatus: {
       ActivityID: string;
@@ -1702,6 +1707,13 @@ export interface components {
     };
     /** @enum {integer} */
     SystemDesignArtifactStage: 0 | 1 | 2 | 3 | 4;
+    SystemDesignAttemptProvenance: {
+      basis?: string;
+      /** Format: date-time */
+      generatedAt?: null | string;
+      generator?: string;
+      origin: string;
+    };
     /** @enum {integer} */
     SystemDesignCICheckState: 0 | 1 | 2;
     SystemDesignCheckItem: {
@@ -1837,6 +1849,10 @@ export interface components {
       plannedPct: number;
       week: number;
     };
+    SystemDesignEvidenceRef: {
+      kind: string;
+      ref: string;
+    };
     /** @enum {integer} */
     SystemDesignFailureReason: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
     SystemDesignFinding: {
@@ -1865,6 +1881,7 @@ export interface components {
     SystemDesignPhaseCompletion: {
       ArtifactRef: string;
       Completed: boolean;
+      Label: string;
       Phase: components['schemas']['SystemDesignActivityMethodPhase'];
       Weight: number;
       /** Format: date-time */
@@ -1992,6 +2009,20 @@ export interface components {
     };
     SystemDesignSystemTestPlanView: {
       scenarios: null | components['schemas']['SystemDesignTestScenarioView'][];
+    };
+    SystemDesignTaskAttempt: {
+      actor?: string;
+      attempt: number;
+      attemptId: string;
+      /** Format: date-time */
+      endedAt?: null | string;
+      evidence: components['schemas']['SystemDesignEvidenceRef'];
+      outcome: string;
+      phase: components['schemas']['SystemDesignActivityMethodPhase'];
+      provenance: components['schemas']['SystemDesignAttemptProvenance'];
+      /** Format: date-time */
+      startedAt?: null | string;
+      task: string;
     };
     SystemDesignTestArgView: {
       name: string;
