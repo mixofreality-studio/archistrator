@@ -7740,21 +7740,25 @@ func ClassifyActivity(id, workerClass string, coding bool) (ActivityType, Testin
 // backward-looking corpus observation that an activity DID build a component, which
 // wins over every rule below it.
 //
-// It is deliberately LENIENT where ClassifyActivity is strict: a row the rules cannot
-// classify still has to render, so an unclassifiable activity falls back to Deployment
-// (the pre-existing render-only fallback for a noncoding activity of unknown worker
-// class). Dispatch must never take that fallback — it blocks instead (see
-// nextEligibleActivity / ActivityUnclassifiable). Sharing the one classifier is what
-// keeps the view and the dispatch from drifting.
-func ClassifyType(id, workerClass string, coding, hasServiceContract bool) ActivityType {
+// It is STRICT. It used to be lenient — an unclassifiable activity fell back to
+// Deployment so that the row would still render. That fallback silently mistyped 60 of
+// 69 committed construction records, because the slot-9 activity ids
+// ("C-agentic-job-access") and the .activityConstruction keys ("C-AA") intersect in
+// only 9 places, so the ActivityItem lookup returned a zero value for the rest.
+//
+// The type selects the profile, which selects the task vocabulary, which IS the row set
+// of the construction list view. A wrong type therefore fabricates an entire lifecycle.
+// The second return value is ok: when false the caller MUST render the row as
+// Unclassified with NO lifecycle sub-rows at all. An honest blank beats a plausible lie.
+func ClassifyType(id, workerClass string, coding, hasServiceContract bool) (ActivityType, bool) {
 	if hasServiceContract {
-		return ActivityTypeService
+		return ActivityTypeService, true
 	}
 	typ, _, err := ClassifyActivity(id, workerClass, coding)
 	if err != nil {
-		return ActivityTypeDeployment
+		return ActivityTypeService, false
 	}
-	return typ
+	return typ, true
 }
 
 // DeriveBuildStatus maps corpus presence to the finer build-status lens. integrated is

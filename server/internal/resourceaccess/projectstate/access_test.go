@@ -8229,3 +8229,49 @@ func TestTaskAttempt_ProvenanceIsNotOmitempty(t *testing.T) {
 		t.Errorf("marshalled TaskAttempt omitted provenance: %s", b)
 	}
 }
+
+func TestClassifyType_UnclassifiableReportsNotOK(t *testing.T) {
+	// An unknown workerClass with coding=false matches no rule in ClassifyActivity.
+	_, ok := ClassifyType("C-AA", "", false, false)
+	if ok {
+		t.Error("ClassifyType on an unclassifiable row reported ok=true; it must refuse to guess")
+	}
+}
+
+func TestClassifyType_NoLenientDeploymentFallback(t *testing.T) {
+	typ, ok := ClassifyType("C-AA", "", false, false)
+	if ok && typ == ActivityTypeDeployment {
+		t.Error("ClassifyType still falls back to Deployment for an unclassifiable row")
+	}
+}
+
+func TestClassifyType_ServiceContractStillWins(t *testing.T) {
+	typ, ok := ClassifyType("C-AA", "", false, true)
+	if !ok || typ != ActivityTypeService {
+		t.Errorf("ClassifyType(hasServiceContract=true) = (%v, %v), want (Service, true)", typ, ok)
+	}
+}
+
+func TestClassifyType_ClassifiableRowsStillResolve(t *testing.T) {
+	cases := []struct {
+		id, workerClass string
+		coding          bool
+		want            ActivityType
+	}{
+		{"C-billing-manager", "junior-developer", true, ActivityTypeService},
+		{"U-SPA-billing-manager", "ui-designer", true, ActivityTypeFrontend},
+		{"G-SPA", "ui-designer", false, ActivityTypeUIDesign},
+		{"N-IT", "software-tester", false, ActivityTypeTesting},
+		{"I-billing", "senior-developer", false, ActivityTypeIntegration},
+	}
+	for _, c := range cases {
+		typ, ok := ClassifyType(c.id, c.workerClass, c.coding, false)
+		if !ok {
+			t.Errorf("%s: ClassifyType reported not-ok for a classifiable row", c.id)
+			continue
+		}
+		if typ != c.want {
+			t.Errorf("%s: ClassifyType = %v, want %v", c.id, typ, c.want)
+		}
+	}
+}

@@ -3357,9 +3357,9 @@ func constructionRowsToContract(
 	out := make(map[string]ActivityConstructionStatus, len(rows))
 	for id, r := range rows {
 		meta := activityMeta[id]
-		typ := projectstate.ClassifyType(r.ActivityID, meta.WorkerClass, meta.Coding, rowHasServiceContract(r))
+		typ, classified := projectstate.ClassifyType(r.ActivityID, meta.WorkerClass, meta.Coding, rowHasServiceContract(r))
 		var variant TestingVariant
-		if typ == projectstate.ActivityTypeTesting {
+		if classified && typ == projectstate.ActivityTypeTesting {
 			variant = TestingVariant(int(projectstate.DeriveVariant(r.ActivityID)))
 		}
 		out[id] = ActivityConstructionStatus{
