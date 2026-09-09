@@ -37,7 +37,11 @@ import { artifactRenderers } from './artifactRenderers';
 // ---------------------------------------------------------------------------
 
 function ActivityHeader({ t, vm }: { t: Tokens; vm: ArtifactActivityVM }): ReactNode {
-  const status = vm.row.status as BuildStatus;
+  // ConstructionRow.status is absent exactly when the server could not
+  // classify the activity — that reads as the honest 'unclassified' member,
+  // never the plausible-looking 'not-started' the switch's default used to
+  // imply before this cast was replaced.
+  const status: BuildStatus = vm.row.status ?? 'unclassified';
   return (
     <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5, flexWrap: 'wrap' }}>
       <Box sx={{ minWidth: 0 }}>
@@ -68,9 +72,11 @@ function ActivityHeader({ t, vm }: { t: Tokens; vm: ArtifactActivityVM }): React
         >
           {vm.name}
         </Typography>
-        <Typography sx={{ fontFamily: t.mono, fontSize: 11, color: t.muted }}>
-          phase · {vm.row.currentLifecyclePhase}
-        </Typography>
+        {vm.row.currentLifecyclePhase !== undefined && (
+          <Typography sx={{ fontFamily: t.mono, fontSize: 11, color: t.muted }}>
+            phase · {vm.row.currentLifecyclePhase}
+          </Typography>
+        )}
         {/* Terminal failure: the pump durably gave up on this activity. The reason
             names WHAT failed; the detail is the actionable part (which activity, and
             the repair). Same mono-sublabel + body-note idiom as ArtifactCard. */}

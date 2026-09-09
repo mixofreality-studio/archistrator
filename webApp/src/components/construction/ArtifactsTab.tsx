@@ -132,16 +132,22 @@ export function ArtifactsTab({
       row,
     }));
     // Sort: terminally failed FIRST (it is the thing needing the operator),
-    // integrated last, then by activityId alphabetically.
+    // integrated last, then by activityId alphabetically. row.status is absent
+    // exactly when the server could not classify the activity — that carries
+    // no actionable signal (nothing to review, nothing failed, nothing in
+    // progress), so it sorts AFTER every known status rather than fabricating
+    // urgency for a state the server never asserted.
     const order: Record<ActivityBuildStatusRow, number> = {
       failed: 0,
       'in-construction': 1,
       'in-review': 2,
       integrated: 3,
     };
+    const orderOf = (s: ActivityBuildStatusRow | undefined): number =>
+      s !== undefined ? order[s] : 4;
     vms.sort((a, b) => {
-      const ao = order[a.row.status];
-      const bo = order[b.row.status];
+      const ao = orderOf(a.row.status);
+      const bo = orderOf(b.row.status);
       if (ao !== bo) return ao - bo;
       return a.activityId.localeCompare(b.activityId);
     });

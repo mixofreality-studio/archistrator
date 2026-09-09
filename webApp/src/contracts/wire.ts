@@ -445,6 +445,14 @@ export function mapConstructionRow(
   const classified = w.classified;
   const kind = classified ? activityRowKindFromOrdinal(w.Type) : undefined;
   const variant = kind === 'testing' ? testingVariantFromOrdinal(w.Variant) : undefined;
+  // status/currentLifecyclePhase are gated on `classified` for the SAME reason
+  // as `kind`: ActivityBuildStatus(0) is the real, named state
+  // BuildInConstruction (not omitempty on the wire), so an unclassified row's
+  // zero value would otherwise read as a confident, false "In construction"
+  // chip. Gating here — once, at the mapping boundary — is cheaper than
+  // auditing every consumer for a `classified` check it might forget.
+  const status = classified ? buildStatusRowFromOrdinal(w.BuildStatus) : undefined;
+  const currentLifecyclePhase = classified ? w.CurrentPhase : undefined;
   // FailureReason/FailureDetail are only meaningful on a terminal-fail row: every
   // other row carries the zero-value reason (`unknown`) and an empty detail, so
   // they are dropped rather than decorating healthy rows with a phantom failure.
@@ -454,8 +462,8 @@ export function mapConstructionRow(
     activityId: w.ActivityID,
     ...(kind !== undefined ? { kind } : {}),
     ...(variant !== undefined ? { variant } : {}),
-    status: buildStatusRowFromOrdinal(w.BuildStatus),
-    currentLifecyclePhase: w.CurrentPhase,
+    ...(status !== undefined ? { status } : {}),
+    ...(currentLifecyclePhase !== undefined ? { currentLifecyclePhase } : {}),
     ...(w.Produced !== null ? { produced: w.Produced.map(mapProducedArtifact) } : {}),
     ...(carriesFailure ? { failureReason } : {}),
     ...(carriesFailure && w.FailureDetail.length > 0 ? { failureDetail: w.FailureDetail } : {}),

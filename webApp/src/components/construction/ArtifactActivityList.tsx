@@ -72,8 +72,10 @@ function ListRow({
 }): ReactNode {
   const pct = progressOf(vm.row);
   const artifactCount = vm.row.produced?.length ?? 0;
-  // The ConstructionRow.status is a subset of BuildStatus; cast is safe.
-  const status = vm.row.status as BuildStatus;
+  // ConstructionRow.status is a subset of BuildStatus when present; absent
+  // (the server could not classify this activity) reads as the honest
+  // 'unclassified' member — never a plausible-looking 'not-started' default.
+  const status: BuildStatus = vm.row.status ?? 'unclassified';
   // On a terminal-fail row, name the reason right here — the row must not read as
   // a healthy build. The actionable FailureDetail lives in the activity detail pane.
   const failureReason = vm.row.failureReason;

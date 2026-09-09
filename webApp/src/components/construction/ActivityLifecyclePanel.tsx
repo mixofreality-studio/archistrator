@@ -262,8 +262,13 @@ function PanelBody({
 }: {
   kind: ActivityKind;
   derivedStatus: BuildStatus;
-  /** The row's real current phase (ConstructionRow.currentLifecyclePhase) — never a guess. */
-  currentPhase: string;
+  /**
+   * The row's real current phase (ConstructionRow.currentLifecyclePhase) —
+   * never a guess. Absent when the server has not yet recorded one (or, in
+   * principle, when classification itself is not yet known); phaseStateFor
+   * already treats an absent phase as "nothing active" honestly.
+   */
+  currentPhase?: string | undefined;
   node: NetworkNodeView | undefined;
   t: Tokens;
 }): ReactNode {

@@ -112,9 +112,11 @@ function QueueCard({
         )}
         <StatusChip size="xs" status="in-review" t={t} />
         <Box sx={{ flexGrow: 1 }} />
-        <Typography sx={{ fontFamily: t.mono, fontSize: 10, color: t.muted }}>
-          phase · {row.currentLifecyclePhase}
-        </Typography>
+        {row.currentLifecyclePhase !== undefined && (
+          <Typography sx={{ fontFamily: t.mono, fontSize: 10, color: t.muted }}>
+            phase · {row.currentLifecyclePhase}
+          </Typography>
+        )}
       </Box>
 
       {/* body */}

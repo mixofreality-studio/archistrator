@@ -207,13 +207,23 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
     isAwaitingApproval && activeInConstructionId !== undefined
       ? project?.constructionRows?.[activeInConstructionId]
       : undefined;
+  // A phase gate cannot exist without the server having dispatched at least one
+  // phase for a CLASSIFIED activity, so this is always defined in practice —
+  // but currentLifecyclePhase is optional on the type, so narrow it explicitly
+  // rather than asserting: never submit a decision with no real phase to name.
+  const gatePhase = phaseGateRow?.currentLifecyclePhase;
 
   const approvePhase = (): void => {
-    if (activeInConstructionId === undefined || phaseGateRow === undefined) return;
+    if (
+      activeInConstructionId === undefined ||
+      phaseGateRow === undefined ||
+      gatePhase === undefined
+    )
+      return;
     submitPhaseDecision.mutate(
       {
         activityId: activeInConstructionId,
-        phase: phaseGateRow.currentLifecyclePhase,
+        phase: gatePhase,
         decision: 'approve',
       },
       // Clear any accumulated anchors/comments once the gate is decided so they do
@@ -227,7 +237,12 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   };
 
   const sendBackPhase = (): void => {
-    if (activeInConstructionId === undefined || phaseGateRow === undefined) return;
+    if (
+      activeInConstructionId === undefined ||
+      phaseGateRow === undefined ||
+      gatePhase === undefined
+    )
+      return;
     // Attach the accumulated anchored comments + free-form notes to the phase-gate
     // redraft, exactly like Phase-1's send-back. The submit-phase-decision endpoint
     // already carries ConstructionReviewFeedback { notes, comments } — no server
@@ -243,7 +258,7 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
     submitPhaseDecision.mutate(
       {
         activityId: activeInConstructionId,
-        phase: phaseGateRow.currentLifecyclePhase,
+        phase: gatePhase,
         decision: 'sendBack',
         ...(hasFeedback
           ? { feedback: { notes, ...(wireComments.length > 0 ? { comments: wireComments } : {}) } }
@@ -495,11 +510,11 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
                 onSelectActivity={setSelectedActivityId}
               />
               {/* Phase gate — rendered when ConstructionSessionView.stage === awaitingApproval */}
-              {phaseGateRow !== undefined && (
+              {phaseGateRow !== undefined && gatePhase !== undefined && (
                 <PhaseGatePanel
                   activityKind={phaseGateRow.kind}
                   pending={submitPhaseDecision.isPending}
-                  phase={phaseGateRow.currentLifecyclePhase}
+                  phase={gatePhase}
                   reviewSet={phaseGateSession?.view.reviewSet}
                   onApprove={approvePhase}
                   onSendBack={sendBackPhase}

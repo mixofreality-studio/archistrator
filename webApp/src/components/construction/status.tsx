@@ -30,6 +30,8 @@ export function statusColor(t: Tokens, s: BuildStatus): string {
       return t.muted;
     case 'failed':
       return t.dangerFg; // terminal failure — the danger tone, not the blocked accent
+    case 'unclassified':
+      return t.muted; // same neutral tone as not-started; the label carries the distinction
   }
 }
 
@@ -53,6 +55,8 @@ export function statusFill(t: Tokens, s: BuildStatus): { fg: string; bg: string 
     case 'failed':
       // Same pairing episodes/EpisodesPanel outcomeFill uses for a failed episode.
       return { fg: t.dangerFg, bg: t.awaitingBg };
+    case 'unclassified':
+      return { fg: t.muted, bg: 'transparent' }; // same fill as not-started; label differs
   }
 }
 
@@ -78,7 +82,7 @@ export function StatusChip({
         borderRadius: 99,
         bgcolor: f.bg,
         color: f.fg,
-        border: `1px solid ${status === 'not-started' ? t.line : dot}`,
+        border: `1px solid ${status === 'not-started' || status === 'unclassified' ? t.line : dot}`,
         fontFamily: t.mono,
         fontSize: size === 'xs' ? 9 : 9.5,
         fontWeight: 700,
@@ -103,6 +107,7 @@ export function StatusLegend({ t }: { t: Tokens }): ReactNode {
     'blocked',
     'not-started',
     'failed',
+    'unclassified',
   ];
   return (
     <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 1.25 }}>

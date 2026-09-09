@@ -13,7 +13,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { computeActivityStatuses } from './constructionAdapters.ts';
+import { computeActivityStatuses, buildStatusForConstructionRow } from './constructionAdapters.ts';
 import type { NetworkModel } from './types.ts';
 import { mapConstructionRow } from './wire.ts';
 import type { components } from './schema.ts';
@@ -243,4 +243,43 @@ void test('an unclassified row does not surface a plausible kind even though Typ
   const row = mapConstructionRow(wireRow({ classified: false, Type: 0, Kind: 0 }));
   assert.equal(row.classified, false);
   assert.equal(row.kind, undefined);
+});
+
+// Task 13 item 2: ActivityBuildStatus(0) is the real, named state
+// BuildInConstruction and is NOT serialized with omitempty, so an unclassified
+// row's wire BuildStatus is indistinguishable from a genuinely-started build
+// unless status is gated on classified the same way kind is. Pins that gate.
+void test('an unclassified row does not surface a plausible status even though BuildStatus sits at its zero value', () => {
+  const row = mapConstructionRow(wireRow({ classified: false, BuildStatus: 0 }));
+  assert.equal(row.classified, false);
+  assert.equal(row.status, undefined);
+});
+
+// Same failure shape for currentLifecyclePhase — the wireRow fixture's default
+// CurrentPhase is the real string 'construction', so this pins that an
+// unclassified row does not surface it even though the wire value is present.
+void test('an unclassified row does not surface a plausible current lifecycle phase', () => {
+  const row = mapConstructionRow(wireRow({ classified: false }));
+  assert.equal(row.classified, false);
+  assert.equal(row.currentLifecyclePhase, undefined);
+});
+
+// A classified row is the mirror case: status/currentLifecyclePhase MUST
+// survive the boundary — the gate must not swallow real data either.
+void test('a classified row still surfaces its real status and current lifecycle phase', () => {
+  const row = mapConstructionRow(
+    wireRow({ classified: true, BuildStatus: 1, CurrentPhase: 'test_plan' })
+  );
+  assert.equal(row.status, 'in-review');
+  assert.equal(row.currentLifecyclePhase, 'test_plan');
+});
+
+// buildStatusForConstructionRow must not fold "we don't know" (status
+// undefined) into "we know it hasn't started" (not-started) — the two are
+// different claims, and the honest-fallback member for the first is
+// 'unclassified', which is also what feeds the tracker's head-state rollup
+// and node coloring (computeActivityStatuses below).
+void test('buildStatusForConstructionRow reports unclassified, never not-started, for a row with no status', () => {
+  const row = mapConstructionRow(wireRow({ classified: false }));
+  assert.equal(buildStatusForConstructionRow(row), 'unclassified');
 });

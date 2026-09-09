@@ -699,9 +699,19 @@ export interface ConstructionRow {
     | 'integration';
   /** Testing sub-type; present only when kind === 'testing'. */
   variant?: TestingVariantName;
-  status: ActivityBuildStatusRow;
-  /** The activity's current Figure A-1 lifecycle phase (server: CurrentPhase). */
-  currentLifecyclePhase: string;
+  /**
+   * Absent when `classified` is false, same as `kind`: `ActivityBuildStatus(0)`
+   * is the real, named state `BuildInConstruction` — not serialized with
+   * `omitempty` — so an unclassified row's zero value is indistinguishable from
+   * a genuinely-started build unless this is gated the same way.
+   */
+  status?: ActivityBuildStatusRow;
+  /**
+   * The activity's current Figure A-1 lifecycle phase (server: CurrentPhase).
+   * Absent when `classified` is false, same as `kind`/`status` — the server
+   * has no basis to report a current phase for a row it could not classify.
+   */
+  currentLifecyclePhase?: string;
   produced?: ProducedArtifactRow[];
   /**
    * Why the activity terminally failed. Present only on a `failed` row — every

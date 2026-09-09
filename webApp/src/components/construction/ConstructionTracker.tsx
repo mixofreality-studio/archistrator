@@ -316,6 +316,10 @@ export function ConstructionTracker({
       'blocked',
       'not-started',
       'failed',
+      // buildStatusForConstructionRow reports 'unclassified' for a row the
+      // server could not type — include it here or its count silently drops
+      // out of the rollup total instead of showing up as its own honest slice.
+      'unclassified',
     ];
     return order.map((s) => ({ status: s, count: counts.get(s) ?? 0 }));
   }, [statusMap]);

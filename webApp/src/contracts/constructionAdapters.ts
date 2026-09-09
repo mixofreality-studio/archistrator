@@ -34,7 +34,14 @@ export type BuildStatus =
   | 'eligible'
   | 'blocked'
   | 'not-started'
-  | 'failed';
+  | 'failed'
+  // The server could not classify this activity at all (Type/Kind/Variant/
+  // Phase/BuildStatus all sit at their zero value and are dropped rather than
+  // asserted — see ConstructionRow.status). Distinct from `not-started`:
+  // `not-started` is a real, known state; `unclassified` is "we don't know",
+  // and a consumer that collapses the two would render a confident, false
+  // "Not started" chip for the common case (~60 of 69 committed activities).
+  | 'unclassified';
 
 export const BUILD_STATUS_META: Record<BuildStatus, { label: string; short: string }> = {
   integrated: { label: 'Integrated', short: 'INTEG' },
@@ -45,6 +52,7 @@ export const BUILD_STATUS_META: Record<BuildStatus, { label: string; short: stri
   blocked: { label: 'Blocked', short: 'BLOCKED' },
   'not-started': { label: 'Not started', short: 'PEND' },
   failed: { label: 'Failed', short: 'FAILED' },
+  unclassified: { label: 'Unclassified', short: 'UNCL' },
 };
 
 /**
@@ -133,8 +141,12 @@ export function activeActivityId(
 
 /**
  * Maps a ConstructionRow status string onto the tracker BuildStatus lens.
- * The row-state union is a subset of BuildStatus, so every member maps 1:1;
- * anything unexpected falls back to `'not-started'` (defensive total function).
+ * The row-state union is a subset of BuildStatus, so every present member maps
+ * 1:1. `row.status` is absent exactly when the server could not classify the
+ * activity (see ConstructionRow.status) — that degrades to `'unclassified'`,
+ * never to `'not-started'`: the two mean different things, and folding an
+ * unknown state into a known one is the exact false-positive this row-state
+ * union exists to avoid. Total function — every input yields a real answer.
  */
 export function buildStatusForConstructionRow(row: ConstructionRow): BuildStatus {
   switch (row.status) {
@@ -146,8 +158,14 @@ export function buildStatusForConstructionRow(row: ConstructionRow): BuildStatus
       return 'in-construction';
     case 'failed':
       return 'failed';
+    case undefined:
+      return 'unclassified';
+    // Both `case undefined` (eslint's switch-exhaustiveness-check wants every
+    // union member named explicitly) and `default` (tsc's noImplicitReturns
+    // does not treat the case list above as exhaustive without one) are
+    // required to satisfy both gates; they agree on the same answer.
     default:
-      return 'not-started';
+      return 'unclassified';
   }
 }
 
