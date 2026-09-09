@@ -10056,6 +10056,80 @@
     "C-AA": {
       "activityID": "C-AA",
       "phase": 2,
+      "attempts": [
+        {
+          "attemptId": "C-AA:detailedDesign:1",
+          "task": "detailedDesign",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "artifactAccess"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.690724Z",
+            "basis": "serviceContracts[artifactAccess]"
+          }
+        },
+        {
+          "attemptId": "C-AA:designReview:1",
+          "task": "designReview",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "artifactAccess"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.690724Z",
+            "basis": "serviceContracts[artifactAccess]"
+          }
+        },
+        {
+          "attemptId": "C-AA:construction:1",
+          "task": "construction",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "artifact",
+            "ref": "implementation/log"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.690724Z",
+            "basis": "activityConstruction[C-AA].produced[code]=implementation/log"
+          }
+        },
+        {
+          "attemptId": "C-AA:codeReview:1",
+          "task": "codeReview",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "artifact",
+            "ref": "implementation/log"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.690724Z",
+            "basis": "activityConstruction[C-AA].produced[code]=implementation/log"
+          }
+        }
+      ],
       "buildStatus": 2,
       "produced": [
         {
@@ -10077,6 +10151,80 @@
     "C-AE": {
       "activityID": "C-AE",
       "phase": 2,
+      "attempts": [
+        {
+          "attemptId": "C-AE:detailedDesign:1",
+          "task": "detailedDesign",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "autoscalerEngine"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.690796Z",
+            "basis": "serviceContracts[autoscalerEngine]"
+          }
+        },
+        {
+          "attemptId": "C-AE:designReview:1",
+          "task": "designReview",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "autoscalerEngine"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.690796Z",
+            "basis": "serviceContracts[autoscalerEngine]"
+          }
+        },
+        {
+          "attemptId": "C-AE:construction:1",
+          "task": "construction",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "artifact",
+            "ref": "implementation/log"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.690796Z",
+            "basis": "activityConstruction[C-AE].produced[code]=implementation/log"
+          }
+        },
+        {
+          "attemptId": "C-AE:codeReview:1",
+          "task": "codeReview",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "artifact",
+            "ref": "implementation/log"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.690796Z",
+            "basis": "activityConstruction[C-AE].produced[code]=implementation/log"
+          }
+        }
+      ],
       "buildStatus": 2,
       "produced": [
         {
@@ -10098,6 +10246,80 @@
     "C-BE": {
       "activityID": "C-BE",
       "phase": 2,
+      "attempts": [
+        {
+          "attemptId": "C-BE:detailedDesign:1",
+          "task": "detailedDesign",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "implementation/contracts/settlementEngine.md"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.690831Z",
+            "basis": "activityConstruction[C-BE].produced[service-contract]=implementation/contracts/settlementEngine.md"
+          }
+        },
+        {
+          "attemptId": "C-BE:designReview:1",
+          "task": "designReview",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "implementation/contracts/settlementEngine.md"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.690831Z",
+            "basis": "activityConstruction[C-BE].produced[service-contract]=implementation/contracts/settlementEngine.md"
+          }
+        },
+        {
+          "attemptId": "C-BE:construction:1",
+          "task": "construction",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "artifact",
+            "ref": "implementation/log"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.690831Z",
+            "basis": "activityConstruction[C-BE].produced[code]=implementation/log"
+          }
+        },
+        {
+          "attemptId": "C-BE:codeReview:1",
+          "task": "codeReview",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "artifact",
+            "ref": "implementation/log"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.690831Z",
+            "basis": "activityConstruction[C-BE].produced[code]=implementation/log"
+          }
+        }
+      ],
       "completedAt": "2026-07-03T00:00:00Z",
       "buildStatus": 2,
       "produced": [
@@ -10127,6 +10349,44 @@
     "C-BG": {
       "activityID": "C-BG",
       "phase": 2,
+      "attempts": [
+        {
+          "attemptId": "C-BG:detailedDesign:1",
+          "task": "detailedDesign",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "merchantGatewayAccess"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.690869Z",
+            "basis": "serviceContracts[merchantGatewayAccess]"
+          }
+        },
+        {
+          "attemptId": "C-BG:designReview:1",
+          "task": "designReview",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "merchantGatewayAccess"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.690869Z",
+            "basis": "serviceContracts[merchantGatewayAccess]"
+          }
+        }
+      ],
       "startedAt": "2026-08-09T04:51:42.548779Z",
       "completedAt": "2026-08-09T05:30:41.939946Z",
       "buildStatus": 2,
@@ -10157,6 +10417,44 @@
     "C-BM": {
       "activityID": "C-BM",
       "phase": 2,
+      "attempts": [
+        {
+          "attemptId": "C-BM:detailedDesign:1",
+          "task": "detailedDesign",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "billingManager"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.690902Z",
+            "basis": "serviceContracts[billingManager]"
+          }
+        },
+        {
+          "attemptId": "C-BM:designReview:1",
+          "task": "designReview",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "billingManager"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.690902Z",
+            "basis": "serviceContracts[billingManager]"
+          }
+        }
+      ],
       "produced": [
         {
           "Kind": "service-contract",
@@ -10179,6 +10477,80 @@
     "C-BS": {
       "activityID": "C-BS",
       "phase": 2,
+      "attempts": [
+        {
+          "attemptId": "C-BS:detailedDesign:1",
+          "task": "detailedDesign",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "revenueLedgerAccess"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.690939Z",
+            "basis": "serviceContracts[revenueLedgerAccess]"
+          }
+        },
+        {
+          "attemptId": "C-BS:designReview:1",
+          "task": "designReview",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "revenueLedgerAccess"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.690939Z",
+            "basis": "serviceContracts[revenueLedgerAccess]"
+          }
+        },
+        {
+          "attemptId": "C-BS:construction:1",
+          "task": "construction",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "artifact",
+            "ref": "implementation/log"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.690939Z",
+            "basis": "activityConstruction[C-BS].produced[code]=implementation/log"
+          }
+        },
+        {
+          "attemptId": "C-BS:codeReview:1",
+          "task": "codeReview",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "artifact",
+            "ref": "implementation/log"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.690939Z",
+            "basis": "activityConstruction[C-BS].produced[code]=implementation/log"
+          }
+        }
+      ],
       "produced": [
         {
           "Kind": "service-contract",
@@ -10229,6 +10601,80 @@
     "C-CP": {
       "activityID": "C-CP",
       "phase": 2,
+      "attempts": [
+        {
+          "attemptId": "C-CP:detailedDesign:1",
+          "task": "detailedDesign",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "implementation/contracts/constructionPipelineAccess.md"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.690977Z",
+            "basis": "activityConstruction[C-CP].produced[service-contract]=implementation/contracts/constructionPipelineAccess.md"
+          }
+        },
+        {
+          "attemptId": "C-CP:designReview:1",
+          "task": "designReview",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "implementation/contracts/constructionPipelineAccess.md"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.690977Z",
+            "basis": "activityConstruction[C-CP].produced[service-contract]=implementation/contracts/constructionPipelineAccess.md"
+          }
+        },
+        {
+          "attemptId": "C-CP:construction:1",
+          "task": "construction",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "artifact",
+            "ref": "implementation/log"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.690977Z",
+            "basis": "activityConstruction[C-CP].produced[code]=implementation/log"
+          }
+        },
+        {
+          "attemptId": "C-CP:codeReview:1",
+          "task": "codeReview",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "artifact",
+            "ref": "implementation/log"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.690977Z",
+            "basis": "activityConstruction[C-CP].produced[code]=implementation/log"
+          }
+        }
+      ],
       "buildStatus": 2,
       "produced": [
         {
@@ -10255,6 +10701,80 @@
     "C-CW": {
       "activityID": "C-CW",
       "phase": 2,
+      "attempts": [
+        {
+          "attemptId": "C-CW:detailedDesign:1",
+          "task": "detailedDesign",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "webClient"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691001Z",
+            "basis": "serviceContracts[webClient]"
+          }
+        },
+        {
+          "attemptId": "C-CW:designReview:1",
+          "task": "designReview",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "webClient"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691001Z",
+            "basis": "serviceContracts[webClient]"
+          }
+        },
+        {
+          "attemptId": "C-CW:construction:1",
+          "task": "construction",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "artifact",
+            "ref": "implementation/log"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691001Z",
+            "basis": "activityConstruction[C-CW].produced[code]=implementation/log"
+          }
+        },
+        {
+          "attemptId": "C-CW:codeReview:1",
+          "task": "codeReview",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "artifact",
+            "ref": "implementation/log"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691001Z",
+            "basis": "activityConstruction[C-CW].produced[code]=implementation/log"
+          }
+        }
+      ],
       "buildStatus": 2,
       "produced": [
         {
@@ -10276,6 +10796,80 @@
     "C-DA": {
       "activityID": "C-DA",
       "phase": 2,
+      "attempts": [
+        {
+          "attemptId": "C-DA:detailedDesign:1",
+          "task": "detailedDesign",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "implementation/contracts/durableExecutionAccess.md"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691028Z",
+            "basis": "activityConstruction[C-DA].produced[service-contract]=implementation/contracts/durableExecutionAccess.md"
+          }
+        },
+        {
+          "attemptId": "C-DA:designReview:1",
+          "task": "designReview",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "implementation/contracts/durableExecutionAccess.md"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691028Z",
+            "basis": "activityConstruction[C-DA].produced[service-contract]=implementation/contracts/durableExecutionAccess.md"
+          }
+        },
+        {
+          "attemptId": "C-DA:construction:1",
+          "task": "construction",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "artifact",
+            "ref": "implementation/log"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691028Z",
+            "basis": "activityConstruction[C-DA].produced[code]=implementation/log"
+          }
+        },
+        {
+          "attemptId": "C-DA:codeReview:1",
+          "task": "codeReview",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "artifact",
+            "ref": "implementation/log"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691028Z",
+            "basis": "activityConstruction[C-DA].produced[code]=implementation/log"
+          }
+        }
+      ],
       "buildStatus": 2,
       "produced": [
         {
@@ -10325,6 +10919,44 @@
     "C-EE": {
       "activityID": "C-EE",
       "phase": 2,
+      "attempts": [
+        {
+          "attemptId": "C-EE:detailedDesign:1",
+          "task": "detailedDesign",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "implementation/contracts/constructionEstimationEngine.md"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691074Z",
+            "basis": "activityConstruction[C-EE].produced[service-contract]=implementation/contracts/constructionEstimationEngine.md"
+          }
+        },
+        {
+          "attemptId": "C-EE:designReview:1",
+          "task": "designReview",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "implementation/contracts/constructionEstimationEngine.md"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691074Z",
+            "basis": "activityConstruction[C-EE].produced[service-contract]=implementation/contracts/constructionEstimationEngine.md"
+          }
+        }
+      ],
       "completedAt": "2026-07-03T00:00:00Z",
       "buildStatus": 2,
       "produced": [
@@ -10347,6 +10979,80 @@
     "C-HE": {
       "activityID": "C-HE",
       "phase": 2,
+      "attempts": [
+        {
+          "attemptId": "C-HE:detailedDesign:1",
+          "task": "detailedDesign",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "implementation/contracts/handOffEngine.md"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691099Z",
+            "basis": "activityConstruction[C-HE].produced[service-contract]=implementation/contracts/handOffEngine.md"
+          }
+        },
+        {
+          "attemptId": "C-HE:designReview:1",
+          "task": "designReview",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "implementation/contracts/handOffEngine.md"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691099Z",
+            "basis": "activityConstruction[C-HE].produced[service-contract]=implementation/contracts/handOffEngine.md"
+          }
+        },
+        {
+          "attemptId": "C-HE:construction:1",
+          "task": "construction",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "artifact",
+            "ref": "implementation/log"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691099Z",
+            "basis": "activityConstruction[C-HE].produced[code]=implementation/log"
+          }
+        },
+        {
+          "attemptId": "C-HE:codeReview:1",
+          "task": "codeReview",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "artifact",
+            "ref": "implementation/log"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691099Z",
+            "basis": "activityConstruction[C-HE].produced[code]=implementation/log"
+          }
+        }
+      ],
       "buildStatus": 2,
       "produced": [
         {
@@ -10368,6 +11074,80 @@
     "C-IE": {
       "activityID": "C-IE",
       "phase": 2,
+      "attempts": [
+        {
+          "attemptId": "C-IE:detailedDesign:1",
+          "task": "detailedDesign",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "interventionEngine"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691123Z",
+            "basis": "serviceContracts[interventionEngine]"
+          }
+        },
+        {
+          "attemptId": "C-IE:designReview:1",
+          "task": "designReview",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "interventionEngine"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691123Z",
+            "basis": "serviceContracts[interventionEngine]"
+          }
+        },
+        {
+          "attemptId": "C-IE:construction:1",
+          "task": "construction",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "artifact",
+            "ref": "implementation/log"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691123Z",
+            "basis": "activityConstruction[C-IE].produced[code]=implementation/log"
+          }
+        },
+        {
+          "attemptId": "C-IE:codeReview:1",
+          "task": "codeReview",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "artifact",
+            "ref": "implementation/log"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691123Z",
+            "basis": "activityConstruction[C-IE].produced[code]=implementation/log"
+          }
+        }
+      ],
       "buildStatus": 2,
       "produced": [
         {
@@ -10403,6 +11183,80 @@
     "C-MCN": {
       "activityID": "C-MCN",
       "phase": 2,
+      "attempts": [
+        {
+          "attemptId": "C-MCN:detailedDesign:1",
+          "task": "detailedDesign",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "constructionManager"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691153Z",
+            "basis": "serviceContracts[constructionManager]"
+          }
+        },
+        {
+          "attemptId": "C-MCN:designReview:1",
+          "task": "designReview",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "constructionManager"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691153Z",
+            "basis": "serviceContracts[constructionManager]"
+          }
+        },
+        {
+          "attemptId": "C-MCN:construction:1",
+          "task": "construction",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "artifact",
+            "ref": "implementation/log"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691153Z",
+            "basis": "activityConstruction[C-MCN].produced[code]=implementation/log"
+          }
+        },
+        {
+          "attemptId": "C-MCN:codeReview:1",
+          "task": "codeReview",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "artifact",
+            "ref": "implementation/log"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691153Z",
+            "basis": "activityConstruction[C-MCN].produced[code]=implementation/log"
+          }
+        }
+      ],
       "buildStatus": 2,
       "produced": [
         {
@@ -10424,6 +11278,80 @@
     "C-MOP": {
       "activityID": "C-MOP",
       "phase": 2,
+      "attempts": [
+        {
+          "attemptId": "C-MOP:detailedDesign:1",
+          "task": "detailedDesign",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "operationsManager"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691178Z",
+            "basis": "serviceContracts[operationsManager]"
+          }
+        },
+        {
+          "attemptId": "C-MOP:designReview:1",
+          "task": "designReview",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "operationsManager"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691178Z",
+            "basis": "serviceContracts[operationsManager]"
+          }
+        },
+        {
+          "attemptId": "C-MOP:construction:1",
+          "task": "construction",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "artifact",
+            "ref": "implementation/log"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691178Z",
+            "basis": "activityConstruction[C-MOP].produced[code]=implementation/log"
+          }
+        },
+        {
+          "attemptId": "C-MOP:codeReview:1",
+          "task": "codeReview",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "artifact",
+            "ref": "implementation/log"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691178Z",
+            "basis": "activityConstruction[C-MOP].produced[code]=implementation/log"
+          }
+        }
+      ],
       "buildStatus": 2,
       "produced": [
         {
@@ -10445,6 +11373,80 @@
     "C-MPD": {
       "activityID": "C-MPD",
       "phase": 2,
+      "attempts": [
+        {
+          "attemptId": "C-MPD:detailedDesign:1",
+          "task": "detailedDesign",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "projectDesignManager"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691215Z",
+            "basis": "serviceContracts[projectDesignManager]"
+          }
+        },
+        {
+          "attemptId": "C-MPD:designReview:1",
+          "task": "designReview",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "projectDesignManager"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691215Z",
+            "basis": "serviceContracts[projectDesignManager]"
+          }
+        },
+        {
+          "attemptId": "C-MPD:construction:1",
+          "task": "construction",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "artifact",
+            "ref": "implementation/log"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691215Z",
+            "basis": "activityConstruction[C-MPD].produced[code]=implementation/log"
+          }
+        },
+        {
+          "attemptId": "C-MPD:codeReview:1",
+          "task": "codeReview",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "artifact",
+            "ref": "implementation/log"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691215Z",
+            "basis": "activityConstruction[C-MPD].produced[code]=implementation/log"
+          }
+        }
+      ],
       "completedAt": "2026-07-03T00:00:00Z",
       "buildStatus": 2,
       "produced": [
@@ -10474,6 +11476,80 @@
     "C-MSD": {
       "activityID": "C-MSD",
       "phase": 2,
+      "attempts": [
+        {
+          "attemptId": "C-MSD:detailedDesign:1",
+          "task": "detailedDesign",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "systemDesignManager"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691248Z",
+            "basis": "serviceContracts[systemDesignManager]"
+          }
+        },
+        {
+          "attemptId": "C-MSD:designReview:1",
+          "task": "designReview",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "systemDesignManager"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691248Z",
+            "basis": "serviceContracts[systemDesignManager]"
+          }
+        },
+        {
+          "attemptId": "C-MSD:construction:1",
+          "task": "construction",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "artifact",
+            "ref": "implementation/log"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691248Z",
+            "basis": "activityConstruction[C-MSD].produced[code]=implementation/log"
+          }
+        },
+        {
+          "attemptId": "C-MSD:codeReview:1",
+          "task": "codeReview",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "artifact",
+            "ref": "implementation/log"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691248Z",
+            "basis": "activityConstruction[C-MSD].produced[code]=implementation/log"
+          }
+        }
+      ],
       "buildStatus": 2,
       "produced": [
         {
@@ -10495,6 +11571,44 @@
     "C-OE": {
       "activityID": "C-OE",
       "phase": 2,
+      "attempts": [
+        {
+          "attemptId": "C-OE:detailedDesign:1",
+          "task": "detailedDesign",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "operationEstimationEngine"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691275Z",
+            "basis": "serviceContracts[operationEstimationEngine]"
+          }
+        },
+        {
+          "attemptId": "C-OE:designReview:1",
+          "task": "designReview",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "operationEstimationEngine"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691275Z",
+            "basis": "serviceContracts[operationEstimationEngine]"
+          }
+        }
+      ],
       "completedAt": "2026-07-03T00:00:00Z",
       "buildStatus": 2,
       "produced": [
@@ -10517,6 +11631,80 @@
     "C-OR": {
       "activityID": "C-OR",
       "phase": 2,
+      "attempts": [
+        {
+          "attemptId": "C-OR:detailedDesign:1",
+          "task": "detailedDesign",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "operatedRuntimeAccess"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691314Z",
+            "basis": "serviceContracts[operatedRuntimeAccess]"
+          }
+        },
+        {
+          "attemptId": "C-OR:designReview:1",
+          "task": "designReview",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "operatedRuntimeAccess"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691314Z",
+            "basis": "serviceContracts[operatedRuntimeAccess]"
+          }
+        },
+        {
+          "attemptId": "C-OR:construction:1",
+          "task": "construction",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "artifact",
+            "ref": "internal/resourceaccess/operatedruntime"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691314Z",
+            "basis": "activityConstruction[C-OR].produced[code]=internal/resourceaccess/operatedruntime"
+          }
+        },
+        {
+          "attemptId": "C-OR:codeReview:1",
+          "task": "codeReview",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "artifact",
+            "ref": "internal/resourceaccess/operatedruntime"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691314Z",
+            "basis": "activityConstruction[C-OR].produced[code]=internal/resourceaccess/operatedruntime"
+          }
+        }
+      ],
       "completedAt": "2026-07-03T00:00:00Z",
       "buildStatus": 2,
       "produced": [
@@ -10553,6 +11741,80 @@
     "C-OSA": {
       "activityID": "C-OSA",
       "phase": 2,
+      "attempts": [
+        {
+          "attemptId": "C-OSA:detailedDesign:1",
+          "task": "detailedDesign",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "operatedSystemStateAccess"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691376Z",
+            "basis": "serviceContracts[operatedSystemStateAccess]"
+          }
+        },
+        {
+          "attemptId": "C-OSA:designReview:1",
+          "task": "designReview",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "operatedSystemStateAccess"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691376Z",
+            "basis": "serviceContracts[operatedSystemStateAccess]"
+          }
+        },
+        {
+          "attemptId": "C-OSA:construction:1",
+          "task": "construction",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "artifact",
+            "ref": "internal/resourceaccess/operatedsystemstate"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691376Z",
+            "basis": "activityConstruction[C-OSA].produced[code]=internal/resourceaccess/operatedsystemstate"
+          }
+        },
+        {
+          "attemptId": "C-OSA:codeReview:1",
+          "task": "codeReview",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "artifact",
+            "ref": "internal/resourceaccess/operatedsystemstate"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691376Z",
+            "basis": "activityConstruction[C-OSA].produced[code]=internal/resourceaccess/operatedsystemstate"
+          }
+        }
+      ],
       "completedAt": "2026-07-03T00:00:00Z",
       "buildStatus": 2,
       "produced": [
@@ -10589,6 +11851,80 @@
     "C-PA": {
       "activityID": "C-PA",
       "phase": 2,
+      "attempts": [
+        {
+          "attemptId": "C-PA:detailedDesign:1",
+          "task": "detailedDesign",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "projectStateAccess"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691422Z",
+            "basis": "serviceContracts[projectStateAccess]"
+          }
+        },
+        {
+          "attemptId": "C-PA:designReview:1",
+          "task": "designReview",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "projectStateAccess"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691422Z",
+            "basis": "serviceContracts[projectStateAccess]"
+          }
+        },
+        {
+          "attemptId": "C-PA:construction:1",
+          "task": "construction",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "artifact",
+            "ref": "implementation/log"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691422Z",
+            "basis": "activityConstruction[C-PA].produced[code]=implementation/log"
+          }
+        },
+        {
+          "attemptId": "C-PA:codeReview:1",
+          "task": "codeReview",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "artifact",
+            "ref": "implementation/log"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691422Z",
+            "basis": "activityConstruction[C-PA].produced[code]=implementation/log"
+          }
+        }
+      ],
       "buildStatus": 2,
       "produced": [
         {
@@ -10610,6 +11946,80 @@
     "C-RE": {
       "activityID": "C-RE",
       "phase": 2,
+      "attempts": [
+        {
+          "attemptId": "C-RE:detailedDesign:1",
+          "task": "detailedDesign",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "reviewEngine"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691444Z",
+            "basis": "serviceContracts[reviewEngine]"
+          }
+        },
+        {
+          "attemptId": "C-RE:designReview:1",
+          "task": "designReview",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "reviewEngine"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691444Z",
+            "basis": "serviceContracts[reviewEngine]"
+          }
+        },
+        {
+          "attemptId": "C-RE:construction:1",
+          "task": "construction",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "artifact",
+            "ref": "implementation/log"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691444Z",
+            "basis": "activityConstruction[C-RE].produced[code]=implementation/log"
+          }
+        },
+        {
+          "attemptId": "C-RE:codeReview:1",
+          "task": "codeReview",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "artifact",
+            "ref": "implementation/log"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691444Z",
+            "basis": "activityConstruction[C-RE].produced[code]=implementation/log"
+          }
+        }
+      ],
       "buildStatus": 2,
       "produced": [
         {
@@ -10631,6 +12041,80 @@
     "C-SC": {
       "activityID": "C-SC",
       "phase": 2,
+      "attempts": [
+        {
+          "attemptId": "C-SC:detailedDesign:1",
+          "task": "detailedDesign",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "sourceControlAccess"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691467Z",
+            "basis": "serviceContracts[sourceControlAccess]"
+          }
+        },
+        {
+          "attemptId": "C-SC:designReview:1",
+          "task": "designReview",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "sourceControlAccess"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691467Z",
+            "basis": "serviceContracts[sourceControlAccess]"
+          }
+        },
+        {
+          "attemptId": "C-SC:construction:1",
+          "task": "construction",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "artifact",
+            "ref": "implementation/log"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691467Z",
+            "basis": "activityConstruction[C-SC].produced[code]=implementation/log"
+          }
+        },
+        {
+          "attemptId": "C-SC:codeReview:1",
+          "task": "codeReview",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "artifact",
+            "ref": "implementation/log"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691467Z",
+            "basis": "activityConstruction[C-SC].produced[code]=implementation/log"
+          }
+        }
+      ],
       "buildStatus": 2,
       "produced": [
         {
@@ -10652,6 +12136,80 @@
     "C-SE": {
       "activityID": "C-SE",
       "phase": 2,
+      "attempts": [
+        {
+          "attemptId": "C-SE:detailedDesign:1",
+          "task": "detailedDesign",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "implementation/contracts/settlementEngine.md"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691494Z",
+            "basis": "activityConstruction[C-SE].produced[service-contract]=implementation/contracts/settlementEngine.md"
+          }
+        },
+        {
+          "attemptId": "C-SE:designReview:1",
+          "task": "designReview",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "implementation/contracts/settlementEngine.md"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691494Z",
+            "basis": "activityConstruction[C-SE].produced[service-contract]=implementation/contracts/settlementEngine.md"
+          }
+        },
+        {
+          "attemptId": "C-SE:construction:1",
+          "task": "construction",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "artifact",
+            "ref": "implementation/log"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691494Z",
+            "basis": "activityConstruction[C-SE].produced[code]=implementation/log"
+          }
+        },
+        {
+          "attemptId": "C-SE:codeReview:1",
+          "task": "codeReview",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "artifact",
+            "ref": "implementation/log"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691494Z",
+            "basis": "activityConstruction[C-SE].produced[code]=implementation/log"
+          }
+        }
+      ],
       "buildStatus": 2,
       "produced": [
         {
@@ -10673,6 +12231,80 @@
     "C-UA": {
       "activityID": "C-UA",
       "phase": 2,
+      "attempts": [
+        {
+          "attemptId": "C-UA:detailedDesign:1",
+          "task": "detailedDesign",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "usageAccess"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691525Z",
+            "basis": "serviceContracts[usageAccess]"
+          }
+        },
+        {
+          "attemptId": "C-UA:designReview:1",
+          "task": "designReview",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "usageAccess"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691525Z",
+            "basis": "serviceContracts[usageAccess]"
+          }
+        },
+        {
+          "attemptId": "C-UA:construction:1",
+          "task": "construction",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "artifact",
+            "ref": "implementation/log"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691525Z",
+            "basis": "activityConstruction[C-UA].produced[code]=implementation/log"
+          }
+        },
+        {
+          "attemptId": "C-UA:codeReview:1",
+          "task": "codeReview",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "artifact",
+            "ref": "implementation/log"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691525Z",
+            "basis": "activityConstruction[C-UA].produced[code]=implementation/log"
+          }
+        }
+      ],
       "completedAt": "2026-07-03T00:00:00Z",
       "buildStatus": 2,
       "produced": [
@@ -11157,6 +12789,80 @@
     "C-EA": {
       "activityID": "C-EA",
       "phase": 2,
+      "attempts": [
+        {
+          "attemptId": "C-EA:detailedDesign:1",
+          "task": "detailedDesign",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "episodeAccess"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691737Z",
+            "basis": "serviceContracts[episodeAccess]"
+          }
+        },
+        {
+          "attemptId": "C-EA:designReview:1",
+          "task": "designReview",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "episodeAccess"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691737Z",
+            "basis": "serviceContracts[episodeAccess]"
+          }
+        },
+        {
+          "attemptId": "C-EA:construction:1",
+          "task": "construction",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "artifact",
+            "ref": "server/internal/resourceaccess/episode"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691737Z",
+            "basis": "activityConstruction[C-EA].produced[code]=server/internal/resourceaccess/episode"
+          }
+        },
+        {
+          "attemptId": "C-EA:codeReview:1",
+          "task": "codeReview",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "artifact",
+            "ref": "server/internal/resourceaccess/episode"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-09T20:55:07.691737Z",
+            "basis": "activityConstruction[C-EA].produced[code]=server/internal/resourceaccess/episode"
+          }
+        }
+      ],
       "buildStatus": 2,
       "completedAt": "2026-08-09T00:00:00Z",
       "produced": [
