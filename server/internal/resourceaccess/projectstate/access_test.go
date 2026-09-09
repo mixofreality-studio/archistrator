@@ -8627,6 +8627,25 @@ func TestCoarseBuildStatus_AllPhasesCompleteIsIntegrated(t *testing.T) {
 
 // A uiDesign profile has no Integration phase at all; completing its two phases must
 // still read as Integrated rather than being stuck in construction forever.
+// The len(phases)==0 branch. BuildInConstruction is a NAMED, plausible value derived
+// from no evidence at all, which is why callers must never reach here with an empty
+// slice for a row they intend to render a chip for — the read path materializes the
+// profile skeleton first (resolvedPhaseCompletions) or suppresses the whole claim
+// (Classified=false). Pinned so the branch's meaning is stated, not stumbled on.
+func TestCoarseBuildStatus_EmptyPhaseSetIsAnEvidenceLessDefault(t *testing.T) {
+	for _, phases := range [][]PhaseCompletion{nil, {}} {
+		if got := CoarseBuildStatus(phases, MethodPhaseIntegration); got != BuildInConstruction {
+			t.Errorf("CoarseBuildStatus(%v) = %v, want BuildInConstruction", phases, got)
+		}
+	}
+	// Same input, same evidence: the coarse PHASE deriver answers NotStarted. The two
+	// together are the "Not started / In construction" pair a row with no phase set
+	// used to render — true of the input, false of the activity.
+	if got := CoarsePhase(nil); got != ActivityConstructionNotStarted {
+		t.Errorf("CoarsePhase(nil) = %v, want NotStarted", got)
+	}
+}
+
 func TestCoarseBuildStatus_ProfileWithoutIntegrationCanIntegrate(t *testing.T) {
 	phases := phaseSetFor(ActivityTypeUIDesign, 0)
 	for i := range phases {

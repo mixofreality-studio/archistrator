@@ -4821,21 +4821,17 @@ func TestGetProject_ComputeEarnedValueAtRead(t *testing.T) {
 			{Activity: "C", DependsOn: []string{"B"}},
 		}},
 	}
-	// The integrated set is read through CoarseBuildStatusFor, the same derivation the
-	// row view uses, so an "integrated" fixture must carry the completed phase set that
-	// justifies the claim — a stored flag over an empty phase slice derives to
-	// in-construction, and the curve would then contradict the status beside it.
-	integratedPhases := []projectstate.PhaseCompletion{
-		{Phase: projectstate.MethodPhaseConstruction, Weight: 60, Completed: true},
-		{Phase: projectstate.MethodPhaseIntegration, Weight: 40, Completed: true},
-	}
+	// The integrated set is read through classifiedRowView + CoarseBuildStatusFor, the
+	// same derivation the row view uses, so an "integrated" fixture must (a) be
+	// classifiable at all — a frozen service contract does that — and (b) carry the
+	// completed set for its PROFILE's phases. A stored flag over an empty or partial
+	// phase slice derives to in-construction, and the curve would then contradict the
+	// status beside it.
+	contract := []projectstate.ProducedArtifact{{Kind: "service-contract"}}
 	p.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
-		"A": {ActivityID: "A", BuildStatus: projectstate.BuildIntegrated, Phases: integratedPhases},
-		"B": {ActivityID: "B", BuildStatus: projectstate.BuildIntegrated, Phases: integratedPhases},
-		"C": {ActivityID: "C", BuildStatus: projectstate.BuildInConstruction, Phases: []projectstate.PhaseCompletion{
-			{Phase: projectstate.MethodPhaseConstruction, Weight: 60},
-			{Phase: projectstate.MethodPhaseIntegration, Weight: 40},
-		}},
+		"A": {ActivityID: "A", BuildStatus: projectstate.BuildIntegrated, Produced: contract, Phases: allServicePhases()},
+		"B": {ActivityID: "B", BuildStatus: projectstate.BuildIntegrated, Produced: contract, Phases: allServicePhases()},
+		"C": {ActivityID: "C", BuildStatus: projectstate.BuildInConstruction, Produced: contract, Phases: servicePhases()},
 	}
 	p.ConstructionProgress = &projectstate.ConstructionProgress{Week: 2, TotalWeeks: 4, HandOffModel: "senior", SupervisionCap: 3}
 
@@ -10332,13 +10328,42 @@ func Test_RequestArtifactDraft_RejectsEmptyFeedbackEnvelope(t *testing.T) {
 // not AttemptID — the mapper is the only place the two spellings meet.
 // ---------------------------------------------------------------------------
 
-func TestPhasesToContract_CarriesLabel(t *testing.T) {
-	in := []projectstate.PhaseCompletion{
-		{Phase: projectstate.MethodPhaseRequirements, Weight: 15, Label: "UX Requirements"},
+// servicePhases builds a stored phase slice shaped like the Service profile (the
+// canonical five) with the named phases marked complete. Fixtures must carry the whole
+// profile now: the read path takes the phase ROW SET from the profile and the stored
+// slice only supplies state, so a two-phase fixture under a five-phase profile means
+// "three phases with nothing recorded", not "a three-phase activity".
+func servicePhases(done ...projectstate.ActivityMethodPhase) []projectstate.PhaseCompletion {
+	isDone := map[projectstate.ActivityMethodPhase]bool{}
+	for _, d := range done {
+		isDone[d] = true
 	}
-	got := phasesToContract(resolvedPhaseCompletions(in, nil))
-	if len(got) != 1 {
-		t.Fatalf("phasesToContract len = %d, want 1", len(got))
+	svc := projectstate.ProfileFor(projectstate.ActivityTypeService, 0)
+	out := make([]projectstate.PhaseCompletion, 0, len(svc.Phases))
+	for _, ph := range svc.Phases {
+		out = append(out, projectstate.PhaseCompletion{
+			Phase: ph.Phase, Weight: ph.Weight, Label: ph.Label, Completed: isDone[ph.Phase],
+		})
+	}
+	return out
+}
+
+// allServicePhases is servicePhases with every canonical phase complete.
+func allServicePhases() []projectstate.PhaseCompletion {
+	svc := projectstate.ProfileFor(projectstate.ActivityTypeService, 0)
+	return servicePhases(svc.PhaseIDs()...)
+}
+
+func TestPhasesToContract_CarriesLabel(t *testing.T) {
+	// Labels (and weights) come from the PROFILE, so a Frontend activity renders
+	// "UX Requirements" even when the stored slice carries the Service label.
+	in := []projectstate.PhaseCompletion{
+		{Phase: projectstate.MethodPhaseRequirements, Weight: 15, Label: "Requirements"},
+	}
+	profile := projectstate.ProfileFor(projectstate.ActivityTypeFrontend, 0)
+	got := phasesToContract(resolvedPhaseCompletions(profile, in, nil))
+	if len(got) != len(profile.Phases) {
+		t.Fatalf("phasesToContract len = %d, want %d (the profile's row set)", len(got), len(profile.Phases))
 	}
 	if got[0].Label != "UX Requirements" {
 		t.Errorf("Label = %q, want %q — a Frontend activity must not render Service labels", got[0].Label, "UX Requirements")
@@ -10498,14 +10523,16 @@ func TestPhasesToContract_DerivesCompletedFromTheLedger(t *testing.T) {
 		// The construction gate PASSED though storage says not done.
 		{AttemptID: "C-x:codeReview:1", Task: projectstate.TaskCodeReview, Attempt: 1, Outcome: projectstate.OutcomePassed},
 	}
-	got := phasesToContract(resolvedPhaseCompletions(phases, attempts))
-	if len(got) != 2 {
-		t.Fatalf("phasesToContract len = %d, want 2", len(got))
+	// The Service profile's row set is the canonical five: requirements(0),
+	// detailedDesign(1), testPlan(2), construction(3), integration(4).
+	got := phasesToContract(resolvedPhaseCompletions(projectstate.ProfileFor(projectstate.ActivityTypeService, 0), phases, attempts))
+	if len(got) != 5 {
+		t.Fatalf("phasesToContract len = %d, want 5", len(got))
 	}
-	if got[0].Completed {
+	if got[1].Completed {
 		t.Errorf("detailedDesign Completed = true, want false — its latest designReview was rejected")
 	}
-	if !got[1].Completed {
+	if !got[3].Completed {
 		t.Errorf("construction Completed = false, want true — its codeReview passed")
 	}
 }
@@ -10516,9 +10543,9 @@ func TestPhasesToContract_EmptyLedgerKeepsTheStoredFlag(t *testing.T) {
 	phases := []projectstate.PhaseCompletion{
 		{Phase: projectstate.MethodPhaseRequirements, Weight: 15, Label: "Requirements", Completed: true},
 	}
-	got := phasesToContract(resolvedPhaseCompletions(phases, nil))
-	if len(got) != 1 {
-		t.Fatalf("phasesToContract len = %d, want 1", len(got))
+	got := phasesToContract(resolvedPhaseCompletions(projectstate.ProfileFor(projectstate.ActivityTypeService, 0), phases, nil))
+	if len(got) != 5 {
+		t.Fatalf("phasesToContract len = %d, want 5", len(got))
 	}
 	if !got[0].Completed {
 		t.Errorf("Completed = false, want the stored true — an empty ledger must not erase phase history")
@@ -10538,10 +10565,7 @@ func TestConstructionRowsToContract_DerivesPhaseAndBuildStatusNotStored(t *testi
 			Phase:        projectstate.ActivityConstructionNotStarted,
 			BuildStatus:  projectstate.BuildInConstruction,
 			CurrentPhase: projectstate.MethodPhaseIntegration,
-			Phases: []projectstate.PhaseCompletion{
-				{Phase: projectstate.MethodPhaseConstruction, Weight: 60, Completed: true},
-				{Phase: projectstate.MethodPhaseIntegration, Weight: 40, Completed: true},
-			},
+			Phases:       allServicePhases(),
 		},
 		// Stored says Done / Integrated; the phase set says the work has not started.
 		"C-FE": {
@@ -10549,10 +10573,7 @@ func TestConstructionRowsToContract_DerivesPhaseAndBuildStatusNotStored(t *testi
 			Phase:        projectstate.ActivityConstructionDone,
 			BuildStatus:  projectstate.BuildIntegrated,
 			CurrentPhase: projectstate.MethodPhaseConstruction,
-			Phases: []projectstate.PhaseCompletion{
-				{Phase: projectstate.MethodPhaseConstruction, Weight: 60},
-				{Phase: projectstate.MethodPhaseIntegration, Weight: 40},
-			},
+			Phases:       servicePhases(),
 		},
 	}
 	meta := map[string]projectstate.ActivityItem{
@@ -10589,11 +10610,13 @@ func TestConstructionRowsToContract_CoarseStatusAgreesWithEmittedPhases(t *testi
 			Phase:        projectstate.ActivityConstructionRunning,
 			BuildStatus:  projectstate.BuildInConstruction,
 			CurrentPhase: projectstate.MethodPhaseConstruction,
-			Phases: []projectstate.PhaseCompletion{
-				// Stored says Construction is NOT complete...
-				{Phase: projectstate.MethodPhaseConstruction, Weight: 60, Completed: false},
-				{Phase: projectstate.MethodPhaseIntegration, Weight: 40, Completed: true},
-			},
+			// Stored says Construction is NOT complete (everything else is)...
+			Phases: servicePhases(
+				projectstate.MethodPhaseRequirements,
+				projectstate.MethodPhaseDetailedDesign,
+				projectstate.MethodPhaseTestPlan,
+				projectstate.MethodPhaseIntegration,
+			),
 			// ...but the ledger's codeReview gate PASSED, so the emitted Construction
 			// sub-row's Completed must flip to true.
 			Attempts: []projectstate.TaskAttempt{
@@ -10604,7 +10627,7 @@ func TestConstructionRowsToContract_CoarseStatusAgreesWithEmittedPhases(t *testi
 	meta := map[string]projectstate.ActivityItem{"C-BE": {Name: "C-BE", WorkerClass: "junior-developer", Coding: true}}
 	got := constructionRowsToContract(rows, meta, nil)["C-BE"]
 
-	if len(got.Phases) != 2 || !got.Phases[0].Completed {
+	if len(got.Phases) != 5 || !got.Phases[3].Completed {
 		t.Fatalf("emitted Construction sub-row Completed = %+v, want true (the ledger's codeReview passed)", got.Phases)
 	}
 	if got.BuildStatus != ActivityBuildStatus(int(projectstate.BuildIntegrated)) {
@@ -10612,6 +10635,87 @@ func TestConstructionRowsToContract_CoarseStatusAgreesWithEmittedPhases(t *testi
 	}
 	if got.Phase != ActivityConstructionPhase(int(projectstate.ActivityConstructionDone)) {
 		t.Errorf("Phase = %d, want Done — it must agree with the emitted Phases", got.Phase)
+	}
+}
+
+// A row with a LEDGER and no stored phases must not render "Not started / In
+// construction". resolvedPhaseCompletions used to early-return nil on an empty stored
+// phase set, but the coarse chip was still derived from that empty set and emitted as a
+// real, non-omitempty NAMED ZERO — phase=notStarted, buildStatus=in-construction — for
+// 24 of the 25 rows the backfill touched: four passed attempts under a chip saying the
+// work had not started. The skeleton now comes from ProfileFor, which is deterministic
+// (not render-time synthesis) and is what spec §7.1 means by "the phase rows always
+// exist and only their state is unknown".
+func TestConstructionRowsToContract_LedgerWithNoStoredPhasesMaterializesTheProfile(t *testing.T) {
+	rows := map[string]projectstate.ActivityConstructionStatus{
+		"C-BE": {
+			ActivityID: "C-BE",
+			// No Phases at all — exactly the 24 backfilled rows.
+			Attempts: []projectstate.TaskAttempt{
+				{AttemptID: "C-BE:designReview:1", Task: projectstate.TaskDesignReview, Attempt: 1, Outcome: projectstate.OutcomePassed},
+				{AttemptID: "C-BE:codeReview:1", Task: projectstate.TaskCodeReview, Attempt: 1, Outcome: projectstate.OutcomePassed},
+			},
+		},
+	}
+	meta := map[string]projectstate.ActivityItem{"C-BE": {Name: "C-BE", WorkerClass: "junior-developer", Coding: true}}
+	got := constructionRowsToContract(rows, meta, nil)["C-BE"]
+
+	if len(got.Phases) != 5 {
+		t.Fatalf("Phases len = %d, want the Service profile's 5 rows materialized from the ledger's row", len(got.Phases))
+	}
+	if !got.Phases[1].Completed || !got.Phases[3].Completed {
+		t.Errorf("detailedDesign/construction Completed = %v/%v, want true/true — both gates passed",
+			got.Phases[1].Completed, got.Phases[3].Completed)
+	}
+	if got.Phases[0].Completed || got.Phases[2].Completed || got.Phases[4].Completed {
+		t.Errorf("requirements/testPlan/integration must stay incomplete — the ledger has no gate attempt for them, got %+v", got.Phases)
+	}
+	// The coarse chip must now be justified by the sub-rows beside it rather than by a
+	// named zero value: some phases done, not all → Running / InReview.
+	if got.Phase != ActivityConstructionPhase(int(projectstate.ActivityConstructionRunning)) {
+		t.Errorf("Phase = %d, want Running — a row with four passed attempts is not 'Not started'", got.Phase)
+	}
+	if got.BuildStatus != ActivityBuildStatus(int(projectstate.BuildInReview)) {
+		t.Errorf("BuildStatus = %d, want InReview — Construction's gate passed but Integration's has not", got.BuildStatus)
+	}
+}
+
+// Spec MUST-fix D-gspa (a): when a row's stored phases[] disagrees with its classified
+// type's PROFILE, the profile wins. G-SPA classifies as uiDesign (two phases, 40/60)
+// yet stores five SERVICE phases with Service weights (15/20/10/40/15) — three phases
+// the uiDesign profile does not have. Two fields on one row giving contradictory
+// answers with no rule on the wire for which wins is what this stage exists to remove:
+// the profile is derived from the committed architecture, the stored slice is legacy
+// seed data.
+func TestConstructionRowsToContract_ProfileWinsOverAContradictoryStoredPhaseSet(t *testing.T) {
+	rows := map[string]projectstate.ActivityConstructionStatus{
+		"G-SPA": {
+			ActivityID: "G-SPA",
+			Phases:     allServicePhases(), // five Service phases, Service weights
+		},
+	}
+	meta := map[string]projectstate.ActivityItem{"G-SPA": {Name: "G-SPA", WorkerClass: "ui-designer", Coding: false}}
+	got := constructionRowsToContract(rows, meta, nil)["G-SPA"]
+
+	if got.Type != ActivityType(int(projectstate.ActivityTypeUIDesign)) {
+		t.Fatalf("Type = %d, want uiDesign — the fixture's whole point", got.Type)
+	}
+	if len(got.Phases) != 2 {
+		t.Fatalf("Phases = %+v, want the uiDesign profile's TWO rows, not the five stored Service phases", got.Phases)
+	}
+	if got.Phases[0].Weight != 40 || got.Phases[1].Weight != 60 {
+		t.Errorf("weights = %d/%d, want the uiDesign profile's 40/60, not Service's", got.Phases[0].Weight, got.Phases[1].Weight)
+	}
+	for _, ph := range got.Phases {
+		if ph.Phase == ActivityMethodPhase(string(projectstate.MethodPhaseConstruction)) ||
+			ph.Phase == ActivityMethodPhase(string(projectstate.MethodPhaseTestPlan)) ||
+			ph.Phase == ActivityMethodPhase(string(projectstate.MethodPhaseIntegration)) {
+			t.Errorf("phase %q survived from the stored slice — the uiDesign profile does not carry it", ph.Phase)
+		}
+	}
+	// The state the profile DOES carry still comes from storage.
+	if !got.Phases[0].Completed || !got.Phases[1].Completed {
+		t.Errorf("stored completions for the profile's own phases must survive, got %+v", got.Phases)
 	}
 }
 
@@ -10689,31 +10793,39 @@ func TestComputeEVAtRead_UsesTheDerivedIntegratedSet(t *testing.T) {
 		},
 	}
 	m := &systemDesignManager{estimator: est}
+	// A frozen service contract classifies the row as Service, whose profile is the
+	// canonical five — so "every phase complete" means all five, exactly as the
+	// list view beside the curve renders it.
+	contract := []projectstate.ProducedArtifact{{Kind: "service-contract"}}
 	p := projectstate.Project{ActivityConstruction: map[string]projectstate.ActivityConstructionStatus{
 		// Stored InConstruction, every phase complete → derived Integrated.
 		"C-BE": {
 			ActivityID:  "C-BE",
 			BuildStatus: projectstate.BuildInConstruction,
-			Phases: []projectstate.PhaseCompletion{
-				{Phase: projectstate.MethodPhaseConstruction, Weight: 60, Completed: true},
-				{Phase: projectstate.MethodPhaseIntegration, Weight: 40, Completed: true},
-			},
+			Produced:    contract,
+			Phases:      allServicePhases(),
 		},
 		// Stored Integrated, nothing complete → derived InConstruction.
 		"C-FE": {
 			ActivityID:  "C-FE",
 			BuildStatus: projectstate.BuildIntegrated,
-			Phases: []projectstate.PhaseCompletion{
-				{Phase: projectstate.MethodPhaseConstruction, Weight: 60},
-				{Phase: projectstate.MethodPhaseIntegration, Weight: 40},
-			},
+			Produced:    contract,
+			Phases:      servicePhases(),
+		},
+		// UNCLASSIFIED, stored Integrated, every phase complete. It must not reach the
+		// curve at all: the row beside it refuses to assert a build status, so a curve
+		// that counts it contradicts the very screen it is drawn on.
+		"C-??": {
+			ActivityID:  "C-??",
+			BuildStatus: projectstate.BuildIntegrated,
+			Phases:      allServicePhases(),
 		},
 	}}
 
 	m.computeEVAtRead(p, 4)
 
 	if len(captured) != 1 || captured[0] != "C-BE" {
-		t.Errorf("integrated set = %v, want [C-BE] — the curve must read the derived status, not the stored one", captured)
+		t.Errorf("integrated set = %v, want [C-BE] — the curve must read the derived status over the classified rows only, not the stored one", captured)
 	}
 }
 
@@ -10735,9 +10847,15 @@ func TestPhasesToContract_PartialLedgerDoesNotDenySilentPhases(t *testing.T) {
 		{AttemptID: "G-SPA:designReview:1", Task: projectstate.TaskDesignReview, Attempt: 1, Outcome: projectstate.OutcomePassed},
 		{AttemptID: "G-SPA:codeReview:1", Task: projectstate.TaskCodeReview, Attempt: 1, Outcome: projectstate.OutcomePassed},
 	}
-	got := phasesToContract(resolvedPhaseCompletions(phases, attempts))
-	if len(got) != 4 {
-		t.Fatalf("phasesToContract len = %d, want 4", len(got))
+	// The Frontend profile's row set — requirements first, which the stored slice does
+	// not carry and the ledger says nothing about. This is G-SPA's real, NON-MONOTONIC
+	// shape: an incomplete first phase under four complete ones.
+	got := phasesToContract(resolvedPhaseCompletions(projectstate.ProfileFor(projectstate.ActivityTypeFrontend, 0), phases, attempts))
+	if len(got) != 5 {
+		t.Fatalf("phasesToContract len = %d, want 5", len(got))
+	}
+	if got[0].Phase != ActivityMethodPhase(string(projectstate.MethodPhaseRequirements)) || got[0].Completed {
+		t.Errorf("requirements = %+v, want an INCOMPLETE first row — neither storage nor the ledger records it", got[0])
 	}
 	for i, want := range []struct {
 		phase projectstate.ActivityMethodPhase
@@ -10748,10 +10866,11 @@ func TestPhasesToContract_PartialLedgerDoesNotDenySilentPhases(t *testing.T) {
 		{projectstate.MethodPhaseConstruction, "its codeReview passed"},
 		{projectstate.MethodPhaseIntegration, "the ledger has no testing attempt — silence is not a denial"},
 	} {
-		if got[i].Phase != ActivityMethodPhase(string(want.phase)) {
-			t.Fatalf("phase %d = %q, want %q", i, got[i].Phase, want.phase)
+		idx := i + 1
+		if got[idx].Phase != ActivityMethodPhase(string(want.phase)) {
+			t.Fatalf("phase %d = %q, want %q", idx, got[idx].Phase, want.phase)
 		}
-		if !got[i].Completed {
+		if !got[idx].Completed {
 			t.Errorf("%s Completed = false, want true — %s", want.phase, want.why)
 		}
 	}
@@ -10767,14 +10886,15 @@ func TestPhasesToContract_PartialLedgerStillDeniesARejectedGate(t *testing.T) {
 	attempts := []projectstate.TaskAttempt{
 		{AttemptID: "C-x:designReview:1", Task: projectstate.TaskDesignReview, Attempt: 1, Outcome: projectstate.OutcomeRejected},
 	}
-	got := phasesToContract(resolvedPhaseCompletions(phases, attempts))
-	if len(got) != 2 {
-		t.Fatalf("phasesToContract len = %d, want 2", len(got))
+	// Documentation's profile: detailedDesign(0), construction(1), integration(2).
+	got := phasesToContract(resolvedPhaseCompletions(projectstate.ProfileFor(projectstate.ActivityTypeDocumentation, 0), phases, attempts))
+	if len(got) != 3 {
+		t.Fatalf("phasesToContract len = %d, want 3", len(got))
 	}
 	if got[0].Completed {
 		t.Errorf("detailedDesign Completed = true, want false — its only designReview was rejected")
 	}
-	if !got[1].Completed {
+	if !got[2].Completed {
 		t.Errorf("integration Completed = false, want the stored true — the ledger says nothing about it")
 	}
 }

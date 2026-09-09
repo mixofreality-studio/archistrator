@@ -7308,16 +7308,28 @@ func CoarsePhase(phases []PhaseCompletion) ActivityConstructionPhase {
 
 // CoarseBuildStatus derives the ActivityBuildStatus from the phase set (compute-at-read).
 //
-// Rules: ALL profile phases complete → BuildIntegrated; the Construction phase complete
-// but not all → BuildInReview; otherwise → BuildInConstruction.
+// Rules: EVERY phase in the supplied slice complete → BuildIntegrated; the Construction
+// phase complete but not all → BuildInReview; otherwise → BuildInConstruction.
+//
+// The rule is over the SLICE IT IS GIVEN, not over the activity's profile — this
+// function never sees the activity's type and cannot look its profile up. It is the
+// CALLER's job to pass the profile-derived phase set (the read path does exactly that:
+// see the systemdesign Manager's resolvedPhaseCompletions, where the profile supplies
+// the row set and the stored slice only supplies state). Handed a stored slice that
+// disagrees with the profile, this returns an answer about the stored slice.
 //
 // The all-phases rule is deliberate. The old rule returned Integrated on Integration-done
 // alone, which is how G-SPA came to report Integrated at 85% with Requirements never
-// completed. Requiring every phase in the activity's own profile makes that state
-// impossible rather than merely unlikely — and it works for the profiles that carry no
-// Integration phase at all (uiDesign, and the QA-process testing variant), which the old
-// rule left permanently stuck in construction. Documentation is NOT one of them: its
-// profile ends in {MethodPhaseIntegration, 20, "Doc Review"}.
+// completed. Requiring every phase makes that state impossible rather than merely
+// unlikely — and it works for the profiles that carry no Integration phase at all
+// (uiDesign, and the QA-process testing variant), which the old rule left permanently
+// stuck in construction. Documentation is NOT one of them: its profile ends in
+// {MethodPhaseIntegration, 20, "Doc Review"}.
+//
+// An EMPTY slice returns BuildInConstruction — a named, plausible value derived from no
+// evidence at all. Callers must not reach here with an empty slice for a row they intend
+// to render a status chip for; the read path suppresses the whole claim instead (see
+// ActivityConstructionStatus.Classified and resolvedPhaseCompletions' honest-empty).
 //
 // The second parameter is retained for signature compatibility and is unused: coarse
 // status is derived solely from phase completion.

@@ -3361,7 +3361,7 @@ func constructionRowsToContract(
 	out := make(map[string]ActivityConstructionStatus, len(rows))
 	for id, r := range rows {
 		meta := activityMeta[id]
-		typ, classified := projectstate.ClassifyType(r.ActivityID, meta.WorkerClass, meta.Coding, rowHasServiceContract(r))
+		typ, typVariant, resolved, classified := classifiedRowView(r, activityMeta[id])
 		// Type/Kind/Variant/Phases/BuildStatus/Phase form a DISCRIMINATED UNION with
 		// Classified: an activity the classifier refused to type asserts nothing about
 		// what it is, how far its lifecycle has run, or what its coarse status is.
@@ -3387,16 +3387,16 @@ func constructionRowsToContract(
 		if classified {
 			wireType = ActivityType(int(typ))
 			if typ == projectstate.ActivityTypeTesting {
-				variant = TestingVariant(int(projectstate.DeriveVariant(r.ActivityID)))
+				variant = TestingVariant(int(typVariant))
 			}
 			// The row's coarse BuildStatus/Phase must be derived from the SAME phase
 			// completions phasesToContract actually emits below — never from the raw
-			// stored r.Phases directly. resolvedPhaseCompletions applies the identical
-			// ledger-preferred-over-stored-per-phase resolution once; both the emitted
-			// Phases and the coarse derivation read off its result, so a partial
-			// attempt ledger can no longer make the coarse chip disagree with the very
-			// phase ticks rendered beneath it.
-			resolved := resolvedPhaseCompletions(r.Phases, r.Attempts)
+			// stored r.Phases directly. classifiedRowView/resolvedPhaseCompletions
+			// applies the identical profile-wins, ledger-preferred-over-stored
+			// resolution once; both the emitted Phases and the coarse derivation read
+			// off its result, so neither a partial attempt ledger nor a stored slice
+			// that contradicts the profile can make the coarse chip disagree with the
+			// very phase ticks rendered beneath it.
 			phases = phasesToContract(resolved)
 			coarsePhase = ActivityConstructionPhase(int(projectstate.CoarsePhaseFor(r.Phase, resolved)))
 			buildStatus = ActivityBuildStatus(int(projectstate.CoarseBuildStatusFor(r.BuildStatus, resolved, r.CurrentPhase)))
@@ -3465,42 +3465,92 @@ func componentLayerByID(p projectstate.Project) map[string]string {
 	return out
 }
 
-// resolvedPhaseCompletions applies App A's binary exit criterion to a copy of the
-// stored phase set: Completed is DERIVED from the attempt ledger whenever the
-// activity has one, per phase, and falls back to the stored value otherwise. This is
-// the SINGLE resolution both phasesToContract (the emitted sub-rows) and
-// constructionRowsToContract's coarse BuildStatus/Phase derivation read from, so the
-// two can never disagree over the same row (task 11 item 2).
+// classifiedRowView resolves everything constructionRowsToContract and computeEVAtRead
+// must agree about for ONE stored construction row: its classified type/variant and the
+// reconciled phase set both of them derive from. Sharing it is the point — the EV curve
+// used to read r.Phases raw and with no classified check, so an unclassified row could
+// contribute to the curve while the row beside it refused to assert a status at all.
+func classifiedRowView(
+	r projectstate.ActivityConstructionStatus,
+	meta projectstate.ActivityItem,
+) (typ projectstate.ActivityType, variant projectstate.TestingVariant, resolved []projectstate.PhaseCompletion, classified bool) {
+	typ, classified = projectstate.ClassifyType(r.ActivityID, meta.WorkerClass, meta.Coding, rowHasServiceContract(r))
+	if !classified {
+		return typ, variant, nil, false
+	}
+	if typ == projectstate.ActivityTypeTesting {
+		variant = projectstate.DeriveVariant(r.ActivityID)
+	}
+	return typ, variant, resolvedPhaseCompletions(projectstate.ProfileFor(typ, variant), r.Phases, r.Attempts), true
+}
+
+// resolvedPhaseCompletions produces the ONE phase set both phasesToContract (the emitted
+// sub-rows) and the coarse BuildStatus/Phase derivation read from, so the two can never
+// disagree over the same row (task 11 item 2).
 //
-// App A's rule: a lifecycle phase is complete iff its GATE task's latest attempt
-// passed (projectstate.PhaseCompleteFromAttempts), which is a stronger claim than a
-// stored boolean nobody can trace back to a review.
+// THE PHASE ROW SET COMES FROM THE PROFILE; THE STORED SLICE ONLY SUPPLIES STATE.
+// When the two disagree, the profile wins. The profile is derived from the committed
+// architecture via the row's classified type; the stored phases[] is legacy seed data
+// that predates the classifier and can contradict it — G-SPA classifies as uiDesign
+// (two phases, 40/60) yet stores five Service phases with Service weights
+// (15/20/10/40/15). Two fields on one row giving contradictory answers with no rule on
+// the wire for which wins is precisely what this stage exists to remove, and this is
+// the read-path rule that removes it. Stored phases the profile does not carry are
+// dropped; profile phases the store never had are materialized with unknown state.
 //
-// The ledger is a FALLBACK trigger, not a hard switch, and the fallback is decided
-// PER PHASE rather than per activity: a phase whose gate task has no attempt is a
-// phase the ledger has no opinion about, and silence is not a denial. A per-activity
+// That materialization is also why a row with an attempt ledger and NO stored phases no
+// longer resolves to nil. It used to, and the coarse chip was still derived from that
+// empty set and emitted as a real, non-omitempty, named zero value — phase=notStarted,
+// buildStatus=in-construction — for 24 of the 25 rows the backfill touched, four passed
+// attempts sitting under a chip saying the work had not started. The skeleton is NOT
+// render-time synthesis: it is deterministic from ProfileFor, and spec §7.1 states the
+// phase rows always exist and only their STATE is unknown.
+//
+// Honest-empty is preserved where it belongs: a row with neither stored phases nor a
+// ledger has nothing to resolve and asserts nothing (nil out), exactly as an
+// unclassified row does.
+//
+// App A's completion rule: a lifecycle phase is complete iff its GATE task's latest
+// attempt passed — a stronger claim than a stored boolean nobody can trace back to a
+// review. The ledger is a FALLBACK trigger, not a hard switch, and the fallback is
+// decided PER PHASE rather than per activity: a phase whose gate task has no attempt is
+// a phase the ledger has no opinion about, and silence is not a denial. A per-activity
 // switch would be a hard switch the instant one attempt exists — the partial ledgers
 // the backfill produces (detailedDesign/designReview/construction/codeReview only)
-// would flip G-SPA's stored test_plan and integration completions to false, erasing
-// the one real phase history in the project.
+// would flip G-SPA's stored test_plan and integration completions to false, erasing the
+// one real phase history in the project.
 //
-// This is why the gate attempt is looked up directly: PhaseCompleteFromAttempts
-// returns false both for "the gate was rejected" and for "there is no gate attempt",
-// and those two must not mean the same thing here.
-func resolvedPhaseCompletions(phases []projectstate.PhaseCompletion, attempts []projectstate.TaskAttempt) []projectstate.PhaseCompletion {
-	if len(phases) == 0 {
+// This is why the gate attempt is looked up directly: PhaseCompleteFromAttempts returns
+// false both for "the gate was rejected" and for "there is no gate attempt", and those
+// two must not mean the same thing here.
+func resolvedPhaseCompletions(
+	profile projectstate.Profile,
+	stored []projectstate.PhaseCompletion,
+	attempts []projectstate.TaskAttempt,
+) []projectstate.PhaseCompletion {
+	if len(stored) == 0 && len(attempts) == 0 {
 		return nil
 	}
-	out := make([]projectstate.PhaseCompletion, len(phases))
-	for i, ph := range phases {
-		completed := ph.Completed
-		if gate := projectstate.GateTaskFor(ph.Phase); gate != "" {
+	storedByPhase := make(map[projectstate.ActivityMethodPhase]projectstate.PhaseCompletion, len(stored))
+	for _, ph := range stored {
+		storedByPhase[ph.Phase] = ph
+	}
+	out := make([]projectstate.PhaseCompletion, 0, len(profile.Phases))
+	for _, pp := range profile.Phases {
+		// Weight and Label are the profile's, never the stored slice's: a uiDesign row
+		// carrying Service weights must render 40/60, not 15/20/10/40/15.
+		row := projectstate.PhaseCompletion{Phase: pp.Phase, Weight: pp.Weight, Label: pp.Label}
+		if s, ok := storedByPhase[pp.Phase]; ok {
+			row.Completed = s.Completed
+			row.CompletedAt = s.CompletedAt
+			row.ArtifactRef = s.ArtifactRef
+		}
+		if gate := projectstate.GateTaskFor(pp.Phase); gate != "" {
 			if latest, ok := projectstate.LatestAttempt(attempts, gate); ok {
-				completed = latest.Outcome == projectstate.OutcomePassed
+				row.Completed = latest.Outcome == projectstate.OutcomePassed
 			}
 		}
-		out[i] = ph
-		out[i].Completed = completed
+		out = append(out, row)
 	}
 	return out
 }
@@ -3627,13 +3677,21 @@ func (m *systemDesignManager) computeEVAtRead(p projectstate.Project, totalWeeks
 	}
 
 	// The integrated set is read through the SAME derivation the rest of the read path
-	// uses (CoarseBuildStatusFor), not off the raw stored BuildStatus. Both paths used
-	// to read stored and therefore agreed; once constructionRowsToContract began
-	// deriving, a raw read here let the EV/SPI curve contradict the build status
-	// rendered beside it on the same screen.
+	// uses (classifiedRowView + CoarseBuildStatusFor), not off the raw stored
+	// BuildStatus and not off the raw stored r.Phases. Both paths used to read stored
+	// and therefore agreed; once constructionRowsToContract began deriving, a raw read
+	// here let the EV/SPI curve contradict the build status rendered beside it on the
+	// same screen — and, with no `classified` check, let a row the classifier refused
+	// to type contribute to the curve while the row beside it refused to assert a
+	// status at all.
+	activityMeta := activityMetaByID(p)
 	integrated := make([]string, 0, len(p.ActivityConstruction))
 	for id, r := range p.ActivityConstruction {
-		if projectstate.CoarseBuildStatusFor(r.BuildStatus, r.Phases, r.CurrentPhase) == projectstate.BuildIntegrated {
+		_, _, resolved, classified := classifiedRowView(r, activityMeta[id])
+		if !classified {
+			continue
+		}
+		if projectstate.CoarseBuildStatusFor(r.BuildStatus, resolved, r.CurrentPhase) == projectstate.BuildIntegrated {
 			integrated = append(integrated, id)
 		}
 	}
