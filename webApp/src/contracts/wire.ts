@@ -458,6 +458,13 @@ export function mapConstructionRow(
   // they are dropped rather than decorating healthy rows with a phantom failure.
   const failureReason = failureReasonFromOrdinal(w.FailureReason);
   const carriesFailure = failureReason !== 'unknown';
+  // worstOrigin is gated on a NON-EMPTY ledger for the same reason as kind/status:
+  // the server's roll-up seeds an empty ledger to 'observed' — right as an aggregate
+  // (nothing was derived from anything unknown), a trap at row level, where it reads
+  // as "recorded" for a row about which nothing is known. The seed itself is correct
+  // and stays put on the server; making it 'synthesized' instead would tar the 44
+  // empty-ledger rows as fabricated, which is a different lie.
+  const attempts = (w.attempts ?? []).map(mapTaskAttempt);
   return {
     activityId: w.ActivityID,
     ...(kind !== undefined ? { kind } : {}),
@@ -468,10 +475,10 @@ export function mapConstructionRow(
     ...(carriesFailure ? { failureReason } : {}),
     ...(carriesFailure && w.FailureDetail.length > 0 ? { failureDetail: w.FailureDetail } : {}),
     phases: (w.Phases ?? []).map(mapPhaseCompletion),
-    attempts: (w.attempts ?? []).map(mapTaskAttempt),
+    attempts,
     // A dropped flag must not read as classified.
     classified,
-    worstOrigin: mapOrigin(w.worstOrigin),
+    ...(attempts.length > 0 ? { worstOrigin: mapOrigin(w.worstOrigin) } : {}),
   };
 }
 

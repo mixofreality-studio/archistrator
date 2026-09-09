@@ -230,6 +230,44 @@ void test('mapConstructionRow degrades an unrecognized origin, outcome, and evid
   assert.equal(row.worstOrigin, 'synthesized');
 });
 
+// worstOrigin is an aggregate over the ledger. The server's roll-up seeds an EMPTY
+// ledger to 'observed' — correct as an aggregate (nothing was derived from anything
+// unknown) and a trap at row level, where it reads as "recorded" for a row about which
+// nothing is known. 44 of the committed rows have an empty ledger, so the stamp is
+// dropped at this boundary, exactly as kind/status/currentLifecyclePhase are dropped on
+// an unclassified row. The server-side seed is deliberately NOT changed to
+// 'synthesized': that would tar those 44 rows as fabricated.
+void test('mapConstructionRow omits worstOrigin when the ledger is empty', () => {
+  const row = mapConstructionRow(wireRow({ attempts: [], worstOrigin: 'observed' }));
+  assert.equal(row.attempts.length, 0);
+  assert.equal(row.worstOrigin, undefined);
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(row, 'worstOrigin'),
+    false,
+    'the key must be OMITTED, not set to undefined (exactOptionalPropertyTypes)'
+  );
+});
+
+void test('mapConstructionRow keeps worstOrigin when the ledger is non-empty', () => {
+  const row = mapConstructionRow(
+    wireRow({
+      attempts: [
+        {
+          attemptId: 'C-x:srs:1',
+          task: 'srs',
+          phase: 'requirements',
+          attempt: 1,
+          outcome: 'passed',
+          evidence: { kind: '', ref: '' },
+          provenance: { origin: 'observed' },
+        },
+      ],
+      worstOrigin: 'observed',
+    })
+  );
+  assert.equal(row.worstOrigin, 'observed');
+});
+
 void test('mapConstructionRow treats an absent classified flag as unclassified', () => {
   const row = mapConstructionRow(wireRow({ classified: false }));
   assert.equal(row.classified, false);

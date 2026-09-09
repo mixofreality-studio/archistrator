@@ -285,7 +285,14 @@ function DrawerBody({
                 mb: 1,
               }}
             >
-              {row.currentLifecyclePhase === 'svc-contract'
+              {/* `currentLifecyclePhase` is a canonical ActivityMethodPhase wire string
+                  (requirements / detailed_design / test_plan / construction /
+                  integration). It was compared against 'svc-contract' — one of the
+                  webApp's ad-hoc POLICY gate ids (PolicyPanel's GATE_ID_TO_PHASE maps
+                  it to 'detailed_design'), never a phase string — so the condition was
+                  dead and this heading always rendered its else-branch. The contract
+                  freeze happens in detailed design. */}
+              {row.currentLifecyclePhase === 'detailed_design'
                 ? 'REVIEW THE SERVICE CONTRACT BEFORE FREEZE'
                 : 'REVIEW THE PRODUCED CHANGE AGAINST THE FROZEN CONTRACT'}
             </Typography>

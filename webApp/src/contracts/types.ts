@@ -727,8 +727,17 @@ export interface ConstructionRow {
   attempts: TaskAttemptRow[];
   /** Whether the server was able to classify this activity's type at all. */
   classified: boolean;
-  /** The least-trustworthy provenance origin across this row's attempt ledger. */
-  worstOrigin: RecordOriginRow;
+  /**
+   * The least-trustworthy provenance origin across this row's attempt ledger.
+   *
+   * Absent when `attempts` is empty, for the same reason as `kind`/`status`: the
+   * server's roll-up seeds an empty ledger to `observed` (correct as an aggregate —
+   * nothing was derived from anything unknown) and the wire field is required, so a
+   * row about which NOTHING is recorded arrives stamped "observed". Read alone that
+   * renders as "recorded". 44 of the committed rows have an empty ledger, so the
+   * stamp is dropped here rather than audited at every consumer.
+   */
+  worstOrigin?: RecordOriginRow;
 }
 
 export type ConstructionRows = Record<string, ConstructionRow>;

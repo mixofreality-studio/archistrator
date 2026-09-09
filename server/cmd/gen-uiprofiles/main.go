@@ -116,6 +116,7 @@ func writeHeader(b *strings.Builder) {
 // exit-criterion prose and BuildStatus derivation layered on top.
 
 import type { ActivityKind } from './KindBadge';
+import type { TestingVariantName } from '../../contracts/types';
 
 /** Canonical Method lifecycle phase (Righting Software Appendix A / Table A-1). */
 export type LifecyclePhase =
@@ -187,8 +188,13 @@ func writeTemplatesRecord(b *strings.Builder) {
 // writeTestingVariantsRecord emits a lookup from the webApp TestingVariantName
 // literal to that variant's own GeneratedPhase profile, so a variant-aware
 // caller can render the right shape instead of the one-size TESTING_PHASES.
+//
+// Keyed by TestingVariantName, not by string: the record is EXHAUSTIVE over the five
+// variants the server carries, so a variant added on either side is a TS compile error
+// rather than a silent undefined lookup. Same precedent as GENERATED_TEMPLATES, which
+// is keyed by the webApp's ActivityKind.
 func writeTestingVariantsRecord(b *strings.Builder) {
-	b.WriteString("export const GENERATED_TESTING_VARIANTS: Record<string, readonly GeneratedPhase[]> = {\n")
+	b.WriteString("export const GENERATED_TESTING_VARIANTS: Record<TestingVariantName, readonly GeneratedPhase[]> = {\n")
 	for _, v := range testingVariants {
 		fmt.Fprintf(b, "  %s: %s,\n", v.tsVariant, v.constName)
 	}

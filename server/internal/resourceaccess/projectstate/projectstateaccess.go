@@ -7070,7 +7070,7 @@ func originRank(o RecordOrigin) int {
 	}
 }
 
-// WorstOrigin implements the contagion rule: a value derived from any synthesized input
+// worstOrigin implements the contagion rule: a value derived from any synthesized input
 // is itself synthesized. PhaseCompletion.Completed, activity progress and project earned
 // value all inherit the worst origin among their inputs.
 //
@@ -7078,7 +7078,7 @@ func originRank(o RecordOrigin) int {
 // aggregate — the single worst lie available to this work.
 //
 // No inputs means nothing was derived from anything unknown: OriginObserved.
-func WorstOrigin(origins ...RecordOrigin) RecordOrigin {
+func worstOrigin(origins ...RecordOrigin) RecordOrigin {
 	worst := OriginObserved
 	for _, o := range origins {
 		if originRank(o) < originRank(worst) {
@@ -7168,8 +7168,8 @@ type TaskAttempt struct {
 	Provenance AttemptProvenance `json:"provenance"`
 }
 
-// LatestAttempt returns the highest-numbered attempt at a task.
-func LatestAttempt(attempts []TaskAttempt, t MethodTask) (TaskAttempt, bool) {
+// latestAttempt returns the highest-numbered attempt at a task.
+func latestAttempt(attempts []TaskAttempt, t MethodTask) (TaskAttempt, bool) {
 	var best TaskAttempt
 	found := false
 	for _, a := range attempts {
@@ -7189,22 +7189,44 @@ func LatestAttempt(attempts []TaskAttempt, t MethodTask) (TaskAttempt, bool) {
 // This is why PhaseCompletion.Completed becomes derived rather than written, and why a
 // passed non-gate task earns no fractional credit — "the Construction phase is complete
 // once you have had the code review, not simply when the code is checked in."
-func PhaseCompleteFromAttempts(attempts []TaskAttempt, p ActivityMethodPhase) bool {
+//
+// TWO return values, not one. "The gate was rejected" and "there is no gate attempt at
+// all" are different facts, and a single bool conflates them into "not complete". The
+// read path must let a stored completion stand where the ledger is SILENT (silence is
+// not a denial — the partial ledgers the backfill produces mention four tasks out of
+// twelve) and must overrule it where the ledger has decided. A one-bool version of this
+// function is unusable for exactly that reason, which is how the repo came to carry the
+// correct logic inline and unnamed beside a dead exported helper named after App A's
+// criterion that got the distinction wrong.
+//
+// decided is false when the phase has no gate task at all, or when its gate task has no
+// attempt; complete is meaningless unless decided is true.
+func PhaseCompleteFromAttempts(attempts []TaskAttempt, p ActivityMethodPhase) (complete, decided bool) {
 	gate := GateTaskFor(p)
 	if gate == "" {
-		return false
+		return false, false
 	}
-	latest, ok := LatestAttempt(attempts, gate)
-	return ok && latest.Outcome == OutcomePassed
+	latest, ok := latestAttempt(attempts, gate)
+	if !ok {
+		return false, false
+	}
+	return latest.Outcome == OutcomePassed, true
 }
 
 // AttemptsWorstOrigin is the contagion roll-up for one activity's ledger.
+//
+// MEANINGFUL ONLY OVER A NON-EMPTY LEDGER. An empty ledger seeds to OriginObserved,
+// which is correct as an aggregate — nothing was derived from anything unknown — and a
+// trap at row level: read alone, it renders "recorded" for a row about which nothing is
+// known. It must NOT be changed to OriginSynthesized (that would tar the 44 empty-ledger
+// rows as fabricated when the truth is that nothing was derived at all); the consumer
+// suppresses the stamp instead when the ledger is empty. See the SPA's mapConstructionRow.
 func AttemptsWorstOrigin(attempts []TaskAttempt) RecordOrigin {
 	origins := make([]RecordOrigin, 0, len(attempts))
 	for _, a := range attempts {
 		origins = append(origins, a.Provenance.Origin)
 	}
-	return WorstOrigin(origins...)
+	return worstOrigin(origins...)
 }
 
 // ActivityConstructionStatus is the per-activity construction head-state record.

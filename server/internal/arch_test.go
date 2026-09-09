@@ -520,31 +520,43 @@ var encapsulationAllowlistData = map[string][]string{
 		// RA→Manager layer edge. None of them touches a resource — no clone, no read, no
 		// write, no clock — so there is no contract operation to generate for them.
 		//
-		// TasksForPhase / TasksForProfile / GateTaskFor / IsGateTask / IsConditionalTask /
-		// PhaseForTask are the Figure A-1 grouping itself: the systemdesign Manager's
-		// construction view-model derives the task ROW SET from the activity's profile
-		// rather than from storage, so the tasks that never happened still render and a
-		// stored skeleton cannot drift from ProfileFor. AttemptID is the one producer of
-		// the ledger's join key — the construction Manager stamps it onto every
-		// EpisodeRecord TargetRef for episode attribution, so it must never be inlined.
-		// LatestAttempt / PhaseCompleteFromAttempts are App A's binary exit criterion read
-		// off the append-only ledger; WorstOrigin / AttemptsWorstOrigin are the provenance
-		// contagion roll-up. This vocabulary lands ahead of its callers (stage A of the
-		// construction-UI rewrite); the consumers it is exported FOR are the systemdesign
-		// Manager's construction view-model, the construction Manager's episode
-		// attribution, and the cmd/backfill-attempts producer already named in
-		// AttemptProvenance.Generator.
+		// Every name below has at least one caller OUTSIDE this package, named here and
+		// verifiable by grep. Nothing is exported "ahead of its callers": an identifier
+		// whose only users are projectstate's own in-package access_test.go does not need
+		// to be exported to be tested, and three of them (IsGateTask, WorstOrigin,
+		// LatestAttempt) were removed from this list for exactly that reason.
+		//
+		//	TasksForPhase   → cmd/gen-uiprofiles: emits each phase's task rows into the
+		//	                  SPA's generated lifecycle template.
+		//	GateTaskFor     → cmd/gen-uiprofiles: flags which of those rows is the phase's
+		//	                  binary exit criterion.
+		//	IsConditionalTask → cmd/gen-uiprofiles: flags the two rows rendered only when a
+		//	                  real attempt record exists.
+		//	TasksForProfile → cmd/backfill-attempts: the per-activity task row set the
+		//	                  backfill walks.
+		//	PhaseForTask    → cmd/backfill-attempts: the denormalized Phase stamp on every
+		//	                  TaskAttempt it writes.
+		//	AttemptID       → the construction Manager (constructactivity.go), which stamps
+		//	                  it onto every EpisodeRecord TargetRef; also
+		//	                  cmd/backfill-attempts. It is the ledger's join key and must
+		//	                  never be inlined — see its own doc comment.
+		//	AgentTaskFor    → the construction Manager (constructactivity.go): which Figure
+		//	                  A-1 task an agent-work dispatch's episode is attributed to.
+		//	PhaseCompleteFromAttempts → the systemdesign Manager's construction view-model
+		//	                  (resolvedPhaseCompletions): App A's binary exit criterion,
+		//	                  reported as (complete, decided) so a rejected gate and an
+		//	                  absent one stay distinguishable.
+		//	AttemptsWorstOrigin → the systemdesign Manager's construction view-model: the
+		//	                  provenance contagion roll-up stamped onto each wire row.
 		"AgentTaskFor",
 		"AttemptID",
 		"AttemptsWorstOrigin",
 		"GateTaskFor",
 		"IsConditionalTask",
-		"LatestAttempt",
 		"PhaseCompleteFromAttempts",
 		"PhaseForTask",
 		"TasksForPhase",
 		"TasksForProfile",
-		"WorstOrigin",
 		// LAYER-STACK PROJECTION (task 11, construction-UI-rewrite stage A). Same
 		// category as ClassifyActivity/TasksForPhase above: a total, side-effect-free
 		// function of already-public projectstate values (an activity id string plus a

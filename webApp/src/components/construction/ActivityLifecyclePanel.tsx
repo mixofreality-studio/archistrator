@@ -25,7 +25,7 @@ import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked';
 
 import type { NetworkNodeView } from '../../contracts/projectAdapters';
 import type { BuildStatus } from '../../contracts/constructionAdapters';
-import type { ConstructionRow, GitRow } from '../../contracts/types';
+import type { ConstructionRow, GitRow, PhaseRow } from '../../contracts/types';
 import { useTokens } from '../../utilities/theme/ThemeContext';
 import type { Tokens } from '../../utilities/theme/themes';
 import { KindBadge, type ActivityKind } from './KindBadge';
@@ -109,9 +109,9 @@ export function ActivityLifecyclePanel({
             {row?.kind !== undefined ? (
               <PanelBody
                 currentPhase={row.currentLifecyclePhase}
-                derivedStatus={derivedStatus}
                 kind={row.kind}
                 node={node}
+                phases={row.phases}
                 t={t}
               />
             ) : row !== undefined ? (
@@ -255,13 +255,12 @@ function PanelHeader({
 
 function PanelBody({
   kind,
-  derivedStatus,
   currentPhase,
   node,
+  phases: rowPhases,
   t,
 }: {
   kind: ActivityKind;
-  derivedStatus: BuildStatus;
   /**
    * The row's real current phase (ConstructionRow.currentLifecyclePhase) —
    * never a guess. Absent when the server has not yet recorded one (or, in
@@ -270,9 +269,16 @@ function PanelBody({
    */
   currentPhase?: string | undefined;
   node: NetworkNodeView | undefined;
+  /**
+   * The server's REAL per-phase completions (ConstructionRow.phases). This is
+   * where `done` comes from — the panel never re-derives it from the coarse
+   * status or from phase order, both of which contradict the server on the one
+   * activity in this project with real, non-monotonic phase history.
+   */
+  phases: readonly PhaseRow[];
   t: Tokens;
 }): ReactNode {
-  const phases = phaseStateFor(kind, derivedStatus, currentPhase);
+  const phases = phaseStateFor(kind, currentPhase, rowPhases);
   const pct = progressPct(phases);
   const doneCount = phases.filter((p) => p.done).length;
   const totalCount = phases.length;

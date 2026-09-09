@@ -10719,6 +10719,46 @@ func TestConstructionRowsToContract_ProfileWinsOverAContradictoryStoredPhaseSet(
 	}
 }
 
+// worstOrigin is an aggregate over the ledger, and over an EMPTY ledger it is the seed
+// value "observed" — correct as an aggregate (nothing was derived from anything
+// unknown), a trap read alone at row level: it says "recorded" about a row where
+// nothing was recorded. 44 of the committed rows have an empty ledger. The wire field
+// is required, so the server cannot omit it; this pins the pairing the SPA's omission
+// rule depends on — the stamp is only ever meaningful accompanied by attempts.
+func TestConstructionRowsToContract_WorstOriginIsOnlyMeaningfulWithALedger(t *testing.T) {
+	rows := map[string]projectstate.ActivityConstructionStatus{
+		// Empty ledger: the emitted stamp is the aggregate seed, NOT an observation.
+		"C-EMPTY": {ActivityID: "C-EMPTY", Phases: allServicePhases()},
+		// A real ledger with one synthesized attempt: the stamp is a real roll-up.
+		"C-LEDGER": {
+			ActivityID: "C-LEDGER",
+			Attempts: []projectstate.TaskAttempt{
+				{AttemptID: "C-LEDGER:codeReview:1", Task: projectstate.TaskCodeReview, Attempt: 1,
+					Provenance: projectstate.AttemptProvenance{Origin: projectstate.OriginObserved}},
+				{AttemptID: "C-LEDGER:construction:1", Task: projectstate.TaskConstruction, Attempt: 1,
+					Provenance: projectstate.AttemptProvenance{Origin: projectstate.OriginSynthesized}},
+			},
+		},
+	}
+	meta := map[string]projectstate.ActivityItem{
+		"C-EMPTY":  {Name: "C-EMPTY", WorkerClass: "junior-developer", Coding: true},
+		"C-LEDGER": {Name: "C-LEDGER", WorkerClass: "junior-developer", Coding: true},
+	}
+	got := constructionRowsToContract(rows, meta, nil)
+
+	if n := len(got["C-EMPTY"].Attempts); n != 0 {
+		t.Fatalf("C-EMPTY Attempts len = %d, want 0 — the fixture's whole point", n)
+	}
+	if got["C-EMPTY"].WorstOrigin != string(projectstate.OriginObserved) {
+		t.Errorf("C-EMPTY WorstOrigin = %q, want the aggregate seed %q — and consumers must suppress it, since no attempt was ever observed",
+			got["C-EMPTY"].WorstOrigin, projectstate.OriginObserved)
+	}
+	if got["C-LEDGER"].WorstOrigin != string(projectstate.OriginSynthesized) {
+		t.Errorf("C-LEDGER WorstOrigin = %q, want %q — one synthesized attempt taints the roll-up",
+			got["C-LEDGER"].WorstOrigin, projectstate.OriginSynthesized)
+	}
+}
+
 // The trap LayerForActivity closes, exercised through the actual mapper
 // (constructionRowsToContract) rather than the pure function directly: a SPA row's
 // ComponentID names its MANAGER (managerSPAActivityFor), so a naive componentId ->

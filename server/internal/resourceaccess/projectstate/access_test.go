@@ -8174,12 +8174,12 @@ func TestLatestAttempt_ReturnsHighestAttemptNumber(t *testing.T) {
 		{AttemptID: AttemptID("C-x", TaskDesignReview, 1), Task: TaskDesignReview, Attempt: 1, Outcome: OutcomeRejected},
 		{AttemptID: AttemptID("C-x", TaskDetailedDesign, 2), Task: TaskDetailedDesign, Attempt: 2, Outcome: OutcomePassed},
 	}
-	got, ok := LatestAttempt(attempts, TaskDetailedDesign)
+	got, ok := latestAttempt(attempts, TaskDetailedDesign)
 	if !ok {
-		t.Fatal("LatestAttempt(detailedDesign) not found")
+		t.Fatal("latestAttempt(detailedDesign) not found")
 	}
 	if got.Attempt != 2 {
-		t.Errorf("LatestAttempt(detailedDesign).Attempt = %d, want 2", got.Attempt)
+		t.Errorf("latestAttempt(detailedDesign).Attempt = %d, want 2", got.Attempt)
 	}
 }
 
@@ -8193,9 +8193,9 @@ func TestLatestAttempt_IgnoresSliceOrder(t *testing.T) {
 		{AttemptID: AttemptID("C-x", TaskDetailedDesign, 2), Task: TaskDetailedDesign, Attempt: 2, Outcome: OutcomePassed},
 		{AttemptID: AttemptID("C-x", TaskDetailedDesign, 1), Task: TaskDetailedDesign, Attempt: 1, Outcome: OutcomeRejected},
 	}
-	got, ok := LatestAttempt(attempts, TaskDetailedDesign)
+	got, ok := latestAttempt(attempts, TaskDetailedDesign)
 	if !ok {
-		t.Fatal("LatestAttempt(detailedDesign) not found")
+		t.Fatal("latestAttempt(detailedDesign) not found")
 	}
 	if got.Attempt != 2 {
 		t.Errorf("LatestAttempt returned attempt %d for an out-of-order slice, want 2", got.Attempt)
@@ -8206,8 +8206,8 @@ func TestLatestAttempt_IgnoresSliceOrder(t *testing.T) {
 }
 
 func TestLatestAttempt_MissingTaskReportsNotFound(t *testing.T) {
-	if _, ok := LatestAttempt(nil, TaskCodeReview); ok {
-		t.Error("LatestAttempt(nil) reported found, want not found")
+	if _, ok := latestAttempt(nil, TaskCodeReview); ok {
+		t.Error("latestAttempt(nil) reported found, want not found")
 	}
 }
 
@@ -8218,24 +8218,37 @@ func TestPhaseCompleteFromAttempts_RequiresTheGateTask(t *testing.T) {
 	attempts := []TaskAttempt{
 		{AttemptID: AttemptID("C-x", TaskConstruction, 1), Task: TaskConstruction, Attempt: 1, Outcome: OutcomePassed},
 	}
-	if PhaseCompleteFromAttempts(attempts, MethodPhaseConstruction) {
-		t.Error("construction phase reported complete without the code review gate")
+	// No gate attempt at all: the ledger has NO OPINION. Not "incomplete" — undecided.
+	if complete, decided := PhaseCompleteFromAttempts(attempts, MethodPhaseConstruction); complete || decided {
+		t.Errorf("no codeReview attempt = (%v, %v), want (false, false) — silence is not a denial", complete, decided)
 	}
 	attempts = append(attempts, TaskAttempt{
 		AttemptID: AttemptID("C-x", TaskCodeReview, 1), Task: TaskCodeReview, Attempt: 1, Outcome: OutcomePassed,
 	})
-	if !PhaseCompleteFromAttempts(attempts, MethodPhaseConstruction) {
-		t.Error("construction phase reported incomplete after the code review passed")
+	if complete, decided := PhaseCompleteFromAttempts(attempts, MethodPhaseConstruction); !complete || !decided {
+		t.Errorf("passed codeReview = (%v, %v), want (true, true)", complete, decided)
 	}
 }
 
-func TestPhaseCompleteFromAttempts_RejectedGateIsNotComplete(t *testing.T) {
+// The distinction a one-bool version cannot express, and the reason this helper was
+// dead while the read path reimplemented it inline: a REJECTED gate and a MISSING gate
+// attempt both used to return plain false. They mean opposite things to a caller
+// deciding whether to let a stored completion stand.
+func TestPhaseCompleteFromAttempts_RejectedGateIsDecidedIncomplete(t *testing.T) {
 	attempts := []TaskAttempt{
 		{AttemptID: AttemptID("C-x", TaskCodeReview, 1), Task: TaskCodeReview, Attempt: 1, Outcome: OutcomePassed},
 		{AttemptID: AttemptID("C-x", TaskCodeReview, 2), Task: TaskCodeReview, Attempt: 2, Outcome: OutcomeRejected},
 	}
-	if PhaseCompleteFromAttempts(attempts, MethodPhaseConstruction) {
+	complete, decided := PhaseCompleteFromAttempts(attempts, MethodPhaseConstruction)
+	if complete {
 		t.Error("phase reported complete when the LATEST gate attempt was rejected")
+	}
+	if !decided {
+		t.Error("a REJECTED gate is a decision, not silence — decided must be true, or the read path will let a stale stored completion stand")
+	}
+	// A phase outside the vocabulary has no gate, so nothing is decided.
+	if complete, decided := PhaseCompleteFromAttempts(attempts, ActivityMethodPhase("not-a-phase")); complete || decided {
+		t.Errorf("unknown phase = (%v, %v), want (false, false)", complete, decided)
 	}
 }
 
@@ -8461,23 +8474,59 @@ func TestPhaseForTask_RoundTrips(t *testing.T) {
 	}
 }
 
-func TestTasksForProfile_PerTypeCounts(t *testing.T) {
+// The per-type task SET, not merely its size. Spec R1's published counts (service 12 ·
+// frontend 12 · deployment 8 · documentation 8 · uiDesign 5 · integration 2) turn on
+// exactly these rows, and a length assertion passes for any 8 tasks at all — including
+// a set drawn from the wrong phases.
+func TestTasksForProfile_PerTypeTaskSets(t *testing.T) {
 	cases := []struct {
 		name string
 		typ  ActivityType
-		want int
+		want []MethodTask
 	}{
-		{"service", ActivityTypeService, 12},
-		{"frontend", ActivityTypeFrontend, 12},
-		{"deployment", ActivityTypeDeployment, 8},
-		{"documentation", ActivityTypeDocumentation, 8},
-		{"uiDesign", ActivityTypeUIDesign, 5},
-		{"integration", ActivityTypeIntegration, 2},
+		{"service", ActivityTypeService, []MethodTask{
+			TaskSRS, TaskSRSReview,
+			TaskSomeConstruction, TaskDetailedDesign, TaskDesignReview,
+			TaskSTP, TaskSTPReview,
+			TaskConstruction, TaskTestClient, TaskCodeReview,
+			TaskIntegration, TaskTesting,
+		}},
+		{"frontend", ActivityTypeFrontend, []MethodTask{
+			TaskSRS, TaskSRSReview,
+			TaskSomeConstruction, TaskDetailedDesign, TaskDesignReview,
+			TaskSTP, TaskSTPReview,
+			TaskConstruction, TaskTestClient, TaskCodeReview,
+			TaskIntegration, TaskTesting,
+		}},
+		// No requirements and no test-plan phase: 3 + 3 + 2 = 8, NOT 9.
+		{"deployment", ActivityTypeDeployment, []MethodTask{
+			TaskSomeConstruction, TaskDetailedDesign, TaskDesignReview,
+			TaskConstruction, TaskTestClient, TaskCodeReview,
+			TaskIntegration, TaskTesting,
+		}},
+		{"documentation", ActivityTypeDocumentation, []MethodTask{
+			TaskSomeConstruction, TaskDetailedDesign, TaskDesignReview,
+			TaskConstruction, TaskTestClient, TaskCodeReview,
+			TaskIntegration, TaskTesting,
+		}},
+		{"uiDesign", ActivityTypeUIDesign, []MethodTask{
+			TaskSRS, TaskSRSReview,
+			TaskSomeConstruction, TaskDetailedDesign, TaskDesignReview,
+		}},
+		{"integration", ActivityTypeIntegration, []MethodTask{
+			TaskIntegration, TaskTesting,
+		}},
 	}
 	for _, c := range cases {
 		got := TasksForProfile(ProfileFor(c.typ, TestVariantPlan))
-		if len(got) != c.want {
-			t.Errorf("%s: TasksForProfile len = %d, want %d (got %v)", c.name, len(got), c.want, got)
+		if len(got) != len(c.want) {
+			t.Errorf("%s: TasksForProfile len = %d, want %d (got %v)", c.name, len(got), len(c.want), got)
+			continue
+		}
+		for i := range c.want {
+			if got[i] != c.want[i] {
+				t.Errorf("%s: TasksForProfile[%d] = %q, want %q (full set %v)", c.name, i, got[i], c.want[i], got)
+			}
 		}
 	}
 }
@@ -8577,8 +8626,8 @@ func TestWorstOrigin_Contagion(t *testing.T) {
 		{"empty is observed", nil, OriginObserved},
 	}
 	for _, c := range cases {
-		if got := WorstOrigin(c.in...); got != c.want {
-			t.Errorf("%s: WorstOrigin(%v) = %q, want %q", c.name, c.in, got, c.want)
+		if got := worstOrigin(c.in...); got != c.want {
+			t.Errorf("%s: worstOrigin(%v) = %q, want %q", c.name, c.in, got, c.want)
 		}
 	}
 }
@@ -8587,11 +8636,11 @@ func TestWorstOrigin_UnknownOriginRanksAsSynthesized(t *testing.T) {
 	// Finding 2: Unknown origins (those not in the closed enum) must rank as badly as synthesized.
 	// If someone changed originRank's default branch to rank unknown as trustworthy,
 	// this test would catch it.
-	got := WorstOrigin(OriginObserved, RecordOrigin("who-knows"))
+	got := worstOrigin(OriginObserved, RecordOrigin("who-knows"))
 	// The unknown origin becomes the worst (has rank 0, same as synthesized), so it's returned.
 	want := RecordOrigin("who-knows")
 	if got != want {
-		t.Errorf("WorstOrigin(OriginObserved, \"who-knows\") = %q, want %q", got, want)
+		t.Errorf("worstOrigin(OriginObserved, \"who-knows\") = %q, want %q", got, want)
 	}
 	// Verify that the unknown origin is suspicious (fails validation) — the critical property.
 	p := AttemptProvenance{Origin: got}

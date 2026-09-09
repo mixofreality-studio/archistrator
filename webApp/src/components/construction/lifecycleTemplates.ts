@@ -32,21 +32,31 @@
  * (and a companion lookup table) that reverse-engineered which canonical
  * phase was "active" from the coarse 8-member BuildStatus and presented that
  * guess unmarked as fact — fabrication, ruled out explicitly by the Stage A
- * design spec. Both are deleted. `phaseStateFor` now derives `done`/`active`
- * from the activity's REAL current phase (ConstructionRow.currentLifecyclePhase, reported
- * straight from the server, never inferred) instead of a status-derived
- * guess; with no real current phase reported it marks nothing active and
- * nothing done, except the one non-guessed terminal fact: `integrated` means
- * every phase is done.
+ * design spec. Both are deleted.
+ *
+ * RESOLVED (2026-09-09, Stage A review): `phaseStateFor` kept inferring `done`
+ * by ORDINAL POSITION — every phase before `currentPhase`, plus "integrated
+ * means everything is done" — while `ConstructionRow.phases`, the server's
+ * real per-phase completion, had zero consumers in the SPA. That inference is
+ * wrong on the only real data in the project: G-SPA's history is explicitly
+ * NON-MONOTONIC (requirements incomplete, everything after it complete), so
+ * ordinal inference reports the exact opposite for its first row. `done` now
+ * comes from the server's per-phase `completed` and nothing else; with no
+ * phases reported, nothing is marked done. `active` is still the activity's
+ * REAL current phase (ConstructionRow.currentLifecyclePhase, reported straight
+ * from the server, never inferred), and is left unset when that is absent.
  */
 
-import type { BuildStatus } from '../../contracts/constructionAdapters';
+import type { PhaseRow } from '../../contracts/types';
 import type { ActivityKind } from './KindBadge';
 import {
   GENERATED_TEMPLATES,
   type LifecyclePhase,
   type GeneratedPhase,
-} from './lifecycleTemplates.gen';
+  // Explicit .ts extension: this is a VALUE import, and Node's native
+  // type-stripping test runner resolves relative value imports literally (see
+  // wire.ts / enumMappings.ts for the same convention).
+} from './lifecycleTemplates.gen.ts';
 
 // ---------------------------------------------------------------------------
 // Template shape (static — no done/active, those are derived at render time).
@@ -114,36 +124,40 @@ const UNKNOWN_PHASES: readonly PhaseTemplate[] = [
 ];
 
 // ---------------------------------------------------------------------------
-// Real current-phase → done/active derivation.
+// Real per-phase completion → done/active. Nothing is inferred.
 //
-// No more guessing. A deleted helper + lookup table used to reverse-engineer
-// an "active" canonical phase from the coarse 8-member BuildStatus via a
-// hand-authored mapping table and present that guess unmarked — the
-// Stage A spec rules this out explicitly. `phaseStateFor` now takes the
-// activity's REAL current phase (ConstructionRow.currentLifecyclePhase, wired straight
-// through from the server's ActivityMethodPhase at the RecordPhaseStarted /
-// RecordPhaseCompleted dispatch boundaries — see constructionRoleLine.ts's
-// header for the same field used the same way) instead of re-deriving it
-// from an unrelated coarse status proxy. `active` is that real phase, if the
-// kind's template carries it; `done` is every phase strictly before it, per
-// the Method's own sequential phase order. With no real current phase
-// reported yet (absent, or an unrecognized value), nothing is marked done or
-// active: absence of data is rendered as absence, never as a plausible guess.
+// `done` is READ, never derived: it comes from ConstructionRow.phases, the
+// server's own per-phase `completed`, which is itself resolved server-side
+// from App A's binary exit criterion (the phase's gate task's latest attempt)
+// over the profile-derived phase row set. The SPA re-deriving it from a coarse
+// status or from ordinal position is exactly the second, contradicting answer
+// this stage exists to remove — and it is not merely redundant but WRONG:
+// completion is not monotonic in phase order (G-SPA has an incomplete
+// `requirements` under four complete later phases), so "everything before the
+// current phase is done" reports the opposite of the truth for that row.
+//
+// `active` is the activity's REAL current phase (ConstructionRow.currentLifecyclePhase,
+// wired straight through from the server's ActivityMethodPhase at the
+// RecordPhaseStarted / RecordPhaseCompleted dispatch boundaries — see
+// constructionRoleLine.ts's header for the same field used the same way).
+// Absent, or naming a phase this kind's template does not carry, it resolves
+// to "nothing active": absence of data is rendered as absence, never as a
+// plausible guess.
 // ---------------------------------------------------------------------------
 
 /**
- * Derive per-phase `{done, active}` state from the kind's template + the
- * activity's committed BuildStatus + its REAL current phase. Pure function —
- * no fabrication.
+ * Derive per-phase `{done, active}` for the kind's template from the server's
+ * REAL per-phase completions plus its REAL current phase. Pure function — no
+ * fabrication, no inference.
  *
- * `integrated` → every phase done, nothing active (a terminal fact, not a
- * guess). Otherwise `active` is set only when `currentPhase` names a phase
- * the kind's template actually carries; `done` is every phase before it.
+ * @param phases The server's `ConstructionRow.phases`. Omitted or empty means
+ * the server reported no phase state at all, and NOTHING is marked done — an
+ * unclassified row, or one with neither stored phases nor an attempt ledger.
  */
 export function phaseStateFor(
   kind: ActivityKind,
-  status: BuildStatus,
-  currentPhase?: string
+  currentPhase?: string,
+  phases?: readonly PhaseRow[]
 ): PhaseState[] {
   // Runtime-tolerant lookup: TS proves `kind` is an ActivityKind, but bad project
   // data could carry an unknown kind — fall back loudly to the neutral template
@@ -151,18 +165,20 @@ export function phaseStateFor(
   const tpl: readonly PhaseTemplate[] =
     (TEMPLATES as Partial<Record<ActivityKind, readonly PhaseTemplate[]>>)[kind] ?? UNKNOWN_PHASES;
 
-  if (status === 'integrated') {
-    return tpl.map((p) => ({ ...p, done: true, active: false }));
+  // Keyed by canonical phase id, not by index: the server's row set and this
+  // kind's template are both derived from the same profile, but a positional
+  // join would silently mis-pair them if they ever diverged.
+  const completedByPhase = new Map<string, boolean>();
+  for (const p of phases ?? []) {
+    completedByPhase.set(p.phase, p.completed);
   }
 
-  // findIndex returns -1 for both an absent currentPhase and one this kind's
-  // template does not carry — both honestly resolve to "nothing active".
-  const activeIdx = tpl.findIndex((p) => p.phase === currentPhase);
-
-  return tpl.map((p, i) => ({
+  return tpl.map((p) => ({
     ...p,
-    done: activeIdx !== -1 && i < activeIdx,
-    active: activeIdx !== -1 && i === activeIdx,
+    // `?? false`: a phase the server did not report is a phase nothing is known
+    // about, and nothing-known renders as not-done, never as done.
+    done: completedByPhase.get(p.phase) ?? false,
+    active: currentPhase !== undefined && p.phase === currentPhase,
   }));
 }
 

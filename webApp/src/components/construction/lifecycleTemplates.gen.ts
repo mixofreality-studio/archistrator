@@ -7,6 +7,7 @@
 // exit-criterion prose and BuildStatus derivation layered on top.
 
 import type { ActivityKind } from './KindBadge';
+import type { TestingVariantName } from '../../contracts/types';
 
 /** Canonical Method lifecycle phase (Righting Software Appendix A / Table A-1). */
 export type LifecyclePhase =
@@ -459,7 +460,7 @@ export const TESTING_QA_PROCESS_PHASES: readonly GeneratedPhase[] = [
   },
 ];
 
-export const GENERATED_TESTING_VARIANTS: Record<string, readonly GeneratedPhase[]> = {
+export const GENERATED_TESTING_VARIANTS: Record<TestingVariantName, readonly GeneratedPhase[]> = {
   plan: TESTING_PLAN_PHASES,
   harness: TESTING_HARNESS_PHASES,
   perf: TESTING_PERF_PHASES,

@@ -3418,9 +3418,16 @@ func constructionRowsToContract(
 			FailureDetail: r.FailureDetail,
 			Attempts:      attemptsToContract(r.Attempts),
 			Classified:    classified,
-			WorstOrigin:   string(projectstate.AttemptsWorstOrigin(r.Attempts)),
-			Layer:         layer,
-			LayerBand:     band,
+			// MEANINGFUL ONLY ALONGSIDE A NON-EMPTY Attempts ledger. The wire field is
+			// required (no omitempty, and its schema lives in project.json), so the
+			// server always emits a value; over an empty ledger that value is the
+			// aggregate seed "observed", which read on its own says "recorded" about a
+			// row where nothing was recorded. Consumers must gate it on
+			// len(attempts) > 0 — the SPA's mapConstructionRow drops it there, the same
+			// way kind/status/currentLifecyclePhase are dropped on an unclassified row.
+			WorstOrigin: string(projectstate.AttemptsWorstOrigin(r.Attempts)),
+			Layer:       layer,
+			LayerBand:   band,
 		}
 	}
 	return out
@@ -3520,9 +3527,9 @@ func classifiedRowView(
 // would flip G-SPA's stored test_plan and integration completions to false, erasing the
 // one real phase history in the project.
 //
-// This is why the gate attempt is looked up directly: PhaseCompleteFromAttempts returns
-// false both for "the gate was rejected" and for "there is no gate attempt", and those
-// two must not mean the same thing here.
+// PhaseCompleteFromAttempts reports both halves of that — (complete, decided) — so this
+// distinction lives in ONE named implementation rather than being reimplemented inline
+// here because a one-bool helper could not express it.
 func resolvedPhaseCompletions(
 	profile projectstate.Profile,
 	stored []projectstate.PhaseCompletion,
@@ -3545,10 +3552,8 @@ func resolvedPhaseCompletions(
 			row.CompletedAt = s.CompletedAt
 			row.ArtifactRef = s.ArtifactRef
 		}
-		if gate := projectstate.GateTaskFor(pp.Phase); gate != "" {
-			if latest, ok := projectstate.LatestAttempt(attempts, gate); ok {
-				row.Completed = latest.Outcome == projectstate.OutcomePassed
-			}
+		if complete, decided := projectstate.PhaseCompleteFromAttempts(attempts, pp.Phase); decided {
+			row.Completed = complete
 		}
 		out = append(out, row)
 	}
