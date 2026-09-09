@@ -24,7 +24,7 @@
  * dispatch-boundary state. Kept side-effect-free and React-free so it is
  * unit-testable in isolation (see constructionRoleLine.test.ts).
  */
-import type { CanonicalPhase } from './lifecycleTemplates.gen';
+import type { LifecyclePhase } from './lifecycleTemplates.gen';
 
 export interface ConstructionRoleLine {
   /** RoleAvatar `seed` — the workerClass verbatim; the roster ids match. */
@@ -34,7 +34,7 @@ export interface ConstructionRoleLine {
 }
 
 /** Method-phase → present-progressive verb (task brief §C4 copy). */
-const PHASE_VERB: Record<CanonicalPhase, string> = {
+const PHASE_VERB: Record<LifecyclePhase, string> = {
   requirements: 'scoping',
   detailed_design: 'designing',
   test_plan: 'planning tests for',
@@ -46,7 +46,7 @@ const CANONICAL_PHASES = new Set<string>(Object.keys(PHASE_VERB));
 
 function verbFor(phase: string | undefined): string | undefined {
   if (phase === undefined || !CANONICAL_PHASES.has(phase)) return undefined;
-  return PHASE_VERB[phase as CanonicalPhase];
+  return PHASE_VERB[phase as LifecyclePhase];
 }
 
 /** Words in the worker-class roster that are acronyms, rendered upper-case. */

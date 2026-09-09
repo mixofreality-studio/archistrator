@@ -107,7 +107,13 @@ export function ActivityLifecyclePanel({
           {/* ---- Body ---------------------------------------------------- */}
           <Box sx={{ flexGrow: 1, overflowY: 'auto', px: 2.5, py: 2 }}>
             {row !== undefined ? (
-              <PanelBody derivedStatus={derivedStatus} kind={row.kind} node={node} t={t} />
+              <PanelBody
+                currentPhase={row.phase}
+                derivedStatus={derivedStatus}
+                kind={row.kind}
+                node={node}
+                t={t}
+              />
             ) : (
               <NoConstructionData
                 activityId={activityId}
@@ -243,15 +249,18 @@ function PanelHeader({
 function PanelBody({
   kind,
   derivedStatus,
+  currentPhase,
   node,
   t,
 }: {
   kind: ActivityKind;
   derivedStatus: BuildStatus;
+  /** The row's real current phase (ConstructionRow.phase) — never a guess. */
+  currentPhase: string;
   node: NetworkNodeView | undefined;
   t: Tokens;
 }): ReactNode {
-  const phases = phaseStateFor(kind, derivedStatus);
+  const phases = phaseStateFor(kind, derivedStatus, currentPhase);
   const pct = progressPct(phases);
   const doneCount = phases.filter((p) => p.done).length;
   const totalCount = phases.length;
