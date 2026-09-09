@@ -7314,9 +7314,10 @@ func CoarsePhase(phases []PhaseCompletion) ActivityConstructionPhase {
 // The all-phases rule is deliberate. The old rule returned Integrated on Integration-done
 // alone, which is how G-SPA came to report Integrated at 85% with Requirements never
 // completed. Requiring every phase in the activity's own profile makes that state
-// impossible rather than merely unlikely — and it works for profiles that carry no
-// Integration phase at all (uiDesign, documentation), which the old rule left permanently
-// stuck in construction.
+// impossible rather than merely unlikely — and it works for the profiles that carry no
+// Integration phase at all (uiDesign, and the QA-process testing variant), which the old
+// rule left permanently stuck in construction. Documentation is NOT one of them: its
+// profile ends in {MethodPhaseIntegration, 20, "Doc Review"}.
 //
 // The second parameter is retained for signature compatibility and is unused: coarse
 // status is derived solely from phase completion.
