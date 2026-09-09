@@ -8154,9 +8154,24 @@ var gateTasks = map[ActivityMethodPhase]MethodTask{
 // is a single episode; testClient is the tandem partner of Construction and often does
 // not exist for a deployment or a doc. Rendering a row for work that never happened is
 // the "view states something false" failure this stage exists to remove.
+//
+// Listed exhaustively (all twelve MethodTask values, not just the two conditional
+// ones) so `exhaustive` (check: [switch, map] in .golangci.yml) fails the build the
+// moment a thirteenth task is added without a conscious true/false call — the same
+// protection a switch's default case would lose.
 var conditionalTasks = map[MethodTask]bool{
+	TaskSRS:              false,
+	TaskSRSReview:        false,
+	TaskSTP:              false,
+	TaskSTPReview:        false,
 	TaskSomeConstruction: true,
+	TaskDetailedDesign:   false,
+	TaskDesignReview:     false,
+	TaskConstruction:     false,
 	TaskTestClient:       true,
+	TaskCodeReview:       false,
+	TaskIntegration:      false,
+	TaskTesting:          false,
 }
 
 // TasksForPhase returns the Figure A-1 tasks belonging to a lifecycle phase, in

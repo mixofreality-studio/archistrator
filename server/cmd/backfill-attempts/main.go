@@ -406,102 +406,156 @@ type derived struct {
 	reason     string
 }
 
-func run(repo string, dryRun bool) error {
-	file := filepath.Join(repo, statePath)
+// activityConstructionDoc bundles the raw project.json bytes together with the
+// decoded .activityConstruction rows this tool rewrites. Read/parse and
+// render/write each become one function operating on this value, instead of
+// run() threading raw/doc/start/end/order/rows through by hand.
+type activityConstructionDoc struct {
+	raw   []byte
+	doc   map[string]json.RawMessage
+	start int
+	end   int
+	order []string
+	rows  map[string]json.RawMessage
+}
+
+// readActivityConstructionDoc loads project.json and isolates the
+// .activityConstruction object as both raw bytes and decoded rows.
+//
+// Fidelity gate: re-rendering the UNTOUCHED rows must reproduce the committed bytes
+// exactly. If it does not, this tool would smuggle a reformat into the same diff as
+// the backfill, and a reviewer could no longer see what it actually changed.
+func readActivityConstructionDoc(file string) (activityConstructionDoc, error) {
 	raw, err := os.ReadFile(file) //nolint:gosec // a one-shot CLI reading the path it was told to read.
 	if err != nil {
-		return fmt.Errorf("read %s: %w", file, err)
+		return activityConstructionDoc{}, fmt.Errorf("read %s: %w", file, err)
 	}
 	var doc map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &doc); err != nil {
-		return fmt.Errorf("parse %s: %w", file, err)
+		return activityConstructionDoc{}, fmt.Errorf("parse %s: %w", file, err)
 	}
 
 	start, end, err := valueSpan(raw, "activityConstruction")
 	if err != nil {
-		return err
+		return activityConstructionDoc{}, err
 	}
 	order, rows, err := decodeRows(raw[start:end])
 	if err != nil {
-		return err
+		return activityConstructionDoc{}, err
 	}
 
-	// Fidelity gate: re-rendering the UNTOUCHED rows must reproduce the committed bytes
-	// exactly. If it does not, this tool would smuggle a reformat into the same diff as
-	// the backfill, and a reviewer could no longer see what it actually changed.
 	roundTrip, err := renderRows(order, rows)
+	if err != nil {
+		return activityConstructionDoc{}, err
+	}
+	if !bytes.Equal(roundTrip, raw[start:end]) {
+		return activityConstructionDoc{}, fmt.Errorf("re-rendering activityConstruction unchanged is not byte-identical; " +
+			"writing would reformat unrelated state — refusing")
+	}
+	return activityConstructionDoc{raw: raw, doc: doc, start: start, end: end, order: order, rows: rows}, nil
+}
+
+// write re-renders the (possibly updated) rows and splices them back into the
+// original document bytes at [start:end], leaving everything outside
+// .activityConstruction byte-for-byte untouched.
+func (d activityConstructionDoc) write(file string) error {
+	rendered, err := renderRows(d.order, d.rows)
 	if err != nil {
 		return err
 	}
-	if !bytes.Equal(roundTrip, raw[start:end]) {
-		return fmt.Errorf("re-rendering activityConstruction unchanged is not byte-identical; " +
-			"writing would reformat unrelated state — refusing")
+	var out bytes.Buffer
+	out.Write(d.raw[:d.start])
+	out.Write(rendered)
+	out.Write(d.raw[d.end:])
+	if err := os.WriteFile(file, out.Bytes(), 0o600); err != nil {
+		return fmt.Errorf("write %s: %w", file, err)
+	}
+	fmt.Printf("wrote %s\n", file)
+	return nil
+}
+
+// validateAttempts enforces the two invariants every backfilled attempt must satisfy
+// before it is written: Validate() must pass (a backfilled record with an empty basis
+// is a hard error, not a silent nil on the wire), and the origin must be
+// OriginBackfilled — this tool observes evidence, it never fabricates a live one.
+func validateAttempts(attempts []projectstate.TaskAttempt) error {
+	for _, attempt := range attempts {
+		if err := attempt.Provenance.Validate(); err != nil {
+			return fmt.Errorf("%s: %w", attempt.AttemptID, err)
+		}
+		if attempt.Provenance.Origin != projectstate.OriginBackfilled {
+			return fmt.Errorf("%s: origin %q — this tool observes nothing",
+				attempt.AttemptID, attempt.Provenance.Origin)
+		}
+	}
+	return nil
+}
+
+// deriveRowAttempts resolves one activityConstruction row into the TaskAttempt
+// records its evidence supports. An activity with no evidence, an unclassifiable
+// activity/profile combination, or an evidence set that maps to no phase in the
+// profile yields zero attempts and an explanatory report line — never an error and
+// never a fabricated record. A decode failure or a failed attempt validation is a
+// hard abort, returned as an error instead of a report line.
+func deriveRowAttempts(id string, rawRow json.RawMessage, item projectstate.ActivityItem, contracts map[string]bool) ([]projectstate.TaskAttempt, derived, error) {
+	var row projectstate.ActivityConstructionStatus
+	if err := json.Unmarshal(rawRow, &row); err != nil {
+		return nil, derived{}, fmt.Errorf("decode activityConstruction[%s]: %w", id, err)
+	}
+	ev := evidenceFromRow(row, contracts)
+	if !ev.HasServiceContract && !ev.HasMergedCode {
+		return nil, derived{id, 0, "no contract and no code artifact"}, nil
+	}
+	typ, ok := projectstate.ClassifyType(row.ActivityID, item.WorkerClass, item.Coding, ev.HasServiceContract)
+	if !ok {
+		// An unclassifiable activity has no profile, so it has no task vocabulary,
+		// so there is nothing honest to write against it.
+		return nil, derived{id, 0, "unclassifiable: ClassifyType refused"}, nil
+	}
+	attempts := attemptsFor(row.ActivityID, typ, ev)
+	if err := validateAttempts(attempts); err != nil {
+		return nil, derived{}, err
+	}
+	if len(attempts) == 0 {
+		return nil, derived{id, 0, "profile has no phase for the available evidence"}, nil
+	}
+	return attempts, derived{id, len(attempts), evidenceSummary(ev)}, nil
+}
+
+func run(repo string, dryRun bool) error {
+	file := filepath.Join(repo, statePath)
+	acd, err := readActivityConstructionDoc(file)
+	if err != nil {
+		return err
 	}
 
-	contracts := serviceContractKeys(doc)
-	meta := activityMetaByID(doc)
+	contracts := serviceContractKeys(acd.doc)
+	meta := activityMetaByID(acd.doc)
 
-	report := make([]derived, 0, len(order))
+	report := make([]derived, 0, len(acd.order))
 	total := 0
-	for _, id := range order {
-		var row projectstate.ActivityConstructionStatus
-		if err := json.Unmarshal(rows[id], &row); err != nil {
-			return fmt.Errorf("decode activityConstruction[%s]: %w", id, err)
+	for _, id := range acd.order {
+		attempts, note, err := deriveRowAttempts(id, acd.rows[id], meta[id], contracts)
+		if err != nil {
+			return err
 		}
-		ev := evidenceFromRow(row, contracts)
-		if !ev.HasServiceContract && !ev.HasMergedCode {
-			report = append(report, derived{id, 0, "no contract and no code artifact"})
-			continue
-		}
-		item := meta[id]
-		typ, ok := projectstate.ClassifyType(row.ActivityID, item.WorkerClass, item.Coding, ev.HasServiceContract)
-		if !ok {
-			// An unclassifiable activity has no profile, so it has no task vocabulary,
-			// so there is nothing honest to write against it.
-			report = append(report, derived{id, 0, "unclassifiable: ClassifyType refused"})
-			continue
-		}
-		attempts := attemptsFor(row.ActivityID, typ, ev)
-		for _, attempt := range attempts {
-			if err := attempt.Provenance.Validate(); err != nil {
-				return fmt.Errorf("%s: %w", attempt.AttemptID, err)
-			}
-			if attempt.Provenance.Origin != projectstate.OriginBackfilled {
-				return fmt.Errorf("%s: origin %q — this tool observes nothing",
-					attempt.AttemptID, attempt.Provenance.Origin)
-			}
-		}
+		report = append(report, note)
 		if len(attempts) == 0 {
-			report = append(report, derived{id, 0, "profile has no phase for the available evidence"})
 			continue
 		}
-		updated, err := withAttempts(rows[id], attempts)
+		updated, err := withAttempts(acd.rows[id], attempts)
 		if err != nil {
 			return fmt.Errorf("activityConstruction[%s]: %w", id, err)
 		}
-		rows[id] = updated
+		acd.rows[id] = updated
 		total += len(attempts)
-		report = append(report, derived{id, len(attempts), evidenceSummary(ev)})
 	}
 
 	printReport(report, total, dryRun)
 	if dryRun {
 		return nil
 	}
-
-	rendered, err := renderRows(order, rows)
-	if err != nil {
-		return err
-	}
-	var out bytes.Buffer
-	out.Write(raw[:start])
-	out.Write(rendered)
-	out.Write(raw[end:])
-	if err := os.WriteFile(file, out.Bytes(), 0o600); err != nil {
-		return fmt.Errorf("write %s: %w", file, err)
-	}
-	fmt.Printf("wrote %s\n", file)
-	return nil
+	return acd.write(file)
 }
 
 func evidenceSummary(ev evidence) string {
