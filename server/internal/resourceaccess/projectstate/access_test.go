@@ -8610,3 +8610,54 @@ func TestCoarseBuildStatusFor_StoredFailureIsStillSticky(t *testing.T) {
 		t.Errorf("CoarseBuildStatusFor(stored=Failed) = %v, want Failed (sticky)", got)
 	}
 }
+
+// TestLayerForActivity_SPASurfaceIsAClientNotItsManagersLayer is the trap
+// LayerForActivity exists to close: managerSPAActivityFor stamps ComponentID with the
+// MANAGER's id on a U-SPA-* activity, so a naive componentId -> component.layer join
+// would draw a Client surface on the Manager row.
+func TestLayerForActivity_SPASurfaceIsAClientNotItsManagersLayer(t *testing.T) {
+	// U-SPA-billing-manager carries componentId = the MANAGER, but it is a Client surface.
+	layer, band := LayerForActivity("U-SPA-billing-manager", "manager")
+	if layer != "client" {
+		t.Errorf("layer = %q, want client — a SPA surface is not its manager's layer", layer)
+	}
+	if band != "layered" {
+		t.Errorf("band = %q, want layered", band)
+	}
+}
+
+func TestLayerForActivity_CodingActivityTakesItsComponentLayer(t *testing.T) {
+	layer, band := LayerForActivity("C-billing-manager", "manager")
+	if layer != "manager" || band != "layered" {
+		t.Errorf("LayerForActivity = (%q, %q), want (manager, layered)", layer, band)
+	}
+}
+
+func TestLayerForActivity_ResourceActivityIsResource(t *testing.T) {
+	if layer, _ := LayerForActivity("R-github", ""); layer != "resource" {
+		t.Errorf("layer = %q, want resource", layer)
+	}
+}
+
+func TestLayerForActivity_ComponentlessActivitiesAreProjectWide(t *testing.T) {
+	for _, id := range []string{"N-IT", "N-STP", "G-SPA", "U-SPA-S"} {
+		layer, band := LayerForActivity(id, "")
+		if band != "projectWide" {
+			t.Errorf("%s: band = %q, want projectWide", id, band)
+		}
+		if layer != "" {
+			t.Errorf("%s: layer = %q, want empty — no fake layer for a cross-cutting activity", id, layer)
+		}
+	}
+}
+
+// TestLayerForActivity_SPACaseOrderingBeatsScaffoldPrefix pins the ordering the doc
+// comment calls load-bearing: U-SPA-S must be checked before the general U-SPA- prefix,
+// or the SPA scaffold activity would be mistyped as a Client-layer surface instead of
+// landing in the project-wide band.
+func TestLayerForActivity_SPACaseOrderingBeatsScaffoldPrefix(t *testing.T) {
+	layer, band := LayerForActivity("U-SPA-S", "")
+	if layer != "" || band != "projectWide" {
+		t.Errorf("LayerForActivity(U-SPA-S) = (%q, %q), want (\"\", projectWide)", layer, band)
+	}
+}

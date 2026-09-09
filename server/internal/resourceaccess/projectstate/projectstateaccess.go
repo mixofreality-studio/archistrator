@@ -7858,6 +7858,64 @@ func ClassifyType(id, workerClass string, coding, hasServiceContract bool) (Acti
 	return typ, true
 }
 
+// Layer bands (task 11, construction-UI-rewrite stage A). An activity's row is either
+// positioned in the Method layer stack (Clients/Managers/Engines/ResourceAccess/
+// Resources) or it is cross-cutting and belongs in the project-wide band drawn beside
+// that stack — never both. Kept unexported: the wire fields they feed
+// (systemdesign.ActivityConstructionStatus.Layer/LayerBand) are plain strings, so
+// nothing outside this file needs the named constants, and every additional exported
+// identifier is one more entry the encapsulation-gate allowlist must carry.
+const (
+	layerBandLayered     = "layered"
+	layerBandProjectWide = "projectWide"
+)
+
+// LayerForActivity returns the Method layer an activity is DRAWN in for the layer-stack
+// projection, plus its band ("layered" when it belongs in the Clients/Managers/Engines/
+// ResourceAccess/Resources stack, "projectWide" when it is cross-cutting and renders in
+// the side band beside it instead).
+//
+// This is NOT the same as the layer of the activity's OWN component, and the difference
+// is load-bearing: managerSPAActivityFor (estimation/estimationengine.go) sets a SPA
+// activity's ComponentID to the MANAGER it screens, not to any Client component (a SPA
+// surface has no component of its own in the System model). A naive
+// componentId -> component.layer join would therefore draw U-SPA-billing-manager — a
+// Client-layer surface — on the Manager row. The layer of an activity is not the layer
+// of its component.
+//
+// It lives on the server, not in TypeScript, because the same rule must hold for the
+// Structurizr render-on-read and the MCP tool output: mirroring it in TS would
+// re-create the hand-mirror defect class this codebase has already paid for twice.
+//
+// Rules, in order (case ordering is load-bearing — see below):
+//   - "U-SPA-S" / "G-SPA"        -> no layer, projectWide (must precede the general
+//     "U-SPA-" prefix check below, or U-SPA-S would be mistyped as a Client surface).
+//   - any "N-*" activity         -> no layer, projectWide.
+//   - "U-SPA-<component>"        -> "client", layered — regardless of componentLayer.
+//   - "R-*" activity             -> "resource", layered.
+//   - componentLayer is set      -> componentLayer, layered (a C-* coding activity).
+//   - otherwise (componentless)  -> no layer, projectWide. Nine of the forty derived
+//     activities carry no componentId at all; they get NO fake layer and render in the
+//     project-wide band, per this repo's ratified utilities-sidebar convention (a side
+//     band, with no lines drawn into the layered stack).
+func LayerForActivity(activityID, componentLayer string) (string, string) {
+	upper := strings.ToUpper(activityID)
+	switch {
+	case upper == "U-SPA-S" || upper == "G-SPA":
+		return "", layerBandProjectWide
+	case strings.HasPrefix(upper, "N-"):
+		return "", layerBandProjectWide
+	case strings.HasPrefix(upper, "U-SPA-"):
+		return "client", layerBandLayered
+	case strings.HasPrefix(upper, "R-"):
+		return "resource", layerBandLayered
+	case componentLayer != "":
+		return componentLayer, layerBandLayered
+	default:
+		return "", layerBandProjectWide
+	}
+}
+
 // DeriveBuildStatus maps corpus presence to the finer build-status lens. integrated is
 // true only when a log AND a passing review both exist.
 func DeriveBuildStatus(p CorpusPresence) (ActivityBuildStatus, bool) {
