@@ -1,6 +1,7 @@
 package projectstate
 
 import (
+	"bytes"
 	"encoding/json"
 	"testing"
 )
@@ -30,10 +31,41 @@ func TestAttemptProvenance_DecodingAbsentOriginIsSynthesized(t *testing.T) {
 	}
 }
 
+func TestAttemptProvenance_EncodingEmitsOriginKey(t *testing.T) {
+	// Finding 1: No omitempty on Origin means zero value MUST be emitted on the wire.
+	// If someone added omitempty, synthesized origins would be silently dropped.
+	p := AttemptProvenance{} // zero value: Origin = OriginSynthesized
+	data, err := json.Marshal(p)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	// The "origin" key must be present in the JSON, even though its value is empty string.
+	if !bytes.Contains(data, []byte(`"origin":`)) {
+		t.Errorf("marshaled JSON = %s, want to contain \"origin\" key", data)
+	}
+}
+
 func TestAttemptProvenance_ValidateRejectsUnknownOrigin(t *testing.T) {
 	p := AttemptProvenance{Origin: RecordOrigin("observed-ish")}
 	if err := p.Validate(); err == nil {
 		t.Error("Validate() accepted an unknown origin, want error")
+	}
+}
+
+func TestAttemptProvenance_ValidateAcceptsKnownOrigins(t *testing.T) {
+	// Finding 3: Positive cases for Validate().
+	cases := []struct {
+		name string
+		p    AttemptProvenance
+	}{
+		{"zero value (synthesized)", AttemptProvenance{}},
+		{"observed", AttemptProvenance{Origin: OriginObserved}},
+		{"backfilled with basis", AttemptProvenance{Origin: OriginBackfilled, Basis: "serviceContracts[artifactAccess]"}},
+	}
+	for _, c := range cases {
+		if err := c.p.Validate(); err != nil {
+			t.Errorf("%s: Validate() = %v, want nil", c.name, err)
+		}
 	}
 }
 
@@ -64,5 +96,22 @@ func TestWorstOrigin_Contagion(t *testing.T) {
 		if got := WorstOrigin(c.in...); got != c.want {
 			t.Errorf("%s: WorstOrigin(%v) = %q, want %q", c.name, c.in, got, c.want)
 		}
+	}
+}
+
+func TestWorstOrigin_UnknownOriginRanksAsSynthesized(t *testing.T) {
+	// Finding 2: Unknown origins (those not in the closed enum) must rank as badly as synthesized.
+	// If someone changed originRank's default branch to rank unknown as trustworthy,
+	// this test would catch it.
+	got := WorstOrigin(OriginObserved, RecordOrigin("who-knows"))
+	// The unknown origin becomes the worst (has rank 0, same as synthesized), so it's returned.
+	want := RecordOrigin("who-knows")
+	if got != want {
+		t.Errorf("WorstOrigin(OriginObserved, \"who-knows\") = %q, want %q", got, want)
+	}
+	// Verify that the unknown origin is suspicious (fails validation) — the critical property.
+	p := AttemptProvenance{Origin: got}
+	if err := p.Validate(); err == nil {
+		t.Error("unknown origin should fail Validate(), proving it's treated as dangerous")
 	}
 }
