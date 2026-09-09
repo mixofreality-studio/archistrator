@@ -13,9 +13,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/estimation"
+	estimationfake "github.com/mixofreality-studio/archistrator/server/internal/engine/estimation/fake"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/agenticjob"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/episode"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
@@ -4819,10 +4821,21 @@ func TestGetProject_ComputeEarnedValueAtRead(t *testing.T) {
 			{Activity: "C", DependsOn: []string{"B"}},
 		}},
 	}
+	// The integrated set is read through CoarseBuildStatusFor, the same derivation the
+	// row view uses, so an "integrated" fixture must carry the completed phase set that
+	// justifies the claim — a stored flag over an empty phase slice derives to
+	// in-construction, and the curve would then contradict the status beside it.
+	integratedPhases := []projectstate.PhaseCompletion{
+		{Phase: projectstate.MethodPhaseConstruction, Weight: 60, Completed: true},
+		{Phase: projectstate.MethodPhaseIntegration, Weight: 40, Completed: true},
+	}
 	p.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
-		"A": {ActivityID: "A", BuildStatus: projectstate.BuildIntegrated},
-		"B": {ActivityID: "B", BuildStatus: projectstate.BuildIntegrated},
-		"C": {ActivityID: "C", BuildStatus: projectstate.BuildInConstruction},
+		"A": {ActivityID: "A", BuildStatus: projectstate.BuildIntegrated, Phases: integratedPhases},
+		"B": {ActivityID: "B", BuildStatus: projectstate.BuildIntegrated, Phases: integratedPhases},
+		"C": {ActivityID: "C", BuildStatus: projectstate.BuildInConstruction, Phases: []projectstate.PhaseCompletion{
+			{Phase: projectstate.MethodPhaseConstruction, Weight: 60},
+			{Phase: projectstate.MethodPhaseIntegration, Weight: 40},
+		}},
 	}
 	p.ConstructionProgress = &projectstate.ConstructionProgress{Week: 2, TotalWeeks: 4, HandOffModel: "senior", SupervisionCap: 3}
 
@@ -10323,7 +10336,7 @@ func TestPhasesToContract_CarriesLabel(t *testing.T) {
 	in := []projectstate.PhaseCompletion{
 		{Phase: projectstate.MethodPhaseRequirements, Weight: 15, Label: "UX Requirements"},
 	}
-	got := phasesToContract(in)
+	got := phasesToContract(in, nil)
 	if len(got) != 1 {
 		t.Fatalf("phasesToContract len = %d, want 1", len(got))
 	}
@@ -10419,5 +10432,171 @@ func TestConstructionRowsToContract_CarriesLedgerAndWorstOrigin(t *testing.T) {
 	}
 	if got.WorstOrigin != string(projectstate.OriginSynthesized) {
 		t.Errorf("WorstOrigin = %q, want %q — one synthesized attempt taints the row", got.WorstOrigin, projectstate.OriginSynthesized)
+	}
+}
+
+// An activity the classifier refuses to type must assert NOTHING: ClassifyType's
+// failure return is ActivityTypeService (also the enum zero), so a passthrough
+// rendered ~60 committed rows as Service builds with a full Service lifecycle.
+// Classified is the tag of the discriminated union; the visible half of the rule is
+// that the row carries ZERO lifecycle sub-rows.
+func TestConstructionRowsToContract_UnclassifiableAssertsNoLifecycle(t *testing.T) {
+	rows := map[string]projectstate.ActivityConstructionStatus{
+		// No activity-list metadata (workerClass "", coding false) and no service
+		// contract — exactly the slot-9 id mismatch that leaves 60 of 69 rows untyped.
+		"C-AA": {
+			ActivityID: "C-AA",
+			Phases: []projectstate.PhaseCompletion{
+				{Phase: projectstate.MethodPhaseRequirements, Weight: 15, Label: "Requirements", Completed: true},
+				{Phase: projectstate.MethodPhaseConstruction, Weight: 40, Label: "Construction"},
+			},
+		},
+	}
+	got := constructionRowsToContract(rows, map[string]projectstate.ActivityItem{})["C-AA"]
+	if got.Classified {
+		t.Errorf("Classified = true, want false — the classifier has no rule for this row")
+	}
+	if len(got.Phases) != 0 {
+		t.Errorf("Phases = %+v, want none — an unclassifiable row renders no lifecycle sub-rows", got.Phases)
+	}
+	if got.Variant != 0 {
+		t.Errorf("Variant = %d, want 0 — an untyped row cannot be a testing variant", got.Variant)
+	}
+	// Type/Kind are undefined while Classified is false and must not be read; they are
+	// pinned to the zero value only so nothing downstream sees a stale classification.
+	if got.Type != 0 || got.Kind != 0 {
+		t.Errorf("Type/Kind = %d/%d, want the zero value on an unclassified row", got.Type, got.Kind)
+	}
+}
+
+// App A's binary exit criterion: a phase is complete iff its GATE task's latest
+// attempt passed. A stored flag nobody can trace to a review does not survive a
+// ledger that contradicts it.
+func TestPhasesToContract_DerivesCompletedFromTheLedger(t *testing.T) {
+	phases := []projectstate.PhaseCompletion{
+		{Phase: projectstate.MethodPhaseDetailedDesign, Weight: 20, Label: "Detailed Design", Completed: true},
+		{Phase: projectstate.MethodPhaseConstruction, Weight: 40, Label: "Construction"},
+	}
+	attempts := []projectstate.TaskAttempt{
+		// The design gate was REJECTED on its latest attempt though storage says done.
+		{AttemptID: "C-x:designReview:1", Task: projectstate.TaskDesignReview, Attempt: 1, Outcome: projectstate.OutcomePassed},
+		{AttemptID: "C-x:designReview:2", Task: projectstate.TaskDesignReview, Attempt: 2, Outcome: projectstate.OutcomeRejected},
+		// The construction gate PASSED though storage says not done.
+		{AttemptID: "C-x:codeReview:1", Task: projectstate.TaskCodeReview, Attempt: 1, Outcome: projectstate.OutcomePassed},
+	}
+	got := phasesToContract(phases, attempts)
+	if len(got) != 2 {
+		t.Fatalf("phasesToContract len = %d, want 2", len(got))
+	}
+	if got[0].Completed {
+		t.Errorf("detailedDesign Completed = true, want false — its latest designReview was rejected")
+	}
+	if !got[1].Completed {
+		t.Errorf("construction Completed = false, want true — its codeReview passed")
+	}
+}
+
+// The ledger is a fallback trigger, not a hard switch: with no attempts the stored
+// flag stands, or the backfill's absence would erase every recorded phase.
+func TestPhasesToContract_EmptyLedgerKeepsTheStoredFlag(t *testing.T) {
+	phases := []projectstate.PhaseCompletion{
+		{Phase: projectstate.MethodPhaseRequirements, Weight: 15, Label: "Requirements", Completed: true},
+	}
+	got := phasesToContract(phases, nil)
+	if len(got) != 1 {
+		t.Fatalf("phasesToContract len = %d, want 1", len(got))
+	}
+	if !got[0].Completed {
+		t.Errorf("Completed = false, want the stored true — an empty ledger must not erase phase history")
+	}
+}
+
+// Regression guard for the compute-at-read wiring itself (CoarsePhaseFor /
+// CoarseBuildStatusFor inside constructionRowsToContract). Every other test for the
+// rule calls the projectstate helpers directly; this one goes through the mapper the
+// GetProject read path actually uses, with STORED values that disagree with the
+// phase set. A revert to the stored passthrough fails here.
+func TestConstructionRowsToContract_DerivesPhaseAndBuildStatusNotStored(t *testing.T) {
+	rows := map[string]projectstate.ActivityConstructionStatus{
+		// Stored says NotStarted / InConstruction; every profile phase is complete.
+		"C-BE": {
+			ActivityID:   "C-BE",
+			Phase:        projectstate.ActivityConstructionNotStarted,
+			BuildStatus:  projectstate.BuildInConstruction,
+			CurrentPhase: projectstate.MethodPhaseIntegration,
+			Phases: []projectstate.PhaseCompletion{
+				{Phase: projectstate.MethodPhaseConstruction, Weight: 60, Completed: true},
+				{Phase: projectstate.MethodPhaseIntegration, Weight: 40, Completed: true},
+			},
+		},
+		// Stored says Done / Integrated; the phase set says the work has not started.
+		"C-FE": {
+			ActivityID:   "C-FE",
+			Phase:        projectstate.ActivityConstructionDone,
+			BuildStatus:  projectstate.BuildIntegrated,
+			CurrentPhase: projectstate.MethodPhaseConstruction,
+			Phases: []projectstate.PhaseCompletion{
+				{Phase: projectstate.MethodPhaseConstruction, Weight: 60},
+				{Phase: projectstate.MethodPhaseIntegration, Weight: 40},
+			},
+		},
+	}
+	meta := map[string]projectstate.ActivityItem{
+		"C-BE": {Name: "C-BE", WorkerClass: "junior-developer", Coding: true},
+		"C-FE": {Name: "C-FE", WorkerClass: "junior-developer", Coding: true},
+	}
+	got := constructionRowsToContract(rows, meta)
+
+	if got["C-BE"].Phase != ActivityConstructionPhase(int(projectstate.ActivityConstructionDone)) {
+		t.Errorf("C-BE Phase = %d, want Done (derived) — stored NotStarted must not win", got["C-BE"].Phase)
+	}
+	if got["C-BE"].BuildStatus != ActivityBuildStatus(int(projectstate.BuildIntegrated)) {
+		t.Errorf("C-BE BuildStatus = %d, want Integrated (derived)", got["C-BE"].BuildStatus)
+	}
+	if got["C-FE"].Phase != ActivityConstructionPhase(int(projectstate.ActivityConstructionNotStarted)) {
+		t.Errorf("C-FE Phase = %d, want NotStarted (derived) — stored Done must not win", got["C-FE"].Phase)
+	}
+	if got["C-FE"].BuildStatus != ActivityBuildStatus(int(projectstate.BuildInConstruction)) {
+		t.Errorf("C-FE BuildStatus = %d, want InConstruction (derived)", got["C-FE"].BuildStatus)
+	}
+}
+
+// The EV/SPI curve and the build status rendered beside it must be read off the SAME
+// derivation. computeEVAtRead used to select the integrated set from the RAW stored
+// BuildStatus, so the curve could contradict the status on the same screen.
+func TestComputeEVAtRead_UsesTheDerivedIntegratedSet(t *testing.T) {
+	var captured []string
+	est := &estimationfake.FakeEstimationEngine{
+		ComputeEarnedValueFn: func(_ fweng.Context, _ estimation.ActivityList, _ estimation.Network, integrated []string, _ int64, _ int64) (estimation.EVCurve, error) {
+			captured = append([]string(nil), integrated...)
+			return estimation.EVCurve{}, nil
+		},
+	}
+	m := &systemDesignManager{estimator: est}
+	p := projectstate.Project{ActivityConstruction: map[string]projectstate.ActivityConstructionStatus{
+		// Stored InConstruction, every phase complete → derived Integrated.
+		"C-BE": {
+			ActivityID:  "C-BE",
+			BuildStatus: projectstate.BuildInConstruction,
+			Phases: []projectstate.PhaseCompletion{
+				{Phase: projectstate.MethodPhaseConstruction, Weight: 60, Completed: true},
+				{Phase: projectstate.MethodPhaseIntegration, Weight: 40, Completed: true},
+			},
+		},
+		// Stored Integrated, nothing complete → derived InConstruction.
+		"C-FE": {
+			ActivityID:  "C-FE",
+			BuildStatus: projectstate.BuildIntegrated,
+			Phases: []projectstate.PhaseCompletion{
+				{Phase: projectstate.MethodPhaseConstruction, Weight: 60},
+				{Phase: projectstate.MethodPhaseIntegration, Weight: 40},
+			},
+		},
+	}}
+
+	m.computeEVAtRead(p, 4)
+
+	if len(captured) != 1 || captured[0] != "C-BE" {
+		t.Errorf("integrated set = %v, want [C-BE] — the curve must read the derived status, not the stored one", captured)
 	}
 }

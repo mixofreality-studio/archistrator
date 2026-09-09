@@ -3358,17 +3358,37 @@ func constructionRowsToContract(
 	for id, r := range rows {
 		meta := activityMeta[id]
 		typ, classified := projectstate.ClassifyType(r.ActivityID, meta.WorkerClass, meta.Coding, rowHasServiceContract(r))
-		var variant TestingVariant
-		if classified && typ == projectstate.ActivityTypeTesting {
-			variant = TestingVariant(int(projectstate.DeriveVariant(r.ActivityID)))
+		// Type/Kind/Variant/Phases form a DISCRIMINATED UNION with Classified: an
+		// activity the classifier refused to type asserts nothing about what it is.
+		// ClassifyType's failure return is ActivityTypeService — which is also the
+		// generated enum's zero — so passing typ through unconditionally rendered the
+		// ~60 unclassifiable committed rows as Service builds carrying a Service
+		// lifecycle skeleton. That is a different lie, not the honest blank the design
+		// requires ("the caller MUST render the row as Unclassified with NO lifecycle
+		// sub-rows at all"). The generated enum is a closed 0..6 union with no
+		// Unclassified member, so honesty is expressed by OMISSION rather than by a
+		// sentinel: Classified is the tag, Type/Kind/Variant are left at their zero
+		// values and MUST NOT be read while it is false, and Phases — the half of the
+		// claim the view actually renders — is empty rather than a seeded skeleton.
+		var (
+			wireType ActivityType
+			variant  TestingVariant
+			phases   []PhaseCompletion
+		)
+		if classified {
+			wireType = ActivityType(int(typ))
+			if typ == projectstate.ActivityTypeTesting {
+				variant = TestingVariant(int(projectstate.DeriveVariant(r.ActivityID)))
+			}
+			phases = phasesToContract(r.Phases, r.Attempts)
 		}
 		out[id] = ActivityConstructionStatus{
 			ActivityID:    r.ActivityID,
-			Type:          ActivityType(int(typ)),
-			Kind:          ActivityType(int(typ)),
+			Type:          wireType,
+			Kind:          wireType,
 			Variant:       variant,
 			Phase:         ActivityConstructionPhase(int(projectstate.CoarsePhaseFor(r.Phase, r.Phases))),
-			Phases:        phasesToContract(r.Phases),
+			Phases:        phases,
 			CurrentPhase:  ActivityMethodPhase(string(r.CurrentPhase)),
 			StartedAt:     r.StartedAt,
 			CompletedAt:   r.CompletedAt,
@@ -3408,16 +3428,31 @@ func activityMetaByID(p projectstate.Project) map[string]projectstate.ActivityIt
 }
 
 // phasesToContract maps the App-A internal phase-completion records.
-func phasesToContract(phases []projectstate.PhaseCompletion) []PhaseCompletion {
+//
+// Completed is DERIVED from the attempt ledger whenever the activity has one:
+// App A's binary exit criterion is that a lifecycle phase is complete iff its GATE
+// task's latest attempt passed (projectstate.PhaseCompleteFromAttempts), which is a
+// stronger claim than a stored boolean nobody can trace back to a review.
+//
+// The ledger is a FALLBACK trigger, not a hard switch: an activity with no attempts
+// keeps its stored flag. Deriving unconditionally would erase the only real phase
+// history in the project (G-SPA is the sole activity carrying one) plus everything
+// the backfill has not yet produced.
+func phasesToContract(phases []projectstate.PhaseCompletion, attempts []projectstate.TaskAttempt) []PhaseCompletion {
 	if len(phases) == 0 {
 		return nil
 	}
+	deriveFromLedger := len(attempts) > 0
 	out := make([]PhaseCompletion, 0, len(phases))
 	for _, ph := range phases {
+		completed := ph.Completed
+		if deriveFromLedger {
+			completed = projectstate.PhaseCompleteFromAttempts(attempts, ph.Phase)
+		}
 		out = append(out, PhaseCompletion{
 			Phase:       ActivityMethodPhase(string(ph.Phase)),
 			Weight:      int64(ph.Weight),
-			Completed:   ph.Completed,
+			Completed:   completed,
 			CompletedAt: ph.CompletedAt,
 			ArtifactRef: ph.ArtifactRef,
 			Label:       ph.Label,
@@ -3525,9 +3560,14 @@ func (m *systemDesignManager) computeEVAtRead(p projectstate.Project, totalWeeks
 		network = *net
 	}
 
+	// The integrated set is read through the SAME derivation the rest of the read path
+	// uses (CoarseBuildStatusFor), not off the raw stored BuildStatus. Both paths used
+	// to read stored and therefore agreed; once constructionRowsToContract began
+	// deriving, a raw read here let the EV/SPI curve contradict the build status
+	// rendered beside it on the same screen.
 	integrated := make([]string, 0, len(p.ActivityConstruction))
 	for id, r := range p.ActivityConstruction {
-		if r.BuildStatus == projectstate.BuildIntegrated {
+		if projectstate.CoarseBuildStatusFor(r.BuildStatus, r.Phases, r.CurrentPhase) == projectstate.BuildIntegrated {
 			integrated = append(integrated, id)
 		}
 	}
