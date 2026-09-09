@@ -3434,20 +3434,28 @@ func activityMetaByID(p projectstate.Project) map[string]projectstate.ActivityIt
 // task's latest attempt passed (projectstate.PhaseCompleteFromAttempts), which is a
 // stronger claim than a stored boolean nobody can trace back to a review.
 //
-// The ledger is a FALLBACK trigger, not a hard switch: an activity with no attempts
-// keeps its stored flag. Deriving unconditionally would erase the only real phase
-// history in the project (G-SPA is the sole activity carrying one) plus everything
-// the backfill has not yet produced.
+// The ledger is a FALLBACK trigger, not a hard switch, and the fallback is decided
+// PER PHASE rather than per activity: a phase whose gate task has no attempt is a
+// phase the ledger has no opinion about, and silence is not a denial. A per-activity
+// switch would be a hard switch the instant one attempt exists — the partial ledgers
+// the backfill produces (detailedDesign/designReview/construction/codeReview only)
+// would flip G-SPA's stored test_plan and integration completions to false, erasing
+// the one real phase history in the project.
+//
+// This is why the gate attempt is looked up directly: PhaseCompleteFromAttempts
+// returns false both for "the gate was rejected" and for "there is no gate attempt",
+// and those two must not mean the same thing here.
 func phasesToContract(phases []projectstate.PhaseCompletion, attempts []projectstate.TaskAttempt) []PhaseCompletion {
 	if len(phases) == 0 {
 		return nil
 	}
-	deriveFromLedger := len(attempts) > 0
 	out := make([]PhaseCompletion, 0, len(phases))
 	for _, ph := range phases {
 		completed := ph.Completed
-		if deriveFromLedger {
-			completed = projectstate.PhaseCompleteFromAttempts(attempts, ph.Phase)
+		if gate := projectstate.GateTaskFor(ph.Phase); gate != "" {
+			if latest, ok := projectstate.LatestAttempt(attempts, gate); ok {
+				completed = latest.Outcome == projectstate.OutcomePassed
+			}
 		}
 		out = append(out, PhaseCompletion{
 			Phase:       ActivityMethodPhase(string(ph.Phase)),

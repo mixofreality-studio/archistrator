@@ -10600,3 +10600,65 @@ func TestComputeEVAtRead_UsesTheDerivedIntegratedSet(t *testing.T) {
 		t.Errorf("integrated set = %v, want [C-BE] — the curve must read the derived status, not the stored one", captured)
 	}
 }
+
+// The fallback is decided PER PHASE. A partial ledger — which is all the backfill
+// produces (detailedDesign/designReview/construction/codeReview) — says NOTHING about
+// a phase whose gate task it never wrote, and silence is not a denial. G-SPA, the one
+// activity in the project carrying real stored phase history, has stored completions
+// for test_plan and integration that no backfilled ledger will mention.
+func TestPhasesToContract_PartialLedgerDoesNotDenySilentPhases(t *testing.T) {
+	phases := []projectstate.PhaseCompletion{
+		{Phase: projectstate.MethodPhaseDetailedDesign, Weight: 25, Label: "Design", Completed: true},
+		{Phase: projectstate.MethodPhaseTestPlan, Weight: 10, Label: "Flows", Completed: true},
+		{Phase: projectstate.MethodPhaseConstruction, Weight: 35, Label: "Construction", Completed: true},
+		{Phase: projectstate.MethodPhaseIntegration, Weight: 15, Label: "Integration", Completed: true},
+	}
+	// A backfill-shaped ledger: it has an opinion about detailedDesign and construction
+	// only. testPlan and integration have no gate attempt at all.
+	attempts := []projectstate.TaskAttempt{
+		{AttemptID: "G-SPA:designReview:1", Task: projectstate.TaskDesignReview, Attempt: 1, Outcome: projectstate.OutcomePassed},
+		{AttemptID: "G-SPA:codeReview:1", Task: projectstate.TaskCodeReview, Attempt: 1, Outcome: projectstate.OutcomePassed},
+	}
+	got := phasesToContract(phases, attempts)
+	if len(got) != 4 {
+		t.Fatalf("phasesToContract len = %d, want 4", len(got))
+	}
+	for i, want := range []struct {
+		phase projectstate.ActivityMethodPhase
+		why   string
+	}{
+		{projectstate.MethodPhaseDetailedDesign, "its designReview passed"},
+		{projectstate.MethodPhaseTestPlan, "the ledger has no stpReview attempt — silence is not a denial"},
+		{projectstate.MethodPhaseConstruction, "its codeReview passed"},
+		{projectstate.MethodPhaseIntegration, "the ledger has no testing attempt — silence is not a denial"},
+	} {
+		if got[i].Phase != ActivityMethodPhase(string(want.phase)) {
+			t.Fatalf("phase %d = %q, want %q", i, got[i].Phase, want.phase)
+		}
+		if !got[i].Completed {
+			t.Errorf("%s Completed = false, want true — %s", want.phase, want.why)
+		}
+	}
+}
+
+// The other half of the per-phase rule: where the ledger DOES have an opinion, it
+// wins over the stored flag even when that flag says complete.
+func TestPhasesToContract_PartialLedgerStillDeniesARejectedGate(t *testing.T) {
+	phases := []projectstate.PhaseCompletion{
+		{Phase: projectstate.MethodPhaseDetailedDesign, Weight: 25, Label: "Design", Completed: true},
+		{Phase: projectstate.MethodPhaseIntegration, Weight: 15, Label: "Integration", Completed: true},
+	}
+	attempts := []projectstate.TaskAttempt{
+		{AttemptID: "C-x:designReview:1", Task: projectstate.TaskDesignReview, Attempt: 1, Outcome: projectstate.OutcomeRejected},
+	}
+	got := phasesToContract(phases, attempts)
+	if len(got) != 2 {
+		t.Fatalf("phasesToContract len = %d, want 2", len(got))
+	}
+	if got[0].Completed {
+		t.Errorf("detailedDesign Completed = true, want false — its only designReview was rejected")
+	}
+	if !got[1].Completed {
+		t.Errorf("integration Completed = false, want the stored true — the ledger says nothing about it")
+	}
+}
