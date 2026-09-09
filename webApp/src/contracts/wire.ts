@@ -369,6 +369,28 @@ function mapOrigin(o: string | null | undefined): RecordOriginRow {
   return o === 'observed' || o === 'backfilled' ? o : 'synthesized';
 }
 
+/**
+ * The wire carries '' for the zero outcome (no decision yet). Mapping an
+ * unrecognized string to a real outcome (e.g. 'passed') would render an
+ * attempt as succeeded — or rejected, or failed — when the server sent
+ * nothing recognizable. An unknown outcome degrades to the pending/empty
+ * member, never to a real one.
+ */
+function mapOutcome(o: string): TaskAttemptRow['outcome'] {
+  return o === 'passed' || o === 'rejected' || o === 'failed' || o === 'skipped' ? o : '';
+}
+
+/**
+ * The wire carries '' for the zero evidence kind (no reference). Mapping an
+ * unrecognized string to a real kind would send a click-through to the wrong
+ * detail surface — claiming to point at an episode or a contract when it
+ * points at nothing recognizable. An unknown kind degrades to the none/empty
+ * member, never to a real one.
+ */
+function mapEvidenceKind(k: string): EvidenceRefRow['kind'] {
+  return k === 'episode' || k === 'artifact' || k === 'contract' || k === 'git' ? k : '';
+}
+
 function mapTaskAttempt(a: Schemas['SystemDesignTaskAttempt']): TaskAttemptRow {
   return {
     attemptId: a.attemptId,
@@ -381,8 +403,8 @@ function mapTaskAttempt(a: Schemas['SystemDesignTaskAttempt']): TaskAttemptRow {
     ...(a.actor !== undefined && a.actor.length > 0 ? { actor: a.actor } : {}),
     ...(a.startedAt !== undefined && a.startedAt !== null ? { startedAt: a.startedAt } : {}),
     ...(a.endedAt !== undefined && a.endedAt !== null ? { endedAt: a.endedAt } : {}),
-    outcome: a.outcome as TaskAttemptRow['outcome'],
-    evidence: { kind: a.evidence.kind as EvidenceRefRow['kind'], ref: a.evidence.ref },
+    outcome: mapOutcome(a.outcome),
+    evidence: { kind: mapEvidenceKind(a.evidence.kind), ref: a.evidence.ref },
     provenance: {
       origin: mapOrigin(a.provenance.origin),
       ...(a.provenance.generator !== undefined && a.provenance.generator.length > 0

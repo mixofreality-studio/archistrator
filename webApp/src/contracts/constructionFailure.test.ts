@@ -15,8 +15,9 @@
  * absence of the old 'in-construction' answer), and the wire assertions read the
  * two fields off the mapped ConstructionRow.
  *
- * mapProjectState (not the unexported mapConstructionRow) is the seam under test —
- * it is the real path every hook takes to reach constructionRows.
+ * mapProjectState is the seam under test — it is the real path every hook
+ * takes to reach constructionRows (mapConstructionRow is exported too, for
+ * direct unit tests of the row mapping itself; see constructionAdapters.test.ts).
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';

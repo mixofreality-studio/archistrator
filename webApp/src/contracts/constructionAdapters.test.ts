@@ -199,6 +199,37 @@ void test('mapConstructionRow treats an absent provenance origin as synthesized'
   assert.equal(row.worstOrigin, 'synthesized');
 });
 
+// The invariant is not just "absent maps to the safe member" — it is "anything
+// UNRECOGNIZED does". mapOrigin, mapOutcome, and mapEvidenceKind are all total
+// functions over the input space; an unknown non-empty string on any of the
+// three must degrade the same way a dropped/absent value does, never surface
+// as a plausible real value (an unknown outcome is not 'passed'; an unknown
+// evidence kind must not claim to point at an episode or a contract).
+void test('mapConstructionRow degrades an unrecognized origin, outcome, and evidence kind to their safe member', () => {
+  const row = mapConstructionRow(
+    wireRow({
+      attempts: [
+        {
+          attemptId: 'C-x:srs:1',
+          task: 'srs',
+          phase: 'requirements',
+          attempt: 1,
+          outcome: 'bogus',
+          evidence: { kind: 'bogus', ref: '' },
+          provenance: { origin: 'bogus' },
+        },
+      ],
+      worstOrigin: 'bogus',
+    })
+  );
+  const attempt = row.attempts[0];
+  assert.ok(attempt !== undefined, 'expected one mapped attempt');
+  assert.equal(attempt.provenance.origin, 'synthesized');
+  assert.equal(attempt.outcome, '');
+  assert.equal(attempt.evidence.kind, '');
+  assert.equal(row.worstOrigin, 'synthesized');
+});
+
 void test('mapConstructionRow treats an absent classified flag as unclassified', () => {
   const row = mapConstructionRow(wireRow({ classified: false }));
   assert.equal(row.classified, false);
