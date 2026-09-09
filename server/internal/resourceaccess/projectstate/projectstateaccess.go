@@ -8140,14 +8140,39 @@ func TasksForPhase(p ActivityMethodPhase) []MethodTask {
 // GateTaskFor returns the task whose success IS the phase's binary exit criterion.
 func GateTaskFor(p ActivityMethodPhase) MethodTask { return gateTasks[p] }
 
-// IsGateTask reports whether a task is some phase's binary exit criterion.
-func IsGateTask(t MethodTask) bool {
+// isGateTask reports whether a task is some phase's binary exit criterion.
+func isGateTask(t MethodTask) bool {
 	for _, gate := range gateTasks {
 		if gate == t {
 			return true
 		}
 	}
 	return false
+}
+
+// AgentTaskFor returns the phase's single AI-WORK task: the one task in the phase that
+// is neither the phase's gate (which reviews that work) nor conditional-emit. Derived
+// from phaseTasks/gateTasks/conditionalTasks rather than tabulated, so the vocabulary
+// cannot grow a second table that drifts from the first.
+//
+// This is the task an agent-work dispatch's episode is attributed to. R1's load-bearing
+// distinction — "an AI task opens an episode, a review task opens the artifact under
+// review" — is destroyed if a dispatch stamps the gate task instead: the agent that
+// WROTE the detailed design would be recorded as having reviewed it, and a send-back
+// would render designReview#1, designReview#2 (two review attempts, zero design
+// attempts) instead of detailedDesign#1 → designReview#1 → detailedDesign#2.
+//
+// Total over the five canonical phases (srs, stp, detailedDesign, construction,
+// integration — pinned by TestAgentTaskFor_IsTheSingleAIWorkTaskPerPhase); "" only for
+// a phase outside the vocabulary, for which no attribution is possible at all.
+func AgentTaskFor(p ActivityMethodPhase) MethodTask {
+	for _, t := range phaseTasks[p] {
+		if isGateTask(t) || IsConditionalTask(t) {
+			continue
+		}
+		return t
+	}
+	return ""
 }
 
 // IsConditionalTask reports whether a task is emitted only when an attempt exists.

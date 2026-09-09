@@ -534,11 +534,11 @@ var encapsulationAllowlistData = map[string][]string{
 		// Manager's construction view-model, the construction Manager's episode
 		// attribution, and the cmd/backfill-attempts producer already named in
 		// AttemptProvenance.Generator.
+		"AgentTaskFor",
 		"AttemptID",
 		"AttemptsWorstOrigin",
 		"GateTaskFor",
 		"IsConditionalTask",
-		"IsGateTask",
 		"LatestAttempt",
 		"PhaseCompleteFromAttempts",
 		"PhaseForTask",

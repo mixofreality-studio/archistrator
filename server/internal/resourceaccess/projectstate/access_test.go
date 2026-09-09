@@ -8394,9 +8394,45 @@ func TestGateTaskFor_IsTheBinaryExitCriterion(t *testing.T) {
 		if got := GateTaskFor(phase); got != want {
 			t.Errorf("GateTaskFor(%v) = %q, want %q", phase, got, want)
 		}
-		if !IsGateTask(want) {
-			t.Errorf("IsGateTask(%q) = false, want true", want)
+		if !isGateTask(want) {
+			t.Errorf("isGateTask(%q) = false, want true", want)
 		}
+	}
+}
+
+// AgentTaskFor is the OTHER half of the Figure A-1 alternation: the AI-work task an
+// agent dispatch's episode is burned on, as opposed to the gate task that REVIEWS that
+// work. Each canonical phase has exactly one — pinned here both by value and by
+// uniqueness, so a future task added to a phase cannot silently make the selection
+// ambiguous.
+func TestAgentTaskFor_IsTheSingleAIWorkTaskPerPhase(t *testing.T) {
+	cases := map[ActivityMethodPhase]MethodTask{
+		MethodPhaseRequirements:   TaskSRS,
+		MethodPhaseTestPlan:       TaskSTP,
+		MethodPhaseDetailedDesign: TaskDetailedDesign,
+		MethodPhaseConstruction:   TaskConstruction,
+		MethodPhaseIntegration:    TaskIntegration,
+	}
+	for phase, want := range cases {
+		if got := AgentTaskFor(phase); got != want {
+			t.Errorf("AgentTaskFor(%v) = %q, want %q", phase, got, want)
+		}
+		if isGateTask(want) {
+			t.Errorf("AgentTaskFor(%v) = %q, which is a GATE task — the review, not the work", phase, want)
+		}
+		// Exactly one candidate: every other task in the phase is a gate or conditional.
+		candidates := 0
+		for _, task := range TasksForPhase(phase) {
+			if !isGateTask(task) && !IsConditionalTask(task) {
+				candidates++
+			}
+		}
+		if candidates != 1 {
+			t.Errorf("phase %v has %d non-gate non-conditional tasks, want exactly 1", phase, candidates)
+		}
+	}
+	if got := AgentTaskFor(ActivityMethodPhase("not-a-phase")); got != "" {
+		t.Errorf("AgentTaskFor(unknown) = %q, want \"\" — no attribution is possible", got)
 	}
 }
 

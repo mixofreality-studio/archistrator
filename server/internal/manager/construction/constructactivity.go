@@ -1292,19 +1292,18 @@ func (wf *workflows) finalizeActivity(
 // ALSO reads the PR's CI rollup and mirrors it onto the head-state (the git-forward
 // poll-loop verb, C-MCN-GIT) — dormant when the git slice is unwired.
 func (wf *workflows) runPipeline(ctx workflow.Context, in constructActivityInput, phase projectstate.ActivityMethodPhase, state *constructState, gf *gitForward, headVersion *projectstate.Version) (pipelineObservation, error) {
-	// The Figure A-1 task this dispatch's episode attributes to (Task 10): the phase's
-	// binary exit criterion (its gate task) when it has one, else the phase's first task.
-	// Every canonical phase currently HAS a gate task (gateTasks is total over the five),
-	// so the fallback is defensive rather than live today. The attempt number is drawn
-	// from the SAME per-task counter regardless of why this call is happening — the
-	// phase's first dispatch (walkPhases) or a gated phase's SendBack redraft
-	// (awaitPhaseDecision) both land here.
-	task := projectstate.GateTaskFor(phase)
-	if task == "" {
-		if tasks := projectstate.TasksForPhase(phase); len(tasks) > 0 {
-			task = tasks[0]
-		}
-	}
+	// The Figure A-1 task this dispatch's episode attributes to (Task 10). runPipeline is
+	// the AGENT-WORK dispatch — it submits the job that runs /service-detailed-design,
+	// /service-construction, and so on — so the episode is burned on the phase's AI-work
+	// task (projectstate.AgentTaskFor: srs / stp / detailedDesign / construction /
+	// integration), NOT on its gate task. The gate is the REVIEW of this work and belongs
+	// to awaitPhaseDecision; stamping it here would record the agent that WROTE the
+	// detailed design as its reviewer, inverting spec R1 permanently and undetectably.
+	// The attempt number is drawn from the SAME per-task counter regardless of why this
+	// call is happening — the phase's first dispatch (walkPhases) or a gated phase's
+	// SendBack redraft (awaitPhaseDecision) both land here, which is exactly what makes
+	// a send-back render detailedDesign#1 → designReview#1 → detailedDesign#2.
+	task := projectstate.AgentTaskFor(phase)
 	attempt := state.nextTaskAttempt(task)
 
 	handle, err := wf.submitPipeline(ctx, pipelineSpec{

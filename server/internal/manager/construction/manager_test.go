@@ -4508,11 +4508,24 @@ func Test_Construct_TerminalObservation_PersistsEpisodeRecord(t *testing.T) {
 	if rec.Kind != episode.EpisodeKindConstruction {
 		t.Errorf("Kind = %d, want EpisodeKindConstruction", rec.Kind)
 	}
-	// The first dispatched App-A phase is Requirements, whose gate task is SRS Review —
-	// this is the FIRST attempt at that task, so TargetRef carries the attempt key
-	// (Task 10), not the bare activity id.
-	if want := "C-XYZ:srsReview:1"; rec.TargetRef != want {
-		t.Errorf("TargetRef = %q, want the attempt-keyed ref %q", rec.TargetRef, want)
+	// TargetRef carries the attempt key (Task 10), not the bare activity id — and the
+	// task it names is the phase's AI-WORK task, never its gate task. runPipeline
+	// dispatches the agent that WRITES the artifact; the gate (srsReview, designReview,
+	// codeReview, …) is the review of that artifact and belongs to awaitPhaseDecision.
+	// Asserting the whole sequence, not just the first record, pins that for every one
+	// of the service profile's five phases: a gate-task attribution would read
+	// srsReview/designReview/stpReview/codeReview/testing here instead.
+	wantRefs := []string{
+		"C-XYZ:srs:1",
+		"C-XYZ:detailedDesign:1",
+		"C-XYZ:stp:1",
+		"C-XYZ:construction:1",
+		"C-XYZ:integration:1",
+	}
+	for i, want := range wantRefs {
+		if got[i].TargetRef != want {
+			t.Errorf("episode[%d].TargetRef = %q, want the AI-work attempt key %q", i, got[i].TargetRef, want)
+		}
 	}
 	if rec.Lineage == nil || rec.Lineage.WorkflowID == "" || rec.Lineage.RunID == "" {
 		t.Fatalf("Lineage must carry the durable execution identity, got %+v", rec.Lineage)
@@ -4560,8 +4573,9 @@ func Test_Construct_TerminalObservation_MissingSummary_PersistsGapRecord(t *test
 		t.Errorf("a synthesized gap id must be non-empty and store-safe, got %q", rec.EpisodeID)
 	}
 	// Same attempt-keyed TargetRef as the summary path (Task 10) — the first dispatched
-	// phase (Requirements) on its first attempt.
-	if want := "C-XYZ:srsReview:1"; rec.Kind != episode.EpisodeKindConstruction || rec.TargetRef != want {
+	// phase (Requirements) on its first attempt, attributed to that phase's AI-WORK task
+	// (srs), not to its gate task (srsReview), which reviews the SRS rather than writing it.
+	if want := "C-XYZ:srs:1"; rec.Kind != episode.EpisodeKindConstruction || rec.TargetRef != want {
 		t.Errorf("a gap still carries its Kind/TargetRef, got kind=%d ref=%q, want ref=%q", rec.Kind, rec.TargetRef, want)
 	}
 }
