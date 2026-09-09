@@ -1254,7 +1254,7 @@ cd ../webApp && npm run gen:api && npm run gen:ops
 cd server && GOWORK=off make gen-models-check && GOWORK=off make gen-client-check
 grep -n "type TaskAttempt struct" -A 14 internal/manager/systemdesign/contract.gen.go
 grep -n "Label" internal/manager/systemdesign/contract.gen.go | head -5
-cd ../webApp && npx tsc --noEmit
+cd ../webApp && npm run typecheck
 ```
 
 Expected: both `-check` targets exit 0 (they re-run the generator and diff); `TaskAttempt` present in `contract.gen.go` with all 10 fields; `PhaseCompletion` carries `Label`; `tsc` clean. The Go build will still fail in `systemdesignmanager.go` if you added the `Classified:` line early — that is wired in Task 7.
@@ -1575,7 +1575,7 @@ grep -c "export type LifecyclePhase" webApp/src/components/construction/lifecycl
 grep -c "activityprofile.go" webApp/src/components/construction/lifecycleTemplates.gen.ts           # 0
 grep -c "TESTING_HARNESS_PHASES" webApp/src/components/construction/lifecycleTemplates.gen.ts       # >=1
 grep -c "activeIdxFor" webApp/src/components/construction/lifecycleTemplates.ts                     # 0
-cd webApp && npx prettier --check src/components/construction/lifecycleTemplates.gen.ts && npx tsc --noEmit
+cd webApp && npx prettier --check src/components/construction/lifecycleTemplates.gen.ts && npm run typecheck
 ```
 
 Expected: `gen-uiprofiles-check` exits 0; all four greps match; prettier and tsc clean.
@@ -1621,74 +1621,73 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 Append to `webApp/src/contracts/constructionAdapters.test.ts`:
 
 ```ts
-import { describe, expect, it } from 'vitest';
-import { mapConstructionRow } from './wire';
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { mapConstructionRow } from './wire.ts';
 
-describe('mapConstructionRow', () => {
-  it('reads the Phases array the server already emits', () => {
-    const row = mapConstructionRow({
-      ActivityID: 'C-x',
-      Phases: [
-        { Phase: 'requirements', Weight: 15, Label: 'UX Requirements', Completed: true, ArtifactRef: '' },
-      ],
-      Attempts: [],
-      Classified: true,
-      WorstOrigin: 'observed',
-    } as never);
-    expect(row.phases).toHaveLength(1);
-    expect(row.phases[0].label).toBe('UX Requirements');
-    expect(row.phases[0].completed).toBe(true);
-  });
+void test('mapConstructionRow reads the Phases array the server already emits', () => {
+  const row = mapConstructionRow({
+    ActivityID: 'C-x',
+    Phases: [
+      { Phase: 'requirements', Weight: 15, Label: 'UX Requirements', Completed: true, ArtifactRef: '' },
+    ],
+    Attempts: [],
+    Classified: true,
+    WorstOrigin: 'observed',
+  } as never);
+  assert.equal(row.phases.length, 1);
+  assert.equal(row.phases[0]?.label, 'UX Requirements');
+  assert.equal(row.phases[0]?.completed, true);
+});
 
-  it('reads the attempt ledger with its join key', () => {
-    const row = mapConstructionRow({
-      ActivityID: 'C-x',
-      Phases: [],
-      Attempts: [
-        {
-          attemptId: 'C-x:designReview:2',
-          task: 'designReview',
-          phase: 'detailed_design',
-          attempt: 2,
-          outcome: 'rejected',
-          evidence: { kind: 'contract', ref: 'billingStateAccess' },
-          provenance: { origin: 'observed' },
-        },
-      ],
-      Classified: true,
-      WorstOrigin: 'observed',
-    } as never);
-    expect(row.attempts).toHaveLength(1);
-    expect(row.attempts[0].attemptId).toBe('C-x:designReview:2');
-    expect(row.attempts[0].evidence.kind).toBe('contract');
-  });
+void test('mapConstructionRow reads the attempt ledger with its join key', () => {
+  const row = mapConstructionRow({
+    ActivityID: 'C-x',
+    Phases: [],
+    Attempts: [
+      {
+        attemptId: 'C-x:designReview:2',
+        task: 'designReview',
+        phase: 'detailed_design',
+        attempt: 2,
+        outcome: 'rejected',
+        evidence: { kind: 'contract', ref: 'billingStateAccess' },
+        provenance: { origin: 'observed' },
+      },
+    ],
+    Classified: true,
+    WorstOrigin: 'observed',
+  } as never);
+  assert.equal(row.attempts.length, 1);
+  assert.equal(row.attempts[0]?.attemptId, 'C-x:designReview:2');
+  assert.equal(row.attempts[0]?.evidence.kind, 'contract');
+});
 
-  // The zero value must survive the boundary as "synthesized", never as observed.
-  it('treats an absent provenance origin as synthesized', () => {
-    const row = mapConstructionRow({
-      ActivityID: 'C-x',
-      Phases: [],
-      Attempts: [
-        { attemptId: 'C-x:srs:1', task: 'srs', phase: 'requirements', attempt: 1, outcome: '', evidence: {}, provenance: {} },
-      ],
-      Classified: true,
-      WorstOrigin: '',
-    } as never);
-    expect(row.attempts[0].provenance.origin).toBe('synthesized');
-    expect(row.worstOrigin).toBe('synthesized');
-  });
+// The zero value must survive the boundary as "synthesized", never as observed.
+void test('mapConstructionRow treats an absent provenance origin as synthesized', () => {
+  const row = mapConstructionRow({
+    ActivityID: 'C-x',
+    Phases: [],
+    Attempts: [
+      { attemptId: 'C-x:srs:1', task: 'srs', phase: 'requirements', attempt: 1, outcome: '', evidence: {}, provenance: {} },
+    ],
+    Classified: true,
+    WorstOrigin: '',
+  } as never);
+  assert.equal(row.attempts[0]?.provenance.origin, 'synthesized');
+  assert.equal(row.worstOrigin, 'synthesized');
+});
 
-  it('treats an absent Classified flag as unclassified', () => {
-    const row = mapConstructionRow({ ActivityID: 'C-x', Phases: [], Attempts: [] } as never);
-    expect(row.classified).toBe(false);
-  });
+void test('mapConstructionRow treats an absent Classified flag as unclassified', () => {
+  const row = mapConstructionRow({ ActivityID: 'C-x', Phases: [], Attempts: [] } as never);
+  assert.equal(row.classified, false);
 });
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
 ```bash
-cd webApp && npx vitest run src/contracts/constructionAdapters.test.ts
+cd webApp && node --test src/contracts/constructionAdapters.test.ts
 ```
 
 Expected: FAIL — `row.phases` is undefined.
@@ -1737,7 +1736,7 @@ export interface PhaseRow {
 }
 ```
 
-Add to `ConstructionRow`: `phases: PhaseRow[]`, `attempts: TaskAttemptRow[]`, `classified: boolean`, `worstOrigin: RecordOriginRow`. Rename its `phase` field to `currentLifecyclePhase` and update every reference (`npx tsc --noEmit` will list them).
+Add to `ConstructionRow`: `phases: PhaseRow[]`, `attempts: TaskAttemptRow[]`, `classified: boolean`, `worstOrigin: RecordOriginRow`. Rename its `phase` field to `currentLifecyclePhase` and update every reference (`npm run typecheck` will list them).
 
 In `webApp/src/contracts/wire.ts`, inside `mapConstructionRow`, add:
 
@@ -1793,7 +1792,7 @@ Note `wire.ts`'s documented guard: Go `nil` maps and slices serialize as JSON `n
 - [ ] **Step 4: Run tests to verify they pass**
 
 ```bash
-cd webApp && npx vitest run src/contracts/ && npx tsc --noEmit && npx eslint src/contracts/
+cd webApp && node --test 'src/contracts/**/*.test.ts' && npm run typecheck && npx eslint src/contracts/
 ```
 
 Expected: PASS on all four new tests; tsc and eslint clean.
@@ -2393,9 +2392,9 @@ GOWORK=off make method-check
 GOWORK=off make lint
 
 cd ../webApp
-npx tsc --noEmit
+npm run typecheck
 npx eslint src/
-npx vitest run
+npm test
 npm run build
 ```
 

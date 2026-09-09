@@ -123,8 +123,13 @@ Emission is one rule, not a per-type table:
 4. Task labels inherit the profile's per-phase `Label`, so `testing` reads "Doc Review" for
    Documentation and "Convergence Verification" for Deployment. No per-type task tables.
 
-Resulting counts: service 12 · frontend 12 · deployment 9 · documentation 9 · uiDesign 5 ·
+Resulting counts: service 12 · frontend 12 · deployment 8 · documentation 8 · uiDesign 5 ·
 integration 2 · testing 5 profile-dependent variants.
+
+(Deployment and Documentation were published here as 9 apiece. They are **8**: both profiles
+carry three phases — DetailedDesign 3 + Construction 3 + Integration 2. Corrected against
+`ProfileFor`/`TasksForPhase`, and pinned by `TestTasksForProfile_PerTypeTaskSets`, which now
+asserts the whole task SET rather than a count a wrong set would also satisfy.)
 
 **Two `gen-uiprofiles` defects are in scope**, because that generator is the seam carrying this
 vocabulary to TS: its header and the generated file cite
