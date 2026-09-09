@@ -10312,3 +10312,112 @@ func Test_RequestArtifactDraft_RejectsEmptyFeedbackEnvelope(t *testing.T) {
 		t.Fatalf("want ContractMisuse for a present-but-empty feedback envelope, got %d (%v)", got, err)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Stage-A construction read path: phase labels, the attempt ledger, and the
+// honest-blank classification. The wire field is `AttemptId` (modelgen casing),
+// not AttemptID — the mapper is the only place the two spellings meet.
+// ---------------------------------------------------------------------------
+
+func TestPhasesToContract_CarriesLabel(t *testing.T) {
+	in := []projectstate.PhaseCompletion{
+		{Phase: projectstate.MethodPhaseRequirements, Weight: 15, Label: "UX Requirements"},
+	}
+	got := phasesToContract(in)
+	if len(got) != 1 {
+		t.Fatalf("phasesToContract len = %d, want 1", len(got))
+	}
+	if got[0].Label != "UX Requirements" {
+		t.Errorf("Label = %q, want %q — a Frontend activity must not render Service labels", got[0].Label, "UX Requirements")
+	}
+}
+
+func TestAttemptsToContract_PreservesTheJoinKeyAndProvenance(t *testing.T) {
+	in := []projectstate.TaskAttempt{{
+		AttemptID:  projectstate.AttemptID("C-x", projectstate.TaskDesignReview, 2),
+		Task:       projectstate.TaskDesignReview,
+		Phase:      projectstate.MethodPhaseDetailedDesign,
+		Attempt:    2,
+		Actor:      projectstate.ActorAgent,
+		Outcome:    projectstate.OutcomeRejected,
+		Evidence:   projectstate.EvidenceRef{Kind: projectstate.EvidenceContract, Ref: "billingStateAccess"},
+		Provenance: projectstate.AttemptProvenance{Origin: projectstate.OriginObserved},
+	}}
+	got := attemptsToContract(in)
+	if len(got) != 1 {
+		t.Fatalf("attemptsToContract len = %d, want 1", len(got))
+	}
+	if got[0].AttemptId != "C-x:designReview:2" {
+		t.Errorf("AttemptId = %q, want %q", got[0].AttemptId, "C-x:designReview:2")
+	}
+	if got[0].Task != string(projectstate.TaskDesignReview) {
+		t.Errorf("Task = %q, want designReview", got[0].Task)
+	}
+	if got[0].Phase != ActivityMethodPhase(string(projectstate.MethodPhaseDetailedDesign)) {
+		t.Errorf("Phase = %q, want detailedDesign", got[0].Phase)
+	}
+	if got[0].Attempt != 2 {
+		t.Errorf("Attempt = %d, want 2", got[0].Attempt)
+	}
+	if got[0].Actor == nil || *got[0].Actor != string(projectstate.ActorAgent) {
+		t.Errorf("Actor = %v, want agent", got[0].Actor)
+	}
+	if got[0].Outcome != string(projectstate.OutcomeRejected) {
+		t.Errorf("Outcome = %q, want rejected", got[0].Outcome)
+	}
+	if got[0].Provenance.Origin != string(projectstate.OriginObserved) {
+		t.Errorf("Provenance.Origin = %q, want %q", got[0].Provenance.Origin, projectstate.OriginObserved)
+	}
+	if got[0].Evidence.Kind != string(projectstate.EvidenceContract) || got[0].Evidence.Ref != "billingStateAccess" {
+		t.Errorf("Evidence = %+v, want {contract billingStateAccess}", got[0].Evidence)
+	}
+}
+
+// The zero origin means SYNTHESIZED and must cross the boundary as the empty string.
+// A mapper that defaulted it to "observed" would bless every fabricated row.
+func TestAttemptsToContract_ZeroOriginStaysSynthesized(t *testing.T) {
+	got := attemptsToContract([]projectstate.TaskAttempt{{
+		AttemptID: projectstate.AttemptID("C-x", projectstate.TaskConstruction, 1),
+		Task:      projectstate.TaskConstruction,
+	}})
+	if len(got) != 1 {
+		t.Fatalf("attemptsToContract len = %d, want 1", len(got))
+	}
+	if got[0].Provenance.Origin != string(projectstate.OriginSynthesized) {
+		t.Errorf("Provenance.Origin = %q, want %q (synthesized)", got[0].Provenance.Origin, projectstate.OriginSynthesized)
+	}
+	if got[0].Provenance.Generator != nil || got[0].Provenance.Basis != nil {
+		t.Errorf("absent generator/basis must be omitted, got %+v", got[0].Provenance)
+	}
+	if got[0].Actor != nil {
+		t.Errorf("absent actor must be omitted, got %v", *got[0].Actor)
+	}
+}
+
+func TestAttemptsToContract_EmptyIsNil(t *testing.T) {
+	if got := attemptsToContract(nil); got != nil {
+		t.Errorf("attemptsToContract(nil) = %v, want nil", got)
+	}
+}
+
+// The row-level roll-up: a ledger carrying one synthesized attempt taints the whole
+// activity, and Classified is true for an activity the classifier could type.
+func TestConstructionRowsToContract_CarriesLedgerAndWorstOrigin(t *testing.T) {
+	rows := map[string]projectstate.ActivityConstructionStatus{
+		"C-BE": {ActivityID: "C-BE", Attempts: []projectstate.TaskAttempt{
+			{AttemptID: "C-BE:codeReview:1", Task: projectstate.TaskCodeReview, Provenance: projectstate.AttemptProvenance{Origin: projectstate.OriginObserved}},
+			{AttemptID: "C-BE:construction:1", Task: projectstate.TaskConstruction, Provenance: projectstate.AttemptProvenance{Origin: projectstate.OriginSynthesized}},
+		}},
+	}
+	meta := map[string]projectstate.ActivityItem{"C-BE": {Name: "C-BE", WorkerClass: "junior-developer", Coding: true}}
+	got := constructionRowsToContract(rows, meta)["C-BE"]
+	if len(got.Attempts) != 2 {
+		t.Fatalf("Attempts len = %d, want 2", len(got.Attempts))
+	}
+	if !got.Classified {
+		t.Errorf("Classified = false, want true for a typed activity")
+	}
+	if got.WorstOrigin != string(projectstate.OriginSynthesized) {
+		t.Errorf("WorstOrigin = %q, want %q — one synthesized attempt taints the row", got.WorstOrigin, projectstate.OriginSynthesized)
+	}
+}

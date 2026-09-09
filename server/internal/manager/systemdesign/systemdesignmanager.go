@@ -3376,6 +3376,9 @@ func constructionRowsToContract(
 			Produced:      producedToContract(r.Produced),
 			FailureReason: FailureReason(int(r.FailureReason)),
 			FailureDetail: r.FailureDetail,
+			Attempts:      attemptsToContract(r.Attempts),
+			Classified:    classified,
+			WorstOrigin:   string(projectstate.AttemptsWorstOrigin(r.Attempts)),
 		}
 	}
 	return out
@@ -3417,6 +3420,38 @@ func phasesToContract(phases []projectstate.PhaseCompletion) []PhaseCompletion {
 			Completed:   ph.Completed,
 			CompletedAt: ph.CompletedAt,
 			ArtifactRef: ph.ArtifactRef,
+			Label:       ph.Label,
+		})
+	}
+	return out
+}
+
+// attemptsToContract maps the append-only Figure A-1 task ledger onto the wire.
+// Provenance is copied VERBATIM and never defaulted — the zero origin means
+// "synthesized" and must survive the boundary as such; a mapper that filled in a
+// missing origin would launder a fabricated row into an observed one.
+func attemptsToContract(attempts []projectstate.TaskAttempt) []TaskAttempt {
+	if len(attempts) == 0 {
+		return nil
+	}
+	out := make([]TaskAttempt, 0, len(attempts))
+	for _, a := range attempts {
+		out = append(out, TaskAttempt{
+			AttemptId: a.AttemptID,
+			Task:      string(a.Task),
+			Phase:     ActivityMethodPhase(string(a.Phase)),
+			Attempt:   int64(a.Attempt),
+			Actor:     strPtrOrNil(string(a.Actor)),
+			StartedAt: a.StartedAt,
+			EndedAt:   a.EndedAt,
+			Outcome:   string(a.Outcome),
+			Evidence:  EvidenceRef{Kind: string(a.Evidence.Kind), Ref: a.Evidence.Ref},
+			Provenance: AttemptProvenance{
+				Origin:      string(a.Provenance.Origin),
+				Generator:   strPtrOrNil(a.Provenance.Generator),
+				GeneratedAt: a.Provenance.GeneratedAt,
+				Basis:       strPtrOrNil(a.Provenance.Basis),
+			},
 		})
 	}
 	return out
