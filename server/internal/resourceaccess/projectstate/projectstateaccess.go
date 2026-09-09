@@ -7306,24 +7306,35 @@ func CoarsePhase(phases []PhaseCompletion) ActivityConstructionPhase {
 	return ActivityConstructionNotStarted
 }
 
-// CoarseBuildStatus derives the ActivityBuildStatus from the phase set and current
-// phase (compute-at-read; kept for back-compat). Rules: Integration phase done →
-// BuildIntegrated; Construction phase done but Integration not → BuildInReview;
-// otherwise → BuildInConstruction.
-// The second (phase) parameter is reserved for future use (fine-grained phase
-// display) and is ignored; coarse status is derived solely from Phases completion.
+// CoarseBuildStatus derives the ActivityBuildStatus from the phase set (compute-at-read).
+//
+// Rules: ALL profile phases complete → BuildIntegrated; the Construction phase complete
+// but not all → BuildInReview; otherwise → BuildInConstruction.
+//
+// The all-phases rule is deliberate. The old rule returned Integrated on Integration-done
+// alone, which is how G-SPA came to report Integrated at 85% with Requirements never
+// completed. Requiring every phase in the activity's own profile makes that state
+// impossible rather than merely unlikely — and it works for profiles that carry no
+// Integration phase at all (uiDesign, documentation), which the old rule left permanently
+// stuck in construction.
+//
+// The second parameter is retained for signature compatibility and is unused: coarse
+// status is derived solely from phase completion.
 func CoarseBuildStatus(phases []PhaseCompletion, _ ActivityMethodPhase) ActivityBuildStatus {
+	if len(phases) == 0 {
+		return BuildInConstruction
+	}
+	allDone := true
 	constructionDone := false
-	integrationDone := false
 	for _, p := range phases {
+		if !p.Completed {
+			allDone = false
+		}
 		if p.Phase == MethodPhaseConstruction && p.Completed {
 			constructionDone = true
 		}
-		if p.Phase == MethodPhaseIntegration && p.Completed {
-			integrationDone = true
-		}
 	}
-	if integrationDone {
+	if allDone {
 		return BuildIntegrated
 	}
 	if constructionDone {

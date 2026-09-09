@@ -6582,16 +6582,14 @@ func TestCoarsePhase_EmptyPhases(t *testing.T) {
 	}
 }
 
-func TestCoarseBuildStatus_Integrated(t *testing.T) {
+func TestCoarseBuildStatus_IntegratedWhenAllPhasesDone(t *testing.T) {
 	phases := phaseSetFor(ActivityTypeService, 0)
-	// Mark both Construction and Integration done.
+	// Mark every phase done.
 	for i := range phases {
-		if phases[i].Phase == MethodPhaseConstruction || phases[i].Phase == MethodPhaseIntegration {
-			phases[i].Completed = true
-		}
+		phases[i].Completed = true
 	}
 	if got := CoarseBuildStatus(phases, MethodPhaseIntegration); got != BuildIntegrated {
-		t.Errorf("CoarseBuildStatus(integration done) = %v, want Integrated", got)
+		t.Errorf("CoarseBuildStatus(all phases done) = %v, want Integrated", got)
 	}
 }
 
@@ -8563,5 +8561,52 @@ func TestWorstOrigin_UnknownOriginRanksAsSynthesized(t *testing.T) {
 	p := AttemptProvenance{Origin: got}
 	if err := p.Validate(); err == nil {
 		t.Error("unknown origin should fail Validate(), proving it's treated as dangerous")
+	}
+}
+
+// The G-SPA bug: Integration done while Requirements never completed must NOT read
+// as Integrated.
+func TestCoarseBuildStatus_RequiresAllPhasesForIntegrated(t *testing.T) {
+	phases := phaseSetFor(ActivityTypeService, 0)
+	for i := range phases {
+		// Everything except Requirements.
+		if phases[i].Phase != MethodPhaseRequirements {
+			phases[i].Completed = true
+		}
+	}
+	if got := CoarseBuildStatus(phases, MethodPhaseIntegration); got == BuildIntegrated {
+		t.Error("CoarseBuildStatus reported Integrated with Requirements incomplete")
+	}
+}
+
+func TestCoarseBuildStatus_AllPhasesCompleteIsIntegrated(t *testing.T) {
+	phases := phaseSetFor(ActivityTypeService, 0)
+	for i := range phases {
+		phases[i].Completed = true
+	}
+	if got := CoarseBuildStatus(phases, MethodPhaseIntegration); got != BuildIntegrated {
+		t.Errorf("CoarseBuildStatus(all done) = %v, want Integrated", got)
+	}
+}
+
+// A uiDesign profile has no Integration phase at all; completing its two phases must
+// still read as Integrated rather than being stuck in construction forever.
+func TestCoarseBuildStatus_ProfileWithoutIntegrationCanIntegrate(t *testing.T) {
+	phases := phaseSetFor(ActivityTypeUIDesign, 0)
+	for i := range phases {
+		phases[i].Completed = true
+	}
+	if got := CoarseBuildStatus(phases, MethodPhaseDetailedDesign); got != BuildIntegrated {
+		t.Errorf("uiDesign all-phases-done = %v, want Integrated", got)
+	}
+}
+
+func TestCoarseBuildStatusFor_StoredFailureIsStillSticky(t *testing.T) {
+	phases := phaseSetFor(ActivityTypeService, 0)
+	for i := range phases {
+		phases[i].Completed = true
+	}
+	if got := CoarseBuildStatusFor(BuildFailed, phases, MethodPhaseIntegration); got != BuildFailed {
+		t.Errorf("CoarseBuildStatusFor(stored=Failed) = %v, want Failed (sticky)", got)
 	}
 }
