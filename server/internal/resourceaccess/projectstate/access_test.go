@@ -8185,6 +8185,28 @@ func TestLatestAttempt_ReturnsHighestAttemptNumber(t *testing.T) {
 	}
 }
 
+// LatestAttempt must select on the attempt NUMBER, not on slice position. Every other
+// fixture happens to store attempts in ascending order, so a naive "return the last
+// matching element" implementation would pass them all. This one stores attempt 2
+// BEFORE attempt 1 for the same task; the ledger is append-only but nothing in the
+// type guarantees a caller hands it a sorted slice.
+func TestLatestAttempt_IgnoresSliceOrder(t *testing.T) {
+	attempts := []TaskAttempt{
+		{AttemptID: AttemptID("C-x", TaskDetailedDesign, 2), Task: TaskDetailedDesign, Attempt: 2, Outcome: OutcomePassed},
+		{AttemptID: AttemptID("C-x", TaskDetailedDesign, 1), Task: TaskDetailedDesign, Attempt: 1, Outcome: OutcomeRejected},
+	}
+	got, ok := LatestAttempt(attempts, TaskDetailedDesign)
+	if !ok {
+		t.Fatal("LatestAttempt(detailedDesign) not found")
+	}
+	if got.Attempt != 2 {
+		t.Errorf("LatestAttempt returned attempt %d for an out-of-order slice, want 2", got.Attempt)
+	}
+	if got.Outcome != OutcomePassed {
+		t.Errorf("LatestAttempt returned outcome %q, want %q — it picked the wrong record", got.Outcome, OutcomePassed)
+	}
+}
+
 func TestLatestAttempt_MissingTaskReportsNotFound(t *testing.T) {
 	if _, ok := LatestAttempt(nil, TaskCodeReview); ok {
 		t.Error("LatestAttempt(nil) reported found, want not found")
@@ -8219,14 +8241,61 @@ func TestPhaseCompleteFromAttempts_RejectedGateIsNotComplete(t *testing.T) {
 	}
 }
 
+// The rule under test is the struct TAG, not the round-trip. encoding/json never
+// treats a non-pointer struct-typed field as empty, so an omitempty on Provenance
+// would be a silent no-op TODAY and a live bug the moment the field becomes a
+// pointer or the encoder's emptiness rule changes. A marshal-and-grep assertion
+// passes either way and therefore proves nothing; assert the tag itself.
 func TestTaskAttempt_ProvenanceIsNotOmitempty(t *testing.T) {
-	a := TaskAttempt{AttemptID: "C-x:srs:1", Task: TaskSRS, Attempt: 1}
-	b, err := json.Marshal(a)
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
+	f, ok := reflect.TypeOf(TaskAttempt{}).FieldByName("Provenance")
+	if !ok {
+		t.Fatal("TaskAttempt has no Provenance field")
 	}
-	if !strings.Contains(string(b), `"provenance"`) {
-		t.Errorf("marshalled TaskAttempt omitted provenance: %s", b)
+	if got := f.Tag.Get("json"); got != "provenance" {
+		t.Errorf(`TaskAttempt.Provenance json tag = %q, want exactly "provenance" — a missing or dropped provenance stamp must never be omitted from the wire`, got)
+	}
+}
+
+// Phase is denormalized from PhaseForTask(Task). Assert the rule itself over all
+// twelve tasks so the two cannot drift once real writers start populating the field.
+func TestTaskAttempt_PhaseIsDenormalizedFromTask(t *testing.T) {
+	all := []MethodTask{
+		TaskSRS, TaskSRSReview, TaskSTP, TaskSTPReview,
+		TaskSomeConstruction, TaskDetailedDesign, TaskDesignReview,
+		TaskConstruction, TaskTestClient, TaskCodeReview,
+		TaskIntegration, TaskTesting,
+	}
+	if len(all) != 12 {
+		t.Fatalf("fixture lists %d tasks, want the 12 of Figure A-1", len(all))
+	}
+	for _, task := range all {
+		// The stamp any writer must apply.
+		a := TaskAttempt{
+			AttemptID: AttemptID("C-x", task, 1),
+			Task:      task,
+			Phase:     PhaseForTask(task),
+			Attempt:   1,
+		}
+		if a.Phase != PhaseForTask(a.Task) {
+			t.Errorf("TaskAttempt{Task: %q}.Phase = %v, want PhaseForTask(%q) = %v", task, a.Phase, task, PhaseForTask(task))
+			continue
+		}
+		if a.Phase == "" {
+			t.Errorf("PhaseForTask(%q) = \"\" — every Figure A-1 task belongs to a phase", task)
+			continue
+		}
+		// Cross-check the denormalized value against the independent grouping table:
+		// the phase stamped on the attempt must be one that actually owns the task.
+		owns := false
+		for _, sibling := range TasksForPhase(a.Phase) {
+			if sibling == a.Task {
+				owns = true
+				break
+			}
+		}
+		if !owns {
+			t.Errorf("attempt %q stamped Phase %v, but TasksForPhase(%v) does not contain %q", a.AttemptID, a.Phase, a.Phase, a.Task)
+		}
 	}
 }
 
@@ -8273,5 +8342,226 @@ func TestClassifyType_ClassifiableRowsStillResolve(t *testing.T) {
 		if typ != c.want {
 			t.Errorf("%s: ClassifyType = %v, want %v", c.id, typ, c.want)
 		}
+	}
+}
+
+func TestTasksForPhase_MatchesFigureA2Grouping(t *testing.T) {
+	cases := []struct {
+		phase ActivityMethodPhase
+		want  []MethodTask
+	}{
+		{MethodPhaseRequirements, []MethodTask{TaskSRS, TaskSRSReview}},
+		{MethodPhaseTestPlan, []MethodTask{TaskSTP, TaskSTPReview}},
+		{MethodPhaseDetailedDesign, []MethodTask{TaskSomeConstruction, TaskDetailedDesign, TaskDesignReview}},
+		{MethodPhaseConstruction, []MethodTask{TaskConstruction, TaskTestClient, TaskCodeReview}},
+		{MethodPhaseIntegration, []MethodTask{TaskIntegration, TaskTesting}},
+	}
+	for _, c := range cases {
+		got := TasksForPhase(c.phase)
+		if len(got) != len(c.want) {
+			t.Fatalf("TasksForPhase(%v) = %v, want %v", c.phase, got, c.want)
+		}
+		for i := range got {
+			if got[i] != c.want[i] {
+				t.Errorf("TasksForPhase(%v)[%d] = %q, want %q", c.phase, i, got[i], c.want[i])
+			}
+		}
+	}
+}
+
+func TestTasksForPhase_TwelveTasksTotal(t *testing.T) {
+	all := map[MethodTask]bool{}
+	for _, p := range []ActivityMethodPhase{
+		MethodPhaseRequirements, MethodPhaseTestPlan, MethodPhaseDetailedDesign,
+		MethodPhaseConstruction, MethodPhaseIntegration,
+	} {
+		for _, task := range TasksForPhase(p) {
+			all[task] = true
+		}
+	}
+	if len(all) != 12 {
+		t.Errorf("total distinct tasks = %d, want 12 (Figure A-1)", len(all))
+	}
+}
+
+func TestGateTaskFor_IsTheBinaryExitCriterion(t *testing.T) {
+	cases := map[ActivityMethodPhase]MethodTask{
+		MethodPhaseRequirements:   TaskSRSReview,
+		MethodPhaseTestPlan:       TaskSTPReview,
+		MethodPhaseDetailedDesign: TaskDesignReview,
+		MethodPhaseConstruction:   TaskCodeReview,
+		MethodPhaseIntegration:    TaskTesting,
+	}
+	for phase, want := range cases {
+		if got := GateTaskFor(phase); got != want {
+			t.Errorf("GateTaskFor(%v) = %q, want %q", phase, got, want)
+		}
+		if !IsGateTask(want) {
+			t.Errorf("IsGateTask(%q) = false, want true", want)
+		}
+	}
+}
+
+func TestIsConditionalTask_OnlySomeConstructionAndTestClient(t *testing.T) {
+	if !IsConditionalTask(TaskSomeConstruction) {
+		t.Error("someConstruction must be conditional-emit")
+	}
+	if !IsConditionalTask(TaskTestClient) {
+		t.Error("testClient must be conditional-emit")
+	}
+	if IsConditionalTask(TaskDetailedDesign) {
+		t.Error("detailedDesign must be invariant, not conditional")
+	}
+}
+
+func TestPhaseForTask_RoundTrips(t *testing.T) {
+	for _, p := range []ActivityMethodPhase{
+		MethodPhaseRequirements, MethodPhaseTestPlan, MethodPhaseDetailedDesign,
+		MethodPhaseConstruction, MethodPhaseIntegration,
+	} {
+		for _, task := range TasksForPhase(p) {
+			if got := PhaseForTask(task); got != p {
+				t.Errorf("PhaseForTask(%q) = %v, want %v", task, got, p)
+			}
+		}
+	}
+}
+
+func TestTasksForProfile_PerTypeCounts(t *testing.T) {
+	cases := []struct {
+		name string
+		typ  ActivityType
+		want int
+	}{
+		{"service", ActivityTypeService, 12},
+		{"frontend", ActivityTypeFrontend, 12},
+		{"deployment", ActivityTypeDeployment, 8},
+		{"documentation", ActivityTypeDocumentation, 8},
+		{"uiDesign", ActivityTypeUIDesign, 5},
+		{"integration", ActivityTypeIntegration, 2},
+	}
+	for _, c := range cases {
+		got := TasksForProfile(ProfileFor(c.typ, TestVariantPlan))
+		if len(got) != c.want {
+			t.Errorf("%s: TasksForProfile len = %d, want %d (got %v)", c.name, len(got), c.want, got)
+		}
+	}
+}
+
+func TestAttemptID_Format(t *testing.T) {
+	got := AttemptID("C-billing-manager", TaskDesignReview, 2)
+	want := "C-billing-manager:designReview:2"
+	if got != want {
+		t.Errorf("AttemptID = %q, want %q", got, want)
+	}
+}
+
+// The whole design: a dropped or absent stamp must fail SUSPICIOUS, never blessed.
+func TestRecordOrigin_ZeroValueIsSynthesized(t *testing.T) {
+	var zero RecordOrigin
+	if zero != OriginSynthesized {
+		t.Fatalf("zero RecordOrigin = %q, want %q — a missing stamp must never read as observed", zero, OriginSynthesized)
+	}
+}
+
+func TestAttemptProvenance_ZeroStructIsSynthesized(t *testing.T) {
+	var p AttemptProvenance
+	if p.Origin != OriginSynthesized {
+		t.Errorf("zero AttemptProvenance.Origin = %q, want %q", p.Origin, OriginSynthesized)
+	}
+}
+
+func TestAttemptProvenance_DecodingAbsentOriginIsSynthesized(t *testing.T) {
+	var p AttemptProvenance
+	if err := json.Unmarshal([]byte(`{"generator":"x"}`), &p); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if p.Origin != OriginSynthesized {
+		t.Errorf("absent origin decoded to %q, want %q", p.Origin, OriginSynthesized)
+	}
+}
+
+func TestAttemptProvenance_EncodingEmitsOriginKey(t *testing.T) {
+	// Finding 1: No omitempty on Origin means zero value MUST be emitted on the wire.
+	// If someone added omitempty, synthesized origins would be silently dropped.
+	p := AttemptProvenance{} // zero value: Origin = OriginSynthesized
+	data, err := json.Marshal(p)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	// The "origin" key must be present in the JSON, even though its value is empty string.
+	if !bytes.Contains(data, []byte(`"origin":`)) {
+		t.Errorf("marshaled JSON = %s, want to contain \"origin\" key", data)
+	}
+}
+
+func TestAttemptProvenance_ValidateRejectsUnknownOrigin(t *testing.T) {
+	p := AttemptProvenance{Origin: RecordOrigin("observed-ish")}
+	if err := p.Validate(); err == nil {
+		t.Error("Validate() accepted an unknown origin, want error")
+	}
+}
+
+func TestAttemptProvenance_ValidateAcceptsKnownOrigins(t *testing.T) {
+	// Finding 3: Positive cases for Validate().
+	cases := []struct {
+		name string
+		p    AttemptProvenance
+	}{
+		{"zero value (synthesized)", AttemptProvenance{}},
+		{"observed", AttemptProvenance{Origin: OriginObserved}},
+		{"backfilled with basis", AttemptProvenance{Origin: OriginBackfilled, Basis: "serviceContracts[artifactAccess]"}},
+	}
+	for _, c := range cases {
+		if err := c.p.Validate(); err != nil {
+			t.Errorf("%s: Validate() = %v, want nil", c.name, err)
+		}
+	}
+}
+
+func TestAttemptProvenance_ValidateRequiresBasisForBackfilled(t *testing.T) {
+	p := AttemptProvenance{Origin: OriginBackfilled}
+	if err := p.Validate(); err == nil {
+		t.Error("Validate() accepted backfilled with no basis, want error")
+	}
+	p.Basis = "serviceContracts[artifactAccess]"
+	if err := p.Validate(); err != nil {
+		t.Errorf("Validate() rejected backfilled with a basis: %v", err)
+	}
+}
+
+// Contagion: a value derived from any synthesized input is itself synthesized.
+func TestWorstOrigin_Contagion(t *testing.T) {
+	cases := []struct {
+		name string
+		in   []RecordOrigin
+		want RecordOrigin
+	}{
+		{"all observed", []RecordOrigin{OriginObserved, OriginObserved}, OriginObserved},
+		{"one backfilled", []RecordOrigin{OriginObserved, OriginBackfilled}, OriginBackfilled},
+		{"one synthesized wins", []RecordOrigin{OriginObserved, OriginBackfilled, OriginSynthesized}, OriginSynthesized},
+		{"empty is observed", nil, OriginObserved},
+	}
+	for _, c := range cases {
+		if got := WorstOrigin(c.in...); got != c.want {
+			t.Errorf("%s: WorstOrigin(%v) = %q, want %q", c.name, c.in, got, c.want)
+		}
+	}
+}
+
+func TestWorstOrigin_UnknownOriginRanksAsSynthesized(t *testing.T) {
+	// Finding 2: Unknown origins (those not in the closed enum) must rank as badly as synthesized.
+	// If someone changed originRank's default branch to rank unknown as trustworthy,
+	// this test would catch it.
+	got := WorstOrigin(OriginObserved, RecordOrigin("who-knows"))
+	// The unknown origin becomes the worst (has rank 0, same as synthesized), so it's returned.
+	want := RecordOrigin("who-knows")
+	if got != want {
+		t.Errorf("WorstOrigin(OriginObserved, \"who-knows\") = %q, want %q", got, want)
+	}
+	// Verify that the unknown origin is suspicious (fails validation) — the critical property.
+	p := AttemptProvenance{Origin: got}
+	if err := p.Validate(); err == nil {
+		t.Error("unknown origin should fail Validate(), proving it's treated as dangerous")
 	}
 }

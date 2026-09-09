@@ -513,6 +513,38 @@ var encapsulationAllowlistData = map[string][]string{
 		"DesignJobModeAnswer",
 		"DesignJobModeCritique",
 		"DesignJobModeDraft",
+		// FIGURE A-1 TASK VOCABULARY + ATTEMPT-LEDGER DERIVATION HELPERS. Same category
+		// as ClassifyActivity/CommandFor above: total, side-effect-free functions over
+		// projectstate's OWN owned types (MethodTask, ActivityMethodPhase, Profile,
+		// TaskAttempt, RecordOrigin), shared downward with Managers on the normal
+		// RA→Manager layer edge. None of them touches a resource — no clone, no read, no
+		// write, no clock — so there is no contract operation to generate for them.
+		//
+		// TasksForPhase / TasksForProfile / GateTaskFor / IsGateTask / IsConditionalTask /
+		// PhaseForTask are the Figure A-1 grouping itself: the systemdesign Manager's
+		// construction view-model derives the task ROW SET from the activity's profile
+		// rather than from storage, so the tasks that never happened still render and a
+		// stored skeleton cannot drift from ProfileFor. AttemptID is the one producer of
+		// the ledger's join key — the construction Manager stamps it onto every
+		// EpisodeRecord TargetRef for episode attribution, so it must never be inlined.
+		// LatestAttempt / PhaseCompleteFromAttempts are App A's binary exit criterion read
+		// off the append-only ledger; WorstOrigin / AttemptsWorstOrigin are the provenance
+		// contagion roll-up. This vocabulary lands ahead of its callers (stage A of the
+		// construction-UI rewrite); the consumers it is exported FOR are the systemdesign
+		// Manager's construction view-model, the construction Manager's episode
+		// attribution, and the cmd/backfill-attempts producer already named in
+		// AttemptProvenance.Generator.
+		"AttemptID",
+		"AttemptsWorstOrigin",
+		"GateTaskFor",
+		"IsConditionalTask",
+		"IsGateTask",
+		"LatestAttempt",
+		"PhaseCompleteFromAttempts",
+		"PhaseForTask",
+		"TasksForPhase",
+		"TasksForProfile",
+		"WorstOrigin",
 		"CoarseBuildStatus",
 		"CoarseBuildStatusFor",
 		"CoarsePhase",

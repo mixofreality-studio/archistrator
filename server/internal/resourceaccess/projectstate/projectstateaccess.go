@@ -7003,6 +7003,91 @@ type PhaseCompletion struct {
 	ArtifactRef string              `json:"artifactRef,omitempty"`
 }
 
+// RecordOrigin says how a TaskAttempt came to exist. It is REQUIRED on every attempt
+// and is never omitempty.
+//
+// The zero value is OriginSynthesized on purpose. A missing or dropped stamp must fail
+// SUSPICIOUS, never blessed — an omitempty field whose zero value meant "observed" is
+// exactly how a fabricated row would launder itself through a round-trip.
+//
+// Three values, not two: some rows genuinely can be reconstructed from real evidence
+// (a frozen contract in .serviceContracts, a merged commit). Those are not lies and
+// must not be tarred as fakes; they were also not observed.
+type RecordOrigin string
+
+// The three origins. OriginSynthesized MUST remain the empty string.
+const (
+	// OriginSynthesized — fabricated for the UI wave; no event backs it. ZERO VALUE.
+	OriginSynthesized RecordOrigin = ""
+	// OriginBackfilled — reconstructed from real evidence recorded elsewhere.
+	OriginBackfilled RecordOrigin = "backfilled"
+	// OriginObserved — written by the running system from a real event.
+	OriginObserved RecordOrigin = "observed"
+)
+
+// AttemptProvenance carries the reason, not just the flag: what produced this record
+// and what it was derived from.
+//
+// This is deliberately NOT the existing Provenance type in projectstateaccess.go — that
+// one answers a different question (who approved a design commit). Do not overload it.
+type AttemptProvenance struct {
+	// Origin is required; the zero value is OriginSynthesized.
+	Origin RecordOrigin `json:"origin"`
+	// Generator names the producing tool and sha, e.g. "cmd/backfill-attempts@a1b2c3d".
+	Generator string `json:"generator,omitempty"`
+	// GeneratedAt is when the record was produced (not when the work happened).
+	GeneratedAt *time.Time `json:"generatedAt,omitempty"`
+	// Basis names what this was derived from, e.g. "serviceContracts[artifactAccess]".
+	// Empty for pure fiction; REQUIRED for OriginBackfilled.
+	Basis string `json:"basis,omitempty"`
+}
+
+// Validate enforces the closed enum and the backfilled-needs-a-basis rule.
+func (p AttemptProvenance) Validate() error {
+	switch p.Origin {
+	case OriginSynthesized, OriginObserved:
+	case OriginBackfilled:
+		if p.Basis == "" {
+			return fmt.Errorf("provenance: origin %q requires a non-empty basis", p.Origin)
+		}
+	default:
+		return fmt.Errorf("provenance: unknown origin %q", p.Origin)
+	}
+	return nil
+}
+
+// originRank orders origins worst-first for the contagion rule.
+func originRank(o RecordOrigin) int {
+	switch o {
+	case OriginSynthesized:
+		return 0
+	case OriginBackfilled:
+		return 1
+	case OriginObserved:
+		return 2
+	default:
+		return 0 // unknown is as bad as synthesized
+	}
+}
+
+// WorstOrigin implements the contagion rule: a value derived from any synthesized input
+// is itself synthesized. PhaseCompletion.Completed, activity progress and project earned
+// value all inherit the worst origin among their inputs.
+//
+// Without this, rows are honestly badged while the header launders a fabricated
+// aggregate — the single worst lie available to this work.
+//
+// No inputs means nothing was derived from anything unknown: OriginObserved.
+func WorstOrigin(origins ...RecordOrigin) RecordOrigin {
+	worst := OriginObserved
+	for _, o := range origins {
+		if originRank(o) < originRank(worst) {
+			worst = o
+		}
+	}
+	return worst
+}
+
 // TaskOutcome is the terminal state of one attempt at a Figure A-1 task.
 type TaskOutcome string
 
@@ -7910,6 +7995,125 @@ func kebabPhase(p ActivityMethodPhase) string {
 // ProfileFor(t, v) emits, and matches a .claude/commands/<name>.md file.
 func CommandFor(t ActivityType, v TestingVariant, p ActivityMethodPhase) string {
 	return profileSlug(t, v) + "-" + kebabPhase(p)
+}
+
+// MethodTask is one of the twelve internal tasks of Figure A-1 (Löwy, Righting
+// Software, Appendix A) — the unit BELOW a lifecycle phase and ABOVE an attempt.
+//
+// Figure A-1 is not a linear chain. After SRS Review the graph forks: the Test Plan
+// branch (STP → STP Review) runs in parallel with the Detailed Design → Construction
+// branch, and the two rejoin at Testing. Construction and Test Client are built in
+// tandem (a bidirectional edge in the figure).
+//
+// Naming follows the R3 ruling: the bare word "phase" is banned; this level is a
+// TASK, the level above it is a LifecyclePhase, one execution of a task is an Attempt.
+type MethodTask string
+
+// The twelve Figure A-1 tasks.
+const (
+	TaskSRS              MethodTask = "srs"
+	TaskSRSReview        MethodTask = "srsReview"
+	TaskSTP              MethodTask = "stp"
+	TaskSTPReview        MethodTask = "stpReview"
+	TaskSomeConstruction MethodTask = "someConstruction"
+	TaskDetailedDesign   MethodTask = "detailedDesign"
+	TaskDesignReview     MethodTask = "designReview"
+	TaskConstruction     MethodTask = "construction"
+	TaskTestClient       MethodTask = "testClient"
+	TaskCodeReview       MethodTask = "codeReview"
+	TaskIntegration      MethodTask = "integration"
+	TaskTesting          MethodTask = "testing"
+)
+
+// phaseTasks is the Figure A-2 grouping: which tasks make up each lifecycle phase.
+// Order within a phase is execution order.
+var phaseTasks = map[ActivityMethodPhase][]MethodTask{
+	MethodPhaseRequirements:   {TaskSRS, TaskSRSReview},
+	MethodPhaseTestPlan:       {TaskSTP, TaskSTPReview},
+	MethodPhaseDetailedDesign: {TaskSomeConstruction, TaskDetailedDesign, TaskDesignReview},
+	MethodPhaseConstruction:   {TaskConstruction, TaskTestClient, TaskCodeReview},
+	MethodPhaseIntegration:    {TaskIntegration, TaskTesting},
+}
+
+// gateTasks is the binary exit criterion per phase (App A: "the Construction phase is
+// complete once you have had the code review, not simply when the code is checked in").
+var gateTasks = map[ActivityMethodPhase]MethodTask{
+	MethodPhaseRequirements:   TaskSRSReview,
+	MethodPhaseTestPlan:       TaskSTPReview,
+	MethodPhaseDetailedDesign: TaskDesignReview,
+	MethodPhaseConstruction:   TaskCodeReview,
+	MethodPhaseIntegration:    TaskTesting,
+}
+
+// conditionalTasks are emitted ONLY when a real attempt record exists for them.
+// someConstruction is Löwy's pre-design spike and our agentic detailed-design dispatch
+// is a single episode; testClient is the tandem partner of Construction and often does
+// not exist for a deployment or a doc. Rendering a row for work that never happened is
+// the "view states something false" failure this stage exists to remove.
+var conditionalTasks = map[MethodTask]bool{
+	TaskSomeConstruction: true,
+	TaskTestClient:       true,
+}
+
+// TasksForPhase returns the Figure A-1 tasks belonging to a lifecycle phase, in
+// execution order. An unknown phase returns nil.
+func TasksForPhase(p ActivityMethodPhase) []MethodTask {
+	src := phaseTasks[p]
+	if len(src) == 0 {
+		return nil
+	}
+	out := make([]MethodTask, len(src))
+	copy(out, src)
+	return out
+}
+
+// GateTaskFor returns the task whose success IS the phase's binary exit criterion.
+func GateTaskFor(p ActivityMethodPhase) MethodTask { return gateTasks[p] }
+
+// IsGateTask reports whether a task is some phase's binary exit criterion.
+func IsGateTask(t MethodTask) bool {
+	for _, gate := range gateTasks {
+		if gate == t {
+			return true
+		}
+	}
+	return false
+}
+
+// IsConditionalTask reports whether a task is emitted only when an attempt exists.
+func IsConditionalTask(t MethodTask) bool { return conditionalTasks[t] }
+
+// PhaseForTask returns the lifecycle phase a task belongs to (the empty phase when
+// the task is unknown).
+func PhaseForTask(t MethodTask) ActivityMethodPhase {
+	for p, tasks := range phaseTasks {
+		for _, candidate := range tasks {
+			if candidate == t {
+				return p
+			}
+		}
+	}
+	return ""
+}
+
+// TasksForProfile returns every task an activity with this profile can have, in phase
+// order then execution order. This is the ROW SET of the list view: it is derived from
+// the profile, never from storage, so the tasks that have not happened still render.
+func TasksForProfile(pr Profile) []MethodTask {
+	out := make([]MethodTask, 0, 12)
+	for _, ph := range pr.Phases {
+		out = append(out, TasksForPhase(ph.Phase)...)
+	}
+	return out
+}
+
+// AttemptID is THE join key of the construction model: the ledger primary key, the UI
+// click target, the sub-graph node label, the unit provenance applies to, and the
+// TargetRef stamped onto every EpisodeRecord. n is 1-based per (activity, task).
+//
+// Its format must be identical everywhere it is produced. Do not inline it.
+func AttemptID(activityID string, t MethodTask, n int) string {
+	return fmt.Sprintf("%s:%s:%d", activityID, t, n)
 }
 
 // DesignJobMode is the dispatch shape of a design job (Plan-2 Task B1): a fresh
