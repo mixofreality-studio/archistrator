@@ -7003,6 +7003,125 @@ type PhaseCompletion struct {
 	ArtifactRef string              `json:"artifactRef,omitempty"`
 }
 
+// TaskOutcome is the terminal state of one attempt at a Figure A-1 task.
+type TaskOutcome string
+
+// The five task outcomes. OutcomePending is the zero value: an attempt that has been
+// started and has not yet resolved.
+const (
+	OutcomePending  TaskOutcome = ""
+	OutcomePassed   TaskOutcome = "passed"
+	OutcomeRejected TaskOutcome = "rejected"
+	OutcomeFailed   TaskOutcome = "failed"
+	OutcomeSkipped  TaskOutcome = "skipped"
+)
+
+// TaskActor is who performed an attempt.
+type TaskActor string
+
+// The three actors.
+const (
+	ActorAgent  TaskActor = "agent"
+	ActorHuman  TaskActor = "human"
+	ActorSystem TaskActor = "system"
+)
+
+// EvidenceKind discriminates what an attempt's evidence points at. It is also the UI's
+// click dispatch: an episode opens the agentic episode detail, an artifact or contract
+// opens the thing under review. No second lookup table.
+type EvidenceKind string
+
+// The evidence kinds.
+const (
+	EvidenceNone     EvidenceKind = ""
+	EvidenceEpisode  EvidenceKind = "episode"
+	EvidenceArtifact EvidenceKind = "artifact"
+	EvidenceContract EvidenceKind = "contract"
+	EvidenceGit      EvidenceKind = "git"
+)
+
+// EvidenceRef points an attempt at what it produced or reviewed.
+type EvidenceRef struct {
+	Kind EvidenceKind `json:"kind,omitempty"`
+	Ref  string       `json:"ref,omitempty"`
+}
+
+// TaskAttempt is one execution of one Figure A-1 task. Attempts form an APPEND-ONLY
+// ledger on ActivityConstructionStatus.
+//
+// Append-only, not a task-with-attempts-array, for three reasons: the tasks that did
+// NOT happen must still render, and their row set comes from TasksForProfile rather
+// than from storage (a stored skeleton would duplicate ProfileFor in the data and let
+// the two drift — that has already happened once and been cleaned up); appending an
+// identified record converges safely under Temporal retry where a nested array mutation
+// is a read-modify-write; and ArtifactSlot.reviewThread is existing precedent for a
+// round-numbered append-only ledger.
+//
+// Löwy's retry rule ("a failing review causes the developer to repeat the preceding
+// internal task") renders directly from this: detailedDesign#1 passed →
+// designReview#1 rejected → detailedDesign#2 passed → designReview#2 passed.
+type TaskAttempt struct {
+	// AttemptID is "<activityId>:<task>:<n>" — always produced by AttemptID().
+	AttemptID string `json:"attemptId"`
+	// Task is one of the twelve Figure A-1 tasks.
+	Task MethodTask `json:"task"`
+	// Phase is denormalized from PhaseForTask(Task) for query convenience.
+	Phase ActivityMethodPhase `json:"phase"`
+	// Attempt is 1-based, per (activity, task).
+	Attempt int `json:"attempt"`
+	// Actor is who performed this attempt.
+	Actor TaskActor `json:"actor,omitempty"`
+	// StartedAt is when the attempt began.
+	StartedAt *time.Time `json:"startedAt,omitempty"`
+	// EndedAt is when it resolved; nil while Outcome is OutcomePending.
+	EndedAt *time.Time `json:"endedAt,omitempty"`
+	// Outcome is the terminal state; the zero value is OutcomePending.
+	Outcome TaskOutcome `json:"outcome,omitempty"`
+	// Evidence points at what this attempt produced or reviewed.
+	Evidence EvidenceRef `json:"evidence,omitempty"`
+	// Provenance is REQUIRED and never omitempty — see AttemptProvenance.
+	Provenance AttemptProvenance `json:"provenance"`
+}
+
+// LatestAttempt returns the highest-numbered attempt at a task.
+func LatestAttempt(attempts []TaskAttempt, t MethodTask) (TaskAttempt, bool) {
+	var best TaskAttempt
+	found := false
+	for _, a := range attempts {
+		if a.Task != t {
+			continue
+		}
+		if !found || a.Attempt > best.Attempt {
+			best, found = a, true
+		}
+	}
+	return best, found
+}
+
+// PhaseCompleteFromAttempts implements App A's binary exit criterion verbatim: a phase
+// is complete iff its GATE task's LATEST attempt passed.
+//
+// This is why PhaseCompletion.Completed becomes derived rather than written, and why a
+// passed non-gate task earns no fractional credit — "the Construction phase is complete
+// once you have had the code review, not simply when the code is checked in."
+func PhaseCompleteFromAttempts(attempts []TaskAttempt, p ActivityMethodPhase) bool {
+	gate := GateTaskFor(p)
+	if gate == "" {
+		return false
+	}
+	latest, ok := LatestAttempt(attempts, gate)
+	return ok && latest.Outcome == OutcomePassed
+}
+
+// AttemptsWorstOrigin is the contagion roll-up for one activity's ledger.
+func AttemptsWorstOrigin(attempts []TaskAttempt) RecordOrigin {
+	origins := make([]RecordOrigin, 0, len(attempts))
+	for _, a := range attempts {
+		origins = append(origins, a.Provenance.Origin)
+	}
+	return WorstOrigin(origins...)
+}
+
 // ActivityConstructionStatus is the per-activity construction head-state record.
 // One per construction-network activity, keyed by ActivityID in
 // Project.ActivityConstruction. Additive, populated only in Phase 3.
@@ -7019,6 +7138,9 @@ type ActivityConstructionStatus struct {
 	// Phases is the App-A internal phase set. Set once by phaseSetFor at activity start;
 	// individual entries are marked Completed by RecordPhaseCompleted.
 	Phases []PhaseCompletion `json:"phases,omitempty"`
+	// Attempts is the APPEND-ONLY Figure A-1 task ledger. Phases above is derived
+	// from it (PhaseCompleteFromAttempts); Attempts is the record of what happened.
+	Attempts []TaskAttempt `json:"attempts,omitempty"`
 	// CurrentPhase is the phase the workflow loop is currently executing.
 	CurrentPhase ActivityMethodPhase `json:"currentPhase,omitempty"`
 	// StartedAt is the server-resolved timestamp when RecordActivityStarted committed.

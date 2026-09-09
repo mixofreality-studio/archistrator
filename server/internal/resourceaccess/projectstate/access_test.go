@@ -8169,3 +8169,63 @@ func TestValidateModelIdentities_CleanModelsPass(t *testing.T) {
 		t.Fatalf("an uncovered kind must pass: %v", err)
 	}
 }
+
+func TestLatestAttempt_ReturnsHighestAttemptNumber(t *testing.T) {
+	attempts := []TaskAttempt{
+		{AttemptID: AttemptID("C-x", TaskDetailedDesign, 1), Task: TaskDetailedDesign, Attempt: 1, Outcome: OutcomePassed},
+		{AttemptID: AttemptID("C-x", TaskDesignReview, 1), Task: TaskDesignReview, Attempt: 1, Outcome: OutcomeRejected},
+		{AttemptID: AttemptID("C-x", TaskDetailedDesign, 2), Task: TaskDetailedDesign, Attempt: 2, Outcome: OutcomePassed},
+	}
+	got, ok := LatestAttempt(attempts, TaskDetailedDesign)
+	if !ok {
+		t.Fatal("LatestAttempt(detailedDesign) not found")
+	}
+	if got.Attempt != 2 {
+		t.Errorf("LatestAttempt(detailedDesign).Attempt = %d, want 2", got.Attempt)
+	}
+}
+
+func TestLatestAttempt_MissingTaskReportsNotFound(t *testing.T) {
+	if _, ok := LatestAttempt(nil, TaskCodeReview); ok {
+		t.Error("LatestAttempt(nil) reported found, want not found")
+	}
+}
+
+// App A's binary exit, verbatim: a phase is complete iff its GATE task's latest
+// attempt passed. A passed non-gate task earns nothing.
+func TestPhaseCompleteFromAttempts_RequiresTheGateTask(t *testing.T) {
+	// Construction task passed but code review has not happened.
+	attempts := []TaskAttempt{
+		{AttemptID: AttemptID("C-x", TaskConstruction, 1), Task: TaskConstruction, Attempt: 1, Outcome: OutcomePassed},
+	}
+	if PhaseCompleteFromAttempts(attempts, MethodPhaseConstruction) {
+		t.Error("construction phase reported complete without the code review gate")
+	}
+	attempts = append(attempts, TaskAttempt{
+		AttemptID: AttemptID("C-x", TaskCodeReview, 1), Task: TaskCodeReview, Attempt: 1, Outcome: OutcomePassed,
+	})
+	if !PhaseCompleteFromAttempts(attempts, MethodPhaseConstruction) {
+		t.Error("construction phase reported incomplete after the code review passed")
+	}
+}
+
+func TestPhaseCompleteFromAttempts_RejectedGateIsNotComplete(t *testing.T) {
+	attempts := []TaskAttempt{
+		{AttemptID: AttemptID("C-x", TaskCodeReview, 1), Task: TaskCodeReview, Attempt: 1, Outcome: OutcomePassed},
+		{AttemptID: AttemptID("C-x", TaskCodeReview, 2), Task: TaskCodeReview, Attempt: 2, Outcome: OutcomeRejected},
+	}
+	if PhaseCompleteFromAttempts(attempts, MethodPhaseConstruction) {
+		t.Error("phase reported complete when the LATEST gate attempt was rejected")
+	}
+}
+
+func TestTaskAttempt_ProvenanceIsNotOmitempty(t *testing.T) {
+	a := TaskAttempt{AttemptID: "C-x:srs:1", Task: TaskSRS, Attempt: 1}
+	b, err := json.Marshal(a)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !strings.Contains(string(b), `"provenance"`) {
+		t.Errorf("marshalled TaskAttempt omitted provenance: %s", b)
+	}
+}
