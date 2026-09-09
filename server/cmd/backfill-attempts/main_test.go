@@ -50,6 +50,89 @@ func TestAttemptsFor_EveryAttemptCarriesAValidProvenance(t *testing.T) {
 	}
 }
 
+// wantExactTasks asserts that got is EXACTLY the named tasks, once each — no extra task,
+// no missing one, no duplicate. It names the offender rather than reporting a count
+// mismatch, because the failure this guards against is a task nobody meant to add.
+func wantExactTasks(t *testing.T, got []projectstate.TaskAttempt, want ...projectstate.MethodTask) {
+	t.Helper()
+	wanted := map[projectstate.MethodTask]bool{}
+	for _, task := range want {
+		wanted[task] = true
+	}
+	seen := map[projectstate.MethodTask]int{}
+	for _, a := range got {
+		seen[a.Task]++
+		if !wanted[a.Task] {
+			t.Errorf("derived an attempt at %q (%s) — only the two ruled inferences may "+
+				"produce attempts, and %q is neither of them", a.Task, a.AttemptID, a.Task)
+		}
+	}
+	for task := range wanted {
+		switch seen[task] {
+		case 1:
+		case 0:
+			t.Errorf("no attempt derived at %q", task)
+		default:
+			t.Errorf("task %q derived %d times, want exactly 1", task, seen[task])
+		}
+	}
+	if len(got) != len(want) {
+		t.Errorf("derived %d attempts, want exactly %d", len(got), len(want))
+	}
+}
+
+// TestAttemptsFor_DerivesExactlyTheTwoRuledInferences is the governing rule of this tool
+// expressed as a test: a frozen contract means detailed design ran and design review
+// passed; merged code means construction ran and code review passed; NOTHING else is
+// inferred from anything.
+//
+// It pins the exact task SET, not just each attempt's individual validity, because a
+// third inference added later would be individually valid in every way the other tests
+// check — inside the profile's task set, non-empty basis, stamped backfilled — and would
+// sail through them. The whole point of the stage is that the tasks with no evidence
+// render as an honest unknown skeleton; a tool that quietly grows a third inference
+// fills that skeleton in with history nobody can trace, which is the exact failure this
+// work exists to prevent.
+func TestAttemptsFor_DerivesExactlyTheTwoRuledInferences(t *testing.T) {
+	cases := []struct {
+		name string
+		ev   evidence
+		want []projectstate.MethodTask
+	}{
+		{
+			name: "a frozen contract, and nothing else",
+			ev:   evidence{HasServiceContract: true, ContractRef: "artifactAccess"},
+			want: []projectstate.MethodTask{projectstate.TaskDetailedDesign, projectstate.TaskDesignReview},
+		},
+		{
+			name: "merged code, and nothing else",
+			ev:   evidence{HasMergedCode: true, GitRef: "implementation/log"},
+			want: []projectstate.MethodTask{projectstate.TaskConstruction, projectstate.TaskCodeReview},
+		},
+		{
+			name: "both — exactly the union, never a fifth",
+			ev: evidence{
+				HasServiceContract: true, ContractRef: "artifactAccess",
+				HasMergedCode: true, GitRef: "implementation/log",
+			},
+			want: []projectstate.MethodTask{
+				projectstate.TaskDetailedDesign, projectstate.TaskDesignReview,
+				projectstate.TaskConstruction, projectstate.TaskCodeReview,
+			},
+		},
+		{
+			name: "no evidence — absence stays absence",
+			ev:   evidence{},
+			want: nil,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			wantExactTasks(t, attemptsFor("C-x", projectstate.ActivityTypeService, c.ev), c.want...)
+		})
+	}
+}
+
 // TestAttemptsFor_NeverStampsObserved guards the one origin this tool must never write:
 // nothing it produces was watched happening.
 func TestAttemptsFor_NeverStampsObserved(t *testing.T) {
@@ -133,6 +216,40 @@ func TestEvidenceFromRow_UnresolvedContractGetsATruthfulBasis(t *testing.T) {
 		}
 		if a.Provenance.Basis != ev.ContractBasis {
 			t.Errorf("%s: basis = %q, want the override %q", a.AttemptID, a.Provenance.Basis, ev.ContractBasis)
+		}
+	}
+}
+
+// TestEvidenceFromRow_SourcelessArtifactNamesNoPath guards a future corpus, not today's:
+// a produced entry with no source must not be described by a path it does not have.
+// path.Base("") is ".", which would sail through Validate() as a non-empty basis while
+// pointing at nothing.
+func TestEvidenceFromRow_SourcelessArtifactNamesNoPath(t *testing.T) {
+	row := projectstate.ActivityConstructionStatus{
+		ActivityID: "C-XX",
+		Produced: []projectstate.ProducedArtifact{
+			{Kind: "service-contract", Produced: true},
+			{Kind: "code", Produced: true},
+		},
+	}
+	ev := evidenceFromRow(row, map[string]bool{".": true, "": true})
+	if ev.ContractRef != "" || ev.GitRef != "" {
+		t.Errorf("refs = %q/%q, want empty — there is no path to name", ev.ContractRef, ev.GitRef)
+	}
+	for _, basis := range []string{ev.ContractBasis, ev.CodeBasis} {
+		if strings.Contains(basis, ".") && strings.Contains(basis, "=") {
+			t.Errorf("basis %q invented a path for a sourceless artifact", basis)
+		}
+		if basis == "" {
+			t.Error("basis is empty; Validate() would reject the attempt")
+		}
+	}
+	if ev.ContractBasis != "activityConstruction[C-XX].produced[service-contract]" {
+		t.Errorf("contract basis = %q", ev.ContractBasis)
+	}
+	for _, a := range attemptsFor("C-XX", projectstate.ActivityTypeService, ev) {
+		if err := a.Provenance.Validate(); err != nil {
+			t.Errorf("%s: %v", a.AttemptID, err)
 		}
 	}
 }

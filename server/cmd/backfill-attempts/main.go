@@ -153,26 +153,43 @@ func evidenceFromRow(row projectstate.ActivityConstructionStatus, contracts map[
 		switch artifact.Kind {
 		case "service-contract":
 			ev.HasServiceContract = true
-			component := strings.TrimSuffix(path.Base(artifact.Source), ".md")
-			if contracts[component] {
+			ev.ContractRef = artifact.Source
+			ev.ContractBasis = producedBasis(row.ActivityID, artifact)
+			if component := contractComponent(artifact.Source); component != "" && contracts[component] {
 				ev.ContractRef = component
 				ev.ContractBasis = "" // serviceContracts[<component>] resolves.
-				continue
 			}
-			// The contract file survives in the corpus but its component no longer has
-			// a .serviceContracts entry (renamed or dissolved). Name what was read.
-			ev.ContractRef = artifact.Source
-			ev.ContractBasis = fmt.Sprintf("activityConstruction[%s].produced[service-contract]=%s",
-				row.ActivityID, artifact.Source)
 		case "code":
 			ev.HasMergedCode = true
 			ev.GitRef = artifact.Source
 			ev.CodeKind = projectstate.EvidenceArtifact
-			ev.CodeBasis = fmt.Sprintf("activityConstruction[%s].produced[code]=%s",
-				row.ActivityID, artifact.Source)
+			ev.CodeBasis = producedBasis(row.ActivityID, artifact)
 		}
 	}
 	return ev
+}
+
+// contractComponent recovers the component name a contract file is named for. An empty
+// source yields an empty name rather than path.Base's "." — a produced entry that names
+// no file cannot be matched to a live .serviceContracts key, and "." would be a
+// reference to nothing dressed up as one.
+func contractComponent(source string) string {
+	if source == "" {
+		return ""
+	}
+	return strings.TrimSuffix(path.Base(source), ".md")
+}
+
+// producedBasis names the produced entry an inference was read from. When the entry
+// carries no source the basis stops at the entry itself: it is still true, still
+// non-empty, and still traceable to a specific record — it just cannot claim a path
+// that the corpus does not contain.
+func producedBasis(activityID string, artifact projectstate.ProducedArtifact) string {
+	basis := fmt.Sprintf("activityConstruction[%s].produced[%s]", activityID, artifact.Kind)
+	if artifact.Source == "" {
+		return basis
+	}
+	return basis + "=" + artifact.Source
 }
 
 // activityMetaByID reads the committed Phase-2 activity list (worker class + coding
