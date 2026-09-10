@@ -390,7 +390,7 @@ Today clicking a node opens a 480px overlay `Drawer` that covers the graph you c
 
 **The action bar is invariant too**, and `↻ Run this task` is **present and enabled in EVERY state** — including `passed` (re-run) and `unknown` (run it for the first time). This is the founder's standing ruling that failure is never terminal, made structural rather than conditional. There is no state in which the retry affordance is absent or disabled.
 
-For this task the body slot renders a placeholder; Tasks 9–11 fill it.
+For this task the body slot renders a placeholder; Tasks 8–10 fill it.
 
 - [ ] **Step 1: Write the failing test**
 
