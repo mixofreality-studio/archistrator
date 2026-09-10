@@ -383,10 +383,16 @@ function buildActivityNode(row: ConstructionRow, meta: ActivityMeta | undefined)
     unclassified: !row.classified,
     hasBuildEvidence: row.hasBuildEvidence,
     ...(row.status !== undefined ? { status: row.status } : {}),
-    // An EMPTY current phase is an ABSENT current phase. The wire mapper gates
-    // `currentLifecyclePhase` on `classified` alone, so the server's zero value
-    // ("") reaches this module verbatim on 44 of the 69 committed rows; carried
-    // through as `''` it would read downstream as a phase named nothing.
+    // An EMPTY current phase is an ABSENT current phase.
+    //
+    // The real fix landed where it belongs — mapConstructionRow now drops
+    // `CurrentPhase` at its zero value, the way its four siblings (kind, status,
+    // worstOrigin, layer) already did, so `''` no longer reaches any consumer
+    // from the wire. This guard stays because it is not a mirror of that rule
+    // but a defence of THIS module's own contract: `ConstructionRow
+    // .currentLifecyclePhase` is typed `string | undefined`, so `''` remains a
+    // type-legal input (a hand-built fixture, a future second producer), and a
+    // phase named nothing must never become an ActivityNode field.
     ...(row.currentLifecyclePhase !== undefined && row.currentLifecyclePhase.length > 0
       ? { currentLifecyclePhase: row.currentLifecyclePhase }
       : {}),

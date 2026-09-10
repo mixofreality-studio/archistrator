@@ -469,7 +469,18 @@ export function mapConstructionRow(
   const hasBuildEvidence = w.hasBuildEvidence;
   const status =
     classified && hasBuildEvidence ? buildStatusRowFromOrdinal(w.BuildStatus) : undefined;
-  const currentLifecyclePhase = classified ? w.CurrentPhase : undefined;
+  // …and gated on a NON-EMPTY value as well, which is the half this mapper was
+  // missing: `CurrentPhase` is an ordinary string with no omitempty, so a
+  // classified row the server has not started reporting a phase for arrives as
+  // `''` — 44 of the 69 committed rows, every one of them then carrying a
+  // present field naming a phase called nothing. Its four siblings (kind,
+  // status, worstOrigin, layer/layerBand) all drop at their zero value; this one
+  // now does too, so "the server said nothing" is ABSENT here rather than being
+  // re-detected by every consumer (PhaseGatePanel would submit a decision
+  // against an empty phase; InterventionQueue/ArtifactActivityDetail render a
+  // dangling `phase · `; activityTree.ts had to normalize it back out).
+  const currentLifecyclePhase =
+    classified && w.CurrentPhase.length > 0 ? w.CurrentPhase : undefined;
   // FailureReason/FailureDetail are only meaningful on a terminal-fail row: every
   // other row carries the zero-value reason (`unknown`) and an empty detail, so
   // they are dropped rather than decorating healthy rows with a phantom failure.

@@ -217,6 +217,10 @@ export const TESTID = {
   // is exactly what the old overlay Drawer's backdrop used to cover.
   constructionLensToolbar: UI_IDENTIFIERS.Construction.LENS_TOOLBAR,
   constructionLensKind: UI_IDENTIFIERS.Construction.LENS_KIND,
+  // The LIST lens's three-tier tree (Stage B Task 6). It replaced the CPM graph
+  // as the LIST lens's body — the graph returns under the GRAPH lens in Stage D.
+  constructionListTree: UI_IDENTIFIERS.Construction.LIST_TREE,
+  constructionListRow: UI_IDENTIFIERS.Construction.listRow,
   // The shared detail pane (Stage B Task 4) that replaced the overlay Drawer
   // above as the console's mounted detail surface — beside content at
   // >=1200px, DETAIL_DRAWER below that (same overlay mechanism, kept).

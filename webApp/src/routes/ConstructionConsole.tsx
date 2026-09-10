@@ -47,11 +47,18 @@ import {
 
 import { ExperienceChrome } from '../components/design/ExperienceChrome';
 import { ChatRail } from '../components/design/ChatRail';
-import { ConstructionTracker } from '../components/construction/ConstructionTracker';
+// ConstructionTracker (the CPM graph under a build lens, the EV curves, the
+// head-state rollup and the near-critical float table) is no longer the LIST
+// lens's body — the lens is defined as "every activity, its lifecycle phases and
+// its tasks", and the tree below IS that. The component is kept, not deleted:
+// the graph is the GRAPH lens's body in Stage D, and Task 13 decides where the
+// EV/rollup/float panels land.
 import {
   ConstructionShell,
   LensComingLater,
 } from '../components/construction/lens/ConstructionShell';
+import { ActivityTreeView } from '../components/construction/list/ActivityTreeView';
+import { buildActivityTree, type ActivityMeta } from '../components/construction/list/activityTree';
 import {
   useLensSelection,
   useLensToolbar,
@@ -389,6 +396,43 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
     return (id: string): string | undefined => byId.get(id);
   }, [activityListModel]);
 
+  // --- The LIST lens's tree ------------------------------------------------
+  // Per-activity network/activity-list facts, joined by activity id for the
+  // tree's magnitude channels (effort → bar length, float → rail + numeral,
+  // criticality → border weight).
+  //
+  // Read from the committed MODELS rather than from toNetworkView: that view
+  // defaults a missing CPM entry to `float: 0` and a missing activity-list entry
+  // to `days: 0`, and a fabricated zero float renders as "on the critical path"
+  // — the loudest possible lie on this surface. Here an unjoined activity gets
+  // NO metadata at all, and the tree renders absence as absence.
+  //
+  // Only 9 of the 69 construction rows join today: the committed network and
+  // activity list carry the DERIVED 40 (`C-artifact-access`, …) while the
+  // construction head-state is still keyed by the legacy ids (`C-AA`, …). That
+  // seam is real, is not this task's to close, and is made visible in Task 12.
+  const networkModel = useMemo(() => narrowProject(networkEnvelope, 'network'), [networkEnvelope]);
+  const activityMeta = useMemo((): Record<string, ActivityMeta> => {
+    const computed = networkModel?.computed ?? {};
+    const byId: Record<string, ActivityMeta> = {};
+    for (const a of activityListModel?.activities ?? []) {
+      const cpm = computed[a.name];
+      byId[a.name] = {
+        ...(a.title !== undefined && a.title.length > 0 ? { label: a.title } : {}),
+        effortDays: a.effortDays,
+        ...(cpm !== undefined
+          ? { float: cpm.totalFloat, onCriticalPath: cpm.onCriticalPath, band: cpm.band }
+          : {}),
+      };
+    }
+    return byId;
+  }, [activityListModel, networkModel]);
+
+  const activityTree = useMemo(
+    () => buildActivityTree(Object.values(project?.constructionRows ?? {}), { meta: activityMeta }),
+    [project, activityMeta]
+  );
+
   // The shell's DETAIL slot: one pane, driven entirely by the URL's selection
   // (never owned by the pane itself), so it cannot lose it to the cascade
   // poll's remount. Beside-content at >=1200px, the existing overlay Drawer
@@ -522,21 +566,10 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
               content={
                 lens === 'list' ? (
                   <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                    <ConstructionTracker
-                      activityEnvelope={activityEnvelope}
-                      constructionProgress={project?.constructionProgress}
-                      constructionRows={project?.constructionRows}
-                      gitFor={gitForActivity}
-                      networkEnvelope={networkEnvelope}
-                      operating={project?.operating}
-                      overrideError={overrideError}
-                      overridePending={override.isPending}
-                      session={session}
-                      sessionMissing={sessionMissing}
-                      onOverride={onOverride}
-                      onSelectActivity={(id: string) => {
-                        select({ activityId: id });
-                      }}
+                    <ActivityTreeView
+                      nodes={activityTree}
+                      selection={selection}
+                      onSelect={select}
                     />
                     {/* Phase gate — rendered when ConstructionSessionView.stage === awaitingApproval */}
                     {phaseGateRow !== undefined && gatePhase !== undefined && (

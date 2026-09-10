@@ -39,7 +39,7 @@ test.beforeEach(async ({ request }) => {
   await skipUnlessConstructionArtifacts(request, BASE);
 });
 
-test('the Tracker renders the committed CPM network and an activity node opens its shared detail pane', async ({
+test('the Tracker renders the activity tree and an activity row opens its shared detail pane', async ({
   page,
 }) => {
   tagUseCase('execute-a-construction-activity');
@@ -48,18 +48,15 @@ test('the Tracker renders the committed CPM network and an activity node opens i
   // Tracker is the default tab — no click needed — but the tab bar itself
   // proves the console mounted on the right section.
   await expect(page.getByTestId(TESTID.constructionTabTracker)).toBeVisible();
-  await expect(page.getByTestId(TESTID.constructionTracker)).toBeVisible();
+  // Stage B Task 6: the LIST lens's body is the three-tier activity tree, not
+  // the CPM graph (which returns under the GRAPH lens in Stage D). Every row
+  // carries a published per-node testid, so no class-name escape hatch is
+  // needed any more.
+  await expect(page.getByTestId(TESTID.constructionListTree)).toBeVisible();
 
-  // Structural assertion: the CPM graph's activity nodes are react-flow-
-  // generated DOM with no per-node data-testid today (UIIdentifiers.
-  // Construction.trackerNode is declared but not yet wired into the shared
-  // NetworkView node renderer) — select the first rendered node by the
-  // generated `.react-flow__node` class, the SAME escape hatch
-  // architecture-views.spec uses for the same library/limitation.
-  // eslint-disable-next-line no-restricted-syntax -- see comment above
-  const firstNode = page.locator('.react-flow__node').first();
-  await expect(firstNode).toBeVisible({ timeout: 15_000 });
-  await firstNode.click();
+  const firstRow = page.getByTestId(TESTID.constructionListRow('C-AA'));
+  await expect(firstRow).toBeVisible({ timeout: 15_000 });
+  await firstRow.click();
 
   const panel = page.getByTestId(TESTID.constructionDetailPane);
   await expect(panel).toBeVisible();
@@ -119,10 +116,9 @@ test('the detail pane stays pinned beside content, so its action bar survives a 
   await page.setViewportSize({ width: 1600, height: 900 });
   await gotoApp(page, '/project/archistrator/construction');
 
-  // eslint-disable-next-line no-restricted-syntax -- react-flow nodes carry no testid; see above
-  const firstNode = page.locator('.react-flow__node').first();
-  await expect(firstNode).toBeVisible({ timeout: 15_000 });
-  await firstNode.click();
+  const firstRow = page.getByTestId(TESTID.constructionListRow('C-AA'));
+  await expect(firstRow).toBeVisible({ timeout: 15_000 });
+  await firstRow.click();
 
   const runAction = page.getByTestId(TESTID.constructionDetailActionRun);
   await expect(runAction).toBeVisible();
@@ -138,10 +134,10 @@ test('the detail pane stays pinned beside content, so its action bar survives a 
   expect(pane!.height).toBeLessThanOrEqual(900);
 
   // The console does NOT scroll the window — it scrolls an inner container, so
-  // `page.mouse.wheel` over the react-flow canvas moves nothing at all (it is
-  // swallowed for pan/zoom) and an assertion built on it would pass vacuously.
-  // Drive the real scroller, and prove it actually moved before believing
-  // anything measured after it.
+  // `page.mouse.wheel` at the viewport centre moves nothing an assertion can
+  // see (over the old CPM canvas it was swallowed for pan/zoom outright), and
+  // an assertion built on it would pass vacuously. Drive the real scroller, and
+  // prove it actually moved before believing anything measured after it.
   const scrollTo = async (top: number): Promise<number> =>
     page.evaluate((t) => {
       for (const el of Array.from(document.querySelectorAll('*'))) {

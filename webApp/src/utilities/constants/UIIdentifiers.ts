@@ -387,6 +387,15 @@ export const UI_IDENTIFIERS = {
     LENS_CONTENT: 'construction-lens-content',
     LENS_DETAIL: 'construction-lens-detail',
     LENS_PLACEHOLDER: 'construction-lens-placeholder',
+    // The LIST lens's three-tier tree (Stage B Task 6): activity › lifecycle
+    // phase › Figure A-1 task. One id per rendered row, keyed by the tree's own
+    // node id (`<activityId>`, `<activityId>::<phase>`, `<activityId>::<phase>::<task>`).
+    LIST_TREE: 'construction-list-tree',
+    LIST_EMPTY: 'construction-list-empty',
+    listRow: (nodeId: string) => `construction-list-row-${nodeId}`,
+    listAttempts: (nodeId: string) => `construction-list-attempts-${nodeId}`,
+    listInlineAction: (nodeId: string, action: string) =>
+      `construction-list-action-${action}-${nodeId}`,
     // The shared detail pane (Stage B Task 4) — one header/body/action-bar
     // surface behind all three lenses. Laid out BESIDE the content at
     // >=1200px; below that it degrades to DETAIL_DRAWER, the same overlay

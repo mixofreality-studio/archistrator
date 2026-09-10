@@ -379,6 +379,17 @@ void test('a classified row still surfaces its real status and current lifecycle
   assert.equal(row.currentLifecyclePhase, 'test_plan');
 });
 
+// Stage B task 6: `CurrentPhase` is a plain string with no omitempty, so a
+// CLASSIFIED row the server has not started reporting a phase for arrives as
+// '' — 44 of the 69 committed rows. Gating on `classified` alone let that
+// through as a present field naming a phase called nothing; the field now drops
+// at its zero value exactly like kind/status/worstOrigin/layer.
+void test('a classified row with no current phase yet drops the field rather than surfacing an empty one', () => {
+  const row = mapConstructionRow(wireRow({ classified: true, CurrentPhase: '' }));
+  assert.equal(row.classified, true);
+  assert.equal(row.currentLifecyclePhase, undefined);
+});
+
 // buildStatusForConstructionRow must not fold "we don't know" (status
 // undefined) into "we know it hasn't started" (not-started) — the two are
 // different claims, and the honest-fallback member for the first is
