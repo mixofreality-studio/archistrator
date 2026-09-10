@@ -63,8 +63,13 @@ func wantExactTasks(t *testing.T, got []projectstate.TaskAttempt, want ...projec
 	for _, a := range got {
 		seen[a.Task]++
 		if !wanted[a.Task] {
-			t.Errorf("derived an attempt at %q (%s) — only the two ruled inferences may "+
-				"produce attempts, and %q is neither of them", a.Task, a.AttemptID, a.Task)
+			t.Errorf("derived an attempt at %q (%s) — only the three ruled inferences may "+
+				"produce attempts, and %q is outside every one of them", a.Task, a.AttemptID, a.Task)
+		}
+		if projectstate.IsConditionalTask(a.Task) {
+			t.Errorf("derived an attempt at the CONDITIONAL task %q (%s) — conditional tasks are "+
+				"emitted only when a real attempt exists; inventing one asserts a pre-design spike "+
+				"or a test client that may never have happened", a.Task, a.AttemptID)
 		}
 	}
 	for task := range wanted {
@@ -81,43 +86,55 @@ func wantExactTasks(t *testing.T, got []projectstate.TaskAttempt, want ...projec
 	}
 }
 
-// TestAttemptsFor_DerivesExactlyTheTwoRuledInferences is the governing rule of this tool
-// expressed as a test: a frozen contract means detailed design ran and design review
-// passed; merged code means construction ran and code review passed; NOTHING else is
-// inferred from anything.
+// TestAttemptsFor_DerivesExactlyTheThreeRuledInferences is the governing rule of this
+// tool expressed as a test. There are THREE inferences and no fourth:
 //
-// It pins the exact task SET, not just each attempt's individual validity, because a
-// third inference added later would be individually valid in every way the other tests
-// check — inside the profile's task set, non-empty basis, stamped backfilled — and would
-// sail through them. The whole point of the stage is that the tasks with no evidence
-// render as an honest unknown skeleton; a tool that quietly grows a third inference
-// fills that skeleton in with history nobody can trace, which is the exact failure this
-// work exists to prevent.
-func TestAttemptsFor_DerivesExactlyTheTwoRuledInferences(t *testing.T) {
+//   - a frozen contract ALONE → detailed design ran, design review passed. Nothing more:
+//     a design that was never built stays two tasks.
+//   - merged code ALONE → construction ran, code review passed.
+//   - a frozen contract AND merged code → the component is fully implemented, which the
+//     founder has ruled means done, reviewed and integrated: the WHOLE profile passes,
+//     minus the conditional tasks.
+//
+// It pins the exact task SET per bucket, not just each attempt's individual validity,
+// because a fourth inference added later would be individually valid in every way the
+// other tests check — inside the profile's task set, non-empty basis, stamped
+// backfilled — and would sail straight through them. The tasks with no evidence and no
+// ruling behind them must keep rendering as an honest unknown skeleton; a tool that
+// quietly grows another inference fills that skeleton in with history nobody can trace,
+// which is the exact failure this work exists to prevent.
+//
+// wantExactTasks additionally rejects ANY conditional task (someConstruction,
+// testClient) in every bucket, so the widened case cannot start asserting a pre-design
+// spike or a test client that may never have existed.
+func TestAttemptsFor_DerivesExactlyTheThreeRuledInferences(t *testing.T) {
 	cases := []struct {
 		name string
 		ev   evidence
 		want []projectstate.MethodTask
 	}{
 		{
-			name: "a frozen contract, and nothing else",
+			name: "a frozen contract, and nothing else — NOT widened",
 			ev:   evidence{HasServiceContract: true, ContractRef: "artifactAccess"},
 			want: []projectstate.MethodTask{projectstate.TaskDetailedDesign, projectstate.TaskDesignReview},
 		},
 		{
-			name: "merged code, and nothing else",
+			name: "merged code, and nothing else — NOT widened",
 			ev:   evidence{HasMergedCode: true, GitRef: "implementation/log"},
 			want: []projectstate.MethodTask{projectstate.TaskConstruction, projectstate.TaskCodeReview},
 		},
 		{
-			name: "both — exactly the union, never a fifth",
+			name: "both — fully implemented, so the whole profile minus the conditionals",
 			ev: evidence{
 				HasServiceContract: true, ContractRef: "artifactAccess",
 				HasMergedCode: true, GitRef: "implementation/log",
 			},
 			want: []projectstate.MethodTask{
+				projectstate.TaskSRS, projectstate.TaskSRSReview,
 				projectstate.TaskDetailedDesign, projectstate.TaskDesignReview,
+				projectstate.TaskSTP, projectstate.TaskSTPReview,
 				projectstate.TaskConstruction, projectstate.TaskCodeReview,
+				projectstate.TaskIntegration, projectstate.TaskTesting,
 			},
 		},
 		{
@@ -130,6 +147,89 @@ func TestAttemptsFor_DerivesExactlyTheTwoRuledInferences(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			wantExactTasks(t, attemptsFor("C-x", projectstate.ActivityTypeService, c.ev), c.want...)
 		})
+	}
+}
+
+// TestAttemptsFor_WidenedIsExactlyTheProfileMinusTheConditionals derives the widened set
+// from the profile rather than restating it, so the rule survives a profile change: if a
+// thirteenth task joins the service profile tomorrow, the widened bucket must pick it up
+// and this test keeps holding — while a hand-listed set would silently go stale.
+func TestAttemptsFor_WidenedIsExactlyTheProfileMinusTheConditionals(t *testing.T) {
+	for _, typ := range []projectstate.ActivityType{
+		projectstate.ActivityTypeService,
+		projectstate.ActivityTypeFrontend,
+		projectstate.ActivityTypeDeployment,
+		projectstate.ActivityTypeDocumentation,
+		projectstate.ActivityTypeUIDesign,
+		projectstate.ActivityTypeIntegration,
+	} {
+		var want []projectstate.MethodTask
+		for _, task := range projectstate.TasksForProfile(projectstate.ProfileFor(typ, projectstate.TestVariantPlan)) {
+			if projectstate.IsConditionalTask(task) {
+				continue
+			}
+			want = append(want, task)
+		}
+		got := attemptsFor("C-x", typ, evidence{
+			HasServiceContract: true, ContractRef: "artifactAccess",
+			HasMergedCode: true, GitRef: "implementation/log",
+		})
+		wantExactTasks(t, got, want...)
+	}
+}
+
+// TestAttemptsFor_WidenedBasisNamesTheRulingNotJustTheArtifacts is the honesty guard on
+// the widened bucket. Most of the tasks it stamps — srs, stp, testing — have no artifact
+// behind them at all; the founder's assertion is what says they happened. A basis citing
+// only the artifacts would claim those rows were read off disk, which is a false
+// statement about where the inference came from, and this codebase has already had to go
+// back and fix one of those.
+func TestAttemptsFor_WidenedBasisNamesTheRulingNotJustTheArtifacts(t *testing.T) {
+	got := attemptsFor("C-AA", projectstate.ActivityTypeService, evidence{
+		HasServiceContract: true, ContractRef: "artifactAccess",
+		HasMergedCode: true, GitRef: "implementation/log",
+	})
+	if len(got) == 0 {
+		t.Fatal("no attempts derived from contract+code evidence")
+	}
+	for _, a := range got {
+		if !strings.Contains(a.Provenance.Basis, founderRuling) {
+			t.Errorf("%s: basis %q does not quote the founder ruling — a basis naming only "+
+				"the artifacts would be a false claim for a task with no artifact", a.AttemptID, a.Provenance.Basis)
+		}
+		if !strings.Contains(a.Provenance.Basis, "serviceContracts[artifactAccess]") {
+			t.Errorf("%s: basis %q does not name the contract that establishes fully-implemented", a.AttemptID, a.Provenance.Basis)
+		}
+		if !strings.Contains(a.Provenance.Basis, "activityGit[implementation/log]") {
+			t.Errorf("%s: basis %q does not name the code that establishes fully-implemented", a.AttemptID, a.Provenance.Basis)
+		}
+		if a.Provenance.Origin != projectstate.OriginBackfilled {
+			t.Errorf("%s: origin = %q — a ruling is not an observation", a.AttemptID, a.Provenance.Origin)
+		}
+	}
+}
+
+// TestAttemptsFor_RulingOnlyTasksPointAtNoArtifact pins the click-through: a row that
+// exists because of the ruling must not hand the UI a contract to open under a label
+// like "Testing". The basis says where it came from; the evidence ref stays empty.
+func TestAttemptsFor_RulingOnlyTasksPointAtNoArtifact(t *testing.T) {
+	got := attemptsFor("C-AA", projectstate.ActivityTypeService, evidence{
+		HasServiceContract: true, ContractRef: "artifactAccess",
+		HasMergedCode: true, GitRef: "implementation/log", CodeKind: projectstate.EvidenceArtifact,
+	})
+	backing := map[projectstate.MethodTask]projectstate.EvidenceKind{
+		projectstate.TaskDetailedDesign: projectstate.EvidenceContract,
+		projectstate.TaskDesignReview:   projectstate.EvidenceContract,
+		projectstate.TaskConstruction:   projectstate.EvidenceArtifact,
+		projectstate.TaskCodeReview:     projectstate.EvidenceArtifact,
+	}
+	for _, a := range got {
+		if want := backing[a.Task]; a.Evidence.Kind != want {
+			t.Errorf("%s: evidence kind = %q, want %q", a.AttemptID, a.Evidence.Kind, want)
+		}
+		if backing[a.Task] == projectstate.EvidenceNone && a.Evidence.Ref != "" {
+			t.Errorf("%s: evidence ref = %q, want empty — no artifact backs this row", a.AttemptID, a.Evidence.Ref)
+		}
 	}
 }
 

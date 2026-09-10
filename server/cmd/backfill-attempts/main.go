@@ -8,11 +8,18 @@
 // permanent architecture. Synthesis that lives in a read path is invisible, unversioned
 // and unrevertable; synthesis that lives in a commit is none of those things.
 //
-// Every attempt it writes is stamped OriginBackfilled with a basis naming the evidence,
-// and every attempt is run through AttemptProvenance.Validate before anything is
-// written — a backfilled record with an empty basis is a hard error, not a silent nil
-// on the wire. Activities with NO evidence get NO attempts: absence stays absence. The
-// list view renders those as an honest unknown skeleton, which is the point.
+// Every attempt it writes is stamped OriginBackfilled with a basis naming what it was
+// derived from, and every attempt is run through AttemptProvenance.Validate before
+// anything is written — a backfilled record with an empty basis is a hard error, not a
+// silent nil on the wire. Activities with NO evidence get NO attempts: absence stays
+// absence. The list view renders those as an honest unknown skeleton, which is the point.
+//
+// One inference is NOT read off a file. Where an activity has BOTH a frozen contract and
+// merged code, the founder has ruled that such a component is done, reviewed and
+// integrated — ground truth about their own project that this tool cannot derive. Those
+// rows derive their whole profile, and their basis says so, naming the ruling alongside
+// the two artifacts rather than pretending the extra tasks were read off disk. See
+// attemptsFor.
 //
 // Usage (from server/):
 //
@@ -73,18 +80,113 @@ type evidence struct {
 // generatorID identifies this tool in every provenance stamp it writes.
 var generatorID = "cmd/backfill-attempts"
 
+// founderRuling is the ruling that widens the both-artifacts case, quoted verbatim so
+// the sentence a reader finds in a committed provenance basis is the sentence the
+// founder actually said — not a paraphrase this tool invented.
+const founderRuling = "assume any component that is fully implemented is done and reviewed and integrated"
+
+// founderRulingRef is how that ruling is cited inside a basis string.
+var founderRulingRef = "founderRuling[2026-09-09]=" + founderRuling
+
+// contractRef / contractBasis / codeRef / codeBasis resolve one evidence kind into the
+// EvidenceRef the UI clicks through and the basis string that names where it was read
+// from. Both are shared by all three inferences, so a basis can never drift between the
+// narrow and the widened form of the same evidence.
+func contractRef(ev evidence) projectstate.EvidenceRef {
+	return projectstate.EvidenceRef{Kind: projectstate.EvidenceContract, Ref: ev.ContractRef}
+}
+
+func contractBasis(ev evidence) string {
+	if ev.ContractBasis != "" {
+		return ev.ContractBasis
+	}
+	return fmt.Sprintf("serviceContracts[%s]", ev.ContractRef)
+}
+
+func codeRef(ev evidence) projectstate.EvidenceRef {
+	kind := ev.CodeKind
+	if kind == projectstate.EvidenceNone {
+		kind = projectstate.EvidenceGit
+	}
+	return projectstate.EvidenceRef{Kind: kind, Ref: ev.GitRef}
+}
+
+func codeBasis(ev evidence) string {
+	if ev.CodeBasis != "" {
+		return ev.CodeBasis
+	}
+	return fmt.Sprintf("activityGit[%s]", ev.GitRef)
+}
+
+// fullyImplementedBasis is the provenance basis for the widened inference, and it is
+// deliberately NOT just a list of artifacts.
+//
+// Most of the tasks this basis stamps have no artifact behind them at all — srs, stp and
+// testing were never produced as files, and no committed record says they ran. What says
+// they ran is the FOUNDER, asserting ground truth about their own project that this tool
+// cannot derive. A basis citing only serviceContracts[…] and produced[code] would claim
+// those rows were read off disk, which is precisely the class of false provenance this
+// tool exists to prevent — and a claim this codebase has already had to go back and fix
+// once. So the basis names both halves: the two artifacts that establish "fully
+// implemented", and the ruling that turns "fully implemented" into "done, reviewed and
+// integrated".
+func fullyImplementedBasis(ev evidence) string {
+	return contractBasis(ev) + " + " + codeBasis(ev) + " + " + founderRulingRef
+}
+
+// ruledEvidenceFor points a widened attempt at the artifact that actually backs it, and
+// at NOTHING when none does. Detailed design and its review were read off the frozen
+// contract; construction and its review off the merged code. The remaining tasks —
+// srs, srsReview, stp, stpReview, integration, testing — exist because of the ruling,
+// not because of a file, so they carry no evidence ref: handing the UI a contract to
+// open under a row labelled "Testing" would be a click-through that lies about what it
+// is showing. The basis still says exactly where each row came from.
+//
+// Every one of the twelve tasks is listed, with no default case, so `exhaustive` fails
+// the build the moment a thirteenth is added without a conscious call about what backs
+// it — the same discipline projectstate's conditionalTasks and taskLabels maps keep.
+func ruledEvidenceFor(task projectstate.MethodTask, ev evidence) projectstate.EvidenceRef {
+	switch task {
+	case projectstate.TaskDetailedDesign, projectstate.TaskDesignReview:
+		return contractRef(ev)
+	case projectstate.TaskConstruction, projectstate.TaskCodeReview:
+		return codeRef(ev)
+	case projectstate.TaskSRS, projectstate.TaskSRSReview,
+		projectstate.TaskSTP, projectstate.TaskSTPReview,
+		projectstate.TaskIntegration, projectstate.TaskTesting:
+		// The ruling is the evidence; there is no artifact to point at.
+		return projectstate.EvidenceRef{}
+	case projectstate.TaskSomeConstruction, projectstate.TaskTestClient:
+		// Conditional-emit; the widened inference never asks about these.
+		return projectstate.EvidenceRef{}
+	}
+	return projectstate.EvidenceRef{}
+}
+
 // attemptsFor derives the recoverable attempts for one activity.
 //
-// The mapping is deliberately conservative — only two inferences are made, and each
-// names the artifact it was read from:
-//   - a frozen service contract means Detailed Design ran and Design Review passed
-//   - merged code means Construction ran and Code Review passed
+// THREE inferences, and no fourth. The first two are read off artifacts; the third is a
+// founder ruling applied to a pair of artifacts:
 //
-// Everything else stays unknown. We do NOT infer SRS, STP, Test Client, Integration or
-// Testing from anything, because no evidence for them exists in the committed state.
+//   - a frozen service contract ALONE means Detailed Design ran and Design Review passed.
+//     A contract with no code is a design that was never built, and it stays two tasks.
+//   - merged code ALONE means Construction ran and Code Review passed.
+//   - a frozen contract AND merged code means the component is FULLY IMPLEMENTED, and
+//     the founder has ruled that such a component is "done and reviewed and integrated".
+//     Those activities derive their WHOLE profile as passed.
+//
+// The widened case skips the CONDITIONAL tasks (someConstruction, testClient). Those are
+// conditional-emit by design — the UI renders them only when a real attempt exists — and
+// inventing one would assert a pre-design spike or a test client that may never have
+// existed. The ruling says the component is done, reviewed and integrated; it does not
+// say how it got there, and this tool must not fill that in.
+//
+// Activities with NO evidence still get NOTHING. The ruling is about fully implemented
+// components specifically; stretching it further would be exactly the over-inference
+// this tool was built to avoid.
 //
 // The task vocabulary comes from the PROFILE, never from the evidence: an inference is
-// dropped when the activity's type has no phase for it.
+// dropped when the activity's type has no lifecycle stage for it.
 func attemptsFor(activityID string, typ projectstate.ActivityType, ev evidence) []projectstate.TaskAttempt {
 	profile := projectstate.ProfileFor(typ, projectstate.TestVariantPlan)
 	allowed := map[projectstate.MethodTask]bool{}
@@ -116,27 +218,21 @@ func attemptsFor(activityID string, typ projectstate.ActivityType, ev evidence) 
 		})
 	}
 
-	if ev.HasServiceContract {
-		ref := projectstate.EvidenceRef{Kind: projectstate.EvidenceContract, Ref: ev.ContractRef}
-		basis := ev.ContractBasis
-		if basis == "" {
-			basis = fmt.Sprintf("serviceContracts[%s]", ev.ContractRef)
+	switch {
+	case ev.HasServiceContract && ev.HasMergedCode:
+		basis := fullyImplementedBasis(ev)
+		for _, task := range projectstate.TasksForProfile(profile) {
+			if projectstate.IsConditionalTask(task) {
+				continue
+			}
+			add(task, ruledEvidenceFor(task, ev), basis)
 		}
-		add(projectstate.TaskDetailedDesign, ref, basis)
-		add(projectstate.TaskDesignReview, ref, basis)
-	}
-	if ev.HasMergedCode {
-		kind := ev.CodeKind
-		if kind == projectstate.EvidenceNone {
-			kind = projectstate.EvidenceGit
-		}
-		ref := projectstate.EvidenceRef{Kind: kind, Ref: ev.GitRef}
-		basis := ev.CodeBasis
-		if basis == "" {
-			basis = fmt.Sprintf("activityGit[%s]", ev.GitRef)
-		}
-		add(projectstate.TaskConstruction, ref, basis)
-		add(projectstate.TaskCodeReview, ref, basis)
+	case ev.HasServiceContract:
+		add(projectstate.TaskDetailedDesign, contractRef(ev), contractBasis(ev))
+		add(projectstate.TaskDesignReview, contractRef(ev), contractBasis(ev))
+	case ev.HasMergedCode:
+		add(projectstate.TaskConstruction, codeRef(ev), codeBasis(ev))
+		add(projectstate.TaskCodeReview, codeRef(ev), codeBasis(ev))
 	}
 	return out
 }
