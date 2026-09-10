@@ -30,7 +30,7 @@
  *     and `unknown` (run it for the first time). Failure is never terminal,
  *     made structural rather than conditional: see detailActionsFor.
  *
- * The body slot renders a placeholder for this task; Tasks 9–11 fill it with
+ * The body slot renders a placeholder for this task; Tasks 8–10 fill it with
  * the unknown / episode / review / artifact bodies.
  */
 import {
@@ -662,7 +662,7 @@ function ActionBar({ actions, t }: { actions: DetailAction[]; t: Tokens }): Reac
 }
 
 // ---------------------------------------------------------------------------
-// The body slot — a placeholder for this task. Tasks 9–11 replace this with
+// The body slot — a placeholder for this task. Tasks 8–10 replace this with
 // the unknown / episode / review / artifact bodies dispatched on `state` and
 // the selection's task kind.
 // ---------------------------------------------------------------------------
