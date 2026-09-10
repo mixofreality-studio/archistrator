@@ -14,12 +14,15 @@
  * so this spec does not click it.
  *
  * What IS exercisable today, against the real committed head-state: opening
- * the Tracker, selecting a real CPM activity node, and reading its App-A
- * activity-tracking detail (kind, status, binary-exit life-cycle phases) —
- * the "Observe run; validate against exit criteria" step of the same use
- * case, driven by real committed ActivityConstruction data (this repo
- * dogfoods its own construction phase — see the "archistrator" project's
- * committed .activityConstruction).
+ * the Tracker, selecting a real CPM activity node, and reading its shared
+ * detail pane (breadcrumb, state chip, action bar — Stage B Task 4) — the
+ * "Observe run; validate against exit criteria" step of the same use case,
+ * driven by real committed ActivityConstruction data (this repo dogfoods its
+ * own construction phase — see the "archistrator" project's committed
+ * .activityConstruction). The default viewport here is well above the
+ * pane's 1200px breakpoint, so this exercises the BESIDE-CONTENT layout, not
+ * the narrow-viewport overlay Drawer (DETAIL_DRAWER, still kept for <1200px
+ * — see DetailPane.tsx).
  *
  * Gated like artifact-systemtest.spec: needs the seeded "archistrator"
  * construction-phase project behind the SPA proxy. No live drafting needed.
@@ -36,7 +39,7 @@ test.beforeEach(async ({ request }) => {
   await skipUnlessConstructionArtifacts(request, BASE);
 });
 
-test('the Tracker renders the committed CPM network and an activity node opens its App-A tracking detail', async ({
+test('the Tracker renders the committed CPM network and an activity node opens its shared detail pane', async ({
   page,
 }) => {
   tagUseCase('execute-a-construction-activity');
@@ -58,10 +61,24 @@ test('the Tracker renders the committed CPM network and an activity node opens i
   await expect(firstNode).toBeVisible({ timeout: 15_000 });
   await firstNode.click();
 
-  const panel = page.getByTestId(TESTID.activityLifecyclePanel);
+  const panel = page.getByTestId(TESTID.constructionDetailPane);
   await expect(panel).toBeVisible();
-  // The header ("ACTIVITY TRACKING · APP A") always renders once a node is
-  // selected — real content, not a stub, proving the click drove a genuine
-  // activity selection against committed data.
-  await expect(panel).toContainText('ACTIVITY TRACKING');
+  // The narrow-viewport overlay Drawer must NOT be the one that rendered —
+  // at this viewport width the pane sits BESIDE the content instead (the
+  // whole point of Task 4: the old Drawer's modal backdrop used to cover the
+  // toolbar's right end while a selection was open).
+  await expect(page.getByTestId(TESTID.constructionDetailDrawer)).toHaveCount(0);
+  // The toolbar's own controls stay reachable — the exact regression Task 4
+  // fixes (the old overlay Drawer's backdrop covered the toolbar's right end
+  // while a selection was open).
+  await expect(page.getByTestId(TESTID.constructionLensKind)).toBeVisible();
+
+  // The breadcrumb + action bar (with the always-present, always-enabled
+  // retry action) always render once a node is selected — real content, not
+  // a stub, proving the click drove a genuine activity selection against
+  // committed data.
+  await expect(page.getByTestId(TESTID.constructionDetailBreadcrumb)).toBeVisible();
+  const runAction = page.getByTestId(TESTID.constructionDetailActionRun);
+  await expect(runAction).toBeVisible();
+  await expect(runAction).toBeEnabled();
 });

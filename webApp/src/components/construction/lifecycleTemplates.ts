@@ -78,7 +78,7 @@ export interface PhaseState extends PhaseTemplate {
 // for a given canonical phase does not).
 // ---------------------------------------------------------------------------
 
-const EXIT_CRITERIA: Record<LifecyclePhase, string> = {
+export const EXIT_CRITERIA: Record<LifecyclePhase, string> = {
   requirements: 'The requirement/brief for this activity is captured and approved',
   detailed_design: 'Detailed design (contract / UI concept / provisioning spec) is approved',
   test_plan: "This activity's slice of the test plan is written",

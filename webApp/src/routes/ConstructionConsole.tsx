@@ -30,23 +30,11 @@ import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined';
 import PlayArrowRoundedIcon from '@mui/icons-material/PlayArrowRounded';
 import { getRouteApi, useNavigate } from '@tanstack/react-router';
 
-import type {
-  ConstructionRow,
-  GitRow,
-  ProjectArtifactModelEnvelope,
-  ProjectStateWithGit,
-} from '../contracts/types';
+import type { GitRow, ProjectArtifactModelEnvelope, ProjectStateWithGit } from '../contracts/types';
 import { gitFor } from '../contracts/types';
 import type { OverrideKind } from '../contracts/types';
 import { slotStageFromOrdinal } from '../contracts/adapters';
-import {
-  buildStatusForStage,
-  sessionIsLive,
-  activeActivityId,
-  computeActivityStatuses,
-  type BuildStatus,
-} from '../contracts/constructionAdapters';
-import { toNetworkView, narrowProject } from '../contracts/projectAdapters';
+import { narrowProject } from '../contracts/projectAdapters';
 import { useProject } from '../hooks/useProject';
 import { isSessionAbsent } from '../hooks/sessionPolling';
 import { useConstructionSession } from '../hooks/useConstructionSession';
@@ -73,10 +61,9 @@ import {
 import { KIND_META, type ActivityKind } from '../components/construction/KindBadge';
 import { InterventionsTab } from '../components/construction/InterventionsTab';
 import { ArtifactsTab } from '../components/construction/ArtifactsTab';
-import { ActivityLifecyclePanel } from '../components/construction/ActivityLifecyclePanel';
+import { DetailPane } from '../components/construction/detail/DetailPane';
 import { PhaseGatePanel } from '../components/construction/PhaseGatePanel';
 import { CommentProvider, useComments } from '../components/comments/CommentContext';
-import { EpisodesPanelContainer } from '../containers/EpisodesPanelContainer';
 
 import { useTokens } from '../utilities/theme/ThemeContext';
 import type { Tokens } from '../utilities/theme/themes';
@@ -387,14 +374,8 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
     [project]
   );
 
-  // Derive the NetworkView + status map so the panel can resolve the clicked node's status.
   const networkEnvelope = committedEnvelope(project, 'network');
   const activityEnvelope = committedEnvelope(project, 'activityList');
-  const networkModel = useMemo(() => narrowProject(networkEnvelope, 'network'), [networkEnvelope]);
-  const networkView = useMemo(
-    () => toNetworkView(networkEnvelope, activityEnvelope),
-    [networkEnvelope, activityEnvelope]
-  );
 
   // titleForId: resolves activityId → human-readable title from the committed
   // activity-list slot, falling back to the id when no title is present.
@@ -408,53 +389,16 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
     return (id: string): string | undefined => byId.get(id);
   }, [activityListModel]);
 
-  const live = sessionIsLive(session);
-  const activeId = activeActivityId(session);
-  const activeStatus: BuildStatus =
-    session !== undefined ? buildStatusForStage(session.stage) : 'not-started';
-
-  const constructionRowFor = useMemo(
-    () =>
-      project?.constructionRows !== undefined
-        ? (id: string): ConstructionRow | undefined => project.constructionRows?.[id]
-        : undefined,
-    [project]
-  );
-
-  const statusMap = useMemo(
-    () =>
-      networkModel !== undefined
-        ? computeActivityStatuses(
-            networkModel,
-            gitForActivity,
-            live && activeId !== undefined ? activeId : undefined,
-            activeStatus,
-            constructionRowFor
-          )
-        : new Map<string, BuildStatus>(),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- gitForActivity is a fresh closure every render (not memoized), reading `project`; project's own changes already invalidate this memo via constructionRowFor (which IS keyed on project), so listing gitForActivity too would defeat the memoization every render for no benefit
-    [networkModel, live, activeId, activeStatus, constructionRowFor]
-  );
-
-  // The shell's DETAIL slot: one pane, driven entirely by the URL's selection, so
-  // it neither owns selection nor loses it to the cascade poll. Task 4 replaces
-  // this overlay Drawer with a pane laid out beside the content.
+  // The shell's DETAIL slot: one pane, driven entirely by the URL's selection
+  // (never owned by the pane itself), so it cannot lose it to the cascade
+  // poll's remount. Beside-content at >=1200px, the existing overlay Drawer
+  // below that — see DetailPane.tsx.
   const detailPane =
     selectedActivityId !== null ? (
-      <ActivityLifecyclePanel
-        activityId={selectedActivityId}
+      <DetailPane
         activityTitle={titleForId(selectedActivityId)}
-        derivedStatus={statusMap.get(selectedActivityId) ?? 'not-started'}
-        episodesSlot={
-          <EpisodesPanelContainer
-            manager="construction"
-            projectId={projectId}
-            targetRef={selectedActivityId}
-          />
-        }
-        git={gitForActivity(selectedActivityId)}
-        node={networkView.nodes.find((n) => n.id === selectedActivityId)}
         row={project?.constructionRows?.[selectedActivityId]}
+        selection={selection}
         onClose={clear}
       />
     ) : undefined;

@@ -387,6 +387,24 @@ export const UI_IDENTIFIERS = {
     LENS_CONTENT: 'construction-lens-content',
     LENS_DETAIL: 'construction-lens-detail',
     LENS_PLACEHOLDER: 'construction-lens-placeholder',
+    // The shared detail pane (Stage B Task 4) — one header/body/action-bar
+    // surface behind all three lenses. Laid out BESIDE the content at
+    // >=1200px; below that it degrades to DETAIL_DRAWER, the same overlay
+    // Drawer mechanism the old ActivityLifecyclePanel used (kept, not
+    // deleted — see ActivityLifecyclePanel.tsx).
+    DETAIL_PANE: 'construction-detail-pane',
+    DETAIL_DRAWER: 'construction-detail-drawer',
+    DETAIL_COLLAPSE_TOGGLE: 'construction-detail-collapse-toggle',
+    DETAIL_RESIZE_HANDLE: 'construction-detail-resize-handle',
+    DETAIL_CLOSE: 'construction-detail-close',
+    DETAIL_BREADCRUMB: 'construction-detail-breadcrumb',
+    DETAIL_STATE_CHIP: 'construction-detail-state-chip',
+    DETAIL_PROVENANCE_CHIP: 'construction-detail-provenance-chip',
+    DETAIL_ATTEMPT_SELECT: 'construction-detail-attempt-select',
+    DETAIL_EXIT_CRITERION: 'construction-detail-exit-criterion',
+    DETAIL_BODY: 'construction-detail-body',
+    DETAIL_ACTION_BAR: 'construction-detail-action-bar',
+    detailAction: (id: string) => `construction-detail-action-${id}`,
   },
   // The GIT-FORWARD per-activity row cluster (U-SPA-GIT). The shared chrome the
   // construction tracker (and future CR/operations surfaces) render per

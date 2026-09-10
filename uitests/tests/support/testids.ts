@@ -213,6 +213,19 @@ export const TESTID = {
   constructionScenarioPicker: UI_IDENTIFIERS.Construction.SCENARIO_PICKER,
   constructionCaseChip: UI_IDENTIFIERS.Construction.caseChip,
   activityLifecyclePanel: UI_IDENTIFIERS.Construction.ACTIVITY_LIFECYCLE_PANEL,
+  // The Stage-B lens shell's toolbar (ConstructionShell.tsx) — its right end
+  // is exactly what the old overlay Drawer's backdrop used to cover.
+  constructionLensToolbar: UI_IDENTIFIERS.Construction.LENS_TOOLBAR,
+  constructionLensKind: UI_IDENTIFIERS.Construction.LENS_KIND,
+  // The shared detail pane (Stage B Task 4) that replaced the overlay Drawer
+  // above as the console's mounted detail surface — beside content at
+  // >=1200px, DETAIL_DRAWER below that (same overlay mechanism, kept).
+  constructionDetailPane: UI_IDENTIFIERS.Construction.DETAIL_PANE,
+  constructionDetailDrawer: UI_IDENTIFIERS.Construction.DETAIL_DRAWER,
+  constructionDetailBreadcrumb: UI_IDENTIFIERS.Construction.DETAIL_BREADCRUMB,
+  constructionDetailStateChip: UI_IDENTIFIERS.Construction.DETAIL_STATE_CHIP,
+  constructionDetailActionBar: UI_IDENTIFIERS.Construction.DETAIL_ACTION_BAR,
+  constructionDetailActionRun: UI_IDENTIFIERS.Construction.detailAction('run'),
 
   // Operations console (route `/operations/$operatedAppId`).
   operationsRoot: UI_IDENTIFIERS.Operations.ROOT,
