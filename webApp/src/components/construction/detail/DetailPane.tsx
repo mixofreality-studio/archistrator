@@ -30,7 +30,7 @@
  *     and `unknown` (run it for the first time). Failure is never terminal,
  *     made structural rather than conditional: see detailActionsFor.
  *
- * The body slot renders a placeholder for this task; Tasks 8–10 fill it with
+ * The body slot renders a placeholder for this task; Tasks 9–11 fill it with
  * the unknown / episode / review / artifact bodies.
  */
 import {
@@ -71,6 +71,7 @@ import {
   taskDetailStateFill,
   TASK_DETAIL_STATE_LABEL,
   taskDetailStateFor,
+  WIDE_PANE_SX,
   type DetailAction,
   type TaskDetailState,
 } from './detailPaneState.ts';
@@ -92,16 +93,6 @@ const COLLAPSED_RAIL_WIDTH = 40;
  *  sits next to — degrade to the overlay Drawer instead. */
 const WIDE_BREAKPOINT = '(min-width:1200px)';
 const WIDTH_STORAGE_KEY = 'archistrator.construction.detailPaneWidth';
-/**
- * The lens toolbar (ConstructionShell.tsx) sticks to the top of the SAME
- * scrolling ancestor at `top: 0`. Content beside it (the tracker's charts,
- * the activity list) is tall enough that, without a height cap, this pane
- * would flex-stretch to match it — pushing the action bar thousands of
- * pixels below the fold. Sticking the pane too, just below the toolbar's own
- * height, keeps the header/body/action-bar reachable at every scroll
- * position instead of only at the top of the page.
- */
-const STICKY_TOP = 76;
 
 function clamp(n: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, n));
@@ -251,20 +242,7 @@ export function DetailPane({
 
   if (isWide) {
     return (
-      <Box
-        data-testid={UI_IDENTIFIERS.Construction.DETAIL_PANE}
-        sx={{
-          display: 'flex',
-          // Never flex-stretch to match the tall content column beside it —
-          // see STICKY_TOP's comment. Sized to its own content instead, up
-          // to what fits below the sticky toolbar.
-          alignSelf: 'flex-start',
-          position: 'sticky',
-          top: STICKY_TOP,
-          maxHeight: `calc(100vh - ${String(STICKY_TOP)}px - 16px)`,
-          overflow: 'hidden',
-        }}
-      >
+      <Box data-testid={UI_IDENTIFIERS.Construction.DETAIL_PANE} sx={WIDE_PANE_SX}>
         {paneContent}
       </Box>
     );
@@ -684,7 +662,7 @@ function ActionBar({ actions, t }: { actions: DetailAction[]; t: Tokens }): Reac
 }
 
 // ---------------------------------------------------------------------------
-// The body slot — a placeholder for this task. Tasks 8–10 replace this with
+// The body slot — a placeholder for this task. Tasks 9–11 replace this with
 // the unknown / episode / review / artifact bodies dispatched on `state` and
 // the selection's task kind.
 // ---------------------------------------------------------------------------

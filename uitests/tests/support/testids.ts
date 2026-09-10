@@ -221,6 +221,9 @@ export const TESTID = {
   // above as the console's mounted detail surface — beside content at
   // >=1200px, DETAIL_DRAWER below that (same overlay mechanism, kept).
   constructionDetailPane: UI_IDENTIFIERS.Construction.DETAIL_PANE,
+  /** The shell's wrapper AROUND the pane — a flex ITEM of the content row, and
+   *  therefore the box the row's `align-items: stretch` actually acts on. */
+  constructionLensDetail: UI_IDENTIFIERS.Construction.LENS_DETAIL,
   constructionDetailDrawer: UI_IDENTIFIERS.Construction.DETAIL_DRAWER,
   constructionDetailBreadcrumb: UI_IDENTIFIERS.Construction.DETAIL_BREADCRUMB,
   constructionDetailStateChip: UI_IDENTIFIERS.Construction.DETAIL_STATE_CHIP,

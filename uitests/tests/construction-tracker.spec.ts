@@ -82,3 +82,105 @@ test('the Tracker renders the committed CPM network and an activity node opens i
   await expect(runAction).toBeVisible();
   await expect(runAction).toBeEnabled();
 });
+
+/**
+ * Review round 1 (Task 4): the pane's action bar must stay reachable at every
+ * scroll position, and the MECHANISM that keeps it there must be the one the
+ * code claims.
+ *
+ * This is the one property in this surface no other gate can see — typecheck,
+ * eslint and the whole node:test suite stayed green while the action bar sat
+ * thousands of pixels below the fold, and stayed green again when a dead
+ * `alignSelf` was credited with fixing it. So it is asserted here, live, in the
+ * only place that can actually measure it.
+ *
+ * What is measured, and why each part matters:
+ *
+ *   - `construction-lens-detail` (the shell's wrapper) IS stretched tall by the
+ *     content row. That is LOAD-BEARING, not a bug: `position: sticky` can only
+ *     travel within its containing block, so the tall wrapper is exactly what
+ *     gives the pane room to stay pinned for the whole scroll. Asserted so that
+ *     "fixing" the stretch — e.g. making the wrapper `display:flex` +
+ *     `alignSelf:'flex-start'` — fails here instead of silently un-pinning the
+ *     pane.
+ *   - `construction-detail-pane` is MUCH shorter than that wrapper: it takes no
+ *     explicit height and is capped by `maxHeight`, so it is sized by its own
+ *     content rather than by the column beside it.
+ *   - the run action stays fully inside the viewport at BOTH ends of the scroll
+ *     range, and holds a fixed y once sticky has engaged.
+ *
+ * Measured live at 1600x900 against committed head-state: wrapper 1989.1px,
+ * pane 314.8px, run action y 545.7 at scrollTop 0 and 474.7 from scrollTop 300
+ * all the way to the 1384px maximum.
+ */
+test('the detail pane stays pinned beside content, so its action bar survives a long scroll', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1600, height: 900 });
+  await gotoApp(page, '/project/archistrator/construction');
+
+  // eslint-disable-next-line no-restricted-syntax -- react-flow nodes carry no testid; see above
+  const firstNode = page.locator('.react-flow__node').first();
+  await expect(firstNode).toBeVisible({ timeout: 15_000 });
+  await firstNode.click();
+
+  const runAction = page.getByTestId(TESTID.constructionDetailActionRun);
+  await expect(runAction).toBeVisible();
+
+  const wrapper = await page.getByTestId(TESTID.constructionLensDetail).boundingBox();
+  const pane = await page.getByTestId(TESTID.constructionDetailPane).boundingBox();
+  expect(wrapper).not.toBeNull();
+  expect(pane).not.toBeNull();
+  // The pane is sized by its own content, not by the wrapper it sits in. A
+  // generous margin: the point is orders of magnitude, not a pixel count.
+  expect(pane!.height).toBeLessThan(wrapper!.height / 2);
+  // ...and it never exceeds what fits below the sticky lens toolbar.
+  expect(pane!.height).toBeLessThanOrEqual(900);
+
+  // The console does NOT scroll the window — it scrolls an inner container, so
+  // `page.mouse.wheel` over the react-flow canvas moves nothing at all (it is
+  // swallowed for pan/zoom) and an assertion built on it would pass vacuously.
+  // Drive the real scroller, and prove it actually moved before believing
+  // anything measured after it.
+  const scrollTo = async (top: number): Promise<number> =>
+    page.evaluate((t) => {
+      for (const el of Array.from(document.querySelectorAll('*'))) {
+        const style = window.getComputedStyle(el);
+        if (el.scrollHeight > el.clientHeight + 4 && /(auto|scroll)/.test(style.overflowY)) {
+          el.scrollTop = t === -1 ? el.scrollHeight : t;
+          return el.scrollTop;
+        }
+      }
+      return -1;
+    }, top);
+
+  const atTop = await scrollTo(0);
+  expect(atTop).toBe(0);
+  await page.waitForTimeout(250);
+  const boxAtTop = await runAction.boundingBox();
+
+  const atBottom = await scrollTo(-1);
+  // The scroll is REAL — well past the 900px the pane would otherwise be pushed
+  // down by. Without this the two measurements below could be the same point.
+  expect(atBottom).toBeGreaterThan(900);
+  await page.waitForTimeout(250);
+  const boxAtBottom = await runAction.boundingBox();
+
+  expect(boxAtTop).not.toBeNull();
+  expect(boxAtBottom).not.toBeNull();
+  // The invariant: the action bar is fully inside the viewport at BOTH ends of
+  // the scroll range. This is what "reachable at every scroll position" means,
+  // and it is what the old stretched layout broke.
+  for (const box of [boxAtTop!, boxAtBottom!]) {
+    expect(box.y).toBeGreaterThanOrEqual(0);
+    expect(box.y + box.height).toBeLessThanOrEqual(900);
+  }
+  // Once sticky has engaged it PINS: scrolling the remaining ~1000px does not
+  // move the action bar at all.
+  const mid = await scrollTo(300);
+  expect(mid).toBe(300);
+  await page.waitForTimeout(250);
+  const boxAtMid = await runAction.boundingBox();
+  expect(boxAtMid).not.toBeNull();
+  expect(Math.abs(boxAtBottom!.y - boxAtMid!.y)).toBeLessThan(4);
+});

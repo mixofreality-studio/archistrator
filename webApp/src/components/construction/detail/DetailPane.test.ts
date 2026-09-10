@@ -17,6 +17,8 @@ import {
   detailActionsFor,
   resolvePhaseTask,
   taskDetailStateFor,
+  DETAIL_PANE_STICKY_TOP,
+  WIDE_PANE_SX,
 } from './detailPaneState.ts';
 
 // ---------------------------------------------------------------------------
@@ -194,4 +196,37 @@ void test('breadcrumbFor degrades gracefully as parts go missing', () => {
     breadcrumbFor('Build Billing Gateway', undefined, undefined, undefined),
     'Build Billing Gateway'
   );
+});
+
+// ---------------------------------------------------------------------------
+// The beside-content layout contract (review round 1).
+//
+// Whether the action bar sits below the fold is invisible to every other gate
+// in this repo — typecheck, eslint and 468 tests were all green while the pane
+// stretched to 1989px. These assertions pin the three properties that were
+// MEASURED to produce the fix, so the mechanism is defended by something
+// runnable rather than by a comment.
+// ---------------------------------------------------------------------------
+
+void test('sizes the beside-content pane by its own content, never by the column beside it', () => {
+  // 1. No explicit height: the 1989px-tall `construction-lens-detail` wrapper
+  //    must not propagate into this block child.
+  assert.equal('height' in WIDE_PANE_SX, false);
+  assert.equal('minHeight' in WIDE_PANE_SX, false);
+  // 2. Capped at what fits below the sticky lens toolbar, so a long body
+  //    scrolls inside the pane instead of pushing the action bar off-screen.
+  assert.equal(WIDE_PANE_SX.maxHeight, 'calc(100vh - 76px - 16px)');
+  assert.equal(WIDE_PANE_SX.overflow, 'hidden');
+  // 3. Pinned in the viewport across the scroll.
+  assert.equal(WIDE_PANE_SX.position, 'sticky');
+  assert.equal(WIDE_PANE_SX.top, DETAIL_PANE_STICKY_TOP);
+});
+
+void test('carries no alignSelf, which would be inert on a non-flex parent', () => {
+  // ConstructionShell's `construction-lens-detail` box is a plain block
+  // container (`sx={{flexShrink:0}}`), so this pane is not a flex item and
+  // `align-self` has no layout effect on it. It stood here for one round
+  // claiming to "stop the stretch"; its absence is now asserted so it cannot
+  // return as an explanation nobody re-measured.
+  assert.equal(Object.keys(WIDE_PANE_SX).includes('alignSelf'), false);
 });

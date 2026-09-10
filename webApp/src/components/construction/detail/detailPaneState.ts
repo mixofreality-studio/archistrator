@@ -28,6 +28,60 @@ import {
 import { EXIT_CRITERIA } from '../lifecycleTemplates.ts';
 
 // ---------------------------------------------------------------------------
+// The beside-content (>= 1200px) layout contract.
+//
+// It lives here, as a plain exported object rather than an inline `sx`, for one
+// reason: it is the ONLY part of this surface no tool can see. typecheck,
+// eslint and the whole test suite stay green whether the action bar sits at
+// y=475 or y=2000, so the mechanism gets pinned by an assertion in
+// DetailPane.test.ts instead of by a comment nobody can run.
+//
+// THE MECHANISM, measured rather than assumed (review round 1)
+// ------------------------------------------------------------
+// ConstructionShell wraps this pane in a plain `<Box sx={{flexShrink:0}}>` —
+// `construction-lens-detail`. THAT box is the flex item of the content row, and
+// the row's default `align-items: stretch` makes it 1989px tall to match the
+// content column beside it. This pane is an ordinary BLOCK child inside that
+// box, so it is not a flex item at all:
+//
+//   1. It never receives an explicit `height`, so it is sized by its own
+//      content — 315px — and the wrapper's 1989px is not inherited.
+//   2. `maxHeight` caps that content height at what fits below the sticky lens
+//      toolbar, so a long body scrolls INSIDE the pane (`overflow: hidden`
+//      here; the body's own scroller lives in DetailPaneChrome) rather than
+//      pushing the action bar off-screen.
+//   3. `position: sticky` + `top` then pin those 315px in the viewport as the
+//      page scrolls.
+//
+// The wrapper's stretch is LOAD-BEARING, not the bug: sticky can only travel
+// within its containing block, so the 1989px wrapper is exactly what gives this
+// pane room to stay pinned for the full scroll. Making
+// `construction-lens-detail` `display:flex` + `alignSelf:'flex-start'` — or
+// otherwise shrinking it to its content — would collapse that travel and the
+// pane would scroll away with the page.
+//
+// An `alignSelf` on THIS box would be inert (a block child of a non-flex
+// parent) and stood here for one round claiming to "stop the stretch"; it is
+// deliberately absent, and the test asserts its absence so it cannot come back
+// as a mechanism nobody re-measured.
+// ---------------------------------------------------------------------------
+
+/** Distance below the scrolling ancestor's top where the pane pins — clears the
+ *  lens toolbar (ConstructionShell), which sticks at `top: 0`. */
+export const DETAIL_PANE_STICKY_TOP = 76;
+
+/** Bottom breathing room so the pinned pane never touches the viewport edge. */
+const DETAIL_PANE_BOTTOM_GAP = 16;
+
+export const WIDE_PANE_SX = {
+  display: 'flex',
+  position: 'sticky',
+  top: DETAIL_PANE_STICKY_TOP,
+  maxHeight: `calc(100vh - ${String(DETAIL_PANE_STICKY_TOP)}px - ${String(DETAIL_PANE_BOTTOM_GAP)}px)`,
+  overflow: 'hidden',
+} as const;
+
+// ---------------------------------------------------------------------------
 // Task-detail state — the vocabulary the header's state chip and the action
 // bar both key off. Distinct from BuildStatus (construction/status.tsx),
 // which is the coarser ACTIVITY-row lens applied to the whole tracker; this
