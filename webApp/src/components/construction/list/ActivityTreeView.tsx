@@ -25,6 +25,16 @@
  * unknown is the majority state (292 of this project's 384 task rows). A screen
  * of "UNKNOWN" chips is the failure that got the earlier rounds rejected.
  *
+ * THE SECOND AXIS
+ * ---------------
+ * State answers "what happened?". PROVENANCE answers "how do we know?", and the
+ * two are orthogonal — every row carries both. It is drawn as a TEXTURE (a
+ * hatched leading rail) and never as a colour, because colour here is already
+ * spoken for by status and float. The badge that names it rides GROUP headers
+ * only. All of it lives in ../provenance.tsx; this file just hangs the rail off
+ * the leading edge of each tier so an expanded reconstructed activity reads as
+ * one continuous hatched band rather than fourteen separate annotations.
+ *
  * WHY THREE TIERS STILL READ AS TWO
  * ---------------------------------
  * Tier 2 is a group RULE, not a card:
@@ -81,6 +91,7 @@ import { UI_IDENTIFIERS } from '../../../utilities/constants/UIIdentifiers';
 import { bandTokens } from '../../project/bandTokens';
 import { KindBadge } from '../KindBadge';
 import { PROVENANCE_LABEL, taskDetailStateFill } from '../detail/detailPaneState.ts';
+import { ProvenanceGroupStamp, ProvenanceRailMark, readProvenance } from '../provenance';
 import type { LensSelection } from '../lens/useLensSelection';
 import type { ActivityNode, PhaseNode, TaskAttemptNode, TaskNode } from './activityTree.ts';
 import {
@@ -122,6 +133,9 @@ const TIER_INDENT: Record<TreeTier, number> = { activity: 0, stage: 16, task: 34
 
 /** The float rail's own width; its HEIGHT is constant — float is not a length. */
 const FLOAT_RAIL_WIDTH = 3;
+/** The provenance rail's column, reserved on every tier BEFORE the tier indent
+ *  so the three tiers' rails stack into one uninterrupted vertical band. */
+const PROVENANCE_RAIL_PX = 4;
 const EFFORT_TRACK_PX = 54;
 const PROGRESS_TRACK_PX = 56;
 const STAGE_WEIGHT_TRACK_PX = 48;
@@ -493,6 +507,9 @@ function ActivityRow({
   const chip = chipFor(state);
   const loud = state === 'awaitingHuman';
   const marker = currentStageMarker(node);
+  // The contagion roll-up: worst provenance anywhere beneath this activity, so
+  // a collapsed row cannot hide a reconstructed task.
+  const provenance = useMemo(() => readProvenance(node), [node]);
 
   return (
     <Box
@@ -500,7 +517,7 @@ function ActivityRow({
         flexGrow: 1,
         minWidth: 0,
         display: 'grid',
-        gridTemplateColumns: `18px 44px ${String(EFFORT_TRACK_PX)}px 86px minmax(0, 1fr) auto`,
+        gridTemplateColumns: `${String(PROVENANCE_RAIL_PX)}px 18px 44px ${String(EFFORT_TRACK_PX)}px 86px minmax(0, 1fr) auto`,
         alignItems: 'center',
         gap: 1,
         pl: `${String(TIER_INDENT.activity)}px`,
@@ -519,6 +536,7 @@ function ActivityRow({
         bgcolor: loud ? t.awaitingBg : 'transparent',
       }}
     >
+      <ProvenanceRailMark reading={provenance} t={t} />
       {chevron}
       <FloatRail band={node.band} float={node.float} />
       <EffortBar days={node.effortDays} maxDays={maxEffortDays} />
@@ -566,6 +584,11 @@ function ActivityRow({
         ) : node.kind !== undefined ? (
           <KindBadge kind={node.kind} size="xs" t={t} />
         ) : null}
+        {/* The stamp sits immediately before the percentage it qualifies: on 21
+            of the 69 rows that numeral reads 100% ✓ PASSED off a founder ruling
+            with no artifact behind it, and the badge must be read in the same
+            glance as the claim, not somewhere else on the row. */}
+        <ProvenanceGroupStamp reading={provenance} t={t} />
         <ProgressFill percent={node.percentComplete} />
         {node.retryCount > 0 ? (
           // The activity's roll-up of the SAME channel its task rows use: a
@@ -762,6 +785,7 @@ function StageRuleRow({
   const rule = stageRule(stage, heaviest);
   const current = isCurrentStage(node, stage);
   const nameColour = rule.filled ? t.committedText : rule.unreported ? t.muted : t.ink;
+  const provenance = useMemo(() => readProvenance(stage), [stage]);
 
   return (
     <Box
@@ -769,84 +793,98 @@ function StageRuleRow({
         flexGrow: 1,
         minWidth: 0,
         display: 'flex',
-        alignItems: 'center',
-        gap: 1,
-        pl: `${String(TIER_INDENT.stage)}px`,
-        pr: 1.25,
-        py: 0.35,
+        alignItems: 'stretch',
         bgcolor: alpha(t.line, 0.03),
       }}
     >
-      {chevron}
-      <Typography sx={{ fontFamily: t.mono, fontSize: 11, color: current ? t.accent : t.muted }}>
-        ┌
-      </Typography>
-      <Typography
+      <ProvenanceRailMark reading={provenance} t={t} />
+      <Box
         sx={{
-          fontFamily: t.mono,
-          fontSize: 10,
-          fontWeight: 700,
-          letterSpacing: '0.1em',
-          color: nameColour,
-          whiteSpace: 'nowrap',
+          flexGrow: 1,
+          minWidth: 0,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 1,
+          pl: `${String(TIER_INDENT.stage)}px`,
+          pr: 1.25,
+          py: 0.35,
         }}
       >
-        {rule.name.toUpperCase()}
-      </Typography>
-      {current ? (
-        <Typography sx={{ fontFamily: t.mono, fontSize: 9.5, fontWeight: 700, color: t.accent }}>
-          ▸ current
+        {chevron}
+        <Typography sx={{ fontFamily: t.mono, fontSize: 11, color: current ? t.accent : t.muted }}>
+          ┌
         </Typography>
-      ) : null}
-      {/* The weight's magnitude channel: a segment WIDTH. Filled when the server
+        <Typography
+          sx={{
+            fontFamily: t.mono,
+            fontSize: 10,
+            fontWeight: 700,
+            letterSpacing: '0.1em',
+            color: nameColour,
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {rule.name.toUpperCase()}
+        </Typography>
+        {current ? (
+          <Typography sx={{ fontFamily: t.mono, fontSize: 9.5, fontWeight: 700, color: t.accent }}>
+            ▸ current
+          </Typography>
+        ) : null}
+        {/* Tier 2 is the second and LAST tier that gets a badge. Its task rows
+          inherit the rail alone — 384 of them, and 384 chips is the density
+          failure that got two prototype rounds rejected. */}
+        <ProvenanceGroupStamp reading={provenance} t={t} />
+        {/* The weight's magnitude channel: a segment WIDTH. Filled when the server
           reported the phase complete, hollow when it reported incomplete, dashed
           when it reported nothing — "no record" and "not done" are different. */}
-      <Tooltip
-        title={
-          rule.unreported
-            ? 'The server reported nothing about this phase'
-            : rule.filled
-              ? 'Exit criterion met'
-              : 'Exit criterion not met'
-        }
-      >
-        <Box
-          sx={{
-            width: STAGE_WEIGHT_TRACK_PX,
-            height: 5,
-            flexShrink: 0,
-            border: rule.unreported
-              ? `1px dashed ${alpha(t.line, 0.5)}`
-              : `1px solid ${alpha(t.line, 0.45)}`,
-            borderRadius: 1,
-            overflow: 'hidden',
-          }}
+        <Tooltip
+          title={
+            rule.unreported
+              ? 'The server reported nothing about this phase'
+              : rule.filled
+                ? 'Exit criterion met'
+                : 'Exit criterion not met'
+          }
         >
           <Box
             sx={{
-              width: `${String(rule.weightFraction * 100)}%`,
-              height: '100%',
-              bgcolor: rule.filled ? t.committedDot : 'transparent',
+              width: STAGE_WEIGHT_TRACK_PX,
+              height: 5,
+              flexShrink: 0,
+              border: rule.unreported
+                ? `1px dashed ${alpha(t.line, 0.5)}`
+                : `1px solid ${alpha(t.line, 0.45)}`,
+              borderRadius: 1,
+              overflow: 'hidden',
             }}
-          />
-        </Box>
-      </Tooltip>
-      <Typography sx={{ fontFamily: t.mono, fontSize: 9.5, color: t.muted, flexShrink: 0 }}>
-        {rule.weightLabel}
-      </Typography>
-      <Typography
-        sx={{
-          fontFamily: t.body,
-          fontSize: 10.5,
-          color: t.muted,
-          minWidth: 0,
-          whiteSpace: 'nowrap',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-        }}
-      >
-        {`· exit: ${rule.exitCriterion}`}
-      </Typography>
+          >
+            <Box
+              sx={{
+                width: `${String(rule.weightFraction * 100)}%`,
+                height: '100%',
+                bgcolor: rule.filled ? t.committedDot : 'transparent',
+              }}
+            />
+          </Box>
+        </Tooltip>
+        <Typography sx={{ fontFamily: t.mono, fontSize: 9.5, color: t.muted, flexShrink: 0 }}>
+          {rule.weightLabel}
+        </Typography>
+        <Typography
+          sx={{
+            fontFamily: t.body,
+            fontSize: 10.5,
+            color: t.muted,
+            minWidth: 0,
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+          }}
+        >
+          {`· exit: ${rule.exitCriterion}`}
+        </Typography>
+      </Box>
     </Box>
   );
 }
@@ -865,121 +903,125 @@ function TaskRow({ node, task }: { node: ActivityNode; task: TaskNode }): ReactE
   const loud = state === 'awaitingHuman';
   const failed = state === 'failed';
   const counter = retryCounterLabel(task.attemptCount);
-  const origin = task.latestAttempt?.provenance.origin;
+  // The task's OWN provenance — its attempt ledger and nothing else. A task row
+  // gets the rail only: naming the sub-grade in ink on every row is what the
+  // tooltip exists to replace.
+  const provenance = useMemo(() => readProvenance(task), [task]);
 
   return (
     <Box sx={{ flexGrow: 1, minWidth: 0 }}>
       <Box
         sx={{
           display: 'flex',
-          alignItems: 'center',
-          gap: 1,
-          pl: `${String(TIER_INDENT.task)}px`,
-          pr: 1.25,
-          py: 0.3,
+          alignItems: 'stretch',
           borderLeft: loud ? `3px solid ${t.accent}` : '3px solid transparent',
           bgcolor: loud || failed ? t.awaitingBg : 'transparent',
         }}
       >
-        <StateGlyph state={state} />
-        <Typography
+        <ProvenanceRailMark reading={provenance} t={t} />
+        <Box
           sx={{
-            fontFamily: t.body,
-            fontSize: 11.5,
-            fontWeight: task.gate ? 700 : 400,
-            color: failed ? t.dangerFg : state === 'unknown' ? t.muted : t.ink,
-            opacity: state === 'skipped' ? 0.55 : 1,
-            textDecoration: state === 'skipped' ? 'line-through' : 'none',
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
+            flexGrow: 1,
+            minWidth: 0,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1,
+            pl: `${String(TIER_INDENT.task)}px`,
+            pr: 1.25,
+            py: 0.3,
           }}
         >
-          {task.label}
-        </Typography>
-        {task.gate ? (
-          <Tooltip title="This task's success IS the phase's binary exit criterion (App A)">
-            <Typography sx={{ fontFamily: t.mono, fontSize: 9, color: t.muted, flexShrink: 0 }}>
-              gate
-            </Typography>
-          </Tooltip>
-        ) : null}
-        <Box sx={{ flexGrow: 1 }} />
-        {origin !== undefined ? (
+          <StateGlyph state={state} />
           <Typography
             sx={{
-              fontFamily: t.mono,
-              fontSize: 9,
-              letterSpacing: '0.04em',
-              color: t.muted,
-              flexShrink: 0,
+              fontFamily: t.body,
+              fontSize: 11.5,
+              fontWeight: task.gate ? 700 : 400,
+              color: failed ? t.dangerFg : state === 'unknown' ? t.muted : t.ink,
+              opacity: state === 'skipped' ? 0.55 : 1,
+              textDecoration: state === 'skipped' ? 'line-through' : 'none',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
             }}
           >
-            {PROVENANCE_LABEL[origin].toLowerCase()}
+            {task.label}
           </Typography>
-        ) : null}
-        {counter !== undefined ? (
-          <Box
-            aria-expanded={openAttempts}
-            aria-label={`${String(task.attemptCount)} attempts`}
-            component="button"
-            data-testid={UI_IDENTIFIERS.Construction.listAttempts(task.nodeId)}
-            sx={{
-              flexShrink: 0,
-              fontFamily: t.mono,
-              fontSize: 9.5,
-              fontWeight: 700,
-              color: t.ink,
-              bgcolor: 'transparent',
-              // The retry magnitude's second channel: a DOUBLED stroke.
-              border: `2px solid ${alpha(t.line, 0.5)}`,
-              borderRadius: 1,
-              px: 0.4,
-              py: 0,
-              cursor: 'pointer',
-            }}
-            type="button"
-            onClick={(e) => {
-              // The row's own click selects the task; the counter only opens the
-              // ledger, so reading the history never moves the selection.
-              e.stopPropagation();
-              setOpenAttempts((open) => !open);
-            }}
-          >
-            {counter}
-          </Box>
-        ) : null}
-        {inlineActionsFor(state).map((action) => (
-          <Box
-            component="button"
-            data-testid={UI_IDENTIFIERS.Construction.listInlineAction(task.nodeId, action)}
-            key={action}
-            sx={{
-              flexShrink: 0,
-              fontFamily: t.mono,
-              fontSize: 9.5,
-              fontWeight: 700,
-              color: t.dangerFg,
-              bgcolor: 'transparent',
-              border: `1px solid ${t.dangerFg}`,
-              borderRadius: 1,
-              px: 0.5,
-              cursor: 'pointer',
-            }}
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onInlineRetry({
-                activityId: task.activityId,
-                lifecyclePhase: task.lifecyclePhase,
-                task: task.task,
-              });
-            }}
-          >
-            ↻ Retry
-          </Box>
-        ))}
-        <StateChip chip={chip} />
+          {task.gate ? (
+            <Tooltip title="This task's success IS the phase's binary exit criterion (App A)">
+              <Typography sx={{ fontFamily: t.mono, fontSize: 9, color: t.muted, flexShrink: 0 }}>
+                gate
+              </Typography>
+            </Tooltip>
+          ) : null}
+          <Box sx={{ flexGrow: 1 }} />
+          {/* The per-row origin WORD used to sit here. It is gone on purpose: the
+            rail carries the grade and its tooltip carries the sub-grade plus the
+            basis, so 218 rows no longer spell "backfilled" in ink beside work
+            whose state chip already competes for the same glance. */}
+          {counter !== undefined ? (
+            <Box
+              aria-expanded={openAttempts}
+              aria-label={`${String(task.attemptCount)} attempts`}
+              component="button"
+              data-testid={UI_IDENTIFIERS.Construction.listAttempts(task.nodeId)}
+              sx={{
+                flexShrink: 0,
+                fontFamily: t.mono,
+                fontSize: 9.5,
+                fontWeight: 700,
+                color: t.ink,
+                bgcolor: 'transparent',
+                // The retry magnitude's second channel: a DOUBLED stroke.
+                border: `2px solid ${alpha(t.line, 0.5)}`,
+                borderRadius: 1,
+                px: 0.4,
+                py: 0,
+                cursor: 'pointer',
+              }}
+              type="button"
+              onClick={(e) => {
+                // The row's own click selects the task; the counter only opens the
+                // ledger, so reading the history never moves the selection.
+                e.stopPropagation();
+                setOpenAttempts((open) => !open);
+              }}
+            >
+              {counter}
+            </Box>
+          ) : null}
+          {inlineActionsFor(state).map((action) => (
+            <Box
+              component="button"
+              data-testid={UI_IDENTIFIERS.Construction.listInlineAction(task.nodeId, action)}
+              key={action}
+              sx={{
+                flexShrink: 0,
+                fontFamily: t.mono,
+                fontSize: 9.5,
+                fontWeight: 700,
+                color: t.dangerFg,
+                bgcolor: 'transparent',
+                border: `1px solid ${t.dangerFg}`,
+                borderRadius: 1,
+                px: 0.5,
+                cursor: 'pointer',
+              }}
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onInlineRetry({
+                  activityId: task.activityId,
+                  lifecyclePhase: task.lifecyclePhase,
+                  task: task.task,
+                });
+              }}
+            >
+              ↻ Retry
+            </Box>
+          ))}
+          <StateChip chip={chip} />
+        </Box>
       </Box>
       {openAttempts ? <AttemptLedger task={task} /> : null}
     </Box>

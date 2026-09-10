@@ -1,5 +1,10 @@
 import { createTheme, type Theme } from '@mui/material/styles';
 
+// The scanline texture generator. It used to be declared right here; it moved to
+// a zero-import sibling so the construction lens's provenance rail can reuse the
+// SAME geometry without pulling MUI into node:test. See textures.ts.
+import { scan } from './textures';
+
 /**
  * Five swappable design languages for archistrator. Each is a bag of semantic
  * tokens; components read them via useTokens(). buildMuiTheme() turns a bag into
@@ -57,8 +62,6 @@ export interface Tokens {
   chatPmFg: string;
 }
 
-const scan = (a: number, c = '34,32,27'): string =>
-  `repeating-linear-gradient(0deg, rgba(${c},${String(a)}) 0 2px, transparent 2px 4px)`;
 const grid = (c: string): string =>
   `linear-gradient(${c} 1px, transparent 1px), linear-gradient(90deg, ${c} 1px, transparent 1px)`;
 

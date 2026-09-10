@@ -394,6 +394,11 @@ export const UI_IDENTIFIERS = {
     LIST_EMPTY: 'construction-list-empty',
     listRow: (nodeId: string) => `construction-list-row-${nodeId}`,
     listAttempts: (nodeId: string) => `construction-list-attempts-${nodeId}`,
+    // The provenance axis (Stage B Task 7) — orthogonal to state. The rail rides
+    // every tier; the `≈ RECONSTRUCTED` badge rides GROUP headers only (tier 1
+    // and tier 2), so a screen of task rows never fills with chips.
+    PROVENANCE_RAIL: 'construction-provenance-rail',
+    PROVENANCE_BADGE: 'construction-provenance-badge',
     listInlineAction: (nodeId: string, action: string) =>
       `construction-list-action-${action}-${nodeId}`,
     // The shared detail pane (Stage B Task 4) — one header/body/action-bar
