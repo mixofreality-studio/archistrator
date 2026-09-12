@@ -8,8 +8,10 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -5273,10 +5275,10 @@ func decodeArchivedEmptyActivityList(t *testing.T) *projectstate.ActivityList {
 // review with zero activities.
 //
 // The System is the repo's own committed slot 5 (live state, same convention as
-// TestEveryHistoricalConstructionKeyResolvesToADerivedActivity) so the derivation runs
-// against a real architecture rather than a two-component toy.
+// TestDerivedPlanMatchesCommittedState) so the derivation runs against a real
+// architecture rather than a two-component toy.
 func Test_CoAuthor_ActivityListDraft_StagesTheDerivedPlan_NotTheAgentsEmptyList(t *testing.T) {
-	sys, _ := loadCommittedStateForTest(t)
+	sys := loadCommittedStateForTest(t)
 
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
@@ -5428,7 +5430,7 @@ func zeroFloatActivitySet(t *testing.T, list projectstate.ActivityList, deps []p
 // structure (the authored Name/Public kept — they have no derivation source), and a
 // criticalPath recomputed by ComputeNetwork over that derived graph.
 func TestMaterializePhase2DraftStagesTheDerivedNetwork(t *testing.T) {
-	sys, _ := loadCommittedStateForTest(t)
+	sys := loadCommittedStateForTest(t)
 	proj := projectstate.Project{}
 	proj.SystemDesign = committedSlot(&sys)
 
@@ -5472,7 +5474,7 @@ func TestMaterializePhase2DraftStagesTheDerivedNetwork(t *testing.T) {
 // from the draft by id — while the milestone SET and fan-in come only from the derivation
 // (M0 stays without predecessors; a milestone the derivation does not produce is dropped).
 func TestMaterializePhase2DraftKeepsAuthoredMilestoneNameAndPublic(t *testing.T) {
-	sys, _ := loadCommittedStateForTest(t)
+	sys := loadCommittedStateForTest(t)
 	proj := projectstate.Project{}
 	proj.SystemDesign = committedSlot(&sys)
 
@@ -5538,7 +5540,7 @@ func authoredNetworkDraftMissingMilestoneNameForTest() *projectstate.Network {
 // A derived milestone with no matching authored decoration (or an authored decoration whose
 // Name is blank) must FAIL LOUDLY, never commit an anonymous milestone.
 func TestMaterializePhase2DraftRefusesAnonymousMilestone(t *testing.T) {
-	sys, _ := loadCommittedStateForTest(t)
+	sys := loadCommittedStateForTest(t)
 	proj := projectstate.Project{}
 	proj.SystemDesign = committedSlot(&sys)
 
@@ -5554,7 +5556,7 @@ func TestMaterializePhase2DraftRefusesAnonymousMilestone(t *testing.T) {
 // The sibling of the refusal above: a draft that authors every derived milestone's Name still
 // materializes cleanly, with no milestone left with an empty Name.
 func TestMaterializePhase2DraftMaterializesAFullyNamedDraft(t *testing.T) {
-	sys, _ := loadCommittedStateForTest(t)
+	sys := loadCommittedStateForTest(t)
 	proj := projectstate.Project{}
 	proj.SystemDesign = committedSlot(&sys)
 
@@ -5584,7 +5586,7 @@ func TestMaterializePhase2DraftNetworkPreconditions(t *testing.T) {
 		t.Errorf("a network draft against an uncommitted systemDesign must fail naming it, got %v", err)
 	}
 
-	sys, _ := loadCommittedStateForTest(t)
+	sys := loadCommittedStateForTest(t)
 	proj := projectstate.Project{}
 	proj.SystemDesign = committedSlot(&sys)
 	if _, err := materializePhase2Draft(proj, projectstate.KindNetwork, &projectstate.ActivityList{}); err == nil {
@@ -5593,29 +5595,28 @@ func TestMaterializePhase2DraftNetworkPreconditions(t *testing.T) {
 }
 
 // loadCommittedStateForTest reads the repo's own committed project document and returns
-// the slot-5 System and the historical .activityConstruction keys. It reads LIVE state
-// rather than a fixture on purpose: the risk this test guards against is one specific
-// historical key having no derived counterpart, which a synthetic fixture cannot
-// reproduce.
+// its slot-5 System. It reads LIVE state rather than a fixture on purpose: the derivation
+// is asserted against the real architecture, which a synthetic fixture cannot reproduce.
 //
 // It no longer decodes core use cases (Task 10a): the founder's ruling drops I-*
 // integration activities entirely, which were the only thing that ever read them, and
-// MaterializeActivityPlan no longer takes a use-case-id parameter to feed.
+// MaterializeActivityPlan no longer takes a use-case-id parameter to feed. It no longer
+// returns the .activityConstruction keys either (2026-09-12): those were the legacy
+// short-name rows the deleted alias table joined onto the derived ids, and the founder's
+// D9 ruling removed both.
 //
 // The path is resolved relative to this test file's package directory
 // (server/internal/manager/projectdesign), so it does not depend on the caller's cwd.
-func loadCommittedStateForTest(t *testing.T) (projectstate.System, []string) {
+func loadCommittedStateForTest(t *testing.T) projectstate.System {
 	t.Helper()
-	const rel = "../../../../.aiarch/state/project.json"
-	raw, err := os.ReadFile(rel)
+	raw, err := os.ReadFile(committedStatePath)
 	if err != nil {
-		t.Fatalf("read committed project state at %s: %v", rel, err)
+		t.Fatalf("read committed project state at %s: %v", committedStatePath, err)
 	}
 	var doc struct {
 		Slots map[string]struct {
 			Model json.RawMessage `json:"model"`
 		} `json:"slots"`
-		ActivityConstruction map[string]json.RawMessage `json:"activityConstruction"`
 	}
 	if err := json.Unmarshal(raw, &doc); err != nil {
 		t.Fatalf("decode committed project state: %v", err)
@@ -5628,122 +5629,7 @@ func loadCommittedStateForTest(t *testing.T) (projectstate.System, []string) {
 	if len(sys.Components) == 0 {
 		t.Fatal("slot 5 decoded to zero components - the test would be vacuous")
 	}
-
-	keys := make([]string, 0, len(doc.ActivityConstruction))
-	for k := range doc.ActivityConstruction {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	if len(keys) == 0 {
-		t.Fatal("activityConstruction decoded to zero keys - the test would be vacuous")
-	}
-	return sys, keys
-}
-
-// THE JOIN THAT MUST NOT BREAK. Once the derivation is authoritative, slot 9 renders
-// activities named C-<component-id> while the 69 rows in .activityConstruction remain
-// keyed by their hand-chosen short names (C-BM, R-GH, …), every one Done+Integrated.
-// Any code joining plan to construction state therefore needs the alias to resolve, and
-// nothing else in stage 1 exercises that seam — so it is asserted here, over the REAL
-// committed key set rather than a fixture, because the risk is a specific historical key
-// having no derived counterpart.
-func TestEveryHistoricalConstructionKeyResolvesToADerivedActivity(t *testing.T) {
-	sys, historicalKeys := loadCommittedStateForTest(t)
-	list, _, _, err := MaterializeActivityPlan(sys, estimation.ActivityListDeltas{})
-	if err != nil {
-		t.Fatalf("MaterializeActivityPlan: %v", err)
-	}
-	derived := make(map[string]bool, len(list.Activities))
-	for _, a := range list.Activities {
-		derived[a.Name] = true
-	}
-
-	// No derived counterpart BY DESIGN (16 historical keys total, I3(c) 2026-08-10 —
-	// corrected from an earlier "the three zombie activities" undercount): a derived
-	// list never emits these, and their Done+Integrated history stays valid but
-	// orphaned from the forward-looking plan. ResolveActivityAlias reports ok=false
-	// for every one of them (I3(b)): they are simply absent from activityAliases,
-	// the SAME signal a typo gets, rather than resolving to a canonical id nothing
-	// derives.
-	//   - C-HE, C-WIA, R-WIT (3): zombies, name components that no longer exist.
-	//   - R-DER (1): componentless (an additive delta, not a rename).
-	//   - C-CW, C-CM, C-CS (3): the three generated-transport clients (web/mcp/
-	//     scheduler). Per Task 6's golden-parity result (progress.md, "HEADLINE RESULT
-	//     OF THE WHOLE PLAN": 49 derived vs. 69 committed, "−3 generated-client
-	//     codings (C-CW, C-CM, C-CS)"), this is one of the FIVE reconciling
-	//     differences the whole derivation is built to reproduce, not a defect:
-	//     codingActivityFor skips any component whose ConstructionProfile ==
-	//     "generated" ("the generator does that work"), and all three of
-	//     web-client/mcp-client/scheduler-client are generated. The real historical
-	//     effort (20/25/15 days) built the code-generation pipeline itself —
-	//     genuinely one-time, non-recurring work with no place in a plan that is
-	//     derived fresh from the CURRENT architecture on every read.
-	//   - I-UC1..I-UC5 (5): the founder's 2026-08-09 ruling (Task 10a) drops I-*
-	//     integration activities entirely — App A makes integration a PHASE of every
-	//     activity's own lifecycle, so a separate I-* charges the same work twice —
-	//     so NO I-* activity is ever derived any more, and no canonical id for one
-	//     could ever resolve.
-	//   - C-SE, C-LG, C-DG, C-DA (4): the four "provided" utilities (security/
-	//     logging/diagnostics/message-bus — founder ruling 1, Task 10a). Task 10b
-	//     amended the live committed System (slot 5) to actually carry
-	//     constructionProfile: "provided" on these four (it had been applied to the
-	//     derivation's test fixture only, which is the defect that produced the
-	//     Task 10b blocker); with that fixed, the derivation correctly never emits
-	//     C-security/C-logging/C-diagnostics/C-message-bus. Their Done+Integrated
-	//     history stays valid but orphaned, same as the generated clients.
-	noCounterpart := map[string]bool{
-		"C-HE": true, "C-WIA": true, "R-WIT": true, "R-DER": true,
-		"C-CW": true, "C-CM": true, "C-CS": true,
-		"I-UC1": true, "I-UC2": true, "I-UC3": true, "I-UC4": true, "I-UC5": true,
-		"C-SE": true, "C-LG": true, "C-DG": true, "C-DA": true,
-	}
-
-	// Removed by the founder's 2026-09-12 ruling (D9 — "no legacy rows/activities",
-	// the plan is Table 11-1 applied to the architecture): the UI-design activity and
-	// the five per-manager SPA screen activities fold into the ONE client-app activity
-	// U-SPA-web-client. activityAliases still maps G-SPA and U-SPA-1..5 onto these ids
-	// (it and the legacy .activityConstruction rows are reset in the next task), so they
-	// resolve ok=true to an id the derivation no longer emits — by design. Each is
-	// listed by its CANONICAL id and checked below to really be underived, so a stale
-	// entry here fails rather than hides a key.
-	removedByD9 := map[string]bool{
-		"G-SPA":                        true,
-		"U-SPA-system-design-manager":  true,
-		"U-SPA-project-design-manager": true,
-		"U-SPA-construction-manager":   true,
-		"U-SPA-operations-manager":     true,
-		"U-SPA-billing-manager":        true,
-	}
-
-	for _, historical := range historicalKeys {
-		canonical, ok := projectstate.ResolveActivityAlias(historical)
-		if !ok {
-			if noCounterpart[historical] {
-				continue // no derived counterpart BY DESIGN — see the comment above.
-			}
-			// U-SPA-6 / U-SPA-TEAM / U-SPA-S and N-* are re-derived, componentless, or
-			// arrive as additive deltas rather than being renamed, so they legitimately
-			// have no alias.
-			if strings.HasPrefix(historical, "U-SPA-") || strings.HasPrefix(historical, "N-") {
-				continue
-			}
-			t.Errorf("historical construction key %q has no alias; its Done+Integrated history would be orphaned", historical)
-			continue
-		}
-		if noCounterpart[historical] {
-			t.Errorf("historical key %q resolved to %q, but it is listed as having no derived counterpart", historical, canonical)
-			continue
-		}
-		if removedByD9[canonical] {
-			if derived[canonical] {
-				t.Errorf("historical key %q aliases to %q, listed as removed by D9, but the derivation emits it", historical, canonical)
-			}
-			continue
-		}
-		if !derived[canonical] {
-			t.Errorf("historical key %q aliases to %q, which the derivation does not emit", historical, canonical)
-		}
-	}
+	return sys
 }
 
 // A delta document that violates the vocabulary must fail the READ, loudly. A silently
@@ -5770,7 +5656,7 @@ func TestMaterializeActivityPlanPropagatesDeltaErrors(t *testing.T) {
 // longer described the real architecture. This makes that re-check standing rather than
 // one-off, reading LIVE state on purpose (same convention as loadCommittedStateForTest).
 func TestFixtureSystemViewMatchesLiveCommittedSystem(t *testing.T) {
-	sys, _ := loadCommittedStateForTest(t)
+	sys := loadCommittedStateForTest(t)
 	live := toEstimationSystemView(sys)
 	liveByID := make(map[string]estimation.SystemComponent, len(live.Components))
 	for _, c := range live.Components {
@@ -5959,6 +5845,656 @@ func assertCommittedNetworkIsMaterialized(
 		wantJSON, _ := json.Marshal(want)
 		gotJSON, _ := json.Marshal(committedNetwork)
 		t.Errorf("committed slot 10 is not the materialized network:\n materialized: %s\n committed:    %s", wantJSON, gotJSON)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// The committed-state WRITERS: `make derived-plan-write` and `make construction-state-reset`.
+// ---------------------------------------------------------------------------
+//
+// .aiarch/state/project.json is compiler input (it drives the Go contract layer, the
+// OpenAPI document, the TS client and Temporal), and it is never hand-edited. These two
+// writers are the committed, reproducible way to change the parts of it that no live store
+// verb covers: re-materializing the derived plan, and resetting construction state onto
+// it. They are env-gated tests, not cmd/ tools, because the plan comes from
+// materializePhase2Draft — the Manager's own staging seam, unexported — and this package
+// is the only place that can run it without widening the Manager's public surface.
+//
+// Both go through the projectstate codec: the document is decoded with DecodeProjectJSON,
+// edited as a typed Project and re-encoded with EncodeProjectJSON. Only the members whose
+// codec encoding the edit actually changed are spliced back into the original bytes. The
+// codec carries neither updatedAt nor the activityListOverrides sidecar through a round
+// trip, so a whole-document rewrite would silently drop both. Each writer names the
+// members it may change, and changing any other fails the write.
+
+// committedStatePath is the repo's own project.json, relative to this package directory.
+const committedStatePath = "../../../../.aiarch/state/project.json"
+
+// TestWriteDerivedPlan is `make derived-plan-write`, the WRITE half of derived-plan-check.
+// It re-materializes slots 9 and 10 of the committed project.json from the committed
+// System through materializePhase2Draft — the function a real first run stages through —
+// so TestDerivedPlanMatchesCommittedState passes by construction afterwards. Skipped
+// unless DERIVED_PLAN_WRITE=1, so the ordinary suite never rewrites committed state.
+func TestWriteDerivedPlan(t *testing.T) {
+	if os.Getenv("DERIVED_PLAN_WRITE") != "1" {
+		t.Skip("set DERIVED_PLAN_WRITE=1 (make derived-plan-write) to rewrite slots 9 and 10 of the committed project.json")
+	}
+	changed, err := rewriteStateFile(committedStatePath, derivedPlanMembers(), writeDerivedPlan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("derived-plan-write changed %d member(s): %v", len(changed), changed)
+}
+
+// TestResetConstructionState is `make construction-state-reset`: resetConstructionState
+// applied to the committed project.json. Skipped unless CONSTRUCTION_STATE_RESET=1 — it
+// deletes construction history, so it runs only when asked for by name.
+func TestResetConstructionState(t *testing.T) {
+	if os.Getenv("CONSTRUCTION_STATE_RESET") != "1" {
+		t.Skip("set CONSTRUCTION_STATE_RESET=1 (make construction-state-reset) to reset construction state in the committed project.json")
+	}
+	changed, err := rewriteStateFile(committedStatePath, resetMembers(), resetConstructionState)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("construction-state-reset changed %d member(s): %v", len(changed), changed)
+}
+
+// writeDerivedPlan sets slots 9 and 10 to what materializePhase2Draft stages from the
+// committed System. When either model changes, every committed plan dependent is flagged
+// stale, caused by the first changed slot — their numbers were computed over the plan this
+// replaces. Revisions are not bumped: this re-materializes what the System already
+// implies, it is not a reviewed amendment.
+func writeDerivedPlan(p *projectstate.Project) error {
+	list, err := materializePhase2Draft(*p, projectstate.KindActivityList, p.ActivityList.Model)
+	if err != nil {
+		return err
+	}
+	net, err := materializePhase2Draft(*p, projectstate.KindNetwork, p.Network.Model)
+	if err != nil {
+		return err
+	}
+	listSame, err := projectstate.SameArtifactModel(p.ActivityList.Model, list)
+	if err != nil {
+		return err
+	}
+	netSame, err := projectstate.SameArtifactModel(p.Network.Model, net)
+	if err != nil {
+		return err
+	}
+	p.ActivityList.Model = list
+	p.Network.Model = net
+	switch {
+	case !listSame:
+		return flagPlanDependentsStale(p, projectstate.KindActivityList)
+	case !netSame:
+		return flagPlanDependentsStale(p, projectstate.KindNetwork)
+	}
+	return nil
+}
+
+// resetConstructionState is the founder's D9 reset (2026-09-12: "i essentially want no
+// legacy rows/activities ... just delete the old stuff"), applied once the plan is
+// materialized from Table 11-1:
+//   - .activityConstruction is emptied. Every row was keyed by a legacy short id, and none
+//     of the rows that carried history names an activity the derived plan holds. A first
+//     real run holds no row until the pump starts an activity; the codec omits an empty
+//     map, so the member disappears rather than becoming {}.
+//   - Every committed plan dependent (the four solution options, the risk model, the SDP
+//     review) is flagged stale, caused by the activity list: their numbers were computed
+//     over the 40-activity network the derivation replaced. Phase 2 is NOT re-run here;
+//     the flag is the non-blocking signal that it must be.
+//   - .constructionProgress is recomputed from the now-empty record: nothing is earned and
+//     no week of tracking has elapsed, so Week is 0 and the earned-value series is empty —
+//     every recorded point was an observation over the legacy rows. The framing that is
+//     not a function of construction records (TotalWeeks, HandOffModel, SupervisionCap) is
+//     carried; TotalWeeks' own basis is the SDP option flagged stale alongside it. The EV
+//     curve itself is computed at read (computeEVAtRead), from the same empty record.
+func resetConstructionState(p *projectstate.Project) error {
+	p.ActivityConstruction = nil
+	if cp := p.ConstructionProgress; cp != nil {
+		recomputed := *cp
+		recomputed.Week = 0
+		recomputed.Points = nil
+		p.ConstructionProgress = &recomputed
+	}
+	return flagPlanDependentsStale(p, projectstate.KindActivityList)
+}
+
+// flagPlanDependentsStale flags every committed plan dependent StaleBasis, caused by
+// upstream at its current revision — the same flag and cause shape commitTransition sets
+// on the downstream slots of a re-commit.
+func flagPlanDependentsStale(p *projectstate.Project, upstream projectstate.ArtifactKind) error {
+	cause := &projectstate.StaleCause{UpstreamKind: upstream.WireName(), UpstreamRevision: slotFor(*p, upstream).Revisions}
+	for _, kind := range planDependentKinds() {
+		slot, ok := planDependentSlots[kind]
+		if !ok {
+			return fmt.Errorf("no slot accessor for plan dependent %s", kind.WireName())
+		}
+		if s := slot(p); s.Status == projectstate.ReviewCommitted {
+			s.StaleBasis = true
+			s.StaleBasisCause = cause
+		}
+	}
+	return nil
+}
+
+// planDependentKinds is every Phase-2 kind downstream of the network: the four solution
+// options, the risk model and the SDP review. It is read off Phase2RequiredKinds so the
+// Phase-2 spine has one source of order.
+func planDependentKinds() []projectstate.ArtifactKind {
+	kinds := projectstate.Phase2RequiredKinds()
+	for i, k := range kinds {
+		if k == projectstate.KindNetwork {
+			return kinds[i+1:]
+		}
+	}
+	return nil
+}
+
+// planDependentSlots addresses each plan dependent's slot for writing (slotFor only reads).
+var planDependentSlots = map[projectstate.ArtifactKind]func(*projectstate.Project) *projectstate.ArtifactSlot{
+	projectstate.KindNormalSolution:       func(p *projectstate.Project) *projectstate.ArtifactSlot { return &p.NormalSolution },
+	projectstate.KindDecompressedSolution: func(p *projectstate.Project) *projectstate.ArtifactSlot { return &p.DecompressedSolution },
+	projectstate.KindSubcriticalSolution:  func(p *projectstate.Project) *projectstate.ArtifactSlot { return &p.SubcriticalSolution },
+	projectstate.KindCompressedSolution:   func(p *projectstate.Project) *projectstate.ArtifactSlot { return &p.CompressedSolution },
+	projectstate.KindRiskModel:            func(p *projectstate.Project) *projectstate.ArtifactSlot { return &p.RiskModel },
+	projectstate.KindSdpReview:            func(p *projectstate.Project) *projectstate.ArtifactSlot { return &p.SdpReview },
+}
+
+// slotMember is the member path of kind's slot in the document ("slots/<ordinal>").
+func slotMember(kind projectstate.ArtifactKind) string {
+	return "slots/" + strconv.Itoa(int(kind))
+}
+
+// withPlanDependents adds every plan dependent's slot to members.
+func withPlanDependents(members ...string) map[string]bool {
+	allowed := make(map[string]bool, len(members)+len(planDependentSlots))
+	for _, m := range members {
+		allowed[m] = true
+	}
+	for _, kind := range planDependentKinds() {
+		allowed[slotMember(kind)] = true
+	}
+	return allowed
+}
+
+// derivedPlanMembers is what writeDerivedPlan may change: slots 9 and 10, and the plan
+// dependents it flags stale when either one moves.
+func derivedPlanMembers() map[string]bool {
+	return withPlanDependents(slotMember(projectstate.KindActivityList), slotMember(projectstate.KindNetwork))
+}
+
+// resetMembers is what resetConstructionState may change.
+func resetMembers() map[string]bool {
+	return withPlanDependents("activityConstruction", "constructionProgress")
+}
+
+// rewriteStateFile applies edit to the project document at path and writes back only the
+// members the edit changed, returning their paths ("activityConstruction", "slots/11",
+// …). allowed names the members the edit may change; any other change fails the write.
+// Nothing is written when nothing changed.
+func rewriteStateFile(path string, allowed map[string]bool, edit func(*projectstate.Project) error) ([]string, error) {
+	raw, err := os.ReadFile(path) //nolint:gosec // the writer reads the document it was pointed at.
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", path, err)
+	}
+	out, changed, err := rewriteState(raw, edit)
+	if err != nil {
+		return nil, err
+	}
+	for _, member := range changed {
+		if !allowed[member] {
+			return nil, fmt.Errorf("the edit changed %s, which this writer may not touch (allowed: %v) — refusing to write", member, allowed)
+		}
+	}
+	if len(changed) == 0 {
+		return nil, nil
+	}
+	if err := os.WriteFile(path, out, 0o600); err != nil {
+		return nil, fmt.Errorf("write %s: %w", path, err)
+	}
+	return changed, nil
+}
+
+// rewriteState is rewriteStateFile over bytes: it returns the rewritten document and the
+// members it rewrote.
+func rewriteState(raw []byte, edit func(*projectstate.Project) error) ([]byte, []string, error) {
+	body, trailer, err := compactState(raw)
+	if err != nil {
+		return nil, nil, err
+	}
+	proj, err := decodeState(raw)
+	if err != nil {
+		return nil, nil, err
+	}
+	before, err := encodeCompact(proj)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := edit(&proj); err != nil {
+		return nil, nil, err
+	}
+	after, err := encodeCompact(proj)
+	if err != nil {
+		return nil, nil, err
+	}
+	spliced, changed, err := spliceMembers(body, before, after, "")
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := confirmSplice(spliced, after); err != nil {
+		return nil, nil, err
+	}
+	var out bytes.Buffer
+	if err := json.Indent(&out, spliced, "", "  "); err != nil {
+		return nil, nil, fmt.Errorf("indent the rewritten document: %w", err)
+	}
+	out.Write(trailer)
+	return out.Bytes(), changed, nil
+}
+
+// compactState returns the document compacted, plus the whitespace after its closing
+// brace. It refuses a document that re-indenting would not reproduce byte-for-byte:
+// writing one would smuggle a reformat of unrelated state into the diff.
+func compactState(raw []byte) ([]byte, []byte, error) {
+	trimmed := bytes.TrimRight(raw, " \t\r\n")
+	trailer := raw[len(trimmed):]
+	var body bytes.Buffer
+	if err := json.Compact(&body, trimmed); err != nil {
+		return nil, nil, fmt.Errorf("parse the project document: %w", err)
+	}
+	var again bytes.Buffer
+	if err := json.Indent(&again, body.Bytes(), "", "  "); err != nil {
+		return nil, nil, fmt.Errorf("indent the project document: %w", err)
+	}
+	if !bytes.Equal(again.Bytes(), trimmed) {
+		return nil, nil, errors.New("re-indenting the project document does not reproduce it byte-for-byte; a rewrite would reformat unrelated state — refusing")
+	}
+	return body.Bytes(), trailer, nil
+}
+
+// decodeState decodes a project document through the projectstate codec, under the id
+// the document itself carries.
+func decodeState(raw []byte) (projectstate.Project, error) {
+	var head struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(raw, &head); err != nil {
+		return projectstate.Project{}, fmt.Errorf("read the project id: %w", err)
+	}
+	proj, ok, err := projectstate.DecodeProjectJSON(raw, projectstate.ProjectID(head.ID))
+	if err != nil {
+		return projectstate.Project{}, err
+	}
+	if !ok {
+		return projectstate.Project{}, errors.New("the file holds no project document")
+	}
+	return proj, nil
+}
+
+// encodeCompact encodes p through the projectstate codec, compacted.
+func encodeCompact(p projectstate.Project) ([]byte, error) {
+	enc, err := projectstate.EncodeProjectJSON(p)
+	if err != nil {
+		return nil, err
+	}
+	var out bytes.Buffer
+	if err := json.Compact(&out, enc); err != nil {
+		return nil, fmt.Errorf("compact the encoded project: %w", err)
+	}
+	return out.Bytes(), nil
+}
+
+// confirmSplice proves the spliced document is the codec's: decoding it and re-encoding
+// must give exactly what the codec encoded from the edited Project. Whatever the codec
+// does not carry (updatedAt's value, the overrides sidecar) is outside both sides.
+func confirmSplice(spliced, after []byte) error {
+	proj, err := decodeState(spliced)
+	if err != nil {
+		return err
+	}
+	again, err := encodeCompact(proj)
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(again, after) {
+		return errors.New("the spliced document does not decode to the edited project — refusing to write")
+	}
+	return nil
+}
+
+// stateMember is one member of a JSON object, in document order.
+type stateMember struct {
+	key   string
+	value json.RawMessage
+}
+
+// spliceMembers rebuilds the compact object raw member by member, in raw's order. A member
+// whose codec encoding is the same before and after the edit keeps raw's bytes; one that
+// differs takes the after encoding, or is dropped when after omits it. Slots are compared
+// one level down, so an edit to one slot rewrites that slot alone. It returns the path of
+// every member it rewrote.
+func spliceMembers(raw, before, after []byte, path string) ([]byte, []string, error) {
+	members, err := objectMembers(raw)
+	if err != nil {
+		return nil, nil, err
+	}
+	was, err := memberValues(before)
+	if err != nil {
+		return nil, nil, err
+	}
+	now, err := memberValues(after)
+	if err != nil {
+		return nil, nil, err
+	}
+	if added := addedMember(members, was, now); added != "" {
+		return nil, nil, fmt.Errorf("the edit adds %s, which the document does not hold; this writer rewrites members in place and cannot place a new one", memberPath(path, added))
+	}
+	out := make([]stateMember, 0, len(members))
+	var changed []string
+	for _, m := range members {
+		kept, rewritten, err := spliceMember(m, was[m.key], now[m.key], memberPath(path, m.key))
+		if err != nil {
+			return nil, nil, err
+		}
+		out = append(out, kept...)
+		changed = append(changed, rewritten...)
+	}
+	return joinMembers(out), changed, nil
+}
+
+// spliceMember resolves one member for spliceMembers: kept holds zero or one member.
+func spliceMember(m stateMember, was, now json.RawMessage, path string) (kept []stateMember, changed []string, err error) {
+	switch {
+	case bytes.Equal(was, now):
+		return []stateMember{m}, nil, nil
+	case now == nil:
+		return nil, []string{path}, nil
+	case path == "slots":
+		value, changed, err := spliceMembers(m.value, was, now, path)
+		if err != nil {
+			return nil, nil, err
+		}
+		return []stateMember{{key: m.key, value: value}}, changed, nil
+	default:
+		return []stateMember{{key: m.key, value: now}}, []string{path}, nil
+	}
+}
+
+// addedMember names a member the edit introduced that raw does not hold, or "".
+func addedMember(members []stateMember, was, now map[string]json.RawMessage) string {
+	held := make(map[string]bool, len(members))
+	for _, m := range members {
+		held[m.key] = true
+	}
+	keys := make([]string, 0, len(now))
+	for k := range now {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		if !held[k] && !bytes.Equal(was[k], now[k]) {
+			return k
+		}
+	}
+	return ""
+}
+
+// objectMembers decodes a compact JSON object into its members, in document order.
+func objectMembers(raw []byte) ([]stateMember, error) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	if _, err := dec.Token(); err != nil {
+		return nil, fmt.Errorf("read object: %w", err)
+	}
+	var out []stateMember
+	for dec.More() {
+		tok, err := dec.Token()
+		if err != nil {
+			return nil, fmt.Errorf("read member key: %w", err)
+		}
+		key, _ := tok.(string)
+		var value json.RawMessage
+		if err := dec.Decode(&value); err != nil {
+			return nil, fmt.Errorf("read member %q: %w", key, err)
+		}
+		out = append(out, stateMember{key: key, value: value})
+	}
+	return out, nil
+}
+
+// memberValues indexes a compact JSON object's members by key; an absent object is empty.
+func memberValues(raw []byte) (map[string]json.RawMessage, error) {
+	if len(raw) == 0 {
+		return map[string]json.RawMessage{}, nil
+	}
+	members, err := objectMembers(raw)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]json.RawMessage, len(members))
+	for _, m := range members {
+		out[m.key] = m.value
+	}
+	return out, nil
+}
+
+// joinMembers re-emits members as a compact JSON object.
+func joinMembers(members []stateMember) []byte {
+	var b bytes.Buffer
+	b.WriteByte('{')
+	for i, m := range members {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		key, _ := json.Marshal(m.key) // a string always marshals
+		b.Write(key)
+		b.WriteByte(':')
+		b.Write(m.value)
+	}
+	b.WriteByte('}')
+	return b.Bytes()
+}
+
+// memberPath joins a member key onto its parent path.
+func memberPath(parent, key string) string {
+	if parent == "" {
+		return key
+	}
+	return parent + "/" + key
+}
+
+// stateFixture encodes p through the projectstate codec, then adds what a committed
+// document carries that the codec does not — a real updatedAt and the
+// activityListOverrides sidecar — so a test can prove a rewrite leaves both alone.
+func stateFixture(t *testing.T, p projectstate.Project) []byte {
+	t.Helper()
+	enc, err := projectstate.EncodeProjectJSON(p)
+	if err != nil {
+		t.Fatalf("encode fixture: %v", err)
+	}
+	const zeroStamp = `"updatedAt": "0001-01-01T00:00:00Z"`
+	if !bytes.Contains(enc, []byte(zeroStamp)) {
+		t.Fatalf("fixture encoding carries no %s to replace", zeroStamp)
+	}
+	withSidecar := bytes.Replace(enc, []byte(zeroStamp),
+		[]byte(`"activityListOverrides": {"overrides": []}, "updatedAt": "2026-08-09T05:30:44.213963Z"`), 1)
+	var compact, out bytes.Buffer
+	if err := json.Compact(&compact, withSidecar); err != nil {
+		t.Fatalf("compact fixture: %v", err)
+	}
+	if err := json.Indent(&out, compact.Bytes(), "", "  "); err != nil {
+		t.Fatalf("indent fixture: %v", err)
+	}
+	out.WriteByte('\n')
+	return out.Bytes()
+}
+
+// constructionResetFixture holds a legacy construction row, a finished-looking progress
+// record, a committed plan dependent (normal solution) and an UNcommitted one (SDP review).
+func constructionResetFixture(t *testing.T) projectstate.Project {
+	t.Helper()
+	model := func(kind projectstate.ArtifactKind) projectstate.ArtifactModel {
+		m, ok := projectstate.NewModelForKind(kind)
+		if !ok {
+			t.Fatalf("no model for %s", kind.WireName())
+		}
+		return m
+	}
+	p := projectstate.Project{ID: "fixture", Phase: projectstate.PhaseProjectDesign, Version: 7}
+	p.ActivityList = projectstate.ArtifactSlot{Status: projectstate.ReviewCommitted, Model: model(projectstate.KindActivityList), Revisions: 3}
+	p.NormalSolution = projectstate.ArtifactSlot{Status: projectstate.ReviewCommitted, Model: model(projectstate.KindNormalSolution), Revisions: 1}
+	p.SdpReview = readBackSlot(model(projectstate.KindSdpReview))
+	p.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{"C-BM": {ActivityID: "C-BM"}}
+	p.ConstructionProgress = &projectstate.ConstructionProgress{
+		Week: 49, TotalWeeks: 49, HandOffModel: "Senior hand-off", SupervisionCap: 3,
+		Points: []projectstate.EvPoint{{Week: 49, EarnedPct: 100, PlannedPct: 100, Note: "legacy"}},
+	}
+	return p
+}
+
+// writeFixtureFile writes raw to a fresh project.json and returns its path.
+func writeFixtureFile(t *testing.T, raw []byte) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "project.json")
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	return path
+}
+
+// The reset rewrites exactly its three kinds of member — the construction record, the
+// progress record and each COMMITTED plan dependent — and leaves every other byte alone,
+// including the two members the codec cannot carry.
+func TestResetConstructionStateRewritesOnlyItsMembers(t *testing.T) {
+	raw := stateFixture(t, constructionResetFixture(t))
+	path := writeFixtureFile(t, raw)
+
+	changed, err := rewriteStateFile(path, resetMembers(), resetConstructionState)
+	if err != nil {
+		t.Fatalf("rewriteStateFile: %v", err)
+	}
+	want := []string{"activityConstruction", "constructionProgress", slotMember(projectstate.KindNormalSolution)}
+	sort.Strings(changed)
+	if !reflect.DeepEqual(changed, want) {
+		t.Errorf("changed members = %v, want %v", changed, want)
+	}
+
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	for _, keep := range []string{`"updatedAt": "2026-08-09T05:30:44.213963Z"`, `"activityListOverrides": {`, `"overrides": []`} {
+		if !bytes.Contains(got, []byte(keep)) {
+			t.Errorf("the rewrite lost %s", keep)
+		}
+	}
+	if bytes.Contains(got, []byte(`"activityConstruction"`)) {
+		t.Error("an empty construction record must be omitted, the codec's shape for 'no rows'")
+	}
+	proj, err := decodeState(got)
+	if err != nil {
+		t.Fatalf("decode the rewritten document: %v", err)
+	}
+	assertResetStaleness(t, proj)
+	assertResetProgress(t, proj.ConstructionProgress)
+}
+
+func assertResetStaleness(t *testing.T, proj projectstate.Project) {
+	t.Helper()
+	wantCause := projectstate.StaleCause{UpstreamKind: "activityList", UpstreamRevision: 3}
+	if !proj.NormalSolution.StaleBasis || proj.NormalSolution.StaleBasisCause == nil || *proj.NormalSolution.StaleBasisCause != wantCause {
+		t.Errorf("committed normal solution: staleBasis=%v cause=%v, want true %v",
+			proj.NormalSolution.StaleBasis, proj.NormalSolution.StaleBasisCause, wantCause)
+	}
+	if proj.SdpReview.StaleBasis {
+		t.Error("an uncommitted plan dependent must not be flagged stale — the same rule commitTransition applies")
+	}
+	if proj.ActivityList.StaleBasis {
+		t.Error("the activity list is the cause, not a dependent")
+	}
+}
+
+func assertResetProgress(t *testing.T, cp *projectstate.ConstructionProgress) {
+	t.Helper()
+	if cp == nil {
+		t.Fatal("the progress record must be recomputed, not deleted")
+	}
+	want := projectstate.ConstructionProgress{Week: 0, TotalWeeks: 49, HandOffModel: "Senior hand-off", SupervisionCap: 3}
+	if !reflect.DeepEqual(*cp, want) {
+		t.Errorf("recomputed progress = %+v, want %+v", *cp, want)
+	}
+}
+
+// A change to a member the writer does not own fails the write and leaves the file alone.
+func TestRewriteStateFileRefusesAMemberOutsideItsAllowedSet(t *testing.T) {
+	raw := stateFixture(t, constructionResetFixture(t))
+	path := writeFixtureFile(t, raw)
+
+	allowed := map[string]bool{"constructionProgress": true, slotMember(projectstate.KindNormalSolution): true}
+	_, err := rewriteStateFile(path, allowed, resetConstructionState)
+	if err == nil || !strings.Contains(err.Error(), "activityConstruction") {
+		t.Fatalf("want a refusal naming activityConstruction, got %v", err)
+	}
+	got, _ := os.ReadFile(path)
+	if !bytes.Equal(got, raw) {
+		t.Error("a refused write must leave the file byte-for-byte")
+	}
+}
+
+// An edit that changes nothing writes nothing.
+func TestRewriteStateFileLeavesAnUnchangedDocumentAlone(t *testing.T) {
+	raw := stateFixture(t, constructionResetFixture(t))
+	path := writeFixtureFile(t, raw)
+
+	changed, err := rewriteStateFile(path, nil, func(*projectstate.Project) error { return nil })
+	if err != nil || len(changed) != 0 {
+		t.Fatalf("a no-op edit: changed=%v err=%v", changed, err)
+	}
+	got, _ := os.ReadFile(path)
+	if !bytes.Equal(got, raw) {
+		t.Error("a no-op edit must leave the file byte-for-byte")
+	}
+}
+
+// writeDerivedPlan re-derives slots 9 and 10 and flags the plan dependents only when that
+// moves the plan. Over the repo's own committed state the plan is already materialized, so
+// nothing is flagged; over a slot 9 that drifted from the System the dependents are
+// flagged, caused by the activity list.
+func TestWriteDerivedPlanFlagsPlanDependentsOnlyWhenThePlanChanges(t *testing.T) {
+	sys, _, committed, committedNetwork := loadDerivedPlanCheckFixtures(t)
+	normal, _ := projectstate.NewModelForKind(projectstate.KindNormalSolution)
+	project := func(list projectstate.ActivityList) projectstate.Project {
+		net := committedNetwork
+		p := projectstate.Project{}
+		p.SystemDesign = committedSlot(&sys)
+		p.ActivityList = projectstate.ArtifactSlot{Status: projectstate.ReviewCommitted, Model: &list, Revisions: 3}
+		p.Network = committedSlot(&net)
+		p.NormalSolution = committedSlot(normal)
+		return p
+	}
+
+	current := project(committed)
+	if err := writeDerivedPlan(&current); err != nil {
+		t.Fatalf("writeDerivedPlan over the committed plan: %v", err)
+	}
+	if current.NormalSolution.StaleBasis {
+		t.Error("re-materializing the plan the System already implies must flag nothing")
+	}
+
+	drifted := committed
+	drifted.Activities = committed.Activities[1:]
+	moved := project(drifted)
+	if err := writeDerivedPlan(&moved); err != nil {
+		t.Fatalf("writeDerivedPlan over a drifted plan: %v", err)
+	}
+	if got := moved.ActivityList.Model.(*projectstate.ActivityList); len(got.Activities) != len(committed.Activities) {
+		t.Errorf("slot 9 re-derived to %d activities, want %d", len(got.Activities), len(committed.Activities))
+	}
+	wantCause := projectstate.StaleCause{UpstreamKind: "activityList", UpstreamRevision: 3}
+	if !moved.NormalSolution.StaleBasis || moved.NormalSolution.StaleBasisCause == nil || *moved.NormalSolution.StaleBasisCause != wantCause {
+		t.Errorf("after a plan change the normal solution must be stale with cause %v, got %v %v",
+			wantCause, moved.NormalSolution.StaleBasis, moved.NormalSolution.StaleBasisCause)
 	}
 }
 

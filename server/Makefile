@@ -1,6 +1,6 @@
 # aiarch server — developer make targets.
 
-.PHONY: test test-short fmt vet fix fix-check lint sumtype-check method-check encapsulation-check gen-models gen-models-check gen-fakes gen-fakes-check gen gen-client gen-client-check gen-internal-tools gen-internal-tools-check gen-temporal gen-temporal-check gen-sdk gen-sdk-check gen-config gen-config-check gen-uiprofiles gen-uiprofiles-check claude-assets derived-plan-check
+.PHONY: test test-short fmt vet fix fix-check lint sumtype-check method-check encapsulation-check gen-models gen-models-check gen-fakes gen-fakes-check gen gen-client gen-client-check gen-internal-tools gen-internal-tools-check gen-temporal gen-temporal-check gen-sdk gen-sdk-check gen-config gen-config-check gen-uiprofiles gen-uiprofiles-check claude-assets derived-plan-check derived-plan-write construction-state-reset
 
 # claude-assets — materialize the .claude method prompt surface (agents/commands/
 # skills) into the repo root from the method-assets lib pinned in go.mod. The
@@ -246,3 +246,20 @@ encapsulation-check:
 # project.json edit would never re-run).
 derived-plan-check:
 	GOWORK=off go test ./internal/manager/projectdesign/... -run TestDerivedPlanMatchesCommittedState -count=1 -v
+
+# DERIVED-PLAN writer — the write half of derived-plan-check. Re-materializes slots 9
+# and 10 of .aiarch/state/project.json from the committed System through the Manager's
+# own staging seam (materializePhase2Draft) and writes them back through the projectstate
+# codec, splicing only the members that changed. If the plan moves, the committed Phase-2
+# slots downstream of the network are flagged staleBasis. project.json is never
+# hand-edited; this is how slots 9/10 change. A no-op when the plan is current.
+derived-plan-write:
+	DERIVED_PLAN_WRITE=1 GOWORK=off go test ./internal/manager/projectdesign/ -run '^TestWriteDerivedPlan$$' -count=1 -v
+
+# CONSTRUCTION-STATE reset (founder ruling D9, 2026-09-12). Empties .activityConstruction,
+# recomputes .constructionProgress from the empty record, and flags the committed plan
+# dependents (slots 11-16) staleBasis — caused by the activity list. DELETES construction
+# history: run it only when the plan has been re-derived and the old records name
+# activities it no longer holds.
+construction-state-reset:
+	CONSTRUCTION_STATE_RESET=1 GOWORK=off go test ./internal/manager/projectdesign/ -run '^TestResetConstructionState$$' -count=1 -v
