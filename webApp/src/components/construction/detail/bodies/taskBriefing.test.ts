@@ -9,11 +9,21 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import type { ConstructionRow, TaskAttemptRow } from '../../../../contracts/types.ts';
+import type {
+  ConstructionRow,
+  ProjectStateWithGit,
+  TaskAttemptRow,
+  TestScenarioView,
+} from '../../../../contracts/types.ts';
 import { worstOriginOf, provenanceBasesOf } from '../../provenanceAxis.ts';
 import { evidencePointerFor, provenanceNodeFor, selectedAttemptOf } from '../detailPaneState.ts';
 import { absenceFor, briefingFor, unknownStatementFor, UNKNOWN_STATEMENT } from './taskBriefing.ts';
-import { artifactRendererKeyFor, detailBodyFor, selectedTaskIsGate } from './bodyDispatch.ts';
+import {
+  artifactRendererKeyFor,
+  detailBodyFor,
+  selectedTaskIsGate,
+  testingArtifactRendererKeyFor,
+} from './bodyDispatch.ts';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -57,6 +67,26 @@ function rulingAttempt(task: string): TaskAttemptRow {
         'serviceContracts[artifactAccess] + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated',
     },
   });
+}
+
+function scenario(id: string): TestScenarioView {
+  return { id, useCase: `uc-${id}`, title: `Scenario ${id}`, cases: [] };
+}
+
+/** A project carrying a committed system test plan / a recorded test run. */
+function projectWith(
+  testingState: Partial<NonNullable<ProjectStateWithGit['testingState']>>
+): ProjectStateWithGit {
+  return {
+    projectId: 'p1',
+    name: 'p1',
+    owner: 'usr-1',
+    phase: 'construction',
+    version: 1,
+    research: { sources: [] },
+    slots: [],
+    testingState: { testRuns: [], defects: [], ...testingState },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -224,6 +254,75 @@ void test('an artifact renderer is scoped to ITS OWN phase, never spread across 
     artifactRendererKeyFor(service, { lifecyclePhase: 'detailed_design', task: 'srs' }),
     undefined
   );
+});
+
+// ---------------------------------------------------------------------------
+// A committed testing artifact outranks "no record" (N-STP unreachable fix)
+// ---------------------------------------------------------------------------
+
+void test('a testing:plan row with no build evidence still renders its committed plan', () => {
+  const nStp = row({ kind: 'testing', variant: 'plan', hasBuildEvidence: false });
+  const project = projectWith({ systemTestPlan: { scenarios: [scenario('STP-UC1')] } });
+
+  // The bare activity row — the plainest click.
+  assert.equal(detailBodyFor(nStp, {}, 'notStarted', project), 'artifact');
+  // Its own phases (Plan Authoring = construction, Plan Review = integration),
+  // with no task named.
+  assert.equal(
+    detailBodyFor(nStp, { lifecyclePhase: 'construction' }, 'notStarted', project),
+    'artifact'
+  );
+  assert.equal(
+    detailBodyFor(nStp, { lifecyclePhase: 'integration' }, 'notStarted', project),
+    'artifact'
+  );
+  // A non-gate task within one of those phases.
+  assert.equal(detailBodyFor(nStp, { task: 'construction' }, 'unknown', project), 'artifact');
+  // A gate task still owes the review surface, not the plain artifact one.
+  assert.equal(detailBodyFor(nStp, { task: 'codeReview' }, 'unknown', project), 'review');
+  assert.equal(detailBodyFor(nStp, { task: 'testing' }, 'unknown', project), 'review');
+});
+
+void test('the bypass never widens past the plan’s own phases', () => {
+  const nStp = row({ kind: 'testing', variant: 'plan', hasBuildEvidence: false });
+  const project = projectWith({ systemTestPlan: { scenarios: [scenario('STP-UC1')] } });
+  // Requirements ("Use-Case Trace": srs/srsReview) is not where the plan lives —
+  // untouched by the bypass, exactly the pre-fix reading.
+  assert.equal(
+    detailBodyFor(nStp, { lifecyclePhase: 'requirements' }, 'notStarted', project),
+    'unknown'
+  );
+  assert.equal(detailBodyFor(nStp, { task: 'srs' }, 'unknown', project), 'unknown');
+  assert.equal(detailBodyFor(nStp, { task: 'srsReview' }, 'unknown', project), 'unknown');
+});
+
+void test('a testing:plan row with no committed plan is untouched by the bypass', () => {
+  const noPlan = row({ kind: 'testing', variant: 'plan', hasBuildEvidence: false });
+  assert.equal(testingArtifactRendererKeyFor(noPlan, {}, undefined), undefined);
+  assert.equal(detailBodyFor(noPlan, {}, 'notStarted', undefined), 'unknown');
+  // An empty scenarios array reads the same as none at all.
+  const emptyPlan = projectWith({ systemTestPlan: { scenarios: [] } });
+  assert.equal(detailBodyFor(noPlan, {}, 'notStarted', emptyPlan), 'unknown');
+});
+
+void test('a testing:systemTest row renders once a test run is recorded', () => {
+  const nIt = row({ kind: 'testing', variant: 'systemTest', hasBuildEvidence: false });
+  const project = projectWith({ testRuns: [{ id: 'TR-1', passed: 1, failed: 0, note: '' }] });
+  assert.equal(testingArtifactRendererKeyFor(nIt, {}, project), 'testing:systemTest');
+  assert.equal(detailBodyFor(nIt, {}, 'notStarted', project), 'artifact');
+  // No recorded run: untouched.
+  const noRuns = projectWith({ testRuns: [] });
+  assert.equal(testingArtifactRendererKeyFor(nIt, {}, noRuns), undefined);
+  assert.equal(detailBodyFor(nIt, {}, 'notStarted', noRuns), 'unknown');
+});
+
+void test('the bypass never reaches service/uiDesign/frontend — their gate stays exactly as is', () => {
+  const project = projectWith({ systemTestPlan: { scenarios: [scenario('STP-UC1')] } });
+  for (const kind of ['service', 'uiDesign', 'frontend'] as const) {
+    const r = row({ kind, hasBuildEvidence: false });
+    assert.equal(testingArtifactRendererKeyFor(r, {}, project), undefined, kind);
+    assert.equal(detailBodyFor(r, {}, 'notStarted', project), 'unknown', kind);
+  }
 });
 
 // ---------------------------------------------------------------------------

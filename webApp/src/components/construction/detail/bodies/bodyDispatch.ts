@@ -24,8 +24,25 @@
  *  5. Otherwise the episode body — which is also what an ACTIVITY-level
  *     selection gets, because episodes are genuinely activity-level (see
  *     EpisodeBody's caption, which says so out loud).
+ *
+ * THE ONE EXCEPTION: A COMMITTED TESTING ARTIFACT OUTRANKS "NO RECORD"
+ * ---------------------------------------------------------------------
+ * `hasBuildEvidence` (question 2's `state`) answers "did this activity's BUILD
+ * progress" — attempts, retries, gate outcomes. A system test PLAN's scenarios,
+ * or a recorded test RUN, are a different kind of fact: real artifacts that
+ * exist on the wire (`project.testingState`) independently of whether the
+ * authoring activity itself has ever been attempted. All five testing-kind
+ * activities in this project's committed corpus carry `hasBuildEvidence: false`,
+ * so question 2 used to swallow N-STP's five committed scenarios at every
+ * selection depth — the artifact was real and simply unreachable. So question
+ * 2's short-circuit is now bypassed, for `testing:plan`/`testing:systemTest`
+ * ONLY, whenever `testingArtifactRendererKeyFor` finds the corresponding
+ * artifact actually present — see its own comment for exactly which selections
+ * that reaches. The task's own STATE is untouched (the header still reads
+ * `Not started`/`Unknown` honestly); only which BODY fills the slot changes.
+ * `service`/`uiDesign`/`frontend` never take this branch.
  */
-import type { ConstructionRow } from '../../../../contracts/types';
+import type { ConstructionRow, ProjectStateWithGit } from '../../../../contracts/types';
 import type { LensSelection } from '../../lens/useLensSelection';
 import { classify } from '../../artifactClassification.ts';
 import type { LifecyclePhase } from '../../lifecycleTemplates.gen.ts';
@@ -126,6 +143,59 @@ export function artifactRendererKeyFor(
     : undefined;
 }
 
+/**
+ * Whether the wire actually carries the artifact a testing classification
+ * renders — the system test plan's scenarios for `testing:plan`, a recorded
+ * test run for `testing:systemTest`. Deliberately independent of
+ * `hasBuildEvidence`: see the module comment on why gating a real, committed
+ * artifact on build evidence hides true information for this one family.
+ */
+function recordedTestingArtifactExists(
+  classification: 'testing:plan' | 'testing:systemTest',
+  project: ProjectStateWithGit | undefined
+): boolean {
+  const testingState = project?.testingState;
+  if (classification === 'testing:plan') {
+    return (testingState?.systemTestPlan?.scenarios?.length ?? 0) > 0;
+  }
+  return (testingState?.testRuns?.length ?? 0) > 0;
+}
+
+/**
+ * The artifact key for a testing-kind row's OWN committed artifact, reached
+ * regardless of `hasBuildEvidence` — `undefined` when this row is not a
+ * testing:plan/testing:systemTest row, or when the wire carries no such
+ * artifact yet (an ordinary no-record testing row is untouched by this and
+ * falls through to the unknown body exactly as before).
+ *
+ * Reachable at three depths:
+ *   - the BARE activity row (no phase, no task named) — the plainest click;
+ *   - the artifact's OWN phase(s) (Plan Authoring/Plan Review — ARTIFACT_PHASES)
+ *     with no task named;
+ *   - a TASK within one of those phases.
+ * A phase this artifact does NOT belong to (N-STP's own Requirements/
+ * "Use-Case Trace" phase, `srs`/`srsReview`) is deliberately NOT widened: this
+ * reuses `artifactRendererKeyFor`'s existing phase-membership check for both
+ * of the narrower cases, so the scoping rule is defined in exactly one place.
+ */
+export function testingArtifactRendererKeyFor(
+  row: ConstructionRow | undefined,
+  selection: LensSelection,
+  project: ProjectStateWithGit | undefined
+): ArtifactBodyKind | undefined {
+  if (row === undefined) return undefined;
+  const classification = classify(row);
+  if (classification !== 'testing:plan' && classification !== 'testing:systemTest') {
+    return undefined;
+  }
+  if (!recordedTestingArtifactExists(classification, project)) return undefined;
+
+  if (selection.task === undefined && selection.lifecyclePhase === undefined) {
+    return classification;
+  }
+  return artifactRendererKeyFor(row, selection);
+}
+
 /** Whether the selected task is its phase's gate — read from the generated profile. */
 export function selectedTaskIsGate(
   row: ConstructionRow | undefined,
@@ -142,13 +212,28 @@ export function selectedTaskIsGate(
   return false;
 }
 
-/** Pick the body. See the module comment for why the questions are in this order. */
+/**
+ * Pick the body. See the module comment for why the questions are in this
+ * order, and for the one exception (a testing-kind row's own committed
+ * artifact outranking question 2's "no record" reading).
+ */
 export function detailBodyFor(
   row: ConstructionRow | undefined,
   selection: LensSelection,
-  state: TaskDetailState
+  state: TaskDetailState,
+  project?: ProjectStateWithGit
 ): DetailBodyKind {
   if (absenceFor(row, selection) !== undefined) return 'absent';
+
+  const testingArtifact = testingArtifactRendererKeyFor(row, selection, project);
+  if (testingArtifact !== undefined) {
+    // A gate task still owes the review surface (artifact + verdict), exactly
+    // as question 3 would decide for any other classification — this bypass
+    // only removes question 2's block, it does not reorder question 3.
+    if (selection.task !== undefined && selectedTaskIsGate(row, selection)) return 'review';
+    return 'artifact';
+  }
+
   if (state === 'unknown' || state === 'notStarted') return 'unknown';
   if (selection.task !== undefined) {
     if (selectedTaskIsGate(row, selection)) return 'review';

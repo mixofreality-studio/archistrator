@@ -816,7 +816,7 @@ function DetailBody({
   systemEnvelope: ArtifactModelEnvelope | undefined;
   reviewSet: ConstructionReviewSet | undefined;
 }): ReactElement {
-  const kind = detailBodyFor(row, selection, state);
+  const kind = detailBodyFor(row, selection, state, project);
   switch (kind) {
     case 'absent': {
       const absence = absenceFor(row, selection);

@@ -20,24 +20,27 @@ test.beforeEach(async ({ request }) => {
 // dispatched TestPlanView/SystemTestRunView unconditionally from
 // classify(row), ignoring the row's own evidence).
 //
-// TASK 13 FINDING (live-verified, not a wiring gap this task can route around):
+// TASK 13 FOUND A REAL BUG, NOT JUST A GAP TO ROUTE AROUND:
 // N-STP (testing:plan) and N-IT (testing:systemTest) — like all 5 testing-kind
 // activities in the committed corpus — carry `hasBuildEvidence: false`. The
-// detail pane's bodyDispatch.detailBodyFor (Task 10) gates on the SELECTED
-// node's TaskDetailState BEFORE it ever asks which classification/renderer
-// applies: `state === 'unknown' || state === 'notStarted'` short-circuits to
-// the unknown body for EVERY selection depth on a no-evidence row (activity,
-// phase, or task — verified for all three). TestPlanView itself does not read
-// evidence at all (`project.testingState.systemTestPlan.scenarios`), so the
-// content these tests used to assert is not gone from the data — it is simply
-// unreachable through the honest surface until one of these two activities
-// carries real build evidence (Task 1's "no evidence, no claim" rule, applied
-// uniformly, not special-cased for the testing family). Rewiring that gate is
-// out of scope here — it is Task 10's already-reviewed logic — so these tests
-// now pin the CURRENT honest behaviour instead of content that is currently
-// unreachable. Flagged for whoever next touches testing-kind construction data
-// or the bodyDispatch gate.
-test('N-STP has no build evidence, so its detail pane renders the honest unknown body, not the plan content', async ({
+// detail pane's bodyDispatch.detailBodyFor gated on the SELECTED node's
+// TaskDetailState BEFORE it ever asked which classification/renderer applies,
+// so `state === 'unknown' || state === 'notStarted'` short-circuited to the
+// unknown body for every selection depth on a no-evidence row — even though
+// N-STP's 5 committed scenarios were sitting right there on the wire
+// (`project.testingState.systemTestPlan.scenarios`). `hasBuildEvidence`
+// answers "did the BUILD progress"; a committed test plan is a real artifact
+// that exists independently of that question, so gating it on build evidence
+// hid true information.
+//
+// THE FIX: `bodyDispatch.testingArtifactRendererKeyFor` renders the artifact
+// body for `testing:plan`/`testing:systemTest` whenever the corresponding
+// testing-state artifact (systemTestPlan for N-STP, a recorded test run for
+// N-IT) is actually present, regardless of hasBuildEvidence — reachable from
+// the bare activity row and from the plan's own phases/tasks (Plan Authoring/
+// Plan Review). The task's own STATE stays honest (still `Not started`): only
+// the rendered BODY changes, and `service`/`uiDesign`/`frontend` are untouched.
+test('N-STP has no build evidence, but its committed plan renders anyway — the task state stays honest', async ({
   page,
 }) => {
   await gotoApp(page, '/project/archistrator/construction');
@@ -55,13 +58,16 @@ test('N-STP has no build evidence, so its detail pane renders the honest unknown
   await expect(page.getByTestId(TESTID.constructionDetailBreadcrumb)).toContainText(
     'System test plan'
   );
-  // The honest consequence of no build evidence: the unknown body, never the
-  // artifact body — TestPlanView/ScenarioBrowser do not render for this row.
-  await expect(page.getByTestId(TESTID.constructionDetailBodyUnknown)).toBeVisible();
-  await expect(page.getByTestId(TESTID.constructionTestPlanView)).toHaveCount(0);
+  // The plan is a real, committed artifact — it renders even with no attempts.
+  await expect(page.getByTestId(TESTID.constructionDetailBodyArtifact)).toBeVisible();
+  await expect(page.getByTestId(TESTID.constructionTestPlanView)).toBeVisible();
+  await expect(page.getByTestId(TESTID.constructionDetailBodyUnknown)).toHaveCount(0);
+  // Honesty is not traded away for reachability: the header state chip still
+  // reads the truth — no attempts recorded, not signed off.
+  await expect(page.getByTestId(TESTID.constructionDetailStateChip)).toContainText(/not started/i);
 });
 
-test('N-IT has no build evidence, so its detail pane renders the honest unknown body, not the run summary', async ({
+test('N-IT has no build evidence, but its recorded test run renders anyway — the task state stays honest', async ({
   page,
 }) => {
   await gotoApp(page, '/project/archistrator/construction');
@@ -77,6 +83,11 @@ test('N-IT has no build evidence, so its detail pane renders the honest unknown 
   await expect(page.getByTestId(TESTID.constructionDetailBreadcrumb)).toContainText(
     'System testing'
   );
-  await expect(page.getByTestId(TESTID.constructionDetailBodyUnknown)).toBeVisible();
-  await expect(page.getByTestId(TESTID.constructionSystemTestView)).toHaveCount(0);
+  // The committed corpus carries one `testingState.testRuns` entry, so the same
+  // bypass that widens N-STP widens this row too: the run summary renders even
+  // though N-IT itself has no attempts.
+  await expect(page.getByTestId(TESTID.constructionDetailBodyArtifact)).toBeVisible();
+  await expect(page.getByTestId(TESTID.constructionSystemTestView)).toBeVisible();
+  await expect(page.getByTestId(TESTID.constructionDetailBodyUnknown)).toHaveCount(0);
+  await expect(page.getByTestId(TESTID.constructionDetailStateChip)).toContainText(/not started/i);
 });

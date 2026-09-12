@@ -38,7 +38,11 @@ import { contractForActivity } from '../../../../contracts/serviceContracts';
 import type { LensSelection } from '../../lens/useLensSelection';
 import { artifactRenderers } from '../../artifactRenderers';
 import { ServiceContractView } from '../../ServiceContractView';
-import { artifactRendererKeyFor, type ArtifactBodyKind } from './bodyDispatch.ts';
+import {
+  artifactRendererKeyFor,
+  testingArtifactRendererKeyFor,
+  type ArtifactBodyKind,
+} from './bodyDispatch.ts';
 import { UnknownBody } from './UnknownBody';
 
 /** What each renderer is showing, named so the reader is never left guessing. */
@@ -86,7 +90,14 @@ export function ArtifactRender({
   systemEnvelope,
 }: ArtifactBodyProps): ReactElement {
   const t = useTokens();
-  const key = artifactRendererKeyFor(row, selection);
+  // `testingArtifactRendererKeyFor` is checked FIRST: it is the only one of the
+  // two that resolves a bare activity-row selection (no phase, no task) for a
+  // testing-kind row's own committed artifact — see bodyDispatch.ts's module
+  // comment. Every other selection it declines to widen falls through to the
+  // ordinary `artifactRendererKeyFor`, unchanged.
+  const key =
+    testingArtifactRendererKeyFor(row, selection, project) ??
+    artifactRendererKeyFor(row, selection);
 
   if (key === undefined || row === undefined) {
     return (
