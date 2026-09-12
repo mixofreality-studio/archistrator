@@ -261,12 +261,16 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   const beginActive = cascading || begin.isPending;
 
   // Whether construction has already been started at all: a live/known session
-  // exists, or any activity has advanced beyond not-started (the seeded rows only
-  // hold integrated/in-review/in-construction). Drives Begin→Resume so an active
-  // project (60 integrated) never invites a fresh "Begin".
+  // exists, or some activity carries a record that work happened on it. Drives
+  // Begin→Resume so an active project never invites a fresh "Begin". A row's mere
+  // PRESENCE is not that record: the server emits a planned-no-record row for
+  // every listed activity nobody has touched yet (classified, no evidence, no
+  // attempts), so counting keys would read "Resume" before anything ever ran.
   const constructionStarted =
     (session !== undefined && !sessionMissing) ||
-    Object.keys(project?.constructionRows ?? {}).length > 0;
+    Object.values(project?.constructionRows ?? {}).some(
+      (r) => r.hasBuildEvidence || r.attempts.length > 0
+    );
   const beginLabel = beginActive
     ? 'Construction running…'
     : constructionStarted

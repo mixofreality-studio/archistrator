@@ -300,3 +300,26 @@ export const UNKNOWN_STATEMENT_UNSCOPED =
 export function unknownStatementFor(scope: Briefing['scope'] | undefined): string {
   return scope === 'task' ? UNKNOWN_STATEMENT : UNKNOWN_STATEMENT_UNSCOPED;
 }
+
+/** No profile at all — the server could not classify the activity. */
+export const NO_PROFILE_NOTE =
+  'No Figure A-1 profile resolved for this activity, so there is no exit criterion or Table ' +
+  'A-1 weight to show. The server could not classify it, and this surface does not guess one.';
+
+/** A profile, but no single phase to brief — nothing recorded, so no current phase. */
+export const NO_CURRENT_PHASE_NOTE =
+  'Nothing is recorded against this activity yet, so it has no current phase to brief. Its ' +
+  'lifecycle is drawn in the list — select a phase or task there for its exit criterion and weight.';
+
+/**
+ * The line the unknown card shows in place of the briefing table when
+ * `briefingFor` resolves nothing. Two different reasons, never conflated: an
+ * activity with NO profile (unclassified — inventing one is the fabrication
+ * activityTree.ts refuses), and a CLASSIFIED activity selected at activity
+ * level with no reported current phase — every planned-no-record row, whose
+ * profile the list is drawing right beside this card. Telling the second one
+ * "the server could not classify it" would be false.
+ */
+export function noBriefingNoteFor(row: ConstructionRow | undefined): string {
+  return profileFor(row) === undefined ? NO_PROFILE_NOTE : NO_CURRENT_PHASE_NOTE;
+}

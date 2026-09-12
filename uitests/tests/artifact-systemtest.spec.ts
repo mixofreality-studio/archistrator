@@ -21,8 +21,10 @@ test.beforeEach(async ({ request }) => {
 // classify(row), ignoring the row's own evidence).
 //
 // TASK 13 FOUND A REAL BUG, NOT JUST A GAP TO ROUTE AROUND:
-// N-STP (testing:plan) and N-IT (testing:systemTest) — like all 5 testing-kind
-// activities in the committed corpus — carry `hasBuildEvidence: false`. The
+// N-STP (testing:plan) and N-IT (testing:systemTest) then both carried
+// `hasBuildEvidence: false` (N-STP has since been backfilled Done from its
+// committed plan; N-IT still has no record, so it now exercises the bypass
+// alone). The
 // detail pane's bodyDispatch.detailBodyFor gated on the SELECTED node's
 // TaskDetailState BEFORE it ever asked which classification/renderer applies,
 // so `state === 'unknown' || state === 'notStarted'` short-circuited to the
@@ -40,11 +42,11 @@ test.beforeEach(async ({ request }) => {
 // the bare activity row and from the plan's own phases/tasks (Plan Authoring/
 // Plan Review). The task's own STATE stays honest (still `Not started`): only
 // the rendered BODY changes, and `service`/`uiDesign`/`frontend` are untouched.
-test('N-STP has no build evidence, but its committed plan renders anyway — the task state stays honest', async ({
+test('N-STP renders its committed plan, and its state chip reads the backfilled truth', async ({
   page,
 }) => {
   await gotoApp(page, '/project/archistrator/construction');
-  await page.getByTestId(TESTID.constructionLensSearch).locator('input').fill('N-STP');
+  await page.getByTestId(TESTID.constructionLensSearch).getByRole('textbox').fill('N-STP');
 
   const row = page.getByTestId(TESTID.constructionListRow('N-STP'));
   await expect(row).toBeVisible({ timeout: 15_000 });
@@ -58,20 +60,22 @@ test('N-STP has no build evidence, but its committed plan renders anyway — the
   await expect(page.getByTestId(TESTID.constructionDetailBreadcrumb)).toContainText(
     'System test plan'
   );
-  // The plan is a real, committed artifact — it renders even with no attempts.
+  // The plan is a real, committed artifact.
   await expect(page.getByTestId(TESTID.constructionDetailBodyArtifact)).toBeVisible();
   await expect(page.getByTestId(TESTID.constructionTestPlanView)).toBeVisible();
   await expect(page.getByTestId(TESTID.constructionDetailBodyUnknown)).toHaveCount(0);
-  // Honesty is not traded away for reachability: the header state chip still
-  // reads the truth — no attempts recorded, not signed off.
-  await expect(page.getByTestId(TESTID.constructionDetailStateChip)).toContainText(/not started/i);
+  // The header state chip reads the truth: N-STP's attempts were backfilled
+  // from the committed plan and every one passed. (That they are reconstructed
+  // rather than observed is the provenance axis's job — the hatched rail and
+  // the group badge — pinned by construction-search-provenance-guarantee.)
+  await expect(page.getByTestId(TESTID.constructionDetailStateChip)).toContainText(/passed/i);
 });
 
 test('N-IT has no build evidence, but its recorded test run renders anyway — the task state stays honest', async ({
   page,
 }) => {
   await gotoApp(page, '/project/archistrator/construction');
-  await page.getByTestId(TESTID.constructionLensSearch).locator('input').fill('N-IT');
+  await page.getByTestId(TESTID.constructionLensSearch).getByRole('textbox').fill('N-IT');
 
   const row = page.getByTestId(TESTID.constructionListRow('N-IT'));
   await expect(row).toBeVisible({ timeout: 15_000 });

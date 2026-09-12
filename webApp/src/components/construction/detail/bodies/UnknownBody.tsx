@@ -1,8 +1,8 @@
 /**
  * THE UNKNOWN BODY — the majority surface, designed as a feature.
  *
- * 292 of this project's 384 task rows have no attempt recorded at all, so this
- * body is shown more often than every other body COMBINED. An empty state would
+ * Every task nobody has run yet lands here — on a project mid-construction,
+ * more often than every other body COMBINED. An empty state would
  * therefore be the dominant impression the construction console makes, which is
  * why this is not one: it is a briefing card that teaches the Method while it
  * waits.
@@ -40,7 +40,12 @@ import { useTokens } from '../../../../utilities/theme/ThemeContext';
 import type { Tokens } from '../../../../utilities/theme/themes';
 import { UI_IDENTIFIERS } from '../../../../utilities/constants/UIIdentifiers';
 import type { LensSelection } from '../../lens/useLensSelection';
-import { briefingFor, unknownStatementFor, type Briefing } from './taskBriefing.ts';
+import {
+  briefingFor,
+  noBriefingNoteFor,
+  unknownStatementFor,
+  type Briefing,
+} from './taskBriefing.ts';
 
 /** The label column's width — fixed so the four rows read as a table, not prose. */
 const LABEL_COLUMN = 86;
@@ -65,6 +70,7 @@ export function UnknownBody({ row, selection, title, statement }: UnknownBodyPro
   return (
     <UnknownCard
       briefing={briefing}
+      noBriefingNote={noBriefingNoteFor(row)}
       statement={statement ?? unknownStatementFor(briefing?.scope)}
       t={t}
       title={title ?? briefing?.title ?? selection.task ?? 'This task'}
@@ -74,11 +80,13 @@ export function UnknownBody({ row, selection, title, statement }: UnknownBodyPro
 
 function UnknownCard({
   briefing,
+  noBriefingNote,
   statement,
   title,
   t,
 }: {
   briefing: Briefing | undefined;
+  noBriefingNote: string;
   statement: string;
   title: string;
   t: Tokens;
@@ -135,12 +143,12 @@ function UnknownCard({
           <BriefingRow label="Retry rule" t={t} value={briefing.retryRule} />
         </Box>
       ) : (
-        // No profile resolved — an unclassified activity. Inventing a lifecycle
-        // for it is the fabrication activityTree.ts refuses (rule 1), so the card
-        // says why the table is absent rather than showing a plausible one.
+        // No single phase resolved. The card says WHY the table is absent — an
+        // unclassified activity (no profile to brief) and a classified one with no
+        // current phase yet are different reasons (see noBriefingNoteFor) —
+        // rather than showing a plausible-looking one.
         <Typography sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.muted, lineHeight: 1.5 }}>
-          No Figure A-1 profile resolved for this activity, so there is no exit criterion or Table
-          A-1 weight to show. The server could not classify it, and this surface does not guess one.
+          {noBriefingNote}
         </Typography>
       )}
 

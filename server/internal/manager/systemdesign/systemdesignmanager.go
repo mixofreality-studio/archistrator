@@ -3350,16 +3350,36 @@ func repoWebHost(repoBase string) string {
 // componentLayer is the id -> Method-layer-name lookup built once per call from the
 // committed .systemDesign components (see componentLayerByID); empty when no system
 // design is committed.
+//
+// The committed activity list is authoritative for WHAT EXISTS (construction UI spec,
+// "slot 9 is authoritative for what exists"): every listed activity is emitted, and a
+// listed activity with no stored head-state yet is emitted as a PLANNED-NO-RECORD row —
+// "not started / no record", never Done. It goes through exactly the same resolution
+// as a stored row, from the zero-value head-state: the server classifies it (so its
+// profile's phases and tasks can be drawn), and because it has neither stored phases
+// nor a ledger it resolves to no completions, so HasBuildEvidence is false, Phases is
+// empty and no coarse status is asserted. Nothing is synthesized that a stored row
+// with no evidence would not also say. Without this, an activity nobody has touched
+// yet was absent from the view altogether rather than shown as not started.
+// A stored row the list no longer names is still emitted (it classifies as whatever
+// its metadata allows, which for an unlisted id is nothing).
 func constructionRowsToContract(
 	rows map[string]projectstate.ActivityConstructionStatus,
 	activityMeta map[string]projectstate.ActivityItem,
 	componentLayer map[string]string,
 ) map[string]ActivityConstructionStatus {
-	if len(rows) == 0 {
+	if len(rows) == 0 && len(activityMeta) == 0 {
 		return nil
 	}
-	out := make(map[string]ActivityConstructionStatus, len(rows))
+	all := make(map[string]projectstate.ActivityConstructionStatus, len(rows)+len(activityMeta))
+	for id := range activityMeta {
+		all[id] = projectstate.ActivityConstructionStatus{ActivityID: id}
+	}
 	for id, r := range rows {
+		all[id] = r
+	}
+	out := make(map[string]ActivityConstructionStatus, len(all))
+	for id, r := range all {
 		meta := activityMeta[id]
 		typ, typVariant, resolved, classified := classifiedRowView(r, activityMeta[id])
 		// Type/Kind/Variant/Phases/BuildStatus/Phase form a DISCRIMINATED UNION with

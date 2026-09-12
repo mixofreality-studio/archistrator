@@ -10830,6 +10830,61 @@ func TestConstructionRowsToContract_UnclassifiedRowHasNoBuildEvidence(t *testing
 	}
 }
 
+// The committed activity list is authoritative for what exists: a listed activity with
+// no stored head-state is still emitted, as a PLANNED-NO-RECORD row — classified by the
+// server (so the SPA can draw its profile's phases and tasks) yet asserting no evidence,
+// no phase completions and no attempts. Before this, an activity nobody had touched was
+// absent from the view altogether rather than shown as not started. The merge must not
+// disturb a stored row, and nothing stored plus nothing listed is still nil.
+func TestConstructionRowsToContract_ListedActivityWithNoRowIsPlannedNoRecord(t *testing.T) {
+	rows := map[string]projectstate.ActivityConstructionStatus{
+		"C-BE": {ActivityID: "C-BE", Phases: allServicePhases()},
+	}
+	meta := map[string]projectstate.ActivityItem{
+		"C-BE":   {Name: "C-BE", WorkerClass: "junior-developer", Coding: true},
+		"C-PLAN": {Name: "C-PLAN", WorkerClass: "junior-developer", Coding: true},
+		"N-IT":   {Name: "N-IT", WorkerClass: "software-tester", Coding: false},
+	}
+	got := constructionRowsToContract(rows, meta, nil)
+	if len(got) != 3 {
+		t.Fatalf("len(got) = %d, want 3 (one stored row + two listed-with-no-row)", len(got))
+	}
+	for _, id := range []string{"C-PLAN", "N-IT"} {
+		r, ok := got[id]
+		if !ok {
+			t.Fatalf("%s: a listed activity with no stored row is missing from the view", id)
+		}
+		if r.ActivityID != id {
+			t.Errorf("%s: ActivityID = %q, want the listed id", id, r.ActivityID)
+		}
+		if !r.Classified {
+			t.Errorf("%s: Classified = false; the server classifies a listed activity from its metadata", id)
+		}
+		if r.HasBuildEvidence {
+			t.Errorf("%s: HasBuildEvidence = true on a row with no record at all", id)
+		}
+		if len(r.Phases) != 0 {
+			t.Errorf("%s: Phases = %d, want none (no stored phases, no ledger)", id, len(r.Phases))
+		}
+		if len(r.Attempts) != 0 {
+			t.Errorf("%s: Attempts = %d, want none", id, len(r.Attempts))
+		}
+	}
+	if got["C-PLAN"].Type != ActivityType(int(projectstate.ActivityTypeService)) {
+		t.Errorf("C-PLAN Type = %d, want Service", got["C-PLAN"].Type)
+	}
+	if got["N-IT"].Type != ActivityType(int(projectstate.ActivityTypeTesting)) ||
+		got["N-IT"].Variant != TestingVariant(int(projectstate.TestVariantSystemTest)) {
+		t.Errorf("N-IT Type/Variant = %d/%d, want Testing/SystemTest", got["N-IT"].Type, got["N-IT"].Variant)
+	}
+	if !got["C-BE"].HasBuildEvidence || len(got["C-BE"].Phases) == 0 {
+		t.Errorf("the stored C-BE row lost its evidence in the merge")
+	}
+	if out := constructionRowsToContract(nil, map[string]projectstate.ActivityItem{}, nil); out != nil {
+		t.Errorf("nothing stored and nothing listed = %d rows, want nil", len(out))
+	}
+}
+
 // Exercised through the actual mapper (constructionRowsToContract) rather than the pure
 // function: each row is drawn in the layer of its OWN component, joined through the
 // activity's componentId. The client app names the client it builds, so it lands on the

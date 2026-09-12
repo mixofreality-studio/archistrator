@@ -17,7 +17,15 @@ import type {
 } from '../../../../contracts/types.ts';
 import { worstOriginOf, provenanceBasesOf } from '../../provenanceAxis.ts';
 import { evidencePointerFor, provenanceNodeFor, selectedAttemptOf } from '../detailPaneState.ts';
-import { absenceFor, briefingFor, unknownStatementFor, UNKNOWN_STATEMENT } from './taskBriefing.ts';
+import {
+  absenceFor,
+  briefingFor,
+  NO_CURRENT_PHASE_NOTE,
+  NO_PROFILE_NOTE,
+  noBriefingNoteFor,
+  unknownStatementFor,
+  UNKNOWN_STATEMENT,
+} from './taskBriefing.ts';
 import {
   artifactRendererKeyFor,
   detailBodyFor,
@@ -56,7 +64,7 @@ function attempt(overrides: Partial<TaskAttemptRow> = {}): TaskAttemptRow {
 /** The real shape of a ruling-derived attempt: passed, backfilled, no evidence. */
 function rulingAttempt(task: string): TaskAttemptRow {
   return attempt({
-    attemptId: `C-AA:${task}:1`,
+    attemptId: `C-artifact-access:${task}:1`,
     task,
     outcome: 'passed',
     evidence: { kind: '', ref: '' },
@@ -331,12 +339,12 @@ void test('the bypass never reaches service/uiDesign/frontend — their gate sta
 
 void test('a ruling-derived task reads RECONSTRUCTED in the pane and quotes its basis', () => {
   const r = row({
-    activityId: 'C-AA',
+    activityId: 'C-artifact-access',
     kind: 'service',
     worstOrigin: 'backfilled',
     attempts: [rulingAttempt('srs'), rulingAttempt('srsReview')],
   });
-  const node = provenanceNodeFor(r, { activityId: 'C-AA', task: 'srs' });
+  const node = provenanceNodeFor(r, { activityId: 'C-artifact-access', task: 'srs' });
   assert.equal(worstOriginOf(node), 'backfilled');
   const bases = provenanceBasesOf(node);
   assert.equal(bases.length, 1);
@@ -389,4 +397,29 @@ void test('selectedAttemptOf honours an explicit attempt, else the highest NUMBE
   assert.equal(selectedAttemptOf(r, { task: 'srs' })?.attemptId, 'a2');
   assert.equal(selectedAttemptOf(r, { task: 'srs', attempt: 1 })?.attemptId, 'a1');
   assert.equal(selectedAttemptOf(r, {}), undefined);
+});
+
+// ---------------------------------------------------------------------------
+// The note in place of the briefing table
+// ---------------------------------------------------------------------------
+
+// A planned-no-record row (the server classified it; nothing is recorded, so no
+// current phase) selected at activity level resolves no briefing — and the card
+// must not then claim the server could not classify it: the list is drawing its
+// profile right beside the card.
+void test('a classified row with no current phase gets the no-current-phase note, never "could not classify"', () => {
+  const planned = row({
+    activityId: 'U-SPA-web-client',
+    kind: 'frontend',
+    hasBuildEvidence: false,
+  });
+  assert.equal(briefingFor(planned, { activityId: 'U-SPA-web-client' }), undefined);
+  assert.equal(noBriefingNoteFor(planned), NO_CURRENT_PHASE_NOTE);
+  assert.doesNotMatch(noBriefingNoteFor(planned), /could not classify/);
+});
+
+void test('an unclassified row (no profile) keeps the could-not-classify note', () => {
+  const unclassified = row({ classified: false, hasBuildEvidence: false });
+  assert.equal(noBriefingNoteFor(unclassified), NO_PROFILE_NOTE);
+  assert.equal(noBriefingNoteFor(undefined), NO_PROFILE_NOTE);
 });
