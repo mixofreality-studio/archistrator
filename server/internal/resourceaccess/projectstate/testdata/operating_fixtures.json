@@ -1,54 +1,91 @@
 [
   {
     "name": "all-integrated",
-    "rows": [
-      { "phase": 2, "buildStatus": 2 },
-      { "phase": 2, "buildStatus": 2 },
-      { "phase": 2, "buildStatus": 2 }
-    ],
+    "activities": ["A", "B", "C"],
+    "rows": {
+      "A": { "phase": 2, "buildStatus": 2 },
+      "B": { "phase": 2, "buildStatus": 2 },
+      "C": { "phase": 2, "buildStatus": 2 }
+    },
     "projectPhase": 2,
     "expect": true
   },
   {
     "name": "one-failed",
-    "rows": [
-      { "phase": 2, "buildStatus": 2 },
-      { "phase": 3, "buildStatus": 3 }
-    ],
+    "activities": ["A", "B"],
+    "rows": {
+      "A": { "phase": 2, "buildStatus": 2 },
+      "B": { "phase": 3, "buildStatus": 3 }
+    },
     "projectPhase": 2,
     "expect": false
   },
   {
     "name": "one-in-review",
-    "rows": [
-      { "phase": 2, "buildStatus": 2 },
-      { "phase": 1, "buildStatus": 1 }
-    ],
+    "activities": ["A", "B"],
+    "rows": {
+      "A": { "phase": 2, "buildStatus": 2 },
+      "B": { "phase": 1, "buildStatus": 1 }
+    },
     "projectPhase": 2,
     "expect": false
   },
   {
     "name": "empty",
-    "rows": [],
+    "activities": [],
+    "rows": {},
     "projectPhase": 2,
     "expect": false
   },
   {
     "name": "skipped-shaped-row",
-    "rows": [
-      { "phase": 2, "buildStatus": 2 },
-      { "phase": 2, "buildStatus": 1 }
-    ],
+    "activities": ["A", "B"],
+    "rows": {
+      "A": { "phase": 2, "buildStatus": 2 },
+      "B": { "phase": 2, "buildStatus": 1 }
+    },
     "projectPhase": 2,
     "expect": false
   },
   {
     "name": "not-construction-phase",
-    "rows": [
-      { "phase": 2, "buildStatus": 2 },
-      { "phase": 2, "buildStatus": 2 }
-    ],
+    "activities": ["A", "B"],
+    "rows": {
+      "A": { "phase": 2, "buildStatus": 2 },
+      "B": { "phase": 2, "buildStatus": 2 }
+    },
     "projectPhase": 1,
     "expect": false
+  },
+  {
+    "name": "listed-activity-without-row",
+    "activities": ["A", "B", "C"],
+    "rows": {
+      "A": { "phase": 2, "buildStatus": 2 },
+      "B": { "phase": 2, "buildStatus": 2 }
+    },
+    "projectPhase": 2,
+    "expect": false
+  },
+  {
+    "name": "rows-without-a-list",
+    "activities": [],
+    "rows": {
+      "A": { "phase": 2, "buildStatus": 2 },
+      "B": { "phase": 2, "buildStatus": 2 }
+    },
+    "projectPhase": 2,
+    "expect": false
+  },
+  {
+    "name": "row-outside-the-list-is-ignored",
+    "activities": ["A", "B"],
+    "rows": {
+      "A": { "phase": 2, "buildStatus": 2 },
+      "B": { "phase": 2, "buildStatus": 2 },
+      "Z": { "phase": 3, "buildStatus": 3 }
+    },
+    "projectPhase": 2,
+    "expect": true
   }
 ]

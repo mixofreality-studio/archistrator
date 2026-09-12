@@ -1356,6 +1356,123 @@ func TestNextEligibleActivity_Chain(t *testing.T) {
 	}
 }
 
+// passedLedger is the attempt ledger cmd/backfill-attempts writes for an activity: one
+// passed attempt per non-conditional task of the given phases, origin backfilled, with a
+// basis. The row it goes on carries NO stored phase fields — that is the backfill's shape.
+func passedLedger(activityID string, phases ...projectstate.ActivityMethodPhase) []projectstate.TaskAttempt {
+	var out []projectstate.TaskAttempt
+	for _, ph := range phases {
+		for _, task := range projectstate.TasksForPhase(ph) {
+			if projectstate.IsConditionalTask(task) {
+				continue
+			}
+			out = append(out, ledgerAttempt(activityID, task, 1, projectstate.OutcomePassed))
+		}
+	}
+	return out
+}
+
+func ledgerAttempt(activityID string, task projectstate.MethodTask, n int, outcome projectstate.TaskOutcome) projectstate.TaskAttempt {
+	return projectstate.TaskAttempt{
+		AttemptID: projectstate.AttemptID(activityID, task, n),
+		Task:      task,
+		Phase:     projectstate.PhaseForTask(task),
+		Attempt:   n,
+		Outcome:   outcome,
+		Provenance: projectstate.AttemptProvenance{
+			Origin: projectstate.OriginBackfilled,
+			Basis:  "test fixture",
+		},
+	}
+}
+
+// ledgerChain is A → B: A is a Service build (coding, junior-developer, a real
+// component), B a noncoding doc activity that depends on A.
+func ledgerChain() projectstate.Project {
+	return projWithActivities(
+		[]projectstate.ActivityItem{
+			{Name: "A", Title: "A", WorkerClass: "junior-developer", Coding: true, ComponentID: "todo-list-manager"},
+			{Name: "B", Title: "B", WorkerClass: "system-architect", Coding: false},
+		},
+		[]projectstate.NetworkDependency{
+			{Activity: "A", DependsOn: []string{}},
+			{Activity: "B", DependsOn: []string{"A"}},
+		},
+	)
+}
+
+var servicePhases = projectstate.ProfileFor(projectstate.ActivityTypeService, projectstate.TestVariantPlan).PhaseIDs()
+
+// Task 7a (architect ruling Q2): a row the backfill wrote — a fully passed ledger and NO
+// stored phase/phases/buildStatus — is Done to the pump. It satisfies its dependent, and
+// it is never itself dispatched again. Before 7a the pump read the stored Phase (0,
+// NotStarted), so it re-dispatched A and held B back.
+func TestNextEligibleActivity_BackfilledRowSatisfiesItsDependentAndIsNeverDispatched(t *testing.T) {
+	proj := ledgerChain()
+	proj.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
+		"A": {ActivityID: "A", Attempts: passedLedger("A", servicePhases...)},
+	}
+	if a := proj.ActivityConstruction["A"]; a.Phase != projectstate.ActivityConstructionNotStarted || len(a.Phases) != 0 {
+		t.Fatalf("fixture must be the backfill shape (no stored phase fields), got phase=%v phases=%d", a.Phase, len(a.Phases))
+	}
+	sel := nextEligibleActivity(proj)
+	if sel.Verdict != verdictDispatch {
+		t.Fatalf("want verdictDispatch of B, got %v (blocked=%q)", sel.Verdict, sel.BlockedReason)
+	}
+	if sel.Activity.ActivityID != "B" {
+		t.Fatalf("want B dispatched (A is Done by its ledger), got %q", sel.Activity.ActivityID)
+	}
+}
+
+// A Skipped/TakenOver exit (RecordActivityExited) stores Phase=Done, BuildStatus=InReview
+// and leaves the stored Phases incomplete. The stored Done must win — the pump wrote this
+// row — so B is unblocked. Deriving from the incomplete Phases would read A as Running
+// and strand B forever.
+func TestNextEligibleActivity_ExitedSkippedRowStillUnblocksItsDependents(t *testing.T) {
+	proj := ledgerChain()
+	phases := make([]projectstate.PhaseCompletion, 0, len(servicePhases))
+	for i, ph := range servicePhases {
+		phases = append(phases, projectstate.PhaseCompletion{Phase: ph, Completed: i == 0})
+	}
+	proj.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
+		"A": {
+			ActivityID:  "A",
+			Phase:       projectstate.ActivityConstructionDone,
+			BuildStatus: projectstate.BuildInReview,
+			Phases:      phases,
+		},
+	}
+	sel := nextEligibleActivity(proj)
+	if sel.Verdict != verdictDispatch || sel.Activity.ActivityID != "B" {
+		t.Fatalf("want B dispatched behind a Skipped-exited A, got verdict=%v activity=%q (blocked=%q)",
+			sel.Verdict, sel.Activity.ActivityID, sel.BlockedReason)
+	}
+}
+
+// A ledger whose latest code review was REJECTED: A passed requirements, test plan and
+// detailed design and has built, but its construction gate is decided against it. A is
+// Running — so it is not dispatched again — and it does not satisfy B. Nothing is
+// eligible.
+func TestNextEligibleActivity_RejectedGateRowIsRunningNotDispatchedAndBlocks(t *testing.T) {
+	proj := ledgerChain()
+	attempts := passedLedger("A",
+		projectstate.MethodPhaseRequirements, projectstate.MethodPhaseTestPlan, projectstate.MethodPhaseDetailedDesign)
+	attempts = append(attempts,
+		ledgerAttempt("A", projectstate.TaskConstruction, 1, projectstate.OutcomePassed),
+		ledgerAttempt("A", projectstate.TaskCodeReview, 1, projectstate.OutcomeRejected),
+	)
+	row := projectstate.ActivityConstructionStatus{ActivityID: "A", Attempts: attempts}
+	proj.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{"A": row}
+
+	if got, _ := projectstate.EffectiveConstructionPhase(row, proj.ActivityList.Model.(*projectstate.ActivityList).Activities[0]); got != projectstate.ActivityConstructionRunning {
+		t.Fatalf("a ledger with a rejected latest gate must read Running, got %v", got)
+	}
+	sel := nextEligibleActivity(proj)
+	if sel.Verdict != verdictQuiescent {
+		t.Fatalf("want verdictQuiescent (A running, B blocked on it), got %v activity=%q", sel.Verdict, sel.Activity.ActivityID)
+	}
+}
+
 // TestNextEligibleActivity_MilestoneDependencySatisfied reproduces the live benchmark
 // drain: an activity (N-DOC) depends on a MILESTONE (M4), not an activity. M4 is
 // itself authored with its own dependsOn — I-UC-CONSULT and I-UC-AMEND, both Done.

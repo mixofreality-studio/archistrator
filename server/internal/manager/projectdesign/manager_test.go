@@ -5584,6 +5584,38 @@ func TestMaterializePhase2DraftRefusesAPresentButBlankMilestoneName(t *testing.T
 	}
 }
 
+// The guard above judges the TRIMMED name, so the stored Name is the trimmed name too: padding
+// the guard just called meaningless must not be committed around an authored Name.
+func TestMaterializePhase2DraftStoresTheTrimmedMilestoneName(t *testing.T) {
+	sys := loadCommittedStateForTest(t)
+	proj := projectstate.Project{}
+	proj.SystemDesign = committedSlot(&sys)
+
+	draft := authoredNetworkDraftForTest()
+	for i := range draft.Milestones {
+		if draft.Milestones[i].ID == "M2" {
+			draft.Milestones[i].Name = " \tAuthored Two \n"
+		}
+	}
+	got, err := materializePhase2Draft(proj, projectstate.KindNetwork, draft)
+	if err != nil {
+		t.Fatalf("a padded but non-blank Name must materialize, got %v", err)
+	}
+	staged, ok := got.(*projectstate.Network)
+	if !ok {
+		t.Fatalf("staged model is not *projectstate.Network: %T", got)
+	}
+	for _, m := range staged.Milestones {
+		if m.ID == "M2" {
+			if m.Name != "Authored Two" {
+				t.Fatalf("milestone M2 stored Name %q, want the trimmed %q", m.Name, "Authored Two")
+			}
+			return
+		}
+	}
+	t.Fatal("derived milestone M2 is missing from the staged network")
+}
+
 // The sibling of the refusal above: a draft that authors every derived milestone's Name still
 // materializes cleanly, with no milestone left with an empty Name.
 func TestMaterializePhase2DraftMaterializesAFullyNamedDraft(t *testing.T) {

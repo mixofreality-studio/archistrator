@@ -3452,17 +3452,6 @@ func constructionRowsToContract(
 	return out
 }
 
-// rowHasServiceContract reports whether the activity produced a frozen service
-// contract (the signal that it built a component, regardless of its id family).
-func rowHasServiceContract(r projectstate.ActivityConstructionStatus) bool {
-	for _, a := range r.Produced {
-		if a.Kind == "service-contract" {
-			return true
-		}
-	}
-	return false
-}
-
 // activityMetaByID builds the id → ActivityItem lookup from the committed
 // Phase-2 activity list (empty map when no list is committed).
 func activityMetaByID(p projectstate.Project) map[string]projectstate.ActivityItem {
@@ -3494,88 +3483,27 @@ func componentLayerByID(p projectstate.Project) map[string]string {
 // reconciled phase set both of them derive from. Sharing it is the point — the EV curve
 // used to read r.Phases raw and with no classified check, so an unclassified row could
 // contribute to the curve while the row beside it refused to assert a status at all.
+//
+// The resolution itself lives in projectstate (ResolveConstructionRow), so the
+// construction pump reads a row exactly as this view renders it. This is a pure call.
 func classifiedRowView(
 	r projectstate.ActivityConstructionStatus,
 	meta projectstate.ActivityItem,
 ) (typ projectstate.ActivityType, variant projectstate.TestingVariant, resolved []projectstate.PhaseCompletion, classified bool) {
-	typ, classified = projectstate.ClassifyType(r.ActivityID, meta.WorkerClass, meta.Coding, rowHasServiceContract(r))
-	if !classified {
-		return typ, variant, nil, false
-	}
-	if typ == projectstate.ActivityTypeTesting {
-		variant = projectstate.DeriveVariant(r.ActivityID)
-	}
-	return typ, variant, resolvedPhaseCompletions(projectstate.ProfileFor(typ, variant), r.Phases, r.Attempts), true
+	return projectstate.ResolveConstructionRow(r, meta)
 }
 
-// resolvedPhaseCompletions produces the ONE phase set both phasesToContract (the emitted
-// sub-rows) and the coarse BuildStatus/Phase derivation read from, so the two can never
-// disagree over the same row (task 11 item 2).
-//
-// THE PHASE ROW SET COMES FROM THE PROFILE; THE STORED SLICE ONLY SUPPLIES STATE.
-// When the two disagree, the profile wins. The profile is derived from the committed
-// architecture via the row's type as classified at READ time; the stored phases[] was
-// seeded (phaseSetFor) from the type stamped at DISPATCH, and the two can differ — a row
-// that produced a service contract reads as Service whatever it was dispatched as, and a
-// row the dispatcher never stamped seeds the zero-value (Service) set. Two fields on one
-// row giving contradictory answers with no rule on the wire for which wins is precisely
-// what this stage exists to remove, and this is the read-path rule that removes it.
-// Stored phases the profile does not carry are dropped; profile phases the store never
-// had are materialized with unknown state.
-//
-// That materialization is also why a row with an attempt ledger and NO stored phases no
-// longer resolves to nil. It used to, and the coarse chip was still derived from that
-// empty set and emitted as a real, non-omitempty, named zero value — phase=notStarted,
-// buildStatus=in-construction — for 24 of the 25 rows the backfill touched, four passed
-// attempts sitting under a chip saying the work had not started. The skeleton is NOT
-// render-time synthesis: it is deterministic from ProfileFor, and spec §7.1 states the
-// phase rows always exist and only their STATE is unknown.
-//
-// Honest-empty is preserved where it belongs: a row with neither stored phases nor a
-// ledger has nothing to resolve and asserts nothing (nil out), exactly as an
-// unclassified row does.
-//
-// App A's completion rule: a lifecycle phase is complete iff its GATE task's latest
-// attempt passed — a stronger claim than a stored boolean nobody can trace back to a
-// review. The ledger is a FALLBACK trigger, not a hard switch, and the fallback is
-// decided PER PHASE rather than per activity: a phase whose gate task has no attempt is
-// a phase the ledger has no opinion about, and silence is not a denial. A per-activity
-// switch would be a hard switch the instant one attempt exists — a partial ledger (gate
-// attempts for detailedDesign and construction only, say) would flip a row's stored
-// test_plan and integration completions to false, erasing recorded phase history the
-// ledger never contradicted.
-//
-// PhaseCompleteFromAttempts reports both halves of that — (complete, decided) — so this
-// distinction lives in ONE named implementation rather than being reimplemented inline
-// here because a one-bool helper could not express it.
+// resolvedPhaseCompletions is this package's name for projectstate.ResolvePhaseCompletions,
+// the profile-wins, ledger-per-phase resolution that classifiedRowView's phase set comes
+// from. The rule moved down into projectstate so the construction pump can share it; this
+// name stays because the view-model's tests pin the rule against it directly, with an
+// explicit profile, and must keep passing unmodified across the move.
 func resolvedPhaseCompletions(
 	profile projectstate.Profile,
 	stored []projectstate.PhaseCompletion,
 	attempts []projectstate.TaskAttempt,
 ) []projectstate.PhaseCompletion {
-	if len(stored) == 0 && len(attempts) == 0 {
-		return nil
-	}
-	storedByPhase := make(map[projectstate.ActivityMethodPhase]projectstate.PhaseCompletion, len(stored))
-	for _, ph := range stored {
-		storedByPhase[ph.Phase] = ph
-	}
-	out := make([]projectstate.PhaseCompletion, 0, len(profile.Phases))
-	for _, pp := range profile.Phases {
-		// Weight and Label are the profile's, never the stored slice's: a uiDesign row
-		// carrying Service weights must render 40/60, not 15/20/10/40/15.
-		row := projectstate.PhaseCompletion{Phase: pp.Phase, Weight: pp.Weight, Label: pp.Label}
-		if s, ok := storedByPhase[pp.Phase]; ok {
-			row.Completed = s.Completed
-			row.CompletedAt = s.CompletedAt
-			row.ArtifactRef = s.ArtifactRef
-		}
-		if complete, decided := projectstate.PhaseCompleteFromAttempts(attempts, pp.Phase); decided {
-			row.Completed = complete
-		}
-		out = append(out, row)
-	}
-	return out
+	return projectstate.ResolvePhaseCompletions(profile, stored, attempts)
 }
 
 // phasesToContract maps the App-A internal phase-completion records onto the wire.

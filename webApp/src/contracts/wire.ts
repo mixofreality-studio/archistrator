@@ -32,6 +32,7 @@ import {
   ACTIVITY_TYPE_ORDINAL_TO_APP,
   ARTIFACT_KIND_APP_TO_ORDINAL,
   ARTIFACT_KIND_ORDINAL_TO_APP,
+  ARTIFACT_STAGE_ORDINAL_TO_APP,
   AUTOSCALE_ACTION_ORDINAL_TO_APP,
   CONSTRUCTION_STAGE_ORDINAL_TO_APP,
   DESIRED_STATE_REASON_APP_TO_ORDINAL,
@@ -108,6 +109,7 @@ import type { EvidenceRefRow, Layer, RecordOriginRow } from './types';
 import type { ArtifactModelEnvelope, Money, ProjectArtifactModelEnvelope } from './types';
 import type { CostProjection, OperationsView } from './operationsTypes';
 import { deriveOperating } from './operating.ts';
+import { narrowProject } from './projectAdapters.ts';
 
 type Schemas = components['schemas'];
 
@@ -659,11 +661,17 @@ export function mapProjectState(w: Schemas['SystemDesignProjectState']): Project
   // for its null-guard: schema.ts's generated type omits `| null`, but Go nil
   // maps serialize as JSON `null` on the wire — the same drift mapRecord's own
   // doc comment above notes and guards for every other head-state map.
+  // The domain is the COMMITTED activity list, not the rows (Task 7a, mirroring the
+  // Go isConstructionComplete): a listed activity with no row has not started.
   const operatingRows = mapRecord(w.ActivityConstruction, (cs) => ({
     phase: cs.Phase,
     buildStatus: cs.BuildStatus,
   }));
-  const operating = deriveOperating(Object.values(operatingRows ?? {}), base.phase);
+  const operating = deriveOperating(
+    committedActivityNames(base.slots),
+    operatingRows ?? {},
+    base.phase
+  );
   return {
     ...base,
     ...(gitRows !== undefined ? { gitRows } : {}),
@@ -676,6 +684,21 @@ export function mapProjectState(w: Schemas['SystemDesignProjectState']): Project
     ...(w.testingState !== undefined ? { testingState: w.testingState } : {}),
     ...(operating ? { operating: true } : {}),
   };
+}
+
+/**
+ * The activity names of the COMMITTED Phase-2 activity list (slot 9), in authored
+ * order: the domain deriveOperating iterates, as the Go isConstructionComplete does.
+ * Empty when no activity list is committed; a project without the Phase-2 seal is
+ * never operating.
+ */
+function committedActivityNames(slots: readonly ArtifactSlotView[]): string[] {
+  const slot = slots.find((s) => s.kind === 'activityList');
+  if (slot === undefined || ARTIFACT_STAGE_ORDINAL_TO_APP[slot.stage] !== 'committed') return [];
+  // Same honest boundary cast ConstructionConsole's committedEnvelope makes: a
+  // committed activityList slot's envelope IS the Phase-2 envelope.
+  const model = narrowProject(slot.model as unknown as ProjectArtifactModelEnvelope, 'activityList');
+  return (model?.activities ?? []).map((a) => a.name);
 }
 
 // --- system-design session -------------------------------------------------

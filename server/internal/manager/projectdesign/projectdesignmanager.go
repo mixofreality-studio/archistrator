@@ -3248,12 +3248,16 @@ func materializeNetwork(
 	outMilestones := make([]projectstate.NetworkMilestone, 0, len(milestones))
 	for _, m := range milestones {
 		a := decorations[m.ID]
-		if strings.TrimSpace(a.Name) == "" {
+		// The guard and the stored value read the SAME trimmed name: a guard that
+		// refuses "   " but then stores "  Engines Complete " would commit the padding
+		// it just judged meaningless.
+		name := strings.TrimSpace(a.Name)
+		if name == "" {
 			return projectstate.Network{}, newError(fwmanager.ContractMisuse,
 				fmt.Sprintf("derived milestone %q has no authored Name — the draft must author a Name (and Public) decoration for this milestone id", m.ID))
 		}
 		outMilestones = append(outMilestones, projectstate.NetworkMilestone{
-			ID: m.ID, Name: a.Name, Public: a.Public, DependsOn: m.DependsOn,
+			ID: m.ID, Name: name, Public: a.Public, DependsOn: m.DependsOn,
 		})
 	}
 

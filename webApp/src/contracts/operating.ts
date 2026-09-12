@@ -53,20 +53,27 @@ export interface OperatingRow {
 }
 
 /**
- * True iff the project has entered construction, has at least one construction
- * row (an empty/absent set — construction started but nothing dispatched, or a
- * project that never reached construction — is never "operating"), and EVERY row
- * has BOTH reached the coarse Done phase AND the Integrated build status. A row
- * that is Done-but-not-integrated (the Skipped/TakenOver outcome shape) or still
- * Running/Failed keeps the project out of the operating state — phase alone
- * reaching Done is not sufficient. Mirrors the Go isConstructionComplete exactly;
- * see this file's doc comment for the shared fixture corpus both sides assert
- * against.
+ * True iff the project has entered construction, has a committed activity list
+ * with at least one activity (`listedActivities`: the committed slot-9 names — an
+ * empty list is never "operating"), and EVERY listed activity has a construction
+ * row that has BOTH reached the coarse Done phase AND the Integrated build status.
+ *
+ * The committed list, not the rows, is the domain: a listed activity with no row
+ * has not started, so it keeps the project out of the operating state, and a row
+ * naming an activity the list no longer holds is ignored. A row that is
+ * Done-but-not-integrated (the Skipped/TakenOver outcome shape) or still
+ * Running/Failed keeps the project out too — phase alone reaching Done is not
+ * sufficient. Mirrors the Go isConstructionComplete; see this file's doc comment
+ * for the shared fixture corpus both sides assert against.
  */
 export function deriveOperating(
-  rows: readonly OperatingRow[],
+  listedActivities: readonly string[],
+  rows: Readonly<Record<string, OperatingRow>>,
   projectPhase: ProjectPhase
 ): boolean {
-  if (projectPhase !== 'construction' || rows.length === 0) return false;
-  return rows.every((row) => row.phase === PHASE_DONE && row.buildStatus === BUILD_INTEGRATED);
+  if (projectPhase !== 'construction' || listedActivities.length === 0) return false;
+  return listedActivities.every((id) => {
+    const row = rows[id];
+    return row !== undefined && row.phase === PHASE_DONE && row.buildStatus === BUILD_INTEGRATED;
+  });
 }

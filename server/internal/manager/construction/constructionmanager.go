@@ -797,7 +797,9 @@ type pumpSelection struct {
 
 // nextEligibleActivity resolves the next eligible construction activity for a project
 // from its head-state. An activity is eligible iff it is NotStarted and every dep is
-// satisfied — an activity dependency requires a Done record, a milestone dependency is
+// satisfied, both read through projectstate.EffectiveConstructionPhase (the stored
+// state where the pump wrote it, the attempt ledger where it did not; see
+// isActivityNotStarted) — an activity dependency requires a Done record, a milestone dependency is
 // satisfied DERIVEDLY (it never has a Done record of its own; see allDepsSatisfied /
 // milestonesByID). Iteration is ActivityList declaration order; the first eligible
 // activity in that order is chosen (the candidate-list name tie-break below is
@@ -849,7 +851,7 @@ func nextEligibleActivity(proj projectstate.Project) pumpSelection {
 	var problemKind projectstate.FailureReason
 	for i, item := range activityList.Activities {
 		name := item.Name
-		if !isActivityNotStarted(name, proj.ActivityConstruction) {
+		if !isActivityNotStarted(name, item, proj.ActivityConstruction) {
 			continue
 		}
 		res := allDepsSatisfied(depsByActivity[name], itemByName, proj.ActivityConstruction, milestones)
@@ -974,16 +976,20 @@ func committedPlanInputs(proj projectstate.Project) (*projectstate.Network, *pro
 	return network, activityList, true
 }
 
-// isActivityNotStarted reports whether the activity is in the NotStarted phase.
-func isActivityNotStarted(activityID string, status map[string]projectstate.ActivityConstructionStatus) bool {
-	if status == nil {
-		return true
-	}
+// isActivityNotStarted reports whether the activity has not started: it has no
+// construction row, or its EFFECTIVE state is NotStarted. Effective, not stored:
+// projectstate.EffectiveConstructionPhase lets the stored Phase win wherever the pump
+// wrote it and reads the attempt ledger only where it did not, so a row whose history
+// lives in the ledger alone (the backfill's rows: attempts, no stored phase fields) is
+// never re-dispatched as if nothing had happened. item is the activity's committed
+// ActivityItem — the ledger read needs its classification.
+func isActivityNotStarted(activityID string, item projectstate.ActivityItem, status map[string]projectstate.ActivityConstructionStatus) bool {
 	s, exists := status[activityID]
 	if !exists {
 		return true
 	}
-	return s.Phase == projectstate.ActivityConstructionNotStarted
+	effective, _ := projectstate.EffectiveConstructionPhase(s, item)
+	return effective == projectstate.ActivityConstructionNotStarted
 }
 
 // milestonesByID indexes the network's AUTHORED milestones (M0-M5 + N-DOGFOOD, per
@@ -1016,8 +1022,11 @@ type depResolution struct {
 // resolveDependencySatisfied resolves whether one dependency id is satisfied.
 //
 //   - Names an ACTIVITY (present in itemByName, the authored ActivityList) —
-//     satisfied iff its ActivityConstruction head-state record exists with
-//     Phase==Done. This is today's meaning, unchanged.
+//     satisfied iff its ActivityConstruction head-state record exists and its
+//     EFFECTIVE phase is Done (projectstate.EffectiveConstructionPhase: the stored
+//     Phase wherever the pump wrote it, the attempt ledger only where it did not).
+//     A stored Done wins even over stored Phases left incomplete, so the
+//     Skipped/TakenOver exit shape still unblocks its dependents.
 //   - Names a MILESTONE (present in milestones, the authored Network.Milestones) —
 //     milestones never receive a head-state record of their own (they are
 //     zero-duration authored event nodes, not activities), so their satisfaction is
@@ -1066,12 +1075,13 @@ func resolveDependencySatisfied(
 		}
 		return depResolution{satisfied: true}
 	}
-	if _, isActivity := itemByName[depID]; isActivity {
-		if status == nil {
+	if item, isActivity := itemByName[depID]; isActivity {
+		s, exists := status[depID]
+		if !exists {
 			return depResolution{satisfied: false}
 		}
-		s, exists := status[depID]
-		return depResolution{satisfied: exists && s.Phase == projectstate.ActivityConstructionDone}
+		effective, _ := projectstate.EffectiveConstructionPhase(s, item)
+		return depResolution{satisfied: effective == projectstate.ActivityConstructionDone}
 	}
 	return depResolution{problemKind: projectstate.DependencyUnresolved, problemReason: fmt.Sprintf(
 		"dependency id %q is neither an authored activity (activityList) nor an authored milestone (network.milestones)",

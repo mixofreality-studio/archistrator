@@ -721,23 +721,40 @@ func (s *GitStore) ListProjects(ctx context.Context, owner OwnerScope, cred Repo
 }
 
 // isConstructionComplete derives the catalog's construction-complete signal
-// (Task 13, finish-construction): true iff the project has entered Construction
-// (Phase == PhaseConstruction), has at least one ActivityConstruction row (an
-// empty/nil map — construction started but nothing dispatched yet, or a project
-// that never reached Construction — is never "complete"), and EVERY row has
-// BOTH reached Phase == ActivityConstructionDone AND BuildStatus ==
-// BuildIntegrated. A row that is merely Done-but-not-integrated (the
-// Skipped/TakenOver shape RecordActivityExited leaves, projectstateaccess.go
-// ~1888) or still Running/Failed keeps the project incomplete — Phase alone is
-// not sufficient, matching the fixture corpus at testdata/operating_fixtures.json
-// (shared byte-identically with the webApp TS side; see that file's sync
-// comment). Unexported: only ListProjects (same package) calls it today.
+// (Task 13, finish-construction; list-driven since Task 7a): true iff the project
+// has entered Construction (Phase == PhaseConstruction), has a COMMITTED Phase-2
+// activity list with at least one activity, and EVERY listed activity has a
+// construction row whose EFFECTIVE state (EffectiveConstructionPhase — stored where
+// the pump wrote it, the attempt ledger where it did not) is BOTH
+// ActivityConstructionDone AND BuildIntegrated.
+//
+// The committed list, not the rows, is the domain. Iterating the rows made "every
+// row is done" read as "construction is done" while activities that were never
+// started have no row at all — 23 ledger-Done rows beside 6 rowless activities would
+// have flipped this true the moment the ledger was read — and let a stale row naming
+// an activity the plan no longer holds veto completion. A listed activity with no row
+// has not started. A row that is merely Done-but-not-integrated (the Skipped/TakenOver
+// shape RecordActivityExited leaves) or still Running/Failed keeps the project
+// incomplete: Phase alone is not sufficient. The fixture corpus at
+// testdata/operating_fixtures.json is shared byte-identically with the webApp TS side
+// (contracts/operating.ts deriveOperating), which applies the same list-driven rule
+// over the view-model's already-resolved rows. Unexported: only ListProjects (same
+// package) calls it today.
 func isConstructionComplete(p Project) bool {
-	if p.Phase != PhaseConstruction || len(p.ActivityConstruction) == 0 {
+	if p.Phase != PhaseConstruction || p.ActivityList.Status != ReviewCommitted {
 		return false
 	}
-	for _, cs := range p.ActivityConstruction {
-		if cs.Phase != ActivityConstructionDone || cs.BuildStatus != BuildIntegrated {
+	list, ok := p.ActivityList.Model.(*ActivityList)
+	if !ok || list == nil || len(list.Activities) == 0 {
+		return false
+	}
+	for _, item := range list.Activities {
+		row, exists := p.ActivityConstruction[item.Name]
+		if !exists {
+			return false
+		}
+		state, build := EffectiveConstructionPhase(row, item)
+		if state != ActivityConstructionDone || build != BuildIntegrated {
 			return false
 		}
 	}
@@ -7197,7 +7214,7 @@ func latestAttempt(attempts []TaskAttempt, t MethodTask) (TaskAttempt, bool) {
 	return best, found
 }
 
-// PhaseCompleteFromAttempts implements App A's binary exit criterion verbatim: a phase
+// phaseCompleteFromAttempts implements App A's binary exit criterion verbatim: a phase
 // is complete iff its GATE task's LATEST attempt passed.
 //
 // This is why PhaseCompletion.Completed becomes derived rather than written, and why a
@@ -7215,7 +7232,7 @@ func latestAttempt(attempts []TaskAttempt, t MethodTask) (TaskAttempt, bool) {
 //
 // decided is false when the phase has no gate task at all, or when its gate task has no
 // attempt; complete is meaningless unless decided is true.
-func PhaseCompleteFromAttempts(attempts []TaskAttempt, p ActivityMethodPhase) (complete, decided bool) {
+func phaseCompleteFromAttempts(attempts []TaskAttempt, p ActivityMethodPhase) (complete, decided bool) {
 	gate := GateTaskFor(p)
 	if gate == "" {
 		return false, false
@@ -7260,7 +7277,7 @@ type ActivityConstructionStatus struct {
 	// individual entries are marked Completed by RecordPhaseCompleted.
 	Phases []PhaseCompletion `json:"phases,omitempty"`
 	// Attempts is the APPEND-ONLY Figure A-1 task ledger. Phases above is derived
-	// from it (PhaseCompleteFromAttempts); Attempts is the record of what happened.
+	// from it (phaseCompleteFromAttempts); Attempts is the record of what happened.
 	Attempts []TaskAttempt `json:"attempts,omitempty"`
 	// CurrentPhase is the phase the workflow loop is currently executing.
 	CurrentPhase ActivityMethodPhase `json:"currentPhase,omitempty"`
@@ -7350,7 +7367,7 @@ func CoarsePhase(phases []PhaseCompletion) ActivityConstructionPhase {
 // The rule is over the SLICE IT IS GIVEN, not over the activity's profile — this
 // function never sees the activity's type and cannot look its profile up. It is the
 // CALLER's job to pass the profile-derived phase set (the read path does exactly that:
-// see the systemdesign Manager's resolvedPhaseCompletions, where the profile supplies
+// see ResolvePhaseCompletions, where the profile supplies
 // the row set and the stored slice only supplies state). Handed a stored slice that
 // disagrees with the profile, this returns an answer about the stored slice.
 //
@@ -7904,6 +7921,157 @@ func ClassifyType(id, workerClass string, coding, hasServiceContract bool) (Acti
 		return ActivityTypeService, false
 	}
 	return typ, true
+}
+
+// rowHasServiceContract reports whether a construction row carries a frozen
+// "service-contract" Produced entry: backward-looking evidence that the activity built
+// a component, which ClassifyType lets win over every id/workerClass rule.
+//
+// DEFENSIVE, NOT A LIVE PATH. No production writer puts a "service-contract" Produced
+// entry on a row today: DeriveProduced, the one function that builds such entries, has
+// no non-test caller. The check stays so that the day a writer does record one, the row
+// reads as Service instead of being re-guessed from its id.
+func rowHasServiceContract(r ActivityConstructionStatus) bool {
+	for _, a := range r.Produced {
+		if a.Kind == "service-contract" {
+			return true
+		}
+	}
+	return false
+}
+
+// ResolveConstructionRow resolves everything a reader of ONE stored construction row
+// must agree about: its classified type/variant and the reconciled phase set derived
+// from them. It is the ONE classification of a row. The systemdesign Manager's
+// construction view-model (the row chips and the EV curve) and
+// EffectiveConstructionPhase (the construction pump and the catalog's
+// construction-complete signal) all read it, so the screen and the pump cannot classify
+// the same row two ways. It used to live in the systemdesign Manager as
+// classifiedRowView, where the pump could not reach it.
+//
+// meta is the row's committed Phase-2 ActivityItem (the zero value when the activity is
+// not in the committed list). classified == false means ClassifyType refused to type
+// the row: typ and variant are then meaningless and resolved is nil, so the caller
+// asserts nothing about the row.
+func ResolveConstructionRow(
+	r ActivityConstructionStatus,
+	meta ActivityItem,
+) (typ ActivityType, variant TestingVariant, resolved []PhaseCompletion, classified bool) {
+	typ, classified = ClassifyType(r.ActivityID, meta.WorkerClass, meta.Coding, rowHasServiceContract(r))
+	if !classified {
+		return typ, variant, nil, false
+	}
+	if typ == ActivityTypeTesting {
+		variant = DeriveVariant(r.ActivityID)
+	}
+	return typ, variant, ResolvePhaseCompletions(ProfileFor(typ, variant), r.Phases, r.Attempts), true
+}
+
+// ResolvePhaseCompletions produces the ONE phase set that every reader of a row derives
+// from: the construction view's emitted sub-rows, its coarse BuildStatus/Phase chip, and
+// EffectiveConstructionPhase. So none of them can disagree over the same row (task 11
+// item 2).
+//
+// THE PHASE ROW SET COMES FROM THE PROFILE; THE STORED SLICE ONLY SUPPLIES STATE.
+// When the two disagree, the profile wins. The profile is derived from the committed
+// architecture via the row's type as classified at READ time; the stored phases[] was
+// seeded (phaseSetFor) from the type stamped at DISPATCH, and the two can differ — a row
+// the dispatcher never stamped seeds the zero-value (Service) set, and a row carrying a
+// service-contract Produced entry would read as Service whatever it was dispatched as
+// (a defensive path: no production writer records that entry today, see
+// rowHasServiceContract). Two fields on one row giving contradictory answers with no
+// rule on the wire for which wins is precisely what this stage exists to remove, and
+// this is the read-path rule that removes it. Stored phases the profile does not carry
+// are dropped; profile phases the store never had are materialized with unknown state.
+//
+// That materialization is also why a row with an attempt ledger and NO stored phases no
+// longer resolves to nil. It used to, and the coarse chip was still derived from that
+// empty set and emitted as a real, non-omitempty, named zero value — phase=notStarted,
+// buildStatus=in-construction — for 24 of the 25 rows the backfill touched, four passed
+// attempts sitting under a chip saying the work had not started. The skeleton is NOT
+// render-time synthesis: it is deterministic from ProfileFor, and spec §7.1 states the
+// phase rows always exist and only their STATE is unknown.
+//
+// Honest-empty is preserved where it belongs: a row with neither stored phases nor a
+// ledger has nothing to resolve and asserts nothing (nil out), exactly as an
+// unclassified row does.
+//
+// App A's completion rule: a lifecycle phase is complete iff its GATE task's latest
+// attempt passed — a stronger claim than a stored boolean nobody can trace back to a
+// review. The ledger is a FALLBACK trigger, not a hard switch, and the fallback is
+// decided PER PHASE rather than per activity: a phase whose gate task has no attempt is
+// a phase the ledger has no opinion about, and silence is not a denial. A per-activity
+// switch would be a hard switch the instant one attempt exists — a partial ledger (gate
+// attempts for detailedDesign and construction only, say) would flip a row's stored
+// test_plan and integration completions to false, erasing recorded phase history the
+// ledger never contradicted.
+//
+// phaseCompleteFromAttempts reports both halves of that — (complete, decided) — so this
+// distinction lives in ONE named implementation rather than being reimplemented inline
+// here because a one-bool helper could not express it.
+func ResolvePhaseCompletions(
+	profile Profile,
+	stored []PhaseCompletion,
+	attempts []TaskAttempt,
+) []PhaseCompletion {
+	if len(stored) == 0 && len(attempts) == 0 {
+		return nil
+	}
+	storedByPhase := make(map[ActivityMethodPhase]PhaseCompletion, len(stored))
+	for _, ph := range stored {
+		storedByPhase[ph.Phase] = ph
+	}
+	out := make([]PhaseCompletion, 0, len(profile.Phases))
+	for _, pp := range profile.Phases {
+		// Weight and Label are the profile's, never the stored slice's: a uiDesign row
+		// carrying Service weights must render 40/60, not 15/20/10/40/15.
+		row := PhaseCompletion{Phase: pp.Phase, Weight: pp.Weight, Label: pp.Label}
+		if s, ok := storedByPhase[pp.Phase]; ok {
+			row.Completed = s.Completed
+			row.CompletedAt = s.CompletedAt
+			row.ArtifactRef = s.ArtifactRef
+		}
+		if complete, decided := phaseCompleteFromAttempts(attempts, pp.Phase); decided {
+			row.Completed = complete
+		}
+		out = append(out, row)
+	}
+	return out
+}
+
+// EffectiveConstructionPhase is the ONE answer to "how far has this activity got?" for
+// every consumer that ACTS on it: the construction pump's eligibility scan (is it
+// NotStarted? does it unblock its dependents?) and the catalog's construction-complete
+// signal.
+//
+// STORED STATE WINS WHEREVER THE PUMP WROTE IT; THE ATTEMPT LEDGER DECIDES ONLY WHERE
+// STORED STATE IS EMPTY (architect ruling Q2, 2026-09-12). It is ResolvePhaseCompletions'
+// "silence is not denial" applied to the whole activity:
+//   - r.Phase != NotStarted, or len(r.Phases) > 0: the pump wrote this row, so its
+//     stored Phase/BuildStatus stand unchanged. Every pump-written terminal stays as the
+//     pump wrote it: RecordActivityExited's Done-but-not-integrated Skipped/TakenOver
+//     shape, whose Phases were never all completed, still unblocks its dependents, and a
+//     stored Failed stays Failed.
+//   - otherwise, a CLASSIFIED row with an attempt ledger (today: the backfill's rows,
+//     which carry attempts and no stored phase fields): CoarsePhaseFor and
+//     CoarseBuildStatusFor over ResolveConstructionRow's phase set, which is the same
+//     derivation the construction view renders for that row.
+//   - otherwise (no ledger, or a row ClassifyType refuses to type): the stored values,
+//     which are NotStarted. Nothing is recorded, so nothing is claimed.
+//
+// Stamping the derived values into the stored fields was REJECTED: it would launder a
+// derivation into a record the pump appears to have written. Moving every writer onto
+// the ledger is its own workstream (see the earmark on constructactivity.go's resume
+// snapshot, which still reads the stored Phases).
+func EffectiveConstructionPhase(r ActivityConstructionStatus, meta ActivityItem) (ActivityConstructionPhase, ActivityBuildStatus) {
+	if r.Phase != ActivityConstructionNotStarted || len(r.Phases) > 0 || len(r.Attempts) == 0 {
+		return r.Phase, r.BuildStatus
+	}
+	_, _, resolved, classified := ResolveConstructionRow(r, meta)
+	if !classified {
+		return r.Phase, r.BuildStatus
+	}
+	return CoarsePhaseFor(r.Phase, resolved), CoarseBuildStatusFor(r.BuildStatus, resolved, r.CurrentPhase)
 }
 
 // Layer bands (task 11, construction-UI-rewrite stage A). An activity's row is either

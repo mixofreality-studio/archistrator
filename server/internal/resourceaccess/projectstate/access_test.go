@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -2948,28 +2947,30 @@ func TestGitStore_ListProjects_SurfacesOperatorPaused(t *testing.T) {
 // operatingFixtureRow / operatingFixtureCase decode the SHARED fixture corpus at
 // testdata/operating_fixtures.json — shared byte-identically with the webApp TS
 // side (see the sync comment atop that file) so both languages assert the exact
-// same construction-complete cases. Kept minimal (phase + buildStatus ints,
-// project-level phase, expected bool) since isConstructionComplete looks at
-// nothing else.
+// same construction-complete cases. Kept minimal (the committed activity list's
+// names, stored phase + buildStatus ints keyed by activity id, project-level phase,
+// expected bool): the fixture rows carry stored state only, so the ledger read is
+// never reached here — see TestIsConstructionComplete_ReadsTheLedgerWhereThePumpNeverWrote.
 type operatingFixtureRow struct {
 	Phase       int `json:"phase"`
 	BuildStatus int `json:"buildStatus"`
 }
 
 type operatingFixtureCase struct {
-	Name         string                `json:"name"`
-	Rows         []operatingFixtureRow `json:"rows"`
-	ProjectPhase int                   `json:"projectPhase"`
-	Expect       bool                  `json:"expect"`
+	Name         string                         `json:"name"`
+	Activities   []string                       `json:"activities"`
+	Rows         map[string]operatingFixtureRow `json:"rows"`
+	ProjectPhase int                            `json:"projectPhase"`
+	Expect       bool                           `json:"expect"`
 }
 
 // TestIsConstructionComplete_Fixtures drives isConstructionComplete against the
 // shared fixture corpus (architect condition: same cases on both the Go and TS
-// sides — all-integrated true; one-failed/one-in-review/empty/skipped-shaped-row/
-// not-construction-phase all false). skipped-shaped-row specifically pins the
-// Done+InReview shape RecordActivityExited leaves for a Skipped/TakenOver outcome
-// (projectstateaccess.go ~1888) — Phase alone reaching Done is not enough; every
-// row's BuildStatus must ALSO be BuildIntegrated.
+// sides). skipped-shaped-row pins the Done+InReview shape RecordActivityExited
+// leaves for a Skipped/TakenOver outcome: Phase alone reaching Done is not enough.
+// listed-activity-without-row, rows-without-a-list and
+// row-outside-the-list-is-ignored pin Task 7a's rule that the COMMITTED activity
+// list, not the set of existing rows, is what must be complete.
 func TestIsConstructionComplete_Fixtures(t *testing.T) {
 	raw, err := os.ReadFile(filepath.Join("testdata", "operating_fixtures.json"))
 	if err != nil {
@@ -2985,10 +2986,16 @@ func TestIsConstructionComplete_Fixtures(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.Name, func(t *testing.T) {
 			p := Project{Phase: Phase(tc.ProjectPhase)}
+			if len(tc.Activities) > 0 {
+				items := make([]ActivityItem, 0, len(tc.Activities))
+				for _, name := range tc.Activities {
+					items = append(items, ActivityItem{Name: name})
+				}
+				p.ActivityList = ArtifactSlot{Status: ReviewCommitted, Model: &ActivityList{Activities: items}}
+			}
 			if len(tc.Rows) > 0 {
 				p.ActivityConstruction = make(map[string]ActivityConstructionStatus, len(tc.Rows))
-				for i, row := range tc.Rows {
-					key := fmt.Sprintf("A%d", i)
+				for key, row := range tc.Rows {
 					p.ActivityConstruction[key] = ActivityConstructionStatus{
 						ActivityID:  key,
 						Phase:       ActivityConstructionPhase(row.Phase),
@@ -3000,6 +3007,41 @@ func TestIsConstructionComplete_Fixtures(t *testing.T) {
 				t.Errorf("isConstructionComplete(%s) = %v, want %v", tc.Name, got, tc.Expect)
 			}
 		})
+	}
+}
+
+// TestIsConstructionComplete_ReadsTheLedgerWhereThePumpNeverWrote covers what the
+// ordinal-only shared fixture cannot: the catalog signal reads each row through
+// EffectiveConstructionPhase, so a backfilled row (ledger only, no stored phase fields)
+// counts as Done+Integrated beside a pump-written one. A listed activity with no row, or
+// an activity list that is not committed, still keeps the project incomplete.
+func TestIsConstructionComplete_ReadsTheLedgerWhereThePumpNeverWrote(t *testing.T) {
+	items := []ActivityItem{
+		{Name: "C-a", WorkerClass: "junior-developer", Coding: true},
+		{Name: "C-b", WorkerClass: "junior-developer", Coding: true},
+	}
+	build := func() Project {
+		return Project{
+			Phase:        PhaseConstruction,
+			ActivityList: ArtifactSlot{Status: ReviewCommitted, Model: &ActivityList{Activities: items}},
+			ActivityConstruction: map[string]ActivityConstructionStatus{
+				"C-a": {ActivityID: "C-a", Attempts: constructionLedger("C-a", ProfileFor(ActivityTypeService, TestVariantPlan).PhaseIDs()...)},
+				"C-b": {ActivityID: "C-b", Phase: ActivityConstructionDone, BuildStatus: BuildIntegrated},
+			},
+		}
+	}
+	if !isConstructionComplete(build()) {
+		t.Fatal("a ledger-Done row beside a stored Done+Integrated row must read complete")
+	}
+	noRow := build()
+	delete(noRow.ActivityConstruction, "C-a")
+	if isConstructionComplete(noRow) {
+		t.Error("a listed activity with no row has not started; the project must not read complete")
+	}
+	uncommitted := build()
+	uncommitted.ActivityList.Status = ReviewAwaitingReview
+	if isConstructionComplete(uncommitted) {
+		t.Error("an activity list awaiting review is not the committed plan; the project must not read complete")
 	}
 }
 
@@ -8182,13 +8224,13 @@ func TestPhaseCompleteFromAttempts_RequiresTheGateTask(t *testing.T) {
 		{AttemptID: AttemptID("C-x", TaskConstruction, 1), Task: TaskConstruction, Attempt: 1, Outcome: OutcomePassed},
 	}
 	// No gate attempt at all: the ledger has NO OPINION. Not "incomplete" — undecided.
-	if complete, decided := PhaseCompleteFromAttempts(attempts, MethodPhaseConstruction); complete || decided {
+	if complete, decided := phaseCompleteFromAttempts(attempts, MethodPhaseConstruction); complete || decided {
 		t.Errorf("no codeReview attempt = (%v, %v), want (false, false) — silence is not a denial", complete, decided)
 	}
 	attempts = append(attempts, TaskAttempt{
 		AttemptID: AttemptID("C-x", TaskCodeReview, 1), Task: TaskCodeReview, Attempt: 1, Outcome: OutcomePassed,
 	})
-	if complete, decided := PhaseCompleteFromAttempts(attempts, MethodPhaseConstruction); !complete || !decided {
+	if complete, decided := phaseCompleteFromAttempts(attempts, MethodPhaseConstruction); !complete || !decided {
 		t.Errorf("passed codeReview = (%v, %v), want (true, true)", complete, decided)
 	}
 }
@@ -8202,7 +8244,7 @@ func TestPhaseCompleteFromAttempts_RejectedGateIsDecidedIncomplete(t *testing.T)
 		{AttemptID: AttemptID("C-x", TaskCodeReview, 1), Task: TaskCodeReview, Attempt: 1, Outcome: OutcomePassed},
 		{AttemptID: AttemptID("C-x", TaskCodeReview, 2), Task: TaskCodeReview, Attempt: 2, Outcome: OutcomeRejected},
 	}
-	complete, decided := PhaseCompleteFromAttempts(attempts, MethodPhaseConstruction)
+	complete, decided := phaseCompleteFromAttempts(attempts, MethodPhaseConstruction)
 	if complete {
 		t.Error("phase reported complete when the LATEST gate attempt was rejected")
 	}
@@ -8210,7 +8252,7 @@ func TestPhaseCompleteFromAttempts_RejectedGateIsDecidedIncomplete(t *testing.T)
 		t.Error("a REJECTED gate is a decision, not silence — decided must be true, or the read path will let a stale stored completion stand")
 	}
 	// A phase outside the vocabulary has no gate, so nothing is decided.
-	if complete, decided := PhaseCompleteFromAttempts(attempts, ActivityMethodPhase("not-a-phase")); complete || decided {
+	if complete, decided := phaseCompleteFromAttempts(attempts, ActivityMethodPhase("not-a-phase")); complete || decided {
 		t.Errorf("unknown phase = (%v, %v), want (false, false)", complete, decided)
 	}
 }
@@ -8304,6 +8346,10 @@ func TestClassifyType_ClassifiableRowsStillResolve(t *testing.T) {
 		{"C-billing-manager", "junior-developer", true, ActivityTypeService},
 		{"U-SPA-web-client", "junior-developer", true, ActivityTypeFrontend},
 		{"N-UI-CONCEPT", "ui-designer", false, ActivityTypeUIDesign},
+		// ui-designer + coding is Frontend by the workerClass rule itself (rule 2), not by
+		// an id prefix. The neutral id matters: under a U-SPA id, a mutant that dropped
+		// rule 2's coding arm would still reach Frontend through the prefix rule.
+		{"N-UI-BUILD", "ui-designer", true, ActivityTypeFrontend},
 		{"N-IT", "software-tester", false, ActivityTypeTesting},
 		{"I-billing", "senior-developer", false, ActivityTypeIntegration},
 	}
@@ -8316,6 +8362,92 @@ func TestClassifyType_ClassifiableRowsStillResolve(t *testing.T) {
 		if typ != c.want {
 			t.Errorf("%s: ClassifyType = %v, want %v", c.id, typ, c.want)
 		}
+	}
+}
+
+// constructionLedger is the attempt ledger cmd/backfill-attempts writes: one passed
+// attempt per non-conditional task of the given phases, origin backfilled, with a basis.
+func constructionLedger(activityID string, phases ...ActivityMethodPhase) []TaskAttempt {
+	var out []TaskAttempt
+	for _, ph := range phases {
+		for _, task := range TasksForPhase(ph) {
+			if IsConditionalTask(task) {
+				continue
+			}
+			out = append(out, constructionAttempt(activityID, task, 1, OutcomePassed))
+		}
+	}
+	return out
+}
+
+func constructionAttempt(activityID string, task MethodTask, n int, outcome TaskOutcome) TaskAttempt {
+	return TaskAttempt{
+		AttemptID:  AttemptID(activityID, task, n),
+		Task:       task,
+		Phase:      PhaseForTask(task),
+		Attempt:    n,
+		Outcome:    outcome,
+		Provenance: AttemptProvenance{Origin: OriginBackfilled, Basis: "test fixture"},
+	}
+}
+
+// TestEffectiveConstructionPhase_StoredWinsWhereThePumpWroteItLedgerElsewhere pins
+// architect ruling Q2 (Task 7a) case by case: the stored state stands wherever the pump
+// wrote it (a non-NotStarted Phase, or any stored Phases); the attempt ledger decides
+// only for a classified row whose stored state is empty; otherwise nothing is claimed.
+func TestEffectiveConstructionPhase_StoredWinsWhereThePumpWroteItLedgerElsewhere(t *testing.T) {
+	service := ActivityItem{Name: "C-x", WorkerClass: "junior-developer", Coding: true}
+	all := ProfileFor(ActivityTypeService, TestVariantPlan).PhaseIDs()
+	full := constructionLedger("C-x", all...)
+	incomplete := make([]PhaseCompletion, 0, len(all))
+	for i, ph := range all {
+		incomplete = append(incomplete, PhaseCompletion{Phase: ph, Completed: i == 0})
+	}
+	rejected := append(
+		constructionLedger("C-x", MethodPhaseRequirements, MethodPhaseTestPlan, MethodPhaseDetailedDesign),
+		constructionAttempt("C-x", TaskConstruction, 1, OutcomePassed),
+		constructionAttempt("C-x", TaskCodeReview, 1, OutcomeRejected),
+	)
+
+	cases := []struct {
+		name      string
+		row       ActivityConstructionStatus
+		meta      ActivityItem
+		wantState ActivityConstructionPhase
+		wantBuild ActivityBuildStatus
+	}{
+		{"a stored Running stands",
+			ActivityConstructionStatus{ActivityID: "C-x", Phase: ActivityConstructionRunning},
+			service, ActivityConstructionRunning, BuildInConstruction},
+		{"an Exited-skipped row stands over its incomplete Phases",
+			ActivityConstructionStatus{ActivityID: "C-x", Phase: ActivityConstructionDone, BuildStatus: BuildInReview, Phases: incomplete},
+			service, ActivityConstructionDone, BuildInReview},
+		{"a stored Failed stays Failed under a passing ledger",
+			ActivityConstructionStatus{ActivityID: "C-x", Phase: ActivityConstructionFailed, BuildStatus: BuildFailed, Attempts: full},
+			service, ActivityConstructionFailed, BuildFailed},
+		{"stored Phases mean the pump wrote the row, so the ledger is not read",
+			ActivityConstructionStatus{ActivityID: "C-x", Phases: incomplete, Attempts: full},
+			service, ActivityConstructionNotStarted, BuildInConstruction},
+		{"a backfilled row (no stored state) is decided by its ledger",
+			ActivityConstructionStatus{ActivityID: "C-x", Attempts: full},
+			service, ActivityConstructionDone, BuildIntegrated},
+		{"a rejected latest gate reads Running",
+			ActivityConstructionStatus{ActivityID: "C-x", Attempts: rejected},
+			service, ActivityConstructionRunning, BuildInConstruction},
+		{"an unclassified row claims nothing from its ledger",
+			ActivityConstructionStatus{ActivityID: "C-x", Attempts: full},
+			ActivityItem{Name: "C-x"}, ActivityConstructionNotStarted, BuildInConstruction},
+		{"an empty row has not started",
+			ActivityConstructionStatus{ActivityID: "C-x"},
+			service, ActivityConstructionNotStarted, BuildInConstruction},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			gotState, gotBuild := EffectiveConstructionPhase(c.row, c.meta)
+			if gotState != c.wantState || gotBuild != c.wantBuild {
+				t.Errorf("EffectiveConstructionPhase = (%v, %v), want (%v, %v)", gotState, gotBuild, c.wantState, c.wantBuild)
+			}
+		})
 	}
 }
 

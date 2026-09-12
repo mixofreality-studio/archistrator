@@ -542,10 +542,6 @@ var encapsulationAllowlistData = map[string][]string{
 		//	                  never be inlined — see its own doc comment.
 		//	AgentTaskFor    → the construction Manager (constructactivity.go): which Figure
 		//	                  A-1 task an agent-work dispatch's episode is attributed to.
-		//	PhaseCompleteFromAttempts → the systemdesign Manager's construction view-model
-		//	                  (resolvedPhaseCompletions): App A's binary exit criterion,
-		//	                  reported as (complete, decided) so a rejected gate and an
-		//	                  absent one stay distinguishable.
 		//	AttemptsWorstOrigin → the systemdesign Manager's construction view-model: the
 		//	                  provenance contagion roll-up stamped onto each wire row.
 		//	LabelForTask    → cmd/gen-uiprofiles: the human-readable label emitted onto
@@ -558,10 +554,31 @@ var encapsulationAllowlistData = map[string][]string{
 		"GateTaskFor",
 		"IsConditionalTask",
 		"LabelForTask",
-		"PhaseCompleteFromAttempts",
 		"PhaseForTask",
 		"TasksForPhase",
 		"TasksForProfile",
+		// CONSTRUCTION-ROW RESOLUTION (Task 7a, architect ruling Q2, 2026-09-12). Same
+		// category as the ledger helpers above: total, side-effect-free functions over
+		// projectstate's own owned types (ActivityConstructionStatus, ActivityItem,
+		// Profile, PhaseCompletion, TaskAttempt). None of them touches a resource, so there
+		// is no contract operation to generate. They moved DOWN from the systemdesign
+		// Manager so the construction pump reads a row exactly as the construction view
+		// renders it. Callers outside this package, verifiable by grep:
+		//
+		//	ResolveConstructionRow     → the systemdesign Manager (classifiedRowView): the
+		//	                             one classification + phase set a row's chip, its
+		//	                             sub-rows and the EV curve all read.
+		//	ResolvePhaseCompletions    → the systemdesign Manager (resolvedPhaseCompletions,
+		//	                             the name its view-model tests pin the rule under).
+		//	EffectiveConstructionPhase → the construction Manager (isActivityNotStarted,
+		//	                             resolveDependencySatisfied): stored state where the
+		//	                             pump wrote it, the attempt ledger where it did not.
+		//
+		// phaseCompleteFromAttempts left this list in the same move. Its only outside caller
+		// was the view-model's copy of ResolvePhaseCompletions, which now lives here.
+		"EffectiveConstructionPhase",
+		"ResolveConstructionRow",
+		"ResolvePhaseCompletions",
 		// LAYER-STACK PROJECTION (task 11, construction-UI-rewrite stage A). Same
 		// category as ClassifyActivity/TasksForPhase above: a total, side-effect-free
 		// function of an already-public projectstate value (a Layer.String() value the

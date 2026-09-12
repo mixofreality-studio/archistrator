@@ -1146,6 +1146,13 @@ func (wf *workflows) loadReviewSnapshot(
 	}
 	reviewPolicy = snap.ReviewPolicy
 	if acs, ok := snap.ActivityConstruction[string(in.ActivityID)]; ok {
+		// WRITER-MIGRATION EARMARK (Task 7a, architect ruling Q2, 2026-09-12): this resume
+		// guard reads the STORED Phases only. A row whose history lives in the attempt
+		// ledger alone (the backfill's rows) seeds nothing here, so a resumed execution
+		// would redo phases the ledger records as passed. Left as-is on purpose: the pump
+		// never dispatches such a row (projectstate.EffectiveConstructionPhase reads it as
+		// Done), and moving the writers, and this reader, onto the ledger is its own
+		// workstream.
 		for _, pc := range acs.Phases {
 			if pc.Completed {
 				state.completedPhases[pc.Phase] = true
