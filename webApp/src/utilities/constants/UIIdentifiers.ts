@@ -331,18 +331,18 @@ export const UI_IDENTIFIERS = {
   },
   Construction: {
     ROOT: 'construction-console',
-    TAB_TRACKER: 'construction-tab-tracker',
-    TAB_INTERVENTIONS: 'construction-tab-interventions',
-    TAB_ARTIFACTS: 'construction-tab-artifacts',
+    // TAB_TRACKER/TAB_INTERVENTIONS/TAB_ARTIFACTS and the tab bodies' own root
+    // testids (TRACKER/INTERVENTIONS/ARTIFACTS/artifactRow) retired with the tab
+    // shell (Task 13) — the lens shell (LENS_TOOLBAR etc. below) is the console
+    // now. PAUSE_BUTTON/PAUSE_REASON/PAUSE_CONFIRM lived in the deleted
+    // InterventionsTab's own JSX (not a kept component file) and retired with
+    // it; Stage C's Tasks lens mints its own testids when it rebuilds the pause
+    // control, the same way Task 3 minted LENS_* rather than reviving stale ids.
     SUMMARY_STRIP: 'construction-summary-strip',
-    TRACKER: 'construction-tracker',
     AWAITING: 'construction-awaiting',
     COMPLETE: 'construction-complete',
     ACTIVE_DETAIL: 'construction-active-detail',
     ROLE_LINE: 'construction-role-line',
-    INTERVENTIONS: 'construction-interventions',
-    ARTIFACTS: 'construction-artifacts',
-    artifactRow: (id: string) => `construction-artifact-row-${id}`,
     SYSTEM_TEST_VIEW: 'construction-system-test-view',
     TEST_PLAN_VIEW: 'construction-test-plan-view',
     FRONTEND_VIEW: 'construction-frontend-view',
@@ -350,9 +350,6 @@ export const UI_IDENTIFIERS = {
     SCENARIO_PICKER: 'construction-scenario-picker',
     caseChip: (caseId: string) => `construction-case-chip-${caseId}`,
     BEGIN_BUTTON: 'construction-begin',
-    PAUSE_BUTTON: 'construction-pause',
-    PAUSE_REASON: 'construction-pause-reason',
-    PAUSE_CONFIRM: 'construction-pause-confirm',
     OVERRIDE_BUTTON: 'construction-override',
     overrideKind: (kind: string) => `construction-override-${kind}`,
     OVERRIDE_NOTES: 'construction-override-notes',

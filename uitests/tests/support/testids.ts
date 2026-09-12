@@ -202,12 +202,12 @@ export const TESTID = {
   gitArchApproved: UI_IDENTIFIERS.Git.ARCH_APPROVED,
   gitCiStatus: UI_IDENTIFIERS.Git.ciStatus,
 
-  // Construction console (route `/project/$projectId/construction`).
-  constructionTabTracker: UI_IDENTIFIERS.Construction.TAB_TRACKER,
-  constructionTabArtifacts: UI_IDENTIFIERS.Construction.TAB_ARTIFACTS,
-  constructionTracker: UI_IDENTIFIERS.Construction.TRACKER,
-  constructionArtifacts: UI_IDENTIFIERS.Construction.ARTIFACTS,
-  constructionArtifactRow: UI_IDENTIFIERS.Construction.artifactRow,
+  // Construction console (route `/project/$projectId/construction`). The
+  // Tracker/Interventions/Artifacts tab bar (and its per-tab root/row testids)
+  // retired with Task 13 — the lens shell mounts directly, so there is no tab
+  // bar left to select and no separate Artifacts-tab activity row; the same
+  // activity is reached via the LIST lens's tree (constructionListRow) and its
+  // artifact is read from the detail pane (constructionDetailBodyArtifact).
   constructionSystemTestView: UI_IDENTIFIERS.Construction.SYSTEM_TEST_VIEW,
   constructionTestPlanView: UI_IDENTIFIERS.Construction.TEST_PLAN_VIEW,
   constructionScenarioPicker: UI_IDENTIFIERS.Construction.SCENARIO_PICKER,
@@ -226,6 +226,14 @@ export const TESTID = {
   // as the LIST lens's body — the graph returns under the GRAPH lens in Stage D.
   constructionListTree: UI_IDENTIFIERS.Construction.LIST_TREE,
   constructionListRow: UI_IDENTIFIERS.Construction.listRow,
+  // The bottom "LEGACY RECORDS · UNRECONCILED" group header (Stage B Task 12)
+  // — collapsed by default (`unmountOnExit`), so a spec reaching one of its
+  // orphaned-legacy rows (e.g. C-AA, which does not join the derived activity
+  // list) must expand it first. Only its CHEVRON expands (`expansionTrigger:
+  // 'iconContainer'` — clicking the row body selects, which is disabled here
+  // anyway); the chevron carries no testid of its own, so click by POSITION
+  // within the group header's narrow leading icon column.
+  constructionLegacyGroup: UI_IDENTIFIERS.Construction.LEGACY_GROUP,
   // The shared detail pane (Stage B Task 4) that replaced the overlay Drawer
   // above as the console's mounted detail surface — beside content at
   // >=1200px, DETAIL_DRAWER below that (same overlay mechanism, kept).
@@ -238,6 +246,10 @@ export const TESTID = {
   constructionDetailStateChip: UI_IDENTIFIERS.Construction.DETAIL_STATE_CHIP,
   constructionDetailActionBar: UI_IDENTIFIERS.Construction.DETAIL_ACTION_BAR,
   constructionDetailActionRun: UI_IDENTIFIERS.Construction.detailAction('run'),
+  // The four detail-pane bodies (Stage B Tasks 8-10) — which one fills the
+  // pane's single body slot for the current selection (see bodyDispatch.ts).
+  constructionDetailBodyArtifact: UI_IDENTIFIERS.Construction.DETAIL_BODY_ARTIFACT,
+  constructionDetailBodyUnknown: UI_IDENTIFIERS.Construction.DETAIL_BODY_UNKNOWN,
 
   // Operations console (route `/operations/$operatedAppId`).
   operationsRoot: UI_IDENTIFIERS.Operations.ROOT,

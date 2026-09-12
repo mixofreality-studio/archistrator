@@ -6,8 +6,7 @@ const BASE = process.env.UITESTS_BASE_URL ?? process.env.UITESTS_SPA_URL ?? 'htt
 
 test.beforeEach(async ({ request }) => {
   await skipUnlessServer(request, BASE);
-  // This spec asserts against the REAL committed N-STP/N-IT system-test-plan
-  // content (scenario descriptions, case steps, operation names) — content that
+  // This spec asserts against the REAL committed head-state — content that
   // only exists when the server's project-state git substrate is pointed at a
   // repo seeded from this checkout's .aiarch/state/project.json (see
   // gating.ts). CI's project-creation specs deliberately run against a fresh,
@@ -16,52 +15,68 @@ test.beforeEach(async ({ request }) => {
   await skipUnlessConstructionArtifacts(request, BASE);
 });
 
-// The classification→renderer seam for the testing family:
-//  - N-STP (testing:plan) renders TestPlanView — the black-box operation-sequence
-//    scenarios (transport-agnostic manager operations), one react-flow per use case.
-//  - N-IT (testing:systemTest) renders SystemTestView — run summary / defects, or the
-//    honest empty state until real runs exist.
+// The classification→renderer seam for the testing family, reached through the
+// LIST lens + detail pane now that Task 13 retired the Artifacts tab (which
+// dispatched TestPlanView/SystemTestRunView unconditionally from
+// classify(row), ignoring the row's own evidence).
 //
-// Both scenarios and cases are pickers now (ScenarioBrowser: a scenario dropdown,
-// then a happy/negative/boundary case-chip row within it) — drive both explicitly
-// rather than relying on the first-of-each default, so the test exercises the
-// real selection UI black-box (roles/labels + published testids only).
-test('N-STP renders the black-box system-test-plan sequences', async ({ page }) => {
+// TASK 13 FINDING (live-verified, not a wiring gap this task can route around):
+// N-STP (testing:plan) and N-IT (testing:systemTest) — like all 5 testing-kind
+// activities in the committed corpus — carry `hasBuildEvidence: false`. The
+// detail pane's bodyDispatch.detailBodyFor (Task 10) gates on the SELECTED
+// node's TaskDetailState BEFORE it ever asks which classification/renderer
+// applies: `state === 'unknown' || state === 'notStarted'` short-circuits to
+// the unknown body for EVERY selection depth on a no-evidence row (activity,
+// phase, or task — verified for all three). TestPlanView itself does not read
+// evidence at all (`project.testingState.systemTestPlan.scenarios`), so the
+// content these tests used to assert is not gone from the data — it is simply
+// unreachable through the honest surface until one of these two activities
+// carries real build evidence (Task 1's "no evidence, no claim" rule, applied
+// uniformly, not special-cased for the testing family). Rewiring that gate is
+// out of scope here — it is Task 10's already-reviewed logic — so these tests
+// now pin the CURRENT honest behaviour instead of content that is currently
+// unreachable. Flagged for whoever next touches testing-kind construction data
+// or the bodyDispatch gate.
+test('N-STP has no build evidence, so its detail pane renders the honest unknown body, not the plan content', async ({
+  page,
+}) => {
   await gotoApp(page, '/project/archistrator/construction');
-  await page.getByTestId(TESTID.constructionTabArtifacts).click();
-  await page.getByTestId(TESTID.constructionArtifactRow('N-STP')).click();
+  await page.getByTestId(TESTID.constructionLensSearch).locator('input').fill('N-STP');
 
-  const view = page.getByTestId(TESTID.constructionTestPlanView);
-  await expect(view).toBeVisible();
-  await expect(view).toContainText('black-box'); // plan header copy
+  const row = page.getByTestId(TESTID.constructionListRow('N-STP'));
+  await expect(row).toBeVisible({ timeout: 15_000 });
+  await row.click();
 
-  // Select the "Drive System Design" (STP-UC1) scenario via the picker.
-  await page.getByTestId(TESTID.constructionScenarioPicker).click();
-  await page.getByRole('option', { name: /drive-system-design/ }).click();
-  // Select its happy-path case (STP-UC1-H1) via the case-chip row.
-  await page.getByTestId(TESTID.constructionCaseChip('STP-UC1-H1')).click();
-
-  await expect(view).toContainText('WHAT THIS PROVES'); // book-grounded what/why summary
-  await expect(view).toContainText('call chain'); // summary names the use-case call chain
-  await expect(view).toContainText('CreateProject'); // a real manager operation (step 1 of the case)
-  await expect(view).toContainText('STP-UC1'); // use-case selector / trace (scenario id)
+  const pane = page.getByTestId(TESTID.constructionDetailPane);
+  await expect(pane).toBeVisible();
+  // The breadcrumb names the activity-list TITLE, not the raw id (DetailPane
+  // falls back to the id only when no title is committed) — N-STP's is
+  // "System test plan (all core use cases)".
+  await expect(page.getByTestId(TESTID.constructionDetailBreadcrumb)).toContainText(
+    'System test plan'
+  );
+  // The honest consequence of no build evidence: the unknown body, never the
+  // artifact body — TestPlanView/ScenarioBrowser do not render for this row.
+  await expect(page.getByTestId(TESTID.constructionDetailBodyUnknown)).toBeVisible();
+  await expect(page.getByTestId(TESTID.constructionTestPlanView)).toHaveCount(0);
 });
 
-test('N-IT runs the plan against the real build (scenarios driving green)', async ({ page }) => {
+test('N-IT has no build evidence, so its detail pane renders the honest unknown body, not the run summary', async ({
+  page,
+}) => {
   await gotoApp(page, '/project/archistrator/construction');
-  await page.getByTestId(TESTID.constructionTabArtifacts).click();
-  await page.getByTestId(TESTID.constructionArtifactRow('N-IT')).click();
+  await page.getByTestId(TESTID.constructionLensSearch).locator('input').fill('N-IT');
 
-  const view = page.getByTestId(TESTID.constructionSystemTestView);
-  await expect(view).toBeVisible();
-  // Run summary tile: scenarios green / total. Not hardcoded to a specific
-  // numerator — the honest count reflects whichever steps N-IT has actually
-  // driven green in the committed plan, and grows over time as real runs land.
-  await expect(view).toContainText(/\d+\/5/);
+  const row = page.getByTestId(TESTID.constructionListRow('N-IT'));
+  await expect(row).toBeVisible({ timeout: 15_000 });
+  await row.click();
 
-  await page.getByTestId(TESTID.constructionScenarioPicker).click();
-  await page.getByRole('option', { name: /drive-system-design/ }).click();
-  await page.getByTestId(TESTID.constructionCaseChip('STP-UC1-H1')).click();
-
-  await expect(view).toContainText('CreateProject'); // the same operation sequences, executed
+  const pane = page.getByTestId(TESTID.constructionDetailPane);
+  await expect(pane).toBeVisible();
+  // N-IT's committed title is "System testing (terminal gate)".
+  await expect(page.getByTestId(TESTID.constructionDetailBreadcrumb)).toContainText(
+    'System testing'
+  );
+  await expect(page.getByTestId(TESTID.constructionDetailBodyUnknown)).toBeVisible();
+  await expect(page.getByTestId(TESTID.constructionSystemTestView)).toHaveCount(0);
 });

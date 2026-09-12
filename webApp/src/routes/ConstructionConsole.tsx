@@ -2,57 +2,55 @@
  * The full-screen Construction console (`/project/$projectId/construction`) — the
  * Phase-3 (UC3 superviseConstruction) console, the SIBLING of the Phase-1/2 design
  * experiences. It reuses the SAME ExperienceChrome shell, but swaps the ordered
- * slim-spine for THREE TABS — Tracker · Interventions · Artifacts — because
+ * slim-spine for the Stage-B LENS SHELL (`ConstructionShell`: a LIST | GRAPH |
+ * TASKS control, a shared toolbar and a persistent detail pane) — because
  * construction is not an ordered sequence of authored artifacts behind a single
  * gate; it is a SUPERVISED PUMP.
  *
+ * Task 13 retires the THREE-TAB shell (Tracker · Interventions · Artifacts) that
+ * stood in for the lens shell while Stage B built it one lens at a time — the lens
+ * shell IS the console now, mounted directly with no tab bar around it. GRAPH and
+ * TASKS render `LensComingLater` until Stage D and Stage C build their bodies.
+ *
  * It binds to the REAL backend:
  *   - the committed Phase-2 head-state (network × activityList slots, via useProject)
- *     drives the Tracker graph (CPM under a build lens);
+ *     drives the LIST lens's activity tree (CPM facts joined per activity);
  *   - the live construction session (GetSessionState, polled) drives the active-
- *     activity detail, the variance/interventions, and the reviewer-set artifacts;
- *   - the pause + override controls call the real POST endpoints.
+ *     activity detail and the phase-gate panel;
+ *   - the begin + phase-decision controls call the real POST endpoints. The
+ *     pause/override controls move with Stage C's Tasks lens, which is where
+ *     InterventionQueue/PolicyPanel/InterventionDrawer are rewired in.
  *
  * The construction pump that fills sessions is gated on a build cluster (R-CPR) not
  * provisioned here, so the session is usually quiet — every surface degrades to an
  * honest awaiting state rather than an error.
  */
-import { useState, useMemo, useEffect, useRef, type ReactElement, type ReactNode } from 'react';
+import { useState, useMemo, useEffect, useRef, type ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
-import Tabs from '@mui/material/Tabs';
-import Tab from '@mui/material/Tab';
 import Typography from '@mui/material/Typography';
 import CircularProgress from '@mui/material/CircularProgress';
-import AccountTreeOutlinedIcon from '@mui/icons-material/AccountTreeOutlined';
-import BoltOutlinedIcon from '@mui/icons-material/BoltOutlined';
-import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined';
 import PlayArrowRoundedIcon from '@mui/icons-material/PlayArrowRounded';
 import { getRouteApi, useNavigate } from '@tanstack/react-router';
 
-import type { GitRow, ProjectArtifactModelEnvelope, ProjectStateWithGit } from '../contracts/types';
-import { gitFor } from '../contracts/types';
-import type { OverrideKind } from '../contracts/types';
+import type { ProjectArtifactModelEnvelope, ProjectStateWithGit } from '../contracts/types';
 import { slotStageFromOrdinal } from '../contracts/adapters';
 import { narrowProject } from '../contracts/projectAdapters';
 import { useProject } from '../hooks/useProject';
 import { isSessionAbsent } from '../hooks/sessionPolling';
 import { useConstructionSession } from '../hooks/useConstructionSession';
-import {
-  usePauseConstruction,
-  useOverrideActivity,
-  useBeginConstruction,
-  useSubmitPhaseDecision,
-} from '../hooks/useConstructionMutations';
+import { useBeginConstruction, useSubmitPhaseDecision } from '../hooks/useConstructionMutations';
 
 import { ExperienceChrome } from '../components/design/ExperienceChrome';
 import { ChatRail } from '../components/design/ChatRail';
 // ConstructionTracker (the CPM graph under a build lens, the EV curves, the
 // head-state rollup and the near-critical float table) is no longer the LIST
 // lens's body — the lens is defined as "every activity, its lifecycle phases and
-// its tasks", and the tree below IS that. The component is kept, not deleted:
-// the graph is the GRAPH lens's body in Stage D, and Task 13 decides where the
-// EV/rollup/float panels land.
+// its tasks", and the tree below IS that. The component is kept, not deleted
+// (zero importers today, same as EvTrackingChart/HeadStateRollup/NearCritical-
+// Float underneath it): it is the Stage D GRAPH lens's reference implementation
+// (founder ruling, Stage B progress log) — Stage D rebuilds the GRAPH lens body
+// from these pieces rather than reusing this exact composition wholesale.
 import {
   ConstructionShell,
   LensComingLater,
@@ -71,8 +69,6 @@ import {
   type LensId,
 } from '../components/construction/lens/useLensSelection';
 import { KIND_META, type ActivityKind } from '../components/construction/KindBadge';
-import { InterventionsTab } from '../components/construction/InterventionsTab';
-import { ArtifactsTab } from '../components/construction/ArtifactsTab';
 import { DetailPane } from '../components/construction/detail/DetailPane';
 import { ConstructionEpisodeBodyContainer } from '../containers/ConstructionEpisodeBodyContainer';
 import { PhaseGatePanel } from '../components/construction/PhaseGatePanel';
@@ -83,29 +79,6 @@ import type { Tokens } from '../utilities/theme/themes';
 import { UI_IDENTIFIERS } from '../utilities/constants/UIIdentifiers';
 
 const routeApi = getRouteApi('/project/$projectId/construction');
-
-type TabId = 'tracker' | 'interventions' | 'artifacts';
-
-const TABS: { id: TabId; title: string; icon: ReactElement; testid: string }[] = [
-  {
-    id: 'tracker',
-    title: 'Tracker',
-    icon: <AccountTreeOutlinedIcon sx={{ fontSize: 16 }} />,
-    testid: UI_IDENTIFIERS.Construction.TAB_TRACKER,
-  },
-  {
-    id: 'interventions',
-    title: 'Interventions',
-    icon: <BoltOutlinedIcon sx={{ fontSize: 16 }} />,
-    testid: UI_IDENTIFIERS.Construction.TAB_INTERVENTIONS,
-  },
-  {
-    id: 'artifacts',
-    title: 'Artifacts',
-    icon: <Inventory2OutlinedIcon sx={{ fontSize: 16 }} />,
-    testid: UI_IDENTIFIERS.Construction.TAB_ARTIFACTS,
-  },
-];
 
 /** The committed Phase-2 slot's typed envelope, for the tracker CPM derivation. */
 function committedEnvelope(
@@ -132,7 +105,6 @@ export function ConstructionConsoleScreen(): ReactNode {
 function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNode {
   const t = useTokens();
   const navigate = useNavigate();
-  const [tab, setTab] = useState<TabId>('tracker');
   const { reset, toWire, freeformNotes, requestId } = useComments();
 
   // Co-author rail open-state, driven by (requestId, manual toggles) exactly like
@@ -194,8 +166,6 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   const sessionMissing = isSessionAbsent(sessionQuery.data);
   const session = sessionQuery.data ?? undefined;
 
-  const pause = usePauseConstruction(projectId);
-  const override = useOverrideActivity(projectId);
   const begin = useBeginConstruction(projectId);
   const submitPhaseDecision = useSubmitPhaseDecision(projectId);
 
@@ -302,41 +272,6 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
     : constructionStarted
       ? 'Resume construction'
       : 'Begin construction';
-
-  const overrideError = override.error instanceof Error ? override.error.message : undefined;
-  const pauseError = pause.error instanceof Error ? pause.error.message : undefined;
-
-  const onOverride = (activityId: string, kind: OverrideKind, notes: string): void => {
-    // Attach any anchored intervention comments the operator armed in the rail to
-    // the steer, mirroring the phase-gate send-back. ActivityOverride now carries
-    // `comments` end-to-end (contract → manager signal), so a send-back-style steer
-    // no longer drops the operator's per-item feedback.
-    const wireComments = toWire();
-    override.mutate(
-      {
-        activityId,
-        kind,
-        ...(notes.trim().length > 0 ? { notes: notes.trim() } : {}),
-        ...(wireComments.length > 0 ? { comments: wireComments } : {}),
-      },
-      {
-        onSuccess: () => {
-          reset();
-        },
-      }
-    );
-  };
-  const onPause = (reason: string): void => {
-    pause.mutate(reason);
-  };
-
-  // Per-activity git head-state lookup (C-CW-GIT) — rides the project read's
-  // gitRows map, keyed by ActivityID. Undefined for any not-yet-branched activity
-  // (honest-empty — the row renders no git cluster).
-  const gitForActivity = (activityId: string): GitRow | undefined => gitFor(project, activityId);
-
-  const activeTitle =
-    tab === 'tracker' ? 'Tracker' : tab === 'interventions' ? 'Interventions' : 'Artifacts';
 
   // --- Lens state (Stage B) -------------------------------------------------
   // Selection is NOT component state: it lives in the URL's search params
@@ -544,59 +479,14 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
         data-testid={UI_IDENTIFIERS.Construction.ROOT}
         sx={{ flexGrow: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}
       >
-        {/* tab bar — replaces the ordered spine */}
-        <Tabs
-          aria-label="Construction console sections"
-          scrollButtons={false}
-          sx={{
-            flexShrink: 0,
-            minHeight: 0,
-            px: 2.5,
-            bgcolor: t.paperAlt,
-            borderBottom: `1.5px solid ${t.line}`,
-            '& .MuiTabs-flexContainer': { gap: 0.5 },
-            '& .MuiTabs-indicator': { backgroundColor: t.accent, height: 3 },
-          }}
-          value={tab}
-          variant="scrollable"
-          onChange={(_e, value: TabId) => {
-            setTab(value);
-          }}
-        >
-          {TABS.map((x) => (
-            <Tab
-              data-testid={x.testid}
-              icon={x.icon}
-              iconPosition="start"
-              key={x.id}
-              label={x.title}
-              sx={{
-                minHeight: 0,
-                flexShrink: 0,
-                gap: 0.75,
-                px: 1.5,
-                py: 1.25,
-                fontFamily: t.mono,
-                fontWeight: 700,
-                fontSize: 12.5,
-                letterSpacing: '0.04em',
-                textTransform: 'none',
-                color: t.muted,
-                '&:hover': { color: t.ink },
-                '&.Mui-selected': { color: t.accent },
-              }}
-              value={x.id}
-            />
-          ))}
-        </Tabs>
-
+        {/* The lens shell IS the console (Task 13) — no tab bar mounts around it. */}
         <Box sx={{ flexGrow: 1, minHeight: 0, overflowY: 'auto', px: { xs: 2, md: 4 }, py: 3 }}>
           <ConsoleHeader
             action={
               // Operating (Task 14): once construction is fully complete the
               // begin/resume button is hidden entirely — not relabeled, since there
               // is nothing left to begin or resume.
-              tab === 'tracker' && project?.operating !== true ? (
+              project?.operating !== true ? (
                 <Button
                   data-testid={UI_IDENTIFIERS.Construction.BEGIN_BUTTON}
                   disabled={beginActive}
@@ -625,16 +515,16 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
                 </Button>
               ) : undefined
             }
-            subtitle={tab === 'tracker' ? lensSubtitle(lens) : tabSubtitle(tab)}
+            subtitle={lensSubtitle(lens)}
             t={t}
-            title={activeTitle}
+            title="Construction"
           />
 
           {projectLoading ? (
             <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
               <CircularProgress />
             </Box>
-          ) : tab === 'tracker' ? (
+          ) : (
             <ConstructionShell
               content={
                 lens === 'list' ? (
@@ -678,30 +568,6 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
               onLens={setLens}
               onToolbar={setToolbar}
             />
-          ) : tab === 'interventions' ? (
-            <InterventionsTab
-              activityEnvelope={activityEnvelope}
-              constructionRows={project?.constructionRows}
-              gitFor={gitForActivity}
-              overrideError={overrideError}
-              overridePending={override.isPending}
-              pauseError={pauseError}
-              pausePending={pause.isPending}
-              project={project}
-              projectId={projectId}
-              session={session}
-              sessionMissing={sessionMissing}
-              onOverride={onOverride}
-              onPause={onPause}
-            />
-          ) : (
-            <ArtifactsTab
-              activityEnvelope={activityEnvelope}
-              constructionRows={project?.constructionRows}
-              project={project}
-              session={session}
-              sessionMissing={sessionMissing}
-            />
           )}
         </Box>
       </Box>
@@ -718,19 +584,6 @@ function lensSubtitle(lens: LensId): string {
       return 'The committed project network under a build lens';
     case 'tasks':
       return 'Only the tasks that owe someone a decision';
-  }
-}
-
-function tabSubtitle(id: TabId): string {
-  switch (id) {
-    case 'tracker':
-      return 'The committed project network under a build lens · App-A tracking';
-    case 'interventions':
-      return 'interventionEngine variance + operator steer · pause / override';
-    case 'artifacts':
-      return 'reviewEngine reviewer set + produced changes';
-    default:
-      return 'reviewEngine reviewer set + produced changes';
   }
 }
 

@@ -1,6 +1,8 @@
 /**
- * construction-tracker.spec — the Construction console's Tracker tab
- * (route `/project/$projectId/construction`, the default tab).
+ * construction-tracker.spec — the Construction console's LIST lens
+ * (route `/project/$projectId/construction`, the default lens; the console
+ * is the lens shell directly since Task 13 retired the Tracker/Interventions/
+ * Artifacts tab bar that used to wrap it).
  *
  * Exercises the OBSERVABLE half of the Method core use case "Execute a
  * Construction Activity" (a busMessage-triggered flow: an eligible activity
@@ -14,7 +16,7 @@
  * so this spec does not click it.
  *
  * What IS exercisable today, against the real committed head-state: opening
- * the Tracker, selecting a real CPM activity node, and reading its shared
+ * the console, selecting a real CPM activity node, and reading its shared
  * detail pane (breadcrumb, state chip, action bar — Stage B Task 4) — the
  * "Observe run; validate against exit criteria" step of the same use case,
  * driven by real committed ActivityConstruction data (this repo dogfoods its
@@ -26,6 +28,23 @@
  *
  * Gated like artifact-systemtest.spec: needs the seeded "archistrator"
  * construction-phase project behind the SPA proxy. No live drafting needed.
+ *
+ * TASK 13 NOTE: these tests used to select C-AA. Stage B Task 12 (already
+ * shipped, unrelated to the tab retirement here) put C-AA inside the bottom
+ * "LEGACY RECORDS · UNRECONCILED" group as an orphaned-legacy activity — and
+ * `onSelectedItemsChange` in ActivityTreeView.tsx refuses selection for any
+ * `row.legacy` row outright, by design ("never a selection target"), so C-AA
+ * can no longer open the detail pane at all, group expanded or not. Swapped
+ * to G-SPA: one of the 9 activities that DOES join the derived list (so it
+ * is an ordinary, selectable row) and the one activity in the whole corpus
+ * carrying real, non-reconstructed lifecycle data (see the Stage B Task 11
+ * acceptance test). A SEPARATE, real gap found in passing and left for
+ * whoever next touches activityScope.ts: its search-reveal auto-expand
+ * (`matchingTaskIds`) only fires on a TASK-field match, not an activity-id-
+ * only one, so searching the bare id of an orphaned-legacy activity does not
+ * reveal it either — only its own chevron does (click-by-position, since it
+ * carries no testid; `UI_IDENTIFIERS.Construction.LEGACY_GROUP` names the
+ * group header if a future spec needs it).
  */
 import { test, expect } from '@playwright/test';
 import { TESTID } from './support/testids.js';
@@ -45,16 +64,17 @@ test('the Tracker renders the activity tree and an activity row opens its shared
   tagUseCase('execute-a-construction-activity');
 
   await gotoApp(page, '/project/archistrator/construction');
-  // Tracker is the default tab — no click needed — but the tab bar itself
-  // proves the console mounted on the right section.
-  await expect(page.getByTestId(TESTID.constructionTabTracker)).toBeVisible();
+  // The lens shell IS the console (Task 13 retired the tab bar) — LIST is the
+  // default lens, no click needed. The toolbar itself proves the console
+  // mounted the shell directly, with no tab bar around it.
+  await expect(page.getByTestId(TESTID.constructionLensToolbar)).toBeVisible();
   // Stage B Task 6: the LIST lens's body is the three-tier activity tree, not
   // the CPM graph (which returns under the GRAPH lens in Stage D). Every row
   // carries a published per-node testid, so no class-name escape hatch is
   // needed any more.
   await expect(page.getByTestId(TESTID.constructionListTree)).toBeVisible();
 
-  const firstRow = page.getByTestId(TESTID.constructionListRow('C-AA'));
+  const firstRow = page.getByTestId(TESTID.constructionListRow('G-SPA'));
   await expect(firstRow).toBeVisible({ timeout: 15_000 });
   await firstRow.click();
 
@@ -106,9 +126,15 @@ test('the Tracker renders the activity tree and an activity row opens its shared
  *   - the run action stays fully inside the viewport at BOTH ends of the scroll
  *     range, and holds a fixed y once sticky has engaged.
  *
- * Measured live at 1600x900 against committed head-state: wrapper 1989.1px,
- * pane 314.8px, run action y 545.7 at scrollTop 0 and 474.7 from scrollTop 300
- * all the way to the 1384px maximum.
+ * The content column needs to be genuinely tall for this to be a real scroll
+ * rather than a vacuous one — G-SPA alone (collapsed, one of only 9 top-level
+ * rows since Stage B Task 12 moved the other 60 into the bottom LEGACY
+ * RECORDS group) renders a content column shorter than the 900px viewport, so
+ * this expands that group first purely to lengthen the page under test; it
+ * does not touch the selection, which is still the ordinary G-SPA row.
+ *
+ * Measured live at 1600x900 against committed head-state (legacy group
+ * expanded): wrapper 2051.3px, pane 377.2px, run action y 571.0.
  */
 test('the detail pane stays pinned beside content, so its action bar survives a long scroll', async ({
   page,
@@ -116,7 +142,11 @@ test('the detail pane stays pinned beside content, so its action bar survives a 
   await page.setViewportSize({ width: 1600, height: 900 });
   await gotoApp(page, '/project/archistrator/construction');
 
-  const firstRow = page.getByTestId(TESTID.constructionListRow('C-AA'));
+  // See the module comment's note on TASK 13's G-SPA swap for why the group
+  // (not the selection) is expanded here.
+  await page.getByTestId(TESTID.constructionLegacyGroup).click({ position: { x: 9, y: 10 } });
+
+  const firstRow = page.getByTestId(TESTID.constructionListRow('G-SPA'));
   await expect(firstRow).toBeVisible({ timeout: 15_000 });
   await firstRow.click();
 

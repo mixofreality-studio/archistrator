@@ -477,7 +477,8 @@ export function mapConstructionRow(
   // status, worstOrigin, layer/layerBand) all drop at their zero value; this one
   // now does too, so "the server said nothing" is ABSENT here rather than being
   // re-detected by every consumer (PhaseGatePanel would submit a decision
-  // against an empty phase; InterventionQueue/ArtifactActivityDetail render a
+  // against an empty phase; InterventionQueue/the old ArtifactActivityDetail
+  // (retired Task 13, superseded by the detail pane's ArtifactBody) rendered a
   // dangling `phase · `; activityTree.ts had to normalize it back out).
   const currentLifecyclePhase =
     classified && w.CurrentPhase.length > 0 ? w.CurrentPhase : undefined;

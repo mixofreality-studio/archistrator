@@ -1,11 +1,22 @@
 import type { ReactNode } from 'react';
-import type { ArtifactModelEnvelope, ProjectStateWithGit } from '../../contracts/types';
+import type { ArtifactModelEnvelope, ConstructionRow, ProjectStateWithGit } from '../../contracts/types';
 import type { Tokens } from '../../utilities/theme/themes';
-import type { ArtifactActivityVM } from './ArtifactActivityList';
 import type { Classification } from './artifactClassification';
 import { SystemTestRunView } from './renderers/SystemTestRunView';
 import { TestPlanView } from './renderers/TestPlanView';
 import { FrontendArtifactView } from './renderers/FrontendArtifactView';
+
+/**
+ * A view-model row joining a ConstructionRow with the activity-list display
+ * name — moved here (Task 13) from the retired ArtifactActivityList.tsx, its
+ * only remaining consumer after the Artifacts tab's own list/detail rendering
+ * was superseded by the detail pane's ArtifactBody (Task 10).
+ */
+export interface ArtifactActivityVM {
+  activityId: string;
+  name: string;
+  row: ConstructionRow;
+}
 
 export interface ArtifactRendererProps {
   vm: ArtifactActivityVM;
@@ -16,8 +27,9 @@ export interface ArtifactRendererProps {
 
 /**
  * The classification → renderer registry. A missing entry means "no bespoke
- * renderer yet" — ArtifactActivityDetail falls back to the contract view +
- * honest-pointer cards. Populated one type at a time (see the per-type plan).
+ * renderer yet" — the detail pane's ArtifactBody (detail/bodies/ArtifactBody.tsx)
+ * falls back to the contract view (`service`) or the unknown body. Populated one
+ * type at a time (see the per-type plan).
  */
 export const artifactRenderers: Partial<
   Record<Classification, (p: ArtifactRendererProps) => ReactNode>
