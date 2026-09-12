@@ -296,6 +296,33 @@ func TestHydrateConstructionActivity_ServicePhases(t *testing.T) {
 	}
 }
 
+// The client app activity names the CLIENT it builds as its component, so dispatch stamps
+// the Client layer through the ordinary component lookup the pump runs (lookupComponent)
+// — not the layer of a manager it screens, which is what the per-manager SPA activities
+// D9 removed used to carry as componentId.
+func TestHydrateConstructionActivity_ClientAppStampsTheClientLayer(t *testing.T) {
+	proj := projectstate.Project{SystemDesign: projectstate.ArtifactSlot{
+		Status: projectstate.ReviewCommitted,
+		Model: &projectstate.System{Components: []projectstate.Component{
+			{ID: "billing-manager", Layer: projectstate.LayerManager},
+			{ID: "web-client", Layer: projectstate.LayerClient},
+		}},
+	}}
+	item := projectstate.ActivityItem{Name: "U-SPA-web-client", WorkerClass: "junior-developer", Coding: true, ComponentID: "web-client"}
+	comp := lookupComponent(proj, item.ComponentID)
+	if comp == nil {
+		t.Fatal("lookupComponent did not resolve web-client against the committed System")
+	}
+	typ, variant := classifyForTest(t, item.Name, item)
+	got := hydrateConstructionActivity(item.Name, item, comp, typ, variant)
+	if got.ComponentID != "web-client" || got.Layer != "client" {
+		t.Errorf("(ComponentID, Layer) = (%q, %q), want (web-client, client)", got.ComponentID, got.Layer)
+	}
+	if got.Type != projectstate.ActivityTypeFrontend {
+		t.Errorf("Type = %v, want Frontend", got.Type)
+	}
+}
+
 func TestHydrateConstructionActivity_TestingPlanIsThreePhases(t *testing.T) {
 	item := projectstate.ActivityItem{WorkerClass: "test-engineer"}
 	typ, variant := classifyForTest(t, "N-STP", item)

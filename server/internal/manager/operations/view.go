@@ -22,7 +22,7 @@ type viewInput struct {
 	OperatedAppID operatedAppID
 }
 
-// ViewWorkflow drives the U-SPA-4 operator read view (operationsRead-ruling.md §A):
+// ViewWorkflow drives the web client's operator read view (operationsRead-ruling.md §A):
 //  1. ReadOperatedSystemActivity  → head-state phase (RuntimePhase) + inFlight.
 //  2. GetApplicationHealthActivity → observed health snapshot phase.
 //  3. GetSloStatusActivity         → SLO posture (rolled into the health snapshot + one row).

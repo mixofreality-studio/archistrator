@@ -6675,6 +6675,9 @@ func assertDerivedActivitiesMatch(t *testing.T, got, committed []projectstate.Ac
 		if g.ComponentID != want.ComponentID {
 			t.Errorf("activity %q: re-derived componentId %q, committed slot 9 holds %q", name, g.ComponentID, want.ComponentID)
 		}
+		if g.Title != want.Title {
+			t.Errorf("activity %q: re-derived title %q, committed slot 9 holds %q", name, g.Title, want.Title)
+		}
 	}
 	for name := range gotByName {
 		if _, ok := wantByName[name]; !ok {

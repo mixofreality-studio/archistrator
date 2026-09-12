@@ -76,7 +76,7 @@ func TestRecordPhaseArtifact_Writes(t *testing.T) {
 // .testingState (project-level; mapKey unused).
 func TestRecordTestingState_Writes(t *testing.T) {
 	s, _ := seedProject(t, minimalProject(), jobModeConstruct, 0)
-	s.ActivityID = "N-QA"
+	s.ActivityID = "N-STP"
 	if err := s.recordTestingState(map[string]any{"QualityAuditReport": "audit passed"}); err != nil {
 		t.Fatalf("recordTestingState: %v", err)
 	}

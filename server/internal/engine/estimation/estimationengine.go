@@ -1324,23 +1324,21 @@ func (EstimationEngineImpl) DerivePlan(_ fweng.Context, system SystemView, delta
 	return applyDeltas(acts, deps, ms, deltas)
 }
 
-// workerClassFor maps an activity ID prefix to its worker class. The roster is FIXED —
-// an unknown class silently rides default token rates in the cost engines and
+// workerClassFor maps a derived activity's id prefix to its worker class. The roster is
+// FIXED — an unknown class silently rides default token rates in the cost engines and
 // misclassifies in every downstream view, so this function only ever returns a roster
 // member.
 //
-// Verified against the 69 hand-authored activities in the committed list: prefix
-// predicts workerClass with ZERO exceptions, which is what makes it derivable.
+// The derivation emits exactly three prefixes through it: C (code a component) and U
+// (build a client app) go to the junior developer, R (provision a vendor resource) to
+// the senior developer. The always-emit noncoding inventory takes its classes from
+// noncodingInventoryClass instead.
 func workerClassFor(prefix string) string {
 	switch prefix {
 	case "C", "U":
 		return "junior-developer" // junior builds components and the SPA
-	case "R", "I":
-		return "senior-developer" // senior integrates and owns provisioning
-	case "G":
-		return "ui-designer"
-	default:
-		return "senior-developer"
+	default: // "R"
+		return "senior-developer" // senior owns vendor provisioning
 	}
 }
 
@@ -1376,8 +1374,9 @@ func noncodingInventoryClass(name string) string {
 // contracts are Phase-3 artifacts and do not exist when this runs, a regression over
 // slot-5 metadata is the false precision App C §4.4 forbids ("strive for accuracy, not
 // precision"), and it would make the baseline churn whenever a relationship is edited.
-// Roughly half of these get overridden by a justified delta — that is the design intent:
-// the agent's judgment is spent on the exceptions, not on transcription.
+// An override is a justified EXCEPTION, not the norm: the committed plan carries none
+// (D9 deleted all 25 earlier overrides), so these defaults ARE the plan's efforts unless
+// a delta states why one differs.
 func defaultEffortFor(kind string) float64 {
 	switch kind {
 	case "manager":
@@ -1706,10 +1705,10 @@ func architectureEdges(system SystemView, byComponent map[string]string) map[str
 // needs no special case: with no client activity, its managers are the sinks.
 //
 // It runs on the REDUCED graph, so it never adds a redundant edge: a sink has no
-// successor, so no sink is reachable from another.
+// successor, so no sink is reachable from another. N-IT itself is always among acts:
+// deriveActivities emits the always-emit noncoding inventory for every system.
 func addSinkEdges(reduced map[string][]string, acts []DerivedActivity) {
 	hasSuccessor := map[string]bool{}
-	present := false
 	for _, preds := range reduced {
 		for _, p := range preds {
 			hasSuccessor[p] = true
@@ -1717,15 +1716,11 @@ func addSinkEdges(reduced map[string][]string, acts []DerivedActivity) {
 	}
 	var sinks []string
 	for _, a := range acts {
-		if a.Name == systemTestingActivity {
-			present = true
-			continue
-		}
-		if !hasSuccessor[a.Name] {
+		if a.Name != systemTestingActivity && !hasSuccessor[a.Name] {
 			sinks = append(sinks, a.Name)
 		}
 	}
-	if present && len(sinks) > 0 {
+	if len(sinks) > 0 {
 		reduced[systemTestingActivity] = append(reduced[systemTestingActivity], sinks...)
 	}
 }

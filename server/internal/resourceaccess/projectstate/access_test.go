@@ -8302,8 +8302,8 @@ func TestClassifyType_ClassifiableRowsStillResolve(t *testing.T) {
 		want            ActivityType
 	}{
 		{"C-billing-manager", "junior-developer", true, ActivityTypeService},
-		{"U-SPA-billing-manager", "ui-designer", true, ActivityTypeFrontend},
-		{"G-SPA", "ui-designer", false, ActivityTypeUIDesign},
+		{"U-SPA-web-client", "junior-developer", true, ActivityTypeFrontend},
+		{"N-UI-CONCEPT", "ui-designer", false, ActivityTypeUIDesign},
 		{"N-IT", "software-tester", false, ActivityTypeTesting},
 		{"I-billing", "senior-developer", false, ActivityTypeIntegration},
 	}
@@ -8628,8 +8628,8 @@ func TestWorstOrigin_UnknownOriginRanksAsSynthesized(t *testing.T) {
 	}
 }
 
-// The G-SPA bug: Integration done while Requirements never completed must NOT read
-// as Integrated.
+// The Integrated-at-85% bug: Integration done while Requirements never completed must
+// NOT read as Integrated.
 func TestCoarseBuildStatus_RequiresAllPhasesForIntegrated(t *testing.T) {
 	phases := phaseSetFor(ActivityTypeService, 0)
 	for i := range phases {
@@ -8694,53 +8694,25 @@ func TestCoarseBuildStatusFor_StoredFailureIsStillSticky(t *testing.T) {
 	}
 }
 
-// TestLayerForActivity_SPASurfaceIsAClientNotItsManagersLayer is the trap
-// LayerForActivity exists to close: managerSPAActivityFor stamps ComponentID with the
-// MANAGER's id on a U-SPA-* activity, so a naive componentId -> component.layer join
-// would draw a Client surface on the Manager row.
-func TestLayerForActivity_SPASurfaceIsAClientNotItsManagersLayer(t *testing.T) {
-	// U-SPA-billing-manager carries componentId = the MANAGER, but it is a Client surface.
-	layer, band := LayerForActivity("U-SPA-billing-manager", "manager")
-	if layer != "client" {
-		t.Errorf("layer = %q, want client — a SPA surface is not its manager's layer", layer)
-	}
-	if band != "layered" {
-		t.Errorf("band = %q, want layered", band)
-	}
-}
-
-func TestLayerForActivity_CodingActivityTakesItsComponentLayer(t *testing.T) {
-	layer, band := LayerForActivity("C-billing-manager", "manager")
-	if layer != "manager" || band != "layered" {
-		t.Errorf("LayerForActivity = (%q, %q), want (manager, layered)", layer, band)
-	}
-}
-
-func TestLayerForActivity_ResourceActivityIsResource(t *testing.T) {
-	if layer, _ := LayerForActivity("R-github", ""); layer != "resource" {
-		t.Errorf("layer = %q, want resource", layer)
+// An activity is drawn in its OWN component's layer. The derivation gives every
+// component-bearing activity the component it builds (C-<id>, R-<id>, U-SPA-<clientId>),
+// so the client app lands on the Client row and a vendor resource on the Resource row by
+// the same ordinary lookup as a coding activity — no id prefix is consulted.
+func TestLayerForActivity_TakesItsComponentsLayer(t *testing.T) {
+	for _, want := range []string{"client", "manager", "engine", "resourceAccess", "resource"} {
+		layer, band := LayerForActivity(want)
+		if layer != want || band != "layered" {
+			t.Errorf("LayerForActivity(%q) = (%q, %q), want (%q, layered)", want, layer, band, want)
+		}
 	}
 }
 
 func TestLayerForActivity_ComponentlessActivitiesAreProjectWide(t *testing.T) {
-	for _, id := range []string{"N-IT", "N-STP", "G-SPA", "U-SPA-S"} {
-		layer, band := LayerForActivity(id, "")
-		if band != "projectWide" {
-			t.Errorf("%s: band = %q, want projectWide", id, band)
-		}
-		if layer != "" {
-			t.Errorf("%s: layer = %q, want empty — no fake layer for a cross-cutting activity", id, layer)
-		}
+	layer, band := LayerForActivity("")
+	if band != "projectWide" {
+		t.Errorf("band = %q, want projectWide", band)
 	}
-}
-
-// TestLayerForActivity_SPACaseOrderingBeatsScaffoldPrefix pins the ordering the doc
-// comment calls load-bearing: U-SPA-S must be checked before the general U-SPA- prefix,
-// or the SPA scaffold activity would be mistyped as a Client-layer surface instead of
-// landing in the project-wide band.
-func TestLayerForActivity_SPACaseOrderingBeatsScaffoldPrefix(t *testing.T) {
-	layer, band := LayerForActivity("U-SPA-S", "")
-	if layer != "" || band != "projectWide" {
-		t.Errorf("LayerForActivity(U-SPA-S) = (%q, %q), want (\"\", projectWide)", layer, band)
+	if layer != "" {
+		t.Errorf("layer = %q, want empty — no fake layer for a cross-cutting activity", layer)
 	}
 }

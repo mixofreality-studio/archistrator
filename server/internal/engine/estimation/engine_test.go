@@ -710,8 +710,6 @@ func TestWorkerClassFor(t *testing.T) {
 		{"C", "junior-developer"},
 		{"U", "junior-developer"},
 		{"R", "senior-developer"},
-		{"I", "senior-developer"},
-		{"G", "ui-designer"},
 	}
 	for _, c := range cases {
 		if got := workerClassFor(c.prefix); got != c.want {

@@ -1151,7 +1151,7 @@ func Test_CostProjection_ReturnsProjection_NoMutation(t *testing.T) {
 
 // H1: the operator view composes the existing reads (head-state + health + SLO +
 // run-rate) into one OperatedSystemView and MUTATES NO STATE — zero write Activities,
-// no version bump. This is the U-SPA-4 read path (operationsRead-ruling.md §A).
+// no version bump. This is the web client's operator read path (operationsRead-ruling.md §A).
 func Test_View_ComposesReads_NoMutation(t *testing.T) {
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()

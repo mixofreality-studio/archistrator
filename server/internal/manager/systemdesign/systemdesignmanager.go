@@ -3401,7 +3401,7 @@ func constructionRowsToContract(
 			coarsePhase = ActivityConstructionPhase(int(projectstate.CoarsePhaseFor(r.Phase, resolved)))
 			buildStatus = ActivityBuildStatus(int(projectstate.CoarseBuildStatusFor(r.BuildStatus, resolved, r.CurrentPhase)))
 		}
-		layer, band := projectstate.LayerForActivity(r.ActivityID, componentLayer[meta.ComponentID])
+		layer, band := projectstate.LayerForActivity(componentLayer[meta.ComponentID])
 		out[id] = ActivityConstructionStatus{
 			ActivityID:    r.ActivityID,
 			Type:          wireType,
@@ -3477,10 +3477,8 @@ func activityMetaByID(p projectstate.Project) map[string]projectstate.ActivityIt
 
 // componentLayerByID builds the id → Method-layer-name lookup from the committed
 // .systemDesign components (empty map when no system design is committed, exactly as
-// activityMetaByID tolerates a missing activity list). It feeds LayerForActivity's
-// componentLayer argument in constructionRowsToContract — it must never be joined
-// against an activity id directly (see LayerForActivity's doc comment for why a naive
-// componentId -> layer join mistypes a U-SPA-* activity).
+// activityMetaByID tolerates a missing activity list). It feeds LayerForActivity in
+// constructionRowsToContract, keyed by each row's componentId — never by its activity id.
 func componentLayerByID(p projectstate.Project) map[string]string {
 	out := map[string]string{}
 	if sys, ok := p.SystemDesign.Model.(*projectstate.System); ok && sys != nil {
@@ -3516,13 +3514,14 @@ func classifiedRowView(
 //
 // THE PHASE ROW SET COMES FROM THE PROFILE; THE STORED SLICE ONLY SUPPLIES STATE.
 // When the two disagree, the profile wins. The profile is derived from the committed
-// architecture via the row's classified type; the stored phases[] is legacy seed data
-// that predates the classifier and can contradict it — G-SPA classifies as uiDesign
-// (two phases, 40/60) yet stores five Service phases with Service weights
-// (15/20/10/40/15). Two fields on one row giving contradictory answers with no rule on
-// the wire for which wins is precisely what this stage exists to remove, and this is
-// the read-path rule that removes it. Stored phases the profile does not carry are
-// dropped; profile phases the store never had are materialized with unknown state.
+// architecture via the row's type as classified at READ time; the stored phases[] was
+// seeded (phaseSetFor) from the type stamped at DISPATCH, and the two can differ — a row
+// that produced a service contract reads as Service whatever it was dispatched as, and a
+// row the dispatcher never stamped seeds the zero-value (Service) set. Two fields on one
+// row giving contradictory answers with no rule on the wire for which wins is precisely
+// what this stage exists to remove, and this is the read-path rule that removes it.
+// Stored phases the profile does not carry are dropped; profile phases the store never
+// had are materialized with unknown state.
 //
 // That materialization is also why a row with an attempt ledger and NO stored phases no
 // longer resolves to nil. It used to, and the coarse chip was still derived from that
@@ -3541,10 +3540,10 @@ func classifiedRowView(
 // review. The ledger is a FALLBACK trigger, not a hard switch, and the fallback is
 // decided PER PHASE rather than per activity: a phase whose gate task has no attempt is
 // a phase the ledger has no opinion about, and silence is not a denial. A per-activity
-// switch would be a hard switch the instant one attempt exists — the partial ledgers
-// the backfill produces (detailedDesign/designReview/construction/codeReview only)
-// would flip G-SPA's stored test_plan and integration completions to false, erasing the
-// one real phase history in the project.
+// switch would be a hard switch the instant one attempt exists — a partial ledger (gate
+// attempts for detailedDesign and construction only, say) would flip a row's stored
+// test_plan and integration completions to false, erasing recorded phase history the
+// ledger never contradicted.
 //
 // PhaseCompleteFromAttempts reports both halves of that — (complete, decided) — so this
 // distinction lives in ONE named implementation rather than being reimplemented inline

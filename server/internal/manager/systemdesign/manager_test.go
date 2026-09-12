@@ -4023,20 +4023,20 @@ func TestIsLiveSessionStage(t *testing.T) {
 // conflates testing, infra, deployment, and documentation).
 func TestConstructionRowsToContract_ClassifiesFromWorkerClass(t *testing.T) {
 	rows := map[string]projectstate.ActivityConstructionStatus{
-		"N-IT":    {ActivityID: "N-IT"},                                                                        // software-tester, noncoding → testing:systemTest
-		"N-SC":    {ActivityID: "N-SC", Produced: []projectstate.ProducedArtifact{{Kind: "service-contract"}}}, // built a contract → service
-		"N-CI":    {ActivityID: "N-CI"},                                                                        // senior-developer, noncoding → deployment
-		"N-ADR":   {ActivityID: "N-ADR"},                                                                       // system-architect, noncoding → documentation
-		"C-BE":    {ActivityID: "C-BE"},                                                                        // junior-developer, coding → service
-		"U-SPA-1": {ActivityID: "U-SPA-1"},                                                                     // U-SPA prefix → frontend
+		"N-IT":             {ActivityID: "N-IT"},                                                                        // software-tester, noncoding → testing:systemTest
+		"N-SC":             {ActivityID: "N-SC", Produced: []projectstate.ProducedArtifact{{Kind: "service-contract"}}}, // built a contract → service
+		"N-CI":             {ActivityID: "N-CI"},                                                                        // senior-developer, noncoding → deployment
+		"N-ADR":            {ActivityID: "N-ADR"},                                                                       // system-architect, noncoding → documentation
+		"C-BE":             {ActivityID: "C-BE"},                                                                        // junior-developer, coding → service
+		"U-SPA-web-client": {ActivityID: "U-SPA-web-client"},                                                            // U-SPA prefix → frontend
 	}
 	meta := map[string]projectstate.ActivityItem{
-		"N-IT":    {Name: "N-IT", WorkerClass: "software-tester", Coding: false},
-		"N-SC":    {Name: "N-SC", WorkerClass: "senior-developer", Coding: false},
-		"N-CI":    {Name: "N-CI", WorkerClass: "senior-developer", Coding: false},
-		"N-ADR":   {Name: "N-ADR", WorkerClass: "system-architect", Coding: false},
-		"C-BE":    {Name: "C-BE", WorkerClass: "junior-developer", Coding: true},
-		"U-SPA-1": {Name: "U-SPA-1", WorkerClass: "junior-developer", Coding: true},
+		"N-IT":             {Name: "N-IT", WorkerClass: "software-tester", Coding: false},
+		"N-SC":             {Name: "N-SC", WorkerClass: "senior-developer", Coding: false},
+		"N-CI":             {Name: "N-CI", WorkerClass: "senior-developer", Coding: false},
+		"N-ADR":            {Name: "N-ADR", WorkerClass: "system-architect", Coding: false},
+		"C-BE":             {Name: "C-BE", WorkerClass: "junior-developer", Coding: true},
+		"U-SPA-web-client": {Name: "U-SPA-web-client", WorkerClass: "junior-developer", Coding: true},
 	}
 	got := constructionRowsToContract(rows, meta, nil)
 	cases := []struct {
@@ -4049,7 +4049,7 @@ func TestConstructionRowsToContract_ClassifiesFromWorkerClass(t *testing.T) {
 		{"N-CI", ActivityType(int(projectstate.ActivityTypeDeployment)), 0},
 		{"N-ADR", ActivityType(int(projectstate.ActivityTypeDocumentation)), 0},
 		{"C-BE", ActivityType(int(projectstate.ActivityTypeService)), 0},
-		{"U-SPA-1", ActivityType(int(projectstate.ActivityTypeFrontend)), 0},
+		{"U-SPA-web-client", ActivityType(int(projectstate.ActivityTypeFrontend)), 0},
 	}
 	for _, c := range cases {
 		t.Run(c.id, func(t *testing.T) {
@@ -10681,21 +10681,22 @@ func TestConstructionRowsToContract_LedgerWithNoStoredPhasesMaterializesTheProfi
 }
 
 // Spec MUST-fix D-gspa (a): when a row's stored phases[] disagrees with its classified
-// type's PROFILE, the profile wins. G-SPA classifies as uiDesign (two phases, 40/60)
-// yet stores five SERVICE phases with Service weights (15/20/10/40/15) — three phases
-// the uiDesign profile does not have. Two fields on one row giving contradictory
-// answers with no rule on the wire for which wins is what this stage exists to remove:
-// the profile is derived from the committed architecture, the stored slice is legacy
-// seed data.
+// type's PROFILE, the profile wins. The fixture row — a ui-designer, noncoding additive —
+// classifies as uiDesign (two phases, 40/60) yet stores five SERVICE phases with Service
+// weights (15/20/10/40/15), the zero-value set a row the dispatcher never stamped is
+// seeded with: three phases the uiDesign profile does not have. Two fields on one row
+// giving contradictory answers with no rule on the wire for which wins is what this
+// stage exists to remove: the profile is derived from the committed architecture, the
+// stored slice only supplies state.
 func TestConstructionRowsToContract_ProfileWinsOverAContradictoryStoredPhaseSet(t *testing.T) {
 	rows := map[string]projectstate.ActivityConstructionStatus{
-		"G-SPA": {
-			ActivityID: "G-SPA",
+		"N-UI-CONCEPT": {
+			ActivityID: "N-UI-CONCEPT",
 			Phases:     allServicePhases(), // five Service phases, Service weights
 		},
 	}
-	meta := map[string]projectstate.ActivityItem{"G-SPA": {Name: "G-SPA", WorkerClass: "ui-designer", Coding: false}}
-	got := constructionRowsToContract(rows, meta, nil)["G-SPA"]
+	meta := map[string]projectstate.ActivityItem{"N-UI-CONCEPT": {Name: "N-UI-CONCEPT", WorkerClass: "ui-designer", Coding: false}}
+	got := constructionRowsToContract(rows, meta, nil)["N-UI-CONCEPT"]
 
 	if got.Type != ActivityType(int(projectstate.ActivityTypeUIDesign)) {
 		t.Fatalf("Type = %d, want uiDesign — the fixture's whole point", got.Type)
@@ -10829,27 +10830,27 @@ func TestConstructionRowsToContract_UnclassifiedRowHasNoBuildEvidence(t *testing
 	}
 }
 
-// The trap LayerForActivity closes, exercised through the actual mapper
-// (constructionRowsToContract) rather than the pure function directly: a SPA row's
-// ComponentID names its MANAGER (managerSPAActivityFor), so a naive componentId ->
-// layer join over componentLayerByID would draw it on the Manager row. The mapper
-// must resolve through LayerForActivity, not through a direct map lookup.
-func TestConstructionRowsToContract_SPARowIsClientLayerNotItsManagers(t *testing.T) {
+// Exercised through the actual mapper (constructionRowsToContract) rather than the pure
+// function: each row is drawn in the layer of its OWN component, joined through the
+// activity's componentId. The client app names the client it builds, so it lands on the
+// Client row even though it depends on managers; a componentless row lands in the
+// project-wide band.
+func TestConstructionRowsToContract_RowTakesItsComponentsLayer(t *testing.T) {
 	rows := map[string]projectstate.ActivityConstructionStatus{
-		"U-SPA-billing-manager": {ActivityID: "U-SPA-billing-manager"},
-		"C-billing-manager":     {ActivityID: "C-billing-manager"},
-		"N-IT":                  {ActivityID: "N-IT"},
+		"U-SPA-web-client":  {ActivityID: "U-SPA-web-client"},
+		"C-billing-manager": {ActivityID: "C-billing-manager"},
+		"N-IT":              {ActivityID: "N-IT"},
 	}
 	meta := map[string]projectstate.ActivityItem{
-		"U-SPA-billing-manager": {Name: "U-SPA-billing-manager", WorkerClass: "junior-developer", Coding: true, ComponentID: "billing-manager"},
-		"C-billing-manager":     {Name: "C-billing-manager", WorkerClass: "junior-developer", Coding: true, ComponentID: "billing-manager"},
-		"N-IT":                  {Name: "N-IT", WorkerClass: "software-tester", Coding: false},
+		"U-SPA-web-client":  {Name: "U-SPA-web-client", WorkerClass: "junior-developer", Coding: true, ComponentID: "web-client"},
+		"C-billing-manager": {Name: "C-billing-manager", WorkerClass: "junior-developer", Coding: true, ComponentID: "billing-manager"},
+		"N-IT":              {Name: "N-IT", WorkerClass: "software-tester", Coding: false},
 	}
-	componentLayer := map[string]string{"billing-manager": "manager"}
+	componentLayer := map[string]string{"billing-manager": "manager", "web-client": "client"}
 	got := constructionRowsToContract(rows, meta, componentLayer)
 
-	if l, b := got["U-SPA-billing-manager"].Layer, got["U-SPA-billing-manager"].LayerBand; l != "client" || b != "layered" {
-		t.Errorf("U-SPA-billing-manager Layer/LayerBand = %q/%q, want client/layered — a SPA surface is not its manager's layer", l, b)
+	if l, b := got["U-SPA-web-client"].Layer, got["U-SPA-web-client"].LayerBand; l != "client" || b != "layered" {
+		t.Errorf("U-SPA-web-client Layer/LayerBand = %q/%q, want client/layered", l, b)
 	}
 	if l, b := got["C-billing-manager"].Layer, got["C-billing-manager"].LayerBand; l != "manager" || b != "layered" {
 		t.Errorf("C-billing-manager Layer/LayerBand = %q/%q, want manager/layered", l, b)
@@ -10939,11 +10940,10 @@ func TestComputeEVAtRead_UsesTheDerivedIntegratedSet(t *testing.T) {
 	}
 }
 
-// The fallback is decided PER PHASE. A partial ledger — which is all the backfill
-// produces (detailedDesign/designReview/construction/codeReview) — says NOTHING about
-// a phase whose gate task it never wrote, and silence is not a denial. G-SPA, the one
-// activity in the project carrying real stored phase history, has stored completions
-// for test_plan and integration that no backfilled ledger will mention.
+// The fallback is decided PER PHASE. A partial ledger says NOTHING about a phase whose
+// gate task it never wrote, and silence is not a denial: a frontend row with stored
+// completions for test_plan and integration keeps them when its ledger holds only the
+// designReview and codeReview gates.
 func TestPhasesToContract_PartialLedgerDoesNotDenySilentPhases(t *testing.T) {
 	phases := []projectstate.PhaseCompletion{
 		{Phase: projectstate.MethodPhaseDetailedDesign, Weight: 25, Label: "Design", Completed: true},
@@ -10951,15 +10951,15 @@ func TestPhasesToContract_PartialLedgerDoesNotDenySilentPhases(t *testing.T) {
 		{Phase: projectstate.MethodPhaseConstruction, Weight: 35, Label: "Construction", Completed: true},
 		{Phase: projectstate.MethodPhaseIntegration, Weight: 15, Label: "Integration", Completed: true},
 	}
-	// A backfill-shaped ledger: it has an opinion about detailedDesign and construction
-	// only. testPlan and integration have no gate attempt at all.
+	// A partial ledger: it has an opinion about detailedDesign and construction only.
+	// testPlan and integration have no gate attempt at all.
 	attempts := []projectstate.TaskAttempt{
-		{AttemptID: "G-SPA:designReview:1", Task: projectstate.TaskDesignReview, Attempt: 1, Outcome: projectstate.OutcomePassed},
-		{AttemptID: "G-SPA:codeReview:1", Task: projectstate.TaskCodeReview, Attempt: 1, Outcome: projectstate.OutcomePassed},
+		{AttemptID: "U-SPA-web-client:designReview:1", Task: projectstate.TaskDesignReview, Attempt: 1, Outcome: projectstate.OutcomePassed},
+		{AttemptID: "U-SPA-web-client:codeReview:1", Task: projectstate.TaskCodeReview, Attempt: 1, Outcome: projectstate.OutcomePassed},
 	}
 	// The Frontend profile's row set — requirements first, which the stored slice does
-	// not carry and the ledger says nothing about. This is G-SPA's real, NON-MONOTONIC
-	// shape: an incomplete first phase under four complete ones.
+	// not carry and the ledger says nothing about. A NON-MONOTONIC shape: an incomplete
+	// first phase under four complete ones.
 	got := phasesToContract(resolvedPhaseCompletions(projectstate.ProfileFor(projectstate.ActivityTypeFrontend, 0), phases, attempts))
 	if len(got) != 5 {
 		t.Fatalf("phasesToContract len = %d, want 5", len(got))

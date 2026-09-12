@@ -564,20 +564,16 @@ var encapsulationAllowlistData = map[string][]string{
 		"TasksForProfile",
 		// LAYER-STACK PROJECTION (task 11, construction-UI-rewrite stage A). Same
 		// category as ClassifyActivity/TasksForPhase above: a total, side-effect-free
-		// function of already-public projectstate values (an activity id string plus a
-		// Layer.String() value the caller resolves from the committed System) — no
-		// clone, no read, no write, no clock, so there is no contract operation to
-		// generate for it. Exported because its caller — the systemdesign Manager's
-		// construction view-model (constructionRowsToContract, this task) — lives
-		// OUTSIDE this package, same as MaterializeActivityPlan above. The rule it
-		// encodes is the reason it must NOT be reimplemented per caller: an activity's
-		// drawn layer is not always its component's layer (managerSPAActivityFor
-		// stamps a SPA activity's ComponentID with the MANAGER it screens, so a naive
-		// componentId -> component.layer join would mistype it as that Manager's layer
-		// instead of Client), and this rule is documented to hold for future
-		// server-side consumers of the same System model (a Structurizr render-on-read,
-		// an MCP tool output) precisely so none of them re-derives it independently —
-		// duplicating it in TypeScript already cost this codebase twice.
+		// function of an already-public projectstate value (a Layer.String() value the
+		// caller resolves from the committed System) — no clone, no read, no write, no
+		// clock, so there is no contract operation to generate for it. Exported because
+		// its caller — the systemdesign Manager's construction view-model
+		// (constructionRowsToContract, this task) — lives OUTSIDE this package, same as
+		// MaterializeActivityPlan above. It owns the layered/projectWide band rule (a
+		// componentless activity gets no fake layer), which is documented to hold for
+		// future server-side consumers of the same System model (a Structurizr
+		// render-on-read, an MCP tool output) precisely so none of them re-derives it
+		// independently — duplicating it in TypeScript already cost this codebase twice.
 		"LayerForActivity",
 		"CoarseBuildStatus",
 		"CoarseBuildStatusFor",
