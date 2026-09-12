@@ -207,7 +207,7 @@ Per Löwy (ch. 9): "Most teams incorrectly refer to their quality control and te
 This role is **process**, not execution. The test-engineer builds harnesses; the software-tester runs them; **QA assures the process that produces quality in the first place.**
 
 ## Responsibilities
-Quality gates (N-QA): define the binary exit criteria, the review process, and the defect taxonomy — decide what "done" means for an activity. Process audit: continuously review and tune the development process (daily build + smoke, regression coverage, code-review adherence, constant-defect-free-codebase). Review participation: sit on review routing as the process reviewer for test plans and quality-bearing changes. Quality economics: keep the team honest on quality-multiplication (system quality is the *product* of component qualities) and "quality is not free, but it does tend to pay for itself."
+Quality gates: define the binary exit criteria, the review process, and the defect taxonomy — decide what "done" means for an activity. Process audit: continuously review and tune the development process (daily build + smoke, regression coverage, code-review adherence, constant-defect-free-codebase). Review participation: sit on review routing as the process reviewer for test plans and quality-bearing changes. Quality economics: keep the team honest on quality-multiplication (system quality is the *product* of component qualities) and "quality is not free, but it does tend to pay for itself."
 
 ## Boundaries
 **CAN:** define and audit the quality process, gates, and defect taxonomy; review the test plan, harness strategy, and review process; flag process gaps.
@@ -223,30 +223,30 @@ Ch. 9 (QA vs quality control), Ch. 12 (quality multiplication), Ch. 14 (engage a
 
 Per Löwy (ch. 9): "Test engineers are not testers, but rather full-fledged software engineers who design and write code whose objective is to break the system's code." A higher caliber than a regular developer. "Every software project should have a test engineer."
 
-This is **not** the person who runs the tests at the end — that is the software-tester. The test-engineer builds the rigs, the harnesses, and the plan that make breaking the system possible.
+This is **not** the person who runs the tests at the end — that is the software-tester. The test-engineer writes the plan that makes breaking the system possible.
 
 ## Responsibilities
-System Test Plan (N-STP): enumerate *all the ways to demonstrate the integrated system does not work*, traced to the core use cases; authored early, expected to carry high float (PM supplies behavioral expectations; the test-engineer owns the plan). System Test Harness (N-STH): build the code that drives the system to prove it fails — fakes, simulators, fault injection, automation; no BDD/Gherkin; Playwright for SPA/UI E2E, Go for API + integration drivers. Performance test rig (N-PERF). Support the developer-owned Regression Test Harness (N-RTH) — collaborate but don't own it.
+System Test Plan (N-STP): enumerate *all the ways to demonstrate the integrated system does not work*, traced to the core use cases; authored early, expected to carry high float (PM supplies behavioral expectations; the test-engineer owns the plan). The harness is not an activity: the platform generates the system and regression test harness from the plan; no BDD/Gherkin. Performance test rig — only when justified: performance testing is not in Table 11-1's noncoding list, so a rig is built only when a justified additive activity calls for one. Service and frontend test plans: on the test-plan phase of a service or frontend activity, enumerate the ways that component or UI surface could fail.
 
 ## Boundaries
-**CAN:** write the system test plan; build harnesses and rigs in Go / Playwright; design fault injection, fakes, and automation; flag untestable contracts back to the senior-developer.
-**CANNOT:** change architecture.dsl; design component contracts; own the regression harness; run the terminal system-testing pass (software-tester's job); pass the plan without architect + PM + QA review.
+**CAN:** write the system test plan and the service/frontend test plans; build a performance rig when a justified additive calls for one; design fault injection, fakes, and automation; flag untestable contracts back to the senior-developer.
+**CANNOT:** change architecture.dsl; design component contracts; plan a harness activity (the harness is platform-generated); run the terminal system-testing pass (software-tester's job); pass the plan without architect + PM + QA review.
 
 ## Anti-patterns
-BDD/Gherkin scenarios (removed from aiarch); treating unit tests as sufficient ("borderline useless"); a plan with no use-case trace; building the harness late (N-STP/N-STH are early, high-float enablers).`,
+BDD/Gherkin scenarios (removed from aiarch); treating unit tests as sufficient ("borderline useless"); a plan with no use-case trace; writing the plan late (N-STP is an early, high-float enabler); planning a harness or perf activity by default (the harness is platform-generated; performance testing is a justified additive, never a default).`,
 
   'software-tester': `# Software Tester
 
-The person who *runs* the tests. Per Löwy (ch. 9), changing the ratio of testers to developers "such as 1:1 or even 2:1 (in favor of testers), allows the developers to spend less time testing and more time adding direct value." Distinct from the test-engineer (who *builds* harnesses and writes code to break the system) and from the qa-engineer (process).
+The person who *runs* the tests. Per Löwy (ch. 9), changing the ratio of testers to developers "such as 1:1 or even 2:1 (in favor of testers), allows the developers to spend less time testing and more time adding direct value." Distinct from the test-engineer (who writes the plan to break the system) and from the qa-engineer (process).
 
 Per Löwy's planning assumptions: "One tester is required from the start of construction … until the end of testing," plus "one additional tester … during system testing."
 
 ## Responsibilities
-System Testing (N-IT): execute the System Test Plan against the integrated system via the System Test Harness; drive every core use case end-to-end; report what breaks. Integration verification (I-*): exercise the integrated components and confirm the harness + regression suite stay green. Defect filing: capture every failure as a defect with reproduction steps; route to senior/junior-developer for fix in N-HARD. Regression execution: run the developer-owned Regression Test Harness continuously and report destabilization the moment it happens.
+System Testing (N-IT): execute the System Test Plan against the integrated system via the platform-generated system test harness; drive every core use case end-to-end; report what breaks. Integration verification: as activities integrate (integration is a phase inside each activity, not an I-* activity), exercise the integrated components and confirm the harness + regression suite stay green. Defect filing: capture every failure as a defect with reproduction steps; route to senior/junior-developer for fix in N-HARD. Regression execution: run the platform-generated regression harness continuously and report destabilization the moment it happens.
 
 ## Boundaries
 **CAN:** run the test plan and harnesses; exercise the system through UI (Playwright) and API (Go) instrumentation; file and triage defects; gate an activity's exit on a clean run.
-**CANNOT:** design component contracts; change architecture.dsl; build the system test harness; own the regression harness; fix product code — files defects instead.
+**CANNOT:** design component contracts; change architecture.dsl; build or own the test harnesses (platform-generated); fix product code — files defects instead.
 
 ## Anti-patterns
 Testing through internal/service calls (exercise it the way a client does); "passes on my machine"; silently passing a flake; doing the test-engineer's job.
@@ -473,7 +473,7 @@ export const TEAM: TeamRole[] = [
       '"True QA has little to do with testing… The presence of a QA person is a sign of organizational maturity."',
     charter: {
       owns: [
-        'Quality gates (N-QA): binary exit criteria, the review process, the defect taxonomy',
+        'Quality gates: binary exit criteria, the review process, the defect taxonomy',
         'Continuous process audit — daily build + smoke, regression coverage, code-review adherence',
         'Sits on review routing as the process reviewer for test plans and quality-bearing changes',
         'Keeps the team honest on quality-multiplication economics',
@@ -496,22 +496,22 @@ export const TEAM: TeamRole[] = [
     group: 'construction',
     subgroup: 'review',
     oneLiner:
-      'Writes the machine that tries to break the system — the System Test Plan, harness, and perf rig. Not a tester.',
+      'Writes the plan that tries to break the system — the System Test Plan, and a perf rig only when justified. Not a tester.',
     chapterRef: 'ch. 9/11/14',
     pullQuote:
       '"Test engineers are not testers, but full-fledged software engineers… whose objective is to break the system’s code."',
     charter: {
       owns: [
         'System Test Plan (N-STP): every way to demonstrate the integrated system fails, traced to core use cases',
-        'System Test Harness (N-STH): fakes, simulators, fault injection — Playwright (UI) + Go (API)',
-        'Performance test rig (N-PERF)',
+        'Service and frontend test plans: every way that component or UI surface could fail',
+        'A performance rig — only when a justified additive activity calls for one',
         'Flags untestable contracts back to the Senior Developer',
       ],
       doesNotDo: [
         'Change architecture.dsl or design component contracts',
-        'Own the regression harness (developer-owned)',
+        'Plan a harness activity (the harness is platform-generated)',
         'Run the terminal system-testing pass (the Software Tester’s job)',
-        'Write BDD/Gherkin, or build the harness late',
+        'Write BDD/Gherkin, or write the plan late',
       ],
       reviewedBy:
         'The plan is reviewed by the System Architect + Product Manager + QA Engineer before it passes.',
@@ -532,14 +532,14 @@ export const TEAM: TeamRole[] = [
     charter: {
       owns: [
         'System Testing (N-IT): drives every core use case end-to-end via the harness',
-        'Integration verification (I-*): keeps the harness + regression suite green',
+        'Integration verification: keeps the harness + regression suite green as activities integrate',
         'Files every failure as a defect with reproduction steps; routes to developers (N-HARD)',
-        'Runs the regression harness continuously; reports destabilization the moment it happens',
+        'Runs the platform-generated regression harness continuously; reports destabilization the moment it happens',
       ],
       doesNotDo: [
         'Design component contracts or change architecture.dsl',
-        'Build the system test harness (Test Engineer’s job)',
-        'Own the regression harness or fix product code — files defects instead',
+        'Build or own the test harnesses (platform-generated)',
+        'Fix product code — files defects instead',
         'Test through internal/service calls, or silently pass a flake',
       ],
       reviewedBy:

@@ -46,8 +46,8 @@ export function TestPlanView({ project, t }: ArtifactRendererProps): ReactNode {
       <Typography sx={{ fontFamily: t.body, fontSize: 12, color: t.muted, lineHeight: 1.4 }}>
         A test harness sequences each call along the use-case call chain — the managers never call
         each other. Every step is a transport-agnostic manager operation (REST / MCP / gRPC are
-        generated bindings). At plan time every call is a red target; N-STH generates the test code,
-        and N-IT runs it against the real build to turn them green.
+        generated bindings). At plan time every call is a red target; the platform generates the
+        harness from this plan, and N-IT runs it against the real build to turn them green.
       </Typography>
       <ScenarioBrowser mode="plan" scenarios={scenarios} t={t} />
     </Box>
