@@ -10025,8 +10025,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[agenticJobAccess] + server/internal/resourceaccess/agenticjob/contract.gen.go + server/internal/resourceaccess/agenticjob/agenticjobaccess.go (AgenticJobAccess implemented by access, dryRunPipeline, localExecAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[agenticJobAccess] + server/internal/resourceaccess/agenticjob/contract.gen.go + server/internal/resourceaccess/agenticjob/agenticjobaccess.go (AgenticJobAccess implemented by access, dryRunPipeline, localExecAccess; kind resourceAccess, bound by fielded access, localExecAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -10040,8 +10040,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[agenticJobAccess] + server/internal/resourceaccess/agenticjob/contract.gen.go + server/internal/resourceaccess/agenticjob/agenticjobaccess.go (AgenticJobAccess implemented by access, dryRunPipeline, localExecAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[agenticJobAccess] + server/internal/resourceaccess/agenticjob/contract.gen.go + server/internal/resourceaccess/agenticjob/agenticjobaccess.go (AgenticJobAccess implemented by access, dryRunPipeline, localExecAccess; kind resourceAccess, bound by fielded access, localExecAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -10058,8 +10058,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[agenticJobAccess] + server/internal/resourceaccess/agenticjob/contract.gen.go + server/internal/resourceaccess/agenticjob/agenticjobaccess.go (AgenticJobAccess implemented by access, dryRunPipeline, localExecAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[agenticJobAccess] + server/internal/resourceaccess/agenticjob/contract.gen.go + server/internal/resourceaccess/agenticjob/agenticjobaccess.go (AgenticJobAccess implemented by access, dryRunPipeline, localExecAccess; kind resourceAccess, bound by fielded access, localExecAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -10076,8 +10076,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[agenticJobAccess] + server/internal/resourceaccess/agenticjob/contract.gen.go + server/internal/resourceaccess/agenticjob/agenticjobaccess.go (AgenticJobAccess implemented by access, dryRunPipeline, localExecAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[agenticJobAccess] + server/internal/resourceaccess/agenticjob/contract.gen.go + server/internal/resourceaccess/agenticjob/agenticjobaccess.go (AgenticJobAccess implemented by access, dryRunPipeline, localExecAccess; kind resourceAccess, bound by fielded access, localExecAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -10091,8 +10091,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[agenticJobAccess] + server/internal/resourceaccess/agenticjob/contract.gen.go + server/internal/resourceaccess/agenticjob/agenticjobaccess.go (AgenticJobAccess implemented by access, dryRunPipeline, localExecAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[agenticJobAccess] + server/internal/resourceaccess/agenticjob/contract.gen.go + server/internal/resourceaccess/agenticjob/agenticjobaccess.go (AgenticJobAccess implemented by access, dryRunPipeline, localExecAccess; kind resourceAccess, bound by fielded access, localExecAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -10106,8 +10106,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[agenticJobAccess] + server/internal/resourceaccess/agenticjob/contract.gen.go + server/internal/resourceaccess/agenticjob/agenticjobaccess.go (AgenticJobAccess implemented by access, dryRunPipeline, localExecAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[agenticJobAccess] + server/internal/resourceaccess/agenticjob/contract.gen.go + server/internal/resourceaccess/agenticjob/agenticjobaccess.go (AgenticJobAccess implemented by access, dryRunPipeline, localExecAccess; kind resourceAccess, bound by fielded access, localExecAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -10119,13 +10119,13 @@
           "outcome": "passed",
           "evidence": {
             "kind": "git",
-            "ref": "a4421a8dbb9aac2f8d086fc8ce848ccf96914629"
+            "ref": "98eeae5806ed1ad2631accdb82cc9bfe73545882"
           },
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[agenticJobAccess] + server/internal/resourceaccess/agenticjob/contract.gen.go + server/internal/resourceaccess/agenticjob/agenticjobaccess.go (AgenticJobAccess implemented by access, dryRunPipeline, localExecAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[agenticJobAccess] + server/internal/resourceaccess/agenticjob/contract.gen.go + server/internal/resourceaccess/agenticjob/agenticjobaccess.go (AgenticJobAccess implemented by access, dryRunPipeline, localExecAccess; kind resourceAccess, bound by fielded access, localExecAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -10137,13 +10137,13 @@
           "outcome": "passed",
           "evidence": {
             "kind": "git",
-            "ref": "a4421a8dbb9aac2f8d086fc8ce848ccf96914629"
+            "ref": "98eeae5806ed1ad2631accdb82cc9bfe73545882"
           },
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[agenticJobAccess] + server/internal/resourceaccess/agenticjob/contract.gen.go + server/internal/resourceaccess/agenticjob/agenticjobaccess.go (AgenticJobAccess implemented by access, dryRunPipeline, localExecAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[agenticJobAccess] + server/internal/resourceaccess/agenticjob/contract.gen.go + server/internal/resourceaccess/agenticjob/agenticjobaccess.go (AgenticJobAccess implemented by access, dryRunPipeline, localExecAccess; kind resourceAccess, bound by fielded access, localExecAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -10157,8 +10157,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[agenticJobAccess] + server/internal/resourceaccess/agenticjob/contract.gen.go + server/internal/resourceaccess/agenticjob/agenticjobaccess.go (AgenticJobAccess implemented by access, dryRunPipeline, localExecAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[agenticJobAccess] + server/internal/resourceaccess/agenticjob/contract.gen.go + server/internal/resourceaccess/agenticjob/agenticjobaccess.go (AgenticJobAccess implemented by access, dryRunPipeline, localExecAccess; kind resourceAccess, bound by fielded access, localExecAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -10172,8 +10172,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[agenticJobAccess] + server/internal/resourceaccess/agenticjob/contract.gen.go + server/internal/resourceaccess/agenticjob/agenticjobaccess.go (AgenticJobAccess implemented by access, dryRunPipeline, localExecAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[agenticJobAccess] + server/internal/resourceaccess/agenticjob/contract.gen.go + server/internal/resourceaccess/agenticjob/agenticjobaccess.go (AgenticJobAccess implemented by access, dryRunPipeline, localExecAccess; kind resourceAccess, bound by fielded access, localExecAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         }
       ]
@@ -10193,8 +10193,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[artifactAccess] + server/internal/resourceaccess/artifact/contract.gen.go + server/internal/resourceaccess/artifact/artifactaccess.go (ArtifactAccess implemented by GitArtifactAccess, dryRunArtifacts, erroringArtifactAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[artifactAccess] + server/internal/resourceaccess/artifact/contract.gen.go + server/internal/resourceaccess/artifact/artifactaccess.go (ArtifactAccess implemented by GitArtifactAccess, dryRunArtifacts, erroringArtifactAccess; kind resourceAccess, bound by fielded GitArtifactAccess, erroringArtifactAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -10208,8 +10208,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[artifactAccess] + server/internal/resourceaccess/artifact/contract.gen.go + server/internal/resourceaccess/artifact/artifactaccess.go (ArtifactAccess implemented by GitArtifactAccess, dryRunArtifacts, erroringArtifactAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[artifactAccess] + server/internal/resourceaccess/artifact/contract.gen.go + server/internal/resourceaccess/artifact/artifactaccess.go (ArtifactAccess implemented by GitArtifactAccess, dryRunArtifacts, erroringArtifactAccess; kind resourceAccess, bound by fielded GitArtifactAccess, erroringArtifactAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -10226,8 +10226,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[artifactAccess] + server/internal/resourceaccess/artifact/contract.gen.go + server/internal/resourceaccess/artifact/artifactaccess.go (ArtifactAccess implemented by GitArtifactAccess, dryRunArtifacts, erroringArtifactAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[artifactAccess] + server/internal/resourceaccess/artifact/contract.gen.go + server/internal/resourceaccess/artifact/artifactaccess.go (ArtifactAccess implemented by GitArtifactAccess, dryRunArtifacts, erroringArtifactAccess; kind resourceAccess, bound by fielded GitArtifactAccess, erroringArtifactAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -10244,8 +10244,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[artifactAccess] + server/internal/resourceaccess/artifact/contract.gen.go + server/internal/resourceaccess/artifact/artifactaccess.go (ArtifactAccess implemented by GitArtifactAccess, dryRunArtifacts, erroringArtifactAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[artifactAccess] + server/internal/resourceaccess/artifact/contract.gen.go + server/internal/resourceaccess/artifact/artifactaccess.go (ArtifactAccess implemented by GitArtifactAccess, dryRunArtifacts, erroringArtifactAccess; kind resourceAccess, bound by fielded GitArtifactAccess, erroringArtifactAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -10259,8 +10259,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[artifactAccess] + server/internal/resourceaccess/artifact/contract.gen.go + server/internal/resourceaccess/artifact/artifactaccess.go (ArtifactAccess implemented by GitArtifactAccess, dryRunArtifacts, erroringArtifactAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[artifactAccess] + server/internal/resourceaccess/artifact/contract.gen.go + server/internal/resourceaccess/artifact/artifactaccess.go (ArtifactAccess implemented by GitArtifactAccess, dryRunArtifacts, erroringArtifactAccess; kind resourceAccess, bound by fielded GitArtifactAccess, erroringArtifactAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -10274,8 +10274,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[artifactAccess] + server/internal/resourceaccess/artifact/contract.gen.go + server/internal/resourceaccess/artifact/artifactaccess.go (ArtifactAccess implemented by GitArtifactAccess, dryRunArtifacts, erroringArtifactAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[artifactAccess] + server/internal/resourceaccess/artifact/contract.gen.go + server/internal/resourceaccess/artifact/artifactaccess.go (ArtifactAccess implemented by GitArtifactAccess, dryRunArtifacts, erroringArtifactAccess; kind resourceAccess, bound by fielded GitArtifactAccess, erroringArtifactAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -10287,13 +10287,13 @@
           "outcome": "passed",
           "evidence": {
             "kind": "git",
-            "ref": "a4421a8dbb9aac2f8d086fc8ce848ccf96914629"
+            "ref": "98eeae5806ed1ad2631accdb82cc9bfe73545882"
           },
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[artifactAccess] + server/internal/resourceaccess/artifact/contract.gen.go + server/internal/resourceaccess/artifact/artifactaccess.go (ArtifactAccess implemented by GitArtifactAccess, dryRunArtifacts, erroringArtifactAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[artifactAccess] + server/internal/resourceaccess/artifact/contract.gen.go + server/internal/resourceaccess/artifact/artifactaccess.go (ArtifactAccess implemented by GitArtifactAccess, dryRunArtifacts, erroringArtifactAccess; kind resourceAccess, bound by fielded GitArtifactAccess, erroringArtifactAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -10305,13 +10305,13 @@
           "outcome": "passed",
           "evidence": {
             "kind": "git",
-            "ref": "a4421a8dbb9aac2f8d086fc8ce848ccf96914629"
+            "ref": "98eeae5806ed1ad2631accdb82cc9bfe73545882"
           },
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[artifactAccess] + server/internal/resourceaccess/artifact/contract.gen.go + server/internal/resourceaccess/artifact/artifactaccess.go (ArtifactAccess implemented by GitArtifactAccess, dryRunArtifacts, erroringArtifactAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[artifactAccess] + server/internal/resourceaccess/artifact/contract.gen.go + server/internal/resourceaccess/artifact/artifactaccess.go (ArtifactAccess implemented by GitArtifactAccess, dryRunArtifacts, erroringArtifactAccess; kind resourceAccess, bound by fielded GitArtifactAccess, erroringArtifactAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -10325,8 +10325,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[artifactAccess] + server/internal/resourceaccess/artifact/contract.gen.go + server/internal/resourceaccess/artifact/artifactaccess.go (ArtifactAccess implemented by GitArtifactAccess, dryRunArtifacts, erroringArtifactAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[artifactAccess] + server/internal/resourceaccess/artifact/contract.gen.go + server/internal/resourceaccess/artifact/artifactaccess.go (ArtifactAccess implemented by GitArtifactAccess, dryRunArtifacts, erroringArtifactAccess; kind resourceAccess, bound by fielded GitArtifactAccess, erroringArtifactAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -10340,8 +10340,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[artifactAccess] + server/internal/resourceaccess/artifact/contract.gen.go + server/internal/resourceaccess/artifact/artifactaccess.go (ArtifactAccess implemented by GitArtifactAccess, dryRunArtifacts, erroringArtifactAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[artifactAccess] + server/internal/resourceaccess/artifact/contract.gen.go + server/internal/resourceaccess/artifact/artifactaccess.go (ArtifactAccess implemented by GitArtifactAccess, dryRunArtifacts, erroringArtifactAccess; kind resourceAccess, bound by fielded GitArtifactAccess, erroringArtifactAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         }
       ]
@@ -11033,8 +11033,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[episodeAccess] + server/internal/resourceaccess/episode/contract.gen.go + server/internal/resourceaccess/episode/episodeaccess.go (EpisodeAccess implemented by localFSEpisodeAccess, noopEpisodeAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[episodeAccess] + server/internal/resourceaccess/episode/contract.gen.go + server/internal/resourceaccess/episode/episodeaccess.go (EpisodeAccess implemented by localFSEpisodeAccess, noopEpisodeAccess; kind resourceAccess, bound by fielded localFSEpisodeAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -11048,8 +11048,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[episodeAccess] + server/internal/resourceaccess/episode/contract.gen.go + server/internal/resourceaccess/episode/episodeaccess.go (EpisodeAccess implemented by localFSEpisodeAccess, noopEpisodeAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[episodeAccess] + server/internal/resourceaccess/episode/contract.gen.go + server/internal/resourceaccess/episode/episodeaccess.go (EpisodeAccess implemented by localFSEpisodeAccess, noopEpisodeAccess; kind resourceAccess, bound by fielded localFSEpisodeAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -11066,8 +11066,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[episodeAccess] + server/internal/resourceaccess/episode/contract.gen.go + server/internal/resourceaccess/episode/episodeaccess.go (EpisodeAccess implemented by localFSEpisodeAccess, noopEpisodeAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[episodeAccess] + server/internal/resourceaccess/episode/contract.gen.go + server/internal/resourceaccess/episode/episodeaccess.go (EpisodeAccess implemented by localFSEpisodeAccess, noopEpisodeAccess; kind resourceAccess, bound by fielded localFSEpisodeAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -11084,8 +11084,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[episodeAccess] + server/internal/resourceaccess/episode/contract.gen.go + server/internal/resourceaccess/episode/episodeaccess.go (EpisodeAccess implemented by localFSEpisodeAccess, noopEpisodeAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[episodeAccess] + server/internal/resourceaccess/episode/contract.gen.go + server/internal/resourceaccess/episode/episodeaccess.go (EpisodeAccess implemented by localFSEpisodeAccess, noopEpisodeAccess; kind resourceAccess, bound by fielded localFSEpisodeAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -11099,8 +11099,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[episodeAccess] + server/internal/resourceaccess/episode/contract.gen.go + server/internal/resourceaccess/episode/episodeaccess.go (EpisodeAccess implemented by localFSEpisodeAccess, noopEpisodeAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[episodeAccess] + server/internal/resourceaccess/episode/contract.gen.go + server/internal/resourceaccess/episode/episodeaccess.go (EpisodeAccess implemented by localFSEpisodeAccess, noopEpisodeAccess; kind resourceAccess, bound by fielded localFSEpisodeAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -11114,8 +11114,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[episodeAccess] + server/internal/resourceaccess/episode/contract.gen.go + server/internal/resourceaccess/episode/episodeaccess.go (EpisodeAccess implemented by localFSEpisodeAccess, noopEpisodeAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[episodeAccess] + server/internal/resourceaccess/episode/contract.gen.go + server/internal/resourceaccess/episode/episodeaccess.go (EpisodeAccess implemented by localFSEpisodeAccess, noopEpisodeAccess; kind resourceAccess, bound by fielded localFSEpisodeAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -11127,13 +11127,13 @@
           "outcome": "passed",
           "evidence": {
             "kind": "git",
-            "ref": "a4421a8dbb9aac2f8d086fc8ce848ccf96914629"
+            "ref": "98eeae5806ed1ad2631accdb82cc9bfe73545882"
           },
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[episodeAccess] + server/internal/resourceaccess/episode/contract.gen.go + server/internal/resourceaccess/episode/episodeaccess.go (EpisodeAccess implemented by localFSEpisodeAccess, noopEpisodeAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[episodeAccess] + server/internal/resourceaccess/episode/contract.gen.go + server/internal/resourceaccess/episode/episodeaccess.go (EpisodeAccess implemented by localFSEpisodeAccess, noopEpisodeAccess; kind resourceAccess, bound by fielded localFSEpisodeAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -11145,13 +11145,13 @@
           "outcome": "passed",
           "evidence": {
             "kind": "git",
-            "ref": "a4421a8dbb9aac2f8d086fc8ce848ccf96914629"
+            "ref": "98eeae5806ed1ad2631accdb82cc9bfe73545882"
           },
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[episodeAccess] + server/internal/resourceaccess/episode/contract.gen.go + server/internal/resourceaccess/episode/episodeaccess.go (EpisodeAccess implemented by localFSEpisodeAccess, noopEpisodeAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[episodeAccess] + server/internal/resourceaccess/episode/contract.gen.go + server/internal/resourceaccess/episode/episodeaccess.go (EpisodeAccess implemented by localFSEpisodeAccess, noopEpisodeAccess; kind resourceAccess, bound by fielded localFSEpisodeAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -11165,8 +11165,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[episodeAccess] + server/internal/resourceaccess/episode/contract.gen.go + server/internal/resourceaccess/episode/episodeaccess.go (EpisodeAccess implemented by localFSEpisodeAccess, noopEpisodeAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[episodeAccess] + server/internal/resourceaccess/episode/contract.gen.go + server/internal/resourceaccess/episode/episodeaccess.go (EpisodeAccess implemented by localFSEpisodeAccess, noopEpisodeAccess; kind resourceAccess, bound by fielded localFSEpisodeAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -11180,8 +11180,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[episodeAccess] + server/internal/resourceaccess/episode/contract.gen.go + server/internal/resourceaccess/episode/episodeaccess.go (EpisodeAccess implemented by localFSEpisodeAccess, noopEpisodeAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[episodeAccess] + server/internal/resourceaccess/episode/contract.gen.go + server/internal/resourceaccess/episode/episodeaccess.go (EpisodeAccess implemented by localFSEpisodeAccess, noopEpisodeAccess; kind resourceAccess, bound by fielded localFSEpisodeAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         }
       ]
@@ -11537,8 +11537,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[operatedRuntimeAccess] + server/internal/resourceaccess/operatedruntime/contract.gen.go + server/internal/resourceaccess/operatedruntime/operatedruntimeaccess.go (OperatedRuntimeAccess implemented by dryRunOperatedRuntime, realOperatedRuntime) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[operatedRuntimeAccess] + server/internal/resourceaccess/operatedruntime/contract.gen.go + server/internal/resourceaccess/operatedruntime/operatedruntimeaccess.go (OperatedRuntimeAccess implemented by dryRunOperatedRuntime, realOperatedRuntime; kind resourceAccess, bound by fielded realOperatedRuntime) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -11552,8 +11552,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[operatedRuntimeAccess] + server/internal/resourceaccess/operatedruntime/contract.gen.go + server/internal/resourceaccess/operatedruntime/operatedruntimeaccess.go (OperatedRuntimeAccess implemented by dryRunOperatedRuntime, realOperatedRuntime) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[operatedRuntimeAccess] + server/internal/resourceaccess/operatedruntime/contract.gen.go + server/internal/resourceaccess/operatedruntime/operatedruntimeaccess.go (OperatedRuntimeAccess implemented by dryRunOperatedRuntime, realOperatedRuntime; kind resourceAccess, bound by fielded realOperatedRuntime) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -11570,8 +11570,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[operatedRuntimeAccess] + server/internal/resourceaccess/operatedruntime/contract.gen.go + server/internal/resourceaccess/operatedruntime/operatedruntimeaccess.go (OperatedRuntimeAccess implemented by dryRunOperatedRuntime, realOperatedRuntime) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[operatedRuntimeAccess] + server/internal/resourceaccess/operatedruntime/contract.gen.go + server/internal/resourceaccess/operatedruntime/operatedruntimeaccess.go (OperatedRuntimeAccess implemented by dryRunOperatedRuntime, realOperatedRuntime; kind resourceAccess, bound by fielded realOperatedRuntime) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -11588,8 +11588,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[operatedRuntimeAccess] + server/internal/resourceaccess/operatedruntime/contract.gen.go + server/internal/resourceaccess/operatedruntime/operatedruntimeaccess.go (OperatedRuntimeAccess implemented by dryRunOperatedRuntime, realOperatedRuntime) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[operatedRuntimeAccess] + server/internal/resourceaccess/operatedruntime/contract.gen.go + server/internal/resourceaccess/operatedruntime/operatedruntimeaccess.go (OperatedRuntimeAccess implemented by dryRunOperatedRuntime, realOperatedRuntime; kind resourceAccess, bound by fielded realOperatedRuntime) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -11603,8 +11603,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[operatedRuntimeAccess] + server/internal/resourceaccess/operatedruntime/contract.gen.go + server/internal/resourceaccess/operatedruntime/operatedruntimeaccess.go (OperatedRuntimeAccess implemented by dryRunOperatedRuntime, realOperatedRuntime) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[operatedRuntimeAccess] + server/internal/resourceaccess/operatedruntime/contract.gen.go + server/internal/resourceaccess/operatedruntime/operatedruntimeaccess.go (OperatedRuntimeAccess implemented by dryRunOperatedRuntime, realOperatedRuntime; kind resourceAccess, bound by fielded realOperatedRuntime) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -11618,8 +11618,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[operatedRuntimeAccess] + server/internal/resourceaccess/operatedruntime/contract.gen.go + server/internal/resourceaccess/operatedruntime/operatedruntimeaccess.go (OperatedRuntimeAccess implemented by dryRunOperatedRuntime, realOperatedRuntime) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[operatedRuntimeAccess] + server/internal/resourceaccess/operatedruntime/contract.gen.go + server/internal/resourceaccess/operatedruntime/operatedruntimeaccess.go (OperatedRuntimeAccess implemented by dryRunOperatedRuntime, realOperatedRuntime; kind resourceAccess, bound by fielded realOperatedRuntime) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -11631,13 +11631,13 @@
           "outcome": "passed",
           "evidence": {
             "kind": "git",
-            "ref": "a4421a8dbb9aac2f8d086fc8ce848ccf96914629"
+            "ref": "98eeae5806ed1ad2631accdb82cc9bfe73545882"
           },
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[operatedRuntimeAccess] + server/internal/resourceaccess/operatedruntime/contract.gen.go + server/internal/resourceaccess/operatedruntime/operatedruntimeaccess.go (OperatedRuntimeAccess implemented by dryRunOperatedRuntime, realOperatedRuntime) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[operatedRuntimeAccess] + server/internal/resourceaccess/operatedruntime/contract.gen.go + server/internal/resourceaccess/operatedruntime/operatedruntimeaccess.go (OperatedRuntimeAccess implemented by dryRunOperatedRuntime, realOperatedRuntime; kind resourceAccess, bound by fielded realOperatedRuntime) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -11649,13 +11649,13 @@
           "outcome": "passed",
           "evidence": {
             "kind": "git",
-            "ref": "a4421a8dbb9aac2f8d086fc8ce848ccf96914629"
+            "ref": "98eeae5806ed1ad2631accdb82cc9bfe73545882"
           },
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[operatedRuntimeAccess] + server/internal/resourceaccess/operatedruntime/contract.gen.go + server/internal/resourceaccess/operatedruntime/operatedruntimeaccess.go (OperatedRuntimeAccess implemented by dryRunOperatedRuntime, realOperatedRuntime) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[operatedRuntimeAccess] + server/internal/resourceaccess/operatedruntime/contract.gen.go + server/internal/resourceaccess/operatedruntime/operatedruntimeaccess.go (OperatedRuntimeAccess implemented by dryRunOperatedRuntime, realOperatedRuntime; kind resourceAccess, bound by fielded realOperatedRuntime) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -11669,8 +11669,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[operatedRuntimeAccess] + server/internal/resourceaccess/operatedruntime/contract.gen.go + server/internal/resourceaccess/operatedruntime/operatedruntimeaccess.go (OperatedRuntimeAccess implemented by dryRunOperatedRuntime, realOperatedRuntime) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[operatedRuntimeAccess] + server/internal/resourceaccess/operatedruntime/contract.gen.go + server/internal/resourceaccess/operatedruntime/operatedruntimeaccess.go (OperatedRuntimeAccess implemented by dryRunOperatedRuntime, realOperatedRuntime; kind resourceAccess, bound by fielded realOperatedRuntime) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -11684,8 +11684,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[operatedRuntimeAccess] + server/internal/resourceaccess/operatedruntime/contract.gen.go + server/internal/resourceaccess/operatedruntime/operatedruntimeaccess.go (OperatedRuntimeAccess implemented by dryRunOperatedRuntime, realOperatedRuntime) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[operatedRuntimeAccess] + server/internal/resourceaccess/operatedruntime/contract.gen.go + server/internal/resourceaccess/operatedruntime/operatedruntimeaccess.go (OperatedRuntimeAccess implemented by dryRunOperatedRuntime, realOperatedRuntime; kind resourceAccess, bound by fielded realOperatedRuntime) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         }
       ]
@@ -11705,8 +11705,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[operatedSystemStateAccess] + server/internal/resourceaccess/operatedsystemstate/contract.gen.go + server/internal/resourceaccess/operatedsystemstate/operatedsystemstateaccess.go (OperatedSystemStateAccess implemented by noopOperatedSystemStateAccess, postgresOperatedSystemStateAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[operatedSystemStateAccess] + server/internal/resourceaccess/operatedsystemstate/contract.gen.go + server/internal/resourceaccess/operatedsystemstate/operatedsystemstateaccess.go (OperatedSystemStateAccess implemented by noopOperatedSystemStateAccess, postgresOperatedSystemStateAccess; kind resourceAccess, bound by fielded postgresOperatedSystemStateAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -11720,8 +11720,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[operatedSystemStateAccess] + server/internal/resourceaccess/operatedsystemstate/contract.gen.go + server/internal/resourceaccess/operatedsystemstate/operatedsystemstateaccess.go (OperatedSystemStateAccess implemented by noopOperatedSystemStateAccess, postgresOperatedSystemStateAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[operatedSystemStateAccess] + server/internal/resourceaccess/operatedsystemstate/contract.gen.go + server/internal/resourceaccess/operatedsystemstate/operatedsystemstateaccess.go (OperatedSystemStateAccess implemented by noopOperatedSystemStateAccess, postgresOperatedSystemStateAccess; kind resourceAccess, bound by fielded postgresOperatedSystemStateAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -11738,8 +11738,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[operatedSystemStateAccess] + server/internal/resourceaccess/operatedsystemstate/contract.gen.go + server/internal/resourceaccess/operatedsystemstate/operatedsystemstateaccess.go (OperatedSystemStateAccess implemented by noopOperatedSystemStateAccess, postgresOperatedSystemStateAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[operatedSystemStateAccess] + server/internal/resourceaccess/operatedsystemstate/contract.gen.go + server/internal/resourceaccess/operatedsystemstate/operatedsystemstateaccess.go (OperatedSystemStateAccess implemented by noopOperatedSystemStateAccess, postgresOperatedSystemStateAccess; kind resourceAccess, bound by fielded postgresOperatedSystemStateAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -11756,8 +11756,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[operatedSystemStateAccess] + server/internal/resourceaccess/operatedsystemstate/contract.gen.go + server/internal/resourceaccess/operatedsystemstate/operatedsystemstateaccess.go (OperatedSystemStateAccess implemented by noopOperatedSystemStateAccess, postgresOperatedSystemStateAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[operatedSystemStateAccess] + server/internal/resourceaccess/operatedsystemstate/contract.gen.go + server/internal/resourceaccess/operatedsystemstate/operatedsystemstateaccess.go (OperatedSystemStateAccess implemented by noopOperatedSystemStateAccess, postgresOperatedSystemStateAccess; kind resourceAccess, bound by fielded postgresOperatedSystemStateAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -11771,8 +11771,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[operatedSystemStateAccess] + server/internal/resourceaccess/operatedsystemstate/contract.gen.go + server/internal/resourceaccess/operatedsystemstate/operatedsystemstateaccess.go (OperatedSystemStateAccess implemented by noopOperatedSystemStateAccess, postgresOperatedSystemStateAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[operatedSystemStateAccess] + server/internal/resourceaccess/operatedsystemstate/contract.gen.go + server/internal/resourceaccess/operatedsystemstate/operatedsystemstateaccess.go (OperatedSystemStateAccess implemented by noopOperatedSystemStateAccess, postgresOperatedSystemStateAccess; kind resourceAccess, bound by fielded postgresOperatedSystemStateAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -11786,8 +11786,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[operatedSystemStateAccess] + server/internal/resourceaccess/operatedsystemstate/contract.gen.go + server/internal/resourceaccess/operatedsystemstate/operatedsystemstateaccess.go (OperatedSystemStateAccess implemented by noopOperatedSystemStateAccess, postgresOperatedSystemStateAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[operatedSystemStateAccess] + server/internal/resourceaccess/operatedsystemstate/contract.gen.go + server/internal/resourceaccess/operatedsystemstate/operatedsystemstateaccess.go (OperatedSystemStateAccess implemented by noopOperatedSystemStateAccess, postgresOperatedSystemStateAccess; kind resourceAccess, bound by fielded postgresOperatedSystemStateAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -11799,13 +11799,13 @@
           "outcome": "passed",
           "evidence": {
             "kind": "git",
-            "ref": "a4421a8dbb9aac2f8d086fc8ce848ccf96914629"
+            "ref": "98eeae5806ed1ad2631accdb82cc9bfe73545882"
           },
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[operatedSystemStateAccess] + server/internal/resourceaccess/operatedsystemstate/contract.gen.go + server/internal/resourceaccess/operatedsystemstate/operatedsystemstateaccess.go (OperatedSystemStateAccess implemented by noopOperatedSystemStateAccess, postgresOperatedSystemStateAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[operatedSystemStateAccess] + server/internal/resourceaccess/operatedsystemstate/contract.gen.go + server/internal/resourceaccess/operatedsystemstate/operatedsystemstateaccess.go (OperatedSystemStateAccess implemented by noopOperatedSystemStateAccess, postgresOperatedSystemStateAccess; kind resourceAccess, bound by fielded postgresOperatedSystemStateAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -11817,13 +11817,13 @@
           "outcome": "passed",
           "evidence": {
             "kind": "git",
-            "ref": "a4421a8dbb9aac2f8d086fc8ce848ccf96914629"
+            "ref": "98eeae5806ed1ad2631accdb82cc9bfe73545882"
           },
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[operatedSystemStateAccess] + server/internal/resourceaccess/operatedsystemstate/contract.gen.go + server/internal/resourceaccess/operatedsystemstate/operatedsystemstateaccess.go (OperatedSystemStateAccess implemented by noopOperatedSystemStateAccess, postgresOperatedSystemStateAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[operatedSystemStateAccess] + server/internal/resourceaccess/operatedsystemstate/contract.gen.go + server/internal/resourceaccess/operatedsystemstate/operatedsystemstateaccess.go (OperatedSystemStateAccess implemented by noopOperatedSystemStateAccess, postgresOperatedSystemStateAccess; kind resourceAccess, bound by fielded postgresOperatedSystemStateAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -11837,8 +11837,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[operatedSystemStateAccess] + server/internal/resourceaccess/operatedsystemstate/contract.gen.go + server/internal/resourceaccess/operatedsystemstate/operatedsystemstateaccess.go (OperatedSystemStateAccess implemented by noopOperatedSystemStateAccess, postgresOperatedSystemStateAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[operatedSystemStateAccess] + server/internal/resourceaccess/operatedsystemstate/contract.gen.go + server/internal/resourceaccess/operatedsystemstate/operatedsystemstateaccess.go (OperatedSystemStateAccess implemented by noopOperatedSystemStateAccess, postgresOperatedSystemStateAccess; kind resourceAccess, bound by fielded postgresOperatedSystemStateAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -11852,8 +11852,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[operatedSystemStateAccess] + server/internal/resourceaccess/operatedsystemstate/contract.gen.go + server/internal/resourceaccess/operatedsystemstate/operatedsystemstateaccess.go (OperatedSystemStateAccess implemented by noopOperatedSystemStateAccess, postgresOperatedSystemStateAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[operatedSystemStateAccess] + server/internal/resourceaccess/operatedsystemstate/contract.gen.go + server/internal/resourceaccess/operatedsystemstate/operatedsystemstateaccess.go (OperatedSystemStateAccess implemented by noopOperatedSystemStateAccess, postgresOperatedSystemStateAccess; kind resourceAccess, bound by fielded postgresOperatedSystemStateAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         }
       ]
@@ -12377,8 +12377,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[projectStateAccess,constructionTransitionAccess,designSessionAccess,gitActivityStatusAccess] + server/internal/resourceaccess/projectstate/contract.gen.go + server/internal/resourceaccess/projectstate/projectstateaccess.go (ProjectStateAccess implemented by projectStateGitAdapter) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[projectStateAccess,constructionTransitionAccess,designSessionAccess,gitActivityStatusAccess] + server/internal/resourceaccess/projectstate/contract.gen.go + server/internal/resourceaccess/projectstate/projectstateaccess.go (ProjectStateAccess implemented by projectStateGitAdapter; kind resourceAccess, bound by fielded projectStateGitAdapter) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -12392,8 +12392,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[projectStateAccess,constructionTransitionAccess,designSessionAccess,gitActivityStatusAccess] + server/internal/resourceaccess/projectstate/contract.gen.go + server/internal/resourceaccess/projectstate/projectstateaccess.go (ProjectStateAccess implemented by projectStateGitAdapter) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[projectStateAccess,constructionTransitionAccess,designSessionAccess,gitActivityStatusAccess] + server/internal/resourceaccess/projectstate/contract.gen.go + server/internal/resourceaccess/projectstate/projectstateaccess.go (ProjectStateAccess implemented by projectStateGitAdapter; kind resourceAccess, bound by fielded projectStateGitAdapter) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -12410,8 +12410,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[projectStateAccess,constructionTransitionAccess,designSessionAccess,gitActivityStatusAccess] + server/internal/resourceaccess/projectstate/contract.gen.go + server/internal/resourceaccess/projectstate/projectstateaccess.go (ProjectStateAccess implemented by projectStateGitAdapter) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[projectStateAccess,constructionTransitionAccess,designSessionAccess,gitActivityStatusAccess] + server/internal/resourceaccess/projectstate/contract.gen.go + server/internal/resourceaccess/projectstate/projectstateaccess.go (ProjectStateAccess implemented by projectStateGitAdapter; kind resourceAccess, bound by fielded projectStateGitAdapter) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -12428,8 +12428,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[projectStateAccess,constructionTransitionAccess,designSessionAccess,gitActivityStatusAccess] + server/internal/resourceaccess/projectstate/contract.gen.go + server/internal/resourceaccess/projectstate/projectstateaccess.go (ProjectStateAccess implemented by projectStateGitAdapter) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[projectStateAccess,constructionTransitionAccess,designSessionAccess,gitActivityStatusAccess] + server/internal/resourceaccess/projectstate/contract.gen.go + server/internal/resourceaccess/projectstate/projectstateaccess.go (ProjectStateAccess implemented by projectStateGitAdapter; kind resourceAccess, bound by fielded projectStateGitAdapter) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -12443,8 +12443,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[projectStateAccess,constructionTransitionAccess,designSessionAccess,gitActivityStatusAccess] + server/internal/resourceaccess/projectstate/contract.gen.go + server/internal/resourceaccess/projectstate/projectstateaccess.go (ProjectStateAccess implemented by projectStateGitAdapter) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[projectStateAccess,constructionTransitionAccess,designSessionAccess,gitActivityStatusAccess] + server/internal/resourceaccess/projectstate/contract.gen.go + server/internal/resourceaccess/projectstate/projectstateaccess.go (ProjectStateAccess implemented by projectStateGitAdapter; kind resourceAccess, bound by fielded projectStateGitAdapter) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -12458,8 +12458,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[projectStateAccess,constructionTransitionAccess,designSessionAccess,gitActivityStatusAccess] + server/internal/resourceaccess/projectstate/contract.gen.go + server/internal/resourceaccess/projectstate/projectstateaccess.go (ProjectStateAccess implemented by projectStateGitAdapter) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[projectStateAccess,constructionTransitionAccess,designSessionAccess,gitActivityStatusAccess] + server/internal/resourceaccess/projectstate/contract.gen.go + server/internal/resourceaccess/projectstate/projectstateaccess.go (ProjectStateAccess implemented by projectStateGitAdapter; kind resourceAccess, bound by fielded projectStateGitAdapter) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -12471,13 +12471,13 @@
           "outcome": "passed",
           "evidence": {
             "kind": "git",
-            "ref": "a4421a8dbb9aac2f8d086fc8ce848ccf96914629"
+            "ref": "98eeae5806ed1ad2631accdb82cc9bfe73545882"
           },
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[projectStateAccess,constructionTransitionAccess,designSessionAccess,gitActivityStatusAccess] + server/internal/resourceaccess/projectstate/contract.gen.go + server/internal/resourceaccess/projectstate/projectstateaccess.go (ProjectStateAccess implemented by projectStateGitAdapter) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[projectStateAccess,constructionTransitionAccess,designSessionAccess,gitActivityStatusAccess] + server/internal/resourceaccess/projectstate/contract.gen.go + server/internal/resourceaccess/projectstate/projectstateaccess.go (ProjectStateAccess implemented by projectStateGitAdapter; kind resourceAccess, bound by fielded projectStateGitAdapter) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -12489,13 +12489,13 @@
           "outcome": "passed",
           "evidence": {
             "kind": "git",
-            "ref": "a4421a8dbb9aac2f8d086fc8ce848ccf96914629"
+            "ref": "98eeae5806ed1ad2631accdb82cc9bfe73545882"
           },
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[projectStateAccess,constructionTransitionAccess,designSessionAccess,gitActivityStatusAccess] + server/internal/resourceaccess/projectstate/contract.gen.go + server/internal/resourceaccess/projectstate/projectstateaccess.go (ProjectStateAccess implemented by projectStateGitAdapter) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[projectStateAccess,constructionTransitionAccess,designSessionAccess,gitActivityStatusAccess] + server/internal/resourceaccess/projectstate/contract.gen.go + server/internal/resourceaccess/projectstate/projectstateaccess.go (ProjectStateAccess implemented by projectStateGitAdapter; kind resourceAccess, bound by fielded projectStateGitAdapter) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -12509,8 +12509,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[projectStateAccess,constructionTransitionAccess,designSessionAccess,gitActivityStatusAccess] + server/internal/resourceaccess/projectstate/contract.gen.go + server/internal/resourceaccess/projectstate/projectstateaccess.go (ProjectStateAccess implemented by projectStateGitAdapter) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[projectStateAccess,constructionTransitionAccess,designSessionAccess,gitActivityStatusAccess] + server/internal/resourceaccess/projectstate/contract.gen.go + server/internal/resourceaccess/projectstate/projectstateaccess.go (ProjectStateAccess implemented by projectStateGitAdapter; kind resourceAccess, bound by fielded projectStateGitAdapter) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -12524,8 +12524,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[projectStateAccess,constructionTransitionAccess,designSessionAccess,gitActivityStatusAccess] + server/internal/resourceaccess/projectstate/contract.gen.go + server/internal/resourceaccess/projectstate/projectstateaccess.go (ProjectStateAccess implemented by projectStateGitAdapter) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[projectStateAccess,constructionTransitionAccess,designSessionAccess,gitActivityStatusAccess] + server/internal/resourceaccess/projectstate/contract.gen.go + server/internal/resourceaccess/projectstate/projectstateaccess.go (ProjectStateAccess implemented by projectStateGitAdapter; kind resourceAccess, bound by fielded projectStateGitAdapter) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         }
       ]
@@ -12713,8 +12713,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[sourceControlAccess] + server/internal/resourceaccess/sourcecontrol/contract.gen.go + server/internal/resourceaccess/sourcecontrol/sourcecontrolaccess.go (SourceControlAccess implemented by access, gitLocalAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[sourceControlAccess] + server/internal/resourceaccess/sourcecontrol/contract.gen.go + server/internal/resourceaccess/sourcecontrol/sourcecontrolaccess.go (SourceControlAccess implemented by access, gitLocalAccess; kind resourceAccess, bound by fielded access, gitLocalAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -12728,8 +12728,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[sourceControlAccess] + server/internal/resourceaccess/sourcecontrol/contract.gen.go + server/internal/resourceaccess/sourcecontrol/sourcecontrolaccess.go (SourceControlAccess implemented by access, gitLocalAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[sourceControlAccess] + server/internal/resourceaccess/sourcecontrol/contract.gen.go + server/internal/resourceaccess/sourcecontrol/sourcecontrolaccess.go (SourceControlAccess implemented by access, gitLocalAccess; kind resourceAccess, bound by fielded access, gitLocalAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -12746,8 +12746,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[sourceControlAccess] + server/internal/resourceaccess/sourcecontrol/contract.gen.go + server/internal/resourceaccess/sourcecontrol/sourcecontrolaccess.go (SourceControlAccess implemented by access, gitLocalAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[sourceControlAccess] + server/internal/resourceaccess/sourcecontrol/contract.gen.go + server/internal/resourceaccess/sourcecontrol/sourcecontrolaccess.go (SourceControlAccess implemented by access, gitLocalAccess; kind resourceAccess, bound by fielded access, gitLocalAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -12764,8 +12764,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[sourceControlAccess] + server/internal/resourceaccess/sourcecontrol/contract.gen.go + server/internal/resourceaccess/sourcecontrol/sourcecontrolaccess.go (SourceControlAccess implemented by access, gitLocalAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[sourceControlAccess] + server/internal/resourceaccess/sourcecontrol/contract.gen.go + server/internal/resourceaccess/sourcecontrol/sourcecontrolaccess.go (SourceControlAccess implemented by access, gitLocalAccess; kind resourceAccess, bound by fielded access, gitLocalAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -12779,8 +12779,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[sourceControlAccess] + server/internal/resourceaccess/sourcecontrol/contract.gen.go + server/internal/resourceaccess/sourcecontrol/sourcecontrolaccess.go (SourceControlAccess implemented by access, gitLocalAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[sourceControlAccess] + server/internal/resourceaccess/sourcecontrol/contract.gen.go + server/internal/resourceaccess/sourcecontrol/sourcecontrolaccess.go (SourceControlAccess implemented by access, gitLocalAccess; kind resourceAccess, bound by fielded access, gitLocalAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -12794,8 +12794,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[sourceControlAccess] + server/internal/resourceaccess/sourcecontrol/contract.gen.go + server/internal/resourceaccess/sourcecontrol/sourcecontrolaccess.go (SourceControlAccess implemented by access, gitLocalAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[sourceControlAccess] + server/internal/resourceaccess/sourcecontrol/contract.gen.go + server/internal/resourceaccess/sourcecontrol/sourcecontrolaccess.go (SourceControlAccess implemented by access, gitLocalAccess; kind resourceAccess, bound by fielded access, gitLocalAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -12807,13 +12807,13 @@
           "outcome": "passed",
           "evidence": {
             "kind": "git",
-            "ref": "a4421a8dbb9aac2f8d086fc8ce848ccf96914629"
+            "ref": "98eeae5806ed1ad2631accdb82cc9bfe73545882"
           },
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[sourceControlAccess] + server/internal/resourceaccess/sourcecontrol/contract.gen.go + server/internal/resourceaccess/sourcecontrol/sourcecontrolaccess.go (SourceControlAccess implemented by access, gitLocalAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[sourceControlAccess] + server/internal/resourceaccess/sourcecontrol/contract.gen.go + server/internal/resourceaccess/sourcecontrol/sourcecontrolaccess.go (SourceControlAccess implemented by access, gitLocalAccess; kind resourceAccess, bound by fielded access, gitLocalAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -12825,13 +12825,13 @@
           "outcome": "passed",
           "evidence": {
             "kind": "git",
-            "ref": "a4421a8dbb9aac2f8d086fc8ce848ccf96914629"
+            "ref": "98eeae5806ed1ad2631accdb82cc9bfe73545882"
           },
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[sourceControlAccess] + server/internal/resourceaccess/sourcecontrol/contract.gen.go + server/internal/resourceaccess/sourcecontrol/sourcecontrolaccess.go (SourceControlAccess implemented by access, gitLocalAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[sourceControlAccess] + server/internal/resourceaccess/sourcecontrol/contract.gen.go + server/internal/resourceaccess/sourcecontrol/sourcecontrolaccess.go (SourceControlAccess implemented by access, gitLocalAccess; kind resourceAccess, bound by fielded access, gitLocalAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -12845,8 +12845,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[sourceControlAccess] + server/internal/resourceaccess/sourcecontrol/contract.gen.go + server/internal/resourceaccess/sourcecontrol/sourcecontrolaccess.go (SourceControlAccess implemented by access, gitLocalAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[sourceControlAccess] + server/internal/resourceaccess/sourcecontrol/contract.gen.go + server/internal/resourceaccess/sourcecontrol/sourcecontrolaccess.go (SourceControlAccess implemented by access, gitLocalAccess; kind resourceAccess, bound by fielded access, gitLocalAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -12860,8 +12860,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[sourceControlAccess] + server/internal/resourceaccess/sourcecontrol/contract.gen.go + server/internal/resourceaccess/sourcecontrol/sourcecontrolaccess.go (SourceControlAccess implemented by access, gitLocalAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[sourceControlAccess] + server/internal/resourceaccess/sourcecontrol/contract.gen.go + server/internal/resourceaccess/sourcecontrol/sourcecontrolaccess.go (SourceControlAccess implemented by access, gitLocalAccess; kind resourceAccess, bound by fielded access, gitLocalAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         }
       ]
@@ -13049,8 +13049,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[usageAccess] + server/internal/resourceaccess/usage/contract.gen.go + server/internal/resourceaccess/usage/usageaccess.go (UsageAccess implemented by noopUsageAccess, postgresUsageAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[usageAccess] + server/internal/resourceaccess/usage/contract.gen.go + server/internal/resourceaccess/usage/usageaccess.go (UsageAccess implemented by noopUsageAccess, postgresUsageAccess; kind resourceAccess, bound by fielded postgresUsageAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -13064,8 +13064,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[usageAccess] + server/internal/resourceaccess/usage/contract.gen.go + server/internal/resourceaccess/usage/usageaccess.go (UsageAccess implemented by noopUsageAccess, postgresUsageAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[usageAccess] + server/internal/resourceaccess/usage/contract.gen.go + server/internal/resourceaccess/usage/usageaccess.go (UsageAccess implemented by noopUsageAccess, postgresUsageAccess; kind resourceAccess, bound by fielded postgresUsageAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -13082,8 +13082,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[usageAccess] + server/internal/resourceaccess/usage/contract.gen.go + server/internal/resourceaccess/usage/usageaccess.go (UsageAccess implemented by noopUsageAccess, postgresUsageAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[usageAccess] + server/internal/resourceaccess/usage/contract.gen.go + server/internal/resourceaccess/usage/usageaccess.go (UsageAccess implemented by noopUsageAccess, postgresUsageAccess; kind resourceAccess, bound by fielded postgresUsageAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -13100,8 +13100,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[usageAccess] + server/internal/resourceaccess/usage/contract.gen.go + server/internal/resourceaccess/usage/usageaccess.go (UsageAccess implemented by noopUsageAccess, postgresUsageAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[usageAccess] + server/internal/resourceaccess/usage/contract.gen.go + server/internal/resourceaccess/usage/usageaccess.go (UsageAccess implemented by noopUsageAccess, postgresUsageAccess; kind resourceAccess, bound by fielded postgresUsageAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -13115,8 +13115,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[usageAccess] + server/internal/resourceaccess/usage/contract.gen.go + server/internal/resourceaccess/usage/usageaccess.go (UsageAccess implemented by noopUsageAccess, postgresUsageAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[usageAccess] + server/internal/resourceaccess/usage/contract.gen.go + server/internal/resourceaccess/usage/usageaccess.go (UsageAccess implemented by noopUsageAccess, postgresUsageAccess; kind resourceAccess, bound by fielded postgresUsageAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -13130,8 +13130,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[usageAccess] + server/internal/resourceaccess/usage/contract.gen.go + server/internal/resourceaccess/usage/usageaccess.go (UsageAccess implemented by noopUsageAccess, postgresUsageAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[usageAccess] + server/internal/resourceaccess/usage/contract.gen.go + server/internal/resourceaccess/usage/usageaccess.go (UsageAccess implemented by noopUsageAccess, postgresUsageAccess; kind resourceAccess, bound by fielded postgresUsageAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -13143,13 +13143,13 @@
           "outcome": "passed",
           "evidence": {
             "kind": "git",
-            "ref": "a4421a8dbb9aac2f8d086fc8ce848ccf96914629"
+            "ref": "98eeae5806ed1ad2631accdb82cc9bfe73545882"
           },
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[usageAccess] + server/internal/resourceaccess/usage/contract.gen.go + server/internal/resourceaccess/usage/usageaccess.go (UsageAccess implemented by noopUsageAccess, postgresUsageAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[usageAccess] + server/internal/resourceaccess/usage/contract.gen.go + server/internal/resourceaccess/usage/usageaccess.go (UsageAccess implemented by noopUsageAccess, postgresUsageAccess; kind resourceAccess, bound by fielded postgresUsageAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -13161,13 +13161,13 @@
           "outcome": "passed",
           "evidence": {
             "kind": "git",
-            "ref": "a4421a8dbb9aac2f8d086fc8ce848ccf96914629"
+            "ref": "98eeae5806ed1ad2631accdb82cc9bfe73545882"
           },
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[usageAccess] + server/internal/resourceaccess/usage/contract.gen.go + server/internal/resourceaccess/usage/usageaccess.go (UsageAccess implemented by noopUsageAccess, postgresUsageAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[usageAccess] + server/internal/resourceaccess/usage/contract.gen.go + server/internal/resourceaccess/usage/usageaccess.go (UsageAccess implemented by noopUsageAccess, postgresUsageAccess; kind resourceAccess, bound by fielded postgresUsageAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -13181,8 +13181,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[usageAccess] + server/internal/resourceaccess/usage/contract.gen.go + server/internal/resourceaccess/usage/usageaccess.go (UsageAccess implemented by noopUsageAccess, postgresUsageAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[usageAccess] + server/internal/resourceaccess/usage/contract.gen.go + server/internal/resourceaccess/usage/usageaccess.go (UsageAccess implemented by noopUsageAccess, postgresUsageAccess; kind resourceAccess, bound by fielded postgresUsageAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         },
         {
@@ -13196,8 +13196,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "serviceContracts[usageAccess] + server/internal/resourceaccess/usage/contract.gen.go + server/internal/resourceaccess/usage/usageaccess.go (UsageAccess implemented by noopUsageAccess, postgresUsageAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+            "generatedAt": "2026-09-12T19:36:11.021638Z",
+            "basis": "serviceContracts[usageAccess] + server/internal/resourceaccess/usage/contract.gen.go + server/internal/resourceaccess/usage/usageaccess.go (UsageAccess implemented by noopUsageAccess, postgresUsageAccess; kind resourceAccess, bound by fielded postgresUsageAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         }
       ]
