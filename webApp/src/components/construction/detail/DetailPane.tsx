@@ -91,6 +91,7 @@ import {
   provenanceNodeFor,
   resolvePhaseTask,
   selectedAttemptOf,
+  selectionSummaryFor,
   taskDetailStateFill,
   TASK_DETAIL_STATE_LABEL,
   taskDetailStateFor,
@@ -253,6 +254,9 @@ export function DetailPane({
   const state = useMemo(() => taskDetailStateFor(row, selection), [row, selection]);
   const actions = useMemo(() => detailActionsFor(state), [state]);
   const meta = useMemo(() => resolvePhaseTask(row, selection), [row, selection]);
+  // "N attempts · M phases" (or "· M tasks" for a phase) when no single task is
+  // selected — in place of an attempt selector that has nothing to select.
+  const summary = useMemo(() => selectionSummaryFor(row, selection), [row, selection]);
   // Provenance read through the SAME axis the list's rail and badge read
   // (provenanceAxis.ts), scoped to whatever is selected — see provenanceNodeFor
   // for why the pane carrying no mark was laundering the founder's ruling.
@@ -309,6 +313,7 @@ export function DetailPane({
       exitCriterion={meta.exitCriterion}
       provenance={provenance}
       state={state}
+      summary={summary}
       t={t}
       taskAttempts={taskAttempts}
       weight={meta.phaseWeight}
@@ -353,6 +358,7 @@ export function DetailPane({
           exitCriterion={meta.exitCriterion}
           provenance={provenance}
           state={state}
+          summary={summary}
           t={t}
           taskAttempts={taskAttempts}
           weight={meta.phaseWeight}
@@ -383,6 +389,7 @@ function DetailPaneChrome({
   breadcrumb,
   state,
   provenance,
+  summary,
   taskAttempts,
   exitCriterion,
   weight,
@@ -400,6 +407,7 @@ function DetailPaneChrome({
   breadcrumb: string;
   state: TaskDetailState;
   provenance: ProvenanceReading;
+  summary: string | undefined;
   taskAttempts: ReturnType<typeof attemptsForTask>;
   exitCriterion: string | undefined;
   weight: number | undefined;
@@ -478,6 +486,7 @@ function DetailPaneChrome({
           exitCriterion={exitCriterion}
           provenance={provenance}
           state={state}
+          summary={summary}
           t={t}
           taskAttempts={taskAttempts}
           weight={weight}
@@ -506,6 +515,7 @@ function DetailHeader({
   breadcrumb,
   state,
   provenance,
+  summary,
   taskAttempts,
   exitCriterion,
   weight,
@@ -517,6 +527,8 @@ function DetailHeader({
   breadcrumb: string;
   state: TaskDetailState;
   provenance: ProvenanceReading;
+  /** "N attempts · M phases" when no single task is selected (selectionSummaryFor). */
+  summary: string | undefined;
   taskAttempts: ReturnType<typeof attemptsForTask>;
   exitCriterion: string | undefined;
   weight: number | undefined;
@@ -604,30 +616,46 @@ function DetailHeader({
 
         <ProvenanceChip provenance={provenance} t={t} />
 
-        <AttemptSelector attempts={taskAttempts} t={t} onSelectAttempt={onSelectAttempt} />
-      </Box>
-
-      <Box
-        data-testid={UI_IDENTIFIERS.Construction.DETAIL_EXIT_CRITERION}
-        sx={{ display: 'flex', alignItems: 'baseline', gap: 0.75, mt: 1 }}
-      >
-        <Typography sx={{ fontFamily: t.body, fontSize: 11.5, color: t.muted, lineHeight: 1.4 }}>
-          {exitCriterion !== undefined ? `Exit: ${exitCriterion}` : 'Exit: —'}
-        </Typography>
-        {weight !== undefined && (
+        {/* An activity or phase selection has no single task to pick an attempt
+            of, so it says what it holds ("N attempts · M phases") instead of an
+            empty selector reading "NO ATTEMPTS" beside a PASSED chip (P1-6). */}
+        {summary !== undefined ? (
           <Typography
-            sx={{
-              fontFamily: t.mono,
-              fontSize: 10.5,
-              fontWeight: 700,
-              color: t.muted,
-              flexShrink: 0,
-            }}
+            data-testid={UI_IDENTIFIERS.Construction.DETAIL_SELECTION_SUMMARY}
+            sx={{ fontFamily: t.mono, fontSize: 9.5, color: t.muted, letterSpacing: '0.04em' }}
           >
-            · {String(weight)}%
+            {summary}
           </Typography>
+        ) : (
+          <AttemptSelector attempts={taskAttempts} t={t} onSelectAttempt={onSelectAttempt} />
         )}
       </Box>
+
+      {/* Only when a phase applies: an "Exit: —" line with nothing after it said
+          less than no line at all (P1-6). The weight comes from the same phase. */}
+      {exitCriterion !== undefined ? (
+        <Box
+          data-testid={UI_IDENTIFIERS.Construction.DETAIL_EXIT_CRITERION}
+          sx={{ display: 'flex', alignItems: 'baseline', gap: 0.75, mt: 1 }}
+        >
+          <Typography sx={{ fontFamily: t.body, fontSize: 11.5, color: t.muted, lineHeight: 1.4 }}>
+            Exit: {exitCriterion}
+          </Typography>
+          {weight !== undefined && (
+            <Typography
+              sx={{
+                fontFamily: t.mono,
+                fontSize: 10.5,
+                fontWeight: 700,
+                color: t.muted,
+                flexShrink: 0,
+              }}
+            >
+              · {String(weight)}%
+            </Typography>
+          )}
+        </Box>
+      ) : null}
     </Box>
   );
 }

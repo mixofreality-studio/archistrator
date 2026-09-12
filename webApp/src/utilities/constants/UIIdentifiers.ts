@@ -356,6 +356,13 @@ export const UI_IDENTIFIERS = {
     BEGIN_CONFIRM_CANCEL: 'construction-begin-confirm-cancel',
     BEGIN_CONFIRM_DISPATCH: 'construction-begin-confirm-dispatch',
     beginConfirmCandidate: (activityId: string) => `construction-begin-candidate-${activityId}`,
+    // P1-9: the LIST's way back when the toolbar filtered every row away.
+    LIST_CLEAR_FILTERS: 'construction-list-clear-filters',
+    // P1-6: the pane header's count line when no single task is selected
+    // ("N attempts · M phases"), in place of the attempt selector.
+    DETAIL_SELECTION_SUMMARY: 'construction-detail-selection-summary',
+    // P0-4: a tier-1 row's id cell (sized in ch, titled with the full id).
+    listIdCell: (activityId: string) => `construction-list-id-${activityId}`,
     OVERRIDE_BUTTON: 'construction-override',
     overrideKind: (kind: string) => `construction-override-${kind}`,
     OVERRIDE_NOTES: 'construction-override-notes',
@@ -444,7 +451,6 @@ export const UI_IDENTIFIERS = {
     DETAIL_BODY_EPISODES: 'construction-detail-body-episodes',
     DETAIL_BODY_REVIEW: 'construction-detail-body-review',
     DETAIL_BODY_ARTIFACT: 'construction-detail-body-artifact',
-    DETAIL_BODY_RUN: 'construction-detail-body-run',
     // Provenance IN THE PANE (Stage B Task 8, founder ruling 2026-09-09). The
     // list stamps a reconstructed group with `≈ RECONSTRUCTED`; the pane is
     // where a reader goes to CHECK one, so it quotes the basis in the open and

@@ -94,6 +94,7 @@ import {
   type SyntheticEvent,
 } from 'react';
 import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
 import Collapse from '@mui/material/Collapse';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
@@ -127,11 +128,20 @@ import {
   matchingTaskIds,
   needsInlineProvenanceMark,
 } from './activityScope.ts';
+import { emptyListCopyFor } from './listEmptyState.ts';
+import {
+  applyOperatorExpansion,
+  NO_EXPANSION,
+  openByOperator,
+  revealForQuery,
+  type TreeExpansion,
+} from './searchExpansion.ts';
 import {
   activityRowState,
   attemptRowState,
   chipFor,
   criticalBorderPx,
+  idColumnWidthCh,
   currentStageMarker,
   effortBarFraction,
   floatPresentation,
@@ -271,6 +281,10 @@ interface RowContextValue {
   t: Tokens;
   /** The widest effort on screen — the effort bar is a fraction of it. */
   maxEffortDays: number;
+  /** The id column's width in `ch`, sized to the longest id on screen (P0-4).
+   *  One value for every row: each row is its own grid, so a shared width is
+   *  what keeps the column aligned down the list. */
+  idColumnCh: number;
   onInlineRetry: (selection: LensSelection) => void;
   /** Task nodeIds a live search matched by their own key/label (Task 11).
    *  Empty when the search box is empty. */
@@ -307,6 +321,11 @@ export interface ActivityTreeViewProps {
    *  initial value, never reached again once incremented) fires nothing on
    *  mount. */
   expandToCurrentPhaseSignal: number;
+  /** How many activities exist BEFORE the toolbar filtered them, so an empty
+   *  list can tell "nothing matches" from "nothing exists" (listEmptyState.ts). */
+  totalActivityCount: number;
+  /** Resets every toolbar filter — offered only when the filters hid every row. */
+  onClearFilters: () => void;
 }
 
 export function ActivityTreeView({
@@ -315,10 +334,16 @@ export function ActivityTreeView({
   onSelect,
   searchQuery,
   expandToCurrentPhaseSignal,
+  totalActivityCount,
+  onClearFilters,
 }: ActivityTreeViewProps): ReactElement {
   const t = useTokens();
   const apiRef = useRichTreeViewApiRef();
-  const [expandedItems, setExpandedItems] = useState<string[]>([]);
+  // TWO lists, not one: every open row, and the subset a SEARCH opened that the
+  // operator has not touched since (searchExpansion.ts). Clearing the query
+  // closes only what the search opened (designer P1-10) — it used to leave all of
+  // it open, 220 rows where the operator had left 29.
+  const [expansion, setExpansion] = useState<TreeExpansion>(NO_EXPANSION);
 
   const items = useMemo(() => itemsFor(nodes), [nodes]);
   const byId = useMemo(() => indexOf(items, new Map<string, TreeRow>()), [items]);
@@ -331,6 +356,10 @@ export function ActivityTreeView({
     () => nodes.reduce((max, n) => Math.max(max, n.effortDays ?? 0), 0),
     [nodes]
   );
+
+  // The id column's width, sized to the longest id actually on screen (P0-4):
+  // a fixed 86px truncated 26 of 29 ids.
+  const idColumnCh = useMemo(() => idColumnWidthCh(nodes.map((n) => n.activityId)), [nodes]);
 
   // Search matches are recomputed freely every render (cheap, purely a
   // rendering concern — which rows get the highlight + inline provenance
@@ -370,9 +399,9 @@ export function ActivityTreeView({
       firstMatch ??= ids[0];
     }
     setReveal({ forQuery: searchQuery, focusTarget: firstMatch ?? null });
-    if (toExpand.size > 0) {
-      setExpandedItems((prev) => [...new Set([...prev, ...toExpand])]);
-    }
+    // A new query REPLACES the previous query's reveal, and a cleared one closes
+    // it — never a row the operator opened (searchExpansion.ts, designer P1-10).
+    setExpansion((prev) => revealForQuery(prev, [...toExpand]));
   }
 
   // "Expand to current phase" — additive, and deliberately never "expand
@@ -385,7 +414,9 @@ export function ActivityTreeView({
     if (expandToCurrentPhaseSignal !== 0) {
       const ids = currentPhaseExpansionIds(nodes);
       if (ids.length > 0) {
-        setExpandedItems((prev) => [...new Set([...prev, ...ids])]);
+        // An explicit operator action: these rows are theirs, so clearing a
+        // search never closes them.
+        setExpansion((prev) => openByOperator(prev, ids));
       }
     }
   }
@@ -420,13 +451,23 @@ export function ActivityTreeView({
   );
 
   const rowContext = useMemo(
-    (): RowContextValue => ({ t, maxEffortDays, onInlineRetry: onSelect, searchMatchedTaskIds }),
-    [t, maxEffortDays, onSelect, searchMatchedTaskIds]
+    (): RowContextValue => ({
+      t,
+      maxEffortDays,
+      idColumnCh,
+      onInlineRetry: onSelect,
+      searchMatchedTaskIds,
+    }),
+    [t, maxEffortDays, idColumnCh, onSelect, searchMatchedTaskIds]
   );
+
+  // "Nothing matches" and "nothing exists" never share a sentence (P1-9): a search
+  // that matched nothing used to say the whole project had no activities.
+  const emptyCopy = emptyListCopyFor(nodes.length, totalActivityCount, searchQuery);
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25 }}>
-      {nodes.length === 0 ? (
+      {emptyCopy !== undefined ? (
         <Box
           data-testid={UI_IDENTIFIERS.Construction.LIST_EMPTY}
           sx={{
@@ -439,8 +480,28 @@ export function ActivityTreeView({
           }}
         >
           <Typography sx={{ fontFamily: t.mono, fontSize: 12, color: t.muted }}>
-            No construction activities are recorded for this project yet.
+            {emptyCopy.message}
           </Typography>
+          {emptyCopy.offerClear ? (
+            <Button
+              data-testid={UI_IDENTIFIERS.Construction.LIST_CLEAR_FILTERS}
+              size="small"
+              sx={{
+                mt: 1.5,
+                fontFamily: t.mono,
+                fontWeight: 700,
+                fontSize: 11,
+                letterSpacing: '0.04em',
+                textTransform: 'none',
+                color: t.ink,
+                borderColor: t.line,
+              }}
+              variant="outlined"
+              onClick={onClearFilters}
+            >
+              Clear filters
+            </Button>
+          ) : null}
         </Box>
       ) : (
         <RowContext.Provider value={rowContext}>
@@ -455,7 +516,7 @@ export function ActivityTreeView({
           >
             <RichTreeView
               apiRef={apiRef}
-              expandedItems={expandedItems}
+              expandedItems={expansion.expanded}
               expansionTrigger="iconContainer"
               getItemId={(item: TreeRow) => item.id}
               getItemLabel={(item: TreeRow) => item.label}
@@ -464,7 +525,9 @@ export function ActivityTreeView({
               slots={{ item: ActivityTreeItem }}
               sx={{ '& ul': { listStyle: 'none', m: 0, p: 0 } }}
               onExpandedItemsChange={(_e, ids) => {
-                setExpandedItems(ids);
+                // A hand-made expansion change: whatever the operator touched is
+                // theirs now, so a later search clear leaves it alone.
+                setExpansion((prev) => applyOperatorExpansion(prev, ids));
               }}
               onSelectedItemsChange={onSelectedItemsChange}
             />
@@ -628,7 +691,7 @@ function ActivityRow({
   chevron: ReactElement;
   node: ActivityNode;
 }): ReactElement {
-  const { t, maxEffortDays } = useRowContext();
+  const { t, maxEffortDays, idColumnCh } = useRowContext();
   const state = activityRowState(node.row);
   const chip = chipFor(state);
   const loud = state === 'awaitingHuman';
@@ -643,7 +706,10 @@ function ActivityRow({
         flexGrow: 1,
         minWidth: 0,
         display: 'grid',
-        gridTemplateColumns: `${String(PROVENANCE_RAIL_PX)}px 18px 44px ${String(EFFORT_TRACK_PX)}px 86px minmax(0, 1fr) auto`,
+        // The id track is `auto`: the id cell carries its own width in `ch`
+        // (below), resolved in the id's monospace face — a grid track in `ch`
+        // would resolve against this row's font instead.
+        gridTemplateColumns: `${String(PROVENANCE_RAIL_PX)}px 18px 44px ${String(EFFORT_TRACK_PX)}px auto minmax(0, 1fr) auto`,
         alignItems: 'center',
         gap: 1,
         pl: `${String(TIER_INDENT.activity)}px`,
@@ -667,7 +733,13 @@ function ActivityRow({
       <FloatRail band={node.band} float={node.float} />
       <EffortBar days={node.effortDays} maxDays={maxEffortDays} />
       <Typography
+        data-testid={UI_IDENTIFIERS.Construction.listIdCell(node.activityId)}
         sx={{
+          // Sized to the longest id on screen (idColumnWidthCh, 12-32ch): a
+          // fixed 86px cut 26 of 29 ids short and left two rows reading the
+          // same at 1280/1366 (designer P0-4). The ellipsis only ever applies
+          // past the 32ch clamp, and the title carries the full id regardless.
+          width: `${String(idColumnCh)}ch`,
           fontFamily: t.mono,
           fontSize: 11.5,
           fontWeight: 700,
@@ -676,6 +748,7 @@ function ActivityRow({
           overflow: 'hidden',
           textOverflow: 'ellipsis',
         }}
+        title={node.activityId}
       >
         {node.activityId}
       </Typography>

@@ -63,6 +63,7 @@ import { ActivityTreeView } from '../components/construction/list/ActivityTreeVi
 import { buildActivityTree, type ActivityMeta } from '../components/construction/list/activityTree';
 import { applyToolbarToActivities } from '../components/construction/list/activityScope';
 import {
+  DEFAULT_TOOLBAR,
   useLensSelection,
   useLensToolbar,
   toolbarSignatureOf,
@@ -539,6 +540,12 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
                       nodes={visibleActivityTree}
                       searchQuery={toolbar.search}
                       selection={selection}
+                      totalActivityCount={activityTree.length}
+                      onClearFilters={() => {
+                        // Every filter back to its default. The sort is an
+                        // ordering, not a filter, so it stays as the operator set it.
+                        setToolbar({ ...DEFAULT_TOOLBAR, sort: toolbar.sort });
+                      }}
                       onSelect={select}
                     />
                     {/* Phase gate — rendered when ConstructionSessionView.stage === awaitingApproval */}

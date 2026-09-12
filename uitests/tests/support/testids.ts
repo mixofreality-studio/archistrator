@@ -234,6 +234,12 @@ export const TESTID = {
   // as the LIST lens's body — the graph returns under the GRAPH lens in Stage D.
   constructionListTree: UI_IDENTIFIERS.Construction.LIST_TREE,
   constructionListRow: UI_IDENTIFIERS.Construction.listRow,
+  // The LIST's empty state and its "Clear filters" (fix round A, P1-9).
+  constructionListEmpty: UI_IDENTIFIERS.Construction.LIST_EMPTY,
+  constructionListClearFilters: UI_IDENTIFIERS.Construction.LIST_CLEAR_FILTERS,
+  // The pane header's count line and exit line (fix round A, P1-6).
+  constructionDetailSelectionSummary: UI_IDENTIFIERS.Construction.DETAIL_SELECTION_SUMMARY,
+  constructionDetailExitCriterion: UI_IDENTIFIERS.Construction.DETAIL_EXIT_CRITERION,
   // The shared detail pane (Stage B Task 4) that replaced the overlay Drawer
   // above as the console's mounted detail surface — beside content at
   // >=1200px, DETAIL_DRAWER below that (same overlay mechanism, kept).

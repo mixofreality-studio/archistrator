@@ -223,6 +223,23 @@ export function retryCounterLabel(attemptCount: number): string | undefined {
 
 /** 3px on the critical path, 2px otherwise — never a "CRITICAL" chip.
  *  Not-known renders at the neutral 2px: criticality is ASSERTED, never assumed. */
+/** The id column's clamp, in `ch` of the id's own monospace face. */
+export const ID_COLUMN_MIN_CH = 12;
+export const ID_COLUMN_MAX_CH = 32;
+
+/**
+ * The id column's width, in `ch`: sized to the longest id actually on screen,
+ * plus one ch of clearance, clamped so one freak id cannot squeeze the title to
+ * nothing (32) and a list of short ids still reads as a column (12). A fixed 86px
+ * truncated 26 of 29 ids and left two rows reading identically at 1280/1366
+ * (designer P0-4). `ch` is resolved on the id cell itself, so it is exact for
+ * whichever monospace face the theme sets.
+ */
+export function idColumnWidthCh(activityIds: readonly string[]): number {
+  const longest = activityIds.reduce((max, id) => Math.max(max, id.length), 0);
+  return Math.min(ID_COLUMN_MAX_CH, Math.max(ID_COLUMN_MIN_CH, longest + 1));
+}
+
 export function criticalBorderPx(onCriticalPath: boolean | undefined): 2 | 3 {
   return onCriticalPath === true ? 3 : 2;
 }

@@ -323,3 +323,20 @@ export const NO_CURRENT_PHASE_NOTE =
 export function noBriefingNoteFor(row: ConstructionRow | undefined): string {
   return profileFor(row) === undefined ? NO_PROFILE_NOTE : NO_CURRENT_PHASE_NOTE;
 }
+
+/**
+ * The unknown card's heading names WHAT IS SELECTED (designer P1-6): the task's
+ * label, the phase's name, or — for an activity-level selection — "This
+ * activity". It used to fall back to "This task" for every selection, so an
+ * activity's pane was headed as if one task were open.
+ *
+ * The briefing's own title wins where one resolved (it is the generated label or
+ * phase name); without a profile to resolve against, the raw task / phase key is
+ * the most specific honest name there is.
+ */
+export function unknownTitleFor(briefing: Briefing | undefined, selection: LensSelection): string {
+  if (briefing !== undefined) return briefing.title;
+  if (selection.task !== undefined) return selection.task;
+  if (selection.lifecyclePhase !== undefined) return selection.lifecyclePhase;
+  return 'This activity';
+}

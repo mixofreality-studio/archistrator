@@ -22,16 +22,18 @@
  * EXIT_CRITERIA sentences — see taskBriefing.ts, which holds the whole rule and
  * is tested without a renderer. Nothing here is authored per task.
  *
- * The card ends with the ONE action the pane offers in this state. It is the
- * same `↻ Run this task` the invariant action bar carries (Task 4's standing
- * ruling: failure is never terminal, so `run` is present and enabled in every
- * state) — repeated here as the card's call to action because the body is where
- * the reader's eye already is.
+ * The ONE action this state offers is the invariant action bar's `↻ Run this
+ * task` (Task 4's standing ruling: failure is never terminal, so `run` is present
+ * and enabled in every state). The card used to repeat it as a second, inert
+ * button — two "Run this task" buttons on one pane, one of which did nothing
+ * (designer P1-5). It is not repeated.
+ *
+ * The heading names what is selected — the task's label, the phase's name, or
+ * "This activity" (unknownTitleFor, designer P1-6) — never "This task" for an
+ * activity.
  */
 import type { ReactElement } from 'react';
 import Box from '@mui/material/Box';
-import Button from '@mui/material/Button';
-import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import { alpha } from '@mui/material/styles';
 
@@ -44,6 +46,7 @@ import {
   briefingFor,
   noBriefingNoteFor,
   unknownStatementFor,
+  unknownTitleFor,
   type Briefing,
 } from './taskBriefing.ts';
 
@@ -73,7 +76,7 @@ export function UnknownBody({ row, selection, title, statement }: UnknownBodyPro
       noBriefingNote={noBriefingNoteFor(row)}
       statement={statement ?? unknownStatementFor(briefing?.scope)}
       t={t}
-      title={title ?? briefing?.title ?? selection.task ?? 'This task'}
+      title={title ?? unknownTitleFor(briefing, selection)}
     />
   );
 }
@@ -151,30 +154,6 @@ function UnknownCard({
           {noBriefingNote}
         </Typography>
       )}
-
-      <Box sx={{ display: 'flex', justifyContent: 'center', mt: 1 }}>
-        <Tooltip title="Dispatch from the pane is wired in a later stage — the action bar below carries the same action.">
-          <span>
-            <Button
-              data-testid={UI_IDENTIFIERS.Construction.DETAIL_BODY_RUN}
-              size="small"
-              sx={{
-                fontFamily: t.mono,
-                fontWeight: 700,
-                fontSize: 11.5,
-                textTransform: 'none',
-                color: t.bg,
-                bgcolor: t.accent,
-                px: 2,
-                '&:hover': { bgcolor: t.accent2 },
-              }}
-              variant="contained"
-            >
-              ↻ Run this task
-            </Button>
-          </span>
-        </Tooltip>
-      </Box>
     </Box>
   );
 }

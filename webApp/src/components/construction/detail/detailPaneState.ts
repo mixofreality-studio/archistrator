@@ -393,6 +393,44 @@ export function breadcrumbFor(
   return parts.join(' › ');
 }
 
+function countOf(n: number, noun: string): string {
+  return `${String(n)} ${noun}${n === 1 ? '' : 's'}`;
+}
+
+/**
+ * The header's count line when no single TASK is selected (designer P1-6).
+ *
+ * The attempt selector only means something for one task, so an activity or a
+ * phase selection used to show "NO ATTEMPTS" — beside a PASSED chip, on an
+ * activity with ten attempts. This says what the selection actually holds:
+ *
+ *   - an activity: every attempt on it · the phases its profile draws;
+ *   - a phase: that phase's attempts · the tasks the list draws under it (a
+ *     conditional task counts only once an attempt makes it render — the same
+ *     rule the tree follows).
+ *
+ * `undefined` when a task is selected: its attempt selector speaks for it.
+ */
+export function selectionSummaryFor(
+  row: ConstructionRow | undefined,
+  selection: LensSelection
+): string | undefined {
+  if (row === undefined || selection.task !== undefined) return undefined;
+  const phases = profileFor(row);
+  const phaseId = selection.lifecyclePhase;
+  if (phaseId === undefined) {
+    const phaseCount = phases?.length ?? row.phases.length;
+    return `${countOf(row.attempts.length, 'attempt')} · ${countOf(phaseCount, 'phase')}`;
+  }
+  const inPhase = row.attempts.filter((a) => a.phase === phaseId);
+  const phase = phases?.find((p) => p.phase === phaseId);
+  if (phase === undefined) return countOf(inPhase.length, 'attempt');
+  const rendered = phase.tasks.filter(
+    (tk) => !tk.conditional || inPhase.some((a) => a.task === tk.task)
+  );
+  return `${countOf(inPhase.length, 'attempt')} · ${countOf(rendered.length, 'task')}`;
+}
+
 // ---------------------------------------------------------------------------
 // The action bar — invariant across every body. `run` (id 'run') is present
 // and ENABLED in every state, per the founder's standing ruling that failure
