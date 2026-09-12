@@ -373,3 +373,116 @@ export function stageRule(stage: PhaseNode, maxWeight: number): StageRulePresent
     unreported: stage.completion === 'unknown',
   };
 }
+
+// ---------------------------------------------------------------------------
+// The tier-1 row's columns (designer P1-8, fix-A concern 2)
+// ---------------------------------------------------------------------------
+
+/**
+ * Below this LIST width (a container query, not the viewport) the kind badge
+ * drops to its icon and the float/effort/progress tracks narrow. With the pane
+ * open at 1280/1366 the list is ~670-760px; at 1600 it is ~990px.
+ */
+export const LIST_COMPACT_BELOW_PX = 1000;
+
+/**
+ * The title never gets less than this beside the id. Below it the title WRAPS
+ * under the id instead of shrinking — and because every row shares the id
+ * column's width and this basis, every row wraps or none does. Before this the
+ * full-width ids plus the badge cluster squeezed titles to 0px at 1280 with the
+ * pane open (fix-A concern 2).
+ */
+export const TITLE_MIN_PX = 160;
+
+/** The provenance slot fits the spelled-out `≈ RECONSTRUCTED` group badge, which
+ *  never abbreviates: it is the tier-1/tier-2 header stamp the spec pins. */
+export const PROVENANCE_SLOT_PX = 108;
+/** The state slot fits the widest chip ("AWAITING YOU") with its glyph and a `↻N`. */
+export const STATE_SLOT_PX = 100;
+export const ACTIVITY_GRID_GAP_PX = 6;
+
+export interface ListSlotWidths {
+  float: number;
+  effort: number;
+  kind: number;
+  progressTrack: number;
+}
+
+/** Fixed slot widths, px. The progress slot is its track plus a 32px numeral and a
+ *  4px gap; the provenance and state slots do not vary. */
+export const LIST_SLOT_WIDTHS: Readonly<Record<'wide' | 'compact', ListSlotWidths>> = {
+  wide: { float: 34, effort: 44, kind: 92, progressTrack: 56 },
+  compact: { float: 30, effort: 36, kind: 24, progressTrack: 28 },
+};
+
+/** The CSS custom properties one width mode sets; the grid below reads them. */
+export function listSlotVars(mode: 'wide' | 'compact'): Record<string, string> {
+  const w = LIST_SLOT_WIDTHS[mode];
+  return {
+    '--list-float-w': `${String(w.float)}px`,
+    '--list-effort-w': `${String(w.effort)}px`,
+    '--list-kind-w': `${String(w.kind)}px`,
+    '--list-progress-track': `${String(w.progressTrack)}px`,
+    '--list-progress-w': `${String(w.progressTrack + 36)}px`,
+  };
+}
+
+/**
+ * ONE grid template for every tier-1 row AND the column header, so each column
+ * lines up down the list: rail · chevron · float · effort · id+title · kind ·
+ * provenance · progress · state. Only the id+title cell flexes.
+ */
+export function activityGridColumns(railPx: number): string {
+  return [
+    `${String(railPx)}px`,
+    '18px',
+    'var(--list-float-w)',
+    'var(--list-effort-w)',
+    'minmax(0, 1fr)',
+    'var(--list-kind-w)',
+    `${String(PROVENANCE_SLOT_PX)}px`,
+    'var(--list-progress-w)',
+    `${String(STATE_SLOT_PX)}px`,
+  ].join(' ');
+}
+
+/** What the progress slot draws. */
+export type ProgressPresentation =
+  | { kind: 'fill'; percent: number; label: string }
+  | { kind: 'notStarted'; label: string }
+  | { kind: 'unknown'; label: string };
+
+/**
+ * The progress slot (designer P1-8). A NOT-STARTED activity — classified, nothing
+ * recorded — draws an empty dashed track and a muted "0%": the work is known and
+ * none of it is done, which is a zero, not an unknown. An unclassified activity
+ * (or one with an unreported phase) still reads `—` with no track: there an
+ * unknown denominator is not a zero numerator.
+ */
+export function progressPresentationFor(
+  state: RowState,
+  percentComplete: number | undefined
+): ProgressPresentation {
+  if (state === 'notStarted') return { kind: 'notStarted', label: '0%' };
+  if (percentComplete === undefined) return { kind: 'unknown', label: percentLabel(undefined) };
+  return { kind: 'fill', percent: percentComplete, label: percentLabel(percentComplete) };
+}
+
+/** What the state slot draws. */
+export type StateSlot =
+  | { kind: 'chip'; chip: RowChip }
+  | { kind: 'notStarted'; label: string }
+  | { kind: 'empty' };
+
+/**
+ * The state slot. A chip where `chipFor` gives one; for NOT STARTED the spec's
+ * hollow circle plus muted "not started" text — still no chip, so a no-record row
+ * reads as not started rather than as missing data (designer P1-8); nothing at all
+ * for `unknown`, whose chip-lessness is its signal.
+ */
+export function stateSlotFor(state: RowState): StateSlot {
+  const chip = chipFor(state);
+  if (chip !== undefined) return { kind: 'chip', chip };
+  if (state === 'notStarted') return { kind: 'notStarted', label: 'not started' };
+  return { kind: 'empty' };
+}

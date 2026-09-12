@@ -25,10 +25,15 @@ import {
   floatPresentation,
   inlineActionsFor,
   isCurrentStage,
+  activityGridColumns,
+  listSlotVars,
+  LIST_SLOT_WIDTHS,
   percentLabel,
+  progressPresentationFor,
   retryCounterLabel,
   ROW_STATE_LABEL,
   stageRule,
+  stateSlotFor,
   taskRowState,
   type RowState,
 } from './activityRowPresentation.ts';
@@ -340,4 +345,54 @@ void test('an unreported phase is marked unreported rather than incomplete', () 
   const rule = stageRule(first, 40);
   assert.equal(rule.unreported, true);
   assert.equal(rule.filled, false);
+});
+
+// ---------------------------------------------------------------------------
+// Fix round B, designer P1-8: fixed slots, and a no-record row that reads as
+// NOT STARTED rather than as missing data
+// ---------------------------------------------------------------------------
+
+void test('a not-started row draws a dashed empty track and a muted 0%, never a dash', () => {
+  assert.deepEqual(progressPresentationFor('notStarted', undefined), {
+    kind: 'notStarted',
+    label: '0%',
+  });
+  // Known work, none of it done is a zero — but only for a CLASSIFIED activity with
+  // nothing recorded. Unknown (unclassified) keeps its dash and draws no track.
+  assert.deepEqual(progressPresentationFor('unknown', undefined), { kind: 'unknown', label: '—' });
+  assert.deepEqual(progressPresentationFor('passed', 100), {
+    kind: 'fill',
+    percent: 100,
+    label: '100%',
+  });
+  assert.equal(progressPresentationFor('running', undefined).kind, 'unknown');
+});
+
+void test('the state slot: a chip where one is owed, "not started" words without one, else nothing', () => {
+  assert.deepEqual(stateSlotFor('notStarted'), { kind: 'notStarted', label: 'not started' });
+  assert.equal(stateSlotFor('unknown').kind, 'empty');
+  assert.equal(stateSlotFor('absent').kind, 'empty');
+  const passed = stateSlotFor('passed');
+  assert.equal(passed.kind, 'chip');
+  // Never a chip for not-started — the words are quiet, not a status assertion.
+  for (const s of ['notStarted', 'unknown'] as RowState[]) {
+    assert.equal(chipFor(s), undefined);
+  }
+});
+
+void test('every tier-1 row and the header share one grid with fixed slots', () => {
+  const template = activityGridColumns(4);
+  // Only the id+title cell flexes; everything to its right is a fixed slot.
+  assert.equal(template.match(/fr\b/g)?.length, 1);
+  assert.match(
+    template,
+    /^4px 18px var\(--list-float-w\) var\(--list-effort-w\) minmax\(0, 1fr\) var\(--list-kind-w\) 108px var\(--list-progress-w\) 100px$/
+  );
+  // The compact mode narrows kind and the tracks — never below an icon's width.
+  assert.ok(
+    LIST_SLOT_WIDTHS.compact.kind >= 20 &&
+      LIST_SLOT_WIDTHS.compact.kind < LIST_SLOT_WIDTHS.wide.kind
+  );
+  assert.equal(listSlotVars('wide')['--list-progress-w'], '92px');
+  assert.equal(listSlotVars('compact')['--list-progress-w'], '64px');
 });

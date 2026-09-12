@@ -137,6 +137,8 @@ import {
   type TreeExpansion,
 } from './searchExpansion.ts';
 import {
+  ACTIVITY_GRID_GAP_PX,
+  activityGridColumns,
   activityRowState,
   attemptRowState,
   chipFor,
@@ -147,11 +149,16 @@ import {
   floatPresentation,
   inlineActionsFor,
   isCurrentStage,
-  percentLabel,
+  LIST_COMPACT_BELOW_PX,
+  listSlotVars,
+  progressPresentationFor,
   retryCounterLabel,
   ROW_STATE_LABEL,
   stageRule,
+  stateSlotFor,
   taskRowState,
+  TITLE_MIN_PX,
+  type ProgressPresentation,
   type RowState,
 } from './activityRowPresentation.ts';
 
@@ -179,9 +186,28 @@ const FLOAT_RAIL_WIDTH = 3;
 /** The provenance rail's column, reserved on every tier BEFORE the tier indent
  *  so the three tiers' rails stack into one uninterrupted vertical band. */
 const PROVENANCE_RAIL_PX = 4;
-const EFFORT_TRACK_PX = 54;
-const PROGRESS_TRACK_PX = 56;
 const STAGE_WEIGHT_TRACK_PX = 48;
+
+/** The tier-1 grid, shared by every activity row and the column header. */
+const ACTIVITY_GRID_COLUMNS = activityGridColumns(PROVENANCE_RAIL_PX);
+
+/**
+ * The list's slot widths, as custom properties the grid reads, switched by a
+ * CONTAINER query on the list's own width — not the viewport: the list is what
+ * narrows when the detail pane opens. Narrow, the kind badge drops to its icon
+ * and the float/effort/progress tracks shrink; the provenance and state slots,
+ * and the spelled-out `≈ RECONSTRUCTED` badge, never do.
+ */
+const LIST_CONTAINER = 'constructionlist';
+const LIST_SLOT_SX = {
+  ...listSlotVars('wide'),
+  '& [data-kind-icon]': { display: 'none' },
+  [`@container ${LIST_CONTAINER} (max-width: ${String(LIST_COMPACT_BELOW_PX - 1)}px)`]: {
+    ...listSlotVars('compact'),
+    '& [data-kind-full]': { display: 'none' },
+    '& [data-kind-icon]': { display: 'inline-flex' },
+  },
+} as const;
 
 // ---------------------------------------------------------------------------
 // The item model
@@ -512,25 +538,30 @@ export function ActivityTreeView({
               borderRadius: `${String(t.radius)}px`,
               bgcolor: t.paper,
               overflow: 'hidden',
+              containerType: 'inline-size',
+              containerName: LIST_CONTAINER,
             }}
           >
-            <RichTreeView
-              apiRef={apiRef}
-              expandedItems={expansion.expanded}
-              expansionTrigger="iconContainer"
-              getItemId={(item: TreeRow) => item.id}
-              getItemLabel={(item: TreeRow) => item.label}
-              items={items}
-              selectedItems={selectedItemId(selection)}
-              slots={{ item: ActivityTreeItem }}
-              sx={{ '& ul': { listStyle: 'none', m: 0, p: 0 } }}
-              onExpandedItemsChange={(_e, ids) => {
-                // A hand-made expansion change: whatever the operator touched is
-                // theirs now, so a later search clear leaves it alone.
-                setExpansion((prev) => applyOperatorExpansion(prev, ids));
-              }}
-              onSelectedItemsChange={onSelectedItemsChange}
-            />
+            <Box sx={LIST_SLOT_SX}>
+              <ActivityListHeader />
+              <RichTreeView
+                apiRef={apiRef}
+                expandedItems={expansion.expanded}
+                expansionTrigger="iconContainer"
+                getItemId={(item: TreeRow) => item.id}
+                getItemLabel={(item: TreeRow) => item.label}
+                items={items}
+                selectedItems={selectedItemId(selection)}
+                slots={{ item: ActivityTreeItem }}
+                sx={{ '& ul': { listStyle: 'none', m: 0, p: 0 } }}
+                onExpandedItemsChange={(_e, ids) => {
+                  // A hand-made expansion change: whatever the operator touched is
+                  // theirs now, so a later search clear leaves it alone.
+                  setExpansion((prev) => applyOperatorExpansion(prev, ids));
+                }}
+                onSelectedItemsChange={onSelectedItemsChange}
+              />
+            </Box>
           </Box>
         </RowContext.Provider>
       )}
@@ -691,11 +722,9 @@ function ActivityRow({
   chevron: ReactElement;
   node: ActivityNode;
 }): ReactElement {
-  const { t, maxEffortDays, idColumnCh } = useRowContext();
+  const { t, maxEffortDays } = useRowContext();
   const state = activityRowState(node.row);
-  const chip = chipFor(state);
   const loud = state === 'awaitingHuman';
-  const marker = currentStageMarker(node);
   // The contagion roll-up: worst provenance anywhere beneath this activity, so
   // a collapsed row cannot hide a reconstructed task.
   const provenance = useMemo(() => readProvenance(node), [node]);
@@ -706,12 +735,12 @@ function ActivityRow({
         flexGrow: 1,
         minWidth: 0,
         display: 'grid',
-        // The id track is `auto`: the id cell carries its own width in `ch`
-        // (below), resolved in the id's monospace face — a grid track in `ch`
-        // would resolve against this row's font instead.
-        gridTemplateColumns: `${String(PROVENANCE_RAIL_PX)}px 18px 44px ${String(EFFORT_TRACK_PX)}px auto minmax(0, 1fr) auto`,
+        // ONE template for every row and the header (activityGridColumns): fixed
+        // kind / provenance / progress / state slots, so a no-record row's empty
+        // slots hold their place and every column lines up (designer P1-8).
+        gridTemplateColumns: ACTIVITY_GRID_COLUMNS,
         alignItems: 'center',
-        gap: 1,
+        columnGap: `${String(ACTIVITY_GRID_GAP_PX)}px`,
         pl: `${String(TIER_INDENT.activity)}px`,
         pr: 1.25,
         py: 0.6,
@@ -732,14 +761,52 @@ function ActivityRow({
       {chevron}
       <FloatRail band={node.band} float={node.float} />
       <EffortBar days={node.effortDays} maxDays={maxEffortDays} />
+      <IdTitleCell node={node} />
+      <KindSlot node={node} />
+      {/* The stamp sits immediately before the percentage it qualifies: on a
+          backfilled row that numeral reads 100% ✓ PASSED from evidence
+          reconstructed after the fact, never observed as it happened, and the
+          badge must be read in the same glance as the claim. Its slot is fixed,
+          so a row with no stamp keeps the column. */}
+      <Box data-slot="provenance" sx={{ display: 'flex', alignItems: 'center', minWidth: 0 }}>
+        <ProvenanceGroupStamp reading={provenance} t={t} />
+      </Box>
+      <ProgressFill presentation={progressPresentationFor(state, node.percentComplete)} />
+      <StateSlotView retryCount={node.retryCount} state={state} />
+    </Box>
+  );
+}
+
+/**
+ * The id and the title share ONE cell that wraps (fix-A concern 2). The id keeps
+ * the column width sized to the longest id, so ids never truncate; the title keeps
+ * at least TITLE_MIN_PX beside it, and when the row cannot give it that, the title
+ * wraps UNDER the id at the full cell width instead of shrinking to nothing. Every
+ * row shares both widths, so every row wraps or none does.
+ */
+function IdTitleCell({ node }: { node: ActivityNode }): ReactElement {
+  const { t, idColumnCh } = useRowContext();
+  const marker = currentStageMarker(node);
+  return (
+    <Box
+      data-slot="idTitle"
+      sx={{
+        minWidth: 0,
+        display: 'flex',
+        flexWrap: 'wrap',
+        alignItems: 'center',
+        columnGap: `${String(ACTIVITY_GRID_GAP_PX)}px`,
+      }}
+    >
       <Typography
         data-testid={UI_IDENTIFIERS.Construction.listIdCell(node.activityId)}
         sx={{
           // Sized to the longest id on screen (idColumnWidthCh, 12-32ch): a
-          // fixed 86px cut 26 of 29 ids short and left two rows reading the
-          // same at 1280/1366 (designer P0-4). The ellipsis only ever applies
-          // past the 32ch clamp, and the title carries the full id regardless.
+          // fixed 86px cut 26 of 29 ids short (designer P0-4). The ellipsis only
+          // ever applies past the 32ch clamp, and the title carries the full id.
           width: `${String(idColumnCh)}ch`,
+          maxWidth: '100%',
+          flexShrink: 0,
           fontFamily: t.mono,
           fontSize: 11.5,
           fontWeight: 700,
@@ -752,9 +819,19 @@ function ActivityRow({
       >
         {node.activityId}
       </Typography>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 0 }}>
+      <Box
+        sx={{
+          flex: `1 1 ${String(TITLE_MIN_PX)}px`,
+          minWidth: 0,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 0.75,
+        }}
+      >
         <Typography
+          data-testid={UI_IDENTIFIERS.Construction.listTitleCell(node.activityId)}
           sx={{
+            minWidth: 0,
             fontFamily: t.body,
             fontSize: 12,
             color: node.label === node.activityId ? t.muted : t.ink,
@@ -762,50 +839,191 @@ function ActivityRow({
             overflow: 'hidden',
             textOverflow: 'ellipsis',
           }}
+          title={node.label === node.activityId ? undefined : node.label}
         >
           {node.label === node.activityId ? '—' : node.label}
         </Typography>
         {marker !== undefined && !marker.inProfile ? <AbsentStage named={marker.named} /> : null}
       </Box>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexShrink: 0 }}>
-        {node.unclassified ? (
+    </Box>
+  );
+}
+
+/** The kind slot: the badge, or — below the list's compact width — its icon
+ *  alone (the kind is then the icon's accessible name and tooltip). */
+function KindSlot({ node }: { node: ActivityNode }): ReactElement {
+  const { t } = useRowContext();
+  let full: ReactElement | null = null;
+  let icon: ReactElement | null = null;
+  if (node.unclassified) {
+    const word = (
+      <Typography
+        sx={{
+          fontFamily: t.mono,
+          fontSize: 9.5,
+          letterSpacing: '0.06em',
+          color: t.muted,
+          opacity: 0.8,
+        }}
+      >
+        UNCLASSIFIED
+      </Typography>
+    );
+    full = word;
+    icon = (
+      <Tooltip title="Unclassified: the server could not derive a type for this activity">
+        <Typography
+          aria-label="Unclassified"
+          sx={{ fontFamily: t.mono, fontSize: 11, color: t.muted }}
+        >
+          ?
+        </Typography>
+      </Tooltip>
+    );
+  } else if (node.kind !== undefined) {
+    full = <KindBadge kind={node.kind} size="xs" t={t} />;
+    icon = <KindBadge iconOnly kind={node.kind} size="xs" t={t} />;
+  }
+  return (
+    <Box
+      data-slot="kind"
+      sx={{ display: 'flex', alignItems: 'center', minWidth: 0, overflow: 'hidden' }}
+    >
+      <Box data-kind-full="" sx={{ display: 'inline-flex', minWidth: 0 }}>
+        {full}
+      </Box>
+      <Box data-kind-icon="">{icon}</Box>
+    </Box>
+  );
+}
+
+/** The state slot (stateSlotFor): a chip with its glyph; for NOT STARTED the
+ *  hollow circle and muted words — never a chip; nothing for `unknown`. The `↻N`
+ *  retry roll-up rides here too, the same numeral its task rows use. */
+function StateSlotView({
+  state,
+  retryCount,
+}: {
+  state: RowState;
+  retryCount: number;
+}): ReactElement {
+  const { t } = useRowContext();
+  const slot = stateSlotFor(state);
+  return (
+    <Box
+      data-slot="state"
+      data-state-slot={slot.kind}
+      sx={{ display: 'flex', alignItems: 'center', gap: 0.6, minWidth: 0, overflow: 'hidden' }}
+    >
+      {retryCount > 0 ? (
+        <Tooltip title={`${String(retryCount)} retried task(s) in this activity`}>
+          <Typography sx={{ fontFamily: t.mono, fontSize: 10, fontWeight: 700, color: t.muted }}>
+            {`↻${String(retryCount)}`}
+          </Typography>
+        </Tooltip>
+      ) : null}
+      {slot.kind === 'chip' ? (
+        <>
+          <StateGlyph state={state} />
+          <StateChip chip={slot.chip} />
+        </>
+      ) : null}
+      {slot.kind === 'notStarted' ? (
+        <>
+          <StateGlyph state="notStarted" />
           <Typography
             sx={{
               fontFamily: t.mono,
               fontSize: 9.5,
-              letterSpacing: '0.06em',
+              letterSpacing: '0.04em',
               color: t.muted,
-              opacity: 0.8,
+              whiteSpace: 'nowrap',
             }}
           >
-            UNCLASSIFIED
+            {slot.label}
           </Typography>
-        ) : node.kind !== undefined ? (
-          <KindBadge kind={node.kind} size="xs" t={t} />
-        ) : null}
-        {/* The stamp sits immediately before the percentage it qualifies: on a
-            backfilled row that numeral reads 100% ✓ PASSED from evidence
-            reconstructed after the fact, never observed as it happened, and the
-            badge must be read in the same glance as the claim, not somewhere
-            else on the row. */}
-        <ProvenanceGroupStamp reading={provenance} t={t} />
-        <ProgressFill percent={node.percentComplete} />
-        {node.retryCount > 0 ? (
-          // The activity's roll-up of the SAME channel its task rows use: a
-          // numeral, never an extra row per retry.
-          <Tooltip title={`${String(node.retryCount)} retried task(s) in this activity`}>
-            <Typography sx={{ fontFamily: t.mono, fontSize: 10, fontWeight: 700, color: t.muted }}>
-              {`↻${String(node.retryCount)}`}
-            </Typography>
-          </Tooltip>
-        ) : null}
-        {/* The state's GEOMETRY sits beside its chip — and only where there is
-            a chip. A glyph on every chip-less row would put a mark back on
-            every "we have no record" row, which is exactly what chip-less is
-            supposed to say. The animated running dot lives here. */}
-        {chip !== undefined ? <StateGlyph state={state} /> : null}
-        <StateChip chip={chip} />
+        </>
+      ) : null}
+    </Box>
+  );
+}
+
+/** The column header — the same grid as the rows beneath it, so each label sits
+ *  over its column, including the id/title split (which wraps exactly as the rows
+ *  do). */
+function ActivityListHeader(): ReactElement {
+  const { t, idColumnCh } = useRowContext();
+  const cell = {
+    fontFamily: t.mono,
+    fontSize: 9,
+    fontWeight: 700,
+    letterSpacing: '0.08em',
+    color: t.muted,
+    textTransform: 'uppercase',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+  } as const;
+  return (
+    <Box
+      data-testid={UI_IDENTIFIERS.Construction.LIST_HEADER}
+      sx={{
+        display: 'grid',
+        gridTemplateColumns: ACTIVITY_GRID_COLUMNS,
+        alignItems: 'end',
+        columnGap: `${String(ACTIVITY_GRID_GAP_PX)}px`,
+        pr: 1.25,
+        py: 0.5,
+        borderLeft: '2px solid transparent',
+        borderBottom: `1px solid ${alpha(t.line, 0.4)}`,
+        bgcolor: t.paperAlt,
+      }}
+    >
+      <Box />
+      <Box />
+      <Typography data-slot="float" sx={cell}>
+        float
+      </Typography>
+      <Typography data-slot="effort" sx={cell}>
+        effort
+      </Typography>
+      <Box
+        sx={{
+          minWidth: 0,
+          display: 'flex',
+          flexWrap: 'wrap',
+          columnGap: `${String(ACTIVITY_GRID_GAP_PX)}px`,
+        }}
+      >
+        <Typography
+          sx={{
+            ...cell,
+            width: `${String(idColumnCh)}ch`,
+            maxWidth: '100%',
+            flexShrink: 0,
+            fontSize: 9,
+          }}
+        >
+          id
+        </Typography>
+        <Typography sx={{ ...cell, flex: `1 1 ${String(TITLE_MIN_PX)}px`, minWidth: 0 }}>
+          title
+        </Typography>
       </Box>
+      <Tooltip title="Kind">
+        {/* Tighter tracking: in the compact width this column is an icon's width. */}
+        <Typography data-slot="kind" sx={{ ...cell, letterSpacing: '0.02em' }}>
+          kind
+        </Typography>
+      </Tooltip>
+      <Typography data-slot="provenance" sx={cell}>
+        provenance
+      </Typography>
+      <Typography data-slot="progress" sx={cell}>
+        progress
+      </Typography>
+      <Typography data-slot="state" sx={cell}>
+        state
+      </Typography>
     </Box>
   );
 }
@@ -874,13 +1092,13 @@ function EffortBar({ days, maxDays }: { days: number | undefined; maxDays: numbe
     // An empty cell, not a dashed placeholder: the track still reserves its
     // width so the columns stay aligned, but it draws nothing. Absence of a bar
     // IS the signal, the same way absence of a chip is.
-    return <Box sx={{ width: EFFORT_TRACK_PX, height: 6 }} />;
+    return <Box sx={{ width: '100%', height: 6 }} />;
   }
   return (
     <Tooltip title={`${String(days ?? 0)} days of effort`}>
       <Box
         sx={{
-          width: EFFORT_TRACK_PX,
+          width: '100%',
           height: 6,
           bgcolor: alpha(t.line, 0.12),
           borderRadius: 1,
@@ -895,30 +1113,42 @@ function EffortBar({ days, maxDays }: { days: number | undefined; maxDays: numbe
   );
 }
 
-/** Progress: a fill EXTENT plus its numeral. An unknowable percentage (any
- *  profile phase unreported — every activity with no record yet) draws no track at all and reads
- *  `—`, never a 0% bar: an unknown denominator is not a zero numerator. */
-function ProgressFill({ percent }: { percent: number | undefined }): ReactElement {
+/** Progress: a fill EXTENT plus its numeral (progressPresentationFor). A
+ *  NOT-STARTED activity draws an empty DASHED track and a muted "0%" — known work,
+ *  none of it done. An unknowable percentage (no profile, or a phase unreported)
+ *  draws no track and reads `—`: an unknown denominator is not a zero numerator. */
+function ProgressFill({ presentation }: { presentation: ProgressPresentation }): ReactElement {
   const { t } = useRowContext();
-  const known = percent !== undefined;
+  const tooltip =
+    presentation.kind === 'fill'
+      ? 'Σ Table A-1 weights of the complete phases'
+      : presentation.kind === 'notStarted'
+        ? 'Not started: no phase of this activity is complete'
+        : 'Some phases are unreported';
   return (
-    <Tooltip
-      title={known ? 'Σ Table A-1 weights of the complete phases' : 'Some phases are unreported'}
-    >
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }}>
+    <Tooltip title={tooltip}>
+      <Box
+        data-progress-kind={presentation.kind}
+        data-slot="progress"
+        sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0 }}
+      >
         <Box
           sx={{
-            width: PROGRESS_TRACK_PX,
+            width: 'var(--list-progress-track)',
             height: 6,
+            flexShrink: 0,
             borderRadius: 1,
-            bgcolor: known ? alpha(t.line, 0.12) : 'transparent',
+            boxSizing: 'border-box',
+            bgcolor: presentation.kind === 'fill' ? alpha(t.line, 0.12) : 'transparent',
+            border:
+              presentation.kind === 'notStarted' ? `1px dashed ${alpha(t.line, 0.5)}` : 'none',
             overflow: 'hidden',
           }}
         >
-          {known ? (
+          {presentation.kind === 'fill' ? (
             <Box
               sx={{
-                width: `${String(percent)}%`,
+                width: `${String(presentation.percent)}%`,
                 height: '100%',
                 bgcolor: t.committedDot,
               }}
@@ -929,12 +1159,13 @@ function ProgressFill({ percent }: { percent: number | undefined }): ReactElemen
           sx={{
             fontFamily: t.mono,
             fontSize: 10,
-            color: known ? t.ink : t.muted,
+            color: presentation.kind === 'fill' ? t.ink : t.muted,
             width: 32,
+            flexShrink: 0,
             textAlign: 'right',
           }}
         >
-          {percentLabel(percent)}
+          {presentation.label}
         </Typography>
       </Box>
     </Tooltip>

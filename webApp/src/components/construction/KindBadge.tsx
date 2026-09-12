@@ -6,6 +6,7 @@
  */
 import type { ReactNode } from 'react';
 import Box from '@mui/material/Box';
+import Tooltip from '@mui/material/Tooltip';
 import MemoryOutlinedIcon from '@mui/icons-material/MemoryOutlined';
 import DesignServicesOutlinedIcon from '@mui/icons-material/DesignServicesOutlined';
 import FactCheckOutlinedIcon from '@mui/icons-material/FactCheckOutlined';
@@ -74,17 +75,44 @@ function kindIcon(k: ActivityKind, size = 13): ReactNode {
   }
 }
 
-/** The small KIND chip used by Artifacts tab list + detail. */
+/** The small KIND chip used by Artifacts tab list + detail. `iconOnly` keeps the
+ *  chip and its colour but drops the word (the kind is then its accessible name
+ *  and tooltip) — the list's narrow-width form (designer P1-8). */
 export function KindBadge({
   kind,
   size = 'sm',
+  iconOnly = false,
   t,
 }: {
   kind: ActivityKind;
   size?: 'sm' | 'xs';
+  iconOnly?: boolean;
   t: Tokens;
 }): ReactNode {
   const c = kindColor(t, kind);
+  if (iconOnly) {
+    return (
+      <Tooltip title={KIND_META[kind].label}>
+        <Box
+          aria-label={KIND_META[kind].label}
+          role="img"
+          sx={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: 20,
+            height: 16,
+            borderRadius: 99,
+            bgcolor: c.bg,
+            color: c.fg,
+            border: `1px solid ${c.fg}`,
+          }}
+        >
+          {kindIcon(kind, 11)}
+        </Box>
+      </Tooltip>
+    );
+  }
   return (
     <Box
       sx={{

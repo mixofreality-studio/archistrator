@@ -236,6 +236,10 @@ export const TESTID = {
   // The LIST lens's three-tier tree (Stage B Task 6). It replaced the CPM graph
   // as the LIST lens's body — the graph returns under the GRAPH lens in Stage D.
   constructionListTree: UI_IDENTIFIERS.Construction.LIST_TREE,
+  constructionListHeader: UI_IDENTIFIERS.Construction.LIST_HEADER,
+  constructionListTitleCell: UI_IDENTIFIERS.Construction.listTitleCell,
+  constructionListIdCell: UI_IDENTIFIERS.Construction.listIdCell,
+  constructionListTaskBookKey: UI_IDENTIFIERS.Construction.listTaskBookKey,
   constructionListRow: UI_IDENTIFIERS.Construction.listRow,
   // The LIST's empty state and its "Clear filters" (fix round A, P1-9).
   constructionListEmpty: UI_IDENTIFIERS.Construction.LIST_EMPTY,

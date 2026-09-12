@@ -363,6 +363,7 @@ export const UI_IDENTIFIERS = {
     DETAIL_SELECTION_SUMMARY: 'construction-detail-selection-summary',
     // P0-4: a tier-1 row's id cell (sized in ch, titled with the full id).
     listIdCell: (activityId: string) => `construction-list-id-${activityId}`,
+    listTitleCell: (activityId: string) => `construction-list-title-${activityId}`,
     /** The book's Figure A-1 task key, shown beside a task the profile renamed (P1-7). */
     listTaskBookKey: (nodeId: string) => `construction-list-task-book-key-${nodeId}`,
     OVERRIDE_BUTTON: 'construction-override',
@@ -416,6 +417,8 @@ export const UI_IDENTIFIERS = {
     // phase › Figure A-1 task. One id per rendered row, keyed by the tree's own
     // node id (`<activityId>`, `<activityId>::<phase>`, `<activityId>::<phase>::<task>`).
     LIST_TREE: 'construction-list-tree',
+    /** The column header above the tier-1 rows (float … state). */
+    LIST_HEADER: 'construction-list-header',
     LIST_EMPTY: 'construction-list-empty',
     listRow: (nodeId: string) => `construction-list-row-${nodeId}`,
     listAttempts: (nodeId: string) => `construction-list-attempts-${nodeId}`,
