@@ -13,7 +13,7 @@ import { toApiError } from '../contracts/errors';
 import { overrideKindToOrdinal, phaseDecisionToOrdinal } from '../contracts/wire';
 import type { OverrideKind, PhaseDecision, ReviewPreset } from '../contracts/types';
 import type { components } from '../contracts/schema';
-import { constructionSessionKey } from './useConstructionSession';
+import { constructionSessionKey, constructionSessionsKey } from './useConstructionSession';
 import { projectKey } from './useProject';
 
 export function useBeginConstruction(projectId: string): UseMutationResult<undefined, Error, void> {
@@ -28,8 +28,15 @@ export function useBeginConstruction(projectId: string): UseMutationResult<undef
       return undefined;
     },
     // Refresh the project read so the just-dispatched activity (flipping to
-    // in-construction) shows up; the console's cascade poll keeps it fresh.
-    onSuccess: () => client.invalidateQueries({ queryKey: projectKey(projectId) }),
+    // in-construction) shows up; the console's cascade poll keeps it fresh. The
+    // session probes are re-read too: Begin/Resume is answered from them, and a
+    // dispatch has just created a session they had settled as absent.
+    onSuccess: async () => {
+      await Promise.all([
+        client.invalidateQueries({ queryKey: projectKey(projectId) }),
+        client.invalidateQueries({ queryKey: constructionSessionsKey(projectId) }),
+      ]);
+    },
   });
 }
 

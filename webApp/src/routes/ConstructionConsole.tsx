@@ -37,8 +37,7 @@ import type { ProjectArtifactModelEnvelope, ProjectStateWithGit } from '../contr
 import { slotStageFromOrdinal } from '../contracts/adapters';
 import { narrowProject } from '../contracts/projectAdapters';
 import { useProject } from '../hooks/useProject';
-import { isSessionAbsent } from '../hooks/sessionPolling';
-import { useConstructionSession } from '../hooks/useConstructionSession';
+import { useConstructionSession, useConstructionStarted } from '../hooks/useConstructionSession';
 import { useBeginConstruction, useSubmitPhaseDecision } from '../hooks/useConstructionMutations';
 
 import { ExperienceChrome } from '../components/design/ExperienceChrome';
@@ -55,6 +54,11 @@ import {
   ConstructionShell,
   LensComingLater,
 } from '../components/construction/lens/ConstructionShell';
+import { BeginConfirmDialog } from '../components/construction/lens/BeginConfirmDialog';
+import {
+  beginControlFor,
+  notStartedActivities,
+} from '../components/construction/lens/beginControl';
 import { ActivityTreeView } from '../components/construction/list/ActivityTreeView';
 import { buildActivityTree, type ActivityMeta } from '../components/construction/list/activityTree';
 import { applyToolbarToActivities } from '../components/construction/list/activityScope';
@@ -155,13 +159,6 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
     };
   }, [cascading]);
 
-  const sessionQuery = useConstructionSession(projectId);
-  // QA 2026-07-19 (REOPENED fix): absence is the probe VALUE null — never inferred
-  // from an error or an in-flight refetch, so a poll tick can never flip this and
-  // remount the console (see isSessionAbsent / sessionProbeQueryFn).
-  const sessionMissing = isSessionAbsent(sessionQuery.data);
-  const session = sessionQuery.data ?? undefined;
-
   const begin = useBeginConstruction(projectId);
   const submitPhaseDecision = useSubmitPhaseDecision(projectId);
 
@@ -256,22 +253,9 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   };
   const beginActive = cascading || begin.isPending;
 
-  // Whether construction has already been started at all: a live/known session
-  // exists, or some activity carries a record that work happened on it. Drives
-  // Begin→Resume so an active project never invites a fresh "Begin". A row's mere
-  // PRESENCE is not that record: the server emits a planned-no-record row for
-  // every listed activity nobody has touched yet (classified, no evidence, no
-  // attempts), so counting keys would read "Resume" before anything ever ran.
-  const constructionStarted =
-    (session !== undefined && !sessionMissing) ||
-    Object.values(project?.constructionRows ?? {}).some(
-      (r) => r.hasBuildEvidence || r.attempts.length > 0
-    );
-  const beginLabel = beginActive
-    ? 'Construction running…'
-    : constructionStarted
-      ? 'Resume construction'
-      : 'Begin construction';
+  // Begin is a real dispatch, so the button only opens a confirm step that names
+  // what would be started (BeginConfirmDialog); onBegin runs from its confirm.
+  const [beginConfirmOpen, setBeginConfirmOpen] = useState(false);
 
   // --- Lens state (Stage B) -------------------------------------------------
   // Selection is NOT component state: it lives in the URL's search params
@@ -345,6 +329,23 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
     const byId = new Map<string, string | undefined>(items.map((a) => [a.name, a.title]));
     return (id: string): string | undefined => byId.get(id);
   }, [activityListModel]);
+
+  // --- Begin/Resume ---------------------------------------------------------
+  // The label is the SESSION ENDPOINT's answer (single source), asked of every
+  // activity the committed list names — never counted from rows or attempts,
+  // which the backfill filled with reconstructed work no pump ever ran. While the
+  // project or any probe is loading the button is disabled and names neither word,
+  // so it cannot read "Begin" and flip to "Resume" after load.
+  const committedActivityIds = useMemo(
+    () => (activityListModel?.activities ?? []).map((a) => a.name),
+    [activityListModel]
+  );
+  const started = useConstructionStarted(projectId, committedActivityIds);
+  const beginControl = beginControlFor({ started, projectLoading, running: beginActive });
+  const dispatchCandidates = useMemo(
+    () => notStartedActivities(project?.constructionRows, titleForId),
+    [project, titleForId]
+  );
 
   // --- The LIST lens's tree ------------------------------------------------
   // Per-activity network/activity-list facts, joined by activity id for the
@@ -469,32 +470,49 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
               // begin/resume button is hidden entirely — not relabeled, since there
               // is nothing left to begin or resume.
               project?.operating !== true ? (
-                <Button
-                  data-testid={UI_IDENTIFIERS.Construction.BEGIN_BUTTON}
-                  disabled={beginActive}
-                  size="small"
-                  startIcon={
-                    beginActive ? (
-                      <CircularProgress color="inherit" size={14} />
-                    ) : (
-                      <PlayArrowRoundedIcon />
-                    )
-                  }
-                  sx={{
-                    fontFamily: t.mono,
-                    fontWeight: 700,
-                    fontSize: 12,
-                    textTransform: 'none',
-                    color: t.bg,
-                    bgcolor: t.accent,
-                    px: 1.75,
-                    '&:hover': { bgcolor: t.accent2 },
-                  }}
-                  variant="contained"
-                  onClick={onBegin}
-                >
-                  {beginLabel}
-                </Button>
+                <>
+                  <Button
+                    data-testid={UI_IDENTIFIERS.Construction.BEGIN_BUTTON}
+                    disabled={beginControl.disabled}
+                    size="small"
+                    startIcon={
+                      beginControl.busy ? (
+                        <CircularProgress color="inherit" size={14} />
+                      ) : (
+                        <PlayArrowRoundedIcon />
+                      )
+                    }
+                    sx={{
+                      fontFamily: t.mono,
+                      fontWeight: 700,
+                      fontSize: 12,
+                      textTransform: 'none',
+                      color: t.bg,
+                      bgcolor: t.accent,
+                      px: 1.75,
+                      '&:hover': { bgcolor: t.accent2 },
+                    }}
+                    variant="contained"
+                    onClick={() => {
+                      setBeginConfirmOpen(true);
+                    }}
+                  >
+                    {beginControl.label}
+                  </Button>
+                  <BeginConfirmDialog
+                    candidates={dispatchCandidates}
+                    open={beginConfirmOpen}
+                    sessionUnknown={started === 'unknown'}
+                    verb={beginControl.verb}
+                    onCancel={() => {
+                      setBeginConfirmOpen(false);
+                    }}
+                    onConfirm={() => {
+                      setBeginConfirmOpen(false);
+                      onBegin();
+                    }}
+                  />
+                </>
               ) : undefined
             }
             subtitle={lensSubtitle(lens)}

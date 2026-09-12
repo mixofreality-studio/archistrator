@@ -350,6 +350,12 @@ export const UI_IDENTIFIERS = {
     SCENARIO_PICKER: 'construction-scenario-picker',
     caseChip: (caseId: string) => `construction-case-chip-${caseId}`,
     BEGIN_BUTTON: 'construction-begin',
+    // The confirm step in front of Begin/Resume: it names what would be
+    // dispatched before anything is (BeginConfirmDialog).
+    BEGIN_CONFIRM_DIALOG: 'construction-begin-confirm',
+    BEGIN_CONFIRM_CANCEL: 'construction-begin-confirm-cancel',
+    BEGIN_CONFIRM_DISPATCH: 'construction-begin-confirm-dispatch',
+    beginConfirmCandidate: (activityId: string) => `construction-begin-candidate-${activityId}`,
     OVERRIDE_BUTTON: 'construction-override',
     overrideKind: (kind: string) => `construction-override-${kind}`,
     OVERRIDE_NOTES: 'construction-override-notes',

@@ -211,6 +211,13 @@ export const TESTID = {
   constructionSystemTestView: UI_IDENTIFIERS.Construction.SYSTEM_TEST_VIEW,
   constructionTestPlanView: UI_IDENTIFIERS.Construction.TEST_PLAN_VIEW,
   constructionScenarioPicker: UI_IDENTIFIERS.Construction.SCENARIO_PICKER,
+  // Begin/Resume and the confirm step in front of it, which names what a Begin
+  // would dispatch before anything is (fix round A, designer P0-3).
+  constructionBegin: UI_IDENTIFIERS.Construction.BEGIN_BUTTON,
+  constructionBeginConfirm: UI_IDENTIFIERS.Construction.BEGIN_CONFIRM_DIALOG,
+  constructionBeginConfirmCancel: UI_IDENTIFIERS.Construction.BEGIN_CONFIRM_CANCEL,
+  constructionBeginConfirmDispatch: UI_IDENTIFIERS.Construction.BEGIN_CONFIRM_DISPATCH,
+  constructionBeginCandidate: UI_IDENTIFIERS.Construction.beginConfirmCandidate,
   constructionCaseChip: UI_IDENTIFIERS.Construction.caseChip,
   activityLifecyclePanel: UI_IDENTIFIERS.Construction.ACTIVITY_LIFECYCLE_PANEL,
   // The Stage-B lens shell's toolbar (ConstructionShell.tsx) — its right end
