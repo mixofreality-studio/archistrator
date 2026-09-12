@@ -73,6 +73,7 @@ test('N-STP renders its committed plan, and its state chip reads the backfilled 
 
 test('N-IT has no build evidence, but its recorded test run renders anyway — the task state stays honest', async ({
   page,
+  request,
 }) => {
   await gotoApp(page, '/project/archistrator/construction');
   await page.getByTestId(TESTID.constructionLensSearch).getByRole('textbox').fill('N-IT');
@@ -94,4 +95,21 @@ test('N-IT has no build evidence, but its recorded test run renders anyway — t
   await expect(page.getByTestId(TESTID.constructionSystemTestView)).toBeVisible();
   await expect(page.getByTestId(TESTID.constructionDetailBodyUnknown)).toHaveCount(0);
   await expect(page.getByTestId(TESTID.constructionDetailStateChip)).toContainText(/not started/i);
+
+  // Fix round B (designer P1-12): N-IT has never been attempted, so nothing may
+  // read as a failure. The view says "not run · N scenarios planned", its chip is
+  // muted, and there is no amber green/total tile.
+  const planned = await request.get(`${BASE}/api/v1/system-design/get-project/archistrator`, {
+    headers: { Accept: 'application/json' },
+  });
+  const wire = (await planned.json()) as {
+    testingState?: { systemTestPlan?: { scenarios?: unknown[] } };
+  };
+  const n = wire.testingState?.systemTestPlan?.scenarios?.length ?? 0;
+  expect(n).toBeGreaterThan(0);
+  const view = page.getByTestId(TESTID.constructionSystemTestView);
+  await expect(view).toContainText(`not run · ${String(n)} scenarios planned`);
+  await expect(view).not.toContainText('failing');
+  await expect(view).not.toContainText(/scenarios green/i);
+  await expect(view).toContainText('not run');
 });
