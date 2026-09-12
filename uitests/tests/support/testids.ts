@@ -237,6 +237,7 @@ export const TESTID = {
   // as the LIST lens's body — the graph returns under the GRAPH lens in Stage D.
   constructionListTree: UI_IDENTIFIERS.Construction.LIST_TREE,
   constructionListHeader: UI_IDENTIFIERS.Construction.LIST_HEADER,
+  constructionLensObservedOnly: UI_IDENTIFIERS.Construction.LENS_OBSERVED_ONLY,
   constructionListTitleCell: UI_IDENTIFIERS.Construction.listTitleCell,
   constructionListIdCell: UI_IDENTIFIERS.Construction.listIdCell,
   constructionListTaskBookKey: UI_IDENTIFIERS.Construction.listTaskBookKey,

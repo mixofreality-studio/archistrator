@@ -8,6 +8,8 @@
  *          empty track, a muted 0%, the hollow circle, "not started" — no chip.
  *  - fix-A concern 2: at 1280 with the pane open, ids stay whole AND titles stay
  *          legible; the `≈ RECONSTRUCTED` header badge stays spelled out.
+ *  - P1-11 "Observed only" keeps every activity and strips reconstructed evidence,
+ *          so a backfilled activity reads NOT STARTED (spec R6) instead of vanishing.
  *
  * Read-only: nothing here dispatches (no Begin/Run/Retry is pressed).
  * Gated like construction-tracker.spec.ts: needs the seeded "archistrator"
@@ -153,4 +155,38 @@ test('a renamed task carries the book’s key, and the pane states the profile�
   await expect(page.getByTestId(TESTID.constructionDetailExitCriterion)).not.toContainText(
     'code-complete'
   );
+});
+
+test('"Observed only" keeps every activity and reads a backfilled one as not started', async ({
+  page,
+}) => {
+  await gotoApp(page, '/project/archistrator/construction?lens=list');
+  await expect(page.getByTestId(TESTID.constructionListTree)).toBeVisible({ timeout: 15_000 });
+  const ids = page.getByTestId(/^construction-list-id-/);
+  const badges = page
+    .getByTestId(TESTID.constructionListTree)
+    .getByTestId(TESTID.constructionProvenanceBadge);
+  const before = await ids.count();
+  expect(before).toBeGreaterThan(20);
+  expect(await badges.count(), 'badges with the toggle off').toBeGreaterThan(0);
+
+  const cm = page.getByTestId(TESTID.constructionListRow('C-construction-manager'));
+  const stateOf = async (): Promise<string | null> =>
+    cm.evaluate((el) => el.querySelector('[data-slot="state"]')?.getAttribute('data-state-slot') ?? null);
+  expect(await stateOf()).toBe('chip');
+
+  // MUI's Switch renders its input with role=switch.
+  const toggle = page.getByRole('switch', { name: 'Observed only' });
+  await toggle.check();
+  await expect(page.getByText('Observed only')).toBeVisible();
+  // Every activity stays (the committed list decides what exists) …
+  await expect(ids).toHaveCount(before);
+  // … and one known only from backfilled evidence reads not started, with no hatch
+  // or badge left to qualify a claim it no longer makes.
+  await expect.poll(stateOf).toBe('notStarted');
+  await expect(badges).toHaveCount(0);
+
+  await toggle.uncheck();
+  await expect.poll(stateOf).toBe('chip');
+  expect(await badges.count()).toBeGreaterThan(0);
 });

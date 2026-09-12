@@ -381,14 +381,15 @@ export function ConstructionShell({
           </Button>
         </Tooltip>
 
-        <Tooltip title="Treat reconstructed/synthesized records as absent — an audit view of what this project would show if nothing but direct observation counted.">
+        <Tooltip title="Count only what the running system observed. Every activity stays listed; evidence reconstructed after the fact (backfilled or synthesized) is set aside, so an activity known only from it reads as not started.">
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.4, flexShrink: 0 }}>
             <Switch
-              checked={toolbar.hideSynthesized}
-              data-testid={UI_IDENTIFIERS.Construction.LENS_HIDE_SYNTHESIZED}
+              checked={toolbar.observedOnly}
+              data-testid={UI_IDENTIFIERS.Construction.LENS_OBSERVED_ONLY}
               size="small"
+              slotProps={{ input: { 'aria-label': 'Observed only' } }}
               onChange={(e) => {
-                onToolbar({ hideSynthesized: e.target.checked });
+                onToolbar({ observedOnly: e.target.checked });
               }}
             />
             <Typography
@@ -402,7 +403,7 @@ export function ConstructionShell({
                 whiteSpace: 'nowrap',
               }}
             >
-              Hide synthesized
+              Observed only
             </Typography>
           </Box>
         </Tooltip>

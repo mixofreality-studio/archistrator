@@ -62,6 +62,7 @@ import {
 import { ActivityTreeView } from '../components/construction/list/ActivityTreeView';
 import { buildActivityTree, type ActivityMeta } from '../components/construction/list/activityTree';
 import { applyToolbarToActivities } from '../components/construction/list/activityScope';
+import { rowsForEvidenceView } from '../components/construction/list/observedOnly';
 import {
   DEFAULT_TOOLBAR,
   useLensSelection,
@@ -395,12 +396,20 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
     return byId;
   }, [activityListModel, networkModel]);
 
+  // The rows as the EVIDENCE VIEW reads them: every activity always, and with
+  // "Observed only" on, reconstructed evidence set aside so an activity known only
+  // from it reads as not started (observedOnly.ts, designer P1-11). The tree and
+  // the pane read the same rows, so they never disagree about one activity.
+  const viewRows = useMemo(
+    () => rowsForEvidenceView(project?.constructionRows, toolbar.observedOnly),
+    [project, toolbar.observedOnly]
+  );
   const activityTree = useMemo(
-    () => buildActivityTree(Object.values(project?.constructionRows ?? {}), { meta: activityMeta }),
-    [project, activityMeta]
+    () => buildActivityTree(Object.values(viewRows ?? {}), { meta: activityMeta }),
+    [viewRows, activityMeta]
   );
 
-  // Scope/kind/layer/search/hide-synthesized/sort — every rule in one pure
+  // Scope/kind/layer/search/sort — every rule in one pure
   // pipeline (see activityScope.ts) so ActivityTreeView renders exactly what
   // the toolbar says and nothing this file has to keep in sync by hand.
   const visibleActivityTree = useMemo(
@@ -442,7 +451,7 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
             ? phaseGateSession?.view.reviewSet
             : undefined
         }
-        row={project?.constructionRows?.[selectedActivityId]}
+        row={viewRows?.[selectedActivityId]}
         selection={selection}
         systemEnvelope={paneSystemEnvelope}
         onClose={clear}

@@ -215,14 +215,13 @@ export interface ToolbarState {
   layer: string;
   sort: SortId;
   /**
-   * The Task 11 audit toggle. ON treats any node whose worst provenance grade
-   * is `reconstructed` (backfilled or synthesized) as absent from the LIST —
-   * not merely undecorated. Default OFF: the surface's normal reading already
-   * marks reconstructed rows (the hatched rail + group badge); this toggle
-   * exists to let a reader ask "what is left if I do not trust a single ruling
-   * or inference?" and see the answer render without crashing.
+   * The "Observed only" evidence toggle (fix round B, designer P1-11). ON keeps
+   * EVERY activity — the committed list decides what exists (spec R6) — and sets
+   * aside every attempt not observed by the running system, so an activity known
+   * only from reconstructed evidence reads as not started (list/observedOnly.ts).
+   * It replaced "Hide synthesized", which removed 23 of 29 rows outright.
    */
-  hideSynthesized: boolean;
+  observedOnly: boolean;
 }
 
 export const DEFAULT_TOOLBAR: ToolbarState = {
@@ -231,7 +230,7 @@ export const DEFAULT_TOOLBAR: ToolbarState = {
   kind: 'all',
   layer: 'all',
   sort: 'network',
-  hideSynthesized: false,
+  observedOnly: false,
 };
 
 /**

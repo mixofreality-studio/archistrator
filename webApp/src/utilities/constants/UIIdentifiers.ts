@@ -406,7 +406,8 @@ export const UI_IDENTIFIERS = {
     // absent, so a reviewer can see what the surface would show if the founder's
     // 2026-09-09 ruling had never widened the backfill.
     LENS_EXPAND_TO_PHASE: 'construction-lens-expand-to-phase',
-    LENS_HIDE_SYNTHESIZED: 'construction-lens-hide-synthesized',
+    /** The "Observed only" evidence toggle (was "Hide synthesized", designer P1-11). */
+    LENS_OBSERVED_ONLY: 'construction-lens-observed-only',
     // The provenance mark carried on a SEARCH-MATCHED task row itself (in
     // addition to the ancestor reveal + the group headers' own badge). A task
     // row read in isolation still asserts a state; a match that scrolls one

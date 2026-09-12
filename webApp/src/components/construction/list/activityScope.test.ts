@@ -4,7 +4,7 @@
  * verbatim in intent (every scope chip against a fixture carrying an
  * unclassified row, a reconstructed row and a retried row; "expand to current
  * phase" opening only in-flight activities); the rest pin kind/layer/search/
- * sort/hide-synthesized, which this task also implements end to end.
+ * sort, which this task also implements end to end.
  */
 /// <reference types="node" />
 import { test } from 'node:test';
@@ -21,7 +21,6 @@ import {
   matchesLayer,
   matchingTaskIds,
   needsInlineProvenanceMark,
-  passesHideSynthesized,
   scopePredicate,
   sortActivities,
 } from './activityScope.ts';
@@ -239,20 +238,6 @@ void test('an empty query passes everything and reveals nothing', () => {
 });
 
 // ---------------------------------------------------------------------------
-// "Hide synthesized"
-// ---------------------------------------------------------------------------
-
-void test('passesHideSynthesized: off passes everything', () => {
-  assert.equal(passesHideSynthesized(reconstructed, false), true);
-});
-
-void test('passesHideSynthesized: on removes reconstructed, keeps recorded and unknown', () => {
-  assert.equal(passesHideSynthesized(reconstructed, true), false);
-  assert.equal(passesHideSynthesized(recorded, true), true);
-  assert.equal(passesHideSynthesized(unclassified, true), true, 'unknown already shows no data');
-});
-
-// ---------------------------------------------------------------------------
 // Sort — tier 1 only
 // ---------------------------------------------------------------------------
 
@@ -284,14 +269,13 @@ void test('applyToolbarToActivities combines every filter with AND, then sorts',
     layer: 'all',
     search: '',
     sort: 'floatAsc',
-    hideSynthesized: true,
   });
-  // reconstructed is removed by hideSynthesized; the rest sort by float asc,
-  // with the three that carry no float (reconstructed excluded already;
-  // recorded has none either) trailing in their relative order.
+  // No toolbar filter removes a row for its provenance any more ("Observed only"
+  // rewrites evidence, it does not filter — observedOnly.ts): the rows sort by
+  // float asc, the two that carry no float trailing in their relative order.
   assert.deepEqual(
     out.map((n) => n.activityId),
-    ['C-critical', 'C-near', 'C-far', 'C-recorded']
+    ['C-critical', 'C-near', 'C-far', 'C-reconstructed', 'C-recorded']
   );
 });
 

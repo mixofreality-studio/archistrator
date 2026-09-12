@@ -1,7 +1,8 @@
 /**
  * The LIST lens's NAVIGABILITY rules (Stage B Task 11): scope chips, the kind
- * and layer filters, search-and-reveal, tier-1 sort, the "hide synthesized"
- * audit toggle, and "expand to current phase".
+ * and layer filters, search-and-reveal, tier-1 sort, and "expand to current
+ * phase". (The "Observed only" evidence toggle is NOT a filter — it rewrites the
+ * rows' evidence before the tree is built; see observedOnly.ts.)
  *
  * There is no DataGrid backing this tree (`@mui/x-tree-view` is the free
  * community package — see Task 2's brief), so none of sort/filter/virtualize
@@ -12,10 +13,10 @@
  * the same reason activityTree.ts and activityRowPresentation.ts already are:
  * Node's native type-stripping test runner cannot load a `.tsx` module at all.
  *
- * WHY SCOPE/KIND/LAYER/HIDE-SYNTHESIZED FILTER AT TIER 1 ONLY
- * -------------------------------------------------------------
+ * WHY SCOPE/KIND/LAYER FILTER AT TIER 1 ONLY
+ * ------------------------------------------
  * An activity either shows with its full, untouched phase/task subtree, or it
- * does not show at all. None of these four filters reaches INTO a subtree and
+ * does not show at all. None of these filters reaches INTO a subtree and
  * prunes individual phases or tasks — the tree's derivation (activityTree.ts)
  * is the single source for what an activity's subtree contains, and a filter
  * that trimmed it would be a second, competing opinion about the same data.
@@ -35,17 +36,13 @@
  * "a tier-3 match" is read against here — a judgment call filling a real gap
  * in the brief's three-field list, recorded here rather than left implicit.
  *
- * WHY "HIDE SYNTHESIZED" REMOVES ROWS RATHER THAN JUST THEIR CHIPS
- * -------------------------------------------------------------------
- * The toggle's job is to answer "what would this screen show if I refused to
- * trust anything that was not directly observed?" An activity whose worst
- * provenance grade is `reconstructed` is, under that question, indistinguishable
- * from one with no evidence at all — so it is REMOVED from the list, the same
- * mechanism as every other scope filter, rather than left on screen with its
- * numbers merely blanked. `unknown`-grade activities (no evidence either way)
- * are left alone: they already render chip-less and percent-less at rest, so
- * hiding them would change nothing about "how many show fabricated lifecycle
- * data" — the count this toggle exists to make legible.
+ * WHY THERE IS NO "HIDE SYNTHESIZED" FILTER ANY MORE
+ * ----------------------------------------------------
+ * It used to REMOVE every activity whose worst provenance was reconstructed —
+ * 23 of 29 rows. But the committed activity list decides what exists (spec R6);
+ * evidence only decides what is known. Its replacement, "Observed only", keeps
+ * every row and strips the untrusted evidence instead (observedOnly.ts), so a
+ * backfilled activity reads not started rather than disappearing (designer P1-11).
  */
 import type { ActivityBuildStatusRow } from '../../../contracts/types';
 import { provenanceGradeOf, worstOriginOf, type ProvenanceOrigin } from '../provenanceAxis.ts';
@@ -98,15 +95,6 @@ export function matchesKind(node: ActivityNode, kind: string): boolean {
  *  the surface that reads it — but it travels on the same node for that use. */
 export function matchesLayer(node: ActivityNode, layer: string): boolean {
   return layer === 'all' || node.layer === layer;
-}
-
-// ---------------------------------------------------------------------------
-// The "hide synthesized" audit toggle
-// ---------------------------------------------------------------------------
-
-export function passesHideSynthesized(node: ActivityNode, hideSynthesized: boolean): boolean {
-  if (!hideSynthesized) return true;
-  return provenanceGradeOf(worstOriginOf(node)) !== 'reconstructed';
 }
 
 // ---------------------------------------------------------------------------
@@ -226,13 +214,10 @@ export function sortActivities(nodes: readonly ActivityNode[], sort: SortId): Ac
 // The combined pipeline
 // ---------------------------------------------------------------------------
 
-export type ToolbarFilters = Pick<
-  ToolbarState,
-  'scope' | 'kind' | 'layer' | 'search' | 'sort' | 'hideSynthesized'
->;
+export type ToolbarFilters = Pick<ToolbarState, 'scope' | 'kind' | 'layer' | 'search' | 'sort'>;
 
 /**
- * Filter (scope AND kind AND layer AND hide-synthesized AND search), then
+ * Filter (scope AND kind AND layer AND search), then
  * sort. One entry point so the caller (ConstructionConsole.tsx) never has to
  * remember the combination order, and so a test can pin the whole pipeline's
  * behaviour rather than each rule only in isolation.
@@ -246,7 +231,6 @@ export function applyToolbarToActivities(
       scopePredicate(toolbar.scope, n) &&
       matchesKind(n, toolbar.kind) &&
       matchesLayer(n, toolbar.layer) &&
-      passesHideSynthesized(n, toolbar.hideSynthesized) &&
       activityPassesSearch(n, toolbar.search)
   );
   return sortActivities(filtered, toolbar.sort);
