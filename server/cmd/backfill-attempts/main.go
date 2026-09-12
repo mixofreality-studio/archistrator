@@ -1,6 +1,6 @@
-// cmd/backfill-attempts derives TaskAttempt records for activities whose construction
-// history is recoverable from evidence that already exists in project.json — a frozen
-// service contract, a built component recorded in the implementation log.
+// cmd/backfill-attempts derives TaskAttempt records for the activities of the committed
+// plan whose construction is established by evidence that exists today — the code in
+// this repository, and a founder sign-off recorded against a committed artifact.
 //
 // It is a ONE-SHOT tool whose output is a REVIEWABLE COMMITTED DIFF. No server code
 // path may fabricate an attempt at request time; that is rule 4 of the provenance
@@ -8,18 +8,23 @@
 // permanent architecture. Synthesis that lives in a read path is invisible, unversioned
 // and unrevertable; synthesis that lives in a commit is none of those things.
 //
-// Every attempt it writes is stamped OriginBackfilled with a basis naming what it was
-// derived from, and every attempt is run through AttemptProvenance.Validate before
-// anything is written — a backfilled record with an empty basis is a hard error, not a
-// silent nil on the wire. Activities with NO evidence get NO attempts: absence stays
-// absence. The list view renders those as an honest unknown skeleton, which is the point.
+// Every attempt it writes is stamped OriginBackfilled — never observed: nobody watched
+// any of it run — with a basis naming what it was derived from, and every attempt is run
+// through AttemptProvenance.Validate before anything is written. Activities with no
+// evidence get NO attempts: absence stays absence, and the pump will pick them up as
+// real work.
 //
-// One inference is NOT read off a file. Where an activity has BOTH a frozen contract and
-// merged code, the founder has ruled that such a component is done, reviewed and
-// integrated — ground truth about their own project that this tool cannot derive. Those
-// rows derive their whole profile, and their basis says so, naming the ruling alongside
-// the two artifacts rather than pretending the extra tasks were read off disk. See
-// attemptsFor.
+// There are exactly three evidence paths, and no fourth:
+//
+//   - CODE (a component). The founder ruled (2026-09-09) "assume any component that is
+//     fully implemented is done and reviewed and integrated", and ruled (F2) "if they're
+//     not implemented in code, then leave them as real work that still needs to be
+//     done". "Fully implemented" is read off the repository — see fullyImplemented.
+//   - INFERRED (a Resource). A Resource has no code of its own in this repository; it
+//     qualifies iff every ResourceAccess with a slot-5 relationship to it qualifies on
+//     code, and its basis says the evidence is inferred.
+//   - SIGN-OFF. A founder sign-off recorded verbatim against a committed artifact (see
+//     founderSignOffs). It qualifies an activity only while that artifact exists.
 //
 // Usage (from server/):
 //
@@ -29,13 +34,17 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -44,655 +53,990 @@ import (
 
 // statePath is the project.json location relative to the repository root. It is
 // compiler input as much as it is state (it drives the Go contract layer, the OpenAPI
-// document and the TS client), which is why this tool rewrites exactly one key inside
-// it and splices the result back into the original bytes.
+// document and the TS client), which is why this tool rewrites exactly one member of it.
 var statePath = filepath.Join(".aiarch", "state", "project.json")
 
-// evidence is what we could actually find for one activity, read from its own committed
-// .activityConstruction record. Nothing here is inferred from an id, a naming
-// convention or a status field: every field is set only because a produced artifact
-// says so.
-type evidence struct {
-	// HasServiceContract is set by a produced artifact of kind "service-contract".
-	HasServiceContract bool
-	// ContractRef is the live .serviceContracts key when the contract file resolves to
-	// one, and the corpus path otherwise.
-	ContractRef string
-	// ContractBasis overrides the default serviceContracts[<ContractRef>] basis. It is
-	// set for the rows whose frozen contract names a component that no longer has a
-	// .serviceContracts entry — pointing those at serviceContracts[…] would be a
-	// dangling reference dressed up as provenance.
-	ContractBasis string
-	// HasMergedCode is set by a produced artifact of kind "code".
-	HasMergedCode bool
-	// GitRef is the ref recorded for the built component. In the committed corpus that
-	// is a path into the implementation log, not a commit sha.
-	GitRef string
-	// CodeKind is the evidence kind for GitRef; EvidenceGit when unset. The committed
-	// rows set it to EvidenceArtifact because the kind is the UI's click dispatch, and
-	// telling the UI to open "implementation/log" as a git ref would simply be wrong.
-	CodeKind projectstate.EvidenceKind
-	// CodeBasis overrides the default activityGit[<GitRef>] basis for the same reason
-	// ContractBasis exists: the basis must name a place that exists.
-	CodeBasis string
-}
+// serverDir is where every .serviceContracts goPackage is rooted, relative to the repo.
+const serverDir = "server"
 
 // generatorID identifies this tool in every provenance stamp it writes.
-var generatorID = "cmd/backfill-attempts"
+const generatorID = "cmd/backfill-attempts"
 
-// founderRuling is the ruling that widens the both-artifacts case, quoted verbatim so
-// the sentence a reader finds in a committed provenance basis is the sentence the
-// founder actually said — not a paraphrase this tool invented.
+// constructionMember is the one top-level project.json member this tool may write.
+const constructionMember = "activityConstruction"
+
+// founderRuling is the ruling that turns "fully implemented" into "done, reviewed and
+// integrated", quoted verbatim so the sentence a reader finds in a committed basis is
+// the sentence the founder actually said — not a paraphrase this tool invented.
 const founderRuling = "assume any component that is fully implemented is done and reviewed and integrated"
 
 // founderRulingRef is how that ruling is cited inside a basis string.
-var founderRulingRef = "founderRuling[2026-09-09]=" + founderRuling
+const founderRulingRef = "founderRuling[2026-09-09]=" + founderRuling
 
-// contractRef / contractBasis / codeRef / codeBasis resolve one evidence kind into the
-// EvidenceRef the UI clicks through and the basis string that names where it was read
-// from. Both are shared by all three inferences, so a basis can never drift between the
-// narrow and the widened form of the same evidence.
-func contractRef(ev evidence) projectstate.EvidenceRef {
-	return projectstate.EvidenceRef{Kind: projectstate.EvidenceContract, Ref: ev.ContractRef}
+// founderSignOff is a founder decision, recorded verbatim, that an activity's committed
+// artifact is accepted. It is DATA — an entry here is a decision someone made, with the
+// words they used — and it is the evidence path for an activity whose product is an
+// artifact rather than code. A sign-off never stands alone: the artifact it approved
+// must still exist in the committed state, or the activity does not qualify.
+type founderSignOff struct {
+	ActivityID string
+	Date       string
+	Quote      string
+	Artifact   signedArtifact
 }
 
-func contractBasis(ev evidence) string {
-	if ev.ContractBasis != "" {
-		return ev.ContractBasis
-	}
-	return fmt.Sprintf("serviceContracts[%s]", ev.ContractRef)
+// signedArtifact names the committed artifact a sign-off approved and reads it.
+type signedArtifact struct {
+	// Ref is where the artifact lives in project.json, e.g. "testingState.systemTestPlan".
+	Ref string
+	// Describe reads the artifact out of the committed state and returns a short,
+	// countable description of it ("5 scenarios"). It fails when the artifact is absent
+	// or empty — a sign-off on nothing is not evidence.
+	Describe func(projectstate.Project) (string, error)
 }
 
-func codeRef(ev evidence) projectstate.EvidenceRef {
-	kind := ev.CodeKind
-	if kind == projectstate.EvidenceNone {
-		kind = projectstate.EvidenceGit
-	}
-	return projectstate.EvidenceRef{Kind: kind, Ref: ev.GitRef}
+// systemTestPlanArtifact is .testingState.systemTestPlan, described by its scenario count.
+var systemTestPlanArtifact = signedArtifact{
+	Ref: "testingState.systemTestPlan",
+	Describe: func(p projectstate.Project) (string, error) {
+		if p.TestingState == nil || p.TestingState.SystemTestPlan == nil {
+			return "", errors.New("no .testingState.systemTestPlan is committed")
+		}
+		n := len(p.TestingState.SystemTestPlan.Scenarios)
+		if n == 0 {
+			return "", errors.New(".testingState.systemTestPlan holds no scenarios")
+		}
+		return fmt.Sprintf("%d scenarios", n), nil
+	},
 }
 
-func codeBasis(ev evidence) string {
-	if ev.CodeBasis != "" {
-		return ev.CodeBasis
-	}
-	return fmt.Sprintf("activityGit[%s]", ev.GitRef)
-}
-
-// fullyImplementedBasis is the provenance basis for the widened inference, and it is
-// deliberately NOT just a list of artifacts.
+// founderSignOffs is every recorded founder sign-off.
 //
-// Most of the tasks this basis stamps have no artifact behind them at all — srs, stp and
-// testing were never produced as files, and no committed record says they ran. What says
-// they ran is the FOUNDER, asserting ground truth about their own project that this tool
-// cannot derive. A basis citing only serviceContracts[…] and produced[code] would claim
-// those rows were read off disk, which is precisely the class of false provenance this
-// tool exists to prevent — and a claim this codebase has already had to go back and fix
-// once. So the basis names both halves: the two artifacts that establish "fully
-// implemented", and the ruling that turns "fully implemented" into "done, reviewed and
-// integrated".
-func fullyImplementedBasis(ev evidence) string {
-	return contractBasis(ev) + " + " + codeBasis(ev) + " + " + founderRulingRef
+// N-STP (2026-09-12): the founder reviewed the system test plan in the app at
+// /project/archistrator/construction?lens=list&a=N-STP and said, verbatim, "stp looks
+// good in the app. sign off. continue".
+var founderSignOffs = []founderSignOff{{
+	ActivityID: "N-STP",
+	Date:       "2026-09-12",
+	Quote:      "stp looks good in the app. sign off. continue",
+	Artifact:   systemTestPlanArtifact,
+}}
+
+// signOffBasis is the provenance basis of a sign-off: the artifact (counted from the
+// file) and the decision, in the founder's words.
+func signOffBasis(s founderSignOff, description string) string {
+	return fmt.Sprintf("%s (%s) + founderSignOff[%s]=%q", s.Artifact.Ref, description, s.Date, s.Quote)
 }
 
-// ruledEvidenceFor points a widened attempt at the artifact that actually backs it, and
-// at NOTHING when none does. Detailed design and its review were read off the frozen
-// contract; construction and its review off the merged code. The remaining tasks —
-// srs, srsReview, stp, stpReview, integration, testing — exist because of the ruling,
-// not because of a file, so they carry no evidence ref: handing the UI a contract to
-// open under a row labelled "Testing" would be a click-through that lies about what it
-// is showing. The basis still says exactly where each row came from.
+// verdict is one activity's outcome: whether it qualifies, why, and — when it does —
+// what its attempts cite.
+type verdict struct {
+	ActivityID string
+	Qualifies  bool
+	// Reason is the failing condition when the activity does not qualify, and the
+	// evidence path when it does. It is the run report's line for the activity.
+	Reason string
+	// Basis is the provenance basis stamped on every attempt (qualifying only).
+	Basis string
+	// ContractRef / CodeRef back the tasks that were read off an artifact: the
+	// component's contract key (detailed design + its review) and the commit the code was
+	// read at (construction + code review). ArtifactRef backs every task of a sign-off.
+	ContractRef string
+	CodeRef     string
+	ArtifactRef string
+	// Files are the repo-relative files a code verdict read; the run refuses to cite
+	// HEAD for them unless they are unmodified there.
+	Files []string
+}
+
+// inputs is everything the evaluation reads: the decoded committed state, where the
+// server tree is, and the commit that tree is at.
+type inputs struct {
+	Project projectstate.Project
+	// ServerRoot is the directory every goPackage is resolved under.
+	ServerRoot string
+	// Head is the commit the server tree was read at; it is cited in every code basis.
+	Head string
+}
+
+// planOf returns the committed activity list and System, refusing when either is missing:
+// without them there is no activity to evaluate and no component to read.
+func planOf(p projectstate.Project) (projectstate.ActivityList, projectstate.System, error) {
+	list, ok := p.ActivityList.Model.(*projectstate.ActivityList)
+	if !ok || list == nil {
+		return projectstate.ActivityList{}, projectstate.System{}, fmt.Errorf("slot activityList holds %T, not an ActivityList", p.ActivityList.Model)
+	}
+	sys, ok := p.SystemDesign.Model.(*projectstate.System)
+	if !ok || sys == nil {
+		return projectstate.ActivityList{}, projectstate.System{}, fmt.Errorf("slot systemDesign holds %T, not a System", p.SystemDesign.Model)
+	}
+	return *list, *sys, nil
+}
+
+// evaluate decides every activity of the committed plan, in plan order.
+func evaluate(in inputs) ([]verdict, error) {
+	list, sys, err := planOf(in.Project)
+	if err != nil {
+		return nil, err
+	}
+	components := make(map[string]projectstate.Component, len(sys.Components))
+	for _, c := range sys.Components {
+		components[c.ID] = c
+	}
+	activityFor := map[string]string{} // componentId -> activity id
+	for _, a := range list.Activities {
+		if a.ComponentID != "" {
+			activityFor[a.ComponentID] = a.Name
+		}
+	}
+	signOffs := map[string]founderSignOff{}
+	for _, s := range founderSignOffs {
+		signOffs[s.ActivityID] = s
+	}
+
+	out := make([]verdict, 0, len(list.Activities))
+	byID := map[string]verdict{}
+	var resources []projectstate.ActivityItem
+	for _, a := range list.Activities {
+		component, hasComponent := components[a.ComponentID]
+		var v verdict
+		switch {
+		case hasComponent && component.Kind == projectstate.CompResource:
+			resources = append(resources, a) // decided below, once every RA is known.
+			continue
+		case hasComponent:
+			v = fullyImplemented(a.Name, component, in)
+		case a.ComponentID != "":
+			v = verdict{ActivityID: a.Name, Reason: fmt.Sprintf("componentId %q names no component of the committed System", a.ComponentID)}
+		default:
+			v = signedOff(a.Name, signOffs, in.Project)
+		}
+		byID[a.Name] = v
+	}
+	for _, a := range resources {
+		byID[a.Name] = inferredFromAccess(a.Name, components[a.ComponentID], sys, activityFor, byID)
+	}
+	for _, a := range list.Activities {
+		out = append(out, byID[a.Name])
+	}
+	return out, nil
+}
+
+// signedOff is the sign-off evidence path for a componentless activity.
+func signedOff(activityID string, signOffs map[string]founderSignOff, p projectstate.Project) verdict {
+	s, ok := signOffs[activityID]
+	if !ok {
+		return verdict{ActivityID: activityID, Reason: "no evidence path: a componentless activity has no code to read, and no founder sign-off is recorded for it"}
+	}
+	description, err := s.Artifact.Describe(p)
+	if err != nil {
+		return verdict{ActivityID: activityID, Reason: fmt.Sprintf("founder sign-off recorded (%s) but its artifact does not stand: %v", s.Date, err)}
+	}
+	basis := signOffBasis(s, description)
+	return verdict{ActivityID: activityID, Qualifies: true, Reason: "sign-off: " + basis, Basis: basis, ArtifactRef: s.Artifact.Ref}
+}
+
+// fullyImplemented applies the founder's "fully implemented" test to one component. A
+// component is fully implemented only when ALL of these hold:
 //
-// Every one of the twelve tasks is listed, with no default case, so `exhaustive` fails
-// the build the moment a thirteenth is added without a conscious call about what backs
-// it — the same discipline projectstate's conditionalTasks and taskLabels maps keep.
-func ruledEvidenceFor(task projectstate.MethodTask, ev evidence) projectstate.EvidenceRef {
+//  1. It has .serviceContracts entries, grouped by their .component.
+//  2. Every one of those entries has a non-empty goPackage and no stub: true.
+//  3. server/<goPackage>/contract.gen.go exists, AND the component's hand-written
+//     server/<goPackage>/<lowercase interface>.go declares ONE receiver type with a
+//     method for every operation of the component's contract — checked with go/parser.
+//
+// Condition 3 as first written asked for a declared `type <Interface>Impl`. No
+// component in this repository satisfies that: an engine's <Interface>Impl struct is
+// GENERATED (in contract.gen.go), a Manager's concrete type is the unexported
+// <interface> struct, and a ResourceAccess names its concrete types after the resource
+// it binds (postgresUsageAccess, gitLocalAccess, …). A declared type proves nothing
+// about implementation in any case. The hand-written file carrying a method per
+// contract operation on one receiver is what "implemented" means here, whatever the
+// receiver is called, and it is strictly stronger than a declaration.
+//
+// FACETS: a component may own several contracts (projectStateAccess carries
+// constructionTransitionAccess, designSessionAccess and gitActivityStatusAccess;
+// billingStateAccess carries revenueLedgerAccess). Facets share the component's
+// goPackage and are held to conditions 1 and 2 with it, but condition 3 reads only the
+// component's OWN interface — the entry whose key is the component itself. A facet
+// interface has no file of its own, and demanding one would fail a component that is
+// implemented.
+func fullyImplemented(activityID string, component projectstate.Component, in inputs) verdict {
+	fail := func(format string, args ...any) verdict {
+		return verdict{ActivityID: activityID, Reason: fmt.Sprintf(format, args...)}
+	}
+	if component.ContractKey == nil || *component.ContractKey == "" {
+		return fail("condition 1: component %q names no contractKey, so no .serviceContracts entry is grouped under it", component.ID)
+	}
+	key := *component.ContractKey
+	entries := contractsOf(in.Project.ServiceContracts, key)
+	if len(entries) == 0 {
+		return fail("condition 1: no .serviceContracts entry has component %q", key)
+	}
+	own, hasOwn := in.Project.ServiceContracts[key]
+	if !hasOwn || own.Component != key {
+		return fail("condition 1: .serviceContracts has no entry for the component's own interface (key %q)", key)
+	}
+	for _, k := range entries {
+		sc := in.Project.ServiceContracts[k]
+		if sc.GoPackage == "" {
+			return fail("condition 2: serviceContracts[%s] has no goPackage", k)
+		}
+		if sc.Stub {
+			return fail("condition 2: serviceContracts[%s] is stub: true", k)
+		}
+		if sc.GoPackage != own.GoPackage {
+			return fail("condition 2: serviceContracts[%s] is in %s, not the component's package %s", k, sc.GoPackage, own.GoPackage)
+		}
+	}
+	files, receiver, err := implementation(in.ServerRoot, own)
+	if err != nil {
+		return fail("condition 3: %v", err)
+	}
+	basis := fmt.Sprintf("serviceContracts[%s] + %s (%s implemented by %s) @ %s + %s",
+		strings.Join(entries, ","), strings.Join(files, " + "), own.Interface.Name, receiver, in.Head, founderRulingRef)
+	return verdict{
+		ActivityID: activityID, Qualifies: true,
+		Reason:      fmt.Sprintf("code: serviceContracts[%s]; %s implemented by %s", strings.Join(entries, ","), own.Interface.Name, receiver),
+		Basis:       basis,
+		ContractRef: key,
+		CodeRef:     in.Head,
+		Files:       files,
+	}
+}
+
+// contractsOf returns the .serviceContracts keys grouped under component, sorted with the
+// component's own key first so a basis always reads own-then-facets.
+func contractsOf(contracts map[string]projectstate.ServiceContract, component string) []string {
+	var facets []string
+	own := false
+	for k, sc := range contracts {
+		if sc.Component != component {
+			continue
+		}
+		if k == component {
+			own = true
+			continue
+		}
+		facets = append(facets, k)
+	}
+	sort.Strings(facets)
+	if own {
+		return append([]string{component}, facets...)
+	}
+	return facets
+}
+
+// implementation checks condition 3 for a component's own contract. It returns the two
+// repo-relative files it read and the receiver type that implements the contract.
+func implementation(serverRoot string, own projectstate.ServiceContract) ([]string, string, error) {
+	pkg := filepath.FromSlash(own.GoPackage)
+	gen := filepath.Join(serverRoot, pkg, "contract.gen.go")
+	if _, err := os.Stat(gen); err != nil {
+		return nil, "", fmt.Errorf("%s: %w", repoPath(own.GoPackage, "contract.gen.go"), err)
+	}
+	name := strings.ToLower(own.Interface.Name) + ".go"
+	file := filepath.Join(serverRoot, pkg, name)
+	ops := make([]string, 0, len(own.Interface.Operations))
+	for _, op := range own.Interface.Operations {
+		ops = append(ops, op.Name)
+	}
+	if len(ops) == 0 {
+		return nil, "", fmt.Errorf("serviceContracts[%s] declares no operations, so there is nothing to find implemented", own.Component)
+	}
+	receiver, err := implementingReceiver(file, ops)
+	if err != nil {
+		return nil, "", fmt.Errorf("%s: %w", repoPath(own.GoPackage, name), err)
+	}
+	return []string{repoPath(own.GoPackage, "contract.gen.go"), repoPath(own.GoPackage, name)}, receiver, nil
+}
+
+// repoPath is a file's path as cited in a basis: repo-relative, slash-separated.
+func repoPath(goPackage, file string) string {
+	return path.Join(serverDir, goPackage, file)
+}
+
+// implementingReceiver parses a hand-written Go file and returns the receiver type that
+// has a method for every one of ops. A generated file is refused (it is not a hand-built
+// implementation), and so is a file whose methods cover the operations only across
+// several receivers or not at all. When more than one receiver covers them (a live and a
+// dry-run implementation side by side), every one is named, so a basis never cites the
+// no-op alone when a real implementation sits beside it.
+func implementingReceiver(file string, ops []string) (string, error) {
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, file, nil, parser.ParseComments)
+	if err != nil {
+		return "", err
+	}
+	if ast.IsGenerated(f) {
+		return "", errors.New("is generated, not a hand-written implementation")
+	}
+	return coveringReceiver(methodsByReceiver(f), ops)
+}
+
+// methodsByReceiver indexes a file's methods by receiver type name.
+func methodsByReceiver(f *ast.File) map[string]map[string]bool {
+	methods := map[string]map[string]bool{}
+	for _, decl := range f.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Recv == nil || len(fn.Recv.List) == 0 {
+			continue
+		}
+		recv := receiverTypeName(fn.Recv.List[0].Type)
+		if methods[recv] == nil {
+			methods[recv] = map[string]bool{}
+		}
+		methods[recv][fn.Name.Name] = true
+	}
+	return methods
+}
+
+// coveringReceiver returns every receiver whose methods cover every op, in name order and
+// comma-separated; when none does, it says how close the best one came.
+func coveringReceiver(methods map[string]map[string]bool, ops []string) (string, error) {
+	var covering []string
+	best, bestHit := "", 0
+	for recv, set := range methods {
+		hit := 0
+		for _, op := range ops {
+			if set[op] {
+				hit++
+			}
+		}
+		if hit == len(ops) {
+			covering = append(covering, recv)
+		}
+		if hit > bestHit || (hit == bestHit && recv < best) {
+			best, bestHit = recv, hit
+		}
+	}
+	if len(covering) == 0 {
+		if bestHit == 0 {
+			return "", fmt.Errorf("declares no method for any of the %d contract operations", len(ops))
+		}
+		return "", fmt.Errorf("no one receiver implements all %d contract operations (best: %s with %d)", len(ops), best, bestHit)
+	}
+	sort.Strings(covering)
+	return strings.Join(covering, ", "), nil
+}
+
+// receiverTypeName is the base type name of a method receiver: T for T, *T, T[K] and *T[K].
+func receiverTypeName(expr ast.Expr) string {
+	switch t := expr.(type) {
+	case *ast.StarExpr:
+		return receiverTypeName(t.X)
+	case *ast.IndexExpr:
+		return receiverTypeName(t.X)
+	case *ast.IndexListExpr:
+		return receiverTypeName(t.X)
+	case *ast.Ident:
+		return t.Name
+	}
+	return ""
+}
+
+// inferredFromAccess is the INFERRED evidence path for a Resource. Nothing in this
+// repository is the Resource's own code, so the inference runs through the architecture:
+// a Resource is provisioned and integrated iff every ResourceAccess with a slot-5
+// relationship to it is fully implemented. A Resource no ResourceAccess reaches has
+// nothing to infer from and does not qualify.
+func inferredFromAccess(activityID string, resource projectstate.Component, sys projectstate.System,
+	activityFor map[string]string, decided map[string]verdict,
+) verdict {
+	accessors := map[string]bool{}
+	byID := map[string]projectstate.Component{}
+	for _, c := range sys.Components {
+		byID[c.ID] = c
+	}
+	for _, r := range sys.Relationships {
+		if r.To != resource.ID {
+			continue
+		}
+		if from, ok := byID[r.From]; ok && from.Kind == projectstate.CompResourceAccess {
+			accessors[r.From] = true
+		}
+	}
+	if len(accessors) == 0 {
+		return verdict{ActivityID: activityID, Reason: fmt.Sprintf("inferred: no ResourceAccess has a slot-5 relationship to %q, so there is nothing to infer from", resource.ID)}
+	}
+	ids := make([]string, 0, len(accessors))
+	for id := range accessors {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	cites := make([]string, 0, len(ids))
+	for _, ra := range ids {
+		act, ok := activityFor[ra]
+		if !ok {
+			return verdict{ActivityID: activityID, Reason: fmt.Sprintf("inferred: ResourceAccess %q has no activity in the plan to infer from", ra)}
+		}
+		v := decided[act]
+		if !v.Qualifies {
+			return verdict{ActivityID: activityID, Reason: fmt.Sprintf("inferred: its ResourceAccess %s does not qualify (%s)", act, v.Reason)}
+		}
+		cites = append(cites, fmt.Sprintf("%s (%s->%s) fully implemented: serviceContracts[%s]", act, ra, resource.ID, v.ContractRef))
+	}
+	basis := fmt.Sprintf("inferred, not read: a Resource has no code in this repository; every ResourceAccess with a slot-5 relationship to %s qualifies — %s + %s",
+		resource.ID, strings.Join(cites, "; "), founderRulingRef)
+	return verdict{ActivityID: activityID, Qualifies: true, Reason: "inferred: " + strings.Join(ids, ","), Basis: basis}
+}
+
+// evidenceFor points one task's attempt at the artifact that backs it, and at NOTHING
+// when none does. Detailed design and its review were read off the contract;
+// construction and its review off the code at the cited commit. A sign-off backs every
+// task with the artifact it approved. The remaining tasks exist because of a ruling, not
+// a file, so they carry no evidence ref: handing the UI a contract to open under a row
+// labelled "Testing" would be a click-through that lies about what it shows. The basis
+// still says exactly where each row came from.
+//
+// Every task is listed, with no default case, so `exhaustive` fails the build the moment
+// a thirteenth is added without a conscious call about what backs it.
+func evidenceFor(task projectstate.MethodTask, v verdict) projectstate.EvidenceRef {
+	if v.ArtifactRef != "" {
+		return projectstate.EvidenceRef{Kind: projectstate.EvidenceArtifact, Ref: v.ArtifactRef}
+	}
 	switch task {
 	case projectstate.TaskDetailedDesign, projectstate.TaskDesignReview:
-		return contractRef(ev)
+		if v.ContractRef != "" {
+			return projectstate.EvidenceRef{Kind: projectstate.EvidenceContract, Ref: v.ContractRef}
+		}
 	case projectstate.TaskConstruction, projectstate.TaskCodeReview:
-		return codeRef(ev)
+		if v.CodeRef != "" {
+			return projectstate.EvidenceRef{Kind: projectstate.EvidenceGit, Ref: v.CodeRef}
+		}
 	case projectstate.TaskSRS, projectstate.TaskSRSReview,
 		projectstate.TaskSTP, projectstate.TaskSTPReview,
 		projectstate.TaskIntegration, projectstate.TaskTesting:
 		// The ruling is the evidence; there is no artifact to point at.
-		return projectstate.EvidenceRef{}
 	case projectstate.TaskSomeConstruction, projectstate.TaskTestClient:
-		// Conditional-emit; the widened inference never asks about these.
-		return projectstate.EvidenceRef{}
+		// Conditional-emit; never derived here.
 	}
 	return projectstate.EvidenceRef{}
 }
 
-// attemptsFor derives the recoverable attempts for one activity.
-//
-// THREE inferences, and no fourth. The first two are read off artifacts; the third is a
-// founder ruling applied to a pair of artifacts:
-//
-//   - a frozen service contract ALONE means Detailed Design ran and Design Review passed.
-//     A contract with no code is a design that was never built, and it stays two tasks.
-//   - merged code ALONE means Construction ran and Code Review passed.
-//   - a frozen contract AND merged code means the component is FULLY IMPLEMENTED, and
-//     the founder has ruled that such a component is "done and reviewed and integrated".
-//     Those activities derive their WHOLE profile as passed.
-//
-// The widened case skips the CONDITIONAL tasks (someConstruction, testClient). Those are
-// conditional-emit by design — the UI renders them only when a real attempt exists — and
-// inventing one would assert a pre-design spike or a test client that may never have
-// existed. The ruling says the component is done, reviewed and integrated; it does not
-// say how it got there, and this tool must not fill that in.
-//
-// Activities with NO evidence still get NOTHING. The ruling is about fully implemented
-// components specifically; stretching it further would be exactly the over-inference
-// this tool was built to avoid.
-//
-// The task vocabulary comes from the PROFILE, never from the evidence: an inference is
-// dropped when the activity's type has no lifecycle stage for it.
-func attemptsFor(activityID string, typ projectstate.ActivityType, ev evidence) []projectstate.TaskAttempt {
-	profile := projectstate.ProfileFor(typ, projectstate.TestVariantPlan)
-	allowed := map[projectstate.MethodTask]bool{}
-	for _, task := range projectstate.TasksForProfile(profile) {
-		allowed[task] = true
+// classify resolves an activity's type and testing variant from the committed plan. A
+// component that qualified on code has contracts, which ClassifyType ranks above every
+// other signal. An unclassifiable activity has no profile, so it has no task
+// vocabulary, so there is nothing honest to write against it.
+func classify(item projectstate.ActivityItem, hasContract bool) (projectstate.ActivityType, projectstate.TestingVariant, error) {
+	typ, ok := projectstate.ClassifyType(item.Name, item.WorkerClass, item.Coding, hasContract)
+	if !ok {
+		return 0, 0, fmt.Errorf("%s: ClassifyType refused (workerClass %q, coding %v)", item.Name, item.WorkerClass, item.Coding)
 	}
+	variant := projectstate.TestVariantPlan
+	if typ == projectstate.ActivityTypeTesting {
+		_, variant, _ = projectstate.ClassifyActivity(item.Name, item.WorkerClass, item.Coding)
+	}
+	return typ, variant, nil
+}
 
-	now := time.Now().UTC()
-	out := []projectstate.TaskAttempt{}
-
-	add := func(task projectstate.MethodTask, ref projectstate.EvidenceRef, basis string) {
-		if !allowed[task] {
-			return
+// attemptsFor derives a qualifying activity's attempts: ONE passed attempt at every
+// non-conditional task of its profile. The conditional tasks (someConstruction,
+// testClient) are conditional-emit by design — rendered only when a real attempt exists
+// — and inventing one would assert a pre-design spike or a test client that may never
+// have existed. The ruling says the work is done, reviewed and integrated; it does not
+// say how it got there, and this tool must not fill that in.
+func attemptsFor(v verdict, typ projectstate.ActivityType, variant projectstate.TestingVariant, now time.Time) []projectstate.TaskAttempt {
+	var out []projectstate.TaskAttempt
+	for _, task := range projectstate.TasksForProfile(projectstate.ProfileFor(typ, variant)) {
+		if projectstate.IsConditionalTask(task) {
+			continue
 		}
+		stamp := now
 		out = append(out, projectstate.TaskAttempt{
-			AttemptID: projectstate.AttemptID(activityID, task, 1),
+			AttemptID: projectstate.AttemptID(v.ActivityID, task, 1),
 			Task:      task,
 			Phase:     projectstate.PhaseForTask(task),
 			Attempt:   1,
 			Actor:     projectstate.ActorAgent,
 			Outcome:   projectstate.OutcomePassed,
-			Evidence:  ref,
+			Evidence:  evidenceFor(task, v),
 			Provenance: projectstate.AttemptProvenance{
 				Origin:      projectstate.OriginBackfilled,
 				Generator:   generatorID,
-				GeneratedAt: &now,
-				Basis:       basis,
+				GeneratedAt: &stamp,
+				Basis:       v.Basis,
 			},
 		})
 	}
-
-	switch {
-	case ev.HasServiceContract && ev.HasMergedCode:
-		basis := fullyImplementedBasis(ev)
-		for _, task := range projectstate.TasksForProfile(profile) {
-			if projectstate.IsConditionalTask(task) {
-				continue
-			}
-			add(task, ruledEvidenceFor(task, ev), basis)
-		}
-	case ev.HasServiceContract:
-		add(projectstate.TaskDetailedDesign, contractRef(ev), contractBasis(ev))
-		add(projectstate.TaskDesignReview, contractRef(ev), contractBasis(ev))
-	case ev.HasMergedCode:
-		add(projectstate.TaskConstruction, codeRef(ev), codeBasis(ev))
-		add(projectstate.TaskCodeReview, codeRef(ev), codeBasis(ev))
-	}
 	return out
 }
 
-// evidenceFromRow reads one activity's produced-artifact list. contracts is the set of
-// live .serviceContracts keys, used only to decide whether a contract basis can point
-// at a real entry.
-func evidenceFromRow(row projectstate.ActivityConstructionStatus, contracts map[string]bool) evidence {
-	var ev evidence
-	for _, artifact := range row.Produced {
-		if !artifact.Produced {
-			continue
-		}
-		switch artifact.Kind {
-		case "service-contract":
-			ev.HasServiceContract = true
-			ev.ContractRef = artifact.Source
-			ev.ContractBasis = producedBasis(row.ActivityID, artifact)
-			if component := contractComponent(artifact.Source); component != "" && contracts[component] {
-				ev.ContractRef = component
-				ev.ContractBasis = "" // serviceContracts[<component>] resolves.
-			}
-		case "code":
-			ev.HasMergedCode = true
-			ev.GitRef = artifact.Source
-			ev.CodeKind = projectstate.EvidenceArtifact
-			ev.CodeBasis = producedBasis(row.ActivityID, artifact)
-		}
-	}
-	return ev
-}
-
-// contractComponent recovers the component name a contract file is named for. An empty
-// source yields an empty name rather than path.Base's "." — a produced entry that names
-// no file cannot be matched to a live .serviceContracts key, and "." would be a
-// reference to nothing dressed up as one.
-func contractComponent(source string) string {
-	if source == "" {
-		return ""
-	}
-	return strings.TrimSuffix(path.Base(source), ".md")
-}
-
-// producedBasis names the produced entry an inference was read from. When the entry
-// carries no source the basis stops at the entry itself: it is still true, still
-// non-empty, and still traceable to a specific record — it just cannot claim a path
-// that the corpus does not contain.
-func producedBasis(activityID string, artifact projectstate.ProducedArtifact) string {
-	basis := fmt.Sprintf("activityConstruction[%s].produced[%s]", activityID, artifact.Kind)
-	if artifact.Source == "" {
-		return basis
-	}
-	return basis + "=" + artifact.Source
-}
-
-// activityMetaByID reads the committed Phase-2 activity list (worker class + coding
-// flag), the two signals ClassifyType needs for an activity that produced no contract.
-// A missing or unreadable slot yields an empty map: every such row is then
-// unclassifiable and gets no attempts, which is the correct conservative answer.
-func activityMetaByID(doc map[string]json.RawMessage) map[string]projectstate.ActivityItem {
-	out := map[string]projectstate.ActivityItem{}
-	var slots map[string]struct {
-		Model struct {
-			Activities []projectstate.ActivityItem `json:"activities"`
-		} `json:"model"`
-	}
-	if err := json.Unmarshal(doc["slots"], &slots); err != nil {
-		return out
-	}
-	slot, ok := slots[strconv.Itoa(int(projectstate.KindActivityList))]
-	if !ok {
-		return out
-	}
-	for _, item := range slot.Model.Activities {
-		out[item.Name] = item
-	}
-	return out
-}
-
-// serviceContractKeys reads the set of live .serviceContracts component keys.
-func serviceContractKeys(doc map[string]json.RawMessage) map[string]bool {
-	out := map[string]bool{}
-	var contracts map[string]json.RawMessage
-	if err := json.Unmarshal(doc["serviceContracts"], &contracts); err != nil {
-		return out
-	}
-	for key := range contracts {
-		out[key] = true
-	}
-	return out
-}
-
-// valueSpan returns the byte range of a top-level key's VALUE in the raw document.
-// Rewriting one span and leaving every other byte untouched is what keeps the diff
-// reviewable: top-level key order, 2-space indentation and every unrelated key survive
-// verbatim, which a whole-document round-trip through Go's map marshalling would not.
-func valueSpan(raw []byte, want string) (start, end int, err error) {
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	if _, err := dec.Token(); err != nil { // the opening '{'
-		return 0, 0, fmt.Errorf("read document: %w", err)
-	}
-	for dec.More() {
-		keyTok, err := dec.Token()
-		if err != nil {
-			return 0, 0, fmt.Errorf("read key: %w", err)
-		}
-		key, _ := keyTok.(string)
-		afterKey := dec.InputOffset()
-		var value json.RawMessage
-		if err := dec.Decode(&value); err != nil {
-			return 0, 0, fmt.Errorf("read value for %q: %w", key, err)
-		}
-		afterValue := dec.InputOffset()
-		if key != want {
-			continue
-		}
-		open := bytes.IndexByte(raw[afterKey:afterValue], '{')
-		if open < 0 {
-			return 0, 0, fmt.Errorf("value for %q is not an object", want)
-		}
-		return int(afterKey) + open, int(afterValue), nil
-	}
-	return 0, 0, fmt.Errorf("key %q not found", want)
-}
-
-// kv is one key/value pair of a JSON object, in document order.
-type kv struct {
-	key   string
-	value json.RawMessage
-}
-
-// objectPairs decodes a JSON object into its ordered key/value pairs. Order is carried
-// explicitly because a Go map has none: the committed .activityConstruction keys are
-// not alphabetical, and a handful of records do not carry their fields in struct order
-// either. Both orders are preserved so the backfill diff shows only the backfill.
-func objectPairs(raw json.RawMessage) ([]kv, error) {
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	if _, err := dec.Token(); err != nil { // the opening '{'
-		return nil, err
-	}
-	var out []kv
-	for dec.More() {
-		keyTok, err := dec.Token()
-		if err != nil {
-			return nil, err
-		}
-		key, _ := keyTok.(string)
-		var value json.RawMessage
-		if err := dec.Decode(&value); err != nil {
-			return nil, fmt.Errorf("read value for %q: %w", key, err)
-		}
-		out = append(out, kv{key: key, value: value})
-	}
-	return out, nil
-}
-
-// compactObject re-emits ordered pairs as a compact object. Callers hand the result to
-// renderRows, which re-indents it; the two steps together are what let a record keep
-// its own field order through a rewrite.
-func compactObject(pairs []kv) (json.RawMessage, error) {
-	var b bytes.Buffer
-	b.WriteByte('{')
-	for i, p := range pairs {
-		if i > 0 {
-			b.WriteByte(',')
-		}
-		key, err := json.Marshal(p.key)
-		if err != nil {
-			return nil, err
-		}
-		b.Write(key)
-		b.WriteByte(':')
-		b.Write(p.value)
-	}
-	b.WriteByte('}')
-	return b.Bytes(), nil
-}
-
-// withAttempts returns the record with an "attempts" key carrying the derived ledger,
-// positioned where ActivityConstructionStatus declares it (immediately after "phases",
-// or after "phase" when the record has no phase set) so the diff reads in place.
-//
-// A record that already carries an attempts key has that key REPLACED, not shadowed by
-// a second one: re-running the tool must produce the same document shape as running it
-// once. A duplicate key would parse (Go keeps the last) while making the committed
-// state ambiguous to every other reader of this file, which is a worse failure than the
-// one it papers over.
-func withAttempts(record json.RawMessage, attempts []projectstate.TaskAttempt) (json.RawMessage, error) {
-	pairs, err := objectPairs(record)
-	if err != nil {
-		return nil, err
-	}
-	value, err := json.Marshal(attempts)
-	if err != nil {
-		return nil, err
-	}
-	for i, p := range pairs {
-		if p.key == "attempts" {
-			pairs[i].value = value
-			return compactObject(pairs)
-		}
-	}
-	at := len(pairs)
-	for i, p := range pairs {
-		if p.key == "phases" {
-			at = i + 1
-			break
-		}
-		if p.key == "phase" {
-			at = i + 1
-		}
-	}
-	merged := make([]kv, 0, len(pairs)+1)
-	merged = append(merged, pairs[:at]...)
-	merged = append(merged, kv{key: "attempts", value: value})
-	merged = append(merged, pairs[at:]...)
-	return compactObject(merged)
-}
-
-// decodeRows decodes the .activityConstruction object into its ordered activity ids and
-// the raw bytes of each record.
-func decodeRows(raw []byte) ([]string, map[string]json.RawMessage, error) {
-	pairs, err := objectPairs(raw)
-	if err != nil {
-		return nil, nil, fmt.Errorf("decode activityConstruction: %w", err)
-	}
-	order := make([]string, 0, len(pairs))
-	rows := make(map[string]json.RawMessage, len(pairs))
-	for _, p := range pairs {
-		order = append(order, p.key)
-		rows[p.key] = p.value
-	}
-	return order, rows, nil
-}
-
-// renderRows re-emits the .activityConstruction object at its original depth (one level
-// in, 2-space indentation) and in its original key order.
-func renderRows(order []string, rows map[string]json.RawMessage) ([]byte, error) {
-	var b bytes.Buffer
-	b.WriteString("{\n")
-	for i, id := range order {
-		key, err := json.Marshal(id)
-		if err != nil {
-			return nil, err
-		}
-		body, err := json.MarshalIndent(rows[id], "    ", "  ")
-		if err != nil {
-			return nil, fmt.Errorf("marshal %s: %w", id, err)
-		}
-		b.WriteString("    ")
-		b.Write(key)
-		b.WriteString(": ")
-		b.Write(body)
-		if i < len(order)-1 {
-			b.WriteByte(',')
-		}
-		b.WriteByte('\n')
-	}
-	b.WriteString("  }")
-	return b.Bytes(), nil
-}
-
-// derived is one activity's outcome, for the run report.
-type derived struct {
-	activityID string
-	attempts   int
-	reason     string
-}
-
-// activityConstructionDoc bundles the raw project.json bytes together with the
-// decoded .activityConstruction rows this tool rewrites. Read/parse and
-// render/write each become one function operating on this value, instead of
-// run() threading raw/doc/start/end/order/rows through by hand.
-type activityConstructionDoc struct {
-	raw   []byte
-	doc   map[string]json.RawMessage
-	start int
-	end   int
-	order []string
-	rows  map[string]json.RawMessage
-}
-
-// readActivityConstructionDoc loads project.json and isolates the
-// .activityConstruction object as both raw bytes and decoded rows.
-//
-// Fidelity gate: re-rendering the UNTOUCHED rows must reproduce the committed bytes
-// exactly. If it does not, this tool would smuggle a reformat into the same diff as
-// the backfill, and a reviewer could no longer see what it actually changed.
-func readActivityConstructionDoc(file string) (activityConstructionDoc, error) {
-	raw, err := os.ReadFile(file) //nolint:gosec // a one-shot CLI reading the path it was told to read.
-	if err != nil {
-		return activityConstructionDoc{}, fmt.Errorf("read %s: %w", file, err)
-	}
-	var doc map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &doc); err != nil {
-		return activityConstructionDoc{}, fmt.Errorf("parse %s: %w", file, err)
-	}
-
-	start, end, err := valueSpan(raw, "activityConstruction")
-	if err != nil {
-		return activityConstructionDoc{}, err
-	}
-	order, rows, err := decodeRows(raw[start:end])
-	if err != nil {
-		return activityConstructionDoc{}, err
-	}
-
-	roundTrip, err := renderRows(order, rows)
-	if err != nil {
-		return activityConstructionDoc{}, err
-	}
-	if !bytes.Equal(roundTrip, raw[start:end]) {
-		return activityConstructionDoc{}, fmt.Errorf("re-rendering activityConstruction unchanged is not byte-identical; " +
-			"writing would reformat unrelated state — refusing")
-	}
-	return activityConstructionDoc{raw: raw, doc: doc, start: start, end: end, order: order, rows: rows}, nil
-}
-
-// write re-renders the (possibly updated) rows and splices them back into the
-// original document bytes at [start:end], leaving everything outside
-// .activityConstruction byte-for-byte untouched.
-func (d activityConstructionDoc) write(file string) error {
-	rendered, err := renderRows(d.order, d.rows)
-	if err != nil {
-		return err
-	}
-	var out bytes.Buffer
-	out.Write(d.raw[:d.start])
-	out.Write(rendered)
-	out.Write(d.raw[d.end:])
-	if err := os.WriteFile(file, out.Bytes(), 0o600); err != nil {
-		return fmt.Errorf("write %s: %w", file, err)
-	}
-	fmt.Printf("wrote %s\n", file)
-	return nil
-}
-
-// validateAttempts enforces the two invariants every backfilled attempt must satisfy
-// before it is written: Validate() must pass (a backfilled record with an empty basis
-// is a hard error, not a silent nil on the wire), and the origin must be
-// OriginBackfilled — this tool observes evidence, it never fabricates a live one.
+// validateAttempts enforces the two invariants every attempt must satisfy before
+// anything is written: Validate() must pass (a backfilled record with an empty basis is
+// a hard error, not a silent nil on the wire), and the origin must be OriginBackfilled —
+// this tool observes nothing.
 func validateAttempts(attempts []projectstate.TaskAttempt) error {
 	for _, attempt := range attempts {
 		if err := attempt.Provenance.Validate(); err != nil {
 			return fmt.Errorf("%s: %w", attempt.AttemptID, err)
 		}
 		if attempt.Provenance.Origin != projectstate.OriginBackfilled {
-			return fmt.Errorf("%s: origin %q — this tool observes nothing",
-				attempt.AttemptID, attempt.Provenance.Origin)
+			return fmt.Errorf("%s: origin %q — this tool observes nothing", attempt.AttemptID, attempt.Provenance.Origin)
 		}
 	}
 	return nil
 }
 
-// deriveRowAttempts resolves one activityConstruction row into the TaskAttempt
-// records its evidence supports. An activity with no evidence, an unclassifiable
-// activity/profile combination, or an evidence set that maps to no phase in the
-// profile yields zero attempts and an explanatory report line — never an error and
-// never a fabricated record. A decode failure or a failed attempt validation is a
-// hard abort, returned as an error instead of a report line.
-func deriveRowAttempts(id string, rawRow json.RawMessage, item projectstate.ActivityItem, contracts map[string]bool) ([]projectstate.TaskAttempt, derived, error) {
-	var row projectstate.ActivityConstructionStatus
-	if err := json.Unmarshal(rawRow, &row); err != nil {
-		return nil, derived{}, fmt.Errorf("decode activityConstruction[%s]: %w", id, err)
+// backfill applies the qualifying verdicts to p.ActivityConstruction. Every attempt is
+// validated before p is touched. An existing row keeps every field but its attempts,
+// and its attempts are replaced only when every one of them is this tool's own earlier
+// backfill: a row carrying any other attempt holds real history, and overwriting it is
+// refused.
+func backfill(p *projectstate.Project, verdicts []verdict, now time.Time) (int, error) {
+	list, _, err := planOf(*p)
+	if err != nil {
+		return 0, err
 	}
-	ev := evidenceFromRow(row, contracts)
-	if !ev.HasServiceContract && !ev.HasMergedCode {
-		return nil, derived{id, 0, "no contract and no code artifact"}, nil
+	items := make(map[string]projectstate.ActivityItem, len(list.Activities))
+	for _, a := range list.Activities {
+		items[a.Name] = a
 	}
-	typ, ok := projectstate.ClassifyType(row.ActivityID, item.WorkerClass, item.Coding, ev.HasServiceContract)
+	type planned struct {
+		row      projectstate.ActivityConstructionStatus
+		attempts []projectstate.TaskAttempt
+	}
+	var writes []planned
+	for _, v := range verdicts {
+		if !v.Qualifies {
+			continue
+		}
+		typ, variant, err := classify(items[v.ActivityID], v.ContractRef != "")
+		if err != nil {
+			return 0, err
+		}
+		attempts := attemptsFor(v, typ, variant, now)
+		if len(attempts) == 0 {
+			return 0, fmt.Errorf("%s qualifies but its profile yields no task to record", v.ActivityID)
+		}
+		if err := validateAttempts(attempts); err != nil {
+			return 0, err
+		}
+		row, exists := p.ActivityConstruction[v.ActivityID]
+		if exists {
+			for _, a := range row.Attempts {
+				if a.Provenance.Origin != projectstate.OriginBackfilled || a.Provenance.Generator != generatorID {
+					return 0, fmt.Errorf("activityConstruction[%s] already holds attempt %s (origin %q, generator %q) — refusing to overwrite real history",
+						v.ActivityID, a.AttemptID, a.Provenance.Origin, a.Provenance.Generator)
+				}
+			}
+		} else {
+			row = projectstate.ActivityConstructionStatus{ActivityID: v.ActivityID, Type: typ, Variant: variant}
+		}
+		writes = append(writes, planned{row: row, attempts: attempts})
+	}
+	if len(writes) > 0 && p.ActivityConstruction == nil {
+		p.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{}
+	}
+	total := 0
+	for _, w := range writes {
+		w.row.Attempts = w.attempts
+		p.ActivityConstruction[w.row.ActivityID] = w.row
+		total += len(w.attempts)
+	}
+	return total, nil
+}
+
+// ---- the writer -----------------------------------------------------------------------
+//
+// The state file is decoded and re-encoded through the projectstate codec, and exactly
+// one top-level member — .activityConstruction — is spliced back into the ORIGINAL bytes.
+// Every other member keeps its bytes, which matters for more than a tidy diff: the codec
+// does not carry updatedAt or activityListOverrides, so a whole-document rewrite would
+// silently drop both.
+
+// member is one member of a JSON object, in document order.
+type member struct {
+	key   string
+	value json.RawMessage
+}
+
+// members decodes a compact JSON object into its members, in document order.
+func members(raw []byte) ([]member, error) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	if _, err := dec.Token(); err != nil {
+		return nil, fmt.Errorf("read object: %w", err)
+	}
+	var out []member
+	for dec.More() {
+		tok, err := dec.Token()
+		if err != nil {
+			return nil, fmt.Errorf("read member key: %w", err)
+		}
+		key, _ := tok.(string)
+		var value json.RawMessage
+		if err := dec.Decode(&value); err != nil {
+			return nil, fmt.Errorf("read member %q: %w", key, err)
+		}
+		out = append(out, member{key: key, value: value})
+	}
+	return out, nil
+}
+
+// joinMembers re-emits members as a compact JSON object.
+func joinMembers(ms []member) []byte {
+	var b bytes.Buffer
+	b.WriteByte('{')
+	for i, m := range ms {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		key, _ := json.Marshal(m.key) // a string always marshals
+		b.Write(key)
+		b.WriteByte(':')
+		b.Write(m.value)
+	}
+	b.WriteByte('}')
+	return b.Bytes()
+}
+
+// valueOf returns the value of key among ms, or nil.
+func valueOf(ms []member, key string) json.RawMessage {
+	for _, m := range ms {
+		if m.key == key {
+			return m.value
+		}
+	}
+	return nil
+}
+
+// compactDocument returns the document compacted, plus the whitespace after its closing
+// brace. FIDELITY GATE: it refuses a document that re-indenting would not reproduce
+// byte-for-byte — writing one would smuggle a reformat of unrelated state into the diff.
+func compactDocument(raw []byte) ([]byte, []byte, error) {
+	trimmed := bytes.TrimRight(raw, " \t\r\n")
+	trailer := raw[len(trimmed):]
+	var body bytes.Buffer
+	if err := json.Compact(&body, trimmed); err != nil {
+		return nil, nil, fmt.Errorf("parse the project document: %w", err)
+	}
+	var again bytes.Buffer
+	if err := json.Indent(&again, body.Bytes(), "", "  "); err != nil {
+		return nil, nil, fmt.Errorf("indent the project document: %w", err)
+	}
+	if !bytes.Equal(again.Bytes(), trimmed) {
+		return nil, nil, errors.New("re-indenting the project document does not reproduce it byte-for-byte; a rewrite would reformat unrelated state — refusing")
+	}
+	return body.Bytes(), trailer, nil
+}
+
+// decodeDocument decodes a project document through the codec, under the id it carries.
+func decodeDocument(raw []byte) (projectstate.Project, error) {
+	var head struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(raw, &head); err != nil {
+		return projectstate.Project{}, fmt.Errorf("read the project id: %w", err)
+	}
+	p, ok, err := projectstate.DecodeProjectJSON(raw, projectstate.ProjectID(head.ID))
+	if err != nil {
+		return projectstate.Project{}, err
+	}
 	if !ok {
-		// An unclassifiable activity has no profile, so it has no task vocabulary,
-		// so there is nothing honest to write against it.
-		return nil, derived{id, 0, "unclassifiable: ClassifyType refused"}, nil
+		return projectstate.Project{}, errors.New("the file holds no project document")
 	}
-	attempts := attemptsFor(row.ActivityID, typ, ev)
-	if err := validateAttempts(attempts); err != nil {
-		return nil, derived{}, err
+	return p, nil
+}
+
+// encodeCompact encodes p through the codec, compacted.
+func encodeCompact(p projectstate.Project) ([]byte, error) {
+	enc, err := projectstate.EncodeProjectJSON(p)
+	if err != nil {
+		return nil, err
 	}
-	if len(attempts) == 0 {
-		return nil, derived{id, 0, "profile has no phase for the available evidence"}, nil
+	var out bytes.Buffer
+	if err := json.Compact(&out, enc); err != nil {
+		return nil, fmt.Errorf("compact the encoded project: %w", err)
 	}
-	return attempts, derived{id, len(attempts), evidenceSummary(ev)}, nil
+	return out.Bytes(), nil
+}
+
+// spliceConstruction puts the codec's encoding of .activityConstruction into the original
+// document and changes nothing else.
+//
+//   - The member is REPLACED in place when the document holds it. Before that, its
+//     original bytes must equal the codec's own encoding of them: the codec drops any
+//     field it does not carry, so a member it cannot round-trip would lose data in the
+//     replacement, and codec-vs-codec checks cannot see that loss. Such a member is refused.
+//   - The member is ADDED when the document does not hold it (the codec omits an empty
+//     map), at the position the codec itself gives it: straight after the nearest member
+//     that precedes it in the codec's order and is present in the document.
+//   - It is REMOVED when the codec omits it after the edit.
+func spliceConstruction(body, before, after []byte) ([]byte, error) {
+	original, err := members(body)
+	if err != nil {
+		return nil, err
+	}
+	was, err := members(before)
+	if err != nil {
+		return nil, err
+	}
+	now, err := members(after)
+	if err != nil {
+		return nil, err
+	}
+	if err := onlyConstructionEdited(was, now); err != nil {
+		return nil, err
+	}
+	if err := roundTripsExactly(valueOf(original, constructionMember), valueOf(was, constructionMember)); err != nil {
+		return nil, err
+	}
+	value := valueOf(now, constructionMember)
+	out := make([]member, 0, len(original)+1)
+	placed := false
+	for _, m := range original {
+		if m.key == constructionMember {
+			if value != nil {
+				out = append(out, member{key: m.key, value: value})
+			}
+			placed = true
+			continue
+		}
+		out = append(out, m)
+	}
+	if !placed && value != nil {
+		at, err := codecPosition(original, now)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out[:at], append([]member{{key: constructionMember, value: value}}, out[at:]...)...)
+	}
+	return joinMembers(out), nil
+}
+
+// onlyConstructionEdited refuses an edit whose codec encoding moved any member but
+// .activityConstruction.
+func onlyConstructionEdited(was, now []member) error {
+	for _, m := range now {
+		if m.key != constructionMember && !bytes.Equal(m.value, valueOf(was, m.key)) {
+			return fmt.Errorf("the edit changed %s, which this tool may not touch — refusing", m.key)
+		}
+	}
+	return nil
+}
+
+// roundTripsExactly refuses to replace a committed member whose original bytes differ
+// from the codec's encoding of them (held is the original value, nil when the document
+// does not hold it; encoded is the codec's encoding of the decoded document). The codec
+// drops whatever it does not carry, and a codec-vs-codec comparison cannot see that loss —
+// only a comparison against the original bytes can.
+func roundTripsExactly(held, encoded json.RawMessage) error {
+	if held == nil {
+		return nil
+	}
+	var compact bytes.Buffer
+	if err := json.Compact(&compact, held); err != nil {
+		return err
+	}
+	if !bytes.Equal(compact.Bytes(), encoded) {
+		return errors.New("the committed .activityConstruction does not survive a codec round trip byte-for-byte (the codec would drop or reshape part of it) — replacing it would lose data; refusing")
+	}
+	return nil
+}
+
+// codecPosition is the index in original at which the construction member belongs: just
+// after the nearest member that precedes it in the codec's encoding and that original
+// holds, or at the start when none does.
+func codecPosition(original, encoded []member) (int, error) {
+	held := make(map[string]int, len(original))
+	for i, m := range original {
+		held[m.key] = i
+	}
+	at := 0
+	for _, m := range encoded {
+		if m.key == constructionMember {
+			return at, nil
+		}
+		if i, ok := held[m.key]; ok {
+			at = i + 1
+		}
+	}
+	return 0, errors.New("the codec's encoding holds no activityConstruction member to place")
+}
+
+// rewrite applies edit to the project document raw and returns the rewritten bytes.
+// Nothing outside .activityConstruction changes, and that is proved three ways before it
+// is returned: the fidelity gate on the input, a byte comparison of every other member,
+// and a decode of the result that must re-encode to exactly the codec's encoding of the
+// edited Project.
+func rewrite(raw []byte, edit func(*projectstate.Project) error) ([]byte, error) {
+	body, trailer, err := compactDocument(raw)
+	if err != nil {
+		return nil, err
+	}
+	p, err := decodeDocument(raw)
+	if err != nil {
+		return nil, err
+	}
+	before, err := encodeCompact(p)
+	if err != nil {
+		return nil, err
+	}
+	if err := edit(&p); err != nil {
+		return nil, err
+	}
+	after, err := encodeCompact(p)
+	if err != nil {
+		return nil, err
+	}
+	spliced, err := spliceConstruction(body, before, after)
+	if err != nil {
+		return nil, err
+	}
+	if err := confirmOnlyConstructionMoved(body, spliced); err != nil {
+		return nil, err
+	}
+	back, err := decodeDocument(spliced)
+	if err != nil {
+		return nil, err
+	}
+	again, err := encodeCompact(back)
+	if err != nil {
+		return nil, err
+	}
+	if !bytes.Equal(again, after) {
+		return nil, errors.New("the spliced document does not decode to the edited project — refusing to write")
+	}
+	var out bytes.Buffer
+	if err := json.Indent(&out, spliced, "", "  "); err != nil {
+		return nil, fmt.Errorf("indent the rewritten document: %w", err)
+	}
+	out.Write(trailer)
+	return out.Bytes(), nil
+}
+
+// confirmOnlyConstructionMoved proves every member other than .activityConstruction is
+// byte-identical, and in the same order, in the rewritten document.
+func confirmOnlyConstructionMoved(original, rewritten []byte) error {
+	was, err := members(original)
+	if err != nil {
+		return err
+	}
+	now, err := members(rewritten)
+	if err != nil {
+		return err
+	}
+	strip := func(ms []member) []member {
+		out := make([]member, 0, len(ms))
+		for _, m := range ms {
+			if m.key != constructionMember {
+				out = append(out, m)
+			}
+		}
+		return out
+	}
+	a, b := strip(was), strip(now)
+	if len(a) != len(b) {
+		return fmt.Errorf("the rewrite changed the member set outside %s — refusing", constructionMember)
+	}
+	for i := range a {
+		if a[i].key != b[i].key || !bytes.Equal(a[i].value, b[i].value) {
+			return fmt.Errorf("the rewrite changed %s — refusing", a[i].key)
+		}
+	}
+	return nil
+}
+
+// ---- the run --------------------------------------------------------------------------
+
+// gitHead returns the commit the repository is at.
+func gitHead(repo string) (string, error) {
+	out, err := exec.Command("git", "-C", repo, "rev-parse", "HEAD").Output() //nolint:gosec // a one-shot CLI running git in the repo it was pointed at.
+	if err != nil {
+		return "", fmt.Errorf("git rev-parse HEAD: %w", err)
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// citedFilesClean refuses a run whose cited code differs from HEAD: every code basis
+// says "@ <HEAD>", which is only true if the files read are the files committed there.
+func citedFilesClean(repo string, verdicts []verdict) error {
+	var files []string
+	for _, v := range verdicts {
+		if v.Qualifies {
+			files = append(files, v.Files...)
+		}
+	}
+	if len(files) == 0 {
+		return nil
+	}
+	args := append([]string{"-C", repo, "status", "--porcelain", "--"}, files...)
+	out, err := exec.Command("git", args...).Output() //nolint:gosec // a one-shot CLI running git over the files it cites.
+	if err != nil {
+		return fmt.Errorf("git status: %w", err)
+	}
+	if len(bytes.TrimSpace(out)) > 0 {
+		return fmt.Errorf("cited files differ from HEAD, so a basis citing HEAD would be false:\n%s", out)
+	}
+	return nil
 }
 
 func run(repo string, dryRun bool) error {
 	file := filepath.Join(repo, statePath)
-	acd, err := readActivityConstructionDoc(file)
+	raw, err := os.ReadFile(file) //nolint:gosec // a one-shot CLI reading the path it was told to read.
+	if err != nil {
+		return fmt.Errorf("read %s: %w", file, err)
+	}
+	p, err := decodeDocument(raw)
 	if err != nil {
 		return err
 	}
-
-	contracts := serviceContractKeys(acd.doc)
-	meta := activityMetaByID(acd.doc)
-
-	report := make([]derived, 0, len(acd.order))
-	total := 0
-	for _, id := range acd.order {
-		attempts, note, err := deriveRowAttempts(id, acd.rows[id], meta[id], contracts)
-		if err != nil {
-			return err
-		}
-		report = append(report, note)
-		if len(attempts) == 0 {
-			continue
-		}
-		updated, err := withAttempts(acd.rows[id], attempts)
-		if err != nil {
-			return fmt.Errorf("activityConstruction[%s]: %w", id, err)
-		}
-		acd.rows[id] = updated
-		total += len(attempts)
+	head, err := gitHead(repo)
+	if err != nil {
+		return err
 	}
-
-	printReport(report, total, dryRun)
+	verdicts, err := evaluate(inputs{Project: p, ServerRoot: filepath.Join(repo, serverDir), Head: head})
+	if err != nil {
+		return err
+	}
+	if err := citedFilesClean(repo, verdicts); err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	total := 0
+	out, err := rewrite(raw, func(p *projectstate.Project) error {
+		n, err := backfill(p, verdicts, now)
+		total = n
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	printReport(verdicts, total, head, dryRun)
 	if dryRun {
 		return nil
 	}
-	return acd.write(file)
+	if bytes.Equal(out, raw) {
+		fmt.Println("nothing to write")
+		return nil
+	}
+	if err := os.WriteFile(file, out, 0o600); err != nil { //nolint:gosec // a one-shot CLI writing back the file it was told to read.
+		return fmt.Errorf("write %s: %w", file, err)
+	}
+	fmt.Printf("wrote %s\n", file)
+	return nil
 }
 
-func evidenceSummary(ev evidence) string {
-	var parts []string
-	if ev.HasServiceContract {
-		parts = append(parts, "contract="+ev.ContractRef)
-	}
-	if ev.HasMergedCode {
-		parts = append(parts, "code="+ev.GitRef)
-	}
-	return strings.Join(parts, " ")
-}
-
-func printReport(report []derived, total int, dryRun bool) {
+func printReport(verdicts []verdict, total int, head string, dryRun bool) {
 	mode := "write"
 	if dryRun {
 		mode = "dry-run"
 	}
-	withAttempts := make([]derived, 0, len(report))
-	reasons := map[string]int{}
-	for _, r := range report {
-		if r.attempts > 0 {
-			withAttempts = append(withAttempts, r)
-			continue
+	fmt.Printf("backfill-attempts (%s) @ %s\n\nQUALIFIES\n", mode, head)
+	qualifying := 0
+	for _, v := range verdicts {
+		if v.Qualifies {
+			qualifying++
+			fmt.Printf("  %-32s %s\n", v.ActivityID, v.Reason)
 		}
-		reasons[r.reason]++
 	}
-	fmt.Printf("backfill-attempts (%s)\n", mode)
-	for _, r := range withAttempts {
-		fmt.Printf("  %-28s %d attempts  (%s)\n", r.activityID, r.attempts, r.reason)
+	fmt.Println("\nDOES NOT QUALIFY")
+	for _, v := range verdicts {
+		if !v.Qualifies {
+			fmt.Printf("  %-32s %s\n", v.ActivityID, v.Reason)
+		}
 	}
-	fmt.Printf("\n  %d activities with attempts, %d with none, %d attempts total\n",
-		len(withAttempts), len(report)-len(withAttempts), total)
-	keys := make([]string, 0, len(reasons))
-	for k := range reasons {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
-		fmt.Printf("  none: %-46s %d\n", k, reasons[k])
-	}
+	fmt.Printf("\n  %d of %d activities qualify, %d attempts total\n", qualifying, len(verdicts), total)
 }
 
 func main() {

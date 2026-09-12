@@ -1,441 +1,720 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"os"
+	"path/filepath"
+	"reflect"
+	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
-func TestAttemptsFromContract_IsBackfilledWithABasis(t *testing.T) {
-	got := attemptsFor("C-artifact-access", projectstate.ActivityTypeService, evidence{HasServiceContract: true, ContractRef: "artifactAccess"})
+// ---- fixture --------------------------------------------------------------------------
+//
+// A miniature architecture that exercises every evidence path and every failing
+// condition once:
+//
+//	U-SPA-web-client  client, contract without a goPackage          -> condition 2
+//	C-alpha-manager   manager, implemented                          -> qualifies (code)
+//	C-beta-engine     engine, no contractKey                        -> condition 1
+//	C-gamma-access    RA with a facet, own interface implemented    -> qualifies (code, facet rule)
+//	C-delta-access    RA, stub: true                                -> condition 2
+//	R-gamma-store     resource reached by gamma-access              -> qualifies (inferred)
+//	R-delta-gateway   resource reached by delta-access              -> its RA fails
+//	R-orphan          resource no RA reaches                        -> nothing to infer from
+//	N-STP             componentless, founder sign-off, plan present -> qualifies (sign-off)
+//	N-IT              componentless, no sign-off                    -> no evidence path
 
-	var designReview *projectstate.TaskAttempt
-	for i := range got {
-		if got[i].Task == projectstate.TaskDesignReview {
-			designReview = &got[i]
-		}
+const fixtureHead = "0123456789abcdef0123456789abcdef01234567"
+
+var (
+	alphaOps = []string{"OpenAlpha", "CloseAlpha"}
+	gammaOps = []string{"ReadGamma", "WriteGamma", "ListGamma"}
+	deltaOps = []string{"ChargeDelta"}
+)
+
+func strp(s string) *string { return &s }
+
+func contractFor(component, goPackage, iface string, ops ...string) projectstate.ServiceContract {
+	sc := projectstate.ServiceContract{Component: component, GoPackage: goPackage, Title: component + " contract"}
+	sc.Interface.Name = iface
+	for _, op := range ops {
+		sc.Interface.Operations = append(sc.Interface.Operations, projectstate.ContractOperation{Name: op})
 	}
-	if designReview == nil {
-		t.Fatal("no designReview attempt derived from a frozen contract")
-	}
-	if designReview.Provenance.Origin != projectstate.OriginBackfilled {
-		t.Errorf("origin = %q, want backfilled — a frozen contract is real evidence", designReview.Provenance.Origin)
-	}
-	if designReview.Provenance.Basis == "" {
-		t.Error("backfilled attempt has no basis; Validate() would reject it")
-	}
-	if err := designReview.Provenance.Validate(); err != nil {
-		t.Errorf("provenance invalid: %v", err)
-	}
+	return sc
 }
 
-func TestAttemptsFor_NoEvidenceProducesNoAttempts(t *testing.T) {
-	got := attemptsFor("C-nothing", projectstate.ActivityTypeService, evidence{})
-	if len(got) != 0 {
-		t.Errorf("attemptsFor(no evidence) = %d attempts, want 0 — absence must stay absent, not become synthesized rows", len(got))
+func fixtureProject() projectstate.Project {
+	sys := &projectstate.System{
+		Components: []projectstate.Component{
+			{ID: "web-client", Name: "WebClient", Encapsulates: "a fixture volatility", Kind: projectstate.CompClient, Layer: projectstate.LayerClient, ContractKey: strp("webClient")},
+			{ID: "alpha-manager", Name: "AlphaManager", Encapsulates: "a fixture volatility", Kind: projectstate.CompManager, Layer: projectstate.LayerManager, ContractKey: strp("alphaManager")},
+			{ID: "beta-engine", Name: "BetaEngine", Encapsulates: "a fixture volatility", Kind: projectstate.CompEngine, Layer: projectstate.LayerEngine},
+			{ID: "gamma-access", Name: "GammaAccess", Encapsulates: "a fixture volatility", Kind: projectstate.CompResourceAccess, Layer: projectstate.LayerResourceAccess, ContractKey: strp("gammaAccess")},
+			{ID: "delta-access", Name: "DeltaAccess", Encapsulates: "a fixture volatility", Kind: projectstate.CompResourceAccess, Layer: projectstate.LayerResourceAccess, ContractKey: strp("deltaAccess")},
+			{ID: "gamma-store", Name: "GammaStore", Encapsulates: "a fixture volatility", Kind: projectstate.CompResource, Layer: projectstate.LayerResource},
+			{ID: "delta-gateway", Name: "DeltaGateway", Encapsulates: "a fixture volatility", Kind: projectstate.CompResource, Layer: projectstate.LayerResource},
+			{ID: "orphan", Name: "Orphan", Encapsulates: "a fixture volatility", Kind: projectstate.CompResource, Layer: projectstate.LayerResource},
+		},
+		Relationships: []projectstate.Relationship{
+			{From: "web-client", To: "alpha-manager"},
+			{From: "alpha-manager", To: "gamma-access"},
+			{From: "alpha-manager", To: "delta-access"},
+			{From: "gamma-access", To: "gamma-store"},
+			{From: "delta-access", To: "delta-gateway"},
+			{From: "alpha-manager", To: "orphan"}, // a Manager edge is not a ResourceAccess edge.
+		},
 	}
+	list := &projectstate.ActivityList{Activities: []projectstate.ActivityItem{
+		{Name: "U-SPA-web-client", WorkerClass: "junior-developer", Coding: true, ComponentID: "web-client"},
+		{Name: "C-alpha-manager", WorkerClass: "junior-developer", Coding: true, ComponentID: "alpha-manager"},
+		{Name: "C-beta-engine", WorkerClass: "junior-developer", Coding: true, ComponentID: "beta-engine"},
+		{Name: "C-gamma-access", WorkerClass: "junior-developer", Coding: true, ComponentID: "gamma-access"},
+		{Name: "C-delta-access", WorkerClass: "junior-developer", Coding: true, ComponentID: "delta-access"},
+		{Name: "R-gamma-store", WorkerClass: "senior-developer", ComponentID: "gamma-store"},
+		{Name: "R-delta-gateway", WorkerClass: "senior-developer", ComponentID: "delta-gateway"},
+		{Name: "R-orphan", WorkerClass: "senior-developer", ComponentID: "orphan"},
+		{Name: "N-STP", WorkerClass: "test-engineer"},
+		{Name: "N-IT", WorkerClass: "software-tester"},
+	}}
+	delta := contractFor("deltaAccess", "internal/resourceaccess/delta", "DeltaAccess", deltaOps...)
+	delta.Stub = true
+	p := projectstate.Project{ID: "fixture", Version: 3}
+	p.SystemDesign = projectstate.ArtifactSlot{Status: projectstate.ReviewCommitted, Model: sys, Revisions: 1}
+	p.ActivityList = projectstate.ArtifactSlot{Status: projectstate.ReviewCommitted, Model: list, Revisions: 1}
+	p.ServiceContracts = map[string]projectstate.ServiceContract{
+		"webClient":        contractFor("webClient", "", "WebClient", "Render"),
+		"alphaManager":     contractFor("alphaManager", "internal/manager/alpha", "AlphaManager", alphaOps...),
+		"gammaAccess":      contractFor("gammaAccess", "internal/resourceaccess/gamma", "GammaAccess", gammaOps...),
+		"gammaFacetAccess": contractFor("gammaAccess", "internal/resourceaccess/gamma", "GammaFacetAccess", "FacetOnly"),
+		"deltaAccess":      delta,
+	}
+	p.TestingState = &projectstate.TestingState{SystemTestPlan: &projectstate.SystemTestPlan{
+		Scenarios: []projectstate.TestScenario{{ID: "STP-1"}, {ID: "STP-2"}, {ID: "STP-3"}},
+	}}
+	return p
 }
 
-func TestAttemptsFor_EveryAttemptCarriesAValidProvenance(t *testing.T) {
-	got := attemptsFor("C-x", projectstate.ActivityTypeService, evidence{HasServiceContract: true, ContractRef: "x", HasMergedCode: true, GitRef: "abc123"})
-	for _, a := range got {
-		if err := a.Provenance.Validate(); err != nil {
-			t.Errorf("%s: %v", a.AttemptID, err)
-		}
-		if a.AttemptID != projectstate.AttemptID("C-x", a.Task, a.Attempt) {
-			t.Errorf("attemptId %q does not match AttemptID()", a.AttemptID)
-		}
+// implSource is a hand-written Go file whose receiver recv has one method per op.
+func implSource(pkg, recv string, ops ...string) string {
+	var b strings.Builder
+	b.WriteString("package " + pkg + "\n\ntype " + recv + " struct{}\n")
+	for _, op := range ops {
+		b.WriteString("\nfunc (r *" + recv + ") " + op + "() error { return nil }\n")
 	}
+	return b.String()
 }
 
-// wantExactTasks asserts that got is EXACTLY the named tasks, once each — no extra task,
-// no missing one, no duplicate. It names the offender rather than reporting a count
-// mismatch, because the failure this guards against is a task nobody meant to add.
-func wantExactTasks(t *testing.T, got []projectstate.TaskAttempt, want ...projectstate.MethodTask) {
+const generatedHeader = "// Code generated by modelgen. DO NOT EDIT.\n\n"
+
+func writeFile(t *testing.T, root, rel, content string) {
 	t.Helper()
-	wanted := map[projectstate.MethodTask]bool{}
-	for _, task := range want {
-		wanted[task] = true
+	full := filepath.Join(root, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(full), 0o750); err != nil {
+		t.Fatal(err)
 	}
-	seen := map[projectstate.MethodTask]int{}
-	for _, a := range got {
-		seen[a.Task]++
-		if !wanted[a.Task] {
-			t.Errorf("derived an attempt at %q (%s) — only the three ruled inferences may "+
-				"produce attempts, and %q is outside every one of them", a.Task, a.AttemptID, a.Task)
-		}
-		if projectstate.IsConditionalTask(a.Task) {
-			t.Errorf("derived an attempt at the CONDITIONAL task %q (%s) — conditional tasks are "+
-				"emitted only when a real attempt exists; inventing one asserts a pre-design spike "+
-				"or a test client that may never have happened", a.Task, a.AttemptID)
-		}
-	}
-	for task := range wanted {
-		switch seen[task] {
-		case 1:
-		case 0:
-			t.Errorf("no attempt derived at %q", task)
-		default:
-			t.Errorf("task %q derived %d times, want exactly 1", task, seen[task])
-		}
-	}
-	if len(got) != len(want) {
-		t.Errorf("derived %d attempts, want exactly %d", len(got), len(want))
+	if err := os.WriteFile(full, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
 	}
 }
 
-// TestAttemptsFor_DerivesExactlyTheThreeRuledInferences is the governing rule of this
-// tool expressed as a test. There are THREE inferences and no fourth:
-//
-//   - a frozen contract ALONE → detailed design ran, design review passed. Nothing more:
-//     a design that was never built stays two tasks.
-//   - merged code ALONE → construction ran, code review passed.
-//   - a frozen contract AND merged code → the component is fully implemented, which the
-//     founder has ruled means done, reviewed and integrated: the WHOLE profile passes,
-//     minus the conditional tasks.
-//
-// It pins the exact task SET per bucket, not just each attempt's individual validity,
-// because a fourth inference added later would be individually valid in every way the
-// other tests check — inside the profile's task set, non-empty basis, stamped
-// backfilled — and would sail straight through them. The tasks with no evidence and no
-// ruling behind them must keep rendering as an honest unknown skeleton; a tool that
-// quietly grows another inference fills that skeleton in with history nobody can trace,
-// which is the exact failure this work exists to prevent.
-//
-// wantExactTasks additionally rejects ANY conditional task (someConstruction,
-// testClient) in every bucket, so the widened case cannot start asserting a pre-design
-// spike or a test client that may never have existed.
-func TestAttemptsFor_DerivesExactlyTheThreeRuledInferences(t *testing.T) {
+// fixtureServer writes the server tree the fixture's contracts point at. gamma has NO
+// file for its facet interface — the facet rule must not ask for one.
+func fixtureServer(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	writeFile(t, root, "internal/manager/alpha/contract.gen.go", generatedHeader+"package alpha\n")
+	writeFile(t, root, "internal/manager/alpha/alphamanager.go", implSource("alpha", "alphaManager", alphaOps...))
+	writeFile(t, root, "internal/resourceaccess/gamma/contract.gen.go", generatedHeader+"package gamma\n")
+	writeFile(t, root, "internal/resourceaccess/gamma/gammaaccess.go", implSource("gamma", "gitGammaAccess", gammaOps...))
+	writeFile(t, root, "internal/resourceaccess/delta/contract.gen.go", generatedHeader+"package delta\n")
+	writeFile(t, root, "internal/resourceaccess/delta/deltaaccess.go", implSource("delta", "notConfigured", deltaOps...))
+	return root
+}
+
+func evaluateFixture(t *testing.T, p projectstate.Project, root string) map[string]verdict {
+	t.Helper()
+	vs, err := evaluate(inputs{Project: p, ServerRoot: root, Head: fixtureHead})
+	if err != nil {
+		t.Fatalf("evaluate: %v", err)
+	}
+	out := make(map[string]verdict, len(vs))
+	for _, v := range vs {
+		out[v.ActivityID] = v
+	}
+	return out
+}
+
+func qualifyingSet(vs map[string]verdict) []string {
+	var out []string
+	for id, v := range vs {
+		if v.Qualifies {
+			out = append(out, id)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// ---- the qualifying set ---------------------------------------------------------------
+
+// The exact set, asserted as a SET so an activity that starts qualifying by accident
+// fails as loudly as one that stops. Each non-qualifier is pinned to its failing
+// condition, not just to "no".
+func TestEvaluate_ExactQualifyingSetOnTheFixture(t *testing.T) {
+	vs := evaluateFixture(t, fixtureProject(), fixtureServer(t))
+
+	want := []string{"C-alpha-manager", "C-gamma-access", "N-STP", "R-gamma-store"}
+	if got := qualifyingSet(vs); !reflect.DeepEqual(got, want) {
+		t.Fatalf("qualifying set = %v, want %v", got, want)
+	}
+	failing := map[string]string{
+		"U-SPA-web-client": "condition 2: serviceContracts[webClient] has no goPackage",
+		"C-beta-engine":    "condition 1",
+		"C-delta-access":   "condition 2: serviceContracts[deltaAccess] is stub: true",
+		"R-delta-gateway":  "its ResourceAccess C-delta-access does not qualify",
+		"R-orphan":         "no ResourceAccess has a slot-5 relationship",
+		"N-IT":             "no founder sign-off is recorded",
+	}
+	for id, reason := range failing {
+		if v := vs[id]; !strings.Contains(v.Reason, reason) {
+			t.Errorf("%s: reason = %q, want it to name %q", id, v.Reason, reason)
+		}
+	}
+	if len(vs) != 10 {
+		t.Errorf("evaluated %d activities, want every one of the plan's 10", len(vs))
+	}
+}
+
+// ---- the three conditions -------------------------------------------------------------
+
+func TestFullyImplemented_EachConditionFailsTheComponent(t *testing.T) {
 	cases := []struct {
-		name string
-		ev   evidence
-		want []projectstate.MethodTask
+		name    string
+		mutate  func(p *projectstate.Project, root string)
+		subject string
+		want    string
 	}{
 		{
-			name: "a frozen contract, and nothing else — NOT widened",
-			ev:   evidence{HasServiceContract: true, ContractRef: "artifactAccess"},
-			want: []projectstate.MethodTask{projectstate.TaskDetailedDesign, projectstate.TaskDesignReview},
-		},
-		{
-			name: "merged code, and nothing else — NOT widened",
-			ev:   evidence{HasMergedCode: true, GitRef: "implementation/log"},
-			want: []projectstate.MethodTask{projectstate.TaskConstruction, projectstate.TaskCodeReview},
-		},
-		{
-			name: "both — fully implemented, so the whole profile minus the conditionals",
-			ev: evidence{
-				HasServiceContract: true, ContractRef: "artifactAccess",
-				HasMergedCode: true, GitRef: "implementation/log",
+			name: "condition 1 — a contractKey with no .serviceContracts entry",
+			mutate: func(p *projectstate.Project, _ string) {
+				delete(p.ServiceContracts, "alphaManager")
 			},
-			want: []projectstate.MethodTask{
-				projectstate.TaskSRS, projectstate.TaskSRSReview,
-				projectstate.TaskDetailedDesign, projectstate.TaskDesignReview,
-				projectstate.TaskSTP, projectstate.TaskSTPReview,
-				projectstate.TaskConstruction, projectstate.TaskCodeReview,
-				projectstate.TaskIntegration, projectstate.TaskTesting,
-			},
+			subject: "C-alpha-manager", want: "condition 1: no .serviceContracts entry has component \"alphaManager\"",
 		},
 		{
-			name: "no evidence — absence stays absence",
-			ev:   evidence{},
-			want: nil,
+			name: "condition 1 — only facets, no entry for the component's own interface",
+			mutate: func(p *projectstate.Project, _ string) {
+				delete(p.ServiceContracts, "gammaAccess")
+			},
+			subject: "C-gamma-access", want: "condition 1: .serviceContracts has no entry for the component's own interface",
+		},
+		{
+			name: "condition 2 — a facet with no goPackage",
+			mutate: func(p *projectstate.Project, _ string) {
+				sc := p.ServiceContracts["gammaFacetAccess"]
+				sc.GoPackage = ""
+				p.ServiceContracts["gammaFacetAccess"] = sc
+			},
+			subject: "C-gamma-access", want: "condition 2: serviceContracts[gammaFacetAccess] has no goPackage",
+		},
+		{
+			name: "condition 2 — a stub facet fails the component it belongs to",
+			mutate: func(p *projectstate.Project, _ string) {
+				sc := p.ServiceContracts["gammaFacetAccess"]
+				sc.Stub = true
+				p.ServiceContracts["gammaFacetAccess"] = sc
+			},
+			subject: "C-gamma-access", want: "condition 2: serviceContracts[gammaFacetAccess] is stub: true",
+		},
+		{
+			name: "condition 3 — no contract.gen.go",
+			mutate: func(_ *projectstate.Project, root string) {
+				_ = os.Remove(filepath.Join(root, "internal/manager/alpha/contract.gen.go"))
+			},
+			subject: "C-alpha-manager", want: "condition 3: server/internal/manager/alpha/contract.gen.go",
+		},
+		{
+			name: "condition 3 — no hand-written <lowercase interface>.go",
+			mutate: func(_ *projectstate.Project, root string) {
+				_ = os.Remove(filepath.Join(root, "internal/manager/alpha/alphamanager.go"))
+			},
+			subject: "C-alpha-manager", want: "condition 3: server/internal/manager/alpha/alphamanager.go",
+		},
+		{
+			name: "condition 3 — the file is generated, not hand-written",
+			mutate: func(_ *projectstate.Project, root string) {
+				writeFile(t, root, "internal/manager/alpha/alphamanager.go", generatedHeader+implSource("alpha", "alphaManager", alphaOps...))
+			},
+			subject: "C-alpha-manager", want: "is generated",
+		},
+		{
+			name: "condition 3 — one contract operation has no method",
+			mutate: func(_ *projectstate.Project, root string) {
+				writeFile(t, root, "internal/manager/alpha/alphamanager.go", implSource("alpha", "alphaManager", alphaOps[0]))
+			},
+			subject: "C-alpha-manager", want: "no one receiver implements all 2 contract operations",
+		},
+		{
+			name: "condition 3 — the operations are split across two receivers",
+			mutate: func(_ *projectstate.Project, root string) {
+				src := implSource("alpha", "halfOne", alphaOps[0]) + strings.TrimPrefix(implSource("alpha", "halfTwo", alphaOps[1]), "package alpha\n")
+				writeFile(t, root, "internal/manager/alpha/alphamanager.go", src)
+			},
+			subject: "C-alpha-manager", want: "no one receiver implements all 2 contract operations",
+		},
+		{
+			// The literal first reading of condition 3: a declared `type <Interface>Impl`.
+			// A declaration with no methods implements nothing and must not qualify.
+			name: "condition 3 — a declared <Interface>Impl with no methods is not an implementation",
+			mutate: func(_ *projectstate.Project, root string) {
+				writeFile(t, root, "internal/manager/alpha/alphamanager.go", "package alpha\n\ntype AlphaManagerImpl struct{}\n")
+			},
+			subject: "C-alpha-manager", want: "declares no method for any of the 2 contract operations",
 		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			wantExactTasks(t, attemptsFor("C-x", projectstate.ActivityTypeService, c.ev), c.want...)
+			p, root := fixtureProject(), fixtureServer(t)
+			c.mutate(&p, root)
+			v := evaluateFixture(t, p, root)[c.subject]
+			if v.Qualifies {
+				t.Fatalf("%s qualified; want it refused (%s)", c.subject, c.want)
+			}
+			if !strings.Contains(v.Reason, c.want) {
+				t.Errorf("reason = %q, want it to contain %q", v.Reason, c.want)
+			}
 		})
 	}
 }
 
-// TestAttemptsFor_WidenedIsExactlyTheProfileMinusTheConditionals derives the widened set
-// from the profile rather than restating it, so the rule survives a profile change: if a
-// thirteenth task joins the service profile tomorrow, the widened bucket must pick it up
-// and this test keeps holding — while a hand-listed set would silently go stale.
-func TestAttemptsFor_WidenedIsExactlyTheProfileMinusTheConditionals(t *testing.T) {
-	for _, typ := range []projectstate.ActivityType{
-		projectstate.ActivityTypeService,
-		projectstate.ActivityTypeFrontend,
-		projectstate.ActivityTypeDeployment,
-		projectstate.ActivityTypeDocumentation,
-		projectstate.ActivityTypeUIDesign,
-		projectstate.ActivityTypeIntegration,
+// The FACET RULE: gamma's facet has no file of its own, and the component still
+// qualifies — on its own interface — with a basis that cites every contract grouped under
+// it. Demanding a file per facet would fail projectStateAccess, which is implemented.
+func TestFullyImplemented_FacetInterfacesAreNotRequiredToHaveAFile(t *testing.T) {
+	vs := evaluateFixture(t, fixtureProject(), fixtureServer(t))
+	v := vs["C-gamma-access"]
+	if !v.Qualifies {
+		t.Fatalf("C-gamma-access did not qualify: %s", v.Reason)
+	}
+	for _, want := range []string{
+		"serviceContracts[gammaAccess,gammaFacetAccess]",
+		"server/internal/resourceaccess/gamma/contract.gen.go",
+		"server/internal/resourceaccess/gamma/gammaaccess.go",
+		"GammaAccess implemented by gitGammaAccess",
+		"@ " + fixtureHead,
+		founderRulingRef,
 	} {
-		var want []projectstate.MethodTask
-		for _, task := range projectstate.TasksForProfile(projectstate.ProfileFor(typ, projectstate.TestVariantPlan)) {
-			if projectstate.IsConditionalTask(task) {
-				continue
-			}
-			want = append(want, task)
+		if !strings.Contains(v.Basis, want) {
+			t.Errorf("basis %q does not cite %q", v.Basis, want)
 		}
-		got := attemptsFor("C-x", typ, evidence{
-			HasServiceContract: true, ContractRef: "artifactAccess",
-			HasMergedCode: true, GitRef: "implementation/log",
+	}
+}
+
+// The revenueLedgerAccess shape: the component's OWN entry is the stub and its facet is
+// not. The facet being built does not rescue the component.
+func TestFullyImplemented_AnOwnStubWithABuiltFacetStillFails(t *testing.T) {
+	p, root := fixtureProject(), fixtureServer(t)
+	own := p.ServiceContracts["gammaAccess"]
+	own.Stub = true
+	p.ServiceContracts["gammaAccess"] = own
+	v := evaluateFixture(t, p, root)["C-gamma-access"]
+	if v.Qualifies || !strings.Contains(v.Reason, "serviceContracts[gammaAccess] is stub: true") {
+		t.Errorf("verdict = %+v, want refused on the component's own stub", v)
+	}
+}
+
+// ---- the resource inference -----------------------------------------------------------
+
+func TestInferredFromAccess_AResourceFollowsItsResourceAccess(t *testing.T) {
+	vs := evaluateFixture(t, fixtureProject(), fixtureServer(t))
+	v := vs["R-gamma-store"]
+	if !v.Qualifies {
+		t.Fatalf("R-gamma-store did not qualify: %s", v.Reason)
+	}
+	for _, want := range []string{"inferred, not read", "C-gamma-access", "serviceContracts[gammaAccess]", founderRulingRef} {
+		if !strings.Contains(v.Basis, want) {
+			t.Errorf("basis %q does not say %q", v.Basis, want)
+		}
+	}
+	if v.CodeRef != "" || v.ContractRef != "" {
+		t.Errorf("a Resource has no code or contract of its own to cite, got code=%q contract=%q", v.CodeRef, v.ContractRef)
+	}
+
+	// Once gamma-access stops qualifying, so does the resource it reaches.
+	p, root := fixtureProject(), fixtureServer(t)
+	_ = os.Remove(filepath.Join(root, "internal/resourceaccess/gamma/gammaaccess.go"))
+	if v := evaluateFixture(t, p, root)["R-gamma-store"]; v.Qualifies {
+		t.Error("R-gamma-store qualified although its only ResourceAccess no longer does")
+	}
+}
+
+// A resource reached by two ResourceAccess components needs BOTH.
+func TestInferredFromAccess_EveryResourceAccessMustQualify(t *testing.T) {
+	p, root := fixtureProject(), fixtureServer(t)
+	sys := p.SystemDesign.Model.(*projectstate.System)
+	sys.Relationships = append(sys.Relationships, projectstate.Relationship{From: "delta-access", To: "gamma-store"})
+	v := evaluateFixture(t, p, root)["R-gamma-store"]
+	if v.Qualifies || !strings.Contains(v.Reason, "C-delta-access does not qualify") {
+		t.Errorf("verdict = %+v, want refused on the second, failing ResourceAccess", v)
+	}
+}
+
+// ---- the sign-off path ----------------------------------------------------------------
+
+func TestSignOff_NSTPQualifiesOnTheRecordedSignOffAndTheCountedArtifact(t *testing.T) {
+	vs := evaluateFixture(t, fixtureProject(), fixtureServer(t))
+	v := vs["N-STP"]
+	if !v.Qualifies {
+		t.Fatalf("N-STP did not qualify: %s", v.Reason)
+	}
+	const want = `testingState.systemTestPlan (3 scenarios) + founderSignOff[2026-09-12]="stp looks good in the app. sign off. continue"`
+	if v.Basis != want {
+		t.Errorf("basis = %q\nwant    %q", v.Basis, want)
+	}
+	if v.ArtifactRef != "testingState.systemTestPlan" {
+		t.Errorf("artifact ref = %q", v.ArtifactRef)
+	}
+}
+
+// A sign-off never stands alone: with the artifact gone, the activity does not qualify.
+func TestSignOff_DoesNotStandWithoutItsArtifact(t *testing.T) {
+	for name, ts := range map[string]*projectstate.TestingState{
+		"no testing state":         nil,
+		"no system test plan":      {},
+		"a plan with no scenarios": {SystemTestPlan: &projectstate.SystemTestPlan{}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			p := fixtureProject()
+			p.TestingState = ts
+			if v := evaluateFixture(t, p, fixtureServer(t))["N-STP"]; v.Qualifies {
+				t.Errorf("N-STP qualified with %s: %s", name, v.Basis)
+			}
 		})
-		wantExactTasks(t, got, want...)
 	}
 }
 
-// TestAttemptsFor_WidenedBasisNamesTheRulingNotJustTheArtifacts is the honesty guard on
-// the widened bucket. Most of the tasks it stamps — srs, stp, testing — have no artifact
-// behind them at all; the founder's assertion is what says they happened. A basis citing
-// only the artifacts would claim those rows were read off disk, which is a false
-// statement about where the inference came from, and this codebase has already had to go
-// back and fix one of those.
-func TestAttemptsFor_WidenedBasisNamesTheRulingNotJustTheArtifacts(t *testing.T) {
-	got := attemptsFor("C-AA", projectstate.ActivityTypeService, evidence{
-		HasServiceContract: true, ContractRef: "artifactAccess",
-		HasMergedCode: true, GitRef: "implementation/log",
-	})
-	if len(got) == 0 {
-		t.Fatal("no attempts derived from contract+code evidence")
+// The recorded sign-off is the founder's words, verbatim, and it is the ONLY one: N-IT
+// and every other componentless activity have no evidence path.
+func TestFounderSignOffs_AreExactlyTheRecordedDecision(t *testing.T) {
+	if len(founderSignOffs) != 1 {
+		t.Fatalf("%d sign-offs recorded, want exactly 1 (N-STP, 2026-09-12)", len(founderSignOffs))
 	}
-	for _, a := range got {
-		if !strings.Contains(a.Provenance.Basis, founderRuling) {
-			t.Errorf("%s: basis %q does not quote the founder ruling — a basis naming only "+
-				"the artifacts would be a false claim for a task with no artifact", a.AttemptID, a.Provenance.Basis)
-		}
-		if !strings.Contains(a.Provenance.Basis, "serviceContracts[artifactAccess]") {
-			t.Errorf("%s: basis %q does not name the contract that establishes fully-implemented", a.AttemptID, a.Provenance.Basis)
-		}
-		if !strings.Contains(a.Provenance.Basis, "activityGit[implementation/log]") {
-			t.Errorf("%s: basis %q does not name the code that establishes fully-implemented", a.AttemptID, a.Provenance.Basis)
-		}
-		if a.Provenance.Origin != projectstate.OriginBackfilled {
-			t.Errorf("%s: origin = %q — a ruling is not an observation", a.AttemptID, a.Provenance.Origin)
-		}
+	s := founderSignOffs[0]
+	if s.ActivityID != "N-STP" || s.Date != "2026-09-12" || s.Quote != "stp looks good in the app. sign off. continue" {
+		t.Errorf("sign-off = %+v", s)
+	}
+	if s.Artifact.Ref != "testingState.systemTestPlan" {
+		t.Errorf("sign-off artifact = %q", s.Artifact.Ref)
 	}
 }
 
-// TestAttemptsFor_RulingOnlyTasksPointAtNoArtifact pins the click-through: a row that
-// exists because of the ruling must not hand the UI a contract to open under a label
-// like "Testing". The basis says where it came from; the evidence ref stays empty.
-func TestAttemptsFor_RulingOnlyTasksPointAtNoArtifact(t *testing.T) {
-	got := attemptsFor("C-AA", projectstate.ActivityTypeService, evidence{
-		HasServiceContract: true, ContractRef: "artifactAccess",
-		HasMergedCode: true, GitRef: "implementation/log", CodeKind: projectstate.EvidenceArtifact,
-	})
-	backing := map[projectstate.MethodTask]projectstate.EvidenceKind{
-		projectstate.TaskDetailedDesign: projectstate.EvidenceContract,
-		projectstate.TaskDesignReview:   projectstate.EvidenceContract,
-		projectstate.TaskConstruction:   projectstate.EvidenceArtifact,
-		projectstate.TaskCodeReview:     projectstate.EvidenceArtifact,
-	}
-	for _, a := range got {
-		if want := backing[a.Task]; a.Evidence.Kind != want {
-			t.Errorf("%s: evidence kind = %q, want %q", a.AttemptID, a.Evidence.Kind, want)
-		}
-		if backing[a.Task] == projectstate.EvidenceNone && a.Evidence.Ref != "" {
-			t.Errorf("%s: evidence ref = %q, want empty — no artifact backs this row", a.AttemptID, a.Evidence.Ref)
-		}
-	}
-}
+// ---- the attempts ---------------------------------------------------------------------
 
-// TestAttemptsFor_NeverStampsObserved guards the one origin this tool must never write:
-// nothing it produces was watched happening.
-func TestAttemptsFor_NeverStampsObserved(t *testing.T) {
-	got := attemptsFor("C-x", projectstate.ActivityTypeService, evidence{HasServiceContract: true, ContractRef: "x", HasMergedCode: true, GitRef: "abc123"})
-	if len(got) == 0 {
-		t.Fatal("no attempts derived from contract+code evidence")
-	}
-	for _, a := range got {
-		if a.Provenance.Origin != projectstate.OriginBackfilled {
-			t.Errorf("%s: origin = %q, want backfilled", a.AttemptID, a.Provenance.Origin)
-		}
-	}
-}
-
-// TestAttemptsFor_HonoursTheProfileTaskSet checks that a type whose profile has no
-// construction phase gets no construction attempts even when code evidence exists. The
-// task vocabulary comes from the profile, never from the evidence.
-func TestAttemptsFor_HonoursTheProfileTaskSet(t *testing.T) {
-	got := attemptsFor("G-SPA", projectstate.ActivityTypeUIDesign, evidence{HasMergedCode: true, GitRef: "implementation/log"})
-	for _, a := range got {
-		if a.Task == projectstate.TaskConstruction || a.Task == projectstate.TaskCodeReview {
-			t.Errorf("uiDesign profile has no construction phase, but %s was derived", a.AttemptID)
-		}
-	}
-}
-
-// TestEvidenceFromRow_ReadsOnlyProducedArtifacts pins the resolution rule: evidence
-// comes from the produced list, and a row that produced neither a contract nor code
-// yields nothing at all.
-func TestEvidenceFromRow_ReadsOnlyProducedArtifacts(t *testing.T) {
-	contracts := map[string]bool{"artifactAccess": true}
-
-	withContract := projectstate.ActivityConstructionStatus{
-		ActivityID: "C-AA",
-		Produced: []projectstate.ProducedArtifact{
-			{Kind: "service-contract", Source: "implementation/contracts/artifactAccess.md", Produced: true},
-			{Kind: "code", Source: "implementation/log", Produced: true},
-		},
-	}
-	ev := evidenceFromRow(withContract, contracts)
-	if !ev.HasServiceContract || ev.ContractRef != "artifactAccess" {
-		t.Errorf("contract evidence = %+v, want the live serviceContracts key", ev)
-	}
-	if ev.ContractBasis != "" {
-		t.Errorf("a live contract key needs no basis override, got %q", ev.ContractBasis)
-	}
-	if !ev.HasMergedCode || ev.GitRef != "implementation/log" {
-		t.Errorf("code evidence = %+v, want the produced source", ev)
-	}
-
-	noteOnly := projectstate.ActivityConstructionStatus{
-		ActivityID: "N-QA",
-		Produced: []projectstate.ProducedArtifact{
-			{Kind: "note", Source: "the-method-review-routing", Produced: true},
-		},
-	}
-	if ev := evidenceFromRow(noteOnly, contracts); ev.HasServiceContract || ev.HasMergedCode {
-		t.Errorf("a note is not construction evidence, got %+v", ev)
-	}
-}
-
-// TestEvidenceFromRow_UnresolvedContractGetsATruthfulBasis covers the six committed rows
-// whose frozen contract file names a component that no longer has a .serviceContracts
-// entry (settlementEngine, handOffEngine, …). Pointing their basis at serviceContracts[…]
-// would be a dangling reference, which is exactly the class of lie this stage forbids.
-func TestEvidenceFromRow_UnresolvedContractGetsATruthfulBasis(t *testing.T) {
-	row := projectstate.ActivityConstructionStatus{
-		ActivityID: "C-BE",
-		Produced: []projectstate.ProducedArtifact{
-			{Kind: "service-contract", Source: "implementation/contracts/settlementEngine.md", Produced: true},
-		},
-	}
-	ev := evidenceFromRow(row, map[string]bool{"billingEngine": true})
-	if ev.ContractBasis == "" {
-		t.Fatal("an unresolved contract must carry an explicit basis, not fall back to serviceContracts[…]")
-	}
-	got := attemptsFor("C-BE", projectstate.ActivityTypeService, ev)
-	for _, a := range got {
-		if err := a.Provenance.Validate(); err != nil {
-			t.Errorf("%s: %v", a.AttemptID, err)
-		}
-		if a.Provenance.Basis != ev.ContractBasis {
-			t.Errorf("%s: basis = %q, want the override %q", a.AttemptID, a.Provenance.Basis, ev.ContractBasis)
-		}
-	}
-}
-
-// TestEvidenceFromRow_SourcelessArtifactNamesNoPath guards a future corpus, not today's:
-// a produced entry with no source must not be described by a path it does not have.
-// path.Base("") is ".", which would sail through Validate() as a non-empty basis while
-// pointing at nothing.
-func TestEvidenceFromRow_SourcelessArtifactNamesNoPath(t *testing.T) {
-	row := projectstate.ActivityConstructionStatus{
-		ActivityID: "C-XX",
-		Produced: []projectstate.ProducedArtifact{
-			{Kind: "service-contract", Produced: true},
-			{Kind: "code", Produced: true},
-		},
-	}
-	ev := evidenceFromRow(row, map[string]bool{".": true, "": true})
-	if ev.ContractRef != "" || ev.GitRef != "" {
-		t.Errorf("refs = %q/%q, want empty — there is no path to name", ev.ContractRef, ev.GitRef)
-	}
-	for _, basis := range []string{ev.ContractBasis, ev.CodeBasis} {
-		if strings.Contains(basis, ".") && strings.Contains(basis, "=") {
-			t.Errorf("basis %q invented a path for a sourceless artifact", basis)
-		}
-		if basis == "" {
-			t.Error("basis is empty; Validate() would reject the attempt")
-		}
-	}
-	if ev.ContractBasis != "activityConstruction[C-XX].produced[service-contract]" {
-		t.Errorf("contract basis = %q", ev.ContractBasis)
-	}
-	for _, a := range attemptsFor("C-XX", projectstate.ActivityTypeService, ev) {
-		if err := a.Provenance.Validate(); err != nil {
-			t.Errorf("%s: %v", a.AttemptID, err)
-		}
-	}
-}
-
-// TestRenderRows_PreservesKeyOrderAndIndentation is the fidelity guard the writer relies
-// on: re-rendering the untouched rows must reproduce the committed bytes exactly, so the
-// only thing a real run can change is the attempts it adds.
-func TestRenderRows_PreservesKeyOrderAndIndentation(t *testing.T) {
-	// C-ZZ sorts after C-AA, and its buildStatus precedes its phase — neither the map
-	// order nor the struct order. Both must survive a rewrite untouched.
-	const src = `{
-    "C-ZZ": {
-      "activityID": "C-ZZ",
-      "buildStatus": 2,
-      "phase": 2
-    },
-    "C-AA": {
-      "activityID": "C-AA",
-      "phase": 2
-    }
-  }`
-	order, rows, err := decodeRows([]byte(src))
+func backfillFixture(t *testing.T) (projectstate.Project, map[string]verdict) {
+	t.Helper()
+	p, root := fixtureProject(), fixtureServer(t)
+	vs, err := evaluate(inputs{Project: p, ServerRoot: root, Head: fixtureHead})
 	if err != nil {
-		t.Fatalf("decodeRows: %v", err)
+		t.Fatal(err)
 	}
-	if len(order) != 2 || order[0] != "C-ZZ" {
-		t.Fatalf("order = %v, want the document order [C-ZZ C-AA]", order)
+	if _, err := backfill(&p, vs, time.Date(2026, 9, 12, 0, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("backfill: %v", err)
 	}
-	out, err := renderRows(order, rows)
-	if err != nil {
-		t.Fatalf("renderRows: %v", err)
+	byID := map[string]verdict{}
+	for _, v := range vs {
+		byID[v.ActivityID] = v
 	}
-	if string(out) != src {
-		t.Errorf("re-render is not byte-identical:\n got %s\nwant %s", out, src)
-	}
+	return p, byID
 }
 
-// TestWithAttempts_InsertsInPlaceWithoutDisturbingTheRecord pins where the new key
-// lands and that nothing else about the record moves.
-func TestWithAttempts_InsertsInPlaceWithoutDisturbingTheRecord(t *testing.T) {
-	const record = `{"activityID":"C-AA","phase":2,"buildStatus":2,"produced":[]}`
-	got, err := withAttempts(json.RawMessage(record), attemptsFor("C-AA", projectstate.ActivityTypeService,
-		evidence{HasServiceContract: true, ContractRef: "artifactAccess"}))
-	if err != nil {
-		t.Fatalf("withAttempts: %v", err)
+// profileTasks is the profile's non-conditional task set for one activity type/variant.
+func profileTasks(typ projectstate.ActivityType, v projectstate.TestingVariant) []projectstate.MethodTask {
+	var out []projectstate.MethodTask
+	for _, task := range projectstate.TasksForProfile(projectstate.ProfileFor(typ, v)) {
+		if !projectstate.IsConditionalTask(task) {
+			out = append(out, task)
+		}
 	}
-	pairs, err := objectPairs(got)
-	if err != nil {
-		t.Fatalf("objectPairs: %v", err)
-	}
-	var keys []string
-	for _, p := range pairs {
-		keys = append(keys, p.key)
-	}
-	want := []string{"activityID", "phase", "attempts", "buildStatus", "produced"}
-	if strings.Join(keys, ",") != strings.Join(want, ",") {
-		t.Errorf("keys = %v, want %v", keys, want)
-	}
-	if !strings.Contains(string(got), `"origin":"backfilled"`) {
-		t.Errorf("marshalled record dropped the origin stamp: %s", got)
-	}
+	return out
 }
 
-// TestWithAttempts_ReplacesAnExistingLedger keeps a second run from shadowing the first
-// with a duplicate key instead of replacing it.
-func TestWithAttempts_ReplacesAnExistingLedger(t *testing.T) {
-	const record = `{"activityID":"C-AA","phase":2,"attempts":[],"buildStatus":2}`
-	got, err := withAttempts(json.RawMessage(record), attemptsFor("C-AA", projectstate.ActivityTypeService,
-		evidence{HasServiceContract: true, ContractRef: "artifactAccess"}))
-	if err != nil {
-		t.Fatalf("withAttempts: %v", err)
+// Every qualifying activity gets exactly one passed attempt per non-conditional task of
+// its profile, every one validates, every one is backfilled by this tool with the
+// verdict's basis — and a non-qualifier gets no row at all.
+func TestBackfill_EveryAttemptIsValidBackfilledAndCoversTheProfile(t *testing.T) {
+	p, vs := backfillFixture(t)
+
+	wantType := map[string]projectstate.ActivityType{
+		"C-alpha-manager": projectstate.ActivityTypeService,
+		"C-gamma-access":  projectstate.ActivityTypeService,
+		"R-gamma-store":   projectstate.ActivityTypeDeployment,
+		"N-STP":           projectstate.ActivityTypeTesting,
 	}
-	pairs, err := objectPairs(got)
-	if err != nil {
-		t.Fatalf("objectPairs: %v", err)
+	var rows []string
+	for id := range p.ActivityConstruction {
+		rows = append(rows, id)
 	}
-	seen := 0
-	for _, p := range pairs {
-		if p.key == "attempts" {
-			seen++
-			if string(p.value) == "[]" {
-				t.Error("attempts was not replaced with the derived ledger")
+	sort.Strings(rows)
+	if want := []string{"C-alpha-manager", "C-gamma-access", "N-STP", "R-gamma-store"}; !reflect.DeepEqual(rows, want) {
+		t.Fatalf("rows = %v, want exactly the qualifying set %v", rows, want)
+	}
+	for id, typ := range wantType {
+		row := p.ActivityConstruction[id]
+		if row.Type != typ {
+			t.Errorf("%s: type = %v, want %v", id, row.Type, typ)
+		}
+		var got []projectstate.MethodTask
+		for _, a := range row.Attempts {
+			got = append(got, a.Task)
+			if err := a.Provenance.Validate(); err != nil {
+				t.Errorf("%s: %v", a.AttemptID, err)
+			}
+			if a.Provenance.Origin != projectstate.OriginBackfilled {
+				t.Errorf("%s: origin = %q — nothing here was observed", a.AttemptID, a.Provenance.Origin)
+			}
+			if a.Provenance.Generator != generatorID || a.Provenance.Basis != vs[id].Basis {
+				t.Errorf("%s: provenance = %+v", a.AttemptID, a.Provenance)
+			}
+			if a.Outcome != projectstate.OutcomePassed || a.Attempt != 1 || a.AttemptID != projectstate.AttemptID(id, a.Task, 1) {
+				t.Errorf("%s: outcome/attempt/id = %v/%d/%s", a.AttemptID, a.Outcome, a.Attempt, a.AttemptID)
 			}
 		}
+		if want := profileTasks(typ, projectstate.TestVariantPlan); !reflect.DeepEqual(got, want) {
+			t.Errorf("%s: tasks = %v, want the profile minus the conditionals %v", id, got, want)
+		}
 	}
-	if seen != 1 {
-		t.Errorf("attempts appears %d times, want exactly 1", seen)
+}
+
+// Each attempt points at what backs it, and at nothing when only a ruling does.
+func TestBackfill_EvidenceRefsPointOnlyAtWhatBacksTheTask(t *testing.T) {
+	p, _ := backfillFixture(t)
+	for _, a := range p.ActivityConstruction["C-gamma-access"].Attempts {
+		var want projectstate.EvidenceRef
+		switch a.Task {
+		case projectstate.TaskDetailedDesign, projectstate.TaskDesignReview:
+			want = projectstate.EvidenceRef{Kind: projectstate.EvidenceContract, Ref: "gammaAccess"}
+		case projectstate.TaskConstruction, projectstate.TaskCodeReview:
+			want = projectstate.EvidenceRef{Kind: projectstate.EvidenceGit, Ref: fixtureHead}
+		}
+		if a.Evidence != want {
+			t.Errorf("%s: evidence = %+v, want %+v", a.AttemptID, a.Evidence, want)
+		}
+	}
+	for _, a := range p.ActivityConstruction["N-STP"].Attempts {
+		if a.Evidence != (projectstate.EvidenceRef{Kind: projectstate.EvidenceArtifact, Ref: "testingState.systemTestPlan"}) {
+			t.Errorf("%s: evidence = %+v, want the signed-off artifact", a.AttemptID, a.Evidence)
+		}
+	}
+	for _, a := range p.ActivityConstruction["R-gamma-store"].Attempts {
+		if a.Evidence != (projectstate.EvidenceRef{}) {
+			t.Errorf("%s: evidence = %+v, want none — an inference has no artifact", a.AttemptID, a.Evidence)
+		}
+	}
+}
+
+func TestValidateAttempts_RefusesAnInvalidOrObservedAttempt(t *testing.T) {
+	good := projectstate.TaskAttempt{AttemptID: "X:srs:1", Provenance: projectstate.AttemptProvenance{Origin: projectstate.OriginBackfilled, Basis: "b"}}
+	if err := validateAttempts([]projectstate.TaskAttempt{good}); err != nil {
+		t.Fatalf("a valid attempt was refused: %v", err)
+	}
+	noBasis := good
+	noBasis.Provenance.Basis = ""
+	observed := good
+	observed.Provenance.Origin = projectstate.OriginObserved
+	for name, a := range map[string]projectstate.TaskAttempt{"empty basis": noBasis, "observed": observed} {
+		if err := validateAttempts([]projectstate.TaskAttempt{good, a}); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+}
+
+// A row that already holds real history is never overwritten; this tool's own earlier
+// backfill is replaced, and the row keeps its other fields.
+func TestBackfill_NeverOverwritesRealHistory(t *testing.T) {
+	p, root := fixtureProject(), fixtureServer(t)
+	vs, err := evaluate(inputs{Project: p, ServerRoot: root, Head: fixtureHead})
+	if err != nil {
+		t.Fatal(err)
+	}
+	observed := projectstate.TaskAttempt{AttemptID: "C-alpha-manager:srs:1", Provenance: projectstate.AttemptProvenance{Origin: projectstate.OriginObserved}}
+	p.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
+		"C-alpha-manager": {ActivityID: "C-alpha-manager", Attempts: []projectstate.TaskAttempt{observed}},
+	}
+	if _, err := backfill(&p, vs, time.Now()); err == nil || !strings.Contains(err.Error(), "real history") {
+		t.Fatalf("want a refusal to overwrite an observed attempt, got %v", err)
+	}
+
+	prior := observed
+	prior.Provenance = projectstate.AttemptProvenance{Origin: projectstate.OriginBackfilled, Generator: generatorID, Basis: "earlier run"}
+	p.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
+		"C-alpha-manager": {ActivityID: "C-alpha-manager", FailureDetail: "kept", Attempts: []projectstate.TaskAttempt{prior}},
+	}
+	if _, err := backfill(&p, vs, time.Now()); err != nil {
+		t.Fatalf("re-running over this tool's own backfill: %v", err)
+	}
+	row := p.ActivityConstruction["C-alpha-manager"]
+	if row.FailureDetail != "kept" || len(row.Attempts) < 2 || row.Attempts[0].Provenance.Basis == "earlier run" {
+		t.Errorf("row = %+v, want its fields kept and its attempts replaced", row)
+	}
+}
+
+// ---- the writer -----------------------------------------------------------------------
+
+// stateDocument encodes p through the codec and adds what a committed document carries
+// that the codec does not — a real updatedAt and the activityListOverrides sidecar — so
+// a test can prove a rewrite leaves both alone.
+func stateDocument(t *testing.T, p projectstate.Project) []byte {
+	t.Helper()
+	enc, err := projectstate.EncodeProjectJSON(p)
+	if err != nil {
+		t.Fatalf("encode fixture: %v", err)
+	}
+	const zeroStamp = `"updatedAt": "0001-01-01T00:00:00Z"`
+	if !bytes.Contains(enc, []byte(zeroStamp)) {
+		t.Fatalf("fixture encoding carries no %s to replace", zeroStamp)
+	}
+	withSidecar := bytes.Replace(enc, []byte(zeroStamp),
+		[]byte(`"updatedAt": "2026-08-09T05:30:44.213963Z", "activityListOverrides": {"overrides": []}`), 1)
+	var compact, out bytes.Buffer
+	if err := json.Compact(&compact, withSidecar); err != nil {
+		t.Fatalf("compact fixture: %v", err)
+	}
+	if err := json.Indent(&out, compact.Bytes(), "", "  "); err != nil {
+		t.Fatalf("indent fixture: %v", err)
+	}
+	out.WriteByte('\n')
+	return out.Bytes()
+}
+
+func topLevel(t *testing.T, doc []byte) []member {
+	t.Helper()
+	var compact bytes.Buffer
+	if err := json.Compact(&compact, doc); err != nil {
+		t.Fatal(err)
+	}
+	ms, err := members(compact.Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ms
+}
+
+func rewriteFixture(t *testing.T, p projectstate.Project, raw []byte) ([]byte, error) {
+	t.Helper()
+	root := fixtureServer(t)
+	vs, err := evaluate(inputs{Project: p, ServerRoot: root, Head: fixtureHead})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return rewrite(raw, func(p *projectstate.Project) error {
+		_, err := backfill(p, vs, time.Date(2026, 9, 12, 0, 0, 0, 0, time.UTC))
+		return err
+	})
+}
+
+// The live file has no .activityConstruction member (the codec omits an empty map). The
+// writer ADDS it — at the codec's own position, after slots — and every other member,
+// including the two the codec does not carry, keeps its exact bytes and order.
+func TestRewrite_AddsTheMemberAtTheCodecPositionAndTouchesNothingElse(t *testing.T) {
+	p := fixtureProject()
+	p.ConstructionProgress = &projectstate.ConstructionProgress{TotalWeeks: 49}
+	raw := stateDocument(t, p)
+	if bytes.Contains(raw, []byte(`"activityConstruction"`)) {
+		t.Fatal("fixture already holds the member")
+	}
+
+	out, err := rewriteFixture(t, p, raw)
+	if err != nil {
+		t.Fatalf("rewrite: %v", err)
+	}
+	before, after := topLevel(t, raw), topLevel(t, out)
+	var keys []string
+	for _, m := range after {
+		keys = append(keys, m.key)
+	}
+	at := strings.Index(strings.Join(keys, ","), "slots,activityConstruction,constructionProgress")
+	if at < 0 {
+		t.Errorf("member order = %v, want activityConstruction between slots and constructionProgress", keys)
+	}
+	var kept []member
+	for _, m := range after {
+		if m.key != constructionMember {
+			kept = append(kept, m)
+		}
+	}
+	if !reflect.DeepEqual(kept, before) {
+		t.Error("a member other than activityConstruction changed")
+	}
+	for _, keep := range []string{`"updatedAt": "2026-08-09T05:30:44.213963Z"`, `"activityListOverrides": {`} {
+		if !bytes.Contains(out, []byte(keep)) {
+			t.Errorf("the rewrite lost %s", keep)
+		}
+	}
+	back, err := decodeDocument(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(back.ActivityConstruction) != 4 {
+		t.Errorf("decoded %d rows, want the 4 qualifying activities", len(back.ActivityConstruction))
+	}
+}
+
+// The coordinator's finding against Task 4's splicer: a replaced member must go in as
+// exact bytes or be checked against the original. A committed .activityConstruction the
+// codec cannot round-trip byte-for-byte (here, a field it does not carry) would lose data
+// in the replacement, and a codec-vs-codec check cannot see the loss — so it is refused.
+func TestRewrite_RefusesToReplaceAMemberTheCodecCannotRoundTrip(t *testing.T) {
+	p := fixtureProject()
+	p.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{"C-beta-engine": {ActivityID: "C-beta-engine"}}
+	raw := stateDocument(t, p)
+	lossy := bytes.Replace(raw, []byte(`"activityID": "C-beta-engine",`),
+		[]byte(`"activityID": "C-beta-engine",
+      "legacyField": "the codec does not carry this",`), 1)
+	if bytes.Equal(lossy, raw) {
+		t.Fatal("fixture edit did not apply")
+	}
+	if _, err := rewriteFixture(t, p, lossy); err == nil || !strings.Contains(err.Error(), "codec round trip") {
+		t.Fatalf("want a refusal naming the round trip, got %v", err)
+	}
+
+	// The same member WITHOUT the extra field round-trips, and is replaced in place.
+	out, err := rewriteFixture(t, p, raw)
+	if err != nil {
+		t.Fatalf("rewrite over a clean member: %v", err)
+	}
+	back, err := decodeDocument(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, kept := back.ActivityConstruction["C-beta-engine"]; !kept || len(back.ActivityConstruction) != 5 {
+		t.Errorf("rows = %d, want the untouched row kept plus the 4 qualifying ones", len(back.ActivityConstruction))
+	}
+}
+
+// FIDELITY GATE: a document re-indenting cannot reproduce is refused, so a write never
+// smuggles a reformat of unrelated state into the diff.
+func TestRewrite_RefusesADocumentItCannotReproduce(t *testing.T) {
+	p := fixtureProject()
+	raw := bytes.Replace(stateDocument(t, p), []byte(`"id": "fixture"`), []byte(`"id":   "fixture"`), 1)
+	if _, err := rewriteFixture(t, p, raw); err == nil || !strings.Contains(err.Error(), "byte-for-byte") {
+		t.Fatalf("want the fidelity refusal, got %v", err)
+	}
+}
+
+// The writer owns one member; an edit that reaches anything else is refused.
+func TestRewrite_RefusesAnEditOutsideItsMember(t *testing.T) {
+	raw := stateDocument(t, fixtureProject())
+	_, err := rewrite(raw, func(p *projectstate.Project) error {
+		p.Name = "renamed"
+		return nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "may not touch") {
+		t.Fatalf("want a refusal, got %v", err)
 	}
 }
