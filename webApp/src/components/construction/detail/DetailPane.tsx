@@ -66,7 +66,12 @@ import ChevronLeftRoundedIcon from '@mui/icons-material/ChevronLeftRounded';
 import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded';
 import CloseIcon from '@mui/icons-material/Close';
 
-import type { ConstructionRow } from '../../../contracts/types';
+import type {
+  ArtifactModelEnvelope,
+  ConstructionReviewSet,
+  ConstructionRow,
+  ProjectStateWithGit,
+} from '../../../contracts/types';
 import { useTokens } from '../../../utilities/theme/ThemeContext';
 import type { Tokens } from '../../../utilities/theme/themes';
 import { UI_IDENTIFIERS } from '../../../utilities/constants/UIIdentifiers';
@@ -96,7 +101,9 @@ import {
 import { absenceFor } from './bodies/taskBriefing.ts';
 import { detailBodyFor } from './bodies/bodyDispatch.ts';
 import { AbsentBody } from './bodies/AbsentBody';
+import { ArtifactBody } from './bodies/ArtifactBody';
 import { ProvenanceNote } from './bodies/ProvenanceNote';
+import { ReviewBody } from './bodies/ReviewBody';
 import { UnknownBody } from './bodies/UnknownBody';
 
 // Re-exported alongside the component per the brief: a caller (and this
@@ -163,6 +170,16 @@ export interface DetailPaneProps {
    * list, which would read as "nothing ever ran".
    */
   episodeSlot?: ((ctx: { activityId: string; attemptId?: string }) => ReactNode) | undefined;
+  /** Head-state, for the artifact body's renderers (contracts, testing state). */
+  project?: ProjectStateWithGit | undefined;
+  /** The committed Phase-1 `system` slot — ServiceContractView's Dynamic tab. */
+  systemEnvelope?: ArtifactModelEnvelope | undefined;
+  /**
+   * The live reviewEngine reviewer set, passed ONLY when the selected activity
+   * is the one currently at a phase gate. Passing another activity's set would
+   * be the most direct mis-attribution on this surface.
+   */
+  reviewSet?: ConstructionReviewSet | undefined;
   onClose: () => void;
 }
 
@@ -171,6 +188,9 @@ export function DetailPane({
   row,
   activityTitle,
   episodeSlot,
+  project,
+  systemEnvelope,
+  reviewSet,
   onClose,
 }: DetailPaneProps): ReactElement | null {
   const t = useTokens();
@@ -267,11 +287,15 @@ export function DetailPane({
           the record came to exist. */}
       <ProvenanceNote evidence={evidence} reading={provenance} />
       <DetailBody
+        activityTitle={activityTitle}
         episodeSlot={episodeSlot}
+        project={project}
+        reviewSet={reviewSet}
         row={row}
         selectedAttemptId={selectedAttempt?.attemptId}
         selection={selection}
         state={state}
+        systemEnvelope={systemEnvelope}
       />
     </>
   );
@@ -777,12 +801,20 @@ function DetailBody({
   selectedAttemptId,
   state,
   episodeSlot,
+  activityTitle,
+  project,
+  systemEnvelope,
+  reviewSet,
 }: {
   row: ConstructionRow | undefined;
   selection: LensSelection;
   selectedAttemptId: string | undefined;
   state: TaskDetailState;
   episodeSlot: DetailPaneProps['episodeSlot'];
+  activityTitle: string | undefined;
+  project: ProjectStateWithGit | undefined;
+  systemEnvelope: ArtifactModelEnvelope | undefined;
+  reviewSet: ConstructionReviewSet | undefined;
 }): ReactElement {
   const kind = detailBodyFor(row, selection, state);
   switch (kind) {
@@ -820,17 +852,25 @@ function DetailBody({
         />
       );
     }
-    // The review and artifact bodies land in Task 10. They reuse the unknown
-    // body's briefing card meanwhile — but NOT its sentence: this task HAS a
-    // record, and saying "no record" here would be exactly the kind of false
-    // statement the rest of this stage exists to remove.
     case 'review':
-    case 'artifact':
       return (
-        <UnknownBody
+        <ReviewBody
+          activityTitle={activityTitle}
+          project={project}
+          reviewSet={reviewSet}
           row={row}
           selection={selection}
-          statement="A record exists for this. The body that renders it — the review verdict, or the artifact itself — lands in the next task of this stage; the briefing below is what the Method says the work is."
+          systemEnvelope={systemEnvelope}
+        />
+      );
+    case 'artifact':
+      return (
+        <ArtifactBody
+          activityTitle={activityTitle}
+          project={project}
+          row={row}
+          selection={selection}
+          systemEnvelope={systemEnvelope}
         />
       );
   }

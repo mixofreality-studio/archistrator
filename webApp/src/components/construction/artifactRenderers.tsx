@@ -25,4 +25,9 @@ export const artifactRenderers: Partial<
   'testing:plan': TestPlanView,
   'testing:systemTest': SystemTestRunView,
   frontend: FrontendArtifactView,
+  // A uiDesign activity's artifact IS the ui-design concept, which is exactly
+  // what FrontendArtifactView renders (its `ui-design` section) — the same
+  // renderer, reached by the classification that actually owns that artifact
+  // rather than only by the frontend activity that consumes it.
+  uiDesign: FrontendArtifactView,
 };

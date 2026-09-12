@@ -385,6 +385,15 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   const networkEnvelope = committedEnvelope(project, 'network');
   const activityEnvelope = committedEnvelope(project, 'activityList');
 
+  // The committed Phase-1 `system` slot — ServiceContractView's Dynamic tab
+  // needs its dynamicViews to draw real call chains. Same lookup the Artifacts
+  // tab already does; hoisted here because the detail pane's artifact body now
+  // renders the same view.
+  const paneSystemEnvelope = useMemo(
+    () => (project?.slots ?? []).find((s) => s.kind === 'system')?.model ?? undefined,
+    [project]
+  );
+
   // titleForId: resolves activityId → human-readable title from the committed
   // activity-list slot, falling back to the id when no title is present.
   const activityListModel = useMemo(
@@ -453,8 +462,18 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
             projectId={projectId}
           />
         )}
+        project={project}
+        // ONLY when the selected activity IS the one at a phase gate. Another
+        // activity's reviewer set rendered under this one's review body would be
+        // the most direct mis-attribution available on this surface.
+        reviewSet={
+          activeInConstructionId === selectedActivityId
+            ? phaseGateSession?.view.reviewSet
+            : undefined
+        }
         row={project?.constructionRows?.[selectedActivityId]}
         selection={selection}
+        systemEnvelope={paneSystemEnvelope}
         onClose={clear}
       />
     ) : undefined;
