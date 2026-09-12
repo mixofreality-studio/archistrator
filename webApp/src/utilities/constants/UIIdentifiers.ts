@@ -460,6 +460,12 @@ export const UI_IDENTIFIERS = {
     // structured verdict exists to present.
     DETAIL_VERDICT: 'construction-detail-verdict',
     DETAIL_VERDICT_STAMP: 'construction-detail-verdict-stamp',
+    // The 40-vs-69 seam, made visible (Stage B Task 12): a persistent strip
+    // above the tree, and the bottom group that holds the orphaned legacy
+    // rows the derived activity list no longer names.
+    COVERAGE_STRIP: 'construction-coverage-strip',
+    LEGACY_GROUP: 'construction-legacy-group',
+    LEGACY_GROUP_COPY: 'construction-legacy-group-copy',
   },
   // The GIT-FORWARD per-activity row cluster (U-SPA-GIT). The shared chrome the
   // construction tracker (and future CR/operations surfaces) render per

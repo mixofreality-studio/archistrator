@@ -61,6 +61,10 @@ import { ActivityTreeView } from '../components/construction/list/ActivityTreeVi
 import { buildActivityTree, type ActivityMeta } from '../components/construction/list/activityTree';
 import { applyToolbarToActivities } from '../components/construction/list/activityScope';
 import {
+  computeCoverageCounts,
+  derivedNameSet,
+} from '../components/construction/list/coverageCounts';
+import {
   useLensSelection,
   useLensToolbar,
   toolbarSignatureOf,
@@ -458,6 +462,23 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
     [activityTree, toolbar]
   );
 
+  // The 40-vs-69 seam, made visible (Stage B Task 12). The derived activity
+  // list's own names — the set ActivityTreeView uses to tell an ordinary row
+  // (including the 9 that reconcile) apart from an orphaned-legacy one.
+  const derivedActivityNames = useMemo(
+    () => derivedNameSet(activityListModel?.activities ?? []),
+    [activityListModel]
+  );
+  // The COVERAGE strip's six numbers — computed from the FULL committed row
+  // set (activityListModel + every construction row's own id), never from
+  // `visibleActivityTree`: a toolbar scope/kind/search filter must not make
+  // this strip's numbers move, because it answers "what is the true state of
+  // the data", not "what does the current view happen to show".
+  const coverage = useMemo(
+    () => computeCoverageCounts(activityListModel?.activities ?? [], activityIds),
+    [activityListModel, activityIds]
+  );
+
   // "Expand to current phase" is an IMPERATIVE action, not persisted toolbar
   // state (see ConstructionShellProps.onExpandToCurrentPhase) — a monotonic
   // signal the tree view watches, so a second click re-opens whatever the
@@ -619,6 +640,8 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
                 lens === 'list' ? (
                   <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                     <ActivityTreeView
+                      coverage={coverage}
+                      derivedActivityNames={derivedActivityNames}
                       expandToCurrentPhaseSignal={expandToPhaseSignal}
                       nodes={visibleActivityTree}
                       searchQuery={toolbar.search}
