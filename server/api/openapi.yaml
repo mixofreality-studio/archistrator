@@ -2784,6 +2784,7 @@ components:
                     type: string
                 BuildStatus:
                     $ref: '#/components/schemas/SystemDesignActivityBuildStatus'
+                    description: 'The coarse build status. Meaningless when hasBuildEvidence is false (or classified is false): its zero value names InConstruction, which on such a row reports nothing, not work in progress. Read it only when both flags are true.'
                 CurrentPhase:
                     $ref: '#/components/schemas/SystemDesignActivityMethodPhase'
                 FailureDetail:
@@ -2794,6 +2795,7 @@ components:
                     $ref: '#/components/schemas/SystemDesignActivityType'
                 Phase:
                     $ref: '#/components/schemas/SystemDesignActivityConstructionPhase'
+                    description: 'The coarse lifecycle-phase roll-up. Meaningless when hasBuildEvidence is false (or classified is false): nothing has been resolved to roll up, so the value is the enum''s zero, not a reported phase. Read it only when both flags are true.'
                 Phases:
                     items:
                         $ref: '#/components/schemas/SystemDesignPhaseCompletion'
@@ -2829,6 +2831,9 @@ components:
                     type: string
                 layerBand:
                     type: string
+                recorded:
+                    description: 'True iff a stored .activityConstruction head-state row exists for this activity. False on a planned-no-record row: one the server emits because the committed activity list names the activity but nothing has been recorded for it yet. Such a row carries no attempts and no worstOrigin, and its BuildStatus and Phase are meaningless.'
+                    type: boolean
                 startedAt:
                     format: date-time
                     type:
@@ -2837,6 +2842,7 @@ components:
                     x-go-import: time
                     x-go-type: time.Time
                 worstOrigin:
+                    description: 'The least-trustworthy provenance origin across attempts (synthesized, then backfilled, then observed). Omitted when recorded is false. Meaningless when attempts is empty: the roll-up seeds an empty ledger to observed, which says nothing was derived from anything unknown, not that anything was observed.'
                     type: string
             required:
                 - ActivityID
@@ -2852,7 +2858,7 @@ components:
                 - FailureDetail
                 - classified
                 - hasBuildEvidence
-                - worstOrigin
+                - recorded
                 - layer
                 - layerBand
             type: object

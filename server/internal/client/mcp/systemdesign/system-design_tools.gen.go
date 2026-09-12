@@ -7,6 +7,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
+	"strings"
 
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -360,6 +362,7 @@ func advancePhaseOutputSchema() *jsonschema.Schema {
 	fixUUIDStrings(s)
 	relaxRawJSON(s)
 	allowNullMaps(s)
+	describeContractFields(s, reflect.TypeFor[advancePhaseOutput]())
 	return s
 }
 
@@ -369,6 +372,7 @@ func createProjectOutputSchema() *jsonschema.Schema {
 	fixUUIDStrings(s)
 	relaxRawJSON(s)
 	allowNullMaps(s)
+	describeContractFields(s, reflect.TypeFor[createProjectOutput]())
 	return s
 }
 
@@ -378,6 +382,7 @@ func getProjectOutputSchema() *jsonschema.Schema {
 	fixUUIDStrings(s)
 	relaxRawJSON(s)
 	allowNullMaps(s)
+	describeContractFields(s, reflect.TypeFor[getProjectOutput]())
 	return s
 }
 
@@ -387,6 +392,7 @@ func getSessionStateOutputSchema() *jsonschema.Schema {
 	fixUUIDStrings(s)
 	relaxRawJSON(s)
 	allowNullMaps(s)
+	describeContractFields(s, reflect.TypeFor[getSessionStateOutput]())
 	return s
 }
 
@@ -396,6 +402,7 @@ func getDesignHealthOutputSchema() *jsonschema.Schema {
 	fixUUIDStrings(s)
 	relaxRawJSON(s)
 	allowNullMaps(s)
+	describeContractFields(s, reflect.TypeFor[getDesignHealthOutput]())
 	return s
 }
 
@@ -405,6 +412,7 @@ func listProjectsOutputSchema() *jsonschema.Schema {
 	fixUUIDStrings(s)
 	relaxRawJSON(s)
 	allowNullMaps(s)
+	describeContractFields(s, reflect.TypeFor[listProjectsOutput]())
 	return s
 }
 
@@ -414,6 +422,7 @@ func requestArtifactDraftOutputSchema() *jsonschema.Schema {
 	fixUUIDStrings(s)
 	relaxRawJSON(s)
 	allowNullMaps(s)
+	describeContractFields(s, reflect.TypeFor[requestArtifactDraftOutput]())
 	return s
 }
 
@@ -423,6 +432,7 @@ func setOperatingModelOutputSchema() *jsonschema.Schema {
 	fixUUIDStrings(s)
 	relaxRawJSON(s)
 	allowNullMaps(s)
+	describeContractFields(s, reflect.TypeFor[setOperatingModelOutput]())
 	return s
 }
 
@@ -432,6 +442,7 @@ func setResearchInputOutputSchema() *jsonschema.Schema {
 	fixUUIDStrings(s)
 	relaxRawJSON(s)
 	allowNullMaps(s)
+	describeContractFields(s, reflect.TypeFor[setResearchInputOutput]())
 	return s
 }
 
@@ -441,6 +452,7 @@ func askQuestionsOutputSchema() *jsonschema.Schema {
 	fixUUIDStrings(s)
 	relaxRawJSON(s)
 	allowNullMaps(s)
+	describeContractFields(s, reflect.TypeFor[askQuestionsOutput]())
 	return s
 }
 
@@ -450,6 +462,7 @@ func acknowledgeStaleBasisOutputSchema() *jsonschema.Schema {
 	fixUUIDStrings(s)
 	relaxRawJSON(s)
 	allowNullMaps(s)
+	describeContractFields(s, reflect.TypeFor[acknowledgeStaleBasisOutput]())
 	return s
 }
 
@@ -459,6 +472,7 @@ func setReviewCommentStatusOutputSchema() *jsonschema.Schema {
 	fixUUIDStrings(s)
 	relaxRawJSON(s)
 	allowNullMaps(s)
+	describeContractFields(s, reflect.TypeFor[setReviewCommentStatusOutput]())
 	return s
 }
 
@@ -468,6 +482,7 @@ func startSystemDesignOutputSchema() *jsonschema.Schema {
 	fixUUIDStrings(s)
 	relaxRawJSON(s)
 	allowNullMaps(s)
+	describeContractFields(s, reflect.TypeFor[startSystemDesignOutput]())
 	return s
 }
 
@@ -477,6 +492,7 @@ func submitReviewDecisionOutputSchema() *jsonschema.Schema {
 	fixUUIDStrings(s)
 	relaxRawJSON(s)
 	allowNullMaps(s)
+	describeContractFields(s, reflect.TypeFor[submitReviewDecisionOutput]())
 	return s
 }
 
@@ -486,6 +502,7 @@ func listEpisodesForArtifactOutputSchema() *jsonschema.Schema {
 	fixUUIDStrings(s)
 	relaxRawJSON(s)
 	allowNullMaps(s)
+	describeContractFields(s, reflect.TypeFor[listEpisodesForArtifactOutput]())
 	return s
 }
 
@@ -495,7 +512,78 @@ func getEpisodeTimelineOutputSchema() *jsonschema.Schema {
 	fixUUIDStrings(s)
 	relaxRawJSON(s)
 	allowNullMaps(s)
+	describeContractFields(s, reflect.TypeFor[getEpisodeTimelineOutput]())
 	return s
+}
+
+// contractFieldDescriptions is the contract's own property documentation,
+// keyed by the Go type modelgen emits for each documenting $def. modelgen
+// carries no description into those types, so the inferred output schema
+// would otherwise show an agent a field's shape but never the contract's
+// statement of when that field means nothing.
+var contractFieldDescriptions = map[reflect.Type]map[string]string{
+	reflect.TypeFor[mgr.ActivityConstructionStatus](): {
+		"BuildStatus": "The coarse build status. Meaningless when hasBuildEvidence is false (or classified is false): its zero value names InConstruction, which on such a row reports nothing, not work in progress. Read it only when both flags are true.",
+		"Phase":       "The coarse lifecycle-phase roll-up. Meaningless when hasBuildEvidence is false (or classified is false): nothing has been resolved to roll up, so the value is the enum's zero, not a reported phase. Read it only when both flags are true.",
+		"recorded":    "True iff a stored .activityConstruction head-state row exists for this activity. False on a planned-no-record row: one the server emits because the committed activity list names the activity but nothing has been recorded for it yet. Such a row carries no attempts and no worstOrigin, and its BuildStatus and Phase are meaningless.",
+		"worstOrigin": "The least-trustworthy provenance origin across attempts (synthesized, then backfilled, then observed). Omitted when recorded is false. Meaningless when attempts is empty: the roll-up seeds an empty ledger to observed, which says nothing was derived from anything unknown, not that anything was observed.",
+	},
+}
+
+// describeContractFields stamps contractFieldDescriptions onto an inferred
+// schema, walking it in step with the Go type it was inferred from, so a
+// description lands only on the property the contract documents — wherever
+// that type appears in the output (a map value, a slice element, a field).
+// It runs LAST: relaxRawJSON may replace a node wholesale, and a description
+// written before that would be lost with it.
+func describeContractFields(s *jsonschema.Schema, t reflect.Type) {
+	if s == nil {
+		return
+	}
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	k := t.Kind()
+	if k == reflect.Slice || k == reflect.Array {
+		describeContractFields(s.Items, t.Elem())
+		return
+	}
+	if k == reflect.Map {
+		describeContractFields(s.AdditionalProperties, t.Elem())
+		return
+	}
+	if k != reflect.Struct {
+		return
+	}
+	descs := contractFieldDescriptions[t]
+	for i := range t.NumField() {
+		f := t.Field(i)
+		name := jsonFieldName(f)
+		p, ok := s.Properties[name]
+		if name == "" || !ok {
+			continue
+		}
+		if d, ok := descs[name]; ok {
+			p.Description = d
+		}
+		describeContractFields(p, f.Type)
+	}
+}
+
+// jsonFieldName is the wire key encoding/json uses for a struct field ("" for
+// an unexported or json:"-" field, which no schema property stands for).
+func jsonFieldName(f reflect.StructField) string {
+	if !f.IsExported() {
+		return ""
+	}
+	name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
+	switch name {
+	case "-":
+		return ""
+	case "":
+		return f.Name
+	}
+	return name
 }
 
 // enumSchemaArtifactKind describes the ArtifactKind enum: its allowed values and their meanings.

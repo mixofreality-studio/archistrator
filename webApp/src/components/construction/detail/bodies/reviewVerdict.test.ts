@@ -24,6 +24,7 @@ function row(overrides: Partial<ConstructionRow> = {}): ConstructionRow {
     activityId: 'C-artifact-access',
     classified: true,
     hasBuildEvidence: true,
+    recorded: true,
     phases: [],
     attempts: [],
     ...overrides,

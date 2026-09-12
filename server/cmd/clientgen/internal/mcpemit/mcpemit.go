@@ -79,7 +79,11 @@ func Generate(entry json.RawMessage, opts Options) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	src, err := genTools(doc, enums, opts)
+	descs, err := parseFieldDescriptions(entry)
+	if err != nil {
+		return Result{}, err
+	}
+	src, err := genTools(doc, enums, descs, opts)
 	if err != nil {
 		return Result{}, err
 	}
@@ -120,13 +124,17 @@ func parseEnumDefs(entry json.RawMessage) (map[string]enumDef, error) {
 	return out, nil
 }
 
-func genTools(doc *projectmodel.Doc, enums map[string]enumDef, opts Options) ([]byte, error) {
+func genTools(doc *projectmodel.Doc, enums map[string]enumDef, descs fieldDescriptions, opts Options) ([]byte, error) {
 	if opts.OpDoc == nil {
 		return nil, fmt.Errorf("mcpemit: Options.OpDoc is required")
 	}
 	var b strings.Builder
 	mgrPrefix := projectmodel.LowerFirst(doc.ManagerBase())
 	iface := doc.Interface.Name
+	// Only a contract that documents a property pays for the description walker
+	// (and its reflect/strings imports); every other contract emits byte-for-byte
+	// what it did before.
+	described := len(descs) > 0
 
 	// Which enum $defs are actually referenced by a param — emit a schema helper
 	// only for those, in sorted order for determinism.
@@ -139,7 +147,12 @@ func genTools(doc *projectmodel.Doc, enums map[string]enumDef, opts Options) ([]
 	b.WriteString("import (\n")
 	b.WriteString("\t\"context\"\n")
 	b.WriteString("\t\"errors\"\n")
-	b.WriteString("\t\"fmt\"\n\n")
+	b.WriteString("\t\"fmt\"\n")
+	if described {
+		b.WriteString("\t\"reflect\"\n")
+		b.WriteString("\t\"strings\"\n")
+	}
+	b.WriteString("\n")
 	fmt.Fprintf(&b, "\t%q\n", jsonschemaImport)
 	fmt.Fprintf(&b, "\t%q\n", mcpImport)
 	extra := toolExtraImports(doc)
@@ -168,7 +181,10 @@ func genTools(doc *projectmodel.Doc, enums map[string]enumDef, opts Options) ([]
 
 	// --- per-op output schema builders ---
 	for _, op := range doc.Interface.Operations {
-		writeOutputSchema(&b, op)
+		writeOutputSchema(&b, op, described)
+	}
+	if described {
+		writeFieldDescriptions(&b, descs)
 	}
 
 	// --- shared enum schema helpers ---
@@ -339,7 +355,7 @@ func writeInputSchema(b *strings.Builder, op projectmodel.Operation, enums map[s
 // of 0-255 bytes — so a REAL object payload fails the SDK's output validation
 // (QA finding F26). relaxRawJSON relaxes exactly those nodes to a permissive
 // schema while keeping the rest of the inferred output shape intact.
-func writeOutputSchema(b *strings.Builder, op projectmodel.Operation) {
+func writeOutputSchema(b *strings.Builder, op projectmodel.Operation, described bool) {
 	lower := projectmodel.LowerFirst(op.Name)
 	fmt.Fprintf(b, "// %sOutputSchema is the explicit MCP output schema for the %s operation.\n", lower, op.Name)
 	fmt.Fprintf(b, "func %sOutputSchema() *jsonschema.Schema {\n", lower)
@@ -347,6 +363,10 @@ func writeOutputSchema(b *strings.Builder, op projectmodel.Operation) {
 	b.WriteString("\tfixUUIDStrings(s)\n")
 	b.WriteString("\trelaxRawJSON(s)\n")
 	b.WriteString("\tallowNullMaps(s)\n")
+	if described {
+		// Last, so no relaxation pass can replace a node after it was described.
+		fmt.Fprintf(b, "\tdescribeContractFields(s, reflect.TypeFor[%sOutput]())\n", lower)
+	}
 	b.WriteString("\treturn s\n}\n\n")
 }
 

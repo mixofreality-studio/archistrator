@@ -3342,6 +3342,17 @@ func repoWebHost(repoBase string) string {
 	return s[:i] // drop /<owner>
 }
 
+// worstOriginFor is the wire worstOrigin: the ledger's roll-up on a recorded row, and
+// omitted (nil) on a planned-no-record one, which has no ledger to roll up and whose
+// empty-ledger seed ("observed") would read as a claim about a row nothing backs.
+func worstOriginFor(recorded bool, attempts []projectstate.TaskAttempt) *string {
+	if !recorded {
+		return nil
+	}
+	o := string(projectstate.AttemptsWorstOrigin(attempts))
+	return &o
+}
+
 // constructionRowsToContract maps the per-activity construction head-state map
 // (honest-empty: nil in ⇒ nil out). activityMeta carries the Phase-2 activity-list
 // metadata (worker class + coding + componentId) keyed by activity id, used to
@@ -3357,10 +3368,17 @@ func repoWebHost(repoBase string) string {
 // "not started / no record", never Done. It goes through exactly the same resolution
 // as a stored row, from the zero-value head-state: the server classifies it (so its
 // profile's phases and tasks can be drawn), and because it has neither stored phases
-// nor a ledger it resolves to no completions, so HasBuildEvidence is false, Phases is
-// empty and no coarse status is asserted. Nothing is synthesized that a stored row
-// with no evidence would not also say. Without this, an activity nobody has touched
-// yet was absent from the view altogether rather than shown as not started.
+// nor a ledger it resolves to no completions, so HasBuildEvidence is false and Phases
+// and Attempts are empty.
+//
+// That row is NOT indistinguishable from a stored one, and the wire must not pretend it
+// is. BuildStatus and Phase are required, non-omitempty enums, so it still carries
+// their zero values (BuildInConstruction / phase 0) — values the contract marks
+// meaningless while HasBuildEvidence is false, and which an MCP reader with no such
+// gate would otherwise report as six activities "in construction". So the row says
+// what it is instead: Recorded is false, and WorstOrigin (whose empty-ledger seed is
+// "observed") is omitted. Without this, an activity nobody has touched yet was absent
+// from the view altogether rather than shown as not started.
 // A stored row the list no longer names is still emitted (it classifies as whatever
 // its metadata allows, which for an unlisted id is nothing).
 func constructionRowsToContract(
@@ -3380,6 +3398,12 @@ func constructionRowsToContract(
 	}
 	out := make(map[string]ActivityConstructionStatus, len(all))
 	for id, r := range all {
+		// Recorded is the one explicit wire signal that a stored head-state row backs
+		// this row. Everything else a planned-no-record row carries is either
+		// honestly empty (no phases, no attempts) or a zero value the contract marks
+		// meaningless; Recorded lets a reader tell the two populations apart without
+		// re-deriving it from those zeros.
+		_, recorded := rows[id]
 		meta := activityMeta[id]
 		typ, typVariant, resolved, classified := classifiedRowView(r, activityMeta[id])
 		// Type/Kind/Variant/Phases/BuildStatus/Phase form a DISCRIMINATED UNION with
@@ -3457,14 +3481,14 @@ func constructionRowsToContract(
 			// it reports no evidence as well; the consumer distinguishes the two
 			// cases by Classified.
 			HasBuildEvidence: len(resolved) > 0,
-			// MEANINGFUL ONLY ALONGSIDE A NON-EMPTY Attempts ledger. The wire field is
-			// required (no omitempty, and its schema lives in project.json), so the
-			// server always emits a value; over an empty ledger that value is the
-			// aggregate seed "observed", which read on its own says "recorded" about a
-			// row where nothing was recorded. Consumers must gate it on
-			// len(attempts) > 0 — the SPA's mapConstructionRow drops it there, the same
-			// way kind/status/currentLifecyclePhase are dropped on an unclassified row.
-			WorstOrigin: string(projectstate.AttemptsWorstOrigin(r.Attempts)),
+			Recorded:         recorded,
+			// OMITTED on an unrecorded row, and MEANINGFUL ONLY ALONGSIDE A NON-EMPTY
+			// Attempts ledger on a recorded one (the contract's own field descriptions
+			// say both, and they reach the MCP output schema). Over an empty ledger the
+			// value is the aggregate seed "observed", which read on its own says
+			// "recorded" about a row where nothing was recorded; a planned-no-record
+			// row has no ledger by construction, so it carries no origin at all.
+			WorstOrigin: worstOriginFor(recorded, r.Attempts),
 			Layer:       layer,
 			LayerBand:   band,
 		}

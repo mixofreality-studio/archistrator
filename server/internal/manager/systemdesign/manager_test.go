@@ -10455,8 +10455,11 @@ func TestConstructionRowsToContract_CarriesLedgerAndWorstOrigin(t *testing.T) {
 	if !got.Classified {
 		t.Errorf("Classified = false, want true for a typed activity")
 	}
-	if got.WorstOrigin != string(projectstate.OriginSynthesized) {
-		t.Errorf("WorstOrigin = %q, want %q — one synthesized attempt taints the row", got.WorstOrigin, projectstate.OriginSynthesized)
+	if got.WorstOrigin == nil || *got.WorstOrigin != string(projectstate.OriginSynthesized) {
+		t.Errorf("WorstOrigin = %v, want %q — one synthesized attempt taints the row", got.WorstOrigin, projectstate.OriginSynthesized)
+	}
+	if !got.Recorded {
+		t.Errorf("Recorded = false on a row backed by stored head-state")
 	}
 }
 
@@ -10723,9 +10726,10 @@ func TestConstructionRowsToContract_ProfileWinsOverAContradictoryStoredPhaseSet(
 // worstOrigin is an aggregate over the ledger, and over an EMPTY ledger it is the seed
 // value "observed" — correct as an aggregate (nothing was derived from anything
 // unknown), a trap read alone at row level: it says "recorded" about a row where
-// nothing was recorded. 44 of the committed rows have an empty ledger. The wire field
-// is required, so the server cannot omit it; this pins the pairing the SPA's omission
-// rule depends on — the stamp is only ever meaningful accompanied by attempts.
+// nothing was recorded. A RECORDED row still carries it (the contract describes it as
+// meaningless over an empty ledger, and that description reaches the MCP schema); only
+// an unrecorded, planned-no-record row omits it. This pins the pairing the SPA's
+// omission rule depends on — the stamp is only ever meaningful accompanied by attempts.
 func TestConstructionRowsToContract_WorstOriginIsOnlyMeaningfulWithALedger(t *testing.T) {
 	rows := map[string]projectstate.ActivityConstructionStatus{
 		// Empty ledger: the emitted stamp is the aggregate seed, NOT an observation.
@@ -10750,13 +10754,13 @@ func TestConstructionRowsToContract_WorstOriginIsOnlyMeaningfulWithALedger(t *te
 	if n := len(got["C-EMPTY"].Attempts); n != 0 {
 		t.Fatalf("C-EMPTY Attempts len = %d, want 0 — the fixture's whole point", n)
 	}
-	if got["C-EMPTY"].WorstOrigin != string(projectstate.OriginObserved) {
-		t.Errorf("C-EMPTY WorstOrigin = %q, want the aggregate seed %q — and consumers must suppress it, since no attempt was ever observed",
-			got["C-EMPTY"].WorstOrigin, projectstate.OriginObserved)
+	if o := got["C-EMPTY"].WorstOrigin; o == nil || *o != string(projectstate.OriginObserved) {
+		t.Errorf("C-EMPTY WorstOrigin = %v, want the aggregate seed %q — and consumers must suppress it, since no attempt was ever observed",
+			o, projectstate.OriginObserved)
 	}
-	if got["C-LEDGER"].WorstOrigin != string(projectstate.OriginSynthesized) {
-		t.Errorf("C-LEDGER WorstOrigin = %q, want %q — one synthesized attempt taints the roll-up",
-			got["C-LEDGER"].WorstOrigin, projectstate.OriginSynthesized)
+	if o := got["C-LEDGER"].WorstOrigin; o == nil || *o != string(projectstate.OriginSynthesized) {
+		t.Errorf("C-LEDGER WorstOrigin = %v, want %q — one synthesized attempt taints the roll-up",
+			o, projectstate.OriginSynthesized)
 	}
 }
 
@@ -10882,6 +10886,35 @@ func TestConstructionRowsToContract_ListedActivityWithNoRowIsPlannedNoRecord(t *
 	}
 	if out := constructionRowsToContract(nil, map[string]projectstate.ActivityItem{}, nil); out != nil {
 		t.Errorf("nothing stored and nothing listed = %d rows, want nil", len(out))
+	}
+}
+
+// Recorded is the one explicit wire signal that a stored head-state row backs a row:
+// a planned-no-record row (listed, nothing stored) says Recorded=false and omits
+// worstOrigin — whose empty-ledger seed would otherwise read "observed" about a row
+// where nothing was recorded — while a stored row, even one with no ledger, says
+// Recorded=true and carries it. Without the flag an MCP reader has only the zero
+// BuildStatus (InConstruction) to go on and reports unstarted work as in progress.
+func TestConstructionRowsToContract_PlannedNoRecordRowIsUnrecordedAndCarriesNoOrigin(t *testing.T) {
+	rows := map[string]projectstate.ActivityConstructionStatus{
+		"C-BE":    {ActivityID: "C-BE", Phases: allServicePhases()},
+		"C-EMPTY": {ActivityID: "C-EMPTY"},
+	}
+	meta := map[string]projectstate.ActivityItem{
+		"C-BE":    {Name: "C-BE", WorkerClass: "junior-developer", Coding: true},
+		"C-EMPTY": {Name: "C-EMPTY", WorkerClass: "junior-developer", Coding: true},
+		"C-PLAN":  {Name: "C-PLAN", WorkerClass: "junior-developer", Coding: true},
+		"N-IT":    {Name: "N-IT", WorkerClass: "software-tester", Coding: false},
+	}
+	got := constructionRowsToContract(rows, meta, nil)
+	for id, want := range map[string]bool{"C-BE": true, "C-EMPTY": true, "C-PLAN": false, "N-IT": false} {
+		r := got[id]
+		if r.Recorded != want {
+			t.Errorf("%s: Recorded = %v, want %v", id, r.Recorded, want)
+		}
+		if hasOrigin := r.WorstOrigin != nil; hasOrigin != want {
+			t.Errorf("%s: worstOrigin present = %v, want %v (present iff recorded)", id, hasOrigin, want)
+		}
 	}
 }
 

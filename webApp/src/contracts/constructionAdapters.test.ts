@@ -128,12 +128,46 @@ function wireRow(over: Partial<WireConstructionStatus>): WireConstructionStatus 
     // The default fixture is a classified row the server DID resolve completions for;
     // the no-evidence case is opted into per-test by overriding this to false.
     hasBuildEvidence: true,
+    recorded: true,
     worstOrigin: 'observed',
     layer: '',
     layerBand: '',
     ...over,
   };
 }
+
+// `recorded` is the server's one explicit "a stored row backs this" signal. A
+// planned-no-record row arrives recorded:false with worstOrigin OMITTED on the wire;
+// the mapper passes the flag through and never invents an origin for it.
+void test('mapConstructionRow carries recorded and never invents an origin for an unrecorded row', () => {
+  const plannedWire = wireRow({ recorded: false, hasBuildEvidence: false });
+  // The server OMITS the key on an unrecorded row (not `undefined`, not '').
+  delete plannedWire.worstOrigin;
+  const planned = mapConstructionRow(plannedWire);
+  assert.equal(planned.recorded, false);
+  assert.equal('worstOrigin' in planned, false);
+
+  const stored = mapConstructionRow(
+    wireRow({
+      recorded: true,
+      worstOrigin: 'backfilled',
+      attempts: [
+        {
+          attemptId: 'C-x:codeReview:1',
+          task: 'codeReview',
+          phase: 'construction',
+          attempt: 1,
+          actor: 'agent',
+          outcome: 'passed',
+          evidence: { kind: 'none', ref: '' },
+          provenance: { origin: 'backfilled', generator: 'g', generatedAt: null, basis: 'b' },
+        },
+      ],
+    })
+  );
+  assert.equal(stored.recorded, true);
+  assert.equal(stored.worstOrigin, 'backfilled');
+});
 
 void test('mapConstructionRow reads the Phases array the server already emits', () => {
   const row = mapConstructionRow(

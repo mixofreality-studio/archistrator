@@ -2,10 +2,46 @@ package systemdesign
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/google/jsonschema-go/jsonschema"
 )
+
+// TestGetProjectOutputCarriesContractFieldDescriptions pins that the contract's own
+// property descriptions reach an MCP agent. The output schema is inferred from the
+// modelgen Go types, which carry no description, so without the generated
+// describeContractFields pass an agent reading get-project sees `recorded`,
+// `worstOrigin`, `BuildStatus` and `Phase` with no statement of when each means
+// nothing — the exact reading that reports planned-no-record activities as "in
+// construction".
+func TestGetProjectOutputCarriesContractFieldDescriptions(t *testing.T) {
+	s := getProjectOutputSchema()
+	row := s.Properties["result"].Properties["ActivityConstruction"].AdditionalProperties
+	if row == nil {
+		t.Fatalf("get-project output schema has no ActivityConstruction row schema")
+	}
+	for prop, want := range map[string]string{
+		"recorded":    ".activityConstruction",
+		"worstOrigin": "Omitted when recorded is false",
+		"BuildStatus": "hasBuildEvidence is false",
+		"Phase":       "hasBuildEvidence is false",
+	} {
+		p, ok := row.Properties[prop]
+		if !ok {
+			t.Errorf("row schema has no %q property", prop)
+			continue
+		}
+		if !strings.Contains(p.Description, want) {
+			t.Errorf("%s description = %q, want it to contain %q", prop, p.Description, want)
+		}
+	}
+	// A property the contract does not document stays undocumented rather than
+	// picking up a neighbour's sentence.
+	if d := row.Properties["layer"].Description; d != "" {
+		t.Errorf("layer description = %q, want empty (the contract documents none)", d)
+	}
+}
 
 // TestF26_GetSessionStateOutputAcceptsPopulatedModel is the regression guard for
 // QA finding F26: the SDK infers the DraftModel.model json.RawMessage field as an

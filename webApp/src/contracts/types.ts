@@ -751,6 +751,14 @@ export interface ConstructionRow {
    */
   hasBuildEvidence: boolean;
   /**
+   * Whether a stored `.activityConstruction` head-state row backs this row at all
+   * (server: Recorded). `false` is a PLANNED-NO-RECORD row: the committed activity
+   * list names the activity and nothing has been recorded for it yet, so it carries
+   * no attempts, no evidence and no `worstOrigin`. The one explicit signal — read it
+   * rather than re-deriving "was anything recorded?" from empty fields.
+   */
+  recorded: boolean;
+  /**
    * The least-trustworthy provenance origin across this row's attempt ledger.
    *
    * Absent when `attempts` is empty, for the same reason as `kind`/`status`: the

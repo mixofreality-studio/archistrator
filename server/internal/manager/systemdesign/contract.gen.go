@@ -67,7 +67,8 @@ type ActivityConstructionStatus struct {
 	Attempts         []TaskAttempt             `json:"attempts,omitempty"`
 	Classified       bool                      `json:"classified"`
 	HasBuildEvidence bool                      `json:"hasBuildEvidence"`
-	WorstOrigin      string                    `json:"worstOrigin"`
+	Recorded         bool                      `json:"recorded"`
+	WorstOrigin      *string                   `json:"worstOrigin,omitempty"`
 	Layer            string                    `json:"layer"`
 	LayerBand        string                    `json:"layerBand"`
 }

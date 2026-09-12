@@ -148,6 +148,45 @@ func TestGenerate_FixesUUIDStringsBeforeRelaxing(t *testing.T) {
 	}
 }
 
+// A contract that documents a property gets the description table and the walker,
+// and every op's output schema runs it; the sample above documents none, and its
+// output must be exactly what it was before this feature (no table, no reflect).
+func TestGenerate_ContractFieldDescriptionsReachOutputSchema(t *testing.T) {
+	documented := strings.Replace(sampleEntry,
+		`"ReviewFeedback": {"type": "object", "properties": {"notes": {"type": "string"}}}`,
+		`"ReviewFeedback": {"type": "object", "properties": {"notes": {"type": "string", "description": "What to change."}}}`,
+		1)
+	if documented == sampleEntry {
+		t.Fatalf("fixture replacement did not apply")
+	}
+	res, err := Generate([]byte(documented), Options{
+		Package:       "sample",
+		ManagerImport: "example.com/sample",
+		OpDoc:         func(string) string { return "doc" },
+	})
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	src := string(res.ToolsGo)
+	for _, want := range []string{
+		"reflect.TypeFor[mgr.ReviewFeedback]()",
+		`"notes": "What to change."`,
+		"describeContractFields(s, reflect.TypeFor[requestArtifactDraftOutput]())",
+		"func describeContractFields(",
+	} {
+		if !strings.Contains(src, want) {
+			t.Errorf("generated source missing %q", want)
+		}
+	}
+
+	plain := generate(t, func(string) string { return "doc" })
+	for _, absent := range []string{"describeContractFields", "contractFieldDescriptions", `"reflect"`} {
+		if strings.Contains(plain, absent) {
+			t.Errorf("a contract documenting no property still emitted %q", absent)
+		}
+	}
+}
+
 func TestGenerate_MissingDocIsAnError(t *testing.T) {
 	_, err := Generate([]byte(sampleEntry), Options{
 		Package:       "sample",

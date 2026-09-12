@@ -1615,11 +1615,13 @@ export interface components {
     SystemDesignActivityConstructionPhase: 0 | 1 | 2 | 3;
     SystemDesignActivityConstructionStatus: {
       ActivityID: string;
+      /** @description The coarse build status. Meaningless when hasBuildEvidence is false (or classified is false): its zero value names InConstruction, which on such a row reports nothing, not work in progress. Read it only when both flags are true. */
       BuildStatus: components['schemas']['SystemDesignActivityBuildStatus'];
       CurrentPhase: components['schemas']['SystemDesignActivityMethodPhase'];
       FailureDetail: string;
       FailureReason: components['schemas']['SystemDesignFailureReason'];
       Kind: components['schemas']['SystemDesignActivityType'];
+      /** @description The coarse lifecycle-phase roll-up. Meaningless when hasBuildEvidence is false (or classified is false): nothing has been resolved to roll up, so the value is the enum's zero, not a reported phase. Read it only when both flags are true. */
       Phase: components['schemas']['SystemDesignActivityConstructionPhase'];
       Phases: null | components['schemas']['SystemDesignPhaseCompletion'][];
       Produced: null | components['schemas']['SystemDesignProducedArtifact'][];
@@ -1632,9 +1634,12 @@ export interface components {
       hasBuildEvidence: boolean;
       layer: string;
       layerBand: string;
+      /** @description True iff a stored .activityConstruction head-state row exists for this activity. False on a planned-no-record row: one the server emits because the committed activity list names the activity but nothing has been recorded for it yet. Such a row carries no attempts and no worstOrigin, and its BuildStatus and Phase are meaningless. */
+      recorded: boolean;
       /** Format: date-time */
       startedAt?: null | string;
-      worstOrigin: string;
+      /** @description The least-trustworthy provenance origin across attempts (synthesized, then backfilled, then observed). Omitted when recorded is false. Meaningless when attempts is empty: the roll-up seeds an empty ledger to observed, which says nothing was derived from anything unknown, not that anything was observed. */
+      worstOrigin?: string;
     };
     SystemDesignActivityGitStatus: {
       ActivityID: string;

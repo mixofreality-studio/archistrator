@@ -80,6 +80,7 @@ function doneIntegratedRow(id: string): Schemas['SystemDesignActivityConstructio
     Variant: 0,
     classified: true,
     hasBuildEvidence: true,
+    recorded: true,
     worstOrigin: 'observed',
     layer: '',
     layerBand: '',

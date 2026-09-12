@@ -30,6 +30,7 @@ function row(overrides: Partial<ConstructionRow> = {}): ConstructionRow {
     activityId: 'C-x',
     classified: true,
     hasBuildEvidence: true,
+    recorded: true,
     phases: [],
     attempts: [],
     ...overrides,

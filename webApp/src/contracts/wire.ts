@@ -515,7 +515,14 @@ export function mapConstructionRow(
     // A dropped flag must not read as classified.
     classified,
     hasBuildEvidence,
-    ...(attempts.length > 0 ? { worstOrigin: mapOrigin(w.worstOrigin) } : {}),
+    // Required on the wire, so a dropped flag decodes falsy — the safe direction
+    // (an unrecorded row claims nothing), exactly as `classified` is read above.
+    recorded: w.recorded,
+    // The server omits worstOrigin on an unrecorded row; on a recorded one it is
+    // still dropped here over an empty ledger (see the comment above `attempts`).
+    ...(attempts.length > 0 && w.worstOrigin !== undefined
+      ? { worstOrigin: mapOrigin(w.worstOrigin) }
+      : {}),
     ...(w.layer !== '' ? { layer: w.layer as Layer } : {}),
     ...(w.layerBand !== '' ? { layerBand: w.layerBand as 'layered' | 'projectWide' } : {}),
   };

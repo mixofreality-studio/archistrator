@@ -55,6 +55,7 @@ function wireRow(over: Partial<WireConstructionStatus>): WireConstructionStatus 
     // constructionAdapters.test.ts, not here.
     classified: true,
     hasBuildEvidence: true,
+    recorded: true,
     worstOrigin: 'observed',
     layer: '',
     layerBand: '',
