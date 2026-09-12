@@ -3226,6 +3226,12 @@ func materializePhase2Draft(
 // criticalPath is recomputed by ComputeNetwork over the derived graph and written as the
 // alphabetically-sorted zero-float activity set (projectstate.Network.CriticalPath).
 //
+// A derived milestone with no authored decoration matching its id — the drafting agent
+// omitted it, or typo'd the id — has no Name to carry across. NetworkMilestone.Name has no
+// non-emptiness check anywhere else, and the founder ruled (2026-08-13) that non-emptiness
+// is enforced in Go code, not by a schema minLength: so this is refused LOUDLY, naming the
+// anonymous milestone, rather than silently committing it with an empty Name.
+//
 // It is the one function both the co-author staging seam and the drift gate
 // (TestDerivedPlanMatchesCommittedState) run, so what a real first run stages and what CI
 // holds slot 10 to can never disagree.
@@ -3242,6 +3248,10 @@ func materializeNetwork(
 	outMilestones := make([]projectstate.NetworkMilestone, 0, len(milestones))
 	for _, m := range milestones {
 		a := decorations[m.ID]
+		if strings.TrimSpace(a.Name) == "" {
+			return projectstate.Network{}, newError(fwmanager.ContractMisuse,
+				fmt.Sprintf("derived milestone %q has no authored Name — the draft must author a Name (and Public) decoration for this milestone id", m.ID))
+		}
 		outMilestones = append(outMilestones, projectstate.NetworkMilestone{
 			ID: m.ID, Name: a.Name, Public: a.Public, DependsOn: m.DependsOn,
 		})

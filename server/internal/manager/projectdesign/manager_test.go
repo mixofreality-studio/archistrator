@@ -5517,6 +5517,65 @@ func TestMaterializePhase2DraftKeepsAuthoredMilestoneNameAndPublic(t *testing.T)
 	}
 }
 
+// authoredNetworkDraftMissingMilestoneNameForTest is what a drafting agent commits when it
+// omits — or typo's the id of — one derived milestone's authored decoration: M2 carries no
+// decoration at all, so materializeNetwork would otherwise commit it with an empty Name.
+// NetworkMilestone.Name had no non-emptiness check anywhere (I1, 2026-09-12); the founder
+// ruled (2026-08-13) that non-emptiness is enforced in Go code, not by a schema minLength.
+func authoredNetworkDraftMissingMilestoneNameForTest() *projectstate.Network {
+	return &projectstate.Network{
+		Dependencies: []projectstate.NetworkDependency{{Activity: "C-agent-typed", DependsOn: []string{"C-also-agent-typed"}}},
+		CriticalPath: []string{"C-agent-typed"},
+		Milestones: []projectstate.NetworkMilestone{
+			{ID: "M0", Name: "Authored Zero", Public: true, DependsOn: []string{"C-agent-typed"}},
+			{ID: "M1", Name: "Authored One", Public: false},
+			// M2 omitted — the agent forgot it, or typo'd its id.
+			{ID: "M3", Name: "Authored Three", Public: false, DependsOn: []string{"C-agent-typed"}},
+		},
+	}
+}
+
+// A derived milestone with no matching authored decoration (or an authored decoration whose
+// Name is blank) must FAIL LOUDLY, never commit an anonymous milestone.
+func TestMaterializePhase2DraftRefusesAnonymousMilestone(t *testing.T) {
+	sys, _ := loadCommittedStateForTest(t)
+	proj := projectstate.Project{}
+	proj.SystemDesign = committedSlot(&sys)
+
+	_, err := materializePhase2Draft(proj, projectstate.KindNetwork, authoredNetworkDraftMissingMilestoneNameForTest())
+	if err == nil {
+		t.Fatal("a derived milestone with no authored Name must be an error, not a silently anonymous milestone")
+	}
+	if !strings.Contains(err.Error(), "M2") {
+		t.Errorf("the error must name the anonymous milestone (M2), got %q", err.Error())
+	}
+}
+
+// The sibling of the refusal above: a draft that authors every derived milestone's Name still
+// materializes cleanly, with no milestone left with an empty Name.
+func TestMaterializePhase2DraftMaterializesAFullyNamedDraft(t *testing.T) {
+	sys, _ := loadCommittedStateForTest(t)
+	proj := projectstate.Project{}
+	proj.SystemDesign = committedSlot(&sys)
+
+	got, err := materializePhase2Draft(proj, projectstate.KindNetwork, authoredNetworkDraftForTest())
+	if err != nil {
+		t.Fatalf("a fully-named draft must materialize cleanly, got %v", err)
+	}
+	staged, ok := got.(*projectstate.Network)
+	if !ok {
+		t.Fatalf("staged model is not *projectstate.Network: %T", got)
+	}
+	if len(staged.Milestones) == 0 {
+		t.Fatal("the derivation must still produce milestones - the test would be vacuous")
+	}
+	for _, m := range staged.Milestones {
+		if strings.TrimSpace(m.Name) == "" {
+			t.Errorf("milestone %q materialized with an empty Name", m.ID)
+		}
+	}
+}
+
 // The network derives from slot 5 exactly as the activity list does, so it carries the
 // same precondition, and a draft of the wrong model type is a loud error, not a panic.
 func TestMaterializePhase2DraftNetworkPreconditions(t *testing.T) {

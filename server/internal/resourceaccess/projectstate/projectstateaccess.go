@@ -4060,25 +4060,33 @@ func (a *ActivityList) isArtifactModel() {}
 // Network holds the Phase-2 project network artifact — the activity dependencies and
 // the computed critical path (the activity names on it). (projectStateAccess.md §3.6)
 //
-// AUTHORED vs COMPUTED (2026-06-19, founder gate — move CPM compute server-side):
-//   - Dependencies, CriticalPath, Milestones are AUTHORED inputs (stored, co-authored
-//     in Phase 2; the SPA must never invent them).
+// STORED vs COMPUTE-AT-READ (2026-06-19, founder gate — move CPM compute server-side;
+// corrected 2026-09-12 — DERIVED, not authored, per the Table 11-1 activity derivation):
+//   - Dependencies, CriticalPath, and each milestone's id/dependsOn are STORED on disk
+//     but DERIVED — materializeNetwork (projectdesign Manager) renders them from the
+//     committed System on every co-author round, so the SPA/drafting agent never
+//     invents them and any authored value for them is discarded, not merged. Only each
+//     milestone's Name and Public are genuinely AUTHORED: the drafting agent supplies
+//     them and materializeNetwork carries them across by milestone id (refusing to
+//     materialize a derived milestone that arrives with no Name).
 //   - Computed, Summary are the COMPUTE-AT-READ block the projectManager populates by
 //     running constructionEstimationEngine.ComputeNetwork over (Dependencies ×
-//     ActivityList) on every read. They are `omitempty` so the AUTHORED document on
+//     ActivityList) on every read. They are `omitempty` so the stored document on
 //     disk never carries them — they exist only on the wire the SPA reads. The web
 //     client's former client-side CPM (toNetworkView) is RETIRED in favour of these.
 type Network struct {
-	// --- AUTHORED inputs (stored on disk) ---
+	// --- STORED inputs (stored on disk; DERIVED, not authored — see above) ---
 	Dependencies []NetworkDependency `json:"dependencies"`
 	// CriticalPath, for a DERIVED network (Task 10b, 2026-08-09), is written as the
 	// alphabetically-sorted SET of zero-float activity names from a ComputeNetwork
 	// solve over the derivation — not an ORDERED path through the graph, despite the
 	// field name. Do not read adjacency or sequence into its element order.
 	CriticalPath []string `json:"criticalPath"` // activity names on the critical path
-	// Milestones are the authored zero-duration event nodes (M0–M5 + N-DOGFOOD): the
-	// id/name/public/dependsOn are authored; OnCriticalPath + EventTime are computed at
-	// read. omitempty so a network with none round-trips unchanged.
+	// Milestones are the zero-duration event nodes (M0–M5 + N-DOGFOOD): id and
+	// dependsOn are DERIVED (materializeNetwork renders the milestone set and its
+	// fan-in from the committed System); Name and Public are the only AUTHORED fields,
+	// carried across by milestone id. OnCriticalPath + EventTime are computed at read.
+	// omitempty so a network with none round-trips unchanged.
 	Milestones []NetworkMilestone `json:"milestones,omitempty"`
 
 	// --- COMPUTED block (compute-at-read; absent on disk, present on the wire) ---
@@ -4089,11 +4097,15 @@ type Network struct {
 	Summary *NetworkSummary `json:"summary,omitempty"`
 }
 
-// NetworkMilestone is one authored zero-duration event node on the project network
-// (M0–M5 + N-DOGFOOD). The id/name/public/dependsOn are AUTHORED; OnCriticalPath and
-// EventTime are COMPUTED at read (EventTime = max predecessor earliest-finish; a
-// milestone with no predecessors has EventTime 0 — the project-start gate). Milestones
-// are EXCLUDED from the risk decomposition (they carry no effort and no risk bucket).
+// NetworkMilestone is one zero-duration event node on the project network (M0–M5 +
+// N-DOGFOOD). Id and DependsOn are DERIVED (materializeNetwork renders the milestone set
+// and its fan-in from the committed System); Name and Public are the only AUTHORED
+// fields, carried across from the draft by milestone id — see projectdesign's
+// materializeNetwork, which refuses to materialize a derived milestone with no matching
+// authored Name. OnCriticalPath and EventTime are COMPUTED at read (EventTime = max
+// predecessor earliest-finish; a milestone with no predecessors has EventTime 0 — the
+// project-start gate). Milestones are EXCLUDED from the risk decomposition (they carry
+// no effort and no risk bucket).
 type NetworkMilestone struct {
 	// --- AUTHORED ---
 	ID        string   `json:"id"`
