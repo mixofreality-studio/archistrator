@@ -5639,6 +5639,23 @@ func TestEveryHistoricalConstructionKeyResolvesToADerivedActivity(t *testing.T) 
 		"C-SE": true, "C-LG": true, "C-DG": true, "C-DA": true,
 	}
 
+	// Removed by the founder's 2026-09-12 ruling (D9 — "no legacy rows/activities",
+	// the plan is Table 11-1 applied to the architecture): the UI-design activity and
+	// the five per-manager SPA screen activities fold into the ONE client-app activity
+	// U-SPA-web-client. activityAliases still maps G-SPA and U-SPA-1..5 onto these ids
+	// (it and the legacy .activityConstruction rows are reset in the next task), so they
+	// resolve ok=true to an id the derivation no longer emits — by design. Each is
+	// listed by its CANONICAL id and checked below to really be underived, so a stale
+	// entry here fails rather than hides a key.
+	removedByD9 := map[string]bool{
+		"G-SPA":                        true,
+		"U-SPA-system-design-manager":  true,
+		"U-SPA-project-design-manager": true,
+		"U-SPA-construction-manager":   true,
+		"U-SPA-operations-manager":     true,
+		"U-SPA-billing-manager":        true,
+	}
+
 	for _, historical := range historicalKeys {
 		canonical, ok := projectstate.ResolveActivityAlias(historical)
 		if !ok {
@@ -5656,6 +5673,12 @@ func TestEveryHistoricalConstructionKeyResolvesToADerivedActivity(t *testing.T) 
 		}
 		if noCounterpart[historical] {
 			t.Errorf("historical key %q resolved to %q, but it is listed as having no derived counterpart", historical, canonical)
+			continue
+		}
+		if removedByD9[canonical] {
+			if derived[canonical] {
+				t.Errorf("historical key %q aliases to %q, listed as removed by D9, but the derivation emits it", historical, canonical)
+			}
 			continue
 		}
 		if !derived[canonical] {

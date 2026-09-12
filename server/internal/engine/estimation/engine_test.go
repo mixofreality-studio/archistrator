@@ -720,18 +720,14 @@ func TestWorkerClassFor(t *testing.T) {
 	}
 }
 
-// The always-emit noncoding inventory has FIXED worker classes per Löwy ch. 9's three
-// distinct quality roles — test engineer (builds harnesses), software tester (runs
-// system testing), QA engineer (process). They must never collapse into one class.
+// The always-emit noncoding inventory has FIXED worker classes per Löwy ch. 9's distinct
+// quality roles — the test engineer writes the system test plan, the software tester
+// runs system testing. They must never collapse into one class. (The QA engineer is the
+// third role, but a ROLE booked as indirect cost, not an activity — so it has no row.)
 func TestWorkerClassForNoncodingInventory(t *testing.T) {
 	cases := map[string]string{
-		"N-STP":   "test-engineer",
-		"N-STH":   "test-engineer",
-		"N-PERF":  "test-engineer",
-		"N-RTH":   "senior-developer",
-		"N-SMOKE": "senior-developer",
-		"N-QA":    "qa-engineer",
-		"N-IT":    "software-tester",
+		"N-STP": "test-engineer",
+		"N-IT":  "software-tester",
 	}
 	for name, want := range cases {
 		if got := noncodingInventoryClass(name); got != want {
@@ -877,22 +873,57 @@ func TestDeriveActivitiesEmitsProvisioningOnlyForVendorResources(t *testing.T) {
 	}
 }
 
-// One U-SPA per Manager: a Client calls Managers, a use case IS a Manager, and the
-// verbs-as-tools doctrine makes a manager's generated tool surface its widget set. Plus
-// the always-emit scaffold, and G-SPA sequenced before the UI work.
-func TestDeriveActivitiesEmitsOneSPAActivityPerManagerPlusScaffold(t *testing.T) {
+// Table 11-1 #19 (Client App): ONE frontend activity per client that carries a UI
+// surface, bound to that client. Its own lifecycle carries the UX-requirements and
+// design phases, so there is no separate UI-design (G-SPA) or scaffold (U-SPA-S)
+// activity, and no per-manager screen activity either — the client depends on the
+// managers it calls, it is not split by them.
+func TestDeriveActivitiesEmitsOneClientAppActivityPerUISurfaceClient(t *testing.T) {
 	got := names(deriveActivities(sampleSystem()))
-	if _, ok := got["U-SPA-order-manager"]; !ok {
-		t.Error("missing U-SPA-order-manager")
+	a, ok := got["U-SPA-web-client"]
+	if !ok {
+		t.Fatal("missing U-SPA-web-client for the UI-surface client")
 	}
-	if _, ok := got["U-SPA-S"]; !ok {
-		t.Error("missing the always-emit U-SPA-S scaffold")
+	if a.ComponentID != "web-client" || !a.Coding || a.WorkerClass != "junior-developer" || !a.Derived {
+		t.Errorf("U-SPA-web-client = %+v, want componentId web-client, coding, junior-developer, derived", a)
 	}
-	if _, ok := got["G-SPA"]; !ok {
-		t.Error("missing G-SPA for a system with a UI surface")
+	for _, unwanted := range []string{"U-SPA-S", "G-SPA", "U-SPA-order-manager"} {
+		if _, ok := got[unwanted]; ok {
+			t.Errorf("emitted %q; the client activity's own lifecycle carries that work", unwanted)
+		}
 	}
-	if a := got["G-SPA"]; a.WorkerClass != "ui-designer" {
-		t.Errorf("G-SPA worker class = %q, want ui-designer", a.WorkerClass)
+}
+
+// The client-app rule keys on uiSurface, NOT on constructionProfile: for a client,
+// constructionProfile describes the generated TRANSPORT (REST/MCP/OAS), while the UI is
+// real hand-built work. A client without a UI surface (an MCP or scheduler client) is
+// wholly generated and gets nothing.
+func TestDeriveActivitiesClientAppFollowsUISurfaceNotConstructionProfile(t *testing.T) {
+	sys := sampleSystem()
+	sys.Components = append(sys.Components,
+		SystemComponent{ID: "mcp-client", Name: "MCPClient", Kind: "client", ConstructionProfile: "generated"},
+		SystemComponent{ID: "desk-client", Name: "DeskClient", Kind: "client", ConstructionProfile: "handwritten", UiSurface: true},
+	)
+	got := names(deriveActivities(sys))
+	if _, ok := got["U-SPA-mcp-client"]; ok {
+		t.Error("emitted U-SPA-mcp-client for a client with no UI surface")
+	}
+	for _, want := range []string{"U-SPA-web-client", "U-SPA-desk-client"} {
+		if _, ok := got[want]; !ok {
+			t.Errorf("missing %s for a UI-surface client", want)
+		}
+	}
+	perComponent := map[string]int{}
+	for _, a := range deriveActivities(sys) {
+		if a.ComponentID == "mcp-client" {
+			t.Errorf("emitted %s for the wholly generated mcp-client", a.Name)
+		}
+		perComponent[a.ComponentID]++
+	}
+	// A HANDWRITTEN UI-surface client still gets exactly one activity — the client app —
+	// never a C-* coding activity on top of it.
+	if n := perComponent["desk-client"]; n != 1 {
+		t.Errorf("desk-client has %d activities, want exactly 1 (U-SPA-desk-client)", n)
 	}
 }
 
@@ -903,10 +934,9 @@ func TestDeriveActivitiesNoSPAWorkWithoutAUISurface(t *testing.T) {
 	for i := range sys.Components {
 		sys.Components[i].UiSurface = false
 	}
-	got := names(deriveActivities(sys))
-	for _, unwanted := range []string{"U-SPA-S", "G-SPA", "U-SPA-order-manager"} {
-		if _, ok := got[unwanted]; ok {
-			t.Errorf("emitted %q for a system with no UI surface", unwanted)
+	for _, a := range deriveActivities(sys) {
+		if strings.HasPrefix(a.Name, "U-") || strings.HasPrefix(a.Name, "G-") {
+			t.Errorf("emitted %q for a system with no UI surface", a.Name)
 		}
 	}
 }
@@ -922,16 +952,27 @@ func TestDeriveActivitiesEmitsNoIntegrationActivities(t *testing.T) {
 	}
 }
 
+// Table 11-1's noncoding activities are exactly the test plan (#4) and system testing
+// (#21); its design phases (#1-3) are Phases 1-2 here and appear only as M0. There is
+// NO harness (#5 — platform-generated), no smoke/build automation (platform
+// infrastructure), no performance testing (not in Table 11-1; a justified additive if a
+// project needs it) and no QA activity (QA is a role, booked as indirect cost). The SET
+// is asserted, so re-adding any of them fails.
 func TestDeriveActivitiesAlwaysEmitsTheTestingInventory(t *testing.T) {
 	got := names(deriveActivities(sampleSystem()))
-	for _, want := range []string{"N-STP", "N-STH", "N-RTH", "N-SMOKE", "N-QA", "N-PERF", "N-IT"} {
-		a, ok := got[want]
-		if !ok {
-			t.Errorf("missing always-emit %q", want)
-			continue
+	var noncoding []string
+	for name := range got {
+		if strings.HasPrefix(name, "N-") {
+			noncoding = append(noncoding, name)
 		}
-		if a.WorkerClass != noncodingInventoryClass(want) {
-			t.Errorf("%s worker class = %q, want %q", want, a.WorkerClass, noncodingInventoryClass(want))
+	}
+	sort.Strings(noncoding)
+	if want := []string{"N-IT", "N-STP"}; !reflect.DeepEqual(noncoding, want) {
+		t.Errorf("noncoding inventory = %v, want exactly %v", noncoding, want)
+	}
+	for _, name := range noncoding {
+		if a := got[name]; a.WorkerClass != noncodingInventoryClass(name) || a.Coding || a.ComponentID != "" {
+			t.Errorf("%s = %+v, want noncoding, componentless, worker class %q", name, a, noncodingInventoryClass(name))
 		}
 	}
 }
@@ -1078,6 +1119,11 @@ func edgeSystem() SystemView {
 		// a key). Adding it changes no other expectation: logging is a handwritten
 		// utility with its own C-* activity, and it introduces no new inherited path.
 		{From: "order-access", To: "logging"},
+		// The UI-surface client calls the manager, and (inherited through it) the
+		// access component — the client→access edge must reduce away, exactly Löwy's
+		// Fig 11-4 → 11-5 Client A example.
+		{From: "web-client", To: "order-manager"},
+		{From: "web-client", To: "order-access"},
 	}
 	return sys
 }
@@ -1111,7 +1157,7 @@ func TestDeriveDependenciesMapsRelationshipsAndReduces(t *testing.T) {
 func TestComponentIDIsSetOnlyOnComponentBoundActivities(t *testing.T) {
 	for _, a := range deriveActivities(edgeSystem()) {
 		componentBound := strings.HasPrefix(a.Name, "C-") || strings.HasPrefix(a.Name, "R-") ||
-			(strings.HasPrefix(a.Name, "U-SPA-") && a.Name != "U-SPA-S")
+			strings.HasPrefix(a.Name, "U-SPA-")
 		switch {
 		case componentBound && a.ComponentID == "":
 			t.Errorf("%s is component-bound but carries no ComponentID", a.Name)
@@ -1138,6 +1184,11 @@ func TestDeriveDependenciesDropsEdgesToComponentsWithNoActivity(t *testing.T) {
 	known := make(map[string]bool, len(acts))
 	for _, a := range acts {
 		known[a.Name] = true
+	}
+	// The derived milestones are real (zero-duration) network nodes: the source rule
+	// hangs every root activity off M0, which is legitimate, not dangling.
+	for _, m := range deriveMilestones(sys, acts) {
+		known[m.Id] = true
 	}
 	deps := deriveDependencies(sys, acts)
 	got := depsByActivity(deps)
@@ -1167,24 +1218,95 @@ func TestDeriveDependenciesDropsEdgesToComponentsWithNoActivity(t *testing.T) {
 	}
 }
 
-// Fixed pattern edges: the UI design gates SPA construction, the scaffold gates the
-// per-manager screens, the test plan gates the harness, and every per-manager SPA
-// construction activity gates the terminal system-testing activity (ruling 2's
-// replacement for the old I-* → N-IT edges: N-IT re-bases onto the U-SPA-* set).
-func TestDeriveDependenciesEmitsFixedPatternEdges(t *testing.T) {
+// Table 11-1 #19 → #17/#18: the client app depends on the managers it calls. The
+// client→manager relationship routes through the architecture edges like any other,
+// because the client activity is indexed by its component; the inherited client→access
+// edge is reduced away.
+func TestDeriveDependenciesRoutesTheClientAppToTheManagersItCalls(t *testing.T) {
 	sys := edgeSystem()
 	got := depsByActivity(deriveDependencies(sys, deriveActivities(sys)))
-	assertContains := func(activity, want string) {
-		t.Helper()
-		if slices.Contains(got[activity], want) {
-			return
-		}
-		t.Errorf("%s dependsOn %v, missing %q", activity, got[activity], want)
+	if want := []string{"C-order-manager"}; !reflect.DeepEqual(got["U-SPA-web-client"], want) {
+		t.Errorf("U-SPA-web-client dependsOn = %v, want %v after reduction", got["U-SPA-web-client"], want)
 	}
-	assertContains("U-SPA-order-manager", "G-SPA")
-	assertContains("U-SPA-order-manager", "U-SPA-S")
-	assertContains("N-STH", "N-STP")
-	assertContains("N-IT", "U-SPA-order-manager")
+}
+
+// The SINK rule: system testing (N-IT) depends on every activity that nothing else
+// depends on — Table 11-1 #21 → 5, 19, 20. Here the sinks are the client app, the test
+// plan, and the vendor resource no component relationship reaches.
+func TestDeriveDependenciesSinkRuleFeedsSystemTesting(t *testing.T) {
+	sys := edgeSystem()
+	got := depsByActivity(deriveDependencies(sys, deriveActivities(sys)))
+	if want := []string{"N-STP", "R-stripe", "U-SPA-web-client"}; !reflect.DeepEqual(got["N-IT"], want) {
+		t.Errorf("N-IT dependsOn = %v, want %v", got["N-IT"], want)
+	}
+}
+
+// The sink rule is general: a headless system (no UI surface, so no client activity)
+// needs no special case — its managers simply become the sinks N-IT depends on.
+func TestDeriveDependenciesSinkRuleIsHeadlessSafe(t *testing.T) {
+	sys := edgeSystem()
+	for i := range sys.Components {
+		sys.Components[i].UiSurface = false
+	}
+	got := depsByActivity(deriveDependencies(sys, deriveActivities(sys)))
+	if want := []string{"C-order-manager", "N-STP", "R-stripe"}; !reflect.DeepEqual(got["N-IT"], want) {
+		t.Errorf("headless N-IT dependsOn = %v, want %v", got["N-IT"], want)
+	}
+}
+
+// The SOURCE rule: every activity with no other predecessor depends on M0, the SDP
+// review (ch. 11 "About Milestones": no construction activity starts before it) —
+// Table 11-1 #4, #9, #10 → 3. Here the roots are the test plan, the leaf utility and
+// the vendor resource; no other activity depends on M0.
+func TestDeriveDependenciesSourceRuleHangsEveryRootOffM0(t *testing.T) {
+	sys := edgeSystem()
+	got := depsByActivity(deriveDependencies(sys, deriveActivities(sys)))
+	var roots []string
+	for activity, preds := range got {
+		if slices.Contains(preds, "M0") {
+			if len(preds) != 1 {
+				t.Errorf("%s dependsOn %v; M0 is for activities with NO other predecessor", activity, preds)
+			}
+			roots = append(roots, activity)
+		}
+	}
+	sort.Strings(roots)
+	if want := []string{"C-logging", "N-STP", "R-stripe"}; !reflect.DeepEqual(roots, want) {
+		t.Errorf("activities hung off M0 = %v, want %v", roots, want)
+	}
+}
+
+// Together the two rules make the network one graph from M0 to N-IT: every activity has
+// a predecessor (so it has a CPM node and cannot start before the SDP review) and every
+// activity but N-IT has a successor (so none is an island off the schedule).
+func TestDeriveDependenciesLeavesNoIsland(t *testing.T) {
+	for _, headless := range []bool{false, true} {
+		sys := edgeSystem()
+		if headless {
+			for i := range sys.Components {
+				sys.Components[i].UiSurface = false
+			}
+		}
+		acts := deriveActivities(sys)
+		deps := depsByActivity(deriveDependencies(sys, acts))
+		hasSuccessor := map[string]bool{}
+		for _, preds := range deps {
+			for _, p := range preds {
+				hasSuccessor[p] = true
+			}
+		}
+		for _, a := range acts {
+			if len(deps[a.Name]) == 0 {
+				t.Errorf("headless=%v: %s has no predecessor", headless, a.Name)
+			}
+			if a.Name != "N-IT" && !hasSuccessor[a.Name] {
+				t.Errorf("headless=%v: %s has no successor", headless, a.Name)
+			}
+		}
+		if len(deps) != len(acts) {
+			t.Errorf("headless=%v: %d dependency rows for %d activities, want one each", headless, len(deps), len(acts))
+		}
+	}
 }
 
 // M0 is the SDP-review milestone: Löwy makes it an explicit forced dependency so that
@@ -1204,6 +1326,11 @@ func TestDeriveMilestones(t *testing.T) {
 	}
 	if got := byID["M3"].DependsOn; !reflect.DeepEqual(got, []string{"C-order-manager"}) {
 		t.Errorf("M3 (managers complete) dependsOn = %v, want [C-order-manager]", got)
+	}
+	// M0's predecessors are the design phases (Phases 1-2), which are not activities, so
+	// it has no fan-in; its fan-OUT to every root activity is the source rule.
+	if got := byID["M0"].DependsOn; len(got) != 0 {
+		t.Errorf("M0 (SDP review) dependsOn = %v, want none", got)
 	}
 	// M4 (Use Cases Demonstrable) depended entirely on the now-removed I-* integration
 	// activities (ruling 2) and had no other fan-in, so it must not be derived.
@@ -1635,15 +1762,81 @@ func TestParityEmitsNoIntegrationActivities(t *testing.T) {
 	}
 }
 
-// The derived count is an EXACT invariant, not a lower bound — a silent drift in either
-// direction (an emission rule regressing to emit too much or too little) must fail this
-// test. Task 6 established 49 over the pre-ruling fixture (progress.md, "HEADLINE
-// RESULT OF THE WHOLE PLAN"); rulings 1+2 remove exactly 9 (4 provided-utility codings
-// + 5 I-UC* integrations), landing on 40.
-func TestParityDerivesExactlyFortyActivities(t *testing.T) {
+// table11_1Set is Löwy's Table 11-1 applied to the committed architecture (architect
+// ruling A1, 2026-09-12): #4 test plan, #9-10 the vendor resources, #11-13 the
+// ResourceAccess components, #14-16 the Engines, #17-18 the Managers, #19 the one
+// UI-surface client, #21 system testing. #1-3 are Phases 1-2 (the M0 milestone), #5
+// (harness) is platform-generated, #6-8 (logging/security/pub-sub) are provided
+// utilities.
+var table11_1Set = []string{
+	"N-STP",
+	"R-construction-pipeline-runtime", "R-github", "R-merchant-gateway", "R-operated-runtime",
+	"C-agentic-job-access", "C-artifact-access", "C-billing-state-access", "C-episode-access",
+	"C-merchant-gateway-access", "C-operated-runtime-access", "C-operated-system-state-access",
+	"C-project-state-access", "C-source-control-access", "C-usage-access",
+	"C-autoscaler-engine", "C-billing-engine", "C-design-health-engine", "C-estimation-engine",
+	"C-intervention-engine", "C-operation-estimation-engine", "C-review-engine",
+	"C-billing-manager", "C-construction-manager", "C-operations-manager",
+	"C-project-design-manager", "C-system-design-manager",
+	"U-SPA-web-client",
+	"N-IT",
+}
+
+// The derived SET is an exact invariant, not a count or a lower bound — an emission rule
+// regressing to add or drop any activity fails here, by name. The 2026-09-12 founder
+// ruling (D9) removed twelve activities from the previous 40: G-SPA, U-SPA-S, the five
+// per-manager U-SPA-* screen activities, N-STH, N-RTH, N-SMOKE, N-PERF and N-QA.
+func TestParityDerivesExactlyTheTable11_1ActivitySet(t *testing.T) {
 	plan := parityPlan(t)
-	if len(plan.Activities) != 40 {
-		t.Errorf("derived %d activities, want exactly 40", len(plan.Activities))
+	got := make([]string, 0, len(plan.Activities))
+	for _, a := range plan.Activities {
+		got = append(got, a.Name)
+	}
+	sort.Strings(got)
+	want := append([]string(nil), table11_1Set...)
+	sort.Strings(want)
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("derived activity set (%d) is not the Table 11-1 set (%d):\n got:  %v\n want: %v", len(got), len(want), got, want)
+	}
+}
+
+// The network over the committed architecture: one dependency row per activity; the
+// client app depends (after transitive reduction) on exactly the managers it calls that
+// no other called manager already reaches; system testing depends on the two sinks; and
+// the 18 roots — the four vendor resources, the seven engines, the six ResourceAccess
+// components that front no vendor resource, and the test plan — each hang off M0.
+func TestParityDerivesTheTable11_1Network(t *testing.T) {
+	plan := parityPlan(t)
+	deps := depsByActivity(plan.Dependencies)
+	if len(plan.Dependencies) != len(table11_1Set) {
+		t.Errorf("derived %d dependency rows, want one per activity (%d)", len(plan.Dependencies), len(table11_1Set))
+	}
+	if want := []string{"C-billing-manager", "C-construction-manager", "C-system-design-manager"}; !reflect.DeepEqual(deps["U-SPA-web-client"], want) {
+		t.Errorf("U-SPA-web-client dependsOn = %v, want %v", deps["U-SPA-web-client"], want)
+	}
+	if want := []string{"N-STP", "U-SPA-web-client"}; !reflect.DeepEqual(deps["N-IT"], want) {
+		t.Errorf("N-IT dependsOn = %v, want %v", deps["N-IT"], want)
+	}
+	var roots []string
+	for activity, preds := range deps {
+		if slices.Contains(preds, "M0") {
+			if len(preds) != 1 {
+				t.Errorf("%s dependsOn %v; M0 is for activities with NO other predecessor", activity, preds)
+			}
+			roots = append(roots, activity)
+		}
+	}
+	if len(roots) != 18 {
+		t.Errorf("%d activities hang off M0, want 18: %v", len(roots), roots)
+	}
+	for _, want := range []string{
+		"N-STP", "R-construction-pipeline-runtime", "R-github", "R-merchant-gateway", "R-operated-runtime",
+		"C-autoscaler-engine", "C-billing-engine", "C-design-health-engine", "C-estimation-engine",
+		"C-intervention-engine", "C-operation-estimation-engine", "C-review-engine",
+	} {
+		if !slices.Contains(roots, want) {
+			t.Errorf("%s is not hung off M0 (dependsOn %v)", want, deps[want])
+		}
 	}
 }
 
@@ -1662,16 +1855,38 @@ func TestParityEmitsProvisioningOnlyForVendorResources(t *testing.T) {
 	}
 }
 
-// Correction 4: one U-SPA per manager. Five managers, five activities, plus scaffold.
-func TestParityEmitsOneSPAActivityPerManager(t *testing.T) {
-	got := parityNames(parityPlan(t))
-	for _, m := range []string{"system-design-manager", "project-design-manager", "construction-manager", "operations-manager", "billing-manager"} {
-		if !got["U-SPA-"+m] {
-			t.Errorf("missing U-SPA-%s", m)
+// "There is only 1 client app" (founder, 2026-09-12): of the three clients only
+// web-client carries a UI surface. It gets the one frontend activity, bound to itself;
+// mcp-client and scheduler-client are wholly generated and get nothing; no utility gets
+// anything (all are provided); and the per-manager screens, scaffold and UI-design
+// activities fold into the client's own lifecycle.
+func TestParityEmitsOneClientAppActivity(t *testing.T) {
+	sys := loadSystemFixture(t)
+	plan := parityPlan(t)
+	kind := map[string]string{}
+	for _, c := range sys.Components {
+		kind[c.ID] = c.Kind
+	}
+	var client DerivedActivity
+	for _, a := range plan.Activities {
+		switch {
+		case a.Name == "U-SPA-web-client":
+			client = a
+		case a.ComponentID == "mcp-client" || a.ComponentID == "scheduler-client":
+			t.Errorf("derived %s for the wholly generated client %s", a.Name, a.ComponentID)
+		case kind[a.ComponentID] == "utility":
+			t.Errorf("derived %s for the provided utility %s", a.Name, a.ComponentID)
+		case strings.HasPrefix(a.Name, "U-") || strings.HasPrefix(a.Name, "G-"):
+			t.Errorf("derived %s; there is one client app, and its lifecycle carries the UI design", a.Name)
 		}
 	}
-	if !got["U-SPA-S"] || !got["G-SPA"] {
-		t.Error("missing the always-emit scaffold / UI-design activities")
+	want := DerivedActivity{
+		Name: "U-SPA-web-client", Title: "Build Web Client (SPA)",
+		EffortDays: defaultEffortFor("client"), RiskBucket: defaultRiskFor(defaultEffortFor("client")),
+		WorkerClass: "junior-developer", Coding: true, ComponentID: "web-client", Derived: true,
+	}
+	if client != want {
+		t.Errorf("U-SPA-web-client = %+v, want %+v", client, want)
 	}
 }
 

@@ -30,6 +30,8 @@ package estimation
 
 import (
 	"sort"
+	"strings"
+	"unicode"
 
 	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 )
@@ -1344,17 +1346,14 @@ func workerClassFor(prefix string) string {
 
 // noncodingInventoryClass returns the fixed worker class for a member of the always-emit
 // noncoding inventory. Löwy ch. 9 keeps three DISTINCT quality roles — the test engineer
-// (writes code to break the system), the software tester (runs system testing), and the
-// QA engineer (senior, process: "what will it take to assure quality?"). Do not collapse
-// them. The regression harness is developer-owned, deliberately NOT the test engineer's.
+// (writes the system test plan, code to break the system), the software tester (runs
+// system testing), and the QA engineer (senior, process: "what will it take to assure
+// quality?"). Do not collapse them. The QA engineer is a ROLE booked as indirect cost,
+// not an activity, so it owns no member of this inventory.
 func noncodingInventoryClass(name string) string {
 	switch name {
-	case "N-STP", "N-STH", "N-PERF":
+	case "N-STP":
 		return "test-engineer"
-	case "N-RTH", "N-SMOKE":
-		return "senior-developer"
-	case "N-QA":
-		return "qa-engineer"
 	case "N-IT":
 		return "software-tester"
 	default:
@@ -1413,24 +1412,32 @@ func defaultRiskFor(effortDays float64) int64 {
 	}
 }
 
-// alwaysEmitNoncoding is the standard testing / QA inventory emitted for EVERY project
-// (the-method-activity-list Step 2b). Unit testing alone is "borderline useless" (Löwy
-// ch. 2); the load-bearing verification is full regression of the integrated system, so
-// the harnesses are planned work, not an afterthought. Fixed efforts — these do not
-// scale with the architecture.
+// alwaysEmitNoncoding is the noncoding inventory emitted for EVERY project — exactly the
+// noncoding activities Löwy's Table 11-1 gives the construction plan: the system test
+// plan (#4) and system testing (#21). The rest of that table's noncoding list is either
+// earlier or not ours to plan: the design activities (#1-3) are Phases 1-2 of this
+// method and appear only as the M0 milestone; the test harness (#5) is platform-generated
+// from the system test plan. Build/smoke automation is platform infrastructure,
+// performance testing is not in Table 11-1 (a project that needs it adds a justified
+// additive), and QA is a role booked as indirect cost, not an activity. Fixed efforts —
+// these do not scale with the architecture.
 var alwaysEmitNoncoding = []struct {
 	Name   string
 	Title  string
 	Effort float64
 }{
-	{"N-QA", "Quality-assurance process and gates", 10},
-	{"N-PERF", "Performance testing", 15},
-	{"N-RTH", "Regression test harness", 15},
-	{"N-SMOKE", "Daily build and smoke", 5},
-	{"N-STH", "System test harness", 20},
 	{"N-STP", "System test plan (all core use cases)", 15},
 	{"N-IT", "System testing (terminal gate)", 30},
 }
+
+// systemTestingActivity is the terminal activity of every plan (Table 11-1 #21): the
+// sink rule feeds it every activity nothing else depends on.
+const systemTestingActivity = "N-IT"
+
+// sdpReviewMilestone is M0, the SDP review (ch. 11 "About Milestones": "none of the
+// construction activities should start before the SDP review"). The source rule hangs
+// every activity with no other predecessor off it.
+const sdpReviewMilestone = "M0"
 
 // isCodeLayer reports whether a component kind gets a coding activity at all. Resources
 // are provisioned, never coded by us.
@@ -1455,8 +1462,14 @@ func isCodeLayer(kind string) bool {
 // them would be the same defect as planning work the generator does. An unauthored
 // constructionProfile still defaults to "handwritten" upstream (toEstimationSystemView) —
 // only an explicit "generated" or "provided" value skips the activity.
+//
+// A client with a UI surface gets its ONE activity from clientAppActivityFor instead,
+// whatever its constructionProfile — one activity per component, never two.
 func codingActivityFor(c SystemComponent) (DerivedActivity, bool) {
 	if !isCodeLayer(c.Kind) || c.ConstructionProfile == "generated" || c.ConstructionProfile == "provided" {
+		return DerivedActivity{}, false
+	}
+	if c.Kind == "client" && c.UiSurface {
 		return DerivedActivity{}, false
 	}
 	effort := defaultEffortFor(c.Kind)
@@ -1491,37 +1504,52 @@ func provisioningActivityFor(c SystemComponent) (DerivedActivity, bool) {
 	}, true
 }
 
-// managerSPAActivityFor emits the U-SPA-<manager> construction activity. A screen that
-// crosses managers is the exception (it arrives as an additive delta), not a reason to
-// weaken this one-per-manager rule.
-func managerSPAActivityFor(c SystemComponent) DerivedActivity {
+// clientAppActivityFor emits the U-SPA-<clientId> frontend activity — Table 11-1 #19,
+// "Client App" — for a client that carries a UI surface, or false otherwise. The rule
+// keys on uiSurface, NOT on constructionProfile: for a client that field describes the
+// generated TRANSPORT (REST handlers, typed client, MCP tools), while the UI itself is
+// hand-built. A client with no UI surface (an MCP or scheduler client) is wholly
+// generated and gets nothing.
+//
+// This one activity carries the whole frontend: its own lifecycle runs the
+// UX-requirements and UI-design phases, so there is no separate UI-design or scaffold
+// activity, and it is not split per manager — it DEPENDS on the managers it calls
+// (architectureEdges routes those relationships, because activityForComponent indexes
+// this activity by its client).
+func clientAppActivityFor(c SystemComponent) (DerivedActivity, bool) {
+	if c.Kind != "client" || !c.UiSurface {
+		return DerivedActivity{}, false
+	}
+	effort := defaultEffortFor(c.Kind)
 	return DerivedActivity{
 		Name:        "U-SPA-" + c.ID,
-		Title:       "SPA screens for " + c.Name,
-		EffortDays:  20,
-		RiskBucket:  defaultRiskFor(20),
+		Title:       "Build " + spacedName(c.Name) + " (SPA)",
+		EffortDays:  effort,
+		RiskBucket:  defaultRiskFor(effort),
 		WorkerClass: workerClassFor("U"),
 		Coding:      true,
 		ComponentID: c.ID,
 		Derived:     true,
-	}
+	}, true
 }
 
-// spaScaffoldActivities emits the always-paired SPA scaffold and UI-design-concept
-// activities, present exactly when the system declares a UI surface.
-func spaScaffoldActivities() []DerivedActivity {
-	return []DerivedActivity{
-		{
-			Name: "U-SPA-S", Title: "SPA scaffold, auth wiring and design system",
-			EffortDays: 10, RiskBucket: defaultRiskFor(10),
-			WorkerClass: workerClassFor("U"), Coding: true, Derived: true,
-		},
-		{
-			Name: "G-SPA", Title: "UI design concepts for the SPA",
-			EffortDays: 15, RiskBucket: defaultRiskFor(15),
-			WorkerClass: workerClassFor("G"), Coding: false, Derived: true,
-		},
+// spacedName turns a component's PascalCase name into words for a human title:
+// "WebClient" → "Web Client", "MCPClient" → "MCP Client". A name that already has
+// spaces passes through unchanged.
+func spacedName(name string) string {
+	r := []rune(name)
+	var b strings.Builder
+	for i, ch := range r {
+		if i > 0 && unicode.IsUpper(ch) {
+			prevLower := unicode.IsLower(r[i-1])
+			acronymEnd := unicode.IsUpper(r[i-1]) && i+1 < len(r) && unicode.IsLower(r[i+1])
+			if prevLower || acronymEnd {
+				b.WriteRune(' ')
+			}
+		}
+		b.WriteRune(ch)
 	}
+	return b.String()
 }
 
 // noncodingInventoryActivities emits the always-emit testing / QA inventory.
@@ -1537,38 +1565,26 @@ func noncodingInventoryActivities() []DerivedActivity {
 	return out
 }
 
-// systemHasUISurface reports whether any component in the system declares a UI surface.
-func systemHasUISurface(system SystemView) bool {
-	for _, c := range system.Components {
-		if c.UiSurface {
-			return true
-		}
-	}
-	return false
-}
-
 // deriveActivities emits the full derived activity set for the System, sorted by name.
+// It is Löwy's Table 11-1 applied to the architecture.
 //
 // Emission rules (each one a mechanical consequence of the architecture):
 //
 //	C-<id>          one per code-layer component with constructionProfile == "handwritten"
+//	                (Table 11-1 #11-18: ResourceAccess, Engines, Managers)
 //	(none)          "generated" components — the generator does that work
 //	(none)          "provided" components — platform/third-party supplied, nothing to build
-//	R-<id>          one per Resource with provisioning == "vendor"
+//	                (Table 11-1 #6-8 are BUILT utilities; here they are provided)
+//	R-<id>          one per Resource with provisioning == "vendor" (Table 11-1 #9-10)
 //	(none)          owned stores — schema/deploy work arrives as additive noncoding
-//	U-SPA-<manager> one per Manager, when any component declares a UI surface
-//	U-SPA-S         the SPA scaffold, when any component declares a UI surface
-//	G-SPA           the UI-design concept, when any component declares a UI surface
+//	U-SPA-<client>  one per client with a UI surface (Table 11-1 #19, "Client App")
 //	(none)          no I-* integration activity — App A makes integration a PHASE of
 //	                every activity's own lifecycle, so a separate I-* would charge the
 //	                same work twice; System Testing (N-IT) is the one activity Table
-//	                11-1 gives integration, and it depends on the U-SPA-* construction
-//	                activities (see addFixedPatternEdges), not on a per-use-case I-*.
-//	N-*             the always-emit testing inventory
+//	                11-1 gives integration.
+//	N-STP, N-IT     the always-emit noncoding inventory (Table 11-1 #4 and #21)
 func deriveActivities(system SystemView) []DerivedActivity {
-	out := make([]DerivedActivity, 0, len(system.Components)*2)
-
-	uiSurface := systemHasUISurface(system)
+	out := make([]DerivedActivity, 0, len(system.Components)+len(alwaysEmitNoncoding))
 
 	for _, c := range system.Components {
 		if a, ok := codingActivityFor(c); ok {
@@ -1577,13 +1593,9 @@ func deriveActivities(system SystemView) []DerivedActivity {
 		if a, ok := provisioningActivityFor(c); ok {
 			out = append(out, a)
 		}
-		if uiSurface && c.Kind == "manager" {
-			out = append(out, managerSPAActivityFor(c))
+		if a, ok := clientAppActivityFor(c); ok {
+			out = append(out, a)
 		}
-	}
-
-	if uiSurface {
-		out = append(out, spaScaffoldActivities()...)
 	}
 
 	out = append(out, noncodingInventoryActivities()...)
@@ -1652,18 +1664,19 @@ func transitiveReduction(edges map[string][]string) map[string][]string {
 	return out
 }
 
-// activityForComponent indexes the CODING/PROVISIONING activity per component, so an
-// architecture edge can be rewritten as an activity edge. Components with no derived
-// activity (owned stores, generated transport) are simply absent, and edges into them
-// are dropped rather than emitted as dangling references.
+// activityForComponent indexes the one activity per component — coding (C-*),
+// provisioning (R-*) or client app (U-SPA-*) — so an architecture edge can be rewritten
+// as an activity edge. Indexing the client app is what routes a client → manager
+// relationship to U-SPA-<client> → C-<manager>: Table 11-1 #19 → #17/#18. Components
+// with no derived activity (owned stores, generated transport) are simply absent, and
+// edges into them are dropped rather than emitted as dangling references.
 func activityForComponent(acts []DerivedActivity) map[string]string {
 	out := map[string]string{}
 	for _, a := range acts {
 		if a.ComponentID == "" {
 			continue
 		}
-		switch a.Name[:2] {
-		case "C-", "R-":
+		if strings.HasPrefix(a.Name, "C-") || strings.HasPrefix(a.Name, "R-") || strings.HasPrefix(a.Name, "U-SPA-") {
 			out[a.ComponentID] = a.Name
 		}
 	}
@@ -1686,103 +1699,60 @@ func architectureEdges(system SystemView, byComponent map[string]string) map[str
 	return raw
 }
 
-// spaScreenNames extracts the sorted U-SPA-<manager>-* activity names present in the
-// derived set (the scaffold U-SPA-S is excluded — it is a predecessor of these, not a
-// peer), for the fixed pattern edges below.
-func spaScreenNames(acts []DerivedActivity) (spaScreens []string) {
-	for _, a := range acts {
-		if len(a.Name) > 6 && a.Name[:6] == "U-SPA-" && a.Name != "U-SPA-S" {
-			spaScreens = append(spaScreens, a.Name)
+// addSinkEdges is the SINK rule: system testing depends on every activity that nothing
+// else depends on. It is Table 11-1 #21 (System Testing) → 5, 19, 20 stated generally —
+// the ends of every chain through the architecture, plus any activity no relationship
+// reaches (the test plan, a vendor resource no component fronts). A headless system
+// needs no special case: with no client activity, its managers are the sinks.
+//
+// It runs on the REDUCED graph, so it never adds a redundant edge: a sink has no
+// successor, so no sink is reachable from another.
+func addSinkEdges(reduced map[string][]string, acts []DerivedActivity) {
+	hasSuccessor := map[string]bool{}
+	present := false
+	for _, preds := range reduced {
+		for _, p := range preds {
+			hasSuccessor[p] = true
 		}
 	}
-	sort.Strings(spaScreens)
-	return spaScreens
+	var sinks []string
+	for _, a := range acts {
+		if a.Name == systemTestingActivity {
+			present = true
+			continue
+		}
+		if !hasSuccessor[a.Name] {
+			sinks = append(sinks, a.Name)
+		}
+	}
+	if present && len(sinks) > 0 {
+		reduced[systemTestingActivity] = append(reduced[systemTestingActivity], sinks...)
+	}
 }
 
-// addFixedPatternEdges applies the mechanical sequencing the architecture graph cannot
-// state:
-//
-//   - the UI design gates SPA construction, the scaffold gates the per-manager screens;
-//   - EACH per-manager SPA construction activity ALSO depends on the manager's own C-*
-//     coding activity — structurally what Table 11-1's activity 19 (Client App1) does by
-//     depending on the managers it calls. architectureEdges cannot express this itself:
-//     every client component's constructionProfile is "generated" (the platform emits
-//     the transport tier), so activityForComponent indexes no C-* activity for it, and
-//     the client→manager architecture relationships have no C-* source to route
-//     through — they are silently dropped rather than misrouted (C1, 2026-08-10).
-//   - the test plan gates the harnesses;
-//   - every per-manager SPA construction activity gates the terminal system-testing
-//     activity — structurally what Table 11-1's activity 21 (System Testing) does by
-//     depending on the client activities (5, 19, 20), now that there is no separate I-*
-//     to depend on instead (ruling 2: integration is a PHASE of each activity's own
-//     lifecycle, not a standalone activity). When the system declares NO UI surface at
-//     all (no U-SPA-* screens exist), N-IT's fan-in falls back to every manager's C-*
-//     coding activity directly instead — the same Table-11-1 activity-21 relationship,
-//     minus the client layer that a headless project does not have (C1 minor, same root
-//     cause: without this fallback a headless project's N-IT gets NO predecessors at
-//     all);
-//   - the always-emit noncoding inventory (N-QA, N-SMOKE, N-PERF) each get a defensible
-//     predecessor so every activity the derivation always emits is reachable in the CPM
-//     graph (C2, 2026-08-10): buildNodeUniverse walks EDGES, not the activity list, so
-//     an activity with no incident edge in either direction silently gets no node at all
-//     and drops out of the CPM solve with no ES/EF/float and no critical-path
-//     membership, however large its effort. N-PERF follows N-STH — performance testing
-//     runs the harness N-STH builds. N-SMOKE follows N-STP for the same reason N-STH and
-//     N-RTH do — a daily smoke check needs the test plan's definition of what "smoke"
-//     covers before it can run one. N-QA is a process/gate activity with no natural
-//     upstream work product of its own (Löwy: QA reviews and tunes the development
-//     PROCESS, "what will it take to assure quality" — it is not gated BY the work), so
-//     it gets no predecessor of its own, but it must still gate N-IT (system testing)
-//     rather than sit as an island off the schedule the CPM solve can't reach.
-//
-// Edges into an activity absent from this derivation (e.g. no UI surface) are simply
-// skipped.
-func addFixedPatternEdges(reduced map[string][]string, acts []DerivedActivity, system SystemView) {
-	present := map[string]bool{}
+// addSourceEdges is the SOURCE rule: every activity with no other predecessor depends on
+// M0, the SDP review. It is Table 11-1 #4, #9, #10 → 3 stated generally, and it puts
+// every activity on an edge: buildNodeUniverse walks EDGES, not the activity list, so an
+// activity with no incident edge silently gets no CPM node — no ES/EF/float, no
+// critical-path membership (C2, 2026-08-10). With the sink rule, every activity now
+// lies on a path from M0 to N-IT; no island workaround is needed.
+func addSourceEdges(reduced map[string][]string, acts []DerivedActivity) {
 	for _, a := range acts {
-		present[a.Name] = true
-	}
-	spaScreens := spaScreenNames(acts)
-
-	addEdge := func(activity, pred string) {
-		if !present[activity] || !present[pred] {
-			return
-		}
-		reduced[activity] = append(reduced[activity], pred)
-	}
-	for _, s := range spaScreens {
-		mgrActivity := "C-" + s[len("U-SPA-"):] // s is "U-SPA-<manager-component-id>"
-		addEdge(s, "G-SPA")
-		addEdge(s, "U-SPA-S")
-		addEdge(s, mgrActivity)
-		addEdge("N-IT", s)
-	}
-	if len(spaScreens) == 0 {
-		// Headless fallback (C1 minor): no U-SPA-* screens exist, so route N-IT's fan-in
-		// straight to every manager's coding activity instead of through a client layer
-		// that does not exist.
-		for _, c := range system.Components {
-			if c.Kind == "manager" {
-				addEdge("N-IT", "C-"+c.ID)
-			}
+		if len(reduced[a.Name]) == 0 {
+			reduced[a.Name] = []string{sdpReviewMilestone}
 		}
 	}
-	addEdge("N-STH", "N-STP")
-	addEdge("N-RTH", "N-STP")
-
-	// C2: give the always-emit inventory its own pattern edges so every one of these
-	// activities is reachable in the CPM graph (see the function doc above).
-	addEdge("N-PERF", "N-STH")
-	addEdge("N-SMOKE", "N-STP")
-	addEdge("N-IT", "N-QA")
 }
 
 // deriveDependencies builds the network edges: the transitively reduced architecture
-// edges, plus the fixed pattern edges that no relationship expresses.
+// edges, then the two general rules no relationship expresses — the sink rule (N-IT
+// after every activity nothing else depends on) and the source rule (every activity with
+// no other predecessor after M0). The sink rule runs first, so N-IT is never a root.
 func deriveDependencies(system SystemView, acts []DerivedActivity) []NetworkDependency {
 	raw := architectureEdges(system, activityForComponent(acts))
 	reduced := transitiveReduction(raw)
-	addFixedPatternEdges(reduced, acts, system)
+	addSinkEdges(reduced, acts)
+	addSourceEdges(reduced, acts)
 
 	out := make([]NetworkDependency, 0, len(reduced))
 	for activity, preds := range reduced {
@@ -1795,7 +1765,9 @@ func deriveDependencies(system SystemView, acts []DerivedActivity) []NetworkDepe
 
 // deriveMilestones emits M0-M3. M0 is the SDP-review forced dependency (ch. 11 "About
 // Milestones": "none of the construction activities should start before the SDP
-// review"). M1-M3 are layer completions.
+// review"). Its predecessors are the design phases (Phases 1-2), which are not
+// activities, so it has no fan-in here; its fan-OUT to every root activity is the source
+// rule (addSourceEdges). M1-M3 are layer completions.
 //
 // M4 (Use Cases Demonstrable) is deliberately NOT derived: it depended entirely on the
 // now-removed I-* integration activities (ruling 2) and had no other fan-in of its own,
