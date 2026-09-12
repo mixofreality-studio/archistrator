@@ -50,6 +50,7 @@ import (
 	"hash/fnv"
 	"log/slog"
 	"path"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -3138,9 +3139,15 @@ func MaterializeActivityPlan(
 // materializePhase2Draft is the PRODUCTION caller of MaterializeActivityPlan — the
 // render-on-read `the-method-activity-list` mandates: "the server applies the deltas onto
 // the derived baseline (DerivePlan) and stages the result (StageArtifactForReview)". For
-// KindActivityList it REPLACES the model the drafting agent committed on the session
-// branch with the plan derived from the COMMITTED System (slot 5); every other kind
-// passes through byte-identical, so this is inert for the other fifteen slots.
+// KindActivityList and KindNetwork it REPLACES the model the drafting agent committed on
+// the session branch with the plan derived from the COMMITTED System (slot 5); every other
+// kind passes through byte-identical, so this is inert for the other fifteen slots.
+//
+// DerivePlan yields three things and all three are written: slot 9 takes the activities,
+// slot 10 takes the dependencies and milestones (see materializeNetwork). Until
+// 2026-09-12 the dependencies and milestones were discarded here, so slot 10 was whatever
+// the drafting agent typed, kept honest only by the CI drift gate — a real first run
+// would not have staged the derived network.
 //
 // Without it slot 9 is whatever the agent typed, and on a freshly drafted project that is
 // `{"activities": null}` — after which assembleSdpReview dies with "option network has
@@ -3163,24 +3170,24 @@ func materializePhase2Draft(
 	kind projectstate.ArtifactKind,
 	draft projectstate.ArtifactModel,
 ) (projectstate.ArtifactModel, error) {
-	if kind != projectstate.KindActivityList {
+	if kind != projectstate.KindActivityList && kind != projectstate.KindNetwork {
 		return draft, nil
 	}
 
 	sysSlot := slotFor(proj, projectstate.KindSystem)
 	if sysSlot.Status != projectstate.ReviewCommitted || sysSlot.Model == nil {
 		return nil, fwmanager.New(fwmanager.FailedPrecondition,
-			"cannot materialize the activity list: the systemDesign slot is not committed — the whole Phase-2 plan derives from it, so Phase 1 must be approved before a plan is staged")
+			"cannot materialize the Phase-2 plan: the systemDesign slot is not committed — the whole Phase-2 plan derives from it, so Phase 1 must be approved before a plan is staged")
 	}
 	sys, ok := sysSlot.Model.(*projectstate.System)
 	if !ok {
 		return nil, wrongModelType(projectstate.KindSystem, sysSlot.Model)
 	}
 
-	list, _, _, err := MaterializeActivityPlan(*sys, estimation.ActivityListDeltas{})
+	list, deps, milestones, err := MaterializeActivityPlan(*sys, estimation.ActivityListDeltas{})
 	if err != nil {
 		return nil, fwmanager.Wrap(fwmanager.FailedPrecondition, err,
-			"cannot materialize the activity list from the committed systemDesign")
+			"cannot materialize the Phase-2 plan from the committed systemDesign")
 	}
 	// LOUD, never a silent empty list: a System that derives no activities means the
 	// architecture is empty or every component is suppressed (generated/provided). Staging
@@ -3190,5 +3197,95 @@ func materializePhase2Draft(
 		return nil, fwmanager.New(fwmanager.FailedPrecondition,
 			fmt.Sprintf("the committed systemDesign (%d components) derives ZERO activities — every component is suppressed (constructionProfile generated/provided) or the architecture is empty; fix slot 5 before staging a plan", len(sys.Components)))
 	}
-	return &list, nil
+	if kind == projectstate.KindActivityList {
+		return &list, nil
+	}
+
+	authored, ok := draft.(*projectstate.Network)
+	if !ok {
+		return nil, wrongModelType(projectstate.KindNetwork, draft)
+	}
+	var authoredNet projectstate.Network
+	if authored != nil {
+		authoredNet = *authored
+	}
+	net, err := materializeNetwork(list, deps, milestones, authoredNet)
+	if err != nil {
+		return nil, err
+	}
+	return &net, nil
+}
+
+// materializeNetwork builds slot 10 from a derived plan. Dependencies and the milestone
+// SET with its fan-in are the derivation's, verbatim — a milestone the draft authored but
+// the derivation does not produce is dropped, and M0 keeps the empty dependsOn the
+// derivation gives it (its real predecessors are the design rail, which are not
+// activities; the construction pump resolves an empty-dependsOn milestone as satisfied).
+// Each milestone's Name and Public are carried across from the authored network by id:
+// they are display decorations with no derivation source (see toProjectStateMilestones).
+// criticalPath is recomputed by ComputeNetwork over the derived graph and written as the
+// alphabetically-sorted zero-float activity set (projectstate.Network.CriticalPath).
+//
+// It is the one function both the co-author staging seam and the drift gate
+// (TestDerivedPlanMatchesCommittedState) run, so what a real first run stages and what CI
+// holds slot 10 to can never disagree.
+func materializeNetwork(
+	list projectstate.ActivityList,
+	deps []projectstate.NetworkDependency,
+	milestones []projectstate.NetworkMilestone,
+	authored projectstate.Network,
+) (projectstate.Network, error) {
+	decorations := make(map[string]projectstate.NetworkMilestone, len(authored.Milestones))
+	for _, m := range authored.Milestones {
+		decorations[m.ID] = m
+	}
+	outMilestones := make([]projectstate.NetworkMilestone, 0, len(milestones))
+	for _, m := range milestones {
+		a := decorations[m.ID]
+		outMilestones = append(outMilestones, projectstate.NetworkMilestone{
+			ID: m.ID, Name: a.Name, Public: a.Public, DependsOn: m.DependsOn,
+		})
+	}
+
+	cp, err := derivedCriticalPath(list, deps, milestones)
+	if err != nil {
+		return projectstate.Network{}, err
+	}
+	return projectstate.Network{Dependencies: deps, CriticalPath: cp, Milestones: outMilestones}, nil
+}
+
+// derivedCriticalPath solves the derived network with the estimation Engine's
+// ComputeNetwork and returns the sorted set of activities it places on the critical path.
+// Milestones are zero-duration nodes in the same solve but are not activities, so they
+// never appear in the result (ComputeNetwork reports them separately).
+func derivedCriticalPath(
+	list projectstate.ActivityList,
+	deps []projectstate.NetworkDependency,
+	milestones []projectstate.NetworkMilestone,
+) ([]string, error) {
+	acts := estimation.ActivityList{Activities: make([]estimation.ActivityItem, 0, len(list.Activities))}
+	for _, a := range list.Activities {
+		acts.Activities = append(acts.Activities, estimation.ActivityItem{Name: a.Name, EffortDays: a.EffortDays})
+	}
+	nw := estimation.Network{Dependencies: make([]estimation.NetworkDependency, 0, len(deps))}
+	for _, d := range deps {
+		nw.Dependencies = append(nw.Dependencies, estimation.NetworkDependency{Activity: d.Activity, DependsOn: d.DependsOn})
+	}
+	for _, m := range milestones {
+		nw.Milestones = append(nw.Milestones, estimation.NetworkMilestone{Id: m.ID, DependsOn: m.DependsOn})
+	}
+
+	sol, err := estimation.NewEstimationEngine().ComputeNetwork(fweng.Context{}, acts, nw)
+	if err != nil {
+		return nil, fwmanager.Wrap(fwmanager.FailedPrecondition, err,
+			"cannot compute the critical path of the derived network")
+	}
+	cp := make([]string, 0, len(sol.Nodes))
+	for id, n := range sol.Nodes {
+		if n.OnCriticalPath {
+			cp = append(cp, id)
+		}
+	}
+	sort.Strings(cp)
+	return cp, nil
 }

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 	billing "github.com/mixofreality-studio/archistrator/server/internal/engine/billing"
@@ -5371,6 +5372,167 @@ func TestMaterializePhase2DraftRequiresACommittedSystem(t *testing.T) {
 	}
 }
 
+// authoredNetworkDraftForTest is what a drafting agent might commit for slot 10: a
+// dependency graph and critical path that bear no relation to the derivation, the four
+// derived milestones carrying authored display names / public flags but WRONG fan-in, and
+// one milestone the derivation does not produce. Every structural byte of it must be
+// replaced by the materializer; only the milestone Name/Public survive.
+func authoredNetworkDraftForTest() *projectstate.Network {
+	return &projectstate.Network{
+		Dependencies: []projectstate.NetworkDependency{{Activity: "C-agent-typed", DependsOn: []string{"C-also-agent-typed"}}},
+		CriticalPath: []string{"C-agent-typed"},
+		Milestones: []projectstate.NetworkMilestone{
+			{ID: "M0", Name: "Authored Zero", Public: true, DependsOn: []string{"C-agent-typed"}},
+			{ID: "M1", Name: "Authored One", Public: false},
+			{ID: "M2", Name: "Authored Two", Public: true},
+			{ID: "M3", Name: "Authored Three", Public: false, DependsOn: []string{"C-agent-typed"}},
+			{ID: "MX", Name: "Not Derived", Public: true},
+		},
+	}
+}
+
+// zeroFloatActivitySet is the test's INDEPENDENT statement of what slot 10's criticalPath
+// is for a derived network: the alphabetically-sorted set of activities ComputeNetwork
+// solves on the critical path (projectstate.Network.CriticalPath's documented contract).
+func zeroFloatActivitySet(t *testing.T, list projectstate.ActivityList, deps []projectstate.NetworkDependency, ms []projectstate.NetworkMilestone) []string {
+	t.Helper()
+	acts := estimation.ActivityList{}
+	for _, a := range list.Activities {
+		acts.Activities = append(acts.Activities, estimation.ActivityItem{Name: a.Name, EffortDays: a.EffortDays})
+	}
+	nw := estimation.Network{}
+	for _, d := range deps {
+		nw.Dependencies = append(nw.Dependencies, estimation.NetworkDependency{Activity: d.Activity, DependsOn: d.DependsOn})
+	}
+	for _, m := range ms {
+		nw.Milestones = append(nw.Milestones, estimation.NetworkMilestone{Id: m.ID, DependsOn: m.DependsOn})
+	}
+	sol, err := estimation.NewEstimationEngine().ComputeNetwork(fweng.Context{}, acts, nw)
+	if err != nil {
+		t.Fatalf("ComputeNetwork over the derived network: %v", err)
+	}
+	var cp []string
+	for id, n := range sol.Nodes {
+		if n.OnCriticalPath {
+			cp = append(cp, id)
+		}
+	}
+	sort.Strings(cp)
+	return cp
+}
+
+// THE SLOT-10 REGRESSION. materializePhase2Draft used to derive the whole plan and then
+// throw the dependencies and milestones away (`list, _, _, err :=`), so a Network draft
+// passed through byte-identical and slot 10 was whatever the drafting agent typed. A real
+// first run must stage the DERIVED network: derived dependencies, derived milestone
+// structure (the authored Name/Public kept — they have no derivation source), and a
+// criticalPath recomputed by ComputeNetwork over that derived graph.
+func TestMaterializePhase2DraftStagesTheDerivedNetwork(t *testing.T) {
+	sys, _ := loadCommittedStateForTest(t)
+	proj := projectstate.Project{}
+	proj.SystemDesign = committedSlot(&sys)
+
+	got, err := materializePhase2Draft(proj, projectstate.KindNetwork, authoredNetworkDraftForTest())
+	if err != nil {
+		t.Fatalf("materializePhase2Draft(KindNetwork): %v", err)
+	}
+	staged, ok := got.(*projectstate.Network)
+	if !ok {
+		t.Fatalf("staged model is not *projectstate.Network: %T", got)
+	}
+
+	list, wantDeps, wantMilestones, err := MaterializeActivityPlan(sys, estimation.ActivityListDeltas{})
+	if err != nil {
+		t.Fatalf("MaterializeActivityPlan: %v", err)
+	}
+
+	if !reflect.DeepEqual(staged.Dependencies, wantDeps) {
+		t.Errorf("staged %d dependency rows, the derivation renders %d - the agent's dependencies were staged instead of the derived ones",
+			len(staged.Dependencies), len(wantDeps))
+	}
+	if !reflect.DeepEqual(milestonesByIDPS(staged.Milestones), milestonesByIDPS(wantMilestones)) {
+		t.Errorf("staged milestone structure %v, the derivation renders %v",
+			milestonesByIDPS(staged.Milestones), milestonesByIDPS(wantMilestones))
+	}
+
+	wantCP := zeroFloatActivitySet(t, list, wantDeps, wantMilestones)
+	if len(wantCP) == 0 {
+		t.Fatal("the derived network solves to an EMPTY critical path - the test would be vacuous")
+	}
+	if !reflect.DeepEqual(staged.CriticalPath, wantCP) {
+		t.Errorf("staged criticalPath %v, ComputeNetwork over the derived network gives %v", staged.CriticalPath, wantCP)
+	}
+	if staged.Computed != nil || staged.Summary != nil {
+		t.Error("the compute-at-read block must never be staged - it is absent on disk by contract")
+	}
+}
+
+// The milestone Name and Public are AUTHORED decorations (see toProjectStateMilestones):
+// the derivation has no opinion on them, so the materializer must carry each one across
+// from the draft by id — while the milestone SET and fan-in come only from the derivation
+// (M0 stays without predecessors; a milestone the derivation does not produce is dropped).
+func TestMaterializePhase2DraftKeepsAuthoredMilestoneNameAndPublic(t *testing.T) {
+	sys, _ := loadCommittedStateForTest(t)
+	proj := projectstate.Project{}
+	proj.SystemDesign = committedSlot(&sys)
+
+	got, err := materializePhase2Draft(proj, projectstate.KindNetwork, authoredNetworkDraftForTest())
+	if err != nil {
+		t.Fatalf("materializePhase2Draft(KindNetwork): %v", err)
+	}
+	staged, ok := got.(*projectstate.Network)
+	if !ok {
+		t.Fatalf("staged model is not *projectstate.Network: %T", got)
+	}
+
+	type decoration struct {
+		name   string
+		public bool
+	}
+	want := map[string]decoration{
+		"M0": {"Authored Zero", true},
+		"M1": {"Authored One", false},
+		"M2": {"Authored Two", true},
+		"M3": {"Authored Three", false},
+	}
+	gotByID := map[string]projectstate.NetworkMilestone{}
+	for _, m := range staged.Milestones {
+		gotByID[m.ID] = m
+	}
+	for id, w := range want {
+		m, ok := gotByID[id]
+		if !ok {
+			t.Errorf("derived milestone %q is missing from the staged network", id)
+			continue
+		}
+		if m.Name != w.name || m.Public != w.public {
+			t.Errorf("milestone %q: staged name/public %q/%v, the draft authored %q/%v", id, m.Name, m.Public, w.name, w.public)
+		}
+	}
+	if _, ok := gotByID["MX"]; ok {
+		t.Error("milestone MX is not produced by the derivation and must not be staged")
+	}
+	if m0 := gotByID["M0"]; len(m0.DependsOn) != 0 {
+		t.Errorf("M0 must keep an empty dependsOn (its predecessors are the design rail, not activities), got %v", m0.DependsOn)
+	}
+}
+
+// The network derives from slot 5 exactly as the activity list does, so it carries the
+// same precondition, and a draft of the wrong model type is a loud error, not a panic.
+func TestMaterializePhase2DraftNetworkPreconditions(t *testing.T) {
+	if _, err := materializePhase2Draft(projectstate.Project{}, projectstate.KindNetwork, authoredNetworkDraftForTest()); err == nil ||
+		!strings.Contains(err.Error(), "systemDesign") {
+		t.Errorf("a network draft against an uncommitted systemDesign must fail naming it, got %v", err)
+	}
+
+	sys, _ := loadCommittedStateForTest(t)
+	proj := projectstate.Project{}
+	proj.SystemDesign = committedSlot(&sys)
+	if _, err := materializePhase2Draft(proj, projectstate.KindNetwork, &projectstate.ActivityList{}); err == nil {
+		t.Error("a KindNetwork draft carrying a non-Network model must be an error")
+	}
+}
+
 // loadCommittedStateForTest reads the repo's own committed project document and returns
 // the slot-5 System and the historical .activityConstruction keys. It reads LIVE state
 // rather than a fixture on purpose: the risk this test guards against is one specific
@@ -5685,6 +5847,37 @@ func TestDerivedPlanMatchesCommittedState(t *testing.T) {
 	assertDerivedActivitiesMatch(t, got.Activities, committed.Activities)
 	assertDerivedDependenciesMatch(t, gotDeps, committedNetwork.Dependencies)
 	assertDerivedMilestonesMatch(t, gotMilestones, committedNetwork.Milestones)
+	assertCommittedNetworkIsMaterialized(t, got, gotDeps, gotMilestones, committedNetwork)
+}
+
+// assertCommittedNetworkIsMaterialized is the WHOLE-slot-10 half of the gate (2026-09-12).
+// The structural halves above compare dependency rows and milestone fan-in as sets, which
+// leaves criticalPath — and the rest of the document — unguarded. This runs the SAME
+// materializeNetwork the co-author staging seam runs over the re-derived plan (with the
+// committed milestone Name/Public as the authored decorations) and requires the committed
+// slot 10 to be exactly that document. Any drift in criticalPath, ordering, or a stray
+// authored field fails here.
+func assertCommittedNetworkIsMaterialized(
+	t *testing.T,
+	got projectstate.ActivityList,
+	gotDeps []projectstate.NetworkDependency,
+	gotMilestones []projectstate.NetworkMilestone,
+	committedNetwork projectstate.Network,
+) {
+	t.Helper()
+	want, err := materializeNetwork(got, gotDeps, gotMilestones, committedNetwork)
+	if err != nil {
+		t.Fatalf("materializeNetwork over the re-derived plan: %v", err)
+	}
+	if !reflect.DeepEqual(want.CriticalPath, committedNetwork.CriticalPath) {
+		t.Errorf("slot 10 criticalPath has drifted: ComputeNetwork over the derived network gives %v, committed slot 10 holds %v",
+			want.CriticalPath, committedNetwork.CriticalPath)
+	}
+	if !reflect.DeepEqual(want, committedNetwork) {
+		wantJSON, _ := json.Marshal(want)
+		gotJSON, _ := json.Marshal(committedNetwork)
+		t.Errorf("committed slot 10 is not the materialized network:\n materialized: %s\n committed:    %s", wantJSON, gotJSON)
+	}
 }
 
 // assertDerivedActivitiesMatch is the slot-9 half of TestDerivedPlanMatchesCommittedState,
