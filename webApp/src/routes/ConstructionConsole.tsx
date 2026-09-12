@@ -463,7 +463,12 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
         sx={{ flexGrow: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}
       >
         {/* The lens shell IS the console (Task 13) — no tab bar mounts around it. */}
-        <Box sx={{ flexGrow: 1, minHeight: 0, overflowY: 'auto', px: { xs: 2, md: 4 }, py: 3 }}>
+        {/* pt: 0 — the sticky lens toolbar sticks at the scroller's own top edge.
+            Top padding here left a strip ABOVE the stuck toolbar that rows scrolled
+            through (designer P0-2); the page header carries that spacing instead. */}
+        <Box
+          sx={{ flexGrow: 1, minHeight: 0, overflowY: 'auto', px: { xs: 2, md: 4 }, pt: 0, pb: 3 }}
+        >
           <ConsoleHeader
             action={
               // Operating (Task 14): once construction is fully complete the
@@ -597,7 +602,9 @@ function ConsoleHeader({
   action?: ReactNode;
 }): ReactNode {
   return (
-    <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5, mb: 2 }}>
+    // pt: 3 — the top spacing the scroller no longer carries (it is pt: 0 so the
+    // sticky toolbar sticks flush to its edge; see the scroller above).
+    <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5, pt: 3, mb: 2 }}>
       <Box sx={{ flexGrow: 1, minWidth: 0 }}>
         <Typography component="h1" sx={{ color: t.ink }} variant="h4">
           {title}

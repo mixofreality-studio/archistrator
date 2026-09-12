@@ -28,6 +28,7 @@ import {
 } from '../lifecycleTemplates.gen.ts';
 import { EXIT_CRITERIA } from '../lifecycleTemplates.ts';
 import type { ProvenanceBearing } from '../provenanceAxis.ts';
+import { PANE_MAX_HEIGHT, PANE_STICKY_TOP } from '../lens/lensGeometry.ts';
 
 // ---------------------------------------------------------------------------
 // The beside-content (>= 1200px) layout contract.
@@ -68,18 +69,17 @@ import type { ProvenanceBearing } from '../provenanceAxis.ts';
 // as a mechanism nobody re-measured.
 // ---------------------------------------------------------------------------
 
-/** Distance below the scrolling ancestor's top where the pane pins — clears the
- *  lens toolbar (ConstructionShell), which sticks at `top: 0`. */
-export const DETAIL_PANE_STICKY_TOP = 76;
-
-/** Bottom breathing room so the pinned pane never touches the viewport edge. */
-const DETAIL_PANE_BOTTOM_GAP = 16;
-
+// Where the pane pins, and how tall it may be, both come from the lens toolbar
+// and the scroller AS MEASURED (ConstructionShell publishes them as CSS custom
+// properties; see ../lens/lensGeometry.ts). This used to be a constant 76px under
+// a 100vh cap: the toolbar wraps to ~86px at 1280/1366, so the pane slid under it,
+// and 100vh ignored the app chrome above the scroller, so the action bar ran off
+// the bottom of the screen (designer P0-1).
 export const WIDE_PANE_SX = {
   display: 'flex',
   position: 'sticky',
-  top: DETAIL_PANE_STICKY_TOP,
-  maxHeight: `calc(100vh - ${String(DETAIL_PANE_STICKY_TOP)}px - ${String(DETAIL_PANE_BOTTOM_GAP)}px)`,
+  top: PANE_STICKY_TOP,
+  maxHeight: PANE_MAX_HEIGHT,
   overflow: 'hidden',
 } as const;
 

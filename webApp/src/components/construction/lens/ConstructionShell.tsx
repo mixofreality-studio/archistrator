@@ -17,9 +17,15 @@
  *     a remount.
  *
  * This component is presentation only (the pure `components` layer): it takes the
- * lens, the toolbar state and the slots as props and reaches for no hooks beyond
- * useTokens. ExperienceChrome and the chat rail stay where they are, unchanged —
- * the shell renders INSIDE them.
+ * lens, the toolbar state and the slots as props and reaches for no app hooks
+ * beyond useTokens. ExperienceChrome and the chat rail stay where they are,
+ * unchanged — the shell renders INSIDE them.
+ *
+ * GEOMETRY (fix round A, designer P0-1/P0-2): the shell MEASURES its toolbar and
+ * its scroller and publishes both as CSS custom properties (see lensGeometry.ts),
+ * which is how the detail pane pins below the toolbar at whatever height it
+ * wrapped to. It also flags the toolbar `data-stuck` once stuck, for its shadow.
+ * Both are written to the DOM from a layout effect, never through React state.
  *
  * TASKS carries a count badge because it is the only lens that asserts something
  * is owed. GRAPH and TASKS render an honest "coming in a later stage" placeholder
@@ -37,8 +43,9 @@
  * flight right now. "Expand all" on a 528-row corpus is the exact trap this
  * whole design exists to avoid.
  */
-import type { ReactElement, ReactNode } from 'react';
+import { useLayoutEffect, useRef, type ReactElement, type ReactNode } from 'react';
 import Box from '@mui/material/Box';
+import { alpha } from '@mui/material/styles';
 import Button from '@mui/material/Button';
 import InputBase from '@mui/material/InputBase';
 import MenuItem from '@mui/material/MenuItem';
@@ -64,6 +71,7 @@ import {
   type SortId,
   type ToolbarState,
 } from './useLensSelection';
+import { isToolbarStuck, lensGeometryVars } from './lensGeometry';
 
 // ---------------------------------------------------------------------------
 // Vocabulary
@@ -149,13 +157,74 @@ export function ConstructionShell({
   onExpandToCurrentPhase,
 }: ConstructionShellProps): ReactElement {
   const t = useTokens();
+  const rootRef = useRef<HTMLDivElement>(null);
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  const rowRef = useRef<HTMLDivElement>(null);
+
+  // MEASURE the toolbar, the scroller and the content row, and publish them as
+  // CSS custom properties on this root (lensGeometry.ts) — the detail pane pins
+  // itself below the toolbar at whatever height it wrapped to, and caps its
+  // height at the room it really has, at rest and pinned alike. The same pass
+  // flags the toolbar `data-stuck` once it has stuck, for its shadow. Written
+  // straight to the DOM, never through React state: a resize or a scroll
+  // re-renders nothing. A layout effect, so the first values land before paint.
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+    const toolbar = toolbarRef.current;
+    const row = rowRef.current;
+    if (root === null || toolbar === null || row === null) return undefined;
+    let scroller: HTMLElement | null = root.parentElement;
+    while (scroller !== null && !/(auto|scroll)/.test(getComputedStyle(scroller).overflowY)) {
+      scroller = scroller.parentElement;
+    }
+    const publish = (): void => {
+      const scrollerTop = scroller?.getBoundingClientRect().top ?? 0;
+      const toolbarRect = toolbar.getBoundingClientRect();
+      const vars = lensGeometryVars(
+        toolbarRect.height,
+        scroller?.clientHeight ?? window.innerHeight,
+        row.getBoundingClientRect().top - scrollerTop
+      );
+      for (const [name, value] of Object.entries(vars)) root.style.setProperty(name, value);
+      toolbar.setAttribute(
+        'data-stuck',
+        String(
+          isToolbarStuck({
+            toolbarTop: toolbarRect.top,
+            scrollerTop,
+            scrollTop: scroller?.scrollTop ?? window.scrollY,
+          })
+        )
+      );
+    };
+    publish();
+    // The root is observed too: when the header above the toolbar changes height
+    // (its subtitle wraps), the row's offset moves with it.
+    const observer = new ResizeObserver(publish);
+    observer.observe(root);
+    observer.observe(toolbar);
+    if (scroller !== null) observer.observe(scroller);
+    // Scroll moves the row's offset (and the stuck state). Scroll events already
+    // arrive at most once per frame, so this publishes synchronously.
+    const scrollTarget: HTMLElement | Window = scroller ?? window;
+    scrollTarget.addEventListener('scroll', publish, { passive: true });
+    return (): void => {
+      observer.disconnect();
+      scrollTarget.removeEventListener('scroll', publish);
+    };
+  }, []);
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1, minHeight: 0, minWidth: 0 }}>
+    <Box
+      ref={rootRef}
+      sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1, minHeight: 0, minWidth: 0 }}
+    >
       {header !== undefined ? header : null}
 
       <Box
+        data-stuck="false"
         data-testid={UI_IDENTIFIERS.Construction.LENS_TOOLBAR}
+        ref={toolbarRef}
         sx={{
           position: 'sticky',
           top: 0,
@@ -171,6 +240,11 @@ export function ConstructionShell({
           bgcolor: t.paperAlt,
           border: `1.5px solid ${t.line}`,
           borderRadius: `${String(t.radius)}px`,
+          transition: 'box-shadow 120ms ease-out',
+          // A light shadow ONLY while stuck: at rest the toolbar sits in the page
+          // and a shadow would read as a floating panel; once rows scroll beneath
+          // it, the shadow is what says they are passing under, not ending.
+          '&[data-stuck="true"]': { boxShadow: `0 3px 8px ${alpha(t.ink, 0.14)}` },
         }}
       >
         <LensControl lens={lens} t={t} tasksOwed={tasksOwed} onLens={onLens} />
@@ -316,7 +390,10 @@ export function ConstructionShell({
         </Tooltip>
       </Box>
 
-      <Box sx={{ display: 'flex', flexGrow: 1, minHeight: 0, gap: 2 }}>
+      {/* The content row: where the detail pane sits in flow at rest. Its
+          offset from the scroller's top is one of the three measurements the
+          pane's height cap reads (--lens-row-top). */}
+      <Box ref={rowRef} sx={{ display: 'flex', flexGrow: 1, minHeight: 0, gap: 2 }}>
         <Box
           data-testid={UI_IDENTIFIERS.Construction.LENS_CONTENT}
           sx={{ flexGrow: 1, minWidth: 0 }}

@@ -17,7 +17,6 @@ import {
   detailActionsFor,
   resolvePhaseTask,
   taskDetailStateFor,
-  DETAIL_PANE_STICKY_TOP,
   WIDE_PANE_SX,
 } from './detailPaneState.ts';
 
@@ -214,13 +213,20 @@ void test('sizes the beside-content pane by its own content, never by the column
   //    must not propagate into this block child.
   assert.equal('height' in WIDE_PANE_SX, false);
   assert.equal('minHeight' in WIDE_PANE_SX, false);
-  // 2. Capped at what fits below the sticky lens toolbar, so a long body
-  //    scrolls inside the pane instead of pushing the action bar off-screen.
-  assert.equal(WIDE_PANE_SX.maxHeight, 'calc(100vh - 76px - 16px)');
+  // 2. Capped at what fits below the lens toolbar AS MEASURED — the scroller's
+  //    own visible height less the toolbar's — so a long body scrolls inside the
+  //    pane and the action bar stays on screen at every width. (It was
+  //    `calc(100vh - 76px - 16px)`: 100vh ignored the chrome above the scroller.)
+  assert.equal(
+    WIDE_PANE_SX.maxHeight,
+    'calc(var(--lens-scroll-h, 100vh) - max(var(--lens-row-top, 0px), var(--lens-toolbar-h, 0px) + 8px) - 16px)'
+  );
   assert.equal(WIDE_PANE_SX.overflow, 'hidden');
-  // 3. Pinned in the viewport across the scroll.
+  // 3. Pinned in the viewport across the scroll, just below the MEASURED toolbar
+  //    — never at a constant offset (a fixed 76px sat under the toolbar once it
+  //    wrapped to ~86px at 1280/1366).
   assert.equal(WIDE_PANE_SX.position, 'sticky');
-  assert.equal(WIDE_PANE_SX.top, DETAIL_PANE_STICKY_TOP);
+  assert.equal(WIDE_PANE_SX.top, 'calc(var(--lens-toolbar-h, 0px) + 8px)');
 });
 
 void test('carries no alignSelf, which would be inert on a non-flex parent', () => {
