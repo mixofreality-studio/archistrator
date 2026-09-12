@@ -64,6 +64,13 @@ const TASK_SUFFIX = '::requirements::srsReview';
 // activities — their code does not qualify as evidence, so they carry no
 // ledger and must never be marked. Re-pin deliberately when any of these
 // changes state (e.g. once C-billing-state-access is actually built).
+//
+// RE-PIN NOTICE — to whoever builds one of the PINNED_NOT_RECONSTRUCTED
+// activities: once it has a ledger it is no longer a contrast pin, and this
+// spec will fail on it (its header will then carry the badge, which is correct).
+// Move it out of PINNED_NOT_RECONSTRUCTED and replace it with another
+// planned-no-record activity of the same kind — do not delete the assertion or
+// weaken it to "at least one".
 const PINNED_RECONSTRUCTED = [
   'C-construction-manager',
   'C-review-engine',
@@ -149,6 +156,29 @@ test('a search-matched reconstructed task row carries its own provenance mark; a
   }
   for (const id of PINNED_NOT_RECONSTRUCTED) {
     expect(nonReconstructed).toContain(`${id}${TASK_SUFFIX}`);
+  }
+
+  // The GROUP badge (review I1). The spelled-out `≈ RECONSTRUCTED` stamp on
+  // tier-1 and tier-2 headers is the design's PRIMARY defence — the inline mark
+  // below only covers the one case search can break — and nothing pinned it:
+  // ProvenanceGroupStamp could render null and this whole spec stayed green. So
+  // each pinned reconstructed activity's own header, and its revealed
+  // Requirements phase header, must carry it; each pinned planned-no-record
+  // activity's must not. Each header is proven RENDERED first, so an absence can
+  // never pass because the row itself was missing.
+  for (const id of PINNED_RECONSTRUCTED) {
+    for (const header of [id, `${id}::requirements`]) {
+      const row = page.getByTestId(TESTID.constructionListRow(header));
+      await expect(row).toBeVisible();
+      await expect(row.getByTestId(TESTID.constructionProvenanceBadge)).toBeVisible();
+    }
+  }
+  for (const id of PINNED_NOT_RECONSTRUCTED) {
+    for (const header of [id, `${id}::requirements`]) {
+      const row = page.getByTestId(TESTID.constructionListRow(header));
+      await expect(row).toBeVisible();
+      await expect(row.getByTestId(TESTID.constructionProvenanceBadge)).toHaveCount(0);
+    }
   }
 
   // Assertion 1: every row whose OWN rail proves reconstructed carries the

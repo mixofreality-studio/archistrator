@@ -230,6 +230,9 @@ export const TESTID = {
   // needsInlineProvenanceMark in activityScope.ts).
   constructionLensSearch: UI_IDENTIFIERS.Construction.LENS_SEARCH,
   constructionSearchMatchProvenance: UI_IDENTIFIERS.Construction.searchMatchProvenance,
+  // The spelled-out "≈ RECONSTRUCTED" badge ProvenanceGroupStamp puts on a
+  // tier-1 activity header and a tier-2 phase header (never on a task row).
+  constructionProvenanceBadge: UI_IDENTIFIERS.Construction.PROVENANCE_BADGE,
   // The LIST lens's three-tier tree (Stage B Task 6). It replaced the CPM graph
   // as the LIST lens's body — the graph returns under the GRAPH lens in Stage D.
   constructionListTree: UI_IDENTIFIERS.Construction.LIST_TREE,
