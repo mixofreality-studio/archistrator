@@ -122,6 +122,7 @@ function wireState(
     ],
     Version: 1,
     operatingModel: 'local',
+    constructionStarted: false,
   };
 }
 

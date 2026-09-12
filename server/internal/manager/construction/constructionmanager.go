@@ -412,6 +412,14 @@ func (m *constructionManager) GetSessionState(rc fwm.Context, projectID ProjectI
 		// to a clean, user-altitude NotFound; other query faults keep their generic
 		// mapping.
 		if isNotFound(err) {
+			// Which session is absent decides the sentence. A per-activity miss means only
+			// that the pump has not dispatched THIS activity — construction may well be
+			// under way elsewhere in the project, so "construction has not started for this
+			// project" was false for it.
+			if activityID != nil {
+				return ConstructionSessionView{}, newError(fwm.NotFound,
+					"no construction session for activity "+string(*activityID)+": the pump has not dispatched it")
+			}
 			return ConstructionSessionView{}, newError(fwm.NotFound, "construction has not started for this project")
 		}
 		return ConstructionSessionView{}, mapQueryError(err)

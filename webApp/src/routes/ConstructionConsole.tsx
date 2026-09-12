@@ -37,7 +37,7 @@ import type { ProjectArtifactModelEnvelope, ProjectStateWithGit } from '../contr
 import { slotStageFromOrdinal } from '../contracts/adapters';
 import { narrowProject } from '../contracts/projectAdapters';
 import { useProject } from '../hooks/useProject';
-import { useConstructionSession, useConstructionStarted } from '../hooks/useConstructionSession';
+import { useConstructionSession } from '../hooks/useConstructionSession';
 import { useBeginConstruction, useSubmitPhaseDecision } from '../hooks/useConstructionMutations';
 
 import { ExperienceChrome } from '../components/design/ExperienceChrome';
@@ -342,17 +342,17 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   }, [activityListModel]);
 
   // --- Begin/Resume ---------------------------------------------------------
-  // The label is the SESSION ENDPOINT's answer (single source), asked of every
-  // activity the committed list names — never counted from rows or attempts,
-  // which the backfill filled with reconstructed work no pump ever ran. While the
-  // project or any probe is loading the button is disabled and names neither word,
-  // so it cannot read "Begin" and flip to "Resume" after load.
-  const committedActivityIds = useMemo(
-    () => (activityListModel?.activities ?? []).map((a) => a.name),
-    [activityListModel]
-  );
-  const started = useConstructionStarted(projectId, committedActivityIds);
-  const beginControl = beginControlFor({ started, projectLoading, running: beginActive });
+  // The label is the project read's constructionStarted, computed once on the
+  // server from the stored head-state — never counted from rows or attempts here,
+  // which the backfill filled with reconstructed work no pump ever ran. It used to
+  // probe one session endpoint per committed activity on every load. While the
+  // project is loading the button is disabled and names neither word, so it cannot
+  // read "Begin" and flip to "Resume" after load.
+  const beginControl = beginControlFor({
+    constructionStarted: project?.constructionStarted,
+    projectLoading,
+    running: beginActive,
+  });
   const dispatchCandidates = useMemo(
     () => notStartedActivities(project?.constructionRows, titleForId),
     [project, titleForId]
@@ -517,7 +517,6 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
                   </Button>
                   <BeginConfirmDialog
                     candidates={dispatchCandidates}
-                    sessionUnknown={started === 'unknown'}
                     tickId={beginTick}
                     verb={beginControl.verb}
                     onCancel={() => {

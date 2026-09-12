@@ -1921,6 +1921,8 @@ export interface components {
       Slots: null | components['schemas']['SystemDesignArtifactSlotView'][];
       Version: number;
       constructionProgress?: components['schemas']['SystemDesignConstructionProgress'];
+      /** @description True iff construction has started for this project: some stored .activityConstruction row carries state only the construction pump writes (a start time, a coarse phase past NotStarted, a phase set, or a recorded failure) or an attempt of origin observed. Reconstructed attempts (backfilled or synthesized) never count, and a planned-no-record row has no stored state to count. Decides Begin versus Resume. */
+      constructionStarted: boolean;
       operatingModel: components['schemas']['SystemDesignOperatingModel'];
       reviewPolicy?: components['schemas']['SystemDesignReviewPolicyView'];
       testingState?: components['schemas']['SystemDesignTestingStateView'];

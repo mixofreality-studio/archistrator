@@ -7,7 +7,6 @@
  * 404 (no session yet — the pump is dormant) is surfaced WITHOUT retry storms.
  */
 import {
-  useQueries,
   useQuery,
   useQueryClient,
   type QueryClient,
@@ -19,7 +18,6 @@ import { toApiError } from '../contracts/errors';
 import { mapConstructionSession } from '../contracts/wire';
 import type { ConstructionSessionState } from '../contracts/types';
 import { sessionProbeQueryFn } from './sessionPolling';
-import { constructionStartedFrom, type ConstructionStarted } from './constructionStarted';
 
 const POLL_INTERVAL_MS = 3000;
 
@@ -31,16 +29,12 @@ export function constructionSessionKey(projectId: string, activityId?: string): 
 }
 
 /** The prefix every per-activity session probe of one project shares — what a
- *  Begin invalidates, so the Begin/Resume answer re-reads after a dispatch. */
+ *  Begin invalidates, so an open activity's session re-reads after a dispatch. */
 export function constructionSessionsKey(projectId: string): readonly unknown[] {
   return ['constructionSession', projectId];
 }
 
-/**
- * One per-activity session probe. Shared by useConstructionSession (one activity)
- * and useConstructionStarted (every committed activity), so both read the SAME
- * cache entry for the same activity rather than two copies that could disagree.
- */
+/** One per-activity session probe (useConstructionSession). */
 function sessionQueryOptions(
   queryClient: QueryClient,
   projectId: string,
@@ -90,29 +84,4 @@ export function useConstructionSession(
 ): UseQueryResult<ConstructionSessionState | null> {
   const queryClient = useQueryClient();
   return useQuery(sessionQueryOptions(queryClient, projectId, activityId, enabled));
-}
-
-/**
- * Has construction started for this project — answered by the SESSION ENDPOINT,
- * the single source for Begin vs Resume, never by counting rows or attempts (see
- * constructionStarted.ts for why those lie here).
- *
- * The endpoint is per-activity: a construction session is keyed
- * `<project>:<activity>` and exists only once the pump dispatched that activity.
- * The project-level session query addresses the operator-pause supervision
- * workflow, which Begin never starts, and has no route at all — so the question
- * is asked of every activity the committed list names. An absent session settles
- * to `null` and stops polling (see sessionQueryOptions), so a dormant project
- * costs one probe per activity per load.
- */
-export function useConstructionStarted(
-  projectId: string,
-  activityIds: readonly string[]
-): ConstructionStarted {
-  const queryClient = useQueryClient();
-  return useQueries({
-    queries: activityIds.map((id) => sessionQueryOptions(queryClient, projectId, id, true)),
-    combine: (results) =>
-      constructionStartedFrom(results.map((r) => ({ data: r.data, isError: r.isError }))),
-  });
 }

@@ -79,6 +79,7 @@ function wireProjectState(
     Slots: null,
     Version: 1,
     operatingModel: 'local',
+    constructionStarted: false,
   };
 }
 
@@ -150,4 +151,18 @@ void test('a failed row with an empty detail still names its reason', () => {
   assert.equal(row.status, 'failed');
   assert.equal(row.failureReason, 'pipelineFailed');
   assert.equal(row.failureDetail, undefined);
+});
+
+// Fix round B, item 7: Begin versus Resume is the server's constructionStarted,
+// passed through as-is — never re-derived in the SPA from rows or attempts.
+void test('mapProjectState passes the server’s constructionStarted through', () => {
+  const started = mapProjectState({ ...wireProjectState({}), constructionStarted: true });
+  assert.equal(started.constructionStarted, true);
+  // A project whose rows carry reconstructed attempts still reads false when the
+  // server says so: the mapper does not second-guess it.
+  const notStarted = mapProjectState({
+    ...wireProjectState({ 'C-x': wireRow({ ActivityID: 'C-x', recorded: true }) }),
+    constructionStarted: false,
+  });
+  assert.equal(notStarted.constructionStarted, false);
 });

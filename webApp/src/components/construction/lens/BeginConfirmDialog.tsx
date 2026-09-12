@@ -31,8 +31,6 @@ export interface BeginConfirmDialogProps {
   tickId: string | null;
   verb: BeginControl['verb'];
   candidates: readonly DispatchCandidate[];
-  /** The session answer was `unknown`: a probe failed, so a pump may already run. */
-  sessionUnknown: boolean;
   onCancel: () => void;
   onConfirm: (tickId: string) => void;
 }
@@ -41,7 +39,6 @@ export function BeginConfirmDialog({
   tickId,
   verb,
   candidates,
-  sessionUnknown,
   onCancel,
   onConfirm,
 }: BeginConfirmDialogProps): ReactElement {
@@ -97,12 +94,6 @@ export function BeginConfirmDialog({
             nothing new for it to start — it only picks up work already under way.
           </Typography>
         )}
-        {sessionUnknown ? (
-          <Typography sx={{ color: t.muted, fontSize: 12.5, lineHeight: 1.5 }}>
-            The construction session could not be read, so this may resume a pump that is already
-            running.
-          </Typography>
-        ) : null}
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 2 }}>
         <Button

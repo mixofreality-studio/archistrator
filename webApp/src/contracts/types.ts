@@ -1075,6 +1075,13 @@ export type ProjectStateWithGit = ProjectState & {
    * ConstructionConsole) shares one precomputed answer. Absent (never false).
    */
   operating?: boolean;
+  /**
+   * Has construction started for this project — the server's answer (get-project's
+   * constructionStarted), from stored pump-written state or an observed attempt;
+   * reconstructed attempts never count. Always set by mapProjectState; optional only
+   * so a hand-built fixture need not invent it. Decides Begin versus Resume.
+   */
+  constructionStarted?: boolean;
 };
 
 /** Lookup helper — undefined for not-yet-branched activities (honest-empty). */

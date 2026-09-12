@@ -9,8 +9,11 @@
  * (reconstructed) attempts no pump ever ran, so the console read "Resume
  * construction" on a project whose pump had never started — and because the rows
  * arrive a beat after the page, it read "Begin" first and flipped to "Resume"
- * about 1.1s after load. The seeded project has never been run, so the one label
- * is "Begin construction", and it is never shown before the answer is in.
+ * about 1.1s after load. The label is now the project read's constructionStarted
+ * (fix round B, item 7), computed once on the server — which replaced probing one
+ * construction-session endpoint per activity on every load. The seeded project has
+ * never been run, so the one label is "Begin construction", and it is never shown
+ * before the project read is in.
  *
  * Then the fix-A review found a double-click on the dispatch button sent TWO
  * execute-next-activity POSTs, each with a fresh tickID — two pump workflows.
@@ -93,6 +96,10 @@ test('Begin/Resume commits to one label, and Begin names what it would dispatch 
   request,
 }) => {
   const trapped = await trapDispatches(page);
+  const sessionProbes: string[] = [];
+  page.on('request', (r) => {
+    if (r.url().includes('/construction/get-session-state/')) sessionProbes.push(r.url());
+  });
   await gotoApp(page, '/project/archistrator/construction?lens=list');
   const begin = page.getByTestId(TESTID.constructionBegin);
   await expect(begin).toBeVisible({ timeout: 15_000 });
@@ -120,9 +127,17 @@ test('Begin/Resume commits to one label, and Begin names what it would dispatch 
   }
 
   // The seeded project has never been run, so Begin — even though 23 activities
-  // carry reconstructed attempts.
+  // carry reconstructed attempts: the server's constructionStarted says so.
   await expect(begin).toHaveText(/Begin construction/);
   await expect(begin).toBeEnabled();
+  const wire = (await (
+    await request.get(`${BASE}/api/v1/system-design/get-project/archistrator`, {
+      headers: { Accept: 'application/json' },
+    })
+  ).json()) as { constructionStarted?: boolean };
+  expect(wire.constructionStarted).toBe(false);
+  // The label came from that read alone: not one per-activity session probe.
+  expect(sessionProbes, 'session probes on load').toEqual([]);
 
   await openDialog(page);
   const expected = await unrecordedActivityIds(request);

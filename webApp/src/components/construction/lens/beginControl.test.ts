@@ -1,39 +1,49 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { ConstructionRow } from '../../../contracts/types';
-import { beginControlFor, notStartedActivities, type StartedAnswer } from './beginControl.ts';
+import { beginControlFor, notStartedActivities } from './beginControl.ts';
 
 const COMMITTED_WORDS = /Begin construction|Resume construction/;
 
-void test('while the project or a session probe is loading, the button is disabled and names neither Begin nor Resume', () => {
-  const answers: StartedAnswer[] = ['loading', 'started', 'notStarted', 'unknown'];
-  for (const started of answers) {
-    const c = beginControlFor({ started, projectLoading: true, running: false });
-    assert.equal(c.disabled, true, `projectLoading + ${started}`);
-    assert.doesNotMatch(c.label, COMMITTED_WORDS, `projectLoading + ${started}`);
+void test('while the project is loading, the button is disabled and names neither Begin nor Resume', () => {
+  for (const constructionStarted of [true, false, undefined]) {
+    const c = beginControlFor({ constructionStarted, projectLoading: true, running: false });
+    assert.equal(c.disabled, true, `loading + ${String(constructionStarted)}`);
+    assert.doesNotMatch(c.label, COMMITTED_WORDS, `loading + ${String(constructionStarted)}`);
   }
-  const probing = beginControlFor({ started: 'loading', projectLoading: false, running: false });
-  assert.equal(probing.disabled, true);
-  assert.doesNotMatch(probing.label, COMMITTED_WORDS);
 });
 
-void test('the label is the session answer: started is Resume, notStarted is Begin', () => {
-  const resume = beginControlFor({ started: 'started', projectLoading: false, running: false });
+void test('the label is the server’s constructionStarted: true is Resume, false is Begin', () => {
+  const resume = beginControlFor({
+    constructionStarted: true,
+    projectLoading: false,
+    running: false,
+  });
   assert.equal(resume.label, 'Resume construction');
+  assert.equal(resume.verb, 'Resume');
   assert.equal(resume.disabled, false);
-  const begin = beginControlFor({ started: 'notStarted', projectLoading: false, running: false });
+  const begin = beginControlFor({
+    constructionStarted: false,
+    projectLoading: false,
+    running: false,
+  });
   assert.equal(begin.label, 'Begin construction');
+  assert.equal(begin.verb, 'Begin');
   assert.equal(begin.disabled, false);
 });
 
-void test('an unknown answer claims neither word alone', () => {
-  const c = beginControlFor({ started: 'unknown', projectLoading: false, running: false });
-  assert.equal(c.label, 'Begin or resume construction');
-  assert.equal(c.disabled, false);
+void test('no project read claims neither word, and dispatches nothing', () => {
+  const c = beginControlFor({
+    constructionStarted: undefined,
+    projectLoading: false,
+    running: false,
+  });
+  assert.doesNotMatch(c.label, COMMITTED_WORDS);
+  assert.equal(c.disabled, true);
 });
 
-void test('a run in flight disables the button whatever the session says', () => {
-  const c = beginControlFor({ started: 'notStarted', projectLoading: false, running: true });
+void test('a run in flight disables the button whatever the project says', () => {
+  const c = beginControlFor({ constructionStarted: false, projectLoading: false, running: true });
   assert.equal(c.disabled, true);
 });
 

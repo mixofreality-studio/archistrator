@@ -11096,3 +11096,79 @@ func TestPhasesToContract_PartialLedgerStillDeniesARejectedGate(t *testing.T) {
 		t.Errorf("integration Completed = false, want the stored true — the ledger says nothing about it")
 	}
 }
+
+// constructionStartedFor decides Begin versus Resume once, on the server, from the
+// STORED head-state: pump-written state or an OBSERVED attempt. The load-bearing case
+// is the live corpus's own shape — 23 stored rows carrying nothing but backfilled
+// attempts — which must read NOT started: counting reconstructed work is exactly how
+// the console came to say "Resume" on a project whose pump had never run.
+func TestConstructionStartedFor(t *testing.T) {
+	now := time.Now()
+	reconstructed := func(o projectstate.RecordOrigin) []projectstate.TaskAttempt {
+		return []projectstate.TaskAttempt{
+			{Provenance: projectstate.AttemptProvenance{Origin: o, Basis: "b"}},
+			{Provenance: projectstate.AttemptProvenance{Origin: o, Basis: "b"}},
+		}
+	}
+	cases := []struct {
+		name string
+		rows map[string]projectstate.ActivityConstructionStatus
+		want bool
+	}{
+		{"nothing stored", nil, false},
+		{"backfilled attempts only (the live corpus)", map[string]projectstate.ActivityConstructionStatus{
+			"C-a": {ActivityID: "C-a", Attempts: reconstructed(projectstate.OriginBackfilled)},
+			"C-b": {ActivityID: "C-b", Attempts: reconstructed(projectstate.OriginBackfilled)},
+		}, false},
+		{"synthesized attempts only", map[string]projectstate.ActivityConstructionStatus{
+			"C-a": {ActivityID: "C-a", Attempts: reconstructed(projectstate.OriginSynthesized)},
+		}, false},
+		{"a stored row with nothing on it", map[string]projectstate.ActivityConstructionStatus{
+			"C-a": {ActivityID: "C-a"},
+		}, false},
+		{"a start time", map[string]projectstate.ActivityConstructionStatus{
+			"C-a": {ActivityID: "C-a", StartedAt: &now},
+		}, true},
+		{"a coarse phase past NotStarted", map[string]projectstate.ActivityConstructionStatus{
+			"C-a": {ActivityID: "C-a", Phase: projectstate.ActivityConstructionRunning},
+		}, true},
+		{"a stored phase set", map[string]projectstate.ActivityConstructionStatus{
+			"C-a": {ActivityID: "C-a", Phases: []projectstate.PhaseCompletion{{Phase: projectstate.MethodPhaseRequirements}}},
+		}, true},
+		{"a recorded failure reason", map[string]projectstate.ActivityConstructionStatus{
+			"C-a": {ActivityID: "C-a", FailureReason: projectstate.PipelineFailed},
+		}, true},
+		{"a recorded failure detail", map[string]projectstate.ActivityConstructionStatus{
+			"C-a": {ActivityID: "C-a", FailureDetail: "pipeline cancelled"},
+		}, true},
+		{"one observed attempt among backfilled ones", map[string]projectstate.ActivityConstructionStatus{
+			"C-a": {ActivityID: "C-a", Attempts: append(reconstructed(projectstate.OriginBackfilled),
+				projectstate.TaskAttempt{Provenance: projectstate.AttemptProvenance{Origin: projectstate.OriginObserved}})},
+		}, true},
+	}
+	for _, c := range cases {
+		if got := constructionStartedFor(c.rows); got != c.want {
+			t.Errorf("%s: constructionStartedFor = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+// The field reaches the get-project view-model the SPA and the MCP tool read.
+func TestProjectStateToContract_CarriesConstructionStarted(t *testing.T) {
+	m := &systemDesignManager{}
+	now := time.Now()
+	started := projectstate.Project{ActivityConstruction: map[string]projectstate.ActivityConstructionStatus{
+		"C-a": {ActivityID: "C-a", StartedAt: &now},
+	}}
+	if !m.projectStateToContract(started).ConstructionStarted {
+		t.Errorf("a project with a started row reads ConstructionStarted=false")
+	}
+	backfilledOnly := projectstate.Project{ActivityConstruction: map[string]projectstate.ActivityConstructionStatus{
+		"C-a": {ActivityID: "C-a", Attempts: []projectstate.TaskAttempt{
+			{Provenance: projectstate.AttemptProvenance{Origin: projectstate.OriginBackfilled, Basis: "b"}},
+		}},
+	}}
+	if m.projectStateToContract(backfilledOnly).ConstructionStarted {
+		t.Errorf("a project whose only evidence is backfilled reads ConstructionStarted=true")
+	}
+}

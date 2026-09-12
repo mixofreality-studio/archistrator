@@ -690,6 +690,9 @@ export function mapProjectState(w: Schemas['SystemDesignProjectState']): Project
     ...(w.reviewPolicy !== undefined ? { reviewPolicy: w.reviewPolicy } : {}),
     ...(w.testingState !== undefined ? { testingState: w.testingState } : {}),
     ...(operating ? { operating: true } : {}),
+    // Computed ONCE on the server (constructionStartedFor) and passed through as-is:
+    // the SPA never re-derives it from rows or attempts.
+    constructionStarted: w.constructionStarted,
   };
 }
 

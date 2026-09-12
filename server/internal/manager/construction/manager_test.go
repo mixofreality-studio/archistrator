@@ -1954,6 +1954,30 @@ func Test_GetSessionState_BeforeConstruction_CleanNotFound(t *testing.T) {
 	}
 }
 
+// A PER-ACTIVITY miss means only that the pump has not dispatched that activity —
+// construction may be under way elsewhere in the project — so the copy names the
+// activity and never claims the whole project has not started.
+func Test_GetSessionState_ActivityNotDispatched_NamesTheActivity(t *testing.T) {
+	fc := &fakeQueryClient{queryErr: serviceerror.NewNotFound("workflow not found for ID: gtdapp:C-billing-manager")}
+	m := newTestConstructionManager(fc)
+	act := ActivityID("C-billing-manager")
+
+	_, err := m.GetSessionState(testCtx(), ProjectID("gtdapp"), &act)
+	e := asConstructionError(t, err)
+	if e.Kind != fwmanager.NotFound {
+		t.Fatalf("want NotFound, got %d", e.Kind)
+	}
+	if strings.Contains(e.Detail, "for this project") {
+		t.Fatalf("a per-activity miss claims the whole project has not started: %q", e.Detail)
+	}
+	if !strings.Contains(e.Detail, "C-billing-manager") || !strings.Contains(e.Detail, "not dispatched") {
+		t.Fatalf("want the activity named as not dispatched, got %q", e.Detail)
+	}
+	if strings.Contains(e.Detail, "workflow not found") {
+		t.Fatalf("Temporal internals leaked to the client: %q", e.Detail)
+	}
+}
+
 // QA 2026-07-19 (poll-404 wizard reset twin): a namespace-not-found from a wrong/foreign
 // Temporal backend must NOT map to the authoritative "construction has not started"
 // NotFound — the polled console trusts that 404 and drops its session view. It stays an

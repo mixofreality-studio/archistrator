@@ -3013,6 +3013,7 @@ func (m *systemDesignManager) projectStateToContract(p projectstate.Project) Pro
 		Slots:                slotsToContract(p),
 		GitRows:              m.gitRowsToContract(ProjectID(p.ID), p.ActivityGit),
 		ActivityConstruction: constructionRowsToContract(p.ActivityConstruction, activityMetaByID(p), componentLayerByID(p)),
+		ConstructionStarted:  constructionStartedFor(p.ActivityConstruction),
 		ConstructionProgress: m.constructionProgressToContract(p),
 		ServiceContracts:     serviceContractsToContract(p.ServiceContracts),
 		ReviewPolicy:         reviewPolicyToContract(p.ReviewPolicy),
@@ -3494,6 +3495,46 @@ func constructionRowsToContract(
 		}
 	}
 	return out
+}
+
+// constructionStartedFor answers the Begin-versus-Resume question — has construction
+// started for this project? — from the STORED head-state, once, on the server.
+//
+// True iff some stored row carries state only the construction pump writes (a start
+// time, a coarse phase past NotStarted, a phase set, a recorded failure) or an attempt
+// the running system OBSERVED. A reconstructed attempt never counts, whatever its
+// outcome: the backfill wrote 214 backfilled attempts onto 23 activities no pump ever
+// ran, and counting them read "Resume construction" on a project whose pump had never
+// started. A planned-no-record row cannot count either — it is not a stored row.
+//
+// It replaces the SPA probing one construction-session endpoint per committed activity
+// on every load (29 GETs), which also stopped answering once Temporal retention expired.
+func constructionStartedFor(rows map[string]projectstate.ActivityConstructionStatus) bool {
+	for _, r := range rows {
+		if rowCarriesPumpState(r) || hasObservedAttempt(r.Attempts) {
+			return true
+		}
+	}
+	return false
+}
+
+// rowCarriesPumpState reports whether a stored row holds any field only the pump writes.
+func rowCarriesPumpState(r projectstate.ActivityConstructionStatus) bool {
+	return r.StartedAt != nil ||
+		r.Phase != projectstate.ActivityConstructionNotStarted ||
+		len(r.Phases) > 0 ||
+		r.FailureReason != projectstate.FailureReasonUnknown ||
+		r.FailureDetail != ""
+}
+
+// hasObservedAttempt reports whether the ledger holds an attempt of origin observed.
+func hasObservedAttempt(attempts []projectstate.TaskAttempt) bool {
+	for _, a := range attempts {
+		if a.Provenance.Origin == projectstate.OriginObserved {
+			return true
+		}
+	}
+	return false
 }
 
 // activityMetaByID builds the id → ActivityItem lookup from the committed

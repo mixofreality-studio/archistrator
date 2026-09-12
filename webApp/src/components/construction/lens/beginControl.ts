@@ -3,31 +3,30 @@
  * Begin names before it dispatches anything. No React here, so node:test can pin
  * it (beginControl.test.ts); the route wires it and the dialog renders it.
  *
- * Two rules the designer pass (P0-3) turned up:
+ * The label is the project read's `constructionStarted`, computed ONCE on the
+ * server from the stored head-state (fix round B, item 7) — never counted from rows
+ * or attempts here: the backfill filled 23 rows with reconstructed attempts no pump
+ * ever ran, and the server already refuses to count those. It replaced probing one
+ * construction-session endpoint per committed activity on every load.
  *
- *  1. The label is decided ONCE. While the project or any session probe is
- *     loading the button is disabled and says neither "Begin" nor "Resume", so
- *     it can no longer read "Begin" and flip to "Resume" a second after load.
+ * Two rules the designer pass (P0-3) turned up still hold:
+ *
+ *  1. The label is decided ONCE. While the project is loading the button is
+ *     disabled and says neither "Begin" nor "Resume", so it cannot read "Begin"
+ *     and flip to "Resume" after load.
  *  2. Begin is a real dispatch, so it asks first and says what it would start —
  *     the activities with no stored record, read from the rows the server sent,
  *     never a hardcoded list.
  */
 import type { ConstructionRows } from '../../../contracts/types';
 
-/**
- * The session endpoint's answer, as hooks/constructionStarted.ts reduces it.
- * Restated as a literal union because this pure layer may not import from hooks;
- * the route hands one straight to the other, so tsc fails the moment they drift.
- */
-export type StartedAnswer = 'loading' | 'started' | 'notStarted' | 'unknown';
-
 export interface BeginControl {
   label: string;
   disabled: boolean;
-  /** Show the spinner: something is in flight (a check or a run). */
+  /** Show the spinner: something is in flight (a load or a run). */
   busy: boolean;
   /** The verb the confirm step asks with. */
-  verb: 'Begin' | 'Resume' | 'Begin or resume';
+  verb: 'Begin' | 'Resume';
 }
 
 const CHECKING: BeginControl = {
@@ -38,7 +37,8 @@ const CHECKING: BeginControl = {
 };
 
 export function beginControlFor(input: {
-  started: StartedAnswer;
+  /** The project read's constructionStarted; `undefined` when there is no project read. */
+  constructionStarted: boolean | undefined;
   projectLoading: boolean;
   running: boolean;
 }): BeginControl {
@@ -46,23 +46,14 @@ export function beginControlFor(input: {
     return { label: 'Construction running…', disabled: true, busy: true, verb: 'Resume' };
   }
   if (input.projectLoading) return CHECKING;
-  switch (input.started) {
-    case 'loading':
-      return CHECKING;
-    case 'started':
-      return { label: 'Resume construction', disabled: false, busy: false, verb: 'Resume' };
-    case 'notStarted':
-      return { label: 'Begin construction', disabled: false, busy: false, verb: 'Begin' };
-    case 'unknown':
-      // A probe failed and none found a session: neither word can be claimed, so
-      // the label says both rather than guessing one.
-      return {
-        label: 'Begin or resume construction',
-        disabled: false,
-        busy: false,
-        verb: 'Begin or resume',
-      };
+  if (input.constructionStarted === undefined) {
+    // Loaded, but no project read to answer from: neither word can be claimed, and
+    // nothing can sensibly be dispatched.
+    return { label: 'Construction state unavailable', disabled: true, busy: false, verb: 'Begin' };
   }
+  return input.constructionStarted
+    ? { label: 'Resume construction', disabled: false, busy: false, verb: 'Resume' }
+    : { label: 'Begin construction', disabled: false, busy: false, verb: 'Begin' };
 }
 
 export interface DispatchCandidate {

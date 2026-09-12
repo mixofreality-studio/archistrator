@@ -402,6 +402,7 @@ type ProjectState struct {
 	ServiceContracts     map[string]ServiceContract            `json:"ServiceContracts"`
 	ReviewPolicy         *ReviewPolicyView                     `json:"reviewPolicy,omitempty"`
 	TestingState         *TestingStateView                     `json:"testingState,omitempty"`
+	ConstructionStarted  bool                                  `json:"constructionStarted"`
 }
 
 type ProjectSummary struct {

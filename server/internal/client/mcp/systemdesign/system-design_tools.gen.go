@@ -528,6 +528,9 @@ var contractFieldDescriptions = map[reflect.Type]map[string]string{
 		"recorded":    "True iff a stored .activityConstruction head-state row exists for this activity. False on a planned-no-record row: one the server emits because the committed activity list names the activity but nothing has been recorded for it yet. Such a row carries no attempts and no worstOrigin, and its BuildStatus and Phase are meaningless.",
 		"worstOrigin": "The least-trustworthy provenance origin across attempts (synthesized, then backfilled, then observed). Omitted when recorded is false. Meaningless when attempts is empty: the roll-up seeds an empty ledger to observed, which says nothing was derived from anything unknown, not that anything was observed.",
 	},
+	reflect.TypeFor[mgr.ProjectState](): {
+		"constructionStarted": "True iff construction has started for this project: some stored .activityConstruction row carries state only the construction pump writes (a start time, a coarse phase past NotStarted, a phase set, or a recorded failure) or an attempt of origin observed. Reconstructed attempts (backfilled or synthesized) never count, and a planned-no-record row has no stored state to count. Decides Begin versus Resume.",
+	},
 }
 
 // describeContractFields stamps contractFieldDescriptions onto an inferred
