@@ -12,7 +12,9 @@
 // any of it run — with a basis naming what it was derived from, and every attempt is run
 // through AttemptProvenance.Validate before anything is written. Activities with no
 // evidence get NO attempts: absence stays absence, and the pump will pick them up as
-// real work.
+// real work. Every re-run re-examines every activity, so an activity this tool
+// backfilled whose evidence has since regressed is caught: the run refuses, writing
+// nothing, and names it with the condition it now fails (see deQualified).
 //
 // There are exactly three evidence paths, and no fourth:
 //
@@ -677,15 +679,25 @@ func validateAttempts(attempts []projectstate.TaskAttempt) error {
 	return nil
 }
 
-// backfill applies the qualifying verdicts to p.ActivityConstruction. Every attempt is
-// validated before p is touched. An existing row keeps every field but its attempts,
-// and its attempts are replaced only when every one of them is this tool's own earlier
-// backfill: a row carrying any other attempt holds real history, and overwriting it is
-// refused. When this tool's earlier backfill is exactly what the run derives again, it is
-// kept as it stands (see sameDerivation), so a re-run over unchanged evidence is a no-op.
+// backfill applies the verdicts to p.ActivityConstruction. Nothing in p is touched until
+// every check below has passed; any refusal leaves p exactly as it was given.
+//
+//   - A QUALIFYING activity's attempts are validated. An existing row keeps every field
+//     but its attempts, and its attempts are replaced only when every one of them is this
+//     tool's own earlier backfill: a row carrying any other attempt holds real history,
+//     and overwriting it is refused. When this tool's earlier backfill is exactly what the
+//     run derives again, it is kept as it stands (see sameDerivation), so a re-run over
+//     unchanged evidence writes nothing.
+//   - A NON-QUALIFYING activity is re-examined too: when its row holds any attempt this
+//     generator backfilled, the evidence that row was derived from has regressed, and the
+//     whole run is refused, naming every such activity and its failing condition (see
+//     deQualified). A row with no attempt of this generator's is left alone.
 func backfill(p *projectstate.Project, verdicts []verdict, now time.Time) (int, error) {
 	list, _, err := planOf(*p)
 	if err != nil {
+		return 0, err
+	}
+	if err := deQualified(p.ActivityConstruction, verdicts); err != nil {
 		return 0, err
 	}
 	items := make(map[string]projectstate.ActivityItem, len(list.Activities))
@@ -730,6 +742,44 @@ func backfill(p *projectstate.Project, verdicts []verdict, now time.Time) (int, 
 	return total, nil
 }
 
+// deQualified refuses a run in which an activity that does NOT qualify has a row holding
+// an attempt this generator backfilled — a row that says "done" on evidence that no
+// longer stands (the implementing file was deleted, the contract flipped to stub: true,
+// the signed-off artifact was removed, …). It names every such activity, in plan order,
+// with the condition it now fails.
+//
+// Neither silent option is honest. Retracting the row would delete history: it was a
+// true record of what the evidence showed when it was written. Keeping it would leave a
+// row that is wrong. A done activity going undone is a regression, and a human decides
+// what to do about it — so the tool stops and says so.
+func deQualified(rows map[string]projectstate.ActivityConstructionStatus, verdicts []verdict) error {
+	var regressed []string
+	for _, v := range verdicts {
+		if v.Qualifies {
+			continue
+		}
+		for _, a := range rows[v.ActivityID].Attempts {
+			if ownBackfill(a) {
+				regressed = append(regressed, fmt.Sprintf("  %s: %s", v.ActivityID, v.Reason))
+				break
+			}
+		}
+	}
+	if len(regressed) == 0 {
+		return nil
+	}
+	return fmt.Errorf("refusing to write anything: activities this tool backfilled no longer qualify (%d) — a done activity going undone is a regression for a human to decide (retracting its row would delete history; keeping it would leave a row that is wrong):\n%s",
+		len(regressed), strings.Join(regressed, "\n"))
+}
+
+// ownBackfill reports whether an attempt is this tool's own earlier backfill: origin
+// backfilled AND generator this tool. It is the one test of "ours" — the overwrite guard
+// and the regression check must agree on it, or a row could be replaceable as ours yet
+// escape re-examination as not ours (or the reverse).
+func ownBackfill(a projectstate.TaskAttempt) bool {
+	return a.Provenance.Origin == projectstate.OriginBackfilled && a.Provenance.Generator == generatorID
+}
+
 // rowFor returns the row a qualifying activity's attempts go into, and the attempts to
 // put there. A new row is typed from the verdict's classification. An existing row keeps
 // every field; it is refused unless every attempt it holds is this generator's own
@@ -743,7 +793,7 @@ func rowFor(rows map[string]projectstate.ActivityConstructionStatus, v verdict,
 		return projectstate.ActivityConstructionStatus{ActivityID: v.ActivityID, Type: typ, Variant: variant}, fresh, nil
 	}
 	for _, a := range row.Attempts {
-		if a.Provenance.Origin != projectstate.OriginBackfilled || a.Provenance.Generator != generatorID {
+		if !ownBackfill(a) {
 			return row, nil, fmt.Errorf("activityConstruction[%s] already holds attempt %s (origin %q, generator %q) — refusing to overwrite real history",
 				v.ActivityID, a.AttemptID, a.Provenance.Origin, a.Provenance.Generator)
 		}

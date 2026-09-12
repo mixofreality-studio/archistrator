@@ -780,6 +780,112 @@ func TestBackfill_RefusesARowBackfilledByAnotherGenerator(t *testing.T) {
 	}
 }
 
+// ---- de-qualification: a regression refuses the run ------------------------------------
+
+// backfilledThenRegressed backfills the fixture, then applies regress to the evidence
+// and re-evaluates. It returns the backfilled project, a deep copy of its rows, and the
+// fresh verdicts.
+func backfilledThenRegressed(t *testing.T, regress func(p *projectstate.Project, root string)) (projectstate.Project, []byte, []verdict) {
+	t.Helper()
+	p, root := fixtureProject(), fixtureServer(t)
+	vs, err := evaluate(inputs{Project: p, ServerRoot: root, Head: fixtureHead})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := backfill(&p, vs, time.Date(2026, 9, 12, 0, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("first backfill: %v", err)
+	}
+	snapshot, err := json.Marshal(p.ActivityConstruction)
+	if err != nil {
+		t.Fatal(err)
+	}
+	regress(&p, root)
+	again, err := evaluate(inputs{Project: p, ServerRoot: root, Head: "fedcba9876543210fedcba9876543210fedcba98"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p, snapshot, again
+}
+
+// refusedUntouched runs the re-backfill and asserts it is refused with every want in the
+// error, and that no row moved.
+func refusedUntouched(t *testing.T, p projectstate.Project, snapshot []byte, vs []verdict, want ...string) {
+	t.Helper()
+	_, err := backfill(&p, vs, time.Date(2026, 9, 13, 8, 30, 0, 0, time.UTC))
+	if err == nil {
+		t.Fatal("a re-run over a regressed backfilled activity was accepted; want it refused")
+	}
+	for _, w := range want {
+		if !strings.Contains(err.Error(), w) {
+			t.Errorf("error = %q\nwant it to contain %q", err, w)
+		}
+	}
+	after, mErr := json.Marshal(p.ActivityConstruction)
+	if mErr != nil {
+		t.Fatal(mErr)
+	}
+	if !bytes.Equal(after, snapshot) {
+		t.Error("the refused run changed .activityConstruction; want nothing written")
+	}
+}
+
+// The implementing file is deleted after this tool backfilled the component. The re-run
+// is refused, naming the activity and the condition it now fails — and nothing moves,
+// not even gamma's row, whose evidence changed in the same run and would otherwise be
+// re-derived.
+func TestBackfill_RefusesWhenABackfilledActivityLosesItsImplementingFile(t *testing.T) {
+	p, snapshot, vs := backfilledThenRegressed(t, func(_ *projectstate.Project, root string) {
+		_ = os.Remove(filepath.Join(root, "internal/manager/alpha/alphamanager.go"))
+		writeFile(t, root, "internal/resourceaccess/gamma/gammaaccess.go", fieldedImplSource("gamma", "gitGammaAccess", gammaOps...)+
+			strings.TrimPrefix(implSource("gamma", "noopGammaAccess", gammaOps...), "package gamma\n"))
+	})
+	refusedUntouched(t, p, snapshot, vs,
+		"refusing to write anything: activities this tool backfilled no longer qualify (1)",
+		"regression for a human to decide",
+		"\n  C-alpha-manager: condition 3: server/internal/manager/alpha/alphamanager.go")
+}
+
+// The contract flips to stub: true after this tool backfilled the component. Every
+// activity that regresses with it is named — the RA, and the Resource inferred from it.
+func TestBackfill_RefusesWhenABackfilledActivitysContractFlipsToStub(t *testing.T) {
+	p, snapshot, vs := backfilledThenRegressed(t, func(p *projectstate.Project, _ string) {
+		sc := p.ServiceContracts["gammaAccess"]
+		sc.Stub = true
+		p.ServiceContracts["gammaAccess"] = sc
+	})
+	refusedUntouched(t, p, snapshot, vs,
+		"no longer qualify (2)",
+		"\n  C-gamma-access: condition 2: serviceContracts[gammaAccess] is stub: true",
+		"\n  R-gamma-store: inferred: its ResourceAccess C-gamma-access does not qualify")
+}
+
+// Only THIS generator's backfill is a claim the tool must defend. A non-qualifying
+// activity whose row holds observed history (even one carrying this tool's name as its
+// generator — observed is not backfilled), or another generator's backfill, or no
+// attempt at all, is not a regression of anything this tool wrote.
+func TestBackfill_ANonQualifierWithoutThisGeneratorsAttemptsIsNotARegression(t *testing.T) {
+	p, root := fixtureProject(), fixtureServer(t)
+	vs, err := evaluate(inputs{Project: p, ServerRoot: root, Head: fixtureHead})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
+		"N-IT": {ActivityID: "N-IT", Attempts: []projectstate.TaskAttempt{
+			{AttemptID: "N-IT:testing:1", Provenance: projectstate.AttemptProvenance{Origin: projectstate.OriginObserved}},
+		}},
+		"R-orphan": {ActivityID: "R-orphan", Attempts: []projectstate.TaskAttempt{
+			{AttemptID: "R-orphan:construction:1", Provenance: projectstate.AttemptProvenance{Origin: projectstate.OriginObserved, Generator: generatorID}},
+		}},
+		"C-delta-access": {ActivityID: "C-delta-access", Attempts: []projectstate.TaskAttempt{
+			{AttemptID: "C-delta-access:srs:1", Provenance: projectstate.AttemptProvenance{Origin: projectstate.OriginBackfilled, Generator: "cmd/some-other-tool", Basis: "theirs"}},
+		}},
+		"C-beta-engine": {ActivityID: "C-beta-engine"},
+	}
+	if _, err := backfill(&p, vs, time.Now()); err != nil {
+		t.Fatalf("refused a run with no regression of this tool's own rows: %v", err)
+	}
+}
+
 // ---- the writer -----------------------------------------------------------------------
 
 // stateDocument encodes p through the codec and adds what a committed document carries

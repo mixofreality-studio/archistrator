@@ -146,7 +146,7 @@ The method-coverage rule above replaces it and is strictly stronger: a bare `typ
 
 **Resources:** an `R-*` qualifies iff every RA with a slot-5 relationship to it qualifies; its basis must say the evidence is inferred.
 
-**Out of scope of the ruling (F2 + A4):** `U-SPA-web-client` (this branch is rewriting it), `N-STP` (awaiting founder review), `N-IT`. Components that fail the test stay not done — real work. Expected: `C-design-health-engine`, `C-billing-state-access`, `C-merchant-gateway-access`, `R-merchant-gateway` do not qualify. **Count:** 19 of the 22 `C-*` qualify. The earlier "at most 17" was an arithmetic error: 22 − 3 = 19.
+**Out of scope of the ruling (F2 + A4):** `U-SPA-web-client` (this branch is rewriting it), `N-STP` (signed off by the founder 2026-09-12, so it qualifies on that sign-off, not on this ruling), `N-IT`. Components that fail the test stay not done — real work. Expected: `C-design-health-engine`, `C-billing-state-access`, `C-merchant-gateway-access`, `R-merchant-gateway` do not qualify. **Count:** 19 of the 22 `C-*` qualify. The earlier "at most 17" was an arithmetic error: 22 − 3 = 19.
 
 Qualifying activities get a passed attempt for every non-conditional task in their profile. Origin `backfilled`, never `observed`. Basis cites the `serviceContracts[...]` keys, the file paths, the HEAD commit, and the ruling verbatim.
 
