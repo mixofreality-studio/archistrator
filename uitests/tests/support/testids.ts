@@ -217,6 +217,11 @@ export const TESTID = {
   // is exactly what the old overlay Drawer's backdrop used to cover.
   constructionLensToolbar: UI_IDENTIFIERS.Construction.LENS_TOOLBAR,
   constructionLensKind: UI_IDENTIFIERS.Construction.LENS_KIND,
+  // Navigability (Stage B Task 11) — search box and the per-row provenance
+  // mark a search reveal stamps on a reconstructed task match (see
+  // needsInlineProvenanceMark in activityScope.ts).
+  constructionLensSearch: UI_IDENTIFIERS.Construction.LENS_SEARCH,
+  constructionSearchMatchProvenance: UI_IDENTIFIERS.Construction.searchMatchProvenance,
   // The LIST lens's three-tier tree (Stage B Task 6). It replaced the CPM graph
   // as the LIST lens's body — the graph returns under the GRAPH lens in Stage D.
   constructionListTree: UI_IDENTIFIERS.Construction.LIST_TREE,
