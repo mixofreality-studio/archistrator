@@ -10009,6 +10009,3606 @@
       "revisions": 3
     }
   },
+  "activityConstruction": {
+    "C-agentic-job-access": {
+      "activityID": "C-agentic-job-access",
+      "phase": 0,
+      "attempts": [
+        {
+          "attemptId": "C-agentic-job-access:srs:1",
+          "task": "srs",
+          "phase": "requirements",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[agenticJobAccess] + server/internal/resourceaccess/agenticjob/contract.gen.go + server/internal/resourceaccess/agenticjob/agenticjobaccess.go (AgenticJobAccess implemented by access, dryRunPipeline, localExecAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-agentic-job-access:srsReview:1",
+          "task": "srsReview",
+          "phase": "requirements",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[agenticJobAccess] + server/internal/resourceaccess/agenticjob/contract.gen.go + server/internal/resourceaccess/agenticjob/agenticjobaccess.go (AgenticJobAccess implemented by access, dryRunPipeline, localExecAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-agentic-job-access:detailedDesign:1",
+          "task": "detailedDesign",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "agenticJobAccess"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[agenticJobAccess] + server/internal/resourceaccess/agenticjob/contract.gen.go + server/internal/resourceaccess/agenticjob/agenticjobaccess.go (AgenticJobAccess implemented by access, dryRunPipeline, localExecAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-agentic-job-access:designReview:1",
+          "task": "designReview",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "agenticJobAccess"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[agenticJobAccess] + server/internal/resourceaccess/agenticjob/contract.gen.go + server/internal/resourceaccess/agenticjob/agenticjobaccess.go (AgenticJobAccess implemented by access, dryRunPipeline, localExecAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-agentic-job-access:stp:1",
+          "task": "stp",
+          "phase": "test_plan",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[agenticJobAccess] + server/internal/resourceaccess/agenticjob/contract.gen.go + server/internal/resourceaccess/agenticjob/agenticjobaccess.go (AgenticJobAccess implemented by access, dryRunPipeline, localExecAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-agentic-job-access:stpReview:1",
+          "task": "stpReview",
+          "phase": "test_plan",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[agenticJobAccess] + server/internal/resourceaccess/agenticjob/contract.gen.go + server/internal/resourceaccess/agenticjob/agenticjobaccess.go (AgenticJobAccess implemented by access, dryRunPipeline, localExecAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-agentic-job-access:construction:1",
+          "task": "construction",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "a4421a8dbb9aac2f8d086fc8ce848ccf96914629"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[agenticJobAccess] + server/internal/resourceaccess/agenticjob/contract.gen.go + server/internal/resourceaccess/agenticjob/agenticjobaccess.go (AgenticJobAccess implemented by access, dryRunPipeline, localExecAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-agentic-job-access:codeReview:1",
+          "task": "codeReview",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "a4421a8dbb9aac2f8d086fc8ce848ccf96914629"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[agenticJobAccess] + server/internal/resourceaccess/agenticjob/contract.gen.go + server/internal/resourceaccess/agenticjob/agenticjobaccess.go (AgenticJobAccess implemented by access, dryRunPipeline, localExecAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-agentic-job-access:integration:1",
+          "task": "integration",
+          "phase": "integration",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[agenticJobAccess] + server/internal/resourceaccess/agenticjob/contract.gen.go + server/internal/resourceaccess/agenticjob/agenticjobaccess.go (AgenticJobAccess implemented by access, dryRunPipeline, localExecAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-agentic-job-access:testing:1",
+          "task": "testing",
+          "phase": "integration",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[agenticJobAccess] + server/internal/resourceaccess/agenticjob/contract.gen.go + server/internal/resourceaccess/agenticjob/agenticjobaccess.go (AgenticJobAccess implemented by access, dryRunPipeline, localExecAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        }
+      ]
+    },
+    "C-artifact-access": {
+      "activityID": "C-artifact-access",
+      "phase": 0,
+      "attempts": [
+        {
+          "attemptId": "C-artifact-access:srs:1",
+          "task": "srs",
+          "phase": "requirements",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[artifactAccess] + server/internal/resourceaccess/artifact/contract.gen.go + server/internal/resourceaccess/artifact/artifactaccess.go (ArtifactAccess implemented by GitArtifactAccess, dryRunArtifacts, erroringArtifactAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-artifact-access:srsReview:1",
+          "task": "srsReview",
+          "phase": "requirements",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[artifactAccess] + server/internal/resourceaccess/artifact/contract.gen.go + server/internal/resourceaccess/artifact/artifactaccess.go (ArtifactAccess implemented by GitArtifactAccess, dryRunArtifacts, erroringArtifactAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-artifact-access:detailedDesign:1",
+          "task": "detailedDesign",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "artifactAccess"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[artifactAccess] + server/internal/resourceaccess/artifact/contract.gen.go + server/internal/resourceaccess/artifact/artifactaccess.go (ArtifactAccess implemented by GitArtifactAccess, dryRunArtifacts, erroringArtifactAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-artifact-access:designReview:1",
+          "task": "designReview",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "artifactAccess"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[artifactAccess] + server/internal/resourceaccess/artifact/contract.gen.go + server/internal/resourceaccess/artifact/artifactaccess.go (ArtifactAccess implemented by GitArtifactAccess, dryRunArtifacts, erroringArtifactAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-artifact-access:stp:1",
+          "task": "stp",
+          "phase": "test_plan",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[artifactAccess] + server/internal/resourceaccess/artifact/contract.gen.go + server/internal/resourceaccess/artifact/artifactaccess.go (ArtifactAccess implemented by GitArtifactAccess, dryRunArtifacts, erroringArtifactAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-artifact-access:stpReview:1",
+          "task": "stpReview",
+          "phase": "test_plan",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[artifactAccess] + server/internal/resourceaccess/artifact/contract.gen.go + server/internal/resourceaccess/artifact/artifactaccess.go (ArtifactAccess implemented by GitArtifactAccess, dryRunArtifacts, erroringArtifactAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-artifact-access:construction:1",
+          "task": "construction",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "a4421a8dbb9aac2f8d086fc8ce848ccf96914629"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[artifactAccess] + server/internal/resourceaccess/artifact/contract.gen.go + server/internal/resourceaccess/artifact/artifactaccess.go (ArtifactAccess implemented by GitArtifactAccess, dryRunArtifacts, erroringArtifactAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-artifact-access:codeReview:1",
+          "task": "codeReview",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "a4421a8dbb9aac2f8d086fc8ce848ccf96914629"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[artifactAccess] + server/internal/resourceaccess/artifact/contract.gen.go + server/internal/resourceaccess/artifact/artifactaccess.go (ArtifactAccess implemented by GitArtifactAccess, dryRunArtifacts, erroringArtifactAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-artifact-access:integration:1",
+          "task": "integration",
+          "phase": "integration",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[artifactAccess] + server/internal/resourceaccess/artifact/contract.gen.go + server/internal/resourceaccess/artifact/artifactaccess.go (ArtifactAccess implemented by GitArtifactAccess, dryRunArtifacts, erroringArtifactAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-artifact-access:testing:1",
+          "task": "testing",
+          "phase": "integration",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[artifactAccess] + server/internal/resourceaccess/artifact/contract.gen.go + server/internal/resourceaccess/artifact/artifactaccess.go (ArtifactAccess implemented by GitArtifactAccess, dryRunArtifacts, erroringArtifactAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        }
+      ]
+    },
+    "C-autoscaler-engine": {
+      "activityID": "C-autoscaler-engine",
+      "phase": 0,
+      "attempts": [
+        {
+          "attemptId": "C-autoscaler-engine:srs:1",
+          "task": "srs",
+          "phase": "requirements",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[autoscalerEngine] + server/internal/engine/autoscaler/contract.gen.go + server/internal/engine/autoscaler/autoscalerengine.go (AutoscalerEngine implemented by AutoscalerEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-autoscaler-engine:srsReview:1",
+          "task": "srsReview",
+          "phase": "requirements",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[autoscalerEngine] + server/internal/engine/autoscaler/contract.gen.go + server/internal/engine/autoscaler/autoscalerengine.go (AutoscalerEngine implemented by AutoscalerEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-autoscaler-engine:detailedDesign:1",
+          "task": "detailedDesign",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "autoscalerEngine"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[autoscalerEngine] + server/internal/engine/autoscaler/contract.gen.go + server/internal/engine/autoscaler/autoscalerengine.go (AutoscalerEngine implemented by AutoscalerEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-autoscaler-engine:designReview:1",
+          "task": "designReview",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "autoscalerEngine"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[autoscalerEngine] + server/internal/engine/autoscaler/contract.gen.go + server/internal/engine/autoscaler/autoscalerengine.go (AutoscalerEngine implemented by AutoscalerEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-autoscaler-engine:stp:1",
+          "task": "stp",
+          "phase": "test_plan",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[autoscalerEngine] + server/internal/engine/autoscaler/contract.gen.go + server/internal/engine/autoscaler/autoscalerengine.go (AutoscalerEngine implemented by AutoscalerEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-autoscaler-engine:stpReview:1",
+          "task": "stpReview",
+          "phase": "test_plan",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[autoscalerEngine] + server/internal/engine/autoscaler/contract.gen.go + server/internal/engine/autoscaler/autoscalerengine.go (AutoscalerEngine implemented by AutoscalerEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-autoscaler-engine:construction:1",
+          "task": "construction",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "a4421a8dbb9aac2f8d086fc8ce848ccf96914629"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[autoscalerEngine] + server/internal/engine/autoscaler/contract.gen.go + server/internal/engine/autoscaler/autoscalerengine.go (AutoscalerEngine implemented by AutoscalerEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-autoscaler-engine:codeReview:1",
+          "task": "codeReview",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "a4421a8dbb9aac2f8d086fc8ce848ccf96914629"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[autoscalerEngine] + server/internal/engine/autoscaler/contract.gen.go + server/internal/engine/autoscaler/autoscalerengine.go (AutoscalerEngine implemented by AutoscalerEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-autoscaler-engine:integration:1",
+          "task": "integration",
+          "phase": "integration",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[autoscalerEngine] + server/internal/engine/autoscaler/contract.gen.go + server/internal/engine/autoscaler/autoscalerengine.go (AutoscalerEngine implemented by AutoscalerEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-autoscaler-engine:testing:1",
+          "task": "testing",
+          "phase": "integration",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[autoscalerEngine] + server/internal/engine/autoscaler/contract.gen.go + server/internal/engine/autoscaler/autoscalerengine.go (AutoscalerEngine implemented by AutoscalerEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        }
+      ]
+    },
+    "C-billing-engine": {
+      "activityID": "C-billing-engine",
+      "phase": 0,
+      "attempts": [
+        {
+          "attemptId": "C-billing-engine:srs:1",
+          "task": "srs",
+          "phase": "requirements",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[billingEngine] + server/internal/engine/billing/contract.gen.go + server/internal/engine/billing/billingengine.go (BillingEngine implemented by BillingEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-billing-engine:srsReview:1",
+          "task": "srsReview",
+          "phase": "requirements",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[billingEngine] + server/internal/engine/billing/contract.gen.go + server/internal/engine/billing/billingengine.go (BillingEngine implemented by BillingEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-billing-engine:detailedDesign:1",
+          "task": "detailedDesign",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "billingEngine"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[billingEngine] + server/internal/engine/billing/contract.gen.go + server/internal/engine/billing/billingengine.go (BillingEngine implemented by BillingEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-billing-engine:designReview:1",
+          "task": "designReview",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "billingEngine"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[billingEngine] + server/internal/engine/billing/contract.gen.go + server/internal/engine/billing/billingengine.go (BillingEngine implemented by BillingEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-billing-engine:stp:1",
+          "task": "stp",
+          "phase": "test_plan",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[billingEngine] + server/internal/engine/billing/contract.gen.go + server/internal/engine/billing/billingengine.go (BillingEngine implemented by BillingEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-billing-engine:stpReview:1",
+          "task": "stpReview",
+          "phase": "test_plan",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[billingEngine] + server/internal/engine/billing/contract.gen.go + server/internal/engine/billing/billingengine.go (BillingEngine implemented by BillingEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-billing-engine:construction:1",
+          "task": "construction",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "a4421a8dbb9aac2f8d086fc8ce848ccf96914629"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[billingEngine] + server/internal/engine/billing/contract.gen.go + server/internal/engine/billing/billingengine.go (BillingEngine implemented by BillingEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-billing-engine:codeReview:1",
+          "task": "codeReview",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "a4421a8dbb9aac2f8d086fc8ce848ccf96914629"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[billingEngine] + server/internal/engine/billing/contract.gen.go + server/internal/engine/billing/billingengine.go (BillingEngine implemented by BillingEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-billing-engine:integration:1",
+          "task": "integration",
+          "phase": "integration",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[billingEngine] + server/internal/engine/billing/contract.gen.go + server/internal/engine/billing/billingengine.go (BillingEngine implemented by BillingEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-billing-engine:testing:1",
+          "task": "testing",
+          "phase": "integration",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[billingEngine] + server/internal/engine/billing/contract.gen.go + server/internal/engine/billing/billingengine.go (BillingEngine implemented by BillingEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        }
+      ]
+    },
+    "C-billing-manager": {
+      "activityID": "C-billing-manager",
+      "phase": 0,
+      "attempts": [
+        {
+          "attemptId": "C-billing-manager:srs:1",
+          "task": "srs",
+          "phase": "requirements",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[billingManager] + server/internal/manager/billing/contract.gen.go + server/internal/manager/billing/billingmanager.go (BillingManager implemented by billingManager) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-billing-manager:srsReview:1",
+          "task": "srsReview",
+          "phase": "requirements",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[billingManager] + server/internal/manager/billing/contract.gen.go + server/internal/manager/billing/billingmanager.go (BillingManager implemented by billingManager) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-billing-manager:detailedDesign:1",
+          "task": "detailedDesign",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "billingManager"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[billingManager] + server/internal/manager/billing/contract.gen.go + server/internal/manager/billing/billingmanager.go (BillingManager implemented by billingManager) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-billing-manager:designReview:1",
+          "task": "designReview",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "billingManager"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[billingManager] + server/internal/manager/billing/contract.gen.go + server/internal/manager/billing/billingmanager.go (BillingManager implemented by billingManager) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-billing-manager:stp:1",
+          "task": "stp",
+          "phase": "test_plan",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[billingManager] + server/internal/manager/billing/contract.gen.go + server/internal/manager/billing/billingmanager.go (BillingManager implemented by billingManager) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-billing-manager:stpReview:1",
+          "task": "stpReview",
+          "phase": "test_plan",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[billingManager] + server/internal/manager/billing/contract.gen.go + server/internal/manager/billing/billingmanager.go (BillingManager implemented by billingManager) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-billing-manager:construction:1",
+          "task": "construction",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "a4421a8dbb9aac2f8d086fc8ce848ccf96914629"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[billingManager] + server/internal/manager/billing/contract.gen.go + server/internal/manager/billing/billingmanager.go (BillingManager implemented by billingManager) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-billing-manager:codeReview:1",
+          "task": "codeReview",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "a4421a8dbb9aac2f8d086fc8ce848ccf96914629"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[billingManager] + server/internal/manager/billing/contract.gen.go + server/internal/manager/billing/billingmanager.go (BillingManager implemented by billingManager) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-billing-manager:integration:1",
+          "task": "integration",
+          "phase": "integration",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[billingManager] + server/internal/manager/billing/contract.gen.go + server/internal/manager/billing/billingmanager.go (BillingManager implemented by billingManager) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-billing-manager:testing:1",
+          "task": "testing",
+          "phase": "integration",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[billingManager] + server/internal/manager/billing/contract.gen.go + server/internal/manager/billing/billingmanager.go (BillingManager implemented by billingManager) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        }
+      ]
+    },
+    "C-construction-manager": {
+      "activityID": "C-construction-manager",
+      "phase": 0,
+      "attempts": [
+        {
+          "attemptId": "C-construction-manager:srs:1",
+          "task": "srs",
+          "phase": "requirements",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[constructionManager] + server/internal/manager/construction/contract.gen.go + server/internal/manager/construction/constructionmanager.go (ConstructionManager implemented by constructionManager) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-construction-manager:srsReview:1",
+          "task": "srsReview",
+          "phase": "requirements",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[constructionManager] + server/internal/manager/construction/contract.gen.go + server/internal/manager/construction/constructionmanager.go (ConstructionManager implemented by constructionManager) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-construction-manager:detailedDesign:1",
+          "task": "detailedDesign",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "constructionManager"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[constructionManager] + server/internal/manager/construction/contract.gen.go + server/internal/manager/construction/constructionmanager.go (ConstructionManager implemented by constructionManager) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-construction-manager:designReview:1",
+          "task": "designReview",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "constructionManager"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[constructionManager] + server/internal/manager/construction/contract.gen.go + server/internal/manager/construction/constructionmanager.go (ConstructionManager implemented by constructionManager) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-construction-manager:stp:1",
+          "task": "stp",
+          "phase": "test_plan",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[constructionManager] + server/internal/manager/construction/contract.gen.go + server/internal/manager/construction/constructionmanager.go (ConstructionManager implemented by constructionManager) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-construction-manager:stpReview:1",
+          "task": "stpReview",
+          "phase": "test_plan",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[constructionManager] + server/internal/manager/construction/contract.gen.go + server/internal/manager/construction/constructionmanager.go (ConstructionManager implemented by constructionManager) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-construction-manager:construction:1",
+          "task": "construction",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "a4421a8dbb9aac2f8d086fc8ce848ccf96914629"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[constructionManager] + server/internal/manager/construction/contract.gen.go + server/internal/manager/construction/constructionmanager.go (ConstructionManager implemented by constructionManager) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-construction-manager:codeReview:1",
+          "task": "codeReview",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "a4421a8dbb9aac2f8d086fc8ce848ccf96914629"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[constructionManager] + server/internal/manager/construction/contract.gen.go + server/internal/manager/construction/constructionmanager.go (ConstructionManager implemented by constructionManager) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-construction-manager:integration:1",
+          "task": "integration",
+          "phase": "integration",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[constructionManager] + server/internal/manager/construction/contract.gen.go + server/internal/manager/construction/constructionmanager.go (ConstructionManager implemented by constructionManager) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-construction-manager:testing:1",
+          "task": "testing",
+          "phase": "integration",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[constructionManager] + server/internal/manager/construction/contract.gen.go + server/internal/manager/construction/constructionmanager.go (ConstructionManager implemented by constructionManager) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        }
+      ]
+    },
+    "C-episode-access": {
+      "activityID": "C-episode-access",
+      "phase": 0,
+      "attempts": [
+        {
+          "attemptId": "C-episode-access:srs:1",
+          "task": "srs",
+          "phase": "requirements",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[episodeAccess] + server/internal/resourceaccess/episode/contract.gen.go + server/internal/resourceaccess/episode/episodeaccess.go (EpisodeAccess implemented by localFSEpisodeAccess, noopEpisodeAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-episode-access:srsReview:1",
+          "task": "srsReview",
+          "phase": "requirements",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[episodeAccess] + server/internal/resourceaccess/episode/contract.gen.go + server/internal/resourceaccess/episode/episodeaccess.go (EpisodeAccess implemented by localFSEpisodeAccess, noopEpisodeAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-episode-access:detailedDesign:1",
+          "task": "detailedDesign",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "episodeAccess"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[episodeAccess] + server/internal/resourceaccess/episode/contract.gen.go + server/internal/resourceaccess/episode/episodeaccess.go (EpisodeAccess implemented by localFSEpisodeAccess, noopEpisodeAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-episode-access:designReview:1",
+          "task": "designReview",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "episodeAccess"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[episodeAccess] + server/internal/resourceaccess/episode/contract.gen.go + server/internal/resourceaccess/episode/episodeaccess.go (EpisodeAccess implemented by localFSEpisodeAccess, noopEpisodeAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-episode-access:stp:1",
+          "task": "stp",
+          "phase": "test_plan",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[episodeAccess] + server/internal/resourceaccess/episode/contract.gen.go + server/internal/resourceaccess/episode/episodeaccess.go (EpisodeAccess implemented by localFSEpisodeAccess, noopEpisodeAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-episode-access:stpReview:1",
+          "task": "stpReview",
+          "phase": "test_plan",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[episodeAccess] + server/internal/resourceaccess/episode/contract.gen.go + server/internal/resourceaccess/episode/episodeaccess.go (EpisodeAccess implemented by localFSEpisodeAccess, noopEpisodeAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-episode-access:construction:1",
+          "task": "construction",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "a4421a8dbb9aac2f8d086fc8ce848ccf96914629"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[episodeAccess] + server/internal/resourceaccess/episode/contract.gen.go + server/internal/resourceaccess/episode/episodeaccess.go (EpisodeAccess implemented by localFSEpisodeAccess, noopEpisodeAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-episode-access:codeReview:1",
+          "task": "codeReview",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "a4421a8dbb9aac2f8d086fc8ce848ccf96914629"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[episodeAccess] + server/internal/resourceaccess/episode/contract.gen.go + server/internal/resourceaccess/episode/episodeaccess.go (EpisodeAccess implemented by localFSEpisodeAccess, noopEpisodeAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-episode-access:integration:1",
+          "task": "integration",
+          "phase": "integration",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[episodeAccess] + server/internal/resourceaccess/episode/contract.gen.go + server/internal/resourceaccess/episode/episodeaccess.go (EpisodeAccess implemented by localFSEpisodeAccess, noopEpisodeAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-episode-access:testing:1",
+          "task": "testing",
+          "phase": "integration",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[episodeAccess] + server/internal/resourceaccess/episode/contract.gen.go + server/internal/resourceaccess/episode/episodeaccess.go (EpisodeAccess implemented by localFSEpisodeAccess, noopEpisodeAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        }
+      ]
+    },
+    "C-estimation-engine": {
+      "activityID": "C-estimation-engine",
+      "phase": 0,
+      "attempts": [
+        {
+          "attemptId": "C-estimation-engine:srs:1",
+          "task": "srs",
+          "phase": "requirements",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[estimationEngine] + server/internal/engine/estimation/contract.gen.go + server/internal/engine/estimation/estimationengine.go (EstimationEngine implemented by EstimationEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-estimation-engine:srsReview:1",
+          "task": "srsReview",
+          "phase": "requirements",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[estimationEngine] + server/internal/engine/estimation/contract.gen.go + server/internal/engine/estimation/estimationengine.go (EstimationEngine implemented by EstimationEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-estimation-engine:detailedDesign:1",
+          "task": "detailedDesign",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "estimationEngine"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[estimationEngine] + server/internal/engine/estimation/contract.gen.go + server/internal/engine/estimation/estimationengine.go (EstimationEngine implemented by EstimationEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-estimation-engine:designReview:1",
+          "task": "designReview",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "estimationEngine"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[estimationEngine] + server/internal/engine/estimation/contract.gen.go + server/internal/engine/estimation/estimationengine.go (EstimationEngine implemented by EstimationEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-estimation-engine:stp:1",
+          "task": "stp",
+          "phase": "test_plan",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[estimationEngine] + server/internal/engine/estimation/contract.gen.go + server/internal/engine/estimation/estimationengine.go (EstimationEngine implemented by EstimationEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-estimation-engine:stpReview:1",
+          "task": "stpReview",
+          "phase": "test_plan",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[estimationEngine] + server/internal/engine/estimation/contract.gen.go + server/internal/engine/estimation/estimationengine.go (EstimationEngine implemented by EstimationEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-estimation-engine:construction:1",
+          "task": "construction",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "a4421a8dbb9aac2f8d086fc8ce848ccf96914629"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[estimationEngine] + server/internal/engine/estimation/contract.gen.go + server/internal/engine/estimation/estimationengine.go (EstimationEngine implemented by EstimationEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-estimation-engine:codeReview:1",
+          "task": "codeReview",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "a4421a8dbb9aac2f8d086fc8ce848ccf96914629"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[estimationEngine] + server/internal/engine/estimation/contract.gen.go + server/internal/engine/estimation/estimationengine.go (EstimationEngine implemented by EstimationEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-estimation-engine:integration:1",
+          "task": "integration",
+          "phase": "integration",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[estimationEngine] + server/internal/engine/estimation/contract.gen.go + server/internal/engine/estimation/estimationengine.go (EstimationEngine implemented by EstimationEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-estimation-engine:testing:1",
+          "task": "testing",
+          "phase": "integration",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[estimationEngine] + server/internal/engine/estimation/contract.gen.go + server/internal/engine/estimation/estimationengine.go (EstimationEngine implemented by EstimationEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        }
+      ]
+    },
+    "C-intervention-engine": {
+      "activityID": "C-intervention-engine",
+      "phase": 0,
+      "attempts": [
+        {
+          "attemptId": "C-intervention-engine:srs:1",
+          "task": "srs",
+          "phase": "requirements",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[interventionEngine] + server/internal/engine/intervention/contract.gen.go + server/internal/engine/intervention/interventionengine.go (InterventionEngine implemented by InterventionEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-intervention-engine:srsReview:1",
+          "task": "srsReview",
+          "phase": "requirements",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[interventionEngine] + server/internal/engine/intervention/contract.gen.go + server/internal/engine/intervention/interventionengine.go (InterventionEngine implemented by InterventionEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-intervention-engine:detailedDesign:1",
+          "task": "detailedDesign",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "interventionEngine"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[interventionEngine] + server/internal/engine/intervention/contract.gen.go + server/internal/engine/intervention/interventionengine.go (InterventionEngine implemented by InterventionEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-intervention-engine:designReview:1",
+          "task": "designReview",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "interventionEngine"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[interventionEngine] + server/internal/engine/intervention/contract.gen.go + server/internal/engine/intervention/interventionengine.go (InterventionEngine implemented by InterventionEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-intervention-engine:stp:1",
+          "task": "stp",
+          "phase": "test_plan",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[interventionEngine] + server/internal/engine/intervention/contract.gen.go + server/internal/engine/intervention/interventionengine.go (InterventionEngine implemented by InterventionEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-intervention-engine:stpReview:1",
+          "task": "stpReview",
+          "phase": "test_plan",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[interventionEngine] + server/internal/engine/intervention/contract.gen.go + server/internal/engine/intervention/interventionengine.go (InterventionEngine implemented by InterventionEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-intervention-engine:construction:1",
+          "task": "construction",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "a4421a8dbb9aac2f8d086fc8ce848ccf96914629"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[interventionEngine] + server/internal/engine/intervention/contract.gen.go + server/internal/engine/intervention/interventionengine.go (InterventionEngine implemented by InterventionEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-intervention-engine:codeReview:1",
+          "task": "codeReview",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "a4421a8dbb9aac2f8d086fc8ce848ccf96914629"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[interventionEngine] + server/internal/engine/intervention/contract.gen.go + server/internal/engine/intervention/interventionengine.go (InterventionEngine implemented by InterventionEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-intervention-engine:integration:1",
+          "task": "integration",
+          "phase": "integration",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[interventionEngine] + server/internal/engine/intervention/contract.gen.go + server/internal/engine/intervention/interventionengine.go (InterventionEngine implemented by InterventionEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-intervention-engine:testing:1",
+          "task": "testing",
+          "phase": "integration",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[interventionEngine] + server/internal/engine/intervention/contract.gen.go + server/internal/engine/intervention/interventionengine.go (InterventionEngine implemented by InterventionEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        }
+      ]
+    },
+    "C-operated-runtime-access": {
+      "activityID": "C-operated-runtime-access",
+      "phase": 0,
+      "attempts": [
+        {
+          "attemptId": "C-operated-runtime-access:srs:1",
+          "task": "srs",
+          "phase": "requirements",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[operatedRuntimeAccess] + server/internal/resourceaccess/operatedruntime/contract.gen.go + server/internal/resourceaccess/operatedruntime/operatedruntimeaccess.go (OperatedRuntimeAccess implemented by dryRunOperatedRuntime, realOperatedRuntime) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-operated-runtime-access:srsReview:1",
+          "task": "srsReview",
+          "phase": "requirements",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[operatedRuntimeAccess] + server/internal/resourceaccess/operatedruntime/contract.gen.go + server/internal/resourceaccess/operatedruntime/operatedruntimeaccess.go (OperatedRuntimeAccess implemented by dryRunOperatedRuntime, realOperatedRuntime) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-operated-runtime-access:detailedDesign:1",
+          "task": "detailedDesign",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "operatedRuntimeAccess"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[operatedRuntimeAccess] + server/internal/resourceaccess/operatedruntime/contract.gen.go + server/internal/resourceaccess/operatedruntime/operatedruntimeaccess.go (OperatedRuntimeAccess implemented by dryRunOperatedRuntime, realOperatedRuntime) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-operated-runtime-access:designReview:1",
+          "task": "designReview",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "operatedRuntimeAccess"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[operatedRuntimeAccess] + server/internal/resourceaccess/operatedruntime/contract.gen.go + server/internal/resourceaccess/operatedruntime/operatedruntimeaccess.go (OperatedRuntimeAccess implemented by dryRunOperatedRuntime, realOperatedRuntime) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-operated-runtime-access:stp:1",
+          "task": "stp",
+          "phase": "test_plan",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[operatedRuntimeAccess] + server/internal/resourceaccess/operatedruntime/contract.gen.go + server/internal/resourceaccess/operatedruntime/operatedruntimeaccess.go (OperatedRuntimeAccess implemented by dryRunOperatedRuntime, realOperatedRuntime) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-operated-runtime-access:stpReview:1",
+          "task": "stpReview",
+          "phase": "test_plan",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[operatedRuntimeAccess] + server/internal/resourceaccess/operatedruntime/contract.gen.go + server/internal/resourceaccess/operatedruntime/operatedruntimeaccess.go (OperatedRuntimeAccess implemented by dryRunOperatedRuntime, realOperatedRuntime) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-operated-runtime-access:construction:1",
+          "task": "construction",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "a4421a8dbb9aac2f8d086fc8ce848ccf96914629"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[operatedRuntimeAccess] + server/internal/resourceaccess/operatedruntime/contract.gen.go + server/internal/resourceaccess/operatedruntime/operatedruntimeaccess.go (OperatedRuntimeAccess implemented by dryRunOperatedRuntime, realOperatedRuntime) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-operated-runtime-access:codeReview:1",
+          "task": "codeReview",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "a4421a8dbb9aac2f8d086fc8ce848ccf96914629"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[operatedRuntimeAccess] + server/internal/resourceaccess/operatedruntime/contract.gen.go + server/internal/resourceaccess/operatedruntime/operatedruntimeaccess.go (OperatedRuntimeAccess implemented by dryRunOperatedRuntime, realOperatedRuntime) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-operated-runtime-access:integration:1",
+          "task": "integration",
+          "phase": "integration",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[operatedRuntimeAccess] + server/internal/resourceaccess/operatedruntime/contract.gen.go + server/internal/resourceaccess/operatedruntime/operatedruntimeaccess.go (OperatedRuntimeAccess implemented by dryRunOperatedRuntime, realOperatedRuntime) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-operated-runtime-access:testing:1",
+          "task": "testing",
+          "phase": "integration",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[operatedRuntimeAccess] + server/internal/resourceaccess/operatedruntime/contract.gen.go + server/internal/resourceaccess/operatedruntime/operatedruntimeaccess.go (OperatedRuntimeAccess implemented by dryRunOperatedRuntime, realOperatedRuntime) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        }
+      ]
+    },
+    "C-operated-system-state-access": {
+      "activityID": "C-operated-system-state-access",
+      "phase": 0,
+      "attempts": [
+        {
+          "attemptId": "C-operated-system-state-access:srs:1",
+          "task": "srs",
+          "phase": "requirements",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[operatedSystemStateAccess] + server/internal/resourceaccess/operatedsystemstate/contract.gen.go + server/internal/resourceaccess/operatedsystemstate/operatedsystemstateaccess.go (OperatedSystemStateAccess implemented by noopOperatedSystemStateAccess, postgresOperatedSystemStateAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-operated-system-state-access:srsReview:1",
+          "task": "srsReview",
+          "phase": "requirements",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[operatedSystemStateAccess] + server/internal/resourceaccess/operatedsystemstate/contract.gen.go + server/internal/resourceaccess/operatedsystemstate/operatedsystemstateaccess.go (OperatedSystemStateAccess implemented by noopOperatedSystemStateAccess, postgresOperatedSystemStateAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-operated-system-state-access:detailedDesign:1",
+          "task": "detailedDesign",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "operatedSystemStateAccess"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[operatedSystemStateAccess] + server/internal/resourceaccess/operatedsystemstate/contract.gen.go + server/internal/resourceaccess/operatedsystemstate/operatedsystemstateaccess.go (OperatedSystemStateAccess implemented by noopOperatedSystemStateAccess, postgresOperatedSystemStateAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-operated-system-state-access:designReview:1",
+          "task": "designReview",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "operatedSystemStateAccess"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[operatedSystemStateAccess] + server/internal/resourceaccess/operatedsystemstate/contract.gen.go + server/internal/resourceaccess/operatedsystemstate/operatedsystemstateaccess.go (OperatedSystemStateAccess implemented by noopOperatedSystemStateAccess, postgresOperatedSystemStateAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-operated-system-state-access:stp:1",
+          "task": "stp",
+          "phase": "test_plan",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[operatedSystemStateAccess] + server/internal/resourceaccess/operatedsystemstate/contract.gen.go + server/internal/resourceaccess/operatedsystemstate/operatedsystemstateaccess.go (OperatedSystemStateAccess implemented by noopOperatedSystemStateAccess, postgresOperatedSystemStateAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-operated-system-state-access:stpReview:1",
+          "task": "stpReview",
+          "phase": "test_plan",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[operatedSystemStateAccess] + server/internal/resourceaccess/operatedsystemstate/contract.gen.go + server/internal/resourceaccess/operatedsystemstate/operatedsystemstateaccess.go (OperatedSystemStateAccess implemented by noopOperatedSystemStateAccess, postgresOperatedSystemStateAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-operated-system-state-access:construction:1",
+          "task": "construction",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "a4421a8dbb9aac2f8d086fc8ce848ccf96914629"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[operatedSystemStateAccess] + server/internal/resourceaccess/operatedsystemstate/contract.gen.go + server/internal/resourceaccess/operatedsystemstate/operatedsystemstateaccess.go (OperatedSystemStateAccess implemented by noopOperatedSystemStateAccess, postgresOperatedSystemStateAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-operated-system-state-access:codeReview:1",
+          "task": "codeReview",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "a4421a8dbb9aac2f8d086fc8ce848ccf96914629"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[operatedSystemStateAccess] + server/internal/resourceaccess/operatedsystemstate/contract.gen.go + server/internal/resourceaccess/operatedsystemstate/operatedsystemstateaccess.go (OperatedSystemStateAccess implemented by noopOperatedSystemStateAccess, postgresOperatedSystemStateAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-operated-system-state-access:integration:1",
+          "task": "integration",
+          "phase": "integration",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[operatedSystemStateAccess] + server/internal/resourceaccess/operatedsystemstate/contract.gen.go + server/internal/resourceaccess/operatedsystemstate/operatedsystemstateaccess.go (OperatedSystemStateAccess implemented by noopOperatedSystemStateAccess, postgresOperatedSystemStateAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-operated-system-state-access:testing:1",
+          "task": "testing",
+          "phase": "integration",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[operatedSystemStateAccess] + server/internal/resourceaccess/operatedsystemstate/contract.gen.go + server/internal/resourceaccess/operatedsystemstate/operatedsystemstateaccess.go (OperatedSystemStateAccess implemented by noopOperatedSystemStateAccess, postgresOperatedSystemStateAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        }
+      ]
+    },
+    "C-operation-estimation-engine": {
+      "activityID": "C-operation-estimation-engine",
+      "phase": 0,
+      "attempts": [
+        {
+          "attemptId": "C-operation-estimation-engine:srs:1",
+          "task": "srs",
+          "phase": "requirements",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[operationEstimationEngine] + server/internal/engine/operationestimation/contract.gen.go + server/internal/engine/operationestimation/operationestimationengine.go (OperationEstimationEngine implemented by OperationEstimationEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-operation-estimation-engine:srsReview:1",
+          "task": "srsReview",
+          "phase": "requirements",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[operationEstimationEngine] + server/internal/engine/operationestimation/contract.gen.go + server/internal/engine/operationestimation/operationestimationengine.go (OperationEstimationEngine implemented by OperationEstimationEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-operation-estimation-engine:detailedDesign:1",
+          "task": "detailedDesign",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "operationEstimationEngine"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[operationEstimationEngine] + server/internal/engine/operationestimation/contract.gen.go + server/internal/engine/operationestimation/operationestimationengine.go (OperationEstimationEngine implemented by OperationEstimationEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-operation-estimation-engine:designReview:1",
+          "task": "designReview",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "operationEstimationEngine"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[operationEstimationEngine] + server/internal/engine/operationestimation/contract.gen.go + server/internal/engine/operationestimation/operationestimationengine.go (OperationEstimationEngine implemented by OperationEstimationEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-operation-estimation-engine:stp:1",
+          "task": "stp",
+          "phase": "test_plan",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[operationEstimationEngine] + server/internal/engine/operationestimation/contract.gen.go + server/internal/engine/operationestimation/operationestimationengine.go (OperationEstimationEngine implemented by OperationEstimationEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-operation-estimation-engine:stpReview:1",
+          "task": "stpReview",
+          "phase": "test_plan",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[operationEstimationEngine] + server/internal/engine/operationestimation/contract.gen.go + server/internal/engine/operationestimation/operationestimationengine.go (OperationEstimationEngine implemented by OperationEstimationEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-operation-estimation-engine:construction:1",
+          "task": "construction",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "a4421a8dbb9aac2f8d086fc8ce848ccf96914629"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[operationEstimationEngine] + server/internal/engine/operationestimation/contract.gen.go + server/internal/engine/operationestimation/operationestimationengine.go (OperationEstimationEngine implemented by OperationEstimationEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-operation-estimation-engine:codeReview:1",
+          "task": "codeReview",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "a4421a8dbb9aac2f8d086fc8ce848ccf96914629"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[operationEstimationEngine] + server/internal/engine/operationestimation/contract.gen.go + server/internal/engine/operationestimation/operationestimationengine.go (OperationEstimationEngine implemented by OperationEstimationEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-operation-estimation-engine:integration:1",
+          "task": "integration",
+          "phase": "integration",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[operationEstimationEngine] + server/internal/engine/operationestimation/contract.gen.go + server/internal/engine/operationestimation/operationestimationengine.go (OperationEstimationEngine implemented by OperationEstimationEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-operation-estimation-engine:testing:1",
+          "task": "testing",
+          "phase": "integration",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[operationEstimationEngine] + server/internal/engine/operationestimation/contract.gen.go + server/internal/engine/operationestimation/operationestimationengine.go (OperationEstimationEngine implemented by OperationEstimationEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        }
+      ]
+    },
+    "C-operations-manager": {
+      "activityID": "C-operations-manager",
+      "phase": 0,
+      "attempts": [
+        {
+          "attemptId": "C-operations-manager:srs:1",
+          "task": "srs",
+          "phase": "requirements",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[operationsManager] + server/internal/manager/operations/contract.gen.go + server/internal/manager/operations/operationsmanager.go (OperationsManager implemented by operationsManager) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-operations-manager:srsReview:1",
+          "task": "srsReview",
+          "phase": "requirements",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[operationsManager] + server/internal/manager/operations/contract.gen.go + server/internal/manager/operations/operationsmanager.go (OperationsManager implemented by operationsManager) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-operations-manager:detailedDesign:1",
+          "task": "detailedDesign",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "operationsManager"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[operationsManager] + server/internal/manager/operations/contract.gen.go + server/internal/manager/operations/operationsmanager.go (OperationsManager implemented by operationsManager) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-operations-manager:designReview:1",
+          "task": "designReview",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "operationsManager"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[operationsManager] + server/internal/manager/operations/contract.gen.go + server/internal/manager/operations/operationsmanager.go (OperationsManager implemented by operationsManager) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-operations-manager:stp:1",
+          "task": "stp",
+          "phase": "test_plan",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[operationsManager] + server/internal/manager/operations/contract.gen.go + server/internal/manager/operations/operationsmanager.go (OperationsManager implemented by operationsManager) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-operations-manager:stpReview:1",
+          "task": "stpReview",
+          "phase": "test_plan",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[operationsManager] + server/internal/manager/operations/contract.gen.go + server/internal/manager/operations/operationsmanager.go (OperationsManager implemented by operationsManager) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-operations-manager:construction:1",
+          "task": "construction",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "a4421a8dbb9aac2f8d086fc8ce848ccf96914629"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[operationsManager] + server/internal/manager/operations/contract.gen.go + server/internal/manager/operations/operationsmanager.go (OperationsManager implemented by operationsManager) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-operations-manager:codeReview:1",
+          "task": "codeReview",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "a4421a8dbb9aac2f8d086fc8ce848ccf96914629"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[operationsManager] + server/internal/manager/operations/contract.gen.go + server/internal/manager/operations/operationsmanager.go (OperationsManager implemented by operationsManager) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-operations-manager:integration:1",
+          "task": "integration",
+          "phase": "integration",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[operationsManager] + server/internal/manager/operations/contract.gen.go + server/internal/manager/operations/operationsmanager.go (OperationsManager implemented by operationsManager) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-operations-manager:testing:1",
+          "task": "testing",
+          "phase": "integration",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[operationsManager] + server/internal/manager/operations/contract.gen.go + server/internal/manager/operations/operationsmanager.go (OperationsManager implemented by operationsManager) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        }
+      ]
+    },
+    "C-project-design-manager": {
+      "activityID": "C-project-design-manager",
+      "phase": 0,
+      "attempts": [
+        {
+          "attemptId": "C-project-design-manager:srs:1",
+          "task": "srs",
+          "phase": "requirements",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[projectDesignManager] + server/internal/manager/projectdesign/contract.gen.go + server/internal/manager/projectdesign/projectdesignmanager.go (ProjectDesignManager implemented by projectDesignManager) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-project-design-manager:srsReview:1",
+          "task": "srsReview",
+          "phase": "requirements",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[projectDesignManager] + server/internal/manager/projectdesign/contract.gen.go + server/internal/manager/projectdesign/projectdesignmanager.go (ProjectDesignManager implemented by projectDesignManager) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-project-design-manager:detailedDesign:1",
+          "task": "detailedDesign",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "projectDesignManager"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[projectDesignManager] + server/internal/manager/projectdesign/contract.gen.go + server/internal/manager/projectdesign/projectdesignmanager.go (ProjectDesignManager implemented by projectDesignManager) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-project-design-manager:designReview:1",
+          "task": "designReview",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "projectDesignManager"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[projectDesignManager] + server/internal/manager/projectdesign/contract.gen.go + server/internal/manager/projectdesign/projectdesignmanager.go (ProjectDesignManager implemented by projectDesignManager) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-project-design-manager:stp:1",
+          "task": "stp",
+          "phase": "test_plan",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[projectDesignManager] + server/internal/manager/projectdesign/contract.gen.go + server/internal/manager/projectdesign/projectdesignmanager.go (ProjectDesignManager implemented by projectDesignManager) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-project-design-manager:stpReview:1",
+          "task": "stpReview",
+          "phase": "test_plan",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[projectDesignManager] + server/internal/manager/projectdesign/contract.gen.go + server/internal/manager/projectdesign/projectdesignmanager.go (ProjectDesignManager implemented by projectDesignManager) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-project-design-manager:construction:1",
+          "task": "construction",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "a4421a8dbb9aac2f8d086fc8ce848ccf96914629"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[projectDesignManager] + server/internal/manager/projectdesign/contract.gen.go + server/internal/manager/projectdesign/projectdesignmanager.go (ProjectDesignManager implemented by projectDesignManager) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-project-design-manager:codeReview:1",
+          "task": "codeReview",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "a4421a8dbb9aac2f8d086fc8ce848ccf96914629"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[projectDesignManager] + server/internal/manager/projectdesign/contract.gen.go + server/internal/manager/projectdesign/projectdesignmanager.go (ProjectDesignManager implemented by projectDesignManager) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-project-design-manager:integration:1",
+          "task": "integration",
+          "phase": "integration",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[projectDesignManager] + server/internal/manager/projectdesign/contract.gen.go + server/internal/manager/projectdesign/projectdesignmanager.go (ProjectDesignManager implemented by projectDesignManager) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-project-design-manager:testing:1",
+          "task": "testing",
+          "phase": "integration",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[projectDesignManager] + server/internal/manager/projectdesign/contract.gen.go + server/internal/manager/projectdesign/projectdesignmanager.go (ProjectDesignManager implemented by projectDesignManager) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        }
+      ]
+    },
+    "C-project-state-access": {
+      "activityID": "C-project-state-access",
+      "phase": 0,
+      "attempts": [
+        {
+          "attemptId": "C-project-state-access:srs:1",
+          "task": "srs",
+          "phase": "requirements",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[projectStateAccess,constructionTransitionAccess,designSessionAccess,gitActivityStatusAccess] + server/internal/resourceaccess/projectstate/contract.gen.go + server/internal/resourceaccess/projectstate/projectstateaccess.go (ProjectStateAccess implemented by projectStateGitAdapter) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-project-state-access:srsReview:1",
+          "task": "srsReview",
+          "phase": "requirements",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[projectStateAccess,constructionTransitionAccess,designSessionAccess,gitActivityStatusAccess] + server/internal/resourceaccess/projectstate/contract.gen.go + server/internal/resourceaccess/projectstate/projectstateaccess.go (ProjectStateAccess implemented by projectStateGitAdapter) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-project-state-access:detailedDesign:1",
+          "task": "detailedDesign",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "projectStateAccess"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[projectStateAccess,constructionTransitionAccess,designSessionAccess,gitActivityStatusAccess] + server/internal/resourceaccess/projectstate/contract.gen.go + server/internal/resourceaccess/projectstate/projectstateaccess.go (ProjectStateAccess implemented by projectStateGitAdapter) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-project-state-access:designReview:1",
+          "task": "designReview",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "projectStateAccess"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[projectStateAccess,constructionTransitionAccess,designSessionAccess,gitActivityStatusAccess] + server/internal/resourceaccess/projectstate/contract.gen.go + server/internal/resourceaccess/projectstate/projectstateaccess.go (ProjectStateAccess implemented by projectStateGitAdapter) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-project-state-access:stp:1",
+          "task": "stp",
+          "phase": "test_plan",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[projectStateAccess,constructionTransitionAccess,designSessionAccess,gitActivityStatusAccess] + server/internal/resourceaccess/projectstate/contract.gen.go + server/internal/resourceaccess/projectstate/projectstateaccess.go (ProjectStateAccess implemented by projectStateGitAdapter) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-project-state-access:stpReview:1",
+          "task": "stpReview",
+          "phase": "test_plan",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[projectStateAccess,constructionTransitionAccess,designSessionAccess,gitActivityStatusAccess] + server/internal/resourceaccess/projectstate/contract.gen.go + server/internal/resourceaccess/projectstate/projectstateaccess.go (ProjectStateAccess implemented by projectStateGitAdapter) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-project-state-access:construction:1",
+          "task": "construction",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "a4421a8dbb9aac2f8d086fc8ce848ccf96914629"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[projectStateAccess,constructionTransitionAccess,designSessionAccess,gitActivityStatusAccess] + server/internal/resourceaccess/projectstate/contract.gen.go + server/internal/resourceaccess/projectstate/projectstateaccess.go (ProjectStateAccess implemented by projectStateGitAdapter) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-project-state-access:codeReview:1",
+          "task": "codeReview",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "a4421a8dbb9aac2f8d086fc8ce848ccf96914629"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[projectStateAccess,constructionTransitionAccess,designSessionAccess,gitActivityStatusAccess] + server/internal/resourceaccess/projectstate/contract.gen.go + server/internal/resourceaccess/projectstate/projectstateaccess.go (ProjectStateAccess implemented by projectStateGitAdapter) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-project-state-access:integration:1",
+          "task": "integration",
+          "phase": "integration",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[projectStateAccess,constructionTransitionAccess,designSessionAccess,gitActivityStatusAccess] + server/internal/resourceaccess/projectstate/contract.gen.go + server/internal/resourceaccess/projectstate/projectstateaccess.go (ProjectStateAccess implemented by projectStateGitAdapter) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-project-state-access:testing:1",
+          "task": "testing",
+          "phase": "integration",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[projectStateAccess,constructionTransitionAccess,designSessionAccess,gitActivityStatusAccess] + server/internal/resourceaccess/projectstate/contract.gen.go + server/internal/resourceaccess/projectstate/projectstateaccess.go (ProjectStateAccess implemented by projectStateGitAdapter) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        }
+      ]
+    },
+    "C-review-engine": {
+      "activityID": "C-review-engine",
+      "phase": 0,
+      "attempts": [
+        {
+          "attemptId": "C-review-engine:srs:1",
+          "task": "srs",
+          "phase": "requirements",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[reviewEngine] + server/internal/engine/review/contract.gen.go + server/internal/engine/review/reviewengine.go (ReviewEngine implemented by ReviewEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-review-engine:srsReview:1",
+          "task": "srsReview",
+          "phase": "requirements",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[reviewEngine] + server/internal/engine/review/contract.gen.go + server/internal/engine/review/reviewengine.go (ReviewEngine implemented by ReviewEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-review-engine:detailedDesign:1",
+          "task": "detailedDesign",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "reviewEngine"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[reviewEngine] + server/internal/engine/review/contract.gen.go + server/internal/engine/review/reviewengine.go (ReviewEngine implemented by ReviewEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-review-engine:designReview:1",
+          "task": "designReview",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "reviewEngine"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[reviewEngine] + server/internal/engine/review/contract.gen.go + server/internal/engine/review/reviewengine.go (ReviewEngine implemented by ReviewEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-review-engine:stp:1",
+          "task": "stp",
+          "phase": "test_plan",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[reviewEngine] + server/internal/engine/review/contract.gen.go + server/internal/engine/review/reviewengine.go (ReviewEngine implemented by ReviewEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-review-engine:stpReview:1",
+          "task": "stpReview",
+          "phase": "test_plan",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[reviewEngine] + server/internal/engine/review/contract.gen.go + server/internal/engine/review/reviewengine.go (ReviewEngine implemented by ReviewEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-review-engine:construction:1",
+          "task": "construction",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "a4421a8dbb9aac2f8d086fc8ce848ccf96914629"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[reviewEngine] + server/internal/engine/review/contract.gen.go + server/internal/engine/review/reviewengine.go (ReviewEngine implemented by ReviewEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-review-engine:codeReview:1",
+          "task": "codeReview",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "a4421a8dbb9aac2f8d086fc8ce848ccf96914629"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[reviewEngine] + server/internal/engine/review/contract.gen.go + server/internal/engine/review/reviewengine.go (ReviewEngine implemented by ReviewEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-review-engine:integration:1",
+          "task": "integration",
+          "phase": "integration",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[reviewEngine] + server/internal/engine/review/contract.gen.go + server/internal/engine/review/reviewengine.go (ReviewEngine implemented by ReviewEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-review-engine:testing:1",
+          "task": "testing",
+          "phase": "integration",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[reviewEngine] + server/internal/engine/review/contract.gen.go + server/internal/engine/review/reviewengine.go (ReviewEngine implemented by ReviewEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        }
+      ]
+    },
+    "C-source-control-access": {
+      "activityID": "C-source-control-access",
+      "phase": 0,
+      "attempts": [
+        {
+          "attemptId": "C-source-control-access:srs:1",
+          "task": "srs",
+          "phase": "requirements",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[sourceControlAccess] + server/internal/resourceaccess/sourcecontrol/contract.gen.go + server/internal/resourceaccess/sourcecontrol/sourcecontrolaccess.go (SourceControlAccess implemented by access, gitLocalAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-source-control-access:srsReview:1",
+          "task": "srsReview",
+          "phase": "requirements",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[sourceControlAccess] + server/internal/resourceaccess/sourcecontrol/contract.gen.go + server/internal/resourceaccess/sourcecontrol/sourcecontrolaccess.go (SourceControlAccess implemented by access, gitLocalAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-source-control-access:detailedDesign:1",
+          "task": "detailedDesign",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "sourceControlAccess"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[sourceControlAccess] + server/internal/resourceaccess/sourcecontrol/contract.gen.go + server/internal/resourceaccess/sourcecontrol/sourcecontrolaccess.go (SourceControlAccess implemented by access, gitLocalAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-source-control-access:designReview:1",
+          "task": "designReview",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "sourceControlAccess"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[sourceControlAccess] + server/internal/resourceaccess/sourcecontrol/contract.gen.go + server/internal/resourceaccess/sourcecontrol/sourcecontrolaccess.go (SourceControlAccess implemented by access, gitLocalAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-source-control-access:stp:1",
+          "task": "stp",
+          "phase": "test_plan",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[sourceControlAccess] + server/internal/resourceaccess/sourcecontrol/contract.gen.go + server/internal/resourceaccess/sourcecontrol/sourcecontrolaccess.go (SourceControlAccess implemented by access, gitLocalAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-source-control-access:stpReview:1",
+          "task": "stpReview",
+          "phase": "test_plan",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[sourceControlAccess] + server/internal/resourceaccess/sourcecontrol/contract.gen.go + server/internal/resourceaccess/sourcecontrol/sourcecontrolaccess.go (SourceControlAccess implemented by access, gitLocalAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-source-control-access:construction:1",
+          "task": "construction",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "a4421a8dbb9aac2f8d086fc8ce848ccf96914629"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[sourceControlAccess] + server/internal/resourceaccess/sourcecontrol/contract.gen.go + server/internal/resourceaccess/sourcecontrol/sourcecontrolaccess.go (SourceControlAccess implemented by access, gitLocalAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-source-control-access:codeReview:1",
+          "task": "codeReview",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "a4421a8dbb9aac2f8d086fc8ce848ccf96914629"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[sourceControlAccess] + server/internal/resourceaccess/sourcecontrol/contract.gen.go + server/internal/resourceaccess/sourcecontrol/sourcecontrolaccess.go (SourceControlAccess implemented by access, gitLocalAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-source-control-access:integration:1",
+          "task": "integration",
+          "phase": "integration",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[sourceControlAccess] + server/internal/resourceaccess/sourcecontrol/contract.gen.go + server/internal/resourceaccess/sourcecontrol/sourcecontrolaccess.go (SourceControlAccess implemented by access, gitLocalAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-source-control-access:testing:1",
+          "task": "testing",
+          "phase": "integration",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[sourceControlAccess] + server/internal/resourceaccess/sourcecontrol/contract.gen.go + server/internal/resourceaccess/sourcecontrol/sourcecontrolaccess.go (SourceControlAccess implemented by access, gitLocalAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        }
+      ]
+    },
+    "C-system-design-manager": {
+      "activityID": "C-system-design-manager",
+      "phase": 0,
+      "attempts": [
+        {
+          "attemptId": "C-system-design-manager:srs:1",
+          "task": "srs",
+          "phase": "requirements",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[systemDesignManager] + server/internal/manager/systemdesign/contract.gen.go + server/internal/manager/systemdesign/systemdesignmanager.go (SystemDesignManager implemented by systemDesignManager) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-system-design-manager:srsReview:1",
+          "task": "srsReview",
+          "phase": "requirements",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[systemDesignManager] + server/internal/manager/systemdesign/contract.gen.go + server/internal/manager/systemdesign/systemdesignmanager.go (SystemDesignManager implemented by systemDesignManager) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-system-design-manager:detailedDesign:1",
+          "task": "detailedDesign",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "systemDesignManager"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[systemDesignManager] + server/internal/manager/systemdesign/contract.gen.go + server/internal/manager/systemdesign/systemdesignmanager.go (SystemDesignManager implemented by systemDesignManager) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-system-design-manager:designReview:1",
+          "task": "designReview",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "systemDesignManager"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[systemDesignManager] + server/internal/manager/systemdesign/contract.gen.go + server/internal/manager/systemdesign/systemdesignmanager.go (SystemDesignManager implemented by systemDesignManager) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-system-design-manager:stp:1",
+          "task": "stp",
+          "phase": "test_plan",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[systemDesignManager] + server/internal/manager/systemdesign/contract.gen.go + server/internal/manager/systemdesign/systemdesignmanager.go (SystemDesignManager implemented by systemDesignManager) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-system-design-manager:stpReview:1",
+          "task": "stpReview",
+          "phase": "test_plan",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[systemDesignManager] + server/internal/manager/systemdesign/contract.gen.go + server/internal/manager/systemdesign/systemdesignmanager.go (SystemDesignManager implemented by systemDesignManager) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-system-design-manager:construction:1",
+          "task": "construction",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "a4421a8dbb9aac2f8d086fc8ce848ccf96914629"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[systemDesignManager] + server/internal/manager/systemdesign/contract.gen.go + server/internal/manager/systemdesign/systemdesignmanager.go (SystemDesignManager implemented by systemDesignManager) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-system-design-manager:codeReview:1",
+          "task": "codeReview",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "a4421a8dbb9aac2f8d086fc8ce848ccf96914629"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[systemDesignManager] + server/internal/manager/systemdesign/contract.gen.go + server/internal/manager/systemdesign/systemdesignmanager.go (SystemDesignManager implemented by systemDesignManager) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-system-design-manager:integration:1",
+          "task": "integration",
+          "phase": "integration",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[systemDesignManager] + server/internal/manager/systemdesign/contract.gen.go + server/internal/manager/systemdesign/systemdesignmanager.go (SystemDesignManager implemented by systemDesignManager) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-system-design-manager:testing:1",
+          "task": "testing",
+          "phase": "integration",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[systemDesignManager] + server/internal/manager/systemdesign/contract.gen.go + server/internal/manager/systemdesign/systemdesignmanager.go (SystemDesignManager implemented by systemDesignManager) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        }
+      ]
+    },
+    "C-usage-access": {
+      "activityID": "C-usage-access",
+      "phase": 0,
+      "attempts": [
+        {
+          "attemptId": "C-usage-access:srs:1",
+          "task": "srs",
+          "phase": "requirements",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[usageAccess] + server/internal/resourceaccess/usage/contract.gen.go + server/internal/resourceaccess/usage/usageaccess.go (UsageAccess implemented by noopUsageAccess, postgresUsageAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-usage-access:srsReview:1",
+          "task": "srsReview",
+          "phase": "requirements",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[usageAccess] + server/internal/resourceaccess/usage/contract.gen.go + server/internal/resourceaccess/usage/usageaccess.go (UsageAccess implemented by noopUsageAccess, postgresUsageAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-usage-access:detailedDesign:1",
+          "task": "detailedDesign",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "usageAccess"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[usageAccess] + server/internal/resourceaccess/usage/contract.gen.go + server/internal/resourceaccess/usage/usageaccess.go (UsageAccess implemented by noopUsageAccess, postgresUsageAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-usage-access:designReview:1",
+          "task": "designReview",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "contract",
+            "ref": "usageAccess"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[usageAccess] + server/internal/resourceaccess/usage/contract.gen.go + server/internal/resourceaccess/usage/usageaccess.go (UsageAccess implemented by noopUsageAccess, postgresUsageAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-usage-access:stp:1",
+          "task": "stp",
+          "phase": "test_plan",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[usageAccess] + server/internal/resourceaccess/usage/contract.gen.go + server/internal/resourceaccess/usage/usageaccess.go (UsageAccess implemented by noopUsageAccess, postgresUsageAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-usage-access:stpReview:1",
+          "task": "stpReview",
+          "phase": "test_plan",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[usageAccess] + server/internal/resourceaccess/usage/contract.gen.go + server/internal/resourceaccess/usage/usageaccess.go (UsageAccess implemented by noopUsageAccess, postgresUsageAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-usage-access:construction:1",
+          "task": "construction",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "a4421a8dbb9aac2f8d086fc8ce848ccf96914629"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[usageAccess] + server/internal/resourceaccess/usage/contract.gen.go + server/internal/resourceaccess/usage/usageaccess.go (UsageAccess implemented by noopUsageAccess, postgresUsageAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-usage-access:codeReview:1",
+          "task": "codeReview",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "a4421a8dbb9aac2f8d086fc8ce848ccf96914629"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[usageAccess] + server/internal/resourceaccess/usage/contract.gen.go + server/internal/resourceaccess/usage/usageaccess.go (UsageAccess implemented by noopUsageAccess, postgresUsageAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-usage-access:integration:1",
+          "task": "integration",
+          "phase": "integration",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[usageAccess] + server/internal/resourceaccess/usage/contract.gen.go + server/internal/resourceaccess/usage/usageaccess.go (UsageAccess implemented by noopUsageAccess, postgresUsageAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "C-usage-access:testing:1",
+          "task": "testing",
+          "phase": "integration",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "serviceContracts[usageAccess] + server/internal/resourceaccess/usage/contract.gen.go + server/internal/resourceaccess/usage/usageaccess.go (UsageAccess implemented by noopUsageAccess, postgresUsageAccess) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        }
+      ]
+    },
+    "N-STP": {
+      "activityID": "N-STP",
+      "type": "testing",
+      "phase": 0,
+      "attempts": [
+        {
+          "attemptId": "N-STP:srs:1",
+          "task": "srs",
+          "phase": "requirements",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "artifact",
+            "ref": "testingState.systemTestPlan"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "testingState.systemTestPlan (5 scenarios) + founderSignOff[2026-09-12]=\"stp looks good in the app. sign off. continue\""
+          }
+        },
+        {
+          "attemptId": "N-STP:srsReview:1",
+          "task": "srsReview",
+          "phase": "requirements",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "artifact",
+            "ref": "testingState.systemTestPlan"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "testingState.systemTestPlan (5 scenarios) + founderSignOff[2026-09-12]=\"stp looks good in the app. sign off. continue\""
+          }
+        },
+        {
+          "attemptId": "N-STP:construction:1",
+          "task": "construction",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "artifact",
+            "ref": "testingState.systemTestPlan"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "testingState.systemTestPlan (5 scenarios) + founderSignOff[2026-09-12]=\"stp looks good in the app. sign off. continue\""
+          }
+        },
+        {
+          "attemptId": "N-STP:codeReview:1",
+          "task": "codeReview",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "artifact",
+            "ref": "testingState.systemTestPlan"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "testingState.systemTestPlan (5 scenarios) + founderSignOff[2026-09-12]=\"stp looks good in the app. sign off. continue\""
+          }
+        },
+        {
+          "attemptId": "N-STP:integration:1",
+          "task": "integration",
+          "phase": "integration",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "artifact",
+            "ref": "testingState.systemTestPlan"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "testingState.systemTestPlan (5 scenarios) + founderSignOff[2026-09-12]=\"stp looks good in the app. sign off. continue\""
+          }
+        },
+        {
+          "attemptId": "N-STP:testing:1",
+          "task": "testing",
+          "phase": "integration",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "artifact",
+            "ref": "testingState.systemTestPlan"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "testingState.systemTestPlan (5 scenarios) + founderSignOff[2026-09-12]=\"stp looks good in the app. sign off. continue\""
+          }
+        }
+      ]
+    },
+    "R-construction-pipeline-runtime": {
+      "activityID": "R-construction-pipeline-runtime",
+      "type": "deployment",
+      "phase": 0,
+      "attempts": [
+        {
+          "attemptId": "R-construction-pipeline-runtime:detailedDesign:1",
+          "task": "detailedDesign",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "inferred, not read: a Resource has no code in this repository; every ResourceAccess with a slot-5 relationship to construction-pipeline-runtime qualifies — C-agentic-job-access (agentic-job-access-\u003econstruction-pipeline-runtime) fully implemented: serviceContracts[agenticJobAccess] + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "R-construction-pipeline-runtime:designReview:1",
+          "task": "designReview",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "inferred, not read: a Resource has no code in this repository; every ResourceAccess with a slot-5 relationship to construction-pipeline-runtime qualifies — C-agentic-job-access (agentic-job-access-\u003econstruction-pipeline-runtime) fully implemented: serviceContracts[agenticJobAccess] + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "R-construction-pipeline-runtime:construction:1",
+          "task": "construction",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "inferred, not read: a Resource has no code in this repository; every ResourceAccess with a slot-5 relationship to construction-pipeline-runtime qualifies — C-agentic-job-access (agentic-job-access-\u003econstruction-pipeline-runtime) fully implemented: serviceContracts[agenticJobAccess] + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "R-construction-pipeline-runtime:codeReview:1",
+          "task": "codeReview",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "inferred, not read: a Resource has no code in this repository; every ResourceAccess with a slot-5 relationship to construction-pipeline-runtime qualifies — C-agentic-job-access (agentic-job-access-\u003econstruction-pipeline-runtime) fully implemented: serviceContracts[agenticJobAccess] + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "R-construction-pipeline-runtime:integration:1",
+          "task": "integration",
+          "phase": "integration",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "inferred, not read: a Resource has no code in this repository; every ResourceAccess with a slot-5 relationship to construction-pipeline-runtime qualifies — C-agentic-job-access (agentic-job-access-\u003econstruction-pipeline-runtime) fully implemented: serviceContracts[agenticJobAccess] + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "R-construction-pipeline-runtime:testing:1",
+          "task": "testing",
+          "phase": "integration",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "inferred, not read: a Resource has no code in this repository; every ResourceAccess with a slot-5 relationship to construction-pipeline-runtime qualifies — C-agentic-job-access (agentic-job-access-\u003econstruction-pipeline-runtime) fully implemented: serviceContracts[agenticJobAccess] + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        }
+      ]
+    },
+    "R-github": {
+      "activityID": "R-github",
+      "type": "deployment",
+      "phase": 0,
+      "attempts": [
+        {
+          "attemptId": "R-github:detailedDesign:1",
+          "task": "detailedDesign",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "inferred, not read: a Resource has no code in this repository; every ResourceAccess with a slot-5 relationship to github qualifies — C-source-control-access (source-control-access-\u003egithub) fully implemented: serviceContracts[sourceControlAccess] + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "R-github:designReview:1",
+          "task": "designReview",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "inferred, not read: a Resource has no code in this repository; every ResourceAccess with a slot-5 relationship to github qualifies — C-source-control-access (source-control-access-\u003egithub) fully implemented: serviceContracts[sourceControlAccess] + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "R-github:construction:1",
+          "task": "construction",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "inferred, not read: a Resource has no code in this repository; every ResourceAccess with a slot-5 relationship to github qualifies — C-source-control-access (source-control-access-\u003egithub) fully implemented: serviceContracts[sourceControlAccess] + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "R-github:codeReview:1",
+          "task": "codeReview",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "inferred, not read: a Resource has no code in this repository; every ResourceAccess with a slot-5 relationship to github qualifies — C-source-control-access (source-control-access-\u003egithub) fully implemented: serviceContracts[sourceControlAccess] + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "R-github:integration:1",
+          "task": "integration",
+          "phase": "integration",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "inferred, not read: a Resource has no code in this repository; every ResourceAccess with a slot-5 relationship to github qualifies — C-source-control-access (source-control-access-\u003egithub) fully implemented: serviceContracts[sourceControlAccess] + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "R-github:testing:1",
+          "task": "testing",
+          "phase": "integration",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "inferred, not read: a Resource has no code in this repository; every ResourceAccess with a slot-5 relationship to github qualifies — C-source-control-access (source-control-access-\u003egithub) fully implemented: serviceContracts[sourceControlAccess] + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        }
+      ]
+    },
+    "R-operated-runtime": {
+      "activityID": "R-operated-runtime",
+      "type": "deployment",
+      "phase": 0,
+      "attempts": [
+        {
+          "attemptId": "R-operated-runtime:detailedDesign:1",
+          "task": "detailedDesign",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "inferred, not read: a Resource has no code in this repository; every ResourceAccess with a slot-5 relationship to operated-runtime qualifies — C-operated-runtime-access (operated-runtime-access-\u003eoperated-runtime) fully implemented: serviceContracts[operatedRuntimeAccess] + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "R-operated-runtime:designReview:1",
+          "task": "designReview",
+          "phase": "detailed_design",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "inferred, not read: a Resource has no code in this repository; every ResourceAccess with a slot-5 relationship to operated-runtime qualifies — C-operated-runtime-access (operated-runtime-access-\u003eoperated-runtime) fully implemented: serviceContracts[operatedRuntimeAccess] + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "R-operated-runtime:construction:1",
+          "task": "construction",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "inferred, not read: a Resource has no code in this repository; every ResourceAccess with a slot-5 relationship to operated-runtime qualifies — C-operated-runtime-access (operated-runtime-access-\u003eoperated-runtime) fully implemented: serviceContracts[operatedRuntimeAccess] + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "R-operated-runtime:codeReview:1",
+          "task": "codeReview",
+          "phase": "construction",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "inferred, not read: a Resource has no code in this repository; every ResourceAccess with a slot-5 relationship to operated-runtime qualifies — C-operated-runtime-access (operated-runtime-access-\u003eoperated-runtime) fully implemented: serviceContracts[operatedRuntimeAccess] + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "R-operated-runtime:integration:1",
+          "task": "integration",
+          "phase": "integration",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "inferred, not read: a Resource has no code in this repository; every ResourceAccess with a slot-5 relationship to operated-runtime qualifies — C-operated-runtime-access (operated-runtime-access-\u003eoperated-runtime) fully implemented: serviceContracts[operatedRuntimeAccess] + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        },
+        {
+          "attemptId": "R-operated-runtime:testing:1",
+          "task": "testing",
+          "phase": "integration",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {},
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-12T18:59:14.013683Z",
+            "basis": "inferred, not read: a Resource has no code in this repository; every ResourceAccess with a slot-5 relationship to operated-runtime qualifies — C-operated-runtime-access (operated-runtime-access-\u003eoperated-runtime) fully implemented: serviceContracts[operatedRuntimeAccess] + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+          }
+        }
+      ]
+    }
+  },
   "constructionProgress": {
     "Week": 0,
     "TotalWeeks": 49,
