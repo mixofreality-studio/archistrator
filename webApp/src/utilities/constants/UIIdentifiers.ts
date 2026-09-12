@@ -419,6 +419,34 @@ export const UI_IDENTIFIERS = {
     DETAIL_BODY: 'construction-detail-body',
     DETAIL_ACTION_BAR: 'construction-detail-action-bar',
     detailAction: (id: string) => `construction-detail-action-${id}`,
+    // The four bodies that fill the pane's one body slot (Stage B Tasks 8-10),
+    // plus the by-design-ABSENT sibling of the unknown one — a phase the
+    // activity's profile does not carry is not a gap in the data, and the two
+    // never share a body or an id.
+    DETAIL_BODY_UNKNOWN: 'construction-detail-body-unknown',
+    DETAIL_BODY_ABSENT: 'construction-detail-body-absent',
+    DETAIL_BODY_EPISODES: 'construction-detail-body-episodes',
+    DETAIL_BODY_REVIEW: 'construction-detail-body-review',
+    DETAIL_BODY_ARTIFACT: 'construction-detail-body-artifact',
+    DETAIL_BODY_RUN: 'construction-detail-body-run',
+    // Provenance IN THE PANE (Stage B Task 8, founder ruling 2026-09-09). The
+    // list stamps a reconstructed group with `≈ RECONSTRUCTED`; the pane is
+    // where a reader goes to CHECK one, so it quotes the basis in the open and
+    // states the evidence pointer — including its absence, which is the state of
+    // six of the ten task rows on every widened activity.
+    DETAIL_PROVENANCE_NOTE: 'construction-detail-provenance-note',
+    DETAIL_PROVENANCE_BASIS: 'construction-detail-provenance-basis',
+    DETAIL_EVIDENCE: 'construction-detail-evidence',
+    // The episode body's honesty caption (Task 9): episodes are activity-level
+    // unless an episode's TargetRef is literally the selected attempt key.
+    DETAIL_EPISODE_CAPTION: 'construction-detail-episode-caption',
+    DETAIL_SUBAGENT_GANTT: 'construction-detail-subagent-gantt',
+    // The review body's verdict block (Task 10). A verdict RECONSTRUCTED from a
+    // produced-record note carries its own stamp and is never presented as a
+    // structured verdict — awaitPhaseDecision drops sig.Feedback, so no
+    // structured verdict exists to present.
+    DETAIL_VERDICT: 'construction-detail-verdict',
+    DETAIL_VERDICT_STAMP: 'construction-detail-verdict-stamp',
   },
   // The GIT-FORWARD per-activity row cluster (U-SPA-GIT). The shared chrome the
   // construction tracker (and future CR/operations surfaces) render per

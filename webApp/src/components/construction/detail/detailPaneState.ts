@@ -15,6 +15,7 @@
 import type {
   ActivityBuildStatusRow,
   ConstructionRow,
+  EvidenceRefRow,
   TaskAttemptRow,
   RecordOriginRow,
 } from '../../../contracts/types';
@@ -26,6 +27,7 @@ import {
   type GeneratedPhase,
 } from '../lifecycleTemplates.gen.ts';
 import { EXIT_CRITERIA } from '../lifecycleTemplates.ts';
+import type { ProvenanceBearing } from '../provenanceAxis.ts';
 
 // ---------------------------------------------------------------------------
 // The beside-content (>= 1200px) layout contract.
@@ -247,6 +249,83 @@ export const PROVENANCE_LABEL: Record<RecordOriginRow, string> = {
   backfilled: 'Reconstructed',
   synthesized: 'Synthesized',
 };
+
+/** The one attempt the pane is currently showing, or none. */
+export function selectedAttemptOf(
+  row: ConstructionRow | undefined,
+  selection: LensSelection
+): TaskAttemptRow | undefined {
+  if (row === undefined || selection.task === undefined) return undefined;
+  return latestMatchingAttempt(row.attempts, selection.task, selection.attempt);
+}
+
+/**
+ * The node whose provenance the pane's chip reads — the SAME `ProvenanceBearing`
+ * shape the LIST lens's rail and group badge already read (provenanceAxis.ts),
+ * so the pane and the row it was opened from can never disagree about the same
+ * record.
+ *
+ * THIS IS THE LAUNDERING FIX. On 2026-09-09 the founder ruled that any fully
+ * implemented component is done, reviewed and integrated, and a backfill wrote
+ * 218 attempts onto 25 activities from that ruling — 21 of which now render 100%
+ * with every phase complete. Six of the ten tasks on each of those (srs,
+ * srsReview, stp, stpReview, integration, testing) have NO artifact behind them
+ * at all; their entire evidence is the ruling, recorded in
+ * `provenance.basis`. The list stamps them `≈ RECONSTRUCTED`. Until this
+ * function existed the pane — the surface a reader opens precisely to CHECK a
+ * row — showed `PASSED` with no mark at all, which is the same laundering one
+ * surface over.
+ *
+ * Scoped exactly as `attemptProvenance` is: the selected attempt when one is
+ * selected, every attempt of the selected task when the attempt is implicit, and
+ * the whole row (plus the server's own roll-up) when only an activity is. An
+ * empty ledger yields `unknown` from `worstOriginOf`, never `observed`.
+ */
+export function provenanceNodeFor(
+  row: ConstructionRow | undefined,
+  selection: LensSelection
+): ProvenanceBearing {
+  if (row === undefined) return {};
+  if (selection.task !== undefined) {
+    if (selection.attempt !== undefined) {
+      const attempt = selectedAttemptOf(row, selection);
+      return { attempts: attempt === undefined ? [] : [attempt] };
+    }
+    return { attempts: attemptsForTask(row.attempts, selection.task) };
+  }
+  return {
+    ...(row.worstOrigin !== undefined ? { worstOrigin: row.worstOrigin } : {}),
+    attempts: row.attempts,
+  };
+}
+
+/**
+ * Where a reader can go to check the selected attempt for themselves.
+ *
+ * `present: false` is the honest answer for the six ruling-derived tasks per
+ * widened activity, whose `evidence` arrives as `{kind: '', ref: ''}`: there is
+ * genuinely nothing to open. The pane renders that as "no evidence recorded"
+ * rather than inventing a target — a dead link would imply a record exists and
+ * merely failed to load.
+ *
+ * `undefined` (no attempt at all) is a THIRD answer and stays distinct: nothing
+ * has been attempted, so there is not even an evidence field to be empty.
+ */
+export interface EvidencePointer {
+  kind: EvidenceRefRow['kind'];
+  ref: string;
+  present: boolean;
+}
+
+export function evidencePointerFor(
+  row: ConstructionRow | undefined,
+  selection: LensSelection
+): EvidencePointer | undefined {
+  const attempt = selectedAttemptOf(row, selection);
+  if (attempt === undefined) return undefined;
+  const { kind, ref } = attempt.evidence;
+  return { kind, ref, present: kind.length > 0 && ref.length > 0 };
+}
 
 // ---------------------------------------------------------------------------
 // Phase/task metadata for the header's "exit criterion + Table A-1 weight" —

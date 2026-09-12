@@ -30,8 +30,17 @@
  *     and `unknown` (run it for the first time). Failure is never terminal,
  *     made structural rather than conditional: see detailActionsFor.
  *
- * The body slot renders a placeholder for this task; Tasks 8–10 fill it with
- * the unknown / episode / review / artifact bodies.
+ * The body slot is filled by ONE of four bodies (Tasks 8–10), chosen by the pure
+ * `detailBodyFor` in bodies/bodyDispatch.ts — plus AbsentBody, the by-design
+ * sibling of the unknown one.
+ *
+ * A THIRD invariant joined the header in Task 8: the PROVENANCE chip, and the
+ * ProvenanceNote that opens every body. The founder's 2026-09-09 ruling widened
+ * a backfill until 21 activities render `100% ✓ PASSED` with every phase
+ * complete on evidence that is the ruling itself; the list marks those
+ * `≈ RECONSTRUCTED`, and until Task 8 this pane — the surface a reader opens
+ * precisely to check such a row — carried no mark at all. See
+ * bodies/ProvenanceNote.tsx and detailPaneState.provenanceNodeFor.
  */
 import {
   useCallback,
@@ -60,13 +69,20 @@ import type { ConstructionRow } from '../../../contracts/types';
 import { useTokens } from '../../../utilities/theme/ThemeContext';
 import type { Tokens } from '../../../utilities/theme/themes';
 import { UI_IDENTIFIERS } from '../../../utilities/constants/UIIdentifiers';
+import { scanlines } from '../../../utilities/theme/textures.ts';
 import { useLensSelection, type LensSelection } from '../lens/useLensSelection';
 import {
-  attemptProvenance,
+  GRADE_LABEL,
+  provenanceGradeOf,
+  readProvenance,
+  type ProvenanceReading,
+} from '../provenance';
+import {
   attemptsForTask,
   breadcrumbFor,
   detailActionsFor,
-  PROVENANCE_LABEL,
+  evidencePointerFor,
+  provenanceNodeFor,
   resolvePhaseTask,
   taskDetailStateFill,
   TASK_DETAIL_STATE_LABEL,
@@ -75,6 +91,11 @@ import {
   type DetailAction,
   type TaskDetailState,
 } from './detailPaneState.ts';
+import { absenceFor } from './bodies/taskBriefing.ts';
+import { detailBodyFor } from './bodies/bodyDispatch.ts';
+import { AbsentBody } from './bodies/AbsentBody';
+import { ProvenanceNote } from './bodies/ProvenanceNote';
+import { UnknownBody } from './bodies/UnknownBody';
 
 // Re-exported alongside the component per the brief: a caller (and this
 // file's own test) can reach the pure invariant without rendering anything.
@@ -198,7 +219,14 @@ export function DetailPane({
   const state = useMemo(() => taskDetailStateFor(row, selection), [row, selection]);
   const actions = useMemo(() => detailActionsFor(state), [state]);
   const meta = useMemo(() => resolvePhaseTask(row, selection), [row, selection]);
-  const origin = useMemo(() => attemptProvenance(row, selection), [row, selection]);
+  // Provenance read through the SAME axis the list's rail and badge read
+  // (provenanceAxis.ts), scoped to whatever is selected — see provenanceNodeFor
+  // for why the pane carrying no mark was laundering the founder's ruling.
+  const provenance = useMemo(
+    () => readProvenance(provenanceNodeFor(row, selection)),
+    [row, selection]
+  );
+  const evidence = useMemo(() => evidencePointerFor(row, selection), [row, selection]);
   const taskAttempts = useMemo(
     () =>
       selection.task !== undefined ? attemptsForTask(row?.attempts ?? [], selection.task) : [],
@@ -215,7 +243,15 @@ export function DetailPane({
     select({ ...selection, attempt });
   };
 
-  const body = <PlaceholderBody t={t} />;
+  const body = (
+    <>
+      {/* Invariant across every body — provenance is an ORTHOGONAL axis, so
+          which body is showing must never change whether the reader is told how
+          the record came to exist. */}
+      <ProvenanceNote evidence={evidence} reading={provenance} />
+      <DetailBody row={row} selection={selection} state={state} />
+    </>
+  );
 
   const paneContent = (
     <DetailPaneChrome
@@ -224,7 +260,7 @@ export function DetailPane({
       breadcrumb={breadcrumb}
       collapsed={collapsed}
       exitCriterion={meta.exitCriterion}
-      origin={origin}
+      provenance={provenance}
       state={state}
       t={t}
       taskAttempts={taskAttempts}
@@ -268,7 +304,7 @@ export function DetailPane({
         <DetailHeader
           breadcrumb={breadcrumb}
           exitCriterion={meta.exitCriterion}
-          origin={origin}
+          provenance={provenance}
           state={state}
           t={t}
           taskAttempts={taskAttempts}
@@ -299,7 +335,7 @@ function DetailPaneChrome({
   t,
   breadcrumb,
   state,
-  origin,
+  provenance,
   taskAttempts,
   exitCriterion,
   weight,
@@ -316,7 +352,7 @@ function DetailPaneChrome({
   t: Tokens;
   breadcrumb: string;
   state: TaskDetailState;
-  origin: ReturnType<typeof attemptProvenance>;
+  provenance: ProvenanceReading;
   taskAttempts: ReturnType<typeof attemptsForTask>;
   exitCriterion: string | undefined;
   weight: number | undefined;
@@ -393,7 +429,7 @@ function DetailPaneChrome({
         <DetailHeader
           breadcrumb={breadcrumb}
           exitCriterion={exitCriterion}
-          origin={origin}
+          provenance={provenance}
           state={state}
           t={t}
           taskAttempts={taskAttempts}
@@ -422,7 +458,7 @@ function DetailPaneChrome({
 function DetailHeader({
   breadcrumb,
   state,
-  origin,
+  provenance,
   taskAttempts,
   exitCriterion,
   weight,
@@ -433,7 +469,7 @@ function DetailHeader({
 }: {
   breadcrumb: string;
   state: TaskDetailState;
-  origin: ReturnType<typeof attemptProvenance>;
+  provenance: ProvenanceReading;
   taskAttempts: ReturnType<typeof attemptsForTask>;
   exitCriterion: string | undefined;
   weight: number | undefined;
@@ -519,25 +555,7 @@ function DetailHeader({
           {TASK_DETAIL_STATE_LABEL[state].toUpperCase()}
         </Box>
 
-        <Box
-          data-testid={UI_IDENTIFIERS.Construction.DETAIL_PROVENANCE_CHIP}
-          sx={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            px: 0.75,
-            py: 0.2,
-            borderRadius: 99,
-            border: `1px solid ${t.line}`,
-            color: t.muted,
-            fontFamily: t.mono,
-            fontSize: 9.5,
-            fontWeight: 700,
-            letterSpacing: '0.06em',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          {origin !== undefined ? PROVENANCE_LABEL[origin].toUpperCase() : 'PROVENANCE UNKNOWN'}
-        </Box>
+        <ProvenanceChip provenance={provenance} t={t} />
 
         <AttemptSelector attempts={taskAttempts} t={t} onSelectAttempt={onSelectAttempt} />
       </Box>
@@ -564,6 +582,70 @@ function DetailHeader({
         )}
       </Box>
     </Box>
+  );
+}
+
+/**
+ * The header's provenance chip — the mark the pane was missing.
+ *
+ * Reads the SAME axis as the list's rail and group badge (provenanceAxis.ts),
+ * so the chip and the row it was opened from can never disagree. Three grades,
+ * three treatments, and TEXTURE rather than colour is the channel: colour on
+ * this surface already belongs to status (the state chip sitting right beside
+ * this one) and float, so recolouring for provenance would read as a status
+ * change to anyone who has learnt the surface.
+ *
+ * The chip states the GRADE. The sub-grade and the basis live in the tooltip and,
+ * in the open, in ProvenanceNote — density rule 2 from provenanceAxis.ts.
+ */
+function ProvenanceChip({
+  provenance,
+  t,
+}: {
+  provenance: ProvenanceReading;
+  t: Tokens;
+}): ReactElement {
+  const grade = provenanceGradeOf(provenance.origin);
+  const reconstructed = grade === 'reconstructed';
+  return (
+    <Tooltip title={<span style={{ whiteSpace: 'pre-line' }}>{provenance.tooltip}</span>}>
+      <Box
+        data-provenance={provenance.origin}
+        data-testid={UI_IDENTIFIERS.Construction.DETAIL_PROVENANCE_CHIP}
+        sx={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 0.4,
+          px: 0.75,
+          py: 0.2,
+          borderRadius: 99,
+          border: `1px ${grade === 'unknown' ? 'dashed' : 'solid'} ${t.line}`,
+          color: reconstructed ? t.ink : t.muted,
+          fontFamily: t.mono,
+          fontSize: 9.5,
+          fontWeight: 700,
+          letterSpacing: '0.06em',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        {reconstructed ? (
+          // The hatch, in the chip's own ink — the same 3px scanline geometry the
+          // list draws its rail with, so the two marks read as one material.
+          <Box
+            sx={{
+              width: 6,
+              alignSelf: 'stretch',
+              flexShrink: 0,
+              backgroundImage: scanlines('currentColor'),
+              backgroundSize: '3px 100%',
+              backgroundRepeat: 'repeat-y',
+            }}
+          />
+        ) : null}
+        {reconstructed ? '≈ ' : ''}
+        {GRADE_LABEL[grade]}
+      </Box>
+    </Tooltip>
   );
 }
 
@@ -662,27 +744,46 @@ function ActionBar({ actions, t }: { actions: DetailAction[]; t: Tokens }): Reac
 }
 
 // ---------------------------------------------------------------------------
-// The body slot — a placeholder for this task. Tasks 8–10 replace this with
-// the unknown / episode / review / artifact bodies dispatched on `state` and
-// the selection's task kind.
+// The body slot. `detailBodyFor` (bodies/bodyDispatch.ts) owns the choice — pure
+// and tested — and this switch is only the wiring from its answer to a renderer.
 // ---------------------------------------------------------------------------
 
-function PlaceholderBody({ t }: { t: Tokens }): ReactElement {
-  return (
-    <Box
-      sx={{
-        border: `1.5px dashed ${t.line}`,
-        borderRadius: `${String(t.radius)}px`,
-        bgcolor: t.paperAlt,
-        px: 2,
-        py: 4,
-        textAlign: 'center',
-      }}
-    >
-      <Typography sx={{ fontFamily: t.mono, fontSize: 11.5, color: t.muted, lineHeight: 1.6 }}>
-        Body renders in a later stage-B task. The header and action bar above are the real,
-        invariant surface — this box is the only placeholder here.
-      </Typography>
-    </Box>
-  );
+function DetailBody({
+  row,
+  selection,
+  state,
+}: {
+  row: ConstructionRow | undefined;
+  selection: LensSelection;
+  state: TaskDetailState;
+}): ReactElement {
+  const kind = detailBodyFor(row, selection, state);
+  switch (kind) {
+    case 'absent': {
+      const absence = absenceFor(row, selection);
+      // `absent` is returned only when absenceFor found one, so this is a
+      // narrowing formality rather than a reachable branch.
+      return absence !== undefined ? (
+        <AbsentBody absence={absence} />
+      ) : (
+        <UnknownBody row={row} selection={selection} />
+      );
+    }
+    case 'unknown':
+      return <UnknownBody row={row} selection={selection} />;
+    // The episode, review and artifact bodies land in Tasks 9 and 10. They reuse
+    // the unknown body's briefing card meanwhile — but NOT its sentence: this
+    // task HAS a record, and saying "no record" here would be exactly the kind
+    // of false statement the rest of this stage exists to remove.
+    case 'episode':
+    case 'review':
+    case 'artifact':
+      return (
+        <UnknownBody
+          row={row}
+          selection={selection}
+          statement="A record exists for this. The body that renders it — episodes, the review verdict, or the artifact itself — lands in the next task of this stage; the briefing below is what the Method says the work is."
+        />
+      );
+  }
 }
