@@ -130,13 +130,23 @@ This task changes the engine and re-materializes the state it drives **in one co
 The legacy `produced[]` evidence is gone. A **component** is fully implemented only when ALL hold (A4.1):
 1. It has `.serviceContracts` entries, grouped by `.component`.
 2. Every entry has a non-empty `goPackage` and no `stub: true`.
-3. `server/<goPackage>/contract.gen.go` exists, AND `server/<goPackage>/<lowercase interface>.go` declares `type <Interface>Impl` — checked with `go/parser`.
+3. `server/<goPackage>/contract.gen.go` exists, AND the hand-written (not generated) `server/<goPackage>/<lowercase interface>.go` declares ONE receiver type with a method for every operation of the component's own contract — checked with `go/parser`. A contract with zero operations is refused, not vacuously covered.
+   - **3b (ResourceAccess only):** at least one covering receiver must be a struct with at least one field. Its declaration is resolved across ALL non-test files of the package, `contract.gen.go` included (`GitArtifactAccess` is declared there). An RA binds a Resource, and every placeholder in the repo is an empty `struct{}`. Where 3b applied, the basis carries the component's kind and names the fielded receivers.
+   - **Exempt from 3b:** Engines and Managers. They are stateless by doctrine, and `stub: true` stays authoritative for them.
+   - **Accepted residual:** `erroringArtifactAccess{err}` has a field, so 3b cannot tell it from a live receiver. It only ever co-covers beside `GitArtifactAccess`.
 
-**Facet rule:** facet entries share the component's `goPackage`; require the component's own `<Interface>Impl` and ignore facet interface names (otherwise `C-project-state-access`, which is implemented, falsely fails). Confirm `revenueLedgerAccess` behaves the same.
+*A4.3 amended 2026-09-12 (architect ruling Q1).* Condition 3 first read "`<lowercase interface>.go` declares `type <Interface>Impl`". Taken literally, that qualifies ZERO components:
+- an Engine's `<Interface>Impl` is generated, in `contract.gen.go`;
+- a Manager's concrete type is the unexported `<interface>` struct;
+- an RA names its type after the Resource it binds.
+
+The method-coverage rule above replaces it and is strictly stronger: a bare `type XImpl struct{}` fails it. 3b closes the hole it left, an RA whose only implementation is an empty no-op.
+
+**Facet rule:** facet entries share the component's `goPackage`. Condition 3 reads the component's own interface and ignores facet interface names; otherwise `C-project-state-access`, which is implemented, would falsely fail. `revenueLedgerAccess` behaves the same.
 
 **Resources:** an `R-*` qualifies iff every RA with a slot-5 relationship to it qualifies; its basis must say the evidence is inferred.
 
-**Out of scope of the ruling (F2 + A4):** `U-SPA-web-client` (this branch is rewriting it), `N-STP` (awaiting founder review), `N-IT`. Components that fail the test stay not done — real work. Expected: `C-design-health-engine`, `C-billing-state-access`, `C-merchant-gateway-access`, `R-merchant-gateway` do not qualify.
+**Out of scope of the ruling (F2 + A4):** `U-SPA-web-client` (this branch is rewriting it), `N-STP` (awaiting founder review), `N-IT`. Components that fail the test stay not done — real work. Expected: `C-design-health-engine`, `C-billing-state-access`, `C-merchant-gateway-access`, `R-merchant-gateway` do not qualify. **Count:** 19 of the 22 `C-*` qualify. The earlier "at most 17" was an arithmetic error: 22 − 3 = 19.
 
 Qualifying activities get a passed attempt for every non-conditional task in their profile. Origin `backfilled`, never `observed`. Basis cites the `serviceContracts[...]` keys, the file paths, the HEAD commit, and the ruling verbatim.
 

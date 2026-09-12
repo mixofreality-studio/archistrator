@@ -44,6 +44,8 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -254,6 +256,16 @@ func signedOff(activityID string, signOffs map[string]founderSignOff, p projects
 // contract operation on one receiver is what "implemented" means here, whatever the
 // receiver is called, and it is strictly stronger than a declaration.
 //
+// 3b. (Architect ruling, 2026-09-12.) For a ResourceAccess, at least one covering
+// receiver must be a struct with at least one field, its declaration resolved across
+// every non-test file of the package (contract.gen.go included — GitArtifactAccess is
+// declared there). A ResourceAccess binds a Resource, and every placeholder in this
+// repository (noopUsageAccess, dryRunArtifacts, notConfiguredMerchantGatewayAccess, …)
+// is an empty struct{}: a component whose only implementation holds nothing binds
+// nothing. Engines and Managers are exempt — they are stateless by doctrine, and for
+// them stub: true stays authoritative. Accepted residual: erroringArtifactAccess{err}
+// has a field, but it only ever co-covers beside GitArtifactAccess.
+//
 // FACETS: a component may own several contracts (projectStateAccess carries
 // constructionTransitionAccess, designSessionAccess and gitActivityStatusAccess;
 // billingStateAccess carries revenueLedgerAccess). Facets share the component's
@@ -289,15 +301,20 @@ func fullyImplemented(activityID string, component projectstate.Component, in in
 			return fail("condition 2: serviceContracts[%s] is in %s, not the component's package %s", k, sc.GoPackage, own.GoPackage)
 		}
 	}
-	files, receiver, err := implementation(in.ServerRoot, own)
+	impl, err := implementation(in.ServerRoot, own, component.Kind)
 	if err != nil {
-		return fail("condition 3: %v", err)
+		return fail("%v", err)
 	}
-	basis := fmt.Sprintf("serviceContracts[%s] + %s (%s implemented by %s) @ %s + %s",
-		strings.Join(entries, ","), strings.Join(files, " + "), own.Interface.Name, receiver, in.Head, founderRulingRef)
+	files := impl.files
+	implemented := fmt.Sprintf("%s implemented by %s", own.Interface.Name, strings.Join(impl.covering, ", "))
+	if len(impl.fielded) > 0 {
+		implemented += fmt.Sprintf("; kind %s, bound by fielded %s", component.Kind, strings.Join(impl.fielded, ", "))
+	}
+	basis := fmt.Sprintf("serviceContracts[%s] + %s (%s) @ %s + %s",
+		strings.Join(entries, ","), strings.Join(files, " + "), implemented, in.Head, founderRulingRef)
 	return verdict{
 		ActivityID: activityID, Qualifies: true,
-		Reason:      fmt.Sprintf("code: serviceContracts[%s]; %s implemented by %s", strings.Join(entries, ","), own.Interface.Name, receiver),
+		Reason:      fmt.Sprintf("code: serviceContracts[%s]; %s", strings.Join(entries, ","), implemented),
 		Basis:       basis,
 		ContractRef: key,
 		CodeRef:     in.Head,
@@ -327,28 +344,110 @@ func contractsOf(contracts map[string]projectstate.ServiceContract, component st
 	return facets
 }
 
-// implementation checks condition 3 for a component's own contract. It returns the two
-// repo-relative files it read and the receiver type that implements the contract.
-func implementation(serverRoot string, own projectstate.ServiceContract) ([]string, string, error) {
+// implemented is what condition 3 found for a component's own contract.
+type implemented struct {
+	// files are the repo-relative files read: contract.gen.go, the hand-written
+	// <lowercase interface>.go, and — under 3b — any other file declaring a fielded
+	// covering receiver.
+	files []string
+	// covering is every receiver with a method for every contract operation, in name order.
+	covering []string
+	// fielded is the covering receivers that are structs with at least one field. It is
+	// computed, and must be non-empty, for a ResourceAccess only (3b); nil otherwise.
+	fielded []string
+}
+
+// implementation checks condition 3 — and, for a ResourceAccess, condition 3b — for a
+// component's own contract. Its errors name the condition they fail.
+func implementation(serverRoot string, own projectstate.ServiceContract, kind projectstate.ComponentKind) (implemented, error) {
 	pkg := filepath.FromSlash(own.GoPackage)
 	gen := filepath.Join(serverRoot, pkg, "contract.gen.go")
 	if _, err := os.Stat(gen); err != nil {
-		return nil, "", fmt.Errorf("%s: %w", repoPath(own.GoPackage, "contract.gen.go"), err)
+		return implemented{}, fmt.Errorf("condition 3: %s: %w", repoPath(own.GoPackage, "contract.gen.go"), err)
 	}
 	name := strings.ToLower(own.Interface.Name) + ".go"
-	file := filepath.Join(serverRoot, pkg, name)
 	ops := make([]string, 0, len(own.Interface.Operations))
 	for _, op := range own.Interface.Operations {
 		ops = append(ops, op.Name)
 	}
+	// A contract with no operations is refused, not vacuously covered: every receiver
+	// has a method for each of zero operations, and "implements nothing" is not evidence.
 	if len(ops) == 0 {
-		return nil, "", fmt.Errorf("serviceContracts[%s] declares no operations, so there is nothing to find implemented", own.Component)
+		return implemented{}, fmt.Errorf("condition 3: serviceContracts[%s] declares no operations, so there is nothing to find implemented", own.Component)
 	}
-	receiver, err := implementingReceiver(file, ops)
+	covering, err := implementingReceivers(filepath.Join(serverRoot, pkg, name), ops)
 	if err != nil {
-		return nil, "", fmt.Errorf("%s: %w", repoPath(own.GoPackage, name), err)
+		return implemented{}, fmt.Errorf("condition 3: %s: %w", repoPath(own.GoPackage, name), err)
 	}
-	return []string{repoPath(own.GoPackage, "contract.gen.go"), repoPath(own.GoPackage, name)}, receiver, nil
+	impl := implemented{
+		files:    []string{repoPath(own.GoPackage, "contract.gen.go"), repoPath(own.GoPackage, name)},
+		covering: covering,
+	}
+	if kind != projectstate.CompResourceAccess {
+		return impl, nil // 3b: Engines and Managers are stateless by doctrine.
+	}
+	return bindsAResource(impl, filepath.Join(serverRoot, pkg), own.GoPackage)
+}
+
+// bindsAResource is condition 3b: at least one of a ResourceAccess's covering receivers
+// is a struct with a field. A file declaring one that the basis does not already cite is
+// added to the cited files, so the run's clean-at-HEAD check covers it too.
+func bindsAResource(impl implemented, dir, goPackage string) (implemented, error) {
+	structs, err := fieldedStructs(dir)
+	if err != nil {
+		return implemented{}, fmt.Errorf("condition 3b: %w", err)
+	}
+	for _, recv := range impl.covering {
+		file, ok := structs[recv]
+		if !ok {
+			continue
+		}
+		impl.fielded = append(impl.fielded, recv)
+		if cited := repoPath(goPackage, file); !slices.Contains(impl.files, cited) {
+			impl.files = append(impl.files, cited)
+		}
+	}
+	if len(impl.fielded) == 0 {
+		return implemented{}, fmt.Errorf("condition 3b: no covering receiver of this ResourceAccess (%s) is a struct with a field — a ResourceAccess binds a Resource, and a receiver that holds nothing binds nothing",
+			strings.Join(impl.covering, ", "))
+	}
+	return impl, nil
+}
+
+// fieldedStructs resolves the type declarations of every non-test Go file in dir and
+// returns each struct type with at least one field (an embedded field counts), mapped to
+// the file that declares it. An alias, a non-struct named type and an empty struct{} are
+// all absent.
+func fieldedStructs(dir string) (map[string]string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]string{}
+	fset := token.NewFileSet()
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		f, err := parser.ParseFile(fset, filepath.Join(dir, name), nil, parser.SkipObjectResolution)
+		if err != nil {
+			return nil, err
+		}
+		for _, decl := range f.Decls {
+			gen, ok := decl.(*ast.GenDecl)
+			if !ok || gen.Tok != token.TYPE {
+				continue
+			}
+			for _, spec := range gen.Specs {
+				ts, _ := spec.(*ast.TypeSpec)
+				if st, isStruct := ts.Type.(*ast.StructType); isStruct && !ts.Assign.IsValid() && st.Fields.NumFields() > 0 {
+					out[ts.Name.Name] = name
+				}
+			}
+		}
+	}
+	return out, nil
 }
 
 // repoPath is a file's path as cited in a basis: repo-relative, slash-separated.
@@ -356,22 +455,22 @@ func repoPath(goPackage, file string) string {
 	return path.Join(serverDir, goPackage, file)
 }
 
-// implementingReceiver parses a hand-written Go file and returns the receiver type that
-// has a method for every one of ops. A generated file is refused (it is not a hand-built
-// implementation), and so is a file whose methods cover the operations only across
-// several receivers or not at all. When more than one receiver covers them (a live and a
-// dry-run implementation side by side), every one is named, so a basis never cites the
-// no-op alone when a real implementation sits beside it.
-func implementingReceiver(file string, ops []string) (string, error) {
+// implementingReceivers parses a hand-written Go file and returns every receiver type
+// that has a method for every one of ops. A generated file is refused (it is not a
+// hand-built implementation), and so is a file whose methods cover the operations only
+// across several receivers or not at all. When more than one receiver covers them (a
+// live and a dry-run implementation side by side), every one is named, so a basis never
+// cites the no-op alone when a real implementation sits beside it.
+func implementingReceivers(file string, ops []string) ([]string, error) {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, file, nil, parser.ParseComments)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	if ast.IsGenerated(f) {
-		return "", errors.New("is generated, not a hand-written implementation")
+		return nil, errors.New("is generated, not a hand-written implementation")
 	}
-	return coveringReceiver(methodsByReceiver(f), ops)
+	return coveringReceivers(methodsByReceiver(f), ops)
 }
 
 // methodsByReceiver indexes a file's methods by receiver type name.
@@ -391,9 +490,9 @@ func methodsByReceiver(f *ast.File) map[string]map[string]bool {
 	return methods
 }
 
-// coveringReceiver returns every receiver whose methods cover every op, in name order and
-// comma-separated; when none does, it says how close the best one came.
-func coveringReceiver(methods map[string]map[string]bool, ops []string) (string, error) {
+// coveringReceivers returns every receiver whose methods cover every op, in name order;
+// when none does, it says how close the best one came.
+func coveringReceivers(methods map[string]map[string]bool, ops []string) ([]string, error) {
 	var covering []string
 	best, bestHit := "", 0
 	for recv, set := range methods {
@@ -412,12 +511,12 @@ func coveringReceiver(methods map[string]map[string]bool, ops []string) (string,
 	}
 	if len(covering) == 0 {
 		if bestHit == 0 {
-			return "", fmt.Errorf("declares no method for any of the %d contract operations", len(ops))
+			return nil, fmt.Errorf("declares no method for any of the %d contract operations", len(ops))
 		}
-		return "", fmt.Errorf("no one receiver implements all %d contract operations (best: %s with %d)", len(ops), best, bestHit)
+		return nil, fmt.Errorf("no one receiver implements all %d contract operations (best: %s with %d)", len(ops), best, bestHit)
 	}
 	sort.Strings(covering)
-	return strings.Join(covering, ", "), nil
+	return covering, nil
 }
 
 // receiverTypeName is the base type name of a method receiver: T for T, *T, T[K] and *T[K].
@@ -582,7 +681,8 @@ func validateAttempts(attempts []projectstate.TaskAttempt) error {
 // validated before p is touched. An existing row keeps every field but its attempts,
 // and its attempts are replaced only when every one of them is this tool's own earlier
 // backfill: a row carrying any other attempt holds real history, and overwriting it is
-// refused.
+// refused. When this tool's earlier backfill is exactly what the run derives again, it is
+// kept as it stands (see sameDerivation), so a re-run over unchanged evidence is a no-op.
 func backfill(p *projectstate.Project, verdicts []verdict, now time.Time) (int, error) {
 	list, _, err := planOf(*p)
 	if err != nil {
@@ -612,16 +712,9 @@ func backfill(p *projectstate.Project, verdicts []verdict, now time.Time) (int, 
 		if err := validateAttempts(attempts); err != nil {
 			return 0, err
 		}
-		row, exists := p.ActivityConstruction[v.ActivityID]
-		if exists {
-			for _, a := range row.Attempts {
-				if a.Provenance.Origin != projectstate.OriginBackfilled || a.Provenance.Generator != generatorID {
-					return 0, fmt.Errorf("activityConstruction[%s] already holds attempt %s (origin %q, generator %q) — refusing to overwrite real history",
-						v.ActivityID, a.AttemptID, a.Provenance.Origin, a.Provenance.Generator)
-				}
-			}
-		} else {
-			row = projectstate.ActivityConstructionStatus{ActivityID: v.ActivityID, Type: typ, Variant: variant}
+		row, attempts, err := rowFor(p.ActivityConstruction, v, typ, variant, attempts)
+		if err != nil {
+			return 0, err
 		}
 		writes = append(writes, planned{row: row, attempts: attempts})
 	}
@@ -635,6 +728,82 @@ func backfill(p *projectstate.Project, verdicts []verdict, now time.Time) (int, 
 		total += len(w.attempts)
 	}
 	return total, nil
+}
+
+// rowFor returns the row a qualifying activity's attempts go into, and the attempts to
+// put there. A new row is typed from the verdict's classification. An existing row keeps
+// every field; it is refused unless every attempt it holds is this generator's own
+// backfill, and when that backfill is exactly what this run derived again, its attempts
+// are kept as they stand — the original generatedAt and citation included.
+func rowFor(rows map[string]projectstate.ActivityConstructionStatus, v verdict,
+	typ projectstate.ActivityType, variant projectstate.TestingVariant, fresh []projectstate.TaskAttempt,
+) (projectstate.ActivityConstructionStatus, []projectstate.TaskAttempt, error) {
+	row, exists := rows[v.ActivityID]
+	if !exists {
+		return projectstate.ActivityConstructionStatus{ActivityID: v.ActivityID, Type: typ, Variant: variant}, fresh, nil
+	}
+	for _, a := range row.Attempts {
+		if a.Provenance.Origin != projectstate.OriginBackfilled || a.Provenance.Generator != generatorID {
+			return row, nil, fmt.Errorf("activityConstruction[%s] already holds attempt %s (origin %q, generator %q) — refusing to overwrite real history",
+				v.ActivityID, a.AttemptID, a.Provenance.Origin, a.Provenance.Generator)
+		}
+	}
+	if sameDerivation(row.Attempts, fresh, v.CodeRef) {
+		return row, row.Attempts, nil // unchanged: keep the original stamp and citation.
+	}
+	return row, fresh, nil
+}
+
+// sameDerivation reports whether a row's held attempts are what this run derived again,
+// differing only in the two stamps a run puts on its output: generatedAt, and — for a
+// code verdict — the commit its basis and git evidence cite (fresh cites head, held cites
+// the commit the code was first read at). When they match, the held attempts are kept
+// byte for byte, so a re-run over unchanged evidence writes nothing: re-stamping the time
+// and the sha would be a diff that records no new fact, and it would also replace a
+// citation the reader can check (the commit the code was read at) with one that merely
+// agrees with it.
+func sameDerivation(held, fresh []projectstate.TaskAttempt, head string) bool {
+	if len(held) != len(fresh) {
+		return false
+	}
+	cited := citedCommit(held)
+	for i := range fresh {
+		f, h := fresh[i], held[i]
+		if head != "" && cited != "" {
+			f = recite(f, head, cited)
+		}
+		f.Provenance.GeneratedAt, h.Provenance.GeneratedAt = nil, nil
+		if !reflect.DeepEqual(f, h) {
+			return false
+		}
+	}
+	return true
+}
+
+// citedCommit is the one commit held's git evidence cites, or "" when it cites none or
+// several (then nothing is re-cited, and a held row citing an older commit simply differs).
+func citedCommit(held []projectstate.TaskAttempt) string {
+	commit := ""
+	for _, a := range held {
+		if a.Evidence.Kind != projectstate.EvidenceGit {
+			continue
+		}
+		if commit != "" && a.Evidence.Ref != commit {
+			return ""
+		}
+		commit = a.Evidence.Ref
+	}
+	return commit
+}
+
+// recite rewrites an attempt's citation of commit from to commit to: the "@ <sha> " in
+// its basis and its git evidence ref. Nothing else changes.
+func recite(a projectstate.TaskAttempt, from, to string) projectstate.TaskAttempt {
+	a.Provenance.Basis = strings.ReplaceAll(a.Provenance.Basis, "@ "+from+" ", "@ "+to+" ")
+	if a.Evidence.Kind == projectstate.EvidenceGit && a.Evidence.Ref == from {
+		a.Evidence.Ref = to
+	}
+	return a
 }
 
 // ---- the writer -----------------------------------------------------------------------
@@ -651,19 +820,27 @@ type member struct {
 	value json.RawMessage
 }
 
-// members decodes a compact JSON object into its members, in document order.
+// members decodes a compact JSON object into its members, in document order. An object
+// that holds a member twice is refused: which copy counts is up to the reader (Go's
+// decoder takes the last), so a splice over it could write one copy and leave the other
+// standing, and every byte comparison here would be comparing an arbitrary pick.
 func members(raw []byte) ([]member, error) {
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	if _, err := dec.Token(); err != nil {
 		return nil, fmt.Errorf("read object: %w", err)
 	}
 	var out []member
+	seen := map[string]bool{}
 	for dec.More() {
 		tok, err := dec.Token()
 		if err != nil {
 			return nil, fmt.Errorf("read member key: %w", err)
 		}
 		key, _ := tok.(string)
+		if seen[key] {
+			return nil, fmt.Errorf("the document holds member %q twice — which copy counts is ambiguous; refusing", key)
+		}
+		seen[key] = true
 		var value json.RawMessage
 		if err := dec.Decode(&value); err != nil {
 			return nil, fmt.Errorf("read member %q: %w", key, err)
@@ -883,6 +1060,12 @@ func rewrite(raw []byte, edit func(*projectstate.Project) error) ([]byte, error)
 	if err != nil {
 		return nil, err
 	}
+	// STRUCTURAL TRIPWIRES. The two checks below hold by construction today — the splicer
+	// builds its output from the original members and swaps only the construction member,
+	// and the codec re-encodes what it decoded — so no test can reach either. They stay on
+	// purpose, as tripwires: an edit to the splicer that reached another member, or a
+	// codec whose encoding of .activityConstruction stopped being a fixed point, would
+	// otherwise be written to the state file silently.
 	if err := confirmOnlyConstructionMoved(body, spliced); err != nil {
 		return nil, err
 	}
