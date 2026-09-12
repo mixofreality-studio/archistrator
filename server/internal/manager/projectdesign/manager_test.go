@@ -5553,6 +5553,37 @@ func TestMaterializePhase2DraftRefusesAnonymousMilestone(t *testing.T) {
 	}
 }
 
+// The other half of the refusal above: the draft DOES carry a decoration for the derived
+// milestone, but its Name is blank or whitespace-only. A present-but-blank Name is just as
+// anonymous as an omitted one, so it must be refused with the same kind (ContractMisuse —
+// a malformed draft at the façade boundary), naming the milestone.
+func TestMaterializePhase2DraftRefusesAPresentButBlankMilestoneName(t *testing.T) {
+	sys := loadCommittedStateForTest(t)
+	proj := projectstate.Project{}
+	proj.SystemDesign = committedSlot(&sys)
+
+	for _, blank := range []string{"", "   ", "\t \n"} {
+		t.Run(strconv.Quote(blank), func(t *testing.T) {
+			draft := authoredNetworkDraftForTest()
+			for i := range draft.Milestones {
+				if draft.Milestones[i].ID == "M2" {
+					draft.Milestones[i].Name = blank
+				}
+			}
+			_, err := materializePhase2Draft(proj, projectstate.KindNetwork, draft)
+			if err == nil {
+				t.Fatalf("milestone M2 is present in the draft with Name %q; it must be refused, not committed anonymous", blank)
+			}
+			if got := asProjectDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
+				t.Errorf("want ContractMisuse, got %d", got)
+			}
+			if !strings.Contains(err.Error(), "M2") {
+				t.Errorf("the error must name the anonymous milestone (M2), got %q", err.Error())
+			}
+		})
+	}
+}
+
 // The sibling of the refusal above: a draft that authors every derived milestone's Name still
 // materializes cleanly, with no milestone left with an empty Name.
 func TestMaterializePhase2DraftMaterializesAFullyNamedDraft(t *testing.T) {

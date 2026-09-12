@@ -4107,10 +4107,12 @@ type Network struct {
 // project-start gate). Milestones are EXCLUDED from the risk decomposition (they carry
 // no effort and no risk bucket).
 type NetworkMilestone struct {
-	// --- AUTHORED ---
-	ID        string   `json:"id"`
-	Name      string   `json:"name"`
-	Public    bool     `json:"public"`              // a demo-to-management gate vs an internal hurdle
+	// --- DERIVED (the milestone set, rendered from the committed System) ---
+	ID string `json:"id"`
+	// --- AUTHORED (carried across from the draft by milestone id) ---
+	Name   string `json:"name"`
+	Public bool   `json:"public"` // a demo-to-management gate vs an internal hurdle
+	// --- DERIVED (the fan-in, rendered from the committed System) ---
 	DependsOn []string `json:"dependsOn,omitempty"` // predecessor activity ids (the fan-in)
 	// --- COMPUTED at read ---
 	// POINTERS (not bare bool/float64) so they are ABSENT on the authored on-disk document
