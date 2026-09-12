@@ -26,7 +26,6 @@ import {
   GENERATED_TESTING_VARIANTS,
   type GeneratedPhase,
 } from '../lifecycleTemplates.gen.ts';
-import { EXIT_CRITERIA } from '../lifecycleTemplates.ts';
 import type { ProvenanceBearing } from '../provenanceAxis.ts';
 import { PANE_MAX_HEIGHT, PANE_STICKY_TOP } from '../lens/lensGeometry.ts';
 
@@ -371,7 +370,7 @@ export function resolvePhaseTask(
   return {
     phaseName: phase.name,
     phaseWeight: phase.weight,
-    exitCriterion: EXIT_CRITERIA[phase.phase],
+    exitCriterion: phase.exitCriterion,
     ...(task !== undefined ? { taskLabel: task.label } : {}),
   };
 }

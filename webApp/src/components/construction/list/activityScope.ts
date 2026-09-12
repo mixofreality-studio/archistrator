@@ -132,9 +132,15 @@ function activityOwnFieldsMatch(node: ActivityNode, query: string): boolean {
   );
 }
 
-/** A task's two analogous fields: its generated key and its display label. */
+/** A task's analogous fields: its generated key, its profile label, and the
+ *  book's name for it — so "code review" still finds a test plan's gate after
+ *  the profile renamed it "Scenario Review". */
 function taskFieldsMatch(task: TaskNode, query: string): boolean {
-  return includesQuery(task.task, query) || includesQuery(task.label, query);
+  return (
+    includesQuery(task.task, query) ||
+    includesQuery(task.label, query) ||
+    includesQuery(task.bookLabel, query)
+  );
 }
 
 /**

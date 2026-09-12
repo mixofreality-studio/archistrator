@@ -23,10 +23,15 @@
  * was derived from a hand per-kind index table over the coarse BuildStatus
  * enum — never from the server's real per-phase completion data. The server
  * Profile (fewer, canonical phases) is architecturally authoritative: adopted
- * here. Exit-criterion prose has no server-side source (the server Profile
- * carries no such field — ProfilePhase is a generated contract type, not
- * something to bolt UI copy onto) — kept here as a small hand table keyed by
- * the 5 canonical phases (was ~29 kind-specific entries; now 5 generic ones).
+ * here.
+ *
+ * RESOLVED (2026-09-12, fix round B, designer P1-7): the exit-criterion prose used
+ * to be a hand table of FIVE generic sentences keyed by canonical phase, so every
+ * profile read the Service ones — N-STP's "Plan Authoring" said "Construction is
+ * code-complete", N-IT's "Smoke Pass" said "the requirement/brief is captured".
+ * Each profile phase's exit criterion (and each task's per-profile label) now comes
+ * from the server (projectstate.ExitCriterionFor / TaskLabelFor) through the
+ * generated file, and the hand table is gone.
  *
  * RESOLVED (2026-09-09, Stage A Task 8): this file used to carry a helper
  * (and a companion lookup table) that reverse-engineered which canonical
@@ -52,7 +57,6 @@ import type { PhaseRow } from '../../contracts/types';
 import type { ActivityKind } from './KindBadge';
 import {
   GENERATED_TEMPLATES,
-  type LifecyclePhase,
   type GeneratedPhase,
   // Explicit .ts extension: this is a VALUE import, and Node's native
   // type-stripping test runner resolves relative value imports literally (see
@@ -61,11 +65,10 @@ import {
 
 // ---------------------------------------------------------------------------
 // Template shape (static — no done/active, those are derived at render time).
+// The exit criterion is generated per profile phase (GeneratedPhase.exitCriterion).
 // ---------------------------------------------------------------------------
 
-export interface PhaseTemplate extends GeneratedPhase {
-  exitCriterion: string;
-}
+export type PhaseTemplate = GeneratedPhase;
 
 /** A phase with its derived done/active state for a specific activity status. */
 export interface PhaseState extends PhaseTemplate {
@@ -73,31 +76,13 @@ export interface PhaseState extends PhaseTemplate {
   active: boolean;
 }
 
-// ---------------------------------------------------------------------------
-// Exit-criterion prose — generic per canonical phase (no server source; the
-// server's weighted Profile subset differs per kind, but what "done" MEANS
-// for a given canonical phase does not).
-// ---------------------------------------------------------------------------
-
-export const EXIT_CRITERIA: Record<LifecyclePhase, string> = {
-  requirements: 'The requirement/brief for this activity is captured and approved',
-  detailed_design: 'Detailed design (contract / UI concept / provisioning spec) is approved',
-  test_plan: "This activity's slice of the test plan is written",
-  construction: 'Construction is code-complete and self-verified',
-  integration: 'Reviewed, wired into the integrated system, and converged',
-};
-
-function withExitCriterion(phases: readonly GeneratedPhase[]): readonly PhaseTemplate[] {
-  return phases.map((p) => ({ ...p, exitCriterion: EXIT_CRITERIA[p.phase] }));
-}
-
-export const SERVICE_PHASES = withExitCriterion(GENERATED_TEMPLATES.service);
-export const FRONTEND_PHASES = withExitCriterion(GENERATED_TEMPLATES.frontend);
-export const TESTING_PHASES = withExitCriterion(GENERATED_TEMPLATES.testing);
-export const DEPLOYMENT_PHASES = withExitCriterion(GENERATED_TEMPLATES.deployment);
-export const DOCUMENTATION_PHASES = withExitCriterion(GENERATED_TEMPLATES.documentation);
-export const UI_DESIGN_PHASES = withExitCriterion(GENERATED_TEMPLATES.uiDesign);
-export const INTEGRATION_PHASES = withExitCriterion(GENERATED_TEMPLATES.integration);
+export const SERVICE_PHASES = GENERATED_TEMPLATES.service;
+export const FRONTEND_PHASES = GENERATED_TEMPLATES.frontend;
+export const TESTING_PHASES = GENERATED_TEMPLATES.testing;
+export const DEPLOYMENT_PHASES = GENERATED_TEMPLATES.deployment;
+export const DOCUMENTATION_PHASES = GENERATED_TEMPLATES.documentation;
+export const UI_DESIGN_PHASES = GENERATED_TEMPLATES.uiDesign;
+export const INTEGRATION_PHASES = GENERATED_TEMPLATES.integration;
 
 // The kind → template registry. Exhaustive over ActivityKind so a new kind is a
 // compile error rather than a silent fall-through to another kind's template.

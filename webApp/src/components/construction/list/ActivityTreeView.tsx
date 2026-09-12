@@ -1164,6 +1164,28 @@ function TaskRow({ node, task }: { node: ActivityNode; task: TaskNode }): ReactE
           >
             {task.label}
           </Typography>
+          {/* The book's own task KEY, small and secondary, only where this profile
+            renamed the task (a test plan's construction gate reads "Scenario
+            Review", not "Code Review") — so the Figure A-1 identity stays legible
+            without re-printing it beside every Service row whose label already is
+            the book's word. */}
+          {task.label !== task.bookLabel ? (
+            <Tooltip title={`Figure A-1 task: ${task.bookLabel}`}>
+              <Typography
+                data-testid={UI_IDENTIFIERS.Construction.listTaskBookKey(task.nodeId)}
+                sx={{
+                  fontFamily: t.mono,
+                  fontSize: 9,
+                  color: t.muted,
+                  opacity: 0.8,
+                  flexShrink: 0,
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {task.task}
+              </Typography>
+            </Tooltip>
+          ) : null}
           {task.gate ? (
             <Tooltip title="This task's success IS the phase's binary exit criterion (App A)">
               <Typography sx={{ fontFamily: t.mono, fontSize: 9, color: t.muted, flexShrink: 0 }}>

@@ -548,13 +548,23 @@ var encapsulationAllowlistData = map[string][]string{
 		//	                  each generated task row's GeneratedTask.label field, so the
 		//	                  SPA renders task names without hand-authoring its own
 		//	                  twelve-string copy of this same vocabulary.
+		//	TaskLabelFor    → cmd/gen-uiprofiles: the PER-PROFILE label of each task (a
+		//	                  test plan's construction gate is "Scenario Review", not the
+		//	                  book's "Code Review"), emitted onto GeneratedTask.label; the
+		//	                  book's name still travels as GeneratedTask.bookLabel.
+		//	ExitCriterionFor → cmd/gen-uiprofiles: each profile phase's binary exit
+		//	                  criterion, emitted onto GeneratedPhase.exitCriterion — the
+		//	                  SPA used to hand-author five generic sentences for all eleven
+		//	                  profiles (designer P1-7).
 		"AgentTaskFor",
 		"AttemptID",
 		"AttemptsWorstOrigin",
+		"ExitCriterionFor",
 		"GateTaskFor",
 		"IsConditionalTask",
 		"LabelForTask",
 		"PhaseForTask",
+		"TaskLabelFor",
 		"TasksForPhase",
 		"TasksForProfile",
 		// CONSTRUCTION-ROW RESOLUTION (Task 7a, architect ruling Q2, 2026-09-12). Same

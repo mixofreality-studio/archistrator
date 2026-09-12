@@ -12,8 +12,8 @@
  * THE RULE THIS MODULE EXISTS TO ENFORCE
  * --------------------------------------
  * NOTHING here is authored per task. Every line is COMPOSED from the generated
- * vocabulary (lifecycleTemplates.gen.ts — the server's own Profile, emitted by
- * gen-uiprofiles) plus EXIT_CRITERIA's five canonical-phase sentences. Sixty-odd
+ * vocabulary (lifecycleTemplates.gen.ts — the server's own Profile and its
+ * per-profile labels and exit criteria, emitted by gen-uiprofiles). Sixty-odd
  * hand-written blurbs would drift from the server's profile the first time a
  * task was renamed, and the drift would be invisible: the card would keep
  * reading fluently while describing work the system no longer schedules.
@@ -22,7 +22,7 @@
  *
  *   WHAT IT IS   gate-ness × the phase's display name (+ the phase's own gate
  *                task, named, when this task is not it)
- *   EXIT         EXIT_CRITERIA[canonical phase] — verbatim
+ *   EXIT         the profile phase's generated exitCriterion — verbatim
  *   WEIGHT       the phase's display name + its Table A-1 weight
  *   RETRY RULE   gate-ness again: a gate's failure repeats its whole phase,
  *                a work task's retry re-runs only itself
@@ -47,7 +47,6 @@ import {
   type GeneratedTask,
   type LifecyclePhase,
 } from '../../lifecycleTemplates.gen.ts';
-import { EXIT_CRITERIA } from '../../lifecycleTemplates.ts';
 
 // ---------------------------------------------------------------------------
 // Vocabulary that has no generated source
@@ -240,7 +239,7 @@ export function briefingFor(
   if (profilePhase === undefined) return undefined;
 
   const weight = `part of ${profilePhase.name} · ${String(profilePhase.weight)}% of this activity.`;
-  const exit = EXIT_CRITERIA[profilePhase.phase];
+  const exit = profilePhase.exitCriterion;
   const gate = gateTaskOf(profilePhase);
 
   const task = selection.task !== undefined ? taskWithin(profilePhase, selection.task) : undefined;

@@ -352,3 +352,12 @@ void test('needsInlineProvenanceMark: a matched but RECORDED row needs no mark �
 void test('needsInlineProvenanceMark: a matched but UNKNOWN row needs no mark — it already asserts nothing', () => {
   assert.equal(needsInlineProvenanceMark(true, 'unknown'), false);
 });
+
+void test('search matches the book name of a task the profile renamed', () => {
+  const stp = nodeFor(row({ activityId: 'N-STP', kind: 'testing', variant: 'plan' }));
+  // N-STP's construction gate is labelled for the profile, not "Code Review" …
+  const ids = matchingTaskIds(stp, 'code review');
+  // … yet the operator who knows the book's word still finds it.
+  assert.deepEqual(ids, ['N-STP::construction::codeReview']);
+  assert.equal(activityPassesSearch(stp, 'code review'), true);
+});

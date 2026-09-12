@@ -58,7 +58,6 @@ import {
   type GeneratedTask,
   type LifecyclePhase,
 } from '../lifecycleTemplates.gen.ts';
-import { EXIT_CRITERIA } from '../lifecycleTemplates.ts';
 
 /** The activity kinds the server can classify — the profile registry's key set. */
 export type ClassifiedKind = NonNullable<ConstructionRow['kind']>;
@@ -88,8 +87,12 @@ export interface TaskNode {
   activityId: string;
   /** The generated task key (`srsReview`, `codeReview`, …) — the server's vocabulary. */
   task: string;
-  /** The generated display label — never hand-authored here. */
+  /** This profile's generated display label — never hand-authored here. */
   label: string;
+  /** The book's own Figure A-1 name for the task (shown beside `label` when the
+   *  profile renames it, and matched by search so "code review" still finds a
+   *  test plan's renamed gate). */
+  bookLabel: string;
   /** True when this task's success IS the phase's binary exit criterion (App A). */
   gate: boolean;
   /** True when the profile emits this task only if a real attempt exists. */
@@ -129,7 +132,7 @@ export interface PhaseNode {
   name: string;
   /** Table A-1 % contribution. From the PROFILE, never from the stored row. */
   weight: number;
-  /** Generic exit-criterion prose for this canonical phase (EXIT_CRITERIA). */
+  /** This profile phase's own exit criterion (generated, ExitCriterionFor). */
   exitCriterion: string;
   completion: PhaseCompletion;
   /** The server's `completedAt`, when it reported one. */
@@ -291,6 +294,7 @@ function buildTaskNode(
     activityId,
     task: task.task,
     label: task.label,
+    bookLabel: task.bookLabel,
     gate: task.gate,
     conditional: task.conditional,
     lifecyclePhase,
@@ -333,7 +337,7 @@ function buildPhaseNode(
     // data, and honouring it would make one activity's 100% mean something
     // different from another's.
     weight: profilePhase.weight,
-    exitCriterion: EXIT_CRITERIA[profilePhase.phase],
+    exitCriterion: profilePhase.exitCriterion,
     completion: completionOf(stored),
     ...(completedAt !== undefined ? { completedAt } : {}),
     tasks: profilePhase.tasks

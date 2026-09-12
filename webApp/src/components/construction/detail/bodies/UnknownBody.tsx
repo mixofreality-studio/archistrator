@@ -18,8 +18,8 @@
  *    guessed between — the surface genuinely cannot tell them apart, and
  *    picking one would be a fabrication in a very quiet voice.
  *
- * Every word of the briefing is COMPOSED from the generated profile + the five
- * EXIT_CRITERIA sentences — see taskBriefing.ts, which holds the whole rule and
+ * Every word of the briefing is COMPOSED from the generated profile (its per-
+ * profile labels and exit criteria) — see taskBriefing.ts, which holds the whole rule and
  * is tested without a renderer. Nothing here is authored per task.
  *
  * The ONE action this state offers is the invariant action bar's `↻ Run this

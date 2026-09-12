@@ -8642,6 +8642,120 @@ func TestTasksForProfile_PerTypeTaskSets(t *testing.T) {
 	}
 }
 
+// allProfiles is every (type, variant) cell that resolves to a DISTINCT profile.
+var allProfiles = []struct {
+	name    string
+	typ     ActivityType
+	variant TestingVariant
+}{
+	{"service", ActivityTypeService, TestVariantPlan},
+	{"frontend", ActivityTypeFrontend, TestVariantPlan},
+	{"uiDesign", ActivityTypeUIDesign, TestVariantPlan},
+	{"deployment", ActivityTypeDeployment, TestVariantPlan},
+	{"documentation", ActivityTypeDocumentation, TestVariantPlan},
+	{"integration", ActivityTypeIntegration, TestVariantPlan},
+	{"testing-plan", ActivityTypeTesting, TestVariantPlan},
+	{"testing-harness", ActivityTypeTesting, TestVariantHarness},
+	{"testing-perf", ActivityTypeTesting, TestVariantPerf},
+	{"testing-systemtest", ActivityTypeTesting, TestVariantSystemTest},
+	{"testing-qa", ActivityTypeTesting, TestVariantQAProcess},
+}
+
+// The copy table must describe exactly the phases ProfileFor carries: every carried
+// phase gets a work label, a gate label and an exit criterion; a phase the profile does
+// not carry gets no exit criterion (the SPA's `absent` body names it instead).
+func TestProfileCopy_TotalOverExactlyTheProfilesPhases(t *testing.T) {
+	canonical := []ActivityMethodPhase{
+		MethodPhaseRequirements, MethodPhaseDetailedDesign, MethodPhaseTestPlan,
+		MethodPhaseConstruction, MethodPhaseIntegration,
+	}
+	for _, pr := range allProfiles {
+		carried := map[ActivityMethodPhase]bool{}
+		for _, ph := range ProfileFor(pr.typ, pr.variant).Phases {
+			carried[ph.Phase] = true
+		}
+		for _, p := range canonical {
+			exit := ExitCriterionFor(pr.typ, pr.variant, p)
+			if !carried[p] {
+				if exit != "" {
+					t.Errorf("%s: phase %q is not in the profile but has exit %q", pr.name, p, exit)
+				}
+				continue
+			}
+			if exit == "" {
+				t.Errorf("%s: phase %q has no exit criterion", pr.name, p)
+			}
+			work := TaskLabelFor(pr.typ, pr.variant, AgentTaskFor(p))
+			gate := TaskLabelFor(pr.typ, pr.variant, GateTaskFor(p))
+			if work == "" || gate == "" {
+				t.Errorf("%s: phase %q work=%q gate=%q, want both non-empty", pr.name, p, work, gate)
+			}
+			if work == gate {
+				t.Errorf("%s: phase %q names its work and its gate the same (%q)", pr.name, p, work)
+			}
+		}
+	}
+}
+
+// Within one profile each phase states its OWN exit. One sentence shared by every phase
+// is exactly the defect this table replaced.
+func TestProfileCopy_ExitCriteriaAreDistinctWithinAProfile(t *testing.T) {
+	for _, pr := range allProfiles {
+		seen := map[string]ActivityMethodPhase{}
+		for _, ph := range ProfileFor(pr.typ, pr.variant).Phases {
+			exit := ExitCriterionFor(pr.typ, pr.variant, ph.Phase)
+			if prev, dup := seen[exit]; dup {
+				t.Errorf("%s: %q and %q share the exit %q", pr.name, prev, ph.Phase, exit)
+			}
+			seen[exit] = ph.Phase
+		}
+	}
+}
+
+// Service IS the case Figure A-1 describes: every one of its twelve tasks reads the
+// book's own name.
+func TestTaskLabelFor_ServiceReadsTheBook(t *testing.T) {
+	for _, task := range TasksForProfile(ProfileFor(ActivityTypeService, TestVariantPlan)) {
+		if got, want := TaskLabelFor(ActivityTypeService, TestVariantPlan, task), LabelForTask(task); got != want {
+			t.Errorf("service %q = %q, want the book's %q", task, got, want)
+		}
+	}
+}
+
+// The designer's P1-7 findings, pinned as the profiles that read them: a test plan is
+// not closed by a Code Review, N-IT's first phase does not capture a requirement, and a
+// frontend's Flows phase is not an STP.
+func TestTaskLabelFor_NonServiceProfilesUseTheirOwnWords(t *testing.T) {
+	svcExit := func(p ActivityMethodPhase) string {
+		return ExitCriterionFor(ActivityTypeService, TestVariantPlan, p)
+	}
+	if got := TaskLabelFor(ActivityTypeTesting, TestVariantPlan, TaskCodeReview); got == LabelForTask(TaskCodeReview) {
+		t.Errorf("N-STP's construction gate reads the book's %q", got)
+	}
+	if got := TaskLabelFor(ActivityTypeTesting, TestVariantPlan, TaskTesting); got != "Plan Review" {
+		t.Errorf("N-STP's integration gate = %q, want \"Plan Review\"", got)
+	}
+	if got := ExitCriterionFor(ActivityTypeTesting, TestVariantPlan, MethodPhaseConstruction); got == svcExit(MethodPhaseConstruction) {
+		t.Errorf("N-STP's Plan Authoring exit is the Service construction exit %q", got)
+	}
+	if got := ExitCriterionFor(ActivityTypeTesting, TestVariantSystemTest, MethodPhaseRequirements); got == svcExit(MethodPhaseRequirements) {
+		t.Errorf("N-IT's Smoke Pass exit is the Service requirements exit %q", got)
+	}
+	for _, task := range []MethodTask{TaskSTP, TaskSTPReview} {
+		if got := TaskLabelFor(ActivityTypeFrontend, TestVariantPlan, task); got == LabelForTask(task) {
+			t.Errorf("frontend Flows %q reads the book's %q", task, got)
+		}
+	}
+	// Conditional tasks keep the book's name on every profile.
+	for _, pr := range allProfiles {
+		for _, task := range []MethodTask{TaskSomeConstruction, TaskTestClient} {
+			if got := TaskLabelFor(pr.typ, pr.variant, task); got != LabelForTask(task) {
+				t.Errorf("%s: conditional %q = %q, want the book's %q", pr.name, task, got, LabelForTask(task))
+			}
+		}
+	}
+}
+
 func TestAttemptID_Format(t *testing.T) {
 	got := AttemptID("C-billing-manager", TaskDesignReview, 2)
 	want := "C-billing-manager:designReview:2"

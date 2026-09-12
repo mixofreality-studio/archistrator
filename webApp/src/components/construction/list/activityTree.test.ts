@@ -424,3 +424,29 @@ void test('falls back to the generic testing profile when the variant is missing
     ['requirements', 'construction', 'integration']
   );
 });
+
+// ---------------------------------------------------------------------------
+// Per-profile vocabulary (fix round B, designer P1-7)
+// ---------------------------------------------------------------------------
+
+void test('a profile names its own tasks and exits: N-STP is not closed by a Code Review', () => {
+  const stp = onlyNode([row({ activityId: 'N-STP', kind: 'testing', variant: 'plan' })]);
+  const svc = onlyNode([row({ activityId: 'C-x', kind: 'service' })]);
+  const stpBuild = stp.phases.find((p) => p.phase === 'construction');
+  const svcBuild = svc.phases.find((p) => p.phase === 'construction');
+  assert.ok(stpBuild !== undefined && svcBuild !== undefined);
+
+  const gate = stpBuild.tasks.find((tk) => tk.gate);
+  assert.ok(gate !== undefined);
+  // The KEY is the book's and never varies — it is the ledger's join key …
+  assert.equal(gate.task, 'codeReview');
+  assert.equal(gate.bookLabel, 'Code Review');
+  // … but the label and the exit are the profile's own.
+  assert.notEqual(gate.label, 'Code Review');
+  assert.notEqual(stpBuild.exitCriterion, svcBuild.exitCriterion);
+  assert.ok(stpBuild.exitCriterion.length > 0);
+  // A Service row reads the book.
+  const svcGate = svcBuild.tasks.find((tk) => tk.gate);
+  assert.ok(svcGate !== undefined);
+  assert.equal(svcGate.label, svcGate.bookLabel);
+});

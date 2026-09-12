@@ -8420,6 +8420,167 @@ var taskLabels = map[MethodTask]string{
 // LabelForTask returns the human-readable display label for a Figure A-1 task.
 func LabelForTask(t MethodTask) string { return taskLabels[t] }
 
+// phaseCopy is one profile phase's DISPLAY copy: what that profile calls the phase's
+// AI-work task (AgentTaskFor) and its gate task (GateTaskFor), and the phase's binary
+// exit criterion as that profile states it.
+//
+// The Figure A-1 task KEYS are invariant across profiles — they are the ledger's join
+// key (AttemptID) and must never vary — but what the work IS does vary. A test plan's
+// construction phase is not "code-complete" and is not closed by a "Code Review"; a
+// system test's first phase does not "capture a requirement". Rendering the book's
+// Service vocabulary on every profile told the reader something false about ten of the
+// eleven profiles (designer P1-7). Only the words vary here: the task set, the gate,
+// the weights and the keys all still come from phaseTasks / gateTasks / ProfileFor.
+//
+// The two conditional tasks (someConstruction, testClient) keep the book's name on
+// every profile: they render only when a real attempt exists, and the book's word is
+// the honest name for work nobody scheduled under a profile-specific one.
+//
+// A slice of entries rather than a map keyed by phase: a profile carries a SUBSET of the
+// five phases by design, which `exhaustive` (check: map) rightly rejects for an
+// enum-keyed map literal. Order follows ProfileFor's own phase order.
+type phaseCopy struct {
+	phase ActivityMethodPhase
+	work  string
+	gate  string
+	exit  string
+}
+
+// profileCopy returns every phase's display copy for one profile, one entry per phase
+// ProfileFor(t, v) carries — no more and no fewer (pinned by
+// TestProfileCopy_TotalOverExactlyTheProfilesPhases). The switch mirrors ProfileFor's
+// own shape, including its default arms, so the two cannot disagree about which
+// profile a (type, variant) cell resolves to.
+func profileCopy(t ActivityType, v TestingVariant) []phaseCopy {
+	switch t {
+	case ActivityTypeFrontend:
+		return []phaseCopy{
+			{MethodPhaseRequirements, "UX Requirements", "UX Requirements Review", "The UX requirements for this surface are written and pass review"},
+			{MethodPhaseDetailedDesign, "UI Design", "Design Review", "The UI design for this surface is drawn and passes design review"},
+			{MethodPhaseTestPlan, "Flow Plan", "Flow Review", "The user flows this surface must support are written as tests and pass review"},
+			{MethodPhaseConstruction, "Construction", "Code Review", "The surface is built and passes code review, not merely checked in"},
+			{MethodPhaseIntegration, "Integration", "Flow Testing", "The surface is wired to its managers and its flows pass against the integrated system"},
+		}
+	case ActivityTypeTesting:
+		return profileCopyForTestingVariant(v)
+	case ActivityTypeDeployment:
+		return []phaseCopy{
+			{MethodPhaseDetailedDesign, "Provisioning Spec", "Spec Review", "The provisioning spec is written and passes review"},
+			{MethodPhaseConstruction, "Provisioning", "Change Review", "The infrastructure change is built and passes review"},
+			{MethodPhaseIntegration, "Rollout", "Convergence Check", "The rollout converges on the desired state and is verified"},
+		}
+	case ActivityTypeDocumentation:
+		return []phaseCopy{
+			{MethodPhaseDetailedDesign, "Outline", "Outline Review", "The outline is written and passes review"},
+			{MethodPhaseConstruction, "Authoring", "Editorial Review", "The document is written and passes editorial review"},
+			{MethodPhaseIntegration, "Publishing", "Doc Review", "The document is published beside the system it describes and signed off"},
+		}
+	case ActivityTypeUIDesign:
+		return []phaseCopy{
+			{MethodPhaseRequirements, "UX Requirements", "UX Requirements Review", "The UX requirements are written and pass review"},
+			{MethodPhaseDetailedDesign, "Design Concept", "Concept Review", "The UI design concept is produced and passes concept review"},
+		}
+	case ActivityTypeIntegration:
+		return []phaseCopy{
+			{MethodPhaseIntegration, "Integration", "Integration Testing", "The components are integrated and their integration tests pass"},
+		}
+	case ActivityTypeService: // the zero value — the book's own vocabulary, same as default.
+		return serviceCopy()
+	default:
+		return serviceCopy()
+	}
+}
+
+// serviceCopy is the canonical five in the book's own words — a Service activity IS
+// the case Figure A-1 describes, so its labels are exactly LabelForTask's.
+func serviceCopy() []phaseCopy {
+	return []phaseCopy{
+		{MethodPhaseRequirements, "SRS", "SRS Review", "The SRS is written and passes SRS review"},
+		{MethodPhaseDetailedDesign, "Detailed Design", "Design Review", "The service contract is designed and passes design review"},
+		{MethodPhaseTestPlan, "STP", "STP Review", "This component's test plan is written and passes STP review"},
+		{MethodPhaseConstruction, "Construction", "Code Review", "The code is written and passes code review, not merely checked in"},
+		{MethodPhaseIntegration, "Integration", "Testing", "The component is integrated and its tests pass"},
+	}
+}
+
+func profileCopyForTestingVariant(v TestingVariant) []phaseCopy {
+	switch v {
+	case TestVariantHarness:
+		return []phaseCopy{
+			{MethodPhaseDetailedDesign, "Harness Design", "Design Review", "The harness design is drawn and passes design review"},
+			{MethodPhaseConstruction, "Harness Construction", "Code Review", "The harness is built and passes code review"},
+			{MethodPhaseIntegration, "Harness Integration", "Harness Review", "The harness drives the plan's scenarios against the integrated system and passes review"},
+		}
+	case TestVariantPerf:
+		return []phaseCopy{
+			{MethodPhaseDetailedDesign, "Perf Scenario Design", "Scenario Review", "The performance scenarios and their targets are designed and pass review"},
+			{MethodPhaseConstruction, "Rig Construction", "Code Review", "The performance rig is built and passes code review"},
+			{MethodPhaseIntegration, "Rig Integration", "Rig Review", "The rig runs against the integrated system and its results pass review"},
+		}
+	case TestVariantSystemTest:
+		return []phaseCopy{
+			{MethodPhaseRequirements, "Smoke Run", "Smoke Check", "A smoke pass runs over the integrated build and shows it is testable"},
+			{MethodPhaseConstruction, "Scenario Execution", "Results Review", "Every system-test scenario has run against the real build and its results are reviewed"},
+			{MethodPhaseIntegration, "Regression Run", "Sign-off", "The regression run is green and the system test is signed off"},
+		}
+	case TestVariantQAProcess:
+		return []phaseCopy{
+			{MethodPhaseDetailedDesign, "Gate Definition", "Gate Review", "The quality gates are defined and pass review"},
+			{MethodPhaseConstruction, "Process Audit", "Audit Review", "The process audit is done and its findings pass review"},
+		}
+	case TestVariantPlan: // the zero value (N-STP) — same as default.
+		return testPlanCopy()
+	default:
+		return testPlanCopy()
+	}
+}
+
+// testPlanCopy is N-STP's: it writes the black-box scenarios, it does not write code.
+func testPlanCopy() []phaseCopy {
+	return []phaseCopy{
+		{MethodPhaseRequirements, "Use-Case Trace", "Trace Review", "Every core use case is traced to the scenarios that will exercise it, and the trace passes review"},
+		{MethodPhaseConstruction, "Scenario Authoring", "Scenario Review", "The black-box scenarios are written and pass scenario review"},
+		{MethodPhaseIntegration, "Plan Assembly", "Plan Review", "The assembled system test plan passes review and is signed off"},
+	}
+}
+
+// TaskLabelFor returns the display label of a Figure A-1 task as ONE profile names it:
+// the profile's own word for the phase's work and gate tasks, and the book's name
+// (LabelForTask) for the two conditional tasks and for a task in a phase the profile
+// does not carry. The task KEY never varies — only this label does.
+func TaskLabelFor(t ActivityType, v TestingVariant, task MethodTask) string {
+	p := PhaseForTask(task)
+	c, ok := phaseCopyFor(t, v, p)
+	if !ok {
+		return LabelForTask(task)
+	}
+	if task == AgentTaskFor(p) {
+		return c.work
+	}
+	if task == GateTaskFor(p) {
+		return c.gate
+	}
+	return LabelForTask(task)
+}
+
+// phaseCopyFor looks up one phase's display copy within a profile; false for a phase
+// the profile does not carry.
+func phaseCopyFor(t ActivityType, v TestingVariant, p ActivityMethodPhase) (phaseCopy, bool) {
+	for _, c := range profileCopy(t, v) {
+		if c.phase == p {
+			return c, true
+		}
+	}
+	return phaseCopy{}, false
+}
+
+// ExitCriterionFor returns a lifecycle phase's binary exit criterion as ONE profile
+// states it, or "" for a phase that profile does not carry.
+func ExitCriterionFor(t ActivityType, v TestingVariant, p ActivityMethodPhase) string {
+	c, _ := phaseCopyFor(t, v, p)
+	return c.exit
+}
+
 // PhaseForTask returns the lifecycle phase a task belongs to (the empty phase when
 // the task is unknown).
 func PhaseForTask(t MethodTask) ActivityMethodPhase {
