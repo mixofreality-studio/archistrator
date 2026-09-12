@@ -74,6 +74,6 @@ export function deriveOperating(
   if (projectPhase !== 'construction' || listedActivities.length === 0) return false;
   return listedActivities.every((id) => {
     const row = rows[id];
-    return row !== undefined && row.phase === PHASE_DONE && row.buildStatus === BUILD_INTEGRATED;
+    return row?.phase === PHASE_DONE && row.buildStatus === BUILD_INTEGRATED;
   });
 }
