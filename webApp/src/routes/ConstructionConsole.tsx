@@ -59,6 +59,7 @@ import {
 } from '../components/construction/lens/ConstructionShell';
 import { ActivityTreeView } from '../components/construction/list/ActivityTreeView';
 import { buildActivityTree, type ActivityMeta } from '../components/construction/list/activityTree';
+import { applyToolbarToActivities } from '../components/construction/list/activityScope';
 import {
   useLensSelection,
   useLensToolbar,
@@ -433,6 +434,12 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
         ...(cpm !== undefined
           ? { float: cpm.totalFloat, onCriticalPath: cpm.onCriticalPath, band: cpm.band }
           : {}),
+        // Task 11's search matches activity id / title / componentId — joined
+        // the same way as `label`, so it is absent for the same 60 of 69 rows
+        // that do not join the derived activity list.
+        ...(a.componentId !== undefined && a.componentId.length > 0
+          ? { componentId: a.componentId }
+          : {}),
       };
     }
     return byId;
@@ -442,6 +449,20 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
     () => buildActivityTree(Object.values(project?.constructionRows ?? {}), { meta: activityMeta }),
     [project, activityMeta]
   );
+
+  // Scope/kind/layer/search/hide-synthesized/sort — every rule in one pure
+  // pipeline (see activityScope.ts) so ActivityTreeView renders exactly what
+  // the toolbar says and nothing this file has to keep in sync by hand.
+  const visibleActivityTree = useMemo(
+    () => applyToolbarToActivities(activityTree, toolbar),
+    [activityTree, toolbar]
+  );
+
+  // "Expand to current phase" is an IMPERATIVE action, not persisted toolbar
+  // state (see ConstructionShellProps.onExpandToCurrentPhase) — a monotonic
+  // signal the tree view watches, so a second click re-opens whatever the
+  // operator has since collapsed.
+  const [expandToPhaseSignal, setExpandToPhaseSignal] = useState(0);
 
   // The shell's DETAIL slot: one pane, driven entirely by the URL's selection
   // (never owned by the pane itself), so it cannot lose it to the cascade
@@ -598,7 +619,9 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
                 lens === 'list' ? (
                   <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                     <ActivityTreeView
-                      nodes={activityTree}
+                      expandToCurrentPhaseSignal={expandToPhaseSignal}
+                      nodes={visibleActivityTree}
+                      searchQuery={toolbar.search}
                       selection={selection}
                       onSelect={select}
                     />
@@ -626,6 +649,9 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
               lens={lens}
               tasksOwed={tasksOwed}
               toolbar={toolbar}
+              onExpandToCurrentPhase={() => {
+                setExpandToPhaseSignal((n) => n + 1);
+              }}
               onLens={setLens}
               onToolbar={setToolbar}
             />

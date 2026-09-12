@@ -214,6 +214,15 @@ export interface ToolbarState {
   kind: string;
   layer: string;
   sort: SortId;
+  /**
+   * The Task 11 audit toggle. ON treats any node whose worst provenance grade
+   * is `reconstructed` (backfilled or synthesized) as absent from the LIST —
+   * not merely undecorated. Default OFF: the surface's normal reading already
+   * marks reconstructed rows (the hatched rail + group badge); this toggle
+   * exists to let a reader ask "what is left if I do not trust a single ruling
+   * or inference?" and see the answer render without crashing.
+   */
+  hideSynthesized: boolean;
 }
 
 export const DEFAULT_TOOLBAR: ToolbarState = {
@@ -222,6 +231,7 @@ export const DEFAULT_TOOLBAR: ToolbarState = {
   kind: 'all',
   layer: 'all',
   sort: 'network',
+  hideSynthesized: false,
 };
 
 /**

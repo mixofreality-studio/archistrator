@@ -155,6 +155,11 @@ export interface ActivityMeta {
   onCriticalPath?: boolean;
   /** The server's float-criticality band, passed through untouched. */
   band?: string;
+  /** ModelActivityItem.componentId, joined the same way as `label` — one of
+   *  Task 11 search's three matched fields (activity id / title / componentId).
+   *  Absent for the 60 of 69 rows that do not join the derived activity list
+   *  (the 40-vs-69 seam), exactly like every other ActivityMeta field. */
+  componentId?: string;
 }
 
 export interface ActivityNode {
@@ -174,6 +179,8 @@ export interface ActivityNode {
   layer?: Layer;
   layerBand?: 'layered' | 'projectWide';
   worstOrigin?: RecordOriginRow;
+  /** See ActivityMeta.componentId. */
+  componentId?: string;
   /** In profile (Method) order. Empty for an unclassified activity. */
   phases: PhaseNode[];
   /**
@@ -399,6 +406,7 @@ function buildActivityNode(row: ConstructionRow, meta: ActivityMeta | undefined)
     ...(row.layer !== undefined ? { layer: row.layer } : {}),
     ...(row.layerBand !== undefined ? { layerBand: row.layerBand } : {}),
     ...(row.worstOrigin !== undefined ? { worstOrigin: row.worstOrigin } : {}),
+    ...(meta?.componentId !== undefined ? { componentId: meta.componentId } : {}),
     phases,
     ...percentCompleteOf(profile, phases),
     offProfilePhaseCount,

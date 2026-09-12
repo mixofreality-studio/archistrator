@@ -118,5 +118,6 @@ void test('the toolbar starts unfiltered', () => {
     kind: 'all',
     layer: 'all',
     sort: 'network',
+    hideSynthesized: false,
   });
 });

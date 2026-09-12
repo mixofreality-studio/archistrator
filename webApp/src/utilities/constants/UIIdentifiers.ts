@@ -387,6 +387,19 @@ export const UI_IDENTIFIERS = {
     LENS_CONTENT: 'construction-lens-content',
     LENS_DETAIL: 'construction-lens-detail',
     LENS_PLACEHOLDER: 'construction-lens-placeholder',
+    // Navigability (Stage B Task 11): the 528-row tree gets no "expand all" —
+    // only a targeted expand to whatever is in flight right now — and an
+    // explicit audit toggle that treats reconstructed/synthesized evidence as
+    // absent, so a reviewer can see what the surface would show if the founder's
+    // 2026-09-09 ruling had never widened the backfill.
+    LENS_EXPAND_TO_PHASE: 'construction-lens-expand-to-phase',
+    LENS_HIDE_SYNTHESIZED: 'construction-lens-hide-synthesized',
+    // The provenance mark carried on a SEARCH-MATCHED task row itself (in
+    // addition to the ancestor reveal + the group headers' own badge). A task
+    // row read in isolation still asserts a state; a match that scrolls one
+    // into view must not be the one case where that assertion has no visible
+    // provenance context beside it.
+    searchMatchProvenance: (nodeId: string) => `construction-search-match-provenance-${nodeId}`,
     // The LIST lens's three-tier tree (Stage B Task 6): activity › lifecycle
     // phase › Figure A-1 task. One id per rendered row, keyed by the tree's own
     // node id (`<activityId>`, `<activityId>::<phase>`, `<activityId>::<phase>::<task>`).

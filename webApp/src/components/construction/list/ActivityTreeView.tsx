@@ -59,11 +59,34 @@
  * (and fills the detail pane); only the chevron expands. Sharing one gesture
  * between "show me this" and "show me what is inside this" is how an operator
  * loses their place.
+ *
+ * NAVIGABILITY (Stage B Task 11)
+ * -------------------------------
+ * `searchQuery` and `expandToCurrentPhaseSignal` are the two props that drive
+ * the apiRef: a search match's ancestors are expanded and the match is
+ * focused (which also scrolls it into view) via `apiRef.current.focusItem`;
+ * "Expand to current phase" additively expands every in-flight activity via
+ * the same imperative surface. Both reuse the pure predicates in
+ * activityScope.ts — this file owns the choreography, not the rules.
+ *
+ * THE PROVENANCE GUARANTEE, CARRIED FORWARD FROM TASK 7
+ * -------------------------------------------------------
+ * The `≈ RECONSTRUCTED` badge rides group headers (tier 1/2) only — a task row
+ * in isolation reads `SRS ✓ PASSED` with no mark of its own, and the design's
+ * defence is that its group header is always visible above it (an argument
+ * from CONTEXT). Search is the one feature that can break that argument: it
+ * can reveal and focus a tier-3 row on its own initiative. So a row this file
+ * marks as a search MATCH also carries its own provenance mark inline
+ * (`SearchMatchProvenance` below) whenever that task is not `recorded` —
+ * independent of whether its ancestors happen to still be on screen. The
+ * ancestor auto-expand is real and reduces how often that mark is even needed,
+ * but it is not what the guarantee rests on.
  */
 import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useState,
   type MouseEvent as ReactMouseEvent,
@@ -91,9 +114,19 @@ import { UI_IDENTIFIERS } from '../../../utilities/constants/UIIdentifiers';
 import { bandTokens } from '../../project/bandTokens';
 import { KindBadge } from '../KindBadge';
 import { PROVENANCE_LABEL, taskDetailStateFill } from '../detail/detailPaneState.ts';
-import { ProvenanceGroupStamp, ProvenanceRailMark, readProvenance } from '../provenance';
+import {
+  GRADE_LABEL,
+  ProvenanceGroupStamp,
+  ProvenanceRailMark,
+  readProvenance,
+} from '../provenance';
 import type { LensSelection } from '../lens/useLensSelection';
 import type { ActivityNode, PhaseNode, TaskAttemptNode, TaskNode } from './activityTree.ts';
+import {
+  currentPhaseExpansionIds,
+  matchingTaskIds,
+  needsInlineProvenanceMark,
+} from './activityScope.ts';
 import {
   activityRowState,
   attemptRowState,
@@ -239,6 +272,9 @@ interface RowContextValue {
   /** The widest effort on screen — the effort bar is a fraction of it. */
   maxEffortDays: number;
   onInlineRetry: (selection: LensSelection) => void;
+  /** Task nodeIds a live search matched by their own key/label (Task 11).
+   *  Empty when the search box is empty. */
+  searchMatchedTaskIds: ReadonlySet<string>;
 }
 
 const RowContext = createContext<RowContextValue | undefined>(undefined);
@@ -257,16 +293,28 @@ function useRowContext(): RowContextValue {
 // ---------------------------------------------------------------------------
 
 export interface ActivityTreeViewProps {
-  /** Already derived and already ordered — this file neither sorts nor filters. */
+  /** Already filtered/sorted/searched — this file neither decides membership
+   *  nor order (see ../list/activityScope.ts); it renders and reveals. */
   nodes: readonly ActivityNode[];
   selection: LensSelection;
   onSelect: (selection: LensSelection) => void;
+  /** The toolbar's raw search text. A tier-3 match auto-expands its ancestors
+   *  and is focused (and thus scrolled into view) via `apiRef`; empty means no
+   *  search is active. */
+  searchQuery: string;
+  /** Bumped by the toolbar's "Expand to current phase" button. Every increase
+   *  (additively) expands every activity currently in flight; `0` (the
+   *  initial value, never reached again once incremented) fires nothing on
+   *  mount. */
+  expandToCurrentPhaseSignal: number;
 }
 
 export function ActivityTreeView({
   nodes,
   selection,
   onSelect,
+  searchQuery,
+  expandToCurrentPhaseSignal,
 }: ActivityTreeViewProps): ReactElement {
   const t = useTokens();
   const apiRef = useRichTreeViewApiRef();
@@ -284,6 +332,83 @@ export function ActivityTreeView({
     [nodes]
   );
 
+  // Search matches are recomputed freely every render (cheap, purely a
+  // rendering concern — which rows get the highlight + inline provenance
+  // mark).
+  const searchMatchedTaskIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const node of nodes) {
+      for (const id of matchingTaskIds(node, searchQuery)) ids.add(id);
+    }
+    return ids;
+  }, [nodes, searchQuery]);
+
+  // Reveal, computed DURING RENDER rather than in an effect — the React-
+  // sanctioned "adjust state when a prop changes" pattern this codebase
+  // already uses for the toolbar store (useLensToolbar's `held`): comparing
+  // against the LAST query this reveal ran for, and calling setState only
+  // when it actually changed, so the loop terminates on the immediate re-
+  // render exactly like every other instance of this pattern here. Reading
+  // `nodes` directly (not through a ref) is what makes computing this safe
+  // in the render body — it is simply this render's own prop, not a stale
+  // capture — and it never fights a manual collapse the operator made
+  // since this only runs again when `searchQuery` itself changes.
+  const [reveal, setReveal] = useState<{ forQuery: string; focusTarget: string | null }>({
+    forQuery: '',
+    focusTarget: null,
+  });
+  if (reveal.forQuery !== searchQuery) {
+    const toExpand = new Set<string>();
+    let firstMatch: string | undefined;
+    for (const node of nodes) {
+      const ids = matchingTaskIds(node, searchQuery);
+      if (ids.length === 0) continue;
+      toExpand.add(node.nodeId);
+      for (const phase of node.phases) {
+        if (phase.tasks.some((task) => ids.includes(task.nodeId))) toExpand.add(phase.nodeId);
+      }
+      firstMatch ??= ids[0];
+    }
+    setReveal({ forQuery: searchQuery, focusTarget: firstMatch ?? null });
+    if (toExpand.size > 0) {
+      setExpandedItems((prev) => [...new Set([...prev, ...toExpand])]);
+    }
+  }
+
+  // "Expand to current phase" — additive, and deliberately never "expand
+  // all": only the activities actually in flight right now. Same render-time-
+  // adjustment shape as the search reveal above, keyed on the toolbar's own
+  // click signal rather than on `nodes`.
+  const [appliedExpandSignal, setAppliedExpandSignal] = useState(0);
+  if (appliedExpandSignal !== expandToCurrentPhaseSignal) {
+    setAppliedExpandSignal(expandToCurrentPhaseSignal);
+    if (expandToCurrentPhaseSignal !== 0) {
+      const ids = currentPhaseExpansionIds(nodes);
+      if (ids.length > 0) {
+        setExpandedItems((prev) => [...new Set([...prev, ...ids])]);
+      }
+    }
+  }
+
+  // The one genuine SIDE EFFECT here (an imperative DOM/library call, not a
+  // state update): once a reveal names a focus target, `focusItem` also
+  // scrolls it into view. It requires the target's ancestors to already be
+  // expanded (TreeViewFocusPlugin's own doc comment says so) — which the
+  // render-time adjustment above guarantees landed in the SAME commit this
+  // effect runs after, whether or not this particular match needed a new
+  // expansion (an already-open ancestor still takes this same path,
+  // harmlessly).
+  useEffect(() => {
+    if (reveal.focusTarget === null) return undefined;
+    const target = reveal.focusTarget;
+    const frame = requestAnimationFrame((): void => {
+      apiRef.current?.focusItem(null, target);
+    });
+    return (): void => {
+      cancelAnimationFrame(frame);
+    };
+  }, [reveal.focusTarget, apiRef]);
+
   const onSelectedItemsChange = useCallback(
     (_event: SyntheticEvent | null, itemId: string | null): void => {
       if (itemId === null) return;
@@ -294,8 +419,8 @@ export function ActivityTreeView({
   );
 
   const rowContext = useMemo(
-    (): RowContextValue => ({ t, maxEffortDays, onInlineRetry: onSelect }),
-    [t, maxEffortDays, onSelect]
+    (): RowContextValue => ({ t, maxEffortDays, onInlineRetry: onSelect, searchMatchedTaskIds }),
+    [t, maxEffortDays, onSelect, searchMatchedTaskIds]
   );
 
   if (nodes.length === 0) {
@@ -896,7 +1021,7 @@ function StageRuleRow({
 // ---------------------------------------------------------------------------
 
 function TaskRow({ node, task }: { node: ActivityNode; task: TaskNode }): ReactElement {
-  const { t, onInlineRetry } = useRowContext();
+  const { t, onInlineRetry, searchMatchedTaskIds } = useRowContext();
   const [openAttempts, setOpenAttempts] = useState(false);
   const state = taskRowState(task, node.status);
   const chip = chipFor(state);
@@ -907,6 +1032,14 @@ function TaskRow({ node, task }: { node: ActivityNode; task: TaskNode }): ReactE
   // gets the rail only: naming the sub-grade in ink on every row is what the
   // tooltip exists to replace.
   const provenance = useMemo(() => readProvenance(task), [task]);
+  // A live search revealed THIS row specifically. The group header above it
+  // still carries the `≈ RECONSTRUCTED` badge (the normal argument-from-
+  // context), but a search reveal can scroll a task row into view on its own
+  // — so a matched, reconstructed row ALSO carries its own inline mark
+  // (below, via the pure `needsInlineProvenanceMark`), independent of whether
+  // its ancestors are still on screen.
+  const isSearchMatch = searchMatchedTaskIds.has(task.nodeId);
+  const showsInlineProvenanceMark = needsInlineProvenanceMark(isSearchMatch, provenance.origin);
 
   return (
     <Box sx={{ flexGrow: 1, minWidth: 0 }}>
@@ -914,8 +1047,16 @@ function TaskRow({ node, task }: { node: ActivityNode; task: TaskNode }): ReactE
         sx={{
           display: 'flex',
           alignItems: 'stretch',
-          borderLeft: loud ? `3px solid ${t.accent}` : '3px solid transparent',
-          bgcolor: loud || failed ? t.awaitingBg : 'transparent',
+          borderLeft: isSearchMatch
+            ? `3px solid ${t.accent}`
+            : loud
+              ? `3px solid ${t.accent}`
+              : '3px solid transparent',
+          bgcolor: isSearchMatch
+            ? alpha(t.accent, 0.14)
+            : loud || failed
+              ? t.awaitingBg
+              : 'transparent',
         }}
       >
         <ProvenanceRailMark reading={provenance} t={t} />
@@ -951,6 +1092,30 @@ function TaskRow({ node, task }: { node: ActivityNode; task: TaskNode }): ReactE
             <Tooltip title="This task's success IS the phase's binary exit criterion (App A)">
               <Typography sx={{ fontFamily: t.mono, fontSize: 9, color: t.muted, flexShrink: 0 }}>
                 gate
+              </Typography>
+            </Tooltip>
+          ) : null}
+          {/* needsInlineProvenanceMark matches the GROUP badge's own rule
+            (ProvenanceGroupStamp) exactly: only `reconstructed` ever earns a
+            mark. `unknown` is already self-evidently quiet (chip-less, no
+            rail) and asserts nothing a reader could mistake for fact, so it
+            does not need one — this is the guarantee from Task 7's caveat,
+            extended to a search reveal, and it is pinned by a test. */}
+          {showsInlineProvenanceMark ? (
+            <Tooltip title={<span style={{ whiteSpace: 'pre-line' }}>{provenance.tooltip}</span>}>
+              <Typography
+                data-testid={UI_IDENTIFIERS.Construction.searchMatchProvenance(task.nodeId)}
+                sx={{
+                  fontFamily: t.mono,
+                  fontSize: 9,
+                  fontWeight: 700,
+                  letterSpacing: '0.04em',
+                  color: t.muted,
+                  flexShrink: 0,
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {`≈ ${GRADE_LABEL.reconstructed.toLowerCase()}`}
               </Typography>
             </Tooltip>
           ) : null}

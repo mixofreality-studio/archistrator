@@ -25,21 +25,36 @@
  * is owed. GRAPH and TASKS render an honest "coming in a later stage" placeholder
  * until Stages C/D fill them; a placeholder that looked like data would be the
  * exact failure this rewrite exists to remove.
+ *
+ * NAVIGABILITY (Stage B Task 11)
+ * ------------------------------
+ * A resting tree of 69 tier-1 rows (worst case ~120 expanded) gets no free
+ * sort/filter/virtualize — `@mui/x-tree-view` is the community edition, not a
+ * DataGrid. Every scope chip is wired here (the 7 that shipped disabled in
+ * Task 3 now have a real predicate behind them, in ../list/activityScope.ts),
+ * and the one new imperative action — "Expand to current phase" — is
+ * deliberately NOT "expand all": it opens only the 1-3 activities actually in
+ * flight right now. "Expand all" on a 528-row corpus is the exact trap this
+ * whole design exists to avoid.
  */
 import type { ReactElement, ReactNode } from 'react';
 import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
 import InputBase from '@mui/material/InputBase';
 import MenuItem from '@mui/material/MenuItem';
 import Select from '@mui/material/Select';
+import Switch from '@mui/material/Switch';
 import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import SearchIcon from '@mui/icons-material/Search';
+import UnfoldMoreRoundedIcon from '@mui/icons-material/UnfoldMoreRounded';
 
 import { useTokens } from '../../../utilities/theme/ThemeContext';
 import type { Tokens } from '../../../utilities/theme/themes';
 import { UI_IDENTIFIERS } from '../../../utilities/constants/UIIdentifiers';
+import { KindBadge, KIND_META, type ActivityKind } from '../KindBadge';
 import {
   LENS_IDS,
   SCOPE_IDS,
@@ -78,12 +93,24 @@ const SCOPE_LABEL: Record<ScopeId, string> = {
 };
 
 const SORT_LABEL: Record<SortId, string> = {
-  network: 'Network order',
+  network: 'Network order (default)',
   floatAsc: 'Float ascending',
 };
 
-/** Which scopes have a predicate wired this stage. The rest are announced, not faked. */
-const LIVE_SCOPES: ReadonlySet<ScopeId> = new Set<ScopeId>(['all']);
+/** The sort menu's own helper text — WHY only two options exist, stated where
+ *  the operator is looking rather than left for them to notice by absence.
+ *  Tiers 2/3 are a Figure A-1 SEQUENCE (phase = Method order, task = execution
+ *  order); sorting a sequence is nonsense, so it is explained, not offered. */
+const SORT_HELP_TEXT =
+  'Sort applies to activities only. Phase and task order is a Figure A-1 sequence — Method order for phases, execution order for tasks — and sorting a sequence would be nonsense, so it is not offered.';
+
+/** Every scope chip now carries a real predicate (see ../list/activityScope.ts)
+ *  — Task 11 wires the 7 that Task 3 shipped disabled. */
+const ACTIVITY_KIND_KEYS: ReadonlySet<string> = new Set<string>(Object.keys(KIND_META));
+
+function asActivityKind(value: string): ActivityKind | undefined {
+  return ACTIVITY_KIND_KEYS.has(value) ? (value as ActivityKind) : undefined;
+}
 
 export interface ConstructionShellProps {
   lens: LensId;
@@ -100,6 +127,12 @@ export interface ConstructionShellProps {
   detail?: ReactNode;
   onLens: (lens: LensId) => void;
   onToolbar: (patch: Partial<ToolbarState>) => void;
+  /** "Expand to current phase" — an IMPERATIVE action, not toolbar state, so it
+   *  lives outside ToolbarState: clicking it a second time must re-open
+   *  whatever the operator has since collapsed, which a persisted flag cannot
+   *  express. The tree (ActivityTreeView) owns what "current phase" resolves
+   *  to; this button only asks it to act. */
+  onExpandToCurrentPhase: () => void;
 }
 
 export function ConstructionShell({
@@ -113,6 +146,7 @@ export function ConstructionShell({
   detail,
   onLens,
   onToolbar,
+  onExpandToCurrentPhase,
 }: ConstructionShellProps): ReactElement {
   const t = useTokens();
 
@@ -176,11 +210,7 @@ export function ConstructionShell({
 
         <ToolbarSelect
           label="Scope"
-          options={SCOPE_IDS.map((id) => ({
-            value: id,
-            label: LIVE_SCOPES.has(id) ? SCOPE_LABEL[id] : `${SCOPE_LABEL[id]} (later stage)`,
-            disabled: !LIVE_SCOPES.has(id),
-          }))}
+          options={SCOPE_IDS.map((id) => ({ value: id, label: SCOPE_LABEL[id] }))}
           t={t}
           testid={UI_IDENTIFIERS.Construction.LENS_SCOPE}
           value={toolbar.scope}
@@ -190,7 +220,18 @@ export function ConstructionShell({
         />
         <ToolbarSelect
           label="Kind"
-          options={[{ value: 'all', label: 'All kinds' }, ...kindOptions]}
+          options={[
+            { value: 'all', label: 'All kinds' },
+            ...kindOptions.map((o) => {
+              const kind = asActivityKind(o.value);
+              return {
+                value: o.value,
+                // Reuses KindBadge (the same chip the tree rows themselves
+                // render) rather than a second, plain-text kind vocabulary.
+                label: kind !== undefined ? <KindBadge kind={kind} size="xs" t={t} /> : o.label,
+              };
+            }),
+          ]}
           t={t}
           testid={UI_IDENTIFIERS.Construction.LENS_KIND}
           value={toolbar.kind}
@@ -210,8 +251,12 @@ export function ConstructionShell({
         />
         <ToolbarSelect
           // Tiers 2 and 3 are a Figure A-1 SEQUENCE — sorting them is nonsense
-          // and is deliberately not on offer. Only tier 1 sorts.
-          hint="Applies to activities only — phases and tasks keep their lifecycle order."
+          // and is deliberately not on offer. Only tier 1 sorts. Stated twice:
+          // once as the hover hint on the control, once as a leading disabled
+          // row INSIDE the opened menu — the brief asks for it in the sort
+          // menu's own helper text, not only on hover.
+          helperItem={SORT_HELP_TEXT}
+          hint={SORT_HELP_TEXT}
           label="Sort"
           options={SORT_IDS.map((id) => ({ value: id, label: SORT_LABEL[id] }))}
           t={t}
@@ -221,6 +266,54 @@ export function ConstructionShell({
             onToolbar({ sort: asSort(value) });
           }}
         />
+
+        <Tooltip title="Open every activity currently in construction or awaiting your review — not everything.">
+          <Button
+            data-testid={UI_IDENTIFIERS.Construction.LENS_EXPAND_TO_PHASE}
+            size="small"
+            startIcon={<UnfoldMoreRoundedIcon sx={{ fontSize: 15 }} />}
+            sx={{
+              flexShrink: 0,
+              fontFamily: t.mono,
+              fontWeight: 700,
+              fontSize: 11,
+              letterSpacing: '0.04em',
+              textTransform: 'none',
+              color: t.ink,
+              borderColor: t.line,
+            }}
+            variant="outlined"
+            onClick={onExpandToCurrentPhase}
+          >
+            Expand to current phase
+          </Button>
+        </Tooltip>
+
+        <Tooltip title="Treat reconstructed/synthesized records as absent — an audit view of what this project would show if nothing but direct observation counted.">
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.4, flexShrink: 0 }}>
+            <Switch
+              checked={toolbar.hideSynthesized}
+              data-testid={UI_IDENTIFIERS.Construction.LENS_HIDE_SYNTHESIZED}
+              size="small"
+              onChange={(e) => {
+                onToolbar({ hideSynthesized: e.target.checked });
+              }}
+            />
+            <Typography
+              sx={{
+                fontFamily: t.mono,
+                fontSize: 10.5,
+                fontWeight: 700,
+                letterSpacing: '0.06em',
+                color: t.muted,
+                textTransform: 'uppercase',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              Hide synthesized
+            </Typography>
+          </Box>
+        </Tooltip>
       </Box>
 
       <Box sx={{ display: 'flex', flexGrow: 1, minHeight: 0, gap: 2 }}>
@@ -329,9 +422,17 @@ function LensControl({
 
 interface ToolbarOption {
   value: string;
-  label: string;
+  /** Usually plain text; the Kind select embeds a KindBadge here instead of a
+   *  second, plain-text kind vocabulary. */
+  label: ReactNode;
   disabled?: boolean;
 }
+
+/** A value no real option ever carries, so the helper row can never be the
+ *  Select's controlled `value` and can never fire `onChange` (it is also
+ *  `disabled`, which already blocks a click — this is the defence for the
+ *  keyboard-typeahead path MUI's Select still runs over disabled items). */
+const HELPER_ITEM_VALUE = '__helper__';
 
 function ToolbarSelect({
   label,
@@ -340,6 +441,7 @@ function ToolbarSelect({
   t,
   testid,
   hint,
+  helperItem,
   onChange,
 }: {
   label: string;
@@ -348,6 +450,10 @@ function ToolbarSelect({
   t: Tokens;
   testid: string;
   hint?: string;
+  /** Rendered as a disabled, non-selectable leading row INSIDE the opened
+   *  menu — the sort control's "why only two options" belongs where the
+   *  operator is looking (the menu itself), not only in a hover tooltip. */
+  helperItem?: string;
   onChange: (value: string) => void;
 }): ReactElement {
   const control = (
@@ -383,6 +489,22 @@ function ToolbarSelect({
           onChange(e.target.value);
         }}
       >
+        {helperItem !== undefined ? (
+          <MenuItem
+            disabled
+            divider
+            sx={{
+              fontFamily: t.body,
+              fontSize: 10.5,
+              color: t.muted,
+              whiteSpace: 'normal',
+              opacity: 1,
+            }}
+            value={HELPER_ITEM_VALUE}
+          >
+            {helperItem}
+          </MenuItem>
+        ) : null}
         {options.map((o) => (
           <MenuItem
             disabled={o.disabled}
