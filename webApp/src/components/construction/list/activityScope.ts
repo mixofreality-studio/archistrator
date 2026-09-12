@@ -259,6 +259,34 @@ export function currentPhaseExpansionIds(nodes: readonly ActivityNode[]): string
   return nodes.filter((n) => isActivelyInFlight(n.row.status)).map((n) => n.nodeId);
 }
 
+/** The "Expand to current phase" button's state (fix round B, adopted P2). */
+export interface ExpandToCurrentPhaseControl {
+  enabled: boolean;
+  tooltip: string;
+}
+
+/**
+ * Enabled only when something is actually in flight among the rows shown; with
+ * nothing in construction or awaiting review the button would open nothing, so
+ * it is disabled and its tooltip says why rather than failing silently on click.
+ */
+export function expandToCurrentPhaseControl(
+  nodes: readonly ActivityNode[]
+): ExpandToCurrentPhaseControl {
+  const n = currentPhaseExpansionIds(nodes).length;
+  if (n === 0) {
+    return {
+      enabled: false,
+      tooltip:
+        'Nothing is in construction or awaiting your review right now, so there is no current phase to open.',
+    };
+  }
+  return {
+    enabled: true,
+    tooltip: `Open the ${n === 1 ? 'activity' : `${String(n)} activities`} in construction or awaiting your review — not everything.`,
+  };
+}
+
 /** Re-exported so a caller that already has the node (not just its row) can
  *  reuse the SAME "what is this activity's current phase" reading the tree
  *  view's own AbsentStage marker uses, rather than a second implementation. */

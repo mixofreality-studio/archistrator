@@ -10,6 +10,8 @@
  *          legible; the `≈ RECONSTRUCTED` header badge stays spelled out.
  *  - P1-11 "Observed only" keeps every activity and strips reconstructed evidence,
  *          so a backfilled activity reads NOT STARTED (spec R6) instead of vanishing.
+ *  - P2    "Expand to current phase" is disabled, and says why, with nothing in
+ *          flight; the pane collapses with a collapse-pane icon and a tooltip.
  *
  * Read-only: nothing here dispatches (no Begin/Run/Retry is pressed).
  * Gated like construction-tracker.spec.ts: needs the seeded "archistrator"
@@ -189,4 +191,35 @@ test('"Observed only" keeps every activity and reads a backfilled one as not sta
   await toggle.uncheck();
   await expect.poll(stateOf).toBe('chip');
   expect(await badges.count()).toBeGreaterThan(0);
+});
+
+test('"Expand to current phase" is disabled, and says why, when nothing is in flight', async ({
+  page,
+}) => {
+  await gotoApp(page, '/project/archistrator/construction?lens=list');
+  await expect(page.getByTestId(TESTID.constructionListTree)).toBeVisible({ timeout: 15_000 });
+  const expand = page.getByTestId(TESTID.constructionLensExpandToPhase);
+  // The seeded project has nothing in construction or in review.
+  await expect(expand).toBeDisabled();
+  await expand.hover({ force: true });
+  await expect(page.getByRole('tooltip')).toContainText(
+    'Nothing is in construction or awaiting your review'
+  );
+});
+
+test('the pane collapses with a collapse-pane icon and a tooltip, and expands back', async ({
+  page,
+}) => {
+  await gotoApp(page, '/project/archistrator/construction?lens=list&a=C-billing-manager');
+  await expect(page.getByTestId(TESTID.constructionDetailPane)).toBeVisible({ timeout: 15_000 });
+  const toggle = page.getByTestId(TESTID.constructionDetailCollapseToggle);
+  // ->| : a collapse-pane mark, not the chevron that read as "next".
+  await expect(toggle.getByTestId('LastPageRoundedIcon')).toBeVisible();
+  await expect(toggle.getByTestId('ChevronRightRoundedIcon')).toHaveCount(0);
+  await toggle.hover();
+  await expect(page.getByRole('tooltip')).toContainText('Collapse the detail pane');
+  await toggle.click();
+  await expect(
+    page.getByTestId(TESTID.constructionDetailCollapseToggle).getByTestId('FirstPageRoundedIcon')
+  ).toBeVisible();
 });

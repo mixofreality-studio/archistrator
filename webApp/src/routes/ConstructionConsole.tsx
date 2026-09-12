@@ -61,7 +61,10 @@ import {
 } from '../components/construction/lens/beginControl';
 import { ActivityTreeView } from '../components/construction/list/ActivityTreeView';
 import { buildActivityTree, type ActivityMeta } from '../components/construction/list/activityTree';
-import { applyToolbarToActivities } from '../components/construction/list/activityScope';
+import {
+  applyToolbarToActivities,
+  expandToCurrentPhaseControl,
+} from '../components/construction/list/activityScope';
 import { rowsForEvidenceView } from '../components/construction/list/observedOnly';
 import {
   DEFAULT_TOOLBAR,
@@ -585,6 +588,7 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
                 )
               }
               detail={detailPane}
+              expandToCurrentPhase={expandToCurrentPhaseControl(visibleActivityTree)}
               kindOptions={kindOptions}
               layerOptions={layerOptions}
               lens={lens}

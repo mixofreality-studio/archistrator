@@ -16,6 +16,7 @@ import {
   activityPassesSearch,
   applyToolbarToActivities,
   currentPhaseExpansionIds,
+  expandToCurrentPhaseControl,
   isActivelyInFlight,
   matchesKind,
   matchesLayer,
@@ -344,4 +345,15 @@ void test('search matches the book name of a task the profile renamed', () => {
   // … yet the operator who knows the book's word still finds it.
   assert.deepEqual(ids, ['N-STP::construction::codeReview']);
   assert.equal(activityPassesSearch(stp, 'code review'), true);
+});
+
+void test('"Expand to current phase" is disabled, and says why, when nothing is in flight', () => {
+  const idle = expandToCurrentPhaseControl([critical, near, recorded, unclassified]);
+  assert.equal(idle.enabled, false);
+  assert.match(idle.tooltip, /Nothing is in construction or awaiting your review/);
+  const one = expandToCurrentPhaseControl([critical, retried]);
+  assert.equal(one.enabled, true);
+  assert.match(one.tooltip, /the activity in construction/);
+  const two = expandToCurrentPhaseControl([retried, awaitingMe, near]);
+  assert.match(two.tooltip, /2 activities/);
 });

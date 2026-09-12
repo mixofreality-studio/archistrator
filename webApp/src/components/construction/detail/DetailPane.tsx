@@ -62,8 +62,8 @@ import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import CheckRoundedIcon from '@mui/icons-material/CheckRounded';
-import ChevronLeftRoundedIcon from '@mui/icons-material/ChevronLeftRounded';
-import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded';
+import FirstPageRoundedIcon from '@mui/icons-material/FirstPageRounded';
+import LastPageRoundedIcon from '@mui/icons-material/LastPageRounded';
 import CloseIcon from '@mui/icons-material/Close';
 
 import type {
@@ -433,7 +433,7 @@ function DetailPaneChrome({
           pt: 1,
         }}
       >
-        <Tooltip placement="left" title="Expand detail pane">
+        <Tooltip placement="left" title="Expand the detail pane">
           <IconButton
             aria-label="expand detail pane"
             data-testid={UI_IDENTIFIERS.Construction.DETAIL_COLLAPSE_TOGGLE}
@@ -441,7 +441,8 @@ function DetailPaneChrome({
             sx={{ color: t.ink }}
             onClick={onToggleCollapsed}
           >
-            <ChevronLeftRoundedIcon fontSize="small" />
+            {/* |<- : the pane comes back out from the edge it folded into. */}
+            <FirstPageRoundedIcon fontSize="small" />
           </IconButton>
         </Tooltip>
       </Box>
@@ -568,7 +569,7 @@ function DetailHeader({
           {breadcrumb}
         </Typography>
         {onCollapse !== undefined && (
-          <Tooltip placement="bottom" title="Collapse detail pane">
+          <Tooltip placement="bottom" title="Collapse the detail pane — your selection stays">
             <IconButton
               aria-label="collapse detail pane"
               data-testid={UI_IDENTIFIERS.Construction.DETAIL_COLLAPSE_TOGGLE}
@@ -576,7 +577,8 @@ function DetailHeader({
               sx={{ color: t.muted }}
               onClick={onCollapse}
             >
-              <ChevronRightRoundedIcon fontSize="small" />
+              {/* ->| : a collapse-PANE mark, not a next-page chevron (adopted P2). */}
+              <LastPageRoundedIcon fontSize="small" />
             </IconButton>
           </Tooltip>
         )}

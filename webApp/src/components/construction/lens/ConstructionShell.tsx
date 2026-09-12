@@ -144,6 +144,9 @@ export interface ConstructionShellProps {
    *  express. The tree (ActivityTreeView) owns what "current phase" resolves
    *  to; this button only asks it to act. */
   onExpandToCurrentPhase: () => void;
+  /** Whether anything is in flight to expand to, and the tooltip that says so —
+   *  activityScope.expandToCurrentPhaseControl. */
+  expandToCurrentPhase: { enabled: boolean; tooltip: string };
 }
 
 export function ConstructionShell({
@@ -158,6 +161,7 @@ export function ConstructionShell({
   onLens,
   onToolbar,
   onExpandToCurrentPhase,
+  expandToCurrentPhase,
 }: ConstructionShellProps): ReactElement {
   const t = useTokens();
   const rootRef = useRef<HTMLDivElement>(null);
@@ -359,26 +363,32 @@ export function ConstructionShell({
           }}
         />
 
-        <Tooltip title="Open every activity currently in construction or awaiting your review — not everything.">
-          <Button
-            data-testid={UI_IDENTIFIERS.Construction.LENS_EXPAND_TO_PHASE}
-            size="small"
-            startIcon={<UnfoldMoreRoundedIcon sx={{ fontSize: 15 }} />}
-            sx={{
-              flexShrink: 0,
-              fontFamily: t.mono,
-              fontWeight: 700,
-              fontSize: 11,
-              letterSpacing: '0.04em',
-              textTransform: 'none',
-              color: t.ink,
-              borderColor: t.line,
-            }}
-            variant="outlined"
-            onClick={onExpandToCurrentPhase}
-          >
-            Expand to current phase
-          </Button>
+        <Tooltip title={expandToCurrentPhase.tooltip}>
+          {/* A disabled button fires no pointer events, so the tooltip hangs off
+              this wrapper: the operator still learns WHY there is nothing to open. */}
+          <Box component="span" sx={{ display: 'inline-flex', flexShrink: 0 }}>
+            <Button
+              data-testid={UI_IDENTIFIERS.Construction.LENS_EXPAND_TO_PHASE}
+              disabled={!expandToCurrentPhase.enabled}
+              size="small"
+              startIcon={<UnfoldMoreRoundedIcon sx={{ fontSize: 15 }} />}
+              sx={{
+                flexShrink: 0,
+                fontFamily: t.mono,
+                fontWeight: 700,
+                fontSize: 11,
+                letterSpacing: '0.04em',
+                textTransform: 'none',
+                color: t.ink,
+                borderColor: t.line,
+                '&.Mui-disabled': { color: t.muted, borderColor: alpha(t.line, 0.35) },
+              }}
+              variant="outlined"
+              onClick={onExpandToCurrentPhase}
+            >
+              Expand to current phase
+            </Button>
+          </Box>
         </Tooltip>
 
         <Tooltip title="Count only what the running system observed. Every activity stays listed; evidence reconstructed after the fact (backfilled or synthesized) is set aside, so an activity known only from it reads as not started.">
