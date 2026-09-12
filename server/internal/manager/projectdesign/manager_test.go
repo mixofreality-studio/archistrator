@@ -5887,15 +5887,19 @@ func assertCommittedNetworkIsMaterialized(
 // OpenAPI document, the TS client and Temporal), and it is never hand-edited. These two
 // writers are the committed, reproducible way to change the parts of it that no live store
 // verb covers: re-materializing the derived plan, and resetting construction state onto
-// it. They are env-gated tests, not cmd/ tools, because the plan comes from
-// materializePhase2Draft — the Manager's own staging seam, unexported — and this package
-// is the only place that can run it without widening the Manager's public surface.
+// it. They are env-gated tests, not cmd/ tools, because network materialization has no
+// exported path. MaterializeActivityPlan is exported, but it returns only the activity
+// list, dependency rows and milestones; the committed slot 10 (criticalPath and the rest
+// of the document) is materialized by materializePhase2Draft / materializeNetwork, the
+// Manager's own staging seam, which is unexported. This package can call it; a cmd/ tool
+// cannot.
 //
 // Both go through the projectstate codec: the document is decoded with DecodeProjectJSON,
 // edited as a typed Project and re-encoded with EncodeProjectJSON. Only the members whose
-// codec encoding the edit actually changed are spliced back into the original bytes. The
-// codec carries neither updatedAt nor the activityListOverrides sidecar through a round
-// trip, so a whole-document rewrite would silently drop both. Each writer names the
+// codec encoding the edit actually changed are spliced back into the original bytes, and
+// only when the document's bytes for that member are its codec encoding (spliceMember).
+// The codec carries neither updatedAt nor the activityListOverrides sidecar through a
+// round trip, so a whole-document rewrite would silently drop both. Each writer names the
 // members it may change, and changing any other fails the write.
 
 // committedStatePath is the repo's own project.json, relative to this package directory.
@@ -6236,6 +6240,13 @@ func spliceMembers(raw, before, after []byte, path string) ([]byte, []string, er
 }
 
 // spliceMember resolves one member for spliceMembers: kept holds zero or one member.
+//
+// A member the edit changes is replaced by its codec encoding, so the codec must carry
+// ALL of it: the document's bytes for that member have to BE its codec encoding before
+// the edit. Otherwise replacing it silently drops whatever the codec does not carry (an
+// unknown field, a value it cannot represent), and confirmSplice cannot see the loss —
+// it compares codec output with codec output. The committed document holds such members
+// today (slots 4-6, serviceContracts, testingState); no writer may change them.
 func spliceMember(m stateMember, was, now json.RawMessage, path string) (kept []stateMember, changed []string, err error) {
 	switch {
 	case bytes.Equal(was, now):
@@ -6248,6 +6259,8 @@ func spliceMember(m stateMember, was, now json.RawMessage, path string) (kept []
 			return nil, nil, err
 		}
 		return []stateMember{{key: m.key, value: value}}, changed, nil
+	case !bytes.Equal(m.value, was):
+		return nil, nil, fmt.Errorf("the edit changes %s, whose bytes in the document are not its codec encoding; the codec does not carry all of it, so rewriting it would silently drop the rest — refusing", path)
 	default:
 		return []stateMember{{key: m.key, value: now}}, []string{path}, nil
 	}
@@ -6485,6 +6498,102 @@ func TestRewriteStateFileLeavesAnUnchangedDocumentAlone(t *testing.T) {
 	got, _ := os.ReadFile(path)
 	if !bytes.Equal(got, raw) {
 		t.Error("a no-op edit must leave the file byte-for-byte")
+	}
+}
+
+// reindentFixture re-emits a fixture document with the given indent and a trailing newline.
+func reindentFixture(t *testing.T, raw []byte, indent string) []byte {
+	t.Helper()
+	var compact, out bytes.Buffer
+	if err := json.Compact(&compact, raw); err != nil {
+		t.Fatalf("compact fixture: %v", err)
+	}
+	if err := json.Indent(&out, compact.Bytes(), "", indent); err != nil {
+		t.Fatalf("indent fixture: %v", err)
+	}
+	out.WriteByte('\n')
+	return out.Bytes()
+}
+
+// assertRefusedUntouched runs a rewrite that must be refused with an error containing
+// want, and proves the file is left byte-for-byte.
+func assertRefusedUntouched(t *testing.T, raw []byte, allowed map[string]bool, edit func(*projectstate.Project) error, want string) {
+	t.Helper()
+	path := writeFixtureFile(t, raw)
+	changed, err := rewriteStateFile(path, allowed, edit)
+	if err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("want a refusal containing %q, got changed=%v err=%v", want, changed, err)
+	}
+	got, _ := os.ReadFile(path)
+	if !bytes.Equal(got, raw) {
+		t.Error("a refused write must leave the file byte-for-byte")
+	}
+}
+
+// A member the edit changes is replaced by its codec encoding, so a field the codec does
+// not carry would vanish from it without a trace — confirmSplice compares codec output
+// with codec output and cannot see the loss. Slot 11 is a member the reset may change;
+// an unknown field in it must stop the write, not be dropped.
+func TestRewriteStateFileRefusesToRewriteAMemberTheCodecDoesNotCarry(t *testing.T) {
+	var buf bytes.Buffer
+	if err := json.Compact(&buf, stateFixture(t, constructionResetFixture(t))); err != nil {
+		t.Fatalf("compact fixture: %v", err)
+	}
+	compact := buf.Bytes()
+	slot := slotMember(projectstate.KindNormalSolution)
+	key := []byte(`"` + strings.TrimPrefix(slot, "slots/") + `":{`)
+	if !bytes.Contains(compact, key) {
+		t.Fatalf("fixture has no %s to plant the unknown field in", key)
+	}
+	planted := bytes.Replace(compact, key, append(append([]byte{}, key...), []byte(`"extraUnknown":1,`)...), 1)
+	raw := reindentFixture(t, planted, "  ")
+
+	assertRefusedUntouched(t, raw, resetMembers(), resetConstructionState, "the edit changes "+slot+", whose bytes in the document are not its codec encoding")
+}
+
+// A document that is not in the canonical two-space indent is refused rather than
+// silently reformatted: writing it would smuggle a whole-file reformat into the diff.
+func TestRewriteStateFileRefusesADocumentNotInCanonicalIndent(t *testing.T) {
+	raw := reindentFixture(t, stateFixture(t, constructionResetFixture(t)), "    ")
+	assertRefusedUntouched(t, raw, resetMembers(), resetConstructionState, "does not reproduce it byte-for-byte")
+}
+
+// This writer rewrites members in place; it cannot place a member the document does not
+// already hold, so an edit that introduces one is refused by name.
+func TestRewriteStateFileRefusesAnEditThatAddsAMember(t *testing.T) {
+	p := constructionResetFixture(t)
+	p.ConstructionProgress = nil
+	raw := stateFixture(t, p)
+	if bytes.Contains(raw, []byte(`"constructionProgress"`)) {
+		t.Fatal("fixture went vacuous: it already holds constructionProgress")
+	}
+	addProgress := func(p *projectstate.Project) error {
+		p.ConstructionProgress = &projectstate.ConstructionProgress{Week: 1, TotalWeeks: 2}
+		return nil
+	}
+	assertRefusedUntouched(t, raw, map[string]bool{"constructionProgress": true}, addProgress, "the edit adds constructionProgress")
+}
+
+// confirmSplice is the backstop against a splicer bug: the spliced document must decode
+// to exactly the edited project. A correct splicer never reaches the refusal, so it is
+// pinned directly — with a positive control, so the test cannot pass by refusing always.
+func TestConfirmSpliceRefusesADocumentThatIsNotTheEditedProject(t *testing.T) {
+	p := constructionResetFixture(t)
+	edited := p
+	edited.Version = p.Version + 1
+	spliced, err := encodeCompact(p)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	after, err := encodeCompact(edited)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	if err := confirmSplice(after, after); err != nil {
+		t.Fatalf("positive control: a splice equal to the edit must be confirmed, got %v", err)
+	}
+	if err := confirmSplice(spliced, after); err == nil || !strings.Contains(err.Error(), "does not decode to the edited project") {
+		t.Fatalf("want a refusal of a splice that is not the edited project, got %v", err)
 	}
 }
 
