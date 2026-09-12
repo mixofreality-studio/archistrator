@@ -200,8 +200,8 @@ export function needsInlineProvenanceMark(
  * `network` preserves input order (the committed project network's own
  * order, which is what the caller feeds in) — a stable copy, never a re-sort
  * back to "as given" that could silently reorder on a tie. `floatAsc` sorts by
- * float ascending; an unknown float (60 of 69 rows do not join the derived
- * activity list — the 40-vs-69 seam) sorts LAST, never as if it were `0`,
+ * float ascending; an unknown float (a row the committed network does not
+ * carry) sorts LAST, never as if it were `0`,
  * because a fabricated zero float would read as "no slack at all" — the
  * loudest possible lie this surface can tell about an activity it knows
  * nothing about. Ties keep their relative (network) order — `Array.sort` is

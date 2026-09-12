@@ -97,7 +97,7 @@ export function formatDurationDays(days: number): string {
 // ---------------------------------------------------------------------------
 
 export interface ActivityRowView {
-  /** Network id (e.g. "C-CW"). */
+  /** Network id (e.g. "C-construction-manager"). */
   name: string;
   /** Human-readable activity name (e.g. "Build Web Client"); falls back to the id. */
   title: string;

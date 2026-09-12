@@ -59,10 +59,6 @@ import { ActivityTreeView } from '../components/construction/list/ActivityTreeVi
 import { buildActivityTree, type ActivityMeta } from '../components/construction/list/activityTree';
 import { applyToolbarToActivities } from '../components/construction/list/activityScope';
 import {
-  computeCoverageCounts,
-  derivedNameSet,
-} from '../components/construction/list/coverageCounts';
-import {
   useLensSelection,
   useLensToolbar,
   toolbarSignatureOf,
@@ -361,10 +357,9 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   // — the loudest possible lie on this surface. Here an unjoined activity gets
   // NO metadata at all, and the tree renders absence as absence.
   //
-  // Only 9 of the 69 construction rows join today: the committed network and
-  // activity list carry the DERIVED 40 (`C-artifact-access`, …) while the
-  // construction head-state is still keyed by the legacy ids (`C-AA`, …). That
-  // seam is real, is not this task's to close, and is made visible in Task 12.
+  // Every row joins today: the server emits one row per activity in the
+  // committed list (a planned-no-record row where nothing is recorded yet), and
+  // the construction head-state is keyed by the same derived ids.
   const networkModel = useMemo(() => narrowProject(networkEnvelope, 'network'), [networkEnvelope]);
   const activityMeta = useMemo((): Record<string, ActivityMeta> => {
     const computed = networkModel?.computed ?? {};
@@ -378,8 +373,8 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
           ? { float: cpm.totalFloat, onCriticalPath: cpm.onCriticalPath, band: cpm.band }
           : {}),
         // Task 11's search matches activity id / title / componentId — joined
-        // the same way as `label`, so it is absent for the same 60 of 69 rows
-        // that do not join the derived activity list.
+        // the same way as `label`; a project-wide activity (N-STP, N-IT, …)
+        // builds no single component, so it carries none.
         ...(a.componentId !== undefined && a.componentId.length > 0
           ? { componentId: a.componentId }
           : {}),
@@ -399,23 +394,6 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   const visibleActivityTree = useMemo(
     () => applyToolbarToActivities(activityTree, toolbar),
     [activityTree, toolbar]
-  );
-
-  // The 40-vs-69 seam, made visible (Stage B Task 12). The derived activity
-  // list's own names — the set ActivityTreeView uses to tell an ordinary row
-  // (including the 9 that reconcile) apart from an orphaned-legacy one.
-  const derivedActivityNames = useMemo(
-    () => derivedNameSet(activityListModel?.activities ?? []),
-    [activityListModel]
-  );
-  // The COVERAGE strip's six numbers — computed from the FULL committed row
-  // set (activityListModel + every construction row's own id), never from
-  // `visibleActivityTree`: a toolbar scope/kind/search filter must not make
-  // this strip's numbers move, because it answers "what is the true state of
-  // the data", not "what does the current view happen to show".
-  const coverage = useMemo(
-    () => computeCoverageCounts(activityListModel?.activities ?? [], activityIds),
-    [activityListModel, activityIds]
   );
 
   // "Expand to current phase" is an IMPERATIVE action, not persisted toolbar
@@ -534,8 +512,6 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
                 lens === 'list' ? (
                   <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                     <ActivityTreeView
-                      coverage={coverage}
-                      derivedActivityNames={derivedActivityNames}
                       expandToCurrentPhaseSignal={expandToPhaseSignal}
                       nodes={visibleActivityTree}
                       searchQuery={toolbar.search}

@@ -32,7 +32,7 @@
  *     rejected" from "no gate attempt exists" — see ConstructionRow.phases.
  *     Two implementations of one rule is precisely how this branch's worst bug
  *     happened (Stage A: ordinal inference reported the exact OPPOSITE of the
- *     truth for G-SPA, whose completion is non-monotonic). The server is the
+ *     truth for a row whose completion was non-monotonic). The server is the
  *     single authority; this module reads.
  *  3. It does not RE-ORDER or RE-LABEL anything. Phase order is Method order,
  *     task order is execution order, and both arrive from the generated
@@ -157,8 +157,8 @@ export interface ActivityMeta {
   band?: string;
   /** ModelActivityItem.componentId, joined the same way as `label` — one of
    *  Task 11 search's three matched fields (activity id / title / componentId).
-   *  Absent for the 60 of 69 rows that do not join the derived activity list
-   *  (the 40-vs-69 seam), exactly like every other ActivityMeta field. */
+   *  Absent for a project-wide activity (it builds no single component), and
+   *  for any row the committed activity list does not carry. */
   componentId?: string;
 }
 

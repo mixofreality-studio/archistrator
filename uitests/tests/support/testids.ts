@@ -226,14 +226,6 @@ export const TESTID = {
   // as the LIST lens's body — the graph returns under the GRAPH lens in Stage D.
   constructionListTree: UI_IDENTIFIERS.Construction.LIST_TREE,
   constructionListRow: UI_IDENTIFIERS.Construction.listRow,
-  // The bottom "LEGACY RECORDS · UNRECONCILED" group header (Stage B Task 12)
-  // — collapsed by default (`unmountOnExit`), so a spec reaching one of its
-  // orphaned-legacy rows (e.g. C-AA, which does not join the derived activity
-  // list) must expand it first. Only its CHEVRON expands (`expansionTrigger:
-  // 'iconContainer'` — clicking the row body selects, which is disabled here
-  // anyway); the chevron carries no testid of its own, so click by POSITION
-  // within the group header's narrow leading icon column.
-  constructionLegacyGroup: UI_IDENTIFIERS.Construction.LEGACY_GROUP,
   // The shared detail pane (Stage B Task 4) that replaced the overlay Drawer
   // above as the console's mounted detail surface — beside content at
   // >=1200px, DETAIL_DRAWER below that (same overlay mechanism, kept).

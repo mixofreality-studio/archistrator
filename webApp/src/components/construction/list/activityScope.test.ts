@@ -193,7 +193,7 @@ void test('matchesLayer: "all" passes everything, else exact match', () => {
 // Search
 // ---------------------------------------------------------------------------
 
-const searchable = nodeFor(row({ activityId: 'C-BG', kind: 'service' }), {
+const searchable = nodeFor(row({ activityId: 'C-billing-engine', kind: 'service' }), {
   label: 'Billing Manager',
   componentId: 'billing-manager',
 });
@@ -207,7 +207,11 @@ const searchableWithTask = nodeFor(
 );
 
 void test('search matches activity id, title (label) and componentId', () => {
-  assert.equal(activityPassesSearch(searchable, 'c-bg'), true, 'activity id, case-insensitive');
+  assert.equal(
+    activityPassesSearch(searchable, 'C-BILLING-ENG'),
+    true,
+    'activity id, case-insensitive'
+  );
   assert.equal(activityPassesSearch(searchable, 'billing manager'), true, 'title');
   assert.equal(activityPassesSearch(searchable, 'billing-manager'), true, 'componentId');
   assert.equal(activityPassesSearch(searchable, 'nope'), false);

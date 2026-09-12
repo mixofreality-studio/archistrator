@@ -18,8 +18,8 @@
  *   reconstructed  the column filled with the house scanline hatch, in the
  *                  row's own ink. Plus, on GROUP headers only, the
  *                  `≈ RECONSTRUCTED` badge.
- *   unknown        a dashed hairline at the column's edge. 44 of this project's
- *                  69 activities have an empty ledger, so this one is drawn at
+ *   unknown        a dashed hairline at the column's edge. Every activity nothing
+ *                  has been attempted on has an empty ledger, so this one is drawn at
  *                  the very bottom of the ink budget: FloatRail already learnt
  *                  on this surface that a hairline per row turns into
  *                  ruled-paper texture and drowns the rows that carry data.
@@ -136,7 +136,7 @@ export function ProvenanceRailMark({
  *
  * Nothing renders for `recorded` or `unknown`. That is density rule 1: the
  * badge exists to name the one grade a reader would otherwise mistake for fact,
- * and putting a chip on the other two would put a mark back on all 69 rows and
+ * and putting a chip on the other two would put a mark back on every row and
  * reproduce the density failure that got two prototype rounds rejected.
  */
 export function ProvenanceGroupStamp({

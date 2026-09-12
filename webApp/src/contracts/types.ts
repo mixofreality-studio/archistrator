@@ -757,14 +757,17 @@ export interface ConstructionRow {
    * server's roll-up seeds an empty ledger to `observed` (correct as an aggregate —
    * nothing was derived from anything unknown) and the wire field is required, so a
    * row about which NOTHING is recorded arrives stamped "observed". Read alone that
-   * renders as "recorded". 44 of the committed rows have an empty ledger, so the
-   * stamp is dropped here rather than audited at every consumer.
+   * renders as "recorded". Every row nothing has been attempted on (each
+   * planned-no-record row among them) has an empty ledger, so the stamp is
+   * dropped here rather than audited at every consumer.
    */
   worstOrigin?: RecordOriginRow;
   /**
-   * The Method layer this activity is DRAWN in for the layer-stack projection
-   * (server: LayerForActivity) — not necessarily the layer of the activity's own
-   * component (a SPA activity screens a Manager but draws as a Client). Absent
+   * The Method layer this activity is drawn in for the layer-stack projection
+   * (server: LayerForActivity) — the layer of the one component the activity
+   * builds, looked up through its `componentId`. Every derived activity is 1:1
+   * with a component or project-wide (N-STP, N-IT, …); a project-wide activity
+   * builds no component, draws in the side band, and carries no layer. Absent
    * when the server drew no layer for this row; see `layerBand`.
    */
   layer?: Layer;

@@ -40,7 +40,7 @@ function nodeWith(origins: readonly RecordOriginRow[], basis?: string): Provenan
 }
 
 const FOUNDER_BASIS =
-  'serviceContracts[artifactAccess] + activityConstruction[C-AA].produced[code]=implementation/log' +
+  'serviceContracts[artifactAccess] + activityConstruction[C-artifact-access].produced[code]=implementation/log' +
   ' + founderRuling[2026-09-09]=assume any component that is fully implemented is done and' +
   ' reviewed and integrated';
 
@@ -55,8 +55,8 @@ void test('takes the worst origin among descendants', () => {
 
 void test('reports unknown, not observed, for a node with no attempts at all', () => {
   // The whole point. The server's roll-up seeds an EMPTY ledger to `observed`,
-  // so the wire drops `worstOrigin` there; if this ever returns `observed`, 44
-  // of the 69 committed rows start claiming to be trustworthy about nothing.
+  // so the wire drops `worstOrigin` there; if this ever returns `observed`, every
+  // empty-ledger row starts claiming to be trustworthy about nothing.
   assert.equal(worstOriginOf(nodeWith([])), 'unknown');
   assert.equal(worstOriginOf({}), 'unknown');
   assert.equal(worstOriginOf({ phases: [{ tasks: [{ attempts: [] }] }] }), 'unknown');
@@ -94,8 +94,8 @@ void test('unknown is a dashed outline and NO rail — never the reconstructed h
   assert.equal(unknown.outline, 'dashed');
   assert.equal(unknown.texture, undefined);
   // "no rail" literally: the column reserves its space and draws nothing, so
-  // the hatch is the ONLY thing ever inked there. 44 of the 69 committed
-  // activities are unknown; a hairline on each is the ruled-paper texture
+  // the hatch is the ONLY thing ever inked there. Every activity with no
+  // ledger is unknown; a hairline on each is the ruled-paper texture
   // FloatRail already measured and removed from this surface.
   assert.equal(unknown.widthPx, 0);
   assert.notDeepEqual(unknown, provenanceRailFor('backfilled'));

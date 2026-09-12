@@ -21,7 +21,7 @@ import { artifactRendererKeyFor } from './bodyDispatch.ts';
 
 function row(overrides: Partial<ConstructionRow> = {}): ConstructionRow {
   return {
-    activityId: 'C-AA',
+    activityId: 'C-artifact-access',
     classified: true,
     hasBuildEvidence: true,
     phases: [],
@@ -137,15 +137,15 @@ void test('a note keeps its ORIGINAL produced index so its comment anchors to th
   assert.ok(note !== undefined);
   assert.equal(note.index, 2);
   assert.equal(
-    producedNoteAnchorPath('C-AA', note.index),
-    '$.activityConstruction[C-AA].produced[2].Note'
+    producedNoteAnchorPath('C-artifact-access', note.index),
+    '$.activityConstruction[C-artifact-access].produced[2].Note'
   );
 });
 
 void test('anchor paths are stable and human-meaningful — the server treats them as opaque', () => {
   assert.equal(
-    reviewerAnchorPath('C-AA', 1),
-    '$.activityConstruction[C-AA].reviewSet.reviewers[1]'
+    reviewerAnchorPath('C-artifact-access', 1),
+    '$.activityConstruction[C-artifact-access].reviewSet.reviewers[1]'
   );
   assert.equal(
     producedNoteAnchorPath('U-SPA-1', 0),

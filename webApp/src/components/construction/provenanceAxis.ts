@@ -49,8 +49,8 @@
  * The single most important line in this file is the empty-ledger case. The
  * server's roll-up seeds an empty ledger to `observed` (defensible as an
  * aggregate — nothing was derived from anything unknown), so `mapConstructionRow`
- * DROPS `worstOrigin` when the ledger is empty rather than let 44 of the 69
- * committed rows arrive stamped "observed" and render as "recorded". A row about
+ * DROPS `worstOrigin` when the ledger is empty rather than let every empty-ledger
+ * row arrive stamped "observed" and render as "recorded". A row about
  * which nothing whatsoever is recorded must never claim to be trustworthy.
  * `worstOriginOf` preserves that: no attempts at all is `unknown`, never
  * `observed`.
@@ -254,8 +254,8 @@ export function provenanceRailFor(origin: ProvenanceOrigin): ProvenanceRail {
       // the surface already draws exactly that for an unknown — `StateGlyph`'s
       // 1px dashed square on a task row, the stage rule's 1px dashed weight
       // track on an unreported phase. Provenance composes with it instead of
-      // adding ink of its own, because 44 of this project's 69 activities have
-      // an empty ledger and FloatRail already MEASURED what a hairline on that
+      // adding ink of its own, because every activity nothing has been attempted
+      // on has an empty ledger and FloatRail already MEASURED what a hairline on that
       // many rows does: it becomes ruled-paper texture and drowns the rows that
       // carry data. Hence `widthPx: 0` — the column reserves its space and the
       // hatch stays the only thing ever drawn in it.

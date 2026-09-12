@@ -5,9 +5,9 @@
  * `done` by ordinal position ("everything before currentPhase is done", plus
  * "integrated means everything is done") and `ConstructionRow.phases` — the server's
  * real per-phase completion — had zero consumers in the SPA. The inference was inert
- * only by luck: G-SPA, the one activity in this project with real history, is
- * explicitly NON-MONOTONIC, so ordinal inference reports the opposite of the truth
- * for its first row. These tests pin that `done` is READ and never derived.
+ * only by luck: completion can be NON-MONOTONIC (a committed row has carried that
+ * shape), and there ordinal inference reports the opposite of the truth for the
+ * first phase. These tests pin that `done` is READ and never derived.
  */
 /// <reference types="node" />
 import { test } from 'node:test';
@@ -60,11 +60,11 @@ void test('phaseStateFor marks nothing done when the server reports no phases', 
   }
 });
 
-// The regression this whole finding is about. G-SPA's real shape: `requirements`
+// The regression this whole finding is about. The non-monotonic shape: `requirements`
 // INCOMPLETE with every later phase complete. Ordinal inference ("everything before
 // the current phase is done") gets the first row exactly backwards, and the old
 // `integrated` short-circuit marked all five done regardless of the data.
-void test('phaseStateFor preserves NON-MONOTONIC completion (the G-SPA shape)', () => {
+void test('phaseStateFor preserves NON-MONOTONIC completion', () => {
   const phases = [
     phaseRow('requirements', false, 15),
     phaseRow('detailed_design', true, 25),

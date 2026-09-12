@@ -4,14 +4,14 @@
  *
  * THE GUARANTEE THIS SPEC EXISTS TO DEFEND
  * -----------------------------------------
- * On 2026-09-09 the founder ruled "assume any component that is fully
- * implemented is done and reviewed and integrated". A backfill wrote 218 task
- * attempts onto 25 activities from that ruling — 21 of which now render
- * `100% ✓ PASSED` with every lifecycle phase complete, and six of their ten
- * tasks per activity have NO artifact at all: their only evidence is the
- * ruling itself, recorded as `provenance.basis`. The list's answer to "would a
- * reader mistake one of those rows for observed fact?" is the `≈ RECONSTRUCTED`
- * badge — but that badge rides GROUP headers (tier 1/2) only, never a task
+ * The construction backfill (server/cmd/backfill-attempts) re-derived 214 task
+ * attempts onto 23 of the 29 derived activities from code evidence plus a
+ * recorded founder sign-off. Every one of those 23 now renders `100% ✓ PASSED`
+ * with every lifecycle phase complete — and none of it was observed as it
+ * happened: each attempt is stamped `backfilled`, its evidence reconstructed
+ * after the fact and recorded as `provenance.basis`. The list's answer to
+ * "would a reader mistake one of those rows for observed fact?" is the
+ * `≈ RECONSTRUCTED` badge — but that badge rides GROUP headers (tier 1/2) only, never a task
  * row, which is an ARGUMENT FROM CONTEXT: a task row in isolation still reads
  * `SRS Review ✓ PASSED` with no mark of its own, and the design's defence is
  * that its group header is always visible above it.
@@ -21,8 +21,8 @@
  * operator had scrolled to. `needsInlineProvenanceMark` (activityScope.ts) is
  * the structural fix — it is pure and already carries four unit tests — but
  * NOTHING pinned that `TaskRow` actually RENDERS what it returns. A regression
- * that deleted the JSX block calling it would pass tsc, eslint, and all 588
- * node:test cases. This spec is that missing pin, and it can only live here:
+ * that deleted the JSX block calling it would pass tsc, eslint, and the whole
+ * node:test suite. This spec is that missing pin, and it can only live here:
  * node's test runner cannot load a `.tsx` module at all.
  *
  * THE INDEPENDENT ORACLE
@@ -50,11 +50,30 @@ const BASE = process.env.UITESTS_BASE_URL ?? process.env.UITESTS_SPA_URL ?? 'htt
 
 // The Figure A-1 task this spec searches for: every 'service'-kind classified
 // activity carries a "SRS Review" task in its Requirements phase (profile-
-// derived, so it renders even for a classified-no-evidence row) — giving both
-// a reconstructed population (the 21 founder-ruling rows) and a non-
-// reconstructed one (classified rows with no backfilled evidence) to search
-// for and CONTRAST in one query.
+// derived, so it renders even for a row with no record at all) — giving both
+// a reconstructed population (the backfilled rows) and a non-reconstructed one
+// (the planned-no-record rows: classified, no ledger) to search for and
+// CONTRAST in one query.
 const TASK_SUFFIX = '::requirements::srsReview';
+
+// Pinned, not only discovered. Discovery alone still passes if the list quietly
+// stops rendering most of the reconstructed rows, so the guarantee is also held
+// against named rows that are reconstructed NOW: three live backfilled service
+// activities, one per layer the backfill reached (Manager, Engine,
+// ResourceAccess). The contrast pins are the three planned-no-record service
+// activities — their code does not qualify as evidence, so they carry no
+// ledger and must never be marked. Re-pin deliberately when any of these
+// changes state (e.g. once C-billing-state-access is actually built).
+const PINNED_RECONSTRUCTED = [
+  'C-construction-manager',
+  'C-review-engine',
+  'C-project-state-access',
+] as const;
+const PINNED_NOT_RECONSTRUCTED = [
+  'C-billing-state-access',
+  'C-design-health-engine',
+  'C-merchant-gateway-access',
+] as const;
 
 interface Discovery {
   /** Task nodeIds, in DOM (top-to-bottom) order, whose OWN provenance rail
@@ -119,11 +138,18 @@ test('a search-matched reconstructed task row carries its own provenance mark; a
   const { reconstructed, nonReconstructed } = await discoverMatches(page);
 
   // Neither population may be empty, or the two assertions below would be
-  // vacuous — this is the corpus check the earlier live drive already made:
-  // "srs review" matches BOTH the 21 founder-ruling-backfilled activities and
-  // a real population of classified-but-unattempted ones.
+  // vacuous: "srs review" matches BOTH the backfilled service activities and
+  // the planned-no-record ones.
   expect(reconstructed.length).toBeGreaterThan(0);
   expect(nonReconstructed.length).toBeGreaterThan(0);
+  // …and the pinned rows land in the population the oracle (their own rail)
+  // says they belong to, so the loops below demonstrably cover them.
+  for (const id of PINNED_RECONSTRUCTED) {
+    expect(reconstructed).toContain(`${id}${TASK_SUFFIX}`);
+  }
+  for (const id of PINNED_NOT_RECONSTRUCTED) {
+    expect(nonReconstructed).toContain(`${id}${TASK_SUFFIX}`);
+  }
 
   // Assertion 1: every row whose OWN rail proves reconstructed carries the
   // inline mark.
@@ -153,15 +179,16 @@ test('the inline provenance mark survives its own group header scrolling out of 
   await page.waitForTimeout(600);
 
   const { reconstructed } = await discoverMatches(page);
-  expect(reconstructed.length).toBeGreaterThan(0);
-  // The LAST DOM match — furthest down the revealed list — maximizes the
-  // amount of content (including its own ancestors) available to scroll past,
-  // so the "past its own group header" claim is exercised for real rather
-  // than by an accidental few pixels.
-  const targetNodeId = reconstructed[reconstructed.length - 1];
-  if (targetNodeId === undefined) throw new Error('unreachable — length checked above');
-  const activityId = targetNodeId.split('::')[0];
-  if (activityId === undefined) throw new Error('unreachable — nodeId always has an activity prefix');
+  // The first pinned reconstructed activity. Scrolling its row to the top can
+  // only push its header out of view if enough revealed content sits BELOW it
+  // to let the container scroll that far — a match near the end of the list
+  // cannot (the container bottoms out with the header still on screen).
+  // C-construction-manager sorts early in the tree, so the matches after it
+  // guarantee that room, and pinning it keeps this test on a row that is
+  // reconstructed NOW rather than on whichever row happens to come last.
+  const activityId = PINNED_RECONSTRUCTED[0];
+  const targetNodeId = `${activityId}${TASK_SUFFIX}`;
+  expect(reconstructed).toContain(targetNodeId);
 
   const targetRow = page.getByTestId(TESTID.constructionListRow(targetNodeId));
   const targetMark = page.getByTestId(TESTID.constructionSearchMatchProvenance(targetNodeId));

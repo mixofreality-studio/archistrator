@@ -29,22 +29,13 @@
  * Gated like artifact-systemtest.spec: needs the seeded "archistrator"
  * construction-phase project behind the SPA proxy. No live drafting needed.
  *
- * TASK 13 NOTE: these tests used to select C-AA. Stage B Task 12 (already
- * shipped, unrelated to the tab retirement here) put C-AA inside the bottom
- * "LEGACY RECORDS · UNRECONCILED" group as an orphaned-legacy activity — and
- * `onSelectedItemsChange` in ActivityTreeView.tsx refuses selection for any
- * `row.legacy` row outright, by design ("never a selection target"), so C-AA
- * can no longer open the detail pane at all, group expanded or not. Swapped
- * to G-SPA: one of the 9 activities that DOES join the derived list (so it
- * is an ordinary, selectable row) and the one activity in the whole corpus
- * carrying real, non-reconstructed lifecycle data (see the Stage B Task 11
- * acceptance test). A SEPARATE, real gap found in passing and left for
- * whoever next touches activityScope.ts: its search-reveal auto-expand
- * (`matchingTaskIds`) only fires on a TASK-field match, not an activity-id-
- * only one, so searching the bare id of an orphaned-legacy activity does not
- * reveal it either — only its own chevron does (click-by-position, since it
- * carries no testid; `UI_IDENTIFIERS.Construction.LEGACY_GROUP` names the
- * group header if a future spec needs it).
+ * THE SELECTED ROW: C-construction-manager — a live derived activity (the
+ * committed activity list is deterministic, so the id is stable) whose
+ * attempts were backfilled from code evidence. Every derived activity is an
+ * ordinary, selectable row now that the legacy seam is gone. A real gap noted
+ * in passing, still open for whoever next touches activityScope.ts: its
+ * search-reveal auto-expand (`matchingTaskIds`) only fires on a TASK-field
+ * match, not an activity-id-only one.
  */
 import { test, expect } from '@playwright/test';
 import { TESTID } from './support/testids.js';
@@ -74,7 +65,7 @@ test('the Tracker renders the activity tree and an activity row opens its shared
   // needed any more.
   await expect(page.getByTestId(TESTID.constructionListTree)).toBeVisible();
 
-  const firstRow = page.getByTestId(TESTID.constructionListRow('G-SPA'));
+  const firstRow = page.getByTestId(TESTID.constructionListRow('C-construction-manager'));
   await expect(firstRow).toBeVisible({ timeout: 15_000 });
   await firstRow.click();
 
@@ -127,14 +118,11 @@ test('the Tracker renders the activity tree and an activity row opens its shared
  *     range, and holds a fixed y once sticky has engaged.
  *
  * The content column needs to be genuinely tall for this to be a real scroll
- * rather than a vacuous one — G-SPA alone (collapsed, one of only 9 top-level
- * rows since Stage B Task 12 moved the other 60 into the bottom LEGACY
- * RECORDS group) renders a content column shorter than the 900px viewport, so
- * this expands that group first purely to lengthen the page under test; it
- * does not touch the selection, which is still the ordinary G-SPA row.
- *
- * Measured live at 1600x900 against committed head-state (legacy group
- * expanded): wrapper 2051.3px, pane 377.2px, run action y 571.0.
+ * rather than a vacuous one — the resting tree (one collapsed row per derived
+ * activity) is not reliably taller than the viewport, so this first searches
+ * "srs review", whose reveal expands every matched service activity's
+ * Requirements phase, purely to lengthen the page under test. The selected row
+ * (C-construction-manager) is itself one of the matches, so it stays on screen.
  */
 test('the detail pane stays pinned beside content, so its action bar survives a long scroll', async ({
   page,
@@ -142,11 +130,15 @@ test('the detail pane stays pinned beside content, so its action bar survives a 
   await page.setViewportSize({ width: 1600, height: 900 });
   await gotoApp(page, '/project/archistrator/construction');
 
-  // See the module comment's note on TASK 13's G-SPA swap for why the group
-  // (not the selection) is expanded here.
-  await page.getByTestId(TESTID.constructionLegacyGroup).click({ position: { x: 9, y: 10 } });
+  // See the doc comment above: the search only lengthens the page.
+  await expect(page.getByTestId(TESTID.constructionListTree)).toBeVisible({ timeout: 15_000 });
+  await page
+    .getByTestId(TESTID.constructionLensSearch)
+    .getByRole('textbox')
+    .fill('srs review');
+  await page.waitForTimeout(600);
 
-  const firstRow = page.getByTestId(TESTID.constructionListRow('G-SPA'));
+  const firstRow = page.getByTestId(TESTID.constructionListRow('C-construction-manager'));
   await expect(firstRow).toBeVisible({ timeout: 15_000 });
   await firstRow.click();
 

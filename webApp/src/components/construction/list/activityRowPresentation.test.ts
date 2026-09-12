@@ -283,11 +283,11 @@ void test('a superseded attempt is quiet regardless of what it once was', () => 
 });
 
 // ---------------------------------------------------------------------------
-// The current phase that the profile does not carry (the real G-SPA case)
+// The current phase that the profile does not carry
 // ---------------------------------------------------------------------------
 
 void test('a current phase the profile does not carry is reported as absent, not silently dropped', () => {
-  // G-SPA verbatim: a two-phase uiDesign profile, CurrentPhase = 'integration'.
+  // A two-phase uiDesign profile, CurrentPhase = 'integration'.
   const node = onlyNode(row({ kind: 'uiDesign', currentLifecyclePhase: 'integration' }));
   const marker = currentStageMarker(node);
   assert.deepEqual(marker, { named: 'integration', inProfile: false });

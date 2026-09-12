@@ -40,7 +40,7 @@ export type BuildStatus =
   // asserted — see ConstructionRow.status). Distinct from `not-started`:
   // `not-started` is a real, known state; `unclassified` is "we don't know",
   // and a consumer that collapses the two would render a confident, false
-  // "Not started" chip for the common case (~60 of 69 committed activities).
+  // "Not started" chip for a row the server could not type at all.
   | 'unclassified';
 
 export const BUILD_STATUS_META: Record<BuildStatus, { label: string; short: string }> = {

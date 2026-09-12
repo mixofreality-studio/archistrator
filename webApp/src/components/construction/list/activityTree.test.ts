@@ -100,7 +100,9 @@ void test('emits a conditional task once a real attempt exists for it', () => {
 });
 
 void test('gives an unclassified activity no phases and no tasks', () => {
-  const node = onlyNode([row({ activityId: 'C-AA', classified: false, phases: [], attempts: [] })]);
+  const node = onlyNode([
+    row({ activityId: 'C-artifact-access', classified: false, phases: [], attempts: [] }),
+  ]);
 
   assert.deepEqual(node.phases, []);
   assert.equal(node.unclassified, true);
@@ -185,7 +187,7 @@ void test('reports percent complete as undefined while any phase is unknown', ()
 void test('drops a stored phase the profile does not carry and counts it as a defect', () => {
   const node = onlyNode([
     row({
-      activityId: 'G-SPA',
+      activityId: 'U-ui',
       kind: 'uiDesign',
       phases: [
         phaseRow({ phase: 'requirements', weight: 40, completed: false }),
@@ -383,7 +385,7 @@ void test('joins per-activity network facts by activity id and leaves them absen
 
 void test('treats an empty current phase as an absent one', () => {
   // The wire mapper gates currentLifecyclePhase on `classified` only, so the
-  // server's zero value reaches here as '' on 44 of the 69 committed rows.
+  // server's zero value reaches here as '' on every row nothing has started on.
   const present = onlyNode([
     row({ activityId: 'C-x', kind: 'service', currentLifecyclePhase: 'construction' }),
   ]);
@@ -396,7 +398,7 @@ void test('treats an empty current phase as an absent one', () => {
 void test('makes no claim at all about an unclassified row', () => {
   const node = onlyNode([
     row({
-      activityId: 'C-AA',
+      activityId: 'C-artifact-access',
       classified: false,
       hasBuildEvidence: false,
       phases: [phaseRow({ phase: 'construction', weight: 40, completed: true })],

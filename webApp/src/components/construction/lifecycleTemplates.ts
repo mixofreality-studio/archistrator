@@ -38,9 +38,10 @@
  * by ORDINAL POSITION — every phase before `currentPhase`, plus "integrated
  * means everything is done" — while `ConstructionRow.phases`, the server's
  * real per-phase completion, had zero consumers in the SPA. That inference is
- * wrong on the only real data in the project: G-SPA's history is explicitly
- * NON-MONOTONIC (requirements incomplete, everything after it complete), so
- * ordinal inference reports the exact opposite for its first row. `done` now
+ * wrong on real data: completion can be NON-MONOTONIC (requirements incomplete,
+ * everything after it complete — a shape a committed row has actually carried),
+ * so ordinal inference reports the exact opposite for such a row's first
+ * phase. `done` now
  * comes from the server's per-phase `completed` and nothing else; with no
  * phases reported, nothing is marked done. `active` is still the activity's
  * REAL current phase (ConstructionRow.currentLifecyclePhase, reported straight
@@ -132,7 +133,7 @@ const UNKNOWN_PHASES: readonly PhaseTemplate[] = [
 // over the profile-derived phase row set. The SPA re-deriving it from a coarse
 // status or from ordinal position is exactly the second, contradicting answer
 // this stage exists to remove — and it is not merely redundant but WRONG:
-// completion is not monotonic in phase order (G-SPA has an incomplete
+// completion is not monotonic in phase order (a row can carry an incomplete
 // `requirements` under four complete later phases), so "everything before the
 // current phase is done" reports the opposite of the truth for that row.
 //

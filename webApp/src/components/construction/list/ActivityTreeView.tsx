@@ -22,7 +22,7 @@
  * (2→3px, never a "CRITICAL" chip), phase weight is a segment WIDTH, progress is
  * a fill EXTENT, and retries are a `↻N` numeral. Only STATES get chips, at most
  * one per row, and `unknown` gets none at all — chip-less IS the signal, and
- * unknown is the majority state (292 of this project's 384 task rows). A screen
+ * unknown is the resting state of every task nobody has run yet. A screen
  * of "UNKNOWN" chips is the failure that got the earlier rounds rejected.
  *
  * THE SECOND AXIS
@@ -110,7 +110,6 @@ import type { TaskAttemptRow } from '../../../contracts/types';
 import type { FloatBand } from '../../../contracts/projectAdapters';
 import { useTokens } from '../../../utilities/theme/ThemeContext';
 import type { Tokens } from '../../../utilities/theme/themes';
-import { scanlines } from '../../../utilities/theme/textures.ts';
 import { UI_IDENTIFIERS } from '../../../utilities/constants/UIIdentifiers';
 import { bandTokens } from '../../project/bandTokens';
 import { KindBadge } from '../KindBadge';
@@ -119,7 +118,6 @@ import {
   GRADE_LABEL,
   ProvenanceGroupStamp,
   ProvenanceRailMark,
-  ReconstructedBadge,
   readProvenance,
 } from '../provenance';
 import type { LensSelection } from '../lens/useLensSelection';
@@ -129,14 +127,6 @@ import {
   matchingTaskIds,
   needsInlineProvenanceMark,
 } from './activityScope.ts';
-import { CoverageStrip } from './CoverageStrip.tsx';
-import {
-  isOrphanedLegacyActivity,
-  LEGACY_GROUP_COPY,
-  LEGACY_GROUP_LABEL,
-  partitionLegacy,
-  type CoverageCounts,
-} from './coverageCounts.ts';
 import {
   activityRowState,
   attemptRowState,
@@ -172,7 +162,7 @@ export {
 /** Indent per tier, in px. Applied from the MODEL's tier rather than from the
  *  library's depth CSS variable: the indent is part of this design, not a
  *  default we inherit and might silently lose to a version bump. */
-const TIER_INDENT: Record<TreeTier, number> = { activity: 0, stage: 16, task: 34, legacyGroup: 0 };
+const TIER_INDENT: Record<TreeTier, number> = { activity: 0, stage: 16, task: 34 };
 
 /** The float rail's own width; its HEIGHT is constant — float is not a length. */
 const FLOAT_RAIL_WIDTH = 3;
@@ -187,11 +177,7 @@ const STAGE_WEIGHT_TRACK_PX = 48;
 // The item model
 // ---------------------------------------------------------------------------
 
-type TreeTier = 'activity' | 'stage' | 'task' | 'legacyGroup';
-
-/** The bottom group's own stable item id — never an activityId, so it can
- *  never collide with a real row. */
-const LEGACY_GROUP_ITEM_ID = '__legacy_records_unreconciled__';
+type TreeTier = 'activity' | 'stage' | 'task';
 
 /**
  * One tree item. `children` is what RichTreeView traverses; every other field is
@@ -199,68 +185,39 @@ const LEGACY_GROUP_ITEM_ID = '__legacy_records_unreconciled__';
  *
  * `label` exists because the tree needs a searchable string per item (type-ahead
  * today, Task 11's search-reveal next) — it is never what the row renders.
- *
- * `activity` is optional ONLY for the synthetic `legacyGroup` header (Task 12),
- * which stands for no single activity; every real tier still always supplies
- * it, unchanged.
- *
- * `legacy` (Task 12) marks the ORPHANED-legacy subtree: true for the group
- * header and every row beneath it, false everywhere else. It drives the
- * muted/read-only rendering AND the actual non-selectability guarantee (see
- * `onSelectedItemsChange` and `isItemSelectionDisabled` below) — never just a
- * visual cue.
  */
 interface TreeRow {
   id: string;
   label: string;
   tier: TreeTier;
-  legacy: boolean;
-  activity?: ActivityNode;
+  activity: ActivityNode;
   stage?: PhaseNode;
   task?: TaskNode;
   children?: TreeRow[];
 }
 
-function itemsFor(nodes: readonly ActivityNode[], legacy = false): TreeRow[] {
+function itemsFor(nodes: readonly ActivityNode[]): TreeRow[] {
   return nodes.map((activity) => ({
     id: activity.nodeId,
     label: `${activity.activityId} ${activity.label}`,
     tier: 'activity' as const,
-    legacy,
     activity,
     children: activity.phases.map((stage) => ({
       id: stage.nodeId,
       label: stage.name,
       tier: 'stage' as const,
-      legacy,
       activity,
       stage,
       children: stage.tasks.map((task) => ({
         id: task.nodeId,
         label: task.label,
         tier: 'task' as const,
-        legacy,
         activity,
         stage,
         task,
       })),
     })),
   }));
-}
-
-/**
- * The bottom "▸ LEGACY RECORDS · UNRECONCILED" group item, or `undefined` when
- * there is nothing orphaned to show (never rendered empty).
- */
-function legacyGroupItem(legacyNodes: readonly ActivityNode[]): TreeRow | undefined {
-  if (legacyNodes.length === 0) return undefined;
-  return {
-    id: LEGACY_GROUP_ITEM_ID,
-    label: LEGACY_GROUP_LABEL,
-    tier: 'legacyGroup',
-    legacy: true,
-    children: itemsFor(legacyNodes, true),
-  };
 }
 
 /** Every item, flattened by id — the selection handler gets an id, not a model. */
@@ -273,34 +230,23 @@ function indexOf(rows: readonly TreeRow[], into: Map<string, TreeRow>): Map<stri
 }
 
 /** The URL selection this item stands for — a click never selects more than
- *  what was clicked, so a shallower click clears what was below it.
- *
- *  `legacyGroup` returns an empty selection — unreachable in practice
- *  (`onSelectedItemsChange` refuses any `row.legacy` before this is ever
- *  called, and `isItemSelectionDisabled` tells the tree the same thing), but
- *  the switch stays exhaustive rather than asserting a case away. */
+ *  what was clicked, so a shallower click clears what was below it. */
 function selectionFor(row: TreeRow): LensSelection {
   switch (row.tier) {
-    case 'legacyGroup':
-      return {};
     case 'activity':
-      return row.activity === undefined ? {} : { activityId: row.activity.activityId };
+      return { activityId: row.activity.activityId };
     case 'stage':
-      return row.activity === undefined
-        ? {}
-        : {
-            activityId: row.activity.activityId,
-            ...(row.stage !== undefined ? { lifecyclePhase: row.stage.phase } : {}),
-          };
+      return {
+        activityId: row.activity.activityId,
+        ...(row.stage !== undefined ? { lifecyclePhase: row.stage.phase } : {}),
+      };
     case 'task':
-      return row.activity === undefined
-        ? {}
-        : {
-            activityId: row.activity.activityId,
-            ...(row.task !== undefined
-              ? { lifecyclePhase: row.task.lifecyclePhase, task: row.task.task }
-              : {}),
-          };
+      return {
+        activityId: row.activity.activityId,
+        ...(row.task !== undefined
+          ? { lifecyclePhase: row.task.lifecyclePhase, task: row.task.task }
+          : {}),
+      };
   }
 }
 
@@ -348,9 +294,7 @@ function useRowContext(): RowContextValue {
 
 export interface ActivityTreeViewProps {
   /** Already filtered/sorted/searched — this file neither decides membership
-   *  nor order (see ../list/activityScope.ts); it renders and reveals.
-   *  Includes BOTH the ordinary population and the orphaned-legacy one — see
-   *  `derivedActivityNames`, which is how this file tells them apart. */
+   *  nor order (see ../list/activityScope.ts); it renders and reveals. */
   nodes: readonly ActivityNode[];
   selection: LensSelection;
   onSelect: (selection: LensSelection) => void;
@@ -363,17 +307,6 @@ export interface ActivityTreeViewProps {
    *  initial value, never reached again once incremented) fires nothing on
    *  mount. */
   expandToCurrentPhaseSignal: number;
-  /** The 40-vs-69 seam's persistent COVERAGE strip (Task 12) — always the
-   *  TRUE totals over the full committed row set, computed by the caller
-   *  (ConstructionConsole.tsx) from the activity list + construction
-   *  head-state directly, never from `nodes` — a toolbar scope/kind/search
-   *  filter must not make this strip's numbers move. */
-  coverage: CoverageCounts;
-  /** The derived activity list's own names (`activityListModel.activities`).
-   *  An activity in `nodes` whose id is NOT in this set is orphaned legacy —
-   *  it renders in the bottom `LEGACY RECORDS · UNRECONCILED` group instead
-   *  of the ordinary tree (see `partitionLegacy`). */
-  derivedActivityNames: ReadonlySet<string>;
 }
 
 export function ActivityTreeView({
@@ -382,27 +315,12 @@ export function ActivityTreeView({
   onSelect,
   searchQuery,
   expandToCurrentPhaseSignal,
-  coverage,
-  derivedActivityNames,
 }: ActivityTreeViewProps): ReactElement {
   const t = useTokens();
   const apiRef = useRichTreeViewApiRef();
   const [expandedItems, setExpandedItems] = useState<string[]>([]);
 
-  // The 40-vs-69 seam: everything that names a currently-derived activity
-  // stays an ORDINARY row (including the 9 that reconcile); everything else
-  // is orphaned legacy and moves to the bottom group, never blended in and
-  // never dropped from view.
-  const { current: currentNodes, legacy: legacyNodes } = useMemo(
-    () => partitionLegacy(nodes, derivedActivityNames),
-    [nodes, derivedActivityNames]
-  );
-
-  const items = useMemo(() => {
-    const rows = itemsFor(currentNodes);
-    const group = legacyGroupItem(legacyNodes);
-    return group === undefined ? rows : [...rows, group];
-  }, [currentNodes, legacyNodes]);
+  const items = useMemo(() => itemsFor(nodes), [nodes]);
   const byId = useMemo(() => indexOf(items, new Map<string, TreeRow>()), [items]);
 
   // The scale for the effort channel. Absent efforts contribute nothing — they
@@ -446,16 +364,6 @@ export function ActivityTreeView({
       const ids = matchingTaskIds(node, searchQuery);
       if (ids.length === 0) continue;
       toExpand.add(node.nodeId);
-      // A match inside the orphaned-legacy population (Task 12) renders
-      // beneath the synthetic LEGACY RECORDS group header — MUI's tree only
-      // mounts a branch when EVERY ancestor is in expandedItems, so revealing
-      // a legacy match must open that group too, or its task rows (and the
-      // inline provenance mark one of them may carry) would compute a match
-      // yet never actually mount. Cheap to check unconditionally: legacy
-      // rows are a small, already-partitioned minority of `nodes`.
-      if (isOrphanedLegacyActivity(node.activityId, derivedActivityNames)) {
-        toExpand.add(LEGACY_GROUP_ITEM_ID);
-      }
       for (const phase of node.phases) {
         if (phase.tasks.some((task) => ids.includes(task.nodeId))) toExpand.add(phase.nodeId);
       }
@@ -505,12 +413,7 @@ export function ActivityTreeView({
     (_event: SyntheticEvent | null, itemId: string | null): void => {
       if (itemId === null) return;
       const row = byId.get(itemId);
-      // The orphaned-legacy guarantee (Task 12): a legacy row is drillable
-      // for reading (it can still expand) but is NEVER an action target.
-      // `isItemSelectionDisabled` below tells the tree the same thing, but
-      // this is the guarantee this file actually rests on — it holds even if
-      // the library's own selection-disable behaviour ever changes.
-      if (row === undefined || row.legacy) return;
+      if (row === undefined) return;
       onSelect(selectionFor(row));
     },
     [byId, onSelect]
@@ -521,13 +424,8 @@ export function ActivityTreeView({
     [t, maxEffortDays, onSelect, searchMatchedTaskIds]
   );
 
-  // The COVERAGE strip is PERSISTENT (Task 12): it renders above the tree
-  // whether the tree itself has anything to show under the current toolbar
-  // filter, so it never disappears at exactly the moment a reader would want
-  // to know why the list looks thin.
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25 }}>
-      <CoverageStrip counts={coverage} />
       {nodes.length === 0 ? (
         <Box
           data-testid={UI_IDENTIFIERS.Construction.LIST_EMPTY}
@@ -561,12 +459,6 @@ export function ActivityTreeView({
               expansionTrigger="iconContainer"
               getItemId={(item: TreeRow) => item.id}
               getItemLabel={(item: TreeRow) => item.label}
-              // The orphaned-legacy rows (and their group header) are
-              // drillable for reading — expansion stays on — but never a
-              // selection target. `onSelectedItemsChange`'s own `row.legacy`
-              // guard is the guarantee this file rests on; this tells MUI
-              // the same thing so the row never even paints as selected.
-              isItemSelectionDisabled={(item: TreeRow) => item.legacy}
               items={items}
               selectedItems={selectedItemId(selection)}
               slots={{ item: ActivityTreeItem }}
@@ -625,12 +517,8 @@ function ActivityTreeItem(props: TreeItemProps): ReactElement {
           sx={{
             display: 'flex',
             alignItems: 'stretch',
-            // A legacy row is drillable (the chevron still expands it — a
-            // SEPARATE gesture, see expansionTrigger above) but its CONTENT
-            // is not a click target: no pointer cursor, no hover wash, and it
-            // can never carry `data-selected` (isItemSelectionDisabled).
-            cursor: model?.legacy === true ? 'default' : 'pointer',
-            '&:hover': { bgcolor: model?.legacy === true ? 'transparent' : alpha(t.accent, 0.06) },
+            cursor: 'pointer',
+            '&:hover': { bgcolor: alpha(t.accent, 0.06) },
             '&[data-selected]': { bgcolor: alpha(t.accent, 0.12) },
             '&[data-focused]': { outline: `2px solid ${t.accent}`, outlineOffset: '-2px' },
           }}
@@ -674,100 +562,18 @@ function RowBody({
 }): ReactElement | null {
   const chevron = <Chevron expandable={expandable} expanded={expanded} {...iconContainerProps} />;
   switch (row.tier) {
-    case 'legacyGroup':
-      return <LegacyGroupHeaderRow chevron={chevron} count={row.children?.length ?? 0} />;
     case 'activity':
-      // An `activity`/`stage`/`task` item without its node is unreachable
-      // (itemsFor builds them together) but `activity` is optional on the
-      // model (the `legacyGroup` header has none), so narrow rather than
-      // assert: a missing row renders nothing, never a crash.
-      return row.activity === undefined ? null : (
-        <ActivityRow chevron={chevron} legacy={row.legacy} node={row.activity} />
-      );
+      return <ActivityRow chevron={chevron} node={row.activity} />;
     case 'stage':
-      return row.activity === undefined || row.stage === undefined ? null : (
-        <StageRuleRow chevron={chevron} legacy={row.legacy} node={row.activity} stage={row.stage} />
+      // A `stage`/`task` item without its node is unreachable (itemsFor builds
+      // them together) but both are optional on the model, so narrow rather
+      // than assert: a missing row renders nothing, never a crash.
+      return row.stage === undefined ? null : (
+        <StageRuleRow chevron={chevron} node={row.activity} stage={row.stage} />
       );
     case 'task':
-      return row.activity === undefined || row.task === undefined ? null : (
-        <TaskRow legacy={row.legacy} node={row.activity} task={row.task} />
-      );
+      return row.task === undefined ? null : <TaskRow node={row.activity} task={row.task} />;
   }
-}
-
-// ---------------------------------------------------------------------------
-// The bottom group header — Task 12's read-only "LEGACY RECORDS" bucket.
-// ---------------------------------------------------------------------------
-
-/**
- * The orphaned-legacy group's own header row.
- *
- * Muted and hatched — reusing the EXACT `scanlines` texture the provenance
- * rail draws with (provenanceAxis.ts) and the exact hatched-pill component
- * (`ReconstructedBadge`, relabelled `superseded`) the provenance badge already
- * uses, rather than inventing a second visual language for "this is not
- * current". The copy states the founder's ruling verbatim: these 60 rows are
- * context ONLY while the derived activities are brought into good shape, and
- * are deleted once that is done — a staging state with a planned end, not a
- * permanent bucket. The deletion itself is a separate future commit.
- */
-function LegacyGroupHeaderRow({
-  chevron,
-  count,
-}: {
-  chevron: ReactElement;
-  count: number;
-}): ReactElement {
-  const { t } = useRowContext();
-  return (
-    <Box
-      data-testid={UI_IDENTIFIERS.Construction.LEGACY_GROUP}
-      sx={{
-        flexGrow: 1,
-        minWidth: 0,
-        display: 'flex',
-        alignItems: 'center',
-        gap: 1,
-        pl: `${String(TIER_INDENT.activity)}px`,
-        pr: 1.25,
-        py: 0.85,
-        borderTop: `1.5px solid ${t.line}`,
-        borderBottom: `1px solid ${alpha(t.line, 0.22)}`,
-        backgroundImage: scanlines(alpha(t.ink, 0.055)),
-      }}
-    >
-      {chevron}
-      <Typography
-        sx={{
-          fontFamily: t.mono,
-          fontSize: 10.5,
-          fontWeight: 700,
-          letterSpacing: '0.09em',
-          color: t.muted,
-          whiteSpace: 'nowrap',
-          flexShrink: 0,
-        }}
-      >
-        {`▸ ${LEGACY_GROUP_LABEL} · ${String(count)}`}
-      </Typography>
-      <ReconstructedBadge label="superseded" t={t} title={LEGACY_GROUP_COPY} />
-      <Typography
-        data-testid={UI_IDENTIFIERS.Construction.LEGACY_GROUP_COPY}
-        sx={{
-          fontFamily: t.body,
-          fontSize: 10.5,
-          fontStyle: 'italic',
-          color: t.muted,
-          minWidth: 0,
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
-        }}
-      >
-        {LEGACY_GROUP_COPY}
-      </Typography>
-    </Box>
-  );
 }
 
 function Chevron({
@@ -818,19 +624,14 @@ function Chevron({
 function ActivityRow({
   chevron,
   node,
-  legacy,
 }: {
   chevron: ReactElement;
   node: ActivityNode;
-  legacy: boolean;
 }): ReactElement {
   const { t, maxEffortDays } = useRowContext();
   const state = activityRowState(node.row);
   const chip = chipFor(state);
-  // A legacy row still shows its real recorded state (this is drillable
-  // reading, not fabrication-hiding) but never the LOUD "blocked on the
-  // reader" treatment — nobody is being asked to act on a superseded row.
-  const loud = state === 'awaitingHuman' && !legacy;
+  const loud = state === 'awaitingHuman';
   const marker = currentStageMarker(node);
   // The contagion roll-up: worst provenance anywhere beneath this activity, so
   // a collapsed row cannot hide a reconstructed task.
@@ -848,9 +649,6 @@ function ActivityRow({
         pl: `${String(TIER_INDENT.activity)}px`,
         pr: 1.25,
         py: 0.6,
-        // MUTED (Task 12): a legacy row recedes into its own material rather
-        // than competing with the ordinary, actionable population above it.
-        opacity: legacy ? 0.62 : 1,
         // The criticality channel: a border WEIGHT, never a chip. 2px vs 3px is
         // too fine a difference on its own at this row height, so the critical
         // edge also takes the full line colour while every other row's recedes —
@@ -912,10 +710,11 @@ function ActivityRow({
         ) : node.kind !== undefined ? (
           <KindBadge kind={node.kind} size="xs" t={t} />
         ) : null}
-        {/* The stamp sits immediately before the percentage it qualifies: on 21
-            of the 69 rows that numeral reads 100% ✓ PASSED off a founder ruling
-            with no artifact behind it, and the badge must be read in the same
-            glance as the claim, not somewhere else on the row. */}
+        {/* The stamp sits immediately before the percentage it qualifies: on a
+            backfilled row that numeral reads 100% ✓ PASSED from evidence
+            reconstructed after the fact, never observed as it happened, and the
+            badge must be read in the same glance as the claim, not somewhere
+            else on the row. */}
         <ProvenanceGroupStamp reading={provenance} t={t} />
         <ProgressFill percent={node.percentComplete} />
         {node.retryCount > 0 ? (
@@ -928,7 +727,7 @@ function ActivityRow({
           </Tooltip>
         ) : null}
         {/* The state's GEOMETRY sits beside its chip — and only where there is
-            a chip. A glyph on all 43 chip-less rows would put a mark back on
+            a chip. A glyph on every chip-less row would put a mark back on
             every "we have no record" row, which is exactly what chip-less is
             supposed to say. The animated running dot lives here. */}
         {chip !== undefined ? <StateGlyph state={state} /> : null}
@@ -951,9 +750,9 @@ function asFloatBand(value: string | undefined): FloatBand | undefined {
 /** Float: a rail band (bandTokens) AND an always-visible numeral. Colour is
  *  never the sole carrier (WCAG 1.4.1), and an unknown float renders as a bare
  *  `—` — never as a green rail reading "plenty of slack", and never as a
- *  placeholder mark either: with 60 of 69 rows unjoined, a hairline per row
- *  became a ruled-paper texture competing with the 9 rows that DO have a float
- *  (measured on the at-rest screenshot, not assumed). No data, no ink. */
+ *  placeholder mark either: when most rows had no float on record, a hairline
+ *  per row became a ruled-paper texture competing with the rows that DID have
+ *  one (measured on the at-rest screenshot, not assumed). No data, no ink. */
 function FloatRail({
   float,
   band,
@@ -993,8 +792,8 @@ function FloatRail({
 }
 
 /** Effort: a bar LENGTH and nothing else. No bar at all where there is no
- *  estimate — 60 of the 69 committed rows do not join the derived activity list
- *  (the 40-vs-69 seam), and a zero-length bar would claim a zero-day activity. */
+ *  estimate — a row the committed activity list does not carry has none, and a
+ *  zero-length bar would claim a zero-day activity. */
 function EffortBar({ days, maxDays }: { days: number | undefined; maxDays: number }): ReactElement {
   const { t } = useRowContext();
   const fraction = effortBarFraction(days, maxDays);
@@ -1024,7 +823,7 @@ function EffortBar({ days, maxDays }: { days: number | undefined; maxDays: numbe
 }
 
 /** Progress: a fill EXTENT plus its numeral. An unknowable percentage (any
- *  profile phase unreported — 43 of 69 rows) draws no track at all and reads
+ *  profile phase unreported — every activity with no record yet) draws no track at all and reads
  *  `—`, never a 0% bar: an unknown denominator is not a zero numerator. */
 function ProgressFill({ percent }: { percent: number | undefined }): ReactElement {
   const { t } = useRowContext();
@@ -1069,9 +868,10 @@ function ProgressFill({ percent }: { percent: number | undefined }): ReactElemen
   );
 }
 
-/** The `absent` channel: a gap, 40% opacity, the name struck. G-SPA's
- *  `CurrentPhase` is `integration` and its two-phase uiDesign profile has no
- *  such node — so nothing is highlighted, and the row says exactly that. */
+/** The `absent` channel: a gap, 40% opacity, the name struck. A reported
+ *  `CurrentPhase` the activity's profile has no node for (e.g. `integration`
+ *  on a two-phase uiDesign profile) highlights nothing, and the row says
+ *  exactly that. */
 function AbsentStage({ named }: { named: string }): ReactElement {
   const { t } = useRowContext();
   return (
@@ -1103,12 +903,10 @@ function StageRuleRow({
   chevron,
   node,
   stage,
-  legacy,
 }: {
   chevron: ReactElement;
   node: ActivityNode;
   stage: PhaseNode;
-  legacy: boolean;
 }): ReactElement {
   const { t } = useRowContext();
   const heaviest = Math.max(...node.phases.map((p) => p.weight));
@@ -1124,7 +922,6 @@ function StageRuleRow({
         minWidth: 0,
         display: 'flex',
         alignItems: 'stretch',
-        opacity: legacy ? 0.62 : 1,
         bgcolor: alpha(t.line, 0.03),
       }}
     >
@@ -1163,8 +960,8 @@ function StageRuleRow({
           </Typography>
         ) : null}
         {/* Tier 2 is the second and LAST tier that gets a badge. Its task rows
-          inherit the rail alone — 384 of them, and 384 chips is the density
-          failure that got two prototype rounds rejected. */}
+          inherit the rail alone — there are hundreds of them, and a chip on
+          each is the density failure that got two prototype rounds rejected. */}
         <ProvenanceGroupStamp reading={provenance} t={t} />
         {/* The weight's magnitude channel: a segment WIDTH. Filled when the server
           reported the phase complete, hollow when it reported incomplete, dashed
@@ -1223,26 +1020,15 @@ function StageRuleRow({
 // ---------------------------------------------------------------------------
 // Tier 3 — one Figure A-1 task. The majority of these are `unknown`, and the
 // whole design rests on that reading as "here is the work, none of it has
-// happened" rather than as 292 errors.
+// happened" rather than as a wall of errors.
 // ---------------------------------------------------------------------------
 
-function TaskRow({
-  node,
-  task,
-  legacy,
-}: {
-  node: ActivityNode;
-  task: TaskNode;
-  legacy: boolean;
-}): ReactElement {
+function TaskRow({ node, task }: { node: ActivityNode; task: TaskNode }): ReactElement {
   const { t, onInlineRetry, searchMatchedTaskIds } = useRowContext();
   const [openAttempts, setOpenAttempts] = useState(false);
   const state = taskRowState(task, node.status);
   const chip = chipFor(state);
-  // Same rule as the activity row: a legacy task still shows its real
-  // recorded state, but is never rendered as "blocked on the reader" — and,
-  // below, never offers the retry action either. Read-only means read-only.
-  const loud = state === 'awaitingHuman' && !legacy;
+  const loud = state === 'awaitingHuman';
   const failed = state === 'failed';
   const counter = retryCounterLabel(task.attemptCount);
   // The task's OWN provenance — its attempt ledger and nothing else. A task row
@@ -1259,7 +1045,7 @@ function TaskRow({
   const showsInlineProvenanceMark = needsInlineProvenanceMark(isSearchMatch, provenance.origin);
 
   return (
-    <Box sx={{ flexGrow: 1, minWidth: 0, opacity: legacy ? 0.62 : 1 }}>
+    <Box sx={{ flexGrow: 1, minWidth: 0 }}>
       <Box
         sx={{
           display: 'flex',
@@ -1339,7 +1125,7 @@ function TaskRow({
           <Box sx={{ flexGrow: 1 }} />
           {/* The per-row origin WORD used to sit here. It is gone on purpose: the
             rail carries the grade and its tooltip carries the sub-grade plus the
-            basis, so 218 rows no longer spell "backfilled" in ink beside work
+            basis, so hundreds of rows no longer spell "backfilled" in ink beside work
             whose state chip already competes for the same glance. */}
           {counter !== undefined ? (
             <Box
@@ -1372,9 +1158,7 @@ function TaskRow({
               {counter}
             </Box>
           ) : null}
-          {/* Never offered on a legacy row — read-only means no action
-              affordance, not just a muted one. */}
-          {(legacy ? [] : inlineActionsFor(state)).map((action) => (
+          {inlineActionsFor(state).map((action) => (
             <Box
               component="button"
               data-testid={UI_IDENTIFIERS.Construction.listInlineAction(task.nodeId, action)}

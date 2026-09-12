@@ -51,9 +51,8 @@ import {
  * meaningless to a pane showing exactly one thing:
  *
  *   - `absent`     — named by the data but not carried by this activity's
- *                    profile. The only real instance today is G-SPA, whose
- *                    `CurrentPhase` is `integration` while its two-phase
- *                    `uiDesign` profile has no such node.
+ *                    profile — e.g. a `CurrentPhase` of `integration` on a
+ *                    two-phase `uiDesign` profile, which has no such node.
  *   - `skipped`    — a real, terminal, NON-success outcome (see skippedIsNotPassed).
  *   - `superseded` — an attempt a later attempt replaced.
  */
@@ -193,9 +192,8 @@ export function floatPresentation(float?: number, band?: FloatBand): FloatPresen
  * or nothing at all when this activity's effort is unknown.
  *
  * `undefined` rather than `0`: a zero-length bar and "we have no estimate" would
- * be the same pixel, and 60 of the 69 committed construction rows do not join
- * the derived activity list at all (the 40-vs-69 seam, surfaced in a later
- * task). A bar is drawn only where there is a real number behind it.
+ * be the same pixel, and a row the committed activity list does not carry has
+ * no estimate at all. A bar is drawn only where there is a real number behind it.
  */
 export function effortBarFraction(
   effortDays: number | undefined,
@@ -308,10 +306,9 @@ export interface CurrentStageMarker {
 /**
  * What the activity's reported current phase resolves to.
  *
- * G-SPA is the only committed row with a current phase at all, and it names
- * `integration`, which its two-phase `uiDesign` profile does NOT carry. Finding
- * no matching node is therefore the COMMON case here, not the edge one, and it
- * is answered honestly: `inProfile: false` renders the `absent` channel (a gap,
+ * A reported current phase can name a node the activity's profile does NOT
+ * carry (`integration` on a two-phase `uiDesign` profile). Finding no matching
+ * node is answered honestly: `inProfile: false` renders the `absent` channel (a gap,
  * 40% opacity, the name struck) beside the row. Silently highlighting the first
  * phase instead — or throwing — would be a fabricated answer to a real question.
  */

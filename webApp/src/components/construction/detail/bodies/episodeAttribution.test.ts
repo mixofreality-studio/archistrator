@@ -15,28 +15,37 @@ import { formatSpanDuration, ganttBarsFor } from './spanGeometry.ts';
 // ---------------------------------------------------------------------------
 
 void test('an episode carrying the BARE activity id is unattributed', () => {
-  assert.equal(attributionOf('C-AA', 'C-AA:srs:1'), 'unattributed');
+  assert.equal(attributionOf('C-artifact-access', 'C-artifact-access:srs:1'), 'unattributed');
 });
 
 void test('an episode carrying the attempt key verbatim is attributed', () => {
-  assert.equal(attributionOf('C-AA:srs:1', 'C-AA:srs:1'), 'attributed');
+  assert.equal(attributionOf('C-artifact-access:srs:1', 'C-artifact-access:srs:1'), 'attributed');
 });
 
 void test('a PREFIX match is never attribution — that is the guess this rule exists to stop', () => {
-  // `C-AA` is a prefix of `C-AA:srs:1`, and `C-AA:srs:1` is a prefix of
-  // `C-AA:srs:10`. Either as a match would claim a legacy episode for whichever
+  // `C-artifact-access` is a prefix of `C-artifact-access:srs:1`, and `C-artifact-access:srs:1` is a prefix of
+  // `C-artifact-access:srs:10`. Either as a match would claim a legacy episode for whichever
   // task happened to be selected.
-  assert.equal(attributionOf('C-AA:srs:10', 'C-AA:srs:1'), 'unattributed');
-  assert.equal(attributionOf('C-AA:srsReview:1', 'C-AA:srs:1'), 'unattributed');
+  assert.equal(
+    attributionOf('C-artifact-access:srs:10', 'C-artifact-access:srs:1'),
+    'unattributed'
+  );
+  assert.equal(
+    attributionOf('C-artifact-access:srsReview:1', 'C-artifact-access:srs:1'),
+    'unattributed'
+  );
 });
 
 void test('with no attempt selected nothing can be attributed', () => {
-  assert.equal(attributionOf('C-AA:srs:1', undefined), 'unattributed');
-  assert.equal(attributionOf('C-AA:srs:1', ''), 'unattributed');
+  assert.equal(attributionOf('C-artifact-access:srs:1', undefined), 'unattributed');
+  assert.equal(attributionOf('C-artifact-access:srs:1', ''), 'unattributed');
 });
 
 void test('the caption states activity-level scope whenever nothing matches the attempt key', () => {
-  const scope = episodeScopeFor(['C-AA', 'C-AA', 'C-AA'], 'C-AA:srs:1');
+  const scope = episodeScopeFor(
+    ['C-artifact-access', 'C-artifact-access', 'C-artifact-access'],
+    'C-artifact-access:srs:1'
+  );
   assert.equal(scope.showing, 'all');
   assert.equal(scope.total, 3);
   assert.equal(scope.attributed, 0);
@@ -49,16 +58,19 @@ void test('the caption states activity-level scope whenever nothing matches the 
 });
 
 void test('a real attempt-key match narrows the list AND says so', () => {
-  const scope = episodeScopeFor(['C-AA', 'C-AA:srs:1'], 'C-AA:srs:1');
+  const scope = episodeScopeFor(
+    ['C-artifact-access', 'C-artifact-access:srs:1'],
+    'C-artifact-access:srs:1'
+  );
   assert.equal(scope.showing, 'attributed');
   assert.equal(scope.total, 2);
   assert.equal(scope.attributed, 1);
   assert.match(scope.caption, /attributable to this task/);
-  assert.match(scope.caption, /C-AA:srs:1/);
+  assert.match(scope.caption, /C-artifact-access:srs:1/);
 });
 
 void test('an empty list is still scoped honestly rather than silently', () => {
-  const scope = episodeScopeFor([], 'C-AA:srs:1');
+  const scope = episodeScopeFor([], 'C-artifact-access:srs:1');
   assert.equal(scope.showing, 'all');
   assert.equal(scope.total, 0);
   assert.equal(scope.caption, ACTIVITY_LEVEL_CAPTION);

@@ -257,10 +257,10 @@ void test('mapConstructionRow degrades an unrecognized origin, outcome, and evid
 // worstOrigin is an aggregate over the ledger. The server's roll-up seeds an EMPTY
 // ledger to 'observed' — correct as an aggregate (nothing was derived from anything
 // unknown) and a trap at row level, where it reads as "recorded" for a row about which
-// nothing is known. 44 of the committed rows have an empty ledger, so the stamp is
-// dropped at this boundary, exactly as kind/status/currentLifecyclePhase are dropped on
-// an unclassified row. The server-side seed is deliberately NOT changed to
-// 'synthesized': that would tar those 44 rows as fabricated.
+// nothing is known. Every row nothing has been attempted on has an empty ledger, so the
+// stamp is dropped at this boundary, exactly as kind/status/currentLifecyclePhase are
+// dropped on an unclassified row. The server-side seed is deliberately NOT changed to
+// 'synthesized': that would tar those rows as fabricated.
 void test('mapConstructionRow omits worstOrigin when the ledger is empty', () => {
   const row = mapConstructionRow(wireRow({ attempts: [], worstOrigin: 'observed' }));
   assert.equal(row.attempts.length, 0);
@@ -343,7 +343,7 @@ void test('mapConstructionRow treats an absent classified flag as unclassified',
 // Item 2: the server leaves Type/Kind/Variant at their zero value on an
 // unclassified row (Type: 0 decodes to 'service' when NOT gated on classified —
 // this pins that gate). Rendering that zero as a real kind would fabricate a
-// lifecycle for ~60 of 69 committed activities.
+// lifecycle for a row the server could not type.
 void test('an unclassified row does not surface a plausible kind even though Type sits at its zero value', () => {
   const row = mapConstructionRow(wireRow({ classified: false, Type: 0, Kind: 0 }));
   assert.equal(row.classified, false);
@@ -381,7 +381,7 @@ void test('a classified row still surfaces its real status and current lifecycle
 
 // Stage B task 6: `CurrentPhase` is a plain string with no omitempty, so a
 // CLASSIFIED row the server has not started reporting a phase for arrives as
-// '' — 44 of the 69 committed rows. Gating on `classified` alone let that
+// '' on every row nothing has started on. Gating on `classified` alone let that
 // through as a present field naming a phase called nothing; the field now drops
 // at its zero value exactly like kind/status/worstOrigin/layer.
 void test('a classified row with no current phase yet drops the field rather than surfacing an empty one', () => {

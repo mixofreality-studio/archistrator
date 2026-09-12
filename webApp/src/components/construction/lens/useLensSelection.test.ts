@@ -26,14 +26,14 @@ import {
 void test('round-trips a full selection through search params', () => {
   const parsed = parseLensSearch({
     lens: 'list',
-    a: 'C-BG',
+    a: 'C-billing-engine',
     p: 'construction',
     k: 'codeReview',
     n: '2',
   });
   assert.equal(parsed.lens, 'list');
   assert.deepEqual(parsed.selection, {
-    activityId: 'C-BG',
+    activityId: 'C-billing-engine',
     lifecyclePhase: 'construction',
     task: 'codeReview',
     attempt: 2,
@@ -52,11 +52,11 @@ void test('rejects an unknown lens rather than rendering a blank surface', () =>
 });
 
 void test('drops a non-numeric attempt rather than passing NaN downstream', () => {
-  assert.equal(parseLensSearch({ a: 'C-BG', n: 'x' }).selection.attempt, undefined);
-  assert.equal(parseLensSearch({ a: 'C-BG', n: '' }).selection.attempt, undefined);
-  assert.equal(parseLensSearch({ a: 'C-BG', n: '1.5' }).selection.attempt, undefined);
-  assert.equal(parseLensSearch({ a: 'C-BG', n: '0' }).selection.attempt, undefined);
-  assert.equal(parseLensSearch({ a: 'C-BG', n: '-3' }).selection.attempt, undefined);
+  assert.equal(parseLensSearch({ a: 'C-billing-engine', n: 'x' }).selection.attempt, undefined);
+  assert.equal(parseLensSearch({ a: 'C-billing-engine', n: '' }).selection.attempt, undefined);
+  assert.equal(parseLensSearch({ a: 'C-billing-engine', n: '1.5' }).selection.attempt, undefined);
+  assert.equal(parseLensSearch({ a: 'C-billing-engine', n: '0' }).selection.attempt, undefined);
+  assert.equal(parseLensSearch({ a: 'C-billing-engine', n: '-3' }).selection.attempt, undefined);
 });
 
 void test('accepts the graph and tasks lenses', () => {
@@ -68,7 +68,7 @@ void test('serialize → parse is a round trip', () => {
   const state = {
     lens: 'tasks' as const,
     selection: {
-      activityId: 'C-BG',
+      activityId: 'C-billing-engine',
       lifecyclePhase: 'construction',
       task: 'codeReview',
       attempt: 3,
@@ -77,7 +77,7 @@ void test('serialize → parse is a round trip', () => {
   const search = serializeLensSearch(state);
   assert.deepEqual(search, {
     lens: 'tasks',
-    a: 'C-BG',
+    a: 'C-billing-engine',
     p: 'construction',
     k: 'codeReview',
     n: 3,
@@ -91,24 +91,48 @@ void test('serializing an empty selection emits only the lens', () => {
 
 void test('validateLensSearch keeps a deep link addressable and drops the junk', () => {
   // The route's validateSearch: whatever it returns IS the URL's search, so an
-  // explicit ?lens=list&a=C-BG must survive verbatim or the deep link is a lie.
-  assert.deepEqual(validateLensSearch({ lens: 'list', a: 'C-BG' }), { lens: 'list', a: 'C-BG' });
-  assert.deepEqual(validateLensSearch({ lens: 'bogus', a: 'C-BG', n: 'x', zz: 'drop me' }), {
+  // explicit ?lens=list&a=C-billing-engine must survive verbatim or the deep link is a lie.
+  assert.deepEqual(validateLensSearch({ lens: 'list', a: 'C-billing-engine' }), {
     lens: 'list',
-    a: 'C-BG',
+    a: 'C-billing-engine',
   });
+  assert.deepEqual(
+    validateLensSearch({ lens: 'bogus', a: 'C-billing-engine', n: 'x', zz: 'drop me' }),
+    {
+      lens: 'list',
+      a: 'C-billing-engine',
+    }
+  );
 });
 
 void test('the toolbar signature survives a fresh-but-identical poll envelope', () => {
-  const a = toolbarSignatureOf('archistrator', ['C-BG', 'C-CW', 'G-SPA']);
-  const b = toolbarSignatureOf('archistrator', ['G-SPA', 'C-BG', 'C-CW']);
+  const a = toolbarSignatureOf('archistrator', [
+    'C-billing-engine',
+    'C-construction-manager',
+    'U-SPA-web-client',
+  ]);
+  const b = toolbarSignatureOf('archistrator', [
+    'U-SPA-web-client',
+    'C-billing-engine',
+    'C-construction-manager',
+  ]);
   assert.equal(a, b, 'a re-fetch of the same activity set must keep the same signature');
 });
 
 void test('the toolbar signature changes for a genuinely different dataset', () => {
-  const base = toolbarSignatureOf('archistrator', ['C-BG', 'C-CW']);
-  assert.notEqual(base, toolbarSignatureOf('gtdapp', ['C-BG', 'C-CW']));
-  assert.notEqual(base, toolbarSignatureOf('archistrator', ['C-BG', 'C-CW', 'G-SPA']));
+  const base = toolbarSignatureOf('archistrator', ['C-billing-engine', 'C-construction-manager']);
+  assert.notEqual(
+    base,
+    toolbarSignatureOf('gtdapp', ['C-billing-engine', 'C-construction-manager'])
+  );
+  assert.notEqual(
+    base,
+    toolbarSignatureOf('archistrator', [
+      'C-billing-engine',
+      'C-construction-manager',
+      'U-SPA-web-client',
+    ])
+  );
 });
 
 void test('the toolbar starts unfiltered', () => {

@@ -28,7 +28,7 @@
  *
  * NAVIGABILITY (Stage B Task 11)
  * ------------------------------
- * A resting tree of 69 tier-1 rows (worst case ~120 expanded) gets no free
+ * A resting tree of ~30 tier-1 rows (hundreds once expanded) gets no free
  * sort/filter/virtualize — `@mui/x-tree-view` is the community edition, not a
  * DataGrid. Every scope chip is wired here (the 7 that shipped disabled in
  * Task 3 now have a real predicate behind them, in ../list/activityScope.ts),

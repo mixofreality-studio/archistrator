@@ -439,7 +439,7 @@ export function mapConstructionRow(
 ): ConstructionRow {
   // The server refuses to guess a type it cannot classify: Type/Kind/Variant sit
   // at their zero value and Phases is empty. Surfacing a derived 'service' kind
-  // for one of those unclassified rows (~60 of 69 committed activities) would
+  // for one of those unclassified rows (an id the committed list does not carry) would
   // fabricate an entire lifecycle at the UI boundary, so `kind` is gated on
   // `classified` rather than being sourced from Type unconditionally. (The wire
   // type already pins `classified` to `boolean` — a dropped/missing flag can
@@ -455,8 +455,8 @@ export function mapConstructionRow(
   // auditing every consumer for a `classified` check it might forget.
   //
   // `status` carries a SECOND gate the other two do not need. The server derives
-  // the coarse status from the row's resolved phase completions, and twenty
-  // committed rows resolve to none of them (no stored phases, no attempt
+  // the coarse status from the row's resolved phase completions, and every
+  // planned-no-record row resolves to none of them (no stored phases, no attempt
   // ledger) — the same BuildInConstruction zero surfaces, this time on a row
   // that IS classified. hasBuildEvidence is the server's own report of that, so
   // it is read here rather than re-derived from `phases.length` (which the
@@ -474,7 +474,7 @@ export function mapConstructionRow(
   // …and gated on a NON-EMPTY value as well, which is the half this mapper was
   // missing: `CurrentPhase` is an ordinary string with no omitempty, so a
   // classified row the server has not started reporting a phase for arrives as
-  // `''` — 44 of the 69 committed rows, every one of them then carrying a
+  // `''` — every row nothing has started on, each of them then carrying a
   // present field naming a phase called nothing. Its four siblings (kind,
   // status, worstOrigin, layer/layerBand) all drop at their zero value; this one
   // now does too, so "the server said nothing" is ABSENT here rather than being
@@ -493,8 +493,8 @@ export function mapConstructionRow(
   // the server's roll-up seeds an empty ledger to 'observed' — right as an aggregate
   // (nothing was derived from anything unknown), a trap at row level, where it reads
   // as "recorded" for a row about which nothing is known. The seed itself is correct
-  // and stays put on the server; making it 'synthesized' instead would tar the 44
-  // empty-ledger rows as fabricated, which is a different lie.
+  // and stays put on the server; making it 'synthesized' instead would tar every
+  // empty-ledger row as fabricated, which is a different lie.
   const attempts = (w.attempts ?? []).map(mapTaskAttempt);
   // layer/layerBand (task 11, construction-UI-rewrite stage A; read here in stage B —
   // this mapper predated that task). "" is LayerForActivity's own real return for a
@@ -697,7 +697,10 @@ function committedActivityNames(slots: readonly ArtifactSlotView[]): string[] {
   if (slot === undefined || ARTIFACT_STAGE_ORDINAL_TO_APP[slot.stage] !== 'committed') return [];
   // Same honest boundary cast ConstructionConsole's committedEnvelope makes: a
   // committed activityList slot's envelope IS the Phase-2 envelope.
-  const model = narrowProject(slot.model as unknown as ProjectArtifactModelEnvelope, 'activityList');
+  const model = narrowProject(
+    slot.model as unknown as ProjectArtifactModelEnvelope,
+    'activityList'
+  );
   return (model?.activities ?? []).map((a) => a.name);
 }
 

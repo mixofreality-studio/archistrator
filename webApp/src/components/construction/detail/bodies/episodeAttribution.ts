@@ -19,7 +19,7 @@
  *
  *   - An episode is ATTRIBUTED only when its `TargetRef` is LITERALLY the
  *     selected attempt key. Not a prefix match, not "starts with the activity
- *     id" — `C-AA` is a prefix of `C-AA:srs:1` and a prefix match would
+ *     id" — `C-artifact-access` is a prefix of `C-artifact-access:srs:1` and a prefix match would
  *     re-introduce exactly the guess this exists to stop.
  *   - When any episode IS attributed, the body says so and shows ONLY those.
  *   - Otherwise the caption states the scope out loud: activity-level, and not
@@ -32,8 +32,8 @@
 export type EpisodeAttribution = 'attributed' | 'unattributed';
 
 /**
- * EXACT equality, deliberately. A bare activity id (`C-AA`) and an attempt key
- * (`C-AA:srs:1`) share a prefix, and a prefix test would label every legacy
+ * EXACT equality, deliberately. A bare activity id (`C-artifact-access`) and an attempt key
+ * (`C-artifact-access:srs:1`) share a prefix, and a prefix test would label every legacy
  * episode on an activity as belonging to whichever task happened to be selected.
  */
 export function attributionOf(
