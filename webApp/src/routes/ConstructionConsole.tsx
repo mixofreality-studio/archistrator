@@ -69,6 +69,7 @@ import { KIND_META, type ActivityKind } from '../components/construction/KindBad
 import { InterventionsTab } from '../components/construction/InterventionsTab';
 import { ArtifactsTab } from '../components/construction/ArtifactsTab';
 import { DetailPane } from '../components/construction/detail/DetailPane';
+import { ConstructionEpisodeBodyContainer } from '../containers/ConstructionEpisodeBodyContainer';
 import { PhaseGatePanel } from '../components/construction/PhaseGatePanel';
 import { CommentProvider, useComments } from '../components/comments/CommentContext';
 
@@ -441,6 +442,17 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
     selectedActivityId !== null ? (
       <DetailPane
         activityTitle={titleForId(selectedActivityId)}
+        // The pane is in the pure `components` layer and may not reach into
+        // hooks, so the EPISODE body's queries are handed down from here as a
+        // containers-layer render prop (the same reason ActivityLifecyclePanel
+        // took an `episodesSlot`).
+        episodeSlot={({ activityId, attemptId }) => (
+          <ConstructionEpisodeBodyContainer
+            activityId={activityId}
+            attemptId={attemptId}
+            projectId={projectId}
+          />
+        )}
         row={project?.constructionRows?.[selectedActivityId]}
         selection={selection}
         onClose={clear}

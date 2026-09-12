@@ -557,5 +557,7 @@ export const UI_IDENTIFIERS = {
     EXPORT_CSV: 'episode-export-csv',
     outcomeChip: (episodeId: string) => `episode-outcome-chip-${episodeId}`,
     TIMELINE_FILTER: 'episode-timeline-filter',
+    /** The panel header's count, plus the optional scope caption after it. */
+    HEADER_COUNT: 'episodes-header-count',
   },
 } as const;

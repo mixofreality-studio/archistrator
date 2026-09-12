@@ -50,6 +50,7 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
   type ReactElement,
+  type ReactNode,
 } from 'react';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -84,6 +85,7 @@ import {
   evidencePointerFor,
   provenanceNodeFor,
   resolvePhaseTask,
+  selectedAttemptOf,
   taskDetailStateFill,
   TASK_DETAIL_STATE_LABEL,
   taskDetailStateFor,
@@ -150,6 +152,17 @@ export interface DetailPaneProps {
   row: ConstructionRow | undefined;
   /** Human-readable activity title, falling back to the raw id when absent. */
   activityTitle?: string | undefined;
+  /**
+   * The EPISODE body's data, supplied by the route.
+   *
+   * A render prop rather than a fetch: this file is in the pure `components`
+   * layer and may not reach into hooks (eslint.platform.config.js). The route
+   * hands down `containers/ConstructionEpisodeBodyContainer`, which owns the
+   * list/timeline queries and the export assembly. Omitted, the episode body
+   * says plainly that episodes are not wired into this mount — never an empty
+   * list, which would read as "nothing ever ran".
+   */
+  episodeSlot?: ((ctx: { activityId: string; attemptId?: string }) => ReactNode) | undefined;
   onClose: () => void;
 }
 
@@ -157,6 +170,7 @@ export function DetailPane({
   selection,
   row,
   activityTitle,
+  episodeSlot,
   onClose,
 }: DetailPaneProps): ReactElement | null {
   const t = useTokens();
@@ -227,6 +241,9 @@ export function DetailPane({
     [row, selection]
   );
   const evidence = useMemo(() => evidencePointerFor(row, selection), [row, selection]);
+  // The attempt KEY (`<activityId>:<task>:<n>`) — the only string an episode's
+  // TargetRef may be compared against to claim it for this task.
+  const selectedAttempt = useMemo(() => selectedAttemptOf(row, selection), [row, selection]);
   const taskAttempts = useMemo(
     () =>
       selection.task !== undefined ? attemptsForTask(row?.attempts ?? [], selection.task) : [],
@@ -249,7 +266,13 @@ export function DetailPane({
           which body is showing must never change whether the reader is told how
           the record came to exist. */}
       <ProvenanceNote evidence={evidence} reading={provenance} />
-      <DetailBody row={row} selection={selection} state={state} />
+      <DetailBody
+        episodeSlot={episodeSlot}
+        row={row}
+        selectedAttemptId={selectedAttempt?.attemptId}
+        selection={selection}
+        state={state}
+      />
     </>
   );
 
@@ -751,11 +774,15 @@ function ActionBar({ actions, t }: { actions: DetailAction[]; t: Tokens }): Reac
 function DetailBody({
   row,
   selection,
+  selectedAttemptId,
   state,
+  episodeSlot,
 }: {
   row: ConstructionRow | undefined;
   selection: LensSelection;
+  selectedAttemptId: string | undefined;
   state: TaskDetailState;
+  episodeSlot: DetailPaneProps['episodeSlot'];
 }): ReactElement {
   const kind = detailBodyFor(row, selection, state);
   switch (kind) {
@@ -771,18 +798,39 @@ function DetailBody({
     }
     case 'unknown':
       return <UnknownBody row={row} selection={selection} />;
-    // The episode, review and artifact bodies land in Tasks 9 and 10. They reuse
-    // the unknown body's briefing card meanwhile — but NOT its sentence: this
-    // task HAS a record, and saying "no record" here would be exactly the kind
-    // of false statement the rest of this stage exists to remove.
-    case 'episode':
+    case 'episode': {
+      const activityId = selection.activityId;
+      const slot =
+        episodeSlot !== undefined && activityId !== undefined
+          ? episodeSlot({
+              activityId,
+              ...(selectedAttemptId !== undefined ? { attemptId: selectedAttemptId } : {}),
+            })
+          : undefined;
+      // No slot means this mount has no episode source wired — said plainly
+      // rather than rendered as an empty list, which would read as "nothing ever
+      // ran" about a task that has a record.
+      return slot !== undefined ? (
+        <>{slot}</>
+      ) : (
+        <UnknownBody
+          row={row}
+          selection={selection}
+          statement="A record exists for this. Its episodes are not wired into this mount, so none are shown — that is a gap in this surface, not a statement about whether the work ran."
+        />
+      );
+    }
+    // The review and artifact bodies land in Task 10. They reuse the unknown
+    // body's briefing card meanwhile — but NOT its sentence: this task HAS a
+    // record, and saying "no record" here would be exactly the kind of false
+    // statement the rest of this stage exists to remove.
     case 'review':
     case 'artifact':
       return (
         <UnknownBody
           row={row}
           selection={selection}
-          statement="A record exists for this. The body that renders it — episodes, the review verdict, or the artifact itself — lands in the next task of this stage; the briefing below is what the Method says the work is."
+          statement="A record exists for this. The body that renders it — the review verdict, or the artifact itself — lands in the next task of this stage; the briefing below is what the Method says the work is."
         />
       );
   }

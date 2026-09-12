@@ -28,6 +28,7 @@
 import type { ConstructionRow } from '../../../../contracts/types';
 import type { LensSelection } from '../../lens/useLensSelection';
 import { classify } from '../../artifactClassification.ts';
+import type { LifecyclePhase } from '../../lifecycleTemplates.gen.ts';
 import type { TaskDetailState } from '../detailPaneState.ts';
 import { absenceFor, profileFor } from './taskBriefing.ts';
 
@@ -51,30 +52,78 @@ export type ArtifactBodyKind =
   | 'testing:plan'
   | 'testing:systemTest';
 
-const ARTIFACT_BODY_KINDS = new Set<string>([
-  'service',
-  'uiDesign',
-  'frontend',
-  'testing:plan',
-  'testing:systemTest',
-]);
+/**
+ * WHICH LIFECYCLE PHASE each renderer's artifact actually belongs to.
+ *
+ * The renderers are activity-scoped — `ServiceContractView` renders THE service
+ * contract, `FrontendArtifactView` the ui-design concept and the built UI.
+ * Dispatching on classification alone therefore puts the service contract under
+ * `SRS`, a Requirements task, and labels it that task's artifact by placement
+ * alone. That is a quieter version of exactly the mis-attribution this stage
+ * keeps removing (it is the same mistake the episode caption exists to prevent),
+ * so the phase is part of the question: outside its artifact's own phase a task
+ * falls through to its EPISODES, which is genuinely what is known about it.
+ *
+ * Keyed by ArtifactBodyKind, so a new renderer has to state where its artifact
+ * lives rather than silently applying everywhere.
+ */
+const ARTIFACT_PHASES: Record<ArtifactBodyKind, readonly LifecyclePhase[]> = {
+  // The frozen App-B contract is the Detailed Design phase's product.
+  service: ['detailed_design'],
+  // A uiDesign activity's whole output is its Design Concept.
+  uiDesign: ['detailed_design'],
+  // FrontendArtifactView renders BOTH the ui-design concept and the built ui-code.
+  frontend: ['detailed_design', 'construction'],
+  // The STP is written in Plan Authoring and signed off in Plan Review.
+  'testing:plan': ['construction', 'integration'],
+  // SystemTestRunView renders the run: execution, then regression & sign-off.
+  'testing:systemTest': ['construction', 'integration'],
+};
+
+function isArtifactBodyKind(value: string): value is ArtifactBodyKind {
+  return Object.prototype.hasOwnProperty.call(ARTIFACT_PHASES, value);
+}
+
+/** The canonical phase a task key belongs to — every key sits in exactly one. */
+export function lifecyclePhaseOfTask(
+  row: ConstructionRow | undefined,
+  task: string
+): LifecyclePhase | undefined {
+  for (const profilePhase of profileFor(row) ?? []) {
+    if (profilePhase.tasks.some((tk) => tk.task === task)) return profilePhase.phase;
+  }
+  return undefined;
+}
 
 /**
- * The renderer key for this activity's artifact, or `undefined` when this stage
- * has no renderer for it.
+ * The renderer key for the artifact the SELECTED task's phase produces, or
+ * `undefined` when this stage renders nothing for it.
  *
  * Dispatches on the EXISTING `classify(row)` rather than re-deriving a family
  * from `kind`/`variant`: that function already returns the right key and is
  * already what the Artifacts tab dispatches on, and a second implementation of
- * one rule is how this branch's worst bug happened.
+ * one rule is how this branch's worst bug happened. The phase check on top
+ * decides SCOPE, never which renderer — see ARTIFACT_PHASES.
  */
 export function artifactRendererKeyFor(
-  row: ConstructionRow | undefined
+  row: ConstructionRow | undefined,
+  selection: LensSelection
 ): ArtifactBodyKind | undefined {
   if (row === undefined) return undefined;
   const classification = classify(row);
-  if (classification === undefined) return undefined;
-  return ARTIFACT_BODY_KINDS.has(classification) ? (classification as ArtifactBodyKind) : undefined;
+  if (classification === undefined || !isArtifactBodyKind(classification)) return undefined;
+
+  // The task's OWN phase, read from the profile — not `selection.lifecyclePhase`,
+  // which a stale deep link can disagree with, and not the row's current phase,
+  // which describes the activity rather than the selection.
+  const lifecyclePhase =
+    selection.task !== undefined
+      ? lifecyclePhaseOfTask(row, selection.task)
+      : selection.lifecyclePhase;
+  if (lifecyclePhase === undefined) return undefined;
+  return ARTIFACT_PHASES[classification].some((p) => p === lifecyclePhase)
+    ? classification
+    : undefined;
 }
 
 /** Whether the selected task is its phase's gate — read from the generated profile. */
@@ -103,7 +152,7 @@ export function detailBodyFor(
   if (state === 'unknown' || state === 'notStarted') return 'unknown';
   if (selection.task !== undefined) {
     if (selectedTaskIsGate(row, selection)) return 'review';
-    return artifactRendererKeyFor(row) !== undefined ? 'artifact' : 'episode';
+    return artifactRendererKeyFor(row, selection) !== undefined ? 'artifact' : 'episode';
   }
   // Nothing narrower than the activity is selected. Episodes ARE activity-level,
   // so this is the one selection depth at which the episode body needs no

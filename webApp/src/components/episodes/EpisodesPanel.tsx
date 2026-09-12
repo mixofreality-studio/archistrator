@@ -188,6 +188,7 @@ function EpisodeRow({
   timelineLoading,
   timelineError,
   badges,
+  spanStrip,
   onToggle,
 }: {
   t: Tokens;
@@ -197,6 +198,7 @@ function EpisodeRow({
   timelineLoading: boolean;
   timelineError?: string | undefined;
   badges?: ((episode: EpisodeRecordView) => ReactNode) | undefined;
+  spanStrip?: ((episode: EpisodeRecordView) => ReactNode) | undefined;
   onToggle: () => void;
 }): ReactNode {
   const subagentCount = episode.subagentSpans?.length ?? 0;
@@ -298,6 +300,7 @@ function EpisodeRow({
 
       {expanded ? (
         <Box sx={{ px: 1.25, pb: 1.25, display: 'flex', flexDirection: 'column', gap: 1 }}>
+          {spanStrip?.(episode)}
           <LineageTree episode={episode} t={t} />
           <EpisodeTimeline error={timelineError} loading={timelineLoading} timeline={timeline} />
         </Box>
@@ -331,6 +334,22 @@ export interface EpisodesPanelProps {
   /** Render-prop slot for future badges (assurance/completeness — audit spine
    *  workstream). Renders nothing when omitted. */
   badges?: ((episode: EpisodeRecordView) => ReactNode) | undefined;
+  /**
+   * Render-prop slot inside the EXPANDED row, above the lineage tree — the
+   * construction detail pane draws the subagent-span gantt here (Stage B Task
+   * 9). Renders nothing when omitted, so every existing mount is untouched.
+   */
+  spanStrip?: ((episode: EpisodeRecordView) => ReactNode) | undefined;
+  /**
+   * A qualifier appended to the panel header, after `· N`.
+   *
+   * The header otherwise reads `EPISODES 3`, which asserts nothing about WHOSE
+   * three. Mounted per-activity that is fine; mounted inside a pane addressing
+   * ONE task attempt it is not, because placement alone would claim the three
+   * belong to that task. The construction detail pane passes the scope it can
+   * actually defend — see detail/bodies/episodeAttribution.ts.
+   */
+  caption?: string | undefined;
 }
 
 export function EpisodesPanel({
@@ -347,6 +366,8 @@ export function EpisodesPanel({
   exportPending = false,
   exportError,
   badges,
+  spanStrip,
+  caption,
 }: EpisodesPanelProps): ReactNode {
   const t = useTokens();
   const [open, setOpen] = useState(true);
@@ -380,8 +401,13 @@ export function EpisodesPanel({
         >
           EPISODES
         </Typography>
-        <Typography sx={{ fontFamily: t.mono, fontSize: 11, color: t.muted }}>
-          {String(episodes.length)}
+        <Typography
+          data-testid={UI_IDENTIFIERS.Episodes.HEADER_COUNT}
+          sx={{ fontFamily: t.mono, fontSize: 11, color: t.muted, minWidth: 0 }}
+        >
+          {caption !== undefined
+            ? `· ${String(episodes.length)} ${caption}`
+            : String(episodes.length)}
         </Typography>
         <Box sx={{ flexGrow: 1 }} />
         <IconButton
@@ -472,6 +498,7 @@ export function EpisodesPanel({
                 episode={episode}
                 expanded={selectedEpisodeId === episode.episodeId}
                 key={episode.episodeId}
+                spanStrip={spanStrip}
                 t={t}
                 timeline={timeline}
                 timelineError={timelineError}

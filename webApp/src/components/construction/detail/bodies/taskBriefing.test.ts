@@ -192,15 +192,38 @@ void test('selectedTaskIsGate reads the generated profile, not the task name', (
 });
 
 void test('the cut classifications resolve to no artifact renderer', () => {
-  assert.equal(artifactRendererKeyFor(row({ kind: 'service' })), 'service');
-  assert.equal(artifactRendererKeyFor(row({ kind: 'uiDesign' })), 'uiDesign');
-  assert.equal(artifactRendererKeyFor(row({ kind: 'testing', variant: 'plan' })), 'testing:plan');
+  const inPhase = { task: 'detailedDesign' };
+  assert.equal(artifactRendererKeyFor(row({ kind: 'service' }), inPhase), 'service');
+  assert.equal(artifactRendererKeyFor(row({ kind: 'uiDesign' }), inPhase), 'uiDesign');
+  assert.equal(
+    artifactRendererKeyFor(row({ kind: 'testing', variant: 'plan' }), { task: 'construction' }),
+    'testing:plan'
+  );
   for (const kind of ['deployment', 'documentation', 'integration'] as const) {
-    assert.equal(artifactRendererKeyFor(row({ kind })), undefined, kind);
+    assert.equal(artifactRendererKeyFor(row({ kind }), { task: 'construction' }), undefined, kind);
   }
   // A testing variant with no authored renderer falls back honestly too.
-  assert.equal(artifactRendererKeyFor(row({ kind: 'testing', variant: 'perf' })), undefined);
-  assert.equal(artifactRendererKeyFor(row({ classified: false })), undefined);
+  assert.equal(
+    artifactRendererKeyFor(row({ kind: 'testing', variant: 'perf' }), { task: 'construction' }),
+    undefined
+  );
+  assert.equal(artifactRendererKeyFor(row({ classified: false }), inPhase), undefined);
+});
+
+void test('an artifact renderer is scoped to ITS OWN phase, never spread across the activity', () => {
+  const service = row({ kind: 'service' });
+  // The frozen contract belongs to Detailed Design...
+  assert.equal(artifactRendererKeyFor(service, { task: 'detailedDesign' }), 'service');
+  // ...so SRS, a Requirements task, must NOT be captioned with it. The service
+  // contract is not the SRS, and placing it there would claim it is.
+  assert.equal(artifactRendererKeyFor(service, { task: 'srs' }), undefined);
+  assert.equal(detailBodyFor(service, { task: 'srs' }, 'passed'), 'episode');
+  // The phase comes from the task's own profile entry, so a stale `p=` in the
+  // URL cannot move an artifact into a phase it does not belong to.
+  assert.equal(
+    artifactRendererKeyFor(service, { lifecyclePhase: 'detailed_design', task: 'srs' }),
+    undefined
+  );
 });
 
 // ---------------------------------------------------------------------------
