@@ -25,7 +25,10 @@
  * its scroller and publishes both as CSS custom properties (see lensGeometry.ts),
  * which is how the detail pane pins below the toolbar at whatever height it
  * wrapped to. It also flags the toolbar `data-stuck` once stuck, for its shadow.
- * Both are written to the DOM from a layout effect, never through React state.
+ * Both are written to the DOM from a layout effect, never through React state —
+ * the properties onto the DETAIL SLOT's wrapper, not this root (they inherit, and
+ * a write on the root restyled the whole tree on every scroll; fix-A review I4),
+ * and only when a value actually changed.
  *
  * TASKS carries a count badge because it is the only lens that asserts something
  * is owed. GRAPH and TASKS render an honest "coming in a later stage" placeholder
@@ -71,7 +74,7 @@ import {
   type SortId,
   type ToolbarState,
 } from './useLensSelection';
-import { isToolbarStuck, lensGeometryVars } from './lensGeometry';
+import { isToolbarStuck, lensGeometryVars, varsToWrite } from './lensGeometry';
 
 // ---------------------------------------------------------------------------
 // Vocabulary
@@ -160,14 +163,21 @@ export function ConstructionShell({
   const rootRef = useRef<HTMLDivElement>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
   const rowRef = useRef<HTMLDivElement>(null);
+  const detailRef = useRef<HTMLDivElement>(null);
+  const hasDetail = detail !== undefined;
 
   // MEASURE the toolbar, the scroller and the content row, and publish them as
-  // CSS custom properties on this root (lensGeometry.ts) — the detail pane pins
-  // itself below the toolbar at whatever height it wrapped to, and caps its
-  // height at the room it really has, at rest and pinned alike. The same pass
-  // flags the toolbar `data-stuck` once it has stuck, for its shadow. Written
-  // straight to the DOM, never through React state: a resize or a scroll
+  // CSS custom properties on the DETAIL SLOT's wrapper (lensGeometry.ts) — the
+  // detail pane pins itself below the toolbar at whatever height it wrapped to,
+  // and caps its height at the room it really has, at rest and pinned alike. The
+  // same pass flags the toolbar `data-stuck` once it has stuck, for its shadow.
+  // Written straight to the DOM, never through React state: a resize or a scroll
   // re-renders nothing. A layout effect, so the first values land before paint.
+  //
+  // On the wrapper, not the root (fix-A review I4): custom properties inherit, so
+  // a write on the root invalidated the style of every element in the list below
+  // it on every scroll event. Re-run when the pane mounts or unmounts, since that
+  // is when the wrapper appears; a value that did not change is not written.
   useLayoutEffect(() => {
     const root = rootRef.current;
     const toolbar = toolbarRef.current;
@@ -177,25 +187,33 @@ export function ConstructionShell({
     while (scroller !== null && !/(auto|scroll)/.test(getComputedStyle(scroller).overflowY)) {
       scroller = scroller.parentElement;
     }
+    const written: Record<string, string> = {};
+    let writtenStuck: string | undefined;
     const publish = (): void => {
       const scrollerTop = scroller?.getBoundingClientRect().top ?? 0;
       const toolbarRect = toolbar.getBoundingClientRect();
+      const stuck = String(
+        isToolbarStuck({
+          toolbarTop: toolbarRect.top,
+          scrollerTop,
+          scrollTop: scroller?.scrollTop ?? window.scrollY,
+        })
+      );
+      if (stuck !== writtenStuck) {
+        toolbar.setAttribute('data-stuck', stuck);
+        writtenStuck = stuck;
+      }
+      const target = hasDetail ? detailRef.current : null;
+      if (target === null) return;
       const vars = lensGeometryVars(
         toolbarRect.height,
         scroller?.clientHeight ?? window.innerHeight,
         row.getBoundingClientRect().top - scrollerTop
       );
-      for (const [name, value] of Object.entries(vars)) root.style.setProperty(name, value);
-      toolbar.setAttribute(
-        'data-stuck',
-        String(
-          isToolbarStuck({
-            toolbarTop: toolbarRect.top,
-            scrollerTop,
-            scrollTop: scroller?.scrollTop ?? window.scrollY,
-          })
-        )
-      );
+      for (const [name, value] of varsToWrite(written, vars)) {
+        target.style.setProperty(name, value);
+        written[name] = value;
+      }
     };
     publish();
     // The root is observed too: when the header above the toolbar changes height
@@ -212,7 +230,7 @@ export function ConstructionShell({
       observer.disconnect();
       scrollTarget.removeEventListener('scroll', publish);
     };
-  }, []);
+  }, [hasDetail]);
 
   return (
     <Box
@@ -401,7 +419,11 @@ export function ConstructionShell({
           {content}
         </Box>
         {detail !== undefined ? (
-          <Box data-testid={UI_IDENTIFIERS.Construction.LENS_DETAIL} sx={{ flexShrink: 0 }}>
+          <Box
+            data-testid={UI_IDENTIFIERS.Construction.LENS_DETAIL}
+            ref={detailRef}
+            sx={{ flexShrink: 0 }}
+          >
             {detail}
           </Box>
         ) : null}

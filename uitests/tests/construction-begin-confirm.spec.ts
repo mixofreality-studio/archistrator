@@ -1,7 +1,7 @@
 /**
- * construction-begin-confirm.spec — Begin/Resume is decided once, from the
- * session endpoint, and Begin asks before it dispatches (fix round A, designer
- * P0-3 + review I3).
+ * construction-begin-confirm.spec — Begin/Resume is decided once, and Begin asks
+ * before it dispatches (fix round A, designer P0-3 + review I3; hardened by the
+ * fix-A review, I1/I2).
  *
  * WHAT WENT WRONG BEFORE
  * ----------------------
@@ -9,17 +9,21 @@
  * (reconstructed) attempts no pump ever ran, so the console read "Resume
  * construction" on a project whose pump had never started — and because the rows
  * arrive a beat after the page, it read "Begin" first and flipped to "Resume"
- * about 1.1s after load. The session endpoint is the single source now: no
- * activity of the seeded project has a construction session, so the one label is
- * "Begin construction", and it is never shown until every probe has answered.
+ * about 1.1s after load. The seeded project has never been run, so the one label
+ * is "Begin construction", and it is never shown before the answer is in.
  *
- * SAFETY: this spec opens the confirm dialog and CANCELS it. It never presses the
- * dispatch button, and it fails if any execute-next-activity request is sent.
+ * Then the fix-A review found a double-click on the dispatch button sent TWO
+ * execute-next-activity POSTs, each with a fresh tickID — two pump workflows.
+ *
+ * SAFETY: every execute-next-activity request is TRAPPED and ABORTED by
+ * page.route, installed before the page is opened, so no case here can dispatch
+ * to the live server — including a mutant that makes Cancel, Escape or the
+ * backdrop confirm. The trapped calls are what each case asserts on.
  *
  * Gated like construction-tracker.spec.ts: needs the seeded "archistrator"
  * construction-phase project behind the SPA proxy.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { TESTID } from './support/testids.js';
 import { skipUnlessServer, skipUnlessConstructionArtifacts, gotoApp } from './support/gating.js';
 
@@ -31,6 +35,23 @@ test.beforeEach(async ({ request }) => {
   await skipUnlessServer(request, BASE);
   await skipUnlessConstructionArtifacts(request, BASE);
 });
+
+interface Trapped {
+  url: string;
+  tickID: string | undefined;
+}
+
+/** Abort every dispatch before it leaves the browser, and record it. MUST run
+ *  before the page is opened, so not even the first request can slip past. */
+async function trapDispatches(page: Page): Promise<Trapped[]> {
+  const trapped: Trapped[] = [];
+  await page.route('**/execute-next-activity/**', async (route) => {
+    const body = route.request().postDataJSON() as { tickID?: string } | null;
+    trapped.push({ url: route.request().url(), tickID: body?.tickID });
+    await route.abort();
+  });
+  return trapped;
+}
 
 /** The activities the server reports with no stored record — read from the same
  *  get-project wire the console reads, so the expectation is never hardcoded. */
@@ -50,15 +71,28 @@ async function unrecordedActivityIds(
     .sort();
 }
 
-test('Begin/Resume commits to one label from the session endpoint, and Begin names what it would dispatch before dispatching nothing', async ({
+async function openConsole(page: Page): Promise<void> {
+  await gotoApp(page, '/project/archistrator/construction?lens=list');
+  const begin = page.getByTestId(TESTID.constructionBegin);
+  await expect(begin).toBeVisible({ timeout: 15_000 });
+  await expect(begin).toHaveText(/Begin construction/);
+  await expect(begin).toBeEnabled();
+}
+
+async function openDialog(page: Page): Promise<string> {
+  await page.getByTestId(TESTID.constructionBegin).click();
+  const dialog = page.getByTestId(TESTID.constructionBeginConfirm);
+  await expect(dialog).toBeVisible();
+  const tick = await dialog.getAttribute('data-tick-id');
+  expect(tick, 'each opening carries its tickID').toBeTruthy();
+  return tick ?? '';
+}
+
+test('Begin/Resume commits to one label, and Begin names what it would dispatch before dispatching nothing', async ({
   page,
   request,
 }) => {
-  const dispatches: string[] = [];
-  page.on('request', (r) => {
-    if (r.url().includes('/construction/execute-next-activity/')) dispatches.push(r.url());
-  });
-
+  const trapped = await trapDispatches(page);
   await gotoApp(page, '/project/archistrator/construction?lens=list');
   const begin = page.getByTestId(TESTID.constructionBegin);
   await expect(begin).toBeVisible({ timeout: 15_000 });
@@ -85,16 +119,12 @@ test('Begin/Resume commits to one label from the session endpoint, and Begin nam
     expect(s.label).not.toMatch(COMMITTED_LABEL);
   }
 
-  // No construction session exists for any activity of the seeded project (every
-  // per-activity probe answers 404), so the session's answer is Begin — even though
-  // 23 activities carry reconstructed attempts.
+  // The seeded project has never been run, so Begin — even though 23 activities
+  // carry reconstructed attempts.
   await expect(begin).toHaveText(/Begin construction/);
   await expect(begin).toBeEnabled();
 
-  await begin.click();
-  const dialog = page.getByTestId(TESTID.constructionBeginConfirm);
-  await expect(dialog).toBeVisible();
-
+  await openDialog(page);
   const expected = await unrecordedActivityIds(request);
   expect(expected.length).toBeGreaterThan(0);
   for (const id of expected) {
@@ -108,6 +138,42 @@ test('Begin/Resume commits to one label from the session endpoint, and Begin nam
   expect(named).toEqual(expected);
 
   await page.getByTestId(TESTID.constructionBeginConfirmCancel).click();
+  await expect(page.getByTestId(TESTID.constructionBeginConfirm)).toBeHidden();
+  await page.waitForTimeout(300);
+  expect(trapped).toEqual([]);
+});
+
+test('Escape and a backdrop click close the confirm without dispatching', async ({ page }) => {
+  const trapped = await trapDispatches(page);
+  await openConsole(page);
+  const dialog = page.getByTestId(TESTID.constructionBeginConfirm);
+
+  const first = await openDialog(page);
+  await page.keyboard.press('Escape');
   await expect(dialog).toBeHidden();
-  expect(dispatches).toEqual([]);
+
+  const second = await openDialog(page);
+  // Each opening mints its own tickID: a key reused across openings would let a
+  // later confirm be mistaken for a retry of an earlier one.
+  expect(second).not.toBe(first);
+  // The dialog's container, outside the paper, is its backdrop.
+  await page.mouse.click(8, 8);
+  await expect(dialog).toBeHidden();
+
+  await page.waitForTimeout(300);
+  expect(trapped).toEqual([]);
+});
+
+test('a double-click on dispatch sends exactly ONE request, carrying the opening’s tickID', async ({
+  page,
+}) => {
+  const trapped = await trapDispatches(page);
+  await openConsole(page);
+
+  const tick = await openDialog(page);
+  await page.getByTestId(TESTID.constructionBeginConfirmDispatch).dblclick();
+  await page.waitForTimeout(800);
+
+  expect(trapped, `trapped: ${JSON.stringify(trapped)}`).toHaveLength(1);
+  expect(trapped[0]?.tickID).toBe(tick);
 });

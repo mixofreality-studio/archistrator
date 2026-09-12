@@ -136,6 +136,24 @@ for (const width of [1280, 1366, 1600]) {
     await expect(page.getByTestId(TESTID.constructionDetailActionRun)).toBeVisible();
     await page.waitForTimeout(250);
 
+    // Fix-A review I3: the RESIZE OBSERVER keeps the published toolbar height
+    // current. "Unknown only" re-wrapped the toolbar just now and nothing has
+    // scrolled since — measure() below fires a synthetic scroll, which would mask a
+    // dead observer — so the value is read here, before any scroll.
+    const published = await page.evaluate(
+      ({ toolbarId, detailId }) => {
+        const toolbar = document.querySelector(`[data-testid="${toolbarId}"]`);
+        const detail = document.querySelector(`[data-testid="${detailId}"]`);
+        if (toolbar === null || detail === null) throw new Error('no toolbar or detail slot');
+        return {
+          value: getComputedStyle(detail).getPropertyValue('--lens-toolbar-h').trim(),
+          height: Math.ceil(toolbar.getBoundingClientRect().height),
+        };
+      },
+      { toolbarId: TESTID.constructionLensToolbar, detailId: TESTID.constructionLensDetail }
+    );
+    expect(published.value, 'published toolbar height at rest').toBe(`${String(published.height)}px`);
+
     expectPaneClearsToolbarAndActionBarOnScreen(await measure(page, 0), 'at rest');
     const bottom = await measure(page, 'bottom');
     await page.waitForTimeout(150);
@@ -166,4 +184,43 @@ test('at 1280px no row shows above the stuck toolbar, which carries its stuck st
   expect(scrolled.toolbarTop - scrolled.scrollerTop).toBeLessThanOrEqual(1);
   expect(scrolled.rowsAboveToolbar).toEqual([]);
   expectPaneClearsToolbarAndActionBarOnScreen(scrolled, 'scrolled 400px');
+
+  // Fix-A review I4: the geometry is written on the DETAIL SLOT's wrapper, never on
+  // the shell root the whole list inherits from (a write there restyled ~4k
+  // elements per scroll step) — and once the pane is pinned, scrolling further
+  // changes no value, so it writes nothing at all.
+  const writes = await page.evaluate(
+    async ({ toolbarId, detailId }) => {
+      const toolbar = document.querySelector(`[data-testid="${toolbarId}"]`);
+      const detail = document.querySelector<HTMLElement>(`[data-testid="${detailId}"]`);
+      if (toolbar === null || detail === null) throw new Error('no toolbar or detail slot');
+      const root = toolbar.parentElement;
+      let scroller: HTMLElement | null = toolbar.parentElement;
+      while (scroller !== null && !/(auto|scroll)/.test(getComputedStyle(scroller).overflowY)) {
+        scroller = scroller.parentElement;
+      }
+      if (root === null || scroller === null) throw new Error('no shell root or scroller');
+      let mutations = 0;
+      const observer = new MutationObserver((records) => {
+        mutations += records.length;
+      });
+      observer.observe(detail, { attributes: true, attributeFilter: ['style'] });
+      for (let i = 1; i <= 10; i++) {
+        scroller.scrollTop = 400 + i * 15;
+        scroller.dispatchEvent(new Event('scroll'));
+        await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      observer.disconnect();
+      return {
+        rootInline: root.style.getPropertyValue('--lens-toolbar-h'),
+        detailInline: detail.style.getPropertyValue('--lens-toolbar-h'),
+        mutations,
+      };
+    },
+    { toolbarId: TESTID.constructionLensToolbar, detailId: TESTID.constructionLensDetail }
+  );
+  expect(writes.rootInline, 'nothing is written on the shell root').toBe('');
+  expect(writes.detailInline, 'the detail slot carries the geometry').not.toBe('');
+  expect(writes.mutations, 'style writes while scrolling a pinned pane').toBe(0);
 });

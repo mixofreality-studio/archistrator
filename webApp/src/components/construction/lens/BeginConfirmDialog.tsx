@@ -5,8 +5,15 @@
  * rows (see beginControl.notStartedActivities), never a hardcoded list.
  *
  * Cancelling is always safe: nothing is sent until the dispatch button is pressed.
+ *
+ * One press per opening (fix-A review I1): a double-click used to send two
+ * execute-next-activity POSTs, each with its own tickID, and start two pump
+ * workflows. The opening's tickID (the server's idempotency key) is minted by the
+ * caller when it opens the dialog and handed back on confirm; the dispatch button
+ * disables itself on the first press. The caller also refuses a second confirm
+ * while one is in flight, so no single layer is load-bearing alone.
  */
-import type { ReactElement } from 'react';
+import { useState, type ReactElement } from 'react';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Dialog from '@mui/material/Dialog';
@@ -20,17 +27,18 @@ import { UI_IDENTIFIERS } from '../../../utilities/constants/UIIdentifiers';
 import type { BeginControl, DispatchCandidate } from './beginControl';
 
 export interface BeginConfirmDialogProps {
-  open: boolean;
+  /** The tickID minted for THIS opening; `null` while the dialog is closed. */
+  tickId: string | null;
   verb: BeginControl['verb'];
   candidates: readonly DispatchCandidate[];
   /** The session answer was `unknown`: a probe failed, so a pump may already run. */
   sessionUnknown: boolean;
   onCancel: () => void;
-  onConfirm: () => void;
+  onConfirm: (tickId: string) => void;
 }
 
 export function BeginConfirmDialog({
-  open,
+  tickId,
   verb,
   candidates,
   sessionUnknown,
@@ -38,13 +46,18 @@ export function BeginConfirmDialog({
   onConfirm,
 }: BeginConfirmDialogProps): ReactElement {
   const t = useTokens();
+  // Which opening's dispatch was already pressed. Keyed by the tickID, so a new
+  // opening starts un-pressed with no effect to reset it.
+  const [pressedFor, setPressedFor] = useState<string | null>(null);
+  const pressed = tickId !== null && pressedFor === tickId;
   return (
-    <Dialog fullWidth maxWidth="sm" open={open} onClose={onCancel}>
+    <Dialog fullWidth maxWidth="sm" open={tickId !== null} onClose={onCancel}>
       <DialogTitle sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 15 }}>
         {verb} construction?
       </DialogTitle>
       <DialogContent
         data-testid={UI_IDENTIFIERS.Construction.BEGIN_CONFIRM_DIALOG}
+        data-tick-id={tickId ?? undefined}
         sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}
       >
         {candidates.length > 0 ? (
@@ -101,6 +114,7 @@ export function BeginConfirmDialog({
         </Button>
         <Button
           data-testid={UI_IDENTIFIERS.Construction.BEGIN_CONFIRM_DISPATCH}
+          disabled={pressed}
           sx={{
             fontFamily: t.mono,
             fontWeight: 700,
@@ -110,7 +124,11 @@ export function BeginConfirmDialog({
             '&:hover': { bgcolor: t.accent2 },
           }}
           variant="contained"
-          onClick={onConfirm}
+          onClick={() => {
+            if (tickId === null || pressed) return;
+            setPressedFor(tickId);
+            onConfirm(tickId);
+          }}
         >
           {verb} — dispatch
         </Button>

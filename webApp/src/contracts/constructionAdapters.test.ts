@@ -169,6 +169,20 @@ void test('mapConstructionRow carries recorded and never invents an origin for a
   assert.equal(stored.worstOrigin, 'backfilled');
 });
 
+// `recorded` and `hasBuildEvidence` are DIFFERENT facts (fix-A review M1): a stored
+// row with no resolved completions is recorded yet carries no build evidence. A
+// mapper that read one off the other would pass every case above.
+void test('mapConstructionRow keeps recorded apart from hasBuildEvidence', () => {
+  const storedNoEvidence = mapConstructionRow(wireRow({ recorded: true, hasBuildEvidence: false }));
+  assert.equal(storedNoEvidence.recorded, true);
+  assert.equal(storedNoEvidence.hasBuildEvidence, false);
+  const plannedWire = wireRow({ recorded: false, hasBuildEvidence: true });
+  delete plannedWire.worstOrigin;
+  const planned = mapConstructionRow(plannedWire);
+  assert.equal(planned.recorded, false);
+  assert.equal(planned.hasBuildEvidence, true);
+});
+
 void test('mapConstructionRow reads the Phases array the server already emits', () => {
   const row = mapConstructionRow(
     wireRow({

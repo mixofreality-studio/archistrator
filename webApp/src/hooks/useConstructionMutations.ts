@@ -16,13 +16,20 @@ import type { components } from '../contracts/schema';
 import { constructionSessionKey, constructionSessionsKey } from './useConstructionSession';
 import { projectKey } from './useProject';
 
-export function useBeginConstruction(projectId: string): UseMutationResult<undefined, Error, void> {
+/**
+ * Dispatch the next activity. The caller supplies the tickID — the server's
+ * idempotency key — minted ONCE per confirm-dialog opening (fix-A review I1): a
+ * fresh UUID per request let a double-click start two pump workflows.
+ */
+export function useBeginConstruction(
+  projectId: string
+): UseMutationResult<undefined, Error, string> {
   const client = useQueryClient();
-  return useMutation<undefined>({
-    mutationFn: async () => {
+  return useMutation<undefined, Error, string>({
+    mutationFn: async (tickID) => {
       const { error, response } = await apiClient.POST(
         '/api/v1/construction/execute-next-activity/{projectID}',
-        { params: { path: { projectID: projectId } }, body: { tickID: crypto.randomUUID() } }
+        { params: { path: { projectID: projectId } }, body: { tickID } }
       );
       if (error !== undefined) throw toApiError(response.status, error);
       return undefined;

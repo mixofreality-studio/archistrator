@@ -5,6 +5,7 @@ import {
   lensGeometryVars,
   PANE_MAX_HEIGHT,
   PANE_STICKY_TOP,
+  varsToWrite,
 } from './lensGeometry.ts';
 
 void test('the published toolbar height and row offset round up; the scroller height rounds down', () => {
@@ -13,8 +14,26 @@ void test('the published toolbar height and row offset round up; the scroller he
     '--lens-scroll-h': '811px',
     '--lens-row-top': '191px',
   });
-  // Scrolled past: the row offset goes negative, and the cap's max() clamps it.
-  assert.equal(lensGeometryVars(51, 700, -412.6)['--lens-row-top'], '-412px');
+});
+
+void test('the row offset never goes below the pinned offset, so scrolling past stops changing it', () => {
+  // Scrolled past: the raw offset goes negative; published, it holds at toolbar + 8.
+  assert.equal(lensGeometryVars(51, 700, -412.6)['--lens-row-top'], '59px');
+  assert.equal(lensGeometryVars(51, 700, -9000)['--lens-row-top'], '59px');
+  // At rest, below the pinned offset's reach, the real offset is published.
+  assert.equal(lensGeometryVars(51, 700, 190.1)['--lens-row-top'], '191px');
+});
+
+void test('only a value that changed is written', () => {
+  const first = lensGeometryVars(51, 700, 190);
+  assert.deepEqual(varsToWrite({}, first).length, 3);
+  assert.deepEqual(varsToWrite(first, lensGeometryVars(51, 700, 190)), []);
+  // Two scroll steps past the pinned offset: nothing to write.
+  const pinned = lensGeometryVars(51, 700, -100);
+  assert.deepEqual(varsToWrite(pinned, lensGeometryVars(51, 700, -300)), []);
+  assert.deepEqual(varsToWrite(first, lensGeometryVars(86, 700, 190)), [
+    ['--lens-toolbar-h', '86px'],
+  ]);
 });
 
 void test('the pane pins below the MEASURED toolbar, never at a constant offset', () => {

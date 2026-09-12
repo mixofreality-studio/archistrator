@@ -247,16 +247,26 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
     );
   };
 
-  const onBegin = (): void => {
+  // Begin is a real dispatch, so the button only opens a confirm step that names
+  // what would be started (BeginConfirmDialog). Each opening mints ONE tickID — the
+  // server's idempotency key — so a repeated confirm can never start a second pump
+  // under a fresh key (fix-A review I1). `null` is "closed".
+  const [beginTick, setBeginTick] = useState<string | null>(null);
+  // A ref, not only begin.isPending: a double-click delivers its second click
+  // before a re-render could report the first as pending.
+  const beginInFlightRef = useRef(false);
+  const onBegin = (tickId: string): void => {
+    if (beginInFlightRef.current) return;
+    beginInFlightRef.current = true;
     lastProgressAtRef.current = Date.now();
     setCascading(true);
-    begin.mutate();
+    begin.mutate(tickId, {
+      onSettled: () => {
+        beginInFlightRef.current = false;
+      },
+    });
   };
   const beginActive = cascading || begin.isPending;
-
-  // Begin is a real dispatch, so the button only opens a confirm step that names
-  // what would be started (BeginConfirmDialog); onBegin runs from its confirm.
-  const [beginConfirmOpen, setBeginConfirmOpen] = useState(false);
 
   // --- Lens state (Stage B) -------------------------------------------------
   // Selection is NOT component state: it lives in the URL's search params
@@ -500,22 +510,22 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
                     }}
                     variant="contained"
                     onClick={() => {
-                      setBeginConfirmOpen(true);
+                      setBeginTick(crypto.randomUUID());
                     }}
                   >
                     {beginControl.label}
                   </Button>
                   <BeginConfirmDialog
                     candidates={dispatchCandidates}
-                    open={beginConfirmOpen}
                     sessionUnknown={started === 'unknown'}
+                    tickId={beginTick}
                     verb={beginControl.verb}
                     onCancel={() => {
-                      setBeginConfirmOpen(false);
+                      setBeginTick(null);
                     }}
-                    onConfirm={() => {
-                      setBeginConfirmOpen(false);
-                      onBegin();
+                    onConfirm={(tickId) => {
+                      setBeginTick(null);
+                      onBegin(tickId);
                     }}
                   />
                 </>

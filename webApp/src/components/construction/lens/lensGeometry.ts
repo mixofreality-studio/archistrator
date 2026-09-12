@@ -22,9 +22,13 @@
  * with no JS in the layout path; the shell only keeps the three inputs current.
  *
  * ConstructionShell measures them (ResizeObserver + scroll) and writes them as CSS
- * custom properties on its own root; the pane (detailPaneState.WIDE_PANE_SX) reads
- * them through the cascade. No React state is involved, so neither a resize nor a
- * scroll re-renders the tree.
+ * custom properties on the DETAIL SLOT's own wrapper — never on the shell root. The
+ * properties inherit, so a write on the root invalidated the style of every element
+ * under it, the whole ~4k-element tree, on every scroll event (~310ms over 60 wheel
+ * steps against ~5ms; fix-A review I4). On the pane's wrapper only the pane
+ * recalculates. The pane (detailPaneState.WIDE_PANE_SX) reads them through the
+ * cascade. No React state is involved, so neither a resize nor a scroll re-renders
+ * the tree, and a value that did not change is not written at all (varsToWrite).
  *
  * Pure (no DOM, no React) so node:test can pin the arithmetic.
  */
@@ -45,17 +49,31 @@ export const PANE_BOTTOM_GAP_PX = 16;
  * offset round UP (a fractional pixel must never let the pane overlap the toolbar
  * or claim room it does not have) and the scroller height rounds DOWN (a
  * fractional pixel must never let the action bar spill past it).
+ *
+ * The row offset is clamped to the pinned offset (toolbar + gap): once the row
+ * has scrolled past, the pane is pinned and the cap reads the pinned offset
+ * anyway, so an unclamped value only changed on every scroll step for nothing —
+ * and a changed value is a write. Clamped, it settles and stops being written.
  */
 export function lensGeometryVars(
   toolbarHeightPx: number,
   scrollHeightPx: number,
   rowTopPx: number
 ): Record<string, string> {
+  const toolbarPx = Math.ceil(toolbarHeightPx);
   return {
-    [LENS_TOOLBAR_H_VAR]: `${String(Math.ceil(toolbarHeightPx))}px`,
+    [LENS_TOOLBAR_H_VAR]: `${String(toolbarPx)}px`,
     [LENS_SCROLL_H_VAR]: `${String(Math.floor(scrollHeightPx))}px`,
-    [LENS_ROW_TOP_VAR]: `${String(Math.ceil(rowTopPx))}px`,
+    [LENS_ROW_TOP_VAR]: `${String(Math.max(Math.ceil(rowTopPx), toolbarPx + PANE_TOOLBAR_GAP_PX))}px`,
   };
+}
+
+/** The entries of `next` whose value differs from what was last written. */
+export function varsToWrite(
+  last: Readonly<Record<string, string>>,
+  next: Readonly<Record<string, string>>
+): [string, string][] {
+  return Object.entries(next).filter(([name, value]) => last[name] !== value);
 }
 
 // The fallbacks (a zero toolbar and row offset, the full viewport) only ever apply
