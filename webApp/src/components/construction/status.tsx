@@ -10,29 +10,12 @@ import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import type { Tokens } from '../../utilities/theme/themes';
 import { BUILD_STATUS_META, type BuildStatus } from '../../contracts/constructionAdapters';
+import { STATUS_TOKEN } from './statusRamp';
 
-/** One token-driven status colour, used by the tracker node + the status legend. */
+/** One token-driven status colour, used by the tracker node + the status legend.
+ *  Which token is statusRamp.ts's STATUS_TOKEN (designer palette ruling). */
 export function statusColor(t: Tokens, s: BuildStatus): string {
-  switch (s) {
-    case 'integrated':
-      return t.committedDot;
-    case 'in-review':
-      return t.chatPmFg;
-    case 'in-construction':
-      return t.accent2;
-    case 'in-detailed-design':
-      return t.chatArchitectFg;
-    case 'eligible':
-      return t.chatPmFg; // teal/green: ready to start, distinct from in-construction
-    case 'blocked':
-      return t.accent; // the accent draws the eye to the thing needing intervention
-    case 'not-started':
-      return t.muted;
-    case 'failed':
-      return t.dangerFg; // terminal failure — the danger tone, not the blocked accent
-    case 'unclassified':
-      return t.muted; // same neutral tone as not-started; the label carries the distinction
-  }
+  return t[STATUS_TOKEN[s]];
 }
 
 /** soft fill behind a status chip. */

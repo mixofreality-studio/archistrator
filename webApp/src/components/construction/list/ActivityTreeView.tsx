@@ -880,10 +880,11 @@ function ActivityRow({
         // too fine a difference on its own at this row height, so the critical
         // edge also takes the full line colour while every other row's recedes —
         // one channel expressed twice, which is not the double-encoding the rule
-        // forbids (that is a geometry PLUS a chip). It goes amber only for the
-        // state that is blocked on the reader.
+        // forbids (that is a geometry PLUS a chip). It stays line-coloured: the
+        // float rail already carries criticalFg (designer palette ruling). It takes
+        // the awaiting tone only for the state that is blocked on the reader.
         borderLeft: `${String(criticalBorderPx(node.onCriticalPath))}px solid ${
-          loud ? t.accent : node.onCriticalPath === true ? t.line : alpha(t.line, 0.25)
+          loud ? t.awaitingFg : node.onCriticalPath === true ? t.line : alpha(t.line, 0.25)
         }`,
         borderBottom: `1px solid ${alpha(t.line, 0.22)}`,
         bgcolor: loud ? t.awaitingBg : 'transparent',
@@ -1486,10 +1487,12 @@ function TaskRow({ node, task }: { node: ActivityNode; task: TaskNode }): ReactE
         sx={{
           display: 'flex',
           alignItems: 'stretch',
+          // A search match is the accent's; awaiting a human is the awaiting tone,
+          // never the accent (designer palette ruling).
           borderLeft: isSearchMatch
             ? `3px solid ${t.accent}`
             : loud
-              ? `3px solid ${t.accent}`
+              ? `3px solid ${t.awaitingFg}`
               : '3px solid transparent',
           bgcolor: isSearchMatch
             ? alpha(t.accent, 0.14)

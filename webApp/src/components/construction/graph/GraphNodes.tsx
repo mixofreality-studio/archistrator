@@ -72,6 +72,7 @@ import {
   type LaneSchedule,
 } from './laneSchedule';
 import { bandTokens } from '../../project/bandTokens';
+import { CRITICAL_PATH_TOKEN } from '../../project/bandRamp';
 import {
   SEGMENT_CODE_LETTER_SPACING,
   segmentCodeFits,
@@ -349,11 +350,12 @@ function Lane({
         pl: `${String(railGapPx(zoom))}px`,
         pr: 0.5,
         boxSizing: 'border-box',
-        // The critical path is the LANE's left edge, full-bleed: 3px in full ink
-        // on the path, a receding 2px off it (laneSchedule, the list's
+        // The critical path is the LANE's left edge, full-bleed: 3px in the ONE
+        // critical colour on the path (CRITICAL_PATH_TOKEN, designer palette
+        // ruling), a receding 2px off it (laneSchedule, the list's
         // criticalBorderPx). Never on the card, never on an edge.
         borderLeft: `${String(schedule?.borderPx ?? 2)}px solid ${
-          critical ? t.ink : alpha(t.line, 0.3)
+          critical ? t[CRITICAL_PATH_TOKEN] : alpha(t.line, 0.3)
         }`,
         cursor: 'pointer',
         opacity: dim ? MUTED_OPACITY : 1,
@@ -562,8 +564,8 @@ function Segment({
           border:
             paint.borderStyle === 'none' ? 'none' : `1px ${paint.borderStyle} ${paint.border}`,
           borderLeft:
-            paint.accentEdge !== undefined
-              ? `3px solid ${paint.accentEdge}`
+            paint.awaitingEdge !== undefined
+              ? `3px solid ${paint.awaitingEdge}`
               : paint.borderStyle === 'none'
                 ? 'none'
                 : `1px ${paint.borderStyle} ${paint.border}`,

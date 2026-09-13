@@ -111,8 +111,8 @@ function FloatChipInline({
         fontFamily: t.mono,
         fontSize: 9,
         fontWeight: 700,
-        color: crit ? t.accentText : band.fg,
-        bgcolor: crit ? t.accent : 'transparent',
+        color: crit ? t.criticalText : band.fg,
+        bgcolor: crit ? t.criticalFg : 'transparent',
         border: `1px solid ${band.fg}`,
         borderRadius: 99,
         px: 0.55,
@@ -129,11 +129,13 @@ function FloatChipInline({
 function MilestoneNode({ d, selected }: { d: NetworkNodeData; selected: boolean }): ReactNode {
   const t = useTokens();
   const crit = d.onCriticalPath;
-  const edge = crit ? t.accent : t.muted;
+  // On the critical path: the ONE critical colour (designer palette ruling).
+  // Selection alone keeps the accent.
+  const edge = crit ? t.criticalFg : t.muted;
   // public = filled (a demo-to-management gate); private = hollow (internal hurdle).
   const isPublic = d.isPublic === true;
   const fillColor = isPublic ? edge : 'transparent';
-  const ring = selected ? `0 0 0 3px ${t.accent}` : crit ? `0 0 0 1px ${t.accent}` : 'none';
+  const ring = selected ? `0 0 0 3px ${t.accent}` : crit ? `0 0 0 1px ${t.criticalFg}` : 'none';
   return (
     <Box
       aria-label={`Milestone ${d.label}, ${isPublic ? 'public' : 'private'}${crit ? ', on critical path' : ''}`}
@@ -155,7 +157,7 @@ function MilestoneNode({ d, selected }: { d: NetworkNodeData; selected: boolean 
           fontFamily: t.mono,
           fontWeight: 700,
           fontSize: 9.5,
-          color: crit ? t.accent : t.ink,
+          color: t.ink,
           textAlign: 'center',
           lineHeight: 1.15,
         }}
@@ -192,14 +194,16 @@ export function NetworkNode({ data, selected }: NodeProps): ReactNode {
   // CRITICAL dominates with a full bold border + ring; other bands carry the band
   // colour on the LEFT BORDER only. Under the build lens, the ring/border adopt the
   // status colour (active = strong ring) so build state reads on top of the band.
-  const borderColor = isSelected ? t.accent : (statusFg ?? (crit ? t.accent : t.line));
+  // Critical is the ONE critical colour (designer palette ruling); only selection
+  // takes the accent.
+  const borderColor = isSelected ? t.accent : (statusFg ?? (crit ? t.criticalFg : t.line));
   const borderWidth = crit || statusFg !== undefined ? 2.5 : 1.5;
   const ring = isSelected
     ? `0 0 0 3px ${t.accent}`
     : d.nodeActive === true && statusFg !== undefined
       ? `0 0 0 3px ${statusFg}`
       : crit
-        ? `0 0 0 1px ${t.accent}`
+        ? `0 0 0 1px ${t.criticalFg}`
         : 'none';
   const fill = crit ? t.paperAlt : band.soft;
 
@@ -232,8 +236,8 @@ export function NetworkNode({ data, selected }: NodeProps): ReactNode {
             gap: 0.5,
             px: 1,
             py: 0.4,
-            bgcolor: crit ? t.accent : t.paper,
-            borderBottom: `1px solid ${crit ? t.accent : t.line}`,
+            bgcolor: crit ? t.criticalFg : t.paper,
+            borderBottom: `1px solid ${crit ? t.criticalFg : t.line}`,
           }}
         >
           <Typography
@@ -241,7 +245,7 @@ export function NetworkNode({ data, selected }: NodeProps): ReactNode {
               fontFamily: t.mono,
               fontWeight: 700,
               fontSize: 11,
-              color: crit ? t.accentText : t.ink,
+              color: crit ? t.criticalText : t.ink,
             }}
           >
             {d.activityId}

@@ -126,7 +126,8 @@ export function taskDetailStateFill(
     case 'running':
       return { fg: t.chatArchitectFg, bg: t.chatArchitectBg, border: t.chatArchitectFg };
     case 'awaitingHuman':
-      return { fg: t.awaitingFg, bg: t.awaitingBg, border: t.accent };
+      // The awaiting tone, never the accent (designer palette ruling).
+      return { fg: t.awaitingFg, bg: t.awaitingBg, border: t.awaitingFg };
     case 'passed':
       return { fg: t.committedFg, bg: t.committedBg, border: t.committedDot };
     case 'failed':

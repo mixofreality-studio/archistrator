@@ -5,9 +5,10 @@
  * the node-colouring and edge-colouring can never drift apart. All colours come
  * from theme tokens — never hardcoded.
  *
- * Which token carries each band is bandRamp.ts's BAND_TOKEN: monotonic, the lower
- * the float the stronger the alarm (designer re-check #12). Critical (float 0) is
- * the danger colour; it used to be the accent, weaker than the ≤5d band's red.
+ * Which token carries each band is bandRamp.ts's BAND_TOKEN (designer palette
+ * ruling): the lower the float, the heavier the mark. Critical (float 0) is
+ * criticalFg, the ONE "critical" colour every critical-path mark reads too
+ * (CRITICAL_PATH_TOKEN) — never the accent, and never dangerFg (failed/error only).
  */
 import { alpha } from '@mui/material/styles';
 import type { Tokens } from '../../utilities/theme/themes';

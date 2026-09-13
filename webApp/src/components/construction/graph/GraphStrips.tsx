@@ -35,6 +35,7 @@ import {
   type ProvenanceOrigin,
 } from '../provenanceAxis';
 import { bandTokens } from '../../project/bandTokens';
+import { CRITICAL_PATH_TOKEN } from '../../project/bandRamp';
 import type { ActivityGraphModel } from './activityGraphModel';
 import type { RibbonMilestone } from './gateRibbon';
 import { SCHEDULE_CAPTION } from './laneSchedule';
@@ -535,7 +536,8 @@ function GraphKeyLegend({
                   bgcolor: p.fill,
                   opacity: p.opacity,
                   border: p.borderStyle === 'none' ? 'none' : `1px ${p.borderStyle} ${p.border}`,
-                  borderLeft: p.accentEdge !== undefined ? `3px solid ${p.accentEdge}` : undefined,
+                  borderLeft:
+                    p.awaitingEdge !== undefined ? `3px solid ${p.awaitingEdge}` : undefined,
                   ...(s === 'absent'
                     ? {
                         backgroundImage: `linear-gradient(${t.line}, ${t.line})`,
@@ -616,7 +618,7 @@ function GraphKeyLegend({
               boxSizing: 'border-box',
               bgcolor: t.paper,
               border: `1px solid ${alpha(t.line, 0.6)}`,
-              borderLeft: `3px solid ${t.ink}`,
+              borderLeft: `3px solid ${t[CRITICAL_PATH_TOKEN]}`,
             }}
           />
         }

@@ -47,8 +47,9 @@ export interface SegmentPaint {
   opacity: number;
   /** The one animated mark on the surface (running), off under reduced motion. */
   animated: boolean;
-  /** A 3px left edge — awaitingHuman's "loudest thing on the screen". */
-  accentEdge?: string;
+  /** A 3px left edge — awaitingHuman's "loudest thing on the screen", in the
+   *  awaiting tone, never the accent (designer palette ruling). */
+  awaitingEdge?: string;
 }
 
 /**
@@ -77,7 +78,7 @@ export function segmentPaint(t: Tokens, state: SegmentState): SegmentPaint {
         borderStyle: 'solid',
         opacity: 1,
         animated: false,
-        accentEdge: t.accent,
+        awaitingEdge: t.awaitingFg,
       };
     }
     case 'failed': {

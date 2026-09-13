@@ -237,3 +237,35 @@ for (const [w, h] of SIZES) {
     expect(await cardTransforms(page)).toEqual(before);
   });
 }
+
+// Fix I (designer palette ruling): ONE token means "critical". The graph lens has
+// no private colour for it: its critical lane edge, the float-0 band's rail and the
+// key's critical swatch all read CRITICAL_PATH_TOKEN / BAND_TOKEN.critical, so all
+// three paint the same colour — and it is not the ink the edge used to be drawn in.
+test('1366: the critical lane edge, a float-0 rail and the key swatch are ONE colour, and not ink', async ({
+  page,
+  request,
+}) => {
+  const t = await truth(request);
+  const id = t.activityIds.find(
+    (a) => t.computed[a]?.onCriticalPath === true && t.computed[a]?.band === 'critical'
+  );
+  expect(id, 'the network has a float-0 activity on the critical path').toBeDefined();
+  await openGraph(page, 1366, 768);
+  const lane = page.getByTestId(TESTID.constructionGraphLane(id ?? ''));
+  await expect(lane).toHaveAttribute('data-critical', 'true');
+  const edge = await lane.evaluate((el) => getComputedStyle(el).borderLeftColor);
+  const ink = await lane.evaluate((el) => getComputedStyle(el).color);
+  const rail = page.getByTestId(TESTID.constructionGraphLaneFloat(id ?? ''));
+  await expect(rail).toHaveAttribute('data-band', 'critical');
+  const railColour = await rail.evaluate(
+    (el) => getComputedStyle(el.firstElementChild ?? el).backgroundColor
+  );
+  await page.getByTestId(TESTID.constructionGraphKeyButton).click();
+  const swatch = await page
+    .getByTestId(TESTID.constructionGraphKeySwatch('critical'))
+    .evaluate((el) => getComputedStyle(el).borderLeftColor);
+  expect(railColour, 'the float-0 rail is the critical lane edge').toBe(edge);
+  expect(swatch, "the key's critical swatch is the critical lane edge").toBe(edge);
+  expect(edge, 'the critical colour is not the ink').not.toBe(ink);
+});

@@ -1,12 +1,12 @@
 /// <reference types="node" />
 /**
- * The float bands' colours are monotonic in every theme: the lower the float, the
- * stronger the alarm (designer re-check #12). Critical used to be the accent, a
- * rust in Retro, weaker than the ≤5d band's danger red.
+ * The float ramp and the one "critical" colour, measured in every theme (designer
+ * palette ruling, fix I). Weight is contrast against the ground; hue is LCh; distance
+ * is CIEDE2000 (utilities/theme/colorScience.ts, pinned here to Sharma 2005).
  *
  * themes.ts cannot be imported under node:test (it imports a sibling without an
  * extension), so its literal hex values are read from the source: each theme's
- * `key: '<theme>'` block, token by token. The colours checked are the ones
+ * `key: '<theme>'` block, token by token. The band colours checked are the ones
  * bandTokens() renders from those values, so the ramp and its wiring are pinned
  * together.
  */
@@ -14,8 +14,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import type { Tokens } from '../../utilities/theme/themes';
-import { BAND_TOKEN, FLOAT_BANDS_BY_FLOAT } from './bandRamp.ts';
+import { contrast, deltaE2000, lab, lch, type Lab } from '../../utilities/theme/colorScience.ts';
+import { BAND_TOKEN, CRITICAL_PATH_TOKEN, FLOAT_BANDS_BY_FLOAT } from './bandRamp.ts';
 import { bandTokens } from './bandTokens.ts';
+import { SELECTION_TOKEN, STATUS_TOKEN } from '../construction/statusRamp.ts';
 import type { FloatBand } from '../../contracts/types';
 
 /** The colour bandTokens() renders for `band`, from one theme's literal tokens. */
@@ -43,75 +45,168 @@ function themeTokens(key: string): Record<string, string> {
   return out;
 }
 
-function channels(hex: string): [number, number, number] {
-  const n = Number.parseInt(hex.slice(1), 16);
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+/** A token's literal hex in one theme; fails the test when the theme has none. */
+function hexOf(t: Record<string, string>, key: string, token: string): string {
+  const hex = t[token];
+  assert.ok(hex !== undefined, `${key}: ${token} is a literal #RRGGBB in themes.ts`);
+  return hex;
 }
 
-/** Hue in degrees, signed around red: (-180, 180]. A pink just short of red is
- *  slightly negative, so it still reads as redder than an orange. */
-function hue(hex: string): number {
-  const [r, g, b] = channels(hex).map((c) => c / 255) as [number, number, number];
-  const max = Math.max(r, g, b);
-  const d = max - Math.min(r, g, b);
-  if (d === 0) return 0;
-  const h =
-    max === r
-      ? 60 * (((g - b) / d) % 6)
-      : max === g
-        ? 60 * ((b - r) / d + 2)
-        : 60 * ((r - g) / d + 4);
-  return h > 180 ? h - 360 : h;
+/** The hued status colours a band must stay clear of: every STATUS_TOKEN value but
+ *  muted, plus the selection accent. */
+const STATUS_HUED: readonly string[] = [
+  ...new Set([...Object.values(STATUS_TOKEN).filter((v) => v !== 'muted'), SELECTION_TOKEN]),
+];
+
+/** Weight: the LOWER contrast against the two grounds the rail sits on. */
+function weight(t: Record<string, string>, key: string, colour: string): number {
+  return Math.min(
+    contrast(colour, hexOf(t, key, 'paper')),
+    contrast(colour, hexOf(t, key, 'paperAlt'))
+  );
 }
 
-function luminance(hex: string): number {
-  const [r, g, b] = channels(hex).map((c) => {
-    const s = c / 255;
-    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
-  }) as [number, number, number];
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-}
+// 1 ---------------------------------------------------------------------------
+void test('CIEDE2000 matches the Sharma, Wu & Dalal (2005) reference pairs within 1e-4', () => {
+  const pairs: readonly [Lab, Lab, number][] = [
+    [[50, 2.6772, -79.7751], [50, 0, -82.7485], 2.0425],
+    [[50, 0, 0], [50, -1, 2], 2.3669],
+    [[50, 2.5, 0], [73, 25, -18], 27.1492],
+    [[60.2574, -34.0099, 36.2677], [60.4626, -34.1751, 39.4387], 1.2644],
+  ];
+  for (const [one, two, want] of pairs) {
+    const got = deltaE2000(one, two);
+    assert.ok(
+      Math.abs(got - want) < 1e-4,
+      `ΔE2000(${one.join(', ')} / ${two.join(', ')}) = ${got.toFixed(6)}, want ${String(want)}`
+    );
+    // Symmetric, as the formula is.
+    assert.ok(Math.abs(deltaE2000(two, one) - want) < 1e-4, 'ΔE2000 is symmetric');
+  }
+  // The conversions it is fed: white is L* 100, black 0; WCAG black-on-white is 21.
+  assert.ok(Math.abs(lab('#FFFFFF')[0] - 100) < 1e-3, 'white is L* 100');
+  assert.ok(Math.abs(lab('#000000')[0]) < 1e-9, 'black is L* 0');
+  assert.ok(Math.abs(contrast('#000000', '#FFFFFF') - 21) < 1e-9, 'black on white is 21:1');
+});
 
-function contrast(a: string, b: string): number {
-  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x) as [number, number];
-  return (hi + 0.05) / (lo + 0.05);
-}
-
-void test('the lower the float, the stronger the alarm: the hue climbs from red to green, in every theme', () => {
+// 2 ---------------------------------------------------------------------------
+void test('hue: the LCh hue rises by at least 12° at each step from critical to green', () => {
   for (const key of THEME_KEYS) {
     const t = themeTokens(key);
-    const hues = FLOAT_BANDS_BY_FLOAT.map((band) => hue(bandColour(t, band)));
+    const hues = FLOAT_BANDS_BY_FLOAT.map((band) => lch(bandColour(t, band))[2]);
     for (let i = 1; i < hues.length; i++) {
-      const [redder, next] = [hues[i - 1] ?? 0, hues[i] ?? 0];
+      const [before, after] = [hues[i - 1] ?? 0, hues[i] ?? 0];
       assert.ok(
-        next - redder >= 8,
-        `${key}: ${String(FLOAT_BANDS_BY_FLOAT[i - 1])} (${redder.toFixed(1)}°) must read redder than ${String(FLOAT_BANDS_BY_FLOAT[i])} (${next.toFixed(1)}°)`
+        after - before >= 12,
+        `${key}: ${String(FLOAT_BANDS_BY_FLOAT[i - 1])} (${before.toFixed(1)}°) → ${String(FLOAT_BANDS_BY_FLOAT[i])} (${after.toFixed(1)}°) rises less than 12°`
       );
     }
   }
 });
 
-void test('critical (float 0) is the danger colour, never the accent', () => {
-  assert.equal(BAND_TOKEN.critical, 'dangerFg');
+// 3 ---------------------------------------------------------------------------
+void test('weight: contrast against the ground falls ≥1.08× a step, green ≥3.2:1, and |ΔL*| from paper strictly falls', () => {
   for (const key of THEME_KEYS) {
     const t = themeTokens(key);
-    assert.notEqual(bandColour(t, 'critical'), t['accent'], `${key}: critical is not the accent`);
+    const colours = FLOAT_BANDS_BY_FLOAT.map((band) => bandColour(t, band));
+    const weights = colours.map((c) => weight(t, key, c));
+    const paperL = lab(hexOf(t, key, 'paper'))[0];
+    const deltaL = colours.map((c) => Math.abs(lab(c)[0] - paperL));
+    for (let i = 1; i < colours.length; i++) {
+      const [heavier, lighter] = [weights[i - 1] ?? 0, weights[i] ?? 0];
+      const from = String(FLOAT_BANDS_BY_FLOAT[i - 1]);
+      const to = String(FLOAT_BANDS_BY_FLOAT[i]);
+      assert.ok(
+        heavier >= 1.08 * lighter,
+        `${key}: ${from} ${String(colours[i - 1])} (${heavier.toFixed(2)}:1) → ${to} ${String(colours[i])} (${lighter.toFixed(2)}:1) falls by only ${(heavier / lighter).toFixed(3)}×`
+      );
+      assert.ok(
+        (deltaL[i - 1] ?? 0) > (deltaL[i] ?? 0),
+        `${key}: |ΔL*| from paper must strictly fall ${from} (${(deltaL[i - 1] ?? 0).toFixed(1)}) → ${to} (${(deltaL[i] ?? 0).toFixed(1)})`
+      );
+    }
+    const green = weights[weights.length - 1] ?? 0;
+    assert.ok(green >= 3.2, `${key}: green is ${green.toFixed(2)}:1, below 3.2:1`);
   }
 });
 
-void test('every band colour clears 3:1 against the surfaces the rail sits on (WCAG 1.4.11)', () => {
+// 4 ---------------------------------------------------------------------------
+void test('separation: every band is ≥15 CIEDE2000 from every hued status colour and the accent', () => {
   for (const key of THEME_KEYS) {
     const t = themeTokens(key);
     for (const band of FLOAT_BANDS_BY_FLOAT) {
+      const bandToken = BAND_TOKEN[band];
       const colour = bandColour(t, band);
-      for (const surface of ['paper', 'paperAlt'] as const) {
-        const ground = t[surface] ?? '';
-        const ratio = contrast(colour, ground);
+      for (const status of STATUS_HUED) {
+        const hex = hexOf(t, key, status);
+        const d = deltaE2000(lab(colour), lab(hex));
         assert.ok(
-          ratio >= 3,
-          `${key}: ${band} ${colour} on ${surface} ${ground} is ${ratio.toFixed(2)}:1`
+          d >= 15,
+          `${key}: ${bandToken} ${colour} vs ${status} ${hex} is ΔE2000 ${d.toFixed(2)}, under 15`
         );
       }
     }
+  }
+});
+
+// 5 ---------------------------------------------------------------------------
+void test('adjacent bands are ≥10 CIEDE2000 apart', () => {
+  for (const key of THEME_KEYS) {
+    const t = themeTokens(key);
+    for (let i = 1; i < FLOAT_BANDS_BY_FLOAT.length; i++) {
+      const a = FLOAT_BANDS_BY_FLOAT[i - 1] ?? 'critical';
+      const b = FLOAT_BANDS_BY_FLOAT[i] ?? 'green';
+      const d = deltaE2000(lab(bandColour(t, a)), lab(bandColour(t, b)));
+      assert.ok(d >= 10, `${key}: ${a} vs ${b} is ΔE2000 ${d.toFixed(2)}, under 10`);
+    }
+  }
+});
+
+// 6 ---------------------------------------------------------------------------
+void test('token wiring: one critical token, failed is danger, blocked is awaiting, no status is a band or the accent', () => {
+  assert.equal(BAND_TOKEN.critical, 'criticalFg');
+  assert.equal(CRITICAL_PATH_TOKEN, BAND_TOKEN.critical);
+  assert.equal(STATUS_TOKEN.failed, 'dangerFg');
+  assert.equal(STATUS_TOKEN.blocked, 'awaitingFg');
+  const bandTokenSet = new Set<string>(Object.values(BAND_TOKEN));
+  for (const [status, token] of Object.entries(STATUS_TOKEN)) {
+    assert.ok(!bandTokenSet.has(token), `${status} → ${token} is a band token`);
+    assert.notEqual(token, 'accent', `${status} → the accent`);
+  }
+});
+
+// 7 ---------------------------------------------------------------------------
+void test('critical text on a critical fill clears 4.5:1 in every theme', () => {
+  for (const key of THEME_KEYS) {
+    const t = themeTokens(key);
+    const fill = hexOf(t, key, 'criticalFg');
+    const text = hexOf(t, key, 'criticalText');
+    const ratio = contrast(text, fill);
+    assert.ok(
+      ratio >= 4.5,
+      `${key}: criticalText ${text} on criticalFg ${fill} is ${ratio.toFixed(2)}:1`
+    );
+  }
+});
+
+// 8 ---------------------------------------------------------------------------
+/** A line's `t.accent` in the selection branch (`isSelected ? … t.accent …` or
+ *  `selected ? …`) is selection, the accent's own meaning; strip it first. */
+function withoutSelectionBranch(line: string): string {
+  return line.replace(/\b(?:isSelected|selected)\s*\?\s*(?:`[^`]*`|t\.accent\b)/g, '');
+}
+
+void test('source pin: no NetworkNode/NetworkView line paints a critical mark with the accent', () => {
+  const ACCENT = /\bt\.accent\b/;
+  const CRITICAL = /\b(?:crit|onCp|onCriticalPath)\b/;
+  for (const file of ['NetworkNode.tsx', 'NetworkView.tsx']) {
+    const src = readFileSync(new URL(`./${file}`, import.meta.url), 'utf8');
+    src.split('\n').forEach((line, i) => {
+      const rest = withoutSelectionBranch(line);
+      assert.ok(
+        !(ACCENT.test(rest) && CRITICAL.test(rest)),
+        `${file}:${String(i + 1)} paints a critical mark with the accent: ${line.trim()}`
+      );
+    });
   }
 });

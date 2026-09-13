@@ -48,19 +48,35 @@ export interface Tokens {
    * 4.5:1 AA floor for small text — #566E2E clears it at 5.31:1, same olive family.
    */
   committedText: string;
-  /** error / danger tone — e.g. a defect ticket / wax seal in the team avatars. */
+  /**
+   * FAILED / ERROR only (designer palette ruling): a failed build, a defect ticket,
+   * an error line. Never "critical" — that is criticalFg — and never a float band.
+   */
   dangerFg: string;
   awaitingBg: string;
+  /** Awaiting a human: the owed gate, a blocked build status, the awaiting borders. */
   awaitingFg: string;
   /**
-   * Float-band RED (≤5d slack): an orange-red, between danger (the critical band,
-   * float 0) and yellow in hue, so the ramp is monotonic: the lower the float, the
-   * stronger the alarm (designer re-check #12; pinned by bandRamp.test.ts).
+   * The ONE "critical" colour (designer palette ruling): the float-0 band AND every
+   * critical-path mark — a node's stripe, border, ring, header and chip, the
+   * critical edges and milestones, the legend and the minimap, the graph lens's
+   * critical lane edge. The accent never means critical, and neither does dangerFg.
+   * The heaviest colour on the float ramp (bandRamp.test.ts measures it).
+   */
+  criticalFg: string;
+  /** Text on a criticalFg fill (a critical node's header, the CP chip): ≥ 4.5:1. */
+  criticalText: string;
+  /**
+   * Float-band RED (≤5d slack). The float ramp runs criticalFg → bandRed →
+   * bandYellow → bandGreen, and each step, measured against paper and paperAlt,
+   * is lighter in weight (contrast falls ≥1.08× a step, green ≥3.2:1), later in
+   * LCh hue (≥12° a step) and ≥10 CIEDE2000 from its neighbour, and every band is
+   * ≥15 CIEDE2000 from every status colour and the accent (bandRamp.test.ts).
    */
   bandRed: string;
-  /** Float-band YELLOW (6–25d slack) — a real amber, distinct from accent/danger. */
+  /** Float-band YELLOW (6–25d slack) — an amber, on the same ramp. */
   bandYellow: string;
-  /** Float-band GREEN (≥26d slack). */
+  /** Float-band GREEN (≥26d slack) — the lightest step, still ≥3.2:1. */
   bandGreen: string;
   chatArchitectBg: string;
   chatArchitectFg: string;
@@ -102,13 +118,16 @@ export const TOKENS: Record<ThemeKey, Tokens> = {
     dangerFg: '#8A2A18',
     awaitingBg: '#F2D6AE',
     awaitingFg: '#5A2E10',
-    // Darkened from #A88A00 → #8A7000: the old amber hit only ~2.96:1 against
-    // paperAlt (#FCF9F1), failing WCAG 1.4.11 (3:1) for non-text UI indicators
-    // (the stale-basis chip border/icon + the float-band markers). #8A7000 clears
-    // 3:1 while staying in the same warm-amber family as the retro palette.
-    bandYellow: '#8A7000',
-    bandGreen: '#2E7D32',
-    bandRed: '#B04A12',
+    // The float ramp (designer palette ruling): criticalFg → bandRed → bandYellow →
+    // bandGreen, each lighter against the warm paper than the last. The yellow
+    // (#9C7800) still clears WCAG 1.4.11's 3:1 for non-text indicators (the
+    // stale-basis chip border/icon + the float-band markers) on paperAlt (#FCF9F1),
+    // at 3.82:1; the old #A88A00 hit only ~2.96:1.
+    criticalFg: '#A80F45',
+    criticalText: '#FFFFFF',
+    bandYellow: '#9C7800',
+    bandGreen: '#009C68',
+    bandRed: '#E61E00',
     chatArchitectBg: '#E7DFF2',
     chatArchitectFg: '#3A2A55',
     chatPmBg: '#C5DEDB',
@@ -142,9 +161,11 @@ export const TOKENS: Record<ThemeKey, Tokens> = {
     dangerFg: '#f0a59a',
     awaitingBg: 'rgba(200,150,70,0.18)',
     awaitingFg: '#e0b06a',
-    bandYellow: '#E6C84D',
-    bandGreen: '#6FBF73',
-    bandRed: '#EDA06A',
+    criticalFg: '#FC3C68',
+    criticalText: '#000000',
+    bandYellow: '#8C741C',
+    bandGreen: '#007C00',
+    bandRed: '#D85800',
     chatArchitectBg: 'rgba(123,104,174,0.2)',
     chatArchitectFg: '#cdbef0',
     chatPmBg: 'rgba(80,150,150,0.16)',
@@ -178,9 +199,11 @@ export const TOKENS: Record<ThemeKey, Tokens> = {
     dangerFg: '#eaa78f',
     awaitingBg: 'rgba(217,138,43,0.2)',
     awaitingFg: '#e7b574',
-    bandYellow: '#CFCB55',
-    bandGreen: '#7FB562',
-    bandRed: '#E9A060',
+    criticalFg: '#FC4C70',
+    criticalText: '#000000',
+    bandYellow: '#887800',
+    bandGreen: '#007C4C',
+    bandRed: '#E44824',
     chatArchitectBg: 'rgba(149,132,192,0.22)',
     chatArchitectFg: '#d8cdf0',
     chatPmBg: 'rgba(80,150,150,0.18)',
@@ -215,9 +238,11 @@ export const TOKENS: Record<ThemeKey, Tokens> = {
     dangerFg: '#f3a89a',
     awaitingBg: 'rgba(240,180,90,0.18)',
     awaitingFg: '#f0c074',
-    bandYellow: '#E8C547',
-    bandGreen: '#5FD08A',
-    bandRed: '#F0A060',
+    criticalFg: '#FC6894',
+    criticalText: '#000000',
+    bandYellow: '#A88C00',
+    bandGreen: '#009C44',
+    bandRed: '#F86800',
     chatArchitectBg: 'rgba(168,216,255,0.14)',
     chatArchitectFg: '#cfe6fa',
     chatPmBg: 'rgba(120,220,200,0.14)',
@@ -252,9 +277,11 @@ export const TOKENS: Record<ThemeKey, Tokens> = {
     dangerFg: '#eaa3ad',
     awaitingBg: 'rgba(200,150,70,0.18)',
     awaitingFg: '#e0b06a',
-    bandYellow: '#E6C84D',
-    bandGreen: '#7FCB7A',
-    bandRed: '#EDA06A',
+    criticalFg: '#FC5054',
+    criticalText: '#000000',
+    bandYellow: '#887C00',
+    bandGreen: '#008434',
+    bandRed: '#C86C10',
     chatArchitectBg: 'rgba(123,104,174,0.22)',
     chatArchitectFg: '#cdbef0',
     chatPmBg: 'rgba(110,198,230,0.16)',

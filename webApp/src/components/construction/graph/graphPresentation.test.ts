@@ -51,10 +51,10 @@ void test('failed is dangerFg on awaitingBg — "needs you", never "dead"', () =
   assert.equal(p.border, 'dangerFg');
 });
 
-void test('awaitingHuman is awaitingBg with an accent edge — the loudest mark', () => {
+void test('awaitingHuman is awaitingBg with an awaiting edge — the loudest mark, never the accent', () => {
   const p = segmentPaint(t, 'awaitingHuman');
   assert.equal(p.fill, 'awaitingBg');
-  assert.equal(p.accentEdge, 'accent');
+  assert.equal(p.awaitingEdge, 'awaitingFg');
 });
 
 void test('running is the ONLY animated state', () => {

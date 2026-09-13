@@ -192,9 +192,9 @@ function build(
   const edges: Edge[] = view.edges.map((e, i) => {
     const onCp = e.onCriticalPath;
     // Non-CP edges adopt their TARGET node's band colour at reduced saturation, so
-    // the graph reads its slack gradient; CP edges stay loudest (accent, animated).
+    // the graph reads its slack gradient; CP edges stay loudest (criticalFg, animated).
     const targetBand = bandById.get(e.to) ?? 'green';
-    const stroke = onCp ? t.accent : alpha(bandTokens(t, targetBand).fg, 0.5);
+    const stroke = onCp ? t.criticalFg : alpha(bandTokens(t, targetBand).fg, 0.5);
     return {
       id: `${e.from}-${e.to}-${String(i)}`,
       source: e.from,
@@ -435,10 +435,10 @@ export function NetworkView({
                   ml: 0.5,
                   bgcolor: m.isPublic
                     ? m.onCriticalPath
-                      ? t.accent
+                      ? t.criticalFg
                       : t.committedDot
                     : 'transparent',
-                  border: `1.5px solid ${m.onCriticalPath ? t.accent : t.muted}`,
+                  border: `1.5px solid ${m.onCriticalPath ? t.criticalFg : t.muted}`,
                 }}
               />
             }
@@ -549,9 +549,11 @@ export function NetworkView({
                     fontFamily: t.mono,
                     fontWeight: 700,
                     fontSize: 11,
-                    color: t.accentText,
-                    bgcolor: t.accent,
-                    border: `1.5px solid ${t.accent}`,
+                    // A critical-path mark: the ONE critical colour (designer
+                    // palette ruling), never the accent.
+                    color: t.criticalText,
+                    bgcolor: t.criticalFg,
+                    border: `1.5px solid ${t.criticalFg}`,
                     borderRadius: t.radius / 8 + 0.5,
                     px: 0.75,
                     py: 0.25,
@@ -560,7 +562,7 @@ export function NetworkView({
                   {id}
                 </Box>
                 {i < arr.length - 1 && (
-                  <Typography sx={{ color: t.accent, fontWeight: 700 }}>→</Typography>
+                  <Typography sx={{ color: t.criticalFg, fontWeight: 700 }}>→</Typography>
                 )}
               </Box>
             ))}
@@ -869,7 +871,7 @@ function NetworkKey({
             label="critical path"
             swatch={
               <Box
-                sx={{ width: 16, height: 0, flexShrink: 0, borderTop: `3px solid ${t.accent}` }}
+                sx={{ width: 16, height: 0, flexShrink: 0, borderTop: `3px solid ${t.criticalFg}` }}
               />
             }
             t={t}
